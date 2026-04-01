@@ -485,6 +485,12 @@ export type EmployeeDirectoryRow = {
   flagAnnualDue: boolean;
   flagOnboardingIncomplete: boolean;
   flagActivationBlocked: boolean;
+  /** 0 = clear, 1 = due soon, 2 = missing/expired — for severity sort. */
+  readinessSortRank: number;
+  /** Weighted blocker score — higher = more operational risk. */
+  flagSeverityScore: number;
+  /** Role/contractor requirements; used for insurance deep link target. */
+  requiredCredentialTypes: string[];
   lastUpdatedMs: number;
 };
 
@@ -1141,6 +1147,26 @@ export async function loadEmployeeDirectoryRows(): Promise<{
       "";
     const lastUpdatedMs = updatedRaw ? new Date(updatedRaw).getTime() : 0;
 
+    const requiredCredentialTypes = getRequiredCredentialTypes(
+      applicant.position || applicant.position_applied || "",
+      employmentClassificationByEmployee.get(applicant.id) || null
+    );
+
+    const readinessSortRank =
+      aug.commandComplianceStatus === "missing_expired"
+        ? 2
+        : aug.commandComplianceStatus === "due_soon"
+          ? 1
+          : 0;
+
+    const flagSeverityScore =
+      (aug.flagActivationBlocked ? 32 : 0) +
+      (aug.flagMissingCredential ? 16 : 0) +
+      (aug.flagExpiredCredential ? 12 : 0) +
+      (aug.flagAnnualDue ? 8 : 0) +
+      (aug.flagOnboardingIncomplete ? 4 : 0) +
+      (aug.flagExpiringSoon ? 2 : 0);
+
     return {
       applicant,
       nameDisplay: employeeName(applicant),
@@ -1167,6 +1193,9 @@ export async function loadEmployeeDirectoryRows(): Promise<{
       flagAnnualDue: aug.flagAnnualDue,
       flagOnboardingIncomplete: aug.flagOnboardingIncomplete,
       flagActivationBlocked: aug.flagActivationBlocked,
+      readinessSortRank,
+      flagSeverityScore,
+      requiredCredentialTypes,
       lastUpdatedMs,
     };
   });
@@ -1174,7 +1203,7 @@ export async function loadEmployeeDirectoryRows(): Promise<{
   return { rows: rowsUncached, loadError: null };
 }
 
-export type EmployeeDirectorySortKey = "name" | "status" | "updated";
+export type EmployeeDirectorySortKey = "name" | "status" | "updated" | "readiness" | "flags";
 export type EmployeeDirectorySortDir = "asc" | "desc";
 
 export function filterEmployeeDirectoryRows(
@@ -1261,6 +1290,20 @@ export function filterEmployeeDirectoryRows(
       const bk = statusOrder[b.employmentStatusSortKey] ?? 9;
       if (ak !== bk) return mul * (ak - bk);
       return a.nameDisplay.localeCompare(b.nameDisplay, undefined, { sensitivity: "base" });
+    }
+    if (sort === "readiness") {
+      const diff = a.readinessSortRank - b.readinessSortRank;
+      if (diff !== 0) return mul * diff;
+      const s2 = a.flagSeverityScore - b.flagSeverityScore;
+      if (s2 !== 0) return mul * s2;
+      return mul * (a.lastUpdatedMs - b.lastUpdatedMs);
+    }
+    if (sort === "flags") {
+      const diff = a.flagSeverityScore - b.flagSeverityScore;
+      if (diff !== 0) return mul * diff;
+      const r2 = a.readinessSortRank - b.readinessSortRank;
+      if (r2 !== 0) return mul * r2;
+      return mul * (a.lastUpdatedMs - b.lastUpdatedMs);
     }
     const diff = a.lastUpdatedMs - b.lastUpdatedMs;
     if (diff !== 0) return mul * diff;

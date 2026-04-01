@@ -2,6 +2,12 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import {
+  complianceDirectoryItemHref,
+  complianceFlagHref,
+  isEmployeeDirectoryItemKey,
+  readinessSummaryHref,
+} from "@/lib/admin/employee-directory-deep-links";
+import {
   type EmployeeDirectorySegment,
   type EmployeeDirectorySortDir,
   type EmployeeDirectorySortKey,
@@ -40,7 +46,13 @@ function isSegment(v: string): v is EmployeeDirectorySegment {
 }
 
 function isSortKey(v: string): v is EmployeeDirectorySortKey {
-  return v === "name" || v === "status" || v === "updated";
+  return (
+    v === "name" ||
+    v === "status" ||
+    v === "updated" ||
+    v === "readiness" ||
+    v === "flags"
+  );
 }
 
 function isSortDir(v: string): v is EmployeeDirectorySortDir {
@@ -221,8 +233,10 @@ export default async function AdminEmployeesDirectoryPage({
         </label>
         <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
           Sort by
-          <select name="sort" defaultValue={sort} className={`${filterInputCls} min-w-[9rem]`}>
+          <select name="sort" defaultValue={sort} className={`${filterInputCls} min-w-[11rem]`}>
             <option value="updated">Last updated</option>
+            <option value="readiness">Readiness severity</option>
+            <option value="flags">Flag / blocker density</option>
             <option value="name">Name</option>
             <option value="status">Employment status</option>
           </select>
@@ -230,8 +244,8 @@ export default async function AdminEmployeesDirectoryPage({
         <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
           Order
           <select name="dir" defaultValue={dir} className={filterInputCls}>
-            <option value="desc">Newest / Z→A</option>
-            <option value="asc">Oldest / A→Z</option>
+            <option value="desc">Descending</option>
+            <option value="asc">Ascending</option>
           </select>
         </label>
         <button
@@ -323,21 +337,35 @@ export default async function AdminEmployeesDirectoryPage({
                   (typeof r.complianceItems)[0]
                 >;
 
+                const itemCellHref = (key: string) =>
+                  isEmployeeDirectoryItemKey(key)
+                    ? complianceDirectoryItemHref(id, key, r.requiredCredentialTypes)
+                    : `/admin/employees/${id}#credentials-section`;
+
                 const itemCell = (key: string) => {
                   const it = byKey[key];
+                  const href = itemCellHref(key);
                   if (!it) {
                     return (
                       <td className="px-0.5 py-1.5 text-center">
-                        <span className="inline-block min-w-[1.75rem] rounded border border-slate-100 bg-slate-50 px-1 py-0.5 text-[9px] text-slate-300">
+                        <Link
+                          href={href}
+                          prefetch={false}
+                          className="inline-block min-w-[1.75rem] rounded border border-slate-100 bg-slate-50 px-1 py-0.5 text-[9px] text-slate-300 transition hover:border-indigo-200 hover:text-indigo-700"
+                          title="Open credential area"
+                        >
                           —
-                        </span>
+                        </Link>
                       </td>
                     );
                   }
                   return (
-                    <td className="px-0.5 py-1.5 text-center" title={it.hint}>
-                      <span
-                        className={`inline-flex min-w-[1.75rem] justify-center rounded px-1 py-0.5 text-[9px] font-bold ${complianceItemPillClass(it.tier)}`}
+                    <td className="px-0.5 py-1.5 text-center">
+                      <Link
+                        href={href}
+                        prefetch={false}
+                        title={it.hint}
+                        className={`inline-flex min-w-[1.75rem] justify-center rounded px-1 py-0.5 text-[9px] font-bold transition hover:ring-2 hover:ring-indigo-300 ${complianceItemPillClass(it.tier)}`}
                       >
                         {it.tier === "ok"
                           ? "✓"
@@ -348,7 +376,7 @@ export default async function AdminEmployeesDirectoryPage({
                               : it.tier === "expired"
                                 ? "×"
                                 : "·"}
-                      </span>
+                      </Link>
                     </td>
                   );
                 };
@@ -359,7 +387,13 @@ export default async function AdminEmployeesDirectoryPage({
                     className="border-b border-slate-100 last:border-0 odd:bg-white even:bg-slate-50/40"
                   >
                     <td className="sticky left-0 z-10 bg-inherit px-3 py-2 font-semibold text-slate-900 shadow-[2px_0_6px_-2px_rgba(0,0,0,0.06)]">
-                      {r.nameDisplay}
+                      <Link
+                        href={`/admin/employees/${id}`}
+                        prefetch={false}
+                        className="text-slate-900 hover:text-indigo-800 hover:underline"
+                      >
+                        {r.nameDisplay}
+                      </Link>
                     </td>
                     <td className="px-2 py-2">
                       <span
@@ -376,53 +410,72 @@ export default async function AdminEmployeesDirectoryPage({
                       </span>
                     </td>
                     <td className="px-2 py-2">
-                      <span
-                        className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${r.commandComplianceBadgeClass}`}
+                      <Link
+                        href={readinessSummaryHref(id, {
+                          commandComplianceStatus: r.commandComplianceStatus,
+                          flagMissingCredential: r.flagMissingCredential,
+                          flagExpiredCredential: r.flagExpiredCredential,
+                          flagAnnualDue: r.flagAnnualDue,
+                          flagActivationBlocked: r.flagActivationBlocked,
+                          flagOnboardingIncomplete: r.flagOnboardingIncomplete,
+                        })}
+                        prefetch={false}
+                        className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-semibold transition hover:ring-2 hover:ring-indigo-300 ${r.commandComplianceBadgeClass}`}
                       >
                         {r.commandComplianceLabel}
-                      </span>
+                      </Link>
                     </td>
                     <td className="px-2 py-2">
                       <div className="flex max-w-[9.5rem] flex-wrap gap-1">
                         {r.flagMissingCredential ? (
-                          <span
-                            className={`${flagBadge} border-red-200 bg-red-50 text-red-800`}
+                          <Link
+                            href={complianceFlagHref(id, "miss_cred")}
+                            prefetch={false}
+                            className={`${flagBadge} border-red-200 bg-red-50 text-red-800 transition hover:ring-2 hover:ring-red-300`}
                             title="Required credential missing on file"
                           >
                             Miss cred
-                          </span>
+                          </Link>
                         ) : null}
                         {r.flagExpiringSoon ? (
-                          <span
-                            className={`${flagBadge} border-amber-200 bg-amber-50 text-amber-900`}
+                          <Link
+                            href={complianceFlagHref(id, "due_30d")}
+                            prefetch={false}
+                            className={`${flagBadge} border-amber-200 bg-amber-50 text-amber-900 transition hover:ring-2 hover:ring-amber-300`}
                             title="Credential or annual due within 30 days"
                           >
                             Due 30d
-                          </span>
+                          </Link>
                         ) : null}
                         {r.flagAnnualDue ? (
-                          <span
-                            className={`${flagBadge} border-violet-200 bg-violet-50 text-violet-900`}
+                          <Link
+                            href={complianceFlagHref(id, "annual")}
+                            prefetch={false}
+                            className={`${flagBadge} border-violet-200 bg-violet-50 text-violet-900 transition hover:ring-2 hover:ring-violet-300`}
                             title="Annual program missing, due, or overdue"
                           >
                             Annual
-                          </span>
+                          </Link>
                         ) : null}
                         {r.flagOnboardingIncomplete ? (
-                          <span
-                            className={`${flagBadge} border-sky-200 bg-sky-50 text-sky-900`}
+                          <Link
+                            href={complianceFlagHref(id, "onboard")}
+                            prefetch={false}
+                            className={`${flagBadge} border-sky-200 bg-sky-50 text-sky-900 transition hover:ring-2 hover:ring-sky-300`}
                             title="Onboarding file incomplete (app, docs, contracts, training, or tax)"
                           >
                             Onboard
-                          </span>
+                          </Link>
                         ) : null}
                         {r.flagActivationBlocked ? (
-                          <span
-                            className={`${flagBadge} border-rose-200 bg-rose-50 text-rose-900`}
+                          <Link
+                            href={complianceFlagHref(id, "blocked")}
+                            prefetch={false}
+                            className={`${flagBadge} border-rose-200 bg-rose-50 text-rose-900 transition hover:ring-2 hover:ring-rose-300`}
                             title="Cannot activate: onboarding/applicant with blocking gaps"
                           >
                             Blocked
-                          </span>
+                          </Link>
                         ) : null}
                         {!r.flagMissingCredential &&
                         !r.flagExpiringSoon &&
@@ -491,6 +544,12 @@ export default async function AdminEmployeesDirectoryPage({
         <p className="font-semibold text-slate-800">Legend</p>
         <ul className="mt-2 list-inside list-disc space-y-1">
           <li>
+            <span className="font-medium">Sort:</span> Readiness severity ranks missing/expired (2), due soon (1), clear
+            (0); <span className="font-medium">descending</span> lists worst readiness first. Flag density sums weights:
+            blocked 32, missing cred 16, expired cred 12, annual 8, onboard 4, 30-day 2; descending lists highest
+            pressure first. Tie-breakers: the other score, then last updated (for readiness/flags).
+          </li>
+          <li>
             <span className="font-medium">Readiness</span> rolls up tracked items:{" "}
             <span className="text-red-800">Missing / expired</span> if any required item is missing, expired, or a
             credential is overdue; else <span className="text-amber-800">Due soon</span> if anything is due within 30
@@ -499,7 +558,8 @@ export default async function AdminEmployeesDirectoryPage({
           <li>
             Cells: <span className="font-mono text-[11px]">✓</span> ok, <span className="font-mono">!</span> due soon,{" "}
             <span className="font-mono">−</span> missing, <span className="font-mono">×</span> expired/overdue,{" "}
-            <span className="font-mono">·</span> not applicable. Hover for detail.
+            <span className="font-mono">·</span> not applicable. Hover for detail. Readiness, flags, and cells link into
+            the matching section on the employee record.
           </li>
           <li>
             Insurance combines auto and independent contractor coverage when applicable. TB column is the credential; TB
