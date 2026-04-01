@@ -80,7 +80,7 @@ export default async function AdminCrmContactsPage({
     supabase
       .from("contacts")
       .select(
-        "id, first_name, last_name, full_name, organization_name, primary_phone, secondary_phone, email, contact_type, status, referral_source, owner_user_id, relationship_metadata, notes, created_at, updated_at"
+        "id, first_name, last_name, full_name, organization_name, primary_phone, secondary_phone, email, address_line_1, address_line_2, city, state, zip, contact_type, status, referral_source, owner_user_id, relationship_metadata, notes, created_at, updated_at"
       )
       .order("created_at", { ascending: false })
       .limit(DIRECTORY_FETCH_LIMIT),
@@ -169,11 +169,11 @@ export default async function AdminCrmContactsPage({
       </nav>
 
       <div>
-        <h1 className="text-2xl font-bold text-slate-900">CRM · Relationship directory</h1>
-        <p className="mt-1 max-w-3xl text-sm text-slate-600">
-          Master index of people and organizations across Saintly—patients, leads, referral partners, facilities, payers,
-          and other relationships. Payer onboarding detail can extend into a dedicated Credentialing area; this table is
-          the shared front door.
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">CRM</p>
+        <h1 className="mt-1 text-2xl font-bold text-slate-900">Contacts</h1>
+        <p className="mt-1 max-w-2xl text-sm text-slate-600">
+          People and organizations on file—search, filter by type, then open a row for the full contact profile (phones,
+          address, payer metadata, and links to patient or lead charts).
         </p>
         {contactErr ? <p className="mt-2 text-sm text-red-700">{contactErr.message}</p> : null}
       </div>

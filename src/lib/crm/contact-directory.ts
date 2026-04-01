@@ -24,6 +24,7 @@ export function isContactDirectoryTypeFilter(v: string): v is ContactDirectoryTy
   return CONTACT_DIRECTORY_TYPE_FILTERS.some((x) => x.value === v);
 }
 
+/** CRM address columns live only on `public.contacts` (source of truth for mailing / service location on the person/org). */
 export type ContactDirectoryDbRow = {
   id: string;
   first_name: string | null;
@@ -33,6 +34,11 @@ export type ContactDirectoryDbRow = {
   primary_phone: string | null;
   secondary_phone: string | null;
   email: string | null;
+  address_line_1?: string | null;
+  address_line_2?: string | null;
+  city?: string | null;
+  state?: string | null;
+  zip?: string | null;
   contact_type: string | null;
   status: string | null;
   referral_source: string | null;
@@ -42,6 +48,26 @@ export type ContactDirectoryDbRow = {
   created_at: string;
   updated_at: string;
 };
+
+/** Multi-line US-style block for display; returns null when all address parts are empty. */
+export function formatContactAddressBlock(
+  row: Pick<ContactDirectoryDbRow, "address_line_1" | "address_line_2" | "city" | "state" | "zip">
+): string | null {
+  const l1 = (row.address_line_1 ?? "").trim();
+  const l2 = (row.address_line_2 ?? "").trim();
+  const city = (row.city ?? "").trim();
+  const state = (row.state ?? "").trim();
+  const zip = (row.zip ?? "").trim();
+  const cityLine = [city, [state, zip].filter(Boolean).join(" ")].filter(Boolean).join(", ");
+  const parts = [l1, l2, cityLine].filter(Boolean);
+  return parts.length > 0 ? parts.join("\n") : null;
+}
+
+export function relationshipMetadataIsEmpty(meta: unknown): boolean {
+  if (meta == null) return true;
+  if (typeof meta !== "object") return false;
+  return Object.keys(meta as object).length === 0;
+}
 
 export type PatientLinkBrief = { id: string; patient_status: string };
 export type LeadLinkBrief = {
@@ -181,6 +207,11 @@ export function matchesContactDirectorySearch(
     if (l.source.toLowerCase().includes(needle)) return true;
     if ((l.status ?? "").toLowerCase().includes(needle)) return true;
   }
+  const addr = [row.address_line_1, row.address_line_2, row.city, row.state, row.zip]
+    .map((x) => (typeof x === "string" ? x : "").trim().toLowerCase())
+    .filter(Boolean)
+    .join(" ");
+  if (addr && addr.includes(needle)) return true;
   return false;
 }
 
