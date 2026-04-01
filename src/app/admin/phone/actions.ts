@@ -743,7 +743,7 @@ export async function createContactIntakeFromPhoneCall(formData: FormData) {
   const phoneRaw = String(formData.get("phone") ?? "").trim();
   const intakeType = parseIntakeContactType(formData.get("intakeType"));
 
-  const intakeErr = (code: string) => {
+  const intakeErr = (code: string): never => {
     if (callId && UUID_RE.test(callId)) {
       redirect(`/admin/phone/${callId}?err=${code}`);
     }
@@ -768,9 +768,15 @@ export async function createContactIntakeFromPhoneCall(formData: FormData) {
     .eq("id", callId)
     .maybeSingle();
 
-  if (callErr || !callRow?.id) {
-    console.warn("[admin/phone] createContactIntakeFromPhoneCall load:", callErr?.message);
+  if (callErr) {
+    console.warn("[admin/phone] createContactIntakeFromPhoneCall load:", callErr.message);
     intakeErr("intake");
+  }
+  if (!callRow || !callRow.id) {
+    if (callId && UUID_RE.test(callId)) {
+      redirect(`/admin/phone/${callId}?err=intake`);
+    }
+    redirect(`/admin/phone?err=intake`);
   }
 
   if (
@@ -823,7 +829,10 @@ export async function createContactIntakeFromPhoneCall(formData: FormData) {
 
     if (insErr || !inserted?.id) {
       console.warn("[admin/phone] createContactIntakeFromPhoneCall insert:", insErr?.message);
-      intakeErr("intake");
+      if (callId && UUID_RE.test(callId)) {
+        redirect(`/admin/phone/${callId}?err=intake`);
+      }
+      redirect(`/admin/phone?err=intake`);
     }
     contactId = String(inserted.id);
   }
