@@ -2,6 +2,11 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import {
+  sendBulkCredentialRemindersForFilterAction,
+  sendRowCredentialRemindersAction,
+} from "@/app/admin/employees/actions";
+import { CredentialReminderSubmitButton } from "@/app/admin/employees/credential-reminder-submit";
+import {
   complianceDirectoryItemHref,
   complianceFlagHref,
   isEmployeeDirectoryItemKey,
@@ -146,6 +151,19 @@ export default async function AdminEmployeesDirectoryPage({
   const itemHeader =
     "px-1 py-2 text-center text-[10px] font-semibold uppercase leading-tight tracking-wide text-slate-600";
 
+  const smsOk = one("credentialSmsOk").trim();
+  const smsErr = one("credentialSmsErr").trim();
+  const smsSent = one("credentialSmsSent").trim();
+  const smsDup = one("credentialSmsDup").trim();
+  const smsBulk = one("credentialSmsBulk").trim();
+  const bulkEmployees = one("bulkEmployees").trim();
+  const bulkItems = one("bulkItems").trim();
+  const bulkSkippedDup = one("bulkSkippedDup").trim();
+  const bulkScanned = one("bulkScanned").trim();
+
+  const smsBtnBase =
+    "rounded-lg border border-violet-300 bg-violet-50 px-2 py-1 text-[10px] font-semibold text-violet-950 transition hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-40";
+
   return (
     <div className="space-y-6 p-6">
       <nav className="flex flex-wrap gap-3 text-sm font-semibold text-indigo-800">
@@ -166,20 +184,47 @@ export default async function AdminEmployeesDirectoryPage({
         <span className="text-slate-900">Employees</span>
       </nav>
 
+      {smsErr ? (
+        <div
+          role="alert"
+          className="rounded-[20px] border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900 shadow-sm"
+        >
+          {smsErr}
+        </div>
+      ) : null}
+      {smsOk === "1" ? (
+        <div className="rounded-[20px] border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-950 shadow-sm">
+          Credential SMS sent for {smsSent || "0"} item(s).
+          {smsDup && Number(smsDup) > 0 ? (
+            <span className="block text-xs text-emerald-800">
+              {smsDup} item(s) were already reminded (skipped duplicate).
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+      {smsBulk === "1" ? (
+        <div className="rounded-[20px] border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-950 shadow-sm">
+          Bulk credential SMS finished: {bulkEmployees || "0"} employee(s), {bulkItems || "0"} credential line(s) in
+          messages, {bulkSkippedDup || "0"} duplicate line(s) skipped. Scanned {bulkScanned || "0"} eligible rows (max
+          30 per run).
+        </div>
+      ) : null}
+
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Compliance command center</h1>
+          <h1 className="text-2xl font-bold text-slate-900">Employee command center</h1>
           <p className="mt-1 max-w-3xl text-sm text-slate-600">
-            CHAP-style readiness across credentials and annual programs. Employment reconciles{" "}
+            Employee readiness: credentials, annual programs, onboarding, and activation—grounded in the same data as
+            the admin dashboard. Employment reconciles{" "}
             <code className="rounded bg-slate-100 px-1 text-xs">applicants.status</code> with stage{" "}
-            <span className="font-medium">Active Employee</span> when forms are finalized. Item cells use the same
-            rules as the admin dashboard:{" "}
+            <span className="font-medium">Active Employee</span> when forms are finalized. Cells show{" "}
             <span className="font-medium text-emerald-800">OK</span>,{" "}
-            <span className="font-medium text-amber-800">due soon</span>,{" "}
+            <span className="font-medium text-amber-800">due soon (30d)</span>,{" "}
             <span className="font-medium text-slate-700">missing</span>,{" "}
-            <span className="font-medium text-red-800">expired/overdue</span>,{" "}
-            <span className="text-slate-400">n/a</span> (not required or pre-hire). Rows come from applicants and
-            onboarding data only.
+            <span className="font-medium text-red-800">expired</span>, or{" "}
+            <span className="text-slate-400">n/a</span>. Send manual SMS reminders for expiring credentials (license,
+            CPR, TB, DL, insurance) using the employee&apos;s phone on file—Twilio + inbox logging; duplicates blocked
+            per credential, expiration snapshot, and stage.
           </p>
           {loadError ? (
             <p className="mt-2 text-sm text-red-700">Could not load applicants: {loadError}</p>
@@ -262,8 +307,28 @@ export default async function AdminEmployeesDirectoryPage({
         </Link>
       </form>
 
+      <form
+        action={sendBulkCredentialRemindersForFilterAction}
+        className="flex flex-col gap-2 rounded-[20px] border border-violet-200 bg-violet-50/50 p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between"
+      >
+        <input type="hidden" name="segment" value={segment} />
+        <input type="hidden" name="q" value={q} />
+        <input type="hidden" name="sort" value={sort} />
+        <input type="hidden" name="dir" value={dir} />
+        <p className="max-w-2xl text-xs text-violet-950">
+          <span className="font-semibold">Bulk credential SMS:</span> texts up to 30 employees in the{" "}
+          <span className="font-medium">current filter</span> who have at least one SMS-scoped credential missing,
+          expired, or due within 30 days. Skips anyone with nothing to send or only duplicates already logged.
+        </p>
+        <CredentialReminderSubmitButton
+          className="inline-flex shrink-0 items-center justify-center rounded-[18px] border border-violet-600 bg-violet-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-violet-700 disabled:opacity-40"
+        >
+          Send bulk SMS (filtered)
+        </CredentialReminderSubmitButton>
+      </form>
+
       <div className="overflow-x-auto rounded-[28px] border border-slate-200 bg-white shadow-sm">
-        <table className="w-full min-w-[1600px] text-left text-sm">
+        <table className="w-full min-w-[1680px] text-left text-sm">
           <thead>
             <tr className="border-b border-slate-200 bg-slate-50 text-xs font-semibold text-slate-600">
               <th className="sticky left-0 z-10 bg-slate-50 px-3 py-3 shadow-[2px_0_6px_-2px_rgba(0,0,0,0.08)]">
@@ -288,6 +353,7 @@ export default async function AdminEmployeesDirectoryPage({
               <th className="px-2 py-3">Updated</th>
               <th className="px-2 py-3">Email</th>
               <th className="px-2 py-3">Phone</th>
+              <th className="whitespace-nowrap px-2 py-3">SMS cred</th>
               <th className="whitespace-nowrap px-2 py-3">Actions</th>
             </tr>
             <tr className="border-b border-slate-100 bg-slate-50/90 text-[10px] text-slate-500">
@@ -306,6 +372,7 @@ export default async function AdminEmployeesDirectoryPage({
               <th className={itemHeader}>TB yr</th>
               <th className={itemHeader}>Train</th>
               <th className={itemHeader}>Rev</th>
+              <th className="px-2 py-1" />
               <th className="px-2 py-1" />
               <th className="px-2 py-1" />
               <th className="px-2 py-1" />
@@ -503,6 +570,74 @@ export default async function AdminEmployeesDirectoryPage({
                     <td className="whitespace-nowrap px-2 py-2 text-xs text-slate-600">
                       {formatPhoneForDisplay(r.applicant.phone as string | null)}
                     </td>
+                    <td className="max-w-[8.5rem] px-2 py-2 align-top">
+                      <form action={sendRowCredentialRemindersAction} className="flex flex-col gap-1">
+                        <input type="hidden" name="applicantId" value={id} />
+                        <input type="hidden" name="segment" value={segment} />
+                        <input type="hidden" name="q" value={q} />
+                        <input type="hidden" name="sort" value={sort} />
+                        <input type="hidden" name="dir" value={dir} />
+                        <CredentialReminderSubmitButton
+                          className={smsBtnBase}
+                          disabled={r.credentialReminderTargetCount === 0 || !r.e164}
+                          title={
+                            !r.e164
+                              ? "No valid mobile on file"
+                              : r.credentialReminderTargetCount === 0
+                                ? "No SMS-scoped credentials due or expired"
+                                : `Send SMS for ${r.credentialReminderTargetCount} credential issue(s)`
+                          }
+                        >
+                          Remind
+                        </CredentialReminderSubmitButton>
+                        {r.credentialReminderTargetCount > 0 ? (
+                          <span className="text-[9px] text-slate-500">{r.credentialReminderTargetCount} to send</span>
+                        ) : null}
+                      </form>
+                      {r.credentialReminderLastSentAt ? (
+                        <Link
+                          href={`/admin/employees/${id}#credential-reminder-log-section`}
+                          prefetch={false}
+                          className="mt-1.5 block text-[9px] leading-snug text-slate-500 underline-offset-2 hover:text-indigo-700 hover:underline"
+                          title="Open full reminder log on employee record"
+                        >
+                          Last SMS:{" "}
+                          {new Date(r.credentialReminderLastSentAt).toLocaleDateString("en-US", {
+                            month: "short",
+                            day: "numeric",
+                            year: "numeric",
+                          })}
+                        </Link>
+                      ) : (
+                        <p className="mt-1.5 text-[9px] leading-snug text-slate-400">No reminders logged</p>
+                      )}
+                      <div className="mt-1 flex flex-wrap gap-0.5">
+                        {r.credentialReminderSentDueSoon ? (
+                          <span
+                            className="rounded border border-amber-200 bg-amber-50 px-1 py-0.5 text-[8px] font-semibold uppercase tracking-wide text-amber-900"
+                            title="At least one due-within-30-days reminder is on file"
+                          >
+                            30d sent
+                          </span>
+                        ) : null}
+                        {r.credentialReminderSentExpired ? (
+                          <span
+                            className="rounded border border-red-200 bg-red-50 px-1 py-0.5 text-[8px] font-semibold uppercase tracking-wide text-red-900"
+                            title="At least one expired reminder is on file"
+                          >
+                            Exp sent
+                          </span>
+                        ) : null}
+                        {r.credentialReminderSentMissing ? (
+                          <span
+                            className="rounded border border-slate-200 bg-slate-100 px-1 py-0.5 text-[8px] font-semibold uppercase tracking-wide text-slate-700"
+                            title="At least one missing-on-file reminder is on file"
+                          >
+                            Miss sent
+                          </span>
+                        ) : null}
+                      </div>
+                    </td>
                     <td className="px-2 py-2">
                       <div className="flex flex-wrap items-center gap-1.5">
                         <Link
@@ -564,6 +699,19 @@ export default async function AdminEmployeesDirectoryPage({
           <li>
             Insurance combines auto and independent contractor coverage when applicable. TB column is the credential; TB
             yr is the annual TB statement event.
+          </li>
+          <li>
+            <span className="font-medium">Credential SMS:</span> one text per click listing all pending items; sends
+            are logged in <code className="rounded bg-slate-100 px-1">employee_credential_reminder_sends</code> and the
+            SMS thread. The same employee + credential + expiration snapshot + stage (due soon / expired / missing)
+            won&apos;t be texted twice until that snapshot changes.
+          </li>
+          <li>
+            <span className="font-medium">Reminder history:</span> <span className="font-medium">Last SMS</span> is the
+            most recent logged send for that employee. Badges (<span className="font-medium">30d sent</span>,{" "}
+            <span className="font-medium">Exp sent</span>, <span className="font-medium">Miss sent</span>) mean at least
+            one row exists for that stage in the audit table—open the employee for the full log (credential, stage, time,
+            phone).
           </li>
         </ul>
         <p className="mt-3 text-slate-500">

@@ -20,6 +20,11 @@ import CredentialManager from "./CredentialManager";
 import EmployeeContractTaxSection from "./EmployeeContractTaxSection";
 import ApplicantFileUploadWithRefresh from "./ApplicantFileUploadWithRefresh";
 import { getCredentialAnchorId } from "@/lib/credential-anchors";
+import {
+  formatCredentialReminderCredentialType,
+  formatCredentialReminderStage,
+} from "@/lib/admin/credential-reminder-display";
+import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 
 type ComplianceEvent = {
   id: string;
@@ -156,6 +161,15 @@ function formatDateTime(dateString?: string | null) {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+function credentialReminderLogPhoneDisplay(metadata: unknown): string {
+  if (!metadata || typeof metadata !== "object") return "—";
+  const phone = (metadata as Record<string, unknown>).phone_e164;
+  if (typeof phone === "string" && phone.trim()) {
+    return formatPhoneForDisplay(phone);
+  }
+  return "—";
 }
 
 function getBadgeClasses(tone: "green" | "red" | "amber" | "sky" | "slate") {
@@ -1933,6 +1947,23 @@ export default async function EmployeeDetailPage({
 
   const allEmployeeCredentials = (credentials || []) as CredentialRecord[];
   const employeeCredentials = getLatestCredentialsByType(allEmployeeCredentials);
+
+  const { data: credentialReminderLogRaw } = await supabaseAdmin
+    .from("employee_credential_reminder_sends")
+    .select("id, credential_type, reminder_stage, created_at, expiration_anchor, metadata")
+    .eq("applicant_id", employeeId)
+    .order("created_at", { ascending: false })
+    .limit(500);
+
+  type CredentialReminderLogRow = {
+    id: string;
+    credential_type: string;
+    reminder_stage: string;
+    created_at: string;
+    expiration_anchor: string;
+    metadata: unknown;
+  };
+  const credentialReminderLog = (credentialReminderLogRaw || []) as CredentialReminderLogRow[];
 
   const skillsFormQuery = supabase
     .from("employee_admin_forms")
@@ -4093,6 +4124,50 @@ export default async function EmployeeDetailPage({
             initialCredentials={allEmployeeCredentials}
             allowMutations={canChangeSensitiveEmployeeStatus}
           />
+        </div>
+
+        <div
+          id="credential-reminder-log-section"
+          className="mt-8 rounded-[24px] border border-violet-100 bg-violet-50/40 px-5 py-4 shadow-sm"
+        >
+          <h3 className="text-sm font-semibold text-slate-900">Credential SMS reminder log</h3>
+          <p className="mt-1 text-xs text-slate-600">
+            One row per credential line included in an outbound text. Source:{" "}
+            <code className="rounded bg-white/80 px-1 text-[11px]">employee_credential_reminder_sends</code>.
+            Phone shows the number used for that batch when available (newer sends only).
+          </p>
+          {credentialReminderLog.length === 0 ? (
+            <p className="mt-3 text-sm text-slate-500">No credential reminders have been logged for this employee yet.</p>
+          ) : (
+            <div className="mt-4 overflow-x-auto rounded-[16px] border border-slate-200 bg-white">
+              <table className="w-full min-w-[640px] text-left text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 bg-slate-50 text-xs font-semibold text-slate-600">
+                    <th className="px-3 py-2">Credential</th>
+                    <th className="px-3 py-2">Reminder stage</th>
+                    <th className="px-3 py-2">Expiration anchor</th>
+                    <th className="px-3 py-2">Sent at</th>
+                    <th className="px-3 py-2">Phone</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {credentialReminderLog.map((row) => (
+                    <tr key={row.id} className="border-b border-slate-100 last:border-0">
+                      <td className="px-3 py-2 font-medium text-slate-900">
+                        {formatCredentialReminderCredentialType(row.credential_type)}
+                      </td>
+                      <td className="px-3 py-2 text-slate-700">{formatCredentialReminderStage(row.reminder_stage)}</td>
+                      <td className="px-3 py-2 font-mono text-xs text-slate-600">{row.expiration_anchor}</td>
+                      <td className="whitespace-nowrap px-3 py-2 text-slate-700">{formatDateTime(row.created_at)}</td>
+                      <td className="whitespace-nowrap px-3 py-2 text-slate-700">
+                        {credentialReminderLogPhoneDisplay(row.metadata)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       </WorkflowSection>
 

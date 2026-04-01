@@ -1,6 +1,7 @@
 import "server-only";
 
 import { supabaseAdmin } from "@/lib/admin";
+import { SMS_REMINDER_CREDENTIAL_TYPE_SET } from "@/lib/admin/credential-sms-constants";
 import { normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
 
 /**
@@ -118,13 +119,13 @@ const annualComplianceDefinitions = [
 
 const DASHBOARD_STAGE_ACTIVE_EMPLOYEE = "Active Employee";
 
-function normalizeCredentialTypeKey(type: string | null | undefined): string {
+export function normalizeCredentialTypeKey(type: string | null | undefined): string {
   const t = (type || "").toLowerCase().trim();
   if (t === "insurance") return "independent_contractor_insurance";
   return t;
 }
 
-function getRequiredCredentialTypes(
+export function getRequiredCredentialTypes(
   roleValue?: string | null,
   employmentClassification?: "employee" | "contractor" | null
 ) {
@@ -491,6 +492,16 @@ export type EmployeeDirectoryRow = {
   flagSeverityScore: number;
   /** Role/contractor requirements; used for insurance deep link target. */
   requiredCredentialTypes: string[];
+  /** Count of SMS-scoped credentials that are missing, expired, or due within 30 days. */
+  credentialReminderTargetCount: number;
+  /** Latest `employee_credential_reminder_sends.created_at` for this applicant, if any. */
+  credentialReminderLastSentAt: string | null;
+  /** True if at least one logged send used reminder_stage `due_soon`. */
+  credentialReminderSentDueSoon: boolean;
+  /** True if at least one logged send used reminder_stage `expired`. */
+  credentialReminderSentExpired: boolean;
+  /** True if at least one logged send used reminder_stage `missing`. */
+  credentialReminderSentMissing: boolean;
   lastUpdatedMs: number;
 };
 
@@ -536,6 +547,81 @@ function employmentBucketPresentation(key: EffectiveEmploymentKey): {
  * - In process if status is `onboarding` (and not already treated as active above).
  * - Otherwise applicant / pre-hire.
  */
+type CredentialReminderSendLite = {
+  applicant_id: string;
+  reminder_stage: string;
+  created_at: string;
+};
+
+async function loadCredentialReminderSummaryByApplicant(
+  applicantIds: string[]
+): Promise<
+  Map<
+    string,
+    {
+      lastSentAt: string | null;
+      sentDueSoon: boolean;
+      sentExpired: boolean;
+      sentMissing: boolean;
+    }
+  >
+> {
+  const out = new Map<
+    string,
+    {
+      lastSentAt: string | null;
+      sentDueSoon: boolean;
+      sentExpired: boolean;
+      sentMissing: boolean;
+    }
+  >();
+  if (applicantIds.length === 0) return out;
+
+  const pageSize = 1000;
+  let from = 0;
+  for (;;) {
+    const { data, error } = await supabaseAdmin
+      .from("employee_credential_reminder_sends")
+      .select("applicant_id, reminder_stage, created_at")
+      .in("applicant_id", applicantIds)
+      .order("created_at", { ascending: false })
+      .range(from, from + pageSize - 1);
+
+    if (error) {
+      console.warn("[loadEmployeeDirectoryRows] credential reminder history:", error.message);
+      break;
+    }
+
+    const batch = (data || []) as CredentialReminderSendLite[];
+    for (const row of batch) {
+      const id = row.applicant_id;
+      const created = row.created_at;
+      const stage = row.reminder_stage;
+      let cur = out.get(id);
+      if (!cur) {
+        cur = {
+          lastSentAt: null,
+          sentDueSoon: false,
+          sentExpired: false,
+          sentMissing: false,
+        };
+        out.set(id, cur);
+      }
+      const rowMs = new Date(created).getTime();
+      const curMs = cur.lastSentAt ? new Date(cur.lastSentAt).getTime() : 0;
+      if (rowMs > curMs) cur.lastSentAt = created;
+      if (stage === "due_soon") cur.sentDueSoon = true;
+      if (stage === "expired") cur.sentExpired = true;
+      if (stage === "missing") cur.sentMissing = true;
+    }
+
+    if (batch.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return out;
+}
+
 export function deriveEffectiveEmploymentKey(
   normalizedApplicantStatus: string,
   stageLabel: string
@@ -1096,6 +1182,8 @@ export async function loadEmployeeDirectoryRows(): Promise<{
     applicants.filter((a) => employeeReadinessById.get(a.id)?.activationBlocked).map((a) => a.id)
   );
 
+  const credentialReminderSummaryByApplicant = await loadCredentialReminderSummaryByApplicant(applicantIds);
+
   const rowsUncached: EmployeeDirectoryRow[] = applicants.map((applicant) => {
     const employeeEvents = complianceEvents.filter((e) => e.applicant_id === applicant.id);
     const employeeForms = adminForms.filter((f) => f.employee_id === applicant.id);
@@ -1167,6 +1255,17 @@ export async function loadEmployeeDirectoryRows(): Promise<{
       (aug.flagOnboardingIncomplete ? 4 : 0) +
       (aug.flagExpiringSoon ? 2 : 0);
 
+    const credRowsForSms = credentialsByEmployee.get(applicant.id) || [];
+    let credentialReminderTargetCount = 0;
+    for (const ct of requiredCredentialTypes) {
+      if (!SMS_REMINDER_CREDENTIAL_TYPE_SET.has(ct)) continue;
+      if (getCredentialStateForType(ct, credRowsForSms).label !== "Active") {
+        credentialReminderTargetCount += 1;
+      }
+    }
+
+    const remSummary = credentialReminderSummaryByApplicant.get(applicant.id);
+
     return {
       applicant,
       nameDisplay: employeeName(applicant),
@@ -1196,6 +1295,11 @@ export async function loadEmployeeDirectoryRows(): Promise<{
       readinessSortRank,
       flagSeverityScore,
       requiredCredentialTypes,
+      credentialReminderTargetCount,
+      credentialReminderLastSentAt: remSummary?.lastSentAt ?? null,
+      credentialReminderSentDueSoon: remSummary?.sentDueSoon ?? false,
+      credentialReminderSentExpired: remSummary?.sentExpired ?? false,
+      credentialReminderSentMissing: remSummary?.sentMissing ?? false,
       lastUpdatedMs,
     };
   });
