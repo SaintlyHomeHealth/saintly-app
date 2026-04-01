@@ -45,11 +45,13 @@ export default async function ExitInterviewPage({
 }) {
   const resolvedParams = await params;
   const resolvedSearchParams = searchParams ? await searchParams : undefined;
-  const employeeId = resolvedParams.employeeId || resolvedParams.id;
+  const employeeIdRaw = resolvedParams.employeeId || resolvedParams.id;
 
-  if (!employeeId) {
+  if (!employeeIdRaw) {
     return <div className="p-6">Invalid employee ID</div>;
   }
+
+  const employeeId: string = employeeIdRaw;
 
   async function saveExitInterview(formData: FormData) {
     "use server";
