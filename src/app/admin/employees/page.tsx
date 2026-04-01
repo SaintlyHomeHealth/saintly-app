@@ -5,6 +5,7 @@ import {
   type EmployeeDirectorySegment,
   type EmployeeDirectorySortDir,
   type EmployeeDirectorySortKey,
+  complianceItemPillClass,
   filterEmployeeDirectoryRows,
   loadEmployeeDirectoryRows,
 } from "@/lib/admin/employee-directory-data";
@@ -24,11 +25,14 @@ import {
 const SEGMENTS: { value: EmployeeDirectorySegment; label: string }[] = [
   { value: "all", label: "All" },
   { value: "active", label: "Active" },
-  { value: "inactive", label: "Inactive" },
   { value: "in_process", label: "In process" },
-  { value: "applicant_onboarding", label: "Applicant / onboarding" },
+  { value: "inactive", label: "Inactive" },
+  { value: "due_soon", label: "Due soon" },
+  { value: "missing_credentials", label: "Missing credentials" },
+  { value: "expired", label: "Expired" },
+  { value: "annuals_due", label: "Annuals due" },
   { value: "ready_to_activate", label: "Ready to activate" },
-  { value: "compliance_gaps", label: "Missing compliance / survey gaps" },
+  { value: "activation_blocked", label: "Activation blocked" },
 ];
 
 function isSegment(v: string): v is EmployeeDirectorySegment {
@@ -43,7 +47,6 @@ function isSortDir(v: string): v is EmployeeDirectorySortDir {
   return v === "asc" || v === "desc";
 }
 
-/** Twilio softphone deep link: workspace keypad when allowed, else admin call log with the same dial query contract. */
 function employeeDirectoryCallHref(
   profile: StaffProfile,
   e164: string | null,
@@ -90,18 +93,8 @@ function stagePillClass(tone: string): string {
   }
 }
 
-function compliancePillClass(tone: "green" | "amber" | "red"): string {
-  switch (tone) {
-    case "green":
-      return "border border-emerald-200 bg-emerald-50 text-emerald-900";
-    case "amber":
-      return "border border-amber-200 bg-amber-50 text-amber-900";
-    case "red":
-      return "border border-red-200 bg-red-50 text-red-900";
-    default:
-      return "border border-slate-200 bg-slate-50 text-slate-700";
-  }
-}
+const flagBadge =
+  "inline-flex items-center rounded-md border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide";
 
 export default async function AdminEmployeesDirectoryPage({
   searchParams,
@@ -138,6 +131,9 @@ export default async function AdminEmployeesDirectoryPage({
   const pillBase =
     "inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-semibold transition";
 
+  const itemHeader =
+    "px-1 py-2 text-center text-[10px] font-semibold uppercase leading-tight tracking-wide text-slate-600";
+
   return (
     <div className="space-y-6 p-6">
       <nav className="flex flex-wrap gap-3 text-sm font-semibold text-indigo-800">
@@ -160,16 +156,18 @@ export default async function AdminEmployeesDirectoryPage({
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Employee directory</h1>
-          <p className="mt-1 max-w-2xl text-sm text-slate-600">
-            <span className="font-medium text-slate-800">Employment</span> reconciles{" "}
-            <code className="rounded bg-slate-100 px-1 text-xs">applicants.status</code> with the onboarding{" "}
-            <span className="font-medium text-slate-800">Stage</span> pill: anyone with stage{" "}
-            <span className="font-medium">Active Employee</span> (finalized admin forms) is shown as{" "}
-            <span className="font-medium">Active</span> even if the applicant row still says applicant;{" "}
-            <code className="rounded bg-slate-100 px-1 text-xs">inactive</code> always wins.{" "}
-            <span className="font-medium text-slate-800">Stage</span> stays the pipeline position (new hire, in
-            progress, etc.). No manual employee creation.
+          <h1 className="text-2xl font-bold text-slate-900">Compliance command center</h1>
+          <p className="mt-1 max-w-3xl text-sm text-slate-600">
+            CHAP-style readiness across credentials and annual programs. Employment reconciles{" "}
+            <code className="rounded bg-slate-100 px-1 text-xs">applicants.status</code> with stage{" "}
+            <span className="font-medium">Active Employee</span> when forms are finalized. Item cells use the same
+            rules as the admin dashboard:{" "}
+            <span className="font-medium text-emerald-800">OK</span>,{" "}
+            <span className="font-medium text-amber-800">due soon</span>,{" "}
+            <span className="font-medium text-slate-700">missing</span>,{" "}
+            <span className="font-medium text-red-800">expired/overdue</span>,{" "}
+            <span className="text-slate-400">n/a</span> (not required or pre-hire). Rows come from applicants and
+            onboarding data only.
           </p>
           {loadError ? (
             <p className="mt-2 text-sm text-red-700">Could not load applicants: {loadError}</p>
@@ -251,24 +249,59 @@ export default async function AdminEmployeesDirectoryPage({
       </form>
 
       <div className="overflow-x-auto rounded-[28px] border border-slate-200 bg-white shadow-sm">
-        <table className="w-full min-w-[1040px] text-left text-sm">
+        <table className="w-full min-w-[1600px] text-left text-sm">
           <thead>
-            <tr className="border-b border-slate-100 bg-slate-50 text-xs font-semibold text-slate-600">
-              <th className="px-4 py-3">Employment</th>
-              <th className="px-4 py-3">Stage</th>
-              <th className="px-4 py-3">Compliance</th>
-              <th className="px-4 py-3">Last updated</th>
-              <th className="px-4 py-3">Name</th>
-              <th className="px-4 py-3">Role / discipline</th>
-              <th className="px-4 py-3">Email</th>
-              <th className="px-4 py-3">Phone</th>
-              <th className="whitespace-nowrap px-4 py-3">Actions</th>
+            <tr className="border-b border-slate-200 bg-slate-50 text-xs font-semibold text-slate-600">
+              <th className="sticky left-0 z-10 bg-slate-50 px-3 py-3 shadow-[2px_0_6px_-2px_rgba(0,0,0,0.08)]">
+                Name
+              </th>
+              <th className="px-2 py-3">Employment</th>
+              <th className="px-2 py-3">Stage</th>
+              <th className="px-2 py-3">Readiness</th>
+              <th className="min-w-[9rem] px-2 py-3">Flags</th>
+              <th
+                className="border-l border-slate-200 bg-slate-100/80 px-0 py-0 text-center text-[10px] font-bold uppercase tracking-wider text-slate-500"
+                colSpan={5}
+              >
+                Credentials
+              </th>
+              <th
+                className="border-l border-slate-200 bg-indigo-50/60 px-0 py-0 text-center text-[10px] font-bold uppercase tracking-wider text-indigo-800"
+                colSpan={5}
+              >
+                Programs &amp; annuals
+              </th>
+              <th className="px-2 py-3">Updated</th>
+              <th className="px-2 py-3">Email</th>
+              <th className="px-2 py-3">Phone</th>
+              <th className="whitespace-nowrap px-2 py-3">Actions</th>
+            </tr>
+            <tr className="border-b border-slate-100 bg-slate-50/90 text-[10px] text-slate-500">
+              <th className="sticky left-0 z-10 bg-slate-50/90 px-3 py-1" />
+              <th className="px-2 py-1" />
+              <th className="px-2 py-1" />
+              <th className="px-2 py-1" />
+              <th className="px-2 py-1" />
+              <th className={itemHeader}>Lic</th>
+              <th className={itemHeader}>CPR</th>
+              <th className={itemHeader}>TB</th>
+              <th className={itemHeader}>DL</th>
+              <th className={itemHeader}>Ins</th>
+              <th className={`${itemHeader} border-l border-slate-200`}>Skills</th>
+              <th className={itemHeader}>Perf</th>
+              <th className={itemHeader}>TB yr</th>
+              <th className={itemHeader}>Train</th>
+              <th className={itemHeader}>Rev</th>
+              <th className="px-2 py-1" />
+              <th className="px-2 py-1" />
+              <th className="px-2 py-1" />
+              <th className="px-2 py-1" />
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={9} className="px-4 py-10 text-center text-sm text-slate-500">
+                <td colSpan={20} className="px-4 py-10 text-center text-sm text-slate-500">
                   No rows match the current filters. Adjust segment or search, or confirm applicants exist in Supabase.
                 </td>
               </tr>
@@ -284,39 +317,140 @@ export default async function AdminEmployeesDirectoryPage({
                         year: "numeric",
                       })
                     : "—";
+
+                const byKey = Object.fromEntries(r.complianceItems.map((i) => [i.key, i])) as Record<
+                  string,
+                  (typeof r.complianceItems)[0]
+                >;
+
+                const itemCell = (key: string) => {
+                  const it = byKey[key];
+                  if (!it) {
+                    return (
+                      <td className="px-0.5 py-1.5 text-center">
+                        <span className="inline-block min-w-[1.75rem] rounded border border-slate-100 bg-slate-50 px-1 py-0.5 text-[9px] text-slate-300">
+                          —
+                        </span>
+                      </td>
+                    );
+                  }
+                  return (
+                    <td className="px-0.5 py-1.5 text-center" title={it.hint}>
+                      <span
+                        className={`inline-flex min-w-[1.75rem] justify-center rounded px-1 py-0.5 text-[9px] font-bold ${complianceItemPillClass(it.tier)}`}
+                      >
+                        {it.tier === "ok"
+                          ? "✓"
+                          : it.tier === "due_soon"
+                            ? "!"
+                            : it.tier === "missing"
+                              ? "−"
+                              : it.tier === "expired"
+                                ? "×"
+                                : "·"}
+                      </span>
+                    </td>
+                  );
+                };
+
                 return (
-                  <tr key={id} className="border-b border-slate-100 last:border-0">
-                    <td className="px-4 py-3">
+                  <tr
+                    key={id}
+                    className="border-b border-slate-100 last:border-0 odd:bg-white even:bg-slate-50/40"
+                  >
+                    <td className="sticky left-0 z-10 bg-inherit px-3 py-2 font-semibold text-slate-900 shadow-[2px_0_6px_-2px_rgba(0,0,0,0.06)]">
+                      {r.nameDisplay}
+                    </td>
+                    <td className="px-2 py-2">
                       <span
                         className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${r.employmentStatusBadgeClass}`}
                       >
                         {r.employmentStatusLabel}
                       </span>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-2 py-2">
                       <span
                         className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${stagePillClass(r.stageTone)}`}
                       >
                         {r.stageLabel}
                       </span>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-2 py-2">
                       <span
-                        className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${compliancePillClass(r.complianceTone)}`}
+                        className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${r.commandComplianceBadgeClass}`}
                       >
-                        {r.complianceLabel}
+                        {r.commandComplianceLabel}
                       </span>
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-slate-600">{updatedLabel}</td>
-                    <td className="px-4 py-3 font-medium text-slate-900">{r.nameDisplay}</td>
-                    <td className="max-w-[200px] truncate px-4 py-3 text-slate-600">{r.roleDisplay}</td>
-                    <td className="max-w-[200px] truncate px-4 py-3 text-slate-600">
+                    <td className="px-2 py-2">
+                      <div className="flex max-w-[9.5rem] flex-wrap gap-1">
+                        {r.flagMissingCredential ? (
+                          <span
+                            className={`${flagBadge} border-red-200 bg-red-50 text-red-800`}
+                            title="Required credential missing on file"
+                          >
+                            Miss cred
+                          </span>
+                        ) : null}
+                        {r.flagExpiringSoon ? (
+                          <span
+                            className={`${flagBadge} border-amber-200 bg-amber-50 text-amber-900`}
+                            title="Credential or annual due within 30 days"
+                          >
+                            Due 30d
+                          </span>
+                        ) : null}
+                        {r.flagAnnualDue ? (
+                          <span
+                            className={`${flagBadge} border-violet-200 bg-violet-50 text-violet-900`}
+                            title="Annual program missing, due, or overdue"
+                          >
+                            Annual
+                          </span>
+                        ) : null}
+                        {r.flagOnboardingIncomplete ? (
+                          <span
+                            className={`${flagBadge} border-sky-200 bg-sky-50 text-sky-900`}
+                            title="Onboarding file incomplete (app, docs, contracts, training, or tax)"
+                          >
+                            Onboard
+                          </span>
+                        ) : null}
+                        {r.flagActivationBlocked ? (
+                          <span
+                            className={`${flagBadge} border-rose-200 bg-rose-50 text-rose-900`}
+                            title="Cannot activate: onboarding/applicant with blocking gaps"
+                          >
+                            Blocked
+                          </span>
+                        ) : null}
+                        {!r.flagMissingCredential &&
+                        !r.flagExpiringSoon &&
+                        !r.flagAnnualDue &&
+                        !r.flagOnboardingIncomplete &&
+                        !r.flagActivationBlocked ? (
+                          <span className="text-[10px] text-slate-400">—</span>
+                        ) : null}
+                      </div>
+                    </td>
+                    {itemCell("professional_license")}
+                    {itemCell("cpr")}
+                    {itemCell("tb_expiration")}
+                    {itemCell("drivers_license")}
+                    {itemCell("insurance")}
+                    {itemCell("skills")}
+                    {itemCell("performance")}
+                    {itemCell("annual_tb_stmt")}
+                    {itemCell("annual_train")}
+                    {itemCell("annual_contract_rev")}
+                    <td className="whitespace-nowrap px-2 py-2 text-xs text-slate-600">{updatedLabel}</td>
+                    <td className="max-w-[10rem] truncate px-2 py-2 text-xs text-slate-600">
                       {r.applicant.email || "—"}
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-slate-600">
+                    <td className="whitespace-nowrap px-2 py-2 text-xs text-slate-600">
                       {formatPhoneForDisplay(r.applicant.phone as string | null)}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-2 py-2">
                       <div className="flex flex-wrap items-center gap-1.5">
                         <Link
                           href={`/admin/employees/${id}`}
@@ -353,14 +487,29 @@ export default async function AdminEmployeesDirectoryPage({
         </table>
       </div>
 
-      <p className="text-xs text-slate-500">
-        Showing up to 120 rows after filters. “Ready to activate” matches the admin dashboard pipeline rule. “Text”
-        opens or creates an SMS thread. “Call” opens the in-app Twilio keypad (
-        <code className="rounded bg-slate-100 px-1">/workspace/phone/keypad?dial=…&amp;place=1</code>
-        ) when you have workspace phone access; otherwise the same number is prefilled on{" "}
-        <code className="rounded bg-slate-100 px-1">/admin/phone/calls</code> (no <code className="rounded bg-slate-100 px-1">tel:</code>
-        ).
-      </p>
+      <div className="rounded-[20px] border border-slate-200 bg-slate-50/80 p-4 text-xs text-slate-600 shadow-sm">
+        <p className="font-semibold text-slate-800">Legend</p>
+        <ul className="mt-2 list-inside list-disc space-y-1">
+          <li>
+            <span className="font-medium">Readiness</span> rolls up tracked items:{" "}
+            <span className="text-red-800">Missing / expired</span> if any required item is missing, expired, or a
+            credential is overdue; else <span className="text-amber-800">Due soon</span> if anything is due within 30
+            days, in progress, or activation is blocked; else <span className="text-emerald-800">Clear</span>.
+          </li>
+          <li>
+            Cells: <span className="font-mono text-[11px]">✓</span> ok, <span className="font-mono">!</span> due soon,{" "}
+            <span className="font-mono">−</span> missing, <span className="font-mono">×</span> expired/overdue,{" "}
+            <span className="font-mono">·</span> not applicable. Hover for detail.
+          </li>
+          <li>
+            Insurance combines auto and independent contractor coverage when applicable. TB column is the credential; TB
+            yr is the annual TB statement event.
+          </li>
+        </ul>
+        <p className="mt-3 text-slate-500">
+          Showing up to 120 rows. Call uses in-app Twilio (keypad or phone calls page). Text opens or creates SMS.
+        </p>
+      </div>
     </div>
   );
 }

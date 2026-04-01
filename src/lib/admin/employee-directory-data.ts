@@ -18,9 +18,25 @@ export type EmployeeDirectorySegment =
   | "active"
   | "inactive"
   | "in_process"
-  | "applicant_onboarding"
+  | "due_soon"
+  | "missing_credentials"
+  | "expired"
+  | "annuals_due"
   | "ready_to_activate"
-  | "compliance_gaps";
+  | "activation_blocked";
+
+/** Per tracking column / CHAP-relevant item. */
+export type ComplianceItemTier = "ok" | "due_soon" | "missing" | "expired" | "na";
+
+export type ComplianceItemSnapshot = {
+  key: string;
+  label: string;
+  tier: ComplianceItemTier;
+  hint: string;
+};
+
+/** Rolled-up readiness for command-center triage. */
+export type CommandComplianceStatus = "clear" | "due_soon" | "missing_expired";
 
 export type ApplicantRecord = {
   id: string;
@@ -237,6 +253,190 @@ function getEmployeeStage(
   return { label: "Needs Review", tone: "slate" };
 }
 
+function credentialSnapshot(
+  key: string,
+  label: string,
+  required: boolean,
+  creds: CredentialRecord[]
+): ComplianceItemSnapshot {
+  if (!required) {
+    return { key, label, tier: "na", hint: `${label}: not required for this role` };
+  }
+  const st = getCredentialStateForType(key, creds);
+  const tier: ComplianceItemTier =
+    st.label === "Active"
+      ? "ok"
+      : st.label === "Due Soon"
+        ? "due_soon"
+        : st.label === "Expired"
+          ? "expired"
+          : "missing";
+  return { key, label, tier, hint: `${label}: ${st.label}` };
+}
+
+function worstInsuranceTier(
+  requiredTypes: string[],
+  creds: CredentialRecord[]
+): ComplianceItemSnapshot {
+  const needAuto = requiredTypes.includes("auto_insurance");
+  const needIc = requiredTypes.includes("independent_contractor_insurance");
+  if (!needAuto && !needIc) {
+    return {
+      key: "insurance",
+      label: "Ins",
+      tier: "na",
+      hint: "Insurance: not required",
+    };
+  }
+  const auto = needAuto ? getCredentialStateForType("auto_insurance", creds) : null;
+  const ic = needIc ? getCredentialStateForType("independent_contractor_insurance", creds) : null;
+  const states = [auto, ic].filter(Boolean) as { label: string }[];
+  const rank = (l: string) =>
+    l === "Missing" ? 4 : l === "Expired" ? 3 : l === "Due Soon" ? 2 : l === "Active" ? 0 : 1;
+  let worst = "Active";
+  for (const s of states) {
+    if (rank(s.label) > rank(worst)) worst = s.label;
+  }
+  const tier: ComplianceItemTier =
+    worst === "Active"
+      ? "ok"
+      : worst === "Due Soon"
+        ? "due_soon"
+        : worst === "Expired"
+          ? "expired"
+          : "missing";
+  const label = needIc && needAuto ? "Ins" : needIc ? "IC ins" : "Auto ins";
+  return {
+    key: "insurance",
+    label,
+    tier,
+    hint: `Insurance (${label}): ${worst}`,
+  };
+}
+
+function annualProgramSnapshot(
+  key: string,
+  label: string,
+  inHiredPipeline: boolean,
+  events: ComplianceEvent[],
+  eventType: string
+): ComplianceItemSnapshot {
+  if (!inHiredPipeline) {
+    return { key, label, tier: "na", hint: `${label}: not in hire pipeline yet` };
+  }
+  const matches = events.filter((e) => (e.event_type || "").toLowerCase().trim() === eventType);
+  const ev =
+    matches.sort((a, b) => {
+      const aT = a.due_date ? new Date(a.due_date).getTime() : 0;
+      const bT = b.due_date ? new Date(b.due_date).getTime() : 0;
+      return bT - aT;
+    })[0] || null;
+  if (!ev) {
+    return { key, label, tier: "missing", hint: `${label}: no compliance event on file` };
+  }
+  if (ev.status === "completed" || ev.completed_at) {
+    return { key, label, tier: "ok", hint: `${label}: complete` };
+  }
+  const days = getDaysUntil(ev.due_date);
+  if (days === null) {
+    return { key, label, tier: "missing", hint: `${label}: no due date` };
+  }
+  if (days < 0) {
+    return { key, label, tier: "expired", hint: `${label}: overdue (${Math.abs(days)}d)` };
+  }
+  if (days <= 30) {
+    return { key, label, tier: "due_soon", hint: `${label}: due in ${days}d` };
+  }
+  return { key, label, tier: "ok", hint: `${label}: current (due in ${days}d)` };
+}
+
+function skillsLikeSnapshot(
+  key: string,
+  label: string,
+  inHiredPipeline: boolean,
+  event: ComplianceEvent | null,
+  formStatus: string | null | undefined
+): ComplianceItemSnapshot {
+  if (!inHiredPipeline) {
+    return { key, label, tier: "na", hint: `${label}: not in hire pipeline yet` };
+  }
+  const complete =
+    formStatus === "finalized" ||
+    event?.status === "completed" ||
+    Boolean(event?.completed_at);
+  if (complete) {
+    return { key, label, tier: "ok", hint: `${label}: complete` };
+  }
+  if (!event) {
+    return { key, label, tier: "missing", hint: `${label}: not scheduled` };
+  }
+  const days = getDaysUntil(event.due_date);
+  if (days === null) {
+    return { key, label, tier: "missing", hint: `${label}: open` };
+  }
+  if (days < 0) {
+    return { key, label, tier: "expired", hint: `${label}: overdue` };
+  }
+  if (days <= 30) {
+    return { key, label, tier: "due_soon", hint: `${label}: due in ${days}d` };
+  }
+  return { key, label, tier: "due_soon", hint: `${label}: in progress` };
+}
+
+function rollupCommandComplianceStatus(
+  items: ComplianceItemSnapshot[],
+  hasCredentialOverdue: boolean,
+  hasActivationBlocked: boolean
+): CommandComplianceStatus {
+  if (hasCredentialOverdue) return "missing_expired";
+  const relevant = items.filter((i) => i.tier !== "na");
+  const tiers = relevant.map((i) => i.tier);
+  if (tiers.some((t) => t === "missing" || t === "expired")) return "missing_expired";
+  if (tiers.some((t) => t === "due_soon")) return "due_soon";
+  if (hasActivationBlocked) return "due_soon";
+  return "clear";
+}
+
+export function complianceItemPillClass(tier: ComplianceItemTier): string {
+  switch (tier) {
+    case "ok":
+      return "border border-emerald-200 bg-emerald-50 text-emerald-900";
+    case "due_soon":
+      return "border border-amber-200 bg-amber-50 text-amber-900";
+    case "missing":
+      return "border border-slate-200 bg-slate-100 text-slate-700";
+    case "expired":
+      return "border border-red-200 bg-red-50 text-red-900";
+    case "na":
+    default:
+      return "border border-slate-100 bg-slate-50 text-slate-400";
+  }
+}
+
+export function commandCompliancePresentation(status: CommandComplianceStatus): {
+  label: string;
+  badgeClass: string;
+} {
+  switch (status) {
+    case "missing_expired":
+      return {
+        label: "Missing / expired",
+        badgeClass: "border border-red-200 bg-red-50 text-red-900",
+      };
+    case "due_soon":
+      return {
+        label: "Due soon",
+        badgeClass: "border border-amber-200 bg-amber-50 text-amber-900",
+      };
+    case "clear":
+    default:
+      return {
+        label: "Clear",
+        badgeClass: "border border-emerald-200 bg-emerald-50 text-emerald-900",
+      };
+  }
+}
+
 function employeeName(a: ApplicantRecord): string {
   const full = `${a.first_name || ""} ${a.last_name || ""}`.trim();
   return full || "Unnamed";
@@ -272,9 +472,19 @@ export type EmployeeDirectoryRow = {
   readyToActivate: boolean;
   inApplicantOnboardingBucket: boolean;
   inProcessBucket: boolean;
+  /** Legacy: any gap used by dashboard-style alerts. */
   hasComplianceSurveyGaps: boolean;
-  complianceTone: "green" | "amber" | "red";
-  complianceLabel: string;
+  commandComplianceStatus: CommandComplianceStatus;
+  commandComplianceLabel: string;
+  commandComplianceBadgeClass: string;
+  complianceItems: ComplianceItemSnapshot[];
+  flagMissingCredential: boolean;
+  flagExpiredCredential: boolean;
+  flagExpiringSoon: boolean;
+  /** Annual overdue, missing annual coverage, or annual due within 30d (incomplete). */
+  flagAnnualDue: boolean;
+  flagOnboardingIncomplete: boolean;
+  flagActivationBlocked: boolean;
   lastUpdatedMs: number;
 };
 
@@ -584,6 +794,22 @@ export async function loadEmployeeDirectoryRows(): Promise<{
     { isSurveyReady: boolean; activationBlocked: boolean; hasIncompleteHireFile: boolean }
   >();
 
+  const directoryCommandById = new Map<
+    string,
+    {
+      complianceItems: ComplianceItemSnapshot[];
+      commandComplianceStatus: CommandComplianceStatus;
+      commandComplianceLabel: string;
+      commandComplianceBadgeClass: string;
+      flagMissingCredential: boolean;
+      flagExpiredCredential: boolean;
+      flagExpiringSoon: boolean;
+      flagAnnualDue: boolean;
+      flagOnboardingIncomplete: boolean;
+      flagActivationBlocked: boolean;
+    }
+  >();
+
   applicants.forEach((applicant) => {
     const contract = contractByEmployee.get(applicant.id) || null;
     const taxForm = taxFormByEmployee.get(applicant.id) || null;
@@ -726,6 +952,134 @@ export async function loadEmployeeDirectoryRows(): Promise<{
       activationBlocked,
       hasIncompleteHireFile,
     });
+
+    const creds = credentialsByEmployee.get(applicant.id) || [];
+    const inHiredPipeline =
+      st === "active" ||
+      st === "onboarding" ||
+      complianceEvents.some((e) => e.applicant_id === applicant.id) ||
+      annualComplianceEvents.some((e) => e.applicant_id === applicant.id) ||
+      employeeForms.length > 0;
+
+    const complianceItems: ComplianceItemSnapshot[] = [];
+    complianceItems.push(
+      credentialSnapshot(
+        "professional_license",
+        "Lic",
+        requiredCredentialTypes.includes("professional_license"),
+        creds
+      )
+    );
+    complianceItems.push(
+      credentialSnapshot("cpr", "CPR", requiredCredentialTypes.includes("cpr"), creds)
+    );
+    complianceItems.push(
+      credentialSnapshot(
+        "tb_expiration",
+        "TB",
+        requiredCredentialTypes.includes("tb_expiration"),
+        creds
+      )
+    );
+    complianceItems.push(
+      credentialSnapshot(
+        "drivers_license",
+        "DL",
+        requiredCredentialTypes.includes("drivers_license"),
+        creds
+      )
+    );
+    complianceItems.push(worstInsuranceTier(requiredCredentialTypes, creds));
+    complianceItems.push(
+      skillsLikeSnapshot(
+        "skills",
+        "Skills",
+        inHiredPipeline,
+        currentSkillsEvent,
+        currentSkillsForm?.status
+      )
+    );
+    complianceItems.push(
+      skillsLikeSnapshot(
+        "performance",
+        "Perf",
+        inHiredPipeline,
+        currentPerformanceEvent,
+        currentPerformanceForm?.status
+      )
+    );
+    complianceItems.push(
+      annualProgramSnapshot(
+        "annual_tb_stmt",
+        "TB yr",
+        inHiredPipeline,
+        employeeAnnualEvents,
+        "annual_tb_statement"
+      )
+    );
+    complianceItems.push(
+      annualProgramSnapshot(
+        "annual_train",
+        "Train",
+        inHiredPipeline,
+        employeeAnnualEvents,
+        "annual_training"
+      )
+    );
+    complianceItems.push(
+      annualProgramSnapshot(
+        "annual_contract_rev",
+        "Rev",
+        inHiredPipeline,
+        employeeAnnualEvents,
+        "annual_contract_review"
+      )
+    );
+
+    const hasCredentialOverdue = (requiredCredentialReminderByEmployee.get(applicant.id) || []).some(
+      (s) => s.label === "Overdue"
+    );
+
+    const commandComplianceStatus = rollupCommandComplianceStatus(
+      complianceItems,
+      hasCredentialOverdue,
+      activationBlocked
+    );
+    const cmdPres = commandCompliancePresentation(commandComplianceStatus);
+
+    const flagMissingCredential = missingCredentialEmployeeIds.has(applicant.id);
+    const flagExpiredCredential = hasExpiredRequiredCredentials;
+    const flagExpiringSoon =
+      requiredCredentialStates.some((s) => s.label === "Due Soon") ||
+      employeeAnnualEvents.some((e) => {
+        if (e.status === "completed" || e.completed_at) return false;
+        const d = getDaysUntil(e.due_date);
+        return typeof d === "number" && d >= 0 && d <= 30;
+      });
+
+    const flagAnnualDue =
+      inHiredPipeline &&
+      (annualComplianceDefinitions.some(
+        (def) => !employeeAnnualEvents.some((e) => e.event_type === def.eventType)
+      ) ||
+        employeeAnnualEvents.some((e) => {
+          if (e.status === "completed" || e.completed_at) return false;
+          const d = getDaysUntil(e.due_date);
+          return typeof d === "number" && d <= 30;
+        }));
+
+    directoryCommandById.set(applicant.id, {
+      complianceItems,
+      commandComplianceStatus,
+      commandComplianceLabel: cmdPres.label,
+      commandComplianceBadgeClass: cmdPres.badgeClass,
+      flagMissingCredential,
+      flagExpiredCredential,
+      flagExpiringSoon,
+      flagAnnualDue,
+      flagOnboardingIncomplete: hasIncompleteHireFile,
+      flagActivationBlocked: activationBlocked,
+    });
   });
 
   const surveyNotReadyEmployeeIds = new Set(
@@ -768,23 +1122,18 @@ export async function loadEmployeeDirectoryRows(): Promise<{
       overdueCredentialEmployeeIds.has(applicant.id) ||
       activationBlockedEmployeeIds.has(applicant.id);
 
-    const criticalCompliance =
-      annualOverdueEmployeeIds.has(applicant.id) || overdueCredentialEmployeeIds.has(applicant.id);
-
-    let complianceTone: EmployeeDirectoryRow["complianceTone"];
-    let complianceLabel: string;
-    if (criticalCompliance) {
-      complianceTone = "red";
-      complianceLabel = annualOverdueEmployeeIds.has(applicant.id)
-        ? "Annual overdue"
-        : "Credential overdue";
-    } else if (hasComplianceSurveyGaps) {
-      complianceTone = "amber";
-      complianceLabel = "Needs attention";
-    } else {
-      complianceTone = "green";
-      complianceLabel = "Clear";
-    }
+    const aug = directoryCommandById.get(applicant.id) ?? {
+      complianceItems: [] as ComplianceItemSnapshot[],
+      commandComplianceStatus: "clear" as CommandComplianceStatus,
+      commandComplianceLabel: "Clear",
+      commandComplianceBadgeClass: commandCompliancePresentation("clear").badgeClass,
+      flagMissingCredential: false,
+      flagExpiredCredential: false,
+      flagExpiringSoon: false,
+      flagAnnualDue: false,
+      flagOnboardingIncomplete: false,
+      flagActivationBlocked: false,
+    };
 
     const updatedRaw =
       (typeof applicant.updated_at === "string" && applicant.updated_at) ||
@@ -808,8 +1157,16 @@ export async function loadEmployeeDirectoryRows(): Promise<{
       inApplicantOnboardingBucket,
       inProcessBucket,
       hasComplianceSurveyGaps,
-      complianceTone,
-      complianceLabel,
+      commandComplianceStatus: aug.commandComplianceStatus,
+      commandComplianceLabel: aug.commandComplianceLabel,
+      commandComplianceBadgeClass: aug.commandComplianceBadgeClass,
+      complianceItems: aug.complianceItems,
+      flagMissingCredential: aug.flagMissingCredential,
+      flagExpiredCredential: aug.flagExpiredCredential,
+      flagExpiringSoon: aug.flagExpiringSoon,
+      flagAnnualDue: aug.flagAnnualDue,
+      flagOnboardingIncomplete: aug.flagOnboardingIncomplete,
+      flagActivationBlocked: aug.flagActivationBlocked,
       lastUpdatedMs,
     };
   });
@@ -842,14 +1199,26 @@ export function filterEmployeeDirectoryRows(
     case "in_process":
       out = out.filter((r) => r.effectiveEmploymentKey === "in_process");
       break;
-    case "applicant_onboarding":
-      out = out.filter((r) => r.inApplicantOnboardingBucket);
+    case "due_soon":
+      out = out.filter((r) => r.commandComplianceStatus === "due_soon");
+      break;
+    case "missing_credentials":
+      out = out.filter((r) => r.flagMissingCredential);
+      break;
+    case "expired":
+      out = out.filter(
+        (r) =>
+          r.flagExpiredCredential || r.complianceItems.some((i) => i.tier === "expired")
+      );
+      break;
+    case "annuals_due":
+      out = out.filter((r) => r.flagAnnualDue);
       break;
     case "ready_to_activate":
       out = out.filter((r) => r.readyToActivate);
       break;
-    case "compliance_gaps":
-      out = out.filter((r) => r.hasComplianceSurveyGaps);
+    case "activation_blocked":
+      out = out.filter((r) => r.flagActivationBlocked);
       break;
     default:
       break;
