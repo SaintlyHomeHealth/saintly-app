@@ -112,7 +112,7 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
   const { params, searchParams, inboxHref, accessDeniedHref = "/admin/phone", workspaceShell } = props;
 
   const staff = await getStaffProfile();
-  if (!canAccessWorkspacePhone(staff)) {
+  if (!staff || !canAccessWorkspacePhone(staff)) {
     redirect(accessDeniedHref);
   }
 
