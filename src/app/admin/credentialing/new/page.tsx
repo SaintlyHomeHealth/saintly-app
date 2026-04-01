@@ -8,6 +8,7 @@ import {
   CREDENTIALING_STATUS_LABELS,
   CREDENTIALING_STATUS_VALUES,
 } from "@/lib/crm/credentialing-status-options";
+import { credentialingStaffLabel, loadCredentialingStaffAssignees } from "@/lib/crm/credentialing-staff-directory";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 
 const inp =
@@ -25,6 +26,7 @@ export default async function AdminCredentialingNewPage({
 
   const sp = await searchParams;
   const err = typeof sp.error === "string" ? sp.error : "";
+  const staffOptions = await loadCredentialingStaffAssignees();
 
   return (
     <div className="space-y-6 p-6">
@@ -64,6 +66,17 @@ export default async function AdminCredentialingNewPage({
         <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
           State / market
           <input name="market_state" className={inp} placeholder="e.g. AZ" maxLength={32} />
+        </label>
+        <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+          Assigned owner
+          <select name="assigned_owner_user_id" className={inp} defaultValue="">
+            <option value="">Unassigned</option>
+            {staffOptions.map((s) => (
+              <option key={s.user_id} value={s.user_id}>
+                {credentialingStaffLabel(s)}
+              </option>
+            ))}
+          </select>
         </label>
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">

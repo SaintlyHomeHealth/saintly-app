@@ -37,3 +37,25 @@ export function RowAttentionHint({ title }: { title: string }) {
     </span>
   );
 }
+
+export function DocsMissingHint({ missing, total }: { missing: number; total: number }) {
+  if (total <= 0) return <span className="text-xs text-slate-400">—</span>;
+  if (missing <= 0) {
+    return (
+      <span
+        className="inline-flex items-center rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-900"
+        title="All tracked documents uploaded or marked N/A"
+      >
+        Complete
+      </span>
+    );
+  }
+  return (
+    <span
+      className={`${attentionBase} border-violet-200 bg-violet-50 text-violet-900`}
+      title={`${missing} document(s) still missing`}
+    >
+      Docs {total - missing}/{total}
+    </span>
+  );
+}

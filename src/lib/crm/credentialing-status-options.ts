@@ -51,7 +51,9 @@ export type CredentialingListSegment =
   | "submitted"
   | "enrolled"
   | "contracted"
-  | "stalled";
+  | "stalled"
+  | "needs_attention"
+  | "docs_missing";
 
 export const CREDENTIALING_LIST_SEGMENTS: { value: CredentialingListSegment; label: string }[] = [
   { value: "all", label: "All" },
@@ -60,6 +62,8 @@ export const CREDENTIALING_LIST_SEGMENTS: { value: CredentialingListSegment; lab
   { value: "enrolled", label: "Enrolled" },
   { value: "contracted", label: "Contracted" },
   { value: "stalled", label: "Stalled" },
+  { value: "needs_attention", label: "Needs attention" },
+  { value: "docs_missing", label: "Docs missing" },
 ];
 
 export function isCredentialingListSegment(v: string): v is CredentialingListSegment {

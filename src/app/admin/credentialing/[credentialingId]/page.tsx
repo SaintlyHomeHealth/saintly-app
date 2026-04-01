@@ -1,18 +1,35 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
-import { updatePayerCredentialingRecord } from "../actions";
 import {
-  CONTRACTING_STATUS_VALUES,
-  CREDENTIALING_STATUS_VALUES,
-  CREDENTIALING_STATUS_LABELS,
+  appendCredentialingActivityNote,
+  updatePayerCredentialingDocuments,
+  updatePayerCredentialingRecord,
+} from "../actions";
+import { formatCredentialingActivityTypeLabel } from "@/lib/crm/credentialing-activity-types";
+import {
   CONTRACTING_STATUS_LABELS,
+  CONTRACTING_STATUS_VALUES,
+  CREDENTIALING_STATUS_LABELS,
+  CREDENTIALING_STATUS_VALUES,
 } from "@/lib/crm/credentialing-status-options";
 import {
   analyzePayerCredentialingAttention,
   CREDENTIALING_ATTENTION_REASON_LABELS,
   type PayerCredentialingListRow,
 } from "@/lib/crm/credentialing-command-center";
+import {
+  PAYER_CREDENTIALING_DOC_LABELS,
+  PAYER_CREDENTIALING_DOC_STATUS_LABELS,
+  PAYER_CREDENTIALING_DOC_STATUS_VALUES,
+  PAYER_CREDENTIALING_DOC_TYPES,
+  type PayerCredentialingDocType,
+} from "@/lib/crm/credentialing-documents";
+import {
+  credentialingStaffLabel,
+  loadCredentialingStaffAssignees,
+  loadCredentialingStaffLabelMap,
+} from "@/lib/crm/credentialing-staff-directory";
 import { ContractingStatusBadge, CredentialingStatusBadge } from "@/components/crm/CredentialingBadges";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
@@ -20,6 +37,32 @@ import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 const inp =
   "mt-0.5 w-full max-w-lg rounded border border-slate-200 px-2 py-1.5 text-sm text-slate-800";
+
+type DocRow = {
+  id: string;
+  doc_type: string;
+  status: string;
+  uploaded_at: string | null;
+  notes: string | null;
+};
+
+type ActivityRow = {
+  id: string;
+  activity_type: string;
+  summary: string;
+  details: string | null;
+  created_at: string;
+  created_by_user_id: string | null;
+};
+
+function sortDocsByCatalog(docs: DocRow[]): DocRow[] {
+  const order = new Map(PAYER_CREDENTIALING_DOC_TYPES.map((t, i) => [t, i]));
+  return [...docs].sort((a, b) => {
+    const ia = order.get(a.doc_type as PayerCredentialingDocType) ?? 99;
+    const ib = order.get(b.doc_type as PayerCredentialingDocType) ?? 99;
+    return ia - ib;
+  });
+}
 
 export default async function AdminCredentialingDetailPage({
   params,
@@ -35,11 +78,9 @@ export default async function AdminCredentialingDetailPage({
   if (!credentialingId?.trim()) notFound();
 
   const supabase = await createServerSupabaseClient();
-  const { data: row, error } = await supabase
-    .from("payer_credentialing_records")
-    .select("*")
-    .eq("id", credentialingId.trim())
-    .maybeSingle();
+  const id = credentialingId.trim();
+
+  const { data: row, error } = await supabase.from("payer_credentialing_records").select("*").eq("id", id).maybeSingle();
 
   if (error || !row) {
     notFound();
@@ -48,14 +89,41 @@ export default async function AdminCredentialingDetailPage({
   const r = row as Record<string, unknown>;
   const payer_name = String(r.payer_name ?? "");
   const portal_url = typeof r.portal_url === "string" ? r.portal_url : "";
+  const portal_username_hint = typeof r.portal_username_hint === "string" ? r.portal_username_hint : "";
   const payer_type = String(r.payer_type ?? "");
   const market_state = String(r.market_state ?? "");
   const credentialing_status = String(r.credentialing_status ?? "in_progress");
   const contracting_status = String(r.contracting_status ?? "pending");
   const last_follow_up_at = typeof r.last_follow_up_at === "string" ? r.last_follow_up_at : null;
+  const assigned_owner_user_id =
+    typeof r.assigned_owner_user_id === "string" ? r.assigned_owner_user_id.trim() : "";
+
+  const { data: rawDocs } = await supabase
+    .from("payer_credentialing_documents")
+    .select("id, doc_type, status, uploaded_at, notes")
+    .eq("credentialing_record_id", id);
+
+  const documents = sortDocsByCatalog((rawDocs ?? []) as DocRow[]);
+
+  const { data: rawActivity } = await supabase
+    .from("payer_credentialing_activity")
+    .select("id, activity_type, summary, details, created_at, created_by_user_id")
+    .eq("credentialing_record_id", id)
+    .order("created_at", { ascending: false })
+    .limit(300);
+
+  const activities = (rawActivity ?? []) as ActivityRow[];
+  const actorIds = activities.map((a) => a.created_by_user_id).filter((x): x is string => Boolean(x));
+  const actorLabels = await loadCredentialingStaffLabelMap(actorIds);
+
+  const staffOptions = await loadCredentialingStaffAssignees();
+  const ownerLabelMap = await loadCredentialingStaffLabelMap(assigned_owner_user_id ? [assigned_owner_user_id] : []);
+  const ownerLabel = assigned_owner_user_id
+    ? ownerLabelMap.get(assigned_owner_user_id) ?? `${assigned_owner_user_id.slice(0, 8)}…`
+    : "Unassigned";
 
   const attentionRow: PayerCredentialingListRow = {
-    id: credentialingId.trim(),
+    id,
     payer_name,
     payer_type: payer_type.trim() ? payer_type : null,
     market_state: market_state.trim() ? market_state : null,
@@ -68,6 +136,8 @@ export default async function AdminCredentialingDetailPage({
     notes: typeof r.notes === "string" ? r.notes : null,
     last_follow_up_at,
     updated_at: typeof r.updated_at === "string" ? r.updated_at : "",
+    assigned_owner_user_id: assigned_owner_user_id || null,
+    payer_credentialing_documents: documents.map((d) => ({ status: d.status })),
   };
 
   const attention = analyzePayerCredentialingAttention(attentionRow);
@@ -116,10 +186,23 @@ export default async function AdminCredentialingDetailPage({
                   Market not set
                 </span>
               )}
+              <span className="inline-flex items-center rounded-lg border border-indigo-200 bg-indigo-50/90 px-3 py-1 text-xs font-medium text-indigo-950">
+                <span className="text-indigo-600">Owner · </span>
+                &nbsp;{ownerLabel}
+              </span>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <CredentialingStatusBadge status={credentialing_status} />
               <ContractingStatusBadge status={contracting_status} />
+              {attention.needsAttention ? (
+                <span className="inline-flex items-center rounded-full border border-amber-400 bg-amber-100 px-3 py-1 text-[11px] font-bold text-amber-950">
+                  Needs attention
+                </span>
+              ) : (
+                <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[11px] font-semibold text-emerald-900">
+                  On track
+                </span>
+              )}
             </div>
             <p className="text-sm text-slate-600">
               <span className="font-semibold text-slate-700">Last follow-up: </span>
@@ -131,16 +214,27 @@ export default async function AdminCredentialingDetailPage({
                 : "—"}
             </p>
           </div>
-          <div className="flex shrink-0 flex-col gap-2 sm:flex-row lg:flex-col">
+          <div className="flex min-w-[200px] shrink-0 flex-col gap-3">
             {portal_url.trim() ? (
               <a
                 href={portal_url.trim()}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex items-center justify-center rounded-[20px] bg-gradient-to-r from-sky-600 to-cyan-500 px-5 py-2.5 text-sm font-semibold text-white shadow-sm shadow-sky-200/60 transition hover:-translate-y-px hover:shadow-md"
+                className="inline-flex items-center justify-center gap-2 rounded-[20px] bg-gradient-to-r from-sky-600 to-cyan-500 px-5 py-2.5 text-sm font-semibold text-white shadow-sm shadow-sky-200/60 transition hover:-translate-y-px hover:shadow-md"
               >
+                <span aria-hidden>↗</span>
                 Open portal
               </a>
+            ) : (
+              <div className="rounded-[20px] border border-dashed border-slate-300 bg-white/70 px-4 py-3 text-center text-xs font-medium text-slate-500">
+                No portal URL on file — add one in the form below.
+              </div>
+            )}
+            {portal_username_hint.trim() ? (
+              <p className="rounded-lg border border-slate-200 bg-white/80 px-3 py-2 text-[11px] text-slate-700">
+                <span className="font-semibold text-slate-600">Username hint: </span>
+                {portal_username_hint.trim()}
+              </p>
             ) : null}
             <Link
               href="/admin/credentialing"
@@ -156,7 +250,7 @@ export default async function AdminCredentialingDetailPage({
             className="mt-4 rounded-[20px] border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950"
             role="status"
           >
-            <p className="font-bold">Needs attention</p>
+            <p className="font-bold">Operational attention</p>
             <p className="mt-1 text-xs leading-relaxed text-amber-900">{attentionReasonText}</p>
           </div>
         ) : null}
@@ -168,6 +262,22 @@ export default async function AdminCredentialingDetailPage({
       >
         <input type="hidden" name="id" value={credentialingId} />
         <h2 className="text-sm font-bold text-slate-900">Update record</h2>
+
+        <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+          Assigned owner
+          <select
+            name="assigned_owner_user_id"
+            className={inp}
+            defaultValue={assigned_owner_user_id || ""}
+          >
+            <option value="">Unassigned</option>
+            {staffOptions.map((s) => (
+              <option key={s.user_id} value={s.user_id}>
+                {credentialingStaffLabel(s)}
+              </option>
+            ))}
+          </select>
+        </label>
 
         <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
           Payer name
@@ -222,7 +332,7 @@ export default async function AdminCredentialingDetailPage({
           <input
             name="portal_username_hint"
             className={inp}
-            defaultValue={String(r.portal_username_hint ?? "")}
+            defaultValue={portal_username_hint}
           />
         </label>
 
@@ -259,10 +369,16 @@ export default async function AdminCredentialingDetailPage({
           />
         </label>
 
-        <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-          Notes
-          <textarea name="notes" rows={5} className={inp} defaultValue={String(r.notes ?? "")} />
-        </label>
+        <div className="rounded-[20px] border border-slate-100 bg-slate-50/80 p-4">
+          <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+            Working notes
+            <textarea name="notes" rows={5} className={inp} defaultValue={String(r.notes ?? "")} />
+          </label>
+          <p className="mt-2 text-[11px] text-slate-500">
+            Notes are also copied to the timeline when you save (see Activity). Use “Add timeline entry” below for
+            quick dated comments without changing this field.
+          </p>
+        </div>
 
         <label className="flex items-center gap-2 text-sm text-slate-700">
           <input type="checkbox" name="mark_follow_up_now" value="1" className="rounded border-slate-300" />
@@ -277,9 +393,143 @@ export default async function AdminCredentialingDetailPage({
         </button>
       </form>
 
+      {documents.length > 0 ? (
+        <form
+          action={updatePayerCredentialingDocuments}
+          className="space-y-4 rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm"
+        >
+          <input type="hidden" name="credentialing_id" value={credentialingId} />
+          <div>
+            <h2 className="text-sm font-bold text-slate-900">Document checklist</h2>
+            <p className="mt-1 text-xs text-slate-600">
+              Track received items (no file upload here—use your normal document storage). Mark N/A when a payer does
+              not require a row.
+            </p>
+          </div>
+          <div className="overflow-x-auto rounded-[20px] border border-slate-100">
+            <table className="w-full min-w-[640px] text-left text-sm">
+              <thead>
+                <tr className="border-b border-slate-100 bg-slate-50 text-xs font-semibold text-slate-600">
+                  <th className="px-3 py-2">Document</th>
+                  <th className="px-3 py-2">Status</th>
+                  <th className="px-3 py-2">Uploaded</th>
+                  <th className="px-3 py-2">Set date now</th>
+                </tr>
+              </thead>
+              <tbody>
+                {documents.map((d) => {
+                  const label =
+                    PAYER_CREDENTIALING_DOC_LABELS[d.doc_type as PayerCredentialingDocType] ?? d.doc_type;
+                  return (
+                    <tr key={d.id} className="border-b border-slate-50 last:border-0">
+                      <td className="px-3 py-2 font-medium text-slate-800">{label}</td>
+                      <td className="px-3 py-2">
+                        <select
+                          name={`doc_status_${d.id}`}
+                          className="w-full max-w-[200px] rounded border border-slate-200 px-2 py-1 text-xs"
+                          defaultValue={d.status}
+                        >
+                          {PAYER_CREDENTIALING_DOC_STATUS_VALUES.map((v) => (
+                            <option key={v} value={v}>
+                              {PAYER_CREDENTIALING_DOC_STATUS_LABELS[v]}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="px-3 py-2 text-xs text-slate-600">
+                        {d.uploaded_at
+                          ? new Date(d.uploaded_at).toLocaleString("en-US", {
+                              dateStyle: "medium",
+                              timeStyle: "short",
+                            })
+                          : "—"}
+                      </td>
+                      <td className="px-3 py-2">
+                        <label className="flex items-center gap-2 text-xs text-slate-700">
+                          <input type="checkbox" name={`doc_uploaded_now_${d.id}`} value="1" className="rounded border-slate-300" />
+                          Stamp now
+                        </label>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <button
+            type="submit"
+            className="rounded-[20px] border border-violet-600 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-950 hover:bg-violet-100"
+          >
+            Save document statuses
+          </button>
+        </form>
+      ) : (
+        <div className="rounded-[28px] border border-dashed border-slate-200 bg-slate-50/50 p-5 text-sm text-slate-600">
+          Document checklist will appear after migrations add <span className="font-mono text-xs">payer_credentialing_documents</span>.
+        </div>
+      )}
+
+      <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 className="text-sm font-bold text-slate-900">Activity &amp; timeline</h2>
+        <p className="mt-1 text-xs text-slate-600">Newest first. Append-only audit trail.</p>
+
+        <form action={appendCredentialingActivityNote} className="mt-4 space-y-2 rounded-[20px] border border-sky-100 bg-sky-50/40 p-4">
+          <input type="hidden" name="credentialing_id" value={credentialingId} />
+          <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-700">
+            Add timeline entry
+            <textarea
+              name="activity_note"
+              required
+              rows={3}
+              className={inp}
+              placeholder="e.g. Called payer — left voicemail, expect callback Thursday."
+            />
+          </label>
+          <button
+            type="submit"
+            className="rounded-lg border border-sky-600 bg-white px-3 py-1.5 text-xs font-semibold text-sky-900 hover:bg-sky-50"
+          >
+            Log entry
+          </button>
+        </form>
+
+        <ul className="mt-6 space-y-3">
+          {activities.length === 0 ? (
+            <li className="text-sm text-slate-500">No activity yet. Saving the record or logging an entry will populate this list.</li>
+          ) : (
+            activities.map((a) => {
+              const who = a.created_by_user_id ? actorLabels.get(a.created_by_user_id) ?? "Staff" : "System";
+              const when = new Date(a.created_at).toLocaleString("en-US", {
+                dateStyle: "medium",
+                timeStyle: "short",
+              });
+              return (
+                <li
+                  key={a.id}
+                  className="rounded-[20px] border border-slate-100 bg-slate-50/60 px-4 py-3 text-sm text-slate-800"
+                >
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <span className="font-semibold text-slate-900">{a.summary}</span>
+                    <span className="text-[10px] font-medium uppercase tracking-wide text-slate-500">
+                      {formatCredentialingActivityTypeLabel(a.activity_type)} · {when}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-[11px] text-slate-500">By {who}</p>
+                  {a.details?.trim() ? (
+                    <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-white/80 p-2 font-sans text-xs text-slate-700">
+                      {a.details}
+                    </pre>
+                  ) : null}
+                </li>
+              );
+            })
+          )}
+        </ul>
+      </section>
+
       <div className="rounded-[28px] border border-slate-100 bg-slate-50/80 p-4 text-xs text-slate-600">
         <p>
-          Updated:{" "}
+          Record updated:{" "}
           {r.updated_at
             ? new Date(String(r.updated_at)).toLocaleString("en-US", {
                 dateStyle: "medium",

@@ -3,18 +3,69 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
+import { PAYER_CREDENTIALING_ACTIVITY_TYPES } from "@/lib/crm/credentialing-activity-types";
+import {
+  isPayerCredentialingDocStatus,
+  PAYER_CREDENTIALING_DOC_LABELS,
+  type PayerCredentialingDocType,
+} from "@/lib/crm/credentialing-documents";
 import {
   isContractingStatus,
   isCredentialingStatus,
 } from "@/lib/crm/credentialing-status-options";
+import { contractingStatusLabel, credentialingStatusLabel } from "@/lib/crm/credentialing-command-center";
 import { supabaseAdmin } from "@/lib/admin";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function readTrimmed(formData: FormData, key: string): string | null {
   const v = formData.get(key);
   if (typeof v !== "string") return null;
   const t = v.trim();
   return t === "" ? null : t;
+}
+
+type PayerRecordRow = {
+  id: string;
+  payer_name: string | null;
+  payer_type: string | null;
+  market_state: string | null;
+  credentialing_status: string | null;
+  contracting_status: string | null;
+  portal_url: string | null;
+  portal_username_hint: string | null;
+  primary_contact_name: string | null;
+  primary_contact_phone: string | null;
+  primary_contact_email: string | null;
+  notes: string | null;
+  last_follow_up_at: string | null;
+  assigned_owner_user_id: string | null;
+};
+
+async function insertCredentialingActivity(params: {
+  credentialingRecordId: string;
+  activityType: string;
+  summary: string;
+  details?: string | null;
+  createdByUserId: string | null;
+}) {
+  const { error } = await supabaseAdmin.from("payer_credentialing_activity").insert({
+    credentialing_record_id: params.credentialingRecordId,
+    activity_type: params.activityType,
+    summary: params.summary,
+    details: params.details ?? null,
+    created_by_user_id: params.createdByUserId,
+  });
+  if (error) {
+    console.warn("[credentialing] activity insert:", error.message);
+  }
+}
+
+function readOwnerId(formData: FormData): string | null {
+  const raw = readTrimmed(formData, "assigned_owner_user_id");
+  if (!raw) return null;
+  return UUID_RE.test(raw) ? raw : null;
 }
 
 export async function createPayerCredentialingRecord(formData: FormData) {
@@ -34,6 +85,8 @@ export async function createPayerCredentialingRecord(formData: FormData) {
     return { ok: false as const, error: "invalid_status" };
   }
 
+  const ownerId = readOwnerId(formData);
+
   const { data, error } = await supabaseAdmin
     .from("payer_credentialing_records")
     .insert({
@@ -48,6 +101,7 @@ export async function createPayerCredentialingRecord(formData: FormData) {
       primary_contact_phone: readTrimmed(formData, "primary_contact_phone"),
       primary_contact_email: readTrimmed(formData, "primary_contact_email"),
       notes: readTrimmed(formData, "notes"),
+      assigned_owner_user_id: ownerId,
     })
     .select("id")
     .single();
@@ -57,8 +111,18 @@ export async function createPayerCredentialingRecord(formData: FormData) {
     return { ok: false as const, error: "insert_failed" };
   }
 
+  const id = String(data.id);
+  await insertCredentialingActivity({
+    credentialingRecordId: id,
+    activityType: PAYER_CREDENTIALING_ACTIVITY_TYPES.record_created,
+    summary: `Payer record created: ${payer_name}`,
+    details: null,
+    createdByUserId: staff.user_id,
+  });
+
   revalidatePath("/admin/credentialing");
-  return { ok: true as const, id: String(data.id) };
+  revalidatePath(`/admin/credentialing/${id}`);
+  return { ok: true as const, id };
 }
 
 export async function submitNewPayerCredentialingForm(formData: FormData) {
@@ -67,6 +131,10 @@ export async function submitNewPayerCredentialingForm(formData: FormData) {
     redirect(`/admin/credentialing/new?error=${res.error}`);
   }
   redirect(`/admin/credentialing/${res.id}`);
+}
+
+function strEq(a: string | null | undefined, b: string | null | undefined): boolean {
+  return (a ?? "").trim() === (b ?? "").trim();
 }
 
 export async function updatePayerCredentialingRecord(formData: FormData) {
@@ -78,10 +146,28 @@ export async function updatePayerCredentialingRecord(formData: FormData) {
   const id = readTrimmed(formData, "id");
   if (!id) return;
 
+  const { data: oldRow, error: fetchErr } = await supabaseAdmin
+    .from("payer_credentialing_records")
+    .select(
+      "id, payer_name, payer_type, market_state, credentialing_status, contracting_status, portal_url, portal_username_hint, primary_contact_name, primary_contact_phone, primary_contact_email, notes, last_follow_up_at, assigned_owner_user_id"
+    )
+    .eq("id", id)
+    .maybeSingle();
+
+  if (fetchErr || !oldRow) {
+    console.warn("[credentialing] update fetch:", fetchErr?.message);
+    return;
+  }
+
+  const old = oldRow as PayerRecordRow;
+
   const cred = readTrimmed(formData, "credentialing_status");
   const cont = readTrimmed(formData, "contracting_status");
   if (cred && !isCredentialingStatus(cred)) return;
   if (cont && !isContractingStatus(cont)) return;
+
+  const ownerFieldPresent = formData.has("assigned_owner_user_id");
+  const newOwner = ownerFieldPresent ? readOwnerId(formData) : undefined;
 
   const payload: Record<string, unknown> = {
     payer_name: readTrimmed(formData, "payer_name"),
@@ -97,7 +183,12 @@ export async function updatePayerCredentialingRecord(formData: FormData) {
   if (cred) payload.credentialing_status = cred;
   if (cont) payload.contracting_status = cont;
 
-  if (formData.get("mark_follow_up_now") === "1") {
+  if (ownerFieldPresent) {
+    payload.assigned_owner_user_id = newOwner ?? null;
+  }
+
+  const markFollowUp = formData.get("mark_follow_up_now") === "1";
+  if (markFollowUp) {
     payload.last_follow_up_at = new Date().toISOString();
   }
 
@@ -107,6 +198,196 @@ export async function updatePayerCredentialingRecord(formData: FormData) {
     return;
   }
 
+  const nu = (v: unknown) => (typeof v === "string" ? v : v == null ? "" : String(v));
+  const newCred = cred ?? nu(old.credentialing_status);
+  const newCont = cont ?? nu(old.contracting_status);
+
+  if (cred && !strEq(old.credentialing_status, newCred)) {
+    await insertCredentialingActivity({
+      credentialingRecordId: id,
+      activityType: PAYER_CREDENTIALING_ACTIVITY_TYPES.status_change,
+      summary: `Credentialing: ${credentialingStatusLabel(nu(old.credentialing_status))} → ${credentialingStatusLabel(newCred)}`,
+      details: null,
+      createdByUserId: staff.user_id,
+    });
+  }
+  if (cont && !strEq(old.contracting_status, newCont)) {
+    await insertCredentialingActivity({
+      credentialingRecordId: id,
+      activityType: PAYER_CREDENTIALING_ACTIVITY_TYPES.status_change,
+      summary: `Contracting: ${contractingStatusLabel(nu(old.contracting_status))} → ${contractingStatusLabel(newCont)}`,
+      details: null,
+      createdByUserId: staff.user_id,
+    });
+  }
+
+  if (ownerFieldPresent) {
+    const prevOwner = old.assigned_owner_user_id;
+    if ((prevOwner ?? "") !== (newOwner ?? "")) {
+      await insertCredentialingActivity({
+        credentialingRecordId: id,
+        activityType: PAYER_CREDENTIALING_ACTIVITY_TYPES.owner_change,
+        summary: newOwner ? "Owner assigned or changed" : "Owner unassigned",
+        details: `Previous: ${prevOwner ?? "—"}\nNow: ${newOwner ?? "—"}`,
+        createdByUserId: staff.user_id,
+      });
+    }
+  }
+
+  if (markFollowUp) {
+    await insertCredentialingActivity({
+      credentialingRecordId: id,
+      activityType: PAYER_CREDENTIALING_ACTIVITY_TYPES.follow_up,
+      summary: "Follow-up logged (timestamp updated)",
+      details: null,
+      createdByUserId: staff.user_id,
+    });
+  }
+
+  const newNotes = readTrimmed(formData, "notes");
+  if (!strEq(old.notes, newNotes ?? "")) {
+    const excerpt = (newNotes ?? "").slice(0, 500);
+    await insertCredentialingActivity({
+      credentialingRecordId: id,
+      activityType: PAYER_CREDENTIALING_ACTIVITY_TYPES.notes_updated,
+      summary: "Notes field updated",
+      details: excerpt || "(cleared)",
+      createdByUserId: staff.user_id,
+    });
+  }
+
+  const fieldLines: string[] = [];
+  if (!strEq(old.payer_name, readTrimmed(formData, "payer_name") ?? "")) {
+    fieldLines.push(`Payer name updated`);
+  }
+  if (!strEq(old.payer_type, readTrimmed(formData, "payer_type") ?? "")) {
+    fieldLines.push(`Payer type updated`);
+  }
+  if (!strEq(old.market_state, readTrimmed(formData, "market_state") ?? "")) {
+    fieldLines.push(`Market / state updated`);
+  }
+  if (!strEq(old.portal_url, readTrimmed(formData, "portal_url") ?? "")) {
+    fieldLines.push(`Portal URL updated`);
+  }
+  if (!strEq(old.portal_username_hint, readTrimmed(formData, "portal_username_hint") ?? "")) {
+    fieldLines.push(`Portal username hint updated`);
+  }
+  if (!strEq(old.primary_contact_name, readTrimmed(formData, "primary_contact_name") ?? "")) {
+    fieldLines.push(`Primary contact name updated`);
+  }
+  if (!strEq(old.primary_contact_phone, readTrimmed(formData, "primary_contact_phone") ?? "")) {
+    fieldLines.push(`Primary contact phone updated`);
+  }
+  if (!strEq(old.primary_contact_email, readTrimmed(formData, "primary_contact_email") ?? "")) {
+    fieldLines.push(`Primary contact email updated`);
+  }
+  if (fieldLines.length > 0) {
+    await insertCredentialingActivity({
+      credentialingRecordId: id,
+      activityType: PAYER_CREDENTIALING_ACTIVITY_TYPES.record_updated,
+      summary: "Record details updated",
+      details: fieldLines.join("\n"),
+      createdByUserId: staff.user_id,
+    });
+  }
+
   revalidatePath("/admin/credentialing");
   revalidatePath(`/admin/credentialing/${id}`);
+}
+
+export async function appendCredentialingActivityNote(formData: FormData) {
+  const staff = await getStaffProfile();
+  if (!staff || !isManagerOrHigher(staff)) {
+    return;
+  }
+
+  const id = readTrimmed(formData, "credentialing_id");
+  const body = readTrimmed(formData, "activity_note");
+  if (!id || !body) return;
+
+  await insertCredentialingActivity({
+    credentialingRecordId: id,
+    activityType: PAYER_CREDENTIALING_ACTIVITY_TYPES.manual_note,
+    summary: "Note",
+    details: body,
+    createdByUserId: staff.user_id,
+  });
+
+  revalidatePath("/admin/credentialing");
+  revalidatePath(`/admin/credentialing/${id}`);
+}
+
+export async function updatePayerCredentialingDocuments(formData: FormData) {
+  const staff = await getStaffProfile();
+  if (!staff || !isManagerOrHigher(staff)) {
+    return;
+  }
+
+  const credentialingId = readTrimmed(formData, "credentialing_id");
+  if (!credentialingId) return;
+
+  const { data: docs, error: docErr } = await supabaseAdmin
+    .from("payer_credentialing_documents")
+    .select("id, doc_type, status, uploaded_at")
+    .eq("credentialing_record_id", credentialingId);
+
+  if (docErr || !docs?.length) {
+    console.warn("[credentialing] documents load:", docErr?.message);
+    return;
+  }
+
+  const now = new Date().toISOString();
+
+  for (const doc of docs) {
+    const docId = String(doc.id);
+    const statusKey = `doc_status_${docId}`;
+    const markNowKey = `doc_uploaded_now_${docId}`;
+    const rawStatus = readTrimmed(formData, statusKey);
+    if (!rawStatus || !isPayerCredentialingDocStatus(rawStatus)) continue;
+
+    const markNow = formData.get(markNowKey) === "1";
+    const prevStatus = String(doc.status ?? "");
+    let uploaded_at: string | null = doc.uploaded_at ? String(doc.uploaded_at) : null;
+
+    if (rawStatus === "uploaded") {
+      uploaded_at = markNow || !uploaded_at ? now : uploaded_at;
+    } else {
+      uploaded_at = null;
+    }
+
+    const prevUploaded = doc.uploaded_at ? String(doc.uploaded_at) : null;
+    const noOp = rawStatus === prevStatus && uploaded_at === prevUploaded && !markNow;
+    if (noOp) continue;
+
+    const patch = {
+      status: rawStatus,
+      uploaded_at,
+    };
+
+    const { error: upErr } = await supabaseAdmin
+      .from("payer_credentialing_documents")
+      .update(patch)
+      .eq("id", docId)
+      .eq("credentialing_record_id", credentialingId);
+
+    if (upErr) {
+      console.warn("[credentialing] doc update:", upErr.message);
+      continue;
+    }
+
+    if (rawStatus !== prevStatus || markNow) {
+      const label =
+        PAYER_CREDENTIALING_DOC_LABELS[doc.doc_type as PayerCredentialingDocType] ?? doc.doc_type;
+      await insertCredentialingActivity({
+        credentialingRecordId: credentialingId,
+        activityType: PAYER_CREDENTIALING_ACTIVITY_TYPES.document_update,
+        summary: `Document: ${label}`,
+        details: `Status: ${prevStatus} → ${rawStatus}${markNow ? " (upload timestamp set)" : ""}`,
+        createdByUserId: staff.user_id,
+      });
+    }
+  }
+
+  revalidatePath("/admin/credentialing");
+  revalidatePath(`/admin/credentialing/${credentialingId}`);
 }
