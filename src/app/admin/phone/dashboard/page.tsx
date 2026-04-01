@@ -334,7 +334,7 @@ export default async function AdminPhoneDashboardPage() {
 
   function assignedLabel(userId: unknown): string {
     if (typeof userId !== "string" || !userId.trim()) return "Unassigned";
-    if (userId === staff.user_id) return "You";
+    if (staff && userId === staff.user_id) return "You";
     return labelByUserId[userId] ?? `User ${userId.slice(0, 8)}…`;
   }
 
