@@ -107,6 +107,7 @@ export function CrmLeadsNav() {
 export type LeadWorkspaceContactProfileDefaults = {
   fullName: string;
   primaryPhone: string;
+  secondaryPhone: string;
   email: string;
   address_line_1: string;
   address_line_2: string;
@@ -228,6 +229,10 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
               <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
                 Primary phone <span className="text-red-600">*</span>
                 <FormattedPhoneInput name="primaryPhone" required className={inp} autoComplete="tel" />
+              </label>
+              <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
+                Caregiver / alternate phone
+                <FormattedPhoneInput name="secondary_phone" className={inp} autoComplete="tel" />
               </label>
               <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
                 Email
@@ -407,6 +412,11 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
         {primaryPhone ? (
           <p className="mt-1 text-xs text-slate-600 tabular-nums">{formatPhoneNumber(primaryPhone)}</p>
         ) : null}
+        {contactProfileDefaults.secondaryPhone ? (
+          <p className="mt-1 text-xs text-slate-600 tabular-nums">
+            Caregiver / alternate: {formatPhoneNumber(contactProfileDefaults.secondaryPhone)}
+          </p>
+        ) : null}
         <p className="mt-1 text-xs text-slate-600">
           Last contact:{" "}
           <span className="font-medium text-slate-900">{lastContactLine}</span>
@@ -462,6 +472,15 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
               required
               className={inp}
               defaultValue={contactProfileDefaults.primaryPhone}
+              autoComplete="tel"
+            />
+          </label>
+          <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
+            Caregiver / alternate phone
+            <FormattedPhoneInput
+              name="secondary_phone"
+              className={inp}
+              defaultValue={contactProfileDefaults.secondaryPhone}
               autoComplete="tel"
             />
           </label>

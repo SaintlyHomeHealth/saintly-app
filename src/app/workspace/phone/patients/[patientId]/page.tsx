@@ -14,6 +14,10 @@ import {
   formatDurationSeconds,
   type TimelineEntry,
 } from "@/lib/crm/patient-hub-detail-display";
+import {
+  buildCaregiverAlternateSummary,
+  hasDoctorOfficeDisplayInfo,
+} from "@/lib/crm/patient-caregiver-display";
 import { supabaseAdmin } from "@/lib/admin";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import { canAccessWorkspacePhone, getStaffProfile } from "@/lib/staff-profile";
@@ -110,6 +114,12 @@ export default async function WorkspacePatientDetailPage(props: { params: Promis
       notes,
       visit_plan_summary,
       visit_plan_target_total,
+      physician_name,
+      referring_doctor_name,
+      doctor_office_name,
+      doctor_office_phone,
+      doctor_office_fax,
+      doctor_office_contact_person,
       contacts (
         id,
         full_name,
@@ -117,6 +127,7 @@ export default async function WorkspacePatientDetailPage(props: { params: Promis
         last_name,
         primary_phone,
         secondary_phone,
+        relationship_metadata,
         address_line_1,
         address_line_2,
         city,
@@ -148,7 +159,7 @@ export default async function WorkspacePatientDetailPage(props: { params: Promis
     const { data: cOnly } = await supabaseAdmin
       .from("contacts")
       .select(
-        "id, full_name, first_name, last_name, primary_phone, secondary_phone, address_line_1, address_line_2, city, state, zip"
+        "id, full_name, first_name, last_name, primary_phone, secondary_phone, relationship_metadata, address_line_1, address_line_2, city, state, zip"
       )
       .eq("id", contactIdFallback)
       .maybeSingle();
@@ -168,6 +179,21 @@ export default async function WorkspacePatientDetailPage(props: { params: Promis
   );
   const primaryPhone = typeof contact.primary_phone === "string" ? contact.primary_phone.trim() : "";
   const secondaryPhone = typeof contact.secondary_phone === "string" ? contact.secondary_phone.trim() : "";
+  const caregiverSummary = buildCaregiverAlternateSummary({
+    secondaryPhone,
+    relationshipMetadata: contact.relationship_metadata,
+  });
+
+  const pr = patientRow as Record<string, unknown>;
+  const doctorOffice = {
+    physician_name: typeof pr.physician_name === "string" ? pr.physician_name : null,
+    referring_doctor_name: typeof pr.referring_doctor_name === "string" ? pr.referring_doctor_name : null,
+    doctor_office_name: typeof pr.doctor_office_name === "string" ? pr.doctor_office_name : null,
+    doctor_office_phone: typeof pr.doctor_office_phone === "string" ? pr.doctor_office_phone : null,
+    doctor_office_fax: typeof pr.doctor_office_fax === "string" ? pr.doctor_office_fax : null,
+    doctor_office_contact_person: typeof pr.doctor_office_contact_person === "string" ? pr.doctor_office_contact_person : null,
+  };
+  const showDoctorOffice = hasDoctorOfficeDisplayInfo(doctorOffice);
 
   const patientNotesRaw =
     typeof (patientRow as { notes?: string | null }).notes === "string"
@@ -382,11 +408,64 @@ export default async function WorkspacePatientDetailPage(props: { params: Promis
             <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Patient phone</dt>
             <dd className="mt-0.5 text-sm tabular-nums text-slate-900">{formatPhoneForDisplay(primaryPhone)}</dd>
           </div>
-          <div>
+          <div className="sm:col-span-2">
             <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Caregiver / alternate</dt>
-            <dd className="mt-0.5 text-sm tabular-nums text-slate-800">{formatPhoneForDisplay(secondaryPhone)}</dd>
+            <dd className="mt-0.5 text-sm text-slate-800">
+              {caregiverSummary.isEmpty ? (
+                <span className="tabular-nums text-slate-500">—</span>
+              ) : (
+                <div className="space-y-1">
+                  {caregiverSummary.secondaryLine ? (
+                    <p className="tabular-nums font-medium text-slate-900">{caregiverSummary.secondaryLine}</p>
+                  ) : null}
+                  {caregiverSummary.metadataLines.map((line, i) => (
+                    <p key={i} className="text-sm text-slate-700">
+                      {line}
+                    </p>
+                  ))}
+                </div>
+              )}
+            </dd>
           </div>
         </dl>
+
+        {showDoctorOffice ? (
+          <div className="mt-4 border-t border-slate-100 pt-4">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Doctor / office (referral)</p>
+            <dl className="mt-2 grid gap-2 text-sm sm:grid-cols-2">
+              {(doctorOffice.physician_name ?? "").trim() || (doctorOffice.referring_doctor_name ?? "").trim() ? (
+                <div className="sm:col-span-2">
+                  <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Physician</dt>
+                  <dd className="mt-0.5 text-slate-800">
+                    {(doctorOffice.physician_name ?? "").trim() ||
+                      (doctorOffice.referring_doctor_name ?? "").trim() ||
+                      "—"}
+                  </dd>
+                </div>
+              ) : null}
+              {(doctorOffice.doctor_office_name ?? "").trim() ? (
+                <div className="sm:col-span-2">
+                  <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Practice</dt>
+                  <dd className="mt-0.5 text-slate-800">{(doctorOffice.doctor_office_name ?? "").trim()}</dd>
+                </div>
+              ) : null}
+              {(doctorOffice.doctor_office_contact_person ?? "").trim() ? (
+                <div>
+                  <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Office contact</dt>
+                  <dd className="mt-0.5 text-slate-800">{(doctorOffice.doctor_office_contact_person ?? "").trim()}</dd>
+                </div>
+              ) : null}
+              {(doctorOffice.doctor_office_phone ?? "").trim() ? (
+                <div>
+                  <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Office phone</dt>
+                  <dd className="mt-0.5 tabular-nums text-slate-800">
+                    {formatPhoneForDisplay(doctorOffice.doctor_office_phone ?? "")}
+                  </dd>
+                </div>
+              ) : null}
+            </dl>
+          </div>
+        ) : null}
 
         <p className="mt-3 text-xs leading-relaxed text-slate-600">
           <span className="font-semibold text-slate-700">Preferred reach-out: </span>

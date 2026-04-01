@@ -17,6 +17,10 @@ import {
   type TimelineEntry,
 } from "@/lib/crm/patient-hub-detail-display";
 import { formatVisitStatusLabel } from "@/lib/crm/patient-visit-status";
+import {
+  buildCaregiverAlternateSummary,
+  hasDoctorOfficeDisplayInfo,
+} from "@/lib/crm/patient-caregiver-display";
 import { FormattedPhoneInput } from "@/components/phone/FormattedPhoneInput";
 import { supabaseAdmin } from "@/lib/admin";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
@@ -30,6 +34,7 @@ type ContactEmb = {
   last_name?: string | null;
   primary_phone?: string | null;
   secondary_phone?: string | null;
+  relationship_metadata?: unknown;
   address_line_1?: string | null;
   address_line_2?: string | null;
   city?: string | null;
@@ -119,6 +124,12 @@ export default async function PatientIntakePage({
       contact_id,
       notes,
       patient_status,
+      physician_name,
+      referring_doctor_name,
+      doctor_office_name,
+      doctor_office_phone,
+      doctor_office_fax,
+      doctor_office_contact_person,
       referring_provider_name,
       referring_provider_phone,
       payer_name,
@@ -136,6 +147,7 @@ export default async function PatientIntakePage({
         last_name,
         primary_phone,
         secondary_phone,
+        relationship_metadata,
         address_line_1,
         address_line_2,
         city,
@@ -320,6 +332,21 @@ export default async function PatientIntakePage({
 
   const returnToPatient = `/admin/crm/patients/${pid}`;
 
+  const caregiverSummary = buildCaregiverAlternateSummary({
+    secondaryPhone: (c?.secondary_phone as string | null | undefined) ?? null,
+    relationshipMetadata: c?.relationship_metadata,
+  });
+
+  const doctorOffice = {
+    physician_name: typeof P.physician_name === "string" ? P.physician_name : null,
+    referring_doctor_name: typeof P.referring_doctor_name === "string" ? P.referring_doctor_name : null,
+    doctor_office_name: typeof P.doctor_office_name === "string" ? P.doctor_office_name : null,
+    doctor_office_phone: typeof P.doctor_office_phone === "string" ? P.doctor_office_phone : null,
+    doctor_office_fax: typeof P.doctor_office_fax === "string" ? P.doctor_office_fax : null,
+    doctor_office_contact_person: typeof P.doctor_office_contact_person === "string" ? P.doctor_office_contact_person : null,
+  };
+  const showDoctorOffice = hasDoctorOfficeDisplayInfo(doctorOffice);
+
   return (
     <div className="space-y-6 p-6">
       <nav className="flex flex-wrap gap-3 text-sm font-semibold text-sky-800">
@@ -422,13 +449,85 @@ export default async function PatientIntakePage({
               {formatPhoneForDisplay((c?.primary_phone as string | null) ?? "")}
             </dd>
           </div>
-          <div>
-            <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Caregiver / alternate</dt>
-            <dd className="mt-0.5 text-sm tabular-nums text-slate-800">
-              {formatPhoneForDisplay((c?.secondary_phone as string | null) ?? "")}
+          <div className="sm:col-span-1">
+            <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+              Caregiver / alternate
+            </dt>
+            <dd className="mt-0.5 text-sm text-slate-800">
+              {caregiverSummary.isEmpty ? (
+                <span className="tabular-nums text-slate-500">—</span>
+              ) : (
+                <div className="space-y-1">
+                  {caregiverSummary.secondaryLine ? (
+                    <p className="tabular-nums font-medium text-slate-900">{caregiverSummary.secondaryLine}</p>
+                  ) : null}
+                  {caregiverSummary.metadataLines.map((line, i) => (
+                    <p key={i} className="text-sm text-slate-700">
+                      {line}
+                    </p>
+                  ))}
+                </div>
+              )}
+              {caregiverSummary.isEmpty ? (
+                <p className="mt-1 text-[11px] leading-snug text-slate-500">
+                  Saved on the CRM contact as <span className="font-medium">Caregiver / alternate phone</span> below
+                  (used for caregiver SMS). Optional names can live in contact metadata keys such as{" "}
+                  <span className="font-mono text-[10px]">caregiver_name</span> /{" "}
+                  <span className="font-mono text-[10px]">caregiver_phone</span>.
+                </p>
+              ) : null}
             </dd>
           </div>
         </dl>
+
+        {showDoctorOffice ? (
+          <div className="mt-4 border-t border-slate-100 pt-4">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Doctor / office (referral)</p>
+            <p className="mt-1 text-[11px] text-slate-500">
+              From intake — not the same as the patient&apos;s home caregiver line above.
+            </p>
+            <dl className="mt-2 grid gap-2 text-sm sm:grid-cols-2">
+              {(doctorOffice.physician_name ?? "").trim() || (doctorOffice.referring_doctor_name ?? "").trim() ? (
+                <div className="sm:col-span-2">
+                  <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Treating / referring physician</dt>
+                  <dd className="mt-0.5 text-slate-800">
+                    {(doctorOffice.physician_name ?? "").trim() ||
+                      (doctorOffice.referring_doctor_name ?? "").trim() ||
+                      "—"}
+                  </dd>
+                </div>
+              ) : null}
+              {(doctorOffice.doctor_office_name ?? "").trim() ? (
+                <div className="sm:col-span-2">
+                  <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Practice / clinic</dt>
+                  <dd className="mt-0.5 text-slate-800">{(doctorOffice.doctor_office_name ?? "").trim()}</dd>
+                </div>
+              ) : null}
+              {(doctorOffice.doctor_office_contact_person ?? "").trim() ? (
+                <div>
+                  <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Office contact</dt>
+                  <dd className="mt-0.5 text-slate-800">{(doctorOffice.doctor_office_contact_person ?? "").trim()}</dd>
+                </div>
+              ) : null}
+              {(doctorOffice.doctor_office_phone ?? "").trim() ? (
+                <div>
+                  <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Office phone</dt>
+                  <dd className="mt-0.5 tabular-nums text-slate-800">
+                    {formatPhoneForDisplay(doctorOffice.doctor_office_phone ?? "")}
+                  </dd>
+                </div>
+              ) : null}
+              {(doctorOffice.doctor_office_fax ?? "").trim() ? (
+                <div>
+                  <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Office fax</dt>
+                  <dd className="mt-0.5 tabular-nums text-slate-800">
+                    {formatPhoneForDisplay(doctorOffice.doctor_office_fax ?? "")}
+                  </dd>
+                </div>
+              ) : null}
+            </dl>
+          </div>
+        ) : null}
 
         {patientNotesRaw.trim() ? (
           <div className="mt-4 rounded-xl bg-amber-50/90 px-3 py-2.5 text-sm text-amber-950 ring-1 ring-amber-100/80">

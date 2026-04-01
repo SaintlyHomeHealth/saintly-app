@@ -10,6 +10,7 @@ type ContactEmb = {
   first_name?: string | null;
   last_name?: string | null;
   primary_phone?: string | null;
+  secondary_phone?: string | null;
   email?: string | null;
   address_line_1?: string | null;
   address_line_2?: string | null;
@@ -65,7 +66,7 @@ export default async function LeadIntakePage({
   const { data: row, error } = await supabase
     .from("leads")
     .select(
-      "id, contact_id, source, status, owner_user_id, next_action, follow_up_date, last_contact_at, last_outcome, last_note, referring_doctor_name, doctor_office_name, doctor_office_phone, doctor_office_fax, doctor_office_contact_person, referring_provider_name, referring_provider_phone, payer_name, payer_type, referral_source, service_type, service_disciplines, intake_status, contacts ( full_name, first_name, last_name, primary_phone, email, address_line_1, address_line_2, city, state, zip, notes )"
+      "id, contact_id, source, status, owner_user_id, next_action, follow_up_date, last_contact_at, last_outcome, last_note, referring_doctor_name, doctor_office_name, doctor_office_phone, doctor_office_fax, doctor_office_contact_person, referring_provider_name, referring_provider_phone, payer_name, payer_type, referral_source, service_type, service_disciplines, intake_status, contacts ( full_name, first_name, last_name, primary_phone, secondary_phone, email, address_line_1, address_line_2, city, state, zip, notes )"
     )
     .eq("id", leadId.trim())
     .maybeSingle();
@@ -129,6 +130,7 @@ export default async function LeadIntakePage({
   const isDead = rawStatus.toLowerCase() === "dead_lead";
 
   const primaryPhone = typeof c?.primary_phone === "string" ? c.primary_phone.trim() : "";
+  const secondaryPhone = typeof c?.secondary_phone === "string" ? c.secondary_phone.trim() : "";
 
   const contactFullNameDefault =
     (typeof c?.full_name === "string" && c.full_name.trim()) ||
@@ -142,6 +144,7 @@ export default async function LeadIntakePage({
   const contactProfileDefaults = {
     fullName: contactFullNameDefault,
     primaryPhone,
+    secondaryPhone,
     email: str(c?.email),
     address_line_1: str(c?.address_line_1),
     address_line_2: str(c?.address_line_2),

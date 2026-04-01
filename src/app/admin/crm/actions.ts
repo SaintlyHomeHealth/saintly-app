@@ -1262,6 +1262,8 @@ export async function createLeadManualFromCrm(formData: FormData) {
   }
   const full_name = [firstName, lastName].filter(Boolean).join(" ").trim() || null;
 
+  const secondary_phone = readOptionalNormalizedPhone(formData, "secondary_phone");
+
   const { data: contactRow, error: cErr } = await supabaseAdmin
     .from("contacts")
     .insert({
@@ -1269,6 +1271,7 @@ export async function createLeadManualFromCrm(formData: FormData) {
       last_name: lastName,
       full_name,
       primary_phone,
+      secondary_phone,
       email: readTrimmedOrNull(formData, "email"),
     })
     .select("id")
