@@ -450,6 +450,82 @@ function refineInboundTwilioCompletedStatus(
   return "missed";
 }
 
+export type TwilioAmdStatusPayload = {
+  parentCallSid: string;
+  answeredBy: string | null;
+  childCallSid: string | null;
+  machineDetectionDurationMs: number | null;
+  raw: Record<string, string>;
+};
+
+/**
+ * Persist Twilio amdStatusCallback on the parent inbound leg (ParentCallSid → phone_calls.external_call_id).
+ * Status transitions still come from applyTwilioVoiceStatusCallback; this is for ops/debug only.
+ */
+export async function applyTwilioAmdStatusCallback(
+  supabase: SupabaseClient,
+  payload: TwilioAmdStatusPayload
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const parent = payload.parentCallSid.trim();
+  if (!parent) {
+    return { ok: false, error: "parentCallSid is required" };
+  }
+
+  const { data: row, error: findError } = await supabase
+    .from("phone_calls")
+    .select("id, metadata")
+    .eq("external_call_id", parent)
+    .maybeSingle();
+
+  if (findError) {
+    return { ok: false, error: findError.message };
+  }
+  if (!row?.id) {
+    return { ok: false, error: "Call not found for parentCallSid" };
+  }
+
+  const callId = row.id as string;
+  const prevMeta = asMetadata(row.metadata);
+  const amdSnapshot = {
+    AnsweredBy: payload.answeredBy,
+    child_call_sid: payload.childCallSid,
+    machine_detection_duration_ms: payload.machineDetectionDurationMs,
+    received_at: new Date().toISOString(),
+    raw: payload.raw,
+  };
+
+  const { error: updateError } = await supabase
+    .from("phone_calls")
+    .update({
+      metadata: {
+        ...prevMeta,
+        twilio_amd_last_callback: amdSnapshot,
+      },
+    })
+    .eq("id", callId);
+
+  if (updateError) {
+    return { ok: false, error: updateError.message };
+  }
+
+  const { error: eventError } = await supabase.from("phone_call_events").insert({
+    call_id: callId,
+    event_type: "twilio.amd_status",
+    payload: {
+      answered_by: payload.answeredBy,
+      child_call_sid: payload.childCallSid,
+      machine_detection_duration_ms: payload.machineDetectionDurationMs,
+      raw: payload.raw,
+    },
+  });
+
+  if (eventError) {
+    return { ok: false, error: eventError.message };
+  }
+
+  return { ok: true };
+}
+
 export type TwilioVoiceStatusPayload = {
   CallSid: string;
   CallStatus: string;
