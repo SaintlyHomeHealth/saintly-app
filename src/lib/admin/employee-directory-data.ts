@@ -47,7 +47,6 @@ export type ApplicantRecord = {
   email: string | null;
   phone: string | null;
   position: string | null;
-  position_applied: string | null;
   discipline: string | null;
   status: string | null;
   created_at: string | null;

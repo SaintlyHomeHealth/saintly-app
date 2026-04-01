@@ -27,7 +27,6 @@ type ApplicantPrefillRecord = {
   first_name?: string | null;
   last_name?: string | null;
   position?: string | null;
-  position_applied?: string | null;
   discipline?: string | null;
   job_title?: string | null;
   title?: string | null;
@@ -201,7 +200,7 @@ export default function PerformanceEvaluationForm({
         supabase
           .from("applicants")
           .select(
-            "first_name, last_name, position, position_applied, discipline, job_title, title, role_title, selected_role"
+            "first_name, last_name, position, discipline, job_title, title, role_title, selected_role"
           )
           .eq("id", employeeId)
           .maybeSingle<ApplicantPrefillRecord>(),

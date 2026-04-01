@@ -1402,7 +1402,6 @@ export default async function EmployeeDetailPage({
         applicantRolePrimaryForCompliance({
           position: getStringField(employeeStatusRecord, "position"),
           discipline: getStringField(employeeStatusRecord, "discipline"),
-          position_applied: getStringField(employeeStatusRecord, "position_applied"),
           job_title: getStringField(employeeStatusRecord, "job_title"),
           title: getStringField(employeeStatusRecord, "title"),
           role_title: getStringField(employeeStatusRecord, "role_title"),
@@ -2167,7 +2166,6 @@ export default async function EmployeeDetailPage({
   const roleCandidates = [
     { source: "position", value: getStringField(employeeRecord, "position") },
     { source: "discipline", value: getStringField(employeeRecord, "discipline") },
-    { source: "position_applied", value: getStringField(employeeRecord, "position_applied") },
     { source: "job_title", value: getStringField(employeeRecord, "job_title") },
     { source: "title", value: getStringField(employeeRecord, "title") },
     { source: "role_title", value: getStringField(employeeRecord, "role_title") },

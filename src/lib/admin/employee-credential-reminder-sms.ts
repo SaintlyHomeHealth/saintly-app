@@ -205,7 +205,7 @@ export async function prepareEmployeeCredentialReminderSend(
 
   const { data: applicant, error: appErr } = await supabaseAdmin
     .from("applicants")
-    .select("id, first_name, last_name, phone, position, position_applied, discipline")
+    .select("id, first_name, last_name, phone, position, discipline")
     .eq("id", applicantId)
     .maybeSingle();
 
@@ -230,7 +230,6 @@ export async function prepareEmployeeCredentialReminderSend(
     applicantRolePrimaryForCompliance({
       position: applicant.position as string | null,
       discipline: applicant.discipline as string | null,
-      position_applied: applicant.position_applied as string | null,
     }),
     classification
   );
