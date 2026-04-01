@@ -23,7 +23,7 @@ function crmDisplayNameFromContactsRaw(contactsRaw: unknown): string | null {
 
 export default async function WorkspaceCallsPage() {
   const staff = await getStaffProfile();
-  if (!canAccessWorkspacePhone(staff)) {
+  if (!staff || !canAccessWorkspacePhone(staff)) {
     redirect("/admin/phone");
   }
 

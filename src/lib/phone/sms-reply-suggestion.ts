@@ -171,7 +171,7 @@ export async function runSmsReplySuggestionGeneration(
 
   const { data: conv, error: convErr } = await supabase
     .from("conversations")
-    .select("metadata")
+    .select("id, metadata")
     .eq("id", conversationId)
     .maybeSingle();
 

@@ -68,7 +68,7 @@ function rolePriorityForList(role: string): number {
 
 export default async function WorkspacePatientsPage() {
   const staff = await getStaffProfile();
-  if (!canAccessWorkspacePhone(staff)) {
+  if (!staff || !canAccessWorkspacePhone(staff)) {
     redirect("/admin/phone");
   }
 

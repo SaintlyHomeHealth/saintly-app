@@ -42,7 +42,7 @@ type VmCall = {
 
 export default async function WorkspaceVoicemailPage() {
   const staff = await getStaffProfile();
-  if (!canAccessWorkspacePhone(staff)) {
+  if (!staff || !canAccessWorkspacePhone(staff)) {
     redirect("/admin/phone");
   }
   const hasFull = hasFullCallVisibility(staff);

@@ -1412,7 +1412,7 @@ export default function OnboardingContractsPage() {
         i9_s1_signed_at: i9Section1Form.signedDate || null,
       });
 
-      const blob = new Blob([pdfBytes], { type: "application/pdf" });
+      const blob = new Blob([pdfBytes as BlobPart], { type: "application/pdf" });
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       const safeName =
@@ -1519,7 +1519,7 @@ export default function OnboardingContractsPage() {
         .sort((a, b) => (a.module_sort_order ?? 999) - (b.module_sort_order ?? 999));
 
       const pdfBytes = await generateFullHiringPacketPdf(packetData, trainingRows);
-      const blob = new Blob([pdfBytes], { type: "application/pdf" });
+      const blob = new Blob([pdfBytes as BlobPart], { type: "application/pdf" });
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       const safeName = getSafePdfFileName(getHiringPacketEmployeeName(packetData));

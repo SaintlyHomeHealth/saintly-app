@@ -16,7 +16,7 @@ const VoiceGrant = AccessToken.VoiceGrant;
  */
 export async function GET() {
   const staff = await getStaffProfile();
-  if (!canAccessWorkspacePhone(staff)) {
+  if (!staff || !canAccessWorkspacePhone(staff)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

@@ -406,7 +406,7 @@ export function SoftphoneDialer({
   }, [busy, canDial, startCall]);
 
   const dialInputLocked = (busy && status !== "in_call") || Boolean(incomingCall);
-  const showCallButton = !busy || status === "error";
+  const showCallButton = !busy;
   const keypadDisabled = dialInputLocked;
 
   const defaultPanel = (

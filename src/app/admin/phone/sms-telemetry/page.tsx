@@ -218,7 +218,9 @@ function categoryDisplayLabel(k: string): string {
 }
 
 function sortRollupKeys(keys: string[]): string[] {
-  const order = new Map(ROLLUP_CATEGORY_ORDER.map((k, i) => [k, i]));
+  const order: Map<string, number> = new Map(
+    ROLLUP_CATEGORY_ORDER.map((k, i): [string, number] => [k, i])
+  );
   return [...keys].sort((a, b) => {
     const ia = order.has(a) ? order.get(a)! : 999;
     const ib = order.has(b) ? order.get(b)! : 999;

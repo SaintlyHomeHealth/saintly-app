@@ -8,7 +8,7 @@ import { canAccessWorkspacePhone, getStaffProfile } from "@/lib/staff-profile";
 
 export default async function WorkspacePhoneLayout({ children }: { children: ReactNode }) {
   const staff = await getStaffProfile();
-  if (!canAccessWorkspacePhone(staff)) {
+  if (!staff || !canAccessWorkspacePhone(staff)) {
     redirect("/admin/phone");
   }
 

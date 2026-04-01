@@ -171,7 +171,6 @@ export default function EmployeeTaxFormCard({ applicantId, sectionId }: Props) {
     return null;
   }
 
-  const isCompleted = taxForm.form_status === "completed";
   const formLabel = getTaxFormLabel(formType);
 
   return (
@@ -190,11 +189,9 @@ export default function EmployeeTaxFormCard({ applicantId, sectionId }: Props) {
         </div>
 
         <span
-          className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${
-            isCompleted ? "bg-teal-50 text-teal-700" : "bg-amber-100 text-amber-700"
-          }`}
+          className="inline-flex items-center rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700"
         >
-          {isCompleted ? "Completed" : "Awaiting Completion"}
+          Awaiting Completion
         </span>
       </div>
 

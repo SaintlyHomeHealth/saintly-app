@@ -44,7 +44,7 @@ function sortTasks(a: TaskRow, b: TaskRow): number {
 
 export default async function WorkspaceTasksPage() {
   const staff = await getStaffProfile();
-  if (!canAccessWorkspacePhone(staff)) {
+  if (!staff || !canAccessWorkspacePhone(staff)) {
     redirect("/admin/phone");
   }
 

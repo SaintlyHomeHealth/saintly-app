@@ -33,7 +33,7 @@ type PageProps = {
 
 export default async function WorkspaceInboxPage({ searchParams }: PageProps) {
   const staff = await getStaffProfile();
-  if (!canAccessWorkspacePhone(staff)) {
+  if (!staff || !canAccessWorkspacePhone(staff)) {
     redirect("/admin/phone");
   }
 

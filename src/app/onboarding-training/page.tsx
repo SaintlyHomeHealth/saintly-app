@@ -1185,7 +1185,7 @@ export default function OnboardingTrainingPage() {
         completionsByModuleId,
       });
 
-      const blob = new Blob([pdfBytes], { type: "application/pdf" });
+      const blob = new Blob([pdfBytes as BlobPart], { type: "application/pdf" });
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       const safeName = (applicantName || applicantId).replace(/\s+/g, "-");
@@ -1339,10 +1339,11 @@ export default function OnboardingTrainingPage() {
               </div>
             ) : (
               modules.map((module, index) => {
-                if (!isTrainingModuleKey(module.key)) return null;
+                const moduleKey = module.key;
+                if (!isTrainingModuleKey(moduleKey)) return null;
 
-                const questions = QUIZ_BANK[module.key];
-                const answers = answersByModule[module.key] || {};
+                const questions = QUIZ_BANK[moduleKey];
+                const answers = answersByModule[moduleKey] || {};
                 const passScore = module.pass_score ?? DEFAULT_PASS_SCORE;
                 const completion = completionsByModuleId[module.id];
                 const latestAttempt = attemptsByModuleId[module.id];
@@ -1354,7 +1355,7 @@ export default function OnboardingTrainingPage() {
                   questions.length > 0 &&
                   questions.every((question) => answers[question.id]);
                 const isCompleted = !!completion?.passed;
-                const isSubmitting = submittingModuleKey === module.key;
+                const isSubmitting = submittingModuleKey === moduleKey;
                 const hasOpenedPdf = !!hasOpenedPdfByModuleId[module.id];
                 const displayOrder =
                   module.sort_order ?? module.number ?? index + 1;
@@ -1453,7 +1454,7 @@ export default function OnboardingTrainingPage() {
 
                         {questions.map((question, questionIndex) => (
                           <div
-                            key={`${module.key}-${question.id}`}
+                            key={`${moduleKey}-${question.id}`}
                             className="rounded-[20px] border border-slate-200 p-4"
                           >
                             <div className="text-sm font-semibold text-slate-900">
@@ -1463,17 +1464,17 @@ export default function OnboardingTrainingPage() {
                             <div className="mt-4 space-y-2">
                               {question.options.map((option) => (
                                 <label
-                                  key={`${module.key}-${question.id}-${option}`}
+                                  key={`${moduleKey}-${question.id}-${option}`}
                                   className="flex cursor-pointer items-start gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 transition hover:border-teal-200 hover:bg-teal-50/40"
                                 >
                                   <input
                                     type="radio"
-                                    name={`${module.key}-${question.id}`}
+                                    name={`${moduleKey}-${question.id}`}
                                     value={option}
                                     checked={answers[question.id] === option}
                                     onChange={() =>
                                       handleAnswerChange(
-                                        module.key,
+                                        moduleKey,
                                         question.id,
                                         option
                                       )
@@ -1551,7 +1552,7 @@ export default function OnboardingTrainingPage() {
                           {!isCompleted && (
                             <button
                               type="button"
-                            onClick={() => handleRetakeQuiz(module.key)}
+                            onClick={() => handleRetakeQuiz(moduleKey)}
                               disabled={!hasOpenedPdf || !!submittingModuleKey}
                               className={[
                                 "inline-flex items-center justify-center rounded-full border border-slate-300 bg-white px-6 py-4 text-sm font-bold uppercase tracking-[0.12em] text-slate-700 transition hover:bg-slate-100",
