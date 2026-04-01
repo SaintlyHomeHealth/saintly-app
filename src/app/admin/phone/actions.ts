@@ -1203,3 +1203,16 @@ export async function unassignPhoneCall(
   revalidatePath(`/admin/phone/${callId}`);
   return { ok: true };
 }
+
+/** Native `<form action>` requires `Promise<void>`; mutation outcomes are unchanged (see claim/assign/unassign). */
+export async function claimPhoneCallFormAction(formData: FormData): Promise<void> {
+  await claimPhoneCall(formData);
+}
+
+export async function assignPhoneCallFormAction(formData: FormData): Promise<void> {
+  await assignPhoneCall(formData);
+}
+
+export async function unassignPhoneCallFormAction(formData: FormData): Promise<void> {
+  await unassignPhoneCall(formData);
+}

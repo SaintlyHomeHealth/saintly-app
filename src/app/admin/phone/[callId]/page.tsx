@@ -2,11 +2,11 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
 import {
-  assignPhoneCall,
-  claimPhoneCall,
+  assignPhoneCallFormAction,
+  claimPhoneCallFormAction,
   createContactIntakeFromPhoneCall,
   createPhoneCallNote,
-  unassignPhoneCall,
+  unassignPhoneCallFormAction,
 } from "../actions";
 import { supabaseAdmin } from "@/lib/admin";
 import { loadCrmContextForPhoneCall } from "@/lib/phone/crm-context-for-call";
@@ -414,7 +414,7 @@ export default async function AdminPhoneCallDetailPage({ params, searchParams }:
 
           <div className="flex flex-wrap items-center gap-2">
             {canClaim && !c.assigned_to_user_id ? (
-              <form action={claimPhoneCall}>
+              <form action={claimPhoneCallFormAction}>
                 <input type="hidden" name="callId" value={c.id} />
                 <button
                   type="submit"
@@ -426,7 +426,7 @@ export default async function AdminPhoneCallDetailPage({ params, searchParams }:
             ) : null}
 
             {hasFull && assignableStaff.length > 0 ? (
-              <form action={assignPhoneCall} className="flex flex-wrap items-center gap-2">
+              <form action={assignPhoneCallFormAction} className="flex flex-wrap items-center gap-2">
                 <input type="hidden" name="callId" value={c.id} />
                 <label className="text-xs font-medium text-slate-600">
                   Reassign
@@ -464,7 +464,7 @@ export default async function AdminPhoneCallDetailPage({ params, searchParams }:
             ) : null}
 
             {canUnassign && c.assigned_to_user_id ? (
-              <form action={unassignPhoneCall}>
+              <form action={unassignPhoneCallFormAction}>
                 <input type="hidden" name="callId" value={c.id} />
                 <button
                   type="submit"
