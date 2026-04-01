@@ -18,11 +18,18 @@ export const CREDENTIALING_STATUS_LABELS: Record<CredentialingStatusValue, strin
 };
 
 /** DB check: payer_credentialing_records.contracting_status */
-export const CONTRACTING_STATUS_VALUES = ["pending", "in_contracting", "contracted", "stalled"] as const;
+export const CONTRACTING_STATUS_VALUES = [
+  "not_started",
+  "pending",
+  "in_contracting",
+  "contracted",
+  "stalled",
+] as const;
 
 export type ContractingStatusValue = (typeof CONTRACTING_STATUS_VALUES)[number];
 
 export const CONTRACTING_STATUS_LABELS: Record<ContractingStatusValue, string> = {
+  not_started: "Not started",
   pending: "Pending",
   in_contracting: "In contracting",
   contracted: "Contracted",
