@@ -12,7 +12,7 @@ import {
 import { isValidE164, normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
 import { sendSms } from "@/lib/twilio/send-sms";
 
-export type CredentialReminderStage = "due_soon" | "expired" | "missing";
+export type CredentialReminderStage = "due_soon_30" | "due_soon_7" | "expired" | "missing";
 
 export type CredentialReminderTarget = {
   credentialType: string;
@@ -21,6 +21,8 @@ export type CredentialReminderTarget = {
   shortLabel: string;
   detailLine: string;
 };
+
+export type CredentialReminderTrigger = "manual" | "cron";
 
 const LABELS: Record<string, string> = {
   professional_license: "Professional license",
@@ -61,6 +63,11 @@ function credentialStateLabel(
   return "Active";
 }
 
+function dueSoonStageFromDays(days: number): "due_soon_30" | "due_soon_7" {
+  if (days <= 7) return "due_soon_7";
+  return "due_soon_30";
+}
+
 function expirationAnchorFor(
   credentialType: string,
   credentials: Array<{ credential_type: string; expiration_date: string | null }>
@@ -86,7 +93,7 @@ function formatUsDate(isoYmd: string): string {
 }
 
 /**
- * Eligible credential SMS targets (due ≤30d, expired, or missing) for types Saintly texts about.
+ * Eligible credential SMS targets for SMS-scoped types: due ≤30d (split 30 vs 7), expired, or missing.
  */
 export function buildCredentialReminderTargets(
   requiredTypes: readonly string[],
@@ -102,20 +109,31 @@ export function buildCredentialReminderTargets(
     if (state === "Active") continue;
 
     const anchor = expirationAnchorFor(ct, credentials);
-    const stage: CredentialReminderStage =
-      state === "Missing" ? "missing" : state === "Expired" ? "expired" : "due_soon";
+    const expRow = credentials.find((c) => normalizeCredentialTypeKey(c.credential_type) === ct);
+    const days = getDaysRemaining(expRow?.expiration_date ?? null);
+
+    let stage: CredentialReminderStage;
+    if (state === "Missing") {
+      stage = "missing";
+    } else if (state === "Expired") {
+      stage = "expired";
+    } else {
+      if (typeof days !== "number") {
+        stage = "missing";
+      } else {
+        stage = dueSoonStageFromDays(days);
+      }
+    }
 
     let detailLine = "";
     if (stage === "missing") {
       detailLine = `${label}: not on file — please upload/update in onboarding.`;
     } else if (stage === "expired") {
       detailLine = `${label}: expired (exp ${formatUsDate(anchor)}).`;
+    } else if (stage === "due_soon_7") {
+      detailLine = `${label}: due soon${typeof days === "number" ? ` (${days}d left, exp ${formatUsDate(anchor)})` : ""} — please renew.`;
     } else {
-      const days = getDaysRemaining(
-        credentials.find((c) => normalizeCredentialTypeKey(c.credential_type) === ct)?.expiration_date ??
-          null
-      );
-      detailLine = `${label}: due soon${typeof days === "number" ? ` (${days}d, exp ${formatUsDate(anchor)})` : ""}.`;
+      detailLine = `${label}: coming due${typeof days === "number" ? ` (${days}d, exp ${formatUsDate(anchor)})` : ""}.`;
     }
 
     out.push({
@@ -162,24 +180,27 @@ function buildSmsBody(firstName: string, lines: string[]): string {
   return `${greeting}Several credentials need renewal or upload — please check your Saintly onboarding portal or call the office.${tail}`;
 }
 
-export type SendCredentialReminderResult =
+export type PrepareCredentialReminderResult =
   | {
       ok: true;
-      sent: number;
+      applicantId: string;
+      firstName: string;
+      e164: string | null;
+      rawTargets: CredentialReminderTarget[];
+      targetsToSend: CredentialReminderTarget[];
       skippedDuplicate: number;
-      twilioMessageSid: string | null;
-      preview: string;
     }
-  | { ok: false; error: string };
+  | { ok: false; applicantId: string; error: string };
 
 /**
- * Sends one SMS summarizing all pending (non-deduped) credential reminders for an applicant.
+ * Loads applicant + credentials, builds targets, applies dedupe. Does not send.
+ * @param excludeMissing — when true (daily cron), only expired / 30d / 7d windows; missing credentials are omitted.
  */
-export async function sendEmployeeCredentialReminderSms(input: {
-  applicantId: string;
-  staffUserId: string | null;
-}): Promise<SendCredentialReminderResult> {
-  const { applicantId, staffUserId } = input;
+export async function prepareEmployeeCredentialReminderSend(
+  applicantId: string,
+  options?: { excludeMissing?: boolean }
+): Promise<PrepareCredentialReminderResult> {
+  const excludeMissing = options?.excludeMissing === true;
 
   const { data: applicant, error: appErr } = await supabaseAdmin
     .from("applicants")
@@ -188,7 +209,7 @@ export async function sendEmployeeCredentialReminderSms(input: {
     .maybeSingle();
 
   if (appErr || !applicant?.id) {
-    return { ok: false, error: appErr?.message || "Applicant not found" };
+    return { ok: false, applicantId, error: appErr?.message || "Applicant not found" };
   }
 
   const { data: contract } = await supabaseAdmin
@@ -215,28 +236,66 @@ export async function sendEmployeeCredentialReminderSms(input: {
     .eq("employee_id", applicantId);
 
   if (credErr) {
-    return { ok: false, error: credErr.message };
+    return { ok: false, applicantId, error: credErr.message };
   }
 
   const credentials = (credRows || []) as Array<{ credential_type: string; expiration_date: string | null }>;
 
-  const rawTargets = buildCredentialReminderTargets(required, credentials);
-  if (rawTargets.length === 0) {
-    return { ok: false, error: "No due, expired, or missing credentials in SMS scope for this employee." };
+  let rawTargets = buildCredentialReminderTargets(required, credentials);
+  if (excludeMissing) {
+    rawTargets = rawTargets.filter((t) => t.stage !== "missing");
   }
 
-  const targets = await loadDedupedTargets(applicantId, rawTargets);
-  if (targets.length === 0) {
-    return { ok: false, error: "Reminders already sent for current items (no new messages)." };
-  }
+  const targetsToSend = await loadDedupedTargets(applicantId, rawTargets);
+  const skippedDuplicate = rawTargets.length - targetsToSend.length;
 
   const phoneRaw = typeof applicant.phone === "string" ? applicant.phone : "";
   const e164 = normalizeDialInputToE164(phoneRaw);
-  if (!e164 || !isValidE164(e164)) {
-    return { ok: false, error: "Employee has no valid mobile number on file." };
-  }
+  const validE164 = e164 && isValidE164(e164) ? e164 : null;
 
   const firstName = typeof applicant.first_name === "string" ? applicant.first_name : "";
+
+  return {
+    ok: true,
+    applicantId,
+    firstName,
+    e164: validE164,
+    rawTargets,
+    targetsToSend,
+    skippedDuplicate,
+  };
+}
+
+export type SendCredentialReminderResult =
+  | {
+      ok: true;
+      sent: number;
+      skippedDuplicate: number;
+      twilioMessageSid: string | null;
+      preview: string;
+    }
+  | { ok: false; error: string };
+
+/**
+ * Persists Twilio send + `employee_credential_reminder_sends` + conversation message.
+ * Caller must ensure targets non-empty and e164 valid.
+ */
+export async function commitEmployeeCredentialReminderSend(input: {
+  applicantId: string;
+  firstName: string;
+  e164: string;
+  targets: CredentialReminderTarget[];
+  staffUserId: string | null;
+  trigger: CredentialReminderTrigger;
+  /** When true, skip per-send revalidation (e.g. batch cron revalidates once). */
+  skipRevalidate?: boolean;
+}): Promise<SendCredentialReminderResult> {
+  const { applicantId, firstName, e164, targets, staffUserId, trigger, skipRevalidate } = input;
+
+  if (targets.length === 0) {
+    return { ok: false, error: "No targets to send" };
+  }
+
   const body = buildSmsBody(
     firstName,
     targets.map((t) => t.detailLine)
@@ -254,6 +313,7 @@ export async function sendEmployeeCredentialReminderSms(input: {
 
   const meta = {
     source: "employee_credential_reminder",
+    trigger,
     applicant_id: applicantId,
     credential_types: targets.map((t) => t.credentialType),
     stages: targets.map((t) => t.stage),
@@ -290,12 +350,81 @@ export async function sendEmployeeCredentialReminderSms(input: {
     return { ok: false, error: `SMS sent but logging failed: ${insErr.message}` };
   }
 
-  revalidatePath("/admin/employees");
+  if (!skipRevalidate) {
+    revalidatePath("/admin/employees");
+  }
+
   return {
     ok: true,
     sent: targets.length,
-    skippedDuplicate: rawTargets.length - targets.length,
+    skippedDuplicate: 0,
     twilioMessageSid: sms.messageSid,
     preview,
   };
+}
+
+/**
+ * Sends one SMS summarizing all pending (non-deduped) credential reminders for an applicant (manual admin action).
+ */
+export async function sendEmployeeCredentialReminderSms(input: {
+  applicantId: string;
+  staffUserId: string | null;
+}): Promise<SendCredentialReminderResult> {
+  const { applicantId, staffUserId } = input;
+
+  const prep = await prepareEmployeeCredentialReminderSend(applicantId, { excludeMissing: false });
+  if (!prep.ok) {
+    return { ok: false, error: prep.error };
+  }
+
+  if (prep.rawTargets.length === 0) {
+    return { ok: false, error: "No due, expired, or missing credentials in SMS scope for this employee." };
+  }
+
+  if (prep.targetsToSend.length === 0) {
+    return { ok: false, error: "Reminders already sent for current items (no new messages)." };
+  }
+
+  if (!prep.e164) {
+    return { ok: false, error: "Employee has no valid mobile number on file." };
+  }
+
+  const commit = await commitEmployeeCredentialReminderSend({
+    applicantId,
+    firstName: prep.firstName,
+    e164: prep.e164,
+    targets: prep.targetsToSend,
+    staffUserId,
+    trigger: "manual",
+    skipRevalidate: false,
+  });
+
+  if (!commit.ok) {
+    return commit;
+  }
+
+  return {
+    ok: true,
+    sent: commit.sent,
+    skippedDuplicate: prep.skippedDuplicate,
+    twilioMessageSid: commit.twilioMessageSid,
+    preview: commit.preview,
+  };
+}
+
+/** Count lines by stage for cron summaries. */
+export function countCredentialReminderTargetsByStage(targets: CredentialReminderTarget[]): {
+  sent_30_day: number;
+  sent_7_day: number;
+  sent_expired: number;
+} {
+  let sent_30_day = 0;
+  let sent_7_day = 0;
+  let sent_expired = 0;
+  for (const t of targets) {
+    if (t.stage === "due_soon_30") sent_30_day += 1;
+    else if (t.stage === "due_soon_7") sent_7_day += 1;
+    else if (t.stage === "expired") sent_expired += 1;
+  }
+  return { sent_30_day, sent_7_day, sent_expired };
 }

@@ -496,8 +496,10 @@ export type EmployeeDirectoryRow = {
   credentialReminderTargetCount: number;
   /** Latest `employee_credential_reminder_sends.created_at` for this applicant, if any. */
   credentialReminderLastSentAt: string | null;
-  /** True if at least one logged send used reminder_stage `due_soon`. */
-  credentialReminderSentDueSoon: boolean;
+  /** True if at least one logged send used reminder_stage `due_soon_30`. */
+  credentialReminderSentDueSoon30: boolean;
+  /** True if at least one logged send used reminder_stage `due_soon_7`. */
+  credentialReminderSentDueSoon7: boolean;
   /** True if at least one logged send used reminder_stage `expired`. */
   credentialReminderSentExpired: boolean;
   /** True if at least one logged send used reminder_stage `missing`. */
@@ -560,7 +562,8 @@ async function loadCredentialReminderSummaryByApplicant(
     string,
     {
       lastSentAt: string | null;
-      sentDueSoon: boolean;
+      sentDueSoon30: boolean;
+      sentDueSoon7: boolean;
       sentExpired: boolean;
       sentMissing: boolean;
     }
@@ -570,7 +573,8 @@ async function loadCredentialReminderSummaryByApplicant(
     string,
     {
       lastSentAt: string | null;
-      sentDueSoon: boolean;
+      sentDueSoon30: boolean;
+      sentDueSoon7: boolean;
       sentExpired: boolean;
       sentMissing: boolean;
     }
@@ -601,7 +605,8 @@ async function loadCredentialReminderSummaryByApplicant(
       if (!cur) {
         cur = {
           lastSentAt: null,
-          sentDueSoon: false,
+          sentDueSoon30: false,
+          sentDueSoon7: false,
           sentExpired: false,
           sentMissing: false,
         };
@@ -610,7 +615,8 @@ async function loadCredentialReminderSummaryByApplicant(
       const rowMs = new Date(created).getTime();
       const curMs = cur.lastSentAt ? new Date(cur.lastSentAt).getTime() : 0;
       if (rowMs > curMs) cur.lastSentAt = created;
-      if (stage === "due_soon") cur.sentDueSoon = true;
+      if (stage === "due_soon_30" || stage === "due_soon") cur.sentDueSoon30 = true;
+      if (stage === "due_soon_7") cur.sentDueSoon7 = true;
       if (stage === "expired") cur.sentExpired = true;
       if (stage === "missing") cur.sentMissing = true;
     }
@@ -1297,7 +1303,8 @@ export async function loadEmployeeDirectoryRows(): Promise<{
       requiredCredentialTypes,
       credentialReminderTargetCount,
       credentialReminderLastSentAt: remSummary?.lastSentAt ?? null,
-      credentialReminderSentDueSoon: remSummary?.sentDueSoon ?? false,
+      credentialReminderSentDueSoon30: remSummary?.sentDueSoon30 ?? false,
+      credentialReminderSentDueSoon7: remSummary?.sentDueSoon7 ?? false,
       credentialReminderSentExpired: remSummary?.sentExpired ?? false,
       credentialReminderSentMissing: remSummary?.sentMissing ?? false,
       lastUpdatedMs,

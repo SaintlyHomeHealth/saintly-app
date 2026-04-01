@@ -612,12 +612,20 @@ export default async function AdminEmployeesDirectoryPage({
                         <p className="mt-1.5 text-[9px] leading-snug text-slate-400">No reminders logged</p>
                       )}
                       <div className="mt-1 flex flex-wrap gap-0.5">
-                        {r.credentialReminderSentDueSoon ? (
+                        {r.credentialReminderSentDueSoon30 ? (
                           <span
                             className="rounded border border-amber-200 bg-amber-50 px-1 py-0.5 text-[8px] font-semibold uppercase tracking-wide text-amber-900"
-                            title="At least one due-within-30-days reminder is on file"
+                            title="At least one 30-day-window reminder is on file"
                           >
                             30d sent
+                          </span>
+                        ) : null}
+                        {r.credentialReminderSentDueSoon7 ? (
+                          <span
+                            className="rounded border border-orange-200 bg-orange-50 px-1 py-0.5 text-[8px] font-semibold uppercase tracking-wide text-orange-950"
+                            title="At least one 7-day-window reminder is on file"
+                          >
+                            7d sent
                           </span>
                         ) : null}
                         {r.credentialReminderSentExpired ? (
@@ -709,9 +717,9 @@ export default async function AdminEmployeesDirectoryPage({
           <li>
             <span className="font-medium">Reminder history:</span> <span className="font-medium">Last SMS</span> is the
             most recent logged send for that employee. Badges (<span className="font-medium">30d sent</span>,{" "}
-            <span className="font-medium">Exp sent</span>, <span className="font-medium">Miss sent</span>) mean at least
-            one row exists for that stage in the audit table—open the employee for the full log (credential, stage, time,
-            phone).
+            <span className="font-medium">7d sent</span>, <span className="font-medium">Exp sent</span>,{" "}
+            <span className="font-medium">Miss sent</span>) mean at least one row exists for that stage in the audit
+            table—open the employee for the full log (credential, stage, time, phone).
           </li>
         </ul>
         <p className="mt-3 text-slate-500">
