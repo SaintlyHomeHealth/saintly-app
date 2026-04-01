@@ -1401,8 +1401,12 @@ export default async function EmployeeDetailPage({
       const requiredCredentialTypes = getRequiredCredentialTypes(
         applicantRolePrimaryForCompliance({
           position: getStringField(employeeStatusRecord, "position"),
-          role: getStringField(employeeStatusRecord, "role"),
           discipline: getStringField(employeeStatusRecord, "discipline"),
+          position_applied: getStringField(employeeStatusRecord, "position_applied"),
+          job_title: getStringField(employeeStatusRecord, "job_title"),
+          title: getStringField(employeeStatusRecord, "title"),
+          role_title: getStringField(employeeStatusRecord, "role_title"),
+          selected_role: getStringField(employeeStatusRecord, "selected_role"),
         }),
         currentContract?.employment_classification || null
       );
@@ -2162,8 +2166,8 @@ export default async function EmployeeDetailPage({
 
   const roleCandidates = [
     { source: "position", value: getStringField(employeeRecord, "position") },
-    { source: "role", value: getStringField(employeeRecord, "role") },
     { source: "discipline", value: getStringField(employeeRecord, "discipline") },
+    { source: "position_applied", value: getStringField(employeeRecord, "position_applied") },
     { source: "job_title", value: getStringField(employeeRecord, "job_title") },
     { source: "title", value: getStringField(employeeRecord, "title") },
     { source: "role_title", value: getStringField(employeeRecord, "role_title") },

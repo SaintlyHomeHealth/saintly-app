@@ -384,9 +384,13 @@ export default function OnboardingDocumentsPage() {
       await Promise.all([
         supabase
           .from('applicants')
-          .select('position, role, discipline')
+          .select('position, position_applied, discipline')
           .eq('id', id)
-          .maybeSingle<{ position?: string | null; role?: string | null; discipline?: string | null }>(),
+          .maybeSingle<{
+            position?: string | null
+            position_applied?: string | null
+            discipline?: string | null
+          }>(),
         supabase
           .from('employee_contracts')
           .select('employment_classification')

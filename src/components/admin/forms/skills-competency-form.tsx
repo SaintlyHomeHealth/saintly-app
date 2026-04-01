@@ -29,10 +29,10 @@ type ApplicantPrefillRecord = {
   first_name?: string | null;
   last_name?: string | null;
   position?: string | null;
+  position_applied?: string | null;
   discipline?: string | null;
   job_title?: string | null;
   title?: string | null;
-  role?: string | null;
   role_title?: string | null;
   selected_role?: string | null;
 };
@@ -65,19 +65,7 @@ function toDateInputValue(value?: string | null) {
 
 function getApplicantRoleValue(applicant?: ApplicantPrefillRecord | null) {
   if (!applicant) return "";
-  const primary = applicantRolePrimaryForCompliance(applicant);
-  if (primary) return primary;
-  const fallbacks = [
-    applicant.job_title,
-    applicant.title,
-    applicant.role_title,
-    applicant.selected_role,
-  ];
-  return (
-    fallbacks.find(
-      (value): value is string => typeof value === "string" && value.trim().length > 0
-    ) || ""
-  );
+  return applicantRolePrimaryForCompliance(applicant);
 }
 
 function formatDateTime(value?: string | null) {
@@ -202,7 +190,7 @@ export default function SkillsCompetencyForm({
         supabase
           .from("applicants")
           .select(
-            "first_name, last_name, position, role, discipline, job_title, title, role_title, selected_role"
+            "first_name, last_name, position, position_applied, discipline, job_title, title, role_title, selected_role"
           )
           .eq("id", employeeId)
           .maybeSingle<ApplicantPrefillRecord>(),

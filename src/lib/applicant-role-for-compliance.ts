@@ -1,19 +1,32 @@
 /**
- * Primary role string for credential / compliance logic — matches employee directory (`roleDisplay`).
- * Order: `position` → `role` → `discipline`. Does not use `position_applied` (stale in production).
+ * Primary role string for credential / compliance logic — same source as employee directory (`roleDisplay`).
+ * Uses only `applicants` columns that exist in production (no `role` column).
+ *
+ * Priority: position → discipline → position_applied → job_title → title → role_title → selected_role
  */
 export type ApplicantRoleFields = {
   position?: string | null;
-  role?: string | null;
   discipline?: string | null;
+  position_applied?: string | null;
+  job_title?: string | null;
+  title?: string | null;
+  role_title?: string | null;
+  selected_role?: string | null;
 };
 
 export function applicantRolePrimaryForCompliance(a: ApplicantRoleFields): string {
-  const pos = String(a.position ?? "").trim();
-  if (pos) return pos;
-  const role = String(a.role ?? "").trim();
-  if (role) return role;
-  const disc = String(a.discipline ?? "").trim();
-  if (disc) return disc;
+  const chain: Array<string | null | undefined> = [
+    a.position,
+    a.discipline,
+    a.position_applied,
+    a.job_title,
+    a.title,
+    a.role_title,
+    a.selected_role,
+  ];
+  for (const v of chain) {
+    const s = String(v ?? "").trim();
+    if (s) return s;
+  }
   return "";
 }
