@@ -65,9 +65,10 @@ function callerCategoryKeyFromMetadata(metadata: unknown): string | null {
   if (!m) return null;
   const v = m.voice_ai;
   if (v && typeof v === "object" && !Array.isArray(v)) {
-    const cat = typeof (v as Record<string, unknown>).caller_category === "string"
-      ? (v as Record<string, unknown>).caller_category.trim().toLowerCase()
-      : "";
+    const voiceAi = v as Record<string, unknown>;
+    const callerCategory = voiceAi.caller_category;
+    const cat =
+      typeof callerCategory === "string" ? callerCategory.trim().toLowerCase() : "";
     if (cat && KNOWN_VOICE_CALLER_CATEGORIES.has(cat)) return cat;
   }
   return crmTypeToCallerCategoryKey(m.crm);
