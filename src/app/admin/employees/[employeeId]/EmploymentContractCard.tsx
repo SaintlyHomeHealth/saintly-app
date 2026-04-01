@@ -223,7 +223,7 @@ export default function EmploymentContractCard({
   const handleSave = async (status: "draft" | "sent") => {
     setErrorMessage("");
     setSuccessMessage("");
-    const nextStatus = status === "sent" ? "sent" : "draft";
+    const nextStatus: "draft" | "sent" = status;
     const liveForm = { ...form };
 
     if (!liveForm.roleKey) {
