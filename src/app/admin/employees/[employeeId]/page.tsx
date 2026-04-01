@@ -878,9 +878,9 @@ function formatDateForInsert(date: Date) {
 }
 
 function getLatestApplicantFile(
-  files: Array<{ document_type?: string | null }>,
+  files: AdminUploadRecord[],
   documentType: string
-) {
+): AdminUploadRecord | null {
   const targetType = normalizeDocumentTypeLookupKey(documentType);
   return (
     files.find(
