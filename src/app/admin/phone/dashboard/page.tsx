@@ -70,18 +70,24 @@ export default async function AdminPhoneDashboardPage() {
 
   const scopeFilter = `assigned_to_user_id.eq.${staff.user_id},assigned_to_user_id.is.null`;
 
-  async function countScopedConversations(extra: (q: ReturnType<typeof supabase.from>) => void): Promise<number> {
-    // Note: we keep queries explicit (instead of reusing a generic builder) to avoid subtle filter/operator issues.
-    let q = supabase
+  function createScopedConversationsCountQueryBase() {
+    return supabase
       .from("conversations")
       .select("*", { count: "exact", head: true })
       .eq("channel", "sms");
+  }
+
+  type ScopedConversationsCountQuery = ReturnType<typeof createScopedConversationsCountQueryBase>;
+
+  async function countScopedConversations(extra: (q: ScopedConversationsCountQuery) => void): Promise<number> {
+    // Note: we keep queries explicit (instead of reusing a generic builder) to avoid subtle filter/operator issues.
+    let q = createScopedConversationsCountQueryBase();
 
     if (!hasFull) {
       q = q.or(scopeFilter);
     }
 
-    extra(q as unknown as ReturnType<typeof supabase.from>);
+    extra(q);
 
     const { count, error } = await q;
     if (error) {
