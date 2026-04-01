@@ -50,6 +50,23 @@ export function buildWorkspaceKeypadCallHref(opts: WorkspaceKeypadLaunch): strin
   return `/workspace/phone/keypad?${q.toString()}`;
 }
 
+/**
+ * Admin call log page embeds `SoftphoneDialer` with the same `dial` / `place` query contract as the workspace keypad
+ * (Twilio in-app — never `tel:`). Use when the viewer can use the phone stack but not `/workspace/phone` (e.g. manager
+ * without `phone_access_enabled`).
+ */
+export function buildAdminPhoneCallsSoftphoneHref(opts: {
+  dial: string;
+  placeCall?: boolean;
+}): string {
+  const q = new URLSearchParams();
+  q.set("dial", opts.dial.trim());
+  if (opts.placeCall !== false) {
+    q.set("place", "1");
+  }
+  return `/admin/phone/calls?${q.toString()}`;
+}
+
 export type WorkspaceSmsLaunch = {
   contactId: string;
   leadId?: string;

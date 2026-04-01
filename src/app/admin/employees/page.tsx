@@ -8,8 +8,18 @@ import {
   filterEmployeeDirectoryRows,
   loadEmployeeDirectoryRows,
 } from "@/lib/admin/employee-directory-data";
-import { formatPhoneForDisplay, phoneToTelHref } from "@/lib/phone/us-phone-format";
-import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
+import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
+import {
+  buildAdminPhoneCallsSoftphoneHref,
+  buildWorkspaceKeypadCallHref,
+} from "@/lib/workspace-phone/launch-urls";
+import {
+  canAccessWorkspacePhone,
+  getStaffProfile,
+  isManagerOrHigher,
+  isPhoneWorkspaceUser,
+  type StaffProfile,
+} from "@/lib/staff-profile";
 
 const SEGMENTS: { value: EmployeeDirectorySegment; label: string }[] = [
   { value: "all", label: "All" },
@@ -31,6 +41,19 @@ function isSortKey(v: string): v is EmployeeDirectorySortKey {
 
 function isSortDir(v: string): v is EmployeeDirectorySortDir {
   return v === "asc" || v === "desc";
+}
+
+/** Twilio softphone deep link: workspace keypad when allowed, else admin call log with the same dial query contract. */
+function employeeDirectoryCallHref(
+  profile: StaffProfile,
+  e164: string | null,
+  contextName: string
+): string | null {
+  if (!e164 || !isPhoneWorkspaceUser(profile)) return null;
+  if (canAccessWorkspacePhone(profile)) {
+    return buildWorkspaceKeypadCallHref({ dial: e164, contextName, placeCall: true });
+  }
+  return buildAdminPhoneCallsSoftphoneHref({ dial: e164, placeCall: true });
 }
 
 function buildQuery(sp: {
@@ -139,11 +162,14 @@ export default async function AdminEmployeesDirectoryPage({
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Employee directory</h1>
           <p className="mt-1 max-w-2xl text-sm text-slate-600">
-            <span className="font-medium text-slate-800">Employment</span> reflects{" "}
-            <code className="rounded bg-slate-100 px-1 text-xs">applicants.status</code> (Active, In process,
-            Applicant, Inactive). <span className="font-medium text-slate-800">Stage</span> is the onboarding /
-            forms pipeline position (hired, in progress, etc.). Everyone is derived from applicants and related
-            compliance data—no manual employee creation.
+            <span className="font-medium text-slate-800">Employment</span> reconciles{" "}
+            <code className="rounded bg-slate-100 px-1 text-xs">applicants.status</code> with the onboarding{" "}
+            <span className="font-medium text-slate-800">Stage</span> pill: anyone with stage{" "}
+            <span className="font-medium">Active Employee</span> (finalized admin forms) is shown as{" "}
+            <span className="font-medium">Active</span> even if the applicant row still says applicant;{" "}
+            <code className="rounded bg-slate-100 px-1 text-xs">inactive</code> always wins.{" "}
+            <span className="font-medium text-slate-800">Stage</span> stays the pipeline position (new hire, in
+            progress, etc.). No manual employee creation.
           </p>
           {loadError ? (
             <p className="mt-2 text-sm text-red-700">Could not load applicants: {loadError}</p>
@@ -225,7 +251,7 @@ export default async function AdminEmployeesDirectoryPage({
       </form>
 
       <div className="overflow-x-auto rounded-[28px] border border-slate-200 bg-white shadow-sm">
-        <table className="w-full min-w-[1180px] text-left text-sm">
+        <table className="w-full min-w-[1040px] text-left text-sm">
           <thead>
             <tr className="border-b border-slate-100 bg-slate-50 text-xs font-semibold text-slate-600">
               <th className="px-4 py-3">Employment</th>
@@ -249,7 +275,7 @@ export default async function AdminEmployeesDirectoryPage({
             ) : (
               filtered.map((r) => {
                 const id = r.applicant.id;
-                const tel = phoneToTelHref(r.applicant.phone as string | null);
+                const callHref = employeeDirectoryCallHref(staff, r.e164, r.nameDisplay);
                 const updatedLabel =
                   r.lastUpdatedMs > 0
                     ? new Date(r.lastUpdatedMs).toLocaleDateString("en-US", {
@@ -298,13 +324,14 @@ export default async function AdminEmployeesDirectoryPage({
                         >
                           Open
                         </Link>
-                        {tel ? (
-                          <a
-                            href={tel}
+                        {callHref ? (
+                          <Link
+                            href={callHref}
+                            prefetch={false}
                             className="rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-900 hover:bg-emerald-100"
                           >
                             Call
-                          </a>
+                          </Link>
                         ) : (
                           <span className="text-[11px] text-slate-400">No phone</span>
                         )}
@@ -316,12 +343,6 @@ export default async function AdminEmployeesDirectoryPage({
                             Text
                           </Link>
                         ) : null}
-                        <Link
-                          href={`/admin/employees/${id}#event-management`}
-                          className="rounded-lg border border-violet-200 bg-violet-50 px-2 py-1 text-[11px] font-semibold text-violet-900 hover:bg-violet-100"
-                        >
-                          Events
-                        </Link>
                       </div>
                     </td>
                   </tr>
@@ -333,10 +354,12 @@ export default async function AdminEmployeesDirectoryPage({
       </div>
 
       <p className="text-xs text-slate-500">
-        Showing up to 120 rows after filters. “Ready to activate” matches the admin dashboard pipeline rule.
-        “Text” opens or creates an SMS thread for that number. “Call” uses the device dialer (
-        <code className="rounded bg-slate-100 px-1">tel:</code>). “Events” jumps to compliance event management on the
-        employee record.
+        Showing up to 120 rows after filters. “Ready to activate” matches the admin dashboard pipeline rule. “Text”
+        opens or creates an SMS thread. “Call” opens the in-app Twilio keypad (
+        <code className="rounded bg-slate-100 px-1">/workspace/phone/keypad?dial=…&amp;place=1</code>
+        ) when you have workspace phone access; otherwise the same number is prefilled on{" "}
+        <code className="rounded bg-slate-100 px-1">/admin/phone/calls</code> (no <code className="rounded bg-slate-100 px-1">tel:</code>
+        ).
       </p>
     </div>
   );

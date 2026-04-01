@@ -251,12 +251,17 @@ function roleDisplay(a: ApplicantRecord): string {
   );
 }
 
+/** Directory employment bucket after reconciling `applicants.status` with onboarding stage (finalized forms). */
+export type EffectiveEmploymentKey = "active" | "inactive" | "in_process" | "applicant";
+
 export type EmployeeDirectoryRow = {
   applicant: ApplicantRecord;
   nameDisplay: string;
   roleDisplay: string;
+  /** Raw `applicants.status` (lowercased); kept for pipeline rules tied to DB column. */
   normalizedStatus: string;
-  /** Employment / pipeline status (system column `applicants.status`) — not the onboarding stage pill. */
+  /** Reconciled employment for display and Active/Inactive/In process filters. */
+  effectiveEmploymentKey: EffectiveEmploymentKey;
   employmentStatusLabel: string;
   employmentStatusBadgeClass: string;
   /** Stable key for sorting by status */
@@ -273,13 +278,13 @@ export type EmployeeDirectoryRow = {
   lastUpdatedMs: number;
 };
 
-/** Maps `applicants.status` to ops-friendly labels (never conflates with onboarding *stage*). */
-function employmentStatusPresentation(ns: string): {
+/** Maps a canonical employment bucket to pill + sort key. */
+function employmentBucketPresentation(key: EffectiveEmploymentKey): {
   label: string;
   badgeClass: string;
   sortKey: string;
 } {
-  switch (ns) {
+  switch (key) {
     case "active":
       return {
         label: "Active",
@@ -292,7 +297,7 @@ function employmentStatusPresentation(ns: string): {
         badgeClass: "border border-red-200 bg-red-50 text-red-800",
         sortKey: "inactive",
       };
-    case "onboarding":
+    case "in_process":
       return {
         label: "In process",
         badgeClass: "border border-amber-200 bg-amber-50 text-amber-900",
@@ -306,6 +311,24 @@ function employmentStatusPresentation(ns: string): {
         sortKey: "applicant",
       };
   }
+}
+
+/**
+ * Directory employment: prefer operational truth over a stale `applicants.status`.
+ * - Inactive in DB always wins.
+ * - Active if status is `active` OR onboarding stage is "Active Employee" (any finalized admin form).
+ * - In process if status is `onboarding` (and not already treated as active above).
+ * - Otherwise applicant / pre-hire.
+ */
+export function deriveEffectiveEmploymentKey(
+  normalizedApplicantStatus: string,
+  stageLabel: string
+): EffectiveEmploymentKey {
+  const ns = normalizedApplicantStatus;
+  if (ns === "inactive") return "inactive";
+  if (ns === "active" || stageLabel === DASHBOARD_STAGE_ACTIVE_EMPLOYEE) return "active";
+  if (ns === "onboarding") return "in_process";
+  return "applicant";
 }
 
 export async function loadEmployeeDirectoryRows(): Promise<{
@@ -730,6 +753,10 @@ export async function loadEmployeeDirectoryRows(): Promise<{
     const inApplicantOnboardingBucket =
       ns === "onboarding" || ns === "applicant" || ns === "";
 
+    const effectiveKey = deriveEffectiveEmploymentKey(ns, stage.label);
+    const emp = employmentBucketPresentation(effectiveKey);
+
+    /** Legacy pipeline bucket (differs from directory “In process” segment, which uses `effectiveEmploymentKey`). */
     const inProcessBucket =
       ns !== "active" && ns !== "inactive" && stage.label !== DASHBOARD_STAGE_ACTIVE_EMPLOYEE;
 
@@ -759,8 +786,6 @@ export async function loadEmployeeDirectoryRows(): Promise<{
       complianceLabel = "Clear";
     }
 
-    const emp = employmentStatusPresentation(ns === "" ? "applicant" : ns);
-
     const updatedRaw =
       (typeof applicant.updated_at === "string" && applicant.updated_at) ||
       (typeof applicant.created_at === "string" && applicant.created_at) ||
@@ -772,6 +797,7 @@ export async function loadEmployeeDirectoryRows(): Promise<{
       nameDisplay: employeeName(applicant),
       roleDisplay: roleDisplay(applicant),
       normalizedStatus: ns,
+      effectiveEmploymentKey: effectiveKey,
       employmentStatusLabel: emp.label,
       employmentStatusBadgeClass: emp.badgeClass,
       employmentStatusSortKey: emp.sortKey,
@@ -808,13 +834,13 @@ export function filterEmployeeDirectoryRows(
 
   switch (segment) {
     case "active":
-      out = out.filter((r) => r.normalizedStatus === "active");
+      out = out.filter((r) => r.effectiveEmploymentKey === "active");
       break;
     case "inactive":
-      out = out.filter((r) => r.normalizedStatus === "inactive");
+      out = out.filter((r) => r.effectiveEmploymentKey === "inactive");
       break;
     case "in_process":
-      out = out.filter((r) => r.inProcessBucket);
+      out = out.filter((r) => r.effectiveEmploymentKey === "in_process");
       break;
     case "applicant_onboarding":
       out = out.filter((r) => r.inApplicantOnboardingBucket);

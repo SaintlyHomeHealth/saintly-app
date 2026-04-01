@@ -141,6 +141,11 @@ type PageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
+function oneSearchParam(sp: Record<string, string | string[] | undefined>, key: string): string {
+  const v = sp[key];
+  return typeof v === "string" ? v : Array.isArray(v) ? (v[0] ?? "") : "";
+}
+
 export default async function AdminPhoneCallsFullPage({ searchParams }: PageProps) {
   const staffProfile = await getStaffProfile();
   if (!staffProfile || !isPhoneWorkspaceUser(staffProfile)) redirect("/admin");
@@ -148,6 +153,11 @@ export default async function AdminPhoneCallsFullPage({ searchParams }: PageProp
   const hasFull = hasFullCallVisibility(staffProfile);
   const sp = (await searchParams) ?? {};
   const filters: PhoneCallsFilters = parsePhoneCallsSearchParams(sp);
+
+  const dialPrefill = oneSearchParam(sp, "dial").trim();
+  const placeRaw = oneSearchParam(sp, "place").trim().toLowerCase();
+  const autoPlaceFromQuery =
+    placeRaw === "1" || placeRaw === "true" || placeRaw === "yes";
 
   const supabase = await createServerSupabaseClient();
 
@@ -352,7 +362,12 @@ export default async function AdminPhoneCallsFullPage({ searchParams }: PageProp
         </div>
       </div>
 
-      <SoftphoneDialer staffDisplayName={staffDisplayName} />
+      <SoftphoneDialer
+        key={`softphone-${dialPrefill}-${autoPlaceFromQuery ? "1" : "0"}`}
+        staffDisplayName={staffDisplayName}
+        initialDigits={dialPrefill || undefined}
+        autoPlaceCall={autoPlaceFromQuery && Boolean(dialPrefill)}
+      />
 
       <form
         method="get"
