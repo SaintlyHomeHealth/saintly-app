@@ -1698,7 +1698,7 @@ export default async function AdminDashboardPage({
                 Compliance
               </Link>
               <Link
-                href="/admin"
+                href="/admin/employees"
                 className="inline-flex min-w-[5.5rem] flex-1 items-center justify-center rounded-[18px] border border-slate-200/90 bg-white/95 px-3 py-2 text-center text-[11px] font-semibold text-slate-800 shadow-sm transition hover:border-indigo-300 hover:shadow-md sm:flex-initial sm:min-w-[6.5rem] sm:text-xs"
               >
                 Employees
@@ -1718,7 +1718,18 @@ export default async function AdminDashboardPage({
         <div className="grid gap-3 border-t border-slate-100/90 bg-gradient-to-b from-sky-50/25 to-white px-5 py-3.5 sm:grid-cols-2 sm:px-6 sm:py-4 xl:grid-cols-4">
           <StatCard label="Needs Attention" value={String(actionRequiredCount)} tone="red" size="compact" />
           <StatCard label="Due Soon" value={String(dueSoonKpiCount)} tone="amber" size="compact" />
-          <StatCard label="Employees" value={String(activeEmployeesCount)} tone="green" size="compact" />
+          <Link
+            href="/admin/employees"
+            className="block h-full min-h-0 rounded-[18px] outline-none ring-offset-2 transition hover:brightness-[0.98] focus-visible:ring-2 focus-visible:ring-indigo-400"
+          >
+            <StatCard
+              label="Employees"
+              value={String(activeEmployeesCount)}
+              tone="green"
+              size="compact"
+              className="h-full"
+            />
+          </Link>
           <StatCard label="Applicants" value={String(pipelineApplicantsCount)} tone="sky" size="compact" />
         </div>
       </div>
@@ -2650,11 +2661,13 @@ function StatCard({
   value,
   tone = "slate",
   size = "default",
+  className,
 }: {
   label: string;
   value: string;
   tone?: "green" | "red" | "amber" | "sky" | "slate";
   size?: "default" | "compact";
+  className?: string;
 }) {
   const toneMap = {
     green: "from-green-50 to-white border-green-100 text-green-700",
@@ -2668,7 +2681,7 @@ function StatCard({
 
   return (
     <div
-      className={`border bg-gradient-to-br ${compact ? "rounded-[18px] p-3" : "rounded-[24px] p-4"} ${toneMap[tone]}`}
+      className={`border bg-gradient-to-br ${compact ? "rounded-[18px] p-3" : "rounded-[24px] p-4"} ${toneMap[tone]} ${className ?? ""}`}
     >
       <p
         className={`font-semibold uppercase tracking-[0.16em] ${compact ? "text-[10px] leading-tight" : "text-xs"}`}
