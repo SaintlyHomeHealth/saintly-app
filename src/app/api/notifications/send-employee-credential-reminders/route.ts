@@ -21,7 +21,8 @@ function authorizeCron(req: NextRequest): boolean {
  * Daily automated employee credential SMS (30d / 7d / expired). Reuses `sendEmployeeCredentialReminderSms` pipeline:
  * `prepareEmployeeCredentialReminderSend` + `commitEmployeeCredentialReminderSend`, same dedupe table.
  *
- * - Scope: applicants with status `active` or `onboarding` only; excludes missing-credential reminders (manual for v1).
+ * - Scope: same as employee directory — `effectiveEmploymentKey` `active` or `in_process` only (excludes inactive +
+ *   pre-hire applicant bucket); excludes missing-credential SMS lines (manual for v1).
  * - Auth: `Authorization: Bearer <EMPLOYEE_CREDENTIAL_REMINDER_CRON_SECRET>` or Vercel `CRON_SECRET`.
  * - Dry run: `?dry_run=1` — no Twilio, no DB inserts; returns projected counts.
  *

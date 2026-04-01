@@ -2,7 +2,7 @@ import "server-only";
 
 import { revalidatePath } from "next/cache";
 
-import { supabaseAdmin } from "@/lib/admin";
+import { loadEmployeeDirectoryRows } from "@/lib/admin/employee-directory-data";
 import {
   commitEmployeeCredentialReminderSend,
   countCredentialReminderTargetsByStage,
@@ -37,8 +37,9 @@ export type EmployeeCredentialReminderCronResult = {
 };
 
 /**
- * Daily automation: `active` + `onboarding` applicants only; same send/dedupe/logging as manual reminders.
- * Omits "missing credential" rows (manual-only for v1).
+ * Daily automation: same **effective employment** scope as `/admin/employees` (not raw `applicants.status`).
+ * Includes `effectiveEmploymentKey` `active` or `in_process`; excludes `inactive` and pre-hire `applicant`.
+ * Omits "missing credential" SMS lines (manual-only for v1). Dedupe/logging same as manual reminders.
  */
 export async function runEmployeeCredentialReminderCron(input: {
   dryRun: boolean;
@@ -57,14 +58,9 @@ export async function runEmployeeCredentialReminderCron(input: {
   let skipped_no_targets = 0;
   let skipped_all_duplicates = 0;
 
-  const { data: applicants, error: listErr } = await supabaseAdmin
-    .from("applicants")
-    .select("id")
-    .in("status", ["active", "onboarding"])
-    .order("created_at", { ascending: false })
-    .limit(2500);
+  const { rows: directoryRows, loadError: directoryLoadError } = await loadEmployeeDirectoryRows();
 
-  if (listErr) {
+  if (directoryLoadError) {
     return {
       ok: false,
       dry_run: input.dryRun,
@@ -78,13 +74,18 @@ export async function runEmployeeCredentialReminderCron(input: {
       skipped_no_phone: 0,
       skipped_no_targets: 0,
       skipped_all_duplicates: 0,
-      errors: [{ applicant_id: "_", message: listErr.message }],
+      errors: [{ applicant_id: "_", message: directoryLoadError }],
       error_count: 1,
       duration_ms: Date.now() - start,
     };
   }
 
-  const ids = (applicants || []).map((a) => a.id as string);
+  const ids = directoryRows
+    .filter(
+      (r) => r.effectiveEmploymentKey === "active" || r.effectiveEmploymentKey === "in_process"
+    )
+    .map((r) => r.applicant.id);
+
   scanned = ids.length;
 
   let didCommit = false;
