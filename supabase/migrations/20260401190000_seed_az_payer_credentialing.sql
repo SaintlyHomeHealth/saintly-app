@@ -26,7 +26,7 @@ select
   v.contracting_status
 from (
   values
-    ('Original Medicare', 'Medicare', 'AZ', 'not_started', 'not_started'),
+    ('Original Medicare', 'Medicare', 'AZ', 'enrolled', 'contracted'),
     ('AHCCCS', 'Medicaid', 'AZ', 'not_started', 'not_started'),
     ('UnitedHealthcare', 'Medicare Advantage', 'AZ', 'not_started', 'not_started'),
     ('Humana', 'Medicare Advantage', 'AZ', 'not_started', 'not_started'),

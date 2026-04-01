@@ -2,19 +2,49 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import {
-  CONTRACTING_STATUS_LABELS,
   CREDENTIALING_LIST_SEGMENTS,
-  CREDENTIALING_STATUS_LABELS,
   type CredentialingListSegment,
   isCredentialingListSegment,
 } from "@/lib/crm/credentialing-status-options";
+import {
+  analyzePayerCredentialingAttention,
+  computeCredentialingSummaryStats,
+  CREDENTIALING_ATTENTION_REASON_LABELS,
+  type PayerCredentialingListRow,
+} from "@/lib/crm/credentialing-command-center";
+import {
+  ContractingStatusBadge,
+  CredentialingStatusBadge,
+  RowAttentionHint,
+} from "@/components/crm/CredentialingBadges";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
-function buildSegmentHref(segment: CredentialingListSegment): string {
-  return segment === "all" ? "/admin/credentialing" : `/admin/credentialing?segment=${segment}`;
+function buildListHref(segment: CredentialingListSegment, attention: boolean): string {
+  const u = new URLSearchParams();
+  if (segment !== "all") u.set("segment", segment);
+  if (attention) u.set("attention", "1");
+  const qs = u.toString();
+  return qs ? `/admin/credentialing?${qs}` : "/admin/credentialing";
 }
+
+function matchesSegment(r: PayerCredentialingListRow, segment: CredentialingListSegment): boolean {
+  if (segment === "all") return true;
+  if (segment === "in_progress") return r.credentialing_status === "in_progress";
+  if (segment === "submitted") return r.credentialing_status === "submitted";
+  if (segment === "enrolled") return r.credentialing_status === "enrolled";
+  if (segment === "contracted") return r.contracting_status === "contracted";
+  if (segment === "stalled") {
+    return r.credentialing_status === "stalled" || r.contracting_status === "stalled";
+  }
+  return true;
+}
+
+const statCardBase =
+  "rounded-[20px] border bg-white px-4 py-3 shadow-sm transition hover:border-sky-200 hover:shadow-md";
+const statLabel = "text-[10px] font-bold uppercase tracking-wide text-slate-500";
+const statValue = "mt-1 text-2xl font-bold tabular-nums text-slate-900";
 
 export default async function AdminCredentialingPage({
   searchParams,
@@ -29,50 +59,35 @@ export default async function AdminCredentialingPage({
   const raw = await searchParams;
   const segRaw = typeof raw.segment === "string" ? raw.segment.trim().toLowerCase() : "";
   const segment: CredentialingListSegment = isCredentialingListSegment(segRaw) ? segRaw : "all";
+  const attentionOn =
+    raw.attention === "1" ||
+    raw.attention === "true" ||
+    (typeof raw.attention === "string" && raw.attention.toLowerCase() === "yes");
 
   const supabase = await createServerSupabaseClient();
-  let query = supabase
+  const { data: rows, error } = await supabase
     .from("payer_credentialing_records")
     .select(
       "id, payer_name, payer_type, market_state, credentialing_status, contracting_status, portal_url, primary_contact_name, primary_contact_phone, primary_contact_email, notes, last_follow_up_at, updated_at"
     )
     .order("updated_at", { ascending: false })
-    .limit(500);
+    .limit(2000);
 
-  if (segment === "in_progress") {
-    query = query.eq("credentialing_status", "in_progress");
-  } else if (segment === "submitted") {
-    query = query.eq("credentialing_status", "submitted");
-  } else if (segment === "enrolled") {
-    query = query.eq("credentialing_status", "enrolled");
-  } else if (segment === "contracted") {
-    query = query.eq("contracting_status", "contracted");
-  } else if (segment === "stalled") {
-    query = query.or("credentialing_status.eq.stalled,contracting_status.eq.stalled");
+  const allList = (rows ?? []) as PayerCredentialingListRow[];
+
+  const stats = computeCredentialingSummaryStats(allList);
+
+  let list = allList.filter((r) => matchesSegment(r, segment));
+  if (attentionOn) {
+    list = list.filter((r) => analyzePayerCredentialingAttention(r).needsAttention);
   }
-
-  const { data: rows, error } = await query;
-
-  const list = (rows ?? []) as {
-    id: string;
-    payer_name: string;
-    payer_type: string | null;
-    market_state: string | null;
-    credentialing_status: string;
-    contracting_status: string;
-    portal_url: string | null;
-    primary_contact_name: string | null;
-    primary_contact_phone: string | null;
-    primary_contact_email: string | null;
-    notes: string | null;
-    last_follow_up_at: string | null;
-    updated_at: string;
-  }[];
 
   const chipBase =
     "inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-semibold transition";
   const chipOff = `${chipBase} border-slate-200 bg-white text-slate-600 hover:border-sky-200 hover:bg-sky-50`;
   const chipOn = `${chipBase} border-sky-300 bg-sky-50 text-sky-900`;
+  const attentionChipOff = `${chipBase} border-amber-200 bg-white text-amber-900 hover:border-amber-300 hover:bg-amber-50`;
+  const attentionChipOn = `${chipBase} border-amber-400 bg-amber-100 text-amber-950`;
 
   return (
     <div className="space-y-6 p-6">
@@ -99,11 +114,11 @@ export default async function AdminCredentialingPage({
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Operations</p>
           <h1 className="mt-1 text-2xl font-bold text-slate-900">Payer credentialing</h1>
           <p className="mt-1 max-w-2xl text-sm text-slate-600">
-            Track payer onboarding, enrollment, and contracting. This is separate from the CRM{" "}
+            Command center for payer onboarding, enrollment, and contracting. Separate from the CRM{" "}
             <Link href="/admin/crm/contacts" className="font-semibold text-sky-800 hover:underline">
               Contacts
             </Link>{" "}
-            directory (people and care relationships).
+            directory.
           </p>
         </div>
         <Link
@@ -122,12 +137,58 @@ export default async function AdminCredentialingPage({
         </p>
       ) : null}
 
-      <div className="flex flex-wrap gap-2">
-        {CREDENTIALING_LIST_SEGMENTS.map(({ value, label }) => (
-          <Link key={value} href={buildSegmentHref(value)} className={segment === value ? chipOn : chipOff}>
-            {label}
+      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
+        <Link href={buildListHref("all", false)} className={`${statCardBase} border-slate-200`}>
+          <p className={statLabel}>Total</p>
+          <p className={statValue}>{stats.total}</p>
+        </Link>
+        <Link href={buildListHref("in_progress", false)} className={`${statCardBase} border-amber-100 bg-amber-50/40`}>
+          <p className={statLabel}>In progress</p>
+          <p className={`${statValue} text-amber-950`}>{stats.inProgress}</p>
+        </Link>
+        <Link href={buildListHref("submitted", false)} className={`${statCardBase} border-amber-100 bg-amber-50/40`}>
+          <p className={statLabel}>Submitted</p>
+          <p className={`${statValue} text-amber-950`}>{stats.submitted}</p>
+        </Link>
+        <Link href={buildListHref("enrolled", false)} className={`${statCardBase} border-emerald-100 bg-emerald-50/50`}>
+          <p className={statLabel}>Enrolled</p>
+          <p className={`${statValue} text-emerald-900`}>{stats.enrolled}</p>
+        </Link>
+        <Link href={buildListHref("contracted", false)} className={`${statCardBase} border-emerald-100 bg-emerald-50/50`}>
+          <p className={statLabel}>Contracted</p>
+          <p className={`${statValue} text-emerald-900`}>{stats.contracted}</p>
+        </Link>
+        <Link href={buildListHref("stalled", false)} className={`${statCardBase} border-red-100 bg-red-50/40`}>
+          <p className={statLabel}>Stalled</p>
+          <p className={`${statValue} text-red-900`}>{stats.stalled}</p>
+        </Link>
+        <Link
+          href={buildListHref("all", true)}
+          className={`${statCardBase} border-amber-200 bg-amber-50/80 ring-1 ring-amber-100`}
+        >
+          <p className={statLabel}>Needs attention</p>
+          <p className={`${statValue} text-amber-950`}>{stats.needsAttention}</p>
+          <p className="mt-1 text-[10px] leading-snug text-amber-900/80">
+            Stalled, stale follow-up, or missing portal/contact while active
+          </p>
+        </Link>
+      </section>
+
+      <div className="flex flex-col gap-2">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Filters</p>
+        <div className="flex flex-wrap gap-2">
+          {CREDENTIALING_LIST_SEGMENTS.map(({ value, label }) => (
+            <Link key={value} href={buildListHref(value, attentionOn)} className={segment === value ? chipOn : chipOff}>
+              {label}
+            </Link>
+          ))}
+          <Link
+            href={buildListHref(segment, !attentionOn)}
+            className={attentionOn ? attentionChipOn : attentionChipOff}
+          >
+            {attentionOn ? "✓ Needs attention only" : "Needs attention only"}
           </Link>
-        ))}
+        </div>
       </div>
 
       <div className="overflow-x-auto rounded-[28px] border border-slate-200 bg-white shadow-sm">
@@ -138,6 +199,7 @@ export default async function AdminCredentialingPage({
               <th className="px-4 py-3">Type / market</th>
               <th className="px-4 py-3">Credentialing</th>
               <th className="px-4 py-3">Contracting</th>
+              <th className="px-4 py-3">Watch</th>
               <th className="px-4 py-3">Portal</th>
               <th className="px-4 py-3">Primary contact</th>
               <th className="px-4 py-3">Last follow-up</th>
@@ -148,23 +210,30 @@ export default async function AdminCredentialingPage({
           <tbody>
             {list.length === 0 ? (
               <tr>
-                <td colSpan={9} className="px-4 py-8 text-slate-500">
-                  No payer records yet.{" "}
-                  <Link href="/admin/credentialing/new" className="font-semibold text-sky-800 hover:underline">
-                    Add one
-                  </Link>
-                  .
+                <td colSpan={10} className="px-4 py-8 text-slate-500">
+                  {attentionOn ? (
+                    <>
+                      No rows match this filter.{" "}
+                      <Link href={buildListHref(segment, false)} className="font-semibold text-sky-800 hover:underline">
+                        Clear attention filter
+                      </Link>
+                    </>
+                  ) : (
+                    <>
+                      No payer records yet.{" "}
+                      <Link href="/admin/credentialing/new" className="font-semibold text-sky-800 hover:underline">
+                        Add one
+                      </Link>
+                      .
+                    </>
+                  )}
                 </td>
               </tr>
             ) : (
               list.map((r) => {
                 const notesPreview = (r.notes ?? "").trim().slice(0, 80);
-                const credLabel =
-                  CREDENTIALING_STATUS_LABELS[r.credentialing_status as keyof typeof CREDENTIALING_STATUS_LABELS] ??
-                  r.credentialing_status;
-                const contLabel =
-                  CONTRACTING_STATUS_LABELS[r.contracting_status as keyof typeof CONTRACTING_STATUS_LABELS] ??
-                  r.contracting_status;
+                const att = analyzePayerCredentialingAttention(r);
+                const reasonText = att.reasons.map((x) => CREDENTIALING_ATTENTION_REASON_LABELS[x]).join(" · ");
                 return (
                   <tr key={r.id} className="border-b border-slate-100 last:border-0">
                     <td className="px-4 py-3 font-medium text-slate-900">{r.payer_name}</td>
@@ -177,8 +246,19 @@ export default async function AdminCredentialingPage({
                         </>
                       ) : null}
                     </td>
-                    <td className="px-4 py-3 text-xs text-slate-700">{credLabel}</td>
-                    <td className="px-4 py-3 text-xs text-slate-700">{contLabel}</td>
+                    <td className="px-4 py-3">
+                      <CredentialingStatusBadge status={r.credentialing_status} />
+                    </td>
+                    <td className="px-4 py-3">
+                      <ContractingStatusBadge status={r.contracting_status} />
+                    </td>
+                    <td className="px-4 py-3 align-top">
+                      {att.needsAttention ? (
+                        <RowAttentionHint title={reasonText} />
+                      ) : (
+                        <span className="text-xs text-slate-400">—</span>
+                      )}
+                    </td>
                     <td className="max-w-[140px] px-4 py-3 text-xs">
                       {r.portal_url?.trim() ? (
                         <a

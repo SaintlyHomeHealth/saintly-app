@@ -3,11 +3,17 @@ import { notFound, redirect } from "next/navigation";
 
 import { updatePayerCredentialingRecord } from "../actions";
 import {
-  CONTRACTING_STATUS_LABELS,
   CONTRACTING_STATUS_VALUES,
-  CREDENTIALING_STATUS_LABELS,
   CREDENTIALING_STATUS_VALUES,
+  CREDENTIALING_STATUS_LABELS,
+  CONTRACTING_STATUS_LABELS,
 } from "@/lib/crm/credentialing-status-options";
+import {
+  analyzePayerCredentialingAttention,
+  CREDENTIALING_ATTENTION_REASON_LABELS,
+  type PayerCredentialingListRow,
+} from "@/lib/crm/credentialing-command-center";
+import { ContractingStatusBadge, CredentialingStatusBadge } from "@/components/crm/CredentialingBadges";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
@@ -42,6 +48,30 @@ export default async function AdminCredentialingDetailPage({
   const r = row as Record<string, unknown>;
   const payer_name = String(r.payer_name ?? "");
   const portal_url = typeof r.portal_url === "string" ? r.portal_url : "";
+  const payer_type = String(r.payer_type ?? "");
+  const market_state = String(r.market_state ?? "");
+  const credentialing_status = String(r.credentialing_status ?? "in_progress");
+  const contracting_status = String(r.contracting_status ?? "pending");
+  const last_follow_up_at = typeof r.last_follow_up_at === "string" ? r.last_follow_up_at : null;
+
+  const attentionRow: PayerCredentialingListRow = {
+    id: credentialingId.trim(),
+    payer_name,
+    payer_type: payer_type.trim() ? payer_type : null,
+    market_state: market_state.trim() ? market_state : null,
+    credentialing_status,
+    contracting_status,
+    portal_url: portal_url.trim() ? portal_url : null,
+    primary_contact_name: typeof r.primary_contact_name === "string" ? r.primary_contact_name : null,
+    primary_contact_phone: typeof r.primary_contact_phone === "string" ? r.primary_contact_phone : null,
+    primary_contact_email: typeof r.primary_contact_email === "string" ? r.primary_contact_email : null,
+    notes: typeof r.notes === "string" ? r.notes : null,
+    last_follow_up_at,
+    updated_at: typeof r.updated_at === "string" ? r.updated_at : "",
+  };
+
+  const attention = analyzePayerCredentialingAttention(attentionRow);
+  const attentionReasonText = attention.reasons.map((x) => CREDENTIALING_ATTENTION_REASON_LABELS[x]).join(" · ");
 
   return (
     <div className="space-y-6 p-6">
@@ -57,29 +87,80 @@ export default async function AdminCredentialingDetailPage({
         <span className="text-slate-900">Record</span>
       </nav>
 
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900">{payer_name}</h1>
-        <p className="mt-1 font-mono text-xs text-slate-500">{credentialingId}</p>
-      </div>
+      <section className="overflow-hidden rounded-[28px] border border-slate-200 bg-gradient-to-br from-white via-sky-50/40 to-cyan-50/30 p-5 shadow-sm">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0 flex-1 space-y-3">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Payer</p>
+              <h1 className="mt-0.5 text-2xl font-bold text-slate-900">{payer_name}</h1>
+              <p className="mt-1 font-mono text-[11px] text-slate-400">{credentialingId}</p>
+            </div>
+            <div className="flex flex-wrap gap-2 text-sm text-slate-700">
+              {(payer_type ?? "").trim() ? (
+                <span className="inline-flex items-center rounded-lg border border-slate-200 bg-white/80 px-3 py-1 text-xs font-medium text-slate-800">
+                  <span className="text-slate-500">Type · </span>
+                  &nbsp;{payer_type.trim()}
+                </span>
+              ) : (
+                <span className="inline-flex items-center rounded-lg border border-dashed border-slate-200 bg-white/60 px-3 py-1 text-xs text-slate-500">
+                  Type not set
+                </span>
+              )}
+              {(market_state ?? "").trim() ? (
+                <span className="inline-flex items-center rounded-lg border border-slate-200 bg-white/80 px-3 py-1 text-xs font-medium text-slate-800">
+                  <span className="text-slate-500">Market · </span>
+                  &nbsp;{market_state.trim()}
+                </span>
+              ) : (
+                <span className="inline-flex items-center rounded-lg border border-dashed border-slate-200 bg-white/60 px-3 py-1 text-xs text-slate-500">
+                  Market not set
+                </span>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <CredentialingStatusBadge status={credentialing_status} />
+              <ContractingStatusBadge status={contracting_status} />
+            </div>
+            <p className="text-sm text-slate-600">
+              <span className="font-semibold text-slate-700">Last follow-up: </span>
+              {last_follow_up_at
+                ? new Date(last_follow_up_at).toLocaleString("en-US", {
+                    dateStyle: "medium",
+                    timeStyle: "short",
+                  })
+                : "—"}
+            </p>
+          </div>
+          <div className="flex shrink-0 flex-col gap-2 sm:flex-row lg:flex-col">
+            {portal_url.trim() ? (
+              <a
+                href={portal_url.trim()}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center justify-center rounded-[20px] bg-gradient-to-r from-sky-600 to-cyan-500 px-5 py-2.5 text-sm font-semibold text-white shadow-sm shadow-sky-200/60 transition hover:-translate-y-px hover:shadow-md"
+              >
+                Open portal
+              </a>
+            ) : null}
+            <Link
+              href="/admin/credentialing"
+              className="inline-flex items-center justify-center rounded-[20px] border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50"
+            >
+              Back to list
+            </Link>
+          </div>
+        </div>
 
-      <div className="flex flex-wrap gap-2">
-        {portal_url.trim() ? (
-          <a
-            href={portal_url.trim()}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center rounded-[20px] border border-sky-600 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-900 hover:bg-sky-100"
+        {attention.needsAttention ? (
+          <div
+            className="mt-4 rounded-[20px] border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950"
+            role="status"
           >
-            Open portal
-          </a>
+            <p className="font-bold">Needs attention</p>
+            <p className="mt-1 text-xs leading-relaxed text-amber-900">{attentionReasonText}</p>
+          </div>
         ) : null}
-        <Link
-          href="/admin/credentialing"
-          className="inline-flex items-center rounded-[20px] border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50"
-        >
-          Back to list
-        </Link>
-      </div>
+      </section>
 
       <form
         action={updatePayerCredentialingRecord}
@@ -94,11 +175,11 @@ export default async function AdminCredentialingDetailPage({
         </label>
         <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
           Payer type / plan type
-          <input name="payer_type" className={inp} defaultValue={String(r.payer_type ?? "")} />
+          <input name="payer_type" className={inp} defaultValue={payer_type} />
         </label>
         <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
           State / market
-          <input name="market_state" className={inp} defaultValue={String(r.market_state ?? "")} />
+          <input name="market_state" className={inp} defaultValue={market_state} />
         </label>
 
         <div className="grid gap-3 sm:grid-cols-2">
@@ -107,7 +188,7 @@ export default async function AdminCredentialingDetailPage({
             <select
               name="credentialing_status"
               className={inp}
-              defaultValue={String(r.credentialing_status ?? "in_progress")}
+              defaultValue={credentialing_status || "in_progress"}
             >
               {CREDENTIALING_STATUS_VALUES.map((v) => (
                 <option key={v} value={v}>
@@ -121,7 +202,7 @@ export default async function AdminCredentialingDetailPage({
             <select
               name="contracting_status"
               className={inp}
-              defaultValue={String(r.contracting_status ?? "pending")}
+              defaultValue={contracting_status || "pending"}
             >
               {CONTRACTING_STATUS_VALUES.map((v) => (
                 <option key={v} value={v}>
@@ -147,7 +228,11 @@ export default async function AdminCredentialingDetailPage({
 
         <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
           Primary contact name
-          <input name="primary_contact_name" className={inp} defaultValue={String(r.primary_contact_name ?? "")} />
+          <input
+            name="primary_contact_name"
+            className={inp}
+            defaultValue={String(r.primary_contact_name ?? "")}
+          />
         </label>
         <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
           Primary contact phone
@@ -186,7 +271,7 @@ export default async function AdminCredentialingDetailPage({
 
         <button
           type="submit"
-          className="rounded border border-sky-600 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-900 hover:bg-sky-100"
+          className="rounded-[20px] border border-sky-600 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-900 shadow-sm hover:bg-sky-100"
         >
           Save changes
         </button>
@@ -194,15 +279,6 @@ export default async function AdminCredentialingDetailPage({
 
       <div className="rounded-[28px] border border-slate-100 bg-slate-50/80 p-4 text-xs text-slate-600">
         <p>
-          Last follow-up:{" "}
-          {r.last_follow_up_at
-            ? new Date(String(r.last_follow_up_at)).toLocaleString("en-US", {
-                dateStyle: "medium",
-                timeStyle: "short",
-              })
-            : "—"}
-        </p>
-        <p className="mt-1">
           Updated:{" "}
           {r.updated_at
             ? new Date(String(r.updated_at)).toLocaleString("en-US", {
