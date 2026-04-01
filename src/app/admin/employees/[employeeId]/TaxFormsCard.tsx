@@ -212,8 +212,8 @@ export default function TaxFormsCard({
 
     const timestamp = new Date().toISOString();
     const baseFormData =
-      activeTaxForm?.form_type === applicableFormType
-        ? taxForm.form_data
+      activeTaxForm && activeTaxForm.form_type === applicableFormType
+        ? activeTaxForm.form_data
         : getEmptyTaxFormData(applicableFormType);
     const payload = {
       applicant_id: applicantId,
