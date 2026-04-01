@@ -17,6 +17,7 @@ import {
   resolveDirectorySourceLabel,
   resolveDirectoryStatusLabel,
 } from "@/lib/crm/contact-directory";
+import { buildDuplicateFlagsForBatch } from "@/lib/crm/contact-duplicate-detection";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
@@ -137,6 +138,8 @@ export default async function AdminCrmContactsPage({
   const totalMatched = filtered.length;
   const list = filtered.slice(0, DIRECTORY_DISPLAY_CAP);
 
+  const duplicateFlags = buildDuplicateFlagsForBatch(contacts as ContactDirectoryDbRow[]);
+
   const filterInputCls =
     "rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800 shadow-sm";
   const chipBase =
@@ -157,6 +160,9 @@ export default async function AdminCrmContactsPage({
         </Link>
         <Link href="/admin/crm/patients" className="underline-offset-2 hover:underline">
           Patients
+        </Link>
+        <Link href="/admin/credentialing" className="underline-offset-2 hover:underline">
+          Credentialing
         </Link>
         <span className="text-slate-300">|</span>
         <Link href="/admin/crm/dispatch" className="underline-offset-2 hover:underline">
@@ -202,7 +208,8 @@ export default async function AdminCrmContactsPage({
         </form>
         <p className="text-xs text-slate-500">
           Showing {list.length} of {totalMatched} match{totalMatched === 1 ? "" : "es"}
-          {contacts.length >= DIRECTORY_FETCH_LIMIT ? ` (scanning newest ${DIRECTORY_FETCH_LIMIT} contacts)` : ""}.
+          {contacts.length >= DIRECTORY_FETCH_LIMIT ? ` (scanning newest ${DIRECTORY_FETCH_LIMIT} contacts)` : ""}. Dup flags
+          compare primary phone digits and email within that same loaded set.
         </p>
       </div>
 
@@ -226,6 +233,7 @@ export default async function AdminCrmContactsPage({
           <thead>
             <tr className="border-b border-slate-100 bg-slate-50 text-xs font-semibold text-slate-600">
               <th className="px-4 py-3">Name</th>
+              <th className="px-4 py-3">Dup?</th>
               <th className="px-4 py-3">Phone</th>
               <th className="px-4 py-3">Email</th>
               <th className="px-4 py-3">Type</th>
@@ -239,7 +247,7 @@ export default async function AdminCrmContactsPage({
           <tbody>
             {list.length === 0 ? (
               <tr>
-                <td colSpan={9} className="px-4 py-8 text-slate-500">
+                <td colSpan={10} className="px-4 py-8 text-slate-500">
                   No contacts match these filters.
                 </td>
               </tr>
@@ -254,6 +262,11 @@ export default async function AdminCrmContactsPage({
                 const statusLabel = resolveDirectoryStatusLabel(r, patient, leads);
                 const cred = credentialingSummaryFromMetadata(r.relationship_metadata);
                 const displayName = contactDirectoryDisplayName(r);
+                const dup = duplicateFlags.get(r.id);
+                const dupLabel =
+                  dup && (dup.duplicateByPhone || dup.duplicateByEmail)
+                    ? dup.reasons.join(" · ")
+                    : null;
                 return (
                   <tr key={r.id} className="border-b border-slate-100 last:border-0">
                     <td className="px-4 py-3">
@@ -263,6 +276,18 @@ export default async function AdminCrmContactsPage({
                       >
                         {displayName}
                       </Link>
+                    </td>
+                    <td className="px-4 py-3 text-xs">
+                      {dupLabel ? (
+                        <span
+                          className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 font-semibold text-amber-900"
+                          title={`Possible duplicate within loaded list by: ${dupLabel}`}
+                        >
+                          {dup?.duplicateByPhone && dup?.duplicateByEmail ? "Phone+email" : dup?.duplicateByPhone ? "Phone" : "Email"}
+                        </span>
+                      ) : (
+                        <span className="text-slate-400">—</span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-xs tabular-nums text-slate-700">
                       {formatPhoneForDisplay(r.primary_phone)}

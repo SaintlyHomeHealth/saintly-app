@@ -262,6 +262,10 @@ export default async function AdminCrmPatientNewPage({
             <FormattedPhoneInput name="primaryPhone" required className={inp} autoComplete="tel" />
           </label>
           <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
+            Caregiver / alternate phone
+            <FormattedPhoneInput name="secondary_phone" className={inp} autoComplete="tel" />
+          </label>
+          <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
             Email
             <input name="email" type="email" autoComplete="email" className={inp} />
           </label>

@@ -767,7 +767,7 @@ export async function updateLeadContactProfile(formData: FormData) {
   const { data: crow, error: cErr } = await supabaseAdmin
     .from("contacts")
     .select(
-      "id, full_name, first_name, last_name, primary_phone, email, address_line_1, address_line_2, city, state, zip, notes"
+      "id, full_name, first_name, last_name, primary_phone, secondary_phone, email, address_line_1, address_line_2, city, state, zip, notes"
     )
     .eq("id", contactId)
     .maybeSingle();
@@ -791,6 +791,7 @@ export async function updateLeadContactProfile(formData: FormData) {
     first_name: nameParts.first_name,
     last_name: nameParts.last_name,
     primary_phone: primaryDigits,
+    secondary_phone: readOptionalNormalizedPhone(formData, "secondary_phone"),
     email: readTrimmedOrNull(formData, "email"),
     address_line_1: readTrimmedOrNull(formData, "address_line_1"),
     address_line_2: readTrimmedOrNull(formData, "address_line_2"),
@@ -829,6 +830,7 @@ export async function updateLeadContactProfile(formData: FormData) {
   revalidatePath("/admin/crm/leads");
   revalidatePath(`/admin/crm/leads/${leadId}`);
   revalidatePath("/admin/crm/contacts");
+  revalidatePath(`/admin/crm/contacts/${contactId}`);
 
   const { data: patRow } = await supabaseAdmin.from("patients").select("id").eq("contact_id", contactId).maybeSingle();
   if (patRow?.id) {
@@ -997,6 +999,8 @@ export async function updateCrmPatientCoreProfile(formData: FormData) {
 
   revalidatePath("/admin/crm/patients");
   revalidatePath(`/admin/crm/patients/${patientId}`);
+  revalidatePath("/admin/crm/contacts");
+  revalidatePath(`/admin/crm/contacts/${contactId}`);
   revalidatePath("/admin/crm/roster");
   revalidatePath(`/workspace/phone/patients/${patientId}`);
   revalidatePath("/workspace/phone/patients");
@@ -1169,6 +1173,8 @@ export async function createPatientManualFromCrm(formData: FormData) {
 
   const full_name = [firstName, lastName].filter(Boolean).join(" ").trim() || null;
 
+  const secondary_phone = readOptionalNormalizedPhone(formData, "secondary_phone");
+
   const { data: contactRow, error: cErr } = await supabaseAdmin
     .from("contacts")
     .insert({
@@ -1176,6 +1182,7 @@ export async function createPatientManualFromCrm(formData: FormData) {
       last_name: lastName,
       full_name,
       primary_phone,
+      secondary_phone,
       email: readTrimmedOrNull(formData, "email"),
       address_line_1: readTrimmedOrNull(formData, "addressLine1"),
       address_line_2: readTrimmedOrNull(formData, "addressLine2"),
@@ -1228,6 +1235,8 @@ export async function createPatientManualFromCrm(formData: FormData) {
 
   revalidatePath("/admin/crm/patients");
   revalidatePath(`/admin/crm/patients/${patientId}`);
+  revalidatePath("/admin/crm/contacts");
+  revalidatePath(`/admin/crm/contacts/${contactId}`);
   revalidatePath("/admin/crm/roster");
   revalidatePath("/workspace/phone/patients");
   revalidatePath("/workspace/phone");
@@ -1321,6 +1330,8 @@ export async function createLeadManualFromCrm(formData: FormData) {
 
   revalidatePath("/admin");
   revalidatePath("/admin/crm/leads");
+  revalidatePath("/admin/crm/contacts");
+  revalidatePath(`/admin/crm/contacts/${contactId}`);
   redirect(`/admin/crm/leads/${leadId}`);
 }
 

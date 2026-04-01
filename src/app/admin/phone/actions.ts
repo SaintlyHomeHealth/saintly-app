@@ -561,6 +561,8 @@ export async function convertLeadToPatient(leadId: string): Promise<ConvertLeadT
   revalidatePath("/admin/phone");
   revalidatePath("/admin/crm/patients");
   revalidatePath("/admin/crm/leads");
+  revalidatePath("/admin/crm/contacts");
+  revalidatePath(`/admin/crm/contacts/${cid}`);
   revalidatePath(`/admin/crm/leads/${id}`);
   revalidatePath("/admin");
   return { ok: true, patientId };

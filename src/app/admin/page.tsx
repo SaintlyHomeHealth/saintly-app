@@ -1669,6 +1669,12 @@ export default async function AdminDashboardPage({
               >
                 CRM
               </Link>
+              <Link
+                href="/admin/credentialing"
+                className="inline-flex min-w-[5.5rem] flex-1 items-center justify-center rounded-[18px] border border-slate-200/90 bg-white/95 px-3 py-2 text-center text-[11px] font-semibold text-slate-800 shadow-sm transition hover:border-indigo-300 hover:shadow-md sm:flex-initial sm:min-w-[6.5rem] sm:text-xs"
+              >
+                Credentialing
+              </Link>
               {canPhoneCommandCenter ? (
                 <Link
                   href={phoneDashboardHref}
@@ -1746,7 +1752,7 @@ export default async function AdminDashboardPage({
             </p>
           </div>
 
-          <div className="grid gap-4 p-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+          <div className="grid gap-4 p-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-7">
             {canPhoneCommandCenter ? (
               <Link
                 href={phoneDashboardHref}
@@ -1794,6 +1800,14 @@ export default async function AdminDashboardPage({
               <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Team</span>
               <span className="mt-2 text-base font-semibold text-slate-900">Roster</span>
               <span className="mt-1 text-xs leading-snug text-slate-600">Nurse assignments</span>
+            </Link>
+            <Link
+              href="/admin/credentialing"
+              className="flex flex-col rounded-[22px] border border-slate-200/90 bg-white/90 p-4 shadow-sm transition hover:border-indigo-300 hover:shadow-md"
+            >
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Payers</span>
+              <span className="mt-2 text-base font-semibold text-slate-900">Credentialing</span>
+              <span className="mt-1 text-xs leading-snug text-slate-600">Onboarding &amp; contracting</span>
             </Link>
             {canPhoneCommandCenter ? (
               <Link
