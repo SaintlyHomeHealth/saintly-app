@@ -256,6 +256,11 @@ export type EmployeeDirectoryRow = {
   nameDisplay: string;
   roleDisplay: string;
   normalizedStatus: string;
+  /** Employment / pipeline status (system column `applicants.status`) — not the onboarding stage pill. */
+  employmentStatusLabel: string;
+  employmentStatusBadgeClass: string;
+  /** Stable key for sorting by status */
+  employmentStatusSortKey: string;
   stageLabel: string;
   stageTone: ReturnType<typeof getEmployeeStage>["tone"];
   e164: string | null;
@@ -263,32 +268,42 @@ export type EmployeeDirectoryRow = {
   inApplicantOnboardingBucket: boolean;
   inProcessBucket: boolean;
   hasComplianceSurveyGaps: boolean;
-  statusBadgeLabel: string;
-  statusBadgeClass: string;
+  complianceTone: "green" | "amber" | "red";
+  complianceLabel: string;
+  lastUpdatedMs: number;
 };
 
-function statusMeta(statusValue?: string | null) {
-  const normalized = (statusValue || "").toLowerCase().trim();
-  switch (normalized) {
+/** Maps `applicants.status` to ops-friendly labels (never conflates with onboarding *stage*). */
+function employmentStatusPresentation(ns: string): {
+  label: string;
+  badgeClass: string;
+  sortKey: string;
+} {
+  switch (ns) {
     case "active":
       return {
         label: "Active",
-        badgeClass: "border border-green-200 bg-green-50 text-green-700",
+        badgeClass: "border border-green-200 bg-green-50 text-green-800",
+        sortKey: "active",
       };
     case "inactive":
       return {
         label: "Inactive",
-        badgeClass: "border border-red-200 bg-red-50 text-red-700",
+        badgeClass: "border border-red-200 bg-red-50 text-red-800",
+        sortKey: "inactive",
       };
     case "onboarding":
       return {
-        label: "Onboarding",
-        badgeClass: "border border-amber-200 bg-amber-50 text-amber-700",
+        label: "In process",
+        badgeClass: "border border-amber-200 bg-amber-50 text-amber-900",
+        sortKey: "in_process",
       };
+    case "applicant":
     default:
       return {
         label: "Applicant",
-        badgeClass: "border border-sky-200 bg-sky-50 text-sky-700",
+        badgeClass: "border border-sky-200 bg-sky-50 text-sky-900",
+        sortKey: "applicant",
       };
   }
 }
@@ -726,13 +741,40 @@ export async function loadEmployeeDirectoryRows(): Promise<{
       overdueCredentialEmployeeIds.has(applicant.id) ||
       activationBlockedEmployeeIds.has(applicant.id);
 
-    const sm = statusMeta(applicant.status);
+    const criticalCompliance =
+      annualOverdueEmployeeIds.has(applicant.id) || overdueCredentialEmployeeIds.has(applicant.id);
+
+    let complianceTone: EmployeeDirectoryRow["complianceTone"];
+    let complianceLabel: string;
+    if (criticalCompliance) {
+      complianceTone = "red";
+      complianceLabel = annualOverdueEmployeeIds.has(applicant.id)
+        ? "Annual overdue"
+        : "Credential overdue";
+    } else if (hasComplianceSurveyGaps) {
+      complianceTone = "amber";
+      complianceLabel = "Needs attention";
+    } else {
+      complianceTone = "green";
+      complianceLabel = "Clear";
+    }
+
+    const emp = employmentStatusPresentation(ns === "" ? "applicant" : ns);
+
+    const updatedRaw =
+      (typeof applicant.updated_at === "string" && applicant.updated_at) ||
+      (typeof applicant.created_at === "string" && applicant.created_at) ||
+      "";
+    const lastUpdatedMs = updatedRaw ? new Date(updatedRaw).getTime() : 0;
 
     return {
       applicant,
       nameDisplay: employeeName(applicant),
       roleDisplay: roleDisplay(applicant),
       normalizedStatus: ns,
+      employmentStatusLabel: emp.label,
+      employmentStatusBadgeClass: emp.badgeClass,
+      employmentStatusSortKey: emp.sortKey,
       stageLabel: stage.label,
       stageTone: stage.tone,
       e164,
@@ -740,18 +782,24 @@ export async function loadEmployeeDirectoryRows(): Promise<{
       inApplicantOnboardingBucket,
       inProcessBucket,
       hasComplianceSurveyGaps,
-      statusBadgeLabel: sm.label,
-      statusBadgeClass: sm.badgeClass,
+      complianceTone,
+      complianceLabel,
+      lastUpdatedMs,
     };
   });
 
   return { rows: rowsUncached, loadError: null };
 }
 
+export type EmployeeDirectorySortKey = "name" | "status" | "updated";
+export type EmployeeDirectorySortDir = "asc" | "desc";
+
 export function filterEmployeeDirectoryRows(
   rows: EmployeeDirectoryRow[],
   segment: EmployeeDirectorySegment,
-  q: string
+  q: string,
+  sort: EmployeeDirectorySortKey = "updated",
+  sortDir: EmployeeDirectorySortDir = "desc"
 ): EmployeeDirectoryRow[] {
   const needle = q.trim().toLowerCase();
   const needleDigits = needle.replace(/\D/g, "");
@@ -801,29 +849,28 @@ export function filterEmployeeDirectoryRows(
     });
   }
 
-  return out.slice(0, 120);
-}
+  const mul = sortDir === "asc" ? 1 : -1;
+  const statusOrder: Record<string, number> = {
+    active: 0,
+    inactive: 1,
+    in_process: 2,
+    applicant: 3,
+  };
 
-export async function loadSmsConversationIdsByE164(
-  e164List: string[]
-): Promise<Map<string, string>> {
-  const unique = [...new Set(e164List.filter(Boolean))];
-  const map = new Map<string, string>();
-  if (unique.length === 0) return map;
-
-  const chunk = 100;
-  for (let i = 0; i < unique.length; i += chunk) {
-    const part = unique.slice(i, i + chunk);
-    const { data } = await supabaseAdmin
-      .from("conversations")
-      .select("id, main_phone_e164")
-      .eq("channel", "sms")
-      .in("main_phone_e164", part);
-    for (const row of data || []) {
-      const id = typeof row.id === "string" ? row.id : null;
-      const ph = typeof row.main_phone_e164 === "string" ? row.main_phone_e164 : null;
-      if (id && ph) map.set(ph, id);
+  out = [...out].sort((a, b) => {
+    if (sort === "name") {
+      return mul * a.nameDisplay.localeCompare(b.nameDisplay, undefined, { sensitivity: "base" });
     }
-  }
-  return map;
+    if (sort === "status") {
+      const ak = statusOrder[a.employmentStatusSortKey] ?? 9;
+      const bk = statusOrder[b.employmentStatusSortKey] ?? 9;
+      if (ak !== bk) return mul * (ak - bk);
+      return a.nameDisplay.localeCompare(b.nameDisplay, undefined, { sensitivity: "base" });
+    }
+    const diff = a.lastUpdatedMs - b.lastUpdatedMs;
+    if (diff !== 0) return mul * diff;
+    return a.nameDisplay.localeCompare(b.nameDisplay, undefined, { sensitivity: "base" });
+  });
+
+  return out.slice(0, 120);
 }

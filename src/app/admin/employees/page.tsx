@@ -1,12 +1,12 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import { EmployeeDirectoryDialButton } from "./employee-directory-dial-button";
 import {
   type EmployeeDirectorySegment,
+  type EmployeeDirectorySortDir,
+  type EmployeeDirectorySortKey,
   filterEmployeeDirectoryRows,
   loadEmployeeDirectoryRows,
-  loadSmsConversationIdsByE164,
 } from "@/lib/admin/employee-directory-data";
 import { formatPhoneForDisplay, phoneToTelHref } from "@/lib/phone/us-phone-format";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
@@ -25,10 +25,27 @@ function isSegment(v: string): v is EmployeeDirectorySegment {
   return SEGMENTS.some((s) => s.value === v);
 }
 
-function buildQuery(sp: { segment: EmployeeDirectorySegment; q: string }): string {
+function isSortKey(v: string): v is EmployeeDirectorySortKey {
+  return v === "name" || v === "status" || v === "updated";
+}
+
+function isSortDir(v: string): v is EmployeeDirectorySortDir {
+  return v === "asc" || v === "desc";
+}
+
+function buildQuery(sp: {
+  segment: EmployeeDirectorySegment;
+  q: string;
+  sort: EmployeeDirectorySortKey;
+  dir: EmployeeDirectorySortDir;
+}): string {
   const u = new URLSearchParams();
   if (sp.segment !== "all") u.set("segment", sp.segment);
   if (sp.q.trim()) u.set("q", sp.q.trim());
+  if (sp.sort !== "updated" || sp.dir !== "desc") {
+    u.set("sort", sp.sort);
+    u.set("dir", sp.dir);
+  }
   const qs = u.toString();
   return qs ? `?${qs}` : "";
 }
@@ -45,6 +62,19 @@ function stagePillClass(tone: string): string {
       return "border border-sky-200 bg-sky-50 text-sky-900";
     case "red":
       return "border border-red-200 bg-red-50 text-red-800";
+    default:
+      return "border border-slate-200 bg-slate-50 text-slate-700";
+  }
+}
+
+function compliancePillClass(tone: "green" | "amber" | "red"): string {
+  switch (tone) {
+    case "green":
+      return "border border-emerald-200 bg-emerald-50 text-emerald-900";
+    case "amber":
+      return "border border-amber-200 bg-amber-50 text-amber-900";
+    case "red":
+      return "border border-red-200 bg-red-50 text-red-900";
     default:
       return "border border-slate-200 bg-slate-50 text-slate-700";
   }
@@ -71,10 +101,14 @@ export default async function AdminEmployeesDirectoryPage({
     segmentRaw && isSegment(segmentRaw) ? segmentRaw : "all";
   const q = one("q").trim();
 
+  const sortRaw = one("sort").trim();
+  const sort: EmployeeDirectorySortKey = sortRaw && isSortKey(sortRaw) ? sortRaw : "updated";
+
+  const dirRaw = one("dir").trim();
+  const dir: EmployeeDirectorySortDir = dirRaw && isSortDir(dirRaw) ? dirRaw : "desc";
+
   const { rows: allRows, loadError } = await loadEmployeeDirectoryRows();
-  const filtered = filterEmployeeDirectoryRows(allRows, segment, q);
-  const e164s = filtered.map((r) => r.e164).filter((x): x is string => Boolean(x));
-  const smsByE164 = await loadSmsConversationIdsByE164(e164s);
+  const filtered = filterEmployeeDirectoryRows(allRows, segment, q, sort, dir);
 
   const filterInputCls =
     "rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800 shadow-sm";
@@ -105,11 +139,11 @@ export default async function AdminEmployeesDirectoryPage({
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Employee directory</h1>
           <p className="mt-1 max-w-2xl text-sm text-slate-600">
-            Everyone in the hiring and employment pipeline comes from{" "}
-            <code className="rounded bg-slate-100 px-1 text-xs">applicants</code> plus related onboarding and
-            compliance data—the same source as the admin dashboard and individual employee records. Records appear
-            here automatically when people apply or are added to onboarding; there is no separate “create employee”
-            action.
+            <span className="font-medium text-slate-800">Employment</span> reflects{" "}
+            <code className="rounded bg-slate-100 px-1 text-xs">applicants.status</code> (Active, In process,
+            Applicant, Inactive). <span className="font-medium text-slate-800">Stage</span> is the onboarding /
+            forms pipeline position (hired, in progress, etc.). Everyone is derived from applicants and related
+            compliance data—no manual employee creation.
           </p>
           {loadError ? (
             <p className="mt-2 text-sm text-red-700">Could not load applicants: {loadError}</p>
@@ -132,7 +166,7 @@ export default async function AdminEmployeesDirectoryPage({
           return (
             <Link
               key={s.value}
-              href={`/admin/employees${buildQuery({ segment: s.value, q })}`}
+              href={`/admin/employees${buildQuery({ segment: s.value, q, sort, dir })}`}
               className={`${pillBase} ${
                 active
                   ? "border-indigo-400 bg-indigo-50 text-indigo-950"
@@ -161,6 +195,21 @@ export default async function AdminEmployeesDirectoryPage({
             className={`${filterInputCls} min-w-[14rem]`}
           />
         </label>
+        <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+          Sort by
+          <select name="sort" defaultValue={sort} className={`${filterInputCls} min-w-[9rem]`}>
+            <option value="updated">Last updated</option>
+            <option value="name">Name</option>
+            <option value="status">Employment status</option>
+          </select>
+        </label>
+        <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+          Order
+          <select name="dir" defaultValue={dir} className={filterInputCls}>
+            <option value="desc">Newest / Z→A</option>
+            <option value="asc">Oldest / A→Z</option>
+          </select>
+        </label>
         <button
           type="submit"
           className="rounded-lg border border-indigo-600 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-900 hover:bg-indigo-100"
@@ -176,11 +225,13 @@ export default async function AdminEmployeesDirectoryPage({
       </form>
 
       <div className="overflow-x-auto rounded-[28px] border border-slate-200 bg-white shadow-sm">
-        <table className="w-full min-w-[1020px] text-left text-sm">
+        <table className="w-full min-w-[1180px] text-left text-sm">
           <thead>
             <tr className="border-b border-slate-100 bg-slate-50 text-xs font-semibold text-slate-600">
-              <th className="px-4 py-3">Status</th>
+              <th className="px-4 py-3">Employment</th>
               <th className="px-4 py-3">Stage</th>
+              <th className="px-4 py-3">Compliance</th>
+              <th className="px-4 py-3">Last updated</th>
               <th className="px-4 py-3">Name</th>
               <th className="px-4 py-3">Role / discipline</th>
               <th className="px-4 py-3">Email</th>
@@ -191,7 +242,7 @@ export default async function AdminEmployeesDirectoryPage({
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-4 py-10 text-center text-sm text-slate-500">
+                <td colSpan={9} className="px-4 py-10 text-center text-sm text-slate-500">
                   No rows match the current filters. Adjust segment or search, or confirm applicants exist in Supabase.
                 </td>
               </tr>
@@ -199,14 +250,21 @@ export default async function AdminEmployeesDirectoryPage({
               filtered.map((r) => {
                 const id = r.applicant.id;
                 const tel = phoneToTelHref(r.applicant.phone as string | null);
-                const smsId = r.e164 ? smsByE164.get(r.e164) : undefined;
+                const updatedLabel =
+                  r.lastUpdatedMs > 0
+                    ? new Date(r.lastUpdatedMs).toLocaleDateString("en-US", {
+                        month: "short",
+                        day: "numeric",
+                        year: "numeric",
+                      })
+                    : "—";
                 return (
                   <tr key={id} className="border-b border-slate-100 last:border-0">
                     <td className="px-4 py-3">
                       <span
-                        className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${r.statusBadgeClass}`}
+                        className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${r.employmentStatusBadgeClass}`}
                       >
-                        {r.statusBadgeLabel}
+                        {r.employmentStatusLabel}
                       </span>
                     </td>
                     <td className="px-4 py-3">
@@ -216,6 +274,14 @@ export default async function AdminEmployeesDirectoryPage({
                         {r.stageLabel}
                       </span>
                     </td>
+                    <td className="px-4 py-3">
+                      <span
+                        className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${compliancePillClass(r.complianceTone)}`}
+                      >
+                        {r.complianceLabel}
+                      </span>
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 text-slate-600">{updatedLabel}</td>
                     <td className="px-4 py-3 font-medium text-slate-900">{r.nameDisplay}</td>
                     <td className="max-w-[200px] truncate px-4 py-3 text-slate-600">{r.roleDisplay}</td>
                     <td className="max-w-[200px] truncate px-4 py-3 text-slate-600">
@@ -232,32 +298,23 @@ export default async function AdminEmployeesDirectoryPage({
                         >
                           Open
                         </Link>
-                        {r.e164 ? (
-                          <>
-                            <EmployeeDirectoryDialButton e164={r.e164} />
-                            {tel ? (
-                              <a
-                                href={tel}
-                                className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-800 hover:bg-slate-50"
-                              >
-                                Tel
-                              </a>
-                            ) : null}
-                          </>
+                        {tel ? (
+                          <a
+                            href={tel}
+                            className="rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-900 hover:bg-emerald-100"
+                          >
+                            Call
+                          </a>
                         ) : (
                           <span className="text-[11px] text-slate-400">No phone</span>
                         )}
-                        {r.e164 && smsId ? (
+                        {r.e164 ? (
                           <Link
-                            href={`/admin/phone/messages/${smsId}`}
+                            href={`/admin/phone/messages/new?to=${encodeURIComponent(r.e164)}`}
                             className="rounded-lg border border-sky-200 bg-sky-50 px-2 py-1 text-[11px] font-semibold text-sky-900 hover:bg-sky-100"
                           >
                             Text
                           </Link>
-                        ) : r.e164 ? (
-                          <span className="text-[11px] text-slate-400" title="No SMS thread for this number yet">
-                            Text —
-                          </span>
                         ) : null}
                         <Link
                           href={`/admin/employees/${id}#event-management`}
@@ -276,9 +333,10 @@ export default async function AdminEmployeesDirectoryPage({
       </div>
 
       <p className="text-xs text-slate-500">
-        Showing up to 120 rows after filters. “Ready to activate” matches the admin dashboard pipeline rule
-        (onboarding, no missing/overdue credentials blocking, no annual overdue). “Missing compliance / survey gaps”
-        includes survey readiness, credential gaps, annual gaps, and activation-blocked onboarding profiles.
+        Showing up to 120 rows after filters. “Ready to activate” matches the admin dashboard pipeline rule.
+        “Text” opens or creates an SMS thread for that number. “Call” uses the device dialer (
+        <code className="rounded bg-slate-100 px-1">tel:</code>). “Events” jumps to compliance event management on the
+        employee record.
       </p>
     </div>
   );
