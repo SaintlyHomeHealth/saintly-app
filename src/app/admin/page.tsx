@@ -16,6 +16,7 @@ import {
   DashboardPushLink,
 } from "@/app/admin/dashboard-push-nav";
 import { ProcessNoopBatchButton } from "@/app/admin/process-noop-batch-button";
+import { applicantRolePrimaryForCompliance } from "@/lib/applicant-role-for-compliance";
 import { getCrmCalendarTodayIso } from "@/lib/crm/crm-local-date";
 
 type ApplicantRow = {
@@ -24,7 +25,8 @@ type ApplicantRow = {
   last_name: string | null;
   email: string | null;
   position: string | null;
-  position_applied: string | null;
+  role?: string | null;
+  discipline?: string | null;
   status?: string | null;
   created_at?: string | null;
 };
@@ -178,7 +180,7 @@ function getEmployeeName(applicant: ApplicantRow) {
 }
 
 function getRole(applicant: ApplicantRow) {
-  return applicant.position || applicant.position_applied || "No role listed";
+  return applicantRolePrimaryForCompliance(applicant) || "No role listed";
 }
 
 function getEmployeeStatusMeta(statusValue?: string | null) {
@@ -691,7 +693,7 @@ export default async function AdminDashboardPage({
   const missingCredentialDetails = applicants
     .map((applicant) => {
       const requiredCredentialTypes = getRequiredCredentialTypes(
-        applicant.position || applicant.position_applied || "",
+        applicantRolePrimaryForCompliance(applicant),
         employmentClassificationByEmployee.get(applicant.id) || null
       );
 
@@ -736,7 +738,7 @@ export default async function AdminDashboardPage({
   const requiredCredentialReminderByEmployee = new Map(
     applicants.map((applicant) => {
       const requiredTypes = getRequiredCredentialTypes(
-        applicant.position || applicant.position_applied || "",
+        applicantRolePrimaryForCompliance(applicant),
         employmentClassificationByEmployee.get(applicant.id) || null
       );
 
@@ -906,7 +908,7 @@ export default async function AdminDashboardPage({
         contract && (contract.contract_status === "signed" || contract.employee_signed_at)
       );
       const requiredCredentialTypes = getRequiredCredentialTypes(
-        applicant.position || applicant.position_applied || "",
+        applicantRolePrimaryForCompliance(applicant),
         employmentClassificationByEmployee.get(applicant.id) || null
       );
       const requiredCredentialStates = requiredCredentialTypes.map((credentialType) =>

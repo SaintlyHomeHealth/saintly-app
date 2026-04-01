@@ -19,6 +19,10 @@ import ComplianceEventManager from "@/app/admin/compliance-event-manager";
 import CredentialManager from "./CredentialManager";
 import EmployeeContractTaxSection from "./EmployeeContractTaxSection";
 import ApplicantFileUploadWithRefresh from "./ApplicantFileUploadWithRefresh";
+import {
+  applicantRolePrimaryForCompliance,
+  type ApplicantRoleFields,
+} from "@/lib/applicant-role-for-compliance";
 import { getCredentialAnchorId } from "@/lib/credential-anchors";
 import {
   formatCredentialReminderCredentialType,
@@ -1394,26 +1398,14 @@ export default async function EmployeeDetailPage({
         .limit(1)
         .maybeSingle<Pick<ComplianceEvent, "id" | "status" | "completed_at">>();
 
-      const roleCandidates = [
-        getStringField(employeeStatusRecord, "position"),
-        getStringField(employeeStatusRecord, "position_applied"),
-        getStringField(employeeStatusRecord, "discipline"),
-        getStringField(employeeStatusRecord, "job_title"),
-        getStringField(employeeStatusRecord, "title"),
-        getStringField(employeeStatusRecord, "role"),
-        getStringField(employeeStatusRecord, "role_title"),
-        getStringField(employeeStatusRecord, "selected_role"),
-      ].filter((value): value is string => typeof value === "string" && value.trim().length > 0);
-
-      const requiredCredentialTypes =
-        roleCandidates
-          .map((value) =>
-            getRequiredCredentialTypes(
-              value,
-              currentContract?.employment_classification || null
-            )
-          )
-          .find((types) => types.length > 0) || [];
+      const requiredCredentialTypes = getRequiredCredentialTypes(
+        applicantRolePrimaryForCompliance({
+          position: getStringField(employeeStatusRecord, "position"),
+          role: getStringField(employeeStatusRecord, "role"),
+          discipline: getStringField(employeeStatusRecord, "discipline"),
+        }),
+        currentContract?.employment_classification || null
+      );
 
       const supabaseAuthed = await createServerSupabaseClient();
       const { data: credentialRows } = await supabaseAuthed
@@ -2170,22 +2162,16 @@ export default async function EmployeeDetailPage({
 
   const roleCandidates = [
     { source: "position", value: getStringField(employeeRecord, "position") },
-    { source: "position_applied", value: getStringField(employeeRecord, "position_applied") },
+    { source: "role", value: getStringField(employeeRecord, "role") },
     { source: "discipline", value: getStringField(employeeRecord, "discipline") },
     { source: "job_title", value: getStringField(employeeRecord, "job_title") },
     { source: "title", value: getStringField(employeeRecord, "title") },
-    { source: "role", value: getStringField(employeeRecord, "role") },
     { source: "role_title", value: getStringField(employeeRecord, "role_title") },
     { source: "selected_role", value: getStringField(employeeRecord, "selected_role") },
   ].filter(
     (candidate): candidate is { source: string; value: string } =>
       typeof candidate.value === "string" && candidate.value.trim().length > 0
   );
-
-  const detectedRoleCandidate =
-    roleCandidates.find((candidate) => getRequiredCredentialTypes(candidate.value).length > 0) ||
-    roleCandidates[0] ||
-    null;
 
   const suggestedContractRole =
     roleCandidates
@@ -2199,13 +2185,10 @@ export default async function EmployeeDetailPage({
   const effectiveEmploymentClassification =
     contractEmploymentClassification || taxFormEmploymentClassification || null;
 
-  const requiredCredentialTypes =
-    (detectedRoleCandidate
-      ? getRequiredCredentialTypes(
-          detectedRoleCandidate.value,
-          effectiveEmploymentClassification
-        )
-      : []) || [];
+  const requiredCredentialTypes = getRequiredCredentialTypes(
+    applicantRolePrimaryForCompliance(employeeRecord as ApplicantRoleFields),
+    effectiveEmploymentClassification
+  );
 
   const requiredCredentialStatuses = requiredCredentialTypes.map((credentialType) => ({
     credentialType,

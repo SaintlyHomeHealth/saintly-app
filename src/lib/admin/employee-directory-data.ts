@@ -2,6 +2,7 @@ import "server-only";
 
 import { supabaseAdmin } from "@/lib/admin";
 import { SMS_REMINDER_CREDENTIAL_TYPE_SET } from "@/lib/admin/credential-sms-constants";
+import { applicantRolePrimaryForCompliance } from "@/lib/applicant-role-for-compliance";
 import { normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
 
 /**
@@ -444,12 +445,7 @@ function employeeName(a: ApplicantRecord): string {
 }
 
 function roleDisplay(a: ApplicantRecord): string {
-  return (
-    (a.position as string) ||
-    (a.position_applied as string) ||
-    (a.discipline as string) ||
-    "—"
-  );
+  return applicantRolePrimaryForCompliance(a) || "—";
 }
 
 /** Directory employment bucket after reconciling `applicants.status` with onboarding stage (finalized forms). */
@@ -817,7 +813,7 @@ export async function loadEmployeeDirectoryRows(): Promise<{
   const missingCredentialEmployeeIds = new Set<string>();
   applicants.forEach((applicant) => {
     const required = getRequiredCredentialTypes(
-      applicant.position || applicant.position_applied || "",
+      applicantRolePrimaryForCompliance(applicant),
       employmentClassificationByEmployee.get(applicant.id) || null
     );
     if (required.length === 0) return;
@@ -832,7 +828,7 @@ export async function loadEmployeeDirectoryRows(): Promise<{
   const requiredCredentialReminderByEmployee = new Map(
     applicants.map((applicant) => {
       const requiredTypes = getRequiredCredentialTypes(
-        applicant.position || applicant.position_applied || "",
+        applicantRolePrimaryForCompliance(applicant),
         employmentClassificationByEmployee.get(applicant.id) || null
       );
       return [
@@ -937,7 +933,7 @@ export async function loadEmployeeDirectoryRows(): Promise<{
       contract && (contract.contract_status === "signed" || contract.employee_signed_at)
     );
     const requiredCredentialTypes = getRequiredCredentialTypes(
-      applicant.position || applicant.position_applied || "",
+      applicantRolePrimaryForCompliance(applicant),
       employmentClassificationByEmployee.get(applicant.id) || null
     );
     const requiredCredentialStates = requiredCredentialTypes.map((ct) =>
@@ -1242,7 +1238,7 @@ export async function loadEmployeeDirectoryRows(): Promise<{
     const lastUpdatedMs = updatedRaw ? new Date(updatedRaw).getTime() : 0;
 
     const requiredCredentialTypes = getRequiredCredentialTypes(
-      applicant.position || applicant.position_applied || "",
+      applicantRolePrimaryForCompliance(applicant),
       employmentClassificationByEmployee.get(applicant.id) || null
     );
 

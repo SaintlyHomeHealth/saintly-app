@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import ApplicantFileUpload from '../../components/ApplicantFileUpload'
 import OnboardingApplicantIdentity from '../../components/OnboardingApplicantIdentity'
+import { applicantRolePrimaryForCompliance } from '@/lib/applicant-role-for-compliance'
 import { supabase } from '../../lib/supabase/client'
 
 const AUTO_INSURANCE_DOCUMENT_TYPE = 'auto_insurance'
@@ -383,9 +384,9 @@ export default function OnboardingDocumentsPage() {
       await Promise.all([
         supabase
           .from('applicants')
-          .select('position, position_applied')
+          .select('position, role, discipline')
           .eq('id', id)
-          .maybeSingle<{ position?: string | null; position_applied?: string | null }>(),
+          .maybeSingle<{ position?: string | null; role?: string | null; discipline?: string | null }>(),
         supabase
           .from('employee_contracts')
           .select('employment_classification')
@@ -400,7 +401,7 @@ export default function OnboardingDocumentsPage() {
           .maybeSingle<{ employment_classification?: string | null }>(),
       ])
 
-    setApplicantRoleHint(applicantData?.position || applicantData?.position_applied || '')
+    setApplicantRoleHint(applicantRolePrimaryForCompliance(applicantData ?? {}))
     setContractEmploymentClassification(currentContractData?.employment_classification || null)
     setTaxFormEmploymentClassification(currentTaxFormData?.employment_classification || null)
   }

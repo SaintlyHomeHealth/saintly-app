@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import { supabaseAdmin } from "@/lib/admin";
 import { SMS_REMINDER_CREDENTIAL_TYPE_SET } from "@/lib/admin/credential-sms-constants";
+import { applicantRolePrimaryForCompliance } from "@/lib/applicant-role-for-compliance";
 import { getRequiredCredentialTypes, normalizeCredentialTypeKey } from "@/lib/admin/employee-directory-data";
 import {
   appendOutboundSmsToConversation,
@@ -204,7 +205,7 @@ export async function prepareEmployeeCredentialReminderSend(
 
   const { data: applicant, error: appErr } = await supabaseAdmin
     .from("applicants")
-    .select("id, first_name, last_name, phone, position, position_applied")
+    .select("id, first_name, last_name, phone, position, role, discipline")
     .eq("id", applicantId)
     .maybeSingle();
 
@@ -226,7 +227,11 @@ export async function prepareEmployeeCredentialReminderSend(
       : null;
 
   const required = getRequiredCredentialTypes(
-    (applicant.position as string) || (applicant.position_applied as string) || "",
+    applicantRolePrimaryForCompliance({
+      position: applicant.position as string | null,
+      role: applicant.role as string | null,
+      discipline: applicant.discipline as string | null,
+    }),
     classification
   );
 
