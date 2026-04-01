@@ -46,6 +46,14 @@ type AdminFormRecord = {
   } | null;
 };
 
+/** One row per compliance event in history: event-only, or event + linked admin form. */
+type ComplianceHistoryRow = {
+  event: ComplianceEvent;
+  form: AdminFormRecord | null;
+  printMeta: { canPrint: boolean; label: string };
+  printHref: string | null;
+};
+
 type CredentialRecord = {
   id: string;
   employee_id: string;
@@ -2787,29 +2795,31 @@ export default async function EmployeeDetailPage({
   const skillsHistoryFormsPreview = skillsHistoryForms.slice(0, 3);
   const performanceHistoryFormsPreview = performanceHistoryForms.slice(0, 3);
 
-  const historyRows = historyEvents.flatMap((event) => {
-    const matchingForms = historyForms.filter(
-      (form) => form.compliance_event_id === event.id
-    );
+  const historyRows: ComplianceHistoryRow[] = historyEvents.flatMap(
+    (event): ComplianceHistoryRow[] => {
+      const matchingForms = historyForms.filter(
+        (form) => form.compliance_event_id === event.id
+      );
 
-    if (matchingForms.length === 0) {
-      return [
-        {
-          event,
-          form: null,
-          printMeta: getPrintMeta(null, event),
-          printHref: getHistoryPrintHref(employeeId, event, null),
-        },
-      ];
+      if (matchingForms.length === 0) {
+        return [
+          {
+            event,
+            form: null,
+            printMeta: getPrintMeta(null, event),
+            printHref: getHistoryPrintHref(employeeId, event, null),
+          },
+        ];
+      }
+
+      return matchingForms.map((form) => ({
+        event,
+        form,
+        printMeta: getPrintMeta(form, event),
+        printHref: getHistoryPrintHref(employeeId, event, form),
+      }));
     }
-
-    return matchingForms.map((form) => ({
-      event,
-      form,
-      printMeta: getPrintMeta(form, event),
-      printHref: getHistoryPrintHref(employeeId, event, form),
-    }));
-  });
+  );
 
   const statusChangeDeniedMessage =
     resolvedSearchParams?.staff_denied === "status"
