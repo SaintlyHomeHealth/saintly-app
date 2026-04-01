@@ -205,7 +205,7 @@ export async function prepareEmployeeCredentialReminderSend(
 
   const { data: applicant, error: appErr } = await supabaseAdmin
     .from("applicants")
-    .select("id, first_name, last_name, phone, position, discipline")
+    .select("id, first_name, last_name, phone, position, primary_discipline, type_of_position")
     .eq("id", applicantId)
     .maybeSingle();
 
@@ -229,7 +229,8 @@ export async function prepareEmployeeCredentialReminderSend(
   const required = getRequiredCredentialTypes(
     applicantRolePrimaryForCompliance({
       position: applicant.position as string | null,
-      discipline: applicant.discipline as string | null,
+      primary_discipline: applicant.primary_discipline as string | null,
+      type_of_position: applicant.type_of_position as string | null,
     }),
     classification
   );

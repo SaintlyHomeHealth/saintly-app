@@ -27,11 +27,8 @@ type ApplicantPrefillRecord = {
   first_name?: string | null;
   last_name?: string | null;
   position?: string | null;
-  discipline?: string | null;
-  job_title?: string | null;
-  title?: string | null;
-  role_title?: string | null;
-  selected_role?: string | null;
+  primary_discipline?: string | null;
+  type_of_position?: string | null;
 };
 
 type AdminFormHistoryRow = {
@@ -62,19 +59,7 @@ function toDateInputValue(value?: string | null) {
 
 function getApplicantRoleValue(applicant?: ApplicantPrefillRecord | null) {
   if (!applicant) return "";
-  const primary = applicantRolePrimaryForCompliance(applicant);
-  if (primary) return primary;
-  const fallbacks = [
-    applicant.job_title,
-    applicant.title,
-    applicant.role_title,
-    applicant.selected_role,
-  ];
-  return (
-    fallbacks.find(
-      (value): value is string => typeof value === "string" && value.trim().length > 0
-    ) || ""
-  );
+  return applicantRolePrimaryForCompliance(applicant);
 }
 
 function formatDateTime(value?: string | null) {
@@ -200,7 +185,7 @@ export default function PerformanceEvaluationForm({
         supabase
           .from("applicants")
           .select(
-            "first_name, last_name, position, discipline, job_title, title, role_title, selected_role"
+            "first_name, last_name, position, primary_discipline, type_of_position"
           )
           .eq("id", employeeId)
           .maybeSingle<ApplicantPrefillRecord>(),

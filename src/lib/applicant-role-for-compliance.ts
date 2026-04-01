@@ -1,26 +1,20 @@
 /**
- * Primary role string for credential / compliance logic — same source as employee directory (`roleDisplay`).
- * Uses only `applicants` columns that exist in production (no `role`, no `position_applied`).
+ * Canonical applicant role string for credential / compliance (directory, dashboard, SMS, employee UI).
+ * Matches live `public.applicants` columns only — no `role`, `discipline`, or `position_applied`.
  *
- * Priority: position → discipline → job_title → title → role_title → selected_role
+ * Priority: position → primary_discipline → type_of_position
  */
 export type ApplicantRoleFields = {
   position?: string | null;
-  discipline?: string | null;
-  job_title?: string | null;
-  title?: string | null;
-  role_title?: string | null;
-  selected_role?: string | null;
+  primary_discipline?: string | null;
+  type_of_position?: string | null;
 };
 
 export function applicantRolePrimaryForCompliance(a: ApplicantRoleFields): string {
   const chain: Array<string | null | undefined> = [
     a.position,
-    a.discipline,
-    a.job_title,
-    a.title,
-    a.role_title,
-    a.selected_role,
+    a.primary_discipline,
+    a.type_of_position,
   ];
   for (const v of chain) {
     const s = String(v ?? "").trim();

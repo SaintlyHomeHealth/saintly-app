@@ -47,7 +47,8 @@ export type ApplicantRecord = {
   email: string | null;
   phone: string | null;
   position: string | null;
-  discipline: string | null;
+  primary_discipline: string | null;
+  type_of_position: string | null;
   status: string | null;
   created_at: string | null;
   [key: string]: unknown;
@@ -1365,12 +1366,14 @@ export function filterEmployeeDirectoryRows(
       const email = String(r.applicant.email || "").toLowerCase();
       const phone = String(r.applicant.phone || "").toLowerCase();
       const role = r.roleDisplay.toLowerCase();
-      const disc = String(r.applicant.discipline || "").toLowerCase();
+      const primaryDisc = String(r.applicant.primary_discipline || "").toLowerCase();
+      const typePos = String(r.applicant.type_of_position || "").toLowerCase();
       if (name.includes(needle)) return true;
       if (email.includes(needle)) return true;
       if (phone.includes(needle)) return true;
       if (role.includes(needle)) return true;
-      if (disc.includes(needle)) return true;
+      if (primaryDisc.includes(needle)) return true;
+      if (typePos.includes(needle)) return true;
       if (needleDigits.length >= 3) {
         const d = String(r.applicant.phone || "").replace(/\D/g, "");
         if (d.includes(needleDigits)) return true;

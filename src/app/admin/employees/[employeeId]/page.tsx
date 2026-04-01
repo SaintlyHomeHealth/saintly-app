@@ -1401,11 +1401,8 @@ export default async function EmployeeDetailPage({
       const requiredCredentialTypes = getRequiredCredentialTypes(
         applicantRolePrimaryForCompliance({
           position: getStringField(employeeStatusRecord, "position"),
-          discipline: getStringField(employeeStatusRecord, "discipline"),
-          job_title: getStringField(employeeStatusRecord, "job_title"),
-          title: getStringField(employeeStatusRecord, "title"),
-          role_title: getStringField(employeeStatusRecord, "role_title"),
-          selected_role: getStringField(employeeStatusRecord, "selected_role"),
+          primary_discipline: getStringField(employeeStatusRecord, "primary_discipline"),
+          type_of_position: getStringField(employeeStatusRecord, "type_of_position"),
         }),
         currentContract?.employment_classification || null
       );
@@ -2165,11 +2162,8 @@ export default async function EmployeeDetailPage({
 
   const roleCandidates = [
     { source: "position", value: getStringField(employeeRecord, "position") },
-    { source: "discipline", value: getStringField(employeeRecord, "discipline") },
-    { source: "job_title", value: getStringField(employeeRecord, "job_title") },
-    { source: "title", value: getStringField(employeeRecord, "title") },
-    { source: "role_title", value: getStringField(employeeRecord, "role_title") },
-    { source: "selected_role", value: getStringField(employeeRecord, "selected_role") },
+    { source: "primary_discipline", value: getStringField(employeeRecord, "primary_discipline") },
+    { source: "type_of_position", value: getStringField(employeeRecord, "type_of_position") },
   ].filter(
     (candidate): candidate is { source: string; value: string } =>
       typeof candidate.value === "string" && candidate.value.trim().length > 0

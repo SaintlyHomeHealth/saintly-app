@@ -25,7 +25,8 @@ type ApplicantRow = {
   last_name: string | null;
   email: string | null;
   position: string | null;
-  discipline?: string | null;
+  primary_discipline?: string | null;
+  type_of_position?: string | null;
   status?: string | null;
   created_at?: string | null;
 };
