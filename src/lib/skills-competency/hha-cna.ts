@@ -1,0 +1,36 @@
+import type { CompetencyDiscipline } from "./types";
+import { SU_SCALE } from "./types";
+
+export const hhaCnaDiscipline: CompetencyDiscipline = {
+  id: "hha_cna",
+  label: "HHA / CNA",
+  formTitle: "Skills Competency Evaluation – Home Health Aide / CNA",
+  scaleOptions: SU_SCALE,
+  employeeLabel: "HHA / CNA Name",
+  evaluatorLabel: "Competency Assessed By (RN)",
+  items: [
+    { id: "hha_temp", label: "Reads and records temperature" },
+    { id: "hha_pulse", label: "Reads and records pulse" },
+    { id: "hha_respirations", label: "Reads and records respirations" },
+    { id: "hha_bed_bath", label: "Performs bed bath safely and appropriately" },
+    { id: "hha_tub_shower_bath", label: "Performs shower or tub bath safely" },
+    { id: "hha_sponge_bath", label: "Performs sponge bath as needed" },
+    { id: "hha_hair_care", label: "Provides hair care (sink / tub / bed shampoo)" },
+    { id: "hha_nail_care", label: "Provides nail care" },
+    { id: "hha_skin_care", label: "Provides skin care; recognizes and reports changes" },
+    { id: "hha_oral_hygiene", label: "Provides oral hygiene / denture care" },
+    { id: "hha_pericare", label: "Performs perineal care properly" },
+    { id: "hha_catheter_care", label: "Provides catheter care; empties catheter bag" },
+    { id: "hha_transfer_technique", label: "Uses safe transfer techniques" },
+    { id: "hha_ambulation", label: "Assists with ambulation safely" },
+    { id: "hha_positioning", label: "Positions patient properly and safely" },
+    { id: "hha_feeding_nutrition", label: "Assists with feeding; promotes nutrition and fluids" },
+    { id: "hha_toileting", label: "Assists with toileting / incontinence care" },
+    { id: "hha_communication", label: "Communication skills (reads, writes, verbally reports)" },
+    { id: "hha_infection_program", label: "Follows infection control requirements" },
+    { id: "hha_handwashing", label: "Uses proper hand washing technique" },
+    { id: "hha_gloves", label: "Uses gloves and universal precautions properly" },
+    { id: "hha_emergencies", label: "Recognizes emergencies and initiates emergency procedures" },
+    { id: "hha_documentation", label: "Documents care and reports changes appropriately" },
+  ],
+};
