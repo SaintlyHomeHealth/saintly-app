@@ -27,7 +27,14 @@ function fmtWhen(iso: string | null): string {
   if (!iso) return "—";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString(undefined, { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
+  return d.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
 }
 
 const btnPrimary =
@@ -53,6 +60,9 @@ export default async function PatientVisitsPage({
   const sp = searchParams ? await searchParams : {};
   const smsFlash = typeof sp.sms === "string" ? sp.sms : Array.isArray(sp.sms) ? sp.sms[0] : undefined;
   const smsErrRaw = typeof sp.smsErr === "string" ? sp.smsErr : Array.isArray(sp.smsErr) ? sp.smsErr[0] : undefined;
+  const visitDupRaw = sp.visitDup;
+  const visitDupFlash =
+    visitDupRaw === "1" || (Array.isArray(visitDupRaw) && visitDupRaw[0] === "1");
 
   const { patientId } = await params;
   if (!patientId) {
@@ -130,6 +140,11 @@ export default async function PatientVisitsPage({
             {smsFlash === "skipped" ? (
               <span className="mt-3 block rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
                 Visit marked en route (SMS not sent — choose “Send SMS” to text the patient).
+              </span>
+            ) : null}
+            {visitDupFlash ? (
+              <span className="mt-3 block rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800">
+                A visit already exists for this patient at the same scheduled time and assignment. Nothing new was created.
               </span>
             ) : null}
             {vErr ? <span className="mt-2 block text-sm text-red-700">{vErr.message}</span> : null}

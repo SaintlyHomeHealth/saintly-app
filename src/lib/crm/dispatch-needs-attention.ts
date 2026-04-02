@@ -4,9 +4,10 @@
  */
 
 const ACTIVE_PRE_ENROUTE = new Set(["scheduled", "confirmed"]);
-const ACTIVE_QUEUE = new Set(["scheduled", "confirmed", "en_route", "arrived"]);
 
 const ONE_HOUR_MS = 60 * 60 * 1000;
+/** Treat as a time window (not a point visit) when end is meaningfully after start. */
+const WINDOW_MIN_SPAN_MS = 60 * 1000;
 
 export type VisitNeedsAttentionInput = {
   status: string;
@@ -21,7 +22,6 @@ export type VisitNeedsAttentionInput = {
 export function visitNeedsAttentionOperational(v: VisitNeedsAttentionInput, nowMs: number): boolean {
   const st = v.status;
   if (st === "missed" || st === "rescheduled") return true;
-  if (!v.assigned_user_id && ACTIVE_QUEUE.has(st)) return true;
 
   const sf = v.scheduled_for;
   if (!sf || sf.trim() === "") {
@@ -32,12 +32,13 @@ export function visitNeedsAttentionOperational(v: VisitNeedsAttentionInput, nowM
   const startMs = new Date(sf).getTime();
   if (!Number.isFinite(startMs)) return false;
 
-  const endMs = new Date(v.scheduled_end_at ?? sf).getTime();
-  const effectiveEnd = Number.isFinite(endMs) ? endMs : startMs;
+  const rawEnd = v.scheduled_end_at ? new Date(v.scheduled_end_at).getTime() : startMs;
+  const effectiveEnd = Number.isFinite(rawEnd) ? rawEnd : startMs;
+  const isTimeWindow = effectiveEnd - startMs >= WINDOW_MIN_SPAN_MS;
 
   if (ACTIVE_PRE_ENROUTE.has(st)) {
     if (effectiveEnd < nowMs) return true;
-    if (startMs > nowMs && startMs <= nowMs + ONE_HOUR_MS) return true;
+    if (!isTimeWindow && startMs > nowMs && startMs <= nowMs + ONE_HOUR_MS) return true;
   }
 
   return false;

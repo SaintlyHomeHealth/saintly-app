@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useFormStatus } from "react-dom";
 
 import { scheduleVisitFromDispatch } from "../actions";
 import { buildDispatchVisitTimeSlots } from "@/lib/crm/dispatch-time-slots";
@@ -21,6 +22,19 @@ const PRESET_SUMMARY: Record<"morning" | "midday" | "afternoon", string> = {
   midday: "11:00 AM – 2:00 PM · 3-hour window",
   afternoon: "2:00 PM – 5:00 PM · 3-hour window",
 };
+
+function ScheduleVisitSubmitButton() {
+  const { pending } = useFormStatus();
+  return (
+    <button
+      type="submit"
+      disabled={pending}
+      className="inline-flex flex-1 items-center justify-center rounded-full bg-sky-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-60"
+    >
+      {pending ? "Saving…" : "Save visit"}
+    </button>
+  );
+}
 
 export function ScheduleVisitModal({ patients, staff, defaultPatientId }: Props) {
   const [open, setOpen] = useState(false);
@@ -91,7 +105,7 @@ export function ScheduleVisitModal({ patients, staff, defaultPatientId }: Props)
                   className="mt-1 w-full rounded-[14px] border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
                   defaultValue=""
                 >
-                  <option value="">Unassigned (will appear in Needs attention)</option>
+                  <option value="">Unassigned</option>
                   {staff.map((s) => (
                     <option key={s.user_id} value={s.user_id}>
                       {s.label}
@@ -99,8 +113,7 @@ export function ScheduleVisitModal({ patients, staff, defaultPatientId }: Props)
                   ))}
                 </select>
                 <p className="mt-1 text-[11px] leading-snug text-slate-500">
-                  Leave unassigned only when someone will assign a nurse from dispatch; unassigned active visits are
-                  flagged automatically.
+                  Leave unassigned when the nurse is not chosen yet; assign from dispatch when ready.
                 </p>
               </div>
 
@@ -233,12 +246,7 @@ export function ScheduleVisitModal({ patients, staff, defaultPatientId }: Props)
               </div>
 
               <div className="flex flex-wrap gap-2 border-t border-slate-100 pt-4">
-                <button
-                  type="submit"
-                  className="inline-flex flex-1 items-center justify-center rounded-full bg-sky-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-sky-700"
-                >
-                  Save visit
-                </button>
+                <ScheduleVisitSubmitButton />
                 <button
                   type="button"
                   onClick={() => setOpen(false)}

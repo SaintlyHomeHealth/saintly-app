@@ -17,23 +17,63 @@ export function visitOverlapsLocalDay(
   return startMs < de && endMs >= ds;
 }
 
+const US_TIME: Intl.DateTimeFormatOptions = {
+  hour: "numeric",
+  minute: "2-digit",
+  hour12: true,
+};
+
+const US_DATE_NO_YEAR: Intl.DateTimeFormatOptions = {
+  month: "short",
+  day: "numeric",
+};
+
+function formatDispatchClock(d: Date): string {
+  return d.toLocaleTimeString("en-US", US_TIME);
+}
+
+/** "HH:mm" / "H:mm" → "9:00 AM" (for window labels saved as 24h strings). */
+export function formatHmToAmPm(hm: string): string {
+  const m = hm.trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return hm.trim();
+  const h = Number.parseInt(m[1], 10);
+  const min = Number.parseInt(m[2], 10);
+  if (!Number.isFinite(h) || !Number.isFinite(min)) return hm.trim();
+  const d = new Date(2000, 0, 1, h, min, 0, 0);
+  return formatDispatchClock(d);
+}
+
+/** Custom window label in 12-hour form, e.g. "9:00 AM–11:45 PM". */
+export function formatHmRangeToAmPm(startHm: string, endHm: string): string {
+  return `${formatHmToAmPm(startHm)}–${formatHmToAmPm(endHm)}`;
+}
+
+/**
+ * User-facing schedule line: always 12-hour AM/PM in en-US (not server locale).
+ * Prefers ISO start/end when present so windows match dispatch buckets and SMS copy.
+ */
 export function formatDispatchScheduleLine(
   scheduledFor: string | null,
   scheduledEndAt: string | null,
   timeWindowLabel: string | null
 ): string {
-  if (timeWindowLabel?.trim()) return timeWindowLabel.trim();
-  if (!scheduledFor) return "Unscheduled";
-  const s = new Date(scheduledFor);
-  if (Number.isNaN(s.getTime())) return "—";
-  const end = scheduledEndAt ? new Date(scheduledEndAt) : null;
-  const datePart = s.toLocaleString(undefined, { month: "short", day: "numeric" });
-  const startClock = s.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-  if (!end || Number.isNaN(end.getTime()) || end.getTime() <= s.getTime()) {
-    return `${datePart}, ${startClock}`;
+  if (!scheduledFor || scheduledFor.trim() === "") {
+    return timeWindowLabel?.trim() || "Unscheduled";
   }
-  const endClock = end.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-  return `${datePart}, ${startClock}–${endClock}`;
+  const s = new Date(scheduledFor);
+  if (Number.isNaN(s.getTime())) {
+    return timeWindowLabel?.trim() || "—";
+  }
+  const end = scheduledEndAt ? new Date(scheduledEndAt) : null;
+  const hasDistinctEnd =
+    end != null && !Number.isNaN(end.getTime()) && end.getTime() > s.getTime();
+
+  const datePart = s.toLocaleString("en-US", US_DATE_NO_YEAR);
+
+  if (hasDistinctEnd && end) {
+    return `${datePart}, ${formatDispatchClock(s)}–${formatDispatchClock(end)}`;
+  }
+  return `${datePart}, ${formatDispatchClock(s)}`;
 }
 
 export type ContactSnapshotInput = {

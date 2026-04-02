@@ -6,6 +6,7 @@ import { insertAuditLogTrusted } from "@/lib/audit-log";
 import { diffString, truncateChanges, type FieldChange } from "@/lib/crm/patient-profile-diff";
 import { NURSE_ON_THE_WAY_MESSAGE, nurseLabelFromStaffEmail } from "@/lib/crm/patient-sms";
 import { VISIT_STATUS_TRANSITIONS } from "@/lib/crm/patient-visit-status";
+import { findOpenDuplicatePatientVisitId } from "@/lib/crm/dispatch-duplicate-visit";
 import { buildVisitSnapshotsFromContact, type ContactSnapshotInput } from "@/lib/crm/dispatch-visit";
 import { sendOutboundSmsForPatient, type OutboundSmsRecipient } from "@/lib/crm/outbound-patient-sms";
 import { supabaseAdmin } from "@/lib/admin";
@@ -113,10 +114,24 @@ export async function scheduleWorkspacePatientVisit(formData: FormData): Promise
   const contactEmb = (Array.isArray(cRaw) ? cRaw[0] : cRaw) as ContactSnapshotInput | null;
   const snapshots = buildVisitSnapshotsFromContact(contactEmb);
 
+  const scheduledIso = scheduledFor.toISOString();
+  const dupId = await findOpenDuplicatePatientVisitId({
+    patientId,
+    scheduledForIso: scheduledIso,
+    scheduledEndAtIso: null,
+    assignedUserId: staff.user_id,
+  });
+  if (dupId) {
+    return {
+      ok: false,
+      error: "A visit is already scheduled for this patient at this time.",
+    };
+  }
+
   const { error: insErr } = await supabaseAdmin.from("patient_visits").insert({
     patient_id: patientId,
     assigned_user_id: staff.user_id,
-    scheduled_for: scheduledFor.toISOString(),
+    scheduled_for: scheduledIso,
     status: "scheduled",
     visit_note: noteRaw ? noteRaw : null,
     reminder_recipient: reminderRecipient,

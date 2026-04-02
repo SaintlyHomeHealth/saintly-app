@@ -609,7 +609,12 @@ export default async function DispatchPage({
                 Visit scheduled.
               </span>
             ) : null}
-            {schedFlash && schedFlash !== "ok" ? (
+            {schedFlash === "dup" ? (
+              <span className="mt-3 block rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800">
+                A visit already exists for this patient with the same time and assignment. Nothing new was created.
+              </span>
+            ) : null}
+            {schedFlash && schedFlash !== "ok" && schedFlash !== "dup" ? (
               <span className="mt-3 block rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
                 Could not schedule visit ({schedFlash}).
               </span>

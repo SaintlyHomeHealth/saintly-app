@@ -23,9 +23,11 @@ import { isValidLeadSource } from "@/lib/crm/lead-source-options";
 import { isValidServiceDisciplineCode, parseServiceDisciplinesFromFormData } from "@/lib/crm/service-disciplines";
 import { convertLeadToPatient } from "@/app/admin/phone/actions";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
+import { findOpenDuplicatePatientVisitId } from "@/lib/crm/dispatch-duplicate-visit";
 import {
   buildVisitSnapshotsFromContact,
   formatDispatchScheduleLine,
+  formatHmRangeToAmPm,
 } from "@/lib/crm/dispatch-visit";
 import {
   buildDispatchClinicianScheduleMessage,
@@ -482,6 +484,18 @@ export async function createPatientVisit(formData: FormData) {
     }
   }
 
+  if (scheduledFor) {
+    const dup = await findOpenDuplicatePatientVisitId({
+      patientId,
+      scheduledForIso: scheduledFor,
+      scheduledEndAtIso: null,
+      assignedUserId,
+    });
+    if (dup) {
+      redirect(`/admin/crm/patients/${patientId}/visits?visitDup=1`);
+    }
+  }
+
   const { error: insErr } = await supabaseAdmin.from("patient_visits").insert({
     patient_id: patientId,
     assigned_user_id: assignedUserId,
@@ -665,7 +679,7 @@ export async function scheduleVisitFromDispatch(formData: FormData) {
       m1 = Number.parseInt(ms[2], 10);
       h2 = Number.parseInt(me[1], 10);
       m2 = Number.parseInt(me[2], 10);
-      timeWindowLabel = `${ws}–${we}`;
+      timeWindowLabel = formatHmRangeToAmPm(ws, we);
     }
     const start = new Date(`${visitDate}T${pad2(h1)}:${pad2(m1)}:00`);
     const end = new Date(`${visitDate}T${pad2(h2)}:${pad2(m2)}:00`);
@@ -695,6 +709,16 @@ export async function scheduleVisitFromDispatch(formData: FormData) {
     if (sErr || !assignee?.user_id) {
       redirect("/admin/crm/dispatch?sched=assignee");
     }
+  }
+
+  const dupId = await findOpenDuplicatePatientVisitId({
+    patientId,
+    scheduledForIso: scheduledFor as string,
+    scheduledEndAtIso: scheduledEndAt,
+    assignedUserId,
+  });
+  if (dupId) {
+    redirect("/admin/crm/dispatch?sched=dup");
   }
 
   const insertRow = {
