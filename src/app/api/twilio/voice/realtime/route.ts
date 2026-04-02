@@ -5,8 +5,9 @@ import { ensureIncomingCallAlert } from "@/lib/phone/incoming-call-alerts";
 import { upsertPhoneCallFromWebhook } from "@/lib/phone/log-call";
 import { buildRealtimeConnectStreamTwiml } from "@/lib/phone/twilio-realtime-stream-twiml";
 import {
+  getRealtimeInboundGateSnapshot,
   resolveTwilioRealtimeMediaStreamWssUrl,
-  shouldUseTwilioVoiceRealtimeInbound,
+  type RealtimeInboundGateSnapshot,
 } from "@/lib/phone/twilio-voice-realtime-gate";
 import { parseVerifiedTwilioFormBody } from "@/lib/twilio/verify-form-post";
 
@@ -24,6 +25,40 @@ function resolvePublicBase(): string {
     process.env.TWILIO_WEBHOOK_BASE_URL?.trim().replace(/\/$/, "") ||
     ""
   );
+}
+
+function shortCallSid(callSid: string): string {
+  return callSid.length > 12 ? `${callSid.slice(0, 12)}…` : callSid;
+}
+
+function streamUrlLogFields(streamUrlTrimmed: string): { streamUrlLength: number; streamUrlHost?: string } {
+  if (!streamUrlTrimmed) return { streamUrlLength: 0 };
+  try {
+    const u = new URL(streamUrlTrimmed);
+    return { streamUrlLength: streamUrlTrimmed.length, streamUrlHost: u.host };
+  } catch {
+    return { streamUrlLength: streamUrlTrimmed.length };
+  }
+}
+
+/** Ordered reasons matching current gating (informational only; routing unchanged). */
+function realtimeInboundSkipReasons(s: RealtimeInboundGateSnapshot): string[] {
+  const reasons: string[] = [];
+  if (!s.streamUrlPresent) {
+    reasons.push("missing_or_empty_TWILIO_REALTIME_MEDIA_STREAM_WSS_URL");
+  }
+  if (!s.realtimeEnabled) {
+    reasons.push("realtime_disabled_TWILIO_VOICE_REALTIME_ENABLED_not_true");
+  }
+  if (s.allowlistRawLength === 0) {
+    reasons.push("empty_TWILIO_VOICE_REALTIME_ALLOWLIST");
+  } else if (!s.fromInAllowlist) {
+    reasons.push("caller_not_in_allowlist");
+  }
+  if (s.streamUrlPresent && !s.streamUrlValidWssFormat) {
+    reasons.push("stream_url_invalid_not_wss_format");
+  }
+  return reasons;
 }
 
 /**
@@ -45,6 +80,15 @@ export async function POST(req: NextRequest) {
   const to = params.To?.trim();
 
   if (!callSid || !from || !to) {
+    console.warn("[twilio/voice/realtime][diag] FALLBACK=twiml_say_missing_required_fields", {
+      reason: "missing_CallSid_From_or_To",
+      callSidPresent: Boolean(callSid),
+      fromPresent: Boolean(from),
+      toPresent: Boolean(to),
+      callSid: callSid ? shortCallSid(callSid) : null,
+      from: from || null,
+      to: to || null,
+    });
     const xml = `<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna">We are sorry, this call could not be connected.</Say></Response>`;
     return new NextResponse(xml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
   }
@@ -76,27 +120,66 @@ export async function POST(req: NextRequest) {
 
   const publicBase = resolvePublicBase();
   const streamWss = resolveTwilioRealtimeMediaStreamWssUrl();
-  const useRealtime =
-    Boolean(streamWss) && shouldUseTwilioVoiceRealtimeInbound(from);
+  const gateSnap = getRealtimeInboundGateSnapshot(from);
+  const useRealtime = gateSnap.useRealtime;
+  const skipReasons = realtimeInboundSkipReasons(gateSnap);
 
   if (useRealtime) {
+    if (!gateSnap.streamUrlValidWssFormat) {
+      console.warn("[twilio/voice/realtime][diag] PATH=connect_stream WARNING_stream_url_not_wss", {
+        callSid: shortCallSid(callSid),
+        from: gateSnap.fromE164,
+        allowlistMatch: gateSnap.fromInAllowlist,
+        ...streamUrlLogFields(gateSnap.streamUrlTrimmed),
+      });
+    }
     const statusCallbackUrl = publicBase ? `${publicBase}/api/twilio/voice/status` : "";
     const twiml = buildRealtimeConnectStreamTwiml({
       streamWssUrl: streamWss,
       statusCallbackUrl: statusCallbackUrl || undefined,
     });
-    console.log("[twilio/voice/realtime] connect stream", { callSid: callSid.slice(0, 12) + "…" });
+    console.log("[twilio/voice/realtime][diag] PATH=connect_stream", {
+      callSid: shortCallSid(callSid),
+      from: gateSnap.fromE164,
+      allowlistMatch: gateSnap.fromInAllowlist,
+      realtimeEnabled: gateSnap.realtimeEnabled,
+      ...streamUrlLogFields(gateSnap.streamUrlTrimmed),
+    });
     return new NextResponse(twiml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
   }
 
+  console.warn("[twilio/voice/realtime][diag] REALTIME_SKIPPED", {
+    callSid: shortCallSid(callSid),
+    from: gateSnap.fromE164,
+    allowlistNormalizedEntries: gateSnap.allowlistEntries,
+    allowlistMatch: gateSnap.fromInAllowlist,
+    skipReasons,
+    realtimeEnabled: gateSnap.realtimeEnabled,
+    ...streamUrlLogFields(gateSnap.streamUrlTrimmed),
+  });
+
   if (!publicBase) {
+    console.warn("[twilio/voice/realtime][diag] FALLBACK=twiml_say_missing_public_base", {
+      reason: "missing_TWILIO_PUBLIC_BASE_URL_and_TWILIO_WEBHOOK_BASE_URL",
+      callSid: shortCallSid(callSid),
+      from: gateSnap.fromE164,
+      skipReasons,
+      wouldHaveRedirectedToAiAnswerIfBaseConfigured: true,
+    });
     const xml = `<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna">${escapeXml(
       "Our phone system URL is not configured. Please try again later."
     )}</Say></Response>`;
     return new NextResponse(xml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
   }
 
-  console.log("[twilio/voice/realtime] fallback redirect → ai-answer", { callSid: callSid.slice(0, 12) + "…" });
+  console.warn("[twilio/voice/realtime][diag] FALLBACK=redirect_POST_ai-answer", {
+    callSid: shortCallSid(callSid),
+    from: gateSnap.fromE164,
+    allowlistMatch: gateSnap.fromInAllowlist,
+    allowlistNormalizedEntries: gateSnap.allowlistEntries,
+    skipReasons,
+    redirectUrl: `${publicBase}/api/twilio/voice/ai-answer`,
+  });
   const xml = `<?xml version="1.0" encoding="UTF-8"?><Response><Redirect method="POST">${escapeXml(
     `${publicBase}/api/twilio/voice/ai-answer`
   )}</Redirect></Response>`;
