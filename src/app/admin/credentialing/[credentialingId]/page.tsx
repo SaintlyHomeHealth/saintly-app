@@ -12,12 +12,17 @@ import { formatCredentialingActivityTypeLabel } from "@/lib/crm/credentialing-ac
 import {
   CONTRACTING_STATUS_LABELS,
   CONTRACTING_STATUS_VALUES,
+  CREDENTIALING_PRIORITY_LABELS,
+  CREDENTIALING_PRIORITY_VALUES,
   CREDENTIALING_STATUS_LABELS,
   CREDENTIALING_STATUS_VALUES,
+  isCredentialingPriority,
 } from "@/lib/crm/credentialing-status-options";
 import {
   analyzePayerCredentialingAttention,
   CREDENTIALING_ATTENTION_REASON_LABELS,
+  formatCredentialingDueDateLabel,
+  payerCredentialingReadyToBill,
   type PayerCredentialingListRow,
 } from "@/lib/crm/credentialing-command-center";
 import {
@@ -33,7 +38,12 @@ import {
   loadCredentialingStaffAssignees,
   loadCredentialingStaffLabelMap,
 } from "@/lib/crm/credentialing-staff-directory";
-import { ContractingStatusBadge, CredentialingStatusBadge } from "@/components/crm/CredentialingBadges";
+import {
+  ContractingStatusBadge,
+  CredentialingPriorityBadge,
+  CredentialingStatusBadge,
+  ReadyToBillBadge,
+} from "@/components/crm/CredentialingBadges";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
@@ -134,6 +144,17 @@ export default async function AdminCredentialingDetailPage({
   const last_follow_up_at = typeof r.last_follow_up_at === "string" ? r.last_follow_up_at : null;
   const assigned_owner_user_id =
     typeof r.assigned_owner_user_id === "string" ? r.assigned_owner_user_id.trim() : "";
+  const next_action = typeof r.next_action === "string" ? r.next_action : "";
+  const next_action_due_date =
+    typeof r.next_action_due_date === "string" ? r.next_action_due_date.slice(0, 10) : "";
+  const priorityRaw = typeof r.priority === "string" ? r.priority : "medium";
+  const priority = isCredentialingPriority(priorityRaw) ? priorityRaw : "medium";
+  const created_at =
+    typeof r.created_at === "string"
+      ? r.created_at
+      : typeof r.updated_at === "string"
+        ? r.updated_at
+        : "";
 
   const { data: rawDocs } = await supabase
     .from("payer_credentialing_documents")
@@ -185,12 +206,28 @@ export default async function AdminCredentialingDetailPage({
     notes: typeof r.notes === "string" ? r.notes : null,
     last_follow_up_at,
     updated_at: typeof r.updated_at === "string" ? r.updated_at : "",
+    created_at,
     assigned_owner_user_id: assigned_owner_user_id || null,
+    next_action: next_action.trim() ? next_action : null,
+    next_action_due_date: next_action_due_date.trim() ? next_action_due_date : null,
+    priority,
     payer_credentialing_documents: documents.map((d) => ({ status: d.status })),
   };
 
   const attention = analyzePayerCredentialingAttention(attentionRow);
   const attentionReasonText = attention.reasons.map((x) => CREDENTIALING_ATTENTION_REASON_LABELS[x]).join(" · ");
+  const readyToBill = payerCredentialingReadyToBill(credentialing_status, contracting_status);
+  const latestActivity = activities[0];
+  const latestActivityRel = latestActivity
+    ? (() => {
+        const t = Date.parse(latestActivity.created_at);
+        if (Number.isNaN(t)) return "";
+        const days = Math.floor((Date.now() - t) / 86400000);
+        if (days <= 0) return "today";
+        if (days === 1) return "yesterday";
+        return `${days} days ago`;
+      })()
+    : "";
 
   return (
     <div className="space-y-6 p-6">
@@ -262,8 +299,10 @@ export default async function AdminCredentialingDetailPage({
               </span>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              <CredentialingPriorityBadge priority={priority} />
               <CredentialingStatusBadge status={credentialing_status} />
               <ContractingStatusBadge status={contracting_status} />
+              {readyToBill ? <ReadyToBillBadge /> : null}
               {attention.needsAttention ? (
                 <span className="inline-flex items-center rounded-full border border-amber-400 bg-amber-100 px-3 py-1 text-[11px] font-bold text-amber-950">
                   Needs attention
@@ -274,6 +313,26 @@ export default async function AdminCredentialingDetailPage({
                 </span>
               )}
             </div>
+            <div className="rounded-xl border border-slate-100 bg-white/70 px-3 py-2 text-sm text-slate-700 shadow-sm">
+              <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Next action</p>
+              <p className="mt-1 font-medium text-slate-900">{next_action.trim() || "—"}</p>
+              <p className="mt-1 text-xs text-slate-600">
+                <span className="font-semibold text-slate-700">Due: </span>
+                {formatCredentialingDueDateLabel(next_action_due_date.trim() || null)}
+              </p>
+            </div>
+            {latestActivity ? (
+              <p className="text-sm text-slate-600">
+                <span className="font-semibold text-slate-700">Last activity: </span>
+                <span className="text-slate-800">{latestActivity.summary}</span>
+                {latestActivityRel ? (
+                  <span className="text-slate-500">
+                    {" "}
+                    ({latestActivityRel})
+                  </span>
+                ) : null}
+              </p>
+            ) : null}
             <p className="text-sm text-slate-600">
               <span className="font-semibold text-slate-700">Last follow-up: </span>
               {last_follow_up_at
@@ -363,6 +422,26 @@ export default async function AdminCredentialingDetailPage({
         </label>
 
         <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+          Priority
+          <select name="priority" className={inp} defaultValue={priority}>
+            {CREDENTIALING_PRIORITY_VALUES.map((v) => (
+              <option key={v} value={v}>
+                {CREDENTIALING_PRIORITY_LABELS[v]}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+          Next action (what to do next)
+          <input name="next_action" className={inp} defaultValue={next_action} placeholder="e.g. Call payer re: application" />
+        </label>
+        <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+          Next action due date
+          <input name="next_action_due_date" type="date" className={inp} defaultValue={next_action_due_date} />
+        </label>
+
+        <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
           Payer name
           <input name="payer_name" className={inp} defaultValue={payer_name} required />
         </label>
@@ -406,18 +485,21 @@ export default async function AdminCredentialingDetailPage({
           </label>
         </div>
 
-        <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-          Portal URL
-          <input name="portal_url" type="url" className={inp} defaultValue={portal_url} />
-        </label>
-        <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-          Portal username hint (not password)
-          <input
-            name="portal_username_hint"
-            className={inp}
-            defaultValue={portal_username_hint}
-          />
-        </label>
+        <div id="record-portal" className="scroll-mt-24 space-y-3 rounded-[20px] border border-sky-100/80 bg-sky-50/30 p-4">
+          <p className="text-[10px] font-bold uppercase tracking-wide text-sky-900/80">Portal</p>
+          <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+            Portal URL
+            <input name="portal_url" type="url" className={inp} defaultValue={portal_url} />
+          </label>
+          <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+            Portal username hint (not password)
+            <input
+              name="portal_username_hint"
+              className={inp}
+              defaultValue={portal_username_hint}
+            />
+          </label>
+        </div>
 
         <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
           Primary contact name
@@ -478,8 +560,9 @@ export default async function AdminCredentialingDetailPage({
 
       {documents.length > 0 ? (
         <form
+          id="credentialing-checklist"
           action={updatePayerCredentialingDocuments}
-          className="space-y-4 rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm"
+          className="scroll-mt-24 space-y-4 rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm"
         >
           <input type="hidden" name="credentialing_id" value={credentialingId} />
           <div>
@@ -504,8 +587,14 @@ export default async function AdminCredentialingDetailPage({
                 {documents.map((d) => {
                   const label =
                     PAYER_CREDENTIALING_DOC_LABELS[d.doc_type as PayerCredentialingDocType] ?? d.doc_type;
+                  const rowTone =
+                    d.status === "missing"
+                      ? "bg-red-50/90"
+                      : d.status === "uploaded"
+                        ? "bg-emerald-50/40"
+                        : "";
                   return (
-                    <tr key={d.id} className="border-b border-slate-50 last:border-0">
+                    <tr key={d.id} className={`border-b border-slate-50 last:border-0 ${rowTone}`}>
                       <td className="px-3 py-2 font-medium text-slate-800">{label}</td>
                       <td className="px-3 py-2">
                         <select
@@ -554,7 +643,10 @@ export default async function AdminCredentialingDetailPage({
       )}
 
       {!attachFetchErr ? (
-        <section className="space-y-4 rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+        <section
+          id="credentialing-additional-docs"
+          className="scroll-mt-24 space-y-4 rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm"
+        >
           <div>
             <h2 className="text-sm font-bold text-slate-900">Additional documents</h2>
             <p className="mt-1 text-xs text-slate-600">

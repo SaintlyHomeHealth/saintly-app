@@ -60,34 +60,48 @@ export function payerCredentialingFullyComplete(credentialingStatus: string, con
   return credentialingStatus === "enrolled" && contractingStatus === "contracted";
 }
 
-/** Days without follow-up before in-progress / submitted / in-contracting rows are flagged. */
-export const CREDENTIALING_FOLLOW_UP_STALE_DAYS = 14;
+/** Ready to bill / revenue-ready: both enrollment and contracting complete. */
+export function payerCredentialingReadyToBill(credentialingStatus: string, contractingStatus: string): boolean {
+  return payerCredentialingFullyComplete(credentialingStatus, contractingStatus);
+}
 
 /**
- * NEEDS ATTENTION — deterministic rules (source of truth for ops):
+ * Days without follow-up in the active lane before Needs attention (strict ops cadence).
+ */
+export const CREDENTIALING_FOLLOW_UP_STALE_DAYS = 7;
+
+export const CREDENTIALING_SUBMITTED_STAGNANT_DAYS = 21;
+
+export const CREDENTIALING_QUEUE_IDLE_DAYS = 30;
+
+/**
+ * NEEDS ATTENTION — deterministic rules (revenue / execution blocking):
  *
- * 1) STALLED — credentialing_status = 'stalled' OR contracting_status = 'stalled'
+ * 1) STALLED — explicit credentialing_status or contracting_status = 'stalled'
  *
- * 2) STALE FOLLOW-UP — Row is not fully complete (not both enrolled + contracted).
- *    Neither side is stalled. Work is in credentialing in_progress or submitted,
- *    OR contracting is in_contracting. Then: last_follow_up_at is null OR older than
- *    CREDENTIALING_FOLLOW_UP_STALE_DAYS (14) days.
+ * 2) STALE FOLLOW-UP — Not ready-to-bill; not explicitly stalled; in active lane
+ *    (in_progress, submitted, or in_contracting); last_follow_up_at null or older than
+ *    CREDENTIALING_FOLLOW_UP_STALE_DAYS (7).
  *
- * 3) MISSING CONTACT — Row is not in the “queue” state (not_started + pending/not_started only).
- *    Not fully complete. No portal URL AND no primary phone AND no primary email.
+ * 3) SUBMITTED STAGNANT — credentialing = submitted; not stalled; not ready-to-bill;
+ *    record updated_at older than CREDENTIALING_SUBMITTED_STAGNANT_DAYS (21) (no movement).
  *
- * 4) MISSING DOCUMENTS — Same queue/complete logic as (3). At least one payer_credentialing_documents
- *    row has status = 'missing'. If no document rows are loaded (legacy), this rule does not fire.
+ * 4) QUEUE IDLE — “Queue only” (not_started + pending/not_started contracting) AND
+ *    created_at older than CREDENTIALING_QUEUE_IDLE_DAYS (30).
  *
- * 5) UNASSIGNED OWNER — Same queue/complete logic as (3). assigned_owner_user_id is null.
+ * 5) NO REACHABLE CONTACT — Not ready-to-bill; not queue-only; no primary phone AND no email
+ *    (cannot call or email the payer — portal alone is not enough).
  *
- * “Queue” (excluded from 3–5): credentialing not_started AND contracting in (not_started, pending).
- * Fully complete rows are excluded from 2–5.
+ * 6) MISSING DOCUMENTS — Same as (5) scope; checklist rows exist and any status = missing.
+ *
+ * 7) UNASSIGNED OWNER — Same as (5); assigned_owner_user_id null.
  */
 export type CredentialingAttentionReason =
   | "stalled"
   | "stale_follow_up"
-  | "missing_contact_info"
+  | "submitted_stagnant"
+  | "queue_idle"
+  | "no_reachable_contact"
   | "missing_documents"
   | "unassigned_owner";
 
@@ -109,7 +123,11 @@ export type PayerCredentialingListRow = {
   notes: string | null;
   last_follow_up_at: string | null;
   updated_at: string;
+  created_at: string;
   assigned_owner_user_id: string | null;
+  next_action: string | null;
+  next_action_due_date: string | null;
+  priority: string;
   /** From nested select; empty if migration not applied yet */
   payer_credentialing_documents?: PayerCredentialingDocumentStub[] | null;
 };
@@ -119,6 +137,25 @@ function msDaysSince(iso: string | null): number | null {
   const t = Date.parse(iso);
   if (Number.isNaN(t)) return null;
   return (Date.now() - t) / (1000 * 60 * 60 * 24);
+}
+
+export function formatCredentialingDueDateLabel(isoDate: string | null): string {
+  if (!isoDate?.trim()) return "—";
+  const s = isoDate.trim().slice(0, 10);
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (!m) return s;
+  const due = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  if (Number.isNaN(due.getTime())) return s;
+  const today = new Date();
+  const t0 = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
+  const d0 = Date.UTC(due.getUTCFullYear(), due.getUTCMonth(), due.getUTCDate());
+  const diff = Math.round((d0 - t0) / 86400000);
+  if (diff === 0) return "Today";
+  if (diff === 1) return "Tomorrow";
+  if (diff === -1) return "Yesterday";
+  if (diff > 1) return `In ${diff} days`;
+  if (diff < -1) return `${Math.abs(diff)} days overdue`;
+  return s;
 }
 
 export function isPayerCredentialingQueueOnly(r: PayerCredentialingListRow): boolean {
@@ -132,7 +169,6 @@ function isStalledRow(r: PayerCredentialingListRow): boolean {
   return r.credentialing_status === "stalled" || r.contracting_status === "stalled";
 }
 
-/** Credentialing in_progress/submitted or contracting actively in_contracting (for stale follow-up). */
 function isTightFollowUpLane(r: PayerCredentialingListRow): boolean {
   return (
     r.credentialing_status === "in_progress" ||
@@ -141,11 +177,10 @@ function isTightFollowUpLane(r: PayerCredentialingListRow): boolean {
   );
 }
 
-function hasAnyContactOrPortal(r: PayerCredentialingListRow): boolean {
-  const portal = (r.portal_url ?? "").trim();
+export function hasReachableContact(r: PayerCredentialingListRow): boolean {
   const phone = (r.primary_contact_phone ?? "").trim();
   const email = (r.primary_contact_email ?? "").trim();
-  return Boolean(portal || phone || email);
+  return Boolean(phone || email);
 }
 
 function getDocList(r: PayerCredentialingListRow): PayerCredentialingDocumentStub[] {
@@ -155,11 +190,25 @@ function getDocList(r: PayerCredentialingListRow): PayerCredentialingDocumentStu
 }
 
 export function payerCredentialingFollowUpIsStale(r: PayerCredentialingListRow): boolean {
-  if (payerCredentialingFullyComplete(r.credentialing_status, r.contracting_status)) return false;
+  if (payerCredentialingReadyToBill(r.credentialing_status, r.contracting_status)) return false;
   if (isStalledRow(r)) return false;
   if (!isTightFollowUpLane(r)) return false;
   const days = msDaysSince(r.last_follow_up_at);
   return days === null || days > CREDENTIALING_FOLLOW_UP_STALE_DAYS;
+}
+
+function isSubmittedStagnant(r: PayerCredentialingListRow): boolean {
+  if (r.credentialing_status !== "submitted") return false;
+  if (isStalledRow(r)) return false;
+  if (payerCredentialingReadyToBill(r.credentialing_status, r.contracting_status)) return false;
+  const days = msDaysSince(r.updated_at);
+  return days !== null && days > CREDENTIALING_SUBMITTED_STAGNANT_DAYS;
+}
+
+function isQueueIdleTooLong(r: PayerCredentialingListRow): boolean {
+  if (!isPayerCredentialingQueueOnly(r)) return false;
+  const days = msDaysSince(r.created_at);
+  return days !== null && days > CREDENTIALING_QUEUE_IDLE_DAYS;
 }
 
 export function analyzePayerCredentialingAttention(r: PayerCredentialingListRow): {
@@ -176,12 +225,20 @@ export function analyzePayerCredentialingAttention(r: PayerCredentialingListRow)
     reasons.push("stale_follow_up");
   }
 
-  const complete = payerCredentialingFullyComplete(r.credentialing_status, r.contracting_status);
+  if (isSubmittedStagnant(r)) {
+    reasons.push("submitted_stagnant");
+  }
+
+  if (isQueueIdleTooLong(r)) {
+    reasons.push("queue_idle");
+  }
+
+  const complete = payerCredentialingReadyToBill(r.credentialing_status, r.contracting_status);
   const queue = isPayerCredentialingQueueOnly(r);
 
   if (!complete && !queue) {
-    if (!hasAnyContactOrPortal(r)) {
-      reasons.push("missing_contact_info");
+    if (!hasReachableContact(r)) {
+      reasons.push("no_reachable_contact");
     }
     const docs = getDocList(r);
     if (docs.length > 0 && summarizePayerDocuments(docs).hasMissing) {
@@ -196,10 +253,12 @@ export function analyzePayerCredentialingAttention(r: PayerCredentialingListRow)
 }
 
 export const CREDENTIALING_ATTENTION_REASON_LABELS: Record<CredentialingAttentionReason, string> = {
-  stalled: "Stalled",
-  stale_follow_up: "Stale follow-up (14+ days)",
-  missing_contact_info: "Missing portal / contact",
-  missing_documents: "Documents missing",
+  stalled: "Stalled (explicit)",
+  stale_follow_up: `No follow-up (${CREDENTIALING_FOLLOW_UP_STALE_DAYS}+ days)`,
+  submitted_stagnant: `Submitted, no update (${CREDENTIALING_SUBMITTED_STAGNANT_DAYS}+ days)`,
+  queue_idle: `In queue ${CREDENTIALING_QUEUE_IDLE_DAYS}+ days`,
+  no_reachable_contact: "No phone / email",
+  missing_documents: "Checklist docs missing",
   unassigned_owner: "No assigned owner",
 };
 
@@ -212,6 +271,8 @@ export function computeCredentialingSummaryStats(rows: PayerCredentialingListRow
   stalled: number;
   needsAttention: number;
   docsMissing: number;
+  readyToBill: number;
+  highPriority: number;
 } {
   let inProgress = 0;
   let submitted = 0;
@@ -220,6 +281,8 @@ export function computeCredentialingSummaryStats(rows: PayerCredentialingListRow
   let stalled = 0;
   let needsAttention = 0;
   let docsMissing = 0;
+  let readyToBill = 0;
+  let highPriority = 0;
 
   for (const r of rows) {
     if (r.credentialing_status === "in_progress") inProgress += 1;
@@ -230,6 +293,8 @@ export function computeCredentialingSummaryStats(rows: PayerCredentialingListRow
     if (analyzePayerCredentialingAttention(r).needsAttention) needsAttention += 1;
     const docs = getDocList(r);
     if (docs.length > 0 && summarizePayerDocuments(docs).hasMissing) docsMissing += 1;
+    if (payerCredentialingReadyToBill(r.credentialing_status, r.contracting_status)) readyToBill += 1;
+    if ((r.priority ?? "medium").toLowerCase() === "high") highPriority += 1;
   }
 
   return {
@@ -241,6 +306,8 @@ export function computeCredentialingSummaryStats(rows: PayerCredentialingListRow
     stalled,
     needsAttention,
     docsMissing,
+    readyToBill,
+    highPriority,
   };
 }
 

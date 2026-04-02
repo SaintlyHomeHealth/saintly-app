@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import {
   contractingBadgeTone,
   contractingStatusLabel,
@@ -5,6 +7,11 @@ import {
   credentialingBadgeTone,
   credentialingStatusLabel,
 } from "@/lib/crm/credentialing-command-center";
+import {
+  CREDENTIALING_PRIORITY_LABELS,
+  type CredentialingPriorityValue,
+  isCredentialingPriority,
+} from "@/lib/crm/credentialing-status-options";
 
 export function CredentialingStatusBadge({ status }: { status: string }) {
   const tone = credentialingBadgeTone(status);
@@ -56,6 +63,70 @@ export function DocsMissingHint({ missing, total }: { missing: number; total: nu
       title={`${missing} document(s) still missing`}
     >
       Docs {total - missing}/{total}
+    </span>
+  );
+}
+
+const docLinkBase =
+  "inline-flex items-center rounded-lg border px-2.5 py-1 text-[11px] font-bold transition hover:-translate-y-px";
+
+/** Opens payer detail scrolled to structured checklist; green = complete, red = gaps. */
+export function CredentialingDocsChecklistLink({
+  recordId,
+  missing,
+  total,
+}: {
+  recordId: string;
+  missing: number;
+  total: number;
+}) {
+  if (total <= 0) return <span className="text-xs text-slate-400">—</span>;
+  const href = `/admin/credentialing/${recordId}#credentialing-checklist`;
+  if (missing <= 0) {
+    return (
+      <Link
+        href={href}
+        className={`${docLinkBase} border-emerald-300 bg-emerald-50 text-emerald-950 hover:bg-emerald-100`}
+        title="All checklist items done — open documents section"
+      >
+        ✓ {total}/{total}
+      </Link>
+    );
+  }
+  return (
+    <Link
+      href={href}
+      className={`${docLinkBase} border-red-300 bg-red-50 text-red-950 hover:bg-red-100`}
+      title={`${missing} missing — jump to checklist`}
+    >
+      {total - missing}/{total} missing
+    </Link>
+  );
+}
+
+export function CredentialingPriorityBadge({ priority }: { priority: string }) {
+  const p = isCredentialingPriority(priority) ? priority : "medium";
+  const label = CREDENTIALING_PRIORITY_LABELS[p as CredentialingPriorityValue];
+  const cls =
+    p === "high"
+      ? "border-rose-300 bg-rose-50 text-rose-950"
+      : p === "low"
+        ? "border-slate-200 bg-slate-100 text-slate-600"
+        : "border-amber-200 bg-amber-50 text-amber-950";
+  return (
+    <span className={`${attentionBase} ${cls}`} title="Business priority">
+      {label}
+    </span>
+  );
+}
+
+export function ReadyToBillBadge() {
+  return (
+    <span
+      className={`${attentionBase} border-emerald-400 bg-emerald-100 text-emerald-950`}
+      title="Enrolled + contracted — ready to bill"
+    >
+      Ready to bill
     </span>
   );
 }

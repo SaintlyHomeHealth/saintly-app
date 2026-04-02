@@ -44,6 +44,20 @@ export function isContractingStatus(v: string): v is ContractingStatusValue {
   return (CONTRACTING_STATUS_VALUES as readonly string[]).includes(v);
 }
 
+export const CREDENTIALING_PRIORITY_VALUES = ["high", "medium", "low"] as const;
+
+export type CredentialingPriorityValue = (typeof CREDENTIALING_PRIORITY_VALUES)[number];
+
+export const CREDENTIALING_PRIORITY_LABELS: Record<CredentialingPriorityValue, string> = {
+  high: "High",
+  medium: "Medium",
+  low: "Low",
+};
+
+export function isCredentialingPriority(v: string): v is CredentialingPriorityValue {
+  return (CREDENTIALING_PRIORITY_VALUES as readonly string[]).includes(v);
+}
+
 /** List page filter segment (query `segment`). */
 export type CredentialingListSegment =
   | "all"
@@ -53,7 +67,8 @@ export type CredentialingListSegment =
   | "contracted"
   | "stalled"
   | "needs_attention"
-  | "docs_missing";
+  | "docs_missing"
+  | "ready_to_bill";
 
 export const CREDENTIALING_LIST_SEGMENTS: { value: CredentialingListSegment; label: string }[] = [
   { value: "all", label: "All" },
@@ -62,6 +77,7 @@ export const CREDENTIALING_LIST_SEGMENTS: { value: CredentialingListSegment; lab
   { value: "enrolled", label: "Enrolled" },
   { value: "contracted", label: "Contracted" },
   { value: "stalled", label: "Stalled" },
+  { value: "ready_to_bill", label: "Ready to bill" },
   { value: "needs_attention", label: "Needs attention" },
   { value: "docs_missing", label: "Docs missing" },
 ];

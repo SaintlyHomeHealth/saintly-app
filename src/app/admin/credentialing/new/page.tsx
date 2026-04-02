@@ -5,6 +5,8 @@ import { submitNewPayerCredentialingForm } from "../actions";
 import {
   CONTRACTING_STATUS_LABELS,
   CONTRACTING_STATUS_VALUES,
+  CREDENTIALING_PRIORITY_LABELS,
+  CREDENTIALING_PRIORITY_VALUES,
   CREDENTIALING_STATUS_LABELS,
   CREDENTIALING_STATUS_VALUES,
 } from "@/lib/crm/credentialing-status-options";
@@ -74,6 +76,16 @@ export default async function AdminCredentialingNewPage({
             {staffOptions.map((s) => (
               <option key={s.user_id} value={s.user_id}>
                 {credentialingStaffLabel(s)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+          Priority
+          <select name="priority" className={inp} defaultValue="medium">
+            {CREDENTIALING_PRIORITY_VALUES.map((v) => (
+              <option key={v} value={v}>
+                {CREDENTIALING_PRIORITY_LABELS[v]}
               </option>
             ))}
           </select>

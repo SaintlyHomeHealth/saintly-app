@@ -13,6 +13,7 @@ import {
 } from "@/lib/crm/credentialing-documents";
 import {
   isContractingStatus,
+  isCredentialingPriority,
   isCredentialingStatus,
 } from "@/lib/crm/credentialing-status-options";
 import { contractingStatusLabel, credentialingStatusLabel } from "@/lib/crm/credentialing-command-center";
@@ -49,6 +50,9 @@ type PayerRecordRow = {
   notes: string | null;
   last_follow_up_at: string | null;
   assigned_owner_user_id: string | null;
+  next_action: string | null;
+  next_action_due_date: string | null;
+  priority: string | null;
 };
 
 async function insertCredentialingActivity(params: {
@@ -94,6 +98,8 @@ export async function createPayerCredentialingRecord(formData: FormData) {
   }
 
   const ownerId = readOwnerId(formData);
+  const pr = readTrimmed(formData, "priority");
+  const priority = pr && isCredentialingPriority(pr) ? pr : "medium";
 
   const { data, error } = await supabaseAdmin
     .from("payer_credentialing_records")
@@ -110,6 +116,9 @@ export async function createPayerCredentialingRecord(formData: FormData) {
       primary_contact_email: readTrimmed(formData, "primary_contact_email"),
       notes: readTrimmed(formData, "notes"),
       assigned_owner_user_id: ownerId,
+      next_action: readTrimmed(formData, "next_action"),
+      next_action_due_date: readTrimmed(formData, "next_action_due_date"),
+      priority,
     })
     .select("id")
     .single();
@@ -157,7 +166,7 @@ export async function updatePayerCredentialingRecord(formData: FormData) {
   const { data: oldRow, error: fetchErr } = await supabaseAdmin
     .from("payer_credentialing_records")
     .select(
-      "id, payer_name, payer_type, market_state, credentialing_status, contracting_status, portal_url, portal_username_hint, primary_contact_name, primary_contact_phone, primary_contact_email, notes, last_follow_up_at, assigned_owner_user_id"
+      "id, payer_name, payer_type, market_state, credentialing_status, contracting_status, portal_url, portal_username_hint, primary_contact_name, primary_contact_phone, primary_contact_email, notes, last_follow_up_at, assigned_owner_user_id, next_action, next_action_due_date, priority"
     )
     .eq("id", id)
     .maybeSingle();
@@ -187,7 +196,14 @@ export async function updatePayerCredentialingRecord(formData: FormData) {
     primary_contact_phone: readTrimmed(formData, "primary_contact_phone"),
     primary_contact_email: readTrimmed(formData, "primary_contact_email"),
     notes: readTrimmed(formData, "notes"),
+    next_action: readTrimmed(formData, "next_action"),
+    next_action_due_date: readTrimmed(formData, "next_action_due_date"),
   };
+
+  const prForm = readTrimmed(formData, "priority");
+  if (prForm && isCredentialingPriority(prForm)) {
+    payload.priority = prForm;
+  }
   if (cred) payload.credentialing_status = cred;
   if (cont) payload.contracting_status = cont;
 
@@ -288,6 +304,15 @@ export async function updatePayerCredentialingRecord(formData: FormData) {
   }
   if (!strEq(old.primary_contact_email, readTrimmed(formData, "primary_contact_email") ?? "")) {
     fieldLines.push(`Primary contact email updated`);
+  }
+  if (!strEq(old.next_action, readTrimmed(formData, "next_action") ?? "")) {
+    fieldLines.push(`Next action updated`);
+  }
+  if (!strEq(old.next_action_due_date, readTrimmed(formData, "next_action_due_date") ?? "")) {
+    fieldLines.push(`Next action due date updated`);
+  }
+  if (!strEq(old.priority ?? "medium", readTrimmed(formData, "priority") ?? "medium")) {
+    fieldLines.push(`Priority updated`);
   }
   if (fieldLines.length > 0) {
     await insertCredentialingActivity({
