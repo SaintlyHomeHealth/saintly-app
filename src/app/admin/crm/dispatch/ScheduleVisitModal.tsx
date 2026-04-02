@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import { scheduleVisitFromDispatch } from "../actions";
+import { buildDispatchVisitTimeSlots } from "@/lib/crm/dispatch-time-slots";
 
 export type ScheduleVisitPatientOption = { id: string; label: string };
 export type ScheduleVisitStaffOption = { user_id: string; label: string };
@@ -13,10 +14,20 @@ type Props = {
   defaultPatientId?: string;
 };
 
+const TIME_SLOTS = buildDispatchVisitTimeSlots();
+
+const PRESET_SUMMARY: Record<"morning" | "midday" | "afternoon", string> = {
+  morning: "8:00 AM – 11:00 AM · 3-hour window",
+  midday: "11:00 AM – 2:00 PM · 3-hour window",
+  afternoon: "2:00 PM – 5:00 PM · 3-hour window",
+};
+
 export function ScheduleVisitModal({ patients, staff, defaultPatientId }: Props) {
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<"exact" | "window">("exact");
   const [preset, setPreset] = useState<"morning" | "midday" | "afternoon" | "custom">("morning");
+
+  const defaultTime = useMemo(() => "09:00", []);
 
   return (
     <>
@@ -73,21 +84,25 @@ export function ScheduleVisitModal({ patients, staff, defaultPatientId }: Props)
                 </select>
               </label>
 
-              <label className="block text-xs font-semibold text-slate-700">
-                Clinician / nurse (optional)
+              <div>
+                <label className="block text-xs font-semibold text-slate-700">Clinician / nurse</label>
                 <select
                   name="assignedUserId"
                   className="mt-1 w-full rounded-[14px] border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
                   defaultValue=""
                 >
-                  <option value="">Unassigned</option>
+                  <option value="">Unassigned (will appear in Needs attention)</option>
                   {staff.map((s) => (
                     <option key={s.user_id} value={s.user_id}>
                       {s.label}
                     </option>
                   ))}
                 </select>
-              </label>
+                <p className="mt-1 text-[11px] leading-snug text-slate-500">
+                  Leave unassigned only when someone will assign a nurse from dispatch; unassigned active visits are
+                  flagged automatically.
+                </p>
+              </div>
 
               <label className="block text-xs font-semibold text-slate-700">
                 Date
@@ -109,7 +124,7 @@ export function ScheduleVisitModal({ patients, staff, defaultPatientId }: Props)
                     checked={mode === "exact"}
                     onChange={() => setMode("exact")}
                   />
-                  Exact time
+                  Exact time (15-minute slots)
                 </label>
                 <label className="flex items-center gap-2 text-sm text-slate-800">
                   <input
@@ -128,17 +143,23 @@ export function ScheduleVisitModal({ patients, staff, defaultPatientId }: Props)
               {mode === "exact" ? (
                 <label className="block text-xs font-semibold text-slate-700">
                   Time
-                  <input
+                  <select
                     name="visitTime"
-                    type="time"
                     required
-                    className="mt-1 w-full rounded-[14px] border border-slate-200 px-3 py-2 text-sm text-slate-900"
-                  />
+                    defaultValue={defaultTime}
+                    className="mt-1 w-full rounded-[14px] border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
+                  >
+                    {TIME_SLOTS.map((s) => (
+                      <option key={s.value} value={s.value}>
+                        {s.label}
+                      </option>
+                    ))}
+                  </select>
                 </label>
               ) : (
-                <div className="space-y-2">
+                <div className="space-y-2 rounded-[14px] border border-slate-100 bg-slate-50/80 p-3">
                   <label className="block text-xs font-semibold text-slate-700">
-                    Window
+                    Window preset
                     <select
                       className="mt-1 w-full rounded-[14px] border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
                       value={preset}
@@ -149,31 +170,45 @@ export function ScheduleVisitModal({ patients, staff, defaultPatientId }: Props)
                       <option value="morning">8:00 AM – 11:00 AM</option>
                       <option value="midday">11:00 AM – 2:00 PM</option>
                       <option value="afternoon">2:00 PM – 5:00 PM</option>
-                      <option value="custom">Custom times</option>
+                      <option value="custom">Custom start & end (15-min slots)</option>
                     </select>
                   </label>
-                  {preset === "custom" ? (
+                  {preset !== "custom" ? (
+                    <p className="text-xs font-medium text-slate-700">{PRESET_SUMMARY[preset]}</p>
+                  ) : (
                     <div className="grid grid-cols-2 gap-2">
                       <label className="text-xs font-semibold text-slate-700">
                         Start
-                        <input
+                        <select
                           name="windowStart"
-                          type="time"
                           required
-                          className="mt-1 w-full rounded-[14px] border border-slate-200 px-3 py-2 text-sm"
-                        />
+                          defaultValue="08:00"
+                          className="mt-1 w-full rounded-[14px] border border-slate-200 bg-white px-2 py-2 text-sm"
+                        >
+                          {TIME_SLOTS.map((s) => (
+                            <option key={`ws-${s.value}`} value={s.value}>
+                              {s.label}
+                            </option>
+                          ))}
+                        </select>
                       </label>
                       <label className="text-xs font-semibold text-slate-700">
                         End
-                        <input
+                        <select
                           name="windowEnd"
-                          type="time"
                           required
-                          className="mt-1 w-full rounded-[14px] border border-slate-200 px-3 py-2 text-sm"
-                        />
+                          defaultValue="11:00"
+                          className="mt-1 w-full rounded-[14px] border border-slate-200 bg-white px-2 py-2 text-sm"
+                        >
+                          {TIME_SLOTS.map((s) => (
+                            <option key={`we-${s.value}`} value={s.value}>
+                              {s.label}
+                            </option>
+                          ))}
+                        </select>
                       </label>
                     </div>
-                  ) : null}
+                  )}
                 </div>
               )}
 

@@ -35,14 +35,16 @@ async function loadWorkspaceVisitForStaff(staffUserId: string, visitId: string):
 } | null> {
   const { data: row, error } = await supabaseAdmin
     .from("patient_visits")
-    .select("id, patient_id, status")
+    .select("id, patient_id, status, assigned_user_id")
     .eq("id", visitId)
     .maybeSingle();
   if (error || !row?.id || !row.patient_id) {
     return null;
   }
-  const ok = await assertWorkspacePatientAccess(staffUserId, String(row.patient_id));
-  if (!ok) return null;
+  const assignee = typeof row.assigned_user_id === "string" ? row.assigned_user_id : null;
+  const byVisitAssignee = assignee === staffUserId;
+  const byPatientAssignment = await assertWorkspacePatientAccess(staffUserId, String(row.patient_id));
+  if (!byVisitAssignee && !byPatientAssignment) return null;
   return {
     id: String(row.id),
     patient_id: String(row.patient_id),

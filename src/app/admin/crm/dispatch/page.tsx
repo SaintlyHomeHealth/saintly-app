@@ -14,6 +14,9 @@ import { VISIT_STATUS_TRANSITIONS } from "@/lib/crm/patient-visit-status";
 import { formatPhoneForDisplay, normalizePhone } from "@/lib/phone/us-phone-format";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
+import { visitNeedsAttentionOperational } from "@/lib/crm/dispatch-needs-attention";
+import { buildDispatchVisitTimeSlots } from "@/lib/crm/dispatch-time-slots";
+import { CopyAddressButton } from "./CopyAddressButton";
 import { ScheduleVisitModal } from "./ScheduleVisitModal";
 
 type ContactEmb = {
@@ -70,10 +73,9 @@ const btnMuted = "rounded border border-slate-200 bg-slate-50 px-2 py-1 text-[11
 const selectCls =
   "max-w-[9rem] rounded border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-800";
 
-const ACTIVE = new Set(["scheduled", "confirmed", "en_route", "arrived"]);
-
 const BUCKET_ORDER = [
   "scheduled",
+  "confirmed",
   "en_route",
   "arrived",
   "completed",
@@ -85,12 +87,15 @@ type BucketKey = (typeof BUCKET_ORDER)[number];
 
 const BUCKET_LABELS: Record<BucketKey, string> = {
   scheduled: "Scheduled",
+  confirmed: "Confirmed",
   en_route: "En route",
   arrived: "Arrived",
   completed: "Completed",
   canceled: "Canceled",
   needs_attention: "Needs attention",
 };
+
+const RESCHEDULE_TIME_SLOTS = buildDispatchVisitTimeSlots();
 
 function contactName(c: ContactEmb | null): string {
   if (!c) return "—";
@@ -163,13 +168,15 @@ function mapsHrefFromAddress(addr: string): string | null {
 }
 
 function needsAttentionVisit(v: VisitRow, nowMs: number): boolean {
-  if (v.status === "missed" || v.status === "rescheduled") return true;
-  if (!v.assigned_user_id && ACTIVE.has(v.status)) return true;
-  if (v.scheduled_for && (v.status === "scheduled" || v.status === "confirmed")) {
-    const endMs = new Date(v.scheduled_end_at ?? v.scheduled_for).getTime();
-    if (Number.isFinite(endMs) && endMs < nowMs) return true;
-  }
-  return false;
+  return visitNeedsAttentionOperational(
+    {
+      status: v.status,
+      assigned_user_id: v.assigned_user_id,
+      scheduled_for: v.scheduled_for,
+      scheduled_end_at: v.scheduled_end_at,
+    },
+    nowMs
+  );
 }
 
 function primaryBucket(v: VisitRow, nowMs: number): BucketKey {
@@ -178,7 +185,8 @@ function primaryBucket(v: VisitRow, nowMs: number): BucketKey {
   if (v.status === "arrived") return "arrived";
   if (v.status === "completed") return "completed";
   if (v.status === "canceled") return "canceled";
-  if (v.status === "scheduled" || v.status === "confirmed") return "scheduled";
+  if (v.status === "confirmed") return "confirmed";
+  if (v.status === "scheduled") return "scheduled";
   return "needs_attention";
 }
 
@@ -205,7 +213,56 @@ function VisitStatusActions({ visitId, status }: { visitId: string; status: stri
   const allowed = VISIT_STATUS_TRANSITIONS[st] ?? [];
   return (
     <div className="flex flex-wrap gap-1">
-      {st === "scheduled" || st === "confirmed" ? (
+      {st === "scheduled" ? (
+        <>
+          {allowed.includes("confirmed") ? (
+            <form action={setPatientVisitStatus}>
+              <input type="hidden" name="visitId" value={visitId} />
+              <input type="hidden" name="nextStatus" value="confirmed" />
+              <input type="hidden" name="returnTo" value={RETURN_DISPATCH} />
+              <button type="submit" className={btnGreen}>
+                Confirm visit
+              </button>
+            </form>
+          ) : null}
+          <form action={setPatientVisitStatus} className="flex flex-wrap items-center gap-1">
+            <input type="hidden" name="visitId" value={visitId} />
+            <input type="hidden" name="nextStatus" value="en_route" />
+            <input type="hidden" name="returnTo" value={RETURN_DISPATCH} />
+            <label className="flex items-center gap-1 text-[10px] text-slate-600">
+              SMS
+              <select name="sendSms" className={selectCls} defaultValue="">
+                <option value="">No</option>
+                <option value="1">Send SMS</option>
+              </select>
+            </label>
+            <button type="submit" className={btnPrimary}>
+              En route
+            </button>
+          </form>
+          {allowed.includes("missed") ? (
+            <form action={setPatientVisitStatus}>
+              <input type="hidden" name="visitId" value={visitId} />
+              <input type="hidden" name="nextStatus" value="missed" />
+              <input type="hidden" name="returnTo" value={RETURN_DISPATCH} />
+              <button type="submit" className={btnMuted}>
+                Missed
+              </button>
+            </form>
+          ) : null}
+          {allowed.includes("canceled") ? (
+            <form action={setPatientVisitStatus}>
+              <input type="hidden" name="visitId" value={visitId} />
+              <input type="hidden" name="nextStatus" value="canceled" />
+              <input type="hidden" name="returnTo" value={RETURN_DISPATCH} />
+              <button type="submit" className={btnMuted}>
+                Cancel
+              </button>
+            </form>
+          ) : null}
+        </>
+      ) : null}
+      {st === "confirmed" ? (
         <>
           <form action={setPatientVisitStatus} className="flex flex-wrap items-center gap-1">
             <input type="hidden" name="visitId" value={visitId} />
@@ -412,7 +469,8 @@ export default async function DispatchPage({
 
   if (statusFilter && statusFilter !== "all") {
     merged = merged.filter((v) => {
-      if (statusFilter === "scheduled") return v.status === "scheduled" || v.status === "confirmed";
+      if (statusFilter === "scheduled") return v.status === "scheduled";
+      if (statusFilter === "confirmed") return v.status === "confirmed";
       return v.status === statusFilter;
     });
   }
@@ -464,8 +522,17 @@ export default async function DispatchPage({
   }));
 
   const nowMs = now.getTime();
+
+  const dispatchStats = {
+    scheduled: merged.filter((v) => v.status === "scheduled" && !needsAttentionVisit(v, nowMs)).length,
+    confirmed: merged.filter((v) => v.status === "confirmed" && !needsAttentionVisit(v, nowMs)).length,
+    en_route: merged.filter((v) => v.status === "en_route").length,
+    needs_attention: merged.filter((v) => needsAttentionVisit(v, nowMs)).length,
+  };
+
   const buckets: Record<BucketKey, VisitRow[]> = {
     scheduled: [],
+    confirmed: [],
     en_route: [],
     arrived: [],
     completed: [],
@@ -582,7 +649,8 @@ export default async function DispatchPage({
               className="mt-1 block rounded-[14px] border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
             >
               <option value="all">All</option>
-              <option value="scheduled">Scheduled / confirmed</option>
+              <option value="scheduled">Scheduled</option>
+              <option value="confirmed">Confirmed</option>
               <option value="en_route">En route</option>
               <option value="arrived">Arrived</option>
               <option value="completed">Completed</option>
@@ -623,6 +691,24 @@ export default async function DispatchPage({
             Apply
           </button>
         </form>
+      </div>
+
+      <div className="flex flex-wrap gap-3 rounded-[20px] border border-slate-200/90 bg-white px-4 py-3 text-xs text-slate-700 shadow-sm">
+        <span>
+          <span className="font-semibold text-slate-900">{dispatchStats.scheduled}</span> scheduled
+        </span>
+        <span className="text-slate-300">·</span>
+        <span>
+          <span className="font-semibold text-violet-800">{dispatchStats.confirmed}</span> confirmed
+        </span>
+        <span className="text-slate-300">·</span>
+        <span>
+          <span className="font-semibold text-sky-800">{dispatchStats.en_route}</span> en route
+        </span>
+        <span className="text-slate-300">·</span>
+        <span>
+          <span className="font-semibold text-amber-800">{dispatchStats.needs_attention}</span> needs attention
+        </span>
       </div>
 
       {BUCKET_ORDER.map((bucketKey) => {
@@ -674,7 +760,20 @@ export default async function DispatchPage({
                           <div className="mt-1 text-xs text-slate-700">
                             <span className="font-semibold">Clinician:</span> {nurse}
                           </div>
-                          <div className="mt-1 text-xs capitalize text-slate-600">Status: {v.status.replace(/_/g, " ")}</div>
+                          <div className="mt-1 text-xs capitalize text-slate-600">
+                            Status:{" "}
+                            <span
+                              className={
+                                v.status === "confirmed"
+                                  ? "font-semibold text-violet-800"
+                                  : v.status === "scheduled"
+                                    ? "font-medium text-slate-800"
+                                    : ""
+                              }
+                            >
+                              {v.status.replace(/_/g, " ")}
+                            </span>
+                          </div>
                           {notifyBits.length > 0 ? (
                             <div className="mt-1 text-[10px] text-sky-800">{notifyBits.join(" · ")}</div>
                           ) : (
@@ -719,6 +818,7 @@ export default async function DispatchPage({
                         ) : (
                           <span className={`${btnMuted} cursor-not-allowed opacity-50`}>Open maps</span>
                         )}
+                        <CopyAddressButton address={addr} className={btnMuted} />
                       </div>
 
                       <div className="mt-2">
@@ -760,12 +860,18 @@ export default async function DispatchPage({
                           </label>
                           <label className="text-[10px] font-semibold text-slate-600">
                             Time
-                            <input
+                            <select
                               name="visitTime"
-                              type="time"
                               required
-                              className="mt-0.5 block rounded border border-slate-200 px-2 py-1 text-[11px]"
-                            />
+                              defaultValue="09:00"
+                              className="mt-0.5 block max-w-[7.5rem] rounded border border-slate-200 bg-white px-2 py-1 text-[11px]"
+                            >
+                              {RESCHEDULE_TIME_SLOTS.map((s) => (
+                                <option key={s.value} value={s.value}>
+                                  {s.label}
+                                </option>
+                              ))}
+                            </select>
                           </label>
                           <button type="submit" className={btnMuted}>
                             Reschedule

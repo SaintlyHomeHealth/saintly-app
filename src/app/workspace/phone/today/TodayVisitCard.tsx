@@ -9,6 +9,18 @@ import {
   setWorkspaceVisitStatus,
 } from "@/app/workspace/phone/patients/actions";
 
+function statusBadgeClass(statusKey: string): string {
+  const s = statusKey.trim().toLowerCase();
+  if (s === "confirmed") return "bg-violet-100 text-violet-900 ring-violet-200/80";
+  if (s === "scheduled") return "bg-slate-100 text-slate-800 ring-slate-200/80";
+  if (s === "en_route") return "bg-sky-100 text-sky-900 ring-sky-200/80";
+  if (s === "arrived") return "bg-emerald-100 text-emerald-900 ring-emerald-200/80";
+  if (s === "completed") return "bg-slate-100 text-slate-600 ring-slate-200/60";
+  if (s === "missed" || s === "canceled") return "bg-red-50 text-red-800 ring-red-200/70";
+  if (s === "rescheduled") return "bg-amber-50 text-amber-900 ring-amber-200/80";
+  return "bg-slate-100 text-slate-700 ring-slate-200/80";
+}
+
 type Props = {
   visitId: string;
   patientId: string;
@@ -16,6 +28,7 @@ type Props = {
   patientPhone: string | null;
   addressLine: string | null;
   whenLabel: string;
+  statusKey: string;
   statusLabel: string;
   reminderLabel: string;
   reminderStateLabel: string;
@@ -26,6 +39,7 @@ type Props = {
   locationCapturedLabel: string | null;
   mapsHref: string | null;
   inboxHref: string | null;
+  canConfirm: boolean;
   canEnRoute: boolean;
   canArrived: boolean;
   canComplete: boolean;
@@ -106,7 +120,9 @@ export function TodayVisitCard(props: Props) {
           <p className="mt-0.5 text-xs text-slate-500">{props.whenLabel}</p>
           {props.addressLine ? <p className="mt-1 line-clamp-2 text-xs text-slate-500">{props.addressLine}</p> : null}
         </div>
-        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold capitalize text-slate-700">
+        <span
+          className={`rounded-full px-2 py-0.5 text-[10px] font-semibold capitalize ring-1 ${statusBadgeClass(props.statusKey)}`}
+        >
           {props.statusLabel}
         </span>
       </div>
@@ -160,6 +176,11 @@ export function TodayVisitCard(props: Props) {
       </div>
 
       <div className="mt-2.5 flex flex-wrap gap-1.5">
+        {props.canConfirm ? (
+          <button type="button" className={btnCls} disabled={isPending} onClick={() => runStatus("confirmed")}>
+            Confirm visit
+          </button>
+        ) : null}
         {props.canEnRoute ? (
           <button type="button" className={btnCls} disabled={isPending} onClick={() => runStatus("en_route")}>
             Mark en route

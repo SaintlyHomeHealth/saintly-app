@@ -2,10 +2,11 @@ import { redirect } from "next/navigation";
 
 import { TodayVisitCard } from "./TodayVisitCard";
 import { allowedNextVisitStatuses, formatVisitStatusLabel } from "@/lib/crm/patient-visit-status";
+import { visitNeedsAttentionOperational } from "@/lib/crm/dispatch-needs-attention";
 import { formatDispatchScheduleLine } from "@/lib/crm/dispatch-visit";
 import { formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
+import { supabaseAdmin } from "@/lib/admin";
 import { canAccessWorkspacePhone, getStaffProfile } from "@/lib/staff-profile";
-import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 type ContactRow = {
   id: string;
@@ -23,6 +24,7 @@ type ContactRow = {
 type VisitRow = {
   id: string;
   patient_id: string;
+  assigned_user_id: string | null;
   scheduled_for: string | null;
   scheduled_end_at: string | null;
   time_window_label: string | null;
@@ -95,17 +97,37 @@ export default async function WorkspaceTodayPage() {
     redirect("/admin/phone");
   }
 
-  const supabase = await createServerSupabaseClient();
-  const { data: asnRows, error: asnErr } = await supabase
-    .from("patient_assignments")
-    .select("patient_id")
-    .eq("assigned_user_id", staff.user_id)
-    .eq("is_active", true);
-  const patientIds = [...new Set((asnRows ?? []).map((r) => String(r.patient_id)).filter(Boolean))];
+  const uid = staff.user_id;
+
+  const [{ data: asnRows, error: asnErr }, { data: visitAssigneeRows }] = await Promise.all([
+    supabaseAdmin
+      .from("patient_assignments")
+      .select("patient_id")
+      .eq("assigned_user_id", uid)
+      .eq("is_active", true),
+    supabaseAdmin
+      .from("patient_visits")
+      .select("patient_id")
+      .eq("assigned_user_id", uid)
+      .in("status", ["scheduled", "confirmed", "en_route", "arrived", "missed", "rescheduled"])
+      .limit(500),
+  ]);
+
+  const patientIdSet = new Set<string>();
+  for (const r of asnRows ?? []) {
+    const id = String((r as { patient_id?: string }).patient_id ?? "").trim();
+    if (id) patientIdSet.add(id);
+  }
+  for (const r of visitAssigneeRows ?? []) {
+    const id = String((r as { patient_id?: string }).patient_id ?? "").trim();
+    if (id) patientIdSet.add(id);
+  }
+
+  const patientIds = [...patientIdSet];
 
   const patientsById = new Map<string, { id: string; contact_id: string; contact: ContactRow | null }>();
   if (patientIds.length > 0) {
-    const { data: pRows } = await supabase
+    const { data: pRows } = await supabaseAdmin
       .from("patients")
       .select(
         "id, contact_id, contacts ( id, full_name, first_name, last_name, primary_phone, address_line_1, address_line_2, city, state, zip )"
@@ -128,7 +150,7 @@ export default async function WorkspaceTodayPage() {
   const contactIds = [...new Set([...patientsById.values()].map((p) => p.contact_id).filter(Boolean))];
   const threadByContactId = new Map<string, string>();
   if (contactIds.length > 0) {
-    const { data: convRows } = await supabase
+    const { data: convRows } = await supabaseAdmin
       .from("conversations")
       .select("id, primary_contact_id, last_message_at")
       .eq("channel", "sms")
@@ -143,10 +165,10 @@ export default async function WorkspaceTodayPage() {
 
   let visits: VisitItem[] = [];
   if (patientIds.length > 0) {
-    const { data: vRows } = await supabase
+    const { data: vRows } = await supabaseAdmin
       .from("patient_visits")
       .select(
-        "id, patient_id, scheduled_for, scheduled_end_at, time_window_label, status, reminder_recipient, reminder_day_before_sent_at, reminder_day_of_sent_at, en_route_at, arrived_at, completed_at, arrived_lat, arrived_lng, completed_lat, completed_lng"
+        "id, patient_id, assigned_user_id, scheduled_for, scheduled_end_at, time_window_label, status, reminder_recipient, reminder_day_before_sent_at, reminder_day_of_sent_at, en_route_at, arrived_at, completed_at, arrived_lat, arrived_lng, completed_lat, completed_lng"
       )
       .in("patient_id", patientIds)
       .order("scheduled_for", { ascending: true, nullsFirst: false })
@@ -166,6 +188,7 @@ export default async function WorkspaceTodayPage() {
         return {
           id: String(v.id),
           patient_id: pid,
+          assigned_user_id: typeof v.assigned_user_id === "string" ? v.assigned_user_id : null,
           scheduled_for: whenRaw || null,
           scheduled_end_at: typeof v.scheduled_end_at === "string" ? v.scheduled_end_at : null,
           time_window_label: typeof v.time_window_label === "string" ? v.time_window_label : null,
@@ -200,21 +223,25 @@ export default async function WorkspaceTodayPage() {
   }
 
   const now = new Date();
+  const nowMs = now.getTime();
   const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const dayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime();
 
   const activeStatuses = new Set(["scheduled", "confirmed", "en_route", "arrived"]);
-  const today = visits.filter(
-    (v) => v.whenTs >= dayStart && v.whenTs < dayEnd && (activeStatuses.has(v.status) || v.status === "missed")
-  );
-  const upcoming = visits.filter((v) => v.whenTs >= dayEnd && activeStatuses.has(v.status));
-  const needsAttention = visits.filter((v) => {
-    if (today.some((x) => x.id === v.id)) return false;
-    if (v.status === "missed") return true;
-    if (v.status === "rescheduled") return true;
-    if (activeStatuses.has(v.status) && v.whenTs > 0 && v.whenTs < now.getTime()) return true;
-    return false;
+
+  const today = visits.filter((v) => {
+    if (!activeStatuses.has(v.status)) return false;
+    if (visitNeedsAttentionOperational(v, nowMs)) return false;
+    return v.whenTs >= dayStart && v.whenTs < dayEnd;
   });
+
+  const upcoming = visits.filter((v) => {
+    if (!activeStatuses.has(v.status)) return false;
+    if (visitNeedsAttentionOperational(v, nowMs)) return false;
+    return v.whenTs >= dayEnd;
+  });
+
+  const needsAttention = visits.filter((v) => visitNeedsAttentionOperational(v, nowMs));
 
   const renderSection = (title: string, subtitle: string, items: VisitItem[]) => (
     <section className="mt-4">
@@ -239,6 +266,7 @@ export default async function WorkspaceTodayPage() {
                 patientPhone={v.contact.primary_phone}
                 addressLine={addressLine(v.contact)}
                 whenLabel={v.whenLabel}
+                statusKey={v.status}
                 statusLabel={formatVisitStatusLabel(v.status)}
                 reminderLabel={reminderLabel(v.reminder_recipient)}
                 reminderStateLabel={reminderStateLabel(v)}
@@ -255,6 +283,7 @@ export default async function WorkspaceTodayPage() {
                 }
                 mapsHref={v.mapsHref}
                 inboxHref={v.inboxHref}
+                canConfirm={allowed.includes("confirmed")}
                 canEnRoute={allowed.includes("en_route")}
                 canArrived={allowed.includes("arrived")}
                 canComplete={allowed.includes("completed")}
@@ -271,16 +300,22 @@ export default async function WorkspaceTodayPage() {
   return (
     <div className="px-4 pb-24 pt-4">
       <h1 className="text-xl font-semibold tracking-tight text-slate-900">Today</h1>
-      <p className="mt-1 text-sm text-slate-500">Daily visit execution queue for your assigned patients.</p>
+      <p className="mt-1 text-sm text-slate-500">
+        Visits for patients you are assigned to, plus visits where you are the assigned clinician.
+      </p>
       {asnErr ? (
         <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-900">
           Could not load assignments.
         </p>
       ) : null}
 
-      {renderSection("Today", "Visits scheduled for today.", today)}
+      {renderSection("Today", "On-track visits scheduled for today.", today)}
       {renderSection("Upcoming", "Next scheduled visits.", upcoming)}
-      {renderSection("Needs attention", "Overdue, missed, or rescheduled visits.", needsAttention)}
+      {renderSection(
+        "Needs attention",
+        "Unassigned, unscheduled, overdue, due within an hour, missed, or rescheduled.",
+        needsAttention
+      )}
     </div>
   );
 }
