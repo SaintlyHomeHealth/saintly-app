@@ -8,6 +8,8 @@ export const PAYER_CREDENTIALING_ACTIVITY_TYPES = {
   document_update: "document_update",
   owner_change: "owner_change",
   manual_note: "manual_note",
+  attachment_added: "attachment_added",
+  attachment_removed: "attachment_removed",
 } as const;
 
 export type PayerCredentialingActivityType =
@@ -22,6 +24,8 @@ const PRETTY: Record<string, string> = {
   [PAYER_CREDENTIALING_ACTIVITY_TYPES.document_update]: "Document",
   [PAYER_CREDENTIALING_ACTIVITY_TYPES.owner_change]: "Owner",
   [PAYER_CREDENTIALING_ACTIVITY_TYPES.manual_note]: "Note",
+  [PAYER_CREDENTIALING_ACTIVITY_TYPES.attachment_added]: "Attachment",
+  [PAYER_CREDENTIALING_ACTIVITY_TYPES.attachment_removed]: "Attachment removed",
 };
 
 export function formatCredentialingActivityTypeLabel(activityType: string): string {

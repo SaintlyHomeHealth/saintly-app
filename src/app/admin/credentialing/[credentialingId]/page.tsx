@@ -3,8 +3,10 @@ import { notFound, redirect } from "next/navigation";
 
 import {
   appendCredentialingActivityNote,
+  deletePayerCredentialingAttachment,
   updatePayerCredentialingDocuments,
   updatePayerCredentialingRecord,
+  uploadPayerCredentialingAttachment,
 } from "../actions";
 import { formatCredentialingActivityTypeLabel } from "@/lib/crm/credentialing-activity-types";
 import {
@@ -25,6 +27,7 @@ import {
   PAYER_CREDENTIALING_DOC_TYPES,
   type PayerCredentialingDocType,
 } from "@/lib/crm/credentialing-documents";
+import { PAYER_CREDENTIALING_MAX_ATTACHMENT_BYTES } from "@/lib/crm/payer-credentialing-storage";
 import {
   credentialingStaffLabel,
   loadCredentialingStaffAssignees,
@@ -55,6 +58,17 @@ type ActivityRow = {
   created_by_user_id: string | null;
 };
 
+type AttachmentRow = {
+  id: string;
+  file_name: string;
+  file_type: string | null;
+  file_size: number | null;
+  category: string | null;
+  description: string | null;
+  uploaded_at: string;
+  uploaded_by_user_id: string | null;
+};
+
 function sortDocsByCatalog(docs: DocRow[]): DocRow[] {
   const order = new Map(PAYER_CREDENTIALING_DOC_TYPES.map((t, i) => [t, i]));
   return [...docs].sort((a, b) => {
@@ -64,10 +78,28 @@ function sortDocsByCatalog(docs: DocRow[]): DocRow[] {
   });
 }
 
+function formatAttachmentBytes(n: number | null): string {
+  if (n == null || Number.isNaN(n)) return "—";
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+const ATTACH_ERR_MESSAGES: Record<string, string> = {
+  missing_file: "Choose a file to upload.",
+  too_large: `File is too large (max ${Math.round(PAYER_CREDENTIALING_MAX_ATTACHMENT_BYTES / (1024 * 1024))} MB).`,
+  type: "That file type is not allowed. Use PDF, images, Word, Excel, CSV, TXT, or ZIP.",
+  record: "Could not verify this payer record.",
+  storage: "Storage upload failed. Check the payer-credentialing bucket and policies.",
+  db: "Saved to storage but database insert failed; the file may have been removed.",
+};
+
 export default async function AdminCredentialingDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ credentialingId: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const staff = await getStaffProfile();
   if (!staff || !isManagerOrHigher(staff)) {
@@ -76,6 +108,11 @@ export default async function AdminCredentialingDetailPage({
 
   const { credentialingId } = await params;
   if (!credentialingId?.trim()) notFound();
+
+  const rawSp = await searchParams;
+  const attachErrRaw = typeof rawSp.attach_err === "string" ? rawSp.attach_err.trim() : "";
+  const attachErrMsg = attachErrRaw ? ATTACH_ERR_MESSAGES[attachErrRaw] ?? "Upload could not be completed." : "";
+  const attachOk = rawSp.attach_ok === "1" || rawSp.attach_ok === "true";
 
   const supabase = await createServerSupabaseClient();
   const id = credentialingId.trim();
@@ -113,7 +150,19 @@ export default async function AdminCredentialingDetailPage({
     .limit(300);
 
   const activities = (rawActivity ?? []) as ActivityRow[];
-  const actorIds = activities.map((a) => a.created_by_user_id).filter((x): x is string => Boolean(x));
+
+  const { data: rawAttachments, error: attachFetchErr } = await supabase
+    .from("payer_credentialing_attachments")
+    .select("id, file_name, file_type, file_size, category, description, uploaded_at, uploaded_by_user_id")
+    .eq("credentialing_record_id", id)
+    .order("uploaded_at", { ascending: false });
+
+  const attachments = !attachFetchErr ? ((rawAttachments ?? []) as AttachmentRow[]) : [];
+
+  const actorIds = [
+    ...activities.map((a) => a.created_by_user_id),
+    ...attachments.map((a) => a.uploaded_by_user_id),
+  ].filter((x): x is string => Boolean(x));
   const actorLabels = await loadCredentialingStaffLabelMap(actorIds);
 
   const staffOptions = await loadCredentialingStaffAssignees();
@@ -145,6 +194,27 @@ export default async function AdminCredentialingDetailPage({
 
   return (
     <div className="space-y-6 p-6">
+      {attachErrMsg ? (
+        <div
+          role="alert"
+          className="rounded-[20px] border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900 shadow-sm"
+        >
+          {attachErrMsg}
+        </div>
+      ) : null}
+      {attachOk ? (
+        <div className="rounded-[20px] border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-950 shadow-sm">
+          Attachment uploaded successfully.
+        </div>
+      ) : null}
+      {attachFetchErr ? (
+        <p className="text-sm text-amber-900">
+          Additional documents are unavailable until the{" "}
+          <span className="font-mono text-xs">payer_credentialing_attachments</span> migration and Storage bucket are
+          applied.
+        </p>
+      ) : null}
+
       <nav className="flex flex-wrap gap-3 text-sm font-semibold text-sky-800">
         <Link href="/admin" className="underline-offset-2 hover:underline">
           Admin
@@ -214,28 +284,41 @@ export default async function AdminCredentialingDetailPage({
                 : "—"}
             </p>
           </div>
-          <div className="flex min-w-[200px] shrink-0 flex-col gap-3">
+          <div className="flex min-w-[220px] shrink-0 flex-col gap-3">
             {portal_url.trim() ? (
-              <a
-                href={portal_url.trim()}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center justify-center gap-2 rounded-[20px] bg-gradient-to-r from-sky-600 to-cyan-500 px-5 py-2.5 text-sm font-semibold text-white shadow-sm shadow-sky-200/60 transition hover:-translate-y-px hover:shadow-md"
-              >
-                <span aria-hidden>↗</span>
-                Open portal
-              </a>
+              <>
+                <a
+                  href={portal_url.trim()}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center justify-center gap-2 rounded-[20px] bg-gradient-to-r from-sky-600 to-cyan-500 px-5 py-2.5 text-sm font-semibold text-white shadow-sm shadow-sky-200/60 transition hover:-translate-y-px hover:shadow-md"
+                >
+                  <span aria-hidden>↗</span>
+                  Open portal
+                </a>
+                {portal_username_hint.trim() ? (
+                  <p className="rounded-xl border border-sky-100 bg-white/90 px-3 py-2 text-[11px] text-slate-700 shadow-sm">
+                    <span className="font-semibold text-sky-900/80">Username hint: </span>
+                    {portal_username_hint.trim()}
+                  </p>
+                ) : null}
+              </>
             ) : (
-              <div className="rounded-[20px] border border-dashed border-slate-300 bg-white/70 px-4 py-3 text-center text-xs font-medium text-slate-500">
-                No portal URL on file — add one in the form below.
+              <div className="rounded-[20px] border border-sky-100 bg-gradient-to-b from-sky-50/90 to-white px-4 py-4 shadow-sm ring-1 ring-sky-100/80">
+                <p className="text-[11px] font-bold uppercase tracking-wide text-sky-900/85">Portal access</p>
+                <p className="mt-2 text-sm leading-relaxed text-slate-700">
+                  There is no portal URL on this record yet. When you add one in{" "}
+                  <span className="font-semibold text-slate-900">Update record</span>, a primary button will appear here
+                  for one-click access. Follow-up still works using contacts and notes.
+                </p>
+                {portal_username_hint.trim() ? (
+                  <p className="mt-3 rounded-xl border border-white/90 bg-white/80 px-3 py-2 text-[11px] text-slate-700">
+                    <span className="font-semibold text-slate-600">Saved username hint: </span>
+                    {portal_username_hint.trim()}
+                  </p>
+                ) : null}
               </div>
             )}
-            {portal_username_hint.trim() ? (
-              <p className="rounded-lg border border-slate-200 bg-white/80 px-3 py-2 text-[11px] text-slate-700">
-                <span className="font-semibold text-slate-600">Username hint: </span>
-                {portal_username_hint.trim()}
-              </p>
-            ) : null}
             <Link
               href="/admin/credentialing"
               className="inline-flex items-center justify-center rounded-[20px] border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50"
@@ -402,8 +485,9 @@ export default async function AdminCredentialingDetailPage({
           <div>
             <h2 className="text-sm font-bold text-slate-900">Document checklist</h2>
             <p className="mt-1 text-xs text-slate-600">
-              Track received items (no file upload here—use your normal document storage). Mark N/A when a payer does
-              not require a row.
+              Structured enrollment checklist (status only). For actual files, use{" "}
+              <span className="font-semibold text-slate-800">Additional documents</span> below. Mark N/A when a payer
+              does not require a row.
             </p>
           </div>
           <div className="overflow-x-auto rounded-[20px] border border-slate-100">
@@ -468,6 +552,132 @@ export default async function AdminCredentialingDetailPage({
           Document checklist will appear after migrations add <span className="font-mono text-xs">payer_credentialing_documents</span>.
         </div>
       )}
+
+      {!attachFetchErr ? (
+        <section className="space-y-4 rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+          <div>
+            <h2 className="text-sm font-bold text-slate-900">Additional documents</h2>
+            <p className="mt-1 text-xs text-slate-600">
+              Upload contracts, welcome letters, screenshots, or payer-specific forms. Files are stored in Supabase
+              Storage (bucket <span className="font-mono text-[10px]">payer-credentialing</span>
+              ). Max {Math.round(PAYER_CREDENTIALING_MAX_ATTACHMENT_BYTES / (1024 * 1024))} MB; PDF, images, Word, Excel,
+              CSV, TXT, or ZIP.
+            </p>
+          </div>
+
+          <form
+            action={uploadPayerCredentialingAttachment}
+            encType="multipart/form-data"
+            className="rounded-[20px] border border-slate-100 bg-slate-50/50 p-4 space-y-3"
+          >
+            <input type="hidden" name="credentialing_id" value={credentialingId} />
+            <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-700">
+              File <span className="text-red-600">*</span>
+              <input
+                name="file"
+                type="file"
+                required
+                className="text-sm text-slate-800 file:mr-3 file:rounded-lg file:border file:border-sky-200 file:bg-sky-50 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-sky-900"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-700">
+              Category / type <span className="font-normal text-slate-500">(optional)</span>
+              <input
+                name="attachment_category"
+                className={inp}
+                placeholder="e.g. Contract, Welcome letter, Screenshot"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-700">
+              Description <span className="font-normal text-slate-500">(optional)</span>
+              <textarea
+                name="attachment_description"
+                rows={2}
+                className={inp}
+                placeholder="Short note about what this file is"
+              />
+            </label>
+            <button
+              type="submit"
+              className="rounded-[20px] border border-slate-800 bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+            >
+              Upload attachment
+            </button>
+          </form>
+
+          <div className="overflow-x-auto rounded-[20px] border border-slate-100">
+            <table className="w-full min-w-[720px] text-left text-sm">
+              <thead>
+                <tr className="border-b border-slate-100 bg-slate-50 text-xs font-semibold text-slate-600">
+                  <th className="px-3 py-2">File</th>
+                  <th className="px-3 py-2">Category</th>
+                  <th className="px-3 py-2">Description</th>
+                  <th className="px-3 py-2">Uploaded</th>
+                  <th className="px-3 py-2">By</th>
+                  <th className="px-3 py-2">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {attachments.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-3 py-6 text-center text-sm text-slate-500">
+                      No attachments yet.
+                    </td>
+                  </tr>
+                ) : (
+                  attachments.map((a) => {
+                    const by = a.uploaded_by_user_id
+                      ? actorLabels.get(a.uploaded_by_user_id) ?? "Staff"
+                      : "—";
+                    const when = new Date(a.uploaded_at).toLocaleString("en-US", {
+                      dateStyle: "medium",
+                      timeStyle: "short",
+                    });
+                    return (
+                      <tr key={a.id} className="border-b border-slate-50 last:border-0">
+                        <td className="px-3 py-2">
+                          <p className="font-medium text-slate-900">{a.file_name}</p>
+                          <p className="text-[10px] text-slate-500">
+                            {(a.file_type ?? "").trim() || "—"} · {formatAttachmentBytes(a.file_size)}
+                          </p>
+                        </td>
+                        <td className="px-3 py-2 text-xs text-slate-700">{(a.category ?? "").trim() || "—"}</td>
+                        <td className="max-w-[220px] px-3 py-2 text-xs text-slate-600">
+                          <span className="line-clamp-3 whitespace-pre-wrap break-words">
+                            {(a.description ?? "").trim() || "—"}
+                          </span>
+                        </td>
+                        <td className="whitespace-nowrap px-3 py-2 text-xs text-slate-600">{when}</td>
+                        <td className="px-3 py-2 text-xs text-slate-700">{by}</td>
+                        <td className="px-3 py-2">
+                          <div className="flex flex-wrap gap-2">
+                            <a
+                              href={`/api/payer-credentialing-attachments/${a.id}/download`}
+                              className="inline-flex rounded-lg border border-sky-200 bg-sky-50 px-2 py-1 text-[11px] font-bold text-sky-900 hover:bg-sky-100"
+                            >
+                              Download
+                            </a>
+                            <form action={deletePayerCredentialingAttachment}>
+                              <input type="hidden" name="credentialing_id" value={credentialingId} />
+                              <input type="hidden" name="attachment_id" value={a.id} />
+                              <button
+                                type="submit"
+                                className="rounded-lg border border-red-200 bg-red-50 px-2 py-1 text-[11px] font-bold text-red-900 hover:bg-red-100"
+                              >
+                                Remove
+                              </button>
+                            </form>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
 
       <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
         <h2 className="text-sm font-bold text-slate-900">Activity &amp; timeline</h2>

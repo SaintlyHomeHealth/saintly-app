@@ -1,5 +1,7 @@
 "use server";
 
+import { randomUUID } from "node:crypto";
+
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
@@ -14,6 +16,12 @@ import {
   isCredentialingStatus,
 } from "@/lib/crm/credentialing-status-options";
 import { contractingStatusLabel, credentialingStatusLabel } from "@/lib/crm/credentialing-command-center";
+import {
+  isAllowedPayerCredentialingMime,
+  PAYER_CREDENTIALING_MAX_ATTACHMENT_BYTES,
+  PAYER_CREDENTIALING_STORAGE_BUCKET,
+  sanitizePayerCredentialingFileName,
+} from "@/lib/crm/payer-credentialing-storage";
 import { supabaseAdmin } from "@/lib/admin";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 
@@ -387,6 +395,172 @@ export async function updatePayerCredentialingDocuments(formData: FormData) {
       });
     }
   }
+
+  revalidatePath("/admin/credentialing");
+  revalidatePath(`/admin/credentialing/${credentialingId}`);
+}
+
+function inferMimeFromFileName(fileName: string): string {
+  const ext = fileName.split(".").pop()?.toLowerCase() ?? "";
+  const map: Record<string, string> = {
+    pdf: "application/pdf",
+    png: "image/png",
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    webp: "image/webp",
+    gif: "image/gif",
+    doc: "application/msword",
+    docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    xls: "application/vnd.ms-excel",
+    xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    txt: "text/plain",
+    csv: "text/csv",
+    zip: "application/zip",
+  };
+  return map[ext] ?? "";
+}
+
+function effectiveAttachmentMime(file: File): string {
+  const t = file.type.trim().toLowerCase();
+  if (t) return t;
+  return inferMimeFromFileName(file.name);
+}
+
+export async function uploadPayerCredentialingAttachment(formData: FormData) {
+  const staff = await getStaffProfile();
+  if (!staff || !isManagerOrHigher(staff)) {
+    redirect("/admin");
+  }
+
+  const credentialingId = readTrimmed(formData, "credentialing_id");
+  if (!credentialingId || !UUID_RE.test(credentialingId)) {
+    redirect("/admin/credentialing");
+  }
+
+  const fileEntry = formData.get("file");
+  if (!(fileEntry instanceof File) || fileEntry.size < 1) {
+    redirect(`/admin/credentialing/${credentialingId}?attach_err=missing_file`);
+  }
+
+  if (fileEntry.size > PAYER_CREDENTIALING_MAX_ATTACHMENT_BYTES) {
+    redirect(`/admin/credentialing/${credentialingId}?attach_err=too_large`);
+  }
+
+  const mime = effectiveAttachmentMime(fileEntry);
+  if (!mime || !isAllowedPayerCredentialingMime(mime)) {
+    redirect(`/admin/credentialing/${credentialingId}?attach_err=type`);
+  }
+
+  const { data: record, error: recErr } = await supabaseAdmin
+    .from("payer_credentialing_records")
+    .select("id")
+    .eq("id", credentialingId)
+    .maybeSingle();
+
+  if (recErr || !record?.id) {
+    redirect(`/admin/credentialing/${credentialingId}?attach_err=record`);
+  }
+
+  const attachmentId = randomUUID();
+  const safeName = sanitizePayerCredentialingFileName(fileEntry.name);
+  const storagePath = `${credentialingId}/${attachmentId}/${safeName}`;
+
+  const buffer = Buffer.from(await fileEntry.arrayBuffer());
+  const { error: upErr } = await supabaseAdmin.storage
+    .from(PAYER_CREDENTIALING_STORAGE_BUCKET)
+    .upload(storagePath, buffer, {
+      contentType: mime,
+      upsert: false,
+    });
+
+  if (upErr) {
+    console.warn("[credentialing] attachment upload:", upErr.message);
+    redirect(`/admin/credentialing/${credentialingId}?attach_err=storage`);
+  }
+
+  const category = readTrimmed(formData, "attachment_category");
+  const description = readTrimmed(formData, "attachment_description");
+
+  const { error: insErr } = await supabaseAdmin.from("payer_credentialing_attachments").insert({
+    id: attachmentId,
+    credentialing_record_id: credentialingId,
+    storage_path: storagePath,
+    file_name: fileEntry.name,
+    file_type: mime,
+    file_size: fileEntry.size,
+    category,
+    description,
+    uploaded_by_user_id: staff.user_id,
+  });
+
+  if (insErr) {
+    await supabaseAdmin.storage.from(PAYER_CREDENTIALING_STORAGE_BUCKET).remove([storagePath]);
+    console.warn("[credentialing] attachment insert:", insErr.message);
+    redirect(`/admin/credentialing/${credentialingId}?attach_err=db`);
+  }
+
+  const detailParts = [`File: ${fileEntry.name}`, `Type: ${mime}`, `Size: ${fileEntry.size} bytes`];
+  if (category) detailParts.push(`Category: ${category}`);
+  if (description) detailParts.push(`Note: ${description}`);
+
+  await insertCredentialingActivity({
+    credentialingRecordId: credentialingId,
+    activityType: PAYER_CREDENTIALING_ACTIVITY_TYPES.attachment_added,
+    summary: `Attachment uploaded: ${fileEntry.name}`,
+    details: detailParts.join("\n"),
+    createdByUserId: staff.user_id,
+  });
+
+  revalidatePath("/admin/credentialing");
+  revalidatePath(`/admin/credentialing/${credentialingId}`);
+  redirect(`/admin/credentialing/${credentialingId}?attach_ok=1`);
+}
+
+export async function deletePayerCredentialingAttachment(formData: FormData) {
+  const staff = await getStaffProfile();
+  if (!staff || !isManagerOrHigher(staff)) {
+    return;
+  }
+
+  const credentialingId = readTrimmed(formData, "credentialing_id");
+  const attachmentId = readTrimmed(formData, "attachment_id");
+  if (!credentialingId || !attachmentId || !UUID_RE.test(credentialingId) || !UUID_RE.test(attachmentId)) {
+    return;
+  }
+
+  const { data: row, error: fetchErr } = await supabaseAdmin
+    .from("payer_credentialing_attachments")
+    .select("id, storage_path, file_name")
+    .eq("id", attachmentId)
+    .eq("credentialing_record_id", credentialingId)
+    .maybeSingle();
+
+  if (fetchErr || !row?.storage_path) {
+    console.warn("[credentialing] attachment delete fetch:", fetchErr?.message);
+    return;
+  }
+
+  const path = String(row.storage_path);
+  await supabaseAdmin.storage.from(PAYER_CREDENTIALING_STORAGE_BUCKET).remove([path]);
+
+  const { error: delErr } = await supabaseAdmin
+    .from("payer_credentialing_attachments")
+    .delete()
+    .eq("id", attachmentId)
+    .eq("credentialing_record_id", credentialingId);
+
+  if (delErr) {
+    console.warn("[credentialing] attachment delete:", delErr.message);
+    return;
+  }
+
+  await insertCredentialingActivity({
+    credentialingRecordId: credentialingId,
+    activityType: PAYER_CREDENTIALING_ACTIVITY_TYPES.attachment_removed,
+    summary: `Attachment removed: ${row.file_name ?? "file"}`,
+    details: path,
+    createdByUserId: staff.user_id,
+  });
 
   revalidatePath("/admin/credentialing");
   revalidatePath(`/admin/credentialing/${credentialingId}`);
