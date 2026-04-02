@@ -1,12 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { supabaseAdmin } from "@/lib/admin";
-import {
-  persistRealtimeSessionToCrm,
-  type RealtimeRouteIntent,
-} from "@/lib/phone/realtime-voice-ai-result";
+import { persistRealtimeSessionToCrm, type RealtimeRouteIntent } from "@/lib/phone/realtime-voice-ai-result";
 
-const ALLOWED: ReadonlySet<string> = new Set(["patient", "referral", "spam", "urgent_medical"]);
+const ALLOWED: ReadonlySet<string> = new Set([
+  "patient",
+  "referral",
+  "vendor",
+  "wrong_number",
+  "spam",
+  "urgent_medical",
+]);
+const ALLOWED_URGENCY: ReadonlySet<string> = new Set(["low", "medium", "high", "critical"]);
 
 function isIntent(v: unknown): v is RealtimeRouteIntent {
   return typeof v === "string" && ALLOWED.has(v);
@@ -44,6 +49,13 @@ export async function POST(req: NextRequest) {
   const intentRaw = o.intent;
   const transcriptExcerpt =
     typeof o.transcript_excerpt === "string" ? o.transcript_excerpt.trim() : undefined;
+  const callerType = typeof o.caller_type === "string" ? o.caller_type.trim().toLowerCase() : undefined;
+  const callerName = typeof o.caller_name === "string" ? o.caller_name.trim() : undefined;
+  const patientName = typeof o.patient_name === "string" ? o.patient_name.trim() : undefined;
+  const callbackNumber = typeof o.callback_number === "string" ? o.callback_number.trim() : undefined;
+  const urgency = typeof o.urgency === "string" ? o.urgency.trim().toLowerCase() : undefined;
+  const handoffRecommended =
+    typeof o.handoff_recommended === "boolean" ? o.handoff_recommended : undefined;
 
   if (!externalCallId || !summary) {
     return NextResponse.json({ ok: false, error: "missing_fields" }, { status: 400 });
@@ -51,12 +63,21 @@ export async function POST(req: NextRequest) {
   if (!isIntent(intentRaw)) {
     return NextResponse.json({ ok: false, error: "invalid_intent" }, { status: 400 });
   }
+  if (urgency && !ALLOWED_URGENCY.has(urgency)) {
+    return NextResponse.json({ ok: false, error: "invalid_urgency" }, { status: 400 });
+  }
 
   const result = await persistRealtimeSessionToCrm(supabaseAdmin, {
     externalCallId,
     intent: intentRaw,
     summary,
     transcriptExcerpt,
+    callerType,
+    callerName,
+    patientName,
+    callbackNumber,
+    urgency,
+    handoffRecommended,
   });
 
   if (!result.ok) {

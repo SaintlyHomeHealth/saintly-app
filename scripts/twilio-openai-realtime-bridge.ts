@@ -63,6 +63,12 @@ async function postSessionResult(input: {
   intent: string;
   summary: string;
   transcriptExcerpt?: string;
+  callerType?: string;
+  callerName?: string;
+  patientName?: string;
+  callbackNumber?: string;
+  urgency?: string;
+  handoffRecommended?: boolean;
 }): Promise<void> {
   const base = requireEnv("APP_PUBLIC_BASE_URL").replace(/\/$/, "");
   const secret = requireEnv("REALTIME_BRIDGE_SHARED_SECRET");
@@ -78,6 +84,12 @@ async function postSessionResult(input: {
       intent: input.intent,
       summary: input.summary,
       transcript_excerpt: input.transcriptExcerpt,
+      caller_type: input.callerType,
+      caller_name: input.callerName,
+      patient_name: input.patientName,
+      callback_number: input.callbackNumber,
+      urgency: input.urgency,
+      handoff_recommended: input.handoffRecommended,
     }),
   });
   if (!res.ok) {
@@ -99,7 +111,7 @@ async function applyTwilioRoute(input: {
   const client = twilio(sid, token);
 
   let twiml: string;
-  if (input.intent === "spam") {
+  if (input.intent === "spam" || input.intent === "wrong_number") {
     twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Hangup/></Response>`;
   } else if (input.intent === "urgent_medical") {
     twiml = dialTwiml({
@@ -240,7 +252,17 @@ wss.on("connection", (twilioWs, req) => {
           const argsRaw = typeof ev.arguments === "string" ? ev.arguments : "";
           if (name !== "route_call" || routed) return;
           routed = true;
-          let args: { intent?: string; summary?: string; closing_message?: string };
+          let args: {
+            intent?: string;
+            summary?: string;
+            closing_message?: string;
+            caller_type?: string;
+            caller_name?: string;
+            patient_name?: string;
+            callback_number?: string;
+            urgency?: string;
+            handoff_recommended?: boolean;
+          };
           try {
             args = JSON.parse(argsRaw) as typeof args;
           } catch {
@@ -267,6 +289,13 @@ wss.on("connection", (twilioWs, req) => {
               intent,
               summary,
               transcriptExcerpt,
+              callerType: typeof args.caller_type === "string" ? args.caller_type : undefined,
+              callerName: typeof args.caller_name === "string" ? args.caller_name : undefined,
+              patientName: typeof args.patient_name === "string" ? args.patient_name : undefined,
+              callbackNumber: typeof args.callback_number === "string" ? args.callback_number : undefined,
+              urgency: typeof args.urgency === "string" ? args.urgency : undefined,
+              handoffRecommended:
+                typeof args.handoff_recommended === "boolean" ? args.handoff_recommended : undefined,
             });
 
             void applyTwilioRoute({
