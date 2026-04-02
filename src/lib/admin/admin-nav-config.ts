@@ -1,5 +1,10 @@
 import type { StaffProfile } from "@/lib/staff-profile";
-import { isAdminOrHigher, isManagerOrHigher, isPhoneWorkspaceUser } from "@/lib/staff-profile";
+import {
+  canAccessWorkspacePhone,
+  isAdminOrHigher,
+  isManagerOrHigher,
+  isPhoneWorkspaceUser,
+} from "@/lib/staff-profile";
 
 /**
  * Canonical admin nav labels — use these (or `buildAdminNavItems`) so UI stays consistent.
@@ -11,6 +16,7 @@ export const ADMIN_NAV_LABELS = {
   patients: "Patients",
   credentialing: "Credentialing",
   callLog: "Call Log",
+  workspaceKeypad: "Workspace Keypad",
   dispatch: "Dispatch",
   employees: "Employees",
   staffAccess: "Staff Access",
@@ -23,6 +29,7 @@ export type AdminNavItemId =
   | "patients"
   | "credentialing"
   | "call_log"
+  | "workspace_keypad"
   | "dispatch"
   | "employees"
   | "staff_access";
@@ -44,6 +51,7 @@ export function buildAdminNavItems(staff: StaffProfile | null): AdminNavItemReso
   const mgr = isManagerOrHigher(staff);
   const admin = isAdminOrHigher(staff);
   const phone = isPhoneWorkspaceUser(staff);
+  const workspacePhone = canAccessWorkspacePhone(staff);
   const nurse = staff.role === "nurse";
 
   const patientsHref = nurse ? "/workspace/phone/patients" : "/admin/crm/patients";
@@ -88,6 +96,13 @@ export function buildAdminNavItems(staff: StaffProfile | null): AdminNavItemReso
       href: callLogHref,
       disabled: !phone,
       disabledReason: "Phone workspace access required",
+    },
+    {
+      id: "workspace_keypad",
+      label: ADMIN_NAV_LABELS.workspaceKeypad,
+      href: "/workspace/phone/keypad",
+      disabled: !workspacePhone,
+      disabledReason: "Workspace phone access required",
     },
     {
       id: "dispatch",

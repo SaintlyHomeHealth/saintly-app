@@ -6,6 +6,7 @@ import { insertAuditLogTrusted } from "@/lib/audit-log";
 import { diffString, truncateChanges, type FieldChange } from "@/lib/crm/patient-profile-diff";
 import { NURSE_ON_THE_WAY_MESSAGE, nurseLabelFromStaffEmail } from "@/lib/crm/patient-sms";
 import { VISIT_STATUS_TRANSITIONS } from "@/lib/crm/patient-visit-status";
+import { buildVisitSnapshotsFromContact, type ContactSnapshotInput } from "@/lib/crm/dispatch-visit";
 import { sendOutboundSmsForPatient, type OutboundSmsRecipient } from "@/lib/crm/outbound-patient-sms";
 import { supabaseAdmin } from "@/lib/admin";
 import { normalizePhone } from "@/lib/phone/us-phone-format";
@@ -97,6 +98,19 @@ export async function scheduleWorkspacePatientVisit(formData: FormData): Promise
 
   const reminderRecipient = parseReminderRecipient(reminderRaw);
 
+  const { data: patientRow, error: snapErr } = await supabaseAdmin
+    .from("patients")
+    .select("id, contact_id, contacts ( primary_phone, address_line_1, address_line_2, city, state, zip )")
+    .eq("id", patientId)
+    .maybeSingle();
+
+  if (snapErr) {
+    console.warn("[workspace/patients] scheduleWorkspacePatientVisit snapshot load", snapErr.message);
+  }
+  const cRaw = patientRow?.contacts as Record<string, unknown> | Record<string, unknown>[] | null | undefined;
+  const contactEmb = (Array.isArray(cRaw) ? cRaw[0] : cRaw) as ContactSnapshotInput | null;
+  const snapshots = buildVisitSnapshotsFromContact(contactEmb);
+
   const { error: insErr } = await supabaseAdmin.from("patient_visits").insert({
     patient_id: patientId,
     assigned_user_id: staff.user_id,
@@ -104,6 +118,9 @@ export async function scheduleWorkspacePatientVisit(formData: FormData): Promise
     status: "scheduled",
     visit_note: noteRaw ? noteRaw : null,
     reminder_recipient: reminderRecipient,
+    created_from: "workspace_phone",
+    patient_phone_snapshot: snapshots.patient_phone_snapshot,
+    address_snapshot: snapshots.address_snapshot,
   });
 
   if (insErr) {
@@ -113,6 +130,8 @@ export async function scheduleWorkspacePatientVisit(formData: FormData): Promise
 
   revalidatePath(`/workspace/phone/patients/${patientId}`);
   revalidatePath("/workspace/phone/patients");
+  revalidatePath("/workspace/phone/today");
+  revalidatePath("/admin/crm/dispatch");
   return { ok: true };
 }
 
@@ -358,6 +377,7 @@ export async function setWorkspaceVisitStatus(
   revalidatePath("/workspace/phone/today");
   revalidatePath(`/workspace/phone/patients/${visit.patient_id}`);
   revalidatePath("/workspace/phone/patients");
+  revalidatePath("/admin/crm/dispatch");
   return { ok: true };
 }
 
@@ -394,6 +414,8 @@ export async function rescheduleWorkspaceVisit(
     .update({
       status: "scheduled",
       scheduled_for: scheduledFor.toISOString(),
+      scheduled_end_at: null,
+      time_window_label: null,
       reminder_day_before_sent_at: null,
       reminder_day_of_sent_at: null,
       assigned_user_id: staff.user_id,
@@ -416,5 +438,6 @@ export async function rescheduleWorkspaceVisit(
   revalidatePath("/workspace/phone/today");
   revalidatePath(`/workspace/phone/patients/${visit.patient_id}`);
   revalidatePath("/workspace/phone/patients");
+  revalidatePath("/admin/crm/dispatch");
   return { ok: true };
 }

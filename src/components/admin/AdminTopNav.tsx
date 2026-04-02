@@ -27,18 +27,22 @@ function navItemIsActive(pathname: string, item: AdminNavItemResolved): boolean 
     return pathname === "/admin" || pathname === "/admin/";
   }
 
-  if (item.id === "call_log") {
-    if (item.href.startsWith("/admin/phone")) {
-      if (pathname.startsWith("/admin/phone/messages")) return false;
-      return pathname === "/admin/phone" || pathname.startsWith("/admin/phone/");
+    if (item.id === "call_log") {
+      if (item.href.startsWith("/admin/phone")) {
+        if (pathname.startsWith("/admin/phone/messages")) return false;
+        return pathname === "/admin/phone" || pathname.startsWith("/admin/phone/");
+      }
+      if (item.href.startsWith("/workspace/phone")) {
+        if (pathname.startsWith("/workspace/phone/patients")) return false;
+        if (pathname.startsWith("/workspace/phone/keypad")) return false;
+        return pathname === "/workspace/phone" || pathname.startsWith("/workspace/phone/");
+      }
+      return false;
     }
-    if (item.href.startsWith("/workspace/phone")) {
-      if (pathname.startsWith("/workspace/phone/patients")) return false;
-      if (pathname.startsWith("/workspace/phone/keypad")) return false;
-      return pathname === "/workspace/phone" || pathname.startsWith("/workspace/phone/");
+
+    if (item.id === "workspace_keypad") {
+      return pathname.startsWith("/workspace/phone/keypad");
     }
-    return false;
-  }
 
   if (item.id === "patients" && item.href.startsWith("/workspace/phone/patients")) {
     return pathname.startsWith("/workspace/phone/patients");

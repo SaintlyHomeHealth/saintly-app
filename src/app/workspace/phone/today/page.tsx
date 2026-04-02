@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 
 import { TodayVisitCard } from "./TodayVisitCard";
 import { allowedNextVisitStatuses, formatVisitStatusLabel } from "@/lib/crm/patient-visit-status";
+import { formatDispatchScheduleLine } from "@/lib/crm/dispatch-visit";
 import { formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
 import { canAccessWorkspacePhone, getStaffProfile } from "@/lib/staff-profile";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
@@ -23,6 +24,8 @@ type VisitRow = {
   id: string;
   patient_id: string;
   scheduled_for: string | null;
+  scheduled_end_at: string | null;
+  time_window_label: string | null;
   status: string;
   reminder_recipient: string | null;
   reminder_day_before_sent_at: string | null;
@@ -71,6 +74,7 @@ type VisitItem = VisitRow & {
   mapsHref: string | null;
   inboxHref: string | null;
   whenTs: number;
+  whenLabel: string;
 };
 
 function formatOnSiteDuration(arrivedAt: string | null, completedAt: string | null): string | null {
@@ -142,7 +146,7 @@ export default async function WorkspaceTodayPage() {
     const { data: vRows } = await supabase
       .from("patient_visits")
       .select(
-        "id, patient_id, scheduled_for, status, reminder_recipient, reminder_day_before_sent_at, reminder_day_of_sent_at, en_route_at, arrived_at, completed_at, arrived_lat, arrived_lng, completed_lat, completed_lng"
+        "id, patient_id, scheduled_for, scheduled_end_at, time_window_label, status, reminder_recipient, reminder_day_before_sent_at, reminder_day_of_sent_at, en_route_at, arrived_at, completed_at, arrived_lat, arrived_lng, completed_lat, completed_lng"
       )
       .in("patient_id", patientIds)
       .order("scheduled_for", { ascending: true, nullsFirst: false })
@@ -163,6 +167,8 @@ export default async function WorkspaceTodayPage() {
           id: String(v.id),
           patient_id: pid,
           scheduled_for: whenRaw || null,
+          scheduled_end_at: typeof v.scheduled_end_at === "string" ? v.scheduled_end_at : null,
+          time_window_label: typeof v.time_window_label === "string" ? v.time_window_label : null,
           status: String(v.status ?? ""),
           reminder_recipient: typeof v.reminder_recipient === "string" ? v.reminder_recipient : null,
           reminder_day_before_sent_at:
@@ -181,6 +187,13 @@ export default async function WorkspaceTodayPage() {
           mapsHref,
           inboxHref: inboxId ? `/workspace/phone/inbox/${inboxId}` : null,
           whenTs: Number.isFinite(whenTs) ? whenTs : 0,
+          whenLabel: whenRaw
+            ? formatDispatchScheduleLine(
+                whenRaw,
+                typeof v.scheduled_end_at === "string" ? v.scheduled_end_at : null,
+                typeof v.time_window_label === "string" ? v.time_window_label : null
+              )
+            : "Unscheduled",
         } satisfies VisitItem;
       })
       .filter((x): x is VisitItem => Boolean(x));
@@ -225,7 +238,7 @@ export default async function WorkspaceTodayPage() {
                 patientName={v.patientName}
                 patientPhone={v.contact.primary_phone}
                 addressLine={addressLine(v.contact)}
-                whenLabel={v.scheduled_for ? formatAdminPhoneWhen(v.scheduled_for) : "Unscheduled"}
+                whenLabel={v.whenLabel}
                 statusLabel={formatVisitStatusLabel(v.status)}
                 reminderLabel={reminderLabel(v.reminder_recipient)}
                 reminderStateLabel={reminderStateLabel(v)}

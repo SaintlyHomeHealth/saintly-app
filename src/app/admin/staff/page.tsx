@@ -21,6 +21,7 @@ import {
   setPhoneAccess,
   setStaffActive,
   updateStaffRole,
+  updateStaffSmsNotifyPhone,
 } from "./actions";
 
 type StaffRow = {
@@ -32,6 +33,7 @@ type StaffRow = {
   user_id: string | null;
   phone_access_enabled: boolean;
   inbound_ring_enabled: boolean;
+  sms_notify_phone: string | null;
 };
 
 type StaffAuthDiagnostics = {
@@ -119,6 +121,7 @@ function flashForOk(code: string | undefined): string | null {
     ring: "Inbound ring updated.",
     active: "Active status updated.",
     role: "Role updated.",
+    sms: "Dispatch SMS number saved.",
   };
   return m[code] ?? "Saved.";
 }
@@ -136,7 +139,7 @@ export default async function AdminStaffPage({
   const { data: rows, error } = await supabaseAdmin
     .from("staff_profiles")
     .select(
-      "id, full_name, email, role, is_active, user_id, phone_access_enabled, inbound_ring_enabled"
+      "id, full_name, email, role, is_active, user_id, phone_access_enabled, inbound_ring_enabled, sms_notify_phone"
     )
     .order("full_name", { ascending: true });
 
@@ -252,7 +255,7 @@ export default async function AdminStaffPage({
           </div>
 
           <div className="mt-6 overflow-x-auto rounded-[24px] border border-slate-200/90 bg-white shadow-sm">
-            <table className="w-full min-w-[1280px] text-left text-xs">
+            <table className="w-full min-w-[1420px] text-left text-xs">
               <thead>
                 <tr className="border-b border-indigo-100/80 bg-slate-50/90 text-slate-600">
                   <th className="whitespace-nowrap px-4 py-3 font-semibold">Name</th>
@@ -265,13 +268,14 @@ export default async function AdminStaffPage({
                   <th className="whitespace-nowrap px-4 py-3 font-semibold">Link OK</th>
                   <th className="whitespace-nowrap px-4 py-3 font-semibold">Phone</th>
                   <th className="whitespace-nowrap px-4 py-3 font-semibold">Inbound ring</th>
+                  <th className="whitespace-nowrap px-4 py-3 font-semibold">Dispatch SMS #</th>
                   <th className="whitespace-nowrap px-4 py-3 font-semibold">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {list.length === 0 ? (
                   <tr>
-                    <td colSpan={11} className="px-4 py-6 text-center text-sm text-slate-500">
+                    <td colSpan={12} className="px-4 py-6 text-center text-sm text-slate-500">
                       No staff rows yet.
                     </td>
                   </tr>
@@ -379,6 +383,24 @@ export default async function AdminStaffPage({
                           ) : (
                             <span className="text-slate-400">—</span>
                           )}
+                        </td>
+                        <td className="max-w-[200px] px-4 py-3 text-slate-700">
+                          <form action={updateStaffSmsNotifyPhone} className="flex flex-col gap-1">
+                            <input type="hidden" name="staffProfileId" value={row.id} />
+                            <input
+                              name="smsNotifyPhone"
+                              type="tel"
+                              defaultValue={row.sms_notify_phone ?? ""}
+                              placeholder="Mobile for dispatch SMS"
+                              className="w-full min-w-[140px] rounded-[12px] border border-slate-200 px-2 py-1 text-[11px] text-slate-900"
+                            />
+                            <button
+                              type="submit"
+                              className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] font-semibold text-slate-800 hover:bg-slate-100"
+                            >
+                              Save #
+                            </button>
+                          </form>
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex flex-col gap-2">

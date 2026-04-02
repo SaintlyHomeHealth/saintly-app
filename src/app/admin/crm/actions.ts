@@ -11,6 +11,8 @@ import { sendOutboundSmsForContact, sendOutboundSmsForPatient } from "@/lib/crm/
 import { supabaseAdmin } from "@/lib/admin";
 import { VISIT_STATUS_TRANSITIONS } from "@/lib/crm/patient-visit-status";
 import { normalizePhone } from "@/lib/phone/us-phone-format";
+import { phoneLookupCandidates } from "@/lib/crm/phone-lookup-candidates";
+import { sendSms } from "@/lib/twilio/send-sms";
 import {
   isValidLeadContactOutcome,
   isValidLeadContactType,
@@ -21,6 +23,16 @@ import { isValidLeadSource } from "@/lib/crm/lead-source-options";
 import { isValidServiceDisciplineCode, parseServiceDisciplinesFromFormData } from "@/lib/crm/service-disciplines";
 import { convertLeadToPatient } from "@/app/admin/phone/actions";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
+import {
+  buildVisitSnapshotsFromContact,
+  formatDispatchScheduleLine,
+} from "@/lib/crm/dispatch-visit";
+import {
+  buildDispatchClinicianScheduleMessage,
+  buildDispatchPatientScheduleMessage,
+  sendDispatchClinicianScheduleNotification,
+  sendDispatchPatientScheduleNotification,
+} from "@/lib/crm/dispatch-schedule-sms";
 
 /** Checkbox may submit `value="1"` or, if value omitted in some builds, `"on"`. `<select>` uses `""` | `"1"`. */
 function readSendSmsFromFormData(formData: FormData): boolean {
@@ -61,6 +73,25 @@ async function revalidatePatientAssignmentPaths(patientId: string) {
   revalidatePath("/admin/crm/roster");
   revalidatePath("/workspace/phone/patients");
   revalidatePath("/workspace/phone");
+}
+
+function revalidateDispatchAndPatientVisits(patientId: string) {
+  revalidatePath("/admin/crm/dispatch");
+  revalidatePath(`/admin/crm/patients/${patientId}/visits`);
+  revalidatePath(`/admin/crm/patients/${patientId}`);
+  revalidatePath("/admin/crm/patients");
+  revalidatePath(`/workspace/phone/patients/${patientId}`);
+  revalidatePath("/workspace/phone/patients");
+  revalidatePath("/workspace/phone/today");
+}
+
+function readNotifyCheckbox(formData: FormData, name: string): boolean {
+  const v = formData.get(name);
+  return v === "1" || v === "on" || v === "true";
+}
+
+function pad2(n: number): string {
+  return n < 10 ? `0${n}` : String(n);
 }
 
 export async function assignPatientToStaff(formData: FormData) {
@@ -456,6 +487,7 @@ export async function createPatientVisit(formData: FormData) {
     assigned_user_id: assignedUserId,
     scheduled_for: scheduledFor,
     status: "scheduled",
+    created_from: "patient_visits_page",
   });
 
   if (insErr) {
@@ -463,11 +495,7 @@ export async function createPatientVisit(formData: FormData) {
     return;
   }
 
-  revalidatePath(`/admin/crm/patients/${patientId}/visits`);
-  revalidatePath("/admin/crm/patients");
-  revalidatePath("/admin/crm/dispatch");
-  revalidatePath(`/workspace/phone/patients/${patientId}`);
-  revalidatePath("/workspace/phone/patients");
+  revalidateDispatchAndPatientVisits(patientId);
 }
 
 export async function setPatientVisitStatus(formData: FormData) {
@@ -505,7 +533,17 @@ export async function setPatientVisitStatus(formData: FormData) {
     return;
   }
 
-  const { error: uErr } = await supabaseAdmin.from("patient_visits").update({ status: nextStatus }).eq("id", visitId);
+  const nowIso = new Date().toISOString();
+  const updatePayload: Record<string, unknown> = { status: nextStatus };
+  if (nextStatus === "en_route") {
+    updatePayload.en_route_at = nowIso;
+  } else if (nextStatus === "arrived") {
+    updatePayload.arrived_at = nowIso;
+  } else if (nextStatus === "completed") {
+    updatePayload.completed_at = nowIso;
+  }
+
+  const { error: uErr } = await supabaseAdmin.from("patient_visits").update(updatePayload).eq("id", visitId);
 
   if (uErr) {
     console.warn("[admin/crm] setPatientVisitStatus update:", uErr.message);
@@ -531,12 +569,7 @@ export async function setPatientVisitStatus(formData: FormData) {
 
   if (nextStatus === "en_route") {
     notifyOperationalVisitStatus(patientId, "en_route");
-    revalidatePath(`/admin/crm/patients/${patientId}`);
-    revalidatePath(`/admin/crm/patients/${patientId}/visits`);
-    revalidatePath("/admin/crm/patients");
-    revalidatePath("/admin/crm/dispatch");
-    revalidatePath(`/workspace/phone/patients/${patientId}`);
-    revalidatePath("/workspace/phone/patients");
+    revalidateDispatchAndPatientVisits(patientId);
 
     const q = new URLSearchParams();
     if (sendSmsOnEnRoute) {
@@ -556,12 +589,364 @@ export async function setPatientVisitStatus(formData: FormData) {
     redirect(`${redirectBase}?${q.toString()}`);
   }
 
-  revalidatePath(`/admin/crm/patients/${patientId}`);
-  revalidatePath(`/admin/crm/patients/${patientId}/visits`);
-  revalidatePath("/admin/crm/patients");
-  revalidatePath("/admin/crm/dispatch");
-  revalidatePath(`/workspace/phone/patients/${patientId}`);
-  revalidatePath("/workspace/phone/patients");
+  revalidateDispatchAndPatientVisits(patientId);
+
+  if (returnTo === "/admin/crm/dispatch") {
+    redirect("/admin/crm/dispatch");
+  }
+}
+
+export async function scheduleVisitFromDispatch(formData: FormData) {
+  const staff = await getStaffProfile();
+  if (!staff || !isManagerOrHigher(staff)) {
+    redirect("/admin/crm/dispatch?sched=forbidden");
+  }
+
+  const patientId = String(formData.get("patientId") ?? "").trim();
+  const visitDate = String(formData.get("visitDate") ?? "").trim();
+  const scheduleMode = String(formData.get("scheduleMode") ?? "exact").trim();
+  const notes = String(formData.get("visitNote") ?? "").trim();
+  const uidRaw = formData.get("assignedUserId");
+  const assignedUserId =
+    typeof uidRaw === "string" && uidRaw.trim() !== "" ? uidRaw.trim() : null;
+  const notifyPatient = readNotifyCheckbox(formData, "notifyPatient");
+  const notifyClinician = readNotifyCheckbox(formData, "notifyClinician");
+
+  if (!patientId || !visitDate || !/^\d{4}-\d{2}-\d{2}$/.test(visitDate)) {
+    redirect("/admin/crm/dispatch?sched=invalid");
+  }
+
+  const { data: patientRow, error: pErr } = await supabaseAdmin
+    .from("patients")
+    .select("id, contact_id, contacts ( primary_phone, address_line_1, address_line_2, city, state, zip, full_name, first_name, last_name )")
+    .eq("id", patientId)
+    .maybeSingle();
+
+  if (pErr || !patientRow?.id) {
+    redirect("/admin/crm/dispatch?sched=patient");
+  }
+
+  const cRaw = patientRow.contacts as Record<string, unknown> | Record<string, unknown>[] | null;
+  const contact = (Array.isArray(cRaw) ? cRaw[0] : cRaw) as Record<string, string | null | undefined> | null;
+  const snapshots = buildVisitSnapshotsFromContact(contact ?? null);
+
+  let scheduledFor: string | null = null;
+  let scheduledEndAt: string | null = null;
+  let timeWindowLabel: string | null = null;
+
+  if (scheduleMode === "window") {
+    const preset = String(formData.get("windowPreset") ?? "").trim();
+    let h1 = 8;
+    let m1 = 0;
+    let h2 = 11;
+    let m2 = 0;
+    if (preset === "morning") {
+      h1 = 8;
+      h2 = 11;
+      timeWindowLabel = "8–11 AM";
+    } else if (preset === "midday") {
+      h1 = 11;
+      h2 = 14;
+      timeWindowLabel = "11 AM–2 PM";
+    } else if (preset === "afternoon") {
+      h1 = 14;
+      h2 = 17;
+      timeWindowLabel = "2–5 PM";
+    } else {
+      const ws = String(formData.get("windowStart") ?? "").trim();
+      const we = String(formData.get("windowEnd") ?? "").trim();
+      const tm = /^(\d{1,2}):(\d{2})$/;
+      const ms = ws.match(tm);
+      const me = we.match(tm);
+      if (!ms || !me) {
+        redirect("/admin/crm/dispatch?sched=window");
+      }
+      h1 = Number.parseInt(ms[1], 10);
+      m1 = Number.parseInt(ms[2], 10);
+      h2 = Number.parseInt(me[1], 10);
+      m2 = Number.parseInt(me[2], 10);
+      timeWindowLabel = `${ws}–${we}`;
+    }
+    const start = new Date(`${visitDate}T${pad2(h1)}:${pad2(m1)}:00`);
+    const end = new Date(`${visitDate}T${pad2(h2)}:${pad2(m2)}:00`);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end.getTime() <= start.getTime()) {
+      redirect("/admin/crm/dispatch?sched=window");
+    }
+    scheduledFor = start.toISOString();
+    scheduledEndAt = end.toISOString();
+  } else {
+    const visitTime = String(formData.get("visitTime") ?? "").trim();
+    if (!visitTime || !/^\d{1,2}:\d{2}$/.test(visitTime)) {
+      redirect("/admin/crm/dispatch?sched=time");
+    }
+    const d = new Date(`${visitDate}T${visitTime}:00`);
+    if (Number.isNaN(d.getTime())) {
+      redirect("/admin/crm/dispatch?sched=time");
+    }
+    scheduledFor = d.toISOString();
+  }
+
+  if (assignedUserId) {
+    const { data: assignee, error: sErr } = await supabaseAdmin
+      .from("staff_profiles")
+      .select("user_id")
+      .eq("user_id", assignedUserId)
+      .maybeSingle();
+    if (sErr || !assignee?.user_id) {
+      redirect("/admin/crm/dispatch?sched=assignee");
+    }
+  }
+
+  const insertRow = {
+    patient_id: patientId,
+    assigned_user_id: assignedUserId,
+    scheduled_for: scheduledFor,
+    scheduled_end_at: scheduledEndAt,
+    time_window_label: timeWindowLabel,
+    status: "scheduled" as const,
+    visit_note: notes || null,
+    created_from: "admin_dispatch",
+    patient_phone_snapshot: snapshots.patient_phone_snapshot,
+    address_snapshot: snapshots.address_snapshot,
+    notify_patient_on_schedule: notifyPatient,
+    notify_clinician_on_schedule: notifyClinician,
+  };
+
+  const { data: inserted, error: insErr } = await supabaseAdmin
+    .from("patient_visits")
+    .insert(insertRow)
+    .select("id")
+    .maybeSingle();
+
+  if (insErr || !inserted?.id) {
+    console.warn("[admin/crm] scheduleVisitFromDispatch", insErr?.message);
+    redirect("/admin/crm/dispatch?sched=save");
+  }
+
+  const visitId = String(inserted.id);
+  const patientName =
+    (contact?.full_name ?? "").trim() ||
+    [contact?.first_name, contact?.last_name].filter(Boolean).join(" ").trim() ||
+    "Patient";
+
+  if (notifyPatient) {
+    await sendDispatchPatientScheduleNotification({
+      visitId,
+      patientId,
+      scheduledFor,
+      scheduledEndAt,
+      timeWindowLabel,
+      markNotifiedAt: true,
+    });
+  }
+  if (notifyClinician && assignedUserId) {
+    await sendDispatchClinicianScheduleNotification({
+      visitId,
+      assignedUserId,
+      patientName,
+      scheduledFor,
+      scheduledEndAt,
+      timeWindowLabel,
+      addressSnapshot: snapshots.address_snapshot,
+      markNotifiedAt: true,
+    });
+  }
+
+  revalidateDispatchAndPatientVisits(patientId);
+  redirect("/admin/crm/dispatch?sched=ok");
+}
+
+export async function reassignDispatchVisit(formData: FormData) {
+  const staff = await getStaffProfile();
+  if (!staff || !isManagerOrHigher(staff)) {
+    redirect("/admin/crm/dispatch?reass=forbidden");
+  }
+  const visitId = String(formData.get("visitId") ?? "").trim();
+  const uidRaw = formData.get("assignedUserId");
+  const assignedUserId =
+    typeof uidRaw === "string" && uidRaw.trim() !== "" ? uidRaw.trim() : null;
+  if (!visitId) redirect("/admin/crm/dispatch?reass=invalid");
+
+  if (assignedUserId) {
+    const { data: assignee, error: sErr } = await supabaseAdmin
+      .from("staff_profiles")
+      .select("user_id")
+      .eq("user_id", assignedUserId)
+      .maybeSingle();
+    if (sErr || !assignee?.user_id) redirect("/admin/crm/dispatch?reass=assignee");
+  }
+
+  const { data: row } = await supabaseAdmin
+    .from("patient_visits")
+    .select("patient_id")
+    .eq("id", visitId)
+    .maybeSingle();
+  if (!row?.patient_id) redirect("/admin/crm/dispatch?reass=invalid");
+
+  const { error: uErr } = await supabaseAdmin
+    .from("patient_visits")
+    .update({ assigned_user_id: assignedUserId })
+    .eq("id", visitId);
+  if (uErr) {
+    console.warn("[admin/crm] reassignDispatchVisit", uErr.message);
+    redirect("/admin/crm/dispatch?reass=fail");
+  }
+  revalidateDispatchAndPatientVisits(String(row.patient_id));
+  redirect("/admin/crm/dispatch?reass=ok");
+}
+
+export async function rescheduleDispatchVisit(formData: FormData) {
+  const staff = await getStaffProfile();
+  if (!staff || !isManagerOrHigher(staff)) {
+    redirect("/admin/crm/dispatch?resched=forbidden");
+  }
+  const visitId = String(formData.get("visitId") ?? "").trim();
+  const visitDate = String(formData.get("visitDate") ?? "").trim();
+  const visitTime = String(formData.get("visitTime") ?? "").trim();
+  if (!visitId || !visitDate || !visitTime) redirect("/admin/crm/dispatch?resched=invalid");
+
+  const scheduledFor = new Date(`${visitDate}T${visitTime}:00`);
+  if (Number.isNaN(scheduledFor.getTime())) redirect("/admin/crm/dispatch?resched=invalid");
+
+  const { data: row } = await supabaseAdmin
+    .from("patient_visits")
+    .select("patient_id, status")
+    .eq("id", visitId)
+    .maybeSingle();
+  if (!row?.patient_id) redirect("/admin/crm/dispatch?resched=invalid");
+  const st = typeof row.status === "string" ? row.status : "";
+  if (st === "completed" || st === "canceled") redirect("/admin/crm/dispatch?resched=blocked");
+
+  const { error: uErr } = await supabaseAdmin
+    .from("patient_visits")
+    .update({
+      status: "scheduled",
+      scheduled_for: scheduledFor.toISOString(),
+      scheduled_end_at: null,
+      time_window_label: null,
+      reminder_day_before_sent_at: null,
+      reminder_day_of_sent_at: null,
+      en_route_at: null,
+      arrived_at: null,
+      completed_at: null,
+    })
+    .eq("id", visitId);
+  if (uErr) {
+    console.warn("[admin/crm] rescheduleDispatchVisit", uErr.message);
+    redirect("/admin/crm/dispatch?resched=fail");
+  }
+  revalidateDispatchAndPatientVisits(String(row.patient_id));
+  redirect("/admin/crm/dispatch?resched=ok");
+}
+
+export async function sendDispatchVisitPatientSms(formData: FormData) {
+  const staff = await getStaffProfile();
+  if (!staff || !isManagerOrHigher(staff)) {
+    redirect("/admin/crm/dispatch?sms=forbidden");
+  }
+  const visitId = String(formData.get("visitId") ?? "").trim();
+  if (!visitId) redirect("/admin/crm/dispatch?sms=invalid");
+
+  const { data: v } = await supabaseAdmin
+    .from("patient_visits")
+    .select("id, patient_id, scheduled_for, scheduled_end_at, time_window_label")
+    .eq("id", visitId)
+    .maybeSingle();
+  if (!v?.patient_id) redirect("/admin/crm/dispatch?sms=invalid");
+
+  const line = formatDispatchScheduleLine(
+    typeof v.scheduled_for === "string" ? v.scheduled_for : null,
+    typeof v.scheduled_end_at === "string" ? v.scheduled_end_at : null,
+    typeof v.time_window_label === "string" ? v.time_window_label : null
+  );
+  const body = buildDispatchPatientScheduleMessage(line);
+  const out = await sendOutboundSmsForPatient(String(v.patient_id), body, "patient");
+  const pid = String(v.patient_id);
+  if (!out.ok) {
+    await insertAuditLog({
+      action: "crm_dispatch_patient_manual_sms_failed",
+      entityType: "patient_visit",
+      entityId: visitId,
+      metadata: { patient_id: pid, detail: out.error.slice(0, 500) },
+    });
+    redirect(`/admin/crm/dispatch?sms=patient_fail&vid=${encodeURIComponent(visitId)}`);
+  }
+  await insertAuditLog({
+    action: "crm_dispatch_patient_manual_sms_sent",
+    entityType: "patient_visit",
+    entityId: visitId,
+    metadata: { patient_id: pid, body_length: body.length },
+  });
+  revalidateDispatchAndPatientVisits(pid);
+  redirect(`/admin/crm/dispatch?sms=patient_ok`);
+}
+
+export async function sendDispatchVisitClinicianSms(formData: FormData) {
+  const staff = await getStaffProfile();
+  if (!staff || !isManagerOrHigher(staff)) {
+    redirect("/admin/crm/dispatch?sms=forbidden");
+  }
+  const visitId = String(formData.get("visitId") ?? "").trim();
+  if (!visitId) redirect("/admin/crm/dispatch?sms=invalid");
+
+  const { data: v } = await supabaseAdmin
+    .from("patient_visits")
+    .select(
+      "id, patient_id, assigned_user_id, scheduled_for, scheduled_end_at, time_window_label, address_snapshot, patients ( contacts ( full_name, first_name, last_name ) )"
+    )
+    .eq("id", visitId)
+    .maybeSingle();
+
+  if (!v?.patient_id || !v.assigned_user_id) {
+    redirect("/admin/crm/dispatch?sms=no_clinician");
+  }
+
+  const pr = v.patients as { contacts?: unknown } | null;
+  const cr = pr?.contacts as Record<string, unknown> | Record<string, unknown>[] | undefined;
+  const c = (Array.isArray(cr) ? cr[0] : cr) as Record<string, string | null> | undefined;
+  const patientName =
+    (c?.full_name ?? "").trim() ||
+    [c?.first_name, c?.last_name].filter(Boolean).join(" ").trim() ||
+    "Patient";
+
+  const line = formatDispatchScheduleLine(
+    typeof v.scheduled_for === "string" ? v.scheduled_for : null,
+    typeof v.scheduled_end_at === "string" ? v.scheduled_end_at : null,
+    typeof v.time_window_label === "string" ? v.time_window_label : null
+  );
+  const addr = typeof v.address_snapshot === "string" ? v.address_snapshot : "";
+  const body = buildDispatchClinicianScheduleMessage(patientName, line, addr);
+  const uid = String(v.assigned_user_id);
+
+  const { data: sp } = await supabaseAdmin
+    .from("staff_profiles")
+    .select("sms_notify_phone")
+    .eq("user_id", uid)
+    .maybeSingle();
+  const rawPhone = typeof sp?.sms_notify_phone === "string" ? sp.sms_notify_phone : "";
+  const to = phoneLookupCandidates(rawPhone).find((x) => x.startsWith("+")) ?? null;
+  if (!to) {
+    redirect("/admin/crm/dispatch?sms=no_phone");
+  }
+  const sent = await sendSms({ to, body });
+  const pid = String(v.patient_id);
+  if (!sent.ok) {
+    await insertAuditLog({
+      action: "crm_dispatch_clinician_manual_sms_failed",
+      entityType: "patient_visit",
+      entityId: visitId,
+      metadata: { assigned_user_id: uid, detail: sent.error.slice(0, 500) },
+    });
+    redirect(`/admin/crm/dispatch?sms=clinician_fail`);
+  }
+  await insertAuditLog({
+    action: "crm_dispatch_clinician_manual_sms_sent",
+    entityType: "patient_visit",
+    entityId: visitId,
+    metadata: { assigned_user_id: uid, body_length: body.length, message_sid: sent.messageSid },
+  });
+  revalidateDispatchAndPatientVisits(pid);
+  redirect(`/admin/crm/dispatch?sms=clinician_ok`);
 }
 
 function readOptionalIntakeText(formData: FormData, key: string): string | null {

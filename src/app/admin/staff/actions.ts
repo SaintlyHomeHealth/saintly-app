@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 
 import { insertAuditLog } from "@/lib/audit-log";
 import { supabaseAdmin } from "@/lib/admin";
+import { normalizePhone } from "@/lib/phone/us-phone-format";
 import {
   getStaffProfile,
   isAdminOrHigher,
@@ -270,4 +271,41 @@ export async function updateStaffRole(formData: FormData) {
 
   revalidatePath("/admin/staff");
   redirect("/admin/staff?ok=role");
+}
+
+export async function updateStaffSmsNotifyPhone(formData: FormData) {
+  const actor = await getStaffProfile();
+  if (!actor || !isAdminOrHigher(actor)) {
+    redirect("/admin");
+  }
+
+  const idRaw = formData.get("staffProfileId");
+  const id = typeof idRaw === "string" ? idRaw.trim() : "";
+  const raw = String(formData.get("smsNotifyPhone") ?? "").trim();
+  if (!id) {
+    redirect("/admin/staff?err=invalid");
+  }
+
+  const digits = raw ? normalizePhone(raw) : "";
+  const sms_notify_phone = digits.length >= 10 ? digits : null;
+
+  const { error } = await supabaseAdmin
+    .from("staff_profiles")
+    .update({ sms_notify_phone, updated_at: new Date().toISOString() })
+    .eq("id", id);
+
+  if (error) {
+    console.warn("[staff] updateStaffSmsNotifyPhone:", error.message);
+    redirect("/admin/staff?err=update");
+  }
+
+  await insertAuditLog({
+    action: "staff.sms_notify_phone_update",
+    entityType: "staff_profiles",
+    entityId: id,
+    metadata: { has_value: Boolean(sms_notify_phone) },
+  });
+
+  revalidatePath("/admin/staff");
+  redirect("/admin/staff?ok=sms");
 }

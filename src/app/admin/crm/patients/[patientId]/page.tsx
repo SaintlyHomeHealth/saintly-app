@@ -385,6 +385,13 @@ export default async function PatientIntakePage({
               Visits list
             </Link>
             {" · "}
+            <Link
+              href={`/admin/crm/dispatch?patient=${encodeURIComponent(pid)}`}
+              className="font-semibold text-sky-800 hover:underline"
+            >
+              Dispatch
+            </Link>
+            {" · "}
             <Link href={`/workspace/phone/patients/${pid}`} className="font-semibold text-sky-800 hover:underline">
               Nurse workspace view
             </Link>

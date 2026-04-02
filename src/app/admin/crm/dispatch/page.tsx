@@ -1,18 +1,31 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import { setPatientVisitStatus } from "../actions";
+import {
+  reassignDispatchVisit,
+  rescheduleDispatchVisit,
+  sendDispatchVisitClinicianSms,
+  sendDispatchVisitPatientSms,
+  setPatientVisitStatus,
+} from "../actions";
 import { supabaseAdmin } from "@/lib/admin";
-import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
+import { formatDispatchScheduleLine, visitOverlapsLocalDay } from "@/lib/crm/dispatch-visit";
+import { VISIT_STATUS_TRANSITIONS } from "@/lib/crm/patient-visit-status";
+import { formatPhoneForDisplay, normalizePhone } from "@/lib/phone/us-phone-format";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
-import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { ScheduleVisitModal } from "./ScheduleVisitModal";
 
 type ContactEmb = {
   full_name?: string | null;
   first_name?: string | null;
   last_name?: string | null;
   primary_phone?: string | null;
+  address_line_1?: string | null;
+  address_line_2?: string | null;
+  city?: string | null;
+  state?: string | null;
+  zip?: string | null;
 };
 
 type VisitRow = {
@@ -20,8 +33,19 @@ type VisitRow = {
   patient_id: string;
   assigned_user_id: string | null;
   scheduled_for: string | null;
+  scheduled_end_at: string | null;
+  time_window_label: string | null;
   status: string;
   created_at: string;
+  visit_note: string | null;
+  patient_phone_snapshot: string | null;
+  address_snapshot: string | null;
+  dispatch_patient_notified_at: string | null;
+  dispatch_clinician_notified_at: string | null;
+  notify_patient_on_schedule: boolean | null;
+  notify_clinician_on_schedule: boolean | null;
+  reminder_day_before_sent_at: string | null;
+  reminder_day_of_sent_at: string | null;
   patients:
     | {
         id: string;
@@ -36,7 +60,37 @@ type VisitRow = {
     | null;
 };
 
-const STATUS_ORDER = ["scheduled", "en_route", "arrived", "completed", "canceled"] as const;
+const RETURN_DISPATCH = "/admin/crm/dispatch";
+
+const btnPrimary =
+  "rounded border border-sky-600 bg-sky-50 px-2 py-1 text-[11px] font-semibold text-sky-900 hover:bg-sky-100";
+const btnGreen =
+  "rounded border border-emerald-600 bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-900 hover:bg-emerald-100";
+const btnMuted = "rounded border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-600 hover:bg-slate-100";
+const selectCls =
+  "max-w-[9rem] rounded border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-800";
+
+const ACTIVE = new Set(["scheduled", "confirmed", "en_route", "arrived"]);
+
+const BUCKET_ORDER = [
+  "scheduled",
+  "en_route",
+  "arrived",
+  "completed",
+  "canceled",
+  "needs_attention",
+] as const;
+
+type BucketKey = (typeof BUCKET_ORDER)[number];
+
+const BUCKET_LABELS: Record<BucketKey, string> = {
+  scheduled: "Scheduled",
+  en_route: "En route",
+  arrived: "Arrived",
+  completed: "Completed",
+  canceled: "Canceled",
+  needs_attention: "Needs attention",
+};
 
 function contactName(c: ContactEmb | null): string {
   if (!c) return "—";
@@ -67,33 +121,91 @@ function normalizePatientEmb(raw: VisitRow["patients"]): {
   };
 }
 
-function fmtWhen(iso: string | null): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+function addressFromContact(c: ContactEmb | null): string {
+  if (!c) return "";
+  const line1 = (c.address_line_1 ?? "").trim();
+  const line2 = (c.address_line_2 ?? "").trim();
+  const city = (c.city ?? "").trim();
+  const state = (c.state ?? "").trim();
+  const zip = (c.zip ?? "").trim();
+  const cityLine = [city, [state, zip].filter(Boolean).join(" ")].filter(Boolean).join(", ");
+  return [line1, line2, cityLine].filter(Boolean).join(", ");
 }
 
-const btnPrimary =
-  "rounded border border-sky-600 bg-sky-50 px-2 py-1 text-[11px] font-semibold text-sky-900 hover:bg-sky-100";
-const btnGreen =
-  "rounded border border-emerald-600 bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-900 hover:bg-emerald-100";
-const btnMuted = "rounded border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-600 hover:bg-slate-100";
-const selectCls =
-  "max-w-[9rem] rounded border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-800";
+function displayPhone(v: VisitRow, c: ContactEmb | null): string {
+  const snap = (v.patient_phone_snapshot ?? "").trim();
+  if (snap) return snap;
+  return (c?.primary_phone ?? "").trim();
+}
 
-const RETURN_DISPATCH = "/admin/crm/dispatch";
+function displayAddress(v: VisitRow, c: ContactEmb | null): string {
+  const snap = (v.address_snapshot ?? "").trim();
+  if (snap) return snap;
+  return addressFromContact(c);
+}
 
-function VisitActions({ visitId, status }: { visitId: string; status: string }) {
+function pad2(n: number): string {
+  return n < 10 ? `0${n}` : String(n);
+}
+
+function telHref(raw: string): string | null {
+  const d = normalizePhone(raw);
+  if (d.length === 10) return `tel:+1${d}`;
+  if (d.length === 11 && d.startsWith("1")) return `tel:+${d}`;
+  if (d.length > 0) return `tel:+${d}`;
+  return null;
+}
+
+function mapsHrefFromAddress(addr: string): string | null {
+  const t = addr.trim();
+  if (!t) return null;
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(t)}`;
+}
+
+function needsAttentionVisit(v: VisitRow, nowMs: number): boolean {
+  if (v.status === "missed" || v.status === "rescheduled") return true;
+  if (!v.assigned_user_id && ACTIVE.has(v.status)) return true;
+  if (v.scheduled_for && (v.status === "scheduled" || v.status === "confirmed")) {
+    const endMs = new Date(v.scheduled_end_at ?? v.scheduled_for).getTime();
+    if (Number.isFinite(endMs) && endMs < nowMs) return true;
+  }
+  return false;
+}
+
+function primaryBucket(v: VisitRow, nowMs: number): BucketKey {
+  if (needsAttentionVisit(v, nowMs)) return "needs_attention";
+  if (v.status === "en_route") return "en_route";
+  if (v.status === "arrived") return "arrived";
+  if (v.status === "completed") return "completed";
+  if (v.status === "canceled") return "canceled";
+  if (v.status === "scheduled" || v.status === "confirmed") return "scheduled";
+  return "needs_attention";
+}
+
+function parseLocalDateOnly(raw: string | null | undefined): Date | null {
+  if (!raw || !/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null;
+  const [y, m, d] = raw.split("-").map((x) => Number.parseInt(x, 10));
+  const dt = new Date(y, m - 1, d);
+  if (Number.isNaN(dt.getTime())) return null;
+  return dt;
+}
+
+function startOfLocalDay(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
+}
+
+function addDays(d: Date, n: number): Date {
+  const x = new Date(d);
+  x.setDate(x.getDate() + n);
+  return x;
+}
+
+function VisitStatusActions({ visitId, status }: { visitId: string; status: string }) {
   const st = status;
+  const allowed = VISIT_STATUS_TRANSITIONS[st] ?? [];
   return (
     <div className="flex flex-wrap gap-1">
-      {st === "scheduled" ? (
+      {st === "scheduled" || st === "confirmed" ? (
         <>
           <form action={setPatientVisitStatus} className="flex flex-wrap items-center gap-1">
             <input type="hidden" name="visitId" value={visitId} />
@@ -110,14 +222,26 @@ function VisitActions({ visitId, status }: { visitId: string; status: string }) 
               En route
             </button>
           </form>
-          <form action={setPatientVisitStatus}>
-            <input type="hidden" name="visitId" value={visitId} />
-            <input type="hidden" name="nextStatus" value="canceled" />
-            <input type="hidden" name="returnTo" value={RETURN_DISPATCH} />
-            <button type="submit" className={btnMuted}>
-              Cancel
-            </button>
-          </form>
+          {allowed.includes("missed") ? (
+            <form action={setPatientVisitStatus}>
+              <input type="hidden" name="visitId" value={visitId} />
+              <input type="hidden" name="nextStatus" value="missed" />
+              <input type="hidden" name="returnTo" value={RETURN_DISPATCH} />
+              <button type="submit" className={btnMuted}>
+                Missed
+              </button>
+            </form>
+          ) : null}
+          {allowed.includes("canceled") ? (
+            <form action={setPatientVisitStatus}>
+              <input type="hidden" name="visitId" value={visitId} />
+              <input type="hidden" name="nextStatus" value="canceled" />
+              <input type="hidden" name="returnTo" value={RETURN_DISPATCH} />
+              <button type="submit" className={btnMuted}>
+                Cancel
+              </button>
+            </form>
+          ) : null}
         </>
       ) : null}
       {st === "en_route" ? (
@@ -130,14 +254,26 @@ function VisitActions({ visitId, status }: { visitId: string; status: string }) 
               Arrived
             </button>
           </form>
-          <form action={setPatientVisitStatus}>
-            <input type="hidden" name="visitId" value={visitId} />
-            <input type="hidden" name="nextStatus" value="canceled" />
-            <input type="hidden" name="returnTo" value={RETURN_DISPATCH} />
-            <button type="submit" className={btnMuted}>
-              Cancel
-            </button>
-          </form>
+          {allowed.includes("missed") ? (
+            <form action={setPatientVisitStatus}>
+              <input type="hidden" name="visitId" value={visitId} />
+              <input type="hidden" name="nextStatus" value="missed" />
+              <input type="hidden" name="returnTo" value={RETURN_DISPATCH} />
+              <button type="submit" className={btnMuted}>
+                Missed
+              </button>
+            </form>
+          ) : null}
+          {allowed.includes("canceled") ? (
+            <form action={setPatientVisitStatus}>
+              <input type="hidden" name="visitId" value={visitId} />
+              <input type="hidden" name="nextStatus" value="canceled" />
+              <input type="hidden" name="returnTo" value={RETURN_DISPATCH} />
+              <button type="submit" className={btnMuted}>
+                Cancel
+              </button>
+            </form>
+          ) : null}
         </>
       ) : null}
       {st === "arrived" ? (
@@ -150,17 +286,21 @@ function VisitActions({ visitId, status }: { visitId: string; status: string }) 
               Completed
             </button>
           </form>
-          <form action={setPatientVisitStatus}>
-            <input type="hidden" name="visitId" value={visitId} />
-            <input type="hidden" name="nextStatus" value="canceled" />
-            <input type="hidden" name="returnTo" value={RETURN_DISPATCH} />
-            <button type="submit" className={btnMuted}>
-              Cancel
-            </button>
-          </form>
+          {allowed.includes("canceled") ? (
+            <form action={setPatientVisitStatus}>
+              <input type="hidden" name="visitId" value={visitId} />
+              <input type="hidden" name="nextStatus" value="canceled" />
+              <input type="hidden" name="returnTo" value={RETURN_DISPATCH} />
+              <button type="submit" className={btnMuted}>
+                Cancel
+              </button>
+            </form>
+          ) : null}
         </>
       ) : null}
-      {(st === "completed" || st === "canceled") && <span className="text-[11px] text-slate-400">—</span>}
+      {(st === "completed" || st === "canceled" || st === "missed" || st === "rescheduled") && (
+        <span className="text-[11px] text-slate-400">—</span>
+      )}
     </div>
   );
 }
@@ -178,44 +318,69 @@ export default async function DispatchPage({
   const sp = searchParams ? await searchParams : {};
   const smsFlash = typeof sp.sms === "string" ? sp.sms : Array.isArray(sp.sms) ? sp.sms[0] : undefined;
   const smsErrRaw = typeof sp.smsErr === "string" ? sp.smsErr : Array.isArray(sp.smsErr) ? sp.smsErr[0] : undefined;
+  const schedFlash = typeof sp.sched === "string" ? sp.sched : Array.isArray(sp.sched) ? sp.sched[0] : undefined;
+  const reassFlash = typeof sp.reass === "string" ? sp.reass : Array.isArray(sp.reass) ? sp.reass[0] : undefined;
+  const reschedFlash = typeof sp.resched === "string" ? sp.resched : Array.isArray(sp.resched) ? sp.resched[0] : undefined;
 
-  const supabase = await createServerSupabaseClient();
+  const dateRaw = typeof sp.date === "string" ? sp.date : Array.isArray(sp.date) ? sp.date[0] : undefined;
+  const statusFilter =
+    typeof sp.status === "string" ? sp.status : Array.isArray(sp.status) ? sp.status[0] : "all";
+  const clinicianFilter =
+    typeof sp.clinician === "string" ? sp.clinician : Array.isArray(sp.clinician) ? sp.clinician[0] : "";
+  const patientQ =
+    typeof sp.q === "string" ? sp.q.trim().toLowerCase() : Array.isArray(sp.q) ? sp.q[0].trim().toLowerCase() : "";
+  const defaultPatientId =
+    typeof sp.patient === "string" ? sp.patient : Array.isArray(sp.patient) ? sp.patient[0] : undefined;
 
   const now = new Date();
-  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-  const end = new Date(start);
-  end.setDate(end.getDate() + 1);
-  const startIso = start.toISOString();
-  const endIso = end.toISOString();
+  const selectedDay = parseLocalDateOnly(dateRaw) ?? now;
+  const dayStart = startOfLocalDay(selectedDay);
+  const dayEnd = addDays(dayStart, 1);
+  const padLo = addDays(dayStart, -1);
+  const padHi = addDays(dayEnd, 1);
+  const padLoIso = padLo.toISOString();
+  const padHiIso = padHi.toISOString();
+  const dayStartIso = dayStart.toISOString();
+  const dayEndIso = dayEnd.toISOString();
 
   const selectVisits = `
     id,
     patient_id,
     assigned_user_id,
     scheduled_for,
+    scheduled_end_at,
+    time_window_label,
     status,
     created_at,
+    visit_note,
+    patient_phone_snapshot,
+    address_snapshot,
+    dispatch_patient_notified_at,
+    dispatch_clinician_notified_at,
+    notify_patient_on_schedule,
+    notify_clinician_on_schedule,
+    reminder_day_before_sent_at,
+    reminder_day_of_sent_at,
     patients (
       id,
       contact_id,
-      contacts ( full_name, first_name, last_name, primary_phone )
+      contacts ( full_name, first_name, last_name, primary_phone, address_line_1, address_line_2, city, state, zip )
     )
   `;
 
-  const [{ data: timedRows, error: e1 }, { data: openNullRows, error: e2 }] = await Promise.all([
-    supabase
-      .from("patient_visits")
-      .select(selectVisits)
-      .gte("scheduled_for", startIso)
-      .lt("scheduled_for", endIso),
-    supabase
-      .from("patient_visits")
-      .select(selectVisits)
-      .is("scheduled_for", null)
-      .in("status", ["scheduled", "en_route", "arrived"])
-      .gte("created_at", startIso)
-      .lt("created_at", endIso),
-  ]);
+  const { data: timedRows, error: e1 } = await supabaseAdmin
+    .from("patient_visits")
+    .select(selectVisits)
+    .gte("scheduled_for", padLoIso)
+    .lt("scheduled_for", padHiIso);
+
+  const { data: openNullRows, error: e2 } = await supabaseAdmin
+    .from("patient_visits")
+    .select(selectVisits)
+    .is("scheduled_for", null)
+    .in("status", ["scheduled", "confirmed", "en_route", "arrived"])
+    .gte("created_at", dayStartIso)
+    .lt("created_at", dayEndIso);
 
   const errMsg = e1?.message ?? e2?.message;
   const byId = new Map<string, VisitRow>();
@@ -226,42 +391,112 @@ export default async function DispatchPage({
     byId.set(r.id, r);
   }
 
-  const merged = [...byId.values()].sort((a, b) => {
-    const ta = a.scheduled_for ? new Date(a.scheduled_for).getTime() : Number.POSITIVE_INFINITY;
-    const tb = b.scheduled_for ? new Date(b.scheduled_for).getTime() : Number.POSITIVE_INFINITY;
-    if (ta !== tb) return ta - tb;
-    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+  let merged = [...byId.values()].filter((v) => {
+    if (v.scheduled_for) {
+      return visitOverlapsLocalDay(v.scheduled_for, v.scheduled_end_at, dayStart, dayEnd);
+    }
+    return true;
   });
+
+  if (clinicianFilter) {
+    merged = merged.filter((v) => (v.assigned_user_id ?? "") === clinicianFilter);
+  }
+
+  if (patientQ) {
+    merged = merged.filter((v) => {
+      const p = normalizePatientEmb(v.patients);
+      const n = contactName(p?.contacts ?? null).toLowerCase();
+      return n.includes(patientQ);
+    });
+  }
+
+  if (statusFilter && statusFilter !== "all") {
+    merged = merged.filter((v) => {
+      if (statusFilter === "scheduled") return v.status === "scheduled" || v.status === "confirmed";
+      return v.status === statusFilter;
+    });
+  }
 
   const assigneeIds = [...new Set(merged.map((v) => v.assigned_user_id).filter((x): x is string => Boolean(x)))];
   const emailByUserId: Record<string, string> = {};
   if (assigneeIds.length > 0) {
-    const { data: profs } = await supabaseAdmin.from("staff_profiles").select("user_id, email").in("user_id", assigneeIds);
+    const { data: profs } = await supabaseAdmin
+      .from("staff_profiles")
+      .select("user_id, email, full_name")
+      .in("user_id", assigneeIds);
     for (const p of profs ?? []) {
       const uid = p.user_id as string;
-      emailByUserId[uid] = (p.email as string | null)?.trim() || `${uid.slice(0, 8)}…`;
+      const fn = (p.full_name as string | null)?.trim();
+      const em = (p.email as string | null)?.trim();
+      emailByUserId[uid] = fn || em || `${uid.slice(0, 8)}…`;
     }
   }
 
-  const buckets: Record<string, VisitRow[]> = {};
-  for (const s of STATUS_ORDER) {
-    buckets[s] = [];
-  }
+  const { data: staffRows } = await supabaseAdmin
+    .from("staff_profiles")
+    .select("user_id, email, full_name")
+    .not("user_id", "is", null)
+    .order("full_name", { ascending: true });
+
+  const staffOptions = (staffRows ?? []).filter((r) => r.user_id) as {
+    user_id: string;
+    email: string | null;
+    full_name: string | null;
+  }[];
+
+  const { data: patientPickRows } = await supabaseAdmin
+    .from("patients")
+    .select("id, contacts ( full_name, first_name, last_name )")
+    .order("created_at", { ascending: false })
+    .limit(400);
+
+  const patientOptions = (patientPickRows ?? []).map((raw) => {
+    const id = String(raw.id);
+    const cr = raw.contacts as ContactEmb | ContactEmb[] | null;
+    const c = normalizeContact(cr);
+    const label = contactName(c);
+    return { id, label: label === "—" ? id.slice(0, 8) : label };
+  });
+
+  const staffForModal = staffOptions.map((s) => ({
+    user_id: s.user_id,
+    label: (s.full_name ?? "").trim() || s.email?.trim() || s.user_id.slice(0, 8),
+  }));
+
+  const nowMs = now.getTime();
+  const buckets: Record<BucketKey, VisitRow[]> = {
+    scheduled: [],
+    en_route: [],
+    arrived: [],
+    completed: [],
+    canceled: [],
+    needs_attention: [],
+  };
+
   for (const v of merged) {
-    const st = v.status;
-    if (buckets[st]) {
-      buckets[st].push(v);
-    }
+    const b = primaryBucket(v, nowMs);
+    buckets[b].push(v);
   }
+
+  for (const k of BUCKET_ORDER) {
+    buckets[k].sort((a, b) => {
+      const ta = a.scheduled_for ? new Date(a.scheduled_for).getTime() : Number.POSITIVE_INFINITY;
+      const tb = b.scheduled_for ? new Date(b.scheduled_for).getTime() : Number.POSITIVE_INFINITY;
+      if (ta !== tb) return ta - tb;
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    });
+  }
+
+  const dateInputValue = `${selectedDay.getFullYear()}-${pad2(selectedDay.getMonth() + 1)}-${pad2(selectedDay.getDate())}`;
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6 bg-gradient-to-b from-slate-50/60 via-white to-slate-50/40 p-6">
       <AdminPageHeader
         eyebrow="Dispatch"
-        title="Today's visits"
+        title="Operations dispatch"
         description={
           <>
-            Today&apos;s visits — scheduled for today (local), plus unscheduled visits created today.
+            Shared visit queue (admin + workspace phone). Filter by day, status, clinician, or patient name.
             {smsFlash === "sent" ? (
               <span className="mt-3 block rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
                 SMS sent.
@@ -277,72 +512,270 @@ export default async function DispatchPage({
                 Visit marked en route (SMS not sent — choose “Send SMS” to text the patient).
               </span>
             ) : null}
+            {smsFlash === "patient_ok" ? (
+              <span className="mt-3 block rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+                Patient dispatch SMS sent.
+              </span>
+            ) : null}
+            {smsFlash === "clinician_ok" ? (
+              <span className="mt-3 block rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+                Clinician dispatch SMS sent.
+              </span>
+            ) : null}
+            {smsFlash === "patient_fail" || smsFlash === "clinician_fail" ? (
+              <span className="mt-3 block rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+                SMS could not be sent.
+              </span>
+            ) : null}
+            {smsFlash === "no_phone" ? (
+              <span className="mt-3 block rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                Add a dispatch SMS number for this clinician under Staff Access.
+              </span>
+            ) : null}
+            {smsFlash === "no_clinician" ? (
+              <span className="mt-3 block rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                Assign a clinician before texting them.
+              </span>
+            ) : null}
+            {schedFlash === "ok" ? (
+              <span className="mt-3 block rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+                Visit scheduled.
+              </span>
+            ) : null}
+            {schedFlash && schedFlash !== "ok" ? (
+              <span className="mt-3 block rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+                Could not schedule visit ({schedFlash}).
+              </span>
+            ) : null}
+            {reassFlash === "ok" ? (
+              <span className="mt-3 block rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+                Clinician updated.
+              </span>
+            ) : null}
+            {reschedFlash === "ok" ? (
+              <span className="mt-3 block rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+                Visit rescheduled.
+              </span>
+            ) : null}
             {errMsg ? <span className="mt-2 block text-sm text-red-700">{errMsg}</span> : null}
           </>
         }
       />
 
-      {STATUS_ORDER.map((statusKey) => {
-        const rows = buckets[statusKey] ?? [];
+      <div className="flex flex-col gap-4 rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
+        <ScheduleVisitModal patients={patientOptions} staff={staffForModal} defaultPatientId={defaultPatientId} />
+        <form method="get" className="flex flex-wrap items-end gap-3">
+          <label className="text-xs font-semibold text-slate-700">
+            Date
+            <input
+              name="date"
+              type="date"
+              defaultValue={dateInputValue}
+              className="mt-1 block rounded-[14px] border border-slate-200 px-3 py-2 text-sm text-slate-900"
+            />
+          </label>
+          <label className="text-xs font-semibold text-slate-700">
+            Status
+            <select
+              name="status"
+              defaultValue={statusFilter}
+              className="mt-1 block rounded-[14px] border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
+            >
+              <option value="all">All</option>
+              <option value="scheduled">Scheduled / confirmed</option>
+              <option value="en_route">En route</option>
+              <option value="arrived">Arrived</option>
+              <option value="completed">Completed</option>
+              <option value="canceled">Canceled</option>
+              <option value="missed">Missed</option>
+              <option value="rescheduled">Rescheduled</option>
+            </select>
+          </label>
+          <label className="text-xs font-semibold text-slate-700">
+            Clinician
+            <select
+              name="clinician"
+              defaultValue={clinicianFilter}
+              className="mt-1 block max-w-[12rem] rounded-[14px] border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
+            >
+              <option value="">Any</option>
+              {staffForModal.map((s) => (
+                <option key={s.user_id} value={s.user_id}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-xs font-semibold text-slate-700">
+            Patient search
+            <input
+              name="q"
+              type="search"
+              defaultValue={patientQ}
+              placeholder="Name contains…"
+              className="mt-1 block w-44 rounded-[14px] border border-slate-200 px-3 py-2 text-sm text-slate-900"
+            />
+          </label>
+          <button
+            type="submit"
+            className="rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-100"
+          >
+            Apply
+          </button>
+        </form>
+      </div>
+
+      {BUCKET_ORDER.map((bucketKey) => {
+        const rows = buckets[bucketKey] ?? [];
         return (
-          <div key={statusKey} className="rounded-[28px] border border-slate-200 bg-white shadow-sm">
+          <div key={bucketKey} className="rounded-[28px] border border-slate-200 bg-white shadow-sm">
             <div className="border-b border-slate-100 bg-slate-50 px-4 py-3">
-              <h2 className="text-sm font-semibold capitalize text-slate-900">{statusKey.replace("_", " ")}</h2>
-              <p className="text-xs text-slate-500">{rows.length} visit{rows.length === 1 ? "" : "s"}</p>
+              <h2 className="text-sm font-semibold text-slate-900">{BUCKET_LABELS[bucketKey]}</h2>
+              <p className="text-xs text-slate-500">
+                {rows.length} visit{rows.length === 1 ? "" : "s"}
+              </p>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[880px] text-left text-sm">
-                <thead>
-                  <tr className="border-b border-slate-100 text-xs font-semibold text-slate-600">
-                    <th className="px-4 py-2">Patient</th>
-                    <th className="px-4 py-2">Phone</th>
-                    <th className="px-4 py-2">Nurse</th>
-                    <th className="px-4 py-2">Scheduled</th>
-                    <th className="px-4 py-2">Status</th>
-                    <th className="min-w-[240px] px-4 py-2">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="px-4 py-6 text-slate-500">
-                        None.
-                      </td>
-                    </tr>
-                  ) : (
-                    rows.map((v) => {
-                      const p = normalizePatientEmb(v.patients);
-                      const c = p?.contacts ?? null;
-                      const phone = (c?.primary_phone ?? "").trim();
-                      const nurse = v.assigned_user_id
-                        ? emailByUserId[v.assigned_user_id] ?? v.assigned_user_id.slice(0, 8) + "…"
-                        : "—";
-                      return (
-                        <tr key={v.id} className="border-b border-slate-100 last:border-0">
-                          <td className="px-4 py-2">
-                            <div className="font-medium text-slate-900">{contactName(c)}</div>
-                            <Link
-                              href={`/admin/crm/patients/${v.patient_id}/visits`}
-                              className="text-[10px] font-semibold text-sky-700 hover:underline"
+            <div className="divide-y divide-slate-100 p-3 sm:p-4">
+              {rows.length === 0 ? (
+                <p className="py-6 text-center text-sm text-slate-500">None for this day / filters.</p>
+              ) : (
+                rows.map((v) => {
+                  const p = normalizePatientEmb(v.patients);
+                  const c = p?.contacts ?? null;
+                  const phoneRaw = displayPhone(v, c);
+                  const phoneDisp = phoneRaw ? formatPhoneForDisplay(phoneRaw) : "—";
+                  const addr = displayAddress(v, c);
+                  const nurse = v.assigned_user_id
+                    ? emailByUserId[v.assigned_user_id] ?? v.assigned_user_id.slice(0, 8) + "…"
+                    : "Unassigned";
+                  const when = formatDispatchScheduleLine(
+                    v.scheduled_for,
+                    v.scheduled_end_at,
+                    v.time_window_label
+                  );
+                  const tel = telHref(phoneRaw);
+                  const maps = mapsHrefFromAddress(addr);
+
+                  const notifyBits = [
+                    v.dispatch_patient_notified_at ? "Patient SMS (dispatch)" : null,
+                    v.dispatch_clinician_notified_at ? "Clinician SMS (dispatch)" : null,
+                    v.reminder_day_of_sent_at ? "Reminder day-of" : null,
+                    v.reminder_day_before_sent_at ? "Reminder day-before" : null,
+                  ].filter(Boolean);
+
+                  return (
+                    <div key={v.id} className="py-4 first:pt-0 last:pb-0">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:justify-between">
+                        <div className="min-w-0">
+                          <div className="font-semibold text-slate-900">{contactName(c)}</div>
+                          <div className="text-xs text-slate-600">{when}</div>
+                          <div className="text-xs text-slate-500">{phoneDisp}</div>
+                          {addr ? <div className="mt-1 text-xs text-slate-600">{addr}</div> : null}
+                          <div className="mt-1 text-xs text-slate-700">
+                            <span className="font-semibold">Clinician:</span> {nurse}
+                          </div>
+                          <div className="mt-1 text-xs capitalize text-slate-600">Status: {v.status.replace(/_/g, " ")}</div>
+                          {notifyBits.length > 0 ? (
+                            <div className="mt-1 text-[10px] text-sky-800">{notifyBits.join(" · ")}</div>
+                          ) : (
+                            <div className="mt-1 text-[10px] text-slate-400">No dispatch/reminder SMS logged yet</div>
+                          )}
+                          {v.visit_note ? (
+                            <div className="mt-1 text-[11px] text-slate-600">Note: {v.visit_note}</div>
+                          ) : null}
+                        </div>
+                      </div>
+
+                      <div className="mt-3 flex flex-wrap gap-1.5">
+                        <Link
+                          href={`/admin/crm/patients/${v.patient_id}`}
+                          className="rounded border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-sky-800 hover:bg-slate-50"
+                        >
+                          Open patient
+                        </Link>
+                        {tel ? (
+                          <a href={tel} className={btnPrimary}>
+                            Call patient
+                          </a>
+                        ) : (
+                          <span className={`${btnMuted} cursor-not-allowed opacity-50`}>Call patient</span>
+                        )}
+                        <form action={sendDispatchVisitPatientSms} className="contents">
+                          <input type="hidden" name="visitId" value={v.id} />
+                          <button type="submit" className={btnPrimary}>
+                            Text patient
+                          </button>
+                        </form>
+                        <form action={sendDispatchVisitClinicianSms} className="contents">
+                          <input type="hidden" name="visitId" value={v.id} />
+                          <button type="submit" className={btnPrimary}>
+                            Text clinician
+                          </button>
+                        </form>
+                        {maps ? (
+                          <a href={maps} target="_blank" rel="noreferrer" className={btnMuted}>
+                            Open maps
+                          </a>
+                        ) : (
+                          <span className={`${btnMuted} cursor-not-allowed opacity-50`}>Open maps</span>
+                        )}
+                      </div>
+
+                      <div className="mt-2">
+                        <VisitStatusActions visitId={v.id} status={v.status} />
+                      </div>
+
+                      <div className="mt-3 flex flex-wrap items-end gap-2 border-t border-slate-100 pt-3">
+                        <form action={reassignDispatchVisit} className="flex flex-wrap items-end gap-2">
+                          <input type="hidden" name="visitId" value={v.id} />
+                          <label className="text-[10px] font-semibold text-slate-600">
+                            Reassign
+                            <select
+                              name="assignedUserId"
+                              defaultValue={v.assigned_user_id ?? ""}
+                              className="mt-0.5 block max-w-[10rem] rounded border border-slate-200 bg-white px-2 py-1 text-[11px]"
                             >
-                              Patient visits
-                            </Link>
-                          </td>
-                          <td className="whitespace-nowrap px-4 py-2 text-xs tabular-nums text-slate-600">
-                            {phone ? formatPhoneForDisplay(phone) : "—"}
-                          </td>
-                          <td className="max-w-[160px] truncate px-4 py-2 text-xs text-slate-700">{nurse}</td>
-                          <td className="whitespace-nowrap px-4 py-2 text-slate-700">{fmtWhen(v.scheduled_for)}</td>
-                          <td className="px-4 py-2 text-slate-800">{v.status}</td>
-                          <td className="px-4 py-2 align-top">
-                            <VisitActions visitId={v.id} status={v.status} />
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
+                              <option value="">Unassigned</option>
+                              {staffForModal.map((s) => (
+                                <option key={s.user_id} value={s.user_id}>
+                                  {s.label}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <button type="submit" className={btnMuted}>
+                            Save
+                          </button>
+                        </form>
+                        <form action={rescheduleDispatchVisit} className="flex flex-wrap items-end gap-2">
+                          <input type="hidden" name="visitId" value={v.id} />
+                          <label className="text-[10px] font-semibold text-slate-600">
+                            Reschedule date
+                            <input
+                              name="visitDate"
+                              type="date"
+                              required
+                              className="mt-0.5 block rounded border border-slate-200 px-2 py-1 text-[11px]"
+                            />
+                          </label>
+                          <label className="text-[10px] font-semibold text-slate-600">
+                            Time
+                            <input
+                              name="visitTime"
+                              type="time"
+                              required
+                              className="mt-0.5 block rounded border border-slate-200 px-2 py-1 text-[11px]"
+                            />
+                          </label>
+                          <button type="submit" className={btnMuted}>
+                            Reschedule
+                          </button>
+                        </form>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
             </div>
           </div>
         );
