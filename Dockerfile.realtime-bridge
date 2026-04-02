@@ -1,0 +1,20 @@
+FROM node:20-bookworm-slim AS base
+
+WORKDIR /app
+
+# Install only from lock/package first for better build caching.
+COPY package*.json ./
+RUN npm ci
+
+# Copy only what the bridge needs.
+COPY scripts ./scripts
+COPY src/lib/phone ./src/lib/phone
+
+ENV NODE_ENV=production
+ENV REALTIME_BRIDGE_PORT=8080
+ENV REALTIME_WS_PATH=/twilio/realtime-stream
+
+EXPOSE 8080
+
+# Railway bridge runtime entrypoint (does not affect main Next.js app).
+CMD ["npx", "tsx", "scripts/twilio-openai-realtime-bridge.ts"]
