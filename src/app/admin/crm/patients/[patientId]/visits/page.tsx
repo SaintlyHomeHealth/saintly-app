@@ -4,6 +4,7 @@ import { notFound, redirect } from "next/navigation";
 import { createPatientVisit, setPatientVisitStatus } from "../../../actions";
 import { supabaseAdmin } from "@/lib/admin";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
+import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 type VisitRow = {
@@ -103,60 +104,38 @@ export default async function PatientVisitsPage({
 
   return (
     <div className="space-y-6 p-6">
-      <nav className="flex flex-wrap gap-3 text-sm font-semibold text-sky-800">
-        <Link href="/admin" className="underline-offset-2 hover:underline">
-          Admin
-        </Link>
-        <span className="text-slate-300">|</span>
-        <Link href="/admin/crm/contacts" className="underline-offset-2 hover:underline">
-          Contacts
-        </Link>
-        <Link href="/admin/crm/leads" className="underline-offset-2 hover:underline">
-          Leads
-        </Link>
-        <Link href="/admin/crm/patients" className="underline-offset-2 hover:underline">
-          Patients
-        </Link>
-        <span className="text-slate-300">|</span>
-        <Link href="/admin/crm/dispatch" className="underline-offset-2 hover:underline">
-          Dispatch
-        </Link>
-        <span className="text-slate-300">|</span>
-        <Link href="/admin/crm/roster" className="underline-offset-2 hover:underline">
-          Roster
-        </Link>
-      </nav>
-
-      <div>
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Visits</p>
-        <h1 className="mt-1 text-2xl font-bold text-slate-900">{name}</h1>
-        <p className="mt-1 text-sm text-slate-600">
-          Patient status: {patient.patient_status ?? "—"} ·{" "}
-          <Link href={`/admin/crm/patients/${patientId}`} className="font-semibold text-sky-800 hover:underline">
-            Intake profile
-          </Link>
-          {" · "}
-          <Link href="/admin/crm/patients" className="font-semibold text-sky-800 hover:underline">
-            All patients
-          </Link>
-        </p>
-        {smsFlash === "sent" ? (
-          <p className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
-            SMS sent.
-          </p>
-        ) : null}
-        {smsFlash === "failed" ? (
-          <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
-            SMS failed{smsErrRaw ? `: ${smsErrRaw}` : "."}
-          </p>
-        ) : null}
-        {smsFlash === "skipped" ? (
-          <p className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
-            Visit marked en route (SMS not sent — choose “Send SMS” to text the patient).
-          </p>
-        ) : null}
-        {vErr ? <p className="mt-2 text-sm text-red-700">{vErr.message}</p> : null}
-      </div>
+      <AdminPageHeader
+        eyebrow="Patients"
+        title={`Visits · ${name}`}
+        description={
+          <>
+            Patient status: {patient.patient_status ?? "—"} ·{" "}
+            <Link href={`/admin/crm/patients/${patientId}`} className="font-semibold text-sky-800 hover:underline">
+              Intake profile
+            </Link>
+            {" · "}
+            <Link href="/admin/crm/patients" className="font-semibold text-sky-800 hover:underline">
+              All patients
+            </Link>
+            {smsFlash === "sent" ? (
+              <span className="mt-3 block rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+                SMS sent.
+              </span>
+            ) : null}
+            {smsFlash === "failed" ? (
+              <span className="mt-3 block rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+                SMS failed{smsErrRaw ? `: ${smsErrRaw}` : "."}
+              </span>
+            ) : null}
+            {smsFlash === "skipped" ? (
+              <span className="mt-3 block rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                Visit marked en route (SMS not sent — choose “Send SMS” to text the patient).
+              </span>
+            ) : null}
+            {vErr ? <span className="mt-2 block text-sm text-red-700">{vErr.message}</span> : null}
+          </>
+        }
+      />
 
       <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
         <h2 className="text-sm font-semibold text-slate-900">New visit</h2>

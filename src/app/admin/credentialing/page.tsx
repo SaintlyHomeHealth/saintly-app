@@ -20,6 +20,7 @@ import {
 } from "@/lib/crm/credentialing-command-center";
 import { summarizePayerDocuments } from "@/lib/crm/credentialing-documents";
 import { loadCredentialingStaffLabelMap } from "@/lib/crm/credentialing-staff-directory";
+import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import {
   ContractingStatusBadge,
   CredentialingDocsChecklistLink,
@@ -215,43 +216,27 @@ export default async function AdminCredentialingPage({
 
   return (
     <div className="space-y-6 p-6">
-      <nav className="flex flex-wrap gap-3 text-sm font-semibold text-sky-800">
-        <Link href="/admin" className="underline-offset-2 hover:underline">
-          Admin
-        </Link>
-        <span className="text-slate-300">|</span>
-        <Link href="/admin/crm/contacts" className="underline-offset-2 hover:underline">
-          Contacts
-        </Link>
-        <Link href="/admin/crm/leads" className="underline-offset-2 hover:underline">
-          Leads
-        </Link>
-        <Link href="/admin/crm/patients" className="underline-offset-2 hover:underline">
-          Patients
-        </Link>
-        <span className="text-slate-300">|</span>
-        <span className="text-slate-900">Credentialing</span>
-      </nav>
-
-      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Operations</p>
-          <h1 className="mt-1 text-2xl font-bold text-slate-900">Payer credentialing</h1>
-          <p className="mt-1 max-w-2xl text-sm text-slate-600">
-            Payer pipeline: next actions, priorities, ready-to-bill, and automatic attention rules. Separate from CRM{" "}
+      <AdminPageHeader
+        eyebrow="Operations"
+        title="Payer credentialing"
+        description={
+          <>
+            Payer pipeline: next actions, priorities, ready-to-bill, and automatic attention rules. Separate from{" "}
             <Link href="/admin/crm/contacts" className="font-semibold text-sky-800 hover:underline">
               Contacts
             </Link>
             .
-          </p>
-        </div>
-        <Link
-          href="/admin/credentialing/new"
-          className="inline-flex shrink-0 items-center justify-center rounded-[20px] bg-gradient-to-r from-sky-600 to-cyan-500 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-sky-200/60 transition hover:-translate-y-px hover:shadow-md"
-        >
-          New payer record
-        </Link>
-      </div>
+          </>
+        }
+        actions={
+          <Link
+            href="/admin/credentialing/new"
+            className="inline-flex shrink-0 items-center justify-center rounded-[20px] bg-gradient-to-r from-sky-600 to-cyan-500 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-sky-200/60 transition hover:-translate-y-px hover:shadow-md"
+          >
+            New payer record
+          </Link>
+        }
+      />
 
       {error ? (
         <p className="text-sm text-red-700">

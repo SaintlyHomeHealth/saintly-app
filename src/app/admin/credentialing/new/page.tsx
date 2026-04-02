@@ -10,6 +10,7 @@ import {
   CREDENTIALING_STATUS_LABELS,
   CREDENTIALING_STATUS_VALUES,
 } from "@/lib/crm/credentialing-status-options";
+import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { credentialingStaffLabel, loadCredentialingStaffAssignees } from "@/lib/crm/credentialing-staff-directory";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 
@@ -32,29 +33,26 @@ export default async function AdminCredentialingNewPage({
 
   return (
     <div className="space-y-6 p-6">
-      <nav className="flex flex-wrap gap-3 text-sm font-semibold text-sky-800">
-        <Link href="/admin" className="underline-offset-2 hover:underline">
-          Admin
-        </Link>
-        <span className="text-slate-300">|</span>
-        <Link href="/admin/credentialing" className="underline-offset-2 hover:underline">
-          Credentialing
-        </Link>
-        <span className="text-slate-300">|</span>
-        <span className="text-slate-900">New payer</span>
-      </nav>
-
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900">New payer credentialing record</h1>
-        <p className="mt-1 text-sm text-slate-600">
-          Adds a row to <span className="font-mono text-xs">payer_credentialing_records</span>. No passwords stored here—use
-          portal hints only.
-        </p>
-        {err === "forbidden" ? <p className="mt-2 text-sm text-red-700">Not allowed.</p> : null}
-        {err === "name_required" ? <p className="mt-2 text-sm text-red-700">Payer name is required.</p> : null}
-        {err === "invalid_status" ? <p className="mt-2 text-sm text-red-700">Invalid status value.</p> : null}
-        {err === "insert_failed" ? <p className="mt-2 text-sm text-red-700">Could not save. Check DB migration.</p> : null}
-      </div>
+      <AdminPageHeader
+        eyebrow="Credentialing"
+        title="New payer record"
+        description={
+          <>
+            Adds a row to <span className="font-mono text-xs">payer_credentialing_records</span>. No passwords stored
+            here—use portal hints only.
+            {err === "forbidden" ? <span className="mt-2 block text-sm text-red-700">Not allowed.</span> : null}
+            {err === "name_required" ? (
+              <span className="mt-2 block text-sm text-red-700">Payer name is required.</span>
+            ) : null}
+            {err === "invalid_status" ? (
+              <span className="mt-2 block text-sm text-red-700">Invalid status value.</span>
+            ) : null}
+            {err === "insert_failed" ? (
+              <span className="mt-2 block text-sm text-red-700">Could not save. Check DB migration.</span>
+            ) : null}
+          </>
+        }
+      />
 
       <form action={submitNewPayerCredentialingForm} className="max-w-2xl space-y-4 rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
         <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">

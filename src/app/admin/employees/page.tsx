@@ -25,6 +25,7 @@ import {
   buildAdminPhoneCallsSoftphoneHref,
   buildWorkspaceKeypadCallHref,
 } from "@/lib/workspace-phone/launch-urls";
+import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import {
   canAccessWorkspacePhone,
   getStaffProfile,
@@ -166,23 +167,32 @@ export default async function AdminEmployeesDirectoryPage({
 
   return (
     <div className="space-y-6 p-6">
-      <nav className="flex flex-wrap gap-3 text-sm font-semibold text-indigo-800">
-        <Link href="/admin" className="underline-offset-2 hover:underline">
-          Admin
-        </Link>
-        <span className="text-slate-300">|</span>
-        <Link href="/admin/crm/contacts" className="underline-offset-2 hover:underline">
-          Contacts
-        </Link>
-        <Link href="/admin/crm/leads" className="underline-offset-2 hover:underline">
-          Leads
-        </Link>
-        <Link href="/admin/crm/patients" className="underline-offset-2 hover:underline">
-          Patients
-        </Link>
-        <span className="text-slate-300">|</span>
-        <span className="text-slate-900">Employees</span>
-      </nav>
+      <AdminPageHeader
+        eyebrow="People & compliance"
+        title="Employees"
+        description={
+          <>
+            Readiness: credentials, annual programs, onboarding, and activation—same data as the command center.
+            Employment reconciles <code className="rounded bg-slate-100 px-1 text-xs">applicants.status</code> with stage{" "}
+            <span className="font-medium">Active Employee</span> when forms are finalized. Cells show{" "}
+            <span className="font-medium text-emerald-800">OK</span>,{" "}
+            <span className="font-medium text-amber-800">due soon (30d)</span>,{" "}
+            <span className="font-medium text-slate-700">missing</span>,{" "}
+            <span className="font-medium text-red-800">expired</span>, or <span className="text-slate-400">n/a</span>.
+            Send manual SMS reminders for expiring credentials (license, CPR, TB, DL, insurance) using the
+            employee&apos;s phone on file—Twilio + inbox logging; duplicates blocked per credential, expiration
+            snapshot, and stage.
+          </>
+        }
+        actions={
+          <Link
+            href="/admin"
+            className="inline-flex shrink-0 items-center justify-center rounded-[20px] border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50"
+          >
+            Back to Command Center
+          </Link>
+        }
+      />
 
       {smsErr ? (
         <div
@@ -210,33 +220,7 @@ export default async function AdminEmployeesDirectoryPage({
         </div>
       ) : null}
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">Employee command center</h1>
-          <p className="mt-1 max-w-3xl text-sm text-slate-600">
-            Employee readiness: credentials, annual programs, onboarding, and activation—grounded in the same data as
-            the admin dashboard. Employment reconciles{" "}
-            <code className="rounded bg-slate-100 px-1 text-xs">applicants.status</code> with stage{" "}
-            <span className="font-medium">Active Employee</span> when forms are finalized. Cells show{" "}
-            <span className="font-medium text-emerald-800">OK</span>,{" "}
-            <span className="font-medium text-amber-800">due soon (30d)</span>,{" "}
-            <span className="font-medium text-slate-700">missing</span>,{" "}
-            <span className="font-medium text-red-800">expired</span>, or{" "}
-            <span className="text-slate-400">n/a</span>. Send manual SMS reminders for expiring credentials (license,
-            CPR, TB, DL, insurance) using the employee&apos;s phone on file—Twilio + inbox logging; duplicates blocked
-            per credential, expiration snapshot, and stage.
-          </p>
-          {loadError ? (
-            <p className="mt-2 text-sm text-red-700">Could not load applicants: {loadError}</p>
-          ) : null}
-        </div>
-        <Link
-          href="/admin"
-          className="inline-flex shrink-0 items-center justify-center rounded-[20px] border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50"
-        >
-          Back to dashboard
-        </Link>
-      </div>
+      {loadError ? <p className="text-sm text-red-700">Could not load applicants: {loadError}</p> : null}
 
       <div className="flex flex-wrap gap-2 rounded-[20px] border border-slate-200 bg-slate-50/80 p-3 shadow-sm">
         <span className="w-full text-[11px] font-semibold uppercase tracking-wide text-slate-500 sm:w-auto sm:py-1.5">

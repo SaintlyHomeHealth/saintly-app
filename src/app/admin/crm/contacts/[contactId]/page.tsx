@@ -32,6 +32,7 @@ import {
   isPhoneWorkspaceUser,
   type StaffProfile,
 } from "@/lib/staff-profile";
+import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 function staffPrimaryLabel(s: {
@@ -318,39 +319,27 @@ export default async function AdminCrmContactDetailPage({
 
   return (
     <div className="space-y-6 p-6">
-      <nav className="flex flex-wrap gap-3 text-sm font-semibold text-sky-800">
-        <Link href="/admin" className="underline-offset-2 hover:underline">
-          Admin
-        </Link>
-        <span className="text-slate-300">|</span>
-        <Link href="/admin/crm/leads" className="underline-offset-2 hover:underline">
-          Leads
-        </Link>
-        <Link href="/admin/crm/patients" className="underline-offset-2 hover:underline">
-          Patients
-        </Link>
-        <Link href="/admin/credentialing" className="underline-offset-2 hover:underline">
-          Credentialing
-        </Link>
-        <span className="text-slate-300">|</span>
-        <Link href={backHref} className="underline-offset-2 hover:underline">
-          Contacts
-        </Link>
-        <span className="text-slate-300">|</span>
-        <span className="text-slate-900">Profile</span>
-      </nav>
-
-      <div>
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">CRM · Contacts</p>
-        <h1 className="mt-1 text-2xl font-bold text-slate-900">{displayName}</h1>
-        <p className="mt-1 text-sm text-slate-600">
-          Contact ID <span className="font-mono text-xs text-slate-500">{row.id}</span>
-          {" · "}
-          Updated {formatWhen(row.updated_at)}
-          {" · "}
-          Created {formatWhen(row.created_at)}
-        </p>
-      </div>
+      <AdminPageHeader
+        eyebrow="Contacts"
+        title={displayName}
+        description={
+          <>
+            Contact ID <span className="font-mono text-xs text-slate-500">{row.id}</span>
+            {" · "}
+            Updated {formatWhen(row.updated_at)}
+            {" · "}
+            Created {formatWhen(row.created_at)}
+          </>
+        }
+        actions={
+          <Link
+            href={backHref}
+            className="inline-flex items-center justify-center rounded-[20px] border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-800 shadow-sm hover:bg-slate-50 sm:text-sm"
+          >
+            Back to Contacts
+          </Link>
+        }
+      />
 
       <div className={cardCls}>
         <h2 className="text-sm font-bold text-slate-900">Quick actions</h2>

@@ -252,18 +252,6 @@ export default async function AdminCredentialingDetailPage({
         </p>
       ) : null}
 
-      <nav className="flex flex-wrap gap-3 text-sm font-semibold text-sky-800">
-        <Link href="/admin" className="underline-offset-2 hover:underline">
-          Admin
-        </Link>
-        <span className="text-slate-300">|</span>
-        <Link href="/admin/credentialing" className="underline-offset-2 hover:underline">
-          Credentialing
-        </Link>
-        <span className="text-slate-300">|</span>
-        <span className="text-slate-900">Record</span>
-      </nav>
-
       <section className="overflow-hidden rounded-[28px] border border-slate-200 bg-gradient-to-br from-white via-sky-50/40 to-cyan-50/30 p-5 shadow-sm">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0 flex-1 space-y-3">

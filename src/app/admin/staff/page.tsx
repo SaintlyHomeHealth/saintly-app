@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { normalizeStaffLookupEmail } from "@/lib/admin/staff-auth-shared";
@@ -13,6 +12,8 @@ import {
 import { CreateLoginDialog } from "./create-login-dialog";
 import { RepairLoginLinkButton } from "./repair-login-link-button";
 import { ResetPasswordDialog } from "./reset-password-dialog";
+
+import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 
 import {
   addStaffProfile,
@@ -174,25 +175,13 @@ export default async function AdminStaffPage({
 
   return (
     <div className="space-y-6 bg-gradient-to-b from-slate-50/60 via-white to-slate-50/40 p-6">
-      <nav className="flex flex-wrap gap-3 text-sm font-semibold text-sky-800">
-        <Link href="/admin" className="underline-offset-2 hover:underline">
-          Command Center
-        </Link>
-        <span className="text-slate-300">|</span>
-        <span className="text-slate-900">Staff Access</span>
-      </nav>
+      <AdminPageHeader
+        eyebrow="Administration"
+        title="Staff Access"
+        description="Create logins, roles, and phone permissions. Accounts are provisioned automatically — you never need Supabase user IDs."
+      />
 
       <div className="overflow-hidden rounded-[32px] border border-indigo-100/90 bg-gradient-to-br from-indigo-50/45 via-white to-sky-50/30 shadow-sm">
-        <div className="flex flex-col gap-4 border-b border-indigo-100/70 bg-white/55 px-6 py-5 sm:flex-row sm:items-start sm:justify-between sm:px-8">
-          <div className="min-w-0 flex-1">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-indigo-600">Administration</p>
-            <h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-900">Staff Access</h1>
-            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-600">
-              Create logins, roles, and phone permissions. Accounts are provisioned automatically — you never need
-              Supabase user IDs.
-            </p>
-          </div>
-        </div>
         <div className="bg-white/40 p-6 sm:p-8">
           {errMsg ? (
             <p className="mb-4 rounded-[16px] border border-red-200 bg-red-50/90 px-4 py-3 text-sm text-red-900">

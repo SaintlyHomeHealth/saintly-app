@@ -24,6 +24,7 @@ import {
 import { FormattedPhoneInput } from "@/components/phone/FormattedPhoneInput";
 import { supabaseAdmin } from "@/lib/admin";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
+import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 import { formatAdminPhoneWhen } from "@/app/workspace/phone/patients/_lib/patient-hub";
 
@@ -349,26 +350,6 @@ export default async function PatientIntakePage({
 
   return (
     <div className="space-y-6 p-6">
-      <nav className="flex flex-wrap gap-3 text-sm font-semibold text-sky-800">
-        <Link href="/admin" className="underline-offset-2 hover:underline">
-          Admin
-        </Link>
-        <span className="text-slate-300">|</span>
-        <Link href="/admin/crm/contacts" className="underline-offset-2 hover:underline">
-          Contacts
-        </Link>
-        <Link href="/admin/crm/leads" className="underline-offset-2 hover:underline">
-          Leads
-        </Link>
-        <Link href="/admin/crm/patients" className="underline-offset-2 hover:underline">
-          Patients
-        </Link>
-        <span className="text-slate-300">|</span>
-        <Link href="/admin/crm/dispatch" className="underline-offset-2 hover:underline">
-          Dispatch
-        </Link>
-      </nav>
-
       {smsFlash ? (
         <div
           className={`rounded-xl border px-4 py-3 text-sm ${
@@ -387,32 +368,33 @@ export default async function PatientIntakePage({
         </div>
       ) : null}
 
-      <div>
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Patient hub (CRM)</p>
-        <h1 className="mt-1 text-2xl font-bold text-slate-900">{contactDisplayName(c ?? null)}</h1>
-        <p className="mt-1 text-sm text-slate-600">
-          {patientStatus ? <span className="capitalize">{patientStatus}</span> : "—"}
-          {serviceDisciplinesForForm.length > 0 ? (
-            <>
-              {" · "}
-              <span className="text-slate-500">Services:</span>{" "}
-              {serviceDisciplinesForForm.join(", ")}
-            </>
-          ) : null}
-          {" · "}
-          <Link href={`/admin/crm/patients/${pid}/visits`} className="font-semibold text-sky-800 hover:underline">
-            Visits list
-          </Link>
-          {" · "}
-          <Link href={`/workspace/phone/patients/${pid}`} className="font-semibold text-sky-800 hover:underline">
-            Nurse workspace view
-          </Link>
-          {" · "}
-          <Link href="/admin/crm/patients" className="font-semibold text-sky-800 hover:underline">
-            All patients
-          </Link>
-        </p>
-      </div>
+      <AdminPageHeader
+        eyebrow="Patients"
+        title={contactDisplayName(c ?? null)}
+        description={
+          <>
+            {patientStatus ? <span className="capitalize">{patientStatus}</span> : "—"}
+            {serviceDisciplinesForForm.length > 0 ? (
+              <>
+                {" · "}
+                <span className="text-slate-500">Services:</span> {serviceDisciplinesForForm.join(", ")}
+              </>
+            ) : null}
+            {" · "}
+            <Link href={`/admin/crm/patients/${pid}/visits`} className="font-semibold text-sky-800 hover:underline">
+              Visits list
+            </Link>
+            {" · "}
+            <Link href={`/workspace/phone/patients/${pid}`} className="font-semibold text-sky-800 hover:underline">
+              Nurse workspace view
+            </Link>
+            {" · "}
+            <Link href="/admin/crm/patients" className="font-semibold text-sky-800 hover:underline">
+              All patients
+            </Link>
+          </>
+        }
+      />
 
       <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
         <h2 className="text-sm font-semibold text-slate-900">Patient profile</h2>

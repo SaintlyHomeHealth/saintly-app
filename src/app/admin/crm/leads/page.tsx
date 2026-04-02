@@ -19,6 +19,7 @@ import {
   buildWorkspaceSmsToContactHref,
   pickOutboundE164ForDial,
 } from "@/lib/workspace-phone/launch-urls";
+import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 
 type ContactEmb = {
@@ -238,40 +239,21 @@ export default async function AdminCrmLeadsPage({
 
   return (
     <div className="space-y-6 p-6">
-      <nav className="flex flex-wrap gap-3 text-sm font-semibold text-sky-800">
-        <Link href="/admin" className="underline-offset-2 hover:underline">
-          Admin
-        </Link>
-        <span className="text-slate-300">|</span>
-        <Link href="/admin/crm/contacts" className="underline-offset-2 hover:underline">
-          Contacts
-        </Link>
-        <span className="text-slate-900">Leads</span>
-        <Link href="/admin/crm/patients" className="underline-offset-2 hover:underline">
-          Patients
-        </Link>
-        <span className="text-slate-300">|</span>
-        <Link href="/admin/crm/dispatch" className="underline-offset-2 hover:underline">
-          Dispatch
-        </Link>
-        <span className="text-slate-300">|</span>
-        <Link href="/admin/crm/roster" className="underline-offset-2 hover:underline">
-          Roster
-        </Link>
-      </nav>
-
-      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">CRM · Leads</h1>
-          <p className="mt-1 text-sm text-slate-600">
-            Pipeline intake — up to 100 rows after filters. Open a lead for full detail.
-          </p>
-          {error ? <p className="mt-2 text-sm text-red-700">{error.message}</p> : null}
-        </div>
-        <Link href="/admin/crm/leads/new" className={addLeadCls}>
-          + New Lead
-        </Link>
-      </div>
+      <AdminPageHeader
+        eyebrow="Pipeline"
+        title="Leads"
+        description={
+          <>
+            Intake and follow-ups — up to 100 rows after filters. Open a lead for full detail.
+            {error ? <span className="mt-2 block text-sm text-red-700">{error.message}</span> : null}
+          </>
+        }
+        actions={
+          <Link href="/admin/crm/leads/new" className={addLeadCls}>
+            + New Lead
+          </Link>
+        }
+      />
 
       <form
         method="get"

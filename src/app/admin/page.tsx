@@ -1582,7 +1582,6 @@ export default async function AdminDashboardPage({
   const showCommandCenter = isManagerOrHigher(staffProfile);
   const canPhoneCommandCenter = isPhoneWorkspaceUser(staffProfile);
   const phoneDashboardHref = staffProfile?.role === "nurse" ? "/workspace/phone" : "/admin/phone";
-  /** Nurses cannot access CRM patient list (`/admin/crm/patients` redirects to /admin). */
   const crmPatientsHref =
     staffProfile?.role === "nurse" ? "/workspace/phone/patients" : "/admin/crm/patients";
 
@@ -1617,110 +1616,41 @@ export default async function AdminDashboardPage({
                 label="Log out"
                 className="w-full rounded-full border border-slate-800 bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 sm:w-auto"
               />
-              <div className="grid w-full gap-2 sm:grid-cols-4">
-              <Link
-                href="/admin/crm/patients"
-                className="inline-flex min-h-0 items-center justify-center rounded-[20px] bg-gradient-to-r from-sky-600 to-cyan-500 px-3 py-2 text-center text-xs font-semibold text-white shadow-sm shadow-sky-200/60 transition hover:-translate-y-px hover:shadow-md hover:shadow-sky-200/80 sm:text-sm"
-              >
-                + New Patient
-              </Link>
-              <Link
-                href="/admin/crm/leads"
-                className="inline-flex min-h-0 items-center justify-center rounded-[20px] bg-gradient-to-r from-sky-600 to-cyan-500 px-3 py-2 text-center text-xs font-semibold text-white shadow-sm shadow-sky-200/60 transition hover:-translate-y-px hover:shadow-md hover:shadow-sky-200/80 sm:text-sm"
-              >
-                + New Lead
-              </Link>
-              {canPhoneCommandCenter ? (
+              <div className="grid w-full gap-2 sm:grid-cols-2 lg:grid-cols-3">
                 <Link
-                  href={phoneDashboardHref}
-                  className="inline-flex min-h-0 items-center justify-center rounded-[20px] border border-slate-200/90 bg-white px-3 py-2 text-center text-xs font-semibold text-slate-700 shadow-sm transition hover:border-indigo-200 hover:bg-slate-50 hover:shadow-md sm:text-sm"
+                  href="/admin/crm/patients"
+                  className="inline-flex min-h-0 items-center justify-center rounded-[20px] bg-gradient-to-r from-sky-600 to-cyan-500 px-3 py-2 text-center text-xs font-semibold text-white shadow-sm shadow-sky-200/60 transition hover:-translate-y-px hover:shadow-md hover:shadow-sky-200/80 sm:text-sm"
                 >
-                  {staffProfile?.role === "nurse" ? "Open phone workspace" : "Open Phone Dashboard"}
+                  + New Patient
                 </Link>
-              ) : (
-                <div className="inline-flex min-h-0 items-center justify-center rounded-[20px] border border-dashed border-slate-200 bg-slate-50/80 px-3 py-2 text-center text-xs font-semibold text-slate-500 sm:text-sm">
-                  Phone (admin access)
-                </div>
-              )}
-              {canPhoneCommandCenter ? (
                 <Link
-                  href="/workspace/phone/keypad"
-                  className="inline-flex min-h-0 items-center justify-center rounded-[20px] border border-slate-200/90 bg-white px-3 py-2 text-center text-xs font-semibold text-slate-700 shadow-sm transition hover:border-indigo-200 hover:bg-slate-50 hover:shadow-md sm:text-sm"
+                  href="/admin/crm/leads"
+                  className="inline-flex min-h-0 items-center justify-center rounded-[20px] bg-gradient-to-r from-sky-600 to-cyan-500 px-3 py-2 text-center text-xs font-semibold text-white shadow-sm shadow-sky-200/60 transition hover:-translate-y-px hover:shadow-md hover:shadow-sky-200/80 sm:text-sm"
                 >
-                  Open Workspace Keypad
+                  + New Lead
                 </Link>
-              ) : (
-                <div className="inline-flex min-h-0 items-center justify-center rounded-[20px] border border-dashed border-slate-200 bg-slate-50/80 px-3 py-2 text-center text-xs font-semibold text-slate-500 sm:text-sm">
-                  Workspace Keypad (admin access)
-                </div>
-              )}
+                {canPhoneCommandCenter ? (
+                  <Link
+                    href="/workspace/phone/keypad"
+                    className="inline-flex min-h-0 items-center justify-center rounded-[20px] border border-slate-200/90 bg-white px-3 py-2 text-center text-xs font-semibold text-slate-700 shadow-sm transition hover:border-indigo-200 hover:bg-slate-50 hover:shadow-md sm:text-sm"
+                  >
+                    Open Workspace Keypad
+                  </Link>
+                ) : (
+                  <div className="inline-flex min-h-0 items-center justify-center rounded-[20px] border border-dashed border-slate-200 bg-slate-50/80 px-3 py-2 text-center text-xs font-semibold text-slate-500 sm:text-sm">
+                    Workspace Keypad (phone access required)
+                  </div>
+                )}
               </div>
-            </div>
-          </div>
-
-          <div className="mt-4 border-t border-slate-100/70 pt-3">
-            <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-              Quick access
-            </p>
-            <div className="flex flex-wrap gap-2">
-              <Link
-                href="/admin/crm/contacts"
-                className="inline-flex min-w-[5.5rem] flex-1 items-center justify-center rounded-[18px] border border-slate-200/90 bg-white/95 px-3 py-2 text-center text-[11px] font-semibold text-slate-800 shadow-sm transition hover:border-indigo-300 hover:shadow-md sm:flex-initial sm:min-w-[6.5rem] sm:text-xs"
-              >
-                CRM
-              </Link>
-              <Link
-                href="/admin/credentialing"
-                className="inline-flex min-w-[5.5rem] flex-1 items-center justify-center rounded-[18px] border border-slate-200/90 bg-white/95 px-3 py-2 text-center text-[11px] font-semibold text-slate-800 shadow-sm transition hover:border-indigo-300 hover:shadow-md sm:flex-initial sm:min-w-[6.5rem] sm:text-xs"
-              >
-                Credentialing
-              </Link>
               {canPhoneCommandCenter ? (
-                <Link
-                  href={phoneDashboardHref}
-                  className="inline-flex min-w-[5.5rem] flex-1 items-center justify-center rounded-[18px] border border-slate-200/90 bg-white/95 px-3 py-2 text-center text-[11px] font-semibold text-slate-800 shadow-sm transition hover:border-indigo-300 hover:shadow-md sm:flex-initial sm:min-w-[6.5rem] sm:text-xs"
-                >
-                  Phone
-                </Link>
-              ) : (
-                <span className="inline-flex min-w-[5.5rem] flex-1 cursor-not-allowed items-center justify-center rounded-[18px] border border-dashed border-slate-200 bg-slate-50/90 px-3 py-2 text-center text-[11px] font-semibold text-slate-400 sm:flex-initial sm:min-w-[6.5rem] sm:text-xs">
-                  Phone
-                </span>
-              )}
-              <Link
-                href="/admin/crm/dispatch"
-                className="inline-flex min-w-[5.5rem] flex-1 items-center justify-center rounded-[18px] border border-slate-200/90 bg-white/95 px-3 py-2 text-center text-[11px] font-semibold text-slate-800 shadow-sm transition hover:border-indigo-300 hover:shadow-md sm:flex-initial sm:min-w-[6.5rem] sm:text-xs"
-              >
-                Dispatch
-              </Link>
-              <Link
-                href={crmPatientsHref}
-                className="inline-flex min-w-[5.5rem] flex-1 items-center justify-center rounded-[18px] border border-slate-200/90 bg-white/95 px-3 py-2 text-center text-[11px] font-semibold text-slate-800 shadow-sm transition hover:border-indigo-300 hover:shadow-md sm:flex-initial sm:min-w-[6.5rem] sm:text-xs"
-              >
-                Patients
-              </Link>
-              <Link
-                href="/admin"
-                className="inline-flex min-w-[5.5rem] flex-1 items-center justify-center rounded-[18px] border border-slate-200/90 bg-white/95 px-3 py-2 text-center text-[11px] font-semibold text-slate-800 shadow-sm transition hover:border-indigo-300 hover:shadow-md sm:flex-initial sm:min-w-[6.5rem] sm:text-xs"
-              >
-                Compliance
-              </Link>
-              <Link
-                href="/admin/employees"
-                className="inline-flex min-w-[5.5rem] flex-1 items-center justify-center rounded-[18px] border border-slate-200/90 bg-white/95 px-3 py-2 text-center text-[11px] font-semibold text-slate-800 shadow-sm transition hover:border-indigo-300 hover:shadow-md sm:flex-initial sm:min-w-[6.5rem] sm:text-xs"
-              >
-                Employees
-              </Link>
-              {canPhoneCommandCenter ? (
-                <Link
-                  href="/admin/staff"
-                  className="inline-flex min-w-[5.5rem] flex-1 items-center justify-center rounded-[18px] border border-slate-200/90 bg-white/95 px-3 py-2 text-center text-[11px] font-semibold text-slate-800 shadow-sm transition hover:border-indigo-300 hover:shadow-md sm:flex-initial sm:min-w-[6.5rem] sm:text-xs"
-                >
-                  Staff Access
-                </Link>
+                <p className="max-w-md text-right text-[11px] leading-snug text-slate-500 sm:ml-auto">
+                  Use <span className="font-semibold text-slate-700">Call Log</span> in the top bar for the full call list
+                  {staffProfile?.role === "nurse" ? " (opens your phone workspace)" : " (/admin/phone)"}.
+                </p>
               ) : null}
             </div>
           </div>
+
         </div>
 
         <div className="grid gap-3 border-t border-slate-100/90 bg-gradient-to-b from-sky-50/25 to-white px-5 py-3.5 sm:grid-cols-2 sm:px-6 sm:py-4 xl:grid-cols-4">
@@ -1746,9 +1676,10 @@ export default async function AdminDashboardPage({
         <div className="overflow-hidden rounded-[32px] border border-indigo-100 bg-gradient-to-br from-indigo-50/80 via-white to-sky-50/50 shadow-sm">
           <div className="border-b border-indigo-100/80 bg-white/60 px-6 py-5 sm:px-8">
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-indigo-600">Saintly Command Center</p>
-            <h2 className="mt-2 text-2xl font-bold tracking-tight text-slate-900">CRM, phone &amp; roster</h2>
+            <h2 className="mt-2 text-2xl font-bold tracking-tight text-slate-900">Contacts, call log &amp; roster</h2>
             <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-600">
-              Jump to the phone dashboard, CRM records, follow-ups, and nurse roster from one place.
+              Jump to the call log, Contacts directory, follow-ups, and nurse roster from one place. Use the top bar for
+              every major admin area.
             </p>
           </div>
 
@@ -1759,13 +1690,13 @@ export default async function AdminDashboardPage({
                 className="flex flex-col rounded-[22px] border border-slate-200/90 bg-white/90 p-4 shadow-sm transition hover:border-indigo-300 hover:shadow-md"
               >
                 <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Voice</span>
-                <span className="mt-2 text-base font-semibold text-slate-900">Phone dashboard</span>
+                <span className="mt-2 text-base font-semibold text-slate-900">Call log</span>
                 <span className="mt-1 text-xs leading-snug text-slate-600">Inbound calls &amp; alerts</span>
               </Link>
             ) : (
               <div className="flex flex-col rounded-[22px] border border-dashed border-slate-200 bg-slate-50/80 p-4">
                 <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Voice</span>
-                <span className="mt-2 text-base font-semibold text-slate-700">Phone dashboard</span>
+                <span className="mt-2 text-base font-semibold text-slate-700">Call log</span>
                 <span className="mt-1 text-xs text-slate-500">Admin access required</span>
               </div>
             )}
@@ -1773,7 +1704,7 @@ export default async function AdminDashboardPage({
               href="/admin/crm/contacts"
               className="flex flex-col rounded-[22px] border border-slate-200/90 bg-white/90 p-4 shadow-sm transition hover:border-indigo-300 hover:shadow-md"
             >
-              <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">CRM</span>
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Directory</span>
               <span className="mt-2 text-base font-semibold text-slate-900">Contacts</span>
               <span className="mt-1 text-xs leading-snug text-slate-600">Directory &amp; profiles</span>
             </Link>
@@ -1786,7 +1717,7 @@ export default async function AdminDashboardPage({
               <span className="mt-1 text-xs leading-snug text-slate-600">New inquiries</span>
             </Link>
             <Link
-              href="/admin/crm/patients"
+              href={crmPatientsHref}
               className="flex flex-col rounded-[22px] border border-slate-200/90 bg-white/90 p-4 shadow-sm transition hover:border-indigo-300 hover:shadow-md"
             >
               <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Care</span>

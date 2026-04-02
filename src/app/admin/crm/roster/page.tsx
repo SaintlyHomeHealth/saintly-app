@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { getStaffProfile, isManagerOrHigher, type StaffRole } from "@/lib/staff-profile";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { supabaseAdmin } from "@/lib/admin";
@@ -94,37 +95,18 @@ export default async function AdminCrmRosterPage() {
 
   return (
     <div className="space-y-6 p-6">
-      <nav className="flex flex-wrap gap-3 text-sm font-semibold text-sky-800">
-        <Link href="/admin" className="underline-offset-2 hover:underline">
-          Admin
-        </Link>
-        <span className="text-slate-300">|</span>
-        <Link href="/admin/crm/contacts" className="underline-offset-2 hover:underline">
-          Contacts
-        </Link>
-        <Link href="/admin/crm/leads" className="underline-offset-2 hover:underline">
-          Leads
-        </Link>
-        <Link href="/admin/crm/patients" className="underline-offset-2 hover:underline">
-          Patients
-        </Link>
-        <span className="text-slate-300">|</span>
-        <Link href="/admin/crm/dispatch" className="underline-offset-2 hover:underline">
-          Dispatch
-        </Link>
-        <span className="text-slate-300">|</span>
-        <span className="text-slate-900">Roster</span>
-      </nav>
-
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900">CRM · Care team roster</h1>
-        <p className="mt-1 text-sm text-slate-600">
-          {viewOrgWide
-            ? "Active assignments — primary nurse, backup, intake, and clinical lines (newest first)."
-            : "Your active patient assignments."}
-        </p>
-        {error ? <p className="mt-2 text-sm text-red-700">{error.message}</p> : null}
-      </div>
+      <AdminPageHeader
+        eyebrow="Team"
+        title="Care team roster"
+        description={
+          <>
+            {viewOrgWide
+              ? "Active assignments — primary nurse, backup, intake, and clinical lines (newest first)."
+              : "Your active patient assignments."}
+            {error ? <span className="mt-2 block text-sm text-red-700">{error.message}</span> : null}
+          </>
+        }
+      />
 
       <div className="overflow-x-auto rounded-[28px] border border-slate-200 bg-white shadow-sm">
         <table className="w-full min-w-[880px] text-left text-sm">

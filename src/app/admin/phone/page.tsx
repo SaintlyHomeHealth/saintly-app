@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { supabaseAdmin } from "@/lib/admin";
 import { formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
 import { formatTimeAgo } from "@/lib/phone/format-time-ago";
@@ -188,56 +189,53 @@ export default async function AdminPhoneCallLogPage({ searchParams }: PageProps)
   return (
     <div className="mx-auto max-w-[1200px] space-y-4 px-4 pb-10 pt-6">
       <div className="rounded-2xl border border-slate-200/80 bg-white/95 p-4 shadow-sm">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Phone</p>
-            <h1 className="mt-1 text-2xl font-bold text-slate-900">Call log</h1>
-            <p className="mt-1 max-w-xl text-sm text-slate-600">
+        <AdminPageHeader
+          eyebrow="Voice"
+          title="Call Log"
+          description={
+            <>
               Organization call history and missed-call recovery. Place calls and SMS from the{" "}
               <Link href="/workspace/phone/keypad" className="font-semibold text-sky-800 underline">
-                phone workspace
+                workspace keypad
               </Link>
-              ; manage leads and patients in CRM.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {staffProfile.phone_access_enabled ? (
+              ; manage leads and patients from <span className="font-semibold text-slate-800">Contacts</span> and{" "}
+              <span className="font-semibold text-slate-800">Patients</span> in the top bar.
+            </>
+          }
+          actions={
+            <>
+              {staffProfile.phone_access_enabled ? (
+                <Link
+                  href="/admin/phone/messages"
+                  className="inline-flex items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-900 shadow-sm transition hover:bg-emerald-100"
+                >
+                  SMS Inbox
+                </Link>
+              ) : null}
+              {staffProfile.phone_access_enabled ? (
+                <Link
+                  href="/workspace/phone/keypad"
+                  className="inline-flex items-center justify-center rounded-full border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-900 shadow-sm transition hover:bg-violet-100"
+                >
+                  Workspace keypad
+                </Link>
+              ) : null}
               <Link
-                href="/admin/phone/messages"
-                className="inline-flex items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-900 shadow-sm transition hover:bg-emerald-100"
+                href="/admin/phone/tasks"
+                className="inline-flex items-center justify-center rounded-full border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-900 shadow-sm transition hover:bg-sky-100"
               >
-                SMS Inbox
+                My Tasks
+                {(myActiveTaskCount ?? 0) > 0 ? ` (${myActiveTaskCount})` : ""}
               </Link>
-            ) : null}
-            {staffProfile.phone_access_enabled ? (
               <Link
-                href="/workspace/phone/keypad"
-                className="inline-flex items-center justify-center rounded-full border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-900 shadow-sm transition hover:bg-violet-100"
+                href="/admin/phone/dashboard"
+                className="inline-flex items-center justify-center rounded-full border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-900 shadow-sm transition hover:bg-sky-100"
               >
-                Phone workspace
+                Command Dashboard
               </Link>
-            ) : null}
-            <Link
-              href="/admin/phone/tasks"
-              className="inline-flex items-center justify-center rounded-full border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-900 shadow-sm transition hover:bg-sky-100"
-            >
-              My Tasks
-              {(myActiveTaskCount ?? 0) > 0 ? ` (${myActiveTaskCount})` : ""}
-            </Link>
-            <Link
-              href="/admin/phone/dashboard"
-              className="inline-flex items-center justify-center rounded-full border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-900 shadow-sm transition hover:bg-sky-100"
-            >
-              CRM dashboard
-            </Link>
-            <Link
-              href="/admin"
-              className="inline-flex items-center justify-center rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
-            >
-              Command Center
-            </Link>
-          </div>
-        </div>
+            </>
+          }
+        />
       </div>
 
       <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm">

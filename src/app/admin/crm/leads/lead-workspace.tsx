@@ -84,26 +84,6 @@ function createLeadErrorMessage(code: string): string {
   }
 }
 
-export function CrmLeadsNav() {
-  return (
-    <nav className="flex flex-wrap gap-3 text-sm font-semibold text-sky-800">
-      <Link href="/admin" className="underline-offset-2 hover:underline">
-        Admin
-      </Link>
-      <span className="text-slate-300">|</span>
-      <Link href="/admin/crm/contacts" className="underline-offset-2 hover:underline">
-        Contacts
-      </Link>
-      <Link href="/admin/crm/leads" className="underline-offset-2 hover:underline">
-        Leads
-      </Link>
-      <Link href="/admin/crm/patients" className="underline-offset-2 hover:underline">
-        Patients
-      </Link>
-    </nav>
-  );
-}
-
 export type LeadWorkspaceContactProfileDefaults = {
   fullName: string;
   primaryPhone: string;
@@ -174,8 +154,6 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
 
     return (
       <div className="space-y-6 p-6">
-        <CrmLeadsNav />
-
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Lead workspace</p>
           <h1 className="mt-1 text-2xl font-bold text-slate-900">New lead</h1>
@@ -396,8 +374,6 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
 
   return (
     <div className="space-y-6 p-6">
-      <CrmLeadsNav />
-
       <div>
         <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Lead workspace</p>
         <h1 className="mt-1 text-2xl font-bold text-slate-900">{displayName}</h1>

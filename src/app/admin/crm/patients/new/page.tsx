@@ -9,6 +9,7 @@ import { ServiceDisciplineCheckboxes } from "@/components/crm/ServiceDisciplineC
 import { convertLeadToPatientFromCrm, createPatientManualFromCrm } from "../../actions";
 import { supabaseAdmin } from "@/lib/admin";
 import { isLeadPipelineTerminal } from "@/lib/crm/lead-pipeline-status";
+import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
@@ -145,42 +146,23 @@ export default async function AdminCrmPatientNewPage({
 
   return (
     <div className="space-y-8 p-6">
-      <nav className="flex flex-wrap gap-3 text-sm font-semibold text-sky-800">
-        <Link href="/admin" className="underline-offset-2 hover:underline">
-          Admin
-        </Link>
-        <span className="text-slate-300">|</span>
-        <Link href="/admin/crm/contacts" className="underline-offset-2 hover:underline">
-          Contacts
-        </Link>
-        <Link href="/admin/crm/leads" className="underline-offset-2 hover:underline">
-          Leads
-        </Link>
-        <Link href="/admin/crm/patients" className="underline-offset-2 hover:underline">
-          Patients
-        </Link>
-        <span className="text-slate-300">|</span>
-        <Link href="/admin/crm/dispatch" className="underline-offset-2 hover:underline">
-          Dispatch
-        </Link>
-        <span className="text-slate-300">|</span>
-        <Link href="/admin/crm/roster" className="underline-offset-2 hover:underline">
-          Roster
-        </Link>
-      </nav>
-
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900">Add patient</h1>
-        <p className="mt-1 text-sm text-slate-600">
-          Convert an existing CRM lead, or create a contact and patient manually (with optional primary nurse assignment).
-        </p>
-        {error ? <p className="mt-2 text-sm text-red-700">{error.message}</p> : null}
-        {errCode ? <p className="mt-2 text-sm text-red-700">{errorMessage(errCode)}</p> : null}
-        {manualErr ? <p className="mt-2 text-sm text-red-700">{manualErrorMessage(manualErr)}</p> : null}
-      </div>
+      <AdminPageHeader
+        eyebrow="Patients"
+        title="Add patient"
+        description={
+          <>
+            Convert an existing lead, or create a contact and patient manually (with optional primary nurse assignment).
+            {error ? <span className="mt-2 block text-sm text-red-700">{error.message}</span> : null}
+            {errCode ? <span className="mt-2 block text-sm text-red-700">{errorMessage(errCode)}</span> : null}
+            {manualErr ? (
+              <span className="mt-2 block text-sm text-red-700">{manualErrorMessage(manualErr)}</span>
+            ) : null}
+          </>
+        }
+      />
 
       <section className="space-y-3">
-        <h2 className="text-lg font-semibold text-slate-900">Convert from CRM lead</h2>
+        <h2 className="text-lg font-semibold text-slate-900">Convert from lead</h2>
         <p className="text-sm text-slate-600">
           Complete referral &amp; payer intake on the lead if needed, then convert below.
         </p>
@@ -245,7 +227,7 @@ export default async function AdminCrmPatientNewPage({
       <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
         <h2 className="text-lg font-semibold text-slate-900">Create patient manually</h2>
         <p className="mt-1 text-sm text-slate-600">
-          Creates a CRM contact and patient record. Optional primary nurse uses the same assignment flow as the patients
+          Creates a contact and patient record. Optional primary nurse uses the same assignment flow as the patients
           list.
         </p>
         <form action={createPatientManualFromCrm} className="mt-4 grid max-w-2xl gap-3 sm:grid-cols-2">

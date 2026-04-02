@@ -18,6 +18,7 @@ import {
   resolveDirectoryStatusLabel,
 } from "@/lib/crm/contact-directory";
 import { buildDuplicateFlagsForBatch } from "@/lib/crm/contact-duplicate-detection";
+import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
@@ -149,40 +150,17 @@ export default async function AdminCrmContactsPage({
 
   return (
     <div className="space-y-6 p-6">
-      <nav className="flex flex-wrap gap-3 text-sm font-semibold text-sky-800">
-        <Link href="/admin" className="underline-offset-2 hover:underline">
-          Admin
-        </Link>
-        <span className="text-slate-300">|</span>
-        <span className="text-slate-900">Contacts</span>
-        <Link href="/admin/crm/leads" className="underline-offset-2 hover:underline">
-          Leads
-        </Link>
-        <Link href="/admin/crm/patients" className="underline-offset-2 hover:underline">
-          Patients
-        </Link>
-        <Link href="/admin/credentialing" className="underline-offset-2 hover:underline">
-          Credentialing
-        </Link>
-        <span className="text-slate-300">|</span>
-        <Link href="/admin/crm/dispatch" className="underline-offset-2 hover:underline">
-          Dispatch
-        </Link>
-        <span className="text-slate-300">|</span>
-        <Link href="/admin/crm/roster" className="underline-offset-2 hover:underline">
-          Roster
-        </Link>
-      </nav>
-
-      <div>
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">CRM</p>
-        <h1 className="mt-1 text-2xl font-bold text-slate-900">Contacts</h1>
-        <p className="mt-1 max-w-2xl text-sm text-slate-600">
-          People and organizations on file—search, filter by type, then open a row for the full contact profile (phones,
-          address, payer metadata, and links to patient or lead charts).
-        </p>
-        {contactErr ? <p className="mt-2 text-sm text-red-700">{contactErr.message}</p> : null}
-      </div>
+      <AdminPageHeader
+        eyebrow="Directory"
+        title="Contacts"
+        description={
+          <>
+            People and organizations on file—search, filter by type, then open a row for the full contact profile
+            (phones, address, payer metadata, and links to patient or lead charts).
+            {contactErr ? <span className="mt-2 block text-sm text-red-700">{contactErr.message}</span> : null}
+          </>
+        }
+      />
 
       <div className="flex flex-col gap-3 rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
         <form method="get" className="flex w-full flex-col gap-2 sm:max-w-md sm:flex-1">

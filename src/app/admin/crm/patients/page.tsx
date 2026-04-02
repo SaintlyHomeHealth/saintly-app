@@ -7,6 +7,7 @@ import { PAYER_BROAD_CATEGORY_OPTIONS } from "@/lib/crm/payer-type-options";
 import { SERVICE_DISCIPLINE_CODES } from "@/lib/crm/service-disciplines";
 import { supabaseAdmin } from "@/lib/admin";
 import { formatPhoneForDisplay, normalizePhone } from "@/lib/phone/us-phone-format";
+import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
@@ -304,44 +305,21 @@ export default async function AdminCrmPatientsPage({
 
   return (
     <div className="space-y-6 p-6">
-      <nav className="flex flex-wrap gap-3 text-sm font-semibold text-sky-800">
-        <Link href="/admin" className="underline-offset-2 hover:underline">
-          Admin
-        </Link>
-        <span className="text-slate-300">|</span>
-        <Link href="/admin/crm/contacts" className="underline-offset-2 hover:underline">
-          Contacts
-        </Link>
-        <Link href="/admin/crm/leads" className="underline-offset-2 hover:underline">
-          Leads
-        </Link>
-        <span className="text-slate-900">Patients</span>
-        <span className="text-slate-300">|</span>
-        <Link href="/admin/crm/dispatch" className="underline-offset-2 hover:underline">
-          Dispatch
-        </Link>
-        <span className="text-slate-300">|</span>
-        <Link href="/admin/crm/roster" className="underline-offset-2 hover:underline">
-          Roster
-        </Link>
-      </nav>
-
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">CRM · Patients</h1>
-          <p className="mt-1 text-sm text-slate-600">
-            Overview (up to 100 rows after filters). Use filters to narrow; open a patient to manage assignments.
-          </p>
-          {error ? <p className="mt-2 text-sm text-red-700">{error.message}</p> : null}
-        </div>
-        <Link
-          href="/admin/crm/patients/new"
-          className={addPatientCls}
-          title="Add or convert a patient."
-        >
-          + Add patient
-        </Link>
-      </div>
+      <AdminPageHeader
+        eyebrow="Care"
+        title="Patients"
+        description={
+          <>
+            Active charts (up to 100 rows after filters). Use filters to narrow; open a patient to manage assignments.
+            {error ? <span className="mt-2 block text-sm text-red-700">{error.message}</span> : null}
+          </>
+        }
+        actions={
+          <Link href="/admin/crm/patients/new" className={addPatientCls} title="Add or convert a patient.">
+            + Add patient
+          </Link>
+        }
+      />
 
       <form
         method="get"
