@@ -37,7 +37,7 @@ export default async function WorkspaceSmsToContactPage({
     if (leadId && UUID_RE.test(leadId)) {
       q.set("leadId", leadId);
     }
-    redirect(`/workspace/phone/leads?${q.toString()}`);
+    redirect(`/workspace/phone/inbox?${q.toString()}`);
   }
 
   if (res.created) {

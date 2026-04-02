@@ -11,7 +11,7 @@ import { formatLeadPipelineStatusLabel, isLeadPipelineTerminal } from "@/lib/crm
 import { supabaseAdmin } from "@/lib/admin";
 import { pickOutboundE164ForDial } from "@/lib/workspace-phone/launch-urls";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
-import { canAccessWorkspacePhone, getStaffProfile } from "@/lib/staff-profile";
+import { canAccessWorkspacePhone, getStaffProfile, isWorkspaceEmployeeRole } from "@/lib/staff-profile";
 
 type ContactEmb = {
   id?: string;
@@ -77,8 +77,12 @@ export default async function WorkspacePhoneLeadsPage({
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const staff = await getStaffProfile();
-  if (!canAccessWorkspacePhone(staff)) {
+  if (!staff || !canAccessWorkspacePhone(staff)) {
     redirect("/admin/phone");
+  }
+
+  if (isWorkspaceEmployeeRole(staff.role)) {
+    redirect("/workspace/phone/today");
   }
 
   const sp = searchParams ? await searchParams : {};

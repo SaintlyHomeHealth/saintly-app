@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { NursePhoneBottomNav } from "./_components/NursePhoneBottomNav";
 import { WorkspacePhoneCallDock } from "./_components/WorkspacePhoneCallDock";
 import { SignOutButton } from "@/components/SignOutButton";
-import { canAccessWorkspacePhone, getStaffProfile } from "@/lib/staff-profile";
+import { canAccessWorkspacePhone, getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 
 export default async function WorkspacePhoneLayout({ children }: { children: ReactNode }) {
   const staff = await getStaffProfile();
@@ -18,6 +18,8 @@ export default async function WorkspacePhoneLayout({ children }: { children: Rea
     (typeof staff.email === "string" && staff.email.trim()) ||
     "Staff";
 
+  const showAdminLink = isManagerOrHigher(staff);
+
   return (
     <div className="flex min-h-[100dvh] flex-col bg-gradient-to-b from-slate-50 via-white to-slate-50/80 text-slate-900">
       <header className="sticky top-0 z-30 border-b border-slate-200/60 bg-white/95 px-4 py-3 shadow-sm shadow-slate-200/20 backdrop-blur-md supports-[backdrop-filter]:bg-white/85">
@@ -27,12 +29,14 @@ export default async function WorkspacePhoneLayout({ children }: { children: Rea
             <p className="truncate text-sm font-semibold text-slate-900">{displayName}</p>
           </div>
           <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-            <Link
-              href="/admin/phone"
-              className="rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 min-[480px]:px-3.5"
-            >
-              Admin
-            </Link>
+            {showAdminLink ? (
+              <Link
+                href="/admin/phone"
+                className="rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 min-[480px]:px-3.5"
+              >
+                Admin
+              </Link>
+            ) : null}
             <SignOutButton
               label="Log out"
               className="rounded-full border border-slate-800 bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-md shadow-slate-900/15 transition hover:bg-slate-800 disabled:opacity-50"
@@ -44,7 +48,7 @@ export default async function WorkspacePhoneLayout({ children }: { children: Rea
       <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col pb-24">{children}</main>
 
       <WorkspacePhoneCallDock />
-      <NursePhoneBottomNav />
+      <NursePhoneBottomNav showLeadsNav={showAdminLink} />
     </div>
   );
 }

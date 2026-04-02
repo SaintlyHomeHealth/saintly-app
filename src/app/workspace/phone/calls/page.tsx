@@ -1,26 +1,16 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { WorkspaceCallInboxCard, type CallInboxRow } from "./_components/WorkspaceCallInboxCard";
 import { WorkspacePhonePageHeader } from "../_components/WorkspacePhonePageHeader";
 import { SoftphoneDialer } from "@/components/softphone/SoftphoneDialer";
-import { formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
-import { canAccessWorkspacePhone, getStaffProfile, hasFullCallVisibility } from "@/lib/staff-profile";
+import {
+  canAccessWorkspacePhone,
+  getStaffProfile,
+  hasFullCallVisibility,
+  isManagerOrHigher,
+} from "@/lib/staff-profile";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
-
-type ContactNameEmbed = { full_name?: unknown; first_name?: unknown; last_name?: unknown };
-
-function crmDisplayNameFromContactsRaw(contactsRaw: unknown): string | null {
-  let emb: ContactNameEmbed | null = null;
-  if (contactsRaw && typeof contactsRaw === "object" && !Array.isArray(contactsRaw)) {
-    emb = contactsRaw as ContactNameEmbed;
-  } else if (Array.isArray(contactsRaw) && contactsRaw[0] && typeof contactsRaw[0] === "object") {
-    emb = contactsRaw[0] as ContactNameEmbed;
-  }
-  const fn = emb && typeof emb.full_name === "string" ? emb.full_name.trim() : "";
-  const f1 = emb && typeof emb.first_name === "string" ? emb.first_name : null;
-  const f2 = emb && typeof emb.last_name === "string" ? emb.last_name : null;
-  return fn || [f1, f2].filter(Boolean).join(" ").trim() || null;
-}
 
 export default async function WorkspaceCallsPage() {
   const staff = await getStaffProfile();
@@ -29,27 +19,78 @@ export default async function WorkspaceCallsPage() {
   }
 
   const hasFull = hasFullCallVisibility(staff);
+  const showAdminCallLogLink = isManagerOrHigher(staff);
   const supabase = await createServerSupabaseClient();
 
-  let q = supabase
+  const selectRow =
+    "id, created_at, direction, from_e164, to_e164, status, contact_id, contacts ( full_name, first_name, last_name )";
+
+  let missedQ = supabase
     .from("phone_calls")
-    .select(
-      "id, created_at, direction, from_e164, to_e164, status, contacts ( full_name, first_name, last_name )"
-    )
+    .select(selectRow)
+    .eq("status", "missed")
     .order("created_at", { ascending: false })
     .limit(25);
 
+  let recentQ = supabase
+    .from("phone_calls")
+    .select(selectRow)
+    .neq("status", "missed")
+    .order("created_at", { ascending: false })
+    .limit(40);
+
   if (!hasFull) {
-    q = q.or(`assigned_to_user_id.eq.${staff.user_id},assigned_to_user_id.is.null`);
+    const scope = `assigned_to_user_id.eq.${staff.user_id},assigned_to_user_id.is.null`;
+    missedQ = missedQ.or(scope);
+    recentQ = recentQ.or(scope);
   }
 
-  const { data: rows, error } = await q;
+  const [{ data: missedData, error: missedErr }, { data: recentData, error: recentErr }] = await Promise.all([
+    missedQ,
+    recentQ,
+  ]);
 
-  if (error) {
-    console.warn("[workspace/phone/calls] list:", error.message);
+  if (missedErr) {
+    console.warn("[workspace/phone/calls] missed:", missedErr.message);
+  }
+  if (recentErr) {
+    console.warn("[workspace/phone/calls] recent:", recentErr.message);
   }
 
-  const list = rows ?? [];
+  const missed = (missedData ?? []) as CallInboxRow[];
+  const recent = (recentData ?? []) as CallInboxRow[];
+
+  const allContacts = [...missed, ...recent]
+    .map((r) => (typeof r.contact_id === "string" ? r.contact_id : ""))
+    .filter(Boolean);
+  const contactIds = [...new Set(allContacts)];
+
+  const patientByContact = new Map<string, string>();
+  if (contactIds.length > 0) {
+    if (hasFull) {
+      const { data: prows } = await supabase.from("patients").select("id, contact_id").in("contact_id", contactIds);
+      for (const p of prows ?? []) {
+        const cid = typeof p.contact_id === "string" ? p.contact_id : "";
+        const pid = typeof p.id === "string" ? p.id : "";
+        if (cid && pid && !patientByContact.has(cid)) patientByContact.set(cid, pid);
+      }
+    } else {
+      const { data: asnRows } = await supabase
+        .from("patient_assignments")
+        .select("patient_id, patients ( id, contact_id )")
+        .eq("assigned_user_id", staff.user_id)
+        .eq("is_active", true);
+      for (const a of asnRows ?? []) {
+        const pRaw = (a as { patients?: unknown }).patients;
+        const p = pRaw && typeof pRaw === "object" && !Array.isArray(pRaw) ? (pRaw as { id?: unknown; contact_id?: unknown }) : null;
+        const pid = p && typeof p.id === "string" ? p.id : "";
+        const cid = p && typeof p.contact_id === "string" ? p.contact_id : "";
+        if (pid && cid && contactIds.includes(cid) && !patientByContact.has(cid)) {
+          patientByContact.set(cid, pid);
+        }
+      }
+    }
+  }
 
   const staffDisplayName =
     staff.full_name?.trim() ||
@@ -58,57 +99,75 @@ export default async function WorkspaceCallsPage() {
 
   return (
     <div className="flex flex-1 flex-col px-4 pb-6 pt-5 sm:px-5">
-      <WorkspacePhonePageHeader title="Calls" subtitle="Softphone and your recent call activity in one place." />
+      <WorkspacePhonePageHeader
+        title="Calls"
+        subtitle="Missed calls first, then recent activity. Use actions to call back, text, or open a matched patient."
+      />
 
-      <div className="mt-2 rounded-3xl border border-slate-200/80 bg-white/95 p-4 shadow-sm shadow-slate-200/60 sm:p-5">
+      <div className="mt-2 rounded-[28px] border border-slate-200/80 bg-white p-4 shadow-md shadow-slate-200/50 sm:p-5">
         <SoftphoneDialer staffDisplayName={staffDisplayName} />
       </div>
 
-      <h2 className="mt-8 text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Recent calls</h2>
-      <ul className="mt-3 divide-y divide-slate-100 overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm shadow-slate-200/60">
-        {list.length === 0 ? (
-          <li className="px-4 py-8 text-center text-sm text-slate-500">No calls yet.</li>
+      <section className="mt-8">
+        <div className="mb-3 flex items-center gap-2">
+          <h2 className="text-xs font-bold uppercase tracking-[0.14em] text-rose-800">Missed calls</h2>
+          {missed.length > 0 ? (
+            <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold text-rose-900">
+              {missed.length}
+            </span>
+          ) : null}
+        </div>
+        {missed.length === 0 ? (
+          <p className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/60 px-4 py-6 text-center text-sm text-slate-600">
+            No missed calls in your queue.
+          </p>
         ) : (
-          list.map((r) => {
-            const id = String(r.id);
-            const dir = String(r.direction ?? "").toLowerCase();
-            const from = typeof r.from_e164 === "string" ? r.from_e164 : "—";
-            const to = typeof r.to_e164 === "string" ? r.to_e164 : "—";
-            const label = crmDisplayNameFromContactsRaw((r as { contacts?: unknown }).contacts);
-            const when = formatAdminPhoneWhen(typeof r.created_at === "string" ? r.created_at : null);
-            const status = String(r.status ?? "").toLowerCase();
-            const missed = status === "missed";
-            return (
-              <li key={id}>
-                <Link
-                  href={`/admin/phone/${id}`}
-                  className={`block px-4 py-3 transition active:bg-slate-100 ${missed ? "bg-rose-50/40 hover:bg-rose-50/60" : "hover:bg-slate-50"}`}
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <p className={`truncate font-semibold ${missed ? "text-rose-900" : "text-slate-900"}`}>{label ?? from}</p>
-                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold capitalize ${missed ? "bg-rose-100 text-rose-800" : "bg-slate-100 text-slate-600"}`}>
-                      {r.status}
-                    </span>
-                  </div>
-                  <p className="mt-0.5 font-mono text-xs text-slate-600">
-                    {dir === "inbound" ? from : to}
-                  </p>
-                  <p className="mt-1 text-[11px] text-slate-500">
-                    {when} · {dir || "—"}
-                  </p>
-                </Link>
-              </li>
-            );
-          })
+          <ul className="flex flex-col gap-3">
+            {missed.map((row) => (
+              <WorkspaceCallInboxCard
+                key={row.id}
+                row={row}
+                variant="missed"
+                patientId={
+                  typeof row.contact_id === "string" ? patientByContact.get(row.contact_id) ?? null : null
+                }
+              />
+            ))}
+          </ul>
         )}
-      </ul>
-      <p className="mt-3 text-center text-[11px] text-slate-500">
-        Org-wide call log &amp; missed-call recovery:{" "}
-        <Link href="/admin/phone" className="font-semibold text-sky-800 underline">
-          Admin call log
-        </Link>
-        .
-      </p>
+      </section>
+
+      <section className="mt-10">
+        <h2 className="mb-3 text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Recent calls</h2>
+        {recent.length === 0 ? (
+          <p className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/60 px-4 py-6 text-center text-sm text-slate-600">
+            No other recent calls yet.
+          </p>
+        ) : (
+          <ul className="flex flex-col gap-3">
+            {recent.map((row) => (
+              <WorkspaceCallInboxCard
+                key={row.id}
+                row={row}
+                variant="recent"
+                patientId={
+                  typeof row.contact_id === "string" ? patientByContact.get(row.contact_id) ?? null : null
+                }
+              />
+            ))}
+          </ul>
+        )}
+      </section>
+
+      {showAdminCallLogLink ? (
+        <p className="mt-8 text-center text-[11px] text-slate-500">
+          Org-wide call log and tools:{" "}
+          <Link href="/admin/phone" className="font-semibold text-sky-800 underline">
+            Admin call log
+          </Link>
+          .
+        </p>
+      ) : null}
     </div>
   );
 }

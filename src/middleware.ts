@@ -129,6 +129,17 @@ export async function middleware(request: NextRequest) {
       url.searchParams.set("reason", gate.reason);
       return NextResponse.redirect(url);
     }
+
+    // Clinical / workspace-only roles must not use the admin app (nurse, or employee/staff if added later).
+    const role = gate.role.trim().toLowerCase();
+    const workspaceOnly =
+      role === "nurse" || role === "employee" || role === "staff";
+    if (workspaceOnly) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/workspace/phone/today";
+      url.search = "";
+      return NextResponse.redirect(url);
+    }
   }
 
   // Staff skip the login screen; non-staff stay here so they can sign out and use another account.

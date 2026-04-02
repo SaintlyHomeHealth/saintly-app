@@ -24,7 +24,19 @@ type Tab = {
 
 const iconWrap = "flex h-8 w-8 items-center justify-center rounded-xl border border-transparent";
 
-const tabs: Tab[] = [
+const leadsTab: Tab = {
+  href: "/workspace/phone/leads",
+  label: "Leads",
+  match: /^\/workspace\/phone\/leads/,
+  icon: (
+    <span className={iconWrap}>
+      <UserPlus className="h-4 w-4" strokeWidth={2} aria-hidden />
+    </span>
+  ),
+  iconTitle: "Leads",
+};
+
+const tabsBase: Tab[] = [
   {
     href: "/workspace/phone/today",
     label: "Today",
@@ -98,17 +110,6 @@ const tabs: Tab[] = [
     iconTitle: "Patients",
   },
   {
-    href: "/workspace/phone/leads",
-    label: "Leads",
-    match: /^\/workspace\/phone\/leads/,
-    icon: (
-      <span className={iconWrap}>
-        <UserPlus className="h-4 w-4" strokeWidth={2} aria-hidden />
-      </span>
-    ),
-    iconTitle: "Leads",
-  },
-  {
     href: "/workspace/phone/keypad",
     label: "Keypad",
     match: /^\/workspace\/phone\/keypad/,
@@ -125,8 +126,14 @@ function isActive(pathname: string, match: RegExp): boolean {
   return match.test(pathname);
 }
 
-export function NursePhoneBottomNav() {
+type NavProps = {
+  /** Managers/admins: show Leads. Hidden for nurses / workspace-only staff. */
+  showLeadsNav?: boolean;
+};
+
+export function NursePhoneBottomNav({ showLeadsNav = true }: NavProps) {
   const pathname = usePathname() ?? "";
+  const tabs = showLeadsNav ? [...tabsBase.slice(0, 6), leadsTab, ...tabsBase.slice(6)] : tabsBase;
 
   return (
     <nav

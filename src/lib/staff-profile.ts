@@ -42,6 +42,15 @@ export function isManagerOrHigher(profile: StaffProfile | null | undefined): boo
   return ROLE_RANK[profile.role] >= ROLE_RANK.manager;
 }
 
+/**
+ * Field / clinical staff who should use workspace phone only — not `/admin`.
+ * DB roles today: `nurse`. Forward-compatible with `employee` / `staff` if added to `staff_profiles.role`.
+ */
+export function isWorkspaceEmployeeRole(role: string | null | undefined): boolean {
+  const r = typeof role === "string" ? role.trim().toLowerCase() : "";
+  return r === "nurse" || r === "employee" || r === "staff";
+}
+
 /** Phone workspace: active staff who may use /admin/phone (any clinical role). */
 export function isPhoneWorkspaceUser(profile: StaffProfile | null | undefined): boolean {
   if (!profile || profile.is_active === false) return false;
