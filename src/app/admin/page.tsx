@@ -1582,7 +1582,7 @@ export default async function AdminDashboardPage({
 
   const showCommandCenter = isManagerOrHigher(staffProfile);
   const canPhoneCommandCenter = isPhoneWorkspaceUser(staffProfile);
-  const phoneDashboardHref = staffProfile?.role === "nurse" ? "/workspace/phone" : "/admin/phone";
+  const phoneDashboardHref = staffProfile?.role === "nurse" ? "/workspace/phone/today" : "/admin/phone";
   const crmPatientsHref =
     staffProfile?.role === "nurse" ? "/workspace/phone/patients" : "/admin/crm/patients";
 

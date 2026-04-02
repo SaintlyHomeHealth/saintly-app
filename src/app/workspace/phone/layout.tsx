@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 
 import { NursePhoneBottomNav } from "./_components/NursePhoneBottomNav";
+import { WorkspacePhoneCallDock } from "./_components/WorkspacePhoneCallDock";
 import { SignOutButton } from "@/components/SignOutButton";
 import { canAccessWorkspacePhone, getStaffProfile } from "@/lib/staff-profile";
 
@@ -18,17 +19,17 @@ export default async function WorkspacePhoneLayout({ children }: { children: Rea
     "Staff";
 
   return (
-    <div className="flex min-h-[100dvh] flex-col bg-gradient-to-b from-slate-50 to-white text-slate-900">
-      <header className="sticky top-0 z-30 border-b border-slate-200/70 bg-white/90 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-white/70">
+    <div className="flex min-h-[100dvh] flex-col bg-gradient-to-b from-slate-50 via-white to-slate-50/80 text-slate-900">
+      <header className="sticky top-0 z-30 border-b border-slate-200/60 bg-white/95 px-4 py-3 shadow-sm shadow-slate-200/20 backdrop-blur-md supports-[backdrop-filter]:bg-white/85">
         <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Saintly Phone</p>
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-sky-900/55">Saintly Phone</p>
             <p className="truncate text-sm font-semibold text-slate-900">{displayName}</p>
           </div>
           <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
             <Link
               href="/admin/phone"
-              className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm shadow-slate-200/50 transition hover:bg-slate-50"
+              className="rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 min-[480px]:px-3.5"
             >
               Admin
             </Link>
@@ -40,8 +41,9 @@ export default async function WorkspacePhoneLayout({ children }: { children: Rea
         </div>
       </header>
 
-      <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col pb-20">{children}</main>
+      <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col pb-24">{children}</main>
 
+      <WorkspacePhoneCallDock />
       <NursePhoneBottomNav />
     </div>
   );

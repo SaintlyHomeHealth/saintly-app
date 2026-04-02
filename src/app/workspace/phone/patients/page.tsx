@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { WorkspacePhonePageHeader } from "../_components/WorkspacePhonePageHeader";
 import { supabaseAdmin } from "@/lib/admin";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import {
@@ -311,21 +312,19 @@ export default async function WorkspacePatientsPage() {
   });
 
   return (
-    <div className="px-4 pb-24 pt-4">
-      <div className="mb-5">
-        <h1 className="text-xl font-semibold tracking-tight text-slate-900">Patients</h1>
-        <p className="mt-1 text-sm leading-relaxed text-slate-500">
-          Assigned to you — call, text, and follow up without opening the CRM.
-        </p>
-        <div className="mt-3 flex flex-wrap gap-2">
+    <div className="px-4 pb-8 pt-5 sm:px-5">
+      <WorkspacePhonePageHeader
+        title="Patients"
+        subtitle="Assigned to you — call, text, and follow up without opening the CRM."
+        actions={
           <Link
             href="/workspace/phone/today"
-            className="inline-flex items-center rounded-full bg-gradient-to-r from-sky-600 to-cyan-500 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm shadow-sky-200/70 transition hover:-translate-y-px hover:shadow-md hover:shadow-sky-200/90"
+            className="inline-flex items-center rounded-full bg-gradient-to-r from-sky-600 to-cyan-500 px-4 py-2 text-xs font-semibold text-white shadow-sm shadow-sky-200/70 transition hover:-translate-y-px hover:shadow-md hover:shadow-sky-200/90"
           >
-            Open Today View
+            Today
           </Link>
-        </div>
-      </div>
+        }
+      />
 
       {assignErr ? (
         <p className="rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-900">Could not load assignments.</p>

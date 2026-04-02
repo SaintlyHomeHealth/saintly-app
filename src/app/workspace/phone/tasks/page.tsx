@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { WorkspacePhonePageHeader } from "../_components/WorkspacePhonePageHeader";
 import { assignPhoneCallTaskToMe, updatePhoneCallTaskStatus } from "@/app/admin/phone/actions";
 import { supabaseAdmin } from "@/lib/admin";
 import { formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
@@ -103,16 +104,20 @@ export default async function WorkspaceTasksPage() {
     "rounded-lg border border-sky-300 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-900 hover:bg-sky-100";
 
   return (
-    <div className="px-4 pb-4 pt-4">
-      <h1 className="text-xl font-semibold tracking-tight text-slate-900">Tasks</h1>
-      <p className="mt-0.5 text-xs text-slate-500">Follow-ups and callbacks</p>
+    <div className="px-4 pb-6 pt-5 sm:px-5">
+      <WorkspacePhonePageHeader
+        title="Tasks"
+        subtitle="Phone-related follow-ups. Claim work, update status, or open the call record."
+      />
 
       {error ? (
         <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">
           Could not load tasks: {error.message}
         </div>
       ) : tasks.length === 0 ? (
-        <p className="mt-6 text-sm text-slate-600">No active tasks.</p>
+        <div className="mt-6 rounded-2xl border border-dashed border-slate-200 bg-slate-50/60 p-8 text-center text-sm text-slate-600">
+          No active tasks. Nice work.
+        </div>
       ) : (
         <ul className="mt-4 space-y-3">
           {tasks.map((task) => {

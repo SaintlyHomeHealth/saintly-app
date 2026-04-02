@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { WorkspacePhonePageHeader } from "../_components/WorkspacePhonePageHeader";
 import { WorkspaceLeadRowActions } from "@/app/workspace/phone/leads/_components/WorkspaceLeadRowActions";
 import { displayNameFromContact } from "@/app/workspace/phone/patients/_lib/patient-hub";
 import { getCrmCalendarTodayIso } from "@/lib/crm/crm-local-date";
@@ -118,19 +119,19 @@ export default async function WorkspacePhoneLeadsPage({
   });
 
   return (
-    <div className="flex flex-1 flex-col px-4 pb-4 pt-4">
-      <div className="flex flex-wrap items-end justify-between gap-2">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight text-slate-900">Leads</h1>
-          <p className="mt-0.5 text-xs text-slate-500">
-            Call or text from the phone workspace. Full workflow stays in{" "}
+    <div className="flex flex-1 flex-col px-4 pb-6 pt-5 sm:px-5">
+      <WorkspacePhonePageHeader
+        title="Leads"
+        subtitle={
+          <>
+            Call or text from here. Full pipeline workflow stays in{" "}
             <Link href="/admin/crm/leads" className="font-medium text-sky-700 underline-offset-2 hover:underline">
               CRM
             </Link>
             .
-          </p>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {smsErr ? (
         <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">

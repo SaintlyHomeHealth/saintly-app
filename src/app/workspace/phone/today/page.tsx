@@ -1,5 +1,7 @@
 import { redirect } from "next/navigation";
 
+import { WorkspacePhonePageHeader } from "../_components/WorkspacePhonePageHeader";
+import { WorkspacePhoneQuickActions } from "../_components/WorkspacePhoneQuickActions";
 import { TodayVisitCard } from "./TodayVisitCard";
 import { allowedNextVisitStatuses, formatVisitStatusLabel } from "@/lib/crm/patient-visit-status";
 import { visitNeedsAttentionOperational } from "@/lib/crm/dispatch-needs-attention";
@@ -244,14 +246,14 @@ export default async function WorkspaceTodayPage() {
   const needsAttention = visits.filter((v) => visitNeedsAttentionOperational(v, nowMs));
 
   const renderSection = (title: string, subtitle: string, items: VisitItem[]) => (
-    <section className="mt-4">
-      <div className="mb-2">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-600">{title}</h2>
-        <p className="text-xs text-slate-500">{subtitle}</p>
+    <section>
+      <div className="mb-3">
+        <h2 className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">{title}</h2>
+        <p className="mt-1 text-sm text-slate-600">{subtitle}</p>
       </div>
       {items.length === 0 ? (
-        <div className="rounded-2xl border border-slate-200/80 bg-white p-4 text-sm text-slate-500 shadow-sm">
-          No visits.
+        <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/60 p-6 text-center text-sm text-slate-500">
+          Nothing here right now.
         </div>
       ) : (
         <ul className="space-y-2">
@@ -298,24 +300,29 @@ export default async function WorkspaceTodayPage() {
   );
 
   return (
-    <div className="px-4 pb-24 pt-4">
-      <h1 className="text-xl font-semibold tracking-tight text-slate-900">Today</h1>
-      <p className="mt-1 text-sm text-slate-500">
-        Visits for patients you are assigned to, plus visits where you are the assigned clinician.
-      </p>
+    <div className="px-4 pb-8 pt-5 sm:px-5 lg:mx-auto lg:max-w-4xl lg:px-6">
+      <WorkspacePhonePageHeader
+        title="Today"
+        subtitle="Your next visits and anything that needs a decision before you go."
+      />
+      <div className="mt-2">
+        <WorkspacePhoneQuickActions />
+      </div>
       {asnErr ? (
-        <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-900">
+        <p className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
           Could not load assignments.
         </p>
       ) : null}
 
-      {renderSection("Today", "On-track visits scheduled for today.", today)}
-      {renderSection("Upcoming", "Next scheduled visits.", upcoming)}
-      {renderSection(
-        "Needs attention",
-        "Unassigned, unscheduled, overdue, due within an hour, missed, or rescheduled.",
-        needsAttention
-      )}
+      <div className="mt-8 space-y-10">
+        {renderSection(
+          "Needs attention",
+          "Overdue, due soon, missed, rescheduled, or missing schedule — handle these first.",
+          needsAttention
+        )}
+        {renderSection("On track today", "Visits scheduled for today that are in good shape.", today)}
+        {renderSection("Coming up", "Later visits on your calendar.", upcoming)}
+      </div>
     </div>
   );
 }

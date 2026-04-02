@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { WorkspacePhonePageHeader } from "../_components/WorkspacePhonePageHeader";
 import { formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
 import { canAccessWorkspacePhone, getStaffProfile, hasFullCallVisibility } from "@/lib/staff-profile";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
@@ -100,23 +101,23 @@ export default async function WorkspaceInboxPage({ searchParams }: PageProps) {
   const selectedPreview = selectedId ? previewByConvId[selectedId] ?? "" : "";
 
   return (
-    <div className="px-4 pb-4 pt-4">
-      <div className="mb-4 flex items-end justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight text-slate-900">Inbox</h1>
-          <p className="mt-0.5 text-xs text-slate-500">Conversations</p>
-        </div>
-        <form method="get" action="/workspace/phone/inbox" className="w-44 sm:w-60">
-          <input
-            name="q"
-            defaultValue={qRaw}
-            placeholder="Search name or number"
-            className="w-full rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs shadow-sm shadow-slate-200/50 outline-none ring-sky-200 transition focus:ring"
-          />
-        </form>
-      </div>
+    <div className="px-4 pb-6 pt-5 sm:px-5">
+      <WorkspacePhonePageHeader
+        title="Inbox"
+        subtitle="SMS threads assigned to you or open for the team."
+        actions={
+          <form method="get" action="/workspace/phone/inbox" className="w-full min-[400px]:w-52 sm:w-60">
+            <input
+              name="q"
+              defaultValue={qRaw}
+              placeholder="Search name or number"
+              className="w-full rounded-full border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm shadow-slate-200/50 outline-none ring-sky-200 transition focus:ring"
+            />
+          </form>
+        }
+      />
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(320px,1fr)_minmax(300px,0.75fr)]">
+      <div className="mt-2 grid gap-4 lg:grid-cols-[minmax(300px,1fr)_minmax(280px,0.85fr)] xl:grid-cols-[minmax(340px,1fr)_minmax(320px,0.75fr)]">
         <section className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm shadow-slate-200/60">
           <ul className="divide-y divide-slate-100">
             {rows.length === 0 ? (

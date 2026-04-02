@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { WorkspacePhonePageHeader } from "../_components/WorkspacePhonePageHeader";
 import { SoftphoneDialer } from "@/components/softphone/SoftphoneDialer";
 import { canAccessWorkspacePhone, getStaffProfile } from "@/lib/staff-profile";
 
@@ -38,23 +39,25 @@ export default async function WorkspaceKeypadPage({
   const dialerKey = `kp-${dial}-${autoPlaceCall ? "1" : "0"}`;
 
   return (
-    <div className="flex flex-1 flex-col px-4 pb-4 pt-4">
-      <h1 className="text-xl font-semibold tracking-tight text-slate-900">Keypad</h1>
-      <p className="mt-0.5 text-xs text-slate-500">Dial and connect (Twilio softphone)</p>
+    <div className="flex flex-1 flex-col px-4 pb-6 pt-5 sm:px-5 lg:px-8">
+      <WorkspacePhonePageHeader
+        title="Keypad"
+        subtitle="Dial out with the Saintly line. Stay on this screen to hear inbound calls on this device."
+      />
       {leadId && UUID_RE.test(leadId) ? (
-        <p className="mt-2 rounded-xl border border-sky-200/80 bg-sky-50/90 px-3 py-2 text-xs text-sky-950">
+        <p className="mt-2 rounded-2xl border border-sky-200/80 bg-sky-50/90 px-4 py-3 text-sm text-sky-950">
           CRM lead:{" "}
           <Link href={`/admin/crm/leads/${leadId}`} className="font-semibold underline-offset-2 hover:underline">
             Open lead record
           </Link>
           {contextName ? <span className="text-sky-800"> · {contextName}</span> : null}
           {contactId && UUID_RE.test(contactId) ? (
-            <span className="block font-mono text-[10px] text-sky-700/90">Contact {contactId}</span>
+            <span className="mt-1 block font-mono text-[10px] text-sky-700/90">Contact {contactId}</span>
           ) : null}
         </p>
       ) : null}
-      <div className="mt-5 flex flex-1 items-start justify-center">
-        <div className="w-full max-w-xl rounded-[28px] border border-slate-200/80 bg-white/95 p-5 shadow-sm shadow-slate-200/70">
+      <div className="mt-6 flex flex-1 flex-col items-stretch gap-6 lg:mt-8 lg:flex-row lg:items-start lg:justify-center lg:gap-10">
+        <div className="w-full max-w-md shrink-0 rounded-[32px] border border-slate-200/80 bg-white p-5 shadow-md shadow-slate-200/50 sm:p-7 lg:max-w-lg">
           <SoftphoneDialer
             key={dialerKey}
             staffDisplayName={staffDisplayName}
@@ -63,6 +66,14 @@ export default async function WorkspaceKeypadPage({
             autoPlaceCall={autoPlaceCall && Boolean(dial)}
           />
         </div>
+        <aside className="hidden max-w-sm flex-1 rounded-2xl border border-slate-200/70 bg-slate-50/80 p-5 text-sm text-slate-600 lg:block">
+          <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Tips</p>
+          <ul className="mt-3 list-inside list-disc space-y-2 leading-relaxed">
+            <li>Tap a number on the pad once to unlock ringtone audio on mobile browsers.</li>
+            <li>Use the large green call button — it stays easy to hit while you are moving.</li>
+            <li>Patient and lead actions elsewhere can deep-link you here with a number ready to dial.</li>
+          </ul>
+        </aside>
       </div>
     </div>
   );

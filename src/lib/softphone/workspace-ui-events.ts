@@ -1,0 +1,18 @@
+/**
+ * Browser-only events so workspace UI (e.g. a future global call dock) can reflect
+ * softphone phase without coupling to Twilio types. Emitted from `SoftphoneDialer`.
+ */
+export const WORKSPACE_SOFTPHONE_UI_EVENT = "workspace:softphoneUi";
+
+export type WorkspaceSoftphoneUiPhase = "idle" | "incoming" | "outbound_ringing" | "active";
+
+export type WorkspaceSoftphoneUiDetail = {
+  phase: WorkspaceSoftphoneUiPhase;
+  /** E.164 or Twilio param when available */
+  remoteLabel?: string | null;
+};
+
+export function dispatchWorkspaceSoftphoneUi(detail: WorkspaceSoftphoneUiDetail): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent(WORKSPACE_SOFTPHONE_UI_EVENT, { detail }));
+}

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { WorkspacePhonePageHeader } from "../_components/WorkspacePhonePageHeader";
 import { WorkspaceLeadRowActions } from "@/app/workspace/phone/leads/_components/WorkspaceLeadRowActions";
 import { displayNameFromContact } from "@/app/workspace/phone/patients/_lib/patient-hub";
 import { getCrmCalendarTodayIso } from "@/lib/crm/crm-local-date";
@@ -76,22 +77,24 @@ export default async function WorkspaceFollowUpsTodayPage() {
   });
 
   return (
-    <div className="flex flex-1 flex-col px-4 pb-4 pt-4">
-      <div>
-        <h1 className="text-xl font-semibold tracking-tight text-slate-900">Follow-ups Today</h1>
-        <p className="mt-0.5 text-xs text-slate-500">
-          CRM follow-up date is today (US Central). Open records in{" "}
-          <Link href="/admin/crm/leads" className="font-medium text-sky-700 underline-offset-2 hover:underline">
-            CRM
-          </Link>{" "}
-          to log outcomes.
-        </p>
-        <p className="mt-1 text-[11px] font-medium text-amber-900">
-          Today: {todayIso} · {due.length} lead{due.length === 1 ? "" : "s"}
-        </p>
-      </div>
+    <div className="flex flex-1 flex-col px-4 pb-6 pt-5 sm:px-5">
+      <WorkspacePhonePageHeader
+        title="Follow-ups today"
+        subtitle={
+          <>
+            CRM follow-up date is today (US Central). Open a lead in{" "}
+            <Link href="/admin/crm/leads" className="font-medium text-sky-700 underline-offset-2 hover:underline">
+              CRM
+            </Link>{" "}
+            to log outcomes.
+          </>
+        }
+      />
+      <p className="mt-1 text-sm font-medium text-amber-900">
+        {todayIso} · {due.length} lead{due.length === 1 ? "" : "s"}
+      </p>
 
-      <ul className="mt-4 space-y-3">
+      <ul className="mt-6 space-y-3">
         {due.length === 0 ? (
           <li className="rounded-2xl border border-slate-200/80 bg-white/90 px-4 py-6 text-center text-sm text-slate-600 shadow-sm">
             No leads due for follow-up today.

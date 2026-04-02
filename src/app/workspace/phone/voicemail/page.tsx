@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 
+import { WorkspacePhonePageHeader } from "../_components/WorkspacePhonePageHeader";
 import { VoicemailCard } from "@/app/workspace/phone/_components/VoicemailCard";
 import { formatDurationSeconds } from "@/lib/crm/patient-hub-detail-display";
 import { formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
@@ -154,16 +155,18 @@ export default async function WorkspaceVoicemailPage() {
   }
 
   return (
-    <div className="flex flex-1 flex-col px-4 pb-4 pt-4">
-      <h1 className="text-xl font-semibold tracking-tight text-slate-900">Voicemail</h1>
-      <p className="mt-0.5 text-xs text-slate-500">Newest first. Play, call back, and text from here.</p>
+    <div className="flex flex-1 flex-col px-4 pb-6 pt-5 sm:px-5">
+      <WorkspacePhonePageHeader
+        title="Voicemail"
+        subtitle="Newest first — play messages, call back, or jump to the patient thread."
+      />
 
       {calls.length === 0 ? (
-        <div className="mt-4 rounded-2xl border border-slate-200/80 bg-white p-8 text-center text-sm text-slate-500 shadow-sm">
-          No voicemail yet.
+        <div className="mt-4 rounded-2xl border border-dashed border-slate-200 bg-slate-50/60 p-10 text-center text-sm text-slate-500">
+          You are all caught up. No voicemail to review.
         </div>
       ) : (
-        <ul className="mt-4 space-y-2">
+        <ul className="mt-4 space-y-3">
           {calls.map((c) => {
             const when = typeof c.started_at === "string" ? c.started_at : c.created_at;
             const vmSec =

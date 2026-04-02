@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { WorkspacePhonePageHeader } from "../_components/WorkspacePhonePageHeader";
 import { SoftphoneDialer } from "@/components/softphone/SoftphoneDialer";
 import { formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
 import { canAccessWorkspacePhone, getStaffProfile, hasFullCallVisibility } from "@/lib/staff-profile";
@@ -56,16 +57,15 @@ export default async function WorkspaceCallsPage() {
     `${staff.role.replace(/_/g, " ")} (${staff.user_id.slice(0, 8)}…)`;
 
   return (
-    <div className="flex flex-1 flex-col px-4 pb-4 pt-4">
-      <h1 className="text-xl font-semibold tracking-tight text-slate-900">Calls</h1>
-      <p className="mt-0.5 text-xs text-slate-500">Recent activity</p>
+    <div className="flex flex-1 flex-col px-4 pb-6 pt-5 sm:px-5">
+      <WorkspacePhonePageHeader title="Calls" subtitle="Softphone and your recent call activity in one place." />
 
-      <div className="mt-4 rounded-3xl border border-slate-200/80 bg-white/95 p-4 shadow-sm shadow-slate-200/60">
+      <div className="mt-2 rounded-3xl border border-slate-200/80 bg-white/95 p-4 shadow-sm shadow-slate-200/60 sm:p-5">
         <SoftphoneDialer staffDisplayName={staffDisplayName} />
       </div>
 
-      <h2 className="mt-6 text-xs font-semibold uppercase tracking-wide text-slate-500">Recent calls</h2>
-      <ul className="mt-2 divide-y divide-slate-100 overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm shadow-slate-200/60">
+      <h2 className="mt-8 text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Recent calls</h2>
+      <ul className="mt-3 divide-y divide-slate-100 overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm shadow-slate-200/60">
         {list.length === 0 ? (
           <li className="px-4 py-8 text-center text-sm text-slate-500">No calls yet.</li>
         ) : (

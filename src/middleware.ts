@@ -148,7 +148,7 @@ export async function middleware(request: NextRequest) {
         return NextResponse.redirect(new URL(next, request.url));
       }
       if (gate.role === "nurse") {
-        return NextResponse.redirect(new URL("/workspace/phone", request.url));
+        return NextResponse.redirect(new URL("/workspace/phone/today", request.url));
       }
       return NextResponse.redirect(new URL("/admin", request.url));
     }

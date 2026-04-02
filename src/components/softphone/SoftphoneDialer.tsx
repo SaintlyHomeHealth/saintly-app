@@ -7,6 +7,7 @@ import { Delete } from "lucide-react";
 
 import { isValidE164, normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
 import { createRingtoneObjectUrl } from "@/lib/softphone/ringtone-wav";
+import { dispatchWorkspaceSoftphoneUi } from "@/lib/softphone/workspace-ui-events";
 
 type CallHandle = Awaited<ReturnType<Device["connect"]>>;
 
@@ -81,6 +82,19 @@ function formatDialpadDisplay(raw: string): string {
   return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6, 10)}${d.length > 10 ? ` ${d.slice(10)}` : ""}`;
 }
 
+function readTwilioParam(
+  call: { parameters?: Record<string, string> } | null | undefined,
+  keys: string[]
+): string | null {
+  if (!call?.parameters) return null;
+  const p = call.parameters;
+  for (const k of keys) {
+    const v = p[k];
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  return null;
+}
+
 export type SoftphoneDialerProps = {
   staffDisplayName: string;
   /** Workspace keypad: premium dialpad UI; default keeps the full softphone panel (admin / calls). */
@@ -115,6 +129,36 @@ export function SoftphoneDialer({
   const ringtoneAudioRef = useRef<HTMLAudioElement | null>(null);
   const testRingtoneStopRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoPlaceStartedRef = useRef(false);
+
+  useEffect(() => {
+    return () => {
+      dispatchWorkspaceSoftphoneUi({ phase: "idle" });
+    };
+  }, []);
+
+  useEffect(() => {
+    if (incomingCall) {
+      const remote =
+        readTwilioParam(incomingCall, ["From", "CallerId", "RemoteNumber"]) ??
+        readTwilioParam(incomingCall, ["To"]);
+      dispatchWorkspaceSoftphoneUi({ phase: "incoming", remoteLabel: remote });
+      return;
+    }
+    if (status === "in_call") {
+      const active = activeCallRef.current;
+      const remote =
+        readTwilioParam(active, ["To", "From"]) ??
+        (digits.trim() ? formatDialpadDisplay(digits) : null);
+      dispatchWorkspaceSoftphoneUi({ phase: "active", remoteLabel: remote });
+      return;
+    }
+    if (status === "fetching_token" || status === "connecting") {
+      const remote = digits.trim() ? formatDialpadDisplay(digits) : null;
+      dispatchWorkspaceSoftphoneUi({ phase: "outbound_ringing", remoteLabel: remote });
+      return;
+    }
+    dispatchWorkspaceSoftphoneUi({ phase: "idle" });
+  }, [incomingCall, status, digits]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -408,6 +452,9 @@ export function SoftphoneDialer({
   const dialInputLocked = (busy && status !== "in_call") || Boolean(incomingCall);
   const showCallButton = !busy;
   const keypadDisabled = dialInputLocked;
+  const incomingCallerLabel = incomingCall
+    ? readTwilioParam(incomingCall, ["From", "CallerId", "RemoteNumber"])
+    : null;
 
   const defaultPanel = (
     <>
@@ -512,13 +559,26 @@ export function SoftphoneDialer({
       <div className="w-full text-center">
         <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-slate-400">Signed in</p>
         <p className="mt-0.5 text-sm font-medium text-slate-800">{staffDisplayName}</p>
-        <p className="mt-1 text-xs text-slate-500">
-          {listenState === "ready"
-            ? "Ready for calls"
-            : listenState === "loading"
-              ? "Connecting…"
-              : "Inbound listen limited; outbound still available"}
-        </p>
+        <div className="mt-1 flex flex-wrap items-center justify-center gap-2">
+          <p className="text-xs text-slate-500">
+            {listenState === "ready"
+              ? "Ready for calls"
+              : listenState === "loading"
+                ? "Connecting…"
+                : "Inbound listen limited; outbound still available"}
+          </p>
+          <span
+            className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+              listenState === "ready"
+                ? "bg-emerald-100 text-emerald-900"
+                : listenState === "loading"
+                  ? "bg-slate-100 text-slate-600"
+                  : "bg-amber-100 text-amber-900"
+            }`}
+          >
+            {listenState === "ready" ? "Live" : listenState === "loading" ? "…" : "Limited"}
+          </span>
+        </div>
         {!ringtoneUnlocked ? (
           <p className="mt-2 text-xs text-amber-800">
             Tap the keypad or <span className="font-medium">Test ringtone</span> once to hear incoming rings on this
@@ -543,7 +603,12 @@ export function SoftphoneDialer({
 
       {incomingCall ? (
         <div className="flex w-full max-w-sm flex-col gap-3">
-          <p className="text-center text-sm font-semibold text-emerald-900">Incoming call</p>
+          <div className="text-center">
+            <p className="text-sm font-semibold text-emerald-900">Incoming call</p>
+            {incomingCallerLabel ? (
+              <p className="mt-1 font-mono text-lg font-medium tabular-nums text-slate-900">{incomingCallerLabel}</p>
+            ) : null}
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <button
               type="button"
@@ -592,6 +657,29 @@ export function SoftphoneDialer({
               ))
             )}
           </div>
+
+          {status === "in_call" ? (
+            <div className="w-full max-w-sm rounded-2xl border border-slate-200/80 bg-slate-50/90 px-3 py-3">
+              <p className="text-center text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">
+                In-call controls
+              </p>
+              <p className="mt-1 text-center text-[11px] text-slate-500">Mute, hold, and transfer will wire up next.</p>
+              <div className="mt-3 grid grid-cols-3 gap-2">
+                {(["Mute", "Hold", "Transfer"] as const).map((label) => (
+                  <button
+                    key={label}
+                    type="button"
+                    disabled
+                    aria-disabled="true"
+                    title="Coming soon"
+                    className="rounded-xl border border-slate-200/90 bg-white py-2.5 text-xs font-semibold text-slate-400"
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
 
           <div className="flex w-full max-w-sm items-center justify-center gap-4 px-2">
             <button
