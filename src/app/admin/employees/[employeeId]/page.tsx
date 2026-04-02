@@ -19,6 +19,7 @@ import ComplianceEventManager from "@/app/admin/compliance-event-manager";
 import CredentialManager from "./CredentialManager";
 import EmployeeContractTaxSection from "./EmployeeContractTaxSection";
 import ApplicantFileUploadWithRefresh from "./ApplicantFileUploadWithRefresh";
+import EmployeeOnboardingCard from "./EmployeeOnboardingCard";
 import {
   applicantRolePrimaryForCompliance,
   type ApplicantRoleFields,
@@ -1319,7 +1320,7 @@ export default async function EmployeeDetailPage({
   searchParams,
 }: {
   params: Promise<{ id?: string; employeeId?: string }>;
-  searchParams?: Promise<{ staff_denied?: string }>;
+  searchParams?: Promise<{ staff_denied?: string; inviteOk?: string; inviteErr?: string }>;
 }) {
   const resolvedParams = await params;
   const resolvedSearchParams = searchParams ? await searchParams : undefined;
@@ -1635,9 +1636,21 @@ export default async function EmployeeDetailPage({
 
   const { data: onboardingStatus } = await supabase
     .from("onboarding_status")
-    .select("application_completed")
+    .select(
+      "application_completed, onboarding_invite_status, onboarding_invite_sent_at, onboarding_invite_last_channel, onboarding_flow_status, onboarding_progress_percent, onboarding_started_at, onboarding_completed_at, onboarding_last_activity_at"
+    )
     .eq("applicant_id", employeeId)
-    .maybeSingle<{ application_completed?: boolean | null }>();
+    .maybeSingle<{
+      application_completed?: boolean | null;
+      onboarding_invite_status?: string | null;
+      onboarding_invite_sent_at?: string | null;
+      onboarding_invite_last_channel?: string | null;
+      onboarding_flow_status?: string | null;
+      onboarding_progress_percent?: number | null;
+      onboarding_started_at?: string | null;
+      onboarding_completed_at?: string | null;
+      onboarding_last_activity_at?: string | null;
+    }>();
 
   const { data: applicantFilesRaw } = await supabaseAdmin
     .from("applicant_files")
@@ -2836,6 +2849,9 @@ export default async function EmployeeDetailPage({
       ? "You do not have permission to set Active or Inactive status. Ask an admin or super admin."
       : null;
 
+  const inviteOkFlag = resolvedSearchParams?.inviteOk;
+  const inviteErrFlag = resolvedSearchParams?.inviteErr;
+
   return (
     <div className="mx-auto w-full max-w-7xl space-y-6 p-6">
       {statusChangeDeniedMessage ? (
@@ -2846,6 +2862,35 @@ export default async function EmployeeDetailPage({
           {statusChangeDeniedMessage}
         </div>
       ) : null}
+
+      {inviteErrFlag ? (
+        <div
+          role="alert"
+          className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900"
+        >
+          {inviteErrFlag}
+        </div>
+      ) : null}
+
+      {inviteOkFlag ? (
+        <div
+          role="status"
+          className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-950"
+        >
+          Onboarding invite {inviteOkFlag === "sms" ? "text" : inviteOkFlag === "email" ? "email" : ""}{" "}
+          sent successfully.
+        </div>
+      ) : null}
+
+      <div id="onboarding-portal-section" className="scroll-mt-24">
+        <EmployeeOnboardingCard
+          employeeId={employeeId}
+          onboardingStatus={
+            onboardingStatus ? { ...onboardingStatus, applicant_id: employeeId } : null
+          }
+        />
+      </div>
+
       <div className="overflow-hidden rounded-[32px] border border-slate-200 bg-white shadow-sm">
         <div className="bg-gradient-to-r from-sky-50 via-white to-cyan-50 p-8">
           <div className="flex flex-col gap-8 xl:flex-row xl:items-start xl:justify-between">

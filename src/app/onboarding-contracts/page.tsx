@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import OnboardingApplicantFromQuery from "../../components/OnboardingApplicantFromQuery";
+import OnboardingProgressSync from "../../components/OnboardingProgressSync";
 import OnboardingApplicantIdentity from "../../components/OnboardingApplicantIdentity";
 import { supabase } from "@/lib/supabase/client";
 import { EmploymentClassification } from "@/lib/employee-contracts";
@@ -1554,6 +1556,10 @@ export default function OnboardingContractsPage() {
 
   return (
     <main className="min-h-screen bg-slate-50 text-slate-900">
+      <Suspense fallback={null}>
+        <OnboardingApplicantFromQuery />
+      </Suspense>
+      <OnboardingProgressSync />
       <div className="mx-auto max-w-6xl">
         <section className="px-4 pb-16 pt-8 sm:px-6 lg:px-8">
           <div className="mb-6 flex flex-wrap items-center justify-center gap-3">

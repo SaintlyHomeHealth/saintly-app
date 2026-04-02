@@ -10,6 +10,7 @@ import {
   loadEmployeeDirectoryRows,
 } from "@/lib/admin/employee-directory-data";
 import { sendEmployeeCredentialReminderSms } from "@/lib/admin/employee-credential-reminder-sms";
+import { sendOnboardingInvite, resendOnboardingInvite } from "@/lib/admin/onboarding-invite";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 
 const BULK_REMINDER_MAX = 30;
@@ -151,4 +152,92 @@ export async function sendBulkCredentialRemindersForFilterAction(formData: FormD
     },
     ctx
   );
+}
+
+export async function submitAddEmployeeInviteAction(formData: FormData) {
+  const staff = await getStaffProfile();
+  if (!staff || !isManagerOrHigher(staff)) {
+    redirect("/admin");
+  }
+
+  const ctx = readDirectoryContext(formData);
+  const firstName = String(formData.get("firstName") ?? "").trim();
+  const lastName = String(formData.get("lastName") ?? "").trim();
+  const email = String(formData.get("email") ?? "").trim();
+  const phone = String(formData.get("phone") ?? "").trim();
+  const channelRaw = String(formData.get("channel") ?? "").trim();
+
+  if (channelRaw !== "sms" && channelRaw !== "email" && channelRaw !== "both") {
+    redirectEmployeesWithParams({ inviteErr: "Choose text, email, or both." }, ctx);
+  }
+  const channel = channelRaw as "sms" | "email" | "both";
+
+  const result = await sendOnboardingInvite({
+    firstName,
+    lastName,
+    email,
+    phone,
+    channel,
+    staffUserId: staff.user_id,
+  });
+
+  if (result.ok) {
+    redirectEmployeesWithParams(
+      {
+        inviteOk: "1",
+        inviteApplicantId: result.applicantId,
+      },
+      ctx
+    );
+  } else {
+    redirectEmployeesWithParams({ inviteErr: result.error.slice(0, 400) }, ctx);
+  }
+}
+
+function redirectEmployeeDetailWithInviteNotice(
+  applicantId: string,
+  notice: Record<string, string>
+) {
+  const qs = new URLSearchParams(notice);
+  redirect(`/admin/employees/${applicantId}?${qs.toString()}`);
+}
+
+export async function resendOnboardingInviteSmsAction(formData: FormData) {
+  const staff = await getStaffProfile();
+  if (!staff || !isManagerOrHigher(staff)) {
+    redirect("/admin");
+  }
+  const applicantId = String(formData.get("applicantId") ?? "").trim();
+  if (!applicantId) {
+    redirect("/admin/employees");
+  }
+  const result = await resendOnboardingInvite({
+    applicantId,
+    channel: "sms",
+    staffUserId: staff.user_id,
+  });
+  if (!result.ok) {
+    redirectEmployeeDetailWithInviteNotice(applicantId, { inviteErr: result.error.slice(0, 400) });
+  }
+  redirectEmployeeDetailWithInviteNotice(applicantId, { inviteOk: "sms" });
+}
+
+export async function resendOnboardingInviteEmailAction(formData: FormData) {
+  const staff = await getStaffProfile();
+  if (!staff || !isManagerOrHigher(staff)) {
+    redirect("/admin");
+  }
+  const applicantId = String(formData.get("applicantId") ?? "").trim();
+  if (!applicantId) {
+    redirect("/admin/employees");
+  }
+  const result = await resendOnboardingInvite({
+    applicantId,
+    channel: "email",
+    staffUserId: staff.user_id,
+  });
+  if (!result.ok) {
+    redirectEmployeeDetailWithInviteNotice(applicantId, { inviteErr: result.error.slice(0, 400) });
+  }
+  redirectEmployeeDetailWithInviteNotice(applicantId, { inviteOk: "email" });
 }

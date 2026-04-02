@@ -1,8 +1,11 @@
 'use client'
 
-import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from 'react'
+import { ChangeEvent, FormEvent, Suspense, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import OnboardingApplicantFromQuery from '../../components/OnboardingApplicantFromQuery'
+import OnboardingProgressSync from '../../components/OnboardingProgressSync'
 import { supabase } from '../../lib/supabase/client'
+import { syncOnboardingProgressForApplicant } from '../../lib/onboarding/sync-progress'
 import OnboardingApplicantIdentity from '../../components/OnboardingApplicantIdentity'
 
 type ApplicationFormData = {
@@ -929,6 +932,8 @@ export default function OnboardingApplicationPage() {
         console.error('onboarding_status catch error:', statusCatchError)
       }
 
+      void syncOnboardingProgressForApplicant(supabase, finalApplicantId, {})
+
       setSuccessMessage('Application saved successfully.')
 
       setTimeout(() => {
@@ -977,6 +982,10 @@ export default function OnboardingApplicationPage() {
 
   return (
     <main className="shh-app-page">
+      <Suspense fallback={null}>
+        <OnboardingApplicantFromQuery />
+      </Suspense>
+      <OnboardingProgressSync />
       <section className="shh-app-shell">
         <div className="shh-step-banner">
           <div className="shh-step-banner-pill">Employee Onboarding · Step 2 of 6</div>

@@ -1,6 +1,9 @@
 'use client'
 
+import { Suspense } from 'react'
 import { useRouter } from 'next/navigation'
+import OnboardingApplicantFromQuery from '../../components/OnboardingApplicantFromQuery'
+import OnboardingProgressSync from '../../components/OnboardingProgressSync'
 import OnboardingApplicantIdentity from '../../components/OnboardingApplicantIdentity'
 
 export default function OnboardingWelcomePage() {
@@ -8,6 +11,10 @@ export default function OnboardingWelcomePage() {
 
   return (
     <main className="shh-page">
+      <Suspense fallback={null}>
+        <OnboardingApplicantFromQuery />
+      </Suspense>
+      <OnboardingProgressSync sessionStarted />
       <section className="shh-shell">
         <div className="shh-step-banner">
           <div className="shh-step-banner-pill">Employee Onboarding · Step 1 of 6</div>

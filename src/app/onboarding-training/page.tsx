@@ -1,8 +1,10 @@
 "use client";
 
-import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { type FormEvent, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import OnboardingApplicantFromQuery from "../../components/OnboardingApplicantFromQuery";
+import OnboardingProgressSync from "../../components/OnboardingProgressSync";
 import OnboardingApplicantIdentity from "../../components/OnboardingApplicantIdentity";
 import { supabase } from "@/lib/supabase/client";
 
@@ -1206,6 +1208,10 @@ export default function OnboardingTrainingPage() {
 
   return (
     <main className="min-h-screen bg-slate-50">
+      <Suspense fallback={null}>
+        <OnboardingApplicantFromQuery />
+      </Suspense>
+      <OnboardingProgressSync />
       <section className="mx-auto max-w-6xl px-4 pb-16 pt-8 sm:px-6 lg:px-8">
         <div className="mb-6 flex flex-wrap items-center justify-center gap-3">
           <div className="rounded-full border border-teal-200 bg-white px-4 py-2 text-[11px] font-bold uppercase tracking-[0.22em] text-slate-500 shadow-sm">

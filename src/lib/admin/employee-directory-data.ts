@@ -87,9 +87,17 @@ type EmployeeContractLite = {
   employee_signed_at?: string | null;
 };
 
-type OnboardingStatusLite = {
+export type OnboardingStatusLite = {
   applicant_id: string;
   application_completed?: boolean | null;
+  onboarding_invite_status?: string | null;
+  onboarding_invite_sent_at?: string | null;
+  onboarding_invite_last_channel?: string | null;
+  onboarding_flow_status?: string | null;
+  onboarding_progress_percent?: number | null;
+  onboarding_started_at?: string | null;
+  onboarding_completed_at?: string | null;
+  onboarding_last_activity_at?: string | null;
 };
 
 type OnboardingContractStatusLite = {
@@ -501,6 +509,10 @@ export type EmployeeDirectoryRow = {
   /** True if at least one logged send used reminder_stage `missing`. */
   credentialReminderSentMissing: boolean;
   lastUpdatedMs: number;
+  /** Compact onboarding invite + progress (pre-hire portal). */
+  onboardingTrackLabel: string;
+  onboardingTrackBadgeClass: string;
+  onboardingTrackPercent: number | null;
 };
 
 /** Maps a canonical employment bucket to pill + sort key. */
@@ -624,6 +636,59 @@ async function loadCredentialReminderSummaryByApplicant(
   return out;
 }
 
+export function buildOnboardingTrackPresentation(ob: OnboardingStatusLite | null | undefined): {
+  label: string;
+  badgeClass: string;
+  percent: number | null;
+} {
+  const pct =
+    typeof ob?.onboarding_progress_percent === "number" ? ob.onboarding_progress_percent : null;
+  const completedAt = ob?.onboarding_completed_at;
+  const flow = String(ob?.onboarding_flow_status || "").toLowerCase().trim();
+  const invite = String(ob?.onboarding_invite_status || "").toLowerCase().trim();
+
+  if (completedAt || flow === "completed" || (pct !== null && pct >= 100)) {
+    return {
+      label: "Completed",
+      badgeClass: "border border-emerald-200 bg-emerald-50 text-emerald-900",
+      percent: pct ?? 100,
+    };
+  }
+  if (pct !== null && pct > 0) {
+    return {
+      label: `In progress (${pct}%)`,
+      badgeClass: "border border-amber-200 bg-amber-50 text-amber-900",
+      percent: pct,
+    };
+  }
+  if (ob?.onboarding_started_at) {
+    return {
+      label: "Started",
+      badgeClass: "border border-sky-200 bg-sky-50 text-sky-900",
+      percent: pct,
+    };
+  }
+  if (invite === "sent" || ob?.onboarding_invite_sent_at) {
+    return {
+      label: "Sent",
+      badgeClass: "border border-violet-200 bg-violet-50 text-violet-900",
+      percent: 0,
+    };
+  }
+  if (invite === "not_sent") {
+    return {
+      label: "Not sent",
+      badgeClass: "border border-slate-200 bg-slate-50 text-slate-600",
+      percent: null,
+    };
+  }
+  return {
+    label: "—",
+    badgeClass: "border border-slate-100 bg-slate-50 text-slate-400",
+    percent: null,
+  };
+}
+
 export function deriveEffectiveEmploymentKey(
   normalizedApplicantStatus: string,
   stageLabel: string
@@ -716,7 +781,9 @@ export async function loadEmployeeDirectoryRows(): Promise<{
         .eq("is_current", true),
       supabaseAdmin
         .from("onboarding_status")
-        .select("applicant_id, application_completed")
+        .select(
+          "applicant_id, application_completed, onboarding_invite_status, onboarding_invite_sent_at, onboarding_invite_last_channel, onboarding_flow_status, onboarding_progress_percent, onboarding_started_at, onboarding_completed_at, onboarding_last_activity_at"
+        )
         .in("applicant_id", applicantIds),
       supabaseAdmin
         .from("onboarding_contracts")
@@ -1267,6 +1334,8 @@ export async function loadEmployeeDirectoryRows(): Promise<{
     }
 
     const remSummary = credentialReminderSummaryByApplicant.get(applicant.id);
+    const obRow = onboardingStatusByEmployee.get(applicant.id) || null;
+    const obPres = buildOnboardingTrackPresentation(obRow);
 
     return {
       applicant,
@@ -1304,6 +1373,9 @@ export async function loadEmployeeDirectoryRows(): Promise<{
       credentialReminderSentExpired: remSummary?.sentExpired ?? false,
       credentialReminderSentMissing: remSummary?.sentMissing ?? false,
       lastUpdatedMs,
+      onboardingTrackLabel: obPres.label,
+      onboardingTrackBadgeClass: obPres.badgeClass,
+      onboardingTrackPercent: obPres.percent,
     };
   });
 

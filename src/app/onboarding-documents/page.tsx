@@ -1,8 +1,10 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { Suspense, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import ApplicantFileUpload from '../../components/ApplicantFileUpload'
+import OnboardingApplicantFromQuery from '../../components/OnboardingApplicantFromQuery'
+import OnboardingProgressSync from '../../components/OnboardingProgressSync'
 import OnboardingApplicantIdentity from '../../components/OnboardingApplicantIdentity'
 import { applicantRolePrimaryForCompliance } from '@/lib/applicant-role-for-compliance'
 import { supabase } from '../../lib/supabase/client'
@@ -749,6 +751,10 @@ export default function OnboardingDocumentsPage() {
 
   return (
     <main className="shh-docs-page">
+      <Suspense fallback={null}>
+        <OnboardingApplicantFromQuery />
+      </Suspense>
+      <OnboardingProgressSync />
       <div className="shh-docs-shell">
         <section>
           <div className="shh-step-banner">

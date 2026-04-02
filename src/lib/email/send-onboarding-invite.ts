@@ -1,0 +1,91 @@
+import "server-only";
+
+const SUBJECT = "Complete your Saintly Home Health onboarding";
+
+function htmlBody(firstName: string, link: string): string {
+  const name = firstName.trim() || "there";
+  return `<!DOCTYPE html><html><body style="font-family:system-ui,sans-serif;line-height:1.5;color:#0f172a;">
+<p>Hi ${escapeHtml(name)},</p>
+<p>Welcome to Saintly Home Health. Please complete your secure onboarding using the link below (works on mobile):</p>
+<p><a href="${escapeHtml(link)}">${escapeHtml(link)}</a></p>
+<p>If you did not expect this message, you can ignore it.</p>
+<p>— Saintly Home Health</p>
+</body></html>`;
+}
+
+function textBody(firstName: string, link: string): string {
+  const name = firstName.trim() || "there";
+  return `Hi ${name},
+
+Welcome to Saintly Home Health. Please complete your onboarding here:
+${link}
+
+If you did not expect this message, you can ignore it.
+
+— Saintly Home Health`;
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+export type SendOnboardingInviteEmailInput = {
+  to: string;
+  firstName: string;
+  link: string;
+};
+
+export type SendOnboardingInviteEmailResult = { ok: true } | { ok: false; error: string };
+
+/**
+ * Optional Resend integration. Set RESEND_API_KEY and RESEND_FROM (e.g. "Onboarding <onboarding@yourdomain.com>").
+ */
+export async function sendOnboardingInviteEmail(
+  input: SendOnboardingInviteEmailInput
+): Promise<SendOnboardingInviteEmailResult> {
+  const apiKey = process.env.RESEND_API_KEY?.trim();
+  const from = process.env.RESEND_FROM?.trim();
+  const to = input.to.trim().toLowerCase();
+
+  if (!to || !to.includes("@")) {
+    return { ok: false, error: "Invalid email address." };
+  }
+
+  if (!apiKey || !from) {
+    return {
+      ok: false,
+      error:
+        "Email is not configured. Set RESEND_API_KEY and RESEND_FROM (verified sender) to enable onboarding emails.",
+    };
+  }
+
+  try {
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from,
+        to: [to],
+        subject: SUBJECT,
+        html: htmlBody(input.firstName, input.link),
+        text: textBody(input.firstName, input.link),
+      }),
+    });
+
+    if (!res.ok) {
+      const t = await res.text();
+      return { ok: false, error: t.slice(0, 400) || `Resend HTTP ${res.status}` };
+    }
+
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}

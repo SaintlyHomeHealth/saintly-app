@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import AddEmployeeInviteButton from "@/app/admin/employees/add-employee-invite-button";
 import {
   sendBulkCredentialRemindersForFilterAction,
   sendRowCredentialRemindersAction,
@@ -161,6 +162,9 @@ export default async function AdminEmployeesDirectoryPage({
   const bulkItems = one("bulkItems").trim();
   const bulkSkippedDup = one("bulkSkippedDup").trim();
   const bulkScanned = one("bulkScanned").trim();
+  const inviteErr = one("inviteErr").trim();
+  const inviteOk = one("inviteOk").trim();
+  const inviteApplicantId = one("inviteApplicantId").trim();
 
   const smsBtnBase =
     "rounded-lg border border-violet-300 bg-violet-50 px-2 py-1 text-[10px] font-semibold text-violet-950 transition hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-40";
@@ -185,14 +189,47 @@ export default async function AdminEmployeesDirectoryPage({
           </>
         }
         actions={
-          <Link
-            href="/admin"
-            className="inline-flex shrink-0 items-center justify-center rounded-[20px] border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50"
-          >
-            Back to Command Center
-          </Link>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <AddEmployeeInviteButton segment={segment} q={q} sort={sort} dir={dir} />
+            <Link
+              href="/admin"
+              className="inline-flex shrink-0 items-center justify-center rounded-[20px] border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50"
+            >
+              Back to Command Center
+            </Link>
+          </div>
         }
       />
+
+      {inviteErr ? (
+        <div
+          role="alert"
+          className="rounded-[20px] border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900 shadow-sm"
+        >
+          {inviteErr}
+        </div>
+      ) : null}
+
+      {inviteOk ? (
+        <div
+          role="status"
+          className="rounded-[20px] border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-950 shadow-sm"
+        >
+          Onboarding invite sent.
+          {inviteApplicantId ? (
+            <>
+              {" "}
+              <Link
+                href={`/admin/employees/${inviteApplicantId}`}
+                prefetch={false}
+                className="font-semibold text-emerald-900 underline-offset-2 hover:underline"
+              >
+                Open employee record
+              </Link>
+            </>
+          ) : null}
+        </div>
+      ) : null}
 
       {smsErr ? (
         <div
@@ -312,7 +349,7 @@ export default async function AdminEmployeesDirectoryPage({
       </form>
 
       <div className="overflow-x-auto rounded-[28px] border border-slate-200 bg-white shadow-sm">
-        <table className="w-full min-w-[1680px] text-left text-sm">
+        <table className="w-full min-w-[1780px] text-left text-sm">
           <thead>
             <tr className="border-b border-slate-200 bg-slate-50 text-xs font-semibold text-slate-600">
               <th className="sticky left-0 z-10 bg-slate-50 px-3 py-3 shadow-[2px_0_6px_-2px_rgba(0,0,0,0.08)]">
@@ -320,6 +357,7 @@ export default async function AdminEmployeesDirectoryPage({
               </th>
               <th className="px-2 py-3">Employment</th>
               <th className="px-2 py-3">Stage</th>
+              <th className="whitespace-nowrap px-2 py-3">Onboarding</th>
               <th className="px-2 py-3">Readiness</th>
               <th className="min-w-[9rem] px-2 py-3">Flags</th>
               <th
@@ -346,6 +384,7 @@ export default async function AdminEmployeesDirectoryPage({
               <th className="px-2 py-1" />
               <th className="px-2 py-1" />
               <th className="px-2 py-1" />
+              <th className="px-2 py-1" />
               <th className={itemHeader}>Lic</th>
               <th className={itemHeader}>CPR</th>
               <th className={itemHeader}>TB</th>
@@ -366,7 +405,7 @@ export default async function AdminEmployeesDirectoryPage({
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={20} className="px-4 py-10 text-center text-sm text-slate-500">
+                <td colSpan={21} className="px-4 py-10 text-center text-sm text-slate-500">
                   No rows match the current filters. Adjust segment or search, or confirm applicants exist in Supabase.
                 </td>
               </tr>
@@ -459,6 +498,16 @@ export default async function AdminEmployeesDirectoryPage({
                       >
                         {r.stageLabel}
                       </span>
+                    </td>
+                    <td className="max-w-[9rem] px-2 py-2">
+                      <Link
+                        href={`/admin/employees/${id}#onboarding-portal-section`}
+                        prefetch={false}
+                        title="Open onboarding details"
+                        className={`inline-flex max-w-full rounded-full px-2.5 py-0.5 text-[10px] font-semibold transition hover:ring-2 hover:ring-indigo-300 ${r.onboardingTrackBadgeClass}`}
+                      >
+                        <span className="truncate">{r.onboardingTrackLabel}</span>
+                      </Link>
                     </td>
                     <td className="px-2 py-2">
                       <Link

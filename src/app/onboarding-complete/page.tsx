@@ -1,7 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
+import OnboardingApplicantFromQuery from "../../components/OnboardingApplicantFromQuery";
+import OnboardingProgressSync from "../../components/OnboardingProgressSync";
+import { syncOnboardingProgressForApplicant } from "@/lib/onboarding/sync-progress";
 import { supabase } from "@/lib/supabase/client";
 import OnboardingApplicantIdentity from "../../components/OnboardingApplicantIdentity";
 import { EmploymentClassification } from "@/lib/employee-contracts";
@@ -181,6 +184,8 @@ export default function OnboardingCompletePage() {
         ];
 
         setDebugMessage(debugParts.join(" | "));
+
+        void syncOnboardingProgressForApplicant(supabase, applicantId, {});
       } catch (error) {
         console.error(error);
         setDebugMessage("Unexpected error while checking completion status.");
@@ -284,6 +289,10 @@ export default function OnboardingCompletePage() {
 
   return (
     <main className="min-h-screen bg-slate-50 text-slate-900">
+      <Suspense fallback={null}>
+        <OnboardingApplicantFromQuery />
+      </Suspense>
+      <OnboardingProgressSync />
       <section className="mx-auto max-w-6xl px-4 pb-16 pt-8 sm:px-6 lg:px-8">
         <div className="mb-6 flex justify-center">
           <div className="rounded-full border border-teal-200 bg-white px-4 py-2 text-[11px] font-bold uppercase tracking-[0.22em] text-slate-500 shadow-sm">
