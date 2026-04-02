@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { InboxIcon, MessageCircleMore } from "lucide-react";
 
 import { WorkspacePhonePageHeader } from "../_components/WorkspacePhonePageHeader";
 import { formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
@@ -26,6 +27,12 @@ function leadChipLabel(raw: unknown): string {
   if (!v) return "Unclassified";
   if (v === "new_lead") return "New lead";
   return v.replace(/_/g, " ");
+}
+
+function unreadCountFromMetadata(raw: unknown): number {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return 0;
+  const v = (raw as Record<string, unknown>).unread_count;
+  return typeof v === "number" && Number.isFinite(v) && v > 0 ? Math.floor(v) : 0;
 }
 
 type PageProps = {
@@ -118,10 +125,19 @@ export default async function WorkspaceInboxPage({ searchParams }: PageProps) {
       />
 
       <div className="mt-2 grid gap-4 lg:grid-cols-[minmax(300px,1fr)_minmax(280px,0.85fr)] xl:grid-cols-[minmax(340px,1fr)_minmax(320px,0.75fr)]">
-        <section className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm shadow-slate-200/60">
+        <section className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-md shadow-slate-200/45">
           <ul className="divide-y divide-slate-100">
             {rows.length === 0 ? (
-              <li className="px-4 py-10 text-center text-sm text-slate-500">No conversations yet.</li>
+              <li className="px-4 py-10 text-center">
+                <InboxIcon className="mx-auto h-5 w-5 text-slate-400" strokeWidth={2} />
+                <p className="mt-2 text-sm text-slate-500">No conversations yet.</p>
+                <Link
+                  href="/workspace/phone/calls"
+                  className="mt-3 inline-flex rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  Open calls
+                </Link>
+              </li>
             ) : (
               rows.map((r) => {
                 const id = String(r.id);
@@ -136,21 +152,33 @@ export default async function WorkspaceInboxPage({ searchParams }: PageProps) {
                 const preview = previewByConvId[id] ?? "";
                 const chip = leadChipLabel((r as { lead_status?: unknown }).lead_status);
                 const isSelected = id === selectedId;
+                const unreadCount = unreadCountFromMetadata((r as { metadata?: unknown }).metadata);
                 return (
                   <li key={id}>
                     <Link
                       href={`/workspace/phone/inbox?${new URLSearchParams({ selected: id, ...(qRaw ? { q: qRaw } : {}) }).toString()}`}
                       className={`block px-4 py-3 transition ${
-                        isSelected ? "bg-sky-50/60" : "hover:bg-slate-50 active:bg-slate-100"
+                        isSelected
+                          ? "bg-sky-50/70 ring-1 ring-inset ring-sky-200"
+                          : unreadCount > 0
+                            ? "bg-white hover:bg-sky-50/30 active:bg-slate-100"
+                            : "hover:bg-slate-50 active:bg-slate-100"
                       }`}
                     >
                       <div className="flex items-start justify-between gap-2">
-                        <p className="truncate font-semibold text-slate-900">{name ?? phone}</p>
+                        <p className={`truncate font-semibold ${unreadCount > 0 ? "text-slate-950" : "text-slate-900"}`}>
+                          {name ?? phone}
+                        </p>
                         <span className="shrink-0 text-[11px] text-slate-500">{when}</span>
                       </div>
                       {name ? <p className="truncate text-xs text-slate-500">{phone}</p> : null}
-                      {preview ? <p className="mt-1 line-clamp-1 text-xs text-slate-600">{preview}</p> : null}
-                      <div className="mt-2">
+                      {preview ? <p className="mt-1.5 line-clamp-1 text-xs text-slate-600">{preview}</p> : null}
+                      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                        {unreadCount > 0 ? (
+                          <span className="inline-flex rounded-full bg-sky-600 px-2 py-0.5 text-[10px] font-semibold text-white">
+                            {unreadCount} unread
+                          </span>
+                        ) : null}
                         <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold capitalize text-slate-600">
                           {chip}
                         </span>
@@ -164,7 +192,7 @@ export default async function WorkspaceInboxPage({ searchParams }: PageProps) {
         </section>
 
         <aside className="space-y-3">
-          <section className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm shadow-slate-200/60">
+          <section className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-md shadow-slate-200/45">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Selected thread</p>
             {selectedRow ? (
               <>
@@ -187,7 +215,10 @@ export default async function WorkspaceInboxPage({ searchParams }: PageProps) {
                 </div>
               </>
             ) : (
-              <p className="mt-2 text-sm text-slate-500">Select a conversation to preview.</p>
+              <div className="mt-2 text-sm text-slate-500">
+                <MessageCircleMore className="mb-2 h-5 w-5 text-slate-400" strokeWidth={2} />
+                Select a conversation to preview.
+              </div>
             )}
           </section>
 

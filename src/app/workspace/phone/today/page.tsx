@@ -1,4 +1,6 @@
 import { redirect } from "next/navigation";
+import Link from "next/link";
+import { BellRing, CalendarClock, Inbox, PhoneMissed } from "lucide-react";
 
 import { WorkspacePhonePageHeader } from "../_components/WorkspacePhonePageHeader";
 import { WorkspacePhoneQuickActions } from "../_components/WorkspacePhoneQuickActions";
@@ -8,7 +10,8 @@ import { visitNeedsAttentionOperational } from "@/lib/crm/dispatch-needs-attenti
 import { formatDispatchScheduleLine } from "@/lib/crm/dispatch-visit";
 import { formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
 import { supabaseAdmin } from "@/lib/admin";
-import { canAccessWorkspacePhone, getStaffProfile } from "@/lib/staff-profile";
+import { canAccessWorkspacePhone, getStaffProfile, hasFullCallVisibility } from "@/lib/staff-profile";
+import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 type ContactRow = {
   id: string;
@@ -245,15 +248,51 @@ export default async function WorkspaceTodayPage() {
 
   const needsAttention = visits.filter((v) => visitNeedsAttentionOperational(v, nowMs));
 
-  const renderSection = (title: string, subtitle: string, items: VisitItem[]) => (
+  const hasFull = hasFullCallVisibility(staff);
+  const supabase = await createServerSupabaseClient();
+
+  let missedCallsQ = supabase
+    .from("phone_calls")
+    .select("id", { count: "exact", head: true })
+    .eq("status", "missed");
+  let convoCountQ = supabase
+    .from("conversations")
+    .select("id", { count: "exact", head: true })
+    .eq("channel", "sms");
+  if (!hasFull) {
+    const scope = `assigned_to_user_id.eq.${uid},assigned_to_user_id.is.null`;
+    missedCallsQ = missedCallsQ.or(scope);
+    convoCountQ = convoCountQ.or(scope);
+  }
+  const [{ count: missedCallsCount }, { count: inboxCount }] = await Promise.all([missedCallsQ, convoCountQ]);
+
+  const nextVisit =
+    visits
+      .filter((v) => activeStatuses.has(v.status))
+      .sort((a, b) => a.whenTs - b.whenTs)
+      .find((v) => v.whenTs >= nowMs) ?? today[0] ?? upcoming[0] ?? needsAttention[0] ?? null;
+
+  const renderSection = (
+    title: string,
+    subtitle: string,
+    items: VisitItem[],
+    emptyCta: { href: string; label: string }
+  ) => (
     <section>
       <div className="mb-3">
         <h2 className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">{title}</h2>
         <p className="mt-1 text-sm text-slate-600">{subtitle}</p>
       </div>
       {items.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/60 p-6 text-center text-sm text-slate-500">
-          Nothing here right now.
+        <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/60 p-6 text-center">
+          <BellRing className="mx-auto h-5 w-5 text-slate-400" strokeWidth={2} />
+          <p className="mt-2 text-sm text-slate-500">Nothing to work here right now.</p>
+          <Link
+            href={emptyCta.href}
+            className="mt-3 inline-flex rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+          >
+            {emptyCta.label}
+          </Link>
         </div>
       ) : (
         <ul className="space-y-2">
@@ -308,6 +347,53 @@ export default async function WorkspaceTodayPage() {
       <div className="mt-2">
         <WorkspacePhoneQuickActions />
       </div>
+      <section className="mt-5 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-md shadow-slate-200/45">
+        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">Next up</p>
+        {nextVisit ? (
+          <div className="mt-2">
+            <p className="truncate text-base font-semibold text-slate-900">{nextVisit.patientName}</p>
+            <p className="mt-0.5 text-sm text-slate-600">{nextVisit.whenLabel}</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <Link
+                href={`/workspace/phone/patients/${nextVisit.patient_id}`}
+                className="rounded-full bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800"
+              >
+                Open patient
+              </Link>
+              {nextVisit.inboxHref ? (
+                <Link
+                  href={nextVisit.inboxHref}
+                  className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  Open thread
+                </Link>
+              ) : null}
+            </div>
+          </div>
+        ) : (
+          <p className="mt-2 text-sm text-slate-500">No upcoming visits yet.</p>
+        )}
+        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <div className="rounded-xl bg-slate-50 px-3 py-2">
+            <p className="flex items-center gap-1 text-[11px] font-semibold text-slate-600">
+              <CalendarClock className="h-3.5 w-3.5" /> Visits today
+            </p>
+            <p className="mt-1 text-lg font-semibold text-slate-900">{today.length}</p>
+          </div>
+          <div className="rounded-xl bg-slate-50 px-3 py-2">
+            <p className="flex items-center gap-1 text-[11px] font-semibold text-slate-600">
+              <Inbox className="h-3.5 w-3.5" /> Inbox threads
+            </p>
+            <p className="mt-1 text-lg font-semibold text-slate-900">{inboxCount ?? 0}</p>
+          </div>
+          <div className="rounded-xl bg-rose-50 px-3 py-2">
+            <p className="flex items-center gap-1 text-[11px] font-semibold text-rose-700">
+              <PhoneMissed className="h-3.5 w-3.5" /> Missed calls
+            </p>
+            <p className="mt-1 text-lg font-semibold text-rose-900">{missedCallsCount ?? 0}</p>
+          </div>
+        </div>
+      </section>
       {asnErr ? (
         <p className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
           Could not load assignments.
@@ -318,10 +404,17 @@ export default async function WorkspaceTodayPage() {
         {renderSection(
           "Needs attention",
           "Overdue, due soon, missed, rescheduled, or missing schedule — handle these first.",
-          needsAttention
+          needsAttention,
+          { href: "/workspace/phone/calls", label: "Open calls" }
         )}
-        {renderSection("On track today", "Visits scheduled for today that are in good shape.", today)}
-        {renderSection("Coming up", "Later visits on your calendar.", upcoming)}
+        {renderSection("On track today", "Visits scheduled for today that are in good shape.", today, {
+          href: "/workspace/phone/patients",
+          label: "Open patients",
+        })}
+        {renderSection("Coming up", "Later visits on your calendar.", upcoming, {
+          href: "/workspace/phone/inbox",
+          label: "Open inbox",
+        })}
       </div>
     </div>
   );

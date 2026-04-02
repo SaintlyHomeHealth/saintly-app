@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 
 import { NursePhoneBottomNav } from "./_components/NursePhoneBottomNav";
 import { WorkspacePhoneCallDock } from "./_components/WorkspacePhoneCallDock";
+import { WorkspacePhoneTopStatusStrip } from "./_components/WorkspacePhoneTopStatusStrip";
 import { SignOutButton } from "@/components/SignOutButton";
 import { canAccessWorkspacePhone, getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 
@@ -44,6 +45,11 @@ export default async function WorkspacePhoneLayout({ children }: { children: Rea
           </div>
         </div>
       </header>
+
+      <WorkspacePhoneTopStatusStrip
+        displayName={displayName}
+        inboundRingEnabled={staff.inbound_ring_enabled}
+      />
 
       <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col pb-24">{children}</main>
 

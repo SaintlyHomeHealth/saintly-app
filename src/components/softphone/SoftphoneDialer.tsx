@@ -588,11 +588,11 @@ export function SoftphoneDialer({
       </div>
 
       <div
-        className="flex min-h-[4.5rem] w-full max-w-sm items-center justify-center px-2"
+        className="flex min-h-[5rem] w-full max-w-sm items-center justify-center rounded-2xl bg-slate-50/80 px-2 ring-1 ring-slate-200/80"
         aria-live="polite"
         aria-label="Number entered"
       >
-        <p className="max-w-full break-all text-center text-[1.75rem] font-light leading-tight tracking-tight text-slate-900 tabular-nums sm:text-[2rem]">
+        <p className="max-w-full break-all text-center text-[2rem] font-medium leading-tight tracking-tight text-slate-900 tabular-nums sm:text-[2.2rem]">
           {digits.trim() ? (
             formatDialpadDisplay(digits)
           ) : (
@@ -600,6 +600,7 @@ export function SoftphoneDialer({
           )}
         </p>
       </div>
+      <p className="text-center text-[11px] text-slate-500">Use 10 digits or +1 format. Tap Call to place outbound.</p>
 
       {incomingCall ? (
         <div className="flex w-full max-w-sm flex-col gap-3">

@@ -48,7 +48,7 @@ type Props = {
 };
 
 const btnCls =
-  "inline-flex min-h-[34px] items-center justify-center rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40";
+  "inline-flex min-h-[34px] items-center justify-center rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 transition hover:bg-slate-50 hover:shadow-sm disabled:cursor-not-allowed disabled:opacity-40";
 const btnPrimaryCls =
   "inline-flex min-h-[34px] items-center justify-center rounded-xl bg-slate-900 px-2.5 py-1.5 text-[11px] font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40";
 
@@ -113,7 +113,7 @@ export function TodayVisitCard(props: Props) {
   };
 
   return (
-    <li className="rounded-2xl bg-white/95 p-3.5 shadow-sm shadow-slate-200/45 ring-1 ring-slate-200/60">
+    <li className="rounded-2xl bg-white/95 p-3.5 shadow-md shadow-slate-200/55 ring-1 ring-slate-200/70">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="truncate text-base font-semibold text-slate-900">{props.patientName}</p>
@@ -121,7 +121,7 @@ export function TodayVisitCard(props: Props) {
           {props.addressLine ? <p className="mt-1 line-clamp-2 text-xs text-slate-500">{props.addressLine}</p> : null}
         </div>
         <span
-          className={`rounded-full px-2 py-0.5 text-[10px] font-semibold capitalize ring-1 ${statusBadgeClass(props.statusKey)}`}
+          className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide ring-1 ${statusBadgeClass(props.statusKey)}`}
         >
           {props.statusLabel}
         </span>
