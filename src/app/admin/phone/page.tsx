@@ -188,10 +188,9 @@ export default async function AdminPhoneCallLogPage({ searchParams }: PageProps)
 
   return (
     <div className="mx-auto max-w-[1200px] space-y-4 px-4 pb-10 pt-6">
-      <div className="rounded-2xl border border-slate-200/80 bg-white/95 p-4 shadow-sm">
-        <AdminPageHeader
-          eyebrow="Voice"
-          title="Call Log"
+      <AdminPageHeader
+        eyebrow="Voice"
+        title="Call Log"
           description={
             <>
               Organization call history and missed-call recovery. Place calls and SMS from the{" "}
@@ -235,8 +234,7 @@ export default async function AdminPhoneCallLogPage({ searchParams }: PageProps)
               </Link>
             </>
           }
-        />
-      </div>
+      />
 
       <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm">
         <form method="get" action="/admin/phone" className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-end">

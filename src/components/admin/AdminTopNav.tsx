@@ -5,10 +5,20 @@ import { usePathname } from "next/navigation";
 
 import type { AdminNavItemResolved } from "@/lib/admin/admin-nav-config";
 
-const linkBase = "whitespace-nowrap underline-offset-2 transition hover:underline";
-const linkActive = "font-bold text-slate-900";
-const linkIdle = "font-semibold text-sky-800";
-const disabledCls = "cursor-not-allowed font-semibold text-slate-400";
+const shell =
+  "sticky top-0 z-40 border-b border-slate-200/80 bg-gradient-to-r from-white via-sky-50/40 to-cyan-50/35 shadow-[0_1px_0_0_rgba(255,255,255,0.8)_inset] backdrop-blur-md supports-[backdrop-filter]:bg-white/75";
+
+const pillBase =
+  "inline-flex min-h-[2.25rem] items-center justify-center rounded-full px-3.5 py-2 text-[13px] font-semibold leading-none transition duration-200";
+
+const pillIdle =
+  "border border-slate-200/90 bg-white/80 text-slate-600 shadow-sm shadow-slate-200/30 hover:border-sky-200 hover:bg-white hover:text-sky-950 hover:shadow-md";
+
+const pillActive =
+  "border border-sky-500/30 bg-gradient-to-r from-sky-600 to-cyan-500 text-white shadow-md shadow-sky-500/20";
+
+const pillDisabled =
+  "cursor-not-allowed border border-dashed border-slate-200 bg-slate-50/90 text-slate-400";
 
 function navItemIsActive(pathname: string, item: AdminNavItemResolved): boolean {
   if (item.disabled) return false;
@@ -45,7 +55,7 @@ type AdminTopNavProps = {
 };
 
 /**
- * Shared top navigation for `/admin/*` (and fed the same model from the server for role-aware hrefs).
+ * Product-style admin shell: pill nav, Saintly-tinted bar, clear active state. Role logic stays in `buildAdminNavItems`.
  */
 export function AdminTopNav({ items }: AdminTopNavProps) {
   const pathname = usePathname() ?? "";
@@ -53,26 +63,31 @@ export function AdminTopNav({ items }: AdminTopNavProps) {
   if (items.length === 0) return null;
 
   return (
-    <header className="sticky top-0 z-40 border-b border-slate-200/90 bg-white/95 px-4 py-3 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-white/90 sm:px-6">
-      <nav className="flex flex-wrap items-center gap-x-2 gap-y-2 text-sm" aria-label="Admin">
-        {items.map((item, i) => (
-          <span key={item.id} className="flex flex-wrap items-center gap-x-2">
-            {i > 0 ? <span className="hidden text-slate-300 sm:inline" aria-hidden>|</span> : null}
-            {item.disabled ? (
-              <span className={disabledCls} title={item.disabledReason}>
-                {item.label}
+    <header className={shell}>
+      <div className="mx-auto flex max-w-[1600px] items-center gap-2 px-4 py-3 sm:px-6">
+        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2" aria-label="Admin">
+          {items.map((item) => {
+            const active = navItemIsActive(pathname, item);
+            return (
+              <span key={item.id} className="contents">
+                {item.disabled ? (
+                  <span className={`${pillBase} ${pillDisabled}`} title={item.disabledReason}>
+                    {item.label}
+                  </span>
+                ) : (
+                  <Link
+                    href={item.href}
+                    className={`${pillBase} ${active ? pillActive : pillIdle}`}
+                    aria-current={active ? "page" : undefined}
+                  >
+                    {item.label}
+                  </Link>
+                )}
               </span>
-            ) : (
-              <Link
-                href={item.href}
-                className={`${linkBase} ${navItemIsActive(pathname, item) ? linkActive : linkIdle}`}
-              >
-                {item.label}
-              </Link>
-            )}
-          </span>
-        ))}
-      </nav>
+            );
+          })}
+        </div>
+      </div>
     </header>
   );
 }

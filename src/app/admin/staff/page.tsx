@@ -176,6 +176,7 @@ export default async function AdminStaffPage({
   return (
     <div className="space-y-6 bg-gradient-to-b from-slate-50/60 via-white to-slate-50/40 p-6">
       <AdminPageHeader
+        accent="indigo"
         eyebrow="Administration"
         title="Staff Access"
         description="Create logins, roles, and phone permissions. Accounts are provisioned automatically — you never need Supabase user IDs."

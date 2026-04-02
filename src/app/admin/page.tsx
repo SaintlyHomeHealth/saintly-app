@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 
+import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { SignOutButton } from "@/components/SignOutButton";
 import { supabase } from "@/lib/supabase";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
@@ -1586,91 +1587,72 @@ export default async function AdminDashboardPage({
     staffProfile?.role === "nurse" ? "/workspace/phone/patients" : "/admin/crm/patients";
 
   return (
-    <div className="space-y-6 bg-gradient-to-b from-slate-50/60 via-white to-slate-50/40 p-6">
-      <div className="overflow-hidden rounded-[32px] border border-slate-200 bg-white shadow-sm">
-        <div className="bg-gradient-to-r from-sky-50 via-white to-cyan-50 px-5 pb-3 pt-4 sm:px-6 sm:pb-4 sm:pt-5">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between lg:gap-5">
-            <div className="max-w-2xl">
-              <div className="inline-flex items-center rounded-full border border-sky-100 bg-white/90 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-sky-700 shadow-sm">
-                Saintly Super Dashboard
-              </div>
-
-              <h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-900 sm:text-[1.65rem] sm:leading-snug">
-                Saintly Command Center
-              </h1>
-
-              {staffAccessLabel ? (
-                <p className="mt-1.5 text-[11px] font-medium uppercase tracking-wide text-slate-500">
-                  {staffAccessLabel}
-                </p>
-              ) : null}
-
-              <p className="mt-2 max-w-xl text-sm leading-snug text-slate-600">
-                Run your entire home health operation from one place — manage patients, inbound calls,
-                referrals, compliance, staff, and dispatch without switching systems.
-              </p>
-            </div>
-
-            <div className="flex w-full shrink-0 flex-col items-stretch gap-3 sm:items-end lg:w-auto lg:min-w-[min(100%,420px)]">
-              <SignOutButton
-                label="Log out"
-                className="w-full rounded-full border border-slate-800 bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 sm:w-auto"
-              />
-              <div className="grid w-full gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                <Link
-                  href="/admin/crm/patients"
-                  className="inline-flex min-h-0 items-center justify-center rounded-[20px] bg-gradient-to-r from-sky-600 to-cyan-500 px-3 py-2 text-center text-xs font-semibold text-white shadow-sm shadow-sky-200/60 transition hover:-translate-y-px hover:shadow-md hover:shadow-sky-200/80 sm:text-sm"
-                >
-                  + New Patient
-                </Link>
-                <Link
-                  href="/admin/crm/leads"
-                  className="inline-flex min-h-0 items-center justify-center rounded-[20px] bg-gradient-to-r from-sky-600 to-cyan-500 px-3 py-2 text-center text-xs font-semibold text-white shadow-sm shadow-sky-200/60 transition hover:-translate-y-px hover:shadow-md hover:shadow-sky-200/80 sm:text-sm"
-                >
-                  + New Lead
-                </Link>
-                {canPhoneCommandCenter ? (
-                  <Link
-                    href="/workspace/phone/keypad"
-                    className="inline-flex min-h-0 items-center justify-center rounded-[20px] border border-slate-200/90 bg-white px-3 py-2 text-center text-xs font-semibold text-slate-700 shadow-sm transition hover:border-indigo-200 hover:bg-slate-50 hover:shadow-md sm:text-sm"
-                  >
-                    Open Workspace Keypad
-                  </Link>
-                ) : (
-                  <div className="inline-flex min-h-0 items-center justify-center rounded-[20px] border border-dashed border-slate-200 bg-slate-50/80 px-3 py-2 text-center text-xs font-semibold text-slate-500 sm:text-sm">
-                    Workspace Keypad (phone access required)
-                  </div>
-                )}
-              </div>
-              {canPhoneCommandCenter ? (
-                <p className="max-w-md text-right text-[11px] leading-snug text-slate-500 sm:ml-auto">
-                  Use <span className="font-semibold text-slate-700">Call Log</span> in the top bar for the full call list
-                  {staffProfile?.role === "nurse" ? " (opens your phone workspace)" : " (/admin/phone)"}.
-                </p>
-              ) : null}
-            </div>
-          </div>
-
-        </div>
-
-        <div className="grid gap-3 border-t border-slate-100/90 bg-gradient-to-b from-sky-50/25 to-white px-5 py-3.5 sm:grid-cols-2 sm:px-6 sm:py-4 xl:grid-cols-4">
-          <StatCard label="Needs Attention" value={String(actionRequiredCount)} tone="red" size="compact" />
-          <StatCard label="Due Soon" value={String(dueSoonKpiCount)} tone="amber" size="compact" />
-          <Link
-            href="/admin/employees"
-            className="block h-full min-h-0 rounded-[18px] outline-none ring-offset-2 transition hover:brightness-[0.98] focus-visible:ring-2 focus-visible:ring-indigo-400"
-          >
-            <StatCard
-              label="Employees"
-              value={String(activeEmployeesCount)}
-              tone="green"
-              size="compact"
-              className="h-full"
+    <div className="space-y-6 p-6">
+      <AdminPageHeader
+        eyebrow="Saintly Super Dashboard"
+        title="Saintly Command Center"
+        metaLine={staffAccessLabel ?? undefined}
+        description="Run your entire home health operation from one place — manage patients, inbound calls, referrals, compliance, staff, and dispatch without switching systems."
+        actions={
+          <>
+            <SignOutButton
+              label="Log out"
+              className="w-full rounded-full border border-slate-800 bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 sm:w-auto"
             />
-          </Link>
-          <StatCard label="Applicants" value={String(pipelineApplicantsCount)} tone="sky" size="compact" />
-        </div>
-      </div>
+            <div className="grid w-full gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              <Link
+                href="/admin/crm/patients"
+                className="inline-flex min-h-0 items-center justify-center rounded-[20px] bg-gradient-to-r from-sky-600 to-cyan-500 px-3 py-2 text-center text-xs font-semibold text-white shadow-sm shadow-sky-200/60 transition hover:-translate-y-px hover:shadow-md hover:shadow-sky-200/80 sm:text-sm"
+              >
+                + New Patient
+              </Link>
+              <Link
+                href="/admin/crm/leads"
+                className="inline-flex min-h-0 items-center justify-center rounded-[20px] bg-gradient-to-r from-sky-600 to-cyan-500 px-3 py-2 text-center text-xs font-semibold text-white shadow-sm shadow-sky-200/60 transition hover:-translate-y-px hover:shadow-md hover:shadow-sky-200/80 sm:text-sm"
+              >
+                + New Lead
+              </Link>
+              {canPhoneCommandCenter ? (
+                <Link
+                  href="/workspace/phone/keypad"
+                  className="inline-flex min-h-0 items-center justify-center rounded-[20px] border border-slate-200/90 bg-white px-3 py-2 text-center text-xs font-semibold text-slate-700 shadow-sm transition hover:border-indigo-200 hover:bg-slate-50 hover:shadow-md sm:text-sm"
+                >
+                  Open Workspace Keypad
+                </Link>
+              ) : (
+                <div className="inline-flex min-h-0 items-center justify-center rounded-[20px] border border-dashed border-slate-200 bg-slate-50/80 px-3 py-2 text-center text-xs font-semibold text-slate-500 sm:text-sm">
+                  Workspace Keypad (phone access required)
+                </div>
+              )}
+            </div>
+            {canPhoneCommandCenter ? (
+              <p className="max-w-md text-right text-[11px] leading-snug text-slate-500 sm:ml-auto">
+                Use <span className="font-semibold text-slate-700">Call Log</span> in the top bar for the full call list
+                {staffProfile?.role === "nurse" ? " (opens your phone workspace)" : " (/admin/phone)"}.
+              </p>
+            ) : null}
+          </>
+        }
+        footer={
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <StatCard label="Needs Attention" value={String(actionRequiredCount)} tone="red" size="compact" />
+            <StatCard label="Due Soon" value={String(dueSoonKpiCount)} tone="amber" size="compact" />
+            <Link
+              href="/admin/employees"
+              className="block h-full min-h-0 rounded-[18px] outline-none ring-offset-2 transition hover:brightness-[0.98] focus-visible:ring-2 focus-visible:ring-indigo-400"
+            >
+              <StatCard
+                label="Employees"
+                value={String(activeEmployeesCount)}
+                tone="green"
+                size="compact"
+                className="h-full"
+              />
+            </Link>
+            <StatCard label="Applicants" value={String(pipelineApplicantsCount)} tone="sky" size="compact" />
+          </div>
+        }
+      />
 
       {showCommandCenter ? (
         <div className="overflow-hidden rounded-[32px] border border-indigo-100 bg-gradient-to-br from-indigo-50/80 via-white to-sky-50/50 shadow-sm">
