@@ -1,37 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-
-import { Device, type Call } from "@twilio/voice-sdk";
+import { useEffect, useRef } from "react";
 import { Delete } from "lucide-react";
 
-import { isValidE164, normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
-import { createRingtoneObjectUrl } from "@/lib/softphone/ringtone-wav";
-import { dispatchWorkspaceSoftphoneUi } from "@/lib/softphone/workspace-ui-events";
-
-type CallHandle = Awaited<ReturnType<Device["connect"]>>;
-
-/** Temporary mobile/ngrok diagnostics — remove when inbound ring is stable on phone browsers. */
-function logIncomingMobileDebug(call: Call) {
-  console.log("[softphone][debug][mobile] Device incoming", {
-    parameters: call.parameters,
-    documentVisibility: typeof document !== "undefined" ? document.visibilityState : "n/a",
-    documentHasFocus: typeof document !== "undefined" ? document.hasFocus() : "n/a",
-    userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "n/a",
-  });
-  void (async () => {
-    let audioPerm: PermissionState | "unsupported" = "unsupported";
-    try {
-      if (typeof navigator !== "undefined" && navigator.permissions?.query) {
-        const r = await navigator.permissions.query({ name: "microphone" as PermissionName });
-        audioPerm = r.state;
-      }
-    } catch {
-      audioPerm = "unsupported";
-    }
-    console.log("[softphone][debug][mobile] audio permission", audioPerm);
-  })();
-}
+import { useWorkspaceSoftphone } from "@/components/softphone/WorkspaceSoftphoneProvider";
 
 const DIALPAD_ROWS: ReadonlyArray<ReadonlyArray<{ digit: string; sub?: string }>> = [
   [
@@ -82,19 +54,6 @@ function formatDialpadDisplay(raw: string): string {
   return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6, 10)}${d.length > 10 ? ` ${d.slice(10)}` : ""}`;
 }
 
-function readTwilioParam(
-  call: { parameters?: Record<string, string> } | null | undefined,
-  keys: string[]
-): string | null {
-  if (!call?.parameters) return null;
-  const p = call.parameters;
-  for (const k of keys) {
-    const v = p[k];
-    if (typeof v === "string" && v.trim()) return v.trim();
-  }
-  return null;
-}
-
 export type SoftphoneDialerProps = {
   staffDisplayName: string;
   /** Workspace keypad: premium dialpad UI; default keeps the full softphone panel (admin / calls). */
@@ -111,350 +70,49 @@ export function SoftphoneDialer({
   initialDigits,
   autoPlaceCall = false,
 }: SoftphoneDialerProps) {
-  const [digits, setDigits] = useState(() => (initialDigits ?? "").trim());
-  const [listenState, setListenState] = useState<"loading" | "ready" | "error">("loading");
-  const [status, setStatus] = useState<"idle" | "fetching_token" | "connecting" | "in_call" | "error">("idle");
-  const [hint, setHint] = useState<string | null>(null);
-  const [incomingCall, setIncomingCall] = useState<Call | null>(null);
-  const [tokenIdentity, setTokenIdentity] = useState<string | null>(null);
-  const mounted = useSyncExternalStore(
-    () => () => {},
-    () => true,
-    () => false
-  );
-  const [ringtoneUnlocked, setRingtoneUnlocked] = useState(false);
-  const ringtoneUnlockedRef = useRef(false);
-  const deviceRef = useRef<Device | null>(null);
-  const activeCallRef = useRef<CallHandle | null>(null);
-  const ringtoneAudioRef = useRef<HTMLAudioElement | null>(null);
-  const testRingtoneStopRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const {
+    digits,
+    setDigits,
+    listenState,
+    status,
+    hint,
+    incomingCallerLabel,
+    tokenIdentity,
+    ringtoneUnlocked,
+    busy,
+    canDial,
+    incoming,
+    startCall,
+    hangUp,
+    answerIncoming,
+    rejectIncoming,
+    testRingtone,
+    unlockRingtoneFromGesture,
+  } = useWorkspaceSoftphone();
   const autoPlaceStartedRef = useRef(false);
+  const mounted = true;
 
   useEffect(() => {
-    return () => {
-      dispatchWorkspaceSoftphoneUi({ phase: "idle" });
-    };
-  }, []);
-
-  useEffect(() => {
-    if (incomingCall) {
-      const remote =
-        readTwilioParam(incomingCall, ["From", "CallerId", "RemoteNumber"]) ??
-        readTwilioParam(incomingCall, ["To"]);
-      dispatchWorkspaceSoftphoneUi({ phase: "incoming", remoteLabel: remote });
-      return;
-    }
-    if (status === "in_call") {
-      const active = activeCallRef.current;
-      const remote =
-        readTwilioParam(active, ["To", "From"]) ??
-        (digits.trim() ? formatDialpadDisplay(digits) : null);
-      dispatchWorkspaceSoftphoneUi({ phase: "active", remoteLabel: remote });
-      return;
-    }
-    if (status === "fetching_token" || status === "connecting") {
-      const remote = digits.trim() ? formatDialpadDisplay(digits) : null;
-      dispatchWorkspaceSoftphoneUi({ phase: "outbound_ringing", remoteLabel: remote });
-      return;
-    }
-    dispatchWorkspaceSoftphoneUi({ phase: "idle" });
-  }, [incomingCall, status, digits]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const { url, revoke } = createRingtoneObjectUrl();
-    const a = new Audio(url);
-    a.preload = "auto";
-    ringtoneAudioRef.current = a;
-    return () => {
-      if (testRingtoneStopRef.current) {
-        clearTimeout(testRingtoneStopRef.current);
-        testRingtoneStopRef.current = null;
-      }
-      a.pause();
-      a.src = "";
-      ringtoneAudioRef.current = null;
-      revoke();
-    };
-  }, []);
-
-  const unlockRingtoneFromGesture = useCallback(async () => {
-    if (ringtoneUnlockedRef.current) return;
-    const a = ringtoneAudioRef.current;
-    if (!a) return;
-    try {
-      await a.play();
-      a.pause();
-      a.currentTime = 0;
-      ringtoneUnlockedRef.current = true;
-      setRingtoneUnlocked(true);
-      console.log("[softphone][ringtone] unlock: play() succeeded");
-    } catch (e) {
-      console.log("[softphone][ringtone] unlock: play() blocked", e);
-    }
-  }, []);
-
-  useEffect(() => {
-    const a = ringtoneAudioRef.current;
-    if (!incomingCall) {
-      return;
-    }
-    if (!ringtoneUnlocked) {
-      console.log(
-        "[softphone][ringtone] incoming: audible ring skipped until unlock (tap softphone or Test Ringtone)"
-      );
-      return;
-    }
-    if (!a) return;
-    a.loop = true;
-    a.currentTime = 0;
-    const p = a.play();
-    void p.then(
-      () => console.log("[softphone][ringtone] incoming: play() succeeded"),
-      (err) => console.log("[softphone][ringtone] incoming: play() blocked", err)
-    );
-    return () => {
-      a.pause();
-      a.currentTime = 0;
-      a.loop = false;
-    };
-  }, [incomingCall, ringtoneUnlocked]);
-
-  const testRingtone = useCallback(async () => {
-    await unlockRingtoneFromGesture();
-    const a = ringtoneAudioRef.current;
-    if (!a) return;
-    if (testRingtoneStopRef.current) {
-      clearTimeout(testRingtoneStopRef.current);
-      testRingtoneStopRef.current = null;
-    }
-    a.loop = true;
-    a.currentTime = 0;
-    const p = a.play();
-    void p.then(
-      () => console.log("[softphone][ringtone] test: play() succeeded"),
-      (err) => console.log("[softphone][ringtone] test: play() blocked", err)
-    );
-    testRingtoneStopRef.current = setTimeout(() => {
-      a.pause();
-      a.currentTime = 0;
-      a.loop = false;
-      testRingtoneStopRef.current = null;
-    }, 2500);
-  }, [unlockRingtoneFromGesture]);
-
-  const attachActiveCallHandlers = useCallback((call: Call | CallHandle) => {
-    activeCallRef.current = call;
-    setStatus("in_call");
-    call.on("disconnect", () => {
-      activeCallRef.current = null;
-      setStatus("idle");
-      setHint(null);
-    });
-    call.on("error", (err) => {
-      console.error("[softphone] call error", err);
-      setHint(err.message ?? "Call error");
-    });
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const run = async () => {
-      try {
-        const res = await fetch("/api/softphone/token", { method: "GET", credentials: "include" });
-        const body = (await res.json()) as {
-          token?: string;
-          identity?: string;
-          identity_in_inbound_ring_list?: boolean;
-          error?: string;
-        };
-        if (cancelled) return;
-        if (!res.ok || !body.token) {
-          console.log("[softphone][debug] token fetch failed", { status: res.status, error: body.error });
-          setListenState("error");
-          setHint(body.error ?? "Softphone token unavailable.");
-          return;
-        }
-        setTokenIdentity(typeof body.identity === "string" ? body.identity : null);
-        console.log("[softphone][debug] token fetched", {
-          hasToken: Boolean(body.token),
-          identity: body.identity ?? null,
-          identity_in_inbound_ring_list: body.identity_in_inbound_ring_list,
-        });
-
-        const device = new Device(body.token, { logLevel: "error" });
-        device.on("error", (err) => {
-          console.error("[softphone] device error", err);
-          setHint(err.message ?? "Phone error");
-        });
-        device.on("incoming", (call) => {
-          logIncomingMobileDebug(call);
-          console.log("[softphone][debug] incoming call event", { parameters: call.parameters });
-          setIncomingCall(call);
-          call.on("disconnect", () => {
-            setIncomingCall((c) => (c === call ? null : c));
-          });
-          call.on("cancel", () => {
-            setIncomingCall((c) => (c === call ? null : c));
-          });
-        });
-
-        await device.register();
-        if (cancelled) {
-          device.destroy();
-          return;
-        }
-        console.log("[softphone][debug] device registered", {
-          state: device.state,
-          identity: body.identity ?? null,
-        });
-        deviceRef.current = device;
-        setListenState("ready");
-      } catch (e) {
-        if (!cancelled) {
-          setListenState("error");
-          setHint(e instanceof Error ? e.message : "Softphone init failed.");
-        }
-      }
-    };
-
-    void run();
-
-    return () => {
-      cancelled = true;
-      activeCallRef.current?.disconnect();
-      activeCallRef.current = null;
-      deviceRef.current?.destroy();
-      deviceRef.current = null;
-    };
-  }, []);
-
-  const hangUp = useCallback(() => {
-    activeCallRef.current?.disconnect();
-    activeCallRef.current = null;
-    setStatus("idle");
-    setHint(null);
-  }, []);
-
-  const answerIncoming = useCallback(() => {
-    const call = incomingCall;
-    if (!call) return;
-    call.accept();
-    setIncomingCall(null);
-    attachActiveCallHandlers(call);
-  }, [incomingCall, attachActiveCallHandlers]);
-
-  const rejectIncoming = useCallback(() => {
-    incomingCall?.reject();
-    setIncomingCall(null);
-  }, [incomingCall]);
-
-  const startCall = useCallback(async (toOverride?: string) => {
-    setHint(null);
-    const raw = typeof toOverride === "string" ? toOverride : digits;
-    const trimmed = raw.trim();
-    const e164 =
-      isValidE164(trimmed) ? trimmed : normalizeDialInputToE164(trimmed);
-    if (!e164 || !isValidE164(e164)) {
-      setHint("Enter a valid US number (10 digits) or full E.164 (e.g. +1…).");
-      return;
-    }
-    if (typeof toOverride === "string") {
-      setDigits(trimmed);
-    }
-
-    setStatus("fetching_token");
-    let tokenJson: { token?: string; identity?: string; identity_in_inbound_ring_list?: boolean; error?: string };
-    try {
-      const res = await fetch("/api/softphone/token", { method: "GET", credentials: "include" });
-      tokenJson = (await res.json()) as typeof tokenJson;
-      if (!res.ok || !tokenJson.token) {
-        setStatus("error");
-        setHint(tokenJson.error ?? `Could not get call token (${res.status}).`);
-        return;
-      }
-      if (typeof tokenJson.identity === "string") {
-        setTokenIdentity(tokenJson.identity);
-      }
-    } catch {
-      setStatus("error");
-      setHint("Network error while requesting call token.");
-      return;
-    }
-
-    try {
-      let device = deviceRef.current;
-      if (!device) {
-        device = new Device(tokenJson.token, { logLevel: "error" });
-        device.on("error", (err) => {
-          console.error("[softphone] device error", err);
-          setHint(err.message ?? "Phone error");
-        });
-        device.on("incoming", (call) => {
-          logIncomingMobileDebug(call);
-          console.log("[softphone][debug] incoming call event", { parameters: call.parameters });
-          setIncomingCall(call);
-          call.on("disconnect", () => {
-            setIncomingCall((c) => (c === call ? null : c));
-          });
-          call.on("cancel", () => {
-            setIncomingCall((c) => (c === call ? null : c));
-          });
-        });
-        await device.register();
-        deviceRef.current = device;
-        setListenState("ready");
-      } else {
-        device.updateToken(tokenJson.token);
-      }
-
-      setStatus("connecting");
-      const call = await device.connect({ params: { To: e164 } });
-      attachActiveCallHandlers(call);
-    } catch (e) {
-      console.error("[softphone] connect failed", e);
-      setStatus("error");
-      setHint(e instanceof Error ? e.message : "Could not start call.");
-    }
-  }, [digits, attachActiveCallHandlers]);
-
-  const busy = status === "fetching_token" || status === "connecting" || status === "in_call";
-  const canDial = listenState !== "loading" && !incomingCall;
+    const seed = (initialDigits ?? "").trim();
+    if (!seed) return;
+    setDigits(seed);
+  }, [initialDigits, setDigits]);
 
   useEffect(() => {
     if (!autoPlaceCall || autoPlaceStartedRef.current) return;
     if (listenState !== "ready") return;
-    if (status !== "idle" || incomingCall) return;
+    if (status !== "idle" || incoming) return;
     const seed = (initialDigits ?? "").trim();
     if (!seed) return;
     autoPlaceStartedRef.current = true;
     queueMicrotask(() => {
       void startCall(seed);
     });
-  }, [autoPlaceCall, initialDigits, listenState, status, incomingCall, startCall]);
+  }, [autoPlaceCall, initialDigits, listenState, status, incoming, startCall]);
 
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const handler = (ev: Event) => {
-      const ce = ev as CustomEvent<{ to?: string }>;
-      const to = ce?.detail?.to;
-      if (!to || typeof to !== "string") return;
-      if (!canDial || busy) return;
-      void startCall(to);
-    };
-
-    window.addEventListener("softphone:dialTo", handler as EventListener);
-    return () => window.removeEventListener("softphone:dialTo", handler as EventListener);
-  }, [busy, canDial, startCall]);
-
-  const dialInputLocked = (busy && status !== "in_call") || Boolean(incomingCall);
+  const dialInputLocked = (busy && status !== "in_call") || Boolean(incoming);
   const showCallButton = !busy;
   const keypadDisabled = dialInputLocked;
-  const incomingCallerLabel = incomingCall
-    ? readTwilioParam(incomingCall, ["From", "CallerId", "RemoteNumber"])
-    : null;
 
   const defaultPanel = (
     <>
@@ -506,12 +164,12 @@ export function SoftphoneDialer({
             <button
               type="button"
               onClick={() => void testRingtone()}
-              disabled={Boolean(incomingCall)}
+              disabled={Boolean(incoming)}
               className="inline-flex flex-1 items-center justify-center rounded-lg border border-emerald-400/80 bg-white px-3 py-2 text-xs font-semibold text-emerald-900 shadow-sm transition hover:bg-emerald-50 disabled:opacity-50 sm:flex-none"
             >
               Test Ringtone
             </button>
-            {incomingCall ? (
+            {incoming ? (
               <>
                 <button
                   type="button"
@@ -602,7 +260,7 @@ export function SoftphoneDialer({
       </div>
       <p className="text-center text-[11px] text-slate-500">Use 10 digits or +1 format. Tap Call to place outbound.</p>
 
-      {incomingCall ? (
+      {incoming ? (
         <div className="flex w-full max-w-sm flex-col gap-3">
           <div className="text-center">
             <p className="text-sm font-semibold text-emerald-900">Incoming call</p>
@@ -720,7 +378,7 @@ export function SoftphoneDialer({
             <button
               type="button"
               onClick={() => void testRingtone()}
-              disabled={Boolean(incomingCall)}
+              disabled={Boolean(incoming)}
               className="w-full rounded-xl border border-slate-200 bg-slate-50/80 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-100 active:bg-slate-200/80 disabled:opacity-45"
             >
               Test ringtone
@@ -744,7 +402,7 @@ export function SoftphoneDialer({
       }}
     >
       {variant === "keypad" ? keypadPanel : defaultPanel}
-      {incomingCall && variant === "default" ? (
+      {incoming && variant === "default" ? (
         <p className="mt-3 text-xs font-semibold text-emerald-950">Incoming call — Answer or Decline.</p>
       ) : null}
       {status !== "idle" && status !== "error" ? (
