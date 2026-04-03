@@ -17,6 +17,10 @@
  *   REALTIME_BRIDGE_PORT (default 8080)
  *   REALTIME_WS_PATH (default /twilio/realtime-stream)
  *   REALTIME_BRIDGE_HEARTBEAT_MS (default 12000) — alive log interval
+ *
+ * Temporary diagnostics:
+ *   REALTIME_BRIDGE_SUPPRESS_ROUTE_TRANSFER=false — force-enable transfers (overrides in-code FORCE_DIAG_SUPPRESS_TRANSFER).
+ *   REALTIME_BRIDGE_SUPPRESS_ROUTE_TRANSFER=true — suppress transfers (redundant if FORCE_DIAG_SUPPRESS_TRANSFER is true).
  */
 
 import * as http from "node:http";
@@ -36,6 +40,16 @@ const PORT = Number.parseInt(process.env.REALTIME_BRIDGE_PORT || "8080", 10) || 
 const WS_PATH = process.env.REALTIME_WS_PATH?.trim() || "/twilio/realtime-stream";
 
 const HEARTBEAT_MS = Number.parseInt(process.env.REALTIME_BRIDGE_HEARTBEAT_MS || "12000", 10) || 12000;
+
+/** TODO(isolation): set to false after diagnostics — restores applyTwilioRoute + post-route_call socket close. */
+const FORCE_DIAG_SUPPRESS_TRANSFER = true;
+
+const _suppressTransferEnv = process.env.REALTIME_BRIDGE_SUPPRESS_ROUTE_TRANSFER?.trim();
+/** Env "false" overrides FORCE (restore transfers without code change). */
+const REALTIME_BRIDGE_SUPPRESS_ROUTE_TRANSFER =
+  _suppressTransferEnv === "false"
+    ? false
+    : FORCE_DIAG_SUPPRESS_TRANSFER || _suppressTransferEnv === "true";
 
 /** Required for full bridge behavior; server still listens if any are missing (logged at boot). */
 const REQUIRED_ENV_NAMES = [
@@ -95,6 +109,26 @@ function startHeartbeat(): ReturnType<typeof setInterval> {
       wsPath: WS_PATH,
     });
   }, HEARTBEAT_MS);
+}
+
+/** What applyTwilioRoute would do (for isolation logs only). */
+function describeWouldBeTransfer(intent: string): {
+  twilioAction: "hangup_twiml" | "dial_priority" | "dial_ring";
+  targetNumberTail: string | null;
+} {
+  const ring = process.env.TWILIO_VOICE_RING_E164?.trim() || "";
+  const priority = process.env.TWILIO_VOICE_PRIORITY_E164?.trim() || ring;
+  const tail = (e164: string) => (e164.length > 4 ? `…${e164.slice(-4)}` : "(short)");
+  if (intent === "spam" || intent === "wrong_number") {
+    return { twilioAction: "hangup_twiml", targetNumberTail: null };
+  }
+  if (intent === "urgent_medical") {
+    return {
+      twilioAction: "dial_priority",
+      targetNumberTail: priority ? tail(priority) : null,
+    };
+  }
+  return { twilioAction: "dial_ring", targetNumberTail: ring ? tail(ring) : null };
 }
 
 function dialTwiml(input: {
@@ -262,6 +296,8 @@ wss.on("connection", (twilioWs, req) => {
   let streamSid: string | null = null;
   let callSid: string | null = null;
   let callerIdForDial = "";
+  /** Inbound caller (Stream Parameter `from` / Twilio {{From}}). */
+  let callerFromStream = "";
   let oai: WebSocket | null = null;
   let routed = false;
   let firstTwilioMediaLogged = false;
@@ -307,6 +343,8 @@ wss.on("connection", (twilioWs, req) => {
       /** Twilio passes &lt;Parameter&gt; values on the Stream start message. */
       const to = typeof custom.to === "string" ? custom.to : "";
       callerIdForDial = to.trim() || "";
+      const fromParam = typeof custom.from === "string" ? custom.from : "";
+      callerFromStream = fromParam.trim() || "";
 
       if (!callSid) {
         console.error("[realtime-bridge] missing callSid on start");
@@ -318,6 +356,8 @@ wss.on("connection", (twilioWs, req) => {
         streamSid,
         callSid: callSid.slice(0, 12) + "…",
         mediaFormat: start && start.mediaFormat,
+        callerFromStreamParam: callerFromStream || null,
+        dialedToStreamParam: callerIdForDial || null,
       });
 
       oai = connectOpenAi();
@@ -385,7 +425,7 @@ wss.on("connection", (twilioWs, req) => {
           const transcriptExcerpt = summary.slice(0, 500);
 
           if (callSid) {
-            if (!callerIdForDial) {
+            if (!REALTIME_BRIDGE_SUPPRESS_ROUTE_TRANSFER && !callerIdForDial) {
               const sid = process.env.TWILIO_ACCOUNT_SID?.trim();
               const tok = process.env.TWILIO_AUTH_TOKEN?.trim();
               if (sid && tok) {
@@ -419,19 +459,41 @@ wss.on("connection", (twilioWs, req) => {
 
             const dialCallerId =
               callerIdForDial || process.env.TWILIO_VOICE_RING_E164?.trim() || "";
-            if (!dialCallerId) {
-              console.error("[realtime-bridge] applyTwilioRoute skipped: no callerId and TWILIO_VOICE_RING_E164 missing");
-            } else {
-              void applyTwilioRoute({
-                callSid,
+            const wouldBe = describeWouldBeTransfer(intent);
+
+            if (REALTIME_BRIDGE_SUPPRESS_ROUTE_TRANSFER) {
+              console.log("[realtime-bridge][isolation] route_call_requested_transfer_SUPPRESSED", {
+                callSid: callSid.slice(0, 12) + "…",
+                callerFromStreamParameter: callerFromStream || null,
+                streamToParameter: callerIdForDial || null,
                 intent,
-                summary,
-                callerId: dialCallerId,
-              }).catch((e) => console.error("[realtime-bridge] applyTwilioRoute", e));
+                summaryPreview: summary.slice(0, 400),
+                wouldBeTwilioAction: wouldBe.twilioAction,
+                wouldBeTargetNumberTail: wouldBe.targetNumberTail,
+                outboundCallerIdThatWouldBeUsedTail: dialCallerId
+                  ? dialCallerId.length > 4
+                    ? `…${dialCallerId.slice(-4)}`
+                    : dialCallerId
+                  : null,
+                note: "applyTwilioRoute not called; sockets stay open",
+              });
+            } else {
+              if (!dialCallerId) {
+                console.error(
+                  "[realtime-bridge] applyTwilioRoute skipped: no callerId and TWILIO_VOICE_RING_E164 missing"
+                );
+              } else {
+                void applyTwilioRoute({
+                  callSid,
+                  intent,
+                  summary,
+                  callerId: dialCallerId,
+                }).catch((e) => console.error("[realtime-bridge] applyTwilioRoute", e));
+              }
+              setTimeout(safeClose, 500);
             }
           }
 
-          setTimeout(safeClose, 500);
           return;
         }
 
@@ -558,6 +620,10 @@ function boot(): void {
   startHeartbeat();
   server.listen(PORT, "0.0.0.0", () => {
     console.log("[realtime-bridge] bridge boot complete");
+    console.log("[realtime-bridge][isolation] REALTIME_BRIDGE_SUPPRESS_ROUTE_TRANSFER", {
+      active: REALTIME_BRIDGE_SUPPRESS_ROUTE_TRANSFER,
+      hint: "When true: no applyTwilioRoute; streams stay open after route_call. Unset or false = normal transfer.",
+    });
     console.log(
       `[realtime-bridge] listening http://0.0.0.0:${PORT} | ws path ${WS_PATH} | model=${MODEL} | TwiML → wss://<public-host>${WS_PATH}`
     );
