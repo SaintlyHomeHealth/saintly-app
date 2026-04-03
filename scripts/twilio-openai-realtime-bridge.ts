@@ -488,6 +488,8 @@ wss.on("connection", (twilioWs, req) => {
   let callerIdForDial = "";
   /** Inbound caller (Stream Parameter `from` / Twilio {{From}}). */
   let callerFromStream = "";
+  /** Dialed Twilio number (Stream Parameter `to` / Twilio {{To}}). */
+  let streamToFromTwilio = "";
   let oai: WebSocket | null = null;
   let routed = false;
   let firstTwilioMediaLogged = false;
@@ -536,9 +538,14 @@ wss.on("connection", (twilioWs, req) => {
           : {};
       /** Twilio passes &lt;Parameter&gt; values on the Stream start message. */
       const to = typeof custom.to === "string" ? custom.to : "";
-      callerIdForDial = to.trim() || "";
+      streamToFromTwilio = to.trim();
       const fromParam = typeof custom.from === "string" ? custom.from : "";
       callerFromStream = fromParam.trim() || "";
+      /**
+       * PSTN caller for transfer `callerId` / child-leg CLI must be stream `from` ({{From}}), not `to` ({{To}}).
+       * `to` is the dialed Twilio DID — using it made browser Client `From` show junk (e.g. last digits like "86").
+       */
+      callerIdForDial = callerFromStream || streamToFromTwilio || "";
 
       if (!callSid) {
         console.error("[realtime-bridge] missing callSid on start");
@@ -550,8 +557,9 @@ wss.on("connection", (twilioWs, req) => {
         streamSid,
         callSid: callSid.slice(0, 12) + "…",
         mediaFormat: start && start.mediaFormat,
-        callerFromStreamParam: callerFromStream || null,
-        dialedToStreamParam: callerIdForDial || null,
+        streamFromParameter: callerFromStream || null,
+        streamToParameter: streamToFromTwilio || null,
+        callerIdUsedForTransfer: callerIdForDial || null,
       });
 
       latRef = {
@@ -704,7 +712,8 @@ wss.on("connection", (twilioWs, req) => {
                 try {
                   const client = twilio(sid, tok);
                   const call = await client.calls(callSid).fetch();
-                  callerIdForDial = call.to || call.from || "";
+                  /** Inbound parent: `from` is the PSTN caller; `to` is your Twilio number. */
+                  callerIdForDial = call.from || call.to || "";
                 } catch (e) {
                   console.warn("[realtime-bridge] fetch call for callerId:", e);
                 }
@@ -737,7 +746,7 @@ wss.on("connection", (twilioWs, req) => {
               console.log("[realtime-bridge][isolation] route_call_requested_transfer_SUPPRESSED", {
                 callSid: callSid.slice(0, 12) + "…",
                 callerFromStreamParameter: callerFromStream || null,
-                streamToParameter: callerIdForDial || null,
+                streamToParameter: streamToFromTwilio || null,
                 intent,
                 summaryPreview: summary.slice(0, 400),
                 wouldBeTwilioAction: wouldBe.twilioAction,

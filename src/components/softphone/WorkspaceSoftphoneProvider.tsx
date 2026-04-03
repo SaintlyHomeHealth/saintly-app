@@ -94,7 +94,20 @@ function formatInboundCallerFromRaw(raw: string): string {
   if (digits.length >= 10) {
     return formatPhoneNumber(raw);
   }
-  return raw.trim() || "Unknown caller";
+  if (!raw.trim()) return "Unknown caller";
+  /** Avoid showing Twilio/SDK garbage (e.g. partial DID fragments like "86"). */
+  return "Caller ID unavailable";
+}
+
+/** Best-effort PSTN / CLI for an incoming Twilio Client leg (SDK `parameters`). */
+function readIncomingCallerRawFromCall(call: Call): string {
+  const toParam = readTwilioParam(call, ["To"]) ?? "";
+  let raw =
+    readTwilioParam(call, ["From", "ForwardedFrom", "CallerId", "RemoteNumber"]) ?? "";
+  if (!raw.trim() && toParam && !toParam.toLowerCase().startsWith("client:")) {
+    raw = toParam;
+  }
+  return raw.trim();
 }
 
 export function WorkspaceSoftphoneProvider({ children }: { children: React.ReactNode }) {
@@ -169,10 +182,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       setIncomingCallerUi(null);
       return;
     }
-    const raw =
-      readTwilioParam(incomingCall, ["From", "CallerId", "RemoteNumber"]) ??
-      readTwilioParam(incomingCall, ["To"]) ??
-      "";
+    const raw = readIncomingCallerRawFromCall(incomingCall);
     const formattedNumber = formatInboundCallerFromRaw(raw);
     setIncomingCallerUi({ rawFrom: raw, formattedNumber, contactName: null });
 
@@ -218,9 +228,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
 
   useEffect(() => {
     if (incomingCall) {
-      const fallbackRaw =
-        readTwilioParam(incomingCall, ["From", "CallerId", "RemoteNumber"]) ??
-        readTwilioParam(incomingCall, ["To"]);
+      const fallbackRaw = readIncomingCallerRawFromCall(incomingCall);
       const remoteLabel = incomingCallerUi
         ? incomingCallerUi.contactName
           ? `${incomingCallerUi.contactName} · ${incomingCallerUi.formattedNumber}`

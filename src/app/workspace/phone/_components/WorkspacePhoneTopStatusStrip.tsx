@@ -45,11 +45,17 @@ export function WorkspacePhoneTopStatusStrip({ displayName, inboundRingEnabled }
           <p className="truncate text-xs font-semibold text-slate-700">Signed in: {displayName}</p>
           {ui.remoteLabel ? <p className="truncate text-[11px] text-slate-500">{ui.remoteLabel}</p> : null}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-col items-end gap-1">
           <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold ${status.tone}`}>
             {inboundRingEnabled ? <CircleDot className="h-3.5 w-3.5" strokeWidth={2} /> : <WifiOff className="h-3.5 w-3.5" strokeWidth={2} />}
             {status.label}
           </span>
+          {inboundRingEnabled ? (
+            <p className="max-w-[14rem] text-right text-[10px] leading-snug text-slate-400">
+              Browser softphone: keep this app open. Background or locked mobile usually will not ring (no native
+              incoming-call push).
+            </p>
+          ) : null}
         </div>
       </div>
     </div>
