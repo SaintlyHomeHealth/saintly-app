@@ -14,6 +14,10 @@ export type RealtimeInboundGateSnapshot = {
   realtimeEnabled: boolean;
   allowlistRawLength: number;
   allowlistEntries: string[];
+  /** True when allowlist includes the `*` token (any caller allowed for inbound realtime). */
+  allowlistWildcardEnabled: boolean;
+  /** True when normalized From exactly matches a non-`*` allowlist entry. */
+  allowlistExplicitNumberMatch: boolean;
   fromE164: string;
   fromInAllowlist: boolean;
   shouldUseInbound: boolean;
@@ -59,10 +63,12 @@ export function getRealtimeInboundGateSnapshot(fromE164: string): RealtimeInboun
   const allowRaw = process.env.TWILIO_VOICE_REALTIME_ALLOWLIST?.trim() ?? "";
   const allowlistEntries = parseAllowlistEntries(allowRaw);
   const fromNormalized = fromE164.trim();
-  const allowAll = allowlistEntries.includes("*");
+  const allowlistWildcardEnabled = allowlistEntries.includes("*");
+  const entriesWithoutWildcard = allowlistEntries.filter((e) => e !== "*");
+  const allowlistExplicitNumberMatch = entriesWithoutWildcard.includes(fromNormalized);
   const fromInAllowlist =
     allowlistEntries.length > 0 &&
-    (allowAll || allowlistEntries.includes(fromNormalized));
+    (allowlistWildcardEnabled || allowlistEntries.includes(fromNormalized));
   const shouldUseInbound = shouldUseTwilioVoiceRealtimeInbound(fromNormalized);
   return {
     streamUrlTrimmed,
@@ -71,6 +77,8 @@ export function getRealtimeInboundGateSnapshot(fromE164: string): RealtimeInboun
     realtimeEnabled,
     allowlistRawLength: allowRaw.length,
     allowlistEntries,
+    allowlistWildcardEnabled,
+    allowlistExplicitNumberMatch,
     fromE164: fromNormalized,
     fromInAllowlist,
     shouldUseInbound,

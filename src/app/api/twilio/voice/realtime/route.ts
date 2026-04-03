@@ -74,6 +74,42 @@ function realtimeInboundSkipReasons(s: RealtimeInboundGateSnapshot): string[] {
 }
 
 /**
+ * Single log line to diff per caller: TwiML branch + allowlist snapshot (behavior unchanged).
+ */
+function logCallerBranch(input: {
+  twimlResponse:
+    | "connect_stream"
+    | "redirect_post_ai_answer"
+    | "hangup_fail_closed"
+    | "hangup_missing_required_fields"
+    | "twiml_say_missing_required_fields"
+    | "twiml_say_missing_public_base";
+  gateSnap: RealtimeInboundGateSnapshot;
+  callSid: string;
+  callerFromRaw: string;
+  to?: string;
+  skipReasons?: string[];
+  extra?: Record<string, unknown>;
+}): void {
+  const { gateSnap, extra, skipReasons, ...rest } = input;
+  console.log("[twilio/voice/realtime][caller-branch]", {
+    ...rest,
+    callSid: shortCallSid(input.callSid),
+    callerNormalized: gateSnap.fromE164,
+    allowlistEntries: gateSnap.allowlistEntries,
+    allowlistWildcardEnabled: gateSnap.allowlistWildcardEnabled,
+    allowlistExplicitNumberMatch: gateSnap.allowlistExplicitNumberMatch,
+    allowlistMatch: gateSnap.fromInAllowlist,
+    shouldUseInbound: gateSnap.shouldUseInbound,
+    useRealtime: gateSnap.useRealtime,
+    realtimeEnabledEnv: gateSnap.realtimeEnabled,
+    streamUrlPresent: gateSnap.streamUrlPresent,
+    skipReasons: skipReasons ?? realtimeInboundSkipReasons(gateSnap),
+    ...extra,
+  });
+}
+
+/**
  * OpenAI Realtime entry: returns TwiML that connects a bidirectional Media Stream to your bridge WSS URL.
  * Fallback: normally Redirect to {@link ../ai-answer/route.ts}; when {@link TWILIO_REALTIME_ISOLATION_FAIL_CLOSED}
  * is true, returns Hangup instead (temporary isolation test).
@@ -88,6 +124,7 @@ export async function POST(req: NextRequest) {
   }
 
   const params = parsed.params;
+  const callerFromRaw = typeof params.From === "string" ? params.From : "";
   const callSid = params.CallSid?.trim();
   const from = params.From?.trim();
   const to = params.To?.trim();
@@ -102,6 +139,22 @@ export async function POST(req: NextRequest) {
       from: from || null,
       to: to || null,
       isolationFailClosed: TWILIO_REALTIME_ISOLATION_FAIL_CLOSED,
+    });
+    const gateSnapPartial = getRealtimeInboundGateSnapshot(from || "");
+    logCallerBranch({
+      twimlResponse: TWILIO_REALTIME_ISOLATION_FAIL_CLOSED
+        ? "hangup_missing_required_fields"
+        : "twiml_say_missing_required_fields",
+      gateSnap: gateSnapPartial,
+      callSid: callSid || "(no-sid)",
+      callerFromRaw,
+      to: to || undefined,
+      skipReasons: realtimeInboundSkipReasons(gateSnapPartial),
+      extra: {
+        hadCallSid: Boolean(callSid),
+        hadFrom: Boolean(from),
+        hadTo: Boolean(to),
+      },
     });
     const xml = TWILIO_REALTIME_ISOLATION_FAIL_CLOSED
       ? TWIML_HANGUP
@@ -176,6 +229,20 @@ export async function POST(req: NextRequest) {
       streamUrlHost: streamFields.streamUrlHost,
       streamUrlPath: streamFields.streamUrlPath,
     });
+    logCallerBranch({
+      twimlResponse: "connect_stream",
+      gateSnap,
+      callSid,
+      callerFromRaw,
+      to,
+      skipReasons: [],
+      extra: {
+        twimlHasConnect,
+        twimlHasStream,
+        streamUrlHost: streamFields.streamUrlHost,
+        streamUrlPath: streamFields.streamUrlPath,
+      },
+    });
     return new NextResponse(twiml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
   }
 
@@ -196,6 +263,15 @@ export async function POST(req: NextRequest) {
       skipReasons,
       hadPublicBase: Boolean(publicBase),
     });
+    logCallerBranch({
+      twimlResponse: "hangup_fail_closed",
+      gateSnap,
+      callSid,
+      callerFromRaw,
+      to,
+      skipReasons,
+      extra: { hadPublicBase: Boolean(publicBase) },
+    });
     return new NextResponse(TWIML_HANGUP, {
       status: 200,
       headers: { "Content-Type": "text/xml; charset=utf-8" },
@@ -213,6 +289,14 @@ export async function POST(req: NextRequest) {
     const xml = `<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna">${escapeXml(
       "Our phone system URL is not configured. Please try again later."
     )}</Say></Response>`;
+    logCallerBranch({
+      twimlResponse: "twiml_say_missing_public_base",
+      gateSnap,
+      callSid,
+      callerFromRaw,
+      to,
+      skipReasons,
+    });
     return new NextResponse(xml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
   }
 
@@ -223,6 +307,15 @@ export async function POST(req: NextRequest) {
     allowlistNormalizedEntries: gateSnap.allowlistEntries,
     skipReasons,
     redirectUrl: `${publicBase}/api/twilio/voice/ai-answer`,
+  });
+  logCallerBranch({
+    twimlResponse: "redirect_post_ai_answer",
+    gateSnap,
+    callSid,
+    callerFromRaw,
+    to,
+    skipReasons,
+    extra: { redirectUrl: `${publicBase}/api/twilio/voice/ai-answer` },
   });
   const xml = `<?xml version="1.0" encoding="UTF-8"?><Response><Redirect method="POST">${escapeXml(
     `${publicBase}/api/twilio/voice/ai-answer`
