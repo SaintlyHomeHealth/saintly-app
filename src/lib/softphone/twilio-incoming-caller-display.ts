@@ -52,6 +52,11 @@ export function collectPstnCallerCandidatesFromCall(call: {
       const v = custom.get(k) ?? custom.get(k.toLowerCase());
       if (v?.trim()) out.push(v.trim());
     }
+    /** Any custom value that looks like full PSTN (handles SDK key casing differences). */
+    for (const v of custom.values()) {
+      const t = (v ?? "").trim();
+      if (t && normalizePhone(t).length >= 10) out.push(t);
+    }
   }
   return out;
 }

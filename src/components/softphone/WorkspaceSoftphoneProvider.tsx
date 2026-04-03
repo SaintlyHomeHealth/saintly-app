@@ -62,6 +62,27 @@ type Ctx = {
 
 const WorkspaceSoftphoneContext = createContext<Ctx | null>(null);
 
+/** Reuse AI-assist PSTN/name if the Twilio Client transfer leg drops CLI (until TwiML params apply). */
+const ASSIST_HANDOFF_SNAPSHOT_TTL_MS = 120_000;
+
+type AssistHandoffSnapshot = { raw: string; contactName: string | null; savedAt: number };
+
+function mergeRawWithAssistSnapshot(
+  rawFromCall: string,
+  snapshot: AssistHandoffSnapshot | null,
+  nowMs: number
+): string {
+  if (normalizePhone(rawFromCall).length >= 10) return rawFromCall;
+  if (
+    snapshot &&
+    nowMs - snapshot.savedAt < ASSIST_HANDOFF_SNAPSHOT_TTL_MS &&
+    normalizePhone(snapshot.raw).length >= 10
+  ) {
+    return snapshot.raw;
+  }
+  return rawFromCall;
+}
+
 function readTwilioParam(
   call: { parameters?: Record<string, string> } | null | undefined,
   keys: string[]
@@ -114,6 +135,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
   const activeCallRef = useRef<CallHandle | null>(null);
   const ringtoneAudioRef = useRef<HTMLAudioElement | null>(null);
   const testRingtoneStopRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const assistHandoffSnapshotRef = useRef<AssistHandoffSnapshot | null>(null);
 
   useEffect(() => {
     if (!callStartedAtMs) {
@@ -165,13 +187,38 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
   }, []);
 
   useEffect(() => {
+    if (!inboundAiAssist?.rawFrom || normalizePhone(inboundAiAssist.rawFrom).length < 10) {
+      return;
+    }
+    assistHandoffSnapshotRef.current = {
+      raw: inboundAiAssist.rawFrom,
+      contactName: inboundAiAssist.contactName ?? null,
+      savedAt: Date.now(),
+    };
+  }, [inboundAiAssist]);
+
+  useEffect(() => {
     if (!incomingCall) {
       setIncomingCallerUi(null);
       return;
     }
-    const raw = readIncomingCallerRawFromCall(incomingCall);
+    const now = Date.now();
+    const raw = mergeRawWithAssistSnapshot(
+      readIncomingCallerRawFromCall(incomingCall),
+      assistHandoffSnapshotRef.current,
+      now
+    );
+    const snap = assistHandoffSnapshotRef.current;
+    const snapMatches =
+      Boolean(snap) &&
+      now - snap.savedAt < ASSIST_HANDOFF_SNAPSHOT_TTL_MS &&
+      normalizePhone(snap.raw).length >= 10 &&
+      normalizePhone(snap.raw) === normalizePhone(raw) &&
+      normalizePhone(raw).length >= 10;
+    const seededContactName = snapMatches ? snap.contactName : null;
+
     const formattedNumber = formatInboundCallerFromRaw(raw);
-    setIncomingCallerUi({ rawFrom: raw, formattedNumber, contactName: null });
+    setIncomingCallerUi({ rawFrom: raw, formattedNumber, contactName: seededContactName });
 
     const lower = raw.toLowerCase();
     const digits = normalizePhone(raw);
@@ -215,7 +262,11 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
 
   useEffect(() => {
     if (incomingCall) {
-      const raw = readIncomingCallerRawFromCall(incomingCall);
+      const raw = mergeRawWithAssistSnapshot(
+        readIncomingCallerRawFromCall(incomingCall),
+        assistHandoffSnapshotRef.current,
+        Date.now()
+      );
       const uiMatches = Boolean(incomingCallerUi && incomingCallerUi.rawFrom === raw);
       const formatted =
         uiMatches && incomingCallerUi?.formattedNumber
@@ -230,8 +281,12 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       const active = activeCallRef.current;
       let remote: string | null = null;
       if (active) {
-        const pstnRaw = readIncomingCallerRawFromCall(active);
-        if (pstnRaw) {
+        const pstnRaw = mergeRawWithAssistSnapshot(
+          readIncomingCallerRawFromCall(active),
+          assistHandoffSnapshotRef.current,
+          Date.now()
+        );
+        if (normalizePhone(pstnRaw).length >= 10) {
           remote = formatInboundCallerFromRaw(pstnRaw);
         } else {
           const tf = readTwilioParam(active, ["To", "From"]);
@@ -538,11 +593,16 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
   const value = useMemo<Ctx>(() => {
     let activeRemoteLabel: string | null = null;
     if (status === "in_call") {
-      /* eslint-disable react-hooks/refs -- Twilio `Call.parameters` only exist on the live SDK instance held in this ref */
+      /* eslint-disable react-hooks/purity -- snapshot TTL uses wall clock inside useMemo */
+      const now = Date.now();
       const active = activeCallRef.current;
       if (active) {
-        const pstnRaw = readIncomingCallerRawFromCall(active);
-        if (pstnRaw) {
+        const pstnRaw = mergeRawWithAssistSnapshot(
+          readIncomingCallerRawFromCall(active),
+          assistHandoffSnapshotRef.current,
+          now
+        );
+        if (normalizePhone(pstnRaw).length >= 10) {
           activeRemoteLabel = formatInboundCallerFromRaw(pstnRaw);
         } else {
           const tf = readTwilioParam(active, ["To", "From"]);
@@ -553,7 +613,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
           }
         }
       }
-      /* eslint-enable react-hooks/refs */
+      /* eslint-enable react-hooks/purity */
       if (!activeRemoteLabel) {
         activeRemoteLabel = digits.trim() ? formatDialpadDisplay(digits) : null;
       }

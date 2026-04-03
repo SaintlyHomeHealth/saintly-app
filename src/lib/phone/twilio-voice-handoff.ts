@@ -1,3 +1,4 @@
+import { normalizePhone } from "@/lib/phone/us-phone-format";
 import {
   resolveBrowserFirstRingTimeoutSeconds,
   resolveInboundBrowserStaffUserIdsAsync,
@@ -12,6 +13,20 @@ function escapeXml(text: string): string {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+/**
+ * Twilio requires `<Identity>` inside `<Client>` when using `<Parameter>` (Voice TwiML).
+ * `pstn_from` is read by the browser SDK as `call.customParameters` so AI → browser transfers keep PSTN CLI.
+ */
+function clientDialNounXml(identity: string, pstnCallerIdForDial: string): string {
+  const idEsc = escapeXml(identity);
+  const pstn = pstnCallerIdForDial.trim();
+  const param =
+    pstn && normalizePhone(pstn).length >= 10
+      ? `<Parameter name="pstn_from" value="${escapeXml(pstn)}" />`
+      : "";
+  return `<Client><Identity>${idEsc}</Identity>${param}</Client>`;
 }
 
 const DEFAULT_TWILIO_VOICE_RING_TIMEOUT_SECONDS = 22;
@@ -73,7 +88,7 @@ export async function buildVoiceHandoffTwiml(input: {
       : ` answerOnBridge="true" timeout="${browserRingSec}" callerId="${escapeXml(callerId)}"`;
 
     const clientBodies = inboundBrowserStaffIds
-      .map((id) => `<Client>${escapeXml(softphoneTwilioClientIdentity(id))}</Client>`)
+      .map((id) => clientDialNounXml(softphoneTwilioClientIdentity(id), callerId))
       .join("");
 
     return `<?xml version="1.0" encoding="UTF-8"?>
