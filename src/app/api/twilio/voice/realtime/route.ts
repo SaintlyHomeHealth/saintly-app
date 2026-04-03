@@ -12,10 +12,9 @@ import {
 import { parseVerifiedTwilioFormBody } from "@/lib/twilio/verify-form-post";
 
 /**
- * TEMPORARY ISOLATION TEST — revert to `false` after verifying Twilio ↔ bridge Media Stream.
- * When true: gate-fail does NOT redirect to ai-answer (Hangup only — no ring/voicemail via that path).
+ * Isolation test: when true, gate-fail returns Hangup (no ai-answer). Keep false in production.
  */
-const TWILIO_REALTIME_ISOLATION_FAIL_CLOSED = true;
+const TWILIO_REALTIME_ISOLATION_FAIL_CLOSED = false;
 
 const TWIML_HANGUP = `<?xml version="1.0" encoding="UTF-8"?><Response><Hangup/></Response>`;
 

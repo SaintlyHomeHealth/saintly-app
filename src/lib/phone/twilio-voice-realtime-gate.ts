@@ -1,6 +1,9 @@
 /**
  * Opt-in OpenAI Realtime voice path. Default off unless enabled + allowlisted From numbers.
  * Does not change main /api/twilio/voice unless that route is wired to redirect here.
+ *
+ * Allowlist: comma-separated E.164 numbers, or include `*` alone (or with commas) to allow any
+ * caller while TWILIO_VOICE_REALTIME_ENABLED=true — use `*` only for short-lived testing.
  */
 
 export type RealtimeInboundGateSnapshot = {
@@ -17,6 +20,13 @@ export type RealtimeInboundGateSnapshot = {
   useRealtime: boolean;
 };
 
+function parseAllowlistEntries(allowRaw: string): string[] {
+  return allowRaw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
 export function shouldUseTwilioVoiceRealtimeInbound(fromE164: string): boolean {
   if (process.env.TWILIO_VOICE_REALTIME_ENABLED?.trim() !== "true") {
     return false;
@@ -26,13 +36,11 @@ export function shouldUseTwilioVoiceRealtimeInbound(fromE164: string): boolean {
     return false;
   }
   const from = fromE164.trim();
-  const allowed = new Set(
-    allow
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean)
-  );
-  return allowed.has(from);
+  const entries = parseAllowlistEntries(allow);
+  if (entries.includes("*")) {
+    return true;
+  }
+  return entries.includes(from);
 }
 
 export function resolveTwilioRealtimeMediaStreamWssUrl(): string {
@@ -49,12 +57,12 @@ export function getRealtimeInboundGateSnapshot(fromE164: string): RealtimeInboun
     streamUrlTrimmed.length > 0 && /^wss:\/\/.+/i.test(streamUrlTrimmed);
   const realtimeEnabled = process.env.TWILIO_VOICE_REALTIME_ENABLED?.trim() === "true";
   const allowRaw = process.env.TWILIO_VOICE_REALTIME_ALLOWLIST?.trim() ?? "";
-  const allowlistEntries = allowRaw
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
+  const allowlistEntries = parseAllowlistEntries(allowRaw);
   const fromNormalized = fromE164.trim();
-  const fromInAllowlist = allowlistEntries.length > 0 && allowlistEntries.includes(fromNormalized);
+  const allowAll = allowlistEntries.includes("*");
+  const fromInAllowlist =
+    allowlistEntries.length > 0 &&
+    (allowAll || allowlistEntries.includes(fromNormalized));
   const shouldUseInbound = shouldUseTwilioVoiceRealtimeInbound(fromNormalized);
   return {
     streamUrlTrimmed,
