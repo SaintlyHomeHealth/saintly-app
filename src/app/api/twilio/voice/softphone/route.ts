@@ -30,14 +30,12 @@ export async function POST(req: NextRequest) {
   const fromRaw = params.From?.trim();
   const toRaw = params.To?.trim();
 
-  /**
-   * Inbound leg to a Twilio Voice JS **Client** (e.g. parent call used `<Dial><Client>saintly_…</Client></Dial>`).
-   * Must not run outbound PSTN TwiML. Empty Response bridges the audio; if this URL were the main `/api/twilio/voice`
-   * AI entry, the caller would get a second Media Stream / AI session.
-   */
   if (toRaw?.toLowerCase().startsWith("client:")) {
     const xml = `<?xml version="1.0" encoding="UTF-8"?><Response></Response>`;
-    return new NextResponse(xml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
+    return new NextResponse(xml, {
+      status: 200,
+      headers: { "Content-Type": "text/xml; charset=utf-8" },
+    });
   }
 
   if (!callSid || !fromRaw) {
@@ -58,11 +56,12 @@ export async function POST(req: NextRequest) {
     return new NextResponse(xml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
   }
 
-  if (!toRaw || !isValidE164(toRaw)) {
-    const xml = `<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna">${escapeXml(
-      INVALID_NUMBER
-    )}</Say></Response>`;
-    return new NextResponse(xml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
+  if (toRaw?.toLowerCase().startsWith("client:")) {
+    const xml = `<?xml version="1.0" encoding="UTF-8"?><Response></Response>`;
+    return new NextResponse(xml, {
+      status: 200,
+      headers: { "Content-Type": "text/xml; charset=utf-8" },
+    });
   }
 
   const staffUserId = parseStaffUserIdFromTwilioClientFrom(fromRaw);
