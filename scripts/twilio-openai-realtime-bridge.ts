@@ -266,6 +266,10 @@ function sendSessionUpdate(oai: WebSocket): void {
   oai.send(JSON.stringify(msg));
 }
 
+/**
+ * Raw `http.createServer` only — no Express/Next. Twilio Media Streams use HTTP Upgrade on this
+ * process; `server.on("upgrade")` must run here or connections never reach `ws`.
+ */
 const server = http.createServer((_req, res) => {
   res.writeHead(200, { "Content-Type": "text/plain" });
   res.end("Twilio OpenAI Realtime bridge — use WebSocket upgrade\n");
@@ -276,6 +280,24 @@ server.on("error", (err) => {
 });
 
 const wss = new WebSocketServer({ noServer: true });
+
+function socketRemoteAddress(socket: unknown): string | undefined {
+  if (
+    socket &&
+    typeof socket === "object" &&
+    "remoteAddress" in socket &&
+    typeof (socket as { remoteAddress: unknown }).remoteAddress === "string"
+  ) {
+    return (socket as { remoteAddress: string }).remoteAddress;
+  }
+  return undefined;
+}
+
+function normalizeWsPath(pathname: string): string {
+  const p = pathname.trim();
+  if (!p || p === "/") return "/";
+  return p.replace(/\/+$/, "") || "/";
+}
 
 function wsPathFromRequest(req: http.IncomingMessage): string {
   try {
@@ -573,24 +595,88 @@ wss.on("connection", (twilioWs, req) => {
 });
 
 server.on("upgrade", (request, socket, head) => {
-  try {
-    const host = request.headers.host || "localhost";
-    const u = new URL(request.url || "/", `http://${host}`);
-    if (u.pathname !== WS_PATH) {
-      socket.destroy();
-      return;
-    }
-  } catch {
+  const rawUrl = request.url ?? "";
+
+  console.log("[realtime-bridge] http_upgrade_received", {
+    method: request.method,
+    rawUrl,
+    upgrade: request.headers.upgrade,
+    connection: request.headers.connection,
+    remoteAddress: socketRemoteAddress(socket),
+  });
+
+  const upgradeHdr = String(request.headers.upgrade || "").toLowerCase();
+  if (upgradeHdr !== "websocket") {
+    console.warn("[realtime-bridge] http_upgrade_rejected", {
+      reason: "upgrade_header_not_websocket",
+      upgrade: request.headers.upgrade,
+      rawUrl,
+    });
     socket.destroy();
     return;
   }
 
-  wss.handleUpgrade(request, socket, head, (ws) => {
-    console.log("[realtime-bridge][diag] http_upgrade_accepted_for_twilio_stream", {
-      path: wsPathFromRequest(request),
+  let pathname = "";
+  try {
+    const host = request.headers.host || "localhost";
+    pathname = new URL(rawUrl || "/", `http://${host}`).pathname;
+  } catch (e) {
+    console.warn("[realtime-bridge] http_upgrade_rejected", {
+      reason: "url_parse_error",
+      rawUrl,
+      error: e instanceof Error ? e.message : String(e),
     });
-    wss.emit("connection", ws, request);
+    socket.destroy();
+    return;
+  }
+
+  const expectedNorm = normalizeWsPath(WS_PATH);
+  const gotNorm = normalizeWsPath(pathname);
+
+  console.log("[realtime-bridge] http_upgrade_path", {
+    pathname,
+    pathnameNormalized: gotNorm,
+    expectedPath: WS_PATH,
+    expectedNormalized: expectedNorm,
+    rawUrl,
   });
+
+  if (gotNorm !== expectedNorm) {
+    console.warn("[realtime-bridge] http_upgrade_rejected", {
+      reason: "path_mismatch_not_twilio_stream",
+      pathname,
+      pathnameNormalized: gotNorm,
+      expectedPath: WS_PATH,
+      expectedNormalized: expectedNorm,
+      rawUrl,
+    });
+    socket.destroy();
+    return;
+  }
+
+  try {
+    wss.handleUpgrade(request, socket, head, (ws) => {
+      console.log("[realtime-bridge] upgrade_accepted_for_twilio_stream", {
+        pathname,
+        rawUrl,
+        remoteAddress: socketRemoteAddress(socket),
+      });
+      wss.emit("connection", ws, request);
+    });
+  } catch (err) {
+    console.error("[realtime-bridge] http_upgrade_rejected", {
+      reason: "handleUpgrade_threw",
+      rawUrl,
+      pathname,
+      error: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack : undefined,
+    });
+    try {
+      socket.destroy();
+    } catch {
+      /* ignore */
+    }
+  }
 });
 
 process.on("uncaughtException", (err, origin) => {
