@@ -23,7 +23,7 @@ export function buildRealtimeConnectStreamTwiml(input: {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Connect>
-    <Stream url="${url}" track="both_tracks"${statusAttr}>
+    <Stream url="${url}"${statusAttr}>
       <Parameter name="to" value="{{To}}" />
       <Parameter name="from" value="{{From}}" />
     </Stream>
