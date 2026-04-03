@@ -11,6 +11,14 @@ import {
 } from "@/lib/phone/twilio-voice-realtime-gate";
 import { parseVerifiedTwilioFormBody } from "@/lib/twilio/verify-form-post";
 
+/**
+ * TEMPORARY ISOLATION TEST — revert to `false` after verifying Twilio ↔ bridge Media Stream.
+ * When true: gate-fail does NOT redirect to ai-answer (Hangup only — no ring/voicemail via that path).
+ */
+const TWILIO_REALTIME_ISOLATION_FAIL_CLOSED = true;
+
+const TWIML_HANGUP = `<?xml version="1.0" encoding="UTF-8"?><Response><Hangup/></Response>`;
+
 function escapeXml(text: string): string {
   return text
     .replace(/&/g, "&amp;")
@@ -31,11 +39,16 @@ function shortCallSid(callSid: string): string {
   return callSid.length > 12 ? `${callSid.slice(0, 12)}…` : callSid;
 }
 
-function streamUrlLogFields(streamUrlTrimmed: string): { streamUrlLength: number; streamUrlHost?: string } {
+function streamUrlLogFields(streamUrlTrimmed: string): {
+  streamUrlLength: number;
+  streamUrlHost?: string;
+  streamUrlPath?: string;
+} {
   if (!streamUrlTrimmed) return { streamUrlLength: 0 };
   try {
     const u = new URL(streamUrlTrimmed);
-    return { streamUrlLength: streamUrlTrimmed.length, streamUrlHost: u.host };
+    const streamUrlPath = `${u.pathname}${u.search}`;
+    return { streamUrlLength: streamUrlTrimmed.length, streamUrlHost: u.host, streamUrlPath };
   } catch {
     return { streamUrlLength: streamUrlTrimmed.length };
   }
@@ -63,7 +76,8 @@ function realtimeInboundSkipReasons(s: RealtimeInboundGateSnapshot): string[] {
 
 /**
  * OpenAI Realtime entry: returns TwiML that connects a bidirectional Media Stream to your bridge WSS URL.
- * Fallback: Redirect to Gather-based {@link ../ai-answer/route.ts} when disabled, ungated, or missing stream URL.
+ * Fallback: normally Redirect to {@link ../ai-answer/route.ts}; when {@link TWILIO_REALTIME_ISOLATION_FAIL_CLOSED}
+ * is true, returns Hangup instead (temporary isolation test).
  *
  * Twilio Console: optional Voice webhook POST to `{PUBLIC_BASE}/api/twilio/voice/realtime`
  * (does not replace `/api/twilio/voice` unless you configure it that way).
@@ -88,8 +102,11 @@ export async function POST(req: NextRequest) {
       callSid: callSid ? shortCallSid(callSid) : null,
       from: from || null,
       to: to || null,
+      isolationFailClosed: TWILIO_REALTIME_ISOLATION_FAIL_CLOSED,
     });
-    const xml = `<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna">We are sorry, this call could not be connected.</Say></Response>`;
+    const xml = TWILIO_REALTIME_ISOLATION_FAIL_CLOSED
+      ? TWIML_HANGUP
+      : `<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna">We are sorry, this call could not be connected.</Say></Response>`;
     return new NextResponse(xml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
   }
 
@@ -125,12 +142,22 @@ export async function POST(req: NextRequest) {
   const skipReasons = realtimeInboundSkipReasons(gateSnap);
 
   if (useRealtime) {
+    const streamFields = streamUrlLogFields(gateSnap.streamUrlTrimmed);
+    console.log("[twilio/voice/realtime][diag][isolation] ENTERING_REALTIME_BRANCH", {
+      callSid: shortCallSid(callSid),
+      from: gateSnap.fromE164,
+      to,
+      allowlistMatch: gateSnap.fromInAllowlist,
+      streamUrlHost: streamFields.streamUrlHost,
+      streamUrlPath: streamFields.streamUrlPath,
+      streamUrlLength: streamFields.streamUrlLength,
+    });
     if (!gateSnap.streamUrlValidWssFormat) {
       console.warn("[twilio/voice/realtime][diag] PATH=connect_stream WARNING_stream_url_not_wss", {
         callSid: shortCallSid(callSid),
         from: gateSnap.fromE164,
         allowlistMatch: gateSnap.fromInAllowlist,
-        ...streamUrlLogFields(gateSnap.streamUrlTrimmed),
+        ...streamFields,
       });
     }
     const statusCallbackUrl = publicBase ? `${publicBase}/api/twilio/voice/status` : "";
@@ -138,12 +165,17 @@ export async function POST(req: NextRequest) {
       streamWssUrl: streamWss,
       statusCallbackUrl: statusCallbackUrl || undefined,
     });
-    console.log("[twilio/voice/realtime][diag] PATH=connect_stream", {
+    const twimlHasConnect = twiml.includes("<Connect>");
+    const twimlHasStream = /<Stream\s/i.test(twiml);
+    console.log("[twilio/voice/realtime][diag][isolation] RETURNING_CONNECT_STREAM_TWIML", {
       callSid: shortCallSid(callSid),
       from: gateSnap.fromE164,
-      allowlistMatch: gateSnap.fromInAllowlist,
-      realtimeEnabled: gateSnap.realtimeEnabled,
-      ...streamUrlLogFields(gateSnap.streamUrlTrimmed),
+      returnedConnectStreamTwiml: true,
+      twimlHasConnect,
+      twimlHasStream,
+      twimlUtf8ByteLength: new TextEncoder().encode(twiml).length,
+      streamUrlHost: streamFields.streamUrlHost,
+      streamUrlPath: streamFields.streamUrlPath,
     });
     return new NextResponse(twiml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
   }
@@ -157,6 +189,19 @@ export async function POST(req: NextRequest) {
     realtimeEnabled: gateSnap.realtimeEnabled,
     ...streamUrlLogFields(gateSnap.streamUrlTrimmed),
   });
+
+  if (TWILIO_REALTIME_ISOLATION_FAIL_CLOSED) {
+    console.warn("[twilio/voice/realtime][diag][isolation] FAIL_CLOSED_HANGUP_no_ai_answer_redirect", {
+      callSid: shortCallSid(callSid),
+      from: gateSnap.fromE164,
+      skipReasons,
+      hadPublicBase: Boolean(publicBase),
+    });
+    return new NextResponse(TWIML_HANGUP, {
+      status: 200,
+      headers: { "Content-Type": "text/xml; charset=utf-8" },
+    });
+  }
 
   if (!publicBase) {
     console.warn("[twilio/voice/realtime][diag] FALLBACK=twiml_say_missing_public_base", {

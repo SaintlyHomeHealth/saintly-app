@@ -167,12 +167,28 @@ const server = http.createServer((_req, res) => {
 
 const wss = new WebSocketServer({ noServer: true });
 
+function wsPathFromRequest(req: http.IncomingMessage): string {
+  try {
+    const host = req.headers.host || "localhost";
+    return new URL(req.url || "/", `http://${host}`).pathname;
+  } catch {
+    return req.url || "";
+  }
+}
+
 wss.on("connection", (twilioWs, req) => {
+  const reqPath = wsPathFromRequest(req);
+  console.log("[realtime-bridge][diag] twilio_websocket_client_connected", {
+    path: reqPath,
+    remoteAddress: req.socket.remoteAddress,
+  });
+
   let streamSid: string | null = null;
   let callSid: string | null = null;
   let callerIdForDial = "";
   let oai: WebSocket | null = null;
   let routed = false;
+  let firstTwilioMediaLogged = false;
 
   const safeClose = () => {
     try {
@@ -198,6 +214,9 @@ wss.on("connection", (twilioWs, req) => {
     const event = typeof msg.event === "string" ? msg.event : "";
 
     if (event === "connected") {
+      console.log("[realtime-bridge][diag] twilio_connected_event", {
+        streamSid: typeof msg.streamSid === "string" ? msg.streamSid : null,
+      });
       return;
     }
 
@@ -219,8 +238,19 @@ wss.on("connection", (twilioWs, req) => {
         return;
       }
 
+      console.log("[realtime-bridge][diag] twilio_start_event_received", {
+        streamSid,
+        callSid: callSid.slice(0, 12) + "…",
+        mediaFormat: start && start.mediaFormat,
+      });
+
       oai = connectOpenAi();
       oai.on("open", () => {
+        console.log("[realtime-bridge][diag] openai_realtime_session_ws_open", {
+          callSid: callSid!.slice(0, 12) + "…",
+          streamSid,
+          model: MODEL,
+        });
         sendSessionUpdate(oai!);
       });
 
@@ -311,21 +341,44 @@ wss.on("connection", (twilioWs, req) => {
         }
 
         if (type === "error") {
-          console.error("[realtime-bridge] OpenAI error:", JSON.stringify(ev).slice(0, 500));
+          console.error(
+            "[realtime-bridge][diag] openai_connection_or_session_error",
+            JSON.stringify(ev).slice(0, 800)
+          );
         }
       });
 
       oai.on("error", (err) => {
-        console.error("[realtime-bridge] OpenAI WS error:", err);
+        console.error("[realtime-bridge][diag] openai_websocket_error", err);
       });
 
-      oai.on("close", () => {
+      oai.on("close", (code, reason) => {
+        console.log("[realtime-bridge][diag] openai_websocket_closed", {
+          code,
+          reason: String(reason),
+          callSid: callSid?.slice(0, 12) + "…",
+          streamSid,
+        });
         if (twilioWs.readyState === WebSocket.OPEN) {
           twilioWs.close();
         }
       });
 
       return;
+    }
+
+    if (event === "media") {
+      if (!firstTwilioMediaLogged) {
+        firstTwilioMediaLogged = true;
+        const media = msg.media as Record<string, unknown> | undefined;
+        const track = media && typeof media.track === "string" ? media.track : undefined;
+        console.log("[realtime-bridge][diag] twilio_first_media_event_received", {
+          streamSid,
+          callSid: callSid ? callSid.slice(0, 12) + "…" : null,
+          track,
+          oaiReady: Boolean(oai && oai.readyState === WebSocket.OPEN),
+        });
+      }
     }
 
     if (event === "media" && oai && oai.readyState === WebSocket.OPEN) {
@@ -346,12 +399,18 @@ wss.on("connection", (twilioWs, req) => {
     }
   });
 
-  twilioWs.on("close", () => {
+  twilioWs.on("close", (code, reason) => {
+    console.log("[realtime-bridge][diag] twilio_websocket_closed", {
+      code,
+      reason: String(reason),
+      callSid: callSid ? callSid.slice(0, 12) + "…" : null,
+      streamSid,
+    });
     oai?.close();
   });
 
   twilioWs.on("error", (err) => {
-    console.error("[realtime-bridge] Twilio WS error:", err);
+    console.error("[realtime-bridge][diag] twilio_websocket_error", err);
     oai?.close();
   });
 });
@@ -370,6 +429,9 @@ server.on("upgrade", (request, socket, head) => {
   }
 
   wss.handleUpgrade(request, socket, head, (ws) => {
+    console.log("[realtime-bridge][diag] http_upgrade_accepted_for_twilio_stream", {
+      path: wsPathFromRequest(request),
+    });
     wss.emit("connection", ws, request);
   });
 });
