@@ -37,6 +37,13 @@ export async function GET() {
   const inboundRingStaffIds = await resolveInboundBrowserStaffUserIdsAsync();
   const identityInInboundRingList = inboundRingStaffIds.includes(staff.user_id);
 
+  console.log("[softphone/token][debug] minted_identity_compare_to_handoff_Client", {
+    identity,
+    staff_user_id_auth: staff.user_id,
+    staff_profile_pk: staff.id,
+    identity_in_inbound_ring_list: identityInInboundRingList,
+  });
+
   const token = new AccessToken(accountSid, apiKeySid, apiKeySecret, {
     identity,
     ttl: 3600,

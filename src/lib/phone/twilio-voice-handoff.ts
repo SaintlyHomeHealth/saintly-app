@@ -63,11 +63,10 @@ export async function buildVoiceHandoffTwiml(input: {
 
   if (inboundBrowserStaffIds.length > 0 && browserFallbackActionUrl) {
     const clientIdentities = inboundBrowserStaffIds.map((id) => softphoneTwilioClientIdentity(id));
-    console.log("[buildVoiceHandoffTwiml] branch=dial_client", {
-      clientCount: clientIdentities.length,
-      clientSuffixes: clientIdentities.map((c) => (c.length > 10 ? `…${c.slice(-10)}` : c)),
-      twimlContainsClient: true,
-    });
+    console.log(
+      "[buildVoiceHandoffTwiml][debug] handoff_Client_identities_must_match_softphone_token_identity",
+      clientIdentities
+    );
     const browserDialAttrs = publicBase
       ? ` answerOnBridge="true" timeout="${browserRingSec}" callerId="${escapeXml(
           callerId

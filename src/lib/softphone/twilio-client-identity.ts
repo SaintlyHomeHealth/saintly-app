@@ -1,7 +1,7 @@
 const PREFIX = "saintly_";
 
 export function softphoneTwilioClientIdentity(userId: string): string {
-  const id = userId.trim();
+  const id = userId.trim().toLowerCase();
   if (!id) {
     throw new Error("userId is required");
   }

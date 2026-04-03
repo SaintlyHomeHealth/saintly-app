@@ -15,6 +15,9 @@ function parseStaffUserUuid(raw: string): string | null {
  * Reads from `TWILIO_VOICE_INBOUND_STAFF_USER_IDS` and `TWILIO_VOICE_INBOUND_STAFF_USER_ID`, merges
  * unique UUIDs in order (IDs list first, then single ID). Values are comma / semicolon / whitespace separated.
  *
+ * Each value must be a UUID. Prefer **`auth.users.id`** (same as **`staff_profiles.user_id`**). If you pass
+ * **`staff_profiles.id`** by mistake, {@link canonicalizeInboundEnvIdsToAuthUserIds} maps it to `user_id` in the async path.
+ *
  * TwiML: one &lt;Dial&gt; with multiple &lt;Client&gt; nouns — Twilio rings them **simultaneously**;
  * **first to answer** is bridged to the caller (Programmable Voice behavior).
  */
@@ -41,6 +44,54 @@ export function resolveInboundBrowserStaffUserIds(): string[] {
   return out;
 }
 
+/**
+ * Maps env list entries to `staff_profiles.user_id` (auth UUID). Accepts either `user_id` or `staff_profiles.id`.
+ */
+export async function canonicalizeInboundEnvIdsToAuthUserIds(envIds: string[]): Promise<string[]> {
+  if (envIds.length === 0) return [];
+
+  const { data: byUserColumn } = await supabaseAdmin
+    .from("staff_profiles")
+    .select("id, user_id")
+    .in("user_id", envIds);
+
+  const matchedAsAuthUserId = new Set(
+    (byUserColumn ?? [])
+      .map((r) => (typeof r.user_id === "string" ? r.user_id : null))
+      .filter((id): id is string => Boolean(id))
+  );
+  const needProfilePkLookup = envIds.filter((e) => !matchedAsAuthUserId.has(e));
+
+  const { data: byPk } =
+    needProfilePkLookup.length > 0
+      ? await supabaseAdmin.from("staff_profiles").select("id, user_id").in("id", needProfilePkLookup)
+      : { data: [] as { id: string; user_id: string }[] };
+
+  const profilePkToUserId = new Map(
+    (byPk ?? [])
+      .filter((r): r is { id: string; user_id: string } => typeof r.user_id === "string" && Boolean(r.id))
+      .map((r) => [r.id, r.user_id] as const)
+  );
+
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const e of envIds) {
+    let canonical: string;
+    if (matchedAsAuthUserId.has(e)) {
+      canonical = e;
+    } else {
+      const fromPk = profilePkToUserId.get(e);
+      canonical = fromPk ?? e;
+    }
+    const u = parseStaffUserUuid(canonical);
+    if (u && !seen.has(u)) {
+      seen.add(u);
+      out.push(u);
+    }
+  }
+  return out;
+}
+
 function mergeUniqueOrdered(first: string[], second: string[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
@@ -59,7 +110,8 @@ function mergeUniqueOrdered(first: string[], second: string[]): string[] {
  * (active, with login, phone access on). Order: env first, then DB.
  */
 export async function resolveInboundBrowserStaffUserIdsAsync(): Promise<string[]> {
-  const envIds = resolveInboundBrowserStaffUserIds();
+  const envIdsRaw = resolveInboundBrowserStaffUserIds();
+  const envIds = await canonicalizeInboundEnvIdsToAuthUserIds(envIdsRaw);
   const { data, error } = await supabaseAdmin
     .from("staff_profiles")
     .select("user_id")
