@@ -21,6 +21,7 @@
  * Temporary diagnostics:
  *   REALTIME_BRIDGE_SUPPRESS_ROUTE_TRANSFER=false — force-enable transfers (overrides in-code FORCE_DIAG_SUPPRESS_TRANSFER).
  *   REALTIME_BRIDGE_SUPPRESS_ROUTE_TRANSFER=true — suppress transfers (redundant if FORCE_DIAG_SUPPRESS_TRANSFER is true).
+ *   REALTIME_DIAG_RESPONSE_CREATE_ON_CONNECT=false — disable immediate diagnostic greeting after session.update.
  */
 
 import * as http from "node:http";
@@ -40,6 +41,13 @@ const PORT = Number.parseInt(process.env.REALTIME_BRIDGE_PORT || "8080", 10) || 
 const WS_PATH = process.env.REALTIME_WS_PATH?.trim() || "/twilio/realtime-stream";
 
 const HEARTBEAT_MS = Number.parseInt(process.env.REALTIME_BRIDGE_HEARTBEAT_MS || "12000", 10) || 12000;
+
+/**
+ * TEMP diagnostics: send `response.create` right after `session.update` so the assistant speaks without
+ * waiting for caller VAD. Set false after confirming outbound audio path.
+ */
+const REALTIME_DIAG_RESPONSE_CREATE_ON_CONNECT =
+  process.env.REALTIME_DIAG_RESPONSE_CREATE_ON_CONNECT?.trim() !== "false";
 
 /** TODO(isolation): set to false after diagnostics — restores applyTwilioRoute + post-route_call socket close. */
 const FORCE_DIAG_SUPPRESS_TRANSFER = true;
@@ -249,8 +257,46 @@ function connectOpenAi(): WebSocket | null {
   return ws;
 }
 
-function sendSessionUpdate(oai: WebSocket): void {
-  const msg = {
+function truncateForLog(s: string, max: number): string {
+  if (s.length <= max) return s;
+  return `${s.slice(0, max)}… (truncated, total ${s.length} chars)`;
+}
+
+/** Safe copy of session.update for logs (instructions/tools shortened; no secrets in payload). */
+function sessionUpdatePayloadForLog(msg: Record<string, unknown>): Record<string, unknown> {
+  const out = { ...msg };
+  const session = out.session;
+  if (session && typeof session === "object") {
+    const s = { ...(session as Record<string, unknown>) };
+    if (typeof s.instructions === "string") {
+      s.instructions = truncateForLog(s.instructions, 400);
+    }
+    if (Array.isArray(s.tools)) {
+      s.tools = `[${s.tools.length} tool(s) — omitted from log]`;
+    }
+    out.session = s;
+  }
+  return out;
+}
+
+/**
+ * Every OpenAI-bound JSON frame: log immediately before `send`.
+ * Audio append payloads log length only.
+ */
+function sendOpenAiJson(oai: WebSocket, msg: Record<string, unknown>): void {
+  const t = typeof msg.type === "string" ? msg.type : "(missing type)";
+  let payloadForLog: unknown = msg;
+  if (t === "input_audio_buffer.append" && typeof msg.audio === "string") {
+    payloadForLog = { type: t, audio: `[base64 length=${msg.audio.length}]` };
+  } else if (t === "session.update") {
+    payloadForLog = sessionUpdatePayloadForLog(msg);
+  }
+  console.log("[realtime-bridge] openai→outbound", { type: t, payload: payloadForLog });
+  oai.send(JSON.stringify(msg));
+}
+
+function buildSessionUpdateMessage(): Record<string, unknown> {
+  return {
     type: "session.update",
     session: {
       modalities: ["text", "audio"],
@@ -263,7 +309,34 @@ function sendSessionUpdate(oai: WebSocket): void {
       tool_choice: "auto",
     },
   };
-  oai.send(JSON.stringify(msg));
+}
+
+function sendSessionUpdate(oai: WebSocket): void {
+  sendOpenAiJson(oai, buildSessionUpdateMessage());
+}
+
+function logOpenAiInboundLifecycle(ev: Record<string, unknown>): void {
+  const type = typeof ev.type === "string" ? ev.type : "";
+  switch (type) {
+    case "session.created":
+    case "session.updated":
+    case "response.created":
+    case "response.output_item.added":
+    case "response.audio.done":
+    case "response.done":
+      console.log(`[realtime-bridge][oai-lifecycle] ${type}`, JSON.stringify(ev).slice(0, 3500));
+      break;
+    case "response.audio.delta":
+      console.log("[realtime-bridge][oai-lifecycle] response.audio.delta", {
+        deltaBase64Length: typeof ev.delta === "string" ? ev.delta.length : 0,
+      });
+      break;
+    case "error":
+      console.error("[realtime-bridge][oai-lifecycle] error", JSON.stringify(ev).slice(0, 3500));
+      break;
+    default:
+      break;
+  }
 }
 
 /**
@@ -394,7 +467,25 @@ wss.on("connection", (twilioWs, req) => {
           streamSid,
           model: MODEL,
         });
+        console.log("[realtime-bridge][oai] voice_turn_policy", {
+          turn_detection: "server_vad",
+          withoutDiagnosticResponseCreate: {
+            expectsCallerToSpeakFirst: true,
+            assistantSpeaksOnlyAfterVadOrExplicitResponse: true,
+          },
+          REALTIME_DIAG_RESPONSE_CREATE_ON_CONNECT,
+        });
         sendSessionUpdate(oai!);
+        if (REALTIME_DIAG_RESPONSE_CREATE_ON_CONNECT) {
+          sendOpenAiJson(oai!, {
+            type: "response.create",
+            response: {
+              modalities: ["text", "audio"],
+              instructions:
+                "Diagnostic greeting: say one short sentence only — you are Saintly Home Health's phone assistant, then ask how you can help. Keep it under 8 seconds.",
+            },
+          });
+        }
       });
 
       oai.on("message", async (data) => {
@@ -404,6 +495,8 @@ wss.on("connection", (twilioWs, req) => {
         } catch {
           return;
         }
+
+        logOpenAiInboundLifecycle(ev);
 
         const type = typeof ev.type === "string" ? ev.type : "";
 
@@ -518,13 +611,6 @@ wss.on("connection", (twilioWs, req) => {
 
           return;
         }
-
-        if (type === "error") {
-          console.error(
-            "[realtime-bridge][diag] openai_connection_or_session_error",
-            JSON.stringify(ev).slice(0, 800)
-          );
-        }
       });
 
       oai.on("error", (err) => {
@@ -564,12 +650,10 @@ wss.on("connection", (twilioWs, req) => {
       const media = msg.media as Record<string, unknown> | undefined;
       const payload = media && typeof media.payload === "string" ? media.payload : "";
       if (!payload) return;
-      oai.send(
-        JSON.stringify({
-          type: "input_audio_buffer.append",
-          audio: payload,
-        })
-      );
+      sendOpenAiJson(oai, {
+        type: "input_audio_buffer.append",
+        audio: payload,
+      });
       return;
     }
 
