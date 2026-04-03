@@ -94,22 +94,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "twilio_credentials_missing" }, { status: 503 });
   }
 
-  console.log("[apply-transfer][request]", {
-    intent: intentRaw,
-    callSidShort: callSid.length > 12 ? `${callSid.slice(0, 12)}…` : callSid,
-    inboundToLast4: callerId.replace(/\D/g, "").slice(-4),
-    browserClientTargetCount: clientIdentities.length,
-    clientIdentitySuffixes: clientIdentities.map((c) => (c.length > 8 ? `…${c.slice(-8)}` : c)),
-    ringE164Last4: ringE164 ? ringE164.replace(/\D/g, "").slice(-4) : null,
-    priorityE164Last4: priorityE164 ? priorityE164.replace(/\D/g, "").slice(-4) : null,
-  });
-
   let twiml: string;
-  let handoffKind: "hangup" | "pstn" | "client_or_pstn" = "hangup";
 
   if (intentRaw === "spam" || intentRaw === "wrong_number") {
     twiml = TWIML_HANGUP;
-    handoffKind = "hangup";
   } else if (intentRaw === "urgent_medical") {
     if (!priorityE164) {
       return NextResponse.json({ ok: false, error: "priority_ring_not_configured" }, { status: 503 });
@@ -126,7 +114,6 @@ export async function POST(req: NextRequest) {
       numberE164: priorityE164,
       callerId,
     });
-    handoffKind = "pstn";
   } else {
     if (!publicBase) {
       return NextResponse.json({ ok: false, error: "missing_public_base_url" }, { status: 503 });
@@ -156,17 +143,7 @@ export async function POST(req: NextRequest) {
       );
     }
     twiml = handoff;
-    handoffKind = "client_or_pstn";
   }
-
-  const twimlHasClient = twiml.includes("<Client>");
-  const twimlHasNumber = /<Number[\s>]/.test(twiml);
-  console.log("[apply-transfer][twiml]", {
-    handoffKind,
-    twimlHasClient,
-    twimlHasNumber,
-    twimlUtf8ByteLength: new TextEncoder().encode(twiml).length,
-  });
 
   try {
     const client = twilio(accountSid, authToken);
@@ -176,14 +153,6 @@ export async function POST(req: NextRequest) {
     console.error("[twilio/voice/realtime/apply-transfer] calls.update failed:", msg);
     return NextResponse.json({ ok: false, error: "twilio_update_failed", detail: msg }, { status: 502 });
   }
-
-  console.log("[apply-transfer][calls.update_ok]", {
-    callSid: callSid.length > 12 ? `${callSid.slice(0, 12)}…` : callSid,
-    intent: intentRaw,
-    handoffKind,
-    twimlHasClient,
-    twimlHasNumber,
-  });
 
   return NextResponse.json({ ok: true });
 }

@@ -5,16 +5,36 @@ import { PhoneCall, PhoneOff } from "lucide-react";
 import { useWorkspaceSoftphone } from "@/components/softphone/WorkspaceSoftphoneProvider";
 
 export function IncomingCallBanner() {
-  const { incoming, incomingCallerLabel, answerIncoming, rejectIncoming } = useWorkspaceSoftphone();
+  const {
+    incoming,
+    incomingCallerContactName,
+    incomingCallerNumberFormatted,
+    incomingCallerRawFrom,
+    answerIncoming,
+    rejectIncoming,
+  } = useWorkspaceSoftphone();
 
   if (!incoming) return null;
+
+  const titleLine = incomingCallerContactName ?? (incomingCallerNumberFormatted || "Unknown caller");
+  const subLine =
+    incomingCallerContactName && incomingCallerNumberFormatted
+      ? incomingCallerNumberFormatted
+      : incomingCallerRawFrom &&
+          incomingCallerNumberFormatted &&
+          incomingCallerRawFrom !== incomingCallerNumberFormatted
+        ? incomingCallerRawFrom
+        : null;
 
   return (
     <div className="fixed left-0 right-0 top-[4.85rem] z-[45] px-4 sm:px-5">
       <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-3 rounded-2xl border border-emerald-200 bg-white p-3 shadow-lg shadow-slate-300/40">
         <div className="min-w-0">
           <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-emerald-800">Incoming call</p>
-          <p className="truncate font-mono text-sm font-medium text-slate-900">{incomingCallerLabel ?? "Unknown caller"}</p>
+          <p className="truncate text-sm font-semibold text-slate-900">{titleLine}</p>
+          {subLine ? (
+            <p className="truncate font-mono text-xs font-medium text-slate-600">{subLine}</p>
+          ) : null}
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <button

@@ -76,8 +76,9 @@ export function SoftphoneDialer({
     listenState,
     status,
     hint,
-    incomingCallerLabel,
-    tokenIdentity,
+    incomingCallerContactName,
+    incomingCallerNumberFormatted,
+    incomingCallerRawFrom,
     ringtoneUnlocked,
     busy,
     canDial,
@@ -90,7 +91,6 @@ export function SoftphoneDialer({
     unlockRingtoneFromGesture,
   } = useWorkspaceSoftphone();
   const autoPlaceStartedRef = useRef(false);
-  const mounted = true;
 
   useEffect(() => {
     const seed = (initialDigits ?? "").trim();
@@ -133,15 +133,6 @@ export function SoftphoneDialer({
             <p className="mt-1 max-w-xl text-xs text-amber-800">
               Tap this panel or <span className="font-medium">Test Ringtone</span> once to unlock incoming ring
               sound on this device (mobile browsers require a gesture).
-            </p>
-          ) : null}
-          {mounted ? (
-            <p className="mt-1.5 max-w-2xl font-mono text-[10px] leading-snug text-slate-600">
-              Debug: listenState={listenState}
-              {" · "}
-              token identity={tokenIdentity ?? "—"}
-              {" · "}
-              incoming ready={listenState === "ready" ? "yes" : "no"}
             </p>
           ) : null}
         </div>
@@ -264,8 +255,23 @@ export function SoftphoneDialer({
         <div className="flex w-full max-w-sm flex-col gap-3">
           <div className="text-center">
             <p className="text-sm font-semibold text-emerald-900">Incoming call</p>
-            {incomingCallerLabel ? (
-              <p className="mt-1 font-mono text-lg font-medium tabular-nums text-slate-900">{incomingCallerLabel}</p>
+            {incomingCallerContactName ? (
+              <p className="mt-1 text-lg font-semibold text-slate-900">{incomingCallerContactName}</p>
+            ) : null}
+            {incomingCallerNumberFormatted ? (
+              <p
+                className={`font-mono text-lg font-medium tabular-nums text-slate-900 ${
+                  incomingCallerContactName ? "mt-0.5 text-base text-slate-700" : "mt-1"
+                }`}
+              >
+                {incomingCallerNumberFormatted}
+              </p>
+            ) : null}
+            {incomingCallerRawFrom &&
+            incomingCallerNumberFormatted &&
+            incomingCallerRawFrom !== incomingCallerNumberFormatted &&
+            !incomingCallerContactName ? (
+              <p className="mt-0.5 font-mono text-xs text-slate-500">{incomingCallerRawFrom}</p>
             ) : null}
           </div>
           <div className="grid grid-cols-2 gap-3">

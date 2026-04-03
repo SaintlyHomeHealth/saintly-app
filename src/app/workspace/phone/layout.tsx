@@ -2,17 +2,14 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 
-import { ActiveCallBar } from "./_components/ActiveCallBar";
-import { IncomingCallBanner } from "./_components/IncomingCallBanner";
 import { NursePhoneBottomNav } from "./_components/NursePhoneBottomNav";
 import { WorkspacePhoneTopStatusStrip } from "./_components/WorkspacePhoneTopStatusStrip";
 import { SignOutButton } from "@/components/SignOutButton";
-import { WorkspaceSoftphoneProvider } from "@/components/softphone/WorkspaceSoftphoneProvider";
-import { canAccessWorkspacePhone, getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
+import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 
 export default async function WorkspacePhoneLayout({ children }: { children: ReactNode }) {
   const staff = await getStaffProfile();
-  if (!staff || !canAccessWorkspacePhone(staff)) {
+  if (!staff) {
     redirect("/admin/phone");
   }
 
@@ -24,8 +21,7 @@ export default async function WorkspacePhoneLayout({ children }: { children: Rea
   const showAdminLink = isManagerOrHigher(staff);
 
   return (
-    <WorkspaceSoftphoneProvider>
-      <div className="flex min-h-[100dvh] flex-col bg-gradient-to-b from-slate-50 via-white to-slate-50/80 text-slate-900">
+    <div className="flex min-h-[100dvh] flex-col bg-gradient-to-b from-slate-50 via-white to-slate-50/80 text-slate-900">
         <header className="sticky top-0 z-30 border-b border-slate-200/60 bg-white/95 px-4 py-3 shadow-sm shadow-slate-200/20 backdrop-blur-md supports-[backdrop-filter]:bg-white/85">
           <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-3">
             <div className="min-w-0">
@@ -53,13 +49,10 @@ export default async function WorkspacePhoneLayout({ children }: { children: Rea
           displayName={displayName}
           inboundRingEnabled={staff.inbound_ring_enabled}
         />
-        <IncomingCallBanner />
 
         <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col pb-24">{children}</main>
 
-        <ActiveCallBar />
         <NursePhoneBottomNav showLeadsNav={showAdminLink} />
       </div>
-    </WorkspaceSoftphoneProvider>
   );
 }

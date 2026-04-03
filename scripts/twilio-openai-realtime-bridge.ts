@@ -286,12 +286,6 @@ async function applyCallTransferViaApp(input: {
   }
   const base = baseRaw.replace(/\/$/, "");
   const url = `${base}/api/twilio/voice/realtime/apply-transfer`;
-  console.log("[realtime-bridge][transfer] POST apply-transfer", {
-    url,
-    callSidShort: input.callSid.length > 12 ? `${input.callSid.slice(0, 12)}…` : input.callSid,
-    intent: input.intent,
-    inboundToLast4: input.callerId.replace(/\D/g, "").slice(-4),
-  });
   try {
     const res = await fetch(url, {
       method: "POST",
@@ -313,11 +307,6 @@ async function applyCallTransferViaApp(input: {
       });
       return false;
     }
-    console.log("[realtime-bridge][transfer] apply-transfer ok", {
-      callSid: input.callSid.slice(0, 12) + "…",
-      intent: input.intent,
-      responsePreview: bodyText.slice(0, 120),
-    });
     return true;
   } catch (e) {
     console.warn("[realtime-bridge][transfer] apply-transfer fetch error", e);
@@ -384,14 +373,14 @@ function sendOpenAiJson(oai: WebSocket, msg: Record<string, unknown>): void {
 }
 
 function buildSessionUpdateMessage(): Record<string, unknown> {
-  const silenceMs = Number.parseInt(process.env.OPENAI_REALTIME_SILENCE_DURATION_MS || "400", 10);
+  const silenceMs = Number.parseInt(process.env.OPENAI_REALTIME_SILENCE_DURATION_MS || "550", 10);
   const silenceDurationMs =
-    Number.isFinite(silenceMs) ? Math.min(900, Math.max(200, silenceMs)) : 400;
+    Number.isFinite(silenceMs) ? Math.min(1200, Math.max(250, silenceMs)) : 550;
   const thresholdRaw = process.env.OPENAI_REALTIME_VAD_THRESHOLD;
   const threshold =
     thresholdRaw != null && thresholdRaw.trim() !== ""
       ? Math.min(0.95, Math.max(0.2, Number.parseFloat(thresholdRaw)))
-      : 0.42;
+      : 0.58;
   return {
     type: "session.update",
     session: {
@@ -403,7 +392,7 @@ function buildSessionUpdateMessage(): Record<string, unknown> {
       turn_detection: {
         type: "server_vad",
         threshold,
-        prefix_padding_ms: 200,
+        prefix_padding_ms: 280,
         silence_duration_ms: silenceDurationMs,
       },
       tools: VOICE_AI_REALTIME_TOOLS,

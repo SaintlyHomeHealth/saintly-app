@@ -62,11 +62,6 @@ export async function buildVoiceHandoffTwiml(input: {
     : ` answerOnBridge="true" timeout="${pstnDialSec}" callerId="${escapeXml(callerId)}"`;
 
   if (inboundBrowserStaffIds.length > 0 && browserFallbackActionUrl) {
-    const clientIdentities = inboundBrowserStaffIds.map((id) => softphoneTwilioClientIdentity(id));
-    console.log(
-      "[buildVoiceHandoffTwiml][debug] handoff_Client_identities_must_match_softphone_token_identity",
-      clientIdentities
-    );
     const browserDialAttrs = publicBase
       ? ` answerOnBridge="true" timeout="${browserRingSec}" callerId="${escapeXml(
           callerId
@@ -103,12 +98,6 @@ export async function buildVoiceHandoffTwiml(input: {
     });
     return null;
   }
-
-  console.log("[buildVoiceHandoffTwiml] branch=dial_pstn", {
-    pstnTail: ringE164.replace(/\D/g, "").slice(-4),
-    twimlContainsClient: false,
-    twimlContainsNumber: true,
-  });
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
