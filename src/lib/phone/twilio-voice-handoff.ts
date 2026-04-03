@@ -4,6 +4,8 @@ import {
 } from "@/lib/softphone/inbound-staff-ids";
 import { softphoneTwilioClientIdentity } from "@/lib/softphone/twilio-client-identity";
 
+import { isPstnHandoffAiLoopRisk } from "@/lib/phone/twilio-voice-pstn-loop-guard";
+
 function escapeXml(text: string): string {
   return text
     .replace(/&/g, "&amp;")
@@ -60,6 +62,12 @@ export async function buildVoiceHandoffTwiml(input: {
     : ` answerOnBridge="true" timeout="${pstnDialSec}" callerId="${escapeXml(callerId)}"`;
 
   if (inboundBrowserStaffIds.length > 0 && browserFallbackActionUrl) {
+    const clientIdentities = inboundBrowserStaffIds.map((id) => softphoneTwilioClientIdentity(id));
+    console.log("[buildVoiceHandoffTwiml] branch=dial_client", {
+      clientCount: clientIdentities.length,
+      clientSuffixes: clientIdentities.map((c) => (c.length > 10 ? `…${c.slice(-10)}` : c)),
+      twimlContainsClient: true,
+    });
     const browserDialAttrs = publicBase
       ? ` answerOnBridge="true" timeout="${browserRingSec}" callerId="${escapeXml(
           callerId
@@ -84,8 +92,24 @@ export async function buildVoiceHandoffTwiml(input: {
   }
 
   if (!ringE164) {
+    console.warn("[buildVoiceHandoffTwiml] branch=pstn UNAVAILABLE: no TWILIO_VOICE_RING_E164 and no browser targets");
     return null;
   }
+
+  if (isPstnHandoffAiLoopRisk(ringE164, callerId)) {
+    console.warn("[buildVoiceHandoffTwiml] branch=pstn BLOCKED: ring number matches inbound To (AI entry) — would re-enter voice webhook", {
+      ringTail: ringE164.replace(/\D/g, "").slice(-4),
+      inboundToTail: callerId.replace(/\D/g, "").slice(-4),
+      hint: "Set TWILIO_VOICE_INBOUND_STAFF_USER_IDS or staff_profiles.inbound_ring_enabled, or set TWILIO_VOICE_RING_E164 to a human PSTN line (not your Twilio public number).",
+    });
+    return null;
+  }
+
+  console.log("[buildVoiceHandoffTwiml] branch=dial_pstn", {
+    pstnTail: ringE164.replace(/\D/g, "").slice(-4),
+    twimlContainsClient: false,
+    twimlContainsNumber: true,
+  });
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>

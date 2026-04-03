@@ -36,6 +36,7 @@ import {
   VOICE_AI_REALTIME_INSTRUCTIONS,
   VOICE_AI_REALTIME_TOOLS,
 } from "../src/lib/phone/voice-ai-realtime-system-prompt";
+import { isPstnHandoffAiLoopRisk } from "../src/lib/phone/twilio-voice-pstn-loop-guard";
 
 const MODEL =
   process.env.OPENAI_REALTIME_MODEL?.trim() || "gpt-4o-realtime-preview-2024-12-17";
@@ -138,6 +139,12 @@ function describeWouldBeTransfer(intent: string): {
   return { twilioAction: "dial_ring", targetNumberTail: ring ? tail(ring) : null };
 }
 
+const TWIML_TRANSFER_FAIL_SAY_HANGUP = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="Polly.Joanna">We're sorry, we could not connect you to a team member right now. Please try again soon.</Say>
+  <Hangup/>
+</Response>`.trim();
+
 function dialTwiml(input: {
   closing: string;
   numberE164: string;
@@ -224,23 +231,40 @@ async function applyTwilioRouteLocal(input: {
   if (input.intent === "spam" || input.intent === "wrong_number") {
     twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Hangup/></Response>`;
   } else if (input.intent === "urgent_medical") {
-    twiml = dialTwiml({
-      closing: "Connecting you right away.",
-      numberE164: priority,
-      callerId: input.callerId,
-    });
+    if (isPstnHandoffAiLoopRisk(priority, input.callerId)) {
+      console.error("[realtime-bridge] applyTwilioRouteLocal BLOCKED: priority PSTN is AI inbound number (loop)", {
+        intent: input.intent,
+        inboundToLast4: input.callerId.replace(/\D/g, "").slice(-4),
+      });
+      twiml = TWIML_TRANSFER_FAIL_SAY_HANGUP;
+    } else {
+      twiml = dialTwiml({
+        closing: "Connecting you right away.",
+        numberE164: priority,
+        callerId: input.callerId,
+      });
+    }
   } else {
-    twiml = dialTwiml({
-      closing: "Connecting you to our team now.",
-      numberE164: ring,
-      callerId: input.callerId,
-    });
+    if (isPstnHandoffAiLoopRisk(ring, input.callerId)) {
+      console.error("[realtime-bridge] applyTwilioRouteLocal BLOCKED: TWILIO_VOICE_RING_E164 is AI inbound number (loop)", {
+        intent: input.intent,
+        inboundToLast4: input.callerId.replace(/\D/g, "").slice(-4),
+      });
+      twiml = TWIML_TRANSFER_FAIL_SAY_HANGUP;
+    } else {
+      twiml = dialTwiml({
+        closing: "Connecting you to our team now.",
+        numberE164: ring,
+        callerId: input.callerId,
+      });
+    }
   }
 
   await client.calls(input.callSid).update({ twiml });
   console.log("[realtime-bridge] calls.update (local PSTN)", {
     callSid: input.callSid.slice(0, 10) + "…",
     intent: input.intent,
+    usedLoopSafeFailTwiml: twiml === TWIML_TRANSFER_FAIL_SAY_HANGUP,
   });
 }
 
@@ -262,6 +286,12 @@ async function applyCallTransferViaApp(input: {
   }
   const base = baseRaw.replace(/\/$/, "");
   const url = `${base}/api/twilio/voice/realtime/apply-transfer`;
+  console.log("[realtime-bridge][transfer] POST apply-transfer", {
+    url,
+    callSidShort: input.callSid.length > 12 ? `${input.callSid.slice(0, 12)}…` : input.callSid,
+    intent: input.intent,
+    inboundToLast4: input.callerId.replace(/\D/g, "").slice(-4),
+  });
   try {
     const res = await fetch(url, {
       method: "POST",
@@ -275,18 +305,22 @@ async function applyCallTransferViaApp(input: {
         caller_id: input.callerId,
       }),
     });
+    const bodyText = await res.text();
     if (!res.ok) {
-      const t = await res.text();
-      console.warn("[realtime-bridge] apply-transfer failed", res.status, t.slice(0, 400));
+      console.warn("[realtime-bridge][transfer] apply-transfer HTTP error", {
+        status: res.status,
+        bodyPreview: bodyText.slice(0, 500),
+      });
       return false;
     }
-    console.log("[realtime-bridge] apply-transfer ok", {
+    console.log("[realtime-bridge][transfer] apply-transfer ok", {
       callSid: input.callSid.slice(0, 12) + "…",
       intent: input.intent,
+      responsePreview: bodyText.slice(0, 120),
     });
     return true;
   } catch (e) {
-    console.warn("[realtime-bridge] apply-transfer fetch error", e);
+    console.warn("[realtime-bridge][transfer] apply-transfer fetch error", e);
     return false;
   }
 }
