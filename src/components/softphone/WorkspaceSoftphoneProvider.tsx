@@ -10,6 +10,16 @@ import { dispatchWorkspaceSoftphoneUi } from "@/lib/softphone/workspace-ui-event
 
 type CallHandle = Awaited<ReturnType<Device["connect"]>>;
 
+export type SoftphoneDebugSnapshot = {
+  tokenLoaded: boolean;
+  tokenIdentity: string;
+  identityInInboundRingList: "true" | "false" | "unknown";
+  deviceCreated: boolean;
+  deviceRegistered: boolean;
+  lastDeviceError: string;
+  lastIncomingEventAt: string;
+};
+
 type Ctx = {
   digits: string;
   setDigits: Dispatch<SetStateAction<string>>;
@@ -19,6 +29,8 @@ type Ctx = {
   incomingCallerLabel: string | null;
   activeRemoteLabel: string | null;
   tokenIdentity: string | null;
+  /** On-screen keypad debug (temporary) */
+  softphoneDebug: SoftphoneDebugSnapshot;
   ringtoneUnlocked: boolean;
   busy: boolean;
   canDial: boolean;
@@ -81,6 +93,14 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
   const [callStartedAtMs, setCallStartedAtMs] = useState<number | null>(null);
   /** Inbound call on AI realtime stream (no Twilio Client leg yet) — from server poll */
   const [inboundAiAssist, setInboundAiAssist] = useState<{ from: string | null } | null>(null);
+  const [tokenLoaded, setTokenLoaded] = useState(false);
+  const [identityInInboundRingList, setIdentityInInboundRingList] = useState<
+    "true" | "false" | "unknown"
+  >("unknown");
+  const [deviceCreated, setDeviceCreated] = useState(false);
+  const [deviceRegistered, setDeviceRegistered] = useState(false);
+  const [lastDeviceError, setLastDeviceError] = useState("");
+  const [lastIncomingEventAt, setLastIncomingEventAt] = useState("");
   const ringtoneUnlockedRef = useRef(false);
   const deviceRef = useRef<Device | null>(null);
   const activeCallRef = useRef<CallHandle | null>(null);
@@ -99,6 +119,32 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     const id = window.setInterval(tick, 1000);
     return () => window.clearInterval(id);
   }, [callStartedAtMs]);
+
+  const applyIdentityInRingListFromBody = useCallback((body: { identity_in_inbound_ring_list?: boolean }) => {
+    if (typeof body.identity_in_inbound_ring_list === "boolean") {
+      setIdentityInInboundRingList(body.identity_in_inbound_ring_list ? "true" : "false");
+    } else {
+      setIdentityInInboundRingList("unknown");
+    }
+  }, []);
+
+  const bindDeviceLifecycle = useCallback((device: Device) => {
+    setDeviceCreated(true);
+    device.on("registered", () => {
+      setDeviceRegistered(true);
+    });
+    device.on("error", (err) => {
+      const msg = err && typeof err === "object" && "message" in err && typeof err.message === "string" ? err.message : String(err);
+      setLastDeviceError(msg);
+      setHint(msg || "Phone error");
+    });
+    device.on("incoming", (call) => {
+      setLastIncomingEventAt(new Date().toISOString());
+      setIncomingCall(call);
+      call.on("disconnect", () => setIncomingCall((c) => (c === call ? null : c)));
+      call.on("cancel", () => setIncomingCall((c) => (c === call ? null : c)));
+    });
+  }, []);
 
   const attachActiveCallHandlers = useCallback((call: Call | CallHandle) => {
     activeCallRef.current = call;
@@ -252,30 +298,34 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     let cancelled = false;
 
     const run = async () => {
+      setTokenLoaded(false);
+      setDeviceCreated(false);
+      setDeviceRegistered(false);
+      setLastDeviceError("");
+      setLastIncomingEventAt("");
       try {
         const res = await fetch("/api/softphone/token", { method: "GET", credentials: "include" });
         const body = (await res.json()) as {
           token?: string;
           identity?: string;
+          identity_in_inbound_ring_list?: boolean;
           error?: string;
         };
         if (cancelled) return;
         if (!res.ok || !body.token) {
           setListenState("error");
           setHint(body.error ?? "Softphone token unavailable.");
+          setLastDeviceError(body.error ?? `token HTTP ${res.status}`);
+          applyIdentityInRingListFromBody(body);
           return;
         }
+        setTokenLoaded(true);
         setTokenIdentity(typeof body.identity === "string" ? body.identity : null);
+        applyIdentityInRingListFromBody(body);
         const device = new Device(body.token, { logLevel: "error" });
-        device.on("error", (err) => {
-          setHint(err.message ?? "Phone error");
-        });
-        device.on("incoming", (call) => {
-          setIncomingCall(call);
-          call.on("disconnect", () => setIncomingCall((c) => (c === call ? null : c)));
-          call.on("cancel", () => setIncomingCall((c) => (c === call ? null : c)));
-        });
+        bindDeviceLifecycle(device);
         await device.register();
+        setDeviceRegistered(true);
         if (cancelled) {
           device.destroy();
           return;
@@ -285,7 +335,9 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       } catch (e) {
         if (!cancelled) {
           setListenState("error");
-          setHint(e instanceof Error ? e.message : "Softphone init failed.");
+          const msg = e instanceof Error ? e.message : "Softphone init failed.";
+          setHint(msg);
+          setLastDeviceError(msg);
         }
       }
     };
@@ -298,7 +350,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       deviceRef.current?.destroy();
       deviceRef.current = null;
     };
-  }, []);
+  }, [bindDeviceLifecycle, applyIdentityInRingListFromBody]);
 
   const hangUp = useCallback(() => {
     activeCallRef.current?.disconnect();
@@ -333,19 +385,29 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     if (typeof toOverride === "string") setDigits(trimmed);
 
     setStatus("fetching_token");
-    let tokenJson: { token?: string; identity?: string; error?: string };
+    let tokenJson: {
+      token?: string;
+      identity?: string;
+      identity_in_inbound_ring_list?: boolean;
+      error?: string;
+    };
     try {
       const res = await fetch("/api/softphone/token", { method: "GET", credentials: "include" });
       tokenJson = (await res.json()) as typeof tokenJson;
       if (!res.ok || !tokenJson.token) {
         setStatus("error");
         setHint(tokenJson.error ?? `Could not get call token (${res.status}).`);
+        setLastDeviceError(tokenJson.error ?? `token HTTP ${res.status}`);
+        applyIdentityInRingListFromBody(tokenJson);
         return;
       }
+      setTokenLoaded(true);
       if (typeof tokenJson.identity === "string") setTokenIdentity(tokenJson.identity);
+      applyIdentityInRingListFromBody(tokenJson);
     } catch {
       setStatus("error");
       setHint("Network error while requesting call token.");
+      setLastDeviceError("Network error while requesting call token.");
       return;
     }
 
@@ -353,13 +415,9 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       let device = deviceRef.current;
       if (!device) {
         device = new Device(tokenJson.token!, { logLevel: "error" });
-        device.on("error", (err) => setHint(err.message ?? "Phone error"));
-        device.on("incoming", (call) => {
-          setIncomingCall(call);
-          call.on("disconnect", () => setIncomingCall((c) => (c === call ? null : c)));
-          call.on("cancel", () => setIncomingCall((c) => (c === call ? null : c)));
-        });
+        bindDeviceLifecycle(device);
         await device.register();
+        setDeviceRegistered(true);
         deviceRef.current = device;
         setListenState("ready");
       } else {
@@ -372,7 +430,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       setStatus("error");
       setHint(e instanceof Error ? e.message : "Could not start call.");
     }
-  }, [digits, attachActiveCallHandlers]);
+  }, [digits, attachActiveCallHandlers, applyIdentityInRingListFromBody, bindDeviceLifecycle]);
 
   const busy = status === "fetching_token" || status === "connecting" || status === "in_call";
   const canDial = listenState !== "loading" && !incomingCall;
@@ -396,6 +454,16 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     const activeRemoteLabel =
       (status === "in_call" ? readTwilioParam(activeCallRef.current, ["To", "From"]) : null) ??
       (digits.trim() ? formatDialpadDisplay(digits) : null);
+    const tid = tokenIdentity ?? "";
+    const softphoneDebug: SoftphoneDebugSnapshot = {
+      tokenLoaded,
+      tokenIdentity: tid,
+      identityInInboundRingList,
+      deviceCreated,
+      deviceRegistered,
+      lastDeviceError,
+      lastIncomingEventAt,
+    };
     return {
       digits,
       setDigits,
@@ -405,6 +473,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       incomingCallerLabel,
       activeRemoteLabel,
       tokenIdentity,
+      softphoneDebug,
       ringtoneUnlocked,
       busy,
       canDial,
@@ -423,6 +492,12 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     status,
     hint,
     tokenIdentity,
+    tokenLoaded,
+    identityInInboundRingList,
+    deviceCreated,
+    deviceRegistered,
+    lastDeviceError,
+    lastIncomingEventAt,
     ringtoneUnlocked,
     busy,
     canDial,

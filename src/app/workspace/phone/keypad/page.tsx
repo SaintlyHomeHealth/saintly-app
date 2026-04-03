@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { WorkspacePhonePageHeader } from "../_components/WorkspacePhonePageHeader";
+import { WorkspacePhoneSoftphoneDebugPanel } from "../_components/WorkspacePhoneSoftphoneDebugPanel";
 import { SoftphoneDialer } from "@/components/softphone/SoftphoneDialer";
 import { canAccessWorkspacePhone, getStaffProfile } from "@/lib/staff-profile";
 
@@ -58,6 +59,7 @@ export default async function WorkspaceKeypadPage({
       ) : null}
       <div className="mt-6 flex flex-1 flex-col items-stretch gap-6 lg:mt-8 lg:flex-row lg:items-start lg:justify-center lg:gap-10">
         <div className="w-full max-w-md shrink-0 rounded-[32px] border border-slate-200/80 bg-white p-5 shadow-md shadow-slate-200/50 sm:p-7 lg:max-w-lg">
+          <WorkspacePhoneSoftphoneDebugPanel />
           <SoftphoneDialer
             key={dialerKey}
             staffDisplayName={staffDisplayName}
