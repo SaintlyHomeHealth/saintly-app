@@ -21,10 +21,12 @@
  * Temporary diagnostics:
  *   REALTIME_BRIDGE_SUPPRESS_ROUTE_TRANSFER=false — force-enable transfers (overrides in-code FORCE_DIAG_SUPPRESS_TRANSFER).
  *   REALTIME_BRIDGE_SUPPRESS_ROUTE_TRANSFER=true — suppress transfers (redundant if FORCE_DIAG_SUPPRESS_TRANSFER is true).
- *   REALTIME_DIAG_RESPONSE_CREATE_ON_CONNECT=false — disable immediate diagnostic greeting after session.update.
+ *   REALTIME_DIAG_RESPONSE_CREATE_ON_CONNECT=false — disable immediate greeting after session.update.
+ *   REALTIME_BRIDGE_VERBOSE_AUDIO_LOG=true — log every input_audio_buffer.append / audio delta (very noisy).
  */
 
 import * as http from "node:http";
+import { performance } from "node:perf_hooks";
 import { URL } from "node:url";
 
 import twilio from "twilio";
@@ -49,15 +51,12 @@ const HEARTBEAT_MS = Number.parseInt(process.env.REALTIME_BRIDGE_HEARTBEAT_MS ||
 const REALTIME_DIAG_RESPONSE_CREATE_ON_CONNECT =
   process.env.REALTIME_DIAG_RESPONSE_CREATE_ON_CONNECT?.trim() !== "false";
 
-/** TODO(isolation): set to false after diagnostics — restores applyTwilioRoute + post-route_call socket close. */
-const FORCE_DIAG_SUPPRESS_TRANSFER = true;
-
 const _suppressTransferEnv = process.env.REALTIME_BRIDGE_SUPPRESS_ROUTE_TRANSFER?.trim();
-/** Env "false" overrides FORCE (restore transfers without code change). */
-const REALTIME_BRIDGE_SUPPRESS_ROUTE_TRANSFER =
-  _suppressTransferEnv === "false"
-    ? false
-    : FORCE_DIAG_SUPPRESS_TRANSFER || _suppressTransferEnv === "true";
+/** Set to "true" to disable AI→human Twilio redirects (debug only). */
+const REALTIME_BRIDGE_SUPPRESS_ROUTE_TRANSFER = _suppressTransferEnv === "true";
+
+const REALTIME_BRIDGE_VERBOSE_AUDIO_LOG =
+  process.env.REALTIME_BRIDGE_VERBOSE_AUDIO_LOG?.trim() === "true";
 
 /** Required for full bridge behavior; server still listens if any are missing (logged at boot). */
 const REQUIRED_ENV_NAMES = [
@@ -202,7 +201,8 @@ async function postSessionResult(input: {
   }
 }
 
-async function applyTwilioRoute(input: {
+/** PSTN-only fallback when {@link applyCallTransferViaApp} fails or APP_PUBLIC_BASE_URL is unset. */
+async function applyTwilioRouteLocal(input: {
   callSid: string;
   intent: string;
   summary: string;
@@ -238,7 +238,57 @@ async function applyTwilioRoute(input: {
   }
 
   await client.calls(input.callSid).update({ twiml });
-  console.log("[realtime-bridge] calls.update", { callSid: input.callSid.slice(0, 10) + "…", intent: input.intent });
+  console.log("[realtime-bridge] calls.update (local PSTN)", {
+    callSid: input.callSid.slice(0, 10) + "…",
+    intent: input.intent,
+  });
+}
+
+/**
+ * Preferred path: Next.js builds TwiML (browser &lt;Client&gt; + PSTN same as main inbound handoff) and runs calls.update.
+ */
+async function applyCallTransferViaApp(input: {
+  callSid: string;
+  intent: string;
+  callerId: string;
+}): Promise<boolean> {
+  const baseRaw = process.env.APP_PUBLIC_BASE_URL?.trim();
+  const secret = process.env.REALTIME_BRIDGE_SHARED_SECRET?.trim();
+  if (!baseRaw || !secret) {
+    console.warn(
+      "[realtime-bridge] apply-transfer skipped: missing APP_PUBLIC_BASE_URL or REALTIME_BRIDGE_SHARED_SECRET — using local PSTN TwiML"
+    );
+    return false;
+  }
+  const base = baseRaw.replace(/\/$/, "");
+  const url = `${base}/api/twilio/voice/realtime/apply-transfer`;
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Realtime-Bridge-Secret": secret,
+      },
+      body: JSON.stringify({
+        call_sid: input.callSid,
+        intent: input.intent,
+        caller_id: input.callerId,
+      }),
+    });
+    if (!res.ok) {
+      const t = await res.text();
+      console.warn("[realtime-bridge] apply-transfer failed", res.status, t.slice(0, 400));
+      return false;
+    }
+    console.log("[realtime-bridge] apply-transfer ok", {
+      callSid: input.callSid.slice(0, 12) + "…",
+      intent: input.intent,
+    });
+    return true;
+  } catch (e) {
+    console.warn("[realtime-bridge] apply-transfer fetch error", e);
+    return false;
+  }
 }
 
 function connectOpenAi(): WebSocket | null {
@@ -285,6 +335,10 @@ function sessionUpdatePayloadForLog(msg: Record<string, unknown>): Record<string
  */
 function sendOpenAiJson(oai: WebSocket, msg: Record<string, unknown>): void {
   const t = typeof msg.type === "string" ? msg.type : "(missing type)";
+  if (t === "input_audio_buffer.append" && !REALTIME_BRIDGE_VERBOSE_AUDIO_LOG) {
+    oai.send(JSON.stringify(msg));
+    return;
+  }
   let payloadForLog: unknown = msg;
   if (t === "input_audio_buffer.append" && typeof msg.audio === "string") {
     payloadForLog = { type: t, audio: `[base64 length=${msg.audio.length}]` };
@@ -296,6 +350,14 @@ function sendOpenAiJson(oai: WebSocket, msg: Record<string, unknown>): void {
 }
 
 function buildSessionUpdateMessage(): Record<string, unknown> {
+  const silenceMs = Number.parseInt(process.env.OPENAI_REALTIME_SILENCE_DURATION_MS || "400", 10);
+  const silenceDurationMs =
+    Number.isFinite(silenceMs) ? Math.min(900, Math.max(200, silenceMs)) : 400;
+  const thresholdRaw = process.env.OPENAI_REALTIME_VAD_THRESHOLD;
+  const threshold =
+    thresholdRaw != null && thresholdRaw.trim() !== ""
+      ? Math.min(0.95, Math.max(0.2, Number.parseFloat(thresholdRaw)))
+      : 0.42;
   return {
     type: "session.update",
     session: {
@@ -304,7 +366,12 @@ function buildSessionUpdateMessage(): Record<string, unknown> {
       voice: "alloy",
       input_audio_format: "g711_ulaw",
       output_audio_format: "g711_ulaw",
-      turn_detection: { type: "server_vad" },
+      turn_detection: {
+        type: "server_vad",
+        threshold,
+        prefix_padding_ms: 200,
+        silence_duration_ms: silenceDurationMs,
+      },
       tools: VOICE_AI_REALTIME_TOOLS,
       tool_choice: "auto",
     },
@@ -315,7 +382,10 @@ function sendSessionUpdate(oai: WebSocket): void {
   sendOpenAiJson(oai, buildSessionUpdateMessage());
 }
 
-function logOpenAiInboundLifecycle(ev: Record<string, unknown>): void {
+function logOpenAiInboundLifecycle(
+  ev: Record<string, unknown>,
+  opts: { logAudioDelta: () => void }
+): void {
   const type = typeof ev.type === "string" ? ev.type : "";
   switch (type) {
     case "session.created":
@@ -327,9 +397,11 @@ function logOpenAiInboundLifecycle(ev: Record<string, unknown>): void {
       console.log(`[realtime-bridge][oai-lifecycle] ${type}`, JSON.stringify(ev).slice(0, 3500));
       break;
     case "response.audio.delta":
-      console.log("[realtime-bridge][oai-lifecycle] response.audio.delta", {
-        deltaBase64Length: typeof ev.delta === "string" ? ev.delta.length : 0,
-      });
+      opts.logAudioDelta();
+      break;
+    case "input_audio_buffer.speech_started":
+    case "input_audio_buffer.speech_stopped":
+      console.log(`[realtime-bridge][oai-lifecycle] ${type}`);
       break;
     case "error":
       console.error("[realtime-bridge][oai-lifecycle] error", JSON.stringify(ev).slice(0, 3500));
@@ -396,6 +468,10 @@ wss.on("connection", (twilioWs, req) => {
   let oai: WebSocket | null = null;
   let routed = false;
   let firstTwilioMediaLogged = false;
+  /** Set on Twilio `start`; used for latency marks from stream start. */
+  let latRef: { t0: number; wallMs: number; ms: Record<string, number> } | null = null;
+  let firstOaiAudioDeltaLogged = false;
+  let firstTwilioOutboundMediaLogged = false;
 
   const safeClose = () => {
     try {
@@ -455,6 +531,17 @@ wss.on("connection", (twilioWs, req) => {
         dialedToStreamParam: callerIdForDial || null,
       });
 
+      latRef = {
+        t0: performance.now(),
+        wallMs: Date.now(),
+        ms: {},
+      };
+      const markLatency = (name: string) => {
+        if (!latRef || latRef.ms[name] !== undefined) return;
+        latRef.ms[name] = Math.round(performance.now() - latRef.t0);
+      };
+      markLatency("twilio_stream_start");
+
       oai = connectOpenAi();
       if (!oai) {
         console.error("[realtime-bridge] aborting stream session: OpenAI client not created (check OPENAI_API_KEY)");
@@ -462,29 +549,32 @@ wss.on("connection", (twilioWs, req) => {
         return;
       }
       oai.on("open", () => {
+        markLatency("oai_ws_open");
         console.log("[realtime-bridge][diag] openai_realtime_session_ws_open", {
           callSid: callSid!.slice(0, 12) + "…",
           streamSid,
           model: MODEL,
         });
         console.log("[realtime-bridge][oai] voice_turn_policy", {
-          turn_detection: "server_vad",
-          withoutDiagnosticResponseCreate: {
-            expectsCallerToSpeakFirst: true,
-            assistantSpeaksOnlyAfterVadOrExplicitResponse: true,
-          },
+          turn_detection: "server_vad+tuned",
           REALTIME_DIAG_RESPONSE_CREATE_ON_CONNECT,
+          env: {
+            OPENAI_REALTIME_SILENCE_DURATION_MS: process.env.OPENAI_REALTIME_SILENCE_DURATION_MS ?? "(default 400)",
+            OPENAI_REALTIME_VAD_THRESHOLD: process.env.OPENAI_REALTIME_VAD_THRESHOLD ?? "(default 0.42)",
+          },
         });
         sendSessionUpdate(oai!);
+        markLatency("session_update_sent");
         if (REALTIME_DIAG_RESPONSE_CREATE_ON_CONNECT) {
           sendOpenAiJson(oai!, {
             type: "response.create",
             response: {
               modalities: ["text", "audio"],
               instructions:
-                "Diagnostic greeting: say one short sentence only — you are Saintly Home Health's phone assistant, then ask how you can help. Keep it under 8 seconds.",
+                "Say one brief sentence: you are Saintly Home Health's assistant, then ask how you can help. Under 8 seconds.",
             },
           });
+          markLatency("response_create_sent");
         }
       });
 
@@ -496,13 +586,57 @@ wss.on("connection", (twilioWs, req) => {
           return;
         }
 
-        logOpenAiInboundLifecycle(ev);
-
         const type = typeof ev.type === "string" ? ev.type : "";
+
+        if (type === "input_audio_buffer.speech_started") {
+          markLatency("vad_speech_started");
+        }
+        if (type === "input_audio_buffer.speech_stopped") {
+          markLatency("vad_speech_stopped");
+        }
+        if (type === "response.created") {
+          markLatency("first_response_created");
+        }
+
+        const logAudioDelta = () => {
+          if (REALTIME_BRIDGE_VERBOSE_AUDIO_LOG) {
+            console.log("[realtime-bridge][oai-lifecycle] response.audio.delta", {
+              deltaBase64Length: typeof ev.delta === "string" ? ev.delta.length : 0,
+            });
+          } else if (!firstOaiAudioDeltaLogged) {
+            firstOaiAudioDeltaLogged = true;
+            markLatency("first_oai_audio_delta");
+            const m = latRef?.ms;
+            if (m && latRef) {
+              console.log("[realtime-bridge][latency-ms]", {
+                wallClockStart: latRef.wallMs,
+                marks: m,
+                delta_first_twilio_in_to_response_create:
+                  m.response_create_sent != null && m.first_twilio_inbound_media != null
+                    ? m.response_create_sent - m.first_twilio_inbound_media
+                    : null,
+                delta_response_create_to_first_oai_audio:
+                  m.response_create_sent != null && m.first_oai_audio_delta != null
+                    ? m.first_oai_audio_delta - m.response_create_sent
+                    : null,
+                delta_oai_open_to_first_oai_audio:
+                  m.oai_ws_open != null && m.first_oai_audio_delta != null
+                    ? m.first_oai_audio_delta - m.oai_ws_open
+                    : null,
+              });
+            }
+          }
+        };
+
+        logOpenAiInboundLifecycle(ev, { logAudioDelta });
 
         if (type === "response.audio.delta") {
           const delta = typeof ev.delta === "string" ? ev.delta : "";
           if (delta && streamSid && twilioWs.readyState === WebSocket.OPEN) {
+            if (!firstTwilioOutboundMediaLogged) {
+              firstTwilioOutboundMediaLogged = true;
+              markLatency("first_twilio_outbound_media");
+            }
             const out = {
               event: "media",
               streamSid,
@@ -590,22 +724,31 @@ wss.on("connection", (twilioWs, req) => {
                     ? `…${dialCallerId.slice(-4)}`
                     : dialCallerId
                   : null,
-                note: "applyTwilioRoute not called; sockets stay open",
+                note: "transfer suppressed; sockets stay open",
               });
             } else {
               if (!dialCallerId) {
                 console.error(
-                  "[realtime-bridge] applyTwilioRoute skipped: no callerId and TWILIO_VOICE_RING_E164 missing"
+                  "[realtime-bridge] transfer skipped: no callerId and TWILIO_VOICE_RING_E164 missing"
                 );
               } else {
-                void applyTwilioRoute({
-                  callSid,
-                  intent,
-                  summary,
-                  callerId: dialCallerId,
-                }).catch((e) => console.error("[realtime-bridge] applyTwilioRoute", e));
+                void (async () => {
+                  const ok = await applyCallTransferViaApp({
+                    callSid,
+                    intent,
+                    callerId: dialCallerId,
+                  });
+                  if (!ok) {
+                    await applyTwilioRouteLocal({
+                      callSid,
+                      intent,
+                      summary,
+                      callerId: dialCallerId,
+                    });
+                  }
+                  setTimeout(safeClose, 500);
+                })().catch((e) => console.error("[realtime-bridge] transfer chain", e));
               }
-              setTimeout(safeClose, 500);
             }
           }
 
@@ -635,6 +778,11 @@ wss.on("connection", (twilioWs, req) => {
     if (event === "media") {
       if (!firstTwilioMediaLogged) {
         firstTwilioMediaLogged = true;
+        if (latRef) {
+          if (latRef.ms.first_twilio_inbound_media === undefined) {
+            latRef.ms.first_twilio_inbound_media = Math.round(performance.now() - latRef.t0);
+          }
+        }
         const media = msg.media as Record<string, unknown> | undefined;
         const track = media && typeof media.track === "string" ? media.track : undefined;
         console.log("[realtime-bridge][diag] twilio_first_media_event_received", {
@@ -642,6 +790,7 @@ wss.on("connection", (twilioWs, req) => {
           callSid: callSid ? callSid.slice(0, 12) + "…" : null,
           track,
           oaiReady: Boolean(oai && oai.readyState === WebSocket.OPEN),
+          msSinceStreamStart: latRef?.ms.first_twilio_inbound_media,
         });
       }
     }
@@ -790,9 +939,9 @@ function boot(): void {
   startHeartbeat();
   server.listen(PORT, "0.0.0.0", () => {
     console.log("[realtime-bridge] bridge boot complete");
-    console.log("[realtime-bridge][isolation] REALTIME_BRIDGE_SUPPRESS_ROUTE_TRANSFER", {
+    console.log("[realtime-bridge] REALTIME_BRIDGE_SUPPRESS_ROUTE_TRANSFER", {
       active: REALTIME_BRIDGE_SUPPRESS_ROUTE_TRANSFER,
-      hint: "When true: no applyTwilioRoute; streams stay open after route_call. Unset or false = normal transfer.",
+      hint: 'When true: no transfer after route_call. Set env "false" or omit for normal AI→human redirect.',
     });
     console.log(
       `[realtime-bridge] listening http://0.0.0.0:${PORT} | ws path ${WS_PATH} | model=${MODEL} | TwiML → wss://<public-host>${WS_PATH}`

@@ -4,7 +4,13 @@
  */
 export const WORKSPACE_SOFTPHONE_UI_EVENT = "workspace:softphoneUi";
 
-export type WorkspaceSoftphoneUiPhase = "idle" | "incoming" | "outbound_ringing" | "active";
+export type WorkspaceSoftphoneUiPhase =
+  | "idle"
+  | "incoming"
+  /** PSTN inbound on AI realtime stream — browser Client not ringing yet */
+  | "inbound_ai_assist"
+  | "outbound_ringing"
+  | "active";
 
 export type WorkspaceSoftphoneUiDetail = {
   phase: WorkspaceSoftphoneUiPhase;

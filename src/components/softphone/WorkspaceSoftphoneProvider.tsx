@@ -79,6 +79,8 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
   const [ringtoneUnlocked, setRingtoneUnlocked] = useState(false);
   const [durationSec, setDurationSec] = useState(0);
   const [callStartedAtMs, setCallStartedAtMs] = useState<number | null>(null);
+  /** Inbound call on AI realtime stream (no Twilio Client leg yet) — from server poll */
+  const [inboundAiAssist, setInboundAiAssist] = useState<{ from: string | null } | null>(null);
   const ringtoneUnlockedRef = useRef(false);
   const deviceRef = useRef<Device | null>(null);
   const activeCallRef = useRef<CallHandle | null>(null);
@@ -140,8 +142,47 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       dispatchWorkspaceSoftphoneUi({ phase: "outbound_ringing", remoteLabel: remote });
       return;
     }
+    if (inboundAiAssist) {
+      dispatchWorkspaceSoftphoneUi({
+        phase: "inbound_ai_assist",
+        remoteLabel: inboundAiAssist.from,
+      });
+      return;
+    }
     dispatchWorkspaceSoftphoneUi({ phase: "idle" });
-  }, [incomingCall, status, digits]);
+  }, [incomingCall, status, digits, inboundAiAssist]);
+
+  useEffect(() => {
+    if (listenState !== "ready") {
+      setInboundAiAssist(null);
+      return;
+    }
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const res = await fetch("/api/workspace/phone/inbound-active", { credentials: "include" });
+        if (cancelled) return;
+        if (!res.ok) {
+          setInboundAiAssist(null);
+          return;
+        }
+        const j = (await res.json()) as { active?: boolean; from_e164?: string | null };
+        if (j.active) {
+          setInboundAiAssist({ from: typeof j.from_e164 === "string" ? j.from_e164 : null });
+        } else {
+          setInboundAiAssist(null);
+        }
+      } catch {
+        if (!cancelled) setInboundAiAssist(null);
+      }
+    };
+    void poll();
+    const id = window.setInterval(poll, 3500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [listenState]);
 
   useEffect(() => {
     const { url, revoke } = createRingtoneObjectUrl();

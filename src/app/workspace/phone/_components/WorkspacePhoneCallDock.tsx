@@ -31,16 +31,19 @@ export function WorkspacePhoneCallDock() {
   const onKeypadOrCalls =
     pathname.startsWith("/workspace/phone/keypad") || pathname.startsWith("/workspace/phone/calls");
 
-  if (ui.phase === "idle" || onKeypadOrCalls) {
+  const showAiAssistOnKeypad = ui.phase === "inbound_ai_assist";
+  if (ui.phase === "idle" || (onKeypadOrCalls && !showAiAssistOnKeypad)) {
     return null;
   }
 
   const label =
     ui.phase === "incoming"
       ? "Incoming call"
-      : ui.phase === "active"
-        ? "On a call"
-        : "Connecting…";
+      : ui.phase === "inbound_ai_assist"
+        ? "Inbound — AI on the line"
+        : ui.phase === "active"
+          ? "On a call"
+          : "Connecting…";
 
   return (
     <div
