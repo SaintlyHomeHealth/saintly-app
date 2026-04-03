@@ -1,4 +1,4 @@
-import { normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
+import { normalizeDialInputToE164 } from "../softphone/phone-number";
 
 /**
  * Digit-only key for comparing Twilio E.164 / SIP-style values (avoids +1 vs 10-digit mismatches).
