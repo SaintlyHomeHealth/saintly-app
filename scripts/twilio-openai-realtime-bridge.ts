@@ -16,6 +16,7 @@
  *   OPENAI_REALTIME_MODEL (default gpt-4o-realtime-preview-2024-12-17)
  *   REALTIME_BRIDGE_PORT (default 8080)
  *   REALTIME_WS_PATH (default /twilio/realtime-stream)
+ *   REALTIME_BRIDGE_HEARTBEAT_MS (default 12000) — alive log interval
  */
 
 import * as http from "node:http";
@@ -34,12 +35,66 @@ const MODEL =
 const PORT = Number.parseInt(process.env.REALTIME_BRIDGE_PORT || "8080", 10) || 8080;
 const WS_PATH = process.env.REALTIME_WS_PATH?.trim() || "/twilio/realtime-stream";
 
-function requireEnv(name: string): string {
+const HEARTBEAT_MS = Number.parseInt(process.env.REALTIME_BRIDGE_HEARTBEAT_MS || "12000", 10) || 12000;
+
+/** Required for full bridge behavior; server still listens if any are missing (logged at boot). */
+const REQUIRED_ENV_NAMES = [
+  "OPENAI_API_KEY",
+  "TWILIO_ACCOUNT_SID",
+  "TWILIO_AUTH_TOKEN",
+  "TWILIO_VOICE_RING_E164",
+  "APP_PUBLIC_BASE_URL",
+  "REALTIME_BRIDGE_SHARED_SECRET",
+] as const;
+
+function maskEnvAuditLine(name: string): string {
   const v = process.env[name]?.trim();
-  if (!v) {
-    throw new Error(`Missing required env: ${name}`);
+  if (!v) return `${name}=MISSING`;
+  const sensitive = /KEY|TOKEN|SECRET|PASSWORD|AUTH/i.test(name);
+  if (sensitive) {
+    return `${name}=set (len=${v.length}, head=${JSON.stringify(v.slice(0, 2))}…)`;
   }
-  return v;
+  if (name.includes("URL") || name.includes("BASE")) {
+    const u = v.replace(/\/$/, "");
+    return `${name}=set (len=${u.length}, host=${tryHost(u)})`;
+  }
+  if (name.includes("E164") || name.endsWith("_SID")) {
+    return `${name}=set (len=${v.length}, tail=…${v.slice(-4)})`;
+  }
+  return `${name}=set (len=${v.length})`;
+}
+
+function tryHost(urlish: string): string {
+  try {
+    return new URL(urlish).host || "(no host)";
+  } catch {
+    return "(unparseable)";
+  }
+}
+
+function logStartupEnvAudit(): void {
+  console.log("[realtime-bridge] startup env audit (values masked):");
+  for (const name of REQUIRED_ENV_NAMES) {
+    console.log(`[realtime-bridge]   ${maskEnvAuditLine(name)}`);
+  }
+  const missing = REQUIRED_ENV_NAMES.filter((n) => !process.env[n]?.trim());
+  if (missing.length > 0) {
+    console.error(
+      "[realtime-bridge] startup WARNING: missing env — server will listen but stream/handoffs may fail:",
+      missing.join(", ")
+    );
+  }
+}
+
+function startHeartbeat(): ReturnType<typeof setInterval> {
+  return setInterval(() => {
+    console.log("[realtime-bridge] heartbeat", {
+      pid: process.pid,
+      uptimeSec: Math.round(process.uptime()),
+      port: PORT,
+      wsPath: WS_PATH,
+    });
+  }, HEARTBEAT_MS);
 }
 
 function dialTwiml(input: {
@@ -70,8 +125,15 @@ async function postSessionResult(input: {
   urgency?: string;
   handoffRecommended?: boolean;
 }): Promise<void> {
-  const base = requireEnv("APP_PUBLIC_BASE_URL").replace(/\/$/, "");
-  const secret = requireEnv("REALTIME_BRIDGE_SHARED_SECRET");
+  const baseRaw = process.env.APP_PUBLIC_BASE_URL?.trim();
+  const secret = process.env.REALTIME_BRIDGE_SHARED_SECRET?.trim();
+  if (!baseRaw || !secret) {
+    console.error(
+      "[realtime-bridge] postSessionResult skipped: missing APP_PUBLIC_BASE_URL or REALTIME_BRIDGE_SHARED_SECRET"
+    );
+    return;
+  }
+  const base = baseRaw.replace(/\/$/, "");
   const url = `${base}/api/twilio/voice/realtime/result`;
   const res = await fetch(url, {
     method: "POST",
@@ -104,9 +166,15 @@ async function applyTwilioRoute(input: {
   summary: string;
   callerId: string;
 }): Promise<void> {
-  const sid = requireEnv("TWILIO_ACCOUNT_SID");
-  const token = requireEnv("TWILIO_AUTH_TOKEN");
-  const ring = requireEnv("TWILIO_VOICE_RING_E164");
+  const sid = process.env.TWILIO_ACCOUNT_SID?.trim();
+  const token = process.env.TWILIO_AUTH_TOKEN?.trim();
+  const ring = process.env.TWILIO_VOICE_RING_E164?.trim();
+  if (!sid || !token || !ring) {
+    console.error(
+      "[realtime-bridge] applyTwilioRoute skipped: missing TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, or TWILIO_VOICE_RING_E164"
+    );
+    return;
+  }
   const priority = process.env.TWILIO_VOICE_PRIORITY_E164?.trim() || ring;
   const client = twilio(sid, token);
 
@@ -131,8 +199,12 @@ async function applyTwilioRoute(input: {
   console.log("[realtime-bridge] calls.update", { callSid: input.callSid.slice(0, 10) + "…", intent: input.intent });
 }
 
-function connectOpenAi(): WebSocket {
-  const key = requireEnv("OPENAI_API_KEY");
+function connectOpenAi(): WebSocket | null {
+  const key = process.env.OPENAI_API_KEY?.trim();
+  if (!key) {
+    console.error("[realtime-bridge] connectOpenAi: OPENAI_API_KEY missing — cannot connect to OpenAI");
+    return null;
+  }
   const url = `wss://api.openai.com/v1/realtime?model=${encodeURIComponent(MODEL)}`;
   const ws = new WebSocket(url, {
     headers: {
@@ -163,6 +235,10 @@ function sendSessionUpdate(oai: WebSocket): void {
 const server = http.createServer((_req, res) => {
   res.writeHead(200, { "Content-Type": "text/plain" });
   res.end("Twilio OpenAI Realtime bridge — use WebSocket upgrade\n");
+});
+
+server.on("error", (err) => {
+  console.error("[realtime-bridge] HTTP server error event:", err);
 });
 
 const wss = new WebSocketServer({ noServer: true });
@@ -245,6 +321,11 @@ wss.on("connection", (twilioWs, req) => {
       });
 
       oai = connectOpenAi();
+      if (!oai) {
+        console.error("[realtime-bridge] aborting stream session: OpenAI client not created (check OPENAI_API_KEY)");
+        safeClose();
+        return;
+      }
       oai.on("open", () => {
         console.log("[realtime-bridge][diag] openai_realtime_session_ws_open", {
           callSid: callSid!.slice(0, 12) + "…",
@@ -305,12 +386,20 @@ wss.on("connection", (twilioWs, req) => {
 
           if (callSid) {
             if (!callerIdForDial) {
-              try {
-                const client = twilio(requireEnv("TWILIO_ACCOUNT_SID"), requireEnv("TWILIO_AUTH_TOKEN"));
-                const call = await client.calls(callSid).fetch();
-                callerIdForDial = call.to || call.from || "";
-              } catch (e) {
-                console.warn("[realtime-bridge] fetch call for callerId:", e);
+              const sid = process.env.TWILIO_ACCOUNT_SID?.trim();
+              const tok = process.env.TWILIO_AUTH_TOKEN?.trim();
+              if (sid && tok) {
+                try {
+                  const client = twilio(sid, tok);
+                  const call = await client.calls(callSid).fetch();
+                  callerIdForDial = call.to || call.from || "";
+                } catch (e) {
+                  console.warn("[realtime-bridge] fetch call for callerId:", e);
+                }
+              } else {
+                console.warn(
+                  "[realtime-bridge] skip fetch call for callerId: TWILIO_ACCOUNT_SID or TWILIO_AUTH_TOKEN missing"
+                );
               }
             }
 
@@ -328,12 +417,18 @@ wss.on("connection", (twilioWs, req) => {
                 typeof args.handoff_recommended === "boolean" ? args.handoff_recommended : undefined,
             });
 
-            void applyTwilioRoute({
-              callSid,
-              intent,
-              summary,
-              callerId: callerIdForDial || requireEnv("TWILIO_VOICE_RING_E164"),
-            }).catch((e) => console.error("[realtime-bridge] applyTwilioRoute", e));
+            const dialCallerId =
+              callerIdForDial || process.env.TWILIO_VOICE_RING_E164?.trim() || "";
+            if (!dialCallerId) {
+              console.error("[realtime-bridge] applyTwilioRoute skipped: no callerId and TWILIO_VOICE_RING_E164 missing");
+            } else {
+              void applyTwilioRoute({
+                callSid,
+                intent,
+                summary,
+                callerId: dialCallerId,
+              }).catch((e) => console.error("[realtime-bridge] applyTwilioRoute", e));
+            }
           }
 
           setTimeout(safeClose, 500);
@@ -436,20 +531,44 @@ server.on("upgrade", (request, socket, head) => {
   });
 });
 
-try {
-  requireEnv("OPENAI_API_KEY");
-  requireEnv("TWILIO_ACCOUNT_SID");
-  requireEnv("TWILIO_AUTH_TOKEN");
-  requireEnv("TWILIO_VOICE_RING_E164");
-  requireEnv("APP_PUBLIC_BASE_URL");
-  requireEnv("REALTIME_BRIDGE_SHARED_SECRET");
-} catch (e) {
-  console.error("[realtime-bridge] env check failed:", e);
-  process.exit(1);
+process.on("uncaughtException", (err, origin) => {
+  console.error("[realtime-bridge] uncaughtException", {
+    origin,
+    message: err?.message,
+    stack: err?.stack ?? String(err),
+  });
+});
+
+process.on("unhandledRejection", (reason) => {
+  console.error("[realtime-bridge] unhandledRejection", reason);
+  if (reason instanceof Error && reason.stack) {
+    console.error("[realtime-bridge] unhandledRejection stack", reason.stack);
+  }
+});
+
+function boot(): void {
+  try {
+    logStartupEnvAudit();
+  } catch (e) {
+    console.error("[realtime-bridge] logStartupEnvAudit error (non-fatal):", e);
+    if (e instanceof Error && e.stack) {
+      console.error(e.stack);
+    }
+  }
+  startHeartbeat();
+  server.listen(PORT, "0.0.0.0", () => {
+    console.log("[realtime-bridge] bridge boot complete");
+    console.log(
+      `[realtime-bridge] listening http://0.0.0.0:${PORT} | ws path ${WS_PATH} | model=${MODEL} | TwiML → wss://<public-host>${WS_PATH}`
+    );
+  });
 }
 
-server.listen(PORT, () => {
-  console.log(
-    `[realtime-bridge] listening ws://localhost:${PORT}${WS_PATH} | model=${MODEL} | TwiML Stream URL → wss://<public-host>${WS_PATH}`
-  );
-});
+try {
+  boot();
+} catch (e) {
+  console.error("[realtime-bridge] top-level boot() threw (this is rare):", e);
+  if (e instanceof Error && e.stack) {
+    console.error(e.stack);
+  }
+}
