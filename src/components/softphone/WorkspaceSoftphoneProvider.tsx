@@ -14,6 +14,10 @@ function loadTwilioVoiceSdk() {
 
 import { formatPhoneNumber, normalizePhone } from "@/lib/phone/us-phone-format";
 import { isValidE164, normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
+import {
+  formatInboundCallerFromRaw,
+  readIncomingCallerRawFromCall,
+} from "@/lib/softphone/twilio-incoming-caller-display";
 import { createRingtoneObjectUrl } from "@/lib/softphone/ringtone-wav";
 import { dispatchWorkspaceSoftphoneUi } from "@/lib/softphone/workspace-ui-events";
 
@@ -91,31 +95,6 @@ function formatDialpadDisplay(raw: string): string {
   if (d.length <= 6) return `(${d.slice(0, 3)}) ${d.slice(3)}`;
   if (d.length <= 10) return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
   return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6, 10)}${d.length > 10 ? ` ${d.slice(10)}` : ""}`;
-}
-
-function formatInboundCallerFromRaw(raw: string): string {
-  const lower = raw.toLowerCase();
-  if (lower.startsWith("client:")) {
-    return "Internal / browser call";
-  }
-  const digits = normalizePhone(raw);
-  if (digits.length >= 10) {
-    return formatPhoneNumber(raw);
-  }
-  if (!raw.trim()) return "Unknown caller";
-  /** Avoid showing Twilio/SDK garbage (e.g. partial DID fragments like "86"). */
-  return "Caller ID unavailable";
-}
-
-/** Best-effort PSTN / CLI for an incoming Twilio Client leg (SDK `parameters`). */
-function readIncomingCallerRawFromCall(call: Call): string {
-  const toParam = readTwilioParam(call, ["To"]) ?? "";
-  let raw =
-    readTwilioParam(call, ["From", "ForwardedFrom", "CallerId", "RemoteNumber"]) ?? "";
-  if (!raw.trim() && toParam && !toParam.toLowerCase().startsWith("client:")) {
-    raw = toParam;
-  }
-  return raw.trim();
 }
 
 export function WorkspaceSoftphoneProvider({ children }: { children: React.ReactNode }) {
@@ -196,7 +175,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
 
     const lower = raw.toLowerCase();
     const digits = normalizePhone(raw);
-    if (lower.startsWith("client:") || digits.length < 10) {
+    if (lower.startsWith("client:") || digits.length < 10 || !raw.trim()) {
       return;
     }
 
@@ -236,20 +215,36 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
 
   useEffect(() => {
     if (incomingCall) {
-      const fallbackRaw = readIncomingCallerRawFromCall(incomingCall);
-      const remoteLabel = incomingCallerUi
-        ? incomingCallerUi.contactName
-          ? `${incomingCallerUi.contactName} · ${incomingCallerUi.formattedNumber}`
-          : incomingCallerUi.formattedNumber
-        : fallbackRaw;
+      const raw = readIncomingCallerRawFromCall(incomingCall);
+      const uiMatches = Boolean(incomingCallerUi && incomingCallerUi.rawFrom === raw);
+      const formatted =
+        uiMatches && incomingCallerUi?.formattedNumber
+          ? incomingCallerUi.formattedNumber
+          : formatInboundCallerFromRaw(raw);
+      const name = uiMatches ? (incomingCallerUi?.contactName ?? null) : null;
+      const remoteLabel = name ? `${name} · ${formatted}` : formatted;
       dispatchWorkspaceSoftphoneUi({ phase: "incoming", remoteLabel });
       return;
     }
     if (status === "in_call") {
       const active = activeCallRef.current;
-      const remote =
-        readTwilioParam(active, ["To", "From"]) ??
-        (digits.trim() ? formatDialpadDisplay(digits) : null);
+      let remote: string | null = null;
+      if (active) {
+        const pstnRaw = readIncomingCallerRawFromCall(active);
+        if (pstnRaw) {
+          remote = formatInboundCallerFromRaw(pstnRaw);
+        } else {
+          const tf = readTwilioParam(active, ["To", "From"]);
+          if (tf?.toLowerCase().startsWith("client:")) {
+            remote = "Internal / browser call";
+          } else if (tf) {
+            remote = formatInboundCallerFromRaw(tf);
+          }
+        }
+      }
+      if (!remote) {
+        remote = digits.trim() ? formatDialpadDisplay(digits) : null;
+      }
       dispatchWorkspaceSoftphoneUi({ phase: "active", remoteLabel: remote });
       return;
     }
@@ -259,10 +254,15 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       return;
     }
     if (inboundAiAssist) {
+      const r = inboundAiAssist.rawFrom ?? "";
+      const d = normalizePhone(r);
+      const fmt =
+        inboundAiAssist.formattedNumber ||
+        (d.length >= 10 ? formatPhoneNumber(r) : formatInboundCallerFromRaw(r));
       const remote =
-        inboundAiAssist.contactName && inboundAiAssist.formattedNumber
-          ? `${inboundAiAssist.contactName} · ${inboundAiAssist.formattedNumber}`
-          : inboundAiAssist.formattedNumber || inboundAiAssist.rawFrom;
+        inboundAiAssist.contactName && d.length >= 10
+          ? `${inboundAiAssist.contactName} · ${fmt}`
+          : fmt;
       dispatchWorkspaceSoftphoneUi({
         phase: "inbound_ai_assist",
         remoteLabel: remote,
@@ -536,12 +536,30 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
   }, [busy, canDial, startCall]);
 
   const value = useMemo<Ctx>(() => {
-    const activeRemoteLabel =
-      (status === "in_call"
-        ? // eslint-disable-next-line react-hooks/refs -- Twilio Call params exist only on the live SDK object
-          readTwilioParam(activeCallRef.current, ["To", "From"])
-        : null) ??
-      (digits.trim() ? formatDialpadDisplay(digits) : null);
+    let activeRemoteLabel: string | null = null;
+    if (status === "in_call") {
+      /* eslint-disable react-hooks/refs -- Twilio `Call.parameters` only exist on the live SDK instance held in this ref */
+      const active = activeCallRef.current;
+      if (active) {
+        const pstnRaw = readIncomingCallerRawFromCall(active);
+        if (pstnRaw) {
+          activeRemoteLabel = formatInboundCallerFromRaw(pstnRaw);
+        } else {
+          const tf = readTwilioParam(active, ["To", "From"]);
+          if (tf?.toLowerCase().startsWith("client:")) {
+            activeRemoteLabel = "Internal / browser call";
+          } else if (tf) {
+            activeRemoteLabel = formatInboundCallerFromRaw(tf);
+          }
+        }
+      }
+      /* eslint-enable react-hooks/refs */
+      if (!activeRemoteLabel) {
+        activeRemoteLabel = digits.trim() ? formatDialpadDisplay(digits) : null;
+      }
+    } else {
+      activeRemoteLabel = digits.trim() ? formatDialpadDisplay(digits) : null;
+    }
     return {
       digits,
       setDigits,

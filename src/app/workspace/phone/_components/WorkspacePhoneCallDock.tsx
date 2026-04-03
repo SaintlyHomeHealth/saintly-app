@@ -32,6 +32,10 @@ export function WorkspacePhoneCallDock() {
     pathname.startsWith("/workspace/phone/keypad") || pathname.startsWith("/workspace/phone/calls");
 
   const showAiAssistOnKeypad = ui.phase === "inbound_ai_assist";
+  /** ActiveCallBar already shows in-call state; avoid stacking two fixed bars above the nav. */
+  if (ui.phase === "active") {
+    return null;
+  }
   if (ui.phase === "idle" || (onKeypadOrCalls && !showAiAssistOnKeypad)) {
     return null;
   }
@@ -47,7 +51,7 @@ export function WorkspacePhoneCallDock() {
 
   return (
     <div
-      className="fixed bottom-[calc(3.75rem+env(safe-area-inset-bottom,0px))] left-0 right-0 z-[38] border-t border-emerald-200/80 bg-emerald-950/95 px-4 py-2.5 text-emerald-50 shadow-[0_-4px_24px_rgba(0,0,0,0.12)] backdrop-blur-sm supports-[backdrop-filter]:bg-emerald-950/90"
+      className="fixed bottom-[calc(5.5rem+env(safe-area-inset-bottom,0px))] left-0 right-0 z-[42] border-t border-emerald-200/80 bg-emerald-950/95 px-4 py-2.5 text-emerald-50 shadow-[0_-4px_24px_rgba(0,0,0,0.12)] backdrop-blur-sm supports-[backdrop-filter]:bg-emerald-950/90"
       role="status"
       aria-live="polite"
     >

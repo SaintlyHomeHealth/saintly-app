@@ -3,6 +3,7 @@
 import { PhoneCall, PhoneOff } from "lucide-react";
 
 import { useWorkspaceSoftphone } from "@/components/softphone/WorkspaceSoftphoneProvider";
+import { isPlausiblePstnCallerRawForSubline } from "@/lib/softphone/twilio-incoming-caller-display";
 
 export function IncomingCallBanner() {
   const {
@@ -20,7 +21,7 @@ export function IncomingCallBanner() {
   const subLine =
     incomingCallerContactName && incomingCallerNumberFormatted
       ? incomingCallerNumberFormatted
-      : incomingCallerRawFrom &&
+      : isPlausiblePstnCallerRawForSubline(incomingCallerRawFrom) &&
           incomingCallerNumberFormatted &&
           incomingCallerRawFrom !== incomingCallerNumberFormatted
         ? incomingCallerRawFrom

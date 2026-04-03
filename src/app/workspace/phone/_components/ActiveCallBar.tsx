@@ -16,7 +16,7 @@ export function ActiveCallBar() {
   if (status !== "in_call") return null;
 
   return (
-    <div className="fixed bottom-[calc(3.75rem+env(safe-area-inset-bottom,0px))] left-0 right-0 z-[41] px-4 pb-2 sm:px-5">
+    <div className="fixed bottom-[calc(5.5rem+env(safe-area-inset-bottom,0px))] left-0 right-0 z-[43] px-4 pb-2 sm:px-5">
       <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-3 rounded-2xl border border-emerald-200 bg-emerald-950 px-3 py-2.5 text-emerald-50 shadow-xl shadow-black/20">
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold">{activeRemoteLabel ?? "On call"}</p>

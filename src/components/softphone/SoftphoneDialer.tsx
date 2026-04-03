@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import { Delete } from "lucide-react";
 
 import { useWorkspaceSoftphone } from "@/components/softphone/WorkspaceSoftphoneProvider";
+import { isPlausiblePstnCallerRawForSubline } from "@/lib/softphone/twilio-incoming-caller-display";
 
 const DIALPAD_ROWS: ReadonlyArray<ReadonlyArray<{ digit: string; sub?: string }>> = [
   [
@@ -267,7 +268,7 @@ export function SoftphoneDialer({
                 {incomingCallerNumberFormatted}
               </p>
             ) : null}
-            {incomingCallerRawFrom &&
+            {isPlausiblePstnCallerRawForSubline(incomingCallerRawFrom) &&
             incomingCallerNumberFormatted &&
             incomingCallerRawFrom !== incomingCallerNumberFormatted &&
             !incomingCallerContactName ? (

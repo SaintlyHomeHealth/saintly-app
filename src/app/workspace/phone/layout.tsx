@@ -53,7 +53,7 @@ export default async function WorkspacePhoneLayout({ children }: { children: Rea
           inboundRingEnabled={staff.inbound_ring_enabled}
         />
 
-        <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col pb-24">{children}</main>
+        <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col pb-32">{children}</main>
 
         <NursePhoneBottomNav showLeadsNav={showAdminLink} />
       </div>
