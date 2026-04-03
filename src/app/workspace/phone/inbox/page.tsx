@@ -4,6 +4,7 @@ import { InboxIcon, MessageCircleMore } from "lucide-react";
 
 import { WorkspacePhonePageHeader } from "../_components/WorkspacePhonePageHeader";
 import { formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
+import { routePerfLog, routePerfStart } from "@/lib/perf/route-perf";
 import { canAccessWorkspacePhone, getStaffProfile, hasFullCallVisibility } from "@/lib/staff-profile";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
@@ -40,6 +41,7 @@ type PageProps = {
 };
 
 export default async function WorkspaceInboxPage({ searchParams }: PageProps) {
+  const perfStart = routePerfStart();
   const staff = await getStaffProfile();
   if (!staff || !canAccessWorkspacePhone(staff)) {
     redirect("/admin/phone");
@@ -66,7 +68,7 @@ export default async function WorkspaceInboxPage({ searchParams }: PageProps) {
   }
 
   const { data: convRows, error } = await q;
-  if (error) {
+  if (error && process.env.NODE_ENV === "development") {
     console.warn("[workspace/phone/inbox] list:", error.message);
   }
 
@@ -82,11 +84,14 @@ export default async function WorkspaceInboxPage({ searchParams }: PageProps) {
   const ids = rows.map((r) => r.id as string);
   const previewByConvId: Record<string, string> = {};
   if (ids.length > 0) {
+    /** Cap rows: list previews are best-effort; unbounded fetch was O(all messages in listed threads). */
+    const previewRowCap = Math.min(500, Math.max(120, ids.length * 8));
     const { data: msgRows } = await supabase
       .from("messages")
       .select("conversation_id, body, created_at")
       .in("conversation_id", ids)
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: false })
+      .limit(previewRowCap);
 
     const seen = new Set<string>();
     for (const m of msgRows ?? []) {
@@ -106,6 +111,10 @@ export default async function WorkspaceInboxPage({ searchParams }: PageProps) {
       ? selectedRow.main_phone_e164
       : "—";
   const selectedPreview = selectedId ? previewByConvId[selectedId] ?? "" : "";
+
+  if (perfStart) {
+    routePerfLog("workspace/phone/inbox", perfStart);
+  }
 
   return (
     <div className="px-4 pb-6 pt-5 sm:px-5">

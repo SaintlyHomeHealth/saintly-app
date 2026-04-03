@@ -19,6 +19,7 @@ import {
 import { ProcessNoopBatchButton } from "@/app/admin/process-noop-batch-button";
 import { applicantRolePrimaryForCompliance } from "@/lib/applicant-role-for-compliance";
 import { getCrmCalendarTodayIso } from "@/lib/crm/crm-local-date";
+import { routePerfLog, routePerfStart } from "@/lib/perf/route-perf";
 
 type ApplicantRow = {
   id: string;
@@ -515,105 +516,103 @@ export default async function AdminDashboardPage({
   let trainingProgressRows: TrainingProgressLite[] = [];
 
   if (applicantIds.length > 0) {
+    const batchPerf = routePerfStart();
     const supabaseAuthed = await createServerSupabaseClient();
 
-    const { data: eventsRaw } = await supabase
-      .from("admin_compliance_events")
-      .select("id, applicant_id, event_type, event_title, due_date, status, completed_at")
-      .in("applicant_id", applicantIds)
-      .in("event_type", ["skills_checklist", "annual_performance_evaluation"])
-      .order("due_date", { ascending: true });
+    const [
+      { data: eventsRaw },
+      { data: formsRaw },
+      { data: credentialsRaw },
+      { data: contractsRaw },
+      { data: onboardingStatusesRaw },
+      { data: onboardingContractStatusesRaw },
+      { data: employeeTaxFormsRaw },
+      { data: applicantFilesRaw },
+      { data: documentsRaw },
+      { data: onboardingTrainingCompletionsRaw },
+      { data: trainingProgressRaw },
+      { data: annualEventsRaw },
+    ] = await Promise.all([
+      supabase
+        .from("admin_compliance_events")
+        .select("id, applicant_id, event_type, event_title, due_date, status, completed_at")
+        .in("applicant_id", applicantIds)
+        .in("event_type", ["skills_checklist", "annual_performance_evaluation"])
+        .order("due_date", { ascending: true }),
+      supabase
+        .from("employee_admin_forms")
+        .select("id, employee_id, compliance_event_id, form_type, status, updated_at")
+        .in("employee_id", applicantIds)
+        .in("form_type", ["skills_competency", "performance_evaluation"])
+        .order("updated_at", { ascending: false }),
+      supabaseAuthed
+        .from("employee_credentials")
+        .select("id, employee_id, credential_type, expiration_date")
+        .in("employee_id", applicantIds)
+        .order("expiration_date", { ascending: true }),
+      supabase
+        .from("employee_contracts")
+        .select("applicant_id, employment_classification, contract_status, employee_signed_at")
+        .in("applicant_id", applicantIds)
+        .eq("is_current", true),
+      supabase
+        .from("onboarding_status")
+        .select("applicant_id, application_completed")
+        .in("applicant_id", applicantIds),
+      supabase
+        .from("onboarding_contracts")
+        .select("applicant_id, completed")
+        .in("applicant_id", applicantIds),
+      supabase
+        .from("employee_tax_forms")
+        .select("applicant_id, form_status, employee_signed_name, employee_signed_at")
+        .in("applicant_id", applicantIds)
+        .eq("is_current", true),
+      supabase
+        .from("applicant_files")
+        .select("id, applicant_id")
+        .in("applicant_id", applicantIds),
+      supabase
+        .from("documents")
+        .select("id, applicant_id, document_type")
+        .in("applicant_id", applicantIds),
+      supabase
+        .from("onboarding_training_completions")
+        .select("id, applicant_id")
+        .in("applicant_id", applicantIds),
+      supabase
+        .from("applicant_training_progress")
+        .select("id, applicant_id, is_complete")
+        .in("applicant_id", applicantIds),
+      supabase
+        .from("admin_compliance_events")
+        .select("id, applicant_id, event_type, event_title, due_date, status, completed_at")
+        .in("applicant_id", applicantIds)
+        .in(
+          "event_type",
+          annualComplianceDefinitions.map((item) => item.eventType)
+        )
+        .order("due_date", { ascending: true }),
+    ]);
 
     complianceEvents = (eventsRaw || []) as ComplianceEvent[];
-
-    const { data: formsRaw } = await supabase
-      .from("employee_admin_forms")
-      .select("id, employee_id, compliance_event_id, form_type, status, updated_at")
-      .in("employee_id", applicantIds)
-      .in("form_type", ["skills_competency", "performance_evaluation"])
-      .order("updated_at", { ascending: false });
-
     adminForms = (formsRaw || []) as AdminForm[];
-
-    const { data: credentialsRaw } = await supabaseAuthed
-      .from("employee_credentials")
-      .select("id, employee_id, credential_type, expiration_date")
-      .in("employee_id", applicantIds)
-      .order("expiration_date", { ascending: true });
-
     employeeCredentials = (credentialsRaw || []) as CredentialRecord[];
-
-    const { data: contractsRaw } = await supabase
-      .from("employee_contracts")
-      .select("applicant_id, employment_classification, contract_status, employee_signed_at")
-      .in("applicant_id", applicantIds)
-      .eq("is_current", true);
-
     employeeContracts = (contractsRaw || []) as EmployeeContractLite[];
-
-    const { data: onboardingStatusesRaw } = await supabase
-      .from("onboarding_status")
-      .select("applicant_id, application_completed")
-      .in("applicant_id", applicantIds);
-
     onboardingStatuses = (onboardingStatusesRaw || []) as OnboardingStatusLite[];
-
-    const { data: onboardingContractStatusesRaw } = await supabase
-      .from("onboarding_contracts")
-      .select("applicant_id, completed")
-      .in("applicant_id", applicantIds);
-
     onboardingContractStatuses =
       (onboardingContractStatusesRaw || []) as OnboardingContractStatusLite[];
-
-    const { data: employeeTaxFormsRaw } = await supabase
-      .from("employee_tax_forms")
-      .select("applicant_id, form_status, employee_signed_name, employee_signed_at")
-      .in("applicant_id", applicantIds)
-      .eq("is_current", true);
-
     employeeTaxForms = (employeeTaxFormsRaw || []) as EmployeeTaxFormLite[];
-
-    const { data: applicantFilesRaw } = await supabase
-      .from("applicant_files")
-      .select("id, applicant_id")
-      .in("applicant_id", applicantIds);
-
     applicantFiles = (applicantFilesRaw || []) as ApplicantFileLite[];
-
-    const { data: documentsRaw } = await supabase
-      .from("documents")
-      .select("id, applicant_id, document_type")
-      .in("applicant_id", applicantIds);
-
     documents = (documentsRaw || []) as DocumentLite[];
-
-    const { data: onboardingTrainingCompletionsRaw } = await supabase
-      .from("onboarding_training_completions")
-      .select("id, applicant_id")
-      .in("applicant_id", applicantIds);
-
     onboardingTrainingCompletions =
       (onboardingTrainingCompletionsRaw || []) as TrainingCompletionLite[];
-
-    const { data: trainingProgressRaw } = await supabase
-      .from("applicant_training_progress")
-      .select("id, applicant_id, is_complete")
-      .in("applicant_id", applicantIds);
-
     trainingProgressRows = (trainingProgressRaw || []) as TrainingProgressLite[];
-
-    const { data: annualEventsRaw } = await supabase
-      .from("admin_compliance_events")
-      .select("id, applicant_id, event_type, event_title, due_date, status, completed_at")
-      .in("applicant_id", applicantIds)
-      .in(
-        "event_type",
-        annualComplianceDefinitions.map((item) => item.eventType)
-      )
-      .order("due_date", { ascending: true });
-
     annualComplianceEvents = (annualEventsRaw || []) as ComplianceEvent[];
+
+    if (batchPerf) {
+      routePerfLog("admin/dashboard/applicant-batch", batchPerf);
+    }
   }
 
   const now = new Date();
@@ -1447,9 +1446,9 @@ export default async function AdminDashboardPage({
   let ccPrimaryAssigned = 0;
   let ccUnassignedPrimary = 0;
   let ccRecentMissedCalls: { id: string; from_e164: string | null; created_at: string }[] = [];
-  let ccRecentLeads: { id: string; status: string | null; created_at: string; label: string }[] = [];
-  let ccRecentPatients: { id: string; patient_status: string; created_at: string; label: string }[] = [];
-  let ccNeedsAssignment: { id: string; patient_status: string; label: string }[] = [];
+  const ccRecentLeads: { id: string; status: string | null; created_at: string; label: string }[] = [];
+  const ccRecentPatients: { id: string; patient_status: string; created_at: string; label: string }[] = [];
+  const ccNeedsAssignment: { id: string; patient_status: string; label: string }[] = [];
 
   if (isManagerOrHigher(staffProfile)) {
     const supabaseCc = await createServerSupabaseClient();

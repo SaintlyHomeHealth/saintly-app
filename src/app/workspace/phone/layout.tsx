@@ -5,23 +5,26 @@ import { redirect } from "next/navigation";
 import { NursePhoneBottomNav } from "./_components/NursePhoneBottomNav";
 import { WorkspacePhoneTopStatusStrip } from "./_components/WorkspacePhoneTopStatusStrip";
 import { SignOutButton } from "@/components/SignOutButton";
+import { routePerfLog, routePerfStart } from "@/lib/perf/route-perf";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 
 export default async function WorkspacePhoneLayout({ children }: { children: ReactNode }) {
-  const staff = await getStaffProfile();
-  if (!staff) {
-    redirect("/admin/phone");
-  }
+  const perfStart = routePerfStart();
+  try {
+    const staff = await getStaffProfile();
+    if (!staff) {
+      redirect("/admin/phone");
+    }
 
-  const displayName =
-    (typeof staff.full_name === "string" && staff.full_name.trim()) ||
-    (typeof staff.email === "string" && staff.email.trim()) ||
-    "Staff";
+    const displayName =
+      (typeof staff.full_name === "string" && staff.full_name.trim()) ||
+      (typeof staff.email === "string" && staff.email.trim()) ||
+      "Staff";
 
-  const showAdminLink = isManagerOrHigher(staff);
+    const showAdminLink = isManagerOrHigher(staff);
 
-  return (
-    <div className="flex min-h-[100dvh] flex-col bg-gradient-to-b from-slate-50 via-white to-slate-50/80 text-slate-900">
+    return (
+      <div className="flex min-h-[100dvh] flex-col bg-gradient-to-b from-slate-50 via-white to-slate-50/80 text-slate-900">
         <header className="sticky top-0 z-30 border-b border-slate-200/60 bg-white/95 px-4 py-3 shadow-sm shadow-slate-200/20 backdrop-blur-md supports-[backdrop-filter]:bg-white/85">
           <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-3">
             <div className="min-w-0">
@@ -54,5 +57,10 @@ export default async function WorkspacePhoneLayout({ children }: { children: Rea
 
         <NursePhoneBottomNav showLeadsNav={showAdminLink} />
       </div>
-  );
+    );
+  } finally {
+    if (perfStart) {
+      routePerfLog("workspace/phone/layout", perfStart);
+    }
+  }
 }

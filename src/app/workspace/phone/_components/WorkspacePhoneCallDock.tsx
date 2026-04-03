@@ -10,8 +10,8 @@ import {
 } from "@/lib/softphone/workspace-ui-events";
 
 /**
- * Mini call-status strip above the bottom nav. Reflects `SoftphoneDialer` lifecycle on the current page.
- * When the softphone is lifted to a single layout-level device, this will follow the user across routes.
+ * Mini call-status strip above the bottom nav. Subscribes to workspace softphone UI events so inbound /
+ * active / AI phases stay visible while navigating under `/workspace/*`.
  */
 export function WorkspacePhoneCallDock() {
   const pathname = usePathname() ?? "";

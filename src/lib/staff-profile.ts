@@ -1,3 +1,5 @@
+import { cache } from "react";
+
 import { createServerSupabaseClient, getAuthenticatedUser } from "@/lib/supabase/server";
 
 export type StaffRole = "super_admin" | "admin" | "manager" | "nurse";
@@ -90,7 +92,7 @@ function isStaffRole(value: string): value is StaffRole {
  * Returns the staff profile for the current Supabase session user, or null if
  * unauthenticated or no matching row (including users who are not staff).
  */
-export async function getStaffProfile(): Promise<StaffProfile | null> {
+async function loadStaffProfile(): Promise<StaffProfile | null> {
   const user = await getAuthenticatedUser();
   if (!user) {
     return null;
@@ -127,3 +129,6 @@ export async function getStaffProfile(): Promise<StaffProfile | null> {
     inbound_ring_enabled: data.inbound_ring_enabled === true,
   };
 }
+
+/** One `staff_profiles` fetch per request (layouts + page share the same result). */
+export const getStaffProfile = cache(loadStaffProfile);

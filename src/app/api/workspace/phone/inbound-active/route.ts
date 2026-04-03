@@ -29,7 +29,9 @@ export async function GET() {
     .maybeSingle();
 
   if (error) {
-    console.warn("[workspace/phone/inbound-active]", error.message);
+    if (process.env.NODE_ENV === "development") {
+      console.warn("[workspace/phone/inbound-active]", error.message);
+    }
     return NextResponse.json({ active: false }, { status: 200 });
   }
 

@@ -9,6 +9,7 @@ import { allowedNextVisitStatuses, formatVisitStatusLabel } from "@/lib/crm/pati
 import { visitNeedsAttentionOperational } from "@/lib/crm/dispatch-needs-attention";
 import { formatDispatchScheduleLine } from "@/lib/crm/dispatch-visit";
 import { formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
+import { routePerfLog, routePerfStart } from "@/lib/perf/route-perf";
 import { supabaseAdmin } from "@/lib/admin";
 import { canAccessWorkspacePhone, getStaffProfile, hasFullCallVisibility } from "@/lib/staff-profile";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
@@ -97,6 +98,7 @@ function formatOnSiteDuration(arrivedAt: string | null, completedAt: string | nu
 }
 
 export default async function WorkspaceTodayPage() {
+  const perfStart = routePerfStart();
   const staff = await getStaffProfile();
   if (!staff || !canAccessWorkspacePhone(staff)) {
     redirect("/admin/phone");
@@ -337,6 +339,10 @@ export default async function WorkspaceTodayPage() {
       )}
     </section>
   );
+
+  if (perfStart) {
+    routePerfLog("workspace/phone/today", perfStart);
+  }
 
   return (
     <div className="px-4 pb-8 pt-5 sm:px-5 lg:mx-auto lg:max-w-4xl lg:px-6">

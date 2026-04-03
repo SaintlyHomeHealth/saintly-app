@@ -1,5 +1,6 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { cookies } from "next/headers";
+import { cache } from "react";
 
 /**
  * Supabase client bound to the incoming request cookies (SSR).
@@ -30,10 +31,11 @@ export async function createServerSupabaseClient() {
   );
 }
 
-export async function getAuthenticatedUser() {
+/** Dedupes `auth.getUser()` within a single RSC / request tree. */
+export const getAuthenticatedUser = cache(async () => {
   const supabase = await createServerSupabaseClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   return user;
-}
+});

@@ -2,7 +2,15 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
-import { Device, type Call } from "@twilio/voice-sdk";
+import type { Call, Device } from "@twilio/voice-sdk";
+
+import { routePerfLog, routePerfStart } from "@/lib/perf/route-perf";
+
+let twilioVoiceModule: Promise<typeof import("@twilio/voice-sdk")> | null = null;
+function loadTwilioVoiceSdk() {
+  twilioVoiceModule ??= import("@twilio/voice-sdk");
+  return twilioVoiceModule;
+}
 
 import { formatPhoneNumber, normalizePhone } from "@/lib/phone/us-phone-format";
 import { isValidE164, normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
@@ -271,6 +279,9 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     }
     let cancelled = false;
     const poll = async () => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        return;
+      }
       try {
         const res = await fetch("/api/workspace/phone/inbound-active", { credentials: "include" });
         if (cancelled) return;
@@ -399,9 +410,14 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
           return;
         }
         setTokenIdentity(typeof body.identity === "string" ? body.identity : null);
-        const device = new Device(body.token, { logLevel: "error" });
+        const twilioLoadStart = routePerfStart();
+        const { Device: TwilioDevice } = await loadTwilioVoiceSdk();
+        const device = new TwilioDevice(body.token, { logLevel: "error" });
         bindDeviceLifecycle(device);
         await device.register();
+        if (twilioLoadStart) {
+          routePerfLog("softphone:twilio-import-register", twilioLoadStart);
+        }
         if (cancelled) {
           device.destroy();
           return;
@@ -484,7 +500,8 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       try {
         let device = deviceRef.current;
         if (!device) {
-          device = new Device(tokenJson.token!, { logLevel: "error" });
+          const { Device: TwilioDevice } = await loadTwilioVoiceSdk();
+          device = new TwilioDevice(tokenJson.token!, { logLevel: "error" });
           bindDeviceLifecycle(device);
           await device.register();
           deviceRef.current = device;
@@ -520,7 +537,10 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
 
   const value = useMemo<Ctx>(() => {
     const activeRemoteLabel =
-      (status === "in_call" ? readTwilioParam(activeCallRef.current, ["To", "From"]) : null) ??
+      (status === "in_call"
+        ? // eslint-disable-next-line react-hooks/refs -- Twilio Call params exist only on the live SDK object
+          readTwilioParam(activeCallRef.current, ["To", "From"])
+        : null) ??
       (digits.trim() ? formatDialpadDisplay(digits) : null);
     return {
       digits,

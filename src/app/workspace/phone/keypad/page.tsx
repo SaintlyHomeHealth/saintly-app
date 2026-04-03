@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { KeypadDialerLazy } from "./KeypadDialerLazy";
 import { WorkspacePhonePageHeader } from "../_components/WorkspacePhonePageHeader";
-import { SoftphoneDialer } from "@/components/softphone/SoftphoneDialer";
+import { routePerfLog, routePerfStart } from "@/lib/perf/route-perf";
 import { canAccessWorkspacePhone, getStaffProfile } from "@/lib/staff-profile";
 
 const UUID_RE =
@@ -18,6 +19,7 @@ export default async function WorkspaceKeypadPage({
 }: {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  const perfStart = routePerfStart();
   const staff = await getStaffProfile();
   if (!staff || !canAccessWorkspacePhone(staff)) {
     redirect("/admin/phone");
@@ -37,6 +39,10 @@ export default async function WorkspaceKeypadPage({
     `${staff.role.replace(/_/g, " ")} (${staff.user_id.slice(0, 8)}…)`;
 
   const dialerKey = `kp-${dial}-${autoPlaceCall ? "1" : "0"}`;
+
+  if (perfStart) {
+    routePerfLog("workspace/phone/keypad", perfStart);
+  }
 
   return (
     <div className="flex flex-1 flex-col px-4 pb-6 pt-5 sm:px-5 lg:px-8">
@@ -58,7 +64,7 @@ export default async function WorkspaceKeypadPage({
       ) : null}
       <div className="mt-6 flex flex-1 flex-col items-stretch gap-6 lg:mt-8 lg:flex-row lg:items-start lg:justify-center lg:gap-10">
         <div className="w-full max-w-md shrink-0 rounded-[32px] border border-slate-200/80 bg-white p-5 shadow-md shadow-slate-200/50 sm:p-7 lg:max-w-lg">
-          <SoftphoneDialer
+          <KeypadDialerLazy
             key={dialerKey}
             staffDisplayName={staffDisplayName}
             variant="keypad"
