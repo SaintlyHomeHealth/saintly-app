@@ -4,7 +4,7 @@ import { WorkspacePhonePageHeader } from "../_components/WorkspacePhonePageHeade
 import { VoicemailCard } from "@/app/workspace/phone/_components/VoicemailCard";
 import { formatDurationSeconds } from "@/lib/crm/patient-hub-detail-display";
 import { formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
-import { voicemailTranscriptFromMeta, voiceAiShortSummaryFromMeta } from "@/lib/phone/voicemail-display";
+import { voicemailTranscriptionUiFromMeta, voiceAiShortSummaryFromMeta } from "@/lib/phone/voicemail-display";
 import { canAccessWorkspacePhone, getStaffProfile, hasFullCallVisibility } from "@/lib/staff-profile";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
@@ -182,7 +182,7 @@ export default async function WorkspaceVoicemailPage() {
             const display = contactName(c.contacts) ?? number ?? "Unknown caller";
             const convId = cid ? threadByContact.get(cid) ?? null : null;
             const patientId = cid ? patientByContact.get(cid) ?? null : null;
-            const transcript = voicemailTranscriptFromMeta(c.metadata);
+            const vmTx = voicemailTranscriptionUiFromMeta(c.metadata);
             const aiRecap = voiceAiShortSummaryFromMeta(c.metadata);
             return (
               <VoicemailCard
@@ -195,7 +195,9 @@ export default async function WorkspaceVoicemailPage() {
                 callbackPhone={number}
                 threadHref={convId ? `/workspace/phone/inbox/${convId}` : null}
                 patientHref={patientId ? `/workspace/phone/patients/${patientId}` : null}
-                transcript={transcript}
+                transcript={vmTx.text}
+                transcriptStatus={vmTx.status}
+                transcriptError={vmTx.error}
                 aiRecap={aiRecap}
               />
             );

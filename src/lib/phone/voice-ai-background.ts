@@ -45,7 +45,7 @@ function isTerminalCallStatus(status: string): boolean {
   );
 }
 
-const VOICE_AI_SYSTEM_PROMPT = `You classify phone intake records for Saintly Home Health (home health agency).
+export const VOICE_AI_CLASSIFICATION_SYSTEM_PROMPT = `You classify phone intake records for Saintly Home Health (home health agency).
 You only see structured call metadata — there may be no transcript.
 Return a single JSON object with exactly these keys:
 - "caller_category": one of "patient_family", "caregiver_applicant", "referral_provider", "vendor_other", "spam"
@@ -61,6 +61,11 @@ Return a single JSON object with exactly these keys:
 - "confidence": object with "category" (one of "low","medium","high") and "summary" (one short sentence)
 
 These are suggestions only; staff CRM fields are stored separately. Prefer conservative urgency when uncertain.`;
+
+/** Same prompt as background voice AI classification (Whisper + voicemail pipeline reuse). */
+export function getVoiceAiClassificationSystemPrompt(): string {
+  return VOICE_AI_CLASSIFICATION_SYSTEM_PROMPT;
+}
 
 export type VoiceAiCrmSuggestion = {
   type: string;
@@ -299,7 +304,7 @@ export async function persistVoiceAiMetadata(callId: string, voicePayload: Voice
 }
 
 /** Stable string over materially relevant row fields (status, VM, durations, CRM hints). */
-function buildInputFingerprint(row: Record<string, unknown>): string {
+export function buildVoiceAiInputFingerprint(row: Record<string, unknown>): string {
   const status = (typeof row.status === "string" ? row.status : "").trim().toLowerCase();
   const vmSid = typeof row.voicemail_recording_sid === "string" ? row.voicemail_recording_sid.trim() : "";
   const vmPresent = vmSid ? "1" : "0";
@@ -368,7 +373,7 @@ async function executeVoiceAiClassification(callId: string): Promise<void> {
     return;
   }
 
-  const fingerprint = buildInputFingerprint(row);
+  const fingerprint = buildVoiceAiInputFingerprint(row);
   const prevFp = existingVoiceAiFingerprint(row.metadata);
   if (prevFp !== null && prevFp === fingerprint) {
     console.log("[voice-ai-debug] executeVoiceAiClassification exit: fingerprint unchanged, skip", { callId });
@@ -378,7 +383,7 @@ async function executeVoiceAiClassification(callId: string): Promise<void> {
   const context = buildPhoneCallAiContextBlock(row);
   const userMessage = `Produce the voice AI classification JSON for this completed or missed call.\n\n${context}`;
 
-  const parsed = await fetchOpenAiJsonObject(VOICE_AI_SYSTEM_PROMPT, userMessage);
+  const parsed = await fetchOpenAiJsonObject(VOICE_AI_CLASSIFICATION_SYSTEM_PROMPT, userMessage);
   if (parsed == null) {
     console.log("[voice-ai-debug] executeVoiceAiClassification exit: OpenAI returned null/empty payload", {
       callId,

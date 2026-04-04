@@ -15,6 +15,9 @@ type Props = {
   threadHref: string | null;
   patientHref?: string | null;
   transcript: string | null;
+  /** metadata.voicemail_transcription.status — queued | processing | completed | failed */
+  transcriptStatus: string | null;
+  transcriptError: string | null;
   aiRecap: string | null;
   compact?: boolean;
 };
@@ -36,10 +39,28 @@ export function VoicemailCard({
   threadHref,
   patientHref,
   transcript,
+  transcriptStatus,
+  transcriptError,
   aiRecap,
   compact = false,
 }: Props) {
   const followUpTitle = `Voicemail follow-up — ${title}`.slice(0, 500);
+
+  const transcriptPending =
+    !transcript &&
+    (transcriptStatus === "queued" || transcriptStatus === "processing" || transcriptStatus === "pending");
+
+  const transcriptBody = transcript ? (
+    <p className="rounded-xl border border-slate-100 bg-slate-50/90 px-2.5 py-2 text-[11px] leading-snug text-slate-800">
+      {transcript}
+    </p>
+  ) : transcriptPending ? (
+    <p className={placeholderCls}>Transcript processing…</p>
+  ) : transcriptStatus === "failed" ? (
+    <p className={placeholderCls}>{transcriptError || "Transcript could not be generated."}</p>
+  ) : (
+    <p className={placeholderCls}>Transcript will appear shortly after the message is processed.</p>
+  );
 
   return (
     <li
@@ -68,16 +89,7 @@ export function VoicemailCard({
 
       <div className="space-y-1.5">
         <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">Transcript</p>
-        {transcript ? (
-          <p className="rounded-xl border border-slate-100 bg-slate-50/90 px-2.5 py-2 text-[11px] leading-snug text-slate-800">
-            {transcript}
-          </p>
-        ) : (
-          <p className={placeholderCls}>
-            No transcript yet. Set TWILIO_VOICEMAIL_TRANSCRIBE=1 to enable Twilio transcription, or check back after
-            processing.
-          </p>
-        )}
+        {transcriptBody}
       </div>
 
       <div className="space-y-1.5">
@@ -86,6 +98,8 @@ export function VoicemailCard({
           <p className="rounded-xl border border-violet-100 bg-violet-50/60 px-2.5 py-2 text-[11px] leading-snug text-slate-800">
             {aiRecap}
           </p>
+        ) : transcriptPending ? (
+          <p className={placeholderCls}>AI recap processing…</p>
         ) : (
           <p className={placeholderCls}>
             AI summary appears after the call is processed (background voice classification on the call record).

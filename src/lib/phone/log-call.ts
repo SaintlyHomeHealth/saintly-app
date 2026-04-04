@@ -11,6 +11,7 @@ import {
 } from "@/lib/phone/incoming-call-alerts";
 import { triggerAutoFollowUp } from "@/lib/phone/auto-followup";
 import { normalizeTwilioRecordingMediaUrl } from "@/lib/phone/twilio-recording-media";
+import { scheduleSaintlyVoicemailProcessing } from "@/lib/phone/voicemail-saintly-process";
 import { awaitVoiceAiClassificationForWebhook } from "@/lib/phone/voice-ai-background";
 
 export const PHONE_CALL_STATUSES = [
@@ -821,6 +822,27 @@ export async function applyTwilioVoicemailRecording(
     return p && typeof p.recording_sid === "string" && p.recording_sid === recordingSid;
   });
 
+  const saintlyVmEnabled = process.env.SAINTLY_VOICEMAIL_AI_PROCESSING !== "0";
+  const prevVt = asMetadata(prevMeta.voicemail_transcription);
+  const alreadyDoneSaintlyVm =
+    Boolean(isFinalOk) &&
+    saintlyVmEnabled &&
+    prevVt.source === "saintly" &&
+    prevVt.status === "completed" &&
+    typeof prevVt.recording_sid === "string" &&
+    prevVt.recording_sid.trim() === recordingSid;
+
+  const voicemailTranscriptionMeta =
+    isFinalOk && saintlyVmEnabled && !alreadyDoneSaintlyVm
+      ? {
+          ...prevVt,
+          status: "queued",
+          source: "saintly",
+          queued_at: new Date().toISOString(),
+          recording_sid: recordingSid,
+        }
+      : null;
+
   const updateRow: Record<string, unknown> = {
     voicemail_recording_sid: recordingSid,
     voicemail_status:
@@ -832,6 +854,7 @@ export async function applyTwilioVoicemailRecording(
         recording_status: input.recordingStatus ?? null,
         received_at: new Date().toISOString(),
       },
+      ...(voicemailTranscriptionMeta ? { voicemail_transcription: voicemailTranscriptionMeta } : {}),
     },
   };
 
@@ -893,6 +916,9 @@ export async function applyTwilioVoicemailRecording(
   if (isFinalOk) {
     await awaitVoiceAiClassificationForWebhook(callId);
     await triggerAutoFollowUp(supabase, callId);
+    if (saintlyVmEnabled && !alreadyDoneSaintlyVm) {
+      scheduleSaintlyVoicemailProcessing(callId);
+    }
   }
 
   return { ok: true };
