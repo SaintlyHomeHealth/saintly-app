@@ -9,6 +9,7 @@ import { parseVerifiedTwilioFormBody } from "@/lib/twilio/verify-form-post";
  * Does not use Twilio Voice routes.
  */
 export async function POST(req: NextRequest) {
+  console.log("[sms-inbound] POST /api/twilio/sms/inbound");
   const parsed = await parseVerifiedTwilioFormBody(req);
   if (!parsed.ok) {
     return parsed.response;

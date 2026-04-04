@@ -36,11 +36,17 @@ export async function parseVerifiedTwilioFormBody(
     }
     const url = getTwilioWebhookSignatureUrl(req);
     if (!validateTwilioWebhookSignature(authToken, signature, url, params)) {
+      if (req.nextUrl.pathname.includes("/sms")) {
+        console.warn("[sms-inbound] signature validation failed", { pathname: req.nextUrl.pathname, url });
+      }
       return { ok: false, response: new NextResponse("Forbidden", { status: 403 }) };
     }
   } else if (authToken) {
     const url = getTwilioWebhookSignatureUrl(req);
     if (!validateTwilioWebhookSignature(authToken, signature, url, params)) {
+      if (req.nextUrl.pathname.includes("/sms")) {
+        console.warn("[sms-inbound] signature validation failed", { pathname: req.nextUrl.pathname, url });
+      }
       return { ok: false, response: new NextResponse("Forbidden", { status: 403 }) };
     }
   }

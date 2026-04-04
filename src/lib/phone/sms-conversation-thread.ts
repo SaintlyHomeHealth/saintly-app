@@ -4,7 +4,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { CrmContactMatch } from "@/lib/crm/find-contact-by-incoming-phone";
 import { findContactByIncomingPhone } from "@/lib/crm/find-contact-by-incoming-phone";
-import { isValidE164 } from "@/lib/softphone/phone-number";
+import { phoneLookupCandidates } from "@/lib/crm/phone-lookup-candidates";
+import { isValidE164, normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
 
 /** Set on conversations.metadata when no CRM contact is linked (inbound or system SMS). */
 export const UNKNOWN_TEXTER_METADATA_KEY = "unknown_texter" as const;
@@ -30,22 +31,48 @@ export async function ensureSmsConversationForPhone(
     leadStatusOnCreate?: string;
   }
 ): Promise<{ ok: true; conversationId: string } | { ok: false; error: string }> {
-  const phone = mainPhoneE164.trim();
+  const trimmed = mainPhoneE164.trim();
+  const phone =
+    normalizeDialInputToE164(trimmed) ?? (isValidE164(trimmed) ? trimmed : "");
   if (!phone || !isValidE164(phone)) {
     return { ok: false, error: "invalid main_phone_e164" };
   }
 
   const contactId = matchedContact?.id ?? null;
 
-  const { data: existing, error: findErr } = await supabase
+  const candidates = phoneLookupCandidates(phone);
+  if (candidates.length === 0) {
+    return { ok: false, error: "no phone lookup candidates" };
+  }
+
+  const { data: existingRows, error: findErr } = await supabase
     .from("conversations")
-    .select("id, primary_contact_id, metadata")
+    .select("id, primary_contact_id, metadata, main_phone_e164")
     .eq("channel", "sms")
-    .eq("main_phone_e164", phone)
-    .maybeSingle();
+    .in("main_phone_e164", candidates)
+    .order("created_at", { ascending: true })
+    .limit(2);
 
   if (findErr) {
     return { ok: false, error: findErr.message };
+  }
+
+  const existing = existingRows && existingRows.length > 0 ? existingRows[0] : null;
+  if (existingRows && existingRows.length > 1) {
+    console.warn("[sms-db] multiple conversations for same logical phone; using oldest", {
+      count: existingRows.length,
+      keep: existingRows[0]?.id,
+    });
+  }
+
+  if (existing?.id && existing.main_phone_e164 && existing.main_phone_e164 !== phone) {
+    const { error: canonErr } = await supabase
+      .from("conversations")
+      .update({ main_phone_e164: phone, updated_at: new Date().toISOString() })
+      .eq("id", String(existing.id));
+    if (canonErr) {
+      console.warn("[sms-db] canonicalize main_phone_e164:", canonErr.message);
+    }
   }
 
   if (existing?.id) {

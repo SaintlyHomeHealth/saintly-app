@@ -15,10 +15,10 @@ import { parseLeadStatus } from "@/lib/phone/lead-status";
 import { isValidE164, normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
 import { sendSms } from "@/lib/twilio/send-sms";
 import {
+  canAccessWorkspacePhone,
   getStaffProfile,
   hasFullCallVisibility,
   isAdminOrHigher,
-  isPhoneWorkspaceUser,
   type StaffProfile,
 } from "@/lib/staff-profile";
 
@@ -34,9 +34,12 @@ function parseIntakeContactType(raw: unknown): "patient" | "family" | "referral"
   return null;
 }
 
+/**
+ * Same gate as `/workspace/phone` and `/admin/phone/messages` UI: nurses may message without
+ * `phone_access_enabled`; managers/admins/super_admins still require that flag.
+ */
 function requirePhoneMessagingStaff(staff: StaffProfile | null): staff is StaffProfile {
-  if (!staff || !isPhoneWorkspaceUser(staff)) return false;
-  if (!staff.phone_access_enabled) return false;
+  if (!staff || !canAccessWorkspacePhone(staff)) return false;
   return true;
 }
 
@@ -61,6 +64,7 @@ async function loadConversationForAccess(
     .from("conversations")
     .select("id, assigned_to_user_id, primary_contact_id, main_phone_e164")
     .eq("id", conversationId)
+    .eq("channel", "sms")
     .maybeSingle();
 
   if (error || !data?.id) {
@@ -395,25 +399,67 @@ export async function clearConversationFollowUp(formData: FormData) {
   revalidateSmsConversationViews(conversationId);
 }
 
+function smsConversationRedirectPath(
+  conversationId: string,
+  workspaceReturn: boolean,
+  query: Record<string, string>
+): string {
+  const base = workspaceReturn
+    ? `/workspace/phone/inbox/${conversationId}`
+    : `/admin/phone/messages/${conversationId}`;
+  const q = new URLSearchParams();
+  for (const [k, v] of Object.entries(query)) {
+    if (v) q.set(k, v);
+  }
+  const s = q.toString();
+  return s ? `${base}?${s}` : base;
+}
+
 export async function sendConversationSms(formData: FormData) {
   const staff = await getStaffProfile();
-  if (!requirePhoneMessagingStaff(staff)) {
-    return;
-  }
+  const returnTo = String(formData.get("returnTo") ?? "").trim();
+  const workspaceReturn = returnTo === "workspace";
 
   const idRaw = formData.get("conversationId");
   const bodyRaw = formData.get("body");
   const conversationId = typeof idRaw === "string" ? idRaw.trim() : "";
   const body = typeof bodyRaw === "string" ? bodyRaw.trim().slice(0, SMS_BODY_MAX) : "";
 
+  if (!requirePhoneMessagingStaff(staff)) {
+    console.warn("[sms-send] blocked: staff cannot access workspace phone", {
+      hasStaff: Boolean(staff),
+      workspaceReturn,
+    });
+    redirect(workspaceReturn ? "/workspace/phone/inbox?err=sms_forbidden" : "/admin/phone?err=sms_forbidden");
+  }
+
+  console.log("[sms-ui] send submit", {
+    conversationId,
+    bodyLen: body.length,
+    workspaceReturn,
+  });
+
   if (!conversationId || !UUID_RE.test(conversationId) || !body) {
-    return;
+    console.warn("[sms-send] invalid conversation or empty body");
+    redirect(workspaceReturn ? "/workspace/phone/inbox?err=sms_invalid" : "/admin/phone/messages?err=sms_invalid");
   }
 
   const { row } = await loadConversationForAccess(conversationId);
+  const rawRecipient = row?.main_phone_e164 != null ? String(row.main_phone_e164).trim() : "";
+  const normalizedRecipient =
+    normalizeDialInputToE164(rawRecipient) ?? (isValidE164(rawRecipient) ? rawRecipient : "");
+  const to = normalizedRecipient;
+
+  console.log("[sms-send] resolved recipient", {
+    conversationId,
+    rawRecipient,
+    normalizedRecipient: to,
+    conversationExists: Boolean(row?.id),
+  });
+
   if (!row?.main_phone_e164) {
-    console.warn("[messages] sendConversationSms: missing row or phone", { conversationId });
-    return;
+    console.warn("[sms-db] sendConversationSms: missing row or phone", { conversationId });
+    redirect(smsConversationRedirectPath(conversationId, workspaceReturn, { err: "sms_no_phone" }));
   }
 
   if (
@@ -421,20 +467,25 @@ export async function sendConversationSms(formData: FormData) {
       assigned_to_user_id: row.assigned_to_user_id,
     })
   ) {
-    return;
+    console.warn("[sms-send] forbidden: conversation row", { conversationId });
+    redirect(smsConversationRedirectPath(conversationId, workspaceReturn, { err: "sms_forbidden" }));
   }
 
-  const to = row.main_phone_e164.trim();
-  if (!isValidE164(to)) {
-    console.warn("[messages] sendConversationSms: bad E.164", { to });
-    return;
+  if (!to || !isValidE164(to)) {
+    console.warn("[sms-send] bad E.164 after normalize", { rawRecipient, to });
+    redirect(smsConversationRedirectPath(conversationId, workspaceReturn, { err: "sms_bad_phone" }));
   }
 
+  console.log("[sms-twilio] send start", { conversationId, to, bodyLen: body.length });
   const sent = await sendSms({ to, body });
   if (!sent.ok) {
-    console.warn("[messages] sendConversationSms twilio:", sent.error.slice(0, 300));
-    return;
+    const errShort = sent.error.slice(0, 400);
+    console.warn("[sms-twilio] send failed", errShort);
+    redirect(
+      smsConversationRedirectPath(conversationId, workspaceReturn, { err: "sms_twilio", smsErr: errShort })
+    );
   }
+  console.log("[sms-twilio] send ok", { conversationId, messageSid: sent.messageSid });
 
   const now = new Date().toISOString();
 
@@ -447,9 +498,15 @@ export async function sendConversationSms(formData: FormData) {
   });
 
   if (insErr) {
-    console.warn("[messages] sendConversationSms insert:", insErr.message);
-    return;
+    console.warn("[sms-db] outbound insert failed", insErr.message);
+    redirect(
+      smsConversationRedirectPath(conversationId, workspaceReturn, {
+        err: "sms_db",
+        smsErr: insErr.message.slice(0, 400),
+      })
+    );
   }
+  console.log("[sms-db] outbound insert ok", { conversationId });
 
   const { data: convBefore } = await supabaseAdmin
     .from("conversations")
@@ -474,10 +531,11 @@ export async function sendConversationSms(formData: FormData) {
     .eq("id", conversationId);
 
   if (touchErr) {
-    console.warn("[messages] sendConversationSms touch conv:", touchErr.message);
+    console.warn("[sms-db] conversation touch after send:", touchErr.message);
   }
 
   revalidateSmsConversationViews(conversationId);
+  redirect(smsConversationRedirectPath(conversationId, workspaceReturn, { ok: "sms_sent" }));
 }
 
 /** Fire once when the thread UI shows an AI suggestion (idempotent per for_message_id). */

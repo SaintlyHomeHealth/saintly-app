@@ -58,6 +58,30 @@ function intakeErrLabel(code: string | undefined): string | null {
   }
 }
 
+function smsSendErrLabel(code: string | undefined, smsErrRaw: string | undefined): string | null {
+  if (!code || !code.startsWith("sms_")) return null;
+  switch (code) {
+    case "sms_twilio":
+      return smsErrRaw
+        ? `SMS could not be sent: ${smsErrRaw}`
+        : "SMS could not be sent. Check Twilio configuration or server logs.";
+    case "sms_db":
+      return smsErrRaw
+        ? `SMS may have been delivered but failed to save: ${smsErrRaw}`
+        : "SMS may have been delivered but failed to save in the inbox.";
+    case "sms_no_phone":
+      return "This thread has no phone number on file.";
+    case "sms_bad_phone":
+      return "The phone number on this thread is invalid. Update the contact or thread phone.";
+    case "sms_forbidden":
+      return "You do not have permission to send on this thread.";
+    case "sms_invalid":
+      return "Could not send SMS (empty message or invalid thread).";
+    default:
+      return null;
+  }
+}
+
 function parseSmsReplySuggestion(
   meta: unknown
 ): { text: string; for_message_id: string; generated_at: string } | null {
@@ -124,7 +148,10 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
   const sp = (await searchParams) ?? {};
   const ok = typeof sp.ok === "string" ? sp.ok : undefined;
   const errCode = typeof sp.err === "string" ? sp.err : undefined;
+  const smsErrRaw =
+    typeof sp.smsErr === "string" ? sp.smsErr : Array.isArray(sp.smsErr) ? sp.smsErr[0] : undefined;
   const intakeErr = errCode?.startsWith("intake") ? intakeErrLabel(errCode) : null;
+  const smsSendErr = smsSendErrLabel(errCode, smsErrRaw);
 
   const hasFull = hasFullCallVisibility(staff);
   const supabase = await createServerSupabaseClient();
@@ -386,9 +413,19 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
           Contact saved and linked to this thread.
         </div>
       ) : null}
+      {ok === "sms_sent" ? (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+          Message sent.
+        </div>
+      ) : null}
       {intakeErr ? (
         <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">
           {intakeErr}
+        </div>
+      ) : null}
+      {smsSendErr ? (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">
+          {smsSendErr}
         </div>
       ) : null}
 
@@ -807,6 +844,7 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
             initialSmsSuggestion && suggestionMeta ? suggestionMeta.for_message_id : null
           }
           initialDraft={composerInitialDraft}
+          workspaceThread={workspaceShell}
         />
       </section>
     </div>

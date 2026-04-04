@@ -11,6 +11,8 @@ type Props = {
   suggestionForMessageId: string | null;
   /** Deep-link draft (e.g. `?draft=`); ignored when `initialSuggestion` is set. */
   initialDraft?: string | null;
+  /** When true, server action redirects back to `/workspace/phone/inbox/...` with send status. */
+  workspaceThread?: boolean;
 };
 
 /**
@@ -22,6 +24,7 @@ export function SmsReplyComposer({
   initialSuggestion,
   suggestionForMessageId,
   initialDraft,
+  workspaceThread,
 }: Props) {
   const [body, setBody] = useState(
     () => initialSuggestion ?? (typeof initialDraft === "string" ? initialDraft.trim() : "")
@@ -38,6 +41,7 @@ export function SmsReplyComposer({
   return (
     <form id="sms-reply" action={sendConversationSms} className="border-t border-slate-200 bg-white p-3">
       <input type="hidden" name="conversationId" value={conversationId} />
+      {workspaceThread ? <input type="hidden" name="returnTo" value="workspace" /> : null}
       <label className="sr-only" htmlFor="sms-body">
         Message
       </label>
