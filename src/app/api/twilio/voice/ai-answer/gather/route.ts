@@ -103,12 +103,20 @@ export async function POST(req: NextRequest) {
         console.warn("[ai-voice] no-speech CRM persist:", e);
       }
     }
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+    if (!publicBase) {
+      const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say voice="Polly.Joanna">${escapeXml(
     "We did not catch that. Our team will follow up during business hours. Thank you for calling Saintly Home Health. Goodbye."
   )}</Say>
   <Hangup/>
+</Response>`.trim();
+      return new NextResponse(xml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
+    }
+    const voicemailPrompt = `${publicBase}/api/twilio/voice/voicemail-prompt`;
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Redirect method="POST">${escapeXml(voicemailPrompt)}</Redirect>
 </Response>`.trim();
     return new NextResponse(xml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
   }

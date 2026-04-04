@@ -861,3 +861,95 @@ export async function applyTwilioVoicemailRecording(
 
   return { ok: true };
 }
+
+export type TwilioVoicemailTranscriptionInput = {
+  recordingSid: string;
+  transcriptionText: string | null;
+  transcriptionStatus: string | null;
+  /** Parent call sid when Twilio sends it (can arrive before recording callback sets `voicemail_recording_sid`). */
+  callSid?: string | null;
+  raw: Record<string, string>;
+};
+
+/**
+ * Twilio Record transcribeCallback — match by `voicemail_recording_sid`, or by `external_call_id` when `callSid` is set.
+ */
+export async function applyTwilioVoicemailTranscription(
+  supabase: SupabaseClient,
+  input: TwilioVoicemailTranscriptionInput
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const recordingSid = input.recordingSid.trim();
+  if (!recordingSid) {
+    return { ok: false, error: "recordingSid is required" };
+  }
+
+  const { data: bySid, error: sidErr } = await supabase
+    .from("phone_calls")
+    .select("id, metadata, voicemail_recording_sid")
+    .eq("voicemail_recording_sid", recordingSid)
+    .maybeSingle();
+
+  if (sidErr) {
+    return { ok: false, error: sidErr.message };
+  }
+
+  let row = bySid?.id ? bySid : null;
+  const callSid = (input.callSid ?? "").trim();
+
+  if (!row && callSid) {
+    const { data: byCall, error: callErr } = await supabase
+      .from("phone_calls")
+      .select("id, metadata, voicemail_recording_sid")
+      .eq("external_call_id", callSid)
+      .maybeSingle();
+    if (callErr) {
+      return { ok: false, error: callErr.message };
+    }
+    row = byCall?.id ? byCall : null;
+  }
+
+  if (!row?.id) {
+    return { ok: false, error: "Call not found for voicemail transcription" };
+  }
+
+  const callId = row.id as string;
+  const prevMeta = asMetadata(row.metadata);
+  const text = (input.transcriptionText ?? "").trim();
+
+  const nextMeta = {
+    ...prevMeta,
+    voicemail_transcription: {
+      text: text || null,
+      status: input.transcriptionStatus ?? null,
+      updated_at: new Date().toISOString(),
+    },
+  };
+
+  const patch: Record<string, unknown> = { metadata: nextMeta };
+  const existingVmSid = typeof row.voicemail_recording_sid === "string" ? row.voicemail_recording_sid.trim() : "";
+  if (!existingVmSid) {
+    patch.voicemail_recording_sid = recordingSid;
+  }
+
+  const { error: updateError } = await supabase.from("phone_calls").update(patch).eq("id", callId);
+  if (updateError) {
+    return { ok: false, error: updateError.message };
+  }
+
+  const { error: eventError } = await supabase.from("phone_call_events").insert({
+    call_id: callId,
+    event_type: "twilio.voicemail_transcription",
+    payload: {
+      recording_sid: recordingSid,
+      transcription_text: text || null,
+      transcription_status: input.transcriptionStatus,
+      raw: input.raw,
+    },
+  });
+
+  if (eventError) {
+    return { ok: false, error: eventError.message };
+  }
+
+  return { ok: true };
+}

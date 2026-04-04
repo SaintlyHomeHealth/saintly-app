@@ -20,6 +20,7 @@ import {
 } from "@/lib/crm/patient-caregiver-display";
 import { supabaseAdmin } from "@/lib/admin";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
+import { voicemailTranscriptFromMeta, voiceAiShortSummaryFromMeta } from "@/lib/phone/voicemail-display";
 import { canAccessWorkspacePhone, getStaffProfile } from "@/lib/staff-profile";
 
 const UUID_RE =
@@ -641,6 +642,8 @@ export default async function WorkspacePatientDetailPage(props: { params: Promis
                   callbackPhone={callbackPhone}
                   threadHref={conversationId ? `/workspace/phone/inbox/${conversationId}` : null}
                   patientHref={`/workspace/phone/patients/${patientId}`}
+                  transcript={voicemailTranscriptFromMeta(c.metadata)}
+                  aiRecap={voiceAiShortSummaryFromMeta(c.metadata)}
                   compact
                 />
               );

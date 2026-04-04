@@ -971,6 +971,8 @@ export async function createPhoneCallTask(formData: FormData) {
 
   revalidatePath("/admin/phone");
   revalidatePath("/admin/phone/tasks");
+  revalidatePath("/workspace/phone/tasks");
+  revalidatePath("/workspace/phone/voicemail");
 }
 
 type TaskStatus = "open" | "in_progress" | "completed" | "canceled";

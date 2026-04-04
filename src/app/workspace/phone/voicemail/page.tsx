@@ -4,6 +4,7 @@ import { WorkspacePhonePageHeader } from "../_components/WorkspacePhonePageHeade
 import { VoicemailCard } from "@/app/workspace/phone/_components/VoicemailCard";
 import { formatDurationSeconds } from "@/lib/crm/patient-hub-detail-display";
 import { formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
+import { voicemailTranscriptFromMeta, voiceAiShortSummaryFromMeta } from "@/lib/phone/voicemail-display";
 import { canAccessWorkspacePhone, getStaffProfile, hasFullCallVisibility } from "@/lib/staff-profile";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
@@ -39,6 +40,7 @@ type VmCall = {
   duration_seconds: number | null;
   contact_id: string | null;
   contacts: unknown;
+  metadata: unknown;
 };
 
 export default async function WorkspaceVoicemailPage() {
@@ -56,7 +58,7 @@ export default async function WorkspaceVoicemailPage() {
     const res = await supabase
       .from("phone_calls")
       .select(
-        "id, created_at, started_at, direction, status, from_e164, to_e164, voicemail_duration_seconds, duration_seconds, contact_id, contacts ( full_name, first_name, last_name )"
+        "id, created_at, started_at, direction, status, from_e164, to_e164, voicemail_duration_seconds, duration_seconds, contact_id, metadata, contacts ( full_name, first_name, last_name )"
       )
       .not("voicemail_recording_sid", "is", null)
       .order("started_at", { ascending: false, nullsFirst: false })
@@ -91,7 +93,7 @@ export default async function WorkspaceVoicemailPage() {
         const res = await supabase
           .from("phone_calls")
           .select(
-            "id, created_at, started_at, direction, status, from_e164, to_e164, voicemail_duration_seconds, duration_seconds, contact_id, contacts ( full_name, first_name, last_name )"
+            "id, created_at, started_at, direction, status, from_e164, to_e164, voicemail_duration_seconds, duration_seconds, contact_id, metadata, contacts ( full_name, first_name, last_name )"
           )
           .not("voicemail_recording_sid", "is", null)
           .in("contact_id", contactIds)
@@ -180,6 +182,8 @@ export default async function WorkspaceVoicemailPage() {
             const display = contactName(c.contacts) ?? number ?? "Unknown caller";
             const convId = cid ? threadByContact.get(cid) ?? null : null;
             const patientId = cid ? patientByContact.get(cid) ?? null : null;
+            const transcript = voicemailTranscriptFromMeta(c.metadata);
+            const aiRecap = voiceAiShortSummaryFromMeta(c.metadata);
             return (
               <VoicemailCard
                 key={c.id}
@@ -191,6 +195,8 @@ export default async function WorkspaceVoicemailPage() {
                 callbackPhone={number}
                 threadHref={convId ? `/workspace/phone/inbox/${convId}` : null}
                 patientHref={patientId ? `/workspace/phone/patients/${patientId}` : null}
+                transcript={transcript}
+                aiRecap={aiRecap}
               />
             );
           })}

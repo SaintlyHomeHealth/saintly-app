@@ -87,6 +87,7 @@ export async function POST(req: NextRequest) {
   }
 
   const gatherAction = `${publicBase}/api/twilio/voice/ai-answer/gather`;
+  const voicemailPrompt = `${publicBase}/api/twilio/voice/voicemail-prompt`;
 
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
@@ -100,10 +101,7 @@ export async function POST(req: NextRequest) {
   >
     <Say voice="Polly.Joanna">${escapeXml(GATHER_PROMPT)}</Say>
   </Gather>
-  <Say voice="Polly.Joanna">${escapeXml(
-    "We did not hear you. Our team will follow up — thank you for calling Saintly Home Health. Goodbye."
-  )}</Say>
-  <Hangup/>
+  <Redirect method="POST">${escapeXml(voicemailPrompt)}</Redirect>
 </Response>`.trim();
 
   return new NextResponse(xml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });

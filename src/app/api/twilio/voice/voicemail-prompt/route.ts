@@ -12,8 +12,7 @@ function escapeXml(text: string): string {
 }
 
 /**
- * Twilio <Dial action> target. If the ring leg completed (someone answered and was connected), returns empty TwiML.
- * Otherwise (no-answer, busy, failed, canceled, etc.) offers Saintly voicemail (Record → /api/twilio/voice/recording).
+ * Twilio Redirect target: returns shared Say + Record voicemail TwiML (recording + optional transcription callbacks).
  */
 export async function POST(req: NextRequest) {
   const parsed = await parseVerifiedTwilioFormBody(req);
@@ -21,20 +20,11 @@ export async function POST(req: NextRequest) {
     return parsed.response;
   }
 
-  const params = parsed.params;
-  const dialStatus = (params.DialCallStatus || "").trim().toLowerCase();
-
   const publicBase = resolveTwilioVoicePublicBase();
   if (!publicBase) {
     const xml = `<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna">${escapeXml(
       "Please try your call again later."
     )}</Say></Response>`;
-    return new NextResponse(xml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
-  }
-
-  /** Twilio: completed = dialed party answered and was connected to the caller. */
-  if (dialStatus === "completed") {
-    const xml = `<?xml version="1.0" encoding="UTF-8"?><Response></Response>`;
     return new NextResponse(xml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
   }
 
