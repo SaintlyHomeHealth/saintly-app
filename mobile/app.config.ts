@@ -1,0 +1,67 @@
+import type { ExpoConfig, ConfigContext } from 'expo/config';
+
+/**
+ * Single source for Expo config + `extra` passed to the app (see `src/config/env.ts`).
+ * Set EXPO_PUBLIC_API_BASE_URL in .env for local overrides.
+ *
+ * Native Firebase: place `GoogleService-Info.plist` and `google-services.json` in this directory
+ * (same paths as `ios.googleServicesFile` / `android.googleServicesFile`). Firebase app IDs must
+ * use bundle id / package `com.saintly.softphone`.
+ */
+export default ({ config }: ConfigContext): ExpoConfig => ({
+  ...config,
+  name: 'Saintly Phone',
+  slug: 'saintly-phone',
+  version: '1.0.0',
+  orientation: 'portrait',
+  icon: './assets/icon.png',
+  userInterfaceStyle: 'light',
+  newArchEnabled: true,
+  scheme: 'saintly-softphone',
+  splash: {
+    image: './assets/splash-icon.png',
+    resizeMode: 'contain',
+    backgroundColor: '#f4f7fb',
+  },
+  ios: {
+    supportsTablet: true,
+    bundleIdentifier: 'com.saintly.softphone',
+    googleServicesFile: './GoogleService-Info.plist',
+  },
+  android: {
+    adaptiveIcon: {
+      foregroundImage: './assets/adaptive-icon.png',
+      backgroundColor: '#f4f7fb',
+    },
+    package: 'com.saintly.softphone',
+    googleServicesFile: './google-services.json',
+    edgeToEdgeEnabled: true,
+    predictiveBackGestureEnabled: false,
+  },
+  web: {
+    favicon: './assets/favicon.png',
+  },
+  plugins: [
+    ...(Array.isArray(config.plugins) ? config.plugins : []),
+    'expo-dev-client',
+    '@react-native-firebase/app',
+    [
+      'expo-build-properties',
+      {
+        ios: {
+          /** Required by firebase-ios-sdk with React Native Firebase. */
+          useFrameworks: 'static',
+        },
+      },
+    ],
+  ],
+  extra: {
+    apiBaseUrl:
+      process.env.EXPO_PUBLIC_API_BASE_URL?.trim() || 'https://appsaintlyhomehealth.com',
+    /** TODO: Twilio Voice React Native — set when wiring native SDK (optional for display/debug only). */
+    twilioLogLevel: process.env.EXPO_PUBLIC_TWILIO_LOG_LEVEL?.trim() || 'error',
+    eas: {
+      projectId: '227fd4b7-157e-4885-aa96-b3ff1130cfdc',
+    },
+  },
+});
