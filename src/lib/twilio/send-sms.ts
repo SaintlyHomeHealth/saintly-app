@@ -1,3 +1,5 @@
+import { resolveTwilioWebhookBaseUrl } from "@/lib/twilio/signature-url";
+
 export type SendSmsParams = {
   to: string;
   body: string;
@@ -54,6 +56,18 @@ export async function sendSms(params: SendSmsParams): Promise<SendSmsResult> {
     form.set("MessagingServiceSid", fromOrMsid);
   } else {
     form.set("From", fromOrMsid);
+  }
+
+  const webhookBase = resolveTwilioWebhookBaseUrl();
+  if (webhookBase) {
+    const statusUrl = `${webhookBase}/api/twilio/sms/status`;
+    form.set("StatusCallback", statusUrl);
+    form.set("StatusCallbackMethod", "POST");
+    console.log("[sms-twilio] StatusCallback", { statusUrl });
+  } else {
+    console.warn(
+      "[sms-twilio] StatusCallback skipped — set TWILIO_WEBHOOK_BASE_URL or TWILIO_PUBLIC_BASE_URL to receive delivery webhooks"
+    );
   }
 
   const url = `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(accountSid)}/Messages.json`;
