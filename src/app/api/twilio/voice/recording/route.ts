@@ -20,7 +20,9 @@ export async function POST(req: NextRequest) {
   }
 
   const p = parsed.params;
-  const externalCallId = p.ParentCallSid?.trim() || p.CallSid?.trim();
+  const parentCallSid = p.ParentCallSid?.trim() || "";
+  const callSid = p.CallSid?.trim() || "";
+  const externalCallId = parentCallSid || callSid;
   const recordingSid = p.RecordingSid?.trim();
   const recordingUrl = p.RecordingUrl?.trim() || null;
   const recordingDurationSeconds = parseRecordingDurationSeconds(p.RecordingDuration);
@@ -32,6 +34,8 @@ export async function POST(req: NextRequest) {
 
   const result = await applyTwilioVoicemailRecording(supabaseAdmin, {
     externalCallId,
+    parentCallSid: parentCallSid || null,
+    callSid: callSid || null,
     recordingSid,
     recordingUrl,
     recordingDurationSeconds,

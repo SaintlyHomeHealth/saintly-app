@@ -10,6 +10,7 @@ import {
   syncIncomingCallAlertFromPhoneStatus,
 } from "@/lib/phone/incoming-call-alerts";
 import { triggerAutoFollowUp } from "@/lib/phone/auto-followup";
+import { normalizeTwilioRecordingMediaUrl } from "@/lib/phone/twilio-recording-media";
 import { awaitVoiceAiClassificationForWebhook } from "@/lib/phone/voice-ai-background";
 
 export const PHONE_CALL_STATUSES = [
@@ -726,6 +727,9 @@ export async function applyTwilioVoiceStatusCallback(
 
 export type TwilioVoicemailRecordingInput = {
   externalCallId: string;
+  /** When set, lookup tries ParentCallSid before CallSid (covers child-leg recordings). */
+  parentCallSid?: string | null;
+  callSid?: string | null;
   recordingSid: string;
   recordingUrl: string | null;
   recordingDurationSeconds: number | null;
@@ -734,6 +738,18 @@ export type TwilioVoicemailRecordingInput = {
   to: string | null;
   raw: Record<string, string>;
 };
+
+function externalCallIdLookupCandidates(input: TwilioVoicemailRecordingInput): string[] {
+  const out: string[] = [];
+  const add = (s: string | null | undefined) => {
+    const t = (s ?? "").trim();
+    if (t && !out.includes(t)) out.push(t);
+  };
+  add(input.parentCallSid);
+  add(input.callSid);
+  add(input.externalCallId);
+  return out;
+}
 
 /**
  * Persist Twilio recording callback on the parent inbound call (ParentCallSid || CallSid).
@@ -744,26 +760,46 @@ export async function applyTwilioVoicemailRecording(
   supabase: SupabaseClient,
   input: TwilioVoicemailRecordingInput
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  const externalCallId = input.externalCallId.trim();
   const recordingSid = input.recordingSid.trim();
-  if (!externalCallId || !recordingSid) {
-    return { ok: false, error: "externalCallId and recordingSid are required" };
+  if (!recordingSid) {
+    return { ok: false, error: "recordingSid is required" };
+  }
+
+  const tryIds = externalCallIdLookupCandidates(input);
+  if (tryIds.length === 0) {
+    return { ok: false, error: "ParentCallSid, CallSid, or externalCallId is required" };
   }
 
   const statusLower = (input.recordingStatus || "").trim().toLowerCase();
   const hasUrl = Boolean(input.recordingUrl && input.recordingUrl.trim() !== "");
   const isFinalOk = statusLower === "completed" || hasUrl;
 
-  const { data: row, error: findError } = await supabase
-    .from("phone_calls")
-    .select("id, metadata")
-    .eq("external_call_id", externalCallId)
-    .maybeSingle();
+  let row: { id: unknown; metadata: unknown } | null = null;
+  let findError: { message: string } | null = null;
+  for (const ext of tryIds) {
+    const { data, error } = await supabase
+      .from("phone_calls")
+      .select("id, metadata")
+      .eq("external_call_id", ext)
+      .maybeSingle();
+    if (error) {
+      findError = error;
+      break;
+    }
+    if (data?.id) {
+      row = data;
+      break;
+    }
+  }
 
   if (findError) {
     return { ok: false, error: findError.message };
   }
   if (!row?.id) {
+    console.warn("[phone_calls] voicemail recording: no row for Twilio call sids", {
+      tryIds,
+      recordingSid,
+    });
     return { ok: false, error: "Call not found for external_call_id" };
   }
 
@@ -805,7 +841,7 @@ export async function applyTwilioVoicemailRecording(
   if (vmTo !== null) updateRow.voicemail_to = vmTo;
 
   if (hasUrl) {
-    updateRow.voicemail_recording_url = input.recordingUrl!.trim();
+    updateRow.voicemail_recording_url = normalizeTwilioRecordingMediaUrl(input.recordingUrl!.trim());
   }
 
   if (input.recordingDurationSeconds != null && input.recordingDurationSeconds >= 0) {

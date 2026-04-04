@@ -62,7 +62,7 @@ export function VoicemailCard({
         ) : null}
       </div>
 
-      <audio controls preload="none" className="w-full" src={`/api/workspace/phone/voicemail/${callId}/audio`}>
+      <audio controls preload="metadata" className="w-full" src={`/api/workspace/phone/voicemail/${callId}/audio`}>
         Your browser does not support audio playback.
       </audio>
 

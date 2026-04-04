@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { supabaseAdmin } from "@/lib/admin";
+import { normalizeTwilioRecordingMediaUrl } from "@/lib/phone/twilio-recording-media";
 import { canStaffAccessPhoneCallRow } from "@/lib/phone/staff-call-access";
 import { canAccessWorkspacePhone, getStaffProfile } from "@/lib/staff-profile";
 
@@ -9,7 +10,7 @@ const SID_RE = /^RE[0-9a-f]{32}$/i;
 function recordingUrlFromRow(input: { sid: string | null; url: string | null }): string | null {
   const rawUrl = typeof input.url === "string" ? input.url.trim() : "";
   if (rawUrl) {
-    return rawUrl.endsWith(".mp3") ? rawUrl : `${rawUrl}.mp3`;
+    return normalizeTwilioRecordingMediaUrl(rawUrl);
   }
   const sid = typeof input.sid === "string" ? input.sid.trim() : "";
   if (!SID_RE.test(sid)) return null;
@@ -20,7 +21,7 @@ function recordingUrlFromRow(input: { sid: string | null; url: string | null }):
   )}/Recordings/${encodeURIComponent(sid)}.mp3`;
 }
 
-export async function GET(_req: NextRequest, props: { params: Promise<{ callId: string }> }) {
+export async function GET(req: NextRequest, props: { params: Promise<{ callId: string }> }) {
   const staff = await getStaffProfile();
   if (!staff || !canAccessWorkspacePhone(staff)) {
     return new NextResponse("Forbidden", { status: 403 });
@@ -65,20 +66,48 @@ export async function GET(_req: NextRequest, props: { params: Promise<{ callId: 
   }
   const auth = Buffer.from(`${accountSid}:${authToken}`).toString("base64");
 
+  const range = req.headers.get("Range");
+  const twilioHeaders: Record<string, string> = { Authorization: `Basic ${auth}` };
+  if (range) {
+    twilioHeaders.Range = range;
+  }
+
   const twilioRes = await fetch(mediaUrl, {
     method: "GET",
-    headers: { Authorization: `Basic ${auth}` },
+    headers: twilioHeaders,
     cache: "no-store",
   });
   if (!twilioRes.ok || !twilioRes.body) {
+    console.warn("[voicemail/audio] Twilio fetch failed", {
+      status: twilioRes.status,
+      callId: id,
+    });
     return new NextResponse("Unable to fetch recording", { status: 502 });
   }
 
+  const upstreamCt = twilioRes.headers.get("content-type") ?? "";
+  if (upstreamCt.includes("application/json")) {
+    console.warn("[voicemail/audio] Twilio returned JSON (recording URL may be metadata, not .mp3)", {
+      callId: id,
+    });
+    return new NextResponse("Recording URL did not return audio", { status: 502 });
+  }
+
+  const outHeaders = new Headers();
+  outHeaders.set(
+    "Content-Type",
+    upstreamCt.startsWith("audio/") || upstreamCt === "application/octet-stream" ? upstreamCt : "audio/mpeg"
+  );
+  outHeaders.set("Cache-Control", "private, no-store, max-age=0");
+  const ar = twilioRes.headers.get("Accept-Ranges");
+  if (ar) outHeaders.set("Accept-Ranges", ar);
+  const cr = twilioRes.headers.get("Content-Range");
+  if (cr) outHeaders.set("Content-Range", cr);
+  const cl = twilioRes.headers.get("Content-Length");
+  if (cl) outHeaders.set("Content-Length", cl);
+
   return new NextResponse(twilioRes.body, {
-    status: 200,
-    headers: {
-      "Content-Type": twilioRes.headers.get("content-type") ?? "audio/mpeg",
-      "Cache-Control": "private, no-store, max-age=0",
-    },
+    status: twilioRes.status,
+    headers: outHeaders,
   });
 }
