@@ -16,6 +16,7 @@ import {
   hasFullCallVisibility,
   isWorkspaceEmployeeRole,
 } from "@/lib/staff-profile";
+import { supabaseAdmin } from "@/lib/admin";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { buildWorkspaceKeypadCallHref, pickOutboundE164ForDial } from "@/lib/workspace-phone/launch-urls";
 
@@ -281,6 +282,23 @@ export default async function WorkspaceInboxPage({ searchParams }: PageProps) {
         })
       : null;
 
+  /**
+   * `/workspace/phone/patients/[patientId]` only loads when this user has an active
+   * `patient_assignments` row (same guard as the hub detail page). Linking CRM patient id
+   * without that assignment yields 404 — fall back to the patient list.
+   */
+  let canOpenWorkspacePatientDetail = false;
+  if (selectedPatientId) {
+    const { data: assignRows } = await supabaseAdmin
+      .from("patient_assignments")
+      .select("id")
+      .eq("patient_id", selectedPatientId)
+      .eq("assigned_user_id", staff.user_id)
+      .eq("is_active", true)
+      .limit(1);
+    canOpenWorkspacePatientDetail = Boolean(assignRows?.length);
+  }
+
   if (perfStart) {
     routePerfLog("workspace/phone/inbox", perfStart);
   }
@@ -486,12 +504,22 @@ export default async function WorkspaceInboxPage({ searchParams }: PageProps) {
                     </span>
                   )}
                   {selectedPatientId ? (
-                    <Link
-                      href={`/workspace/phone/patients/${selectedPatientId}`}
-                      className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-900 hover:bg-emerald-100"
-                    >
-                      Open patient
-                    </Link>
+                    canOpenWorkspacePatientDetail ? (
+                      <Link
+                        href={`/workspace/phone/patients/${selectedPatientId}`}
+                        className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-900 hover:bg-emerald-100"
+                      >
+                        Open patient
+                      </Link>
+                    ) : (
+                      <Link
+                        href="/workspace/phone/patients"
+                        className="rounded-full border border-emerald-200 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-900 hover:bg-emerald-50"
+                        title="Patient chart hub only opens when you are assigned to that patient. The list shows your assigned patients."
+                      >
+                        Patients
+                      </Link>
+                    )
                   ) : null}
                   {selectedLead && canOpenLeadInCrm ? (
                     <Link
