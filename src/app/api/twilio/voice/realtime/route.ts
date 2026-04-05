@@ -176,6 +176,12 @@ export async function POST(req: NextRequest) {
   if (!logResult.ok) {
     console.error("[twilio/voice/realtime] phone log failed:", logResult.error);
   } else {
+    console.log("[parent-call]", {
+      event: "realtime_upsert_ok",
+      phone_calls_id: logResult.callId,
+      external_call_id: callSid,
+      source: "twilio_voice_openai_realtime",
+    });
     const alertResult = await ensureIncomingCallAlert(supabaseAdmin, {
       phone_call_id: logResult.callId,
       external_call_id: callSid,

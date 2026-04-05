@@ -145,6 +145,14 @@ export async function upsertPhoneCallFromWebhook(
       return { ok: false, error: insertError?.message ?? "Failed to insert phone_calls row" };
     }
     callId = inserted.id as string;
+    console.log("[phone-upsert]", {
+      event: "inserted",
+      phone_calls_id: callId,
+      external_call_id: externalCallId,
+      status: nextStatus,
+      direction,
+      started_at: startedVal,
+    });
   } else {
     callId = existing.id as string;
     const updateRow: Record<string, unknown> = {};
@@ -170,6 +178,12 @@ export async function upsertPhoneCallFromWebhook(
       if (updateError) {
         return { ok: false, error: updateError.message };
       }
+      console.log("[phone-upsert]", {
+        event: "updated",
+        phone_calls_id: callId,
+        external_call_id: externalCallId,
+        patch_keys: Object.keys(updateRow),
+      });
     }
   }
 
@@ -802,6 +816,95 @@ function mergeTwilioLegMapMetadata(
 }
 
 /**
+ * Status callbacks key the parent inbound CallSid. If realtime/ai-answer has not inserted yet (race)
+ * or the main voice URL pointed at another deployment, create a minimal parent row so reconciliation
+ * and the Calls list are never missing the latest inbound call.
+ */
+async function ensureParentPhoneCallRowForTwilioStatus(
+  supabase: SupabaseClient,
+  parentExternalCallId: string,
+  payload: TwilioVoiceStatusPayload
+): Promise<{ ok: true; created: boolean; phone_calls_id: string } | { ok: false; error: string }> {
+  const { data: existing, error: findErr } = await supabase
+    .from("phone_calls")
+    .select("id")
+    .eq("external_call_id", parentExternalCallId)
+    .maybeSingle();
+  if (findErr) {
+    return { ok: false, error: findErr.message };
+  }
+  if (existing?.id) {
+    return { ok: true, created: false, phone_calls_id: existing.id as string };
+  }
+
+  const fromVal = asOptionalString(payload.From);
+  const toVal = asOptionalString(payload.To);
+  const rawChild = typeof payload.raw?.CallSid === "string" ? payload.raw.CallSid.trim() : "";
+  const insertRow = {
+    external_call_id: parentExternalCallId,
+    direction: "inbound" as const,
+    from_e164: fromVal,
+    to_e164: toVal,
+    status: "ringing" as PhoneCallStatus,
+    started_at: new Date().toISOString(),
+    metadata: {
+      source: "twilio_voice_status_callback_ensure_parent",
+      twilio_status_ensure_parent: {
+        reporting_child_call_sid: rawChild || null,
+        received_at: new Date().toISOString(),
+      },
+    },
+  };
+
+  const { data: inserted, error: insertError } = await supabase
+    .from("phone_calls")
+    .insert(insertRow)
+    .select("id")
+    .single();
+
+  if (insertError) {
+    const code = (insertError as { code?: string }).code;
+    const msg = insertError.message ?? "";
+    const isDup =
+      code === "23505" || msg.toLowerCase().includes("duplicate") || msg.toLowerCase().includes("unique");
+    if (isDup) {
+      const { data: again } = await supabase
+        .from("phone_calls")
+        .select("id")
+        .eq("external_call_id", parentExternalCallId)
+        .maybeSingle();
+      if (again?.id) {
+        console.log("[parent-call]", {
+          event: "ensure_parent_race_resolved",
+          phone_calls_id: again.id,
+          external_call_id: parentExternalCallId,
+        });
+        return { ok: true, created: false, phone_calls_id: again.id as string };
+      }
+    }
+    return { ok: false, error: insertError.message };
+  }
+
+  const pid = inserted?.id as string;
+  console.log("[parent-call]", {
+    event: "ensure_parent_inserted",
+    phone_calls_id: pid,
+    external_call_id: parentExternalCallId,
+    child_call_sid: rawChild || null,
+    from_e164: fromVal,
+    to_e164: toVal,
+  });
+  console.log("[call-reconcile]", {
+    event: "ensure_parent_row_created",
+    phone_calls_id: pid,
+    external_call_id: parentExternalCallId,
+    reason: "status_callback_before_realtime_or_missing_upsert",
+  });
+
+  return { ok: true, created: true, phone_calls_id: pid };
+}
+
+/**
  * Update phone_calls by CallSid and append twilio.status_callback event.
  */
 export async function applyTwilioVoiceStatusCallback(
@@ -811,6 +914,24 @@ export async function applyTwilioVoiceStatusCallback(
   const externalCallId = payload.CallSid.trim();
   if (!externalCallId) {
     return { ok: false, error: "CallSid is required" };
+  }
+
+  const rawParent = (payload.raw?.ParentCallSid ?? "").trim();
+  const rawDirection = (payload.raw?.Direction ?? "").trim().toLowerCase();
+  /** Outbound API calls (softphone) use the same status URL; do not insert an inbound placeholder row. */
+  const skipEnsureInboundParent = !rawParent && rawDirection === "outbound";
+
+  if (!skipEnsureInboundParent) {
+    const ensured = await ensureParentPhoneCallRowForTwilioStatus(supabase, externalCallId, payload);
+    if (!ensured.ok) {
+      return { ok: false, error: ensured.error };
+    }
+  } else {
+    console.log("[parent-call]", {
+      event: "ensure_parent_skipped_outbound",
+      external_call_id: externalCallId,
+      direction: rawDirection,
+    });
   }
 
   const { row, resolvedExternalCallId, reconcile } = await findPhoneCallRowForTwilioStatus(

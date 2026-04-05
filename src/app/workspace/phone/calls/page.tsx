@@ -61,6 +61,32 @@ export default async function WorkspaceCallsPage() {
   const missed = (missedData ?? []) as CallInboxRow[];
   const recent = (recentData ?? []) as CallInboxRow[];
 
+  const recentTop = recent[0];
+  const missedTop = missed[0];
+  console.log("[calls-list]", {
+    event: "query_summary",
+    order_by: "created_at_desc",
+    recent_limit: 40,
+    missed_limit: 25,
+    has_full_visibility: hasFull,
+    top_recent: recentTop
+      ? {
+          phone_calls_id: recentTop.id,
+          external_call_id: recentTop.external_call_id ?? null,
+          created_at: recentTop.created_at,
+          status: recentTop.status,
+        }
+      : null,
+    top_missed: missedTop
+      ? {
+          phone_calls_id: missedTop.id,
+          external_call_id: missedTop.external_call_id ?? null,
+          created_at: missedTop.created_at,
+          status: missedTop.status,
+        }
+      : null,
+  });
+
   for (const section of [
     { name: "missed" as const, rows: missed },
     { name: "recent" as const, rows: recent },
