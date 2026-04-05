@@ -1117,10 +1117,36 @@ export async function applyTwilioVoiceStatusCallback(
     updateRow.ended_at = new Date().toISOString();
   }
 
-  const { error: updateError } = await supabase.from("phone_calls").update(updateRow).eq("id", callId);
+  const { data: updatedRows, error: updateError } = await supabase
+    .from("phone_calls")
+    .update(updateRow)
+    .eq("id", callId)
+    .select("id, status, ended_at");
+
   if (updateError) {
     return { ok: false, error: updateError.message };
   }
+  if (!updatedRows?.length) {
+    console.error("[phone_calls] status_update_zero_rows", {
+      event: "applyTwilioVoiceStatusCallback",
+      phone_calls_id: callId,
+      resolved_external_call_id: resolvedExternalCallId,
+      row_external_call_id: asOptionalString(row.external_call_id),
+      attempted_final_status: finalStatus,
+    });
+    return { ok: false, error: "phone_calls update affected 0 rows" };
+  }
+
+  const afterRow = updatedRows[0] as Record<string, unknown>;
+  console.log("[phone_calls] status_update_applied", {
+    phone_calls_id: callId,
+    resolved_external_call_id: resolvedExternalCallId,
+    row_external_call_id: asOptionalString(row.external_call_id),
+    before_status: previousStatus,
+    after_status: asOptionalString(afterRow.status),
+    after_ended_at: asOptionalString(afterRow.ended_at),
+    final_status_intended: finalStatus,
+  });
 
   const fromE164 = fromVal ?? asOptionalString(row.from_e164);
   const existingContactId =

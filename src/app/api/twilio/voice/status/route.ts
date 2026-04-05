@@ -33,17 +33,31 @@ function parseTwilioDurationSeconds(params: Record<string, string>): number | nu
  * Voice call-level callbacks send `CallStatus`. &lt;Stream statusCallback&gt; does NOT — it sends
  * `StreamEvent`: stream-started | stream-stopped | stream-error (see Twilio Stream TwiML docs).
  * Map those to the same strings we use for voice status so applyTwilioVoiceStatusCallback can update the row.
+ *
+ * Twilio may vary casing or use alternate keys; use tolerant matching so we never noop when the stream ended.
  */
 function deriveVoiceCallStatusFromPayload(params: Record<string, string>): string | null {
   const direct = params.CallStatus?.trim();
   if (direct) return direct;
 
-  const ev = params.StreamEvent?.trim().toLowerCase();
+  const raw =
+    params.StreamEvent?.trim() ||
+    params.StreamStatus?.trim() ||
+    params.streamEvent?.trim() ||
+    params.streamStatus?.trim() ||
+    "";
+  const ev = raw.toLowerCase().replace(/_/g, "-").replace(/\s+/g, "-").trim();
   if (!ev) return null;
 
-  if (ev === "stream-started") return "in-progress";
-  if (ev === "stream-stopped") return "completed";
-  if (ev === "stream-error") return "failed";
+  if (ev === "stream-started" || (ev.includes("stream") && ev.includes("started"))) {
+    return "in-progress";
+  }
+  if (ev === "stream-stopped" || (ev.includes("stream") && ev.includes("stopped"))) {
+    return "completed";
+  }
+  if (ev === "stream-error" || (ev.includes("stream") && ev.includes("error"))) {
+    return "failed";
+  }
   return null;
 }
 
@@ -107,6 +121,7 @@ export async function POST(req: NextRequest) {
     raw_parent_call_sid: shortSid(params.ParentCallSid),
     raw_call_status: params.CallStatus?.trim() ?? null,
     stream_event: params.StreamEvent?.trim() ?? null,
+    stream_status: params.StreamStatus?.trim() ?? null,
     derived_call_status: callStatus ?? null,
     dial_call_status: params.DialCallStatus?.trim() ?? null,
     direction: params.Direction?.trim() ?? null,
@@ -118,6 +133,8 @@ export async function POST(req: NextRequest) {
       has_derived_call_status: Boolean(callStatus),
       raw_call_status: params.CallStatus?.trim() ?? null,
       stream_event: params.StreamEvent?.trim() ?? null,
+      stream_status: params.StreamStatus?.trim() ?? null,
+      form_keys: Object.keys(params).sort(),
       raw_call_sid: shortSid(params.CallSid),
       raw_parent_call_sid: shortSid(params.ParentCallSid),
     });
