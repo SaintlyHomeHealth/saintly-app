@@ -10,7 +10,9 @@ import {
 } from "@/lib/staff-profile";
 
 import { CreateLoginDialog } from "./create-login-dialog";
+import { EditStaffDialog } from "./edit-staff-dialog";
 import { RepairLoginLinkButton } from "./repair-login-link-button";
+import { RemoveStaffDialog } from "./remove-staff-dialog";
 import { ResetPasswordDialog } from "./reset-password-dialog";
 
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
@@ -108,6 +110,9 @@ function flashForErr(code: string | undefined): string | null {
     self_ring: "You cannot remove yourself from the inbound ring here.",
     self_active: "You cannot deactivate your own account here.",
     last_super: "Keep at least one active super admin.",
+    duplicate_email: "Another staff row already uses that work email.",
+    auth_email: "Supabase Auth rejected the email change (duplicate login email or policy).",
+    self_remove: "You cannot remove or deactivate your own staff row here.",
   };
   return m[code] ?? "Something went wrong.";
 }
@@ -122,6 +127,9 @@ function flashForOk(code: string | undefined): string | null {
     active: "Active status updated.",
     role: "Role updated.",
     sms: "Dispatch SMS number saved.",
+    profile: "Name and email updated.",
+    removed: "Placeholder staff row removed.",
+    deactivated: "Staff deactivated (login preserved).",
   };
   return m[code] ?? "Saved.";
 }
@@ -404,9 +412,15 @@ export default async function AdminStaffPage({
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex flex-col gap-2">
+                            <EditStaffDialog
+                              staffProfileId={row.id}
+                              initialFullName={(row.full_name ?? "").trim()}
+                              initialEmail={(row.email ?? "").trim()}
+                            />
                             {!hasLogin ? <CreateLoginDialog staffProfileId={row.id} /> : null}
                             {hasLogin ? <ResetPasswordDialog staffProfileId={row.id} /> : null}
                             <RepairLoginLinkButton staffProfileId={row.id} />
+                            <RemoveStaffDialog staffProfileId={row.id} hasLogin={hasLogin} label={name} />
                           </div>
                         </td>
                       </tr>
