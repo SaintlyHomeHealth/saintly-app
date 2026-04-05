@@ -40,8 +40,9 @@ export default async function WorkspaceCallsPage() {
     .order("created_at", { ascending: false })
     .limit(40);
 
+  /** Nurses: show unassigned/own rows, plus all inbound (parent) calls even if auto-assigned on missed. */
   if (!hasFull) {
-    const scope = `assigned_to_user_id.eq.${staff.user_id},assigned_to_user_id.is.null`;
+    const scope = `assigned_to_user_id.eq.${staff.user_id},assigned_to_user_id.is.null,direction.eq.inbound`;
     missedQ = missedQ.or(scope);
     recentQ = recentQ.or(scope);
   }
