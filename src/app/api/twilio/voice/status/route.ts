@@ -29,6 +29,24 @@ function parseTwilioDurationSeconds(params: Record<string, string>): number | nu
   return null;
 }
 
+/**
+ * Voice call-level callbacks send `CallStatus`. &lt;Stream statusCallback&gt; does NOT — it sends
+ * `StreamEvent`: stream-started | stream-stopped | stream-error (see Twilio Stream TwiML docs).
+ * Map those to the same strings we use for voice status so applyTwilioVoiceStatusCallback can update the row.
+ */
+function deriveVoiceCallStatusFromPayload(params: Record<string, string>): string | null {
+  const direct = params.CallStatus?.trim();
+  if (direct) return direct;
+
+  const ev = params.StreamEvent?.trim().toLowerCase();
+  if (!ev) return null;
+
+  if (ev === "stream-started") return "in-progress";
+  if (ev === "stream-stopped") return "completed";
+  if (ev === "stream-error") return "failed";
+  return null;
+}
+
 function shortSid(s: string | undefined | null): string | null {
   if (typeof s !== "string" || !s.trim()) return null;
   const t = s.trim();
@@ -79,15 +97,17 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const callStatus = params.CallStatus?.trim();
   /** Dial callbacks use child CallSid; our DB keys the inbound/parent leg. */
   const externalCallId = params.ParentCallSid?.trim() || params.CallSid?.trim();
+  const callStatus = deriveVoiceCallStatusFromPayload(params);
 
   console.log("[twilio/voice/status] hit", {
     normalized_external_call_id: shortSid(externalCallId),
     raw_call_sid: shortSid(params.CallSid),
     raw_parent_call_sid: shortSid(params.ParentCallSid),
-    call_status: callStatus ?? null,
+    raw_call_status: params.CallStatus?.trim() ?? null,
+    stream_event: params.StreamEvent?.trim() ?? null,
+    derived_call_status: callStatus ?? null,
     dial_call_status: params.DialCallStatus?.trim() ?? null,
     direction: params.Direction?.trim() ?? null,
   });
@@ -95,7 +115,9 @@ export async function POST(req: NextRequest) {
   if (!externalCallId || !callStatus) {
     console.warn("[twilio/voice/status] noop_missing_fields", {
       has_external_call_id: Boolean(externalCallId),
-      has_call_status: Boolean(callStatus),
+      has_derived_call_status: Boolean(callStatus),
+      raw_call_status: params.CallStatus?.trim() ?? null,
+      stream_event: params.StreamEvent?.trim() ?? null,
       raw_call_sid: shortSid(params.CallSid),
       raw_parent_call_sid: shortSid(params.ParentCallSid),
     });
