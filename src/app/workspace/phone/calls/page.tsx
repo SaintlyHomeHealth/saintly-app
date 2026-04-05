@@ -4,7 +4,6 @@ import { redirect } from "next/navigation";
 import { WorkspaceCallInboxCard, type CallInboxRow } from "./_components/WorkspaceCallInboxCard";
 import { WorkspacePhonePageHeader } from "../_components/WorkspacePhonePageHeader";
 import { SoftphoneDialer } from "@/components/softphone/SoftphoneDialer";
-import { readVoiceAiMetadataFromMetadata } from "@/app/admin/phone/_lib/voice-ai-metadata";
 import {
   canAccessWorkspacePhone,
   getStaffProfile,
@@ -12,6 +11,17 @@ import {
   isManagerOrHigher,
 } from "@/lib/staff-profile";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+
+/** Temporary: raise caps so completed rows are not dropped off the page; revert after UI fix is verified. */
+const MISSED_LIMIT = 100;
+const RECENT_LIMIT = 100;
+
+/** Production proof IDs — presence in `recent` array is logged each load (server). */
+const DEBUG_PROOF_COMPLETED_CALL_SIDS = [
+  "CAa460c40ccd5c46468adf7b085cfe096e",
+  "CAdef6e2c5ced4663e6d7cb6bf79aa9085",
+  "CAb5b20a2fb127e79dc192dc3c56dadef8",
+] as const;
 
 export default async function WorkspaceCallsPage() {
   const staff = await getStaffProfile();
@@ -35,14 +45,14 @@ export default async function WorkspaceCallsPage() {
     .select(selectRow)
     .eq("status", "missed")
     .order("updated_at", { ascending: false })
-    .limit(25);
+    .limit(MISSED_LIMIT);
 
   let recentQ = supabase
     .from("phone_calls")
     .select(selectRow)
     .neq("status", "missed")
     .order("updated_at", { ascending: false })
-    .limit(40);
+    .limit(RECENT_LIMIT);
 
   /** Nurses: show unassigned/own rows, plus all inbound (parent) calls even if auto-assigned on missed. */
   if (!hasFull) {
@@ -100,8 +110,8 @@ export default async function WorkspaceCallsPage() {
         exclusionReason =
           idxMissed >= 0
             ? "in_missed_section_not_recent"
-            : missed.length >= 25
-              ? "likely_missed_list_truncation_25"
+            : missed.length >= MISSED_LIMIT
+              ? "likely_missed_list_truncation"
               : "missed_query_did_not_return_row";
       } else if (idxRecent >= 0) {
         exclusionReason = null;
@@ -125,9 +135,9 @@ export default async function WorkspaceCallsPage() {
             exclusionReason = `newer_updated_at_count_error:${newerCountErr.message}`;
           } else {
             rowsNewerUpdatedAtCount = typeof newerCount === "number" ? newerCount : null;
-            if (rowsNewerUpdatedAtCount !== null && rowsNewerUpdatedAtCount >= 40) {
-              exclusionReason = "not_in_top_40_by_updated_at_truncation";
-            } else if (recent.length < 40) {
+            if (rowsNewerUpdatedAtCount !== null && rowsNewerUpdatedAtCount >= RECENT_LIMIT) {
+              exclusionReason = "not_in_recent_limit_by_updated_at_truncation";
+            } else if (recent.length < RECENT_LIMIT) {
               exclusionReason = "unexpected_not_in_recent_while_under_limit_query_bug";
             } else {
               exclusionReason = "tie_break_or_timing_same_second_investigate";
@@ -153,13 +163,31 @@ export default async function WorkspaceCallsPage() {
     });
   }
 
+  const showCallsDebugCard = process.env.PHONE_CALLS_PAGE_DEBUG === "1";
+
   const recentTop = recent[0];
   const missedTop = missed[0];
+
+  const proofInRecent = Object.fromEntries(
+    DEBUG_PROOF_COMPLETED_CALL_SIDS.map((sid) => [
+      sid,
+      recent.some((r) => (r.external_call_id ?? "").trim() === sid),
+    ])
+  ) as Record<string, boolean>;
+
+  console.log("[calls-list]", {
+    event: "debug_surface_proof",
+    recent_length: recent.length,
+    missed_length: missed.length,
+    recent_first_10_external_call_ids: recent.slice(0, 10).map((r) => r.external_call_id ?? null),
+    proof_completed_ids_in_recent: proofInRecent,
+  });
+
   console.log("[calls-list]", {
     event: "query_summary",
     order_by: "updated_at_desc",
-    recent_limit: 40,
-    missed_limit: 25,
+    recent_limit: RECENT_LIMIT,
+    missed_limit: MISSED_LIMIT,
     has_full_visibility: hasFull,
     nurse_scope_applied: !hasFull,
     top_recent: recentTop
@@ -192,40 +220,14 @@ export default async function WorkspaceCallsPage() {
     })),
     recent_completed_inbound_in_page: recent.filter((r) => r.status === "completed" && r.direction === "inbound")
       .length,
-    possible_recent_truncation: recent.length >= 40,
+    possible_recent_truncation: recent.length >= RECENT_LIMIT,
   });
 
-  if (recent.length >= 40) {
+  if (recent.length >= RECENT_LIMIT) {
     console.warn("[calls-list] recent_limit_hit", {
-      recent_limit: 40,
+      recent_limit: RECENT_LIMIT,
       note: "Rows beyond limit are omitted; raise limit or narrow filters if needed.",
     });
-  }
-
-  for (const section of [
-    { name: "missed" as const, rows: missed },
-    { name: "recent" as const, rows: recent },
-  ]) {
-    for (const r of section.rows) {
-      const md =
-        r.metadata && typeof r.metadata === "object" && !Array.isArray(r.metadata)
-          ? (r.metadata as Record<string, unknown>)
-          : {};
-      const voiceAi = readVoiceAiMetadataFromMetadata(r.metadata);
-      console.log("[calls-list]", {
-        section: section.name,
-        phone_calls_id: r.id,
-        external_call_id: r.external_call_id ?? null,
-        list_query_status_filter: section.name === "missed" ? "status.eq.missed" : "status.neq.missed",
-        stored_status: r.status,
-        direction: r.direction,
-        started_at: r.started_at ?? null,
-        ended_at: r.ended_at ?? null,
-        twilio_last_callback: md.twilio_last_callback ?? null,
-        twilio_leg_map: md.twilio_leg_map ?? null,
-        has_voice_ai_on_row: Boolean(voiceAi?.short_summary || voiceAi?.recommended_action),
-      });
-    }
   }
 
   const allContacts = [...missed, ...recent]
@@ -271,6 +273,46 @@ export default async function WorkspaceCallsPage() {
         title="Calls"
         subtitle="Missed calls first, then recent activity. Use actions to call back, text, or open a matched patient."
       />
+
+      {showCallsDebugCard ? (
+        <div className="mt-4 rounded-xl border-2 border-amber-400 bg-amber-50/95 p-3 text-[11px] leading-snug text-slate-900 shadow-sm">
+          <p className="mb-2 font-bold text-amber-950">
+            Debug (PHONE_CALLS_PAGE_DEBUG=1) — top 5 rows from Recent query (same order as list below)
+          </p>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px] border-collapse font-mono text-[10px]">
+              <thead>
+                <tr className="border-b border-amber-300 text-left text-amber-900">
+                  <th className="py-1 pr-2">external_call_id</th>
+                  <th className="py-1 pr-2">status</th>
+                  <th className="py-1 pr-2">direction</th>
+                  <th className="py-1 pr-2">created_at</th>
+                  <th className="py-1 pr-2">updated_at</th>
+                  <th className="py-1">ended_at</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recent.slice(0, 5).map((r) => (
+                  <tr key={r.id} className="border-b border-amber-200/80">
+                    <td className="py-1 pr-2 align-top break-all">{r.external_call_id ?? "—"}</td>
+                    <td className="py-1 pr-2 align-top">{r.status ?? "—"}</td>
+                    <td className="py-1 pr-2 align-top">{r.direction ?? "—"}</td>
+                    <td className="py-1 pr-2 align-top break-all">{r.created_at ?? "—"}</td>
+                    <td className="py-1 pr-2 align-top break-all">{r.updated_at ?? "—"}</td>
+                    <td className="py-1 align-top break-all">{r.ended_at ?? "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-2 text-[10px] text-amber-900">
+            recent.length={recent.length} missed.length={missed.length} · proof IDs in recent:{" "}
+            {DEBUG_PROOF_COMPLETED_CALL_SIDS.map((sid) => `${sid.slice(0, 10)}…=${proofInRecent[sid] ? "yes" : "no"}`).join(
+              " · "
+            )}
+          </p>
+        </div>
+      ) : null}
 
       <div className="mt-2 rounded-[28px] border border-slate-200/80 bg-white p-4 shadow-md shadow-slate-200/50 sm:p-5">
         <SoftphoneDialer staffDisplayName={staffDisplayName} />
