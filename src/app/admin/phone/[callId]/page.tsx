@@ -369,6 +369,16 @@ export default async function AdminPhoneCallDetailPage({ params, searchParams }:
                 {voiceAiSlice.short_summary?.trim() ? voiceAiSlice.short_summary : "—"}
               </dd>
             </div>
+            <div className="sm:col-span-2">
+              <dt className="text-xs font-medium text-slate-500">Recommended next step</dt>
+              <dd className="mt-0.5 text-slate-800">{voiceAiSlice.recommended_action ?? "—"}</dd>
+            </div>
+            {voiceAiSlice.live_transcript_excerpt ? (
+              <div className="sm:col-span-2">
+                <dt className="text-xs font-medium text-slate-500">Excerpt</dt>
+                <dd className="mt-0.5 whitespace-pre-wrap text-slate-800">{voiceAiSlice.live_transcript_excerpt}</dd>
+              </div>
+            ) : null}
             {voiceAiSlice.source ? (
               <div className="sm:col-span-2">
                 <dt className="text-xs font-medium text-slate-500">Source</dt>

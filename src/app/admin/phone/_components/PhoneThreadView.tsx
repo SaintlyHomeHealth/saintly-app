@@ -191,6 +191,12 @@ export function PhoneThreadView({
             <p className="mt-2 text-[10px] italic text-slate-500">No summary text for this call.</p>
           )}
 
+          {focusVoice.recommended_action ? (
+            <p className="mt-2 rounded-md border border-violet-100 bg-violet-50/80 px-2 py-1.5 text-[11px] font-semibold leading-snug text-violet-950">
+              Next step: {focusVoice.recommended_action}
+            </p>
+          ) : null}
+
           {focusVoice.confidence_summary || focusVoice.confidence_category ? (
             <div className="mt-2 min-w-0 rounded-md border border-slate-100 bg-slate-50/90 px-2 py-1.5">
               <p className="text-[10px] font-semibold text-slate-600">Model confidence</p>

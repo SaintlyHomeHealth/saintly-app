@@ -17,6 +17,15 @@ function crmDisplayNameFromContactsRaw(contactsRaw: unknown): string | null {
   return fn || [f1, f2].filter(Boolean).join(" ").trim() || null;
 }
 
+function voicemailTranscriptExcerptFromMetadata(metadata: unknown): string | null {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return null;
+  const m = metadata as Record<string, unknown>;
+  const vt = m.voicemail_transcription;
+  if (!vt || typeof vt !== "object" || Array.isArray(vt)) return null;
+  const t = typeof (vt as { text?: unknown }).text === "string" ? (vt as { text: string }).text.trim() : "";
+  return t ? t.slice(0, 6000) : null;
+}
+
 function formatCrmMetadataForPrompt(metadata: unknown): string {
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
     return "(none)";
@@ -58,6 +67,7 @@ export function buildPhoneCallAiContextBlock(raw: Record<string, unknown>): stri
     typeof raw.auto_reply_sms_body === "string" ? raw.auto_reply_sms_body.trim().slice(0, 300) : "";
 
   const crmName = crmDisplayNameFromContactsRaw(raw.contacts);
+  const vmExcerpt = voicemailTranscriptExcerptFromMetadata(raw.metadata);
   const lines = [
     `Direction: ${direction || "—"}`,
     `Status: ${status || "—"}`,
@@ -73,6 +83,7 @@ export function buildPhoneCallAiContextBlock(raw: Record<string, unknown>): stri
     priorityReason ? `Priority SMS reason: ${priorityReason}` : null,
     autoReplyBody ? `Auto-reply SMS (excerpt): ${autoReplyBody}` : null,
     `Existing metadata.crm:\n${formatCrmMetadataForPrompt(raw.metadata)}`,
+    vmExcerpt ? `Voicemail transcript (may contain PHI — minimize in model outputs):\n${vmExcerpt}` : null,
   ].filter((x): x is string => Boolean(x));
 
   return lines.join("\n");

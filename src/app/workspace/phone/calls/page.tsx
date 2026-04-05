@@ -23,7 +23,7 @@ export default async function WorkspaceCallsPage() {
   const supabase = await createServerSupabaseClient();
 
   const selectRow =
-    "id, created_at, direction, from_e164, to_e164, status, contact_id, contacts ( full_name, first_name, last_name )";
+    "id, created_at, direction, from_e164, to_e164, status, contact_id, metadata, contacts ( full_name, first_name, last_name )";
 
   let missedQ = supabase
     .from("phone_calls")

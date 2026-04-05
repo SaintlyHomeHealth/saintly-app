@@ -12,6 +12,7 @@ export type VoiceAiThreadSlice = {
   confidence_summary: string | null;
   live_transcript_excerpt: string | null;
   closing_message: string | null;
+  recommended_action: string | null;
 };
 
 const CALLER_LABEL: Record<string, string> = {
@@ -36,6 +37,7 @@ const UI_SHORT_SUMMARY_MAX = 420;
 const UI_CONFIDENCE_SUMMARY_MAX = 260;
 const UI_TRANSCRIPT_MAX = 360;
 const UI_CLOSING_MAX = 220;
+const UI_RECOMMENDED_ACTION_MAX = 220;
 
 function clampUiText(s: string, max: number): string {
   const t = s.replace(/\s+/g, " ").trim();
@@ -129,6 +131,11 @@ export function readVoiceAiMetadata(row: PhoneCallRow | null): VoiceAiThreadSlic
       ? clampUiText(o.closing_message.trim(), UI_CLOSING_MAX)
       : null;
 
+  const recommended_actionRaw = typeof o.recommended_action === "string" ? o.recommended_action.trim() : "";
+  const recommended_action = recommended_actionRaw
+    ? clampUiText(recommended_actionRaw, UI_RECOMMENDED_ACTION_MAX)
+    : null;
+
   const hasAny =
     Boolean(classified_at) ||
     Boolean(short_summary) ||
@@ -136,7 +143,8 @@ export function readVoiceAiMetadata(row: PhoneCallRow | null): VoiceAiThreadSlic
     Boolean(live_transcript_excerpt) ||
     Boolean(closing_message) ||
     Boolean(confidence_summaryRaw) ||
-    Boolean(confidence_category);
+    Boolean(confidence_category) ||
+    Boolean(recommended_action);
   if (!hasAny) {
     return null;
   }
@@ -155,5 +163,6 @@ export function readVoiceAiMetadata(row: PhoneCallRow | null): VoiceAiThreadSlic
     confidence_summary,
     live_transcript_excerpt,
     closing_message,
+    recommended_action,
   };
 }

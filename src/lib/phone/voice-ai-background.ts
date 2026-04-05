@@ -46,7 +46,7 @@ function isTerminalCallStatus(status: string): boolean {
 }
 
 export const VOICE_AI_CLASSIFICATION_SYSTEM_PROMPT = `You classify phone intake records for Saintly Home Health (home health agency).
-You only see structured call metadata — there may be no transcript.
+You only see structured call metadata — there may be no transcript or a voicemail excerpt below.
 Return a single JSON object with exactly these keys:
 - "caller_category": one of "patient_family", "caregiver_applicant", "referral_provider", "vendor_other", "spam"
 - "crm": object with keys "type", "outcome", "tags", "note" where:
@@ -57,6 +57,8 @@ Return a single JSON object with exactly these keys:
 - "urgency": one of "low", "medium", "high", "critical"
 - "callback_needed": boolean
 - "short_summary": 2-4 sentences for staff, no raw phone numbers, avoid PHI
+- "recommended_action": one short imperative line for staff (e.g. "Return call within 2 hours", "Review referral fax") or ""
+- "excerpt": optional short quote or paraphrase of what mattered (from voicemail/context if present); otherwise ""
 - "route_target": one of "intake_queue", "hiring_queue", "referral_team", "procurement", "security", "noop"
 - "confidence": object with "category" (one of "low","medium","high") and "summary" (one short sentence)
 
@@ -89,8 +91,10 @@ export type VoiceAiStoredPayload = {
   short_summary: string;
   route_target: string;
   confidence: { category: string; summary: string };
-  /** Live AI path only: short excerpt of caller speech (no PHI). */
+  /** After-call / voicemail: short excerpt or quote (no PHI). */
   live_transcript_excerpt?: string;
+  /** One-line staff next step (after-call summaries). */
+  recommended_action?: string;
   /** Live AI path only: line read to caller before transfer or hangup. */
   closing_message?: string;
   /** Survives reclassification when set by automatic callback follow-up SMS. */
@@ -169,9 +173,16 @@ export function normalizeVoiceAiPayload(
     typeof o.closing_message === "string" ? o.closing_message.trim().replace(/\s+/g, " ") : "";
   closing_message = closing_message.slice(0, 400);
 
-  const liveExcerpt =
-    options?.live_transcript_excerpt?.trim().slice(0, 500) ??
-    (typeof o.live_transcript_excerpt === "string" ? o.live_transcript_excerpt.trim().slice(0, 500) : "");
+  const excerptFromModel =
+    typeof o.excerpt === "string" ? o.excerpt.trim().replace(/\s+/g, " ").slice(0, 500) : "";
+  const optExcerpt = options?.live_transcript_excerpt?.trim().slice(0, 500) ?? "";
+  const legacyLiveExcerpt =
+    typeof o.live_transcript_excerpt === "string" ? o.live_transcript_excerpt.trim().slice(0, 500) : "";
+  const liveExcerpt = optExcerpt || excerptFromModel || legacyLiveExcerpt;
+
+  let recommended_action =
+    typeof o.recommended_action === "string" ? o.recommended_action.trim().replace(/\s+/g, " ") : "";
+  recommended_action = recommended_action.slice(0, 240);
 
   const base: VoiceAiStoredPayload = {
     schema_version: "1.0",
@@ -189,6 +200,9 @@ export function normalizeVoiceAiPayload(
 
   if (liveExcerpt) {
     base.live_transcript_excerpt = liveExcerpt;
+  }
+  if (recommended_action) {
+    base.recommended_action = recommended_action;
   }
   if (closing_message && source === "live_receptionist") {
     base.closing_message = closing_message;
@@ -250,6 +264,18 @@ export async function persistVoiceAiMetadata(callId: string, voicePayload: Voice
       closing_message: prevVoice.closing_message.trim().slice(0, 400),
     };
   }
+  if (
+    voicePayload.source === "background" &&
+    prevVoice &&
+    typeof prevVoice.recommended_action === "string" &&
+    prevVoice.recommended_action.trim() &&
+    !voicePayload.recommended_action
+  ) {
+    merged = {
+      ...merged,
+      recommended_action: prevVoice.recommended_action.trim().slice(0, 240),
+    };
+  }
 
   if (prevVoice) {
     const preserved: Partial<VoiceAiStoredPayload> = {};
@@ -301,6 +327,39 @@ export async function persistVoiceAiMetadata(callId: string, voicePayload: Voice
 
   await maybeEnsureVoiceAiFollowupTask(supabaseAdmin, callId, merged);
   await maybeSendVoiceAiCallbackFollowupSms(supabaseAdmin, callId, merged as VoiceAiFollowupPayload);
+}
+
+/**
+ * Cost guard: run after-call AI only when voicemail, long enough duration, known contact, or voicemail text exists.
+ * Set VOICE_AI_AFTER_CALL_MIN_DURATION_SECONDS (default 25).
+ */
+export function shouldQualifyAfterCallAi(row: Record<string, unknown>): boolean {
+  const vm =
+    typeof row.voicemail_recording_sid === "string" && row.voicemail_recording_sid.trim() !== "";
+  const vmDur =
+    typeof row.voicemail_duration_seconds === "number" && Number.isFinite(row.voicemail_duration_seconds)
+      ? row.voicemail_duration_seconds
+      : 0;
+  const dur =
+    typeof row.duration_seconds === "number" && Number.isFinite(row.duration_seconds) ? row.duration_seconds : 0;
+  const rawMin = process.env.VOICE_AI_AFTER_CALL_MIN_DURATION_SECONDS ?? "25";
+  const parsed = Number.parseInt(rawMin, 10);
+  const threshold = Number.isFinite(parsed) && parsed > 0 ? parsed : 25;
+
+  const direction = (typeof row.direction === "string" ? row.direction : "").trim().toLowerCase();
+  const inbound = direction !== "outbound";
+  const hasContact = row.contact_id != null && String(row.contact_id).trim() !== "";
+
+  const meta = asRecord(row.metadata);
+  const vt = meta ? asRecord(meta.voicemail_transcription) : null;
+  const vmText = vt && typeof vt.text === "string" ? vt.text.trim() : "";
+  const hasVmText = vmText.length > 0;
+
+  if (vm || vmDur > 0) return true;
+  if (hasVmText) return true;
+  if (dur >= threshold) return true;
+  if (inbound && hasContact) return true;
+  return false;
 }
 
 /** Stable string over materially relevant row fields (status, VM, durations, CRM hints). */
@@ -370,6 +429,13 @@ async function executeVoiceAiClassification(callId: string): Promise<void> {
   const status = typeof row.status === "string" ? row.status : "";
   if (!isTerminalCallStatus(status)) {
     console.log("[voice-ai-debug] executeVoiceAiClassification exit: status not terminal", { callId, status });
+    return;
+  }
+
+  if (!shouldQualifyAfterCallAi(row)) {
+    console.log("[voice-ai-debug] executeVoiceAiClassification exit: after-call qualification (skip low-value)", {
+      callId,
+    });
     return;
   }
 

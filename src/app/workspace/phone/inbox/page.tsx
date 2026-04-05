@@ -66,19 +66,35 @@ function unreadCountFromMetadata(raw: unknown): number {
   return typeof v === "number" && Number.isFinite(v) && v > 0 ? Math.floor(v) : 0;
 }
 
-function parseVoiceAiMini(meta: unknown): { summary: string | null; category: string | null; urgency: string | null } {
+function parseVoiceAiMini(meta: unknown): {
+  summary: string | null;
+  category: string | null;
+  urgency: string | null;
+  recommended_action: string | null;
+  excerpt: string | null;
+} {
   if (!meta || typeof meta !== "object" || Array.isArray(meta)) {
-    return { summary: null, category: null, urgency: null };
+    return { summary: null, category: null, urgency: null, recommended_action: null, excerpt: null };
   }
   const v = (meta as Record<string, unknown>).voice_ai;
   if (!v || typeof v !== "object" || Array.isArray(v)) {
-    return { summary: null, category: null, urgency: null };
+    return { summary: null, category: null, urgency: null, recommended_action: null, excerpt: null };
   }
   const o = v as Record<string, unknown>;
   const summary = typeof o.short_summary === "string" ? o.short_summary.trim().slice(0, 280) : null;
   const category = typeof o.caller_category === "string" ? o.caller_category.trim() : null;
   const urgency = typeof o.urgency === "string" ? o.urgency.trim() : null;
-  return { summary: summary || null, category: category || null, urgency: urgency || null };
+  const recommended_action =
+    typeof o.recommended_action === "string" ? o.recommended_action.trim().slice(0, 220) : null;
+  const excerpt =
+    typeof o.live_transcript_excerpt === "string" ? o.live_transcript_excerpt.trim().slice(0, 200) : null;
+  return {
+    summary: summary || null,
+    category: category || null,
+    urgency: urgency || null,
+    recommended_action: recommended_action || null,
+    excerpt: excerpt || null,
+  };
 }
 
 function entityLabel(input: {
@@ -238,7 +254,7 @@ export default async function WorkspaceInboxPage({ searchParams }: PageProps) {
       : "";
   const selectedPhoneDisplay = selectedPhoneRaw ? formatPhoneForDisplay(selectedPhoneRaw) : "—";
   const selectedPreview = selectedId ? previewByConvId[selectedId] ?? "" : "";
-  const selectedAi = selectedRow ? parseVoiceAiMini((selectedRow as { metadata?: unknown }).metadata) : null;
+  const selectedAiConv = selectedRow ? parseVoiceAiMini((selectedRow as { metadata?: unknown }).metadata) : null;
   const selectedNextAction =
     selectedRow && typeof (selectedRow as { next_action?: unknown }).next_action === "string"
       ? (selectedRow as { next_action: string }).next_action.trim()
@@ -253,10 +269,11 @@ export default async function WorkspaceInboxPage({ searchParams }: PageProps) {
       : null;
 
   let lastCallLine: string | null = null;
+  let selectedAiFromPhone: ReturnType<typeof parseVoiceAiMini> | null = null;
   if (selectedPrimaryContactId) {
     const { data: callRow } = await supabase
       .from("phone_calls")
-      .select("created_at, status, direction")
+      .select("created_at, status, direction, metadata")
       .eq("contact_id", selectedPrimaryContactId)
       .order("created_at", { ascending: false })
       .limit(1)
@@ -265,8 +282,19 @@ export default async function WorkspaceInboxPage({ searchParams }: PageProps) {
       const dir = typeof callRow.direction === "string" ? callRow.direction.toLowerCase() : "";
       const st = typeof callRow.status === "string" ? callRow.status : "—";
       lastCallLine = `${formatAdminPhoneWhen(callRow.created_at)} · ${dir || "call"} · ${st}`;
+      selectedAiFromPhone = parseVoiceAiMini(callRow.metadata);
     }
   }
+
+  const selectedAi =
+    selectedAiFromPhone &&
+    (selectedAiFromPhone.summary ||
+      selectedAiFromPhone.category ||
+      selectedAiFromPhone.urgency ||
+      selectedAiFromPhone.recommended_action ||
+      selectedAiFromPhone.excerpt)
+      ? selectedAiFromPhone
+      : selectedAiConv;
 
   const dialE164 = pickOutboundE164ForDial(selectedPhoneRaw);
   const canOpenLeadInCrm = Boolean(selectedLead) && !isWorkspaceEmployeeRole(staff.role);
@@ -455,7 +483,12 @@ export default async function WorkspaceInboxPage({ searchParams }: PageProps) {
                   </div>
                 ) : null}
 
-                {selectedAi.summary || selectedAi.category || selectedAi.urgency ? (
+                {selectedAi &&
+                (selectedAi.summary ||
+                  selectedAi.category ||
+                  selectedAi.urgency ||
+                  selectedAi.recommended_action ||
+                  selectedAi.excerpt) ? (
                   <div className="mt-4 rounded-xl border border-sky-100 bg-sky-50/50 px-3 py-2">
                     <p className="text-[10px] font-semibold uppercase tracking-wide text-sky-800">AI insight</p>
                     {selectedAi.summary ? (
@@ -463,6 +496,17 @@ export default async function WorkspaceInboxPage({ searchParams }: PageProps) {
                     ) : (
                       <p className="mt-1 text-sm text-slate-500">No summary stored for this thread.</p>
                     )}
+                    {selectedAi.recommended_action ? (
+                      <p className="mt-2 text-xs font-semibold text-sky-950">
+                        Next step: {selectedAi.recommended_action}
+                      </p>
+                    ) : null}
+                    {selectedAi.excerpt ? (
+                      <p className="mt-1 text-[11px] leading-snug text-slate-700">
+                        <span className="font-semibold text-slate-600">Excerpt · </span>
+                        {selectedAi.excerpt}
+                      </p>
+                    ) : null}
                     <div className="mt-2 flex flex-wrap gap-1.5 text-[11px]">
                       {selectedAi.category ? (
                         <span className="rounded-full bg-white/90 px-2 py-0.5 font-medium text-slate-700">

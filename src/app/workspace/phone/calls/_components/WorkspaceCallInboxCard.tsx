@@ -1,4 +1,5 @@
 import { WorkspaceCallInboxActions } from "./WorkspaceCallInboxActions";
+import { readVoiceAiMetadataFromMetadata } from "@/app/admin/phone/_lib/voice-ai-metadata";
 import { formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 
@@ -13,6 +14,7 @@ export type CallInboxRow = {
   status: string | null;
   contact_id: string | null;
   contacts?: unknown;
+  metadata?: unknown;
 };
 
 function crmDisplayNameFromContactsRaw(contactsRaw: unknown): string | null {
@@ -51,6 +53,7 @@ export function WorkspaceCallInboxCard({ row, variant, patientId }: Props) {
   const cid = typeof row.contact_id === "string" ? row.contact_id : "";
   const title = label ?? numberDisplay;
   const missed = variant === "missed";
+  const voiceAi = readVoiceAiMetadataFromMetadata(row.metadata) ?? null;
 
   const shell =
     missed
@@ -75,6 +78,12 @@ export function WorkspaceCallInboxCard({ row, variant, patientId }: Props) {
           <span className="text-[11px] font-medium text-slate-500">{when}</span>
         </div>
       </div>
+      {voiceAi?.short_summary ? (
+        <p className="mt-2 line-clamp-2 text-[11px] leading-snug text-slate-600">{voiceAi.short_summary}</p>
+      ) : null}
+      {voiceAi?.recommended_action ? (
+        <p className="mt-1 text-[10px] font-semibold text-violet-900">Next: {voiceAi.recommended_action}</p>
+      ) : null}
       <WorkspaceCallInboxActions callbackE164={numRaw} contactId={cid || null} patientId={patientId} />
     </li>
   );

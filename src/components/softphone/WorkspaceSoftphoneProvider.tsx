@@ -19,7 +19,11 @@ import {
   readIncomingCallerRawFromCall,
 } from "@/lib/softphone/twilio-incoming-caller-display";
 import { createRingtoneObjectUrl } from "@/lib/softphone/ringtone-wav";
-import { dispatchWorkspaceSoftphoneUi } from "@/lib/softphone/workspace-ui-events";
+import {
+  WORKSPACE_SOFTPHONE_FORCE_CLEAR_EVENT,
+  dispatchWorkspaceSoftphoneUi,
+  type WorkspaceSoftphoneForceClearDetail,
+} from "@/lib/softphone/workspace-ui-events";
 
 type CallHandle = Awaited<ReturnType<Device["connect"]>>;
 
@@ -40,6 +44,8 @@ type Ctx = {
   digits: string;
   setDigits: Dispatch<SetStateAction<string>>;
   listenState: "loading" | "ready" | "error";
+  /** True while the Twilio Client leg is connected (answered outbound or inbound). */
+  isInCall: boolean;
   status: "idle" | "fetching_token" | "connecting" | "in_call" | "error";
   hint: string | null;
   incomingCallerContactName: string | null;
@@ -96,6 +102,12 @@ function readTwilioParam(
   return null;
 }
 
+/** Twilio CallSid on the Client leg; matches `phone_calls.external_call_id` for suppression after hangup. */
+function readCallSid(call: { parameters?: Record<string, string> } | null | undefined): string | null {
+  const sid = readTwilioParam(call, ["CallSid"]);
+  return sid && sid.length > 0 ? sid : null;
+}
+
 function formatDialpadDisplay(raw: string): string {
   const t = raw.trim();
   if (!t) return "";
@@ -130,12 +142,19 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
   const [durationSec, setDurationSec] = useState(0);
   const [callStartedAtMs, setCallStartedAtMs] = useState<number | null>(null);
   const [inboundAiAssist, setInboundAiAssist] = useState<InboundAiAssistState | null>(null);
+  const statusRef = useRef(status);
   const ringtoneUnlockedRef = useRef(false);
   const deviceRef = useRef<Device | null>(null);
   const activeCallRef = useRef<CallHandle | null>(null);
   const ringtoneAudioRef = useRef<HTMLAudioElement | null>(null);
   const testRingtoneStopRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const assistHandoffSnapshotRef = useRef<AssistHandoffSnapshot | null>(null);
+  /** After local hangup, ignore stale `inbound-active` rows until DB flips or a new CallSid appears. */
+  const pollSuppressedSidRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
 
   useEffect(() => {
     if (!callStartedAtMs) {
@@ -150,41 +169,73 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     return () => window.clearInterval(id);
   }, [callStartedAtMs]);
 
-  const bindDeviceLifecycle = useCallback((device: Device) => {
-    device.on("error", (err) => {
-      const msg =
-        err && typeof err === "object" && "message" in err && typeof err.message === "string"
-          ? err.message
-          : String(err);
-      setHint(msg || "Phone error");
-    });
-    device.on("incoming", (call) => {
-      setIncomingCall(call);
-      call.on("disconnect", () => setIncomingCall((c) => (c === call ? null : c)));
-      call.on("cancel", () => setIncomingCall((c) => (c === call ? null : c)));
-    });
-  }, []);
-
-  const attachActiveCallHandlers = useCallback((call: Call | CallHandle) => {
-    activeCallRef.current = call;
-    setStatus("in_call");
-    setCallStartedAtMs(Date.now());
-    call.on("disconnect", () => {
-      activeCallRef.current = null;
-      setStatus("idle");
+  const clearCallUiState = useCallback(
+    (
+      reason: string,
+      options: { endedCallSid?: string | null; releaseActiveLeg?: boolean } = {}
+    ) => {
+      const releaseActive = options.releaseActiveLeg !== false;
+      console.log("[softphone] call ended", reason);
+      console.log("[softphone] clearing active call state");
+      if (releaseActive) {
+        activeCallRef.current = null;
+        setStatus("idle");
+        setCallStartedAtMs(null);
+      }
       setHint(null);
-      setCallStartedAtMs(null);
-    });
-    call.on("error", (err) => {
-      setHint(err.message ?? "Call error");
-    });
-  }, []);
+      setInboundAiAssist(null);
+      if (options.endedCallSid) {
+        pollSuppressedSidRef.current = options.endedCallSid;
+      }
+      if (releaseActive || statusRef.current !== "in_call") {
+        dispatchWorkspaceSoftphoneUi({ phase: "idle" });
+      }
+    },
+    []
+  );
 
-  useEffect(() => {
-    return () => {
-      dispatchWorkspaceSoftphoneUi({ phase: "idle" });
-    };
-  }, []);
+  const bindDeviceLifecycle = useCallback(
+    (device: Device) => {
+      device.on("error", (err) => {
+        const msg =
+          err && typeof err === "object" && "message" in err && typeof err.message === "string"
+            ? err.message
+            : String(err);
+        setHint(msg || "Phone error");
+      });
+      device.on("incoming", (call) => {
+        setIncomingCall(call);
+        call.on("disconnect", (disconnectedArg) => {
+          const disconnected = disconnectedArg ?? call;
+          setIncomingCall((c) => (c === call ? null : c));
+          const sid = readCallSid(disconnected);
+          clearCallUiState("twilio:incoming.disconnect", { endedCallSid: sid, releaseActiveLeg: false });
+        });
+        call.on("cancel", () => setIncomingCall((c) => (c === call ? null : c)));
+      });
+    },
+    [clearCallUiState]
+  );
+
+  const attachActiveCallHandlers = useCallback(
+    (call: Call | CallHandle) => {
+      activeCallRef.current = call;
+      setStatus("in_call");
+      setCallStartedAtMs(Date.now());
+      call.on("disconnect", (disconnectedArg) => {
+        const disconnected = disconnectedArg ?? call;
+        if (activeCallRef.current === disconnected) {
+          activeCallRef.current = null;
+        }
+        const sid = readCallSid(disconnected);
+        clearCallUiState("twilio:call.disconnect", { endedCallSid: sid, releaseActiveLeg: true });
+      });
+      call.on("error", (err) => {
+        setHint(err.message ?? "Call error");
+      });
+    },
+    [clearCallUiState]
+  );
 
   useEffect(() => {
     if (!inboundAiAssist?.rawFrom || normalizePhone(inboundAiAssist.rawFrom).length < 10) {
@@ -352,6 +403,10 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
         if (j.active) {
           const e164 = typeof j.from_e164 === "string" ? j.from_e164 : null;
           const sid = typeof j.external_call_id === "string" ? j.external_call_id : null;
+          if (sid && pollSuppressedSidRef.current && sid === pollSuppressedSidRef.current) {
+            setInboundAiAssist(null);
+            return;
+          }
           const digits = normalizePhone(e164 ?? "");
           setInboundAiAssist((prev) => {
             const sameCall = Boolean(sid && prev?.callSid === sid);
@@ -369,6 +424,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
             };
           });
         } else {
+          pollSuppressedSidRef.current = null;
           setInboundAiAssist(null);
         }
       } catch {
@@ -492,19 +548,33 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     return () => {
       cancelled = true;
       activeCallRef.current?.disconnect();
-      activeCallRef.current = null;
+      clearCallUiState("provider:device_effect_cleanup", { releaseActiveLeg: true });
       deviceRef.current?.destroy();
       deviceRef.current = null;
     };
-  }, [bindDeviceLifecycle]);
+  }, [bindDeviceLifecycle, clearCallUiState]);
+
+  useEffect(() => {
+    const onForce = (ev: Event) => {
+      const ce = ev as CustomEvent<WorkspaceSoftphoneForceClearDetail>;
+      const reason =
+        typeof ce.detail?.reason === "string" && ce.detail.reason.trim()
+          ? ce.detail.reason.trim()
+          : "workspace:softphoneForceClear";
+      clearCallUiState(`workspace:force_clear:${reason}`, { releaseActiveLeg: false });
+    };
+    window.addEventListener(WORKSPACE_SOFTPHONE_FORCE_CLEAR_EVENT, onForce);
+    return () => window.removeEventListener(WORKSPACE_SOFTPHONE_FORCE_CLEAR_EVENT, onForce);
+  }, [clearCallUiState]);
 
   const hangUp = useCallback(() => {
-    activeCallRef.current?.disconnect();
-    activeCallRef.current = null;
-    setStatus("idle");
-    setHint(null);
-    setCallStartedAtMs(null);
-  }, []);
+    const c = activeCallRef.current;
+    if (c) {
+      c.disconnect();
+    } else {
+      clearCallUiState("hangUp_no_active_leg", { releaseActiveLeg: false });
+    }
+  }, [clearCallUiState]);
 
   const answerIncoming = useCallback(() => {
     const call = incomingCall;
@@ -624,6 +694,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       digits,
       setDigits,
       listenState,
+      isInCall: status === "in_call",
       status,
       hint,
       incomingCallerContactName: incomingCallerUi?.contactName ?? null,
