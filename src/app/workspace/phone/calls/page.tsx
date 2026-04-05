@@ -23,21 +23,22 @@ export default async function WorkspaceCallsPage() {
   const showAdminCallLogLink = isManagerOrHigher(staff);
   const supabase = await createServerSupabaseClient();
 
+  /** Include updated_at: DB trigger refreshes it on every status write — sort by it so "Recent" reflects last activity (e.g. completed) not only insert time. */
   const selectRow =
-    "id, created_at, started_at, ended_at, direction, from_e164, to_e164, status, external_call_id, contact_id, metadata, contacts ( full_name, first_name, last_name )";
+    "id, created_at, updated_at, started_at, ended_at, direction, from_e164, to_e164, status, external_call_id, contact_id, metadata, contacts ( full_name, first_name, last_name )";
 
   let missedQ = supabase
     .from("phone_calls")
     .select(selectRow)
     .eq("status", "missed")
-    .order("created_at", { ascending: false })
+    .order("updated_at", { ascending: false })
     .limit(25);
 
   let recentQ = supabase
     .from("phone_calls")
     .select(selectRow)
     .neq("status", "missed")
-    .order("created_at", { ascending: false })
+    .order("updated_at", { ascending: false })
     .limit(40);
 
   /** Nurses: show unassigned/own rows, plus all inbound (parent) calls even if auto-assigned on missed. */
@@ -66,16 +67,20 @@ export default async function WorkspaceCallsPage() {
   const missedTop = missed[0];
   console.log("[calls-list]", {
     event: "query_summary",
-    order_by: "created_at_desc",
+    order_by: "updated_at_desc",
     recent_limit: 40,
     missed_limit: 25,
     has_full_visibility: hasFull,
+    nurse_scope_applied: !hasFull,
     top_recent: recentTop
       ? {
           phone_calls_id: recentTop.id,
           external_call_id: recentTop.external_call_id ?? null,
           created_at: recentTop.created_at,
+          updated_at: recentTop.updated_at ?? null,
+          ended_at: recentTop.ended_at ?? null,
           status: recentTop.status,
+          direction: recentTop.direction,
         }
       : null,
     top_missed: missedTop
@@ -83,10 +88,29 @@ export default async function WorkspaceCallsPage() {
           phone_calls_id: missedTop.id,
           external_call_id: missedTop.external_call_id ?? null,
           created_at: missedTop.created_at,
+          updated_at: missedTop.updated_at ?? null,
           status: missedTop.status,
         }
       : null,
+    recent_preview: recent.slice(0, 8).map((r) => ({
+      external_call_id: r.external_call_id ?? null,
+      status: r.status,
+      direction: r.direction,
+      created_at: r.created_at,
+      updated_at: r.updated_at ?? null,
+      ended_at: r.ended_at ?? null,
+    })),
+    recent_completed_inbound_in_page: recent.filter((r) => r.status === "completed" && r.direction === "inbound")
+      .length,
+    possible_recent_truncation: recent.length >= 40,
   });
+
+  if (recent.length >= 40) {
+    console.warn("[calls-list] recent_limit_hit", {
+      recent_limit: 40,
+      note: "Rows beyond limit are omitted; raise limit or narrow filters if needed.",
+    });
+  }
 
   for (const section of [
     { name: "missed" as const, rows: missed },

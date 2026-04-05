@@ -8,6 +8,8 @@ type ContactNameEmbed = { full_name?: unknown; first_name?: unknown; last_name?:
 export type CallInboxRow = {
   id: string;
   created_at: string | null;
+  /** Refreshed by DB trigger on writes; used for workspace calls list ordering. */
+  updated_at?: string | null;
   started_at?: string | null;
   ended_at?: string | null;
   direction: string | null;
