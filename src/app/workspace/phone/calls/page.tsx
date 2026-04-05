@@ -15,6 +15,24 @@ import { createServerSupabaseClient } from "@/lib/supabase/server";
 const MISSED_LIMIT = 25;
 const RECENT_LIMIT = 40;
 
+function activitySortKeyMs(row: CallInboxRow): number {
+  const u = row.updated_at;
+  const c = row.created_at;
+  const iso = typeof u === "string" && u.trim() ? u : typeof c === "string" ? c : null;
+  if (!iso) return 0;
+  const t = new Date(iso).getTime();
+  return Number.isNaN(t) ? 0 : t;
+}
+
+/** Merge non-missed rows with missed-but-workspace-resolved rows; sort by latest activity. */
+function mergeRecentCalls(a: CallInboxRow[], b: CallInboxRow[]): CallInboxRow[] {
+  const map = new Map<string, CallInboxRow>();
+  for (const row of [...a, ...b]) {
+    if (!map.has(row.id)) map.set(row.id, row);
+  }
+  return [...map.values()].sort((x, y) => activitySortKeyMs(y) - activitySortKeyMs(x)).slice(0, RECENT_LIMIT);
+}
+
 export default async function WorkspaceCallsPage() {
   const staff = await getStaffProfile();
   if (!staff || !canAccessWorkspacePhone(staff)) {
@@ -34,35 +52,52 @@ export default async function WorkspaceCallsPage() {
     .from("phone_calls")
     .select(selectRow)
     .eq("status", "missed")
+    .is("workspace_missed_followup_resolved_at", null)
     .order("updated_at", { ascending: false })
     .limit(MISSED_LIMIT);
 
-  let recentQ = supabase
+  let recentNonMissedQ = supabase
     .from("phone_calls")
     .select(selectRow)
     .neq("status", "missed")
     .order("updated_at", { ascending: false })
     .limit(RECENT_LIMIT);
 
+  let recentResolvedMissedQ = supabase
+    .from("phone_calls")
+    .select(selectRow)
+    .eq("status", "missed")
+    .not("workspace_missed_followup_resolved_at", "is", null)
+    .order("updated_at", { ascending: false })
+    .limit(RECENT_LIMIT);
+
   if (!hasFull) {
     missedQ = missedQ.or(nurseScopeFilter);
-    recentQ = recentQ.or(nurseScopeFilter);
+    recentNonMissedQ = recentNonMissedQ.or(nurseScopeFilter);
+    recentResolvedMissedQ = recentResolvedMissedQ.or(nurseScopeFilter);
   }
 
-  const [{ data: missedData, error: missedErr }, { data: recentData, error: recentErr }] = await Promise.all([
-    missedQ,
-    recentQ,
-  ]);
+  const [
+    { data: missedData, error: missedErr },
+    { data: recentNonMissedData, error: recentNonMissedErr },
+    { data: recentResolvedMissedData, error: recentResolvedMissedErr },
+  ] = await Promise.all([missedQ, recentNonMissedQ, recentResolvedMissedQ]);
 
   if (missedErr) {
     console.warn("[workspace/phone/calls] missed:", missedErr.message);
   }
-  if (recentErr) {
-    console.warn("[workspace/phone/calls] recent:", recentErr.message);
+  if (recentNonMissedErr) {
+    console.warn("[workspace/phone/calls] recent (non-missed):", recentNonMissedErr.message);
+  }
+  if (recentResolvedMissedErr) {
+    console.warn("[workspace/phone/calls] recent (resolved missed):", recentResolvedMissedErr.message);
   }
 
   const missed = (missedData ?? []) as CallInboxRow[];
-  const recent = (recentData ?? []) as CallInboxRow[];
+  const recent = mergeRecentCalls(
+    (recentNonMissedData ?? []) as CallInboxRow[],
+    (recentResolvedMissedData ?? []) as CallInboxRow[]
+  );
 
   const allContacts = [...missed, ...recent]
     .map((r) => (typeof r.contact_id === "string" ? r.contact_id : ""))

@@ -1,4 +1,5 @@
 import { WorkspaceCallInboxActions } from "./WorkspaceCallInboxActions";
+import { WorkspaceMarkMissedResolvedButton } from "./WorkspaceMarkMissedResolvedButton";
 import { readVoiceAiMetadataFromMetadata } from "@/app/admin/phone/_lib/voice-ai-metadata";
 import { formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
@@ -100,6 +101,11 @@ export function WorkspaceCallInboxCard({ row, variant, patientId }: Props) {
         <p className="mt-1 text-[10px] font-semibold text-violet-900">Next: {voiceAi.recommended_action}</p>
       ) : null}
       <WorkspaceCallInboxActions callbackE164={numRaw} contactId={cid || null} patientId={patientId} />
+      {missed ? (
+        <div className="mt-2">
+          <WorkspaceMarkMissedResolvedButton callId={row.id} />
+        </div>
+      ) : null}
     </li>
   );
 }

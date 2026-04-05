@@ -256,7 +256,8 @@ export default async function WorkspaceTodayPage() {
   let missedCallsQ = supabase
     .from("phone_calls")
     .select("id", { count: "exact", head: true })
-    .eq("status", "missed");
+    .eq("status", "missed")
+    .is("workspace_missed_followup_resolved_at", null);
   let convoCountQ = supabase
     .from("conversations")
     .select("id", { count: "exact", head: true })
