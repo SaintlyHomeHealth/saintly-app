@@ -52,7 +52,17 @@ type Props = {
 export function WorkspaceCallInboxCard({ row, variant, patientId }: Props) {
   const dir = String(row.direction ?? "").toLowerCase();
   const label = crmDisplayNameFromContactsRaw(row.contacts);
-  const when = formatAdminPhoneWhen(typeof row.created_at === "string" ? row.created_at : null);
+  const activityIsoForDisplay =
+    variant === "recent"
+      ? typeof row.updated_at === "string" && row.updated_at.trim()
+        ? row.updated_at
+        : typeof row.created_at === "string"
+          ? row.created_at
+          : null
+      : typeof row.created_at === "string"
+        ? row.created_at
+        : null;
+  const when = formatAdminPhoneWhen(activityIsoForDisplay);
   const numRaw = callbackNumber(row.direction, row.from_e164, row.to_e164);
   const numberDisplay = numRaw ? formatPhoneForDisplay(numRaw) : "—";
   const cid = typeof row.contact_id === "string" ? row.contact_id : "";
