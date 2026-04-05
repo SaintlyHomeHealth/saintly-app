@@ -32,6 +32,8 @@ import {
   isPhoneWorkspaceUser,
   type StaffProfile,
 } from "@/lib/staff-profile";
+import { ContactArchiveButton } from "@/app/admin/crm/contacts/_components/ContactArchiveButton";
+import { contactRowsActiveOnly } from "@/lib/crm/contacts-active";
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
@@ -113,6 +115,13 @@ export default async function AdminCrmContactDetailPage({
       : Array.isArray(returnToRaw)
         ? returnToRaw[0] ?? ""
         : "";
+  const toastRaw = rawSp.toast;
+  const toastParam =
+    typeof toastRaw === "string"
+      ? toastRaw.trim()
+      : Array.isArray(toastRaw)
+        ? (toastRaw[0] ?? "").trim()
+        : "";
   const backHref =
     returnTo && returnTo.startsWith("?") ? `/admin/crm/contacts${returnTo}` : "/admin/crm/contacts";
 
@@ -121,7 +130,7 @@ export default async function AdminCrmContactDetailPage({
   const { data: crow, error } = await supabase
     .from("contacts")
     .select(
-      "id, first_name, last_name, full_name, organization_name, primary_phone, secondary_phone, email, address_line_1, address_line_2, city, state, zip, contact_type, status, referral_source, owner_user_id, relationship_metadata, notes, created_at, updated_at"
+      "id, first_name, last_name, full_name, organization_name, primary_phone, secondary_phone, email, address_line_1, address_line_2, city, state, zip, contact_type, status, referral_source, owner_user_id, relationship_metadata, notes, created_at, updated_at, archived_at"
     )
     .eq("id", contactId)
     .maybeSingle();
@@ -131,6 +140,7 @@ export default async function AdminCrmContactDetailPage({
   }
 
   const row = crow as ContactDirectoryDbRow;
+  const isArchived = row.archived_at != null && String(row.archived_at).trim() !== "";
 
   const [
     { data: prow },
@@ -147,11 +157,13 @@ export default async function AdminCrmContactDetailPage({
         .eq("contact_id", contactId)
         .order("created_at", { ascending: false })
     ),
-    supabase
-      .from("contacts")
-      .select("id, primary_phone, email, full_name, organization_name")
-      .neq("id", contactId)
-      .limit(4000),
+    contactRowsActiveOnly(
+      supabase
+        .from("contacts")
+        .select("id, primary_phone, email, full_name, organization_name")
+        .neq("id", contactId)
+        .limit(4000)
+    ),
     supabase
       .from("phone_calls")
       .select("id, started_at, created_at, direction, status, duration_seconds")
@@ -314,6 +326,42 @@ export default async function AdminCrmContactDetailPage({
       ? JSON.stringify(row.relationship_metadata, null, 2)
       : String(row.relationship_metadata ?? "{}");
 
+  const toastBanner =
+    toastParam === "contact_archived" ? (
+      <div
+        role="status"
+        className="rounded-[20px] border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-950 shadow-sm"
+      >
+        Contact removed from active lists. Related calls, messages, and history are unchanged.
+      </div>
+    ) : toastParam === "contact_archive_denied" ||
+        toastParam === "contact_archive_failed" ||
+        toastParam === "contact_archive_invalid" ||
+        toastParam === "contact_archive_gone" ? (
+      <div
+        role="alert"
+        className="rounded-[20px] border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900 shadow-sm"
+      >
+        {toastParam === "contact_archive_denied"
+          ? "You do not have permission to archive contacts."
+          : toastParam === "contact_archive_gone"
+            ? "That contact is already archived or could not be found."
+            : toastParam === "contact_archive_invalid"
+              ? "Missing contact. Refresh and try again."
+              : "Could not archive the contact. Try again or check logs."}
+      </div>
+    ) : null;
+
+  const archivedNotice = isArchived ? (
+    <div
+      role="status"
+      className="rounded-[20px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950 shadow-sm"
+    >
+      This contact is archived: it stays linked to calls, SMS, leads, and patients but is hidden from the main Contacts
+      directory.
+    </div>
+  ) : null;
+
   const cardCls = "rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm";
   const actionBtn =
     "inline-flex items-center justify-center rounded-[20px] border border-sky-600 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-900 shadow-sm hover:bg-sky-100 sm:text-sm";
@@ -335,14 +383,22 @@ export default async function AdminCrmContactDetailPage({
           </>
         }
         actions={
-          <Link
-            href={backHref}
-            className="inline-flex items-center justify-center rounded-[20px] border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-800 shadow-sm hover:bg-slate-50 sm:text-sm"
-          >
-            Back to Contacts
-          </Link>
+          <div className="flex flex-wrap items-center gap-2">
+            <Link
+              href={backHref}
+              className="inline-flex items-center justify-center rounded-[20px] border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-800 shadow-sm hover:bg-slate-50 sm:text-sm"
+            >
+              Back to Contacts
+            </Link>
+            {!isArchived ? (
+              <ContactArchiveButton contactId={row.id} archiveContext="detail" variant="detail" />
+            ) : null}
+          </div>
         }
       />
+
+      {toastBanner}
+      {archivedNotice}
 
       <div className={cardCls}>
         <h2 className="text-sm font-bold text-slate-900">Quick actions</h2>

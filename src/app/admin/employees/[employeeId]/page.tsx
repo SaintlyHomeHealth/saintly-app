@@ -29,6 +29,7 @@ import {
   formatCredentialReminderCredentialType,
   formatCredentialReminderStage,
 } from "@/lib/admin/credential-reminder-display";
+import { EmployeeArchiveButton } from "@/app/admin/employees/EmployeeArchiveButton";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 
 type ComplianceEvent = {
@@ -1320,7 +1321,12 @@ export default async function EmployeeDetailPage({
   searchParams,
 }: {
   params: Promise<{ id?: string; employeeId?: string }>;
-  searchParams?: Promise<{ staff_denied?: string; inviteOk?: string; inviteErr?: string }>;
+  searchParams?: Promise<{
+    staff_denied?: string;
+    inviteOk?: string;
+    inviteErr?: string;
+    toast?: string;
+  }>;
 }) {
   const resolvedParams = await params;
   const resolvedSearchParams = searchParams ? await searchParams : undefined;
@@ -2851,6 +2857,11 @@ export default async function EmployeeDetailPage({
 
   const inviteOkFlag = resolvedSearchParams?.inviteOk;
   const inviteErrFlag = resolvedSearchParams?.inviteErr;
+  const toastParam =
+    resolvedSearchParams && typeof resolvedSearchParams.toast === "string"
+      ? resolvedSearchParams.toast.trim()
+      : "";
+  const employeeIsInactive = String(employee.status || "").toLowerCase() === "inactive";
 
   return (
     <div className="mx-auto w-full max-w-7xl space-y-6 p-6">
@@ -2879,6 +2890,32 @@ export default async function EmployeeDetailPage({
         >
           Onboarding invite {inviteOkFlag === "sms" ? "text" : inviteOkFlag === "email" ? "email" : ""}{" "}
           sent successfully.
+        </div>
+      ) : null}
+
+      {toastParam === "employee_archived" ? (
+        <div
+          role="status"
+          className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-950"
+        >
+          Employee archived: they no longer appear in the default directory view. Compliance history and records are
+          unchanged.
+        </div>
+      ) : toastParam === "employee_archive_denied" ||
+          toastParam === "employee_archive_failed" ||
+          toastParam === "employee_archive_invalid" ||
+          toastParam === "employee_archive_gone" ? (
+        <div
+          role="alert"
+          className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900"
+        >
+          {toastParam === "employee_archive_denied"
+            ? "You do not have permission to archive employees."
+            : toastParam === "employee_archive_gone"
+              ? "That employee could not be found."
+              : toastParam === "employee_archive_invalid"
+                ? "Missing employee id. Refresh and try again."
+                : "Could not archive the employee. Try again or check logs."}
         </div>
       ) : null}
 
@@ -2985,6 +3022,13 @@ export default async function EmployeeDetailPage({
                       Mark Inactive
                     </button>
                   )}
+
+                  <EmployeeArchiveButton
+                    applicantId={employeeId}
+                    archiveContext="detail"
+                    canArchive={!employeeIsInactive}
+                    variant="detail"
+                  />
 
                   <a
                     href={`/admin/employees/${employeeId}/employee-file`}

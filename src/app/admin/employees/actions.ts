@@ -1,6 +1,10 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+
+import { supabaseAdmin } from "@/lib/admin";
+import { insertAuditLog } from "@/lib/audit-log";
 
 import {
   type EmployeeDirectorySegment,
@@ -67,6 +71,87 @@ function redirectEmployeesWithParams(
     qs.set("dir", ctx.dir);
   }
   redirect(`/admin/employees?${qs.toString()}`);
+}
+
+function readTrimmedField(formData: FormData, key: string): string {
+  const v = formData.get(key);
+  return typeof v === "string" ? v.trim() : "";
+}
+
+export async function archiveEmployeeAction(formData: FormData) {
+  const staff = await getStaffProfile();
+  const applicantId = readTrimmedField(formData, "applicantId");
+  const archiveContextRaw = readTrimmedField(formData, "archiveContext");
+  const archiveContext = archiveContextRaw === "detail" ? "detail" : "list";
+
+  const redirectDenied = () => {
+    if (archiveContext === "detail" && applicantId) {
+      redirect(`/admin/employees/${applicantId}?toast=employee_archive_denied`);
+    }
+    redirect("/admin/employees?toast=employee_archive_denied");
+  };
+
+  if (!staff || !isManagerOrHigher(staff)) {
+    redirectDenied();
+  }
+
+  if (!applicantId) {
+    redirect("/admin/employees?toast=employee_archive_invalid");
+  }
+
+  const { data: prior, error: priorErr } = await supabaseAdmin
+    .from("applicants")
+    .select("id, status")
+    .eq("id", applicantId)
+    .maybeSingle();
+
+  if (priorErr || prior == null || typeof prior.id !== "string") {
+    if (archiveContext === "detail") {
+      redirect(`/admin/employees/${applicantId}?toast=employee_archive_gone`);
+    }
+    const ctx = readDirectoryContext(formData);
+    redirectEmployeesWithParams({ toast: "employee_archive_gone" }, ctx);
+  }
+
+  const prevStatus = typeof prior.status === "string" ? prior.status : null;
+
+  const { error: updErr } = await supabaseAdmin
+    .from("applicants")
+    .update({ status: "inactive" })
+    .eq("id", applicantId);
+
+  if (updErr) {
+    console.warn("[employees] archiveEmployeeAction:", updErr.message);
+    if (archiveContext === "detail") {
+      redirect(`/admin/employees/${applicantId}?toast=employee_archive_failed`);
+    }
+    const ctx = readDirectoryContext(formData);
+    redirectEmployeesWithParams({ toast: "employee_archive_failed" }, ctx);
+  }
+
+  if (prevStatus !== "inactive") {
+    await insertAuditLog({
+      action: "employee_status_change",
+      entityType: "applicant",
+      entityId: applicantId,
+      metadata: {
+        previous_status: prevStatus,
+        new_status: "inactive",
+        source: "directory_archive",
+      },
+    });
+  }
+
+  revalidatePath("/admin/employees");
+  revalidatePath(`/admin/employees/${applicantId}`);
+  revalidatePath("/admin");
+
+  if (archiveContext === "detail") {
+    redirect(`/admin/employees/${applicantId}?toast=employee_archived`);
+  }
+
+  const ctx = readDirectoryContext(formData);
+  redirectEmployeesWithParams({ toast: "employee_archived" }, ctx);
 }
 
 export async function sendRowCredentialRemindersAction(formData: FormData) {

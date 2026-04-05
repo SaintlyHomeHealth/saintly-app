@@ -11,6 +11,7 @@ import {
 } from "@/lib/crm/lead-pipeline-status";
 import { formatLeadSourceLabel, LEAD_SOURCE_OPTIONS } from "@/lib/crm/lead-source-options";
 import { PAYER_BROAD_CATEGORY_OPTIONS } from "@/lib/crm/payer-type-options";
+import { contactRowsActiveOnly } from "@/lib/crm/contacts-active";
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { SERVICE_DISCIPLINE_CODES } from "@/lib/crm/service-disciplines";
 import { supabaseAdmin } from "@/lib/admin";
@@ -191,11 +192,13 @@ export default async function AdminCrmLeadsPage({
   let contactIdFilter: string[] | null = null;
   if (f.q.trim()) {
     const needle = escapeIlikeToken(f.q.trim().slice(0, 120));
-    const { data: hits } = await supabaseAdmin
-      .from("contacts")
-      .select("id")
-      .or(`full_name.ilike.%${needle}%,primary_phone.ilike.%${needle}%`)
-      .limit(300);
+    const { data: hits } = await contactRowsActiveOnly(
+      supabaseAdmin
+        .from("contacts")
+        .select("id")
+        .or(`full_name.ilike.%${needle}%,primary_phone.ilike.%${needle}%`)
+        .limit(300)
+    );
     contactIdFilter = [...new Set((hits ?? []).map((h) => String(h.id)).filter(Boolean))];
     if (contactIdFilter.length === 0) {
       contactIdFilter = [EMPTY_SENTINEL];

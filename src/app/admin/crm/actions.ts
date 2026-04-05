@@ -1542,6 +1542,53 @@ export async function softDeleteLead(formData: FormData) {
   redirect("/admin/crm/leads?toast=lead_deleted");
 }
 
+export async function archiveContact(formData: FormData) {
+  const staff = await getStaffProfile();
+  if (!staff || !isManagerOrHigher(staff)) {
+    redirect("/admin/crm/contacts?toast=contact_archive_denied");
+  }
+
+  const contactId = readTrimmedField(formData, "contactId");
+  if (!contactId) {
+    redirect("/admin/crm/contacts?toast=contact_archive_invalid");
+  }
+
+  const archiveContext = readTrimmedField(formData, "archiveContext");
+  const now = new Date().toISOString();
+  const { data: updated, error } = await supabaseAdmin
+    .from("contacts")
+    .update({ archived_at: now })
+    .eq("id", contactId)
+    .is("archived_at", null)
+    .select("id")
+    .maybeSingle();
+
+  if (error) {
+    console.warn("[admin/crm] archiveContact:", error.message);
+    redirect(
+      archiveContext === "detail"
+        ? `/admin/crm/contacts/${contactId}?toast=contact_archive_failed`
+        : "/admin/crm/contacts?toast=contact_archive_failed"
+    );
+  }
+  if (!updated?.id) {
+    redirect(
+      archiveContext === "detail"
+        ? `/admin/crm/contacts/${contactId}?toast=contact_archive_gone`
+        : "/admin/crm/contacts?toast=contact_archive_gone"
+    );
+  }
+
+  revalidatePath("/admin/crm/contacts");
+  revalidatePath(`/admin/crm/contacts/${contactId}`);
+  revalidatePath("/admin/crm/leads");
+
+  if (archiveContext === "detail") {
+    redirect(`/admin/crm/contacts/${contactId}?toast=contact_archived`);
+  }
+  redirect("/admin/crm/contacts?toast=contact_archived");
+}
+
 export async function markLeadDead(formData: FormData) {
   const staff = await getStaffProfile();
   if (!staff || !isManagerOrHigher(staff)) {

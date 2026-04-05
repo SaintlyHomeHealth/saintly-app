@@ -17,6 +17,8 @@ import {
   resolveDirectorySourceLabel,
   resolveDirectoryStatusLabel,
 } from "@/lib/crm/contact-directory";
+import { ContactArchiveButton } from "@/app/admin/crm/contacts/_components/ContactArchiveButton";
+import { contactRowsActiveOnly } from "@/lib/crm/contacts-active";
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { buildDuplicateFlagsForBatch } from "@/lib/crm/contact-duplicate-detection";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
@@ -76,17 +78,20 @@ export default async function AdminCrmContactsPage({
   const q = one("q").trim();
 
   const returnTo = buildFilterQueryString({ type: typeFilter, q });
+  const toastParam = one("toast").trim();
 
   const supabase = await createServerSupabaseClient();
 
   const [{ data: contactRows, error: contactErr }, { data: patientRows }, { data: leadRows }] = await Promise.all([
-    supabase
-      .from("contacts")
-      .select(
-        "id, first_name, last_name, full_name, organization_name, primary_phone, secondary_phone, email, address_line_1, address_line_2, city, state, zip, contact_type, status, referral_source, owner_user_id, relationship_metadata, notes, created_at, updated_at"
-      )
-      .order("created_at", { ascending: false })
-      .limit(DIRECTORY_FETCH_LIMIT),
+    contactRowsActiveOnly(
+      supabase
+        .from("contacts")
+        .select(
+          "id, first_name, last_name, full_name, organization_name, primary_phone, secondary_phone, email, address_line_1, address_line_2, city, state, zip, contact_type, status, referral_source, owner_user_id, relationship_metadata, notes, created_at, updated_at, archived_at"
+        )
+        .order("created_at", { ascending: false })
+        .limit(DIRECTORY_FETCH_LIMIT)
+    ),
     supabase.from("patients").select("id, contact_id, patient_status").limit(5000),
     leadRowsActiveOnly(
       supabase
@@ -151,6 +156,32 @@ export default async function AdminCrmContactsPage({
   const chipOff = `${chipBase} border-slate-200 bg-white text-slate-600 hover:border-sky-200 hover:bg-sky-50`;
   const chipOn = `${chipBase} border-sky-300 bg-sky-50 text-sky-900`;
 
+  const toastBanner =
+    toastParam === "contact_archived" ? (
+      <div
+        role="status"
+        className="rounded-[20px] border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-950 shadow-sm"
+      >
+        Contact removed from active lists. Related calls, messages, and history are unchanged.
+      </div>
+    ) : toastParam === "contact_archive_denied" ||
+        toastParam === "contact_archive_failed" ||
+        toastParam === "contact_archive_invalid" ||
+        toastParam === "contact_archive_gone" ? (
+      <div
+        role="alert"
+        className="rounded-[20px] border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900 shadow-sm"
+      >
+        {toastParam === "contact_archive_denied"
+          ? "You do not have permission to archive contacts."
+          : toastParam === "contact_archive_gone"
+            ? "That contact is already archived or could not be found."
+            : toastParam === "contact_archive_invalid"
+              ? "Missing contact. Refresh and try again."
+              : "Could not archive the contact. Try again or check logs."}
+      </div>
+    ) : null;
+
   return (
     <div className="space-y-6 p-6">
       <AdminPageHeader
@@ -164,6 +195,8 @@ export default async function AdminCrmContactsPage({
           </>
         }
       />
+
+      {toastBanner}
 
       <div className="flex flex-col gap-3 rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
         <form method="get" className="flex w-full flex-col gap-2 sm:max-w-md sm:flex-1">
@@ -223,12 +256,13 @@ export default async function AdminCrmContactsPage({
               <th className="px-4 py-3">Source</th>
               <th className="px-4 py-3">Credentialing</th>
               <th className="px-4 py-3">Records</th>
+              <th className="px-4 py-3">Actions</th>
             </tr>
           </thead>
           <tbody>
             {list.length === 0 ? (
               <tr>
-                <td colSpan={10} className="px-4 py-8 text-slate-500">
+                <td colSpan={11} className="px-4 py-8 text-slate-500">
                   No contacts match these filters.
                 </td>
               </tr>
@@ -313,6 +347,9 @@ export default async function AdminCrmContactsPage({
                         ))}
                         {!patient && leads.length === 0 ? <span className="text-slate-400">—</span> : null}
                       </div>
+                    </td>
+                    <td className="px-4 py-3 align-top">
+                      <ContactArchiveButton contactId={r.id} archiveContext="list" />
                     </td>
                   </tr>
                 );

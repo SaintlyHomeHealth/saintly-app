@@ -1398,6 +1398,9 @@ export function filterEmployeeDirectoryRows(
   let out = rows;
 
   switch (segment) {
+    case "all":
+      out = out.filter((r) => r.effectiveEmploymentKey !== "inactive");
+      break;
     case "active":
       out = out.filter((r) => r.effectiveEmploymentKey === "active");
       break;

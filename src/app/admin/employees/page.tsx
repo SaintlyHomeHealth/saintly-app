@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import AddEmployeeInviteButton from "@/app/admin/employees/add-employee-invite-button";
+import { EmployeeArchiveButton } from "@/app/admin/employees/EmployeeArchiveButton";
 import {
   sendBulkCredentialRemindersForFilterAction,
   sendRowCredentialRemindersAction,
@@ -165,6 +166,7 @@ export default async function AdminEmployeesDirectoryPage({
   const inviteErr = one("inviteErr").trim();
   const inviteOk = one("inviteOk").trim();
   const inviteApplicantId = one("inviteApplicantId").trim();
+  const toastParam = one("toast").trim();
 
   const smsBtnBase =
     "rounded-lg border border-violet-300 bg-violet-50 px-2 py-1 text-[10px] font-semibold text-violet-950 transition hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-40";
@@ -254,6 +256,32 @@ export default async function AdminEmployeesDirectoryPage({
           Bulk credential SMS finished: {bulkEmployees || "0"} employee(s), {bulkItems || "0"} credential line(s) in
           messages, {bulkSkippedDup || "0"} duplicate line(s) skipped. Scanned {bulkScanned || "0"} eligible rows (max
           30 per run).
+        </div>
+      ) : null}
+
+      {toastParam === "employee_archived" ? (
+        <div
+          role="status"
+          className="rounded-[20px] border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-950 shadow-sm"
+        >
+          Employee archived: they no longer appear in the default directory view. Compliance history and records are
+          unchanged. Use the <span className="font-semibold">Inactive</span> filter to find them.
+        </div>
+      ) : toastParam === "employee_archive_denied" ||
+          toastParam === "employee_archive_failed" ||
+          toastParam === "employee_archive_invalid" ||
+          toastParam === "employee_archive_gone" ? (
+        <div
+          role="alert"
+          className="rounded-[20px] border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900 shadow-sm"
+        >
+          {toastParam === "employee_archive_denied"
+            ? "You do not have permission to archive employees."
+            : toastParam === "employee_archive_gone"
+              ? "That employee could not be found."
+              : toastParam === "employee_archive_invalid"
+                ? "Missing employee id. Refresh and try again."
+                : "Could not archive the employee. Try again or check logs."}
         </div>
       ) : null}
 
@@ -706,6 +734,12 @@ export default async function AdminEmployeesDirectoryPage({
                             Text
                           </Link>
                         ) : null}
+                        <EmployeeArchiveButton
+                          applicantId={id}
+                          archiveContext="list"
+                          canArchive={r.effectiveEmploymentKey !== "inactive"}
+                          directoryFilters={{ segment, q, sort, dir }}
+                        />
                       </div>
                     </td>
                   </tr>

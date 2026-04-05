@@ -45,6 +45,7 @@ export type ContactDirectoryDbRow = {
   owner_user_id: string | null;
   relationship_metadata: unknown;
   notes: string | null;
+  archived_at?: string | null;
   created_at: string;
   updated_at: string;
 };
