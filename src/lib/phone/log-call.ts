@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import twilio from "twilio";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import {
@@ -13,6 +14,9 @@ import { triggerAutoFollowUp } from "@/lib/phone/auto-followup";
 import { normalizeTwilioRecordingMediaUrl } from "@/lib/phone/twilio-recording-media";
 import { scheduleSaintlyVoicemailProcessing } from "@/lib/phone/voicemail-saintly-process";
 import { awaitVoiceAiClassificationForWebhook } from "@/lib/phone/voice-ai-background";
+
+const PHONE_CALL_TRACE_LOGS =
+  process.env.PHONE_CALL_TRACE_LOGS === "1" || process.env.NODE_ENV === "development";
 
 export const PHONE_CALL_STATUSES = [
   "unknown",
@@ -437,11 +441,18 @@ function refineInboundTwilioCompletedStatus(
     previousPhoneStatus: string | null;
     /** AMD: keep completed when Twilio says a human answered. */
     answeredBy: string | null;
+    /** When present, Dial leg outcome (browser/PSTN). "completed" = dialed party answered and call finished normally. */
+    dialCallStatus: string | null;
   }
 ): PhoneCallStatus {
   if (mapped !== "completed") return mapped;
   if (input.direction !== "inbound") return mapped;
   if (input.voicemailRecordingSid && input.voicemailRecordingSid.trim() !== "") return mapped;
+  const dial = (input.dialCallStatus ?? "").trim().toLowerCase();
+  /** AI → browser/PSTN &lt;Dial&gt;: completed means the callee answered and the bridge ran; do not downgrade to missed. */
+  if (dial === "completed") {
+    return "completed";
+  }
   const prev = (input.previousPhoneStatus ?? "").trim().toLowerCase();
   if (prev === "in_progress") return mapped;
   const ab = (input.answeredBy ?? "").trim().toLowerCase();
@@ -541,6 +552,132 @@ export type TwilioVoiceStatusPayload = {
   raw: Record<string, string>;
 };
 
+const PHONE_CALL_STATUS_ROW_SELECT =
+  "id, metadata, direction, voicemail_recording_sid, duration_seconds, status, assigned_to_user_id, from_e164, contact_id, external_call_id";
+
+/**
+ * phone_calls.external_call_id is the inbound parent CallSid. Some status webhooks only include the child leg
+ * CallSid — resolve parent via raw.ParentCallSid or Twilio REST so we update the same row the UI uses.
+ */
+async function findPhoneCallRowForTwilioStatus(
+  supabase: SupabaseClient,
+  lookupCallSid: string,
+  raw: Record<string, string>
+): Promise<{
+  row: Record<string, unknown> | null;
+  resolvedExternalCallId: string;
+  reconcile: "primary" | "raw_parent" | "twilio_parent_fetch" | "none";
+}> {
+  const primary = lookupCallSid.trim();
+  const rawParent = (raw.ParentCallSid ?? "").trim();
+  const rawThis = (raw.CallSid ?? "").trim();
+
+  const { data: byPrimary, error: e1 } = await supabase
+    .from("phone_calls")
+    .select(PHONE_CALL_STATUS_ROW_SELECT)
+    .eq("external_call_id", primary)
+    .maybeSingle();
+  if (e1) {
+    console.warn("[call-reconcile] find row primary query error", e1.message);
+  }
+  if (byPrimary?.id) {
+    if (PHONE_CALL_TRACE_LOGS) {
+      console.log("[call-status]", {
+        event: "row_found",
+        resolvedExternalCallId: primary,
+        phone_calls_id: byPrimary.id,
+        reconcile: "primary",
+        raw_parent_tail: rawParent ? rawParent.slice(-6) : null,
+        raw_call_tail: rawThis ? rawThis.slice(-6) : null,
+      });
+    }
+    return { row: byPrimary as Record<string, unknown>, resolvedExternalCallId: primary, reconcile: "primary" };
+  }
+
+  if (rawParent && rawParent !== primary) {
+    const { data: byParent, error: e2 } = await supabase
+      .from("phone_calls")
+      .select(PHONE_CALL_STATUS_ROW_SELECT)
+      .eq("external_call_id", rawParent)
+      .maybeSingle();
+    if (e2) {
+      console.warn("[call-reconcile] find row raw_parent query error", e2.message);
+    }
+    if (byParent?.id) {
+      if (PHONE_CALL_TRACE_LOGS) {
+        console.log("[call-status]", {
+          event: "row_found",
+          resolvedExternalCallId: rawParent,
+          phone_calls_id: byParent.id,
+          reconcile: "raw_parent",
+          lookup_tried: primary,
+        });
+      }
+      return { row: byParent as Record<string, unknown>, resolvedExternalCallId: rawParent, reconcile: "raw_parent" };
+    }
+  }
+
+  const accountSid = process.env.TWILIO_ACCOUNT_SID?.trim();
+  const authToken = process.env.TWILIO_AUTH_TOKEN?.trim();
+  if (accountSid && authToken && primary) {
+    try {
+      const client = twilio(accountSid, authToken);
+      const callResource = await client.calls(primary).fetch();
+      const parentSid = callResource.parentCallSid?.trim();
+      if (parentSid) {
+        const { data: byTwilioParent, error: e3 } = await supabase
+          .from("phone_calls")
+          .select(PHONE_CALL_STATUS_ROW_SELECT)
+          .eq("external_call_id", parentSid)
+          .maybeSingle();
+        if (e3) {
+          console.warn("[call-reconcile] find row twilio_parent query error", e3.message);
+        }
+        if (byTwilioParent?.id) {
+          console.log("[call-reconcile]", {
+            event: "row_found_via_twilio_parent_fetch",
+            resolvedExternalCallId: parentSid,
+            phone_calls_id: byTwilioParent.id,
+            child_call_sid_tail: primary.slice(-6),
+          });
+          return {
+            row: byTwilioParent as Record<string, unknown>,
+            resolvedExternalCallId: parentSid,
+            reconcile: "twilio_parent_fetch",
+          };
+        }
+      }
+    } catch (e) {
+      console.warn("[call-reconcile] twilio.calls.fetch failed", e instanceof Error ? e.message : e);
+    }
+  }
+
+  console.warn("[call-status]", {
+    event: "row_not_found",
+    lookupCallSid_tail: primary ? primary.slice(-6) : null,
+    raw_parent_tail: rawParent ? rawParent.slice(-6) : null,
+    reconcile: "none",
+  });
+  return { row: null, resolvedExternalCallId: primary, reconcile: "none" };
+}
+
+function mergeTwilioLegMapMetadata(
+  prevMeta: Record<string, unknown>,
+  raw: Record<string, string>
+): Record<string, unknown> {
+  const parent = (raw.ParentCallSid ?? "").trim();
+  const leg = (raw.CallSid ?? "").trim();
+  if (!parent || !leg || parent === leg) return prevMeta;
+  return {
+    ...prevMeta,
+    twilio_leg_map: {
+      parent_call_sid: parent,
+      last_leg_call_sid: leg,
+      updated_at: new Date().toISOString(),
+    },
+  };
+}
+
 /**
  * Update phone_calls by CallSid and append twilio.status_callback event.
  */
@@ -559,23 +696,18 @@ export async function applyTwilioVoiceStatusCallback(
     answeredBy: payload.AnsweredBy ?? null,
   });
 
-  const { data: row, error: findError } = await supabase
-    .from("phone_calls")
-    .select(
-      "id, metadata, direction, voicemail_recording_sid, duration_seconds, status, assigned_to_user_id, from_e164, contact_id"
-    )
-    .eq("external_call_id", externalCallId)
-    .maybeSingle();
+  const { row, resolvedExternalCallId, reconcile } = await findPhoneCallRowForTwilioStatus(
+    supabase,
+    externalCallId,
+    payload.raw
+  );
 
-  if (findError) {
-    return { ok: false, error: findError.message };
-  }
   if (!row?.id) {
     return { ok: false, error: "Call not found for external_call_id" };
   }
 
   const callId = row.id as string;
-  const prevMeta = asMetadata(row.metadata);
+  const prevMeta = mergeTwilioLegMapMetadata(asMetadata(row.metadata), payload.raw);
   const direction = asOptionalString(row.direction) === "outbound" ? "outbound" : "inbound";
   const hadAssignee = row.assigned_to_user_id != null && String(row.assigned_to_user_id).trim() !== "";
   const vmSid = asOptionalString(row.voicemail_recording_sid);
@@ -597,7 +729,22 @@ export async function applyTwilioVoiceStatusCallback(
     durationSeconds: effectiveDuration,
     previousPhoneStatus: previousStatus,
     answeredBy: payload.AnsweredBy ?? null,
+    dialCallStatus: payload.DialCallStatus ?? null,
   });
+
+  if (PHONE_CALL_TRACE_LOGS) {
+    console.log("[call-status]", {
+      event: "apply_status",
+      phone_calls_id: callId,
+      resolved_external_call_id: resolvedExternalCallId,
+      row_external_call_id: row.external_call_id,
+      reconcile,
+      mapped,
+      final_status: finalStatus,
+      dial_call_status: payload.DialCallStatus ?? null,
+      call_status: payload.CallStatus,
+    });
+  }
 
   const saintlyReclassification =
     finalStatus !== mapped
@@ -775,12 +922,18 @@ export async function applyTwilioVoicemailRecording(
   const hasUrl = Boolean(input.recordingUrl && input.recordingUrl.trim() !== "");
   const isFinalOk = statusLower === "completed" || hasUrl;
 
-  let row: { id: unknown; metadata: unknown } | null = null;
+  let row: {
+    id: unknown;
+    metadata: unknown;
+    status?: unknown;
+    duration_seconds?: unknown;
+    external_call_id?: unknown;
+  } | null = null;
   let findError: { message: string } | null = null;
   for (const ext of tryIds) {
     const { data, error } = await supabase
       .from("phone_calls")
-      .select("id, metadata")
+      .select("id, metadata, status, duration_seconds, external_call_id")
       .eq("external_call_id", ext)
       .maybeSingle();
     if (error) {
@@ -873,8 +1026,42 @@ export async function applyTwilioVoicemailRecording(
 
   if (isFinalOk) {
     updateRow.voicemail_received_at = new Date().toISOString();
-    updateRow.status = "missed";
+    const prevStatus = (typeof row.status === "string" ? row.status : "").trim().toLowerCase();
+    const dur = asOptionalInt(row.duration_seconds) ?? 0;
+    const lastCb = prevMeta.twilio_last_callback;
+    const dialCompleted =
+      lastCb &&
+      typeof lastCb === "object" &&
+      String((lastCb as Record<string, unknown>).DialCallStatus ?? "")
+        .trim()
+        .toLowerCase() === "completed";
+    const legMap = prevMeta.twilio_leg_map;
+    const hadBrowserOrDialLeg =
+      legMap &&
+      typeof legMap === "object" &&
+      typeof (legMap as Record<string, unknown>).last_leg_call_sid === "string";
+
+    const answeredConversation =
+      prevStatus === "completed" ||
+      (prevStatus === "in_progress" && dur >= 20) ||
+      dialCompleted ||
+      Boolean(hadBrowserOrDialLeg);
+
+    const terminalStatus: PhoneCallStatus = answeredConversation ? "completed" : "missed";
+    updateRow.status = terminalStatus;
     updateRow.ended_at = new Date().toISOString();
+
+    console.log("[call-reconcile]", {
+      event: "voicemail_recording_final",
+      phone_calls_id: callId,
+      external_call_id: row.external_call_id,
+      prev_status: row.status,
+      duration_seconds: dur,
+      terminal_status: terminalStatus,
+      answered_conversation: answeredConversation,
+      dial_last_callback_completed: Boolean(dialCompleted),
+      had_leg_map: Boolean(hadBrowserOrDialLeg),
+    });
   }
 
   const { error: updateError } = await supabase.from("phone_calls").update(updateRow).eq("id", callId);

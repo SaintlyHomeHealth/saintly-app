@@ -399,13 +399,10 @@ const inflightByCallId = new Map<string, Promise<void>>();
 
 async function executeVoiceAiClassification(callId: string): Promise<void> {
   const hasOpenAiKey = Boolean(process.env.OPENAI_API_KEY?.trim());
-  console.log("[voice-ai-debug] executeVoiceAiClassification enter", {
-    callId,
-    hasOpenAiKey,
-  });
+  console.log("[after-call-ai] execute enter", { callId, hasOpenAiKey });
 
   if (!hasOpenAiKey) {
-    console.log("[voice-ai-debug] executeVoiceAiClassification exit: no OPENAI_API_KEY at runtime");
+    console.log("[after-call-ai] skip: no OPENAI_API_KEY");
     return;
   }
 
@@ -418,7 +415,7 @@ async function executeVoiceAiClassification(callId: string): Promise<void> {
     .maybeSingle();
 
   if (loadErr || !raw) {
-    console.log("[voice-ai-debug] executeVoiceAiClassification exit: load row failed", {
+    console.log("[after-call-ai] skip: load row failed", {
       callId,
       message: loadErr?.message ?? "no row",
     });
@@ -428,13 +425,14 @@ async function executeVoiceAiClassification(callId: string): Promise<void> {
   const row = raw as Record<string, unknown>;
   const status = typeof row.status === "string" ? row.status : "";
   if (!isTerminalCallStatus(status)) {
-    console.log("[voice-ai-debug] executeVoiceAiClassification exit: status not terminal", { callId, status });
+    console.log("[after-call-ai] skip: status not terminal", { callId, status });
     return;
   }
 
   if (!shouldQualifyAfterCallAi(row)) {
-    console.log("[voice-ai-debug] executeVoiceAiClassification exit: after-call qualification (skip low-value)", {
+    console.log("[after-call-ai] skip: qualification (duration/vm/contact)", {
       callId,
+      duration_seconds: row.duration_seconds,
     });
     return;
   }
@@ -442,7 +440,7 @@ async function executeVoiceAiClassification(callId: string): Promise<void> {
   const fingerprint = buildVoiceAiInputFingerprint(row);
   const prevFp = existingVoiceAiFingerprint(row.metadata);
   if (prevFp !== null && prevFp === fingerprint) {
-    console.log("[voice-ai-debug] executeVoiceAiClassification exit: fingerprint unchanged, skip", { callId });
+    console.log("[after-call-ai] skip: fingerprint unchanged", { callId });
     return;
   }
 
@@ -451,24 +449,22 @@ async function executeVoiceAiClassification(callId: string): Promise<void> {
 
   const parsed = await fetchOpenAiJsonObject(VOICE_AI_CLASSIFICATION_SYSTEM_PROMPT, userMessage);
   if (parsed == null) {
-    console.log("[voice-ai-debug] executeVoiceAiClassification exit: OpenAI returned null/empty payload", {
-      callId,
-    });
+    console.log("[after-call-ai] skip: OpenAI returned empty payload", { callId });
     return;
   }
 
   const normalized = normalizeVoiceAiPayload(parsed, fingerprint, { source: "background" });
   if (!normalized) {
-    console.log("[voice-ai-debug] executeVoiceAiClassification exit: normalizeVoiceAiPayload failed", { callId });
+    console.log("[after-call-ai] skip: normalize failed", { callId });
     return;
   }
 
-  console.log("[voice-ai-debug] executeVoiceAiClassification about to persistVoiceAiMetadata", {
+  console.log("[after-call-ai] persist summary", {
     callId,
     caller_category: normalized.caller_category,
   });
   await persistVoiceAiMetadata(callId, normalized);
-  console.log("[voice-ai-debug] executeVoiceAiClassification persistVoiceAiMetadata finished", { callId });
+  console.log("[after-call-ai] persisted metadata.voice_ai", { callId });
 }
 
 /**
