@@ -431,6 +431,83 @@ function resolveEffectiveCallDurationSeconds(
   return parseDurationSecondsFromTwilioRaw(raw);
 }
 
+function getStoredDialCallStatusFromMetadata(meta: Record<string, unknown>): string | null {
+  const t = meta.twilio_last_callback;
+  if (!t || typeof t !== "object") return null;
+  return asOptionalString((t as Record<string, unknown>).DialCallStatus);
+}
+
+/**
+ * Late parent-leg callbacks often omit DialCallStatus; keep "completed" from an earlier child-leg callback
+ * so we do not classify long bridged calls as missed.
+ */
+function guardInboundMissedAfterBridgeSignals(input: {
+  phone_calls_id: string;
+  refined: PhoneCallStatus;
+  direction: string;
+  previousPhoneStatus: string | null;
+  prevMeta: Record<string, unknown>;
+  effectiveDialCallStatus: string | null;
+  durationSeconds: number | null;
+}): PhoneCallStatus {
+  if (input.refined !== "missed") return input.refined;
+  if (input.direction !== "inbound") return input.refined;
+
+  const prev = (input.previousPhoneStatus ?? "").trim().toLowerCase();
+  if (prev === "completed") {
+    console.log("[call-reconcile]", {
+      event: "block_missed_downgrade",
+      phone_calls_id: input.phone_calls_id,
+      reason: "previous_status_completed",
+    });
+    return "completed";
+  }
+
+  const d = (input.effectiveDialCallStatus ?? "").trim().toLowerCase();
+  if (d === "completed") {
+    console.log("[call-reconcile]", {
+      event: "block_missed_downgrade",
+      phone_calls_id: input.phone_calls_id,
+      reason: "effective_dial_completed",
+    });
+    return "completed";
+  }
+
+  const lastCb = input.prevMeta.twilio_last_callback;
+  const storedDial =
+    lastCb && typeof lastCb === "object"
+      ? String((lastCb as Record<string, unknown>).DialCallStatus ?? "")
+          .trim()
+          .toLowerCase()
+      : "";
+  if (storedDial === "completed") {
+    console.log("[call-reconcile]", {
+      event: "block_missed_downgrade",
+      phone_calls_id: input.phone_calls_id,
+      reason: "metadata_twilio_last_callback_dial_completed",
+    });
+    return "completed";
+  }
+
+  const legMap = input.prevMeta.twilio_leg_map;
+  const hadLeg =
+    legMap &&
+    typeof legMap === "object" &&
+    typeof (legMap as Record<string, unknown>).last_leg_call_sid === "string";
+  const dur = input.durationSeconds ?? 0;
+  if (hadLeg && (prev === "in_progress" || dur >= 20)) {
+    console.log("[call-reconcile]", {
+      event: "block_missed_downgrade",
+      phone_calls_id: input.phone_calls_id,
+      reason: "leg_map_plus_duration_or_in_progress",
+      duration_seconds: dur,
+    });
+    return "completed";
+  }
+
+  return input.refined;
+}
+
 function refineInboundTwilioCompletedStatus(
   mapped: PhoneCallStatus,
   input: {
@@ -707,7 +784,13 @@ export async function applyTwilioVoiceStatusCallback(
   }
 
   const callId = row.id as string;
-  const prevMeta = mergeTwilioLegMapMetadata(asMetadata(row.metadata), payload.raw);
+  const rowMetaBeforeMerge = asMetadata(row.metadata);
+  const storedDialFromRow = getStoredDialCallStatusFromMetadata(rowMetaBeforeMerge);
+  const payloadDial = asOptionalString(payload.DialCallStatus);
+  const effectiveDialForRefine = payloadDial ?? storedDialFromRow;
+  const dialForMetadataStorage = payloadDial ?? storedDialFromRow;
+
+  const prevMeta = mergeTwilioLegMapMetadata(rowMetaBeforeMerge, payload.raw);
   const direction = asOptionalString(row.direction) === "outbound" ? "outbound" : "inbound";
   const hadAssignee = row.assigned_to_user_id != null && String(row.assigned_to_user_id).trim() !== "";
   const vmSid = asOptionalString(row.voicemail_recording_sid);
@@ -723,18 +806,45 @@ export async function applyTwilioVoiceStatusCallback(
   );
   const previousStatus = asOptionalString(row.status);
 
-  const finalStatus = refineInboundTwilioCompletedStatus(mapped, {
+  const refined = refineInboundTwilioCompletedStatus(mapped, {
     direction,
     voicemailRecordingSid: vmSid,
     durationSeconds: effectiveDuration,
     previousPhoneStatus: previousStatus,
     answeredBy: payload.AnsweredBy ?? null,
-    dialCallStatus: payload.DialCallStatus ?? null,
+    dialCallStatus: effectiveDialForRefine,
+  });
+
+  const finalStatus = guardInboundMissedAfterBridgeSignals({
+    phone_calls_id: callId,
+    refined,
+    direction,
+    previousPhoneStatus: previousStatus,
+    prevMeta,
+    effectiveDialCallStatus: effectiveDialForRefine,
+    durationSeconds: effectiveDuration,
+  });
+
+  console.log("[call-status]", {
+    event: "apply_status",
+    phone_calls_id: callId,
+    resolved_external_call_id: resolvedExternalCallId,
+    row_external_call_id: row.external_call_id,
+    reconcile,
+    previous_status: previousStatus,
+    mapped,
+    refined_status: refined,
+    final_status: finalStatus,
+    payload_dial_call_status: payloadDial,
+    stored_dial_from_row_metadata: storedDialFromRow,
+    effective_dial_for_refine: effectiveDialForRefine,
+    call_status: payload.CallStatus,
+    source: "twilio.voice_status_callback",
   });
 
   if (PHONE_CALL_TRACE_LOGS) {
     console.log("[call-status]", {
-      event: "apply_status",
+      event: "apply_status_trace",
       phone_calls_id: callId,
       resolved_external_call_id: resolvedExternalCallId,
       row_external_call_id: row.external_call_id,
@@ -761,7 +871,7 @@ export async function applyTwilioVoiceStatusCallback(
       ...prevMeta,
       twilio_last_callback: {
         CallStatus: payload.CallStatus,
-        DialCallStatus: payload.DialCallStatus ?? null,
+        DialCallStatus: dialForMetadataStorage,
         AnsweredBy: payload.AnsweredBy ?? null,
         DurationSeconds: payload.DurationSeconds ?? null,
         received_at: new Date().toISOString(),

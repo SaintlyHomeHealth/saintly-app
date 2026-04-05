@@ -8,10 +8,13 @@ type ContactNameEmbed = { full_name?: unknown; first_name?: unknown; last_name?:
 export type CallInboxRow = {
   id: string;
   created_at: string | null;
+  started_at?: string | null;
+  ended_at?: string | null;
   direction: string | null;
   from_e164: string | null;
   to_e164: string | null;
   status: string | null;
+  external_call_id?: string | null;
   contact_id: string | null;
   contacts?: unknown;
   metadata?: unknown;

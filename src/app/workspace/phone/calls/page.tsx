@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { WorkspaceCallInboxCard, type CallInboxRow } from "./_components/WorkspaceCallInboxCard";
 import { WorkspacePhonePageHeader } from "../_components/WorkspacePhonePageHeader";
 import { SoftphoneDialer } from "@/components/softphone/SoftphoneDialer";
+import { readVoiceAiMetadataFromMetadata } from "@/app/admin/phone/_lib/voice-ai-metadata";
 import {
   canAccessWorkspacePhone,
   getStaffProfile,
@@ -23,7 +24,7 @@ export default async function WorkspaceCallsPage() {
   const supabase = await createServerSupabaseClient();
 
   const selectRow =
-    "id, created_at, direction, from_e164, to_e164, status, contact_id, metadata, contacts ( full_name, first_name, last_name )";
+    "id, created_at, started_at, ended_at, direction, from_e164, to_e164, status, external_call_id, contact_id, metadata, contacts ( full_name, first_name, last_name )";
 
   let missedQ = supabase
     .from("phone_calls")
@@ -59,6 +60,32 @@ export default async function WorkspaceCallsPage() {
 
   const missed = (missedData ?? []) as CallInboxRow[];
   const recent = (recentData ?? []) as CallInboxRow[];
+
+  for (const section of [
+    { name: "missed" as const, rows: missed },
+    { name: "recent" as const, rows: recent },
+  ]) {
+    for (const r of section.rows) {
+      const md =
+        r.metadata && typeof r.metadata === "object" && !Array.isArray(r.metadata)
+          ? (r.metadata as Record<string, unknown>)
+          : {};
+      const voiceAi = readVoiceAiMetadataFromMetadata(r.metadata);
+      console.log("[calls-list]", {
+        section: section.name,
+        phone_calls_id: r.id,
+        external_call_id: r.external_call_id ?? null,
+        list_query_status_filter: section.name === "missed" ? "status.eq.missed" : "status.neq.missed",
+        stored_status: r.status,
+        direction: r.direction,
+        started_at: r.started_at ?? null,
+        ended_at: r.ended_at ?? null,
+        twilio_last_callback: md.twilio_last_callback ?? null,
+        twilio_leg_map: md.twilio_leg_map ?? null,
+        has_voice_ai_on_row: Boolean(voiceAi?.short_summary || voiceAi?.recommended_action),
+      });
+    }
+  }
 
   const allContacts = [...missed, ...recent]
     .map((r) => (typeof r.contact_id === "string" ? r.contact_id : ""))
