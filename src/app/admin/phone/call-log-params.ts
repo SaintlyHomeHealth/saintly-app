@@ -32,7 +32,10 @@ function readLimit(raw: string | string[] | undefined): number {
 
 export function parseCallLogSearchParams(raw: Record<string, string | string[] | undefined>): CallLogQuery {
   const viewRaw = firstString(raw.view)?.trim().toLowerCase();
-  const view: CallLogView = viewRaw === "missed" ? "missed" : "all";
+  /** Legacy: admin dashboard used `?status=missed`; canonical is `?view=missed`. */
+  const statusRaw = firstString(raw.status)?.trim().toLowerCase();
+  const view: CallLogView =
+    viewRaw === "missed" || statusRaw === "missed" ? "missed" : "all";
 
   const assignedRaw = firstString(raw.assigned)?.trim().toLowerCase();
   const assigned: CallLogAssigned = assignedRaw === "me" ? "me" : "all";

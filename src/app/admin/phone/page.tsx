@@ -28,11 +28,7 @@ import {
   formatVoiceAiCallerCategoryLabel,
   readVoiceAiMetadataFromMetadata,
 } from "./_lib/voice-ai-metadata";
-import {
-  getCallUrgency,
-  getFollowUpStatus,
-  sortCallsForOperationalView,
-} from "./call-log-command-center";
+import { getCallUrgency, getFollowUpStatus } from "./call-log-command-center";
 import { callLogSearchParamsToQuery, parseCallLogSearchParams } from "./call-log-params";
 
 type ContactOpenTarget = {
@@ -119,7 +115,7 @@ export default async function AdminPhoneCallLogPage({ searchParams }: PageProps)
     .select(
       "id, created_at, updated_at, external_call_id, direction, from_e164, to_e164, status, started_at, ended_at, duration_seconds, voicemail_recording_sid, voicemail_duration_seconds, priority_sms_sent_at, priority_sms_reason, auto_reply_sms_sent_at, auto_reply_sms_body, assigned_to_user_id, assigned_at, assigned_to_label, primary_tag, contact_id, metadata, contacts ( full_name, first_name, last_name )"
     )
-    .order("created_at", { ascending: false })
+    .order("updated_at", { ascending: false })
     .limit(q.limit);
 
   if (!hasFull) {
@@ -145,7 +141,14 @@ export default async function AdminPhoneCallLogPage({ searchParams }: PageProps)
 
   const { data: rows, error } = await dbQuery;
   const calls = (rows ?? []).map((r) => mapPhoneCallQueryRowForLog(r as Record<string, unknown>));
-  const sortedCalls = sortCallsForOperationalView(calls);
+  /** Match workspace calls: newest last-activity first (completed inbound surfaces). Avoid missed-first client sort that looked like a missed-only log when view=all. */
+  const sortedCalls = [...calls].sort((a, b) => {
+    const au = new Date(a.updated_at || a.created_at).getTime();
+    const bu = new Date(b.updated_at || b.created_at).getTime();
+    const aOk = Number.isFinite(au) ? au : 0;
+    const bOk = Number.isFinite(bu) ? bu : 0;
+    return bOk - aOk;
+  });
 
   const contactIds = [...new Set(calls.map((c) => c.contact_id).filter((x): x is string => Boolean(x)))];
   const openByContactId = await loadContactOpenTargets(supabase, contactIds);
@@ -330,8 +333,9 @@ export default async function AdminPhoneCallLogPage({ searchParams }: PageProps)
           </div>
         </form>
         <p className="mt-2 text-[11px] text-slate-500">
-          Showing up to {q.limit} rows, newest first. Filters use{" "}
-          <code className="rounded bg-slate-100 px-1">phone_calls</code> as written by Twilio webhooks.
+          Showing up to {q.limit} rows, ordered by last activity (<code className="rounded bg-slate-100 px-1">updated_at</code>
+          ). Default is <span className="font-semibold">All calls</span> unless you open this page with{" "}
+          <code className="rounded bg-slate-100 px-1">?view=missed</code>.
         </p>
       </div>
 
