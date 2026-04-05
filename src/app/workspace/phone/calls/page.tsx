@@ -271,7 +271,7 @@ export default async function WorkspaceCallsPage() {
     <div className="flex flex-1 flex-col px-4 pb-6 pt-5 sm:px-5">
       <WorkspacePhonePageHeader
         title="Calls"
-        subtitle="Missed calls first, then recent activity. Use actions to call back, text, or open a matched patient."
+        subtitle="Recent calls first (newest activity), then missed. Scroll if you have many items."
       />
 
       {showCallsDebugCard ? (
@@ -318,9 +318,47 @@ export default async function WorkspaceCallsPage() {
         <SoftphoneDialer staffDisplayName={staffDisplayName} />
       </div>
 
-      <section className="mt-8">
+      {/* Recent first: long missed lists previously pushed this section below the fold (looked "missing"). */}
+      <section className="mt-8 scroll-mt-4" aria-labelledby="recent-calls-heading">
+        <h2
+          id="recent-calls-heading"
+          className="mb-3 text-sm font-bold uppercase tracking-[0.12em] text-slate-800"
+        >
+          RECENT CALLS
+        </h2>
+        {recent.length > 0 ? (
+          <div style={{ color: "red" }} className="mb-2 text-sm font-semibold">
+            RECENT SECTION RENDERED
+          </div>
+        ) : null}
+        {recent.length === 0 ? (
+          <p className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/60 px-4 py-6 text-center text-sm text-slate-600">
+            No recent calls yet.
+          </p>
+        ) : (
+          <ul className="flex flex-col gap-3">
+            {recent.map((row) => (
+              <WorkspaceCallInboxCard
+                key={row.id}
+                row={row}
+                variant="recent"
+                patientId={
+                  typeof row.contact_id === "string" ? patientByContact.get(row.contact_id) ?? null : null
+                }
+              />
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="mt-10" aria-labelledby="missed-calls-heading">
         <div className="mb-3 flex items-center gap-2">
-          <h2 className="text-xs font-bold uppercase tracking-[0.14em] text-rose-800">Missed calls</h2>
+          <h2
+            id="missed-calls-heading"
+            className="text-xs font-bold uppercase tracking-[0.14em] text-rose-800"
+          >
+            Missed calls
+          </h2>
           {missed.length > 0 ? (
             <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold text-rose-900">
               {missed.length}
@@ -338,28 +376,6 @@ export default async function WorkspaceCallsPage() {
                 key={row.id}
                 row={row}
                 variant="missed"
-                patientId={
-                  typeof row.contact_id === "string" ? patientByContact.get(row.contact_id) ?? null : null
-                }
-              />
-            ))}
-          </ul>
-        )}
-      </section>
-
-      <section className="mt-10">
-        <h2 className="mb-3 text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Recent calls</h2>
-        {recent.length === 0 ? (
-          <p className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/60 px-4 py-6 text-center text-sm text-slate-600">
-            No other recent calls yet.
-          </p>
-        ) : (
-          <ul className="flex flex-col gap-3">
-            {recent.map((row) => (
-              <WorkspaceCallInboxCard
-                key={row.id}
-                row={row}
-                variant="recent"
                 patientId={
                   typeof row.contact_id === "string" ? patientByContact.get(row.contact_id) ?? null : null
                 }
