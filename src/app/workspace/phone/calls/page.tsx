@@ -23,6 +23,9 @@ export default async function WorkspaceCallsPage() {
   const showAdminCallLogLink = isManagerOrHigher(staff);
   const supabase = await createServerSupabaseClient();
 
+  /** Same string for list queries + optional trace count (nurse scope). */
+  const nurseScopeFilter = `assigned_to_user_id.eq.${staff.user_id},assigned_to_user_id.is.null,direction.eq.inbound`;
+
   /** Include updated_at: DB trigger refreshes it on every status write — sort by it so "Recent" reflects last activity (e.g. completed) not only insert time. */
   const selectRow =
     "id, created_at, updated_at, started_at, ended_at, direction, from_e164, to_e164, status, external_call_id, contact_id, metadata, contacts ( full_name, first_name, last_name )";
@@ -43,9 +46,8 @@ export default async function WorkspaceCallsPage() {
 
   /** Nurses: show unassigned/own rows, plus all inbound (parent) calls even if auto-assigned on missed. */
   if (!hasFull) {
-    const scope = `assigned_to_user_id.eq.${staff.user_id},assigned_to_user_id.is.null,direction.eq.inbound`;
-    missedQ = missedQ.or(scope);
-    recentQ = recentQ.or(scope);
+    missedQ = missedQ.or(nurseScopeFilter);
+    recentQ = recentQ.or(nurseScopeFilter);
   }
 
   const [{ data: missedData, error: missedErr }, { data: recentData, error: recentErr }] = await Promise.all([
@@ -62,6 +64,94 @@ export default async function WorkspaceCallsPage() {
 
   const missed = (missedData ?? []) as CallInboxRow[];
   const recent = (recentData ?? []) as CallInboxRow[];
+
+  /** Set PHONE_CALLS_TRACE_EXTERNAL_ID=CA… in Vercel to prove one row’s path: list index, DB fields, truncation vs scope. */
+  const traceExternalId = process.env.PHONE_CALLS_TRACE_EXTERNAL_ID?.trim() ?? "";
+  if (traceExternalId) {
+    const idxRecent = recent.findIndex((r) => (r.external_call_id ?? "").trim() === traceExternalId);
+    const idxMissed = missed.findIndex((r) => (r.external_call_id ?? "").trim() === traceExternalId);
+    const { data: traceDb, error: traceErr } = await supabase
+      .from("phone_calls")
+      .select(
+        "id, external_call_id, status, direction, created_at, updated_at, ended_at, assigned_to_user_id"
+      )
+      .eq("external_call_id", traceExternalId)
+      .maybeSingle();
+
+    let exclusionReason: string | null = null;
+    let rowsNewerUpdatedAtCount: number | null = null;
+
+    if (traceErr) {
+      exclusionReason = `trace_db_error:${traceErr.message}`;
+    } else if (!traceDb) {
+      exclusionReason = "no_row_for_external_call_id_under_session_rls_or_wrong_sid";
+    } else {
+      const td = traceDb as Record<string, unknown>;
+      const st = typeof td.status === "string" ? td.status : "";
+      const dir = typeof td.direction === "string" ? td.direction : "";
+      const assignee = td.assigned_to_user_id;
+      const matchesNurseScope =
+        hasFull ||
+        assignee === staff.user_id ||
+        assignee === null ||
+        dir === "inbound";
+
+      if (st === "missed") {
+        exclusionReason =
+          idxMissed >= 0
+            ? "in_missed_section_not_recent"
+            : missed.length >= 25
+              ? "likely_missed_list_truncation_25"
+              : "missed_query_did_not_return_row";
+      } else if (idxRecent >= 0) {
+        exclusionReason = null;
+      } else if (!matchesNurseScope) {
+        exclusionReason = "nurse_scope_or_filter_excludes_row";
+      } else {
+        const u = typeof td.updated_at === "string" ? td.updated_at : null;
+        if (!u) {
+          exclusionReason = "trace_row_missing_updated_at";
+        } else {
+          let countQ = supabase
+            .from("phone_calls")
+            .select("id", { count: "exact", head: true })
+            .neq("status", "missed")
+            .gt("updated_at", u);
+          if (!hasFull) {
+            countQ = countQ.or(nurseScopeFilter);
+          }
+          const { count: newerCount, error: newerCountErr } = await countQ;
+          if (newerCountErr) {
+            exclusionReason = `newer_updated_at_count_error:${newerCountErr.message}`;
+          } else {
+            rowsNewerUpdatedAtCount = typeof newerCount === "number" ? newerCount : null;
+            if (rowsNewerUpdatedAtCount !== null && rowsNewerUpdatedAtCount >= 40) {
+              exclusionReason = "not_in_top_40_by_updated_at_truncation";
+            } else if (recent.length < 40) {
+              exclusionReason = "unexpected_not_in_recent_while_under_limit_query_bug";
+            } else {
+              exclusionReason = "tie_break_or_timing_same_second_investigate";
+            }
+          }
+        }
+      }
+    }
+
+    console.log("[calls-list]", {
+      event: "trace_external_call",
+      trace_external_id: traceExternalId,
+      idx_in_recent: idxRecent,
+      idx_in_missed: idxMissed,
+      recent_array_length: recent.length,
+      missed_array_length: missed.length,
+      trace_db_row: traceDb ?? null,
+      would_render_in_recent_section: idxRecent >= 0,
+      would_render_in_missed_section: idxMissed >= 0,
+      workspace_call_inbox_card_suppresses_completed_inbound: false,
+      exclusion_or_trace_reason: exclusionReason,
+      rows_with_strictly_newer_updated_at_than_trace: rowsNewerUpdatedAtCount,
+    });
+  }
 
   const recentTop = recent[0];
   const missedTop = missed[0];
