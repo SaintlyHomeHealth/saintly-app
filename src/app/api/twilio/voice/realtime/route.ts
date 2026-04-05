@@ -26,11 +26,16 @@ function escapeXml(text: string): string {
     .replace(/"/g, "&quot;");
 }
 
-function resolvePublicBase(): string {
+/**
+ * Same precedence as {@link ../route.ts} `resolveVoicePublicBase`: env first, then request origin.
+ * Without this, `TWILIO_PUBLIC_BASE_URL` unset in Vercel yields an empty `statusCallback` on `<Stream>`,
+ * so Twilio never POSTs to `/api/twilio/voice/status` and rows stay `initiated`.
+ */
+function resolvePublicBase(req: NextRequest): string {
   return (
     process.env.TWILIO_PUBLIC_BASE_URL?.trim().replace(/\/$/, "") ||
     process.env.TWILIO_WEBHOOK_BASE_URL?.trim().replace(/\/$/, "") ||
-    ""
+    new URL(req.url).origin
   );
 }
 
@@ -193,7 +198,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const publicBase = resolvePublicBase();
+  const publicBase = resolvePublicBase(req);
   const streamWss = resolveTwilioRealtimeMediaStreamWssUrl();
   const gateSnap = getRealtimeInboundGateSnapshot(from);
   const useRealtime = gateSnap.useRealtime;
@@ -222,6 +227,14 @@ export async function POST(req: NextRequest) {
     const twiml = buildRealtimeConnectStreamTwiml({
       streamWssUrl: streamWss,
       statusCallbackUrl: statusCallbackUrl || undefined,
+    });
+    console.log("[twilio/voice/realtime] status_callback_for_stream", {
+      public_base_source: process.env.TWILIO_PUBLIC_BASE_URL
+        ? "TWILIO_PUBLIC_BASE_URL"
+        : process.env.TWILIO_WEBHOOK_BASE_URL
+          ? "TWILIO_WEBHOOK_BASE_URL"
+          : "request_origin",
+      status_callback_url: statusCallbackUrl || null,
     });
     const twimlHasConnect = twiml.includes("<Connect>");
     const twimlHasStream = /<Stream\s/i.test(twiml);

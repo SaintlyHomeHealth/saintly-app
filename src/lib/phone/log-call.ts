@@ -941,7 +941,14 @@ export async function applyTwilioVoiceStatusCallback(
   );
 
   if (!row?.id) {
-    return { ok: false, error: "Call not found for external_call_id" };
+    console.error("[twilio/voice/status] row_not_found", {
+      lookup_external_call_id: externalCallId,
+      resolved_external_call_id: resolvedExternalCallId,
+      reconcile,
+      raw_call_sid: typeof payload.raw?.CallSid === "string" ? payload.raw.CallSid : null,
+      raw_parent_call_sid: typeof payload.raw?.ParentCallSid === "string" ? payload.raw.ParentCallSid : null,
+    });
+    return { ok: false, error: `Call not found for external_call_id=${externalCallId}` };
   }
 
   const callId = row.id as string;
