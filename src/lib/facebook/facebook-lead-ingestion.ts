@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { isKnownPayerBroadCategory } from "@/lib/crm/payer-type-options";
 import { isValidServiceDisciplineCode } from "@/lib/crm/service-disciplines";
 import { normalizePhone } from "@/lib/phone/us-phone-format";
@@ -246,12 +247,9 @@ async function ingestOneFacebookLeadgen(
   const formId = asTrimmedString(ev.value.form_id) || null;
   const createdTimeRaw = ev.value.created_time;
 
-  const { data: existing } = await supabase
-    .from("leads")
-    .select("id")
-    .eq("source", "facebook")
-    .eq("external_source_id", leadgenId)
-    .maybeSingle();
+  const { data: existing } = await leadRowsActiveOnly(
+    supabase.from("leads").select("id").eq("source", "facebook").eq("external_source_id", leadgenId)
+  ).maybeSingle();
 
   if (existing?.id) {
     console.log("[facebook-lead] duplicate skipped", { leadgen_id: leadgenId, lead_id: existing.id });

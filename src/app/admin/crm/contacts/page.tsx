@@ -17,6 +17,7 @@ import {
   resolveDirectorySourceLabel,
   resolveDirectoryStatusLabel,
 } from "@/lib/crm/contact-directory";
+import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { buildDuplicateFlagsForBatch } from "@/lib/crm/contact-duplicate-detection";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
@@ -87,11 +88,13 @@ export default async function AdminCrmContactsPage({
       .order("created_at", { ascending: false })
       .limit(DIRECTORY_FETCH_LIMIT),
     supabase.from("patients").select("id, contact_id, patient_status").limit(5000),
-    supabase
-      .from("leads")
-      .select("id, contact_id, source, status, owner_user_id, created_at")
-      .order("created_at", { ascending: false })
-      .limit(5000),
+    leadRowsActiveOnly(
+      supabase
+        .from("leads")
+        .select("id, contact_id, source, status, owner_user_id, created_at")
+        .order("created_at", { ascending: false })
+        .limit(5000)
+    ),
   ]);
 
   const contacts = (contactRows ?? []) as ContactDirectoryDbRow[];

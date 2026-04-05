@@ -11,6 +11,7 @@ import {
 } from "@/lib/crm/lead-pipeline-status";
 import { formatLeadSourceLabel, LEAD_SOURCE_OPTIONS } from "@/lib/crm/lead-source-options";
 import { PAYER_BROAD_CATEGORY_OPTIONS } from "@/lib/crm/payer-type-options";
+import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { SERVICE_DISCIPLINE_CODES } from "@/lib/crm/service-disciplines";
 import { supabaseAdmin } from "@/lib/admin";
 import { formatPhoneForDisplay, normalizePhone } from "@/lib/phone/us-phone-format";
@@ -19,6 +20,7 @@ import {
   buildWorkspaceSmsToContactHref,
   pickOutboundE164ForDial,
 } from "@/lib/workspace-phone/launch-urls";
+import { LeadDeleteButton } from "@/app/admin/crm/leads/_components/LeadDeleteButton";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 
@@ -155,6 +157,20 @@ export default async function AdminCrmLeadsPage({
     q: one("q").trim(),
   };
 
+  const toastParam = one("toast").trim();
+  const dismissToastHref = (() => {
+    const u = new URLSearchParams();
+    if (f.status) u.set("status", f.status);
+    if (f.source) u.set("source", f.source);
+    if (f.owner) u.set("owner", f.owner);
+    if (f.followUp) u.set("followUp", f.followUp);
+    if (f.payerType) u.set("payerType", f.payerType);
+    if (f.discipline) u.set("discipline", f.discipline);
+    if (f.q) u.set("q", f.q);
+    const qs = u.toString();
+    return qs ? `/admin/crm/leads?${qs}` : "/admin/crm/leads";
+  })();
+
   const followUpToday = f.followUp.toLowerCase() === "today";
   const todayIso = getCrmCalendarTodayIso();
 
@@ -186,13 +202,15 @@ export default async function AdminCrmLeadsPage({
     }
   }
 
-  let query = supabaseAdmin
-    .from("leads")
-    .select(
-      "id, contact_id, source, status, owner_user_id, created_at, intake_status, referral_source, payer_name, payer_type, referring_provider_name, next_action, follow_up_date, last_contact_at, last_outcome, service_disciplines, service_type, contacts ( full_name, first_name, last_name, primary_phone )"
-    )
-    .order("created_at", { ascending: false })
-    .limit(500);
+  let query = leadRowsActiveOnly(
+    supabaseAdmin
+      .from("leads")
+      .select(
+        "id, contact_id, source, status, owner_user_id, created_at, intake_status, referral_source, payer_name, payer_type, referring_provider_name, next_action, follow_up_date, last_contact_at, last_outcome, service_disciplines, service_type, contacts ( full_name, first_name, last_name, primary_phone )"
+      )
+      .order("created_at", { ascending: false })
+      .limit(500)
+  );
 
   if (contactIdFilter) {
     query = query.in("contact_id", contactIdFilter);
@@ -237,8 +255,34 @@ export default async function AdminCrmLeadsPage({
   const addLeadCls =
     "inline-flex shrink-0 items-center justify-center rounded-[20px] bg-gradient-to-r from-sky-600 to-cyan-500 px-3 py-2 text-center text-xs font-semibold text-white shadow-sm shadow-sky-200/60 transition hover:-translate-y-px hover:shadow-md hover:shadow-sky-200/80 sm:text-sm";
 
+  const toastBanner =
+    toastParam === "lead_deleted" ? (
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-950">
+        <span>Lead removed from the active list.</span>
+        <Link href={dismissToastHref} className="font-semibold text-emerald-900 underline-offset-2 hover:underline">
+          Dismiss
+        </Link>
+      </div>
+    ) : toastParam === "lead_delete_failed" || toastParam === "lead_delete_denied" || toastParam === "lead_delete_invalid" || toastParam === "lead_delete_gone" ? (
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-950">
+        <span>
+          {toastParam === "lead_delete_denied"
+            ? "You do not have permission to delete that lead."
+            : toastParam === "lead_delete_gone"
+              ? "That lead is no longer available (it may already be archived)."
+              : toastParam === "lead_delete_invalid"
+                ? "Could not delete that lead (missing reference)."
+                : "Could not delete that lead. Try again."}
+        </span>
+        <Link href={dismissToastHref} className="font-semibold text-rose-900 underline-offset-2 hover:underline">
+          Dismiss
+        </Link>
+      </div>
+    ) : null;
+
   return (
     <div className="space-y-6 p-6">
+      {toastBanner}
       <AdminPageHeader
         eyebrow="Pipeline"
         title="Leads"
@@ -362,13 +406,14 @@ export default async function AdminCrmLeadsPage({
               <th className="px-4 py-3">Contact</th>
               <th className="px-4 py-3">Call / text</th>
               <th className="whitespace-nowrap px-4 py-3">Open</th>
+              <th className="whitespace-nowrap px-4 py-3">Delete</th>
               <th className="px-4 py-3">Created</th>
             </tr>
           </thead>
           <tbody>
             {list.length === 0 ? (
               <tr>
-                <td colSpan={13} className="px-4 py-8 text-slate-500">
+                <td colSpan={14} className="px-4 py-8 text-slate-500">
                   No leads match these filters.
                 </td>
               </tr>
@@ -455,6 +500,9 @@ export default async function AdminCrmLeadsPage({
                       >
                         Detail
                       </Link>
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 align-top">
+                      <LeadDeleteButton leadId={r.id} variant="table" />
                     </td>
                     <td className="whitespace-nowrap px-4 py-3 text-xs text-slate-600">
                       {new Date(r.created_at).toLocaleString()}

@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
+import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { supabaseAdmin } from "@/lib/admin";
 import { findContactByIncomingPhone } from "@/lib/crm/find-contact-by-incoming-phone";
 import { sendOperationalAlertSms } from "@/lib/ops/operational-alert-sms";
@@ -365,10 +366,9 @@ export async function createLeadFromContact(contactId: string): Promise<CreateLe
     return { ok: false, error: "already_patient" };
   }
 
-  const { data: leadRows, error: leadsErr } = await supabaseAdmin
-    .from("leads")
-    .select("id, status")
-    .eq("contact_id", id);
+  const { data: leadRows, error: leadsErr } = await leadRowsActiveOnly(
+    supabaseAdmin.from("leads").select("id, status").eq("contact_id", id)
+  );
 
   if (leadsErr) {
     console.warn("[admin/phone] createLeadFromContact list leads:", leadsErr.message);
@@ -432,11 +432,13 @@ export async function createLeadFromPhoneCallId(
   }
 
   if (leadRes.error === "active_lead_exists") {
-    const { data: rows, error: listErr } = await supabaseAdmin
-      .from("leads")
-      .select("id, status, created_at")
-      .eq("contact_id", contactRes.contactId)
-      .order("created_at", { ascending: false });
+    const { data: rows, error: listErr } = await leadRowsActiveOnly(
+      supabaseAdmin
+        .from("leads")
+        .select("id, status, created_at")
+        .eq("contact_id", contactRes.contactId)
+        .order("created_at", { ascending: false })
+    );
     if (listErr) {
       console.warn("[admin/phone] createLeadFromPhoneCallId list leads:", listErr.message);
       return { ok: false, error: leadRes.error };
@@ -467,13 +469,14 @@ export async function convertLeadToPatient(leadId: string): Promise<ConvertLeadT
     return { ok: false, error: "invalid" };
   }
 
-  const { data: lead, error: lErr } = await supabaseAdmin
-    .from("leads")
-    .select(
-      "id, contact_id, status, referring_provider_name, referring_provider_phone, referring_doctor_name, doctor_office_name, doctor_office_phone, doctor_office_fax, doctor_office_contact_person, payer_name, payer_type, referral_source, service_type, service_disciplines, intake_status"
-    )
-    .eq("id", id)
-    .maybeSingle();
+  const { data: lead, error: lErr } = await leadRowsActiveOnly(
+    supabaseAdmin
+      .from("leads")
+      .select(
+        "id, contact_id, status, referring_provider_name, referring_provider_phone, referring_doctor_name, doctor_office_name, doctor_office_phone, doctor_office_fax, doctor_office_contact_person, payer_name, payer_type, referral_source, service_type, service_disciplines, intake_status"
+      )
+      .eq("id", id)
+  ).maybeSingle();
 
   if (lErr) {
     console.warn("[admin/phone] convertLeadToPatient load lead:", lErr.message);
@@ -551,7 +554,11 @@ export async function convertLeadToPatient(leadId: string): Promise<ConvertLeadT
 
   const patientId = String(newPatient.id);
 
-  const { error: uErr } = await supabaseAdmin.from("leads").update({ status: "converted" }).eq("id", id);
+  const { error: uErr } = await supabaseAdmin
+    .from("leads")
+    .update({ status: "converted" })
+    .eq("id", id)
+    .is("deleted_at", null);
 
   if (uErr) {
     console.warn("[admin/phone] convertLeadToPatient update lead:", uErr.message);

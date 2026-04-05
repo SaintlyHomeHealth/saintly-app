@@ -4,6 +4,7 @@ import { InboxIcon, MessageCircleMore } from "lucide-react";
 
 import { InboxSearchBar } from "./_components/InboxSearchBar";
 import { WorkspacePhonePageHeader } from "../_components/WorkspacePhonePageHeader";
+import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { labelForContactType } from "@/lib/crm/contact-types";
 import { formatLeadPipelineStatusLabel } from "@/lib/crm/lead-pipeline-status";
 import { formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
@@ -204,7 +205,9 @@ export default async function WorkspaceInboxPage({ searchParams }: PageProps) {
 
   if (contactIds.length > 0) {
     const [leadsRes, patientsRes] = await Promise.all([
-      supabase.from("leads").select("id, contact_id, status").in("contact_id", contactIds),
+      leadRowsActiveOnly(
+        supabase.from("leads").select("id, contact_id, status").in("contact_id", contactIds)
+      ),
       supabase.from("patients").select("id, contact_id").in("contact_id", contactIds),
     ]);
     if (leadsRes.error && process.env.NODE_ENV === "development") {

@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { WorkspacePhonePageHeader } from "../_components/WorkspacePhonePageHeader";
 import { WorkspaceLeadRowActions } from "@/app/workspace/phone/leads/_components/WorkspaceLeadRowActions";
 import { displayNameFromContact } from "@/app/workspace/phone/patients/_lib/patient-hub";
+import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { getCrmCalendarTodayIso } from "@/lib/crm/crm-local-date";
 import { formatLeadLastContactSummary } from "@/lib/crm/lead-contact-outcome";
 import { formatLeadNextActionLabel } from "@/lib/crm/lead-follow-up-options";
@@ -90,12 +91,14 @@ export default async function WorkspacePhoneLeadsPage({
 
   const todayIso = getCrmCalendarTodayIso();
 
-  const { data: leadRows, error: leadsErr } = await supabaseAdmin
-    .from("leads")
-    .select(
-      "id, contact_id, status, follow_up_date, next_action, last_contact_at, last_outcome, contacts ( id, full_name, first_name, last_name, primary_phone )"
-    )
-    .limit(400);
+  const { data: leadRows, error: leadsErr } = await leadRowsActiveOnly(
+    supabaseAdmin
+      .from("leads")
+      .select(
+        "id, contact_id, status, follow_up_date, next_action, last_contact_at, last_outcome, contacts ( id, full_name, first_name, last_name, primary_phone )"
+      )
+      .limit(400)
+  );
 
   if (leadsErr) {
     console.warn("[workspace/phone/leads] leads:", leadsErr.message);

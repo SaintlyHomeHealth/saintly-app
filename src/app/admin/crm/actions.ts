@@ -19,6 +19,7 @@ import {
 } from "@/lib/crm/lead-contact-outcome";
 import { isValidLeadNextAction } from "@/lib/crm/lead-follow-up-options";
 import { isValidLeadPipelineStatus } from "@/lib/crm/lead-pipeline-status";
+import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { isValidLeadSource } from "@/lib/crm/lead-source-options";
 import { isValidServiceDisciplineCode, parseServiceDisciplinesFromFormData } from "@/lib/crm/service-disciplines";
 import { convertLeadToPatient } from "@/app/admin/phone/actions";
@@ -1061,7 +1062,7 @@ export async function updateLeadIntake(formData: FormData) {
     intake_status: readOptionalIntakeText(formData, "intake_status"),
   };
 
-  const { error } = await supabaseAdmin.from("leads").update(payload).eq("id", leadId);
+  const { error } = await supabaseAdmin.from("leads").update(payload).eq("id", leadId).is("deleted_at", null);
   if (error) {
     console.warn("[admin/crm] updateLeadIntake:", error.message);
     return;
@@ -1114,7 +1115,8 @@ export async function saveLeadContactOutcome(formData: FormData) {
       next_action: nextAction,
       follow_up_date: followUpDate,
     })
-    .eq("id", leadId);
+    .eq("id", leadId)
+    .is("deleted_at", null);
 
   if (error) {
     console.warn("[admin/crm] saveLeadContactOutcome:", error.message);
@@ -1160,11 +1162,9 @@ export async function updateLeadContactProfile(formData: FormData) {
     return;
   }
 
-  const { data: leadRow, error: lErr } = await supabaseAdmin
-    .from("leads")
-    .select("id, contact_id")
-    .eq("id", leadId)
-    .maybeSingle();
+  const { data: leadRow, error: lErr } = await leadRowsActiveOnly(
+    supabaseAdmin.from("leads").select("id, contact_id").eq("id", leadId)
+  ).maybeSingle();
 
   if (lErr || !leadRow?.contact_id) {
     console.warn("[admin/crm] updateLeadContactProfile lead:", lErr?.message);
@@ -1452,11 +1452,9 @@ export async function sendLeadSms(leadId: string, message: string): Promise<Send
     return { ok: false, error: "Message is required." };
   }
 
-  const { data: leadRow, error: lErr } = await supabaseAdmin
-    .from("leads")
-    .select("id, contact_id")
-    .eq("id", lid)
-    .maybeSingle();
+  const { data: leadRow, error: lErr } = await leadRowsActiveOnly(
+    supabaseAdmin.from("leads").select("id, contact_id").eq("id", lid)
+  ).maybeSingle();
 
   if (lErr || !leadRow?.contact_id) {
     return { ok: false, error: "Lead not found." };
@@ -1498,6 +1496,52 @@ export async function sendLeadSms(leadId: string, message: string): Promise<Send
   };
 }
 
+export async function softDeleteLead(formData: FormData) {
+  const staff = await getStaffProfile();
+  if (!staff || !isManagerOrHigher(staff)) {
+    redirect("/admin/crm/leads?toast=lead_delete_denied");
+  }
+
+  const leadId = readTrimmedField(formData, "leadId");
+  if (!leadId) {
+    redirect("/admin/crm/leads?toast=lead_delete_invalid");
+  }
+
+  const now = new Date().toISOString();
+  const { data: updated, error } = await supabaseAdmin
+    .from("leads")
+    .update({ deleted_at: now })
+    .eq("id", leadId)
+    .is("deleted_at", null)
+    .select("id, contact_id")
+    .maybeSingle();
+
+  if (error) {
+    console.warn("[admin/crm] softDeleteLead:", error.message);
+    redirect("/admin/crm/leads?toast=lead_delete_failed");
+  }
+  if (!updated?.id) {
+    redirect("/admin/crm/leads?toast=lead_delete_gone");
+  }
+
+  const cid = typeof updated.contact_id === "string" ? updated.contact_id.trim() : "";
+
+  revalidatePath("/admin");
+  revalidatePath("/admin/crm/leads");
+  revalidatePath(`/admin/crm/leads/${leadId}`);
+  revalidatePath("/admin/crm/contacts");
+  if (cid) {
+    revalidatePath(`/admin/crm/contacts/${cid}`);
+  }
+  revalidatePath("/workspace/phone/leads");
+  revalidatePath("/workspace/phone/follow-ups-today");
+  revalidatePath("/workspace/phone/inbox");
+  revalidatePath("/admin/phone");
+  revalidatePath("/admin/phone/calls");
+
+  redirect("/admin/crm/leads?toast=lead_deleted");
+}
+
 export async function markLeadDead(formData: FormData) {
   const staff = await getStaffProfile();
   if (!staff || !isManagerOrHigher(staff)) {
@@ -1509,7 +1553,11 @@ export async function markLeadDead(formData: FormData) {
     return;
   }
 
-  const { error } = await supabaseAdmin.from("leads").update({ status: "dead_lead" }).eq("id", leadId);
+  const { error } = await supabaseAdmin
+    .from("leads")
+    .update({ status: "dead_lead" })
+    .eq("id", leadId)
+    .is("deleted_at", null);
 
   if (error) {
     console.warn("[admin/crm] markLeadDead:", error.message);

@@ -32,6 +32,7 @@ import {
   isPhoneWorkspaceUser,
   type StaffProfile,
 } from "@/lib/staff-profile";
+import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
@@ -139,11 +140,13 @@ export default async function AdminCrmContactDetailPage({
     { data: convRows },
   ] = await Promise.all([
     supabase.from("patients").select("id, contact_id, patient_status, created_at").eq("contact_id", contactId).maybeSingle(),
-    supabase
-      .from("leads")
-      .select("id, contact_id, source, status, owner_user_id, created_at, updated_at")
-      .eq("contact_id", contactId)
-      .order("created_at", { ascending: false }),
+    leadRowsActiveOnly(
+      supabase
+        .from("leads")
+        .select("id, contact_id, source, status, owner_user_id, created_at, updated_at")
+        .eq("contact_id", contactId)
+        .order("created_at", { ascending: false })
+    ),
     supabase
       .from("contacts")
       .select("id, primary_phone, email, full_name, organization_name")

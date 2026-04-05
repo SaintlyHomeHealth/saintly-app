@@ -1,3 +1,4 @@
+import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { supabaseAdmin } from "@/lib/admin";
 import { findContactByIncomingPhone } from "@/lib/crm/find-contact-by-incoming-phone";
 import { sendOperationalAlertSms } from "@/lib/ops/operational-alert-sms";
@@ -217,10 +218,9 @@ export async function ensureActiveLeadForContact(contactId: string): Promise<voi
     return;
   }
 
-  const { data: leadRows, error: leadsErr } = await supabaseAdmin
-    .from("leads")
-    .select("id, status")
-    .eq("contact_id", contactId);
+  const { data: leadRows, error: leadsErr } = await leadRowsActiveOnly(
+    supabaseAdmin.from("leads").select("id, status").eq("contact_id", contactId)
+  );
 
   if (leadsErr) {
     console.warn("[twilio-voice-intake-crm] list leads:", leadsErr.message);

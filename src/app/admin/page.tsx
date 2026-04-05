@@ -19,6 +19,7 @@ import {
 import { ProcessNoopBatchButton } from "@/app/admin/process-noop-batch-button";
 import { applicantRolePrimaryForCompliance } from "@/lib/applicant-role-for-compliance";
 import { getCrmCalendarTodayIso } from "@/lib/crm/crm-local-date";
+import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { routePerfLog, routePerfStart } from "@/lib/perf/route-perf";
 
 type ApplicantRow = {
@@ -1464,14 +1465,15 @@ export default async function AdminDashboardPage({
       recentPatientsRes,
       activePoolRes,
     ] = await Promise.all([
-      supabaseCc
-        .from("leads")
-        .select("id", { count: "exact", head: true })
-        .or("status.is.null,and(status.neq.converted,status.neq.dead_lead)"),
-      supabaseCc
-        .from("leads")
-        .select("id", { count: "exact", head: true })
-        .eq("follow_up_date", crmTodayIso),
+      leadRowsActiveOnly(
+        supabaseCc
+          .from("leads")
+          .select("id", { count: "exact", head: true })
+          .or("status.is.null,and(status.neq.converted,status.neq.dead_lead)")
+      ),
+      leadRowsActiveOnly(
+        supabaseCc.from("leads").select("id", { count: "exact", head: true }).eq("follow_up_date", crmTodayIso)
+      ),
       supabaseCc
         .from("patients")
         .select("id", { count: "exact", head: true })
@@ -1481,11 +1483,13 @@ export default async function AdminDashboardPage({
         .select("id", { count: "exact", head: true })
         .eq("is_active", true)
         .eq("role", "primary_nurse"),
-      supabaseCc
-        .from("leads")
-        .select("id, status, created_at, contacts ( full_name, first_name, last_name )")
-        .order("created_at", { ascending: false })
-        .limit(5),
+      leadRowsActiveOnly(
+        supabaseCc
+          .from("leads")
+          .select("id, status, created_at, contacts ( full_name, first_name, last_name )")
+          .order("created_at", { ascending: false })
+          .limit(5)
+      ),
       supabaseCc
         .from("patients")
         .select("id, patient_status, created_at, contacts ( full_name, first_name, last_name )")

@@ -12,6 +12,7 @@ import {
 } from "@/lib/crm/lead-pipeline-status";
 import { LEAD_SOURCE_OPTIONS, formatLeadSourceLabel } from "@/lib/crm/lead-source-options";
 
+import { LeadDeleteButton } from "@/app/admin/crm/leads/_components/LeadDeleteButton";
 import { LeadContactOutcomeForm } from "@/app/admin/crm/leads/_components/LeadContactOutcomeForm";
 import {
   convertLeadToPatientFromLeadDetail,
@@ -384,6 +385,10 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
           <Link href="/admin/crm/leads" className="font-semibold text-sky-800 hover:underline">
             Back to leads
           </Link>
+          {" · "}
+          <span className="inline-flex items-center gap-1">
+            <LeadDeleteButton leadId={leadId} variant="detail" />
+          </span>
         </p>
         {primaryPhone ? (
           <p className="mt-1 text-xs text-slate-600 tabular-nums">{formatPhoneNumber(primaryPhone)}</p>

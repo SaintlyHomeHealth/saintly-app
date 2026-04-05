@@ -9,6 +9,7 @@ import { ServiceDisciplineCheckboxes } from "@/components/crm/ServiceDisciplineC
 import { convertLeadToPatientFromCrm, createPatientManualFromCrm } from "../../actions";
 import { supabaseAdmin } from "@/lib/admin";
 import { isLeadPipelineTerminal } from "@/lib/crm/lead-pipeline-status";
+import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
@@ -115,11 +116,13 @@ export default async function AdminCrmPatientNewPage({
   const manualErr = typeof params.manualError === "string" ? params.manualError.trim() : "";
 
   const supabase = await createServerSupabaseClient();
-  const { data: rows, error } = await supabase
-    .from("leads")
-    .select("id, contact_id, source, status, created_at, contacts ( full_name, first_name, last_name )")
-    .order("created_at", { ascending: false })
-    .limit(100);
+  const { data: rows, error } = await leadRowsActiveOnly(
+    supabase
+      .from("leads")
+      .select("id, contact_id, source, status, created_at, contacts ( full_name, first_name, last_name )")
+      .order("created_at", { ascending: false })
+      .limit(100)
+  );
 
   const list = (rows ?? []) as {
     id: string;

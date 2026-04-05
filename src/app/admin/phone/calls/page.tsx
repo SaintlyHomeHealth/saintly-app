@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { SoftphoneDialer } from "@/components/softphone/SoftphoneDialer";
 import { supabaseAdmin } from "@/lib/admin";
 import {
@@ -58,11 +59,13 @@ async function loadContactPipelineByContactId(
     out[cid] = { activeLeadId: null, patientStatus: ps };
   }
 
-  const { data: leadRows, error: leadsErr } = await supabase
-    .from("leads")
-    .select("id, contact_id, status, created_at")
-    .in("contact_id", contactIds)
-    .order("created_at", { ascending: false });
+  const { data: leadRows, error: leadsErr } = await leadRowsActiveOnly(
+    supabase
+      .from("leads")
+      .select("id, contact_id, status, created_at")
+      .in("contact_id", contactIds)
+      .order("created_at", { ascending: false })
+  );
 
   if (leadsErr) {
     console.warn("[admin/phone/calls] leads for contact pipeline:", leadsErr.message);

@@ -919,6 +919,7 @@ export function RecentCallsLive({
           .from("leads")
           .select("id,status")
           .eq("contact_id", res.contactId)
+          .is("deleted_at", null)
           .order("created_at", { ascending: false })
           .limit(5);
 
