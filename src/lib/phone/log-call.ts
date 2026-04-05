@@ -273,6 +273,46 @@ function normalizeTwilioToken(value: string): string {
   return value.trim().toLowerCase().replace(/\s+/g, "-");
 }
 
+/** Higher = stronger outcome for the same parent phone_calls row (parallel/sequential child legs). */
+function dialOutcomeRank(s: string | null | undefined): number {
+  if (s == null || s === "") return 0;
+  const d = normalizeTwilioToken(s.trim());
+  if (d === "completed") return 100;
+  if (d === "answered") return 85;
+  if (d === "ringing" || d === "initiated") return 40;
+  if (d === "busy" || d === "no-answer") return 15;
+  if (d === "failed") return 8;
+  if (d === "canceled" || d === "cancelled") return 5;
+  return 0;
+}
+
+/**
+ * Merge DialCallStatus from the current webhook with the last persisted dial outcome so a later
+ * no-answer child leg cannot overwrite an earlier completed answered child leg.
+ */
+function mergeDialCallOutcomeAcrossLegs(stored: string | null, incoming: string | null): string | null {
+  if (dialOutcomeRank(incoming) >= dialOutcomeRank(stored)) return incoming ?? stored;
+  return stored ?? incoming;
+}
+
+function twilioCallStatusRank(s: string | null | undefined): number {
+  if (s == null || s === "") return 0;
+  const c = normalizeTwilioToken(s.trim());
+  if (c === "completed") return 100;
+  if (c === "in-progress") return 85;
+  if (c === "ringing" || c === "queued") return 40;
+  if (c === "busy" || c === "no-answer") return 15;
+  if (c === "failed") return 8;
+  if (c === "canceled" || c === "cancelled") return 5;
+  return 0;
+}
+
+/** Merge Twilio CallStatus so a child no-answer does not overwrite a parent completed on the same row. */
+function mergeTwilioCallStatusAcrossLegs(stored: string | null, incoming: string | null): string | null {
+  if (twilioCallStatusRank(incoming) >= twilioCallStatusRank(stored)) return incoming ?? stored;
+  return stored ?? incoming;
+}
+
 /**
  * Twilio AMD / Dial may include AnsweredBy (e.g. when machineDetection is enabled on &lt;Number&gt;).
  * When present, machine/fax completions are treated as missed for Saintly (not a live staff pickup).
@@ -435,6 +475,12 @@ function getStoredDialCallStatusFromMetadata(meta: Record<string, unknown>): str
   const t = meta.twilio_last_callback;
   if (!t || typeof t !== "object") return null;
   return asOptionalString((t as Record<string, unknown>).DialCallStatus);
+}
+
+function getStoredTwilioCallStatusFromMetadata(meta: Record<string, unknown>): string | null {
+  const t = meta.twilio_last_callback;
+  if (!t || typeof t !== "object") return null;
+  return asOptionalString((t as Record<string, unknown>).CallStatus);
 }
 
 /**
@@ -767,12 +813,6 @@ export async function applyTwilioVoiceStatusCallback(
     return { ok: false, error: "CallSid is required" };
   }
 
-  const mapped = mapTwilioStatusToPhoneStatus({
-    callStatus: payload.CallStatus,
-    dialCallStatus: payload.DialCallStatus,
-    answeredBy: payload.AnsweredBy ?? null,
-  });
-
   const { row, resolvedExternalCallId, reconcile } = await findPhoneCallRowForTwilioStatus(
     supabase,
     externalCallId,
@@ -786,9 +826,20 @@ export async function applyTwilioVoiceStatusCallback(
   const callId = row.id as string;
   const rowMetaBeforeMerge = asMetadata(row.metadata);
   const storedDialFromRow = getStoredDialCallStatusFromMetadata(rowMetaBeforeMerge);
+  const storedCallFromRow = getStoredTwilioCallStatusFromMetadata(rowMetaBeforeMerge);
   const payloadDial = asOptionalString(payload.DialCallStatus);
-  const effectiveDialForRefine = payloadDial ?? storedDialFromRow;
-  const dialForMetadataStorage = payloadDial ?? storedDialFromRow;
+  const payloadCall = asOptionalString(payload.CallStatus);
+  const effectiveDialForRefine = mergeDialCallOutcomeAcrossLegs(storedDialFromRow, payloadDial);
+  const effectiveCallForMap =
+    mergeTwilioCallStatusAcrossLegs(storedCallFromRow, payloadCall) ?? payloadCall ?? "";
+  const dialForMetadataStorage = effectiveDialForRefine;
+  const callStatusForMetadataStorage = mergeTwilioCallStatusAcrossLegs(storedCallFromRow, payloadCall) ?? payloadCall;
+
+  const mapped = mapTwilioStatusToPhoneStatus({
+    callStatus: effectiveCallForMap || (payload.CallStatus ?? ""),
+    dialCallStatus: effectiveDialForRefine,
+    answeredBy: payload.AnsweredBy ?? null,
+  });
 
   const prevMeta = mergeTwilioLegMapMetadata(rowMetaBeforeMerge, payload.raw);
   const direction = asOptionalString(row.direction) === "outbound" ? "outbound" : "inbound";
@@ -825,6 +876,29 @@ export async function applyTwilioVoiceStatusCallback(
     durationSeconds: effectiveDuration,
   });
 
+  const rawChildSid = typeof payload.raw?.CallSid === "string" ? payload.raw.CallSid.trim() : "";
+  console.log("[twilio-leg-precedence]", {
+    parent_call_sid: resolvedExternalCallId,
+    child_call_sid: rawChildSid || null,
+    child_call_status: payloadCall,
+    child_dial_call_status: payloadDial,
+    stored_call_status: storedCallFromRow,
+    stored_dial_call_status: storedDialFromRow,
+    merged_call_status: callStatusForMetadataStorage,
+    merged_dial_call_status: dialForMetadataStorage,
+    mapped_phone_status: mapped,
+    refined_phone_status: refined,
+    chosen_final_status: finalStatus,
+    why:
+      finalStatus === "completed" && mapped !== "completed"
+        ? "guard_or_refine_upgraded"
+        : finalStatus === "completed" && dialOutcomeRank(effectiveDialForRefine) >= 100
+          ? "merged_dial_or_call_completed_wins"
+          : finalStatus === "missed"
+            ? "mapped_or_refine_to_missed"
+            : "mapped",
+  });
+
   console.log("[call-status]", {
     event: "apply_status",
     phone_calls_id: callId,
@@ -838,8 +912,21 @@ export async function applyTwilioVoiceStatusCallback(
     payload_dial_call_status: payloadDial,
     stored_dial_from_row_metadata: storedDialFromRow,
     effective_dial_for_refine: effectiveDialForRefine,
+    payload_call_status: payloadCall,
+    stored_call_from_row_metadata: storedCallFromRow,
+    merged_call_status: callStatusForMetadataStorage,
     call_status: payload.CallStatus,
     source: "twilio.voice_status_callback",
+  });
+
+  console.log("[call-reconcile]", {
+    event: "voice_status_applied",
+    phone_calls_id: callId,
+    parent_call_sid: resolvedExternalCallId,
+    child_call_sid: rawChildSid || null,
+    merged_dial: dialForMetadataStorage,
+    merged_call_status: callStatusForMetadataStorage,
+    final_status: finalStatus,
   });
 
   if (PHONE_CALL_TRACE_LOGS) {
@@ -870,11 +957,12 @@ export async function applyTwilioVoiceStatusCallback(
     metadata: {
       ...prevMeta,
       twilio_last_callback: {
-        CallStatus: payload.CallStatus,
+        CallStatus: callStatusForMetadataStorage ?? payload.CallStatus,
         DialCallStatus: dialForMetadataStorage,
         AnsweredBy: payload.AnsweredBy ?? null,
         DurationSeconds: payload.DurationSeconds ?? null,
         received_at: new Date().toISOString(),
+        ...(rawChildSid ? { reporting_leg_call_sid: rawChildSid } : {}),
         ...(finalStatus !== mapped
           ? {
               saintly_reclassified_from: mapped,
