@@ -11,7 +11,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { isKnownPayerBroadCategory } from "@/lib/crm/payer-type-options";
-import { isValidServiceDisciplineCode } from "@/lib/crm/service-disciplines";
+import { isValidServiceDisciplineCode, type ServiceDisciplineCode } from "@/lib/crm/service-disciplines";
 import { normalizePhone } from "@/lib/phone/us-phone-format";
 
 const GRAPH_VERSION = process.env.FACEBOOK_GRAPH_API_VERSION?.trim() || "v21.0";
@@ -208,6 +208,51 @@ function guessDisciplines(map: Map<string, string>): string[] {
   return out;
 }
 
+/**
+ * Maps free-text intake (e.g. Facebook `service_needed` = "Wound Care") to canonical
+ * `ServiceDisciplineCode` values (RN, PT, OT, ST, MSW, HHA, LPN) used in `leads.service_disciplines` (text[]).
+ */
+function inferDisciplinesFromFreeText(text: string): ServiceDisciplineCode[] {
+  const t = text.toLowerCase();
+  const out: ServiceDisciplineCode[] = [];
+  const add = (c: ServiceDisciplineCode) => {
+    if (!out.includes(c)) out.push(c);
+  };
+  if (
+    t.includes("wound") ||
+    t.includes("skilled nursing") ||
+    t.includes("skilled nurse") ||
+    t.includes("infusion") ||
+    t.includes("catheter") ||
+    t.includes("ostomy") ||
+    /\b(iv|intravenous)\b/.test(t)
+  ) {
+    add("RN");
+  }
+  if (t.includes("physical therapy") || t.includes("physiotherapy") || /\bphysical therapist\b/.test(t)) add("PT");
+  if (t.includes("occupational therapy") || /\boccupational therapist\b/.test(t)) add("OT");
+  if (t.includes("speech therapy") || t.includes("speech-language") || t.includes("speech language")) add("ST");
+  if (t.includes("social work") || t.includes("medical social")) add("MSW");
+  if (t.includes("home health aide") || /\b(hha|home aide)\b/.test(t)) add("HHA");
+  if (/\b(lpn|lvn)\b/.test(t)) add("LPN");
+  return out;
+}
+
+function resolveFacebookLeadDisciplines(fieldMap: Map<string, string>): ServiceDisciplineCode[] {
+  const fromAbbrev = guessDisciplines(fieldMap).filter((c): c is ServiceDisciplineCode =>
+    isValidServiceDisciplineCode(c)
+  );
+  const prioritized = [
+    firstValue(fieldMap, ["service_needed", "service needed", "care_for", "care for", "situation"]),
+    firstValue(fieldMap, ["start_time", "start time"]),
+    ...Array.from(fieldMap.values()),
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const fromText = inferDisciplinesFromFreeText(prioritized);
+  return [...new Set([...fromAbbrev, ...fromText])];
+}
+
 function freeformNotesFromMap(map: Map<string, string>, usedKeys: Set<string>): string | null {
   const lines: string[] = [];
   for (const [k, v] of map.entries()) {
@@ -251,6 +296,13 @@ const USED_META_KEYS = new Set<string>([
   "comments",
   "additional_comments",
   "additional notes",
+  "service_needed",
+  "service needed",
+  "care_for",
+  "care for",
+  "situation",
+  "start_time",
+  "start time",
 ]);
 
 async function fetchLeadFromGraph(leadgenId: string, pageAccessToken: string): Promise<GraphLeadResponse> {
@@ -322,7 +374,7 @@ async function completeFacebookLeadInsertFromFieldMap(
 
   const payer_name = guessPayerName(fieldMap);
   const payer_type = guessPayerType(fieldMap);
-  const disciplines = guessDisciplines(fieldMap);
+  const disciplines = resolveFacebookLeadDisciplines(fieldMap);
   const referral_source = firstValue(fieldMap, ["referral_source", "referral source", "how_did_you_hear"]).trim() || null;
 
   const used = new Set(USED_META_KEYS);
@@ -395,7 +447,7 @@ async function completeFacebookLeadInsertFromFieldMap(
       payer_name,
       payer_type,
       referral_source,
-      service_disciplines: disciplines.length > 0 ? disciplines : null,
+      service_disciplines: disciplines,
       service_type: disciplines.length > 0 ? disciplines.join(", ") : null,
       notes: leadNotes,
     })
