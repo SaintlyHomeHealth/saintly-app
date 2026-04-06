@@ -1,3 +1,8 @@
+/**
+ * Facebook Lead Ads → CRM: shared insert logic for (1) Make.com webhook
+ * `ingestFacebookLeadFromMakePayload` and (2) legacy direct Meta webhook + Graph fetch
+ * `ingestFacebookLeadFromWebhookPayload`.
+ */
 import "server-only";
 
 import { revalidatePath } from "next/cache";
@@ -32,7 +37,8 @@ export type MetaWebhookBody = {
   }>;
 };
 
-type GraphFieldDatum = { name?: string; values?: string[] };
+/** Graph Lead Ads `field_data` row shape (also accepted from Make when mirroring Graph). */
+export type GraphFieldDatum = { name?: string; values?: string[] };
 
 type GraphLeadResponse = {
   id?: string;
@@ -53,6 +59,25 @@ function buildFieldMap(fieldData: GraphFieldDatum[] | undefined): Map<string, st
     const vals = Array.isArray(row?.values) ? row.values : [];
     const val = vals.map((x) => (typeof x === "string" ? x.trim() : String(x ?? ""))).filter(Boolean).join(", ");
     if (key && val) m.set(key, val);
+  }
+  return m;
+}
+
+/** Flat object from Make (keys treated like lowercased field names). */
+function buildFieldMapFromFlatRecord(rec: Record<string, unknown>): Map<string, string> {
+  const m = new Map<string, string>();
+  for (const [k, v] of Object.entries(rec)) {
+    const key = asTrimmedString(k).toLowerCase();
+    if (!key || key === "leadgen_id") continue;
+    const valStr =
+      v == null
+        ? ""
+        : typeof v === "string"
+          ? v.trim()
+          : typeof v === "number" || typeof v === "boolean"
+            ? String(v)
+            : "";
+    if (valStr) m.set(key, valStr);
   }
   return m;
 }
@@ -227,46 +252,34 @@ function isUniqueViolation(err: { code?: string; message?: string } | null): boo
   return /duplicate key|unique constraint/i.test(String(err.message ?? ""));
 }
 
-async function ingestOneFacebookLeadgen(
+async function completeFacebookLeadInsertFromFieldMap(
   supabase: SupabaseClient,
   params: {
-    ev: { value: MetaLeadgenChangeValue; entryPageId?: string };
+    leadgenId: string;
+    fieldMap: Map<string, string>;
+    fieldDataForMeta: GraphFieldDatum[] | null;
+    pageId: string | null;
+    formId: string | null;
+    createdTimeRaw: number | string | undefined;
+    graphCreatedTime: string | null;
     rawBodyText: string;
-    pageAccessToken: string;
     ingestionReceivedAt: string;
+    ingestionChannel?: "make";
   }
 ): Promise<IngestFacebookLeadgenResult> {
-  const { ev, rawBodyText, pageAccessToken, ingestionReceivedAt } = params;
+  const {
+    leadgenId,
+    fieldMap,
+    fieldDataForMeta,
+    pageId,
+    formId,
+    createdTimeRaw,
+    graphCreatedTime,
+    rawBodyText,
+    ingestionReceivedAt,
+    ingestionChannel,
+  } = params;
 
-  const leadgenId = asTrimmedString(ev.value.leadgen_id);
-  if (!leadgenId) {
-    return { ok: false, error: "missing_leadgen_id" };
-  }
-
-  const pageId = asTrimmedString(ev.value.page_id) || ev.entryPageId || null;
-  const formId = asTrimmedString(ev.value.form_id) || null;
-  const createdTimeRaw = ev.value.created_time;
-
-  const { data: existing } = await leadRowsActiveOnly(
-    supabase.from("leads").select("id").eq("source", "facebook").eq("external_source_id", leadgenId)
-  ).maybeSingle();
-
-  if (existing?.id) {
-    console.log("[facebook-lead] duplicate skipped", { leadgen_id: leadgenId, lead_id: existing.id });
-    return { ok: true, duplicateSkipped: true, leadgenId };
-  }
-
-  let graph: GraphLeadResponse;
-  try {
-    graph = await fetchLeadFromGraph(leadgenId, pageAccessToken);
-    console.log("[facebook-lead] graph fetch ok", { leadgen_id: leadgenId });
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    console.warn("[facebook-lead] graph fetch failed", { leadgen_id: leadgenId, error: msg });
-    return { ok: false, error: `graph_fetch_failed:${msg}`, leadgenId };
-  }
-
-  const fieldMap = buildFieldMap(graph.field_data);
   const nameParts = parseNameParts(fieldMap);
   const email = firstValue(fieldMap, ["email", "email_address"]) || null;
   const phoneRaw = firstValue(fieldMap, [
@@ -299,8 +312,11 @@ async function ingestOneFacebookLeadgen(
 
   const leadNotes = leadNotesParts.join("\n\n").slice(0, 8000) || null;
 
-  /** Shown on lead detail (contact notes); `leads.notes` mirrors for any future lead-level UI. */
-  const contactNotes = [`Imported from Facebook Lead Ads (${ingestionReceivedAt}).`, leadNotes].filter(Boolean).join("\n\n").slice(0, 8000);
+  const contactIntro =
+    ingestionChannel === "make"
+      ? `Imported from Facebook Lead Ads via Make (${ingestionReceivedAt}).`
+      : `Imported from Facebook Lead Ads (${ingestionReceivedAt}).`;
+  const contactNotes = [contactIntro, leadNotes].filter(Boolean).join("\n\n").slice(0, 8000);
 
   const { data: contactRow, error: cErr } = await supabase
     .from("contacts")
@@ -324,13 +340,14 @@ async function ingestOneFacebookLeadgen(
 
   const externalMeta = {
     source: "facebook" as const,
+    ...(ingestionChannel === "make" ? { ingestion_channel: "make" as const } : {}),
     leadgen_id: leadgenId,
     form_id: formId,
     page_id: pageId,
     webhook_created_time: createdTimeRaw ?? null,
-    graph_created_time: graph.created_time ?? null,
+    graph_created_time: graphCreatedTime ?? null,
     raw_webhook_body: rawBodyText.slice(0, 100_000),
-    graph_field_data: graph.field_data ?? null,
+    graph_field_data: fieldDataForMeta ?? null,
     ingestion_received_at: ingestionReceivedAt,
     ingestion_completed_at: new Date().toISOString(),
   };
@@ -375,6 +392,124 @@ async function ingestOneFacebookLeadgen(
   revalidatePath(`/admin/crm/contacts/${contactId}`);
 
   return { ok: true, duplicateSkipped: false, leadId, contactId, leadgenId };
+}
+
+async function ingestOneFacebookLeadgen(
+  supabase: SupabaseClient,
+  params: {
+    ev: { value: MetaLeadgenChangeValue; entryPageId?: string };
+    rawBodyText: string;
+    pageAccessToken: string;
+    ingestionReceivedAt: string;
+  }
+): Promise<IngestFacebookLeadgenResult> {
+  const { ev, rawBodyText, pageAccessToken, ingestionReceivedAt } = params;
+
+  const leadgenId = asTrimmedString(ev.value.leadgen_id);
+  if (!leadgenId) {
+    return { ok: false, error: "missing_leadgen_id" };
+  }
+
+  const pageId = asTrimmedString(ev.value.page_id) || ev.entryPageId || null;
+  const formId = asTrimmedString(ev.value.form_id) || null;
+  const createdTimeRaw = ev.value.created_time;
+
+  const { data: existing } = await leadRowsActiveOnly(
+    supabase.from("leads").select("id").eq("source", "facebook").eq("external_source_id", leadgenId)
+  ).maybeSingle();
+
+  if (existing?.id) {
+    console.log("[facebook-lead] duplicate skipped", { leadgen_id: leadgenId, lead_id: existing.id });
+    return { ok: true, duplicateSkipped: true, leadgenId };
+  }
+
+  let graph: GraphLeadResponse;
+  try {
+    graph = await fetchLeadFromGraph(leadgenId, pageAccessToken);
+    console.log("[facebook-lead] graph fetch ok", { leadgen_id: leadgenId });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn("[facebook-lead] graph fetch failed", { leadgen_id: leadgenId, error: msg });
+    return { ok: false, error: `graph_fetch_failed:${msg}`, leadgenId };
+  }
+
+  return completeFacebookLeadInsertFromFieldMap(supabase, {
+    leadgenId,
+    fieldMap: buildFieldMap(graph.field_data),
+    fieldDataForMeta: graph.field_data ?? null,
+    pageId,
+    formId,
+    createdTimeRaw,
+    graphCreatedTime: graph.created_time ?? null,
+    rawBodyText,
+    ingestionReceivedAt,
+  });
+}
+
+/** JSON body from Make.com (or any HTTP client). `leadgen_id` = Facebook lead ID (dedupe key). */
+export type MakeFacebookLeadPayload = {
+  leadgen_id?: unknown;
+  /** Graph API-style rows (preferred when available from Make's Facebook module). */
+  field_data?: unknown;
+  /** Flat map alternative: `{ "first name": "...", "email": "..." }` */
+  fields?: unknown;
+  form_id?: unknown;
+  page_id?: unknown;
+  created_time?: unknown;
+};
+
+export async function ingestFacebookLeadFromMakePayload(
+  supabase: SupabaseClient,
+  params: { webhookPayload: MakeFacebookLeadPayload; rawBodyText: string }
+): Promise<IngestFacebookLeadgenResult> {
+  const { webhookPayload, rawBodyText } = params;
+  const ingestionReceivedAt = new Date().toISOString();
+
+  const leadgenId = asTrimmedString(webhookPayload.leadgen_id);
+  if (!leadgenId) {
+    return { ok: false, error: "missing_leadgen_id" };
+  }
+
+  const { data: existing } = await leadRowsActiveOnly(
+    supabase.from("leads").select("id").eq("source", "facebook").eq("external_source_id", leadgenId)
+  ).maybeSingle();
+
+  if (existing?.id) {
+    console.log("[facebook-lead] duplicate skipped (make)", { leadgen_id: leadgenId, lead_id: existing.id });
+    return { ok: true, duplicateSkipped: true, leadgenId };
+  }
+
+  const fd = webhookPayload.field_data;
+  const flat = webhookPayload.fields;
+
+  let fieldMap: Map<string, string>;
+  let fieldDataForMeta: GraphFieldDatum[] | null = null;
+
+  if (Array.isArray(fd) && fd.length > 0) {
+    fieldDataForMeta = fd as GraphFieldDatum[];
+    fieldMap = buildFieldMap(fieldDataForMeta);
+  } else if (flat && typeof flat === "object" && !Array.isArray(flat)) {
+    fieldMap = buildFieldMapFromFlatRecord(flat as Record<string, unknown>);
+  } else {
+    return { ok: false, error: "missing_field_data_or_fields", leadgenId };
+  }
+
+  const formId = asTrimmedString(webhookPayload.form_id) || null;
+  const pageId = asTrimmedString(webhookPayload.page_id) || null;
+  const createdTimeRaw = webhookPayload.created_time as number | string | undefined;
+
+  return completeFacebookLeadInsertFromFieldMap(supabase, {
+    leadgenId,
+    fieldMap,
+    fieldDataForMeta,
+    pageId,
+    formId,
+    createdTimeRaw,
+    graphCreatedTime: null,
+    rawBodyText,
+    ingestionReceivedAt,
+    ingestionChannel: "make",
+  });
 }
 
 /**

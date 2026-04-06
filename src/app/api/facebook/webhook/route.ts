@@ -10,7 +10,11 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 /**
- * Meta Lead Ads webhook. Env:
+ * Direct Meta Lead Ads webhook (Facebook → this app). **Deprecated for Saintly ops:** ingestion is
+ * expected via Make.com → `POST /api/integrations/facebook-leads` (`FACEBOOK_LEADS_WEBHOOK_SECRET`).
+ * This route remains for backward compatibility if env tokens are still configured.
+ *
+ * Env:
  * - FACEBOOK_VERIFY_TOKEN — subscription verification (GET hub.verify_token)
  * - FACEBOOK_PAGE_ACCESS_TOKEN — Graph API token to read lead by leadgen_id
  * - FACEBOOK_GRAPH_API_VERSION — optional (default v21.0), used by ingestion helper
