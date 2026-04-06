@@ -1604,6 +1604,182 @@ span.shh-referral-channel-value {
   color: #4b5563;
 }
 
+.shh-why-card--referral h3 {
+  font-size: 14px;
+}
+
+/* Referrals page — partner pills spacing */
+.shh-partner-pills {
+  gap: 10px 12px;
+}
+
+/* Referrals — scannable service list */
+.shh-referral-service-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+
+@media (min-width: 480px) {
+  .shh-referral-service-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px 14px;
+  }
+}
+
+@media (min-width: 900px) {
+  .shh-referral-service-list {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.shh-referral-service-list li {
+  position: relative;
+  padding: 12px 14px 12px 36px;
+  border-radius: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.5);
+  background: #ffffff;
+  font-size: 14px;
+  font-weight: 600;
+  color: #0f172a;
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.04);
+}
+
+.shh-referral-service-list li::before {
+  content: "✓";
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 13px;
+  color: #16a34a;
+  font-weight: 700;
+}
+
+/* Referrals — prominent contact block */
+.shh-referral-contact-block {
+  border-radius: 22px;
+  padding: 22px 18px 20px;
+  background: radial-gradient(circle at top left, #dbeafe, #ffffff 50%, #f8fafc 100%);
+  border: 1px solid rgba(37, 99, 235, 0.25);
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.08);
+}
+
+@media (min-width: 640px) {
+  .shh-referral-contact-block {
+    padding: 26px 24px 24px;
+  }
+}
+
+.shh-referral-contact-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+}
+
+@media (min-width: 768px) {
+  .shh-referral-contact-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 18px;
+  }
+
+  .shh-referral-contact-item--wide {
+    grid-column: span 3;
+  }
+}
+
+.shh-referral-contact-item {
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  padding: 16px 16px 14px;
+}
+
+.shh-referral-contact-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #64748b;
+  margin-bottom: 8px;
+}
+
+.shh-referral-contact-value {
+  display: inline-block;
+  font-size: 18px;
+  font-weight: 800;
+  color: #1d4ed8;
+  text-decoration: none;
+  word-break: break-word;
+}
+
+.shh-referral-contact-value:hover {
+  text-decoration: underline;
+}
+
+.shh-referral-contact-value--static {
+  color: #0f172a;
+  cursor: default;
+}
+
+.shh-referral-contact-hint {
+  display: block;
+  margin-top: 8px;
+  font-size: 12px;
+  color: #64748b;
+  line-height: 1.35;
+}
+
+.shh-referral-contact-area {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #334155;
+  font-weight: 500;
+}
+
+/* Hero note — referral contact line */
+.shh-hero-cta-note--compact {
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+@media (min-width: 640px) {
+  .shh-hero-cta-note--compact {
+    font-size: 13px;
+  }
+}
+
+/* Final CTA — three actions */
+.shh-final-cta-actions--triple {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+@media (min-width: 640px) {
+  .shh-final-cta-actions--triple {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    max-width: 720px;
+  }
+
+  .shh-final-cta-actions--triple .shh-btn-primary--lg {
+    flex: 1 1 auto;
+    min-width: 160px;
+  }
+
+  .shh-final-cta-actions--triple .shh-btn-outline-light {
+    flex: 1 1 auto;
+    min-width: 140px;
+  }
+}
+
 /* RESPONSIVE — hero */
 @media (max-width: 900px) {
   .shh-hero-inner {
