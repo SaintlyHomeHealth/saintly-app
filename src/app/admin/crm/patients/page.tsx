@@ -16,6 +16,7 @@ import {
 import { PAYER_BROAD_CATEGORY_OPTIONS } from "@/lib/crm/payer-type-options";
 import { SERVICE_DISCIPLINE_CODES } from "@/lib/crm/service-disciplines";
 import { supabaseAdmin } from "@/lib/admin";
+import { staffPrimaryLabel } from "@/lib/crm/crm-leads-table-helpers";
 import { formatPhoneForDisplay, normalizePhone } from "@/lib/phone/us-phone-format";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
@@ -90,26 +91,6 @@ function displayServiceLines(r: PatientRow): string {
   if (arr.length > 0) return arr.join(", ");
   const legacy = (r.service_type ?? "").trim();
   return legacy || "—";
-}
-
-function staffPrimaryLabel(s: {
-  user_id: string;
-  email: string | null;
-  full_name: string | null;
-}): string {
-  const name = (s.full_name ?? "").trim();
-  if (name) return name;
-  const em = (s.email ?? "").trim();
-  if (em) {
-    const local = em.split("@")[0]?.trim();
-    if (local) {
-      const words = local.replace(/[._+-]+/g, " ").split(/\s+/).filter(Boolean);
-      if (words.length > 0) {
-        return words.map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ");
-      }
-    }
-  }
-  return `${s.user_id.slice(0, 8)}…`;
 }
 
 function matchesDisciplineFilter(r: PatientRow, disc: string): boolean {

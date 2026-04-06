@@ -28,6 +28,7 @@ import {
   crmListScrollOuterCls,
   crmPrimaryCtaCls,
 } from "@/components/admin/crm-admin-list-styles";
+import { staffPrimaryLabel } from "@/lib/crm/crm-leads-table-helpers";
 import { contactRowsActiveOnly } from "@/lib/crm/contacts-active";
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { buildDuplicateFlagsForBatch } from "@/lib/crm/contact-duplicate-detection";
@@ -38,26 +39,6 @@ import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 const DIRECTORY_FETCH_LIMIT = 2000;
 const DIRECTORY_DISPLAY_CAP = 125;
-
-function staffPrimaryLabel(s: {
-  user_id: string;
-  email: string | null;
-  full_name: string | null;
-}): string {
-  const name = (s.full_name ?? "").trim();
-  if (name) return name;
-  const em = (s.email ?? "").trim();
-  if (em) {
-    const local = em.split("@")[0]?.trim();
-    if (local) {
-      const words = local.replace(/[._+-]+/g, " ").split(/\s+/).filter(Boolean);
-      if (words.length > 0) {
-        return words.map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ");
-      }
-    }
-  }
-  return `${s.user_id.slice(0, 8)}…`;
-}
 
 function buildFilterQueryString(sp: { type?: string; q?: string }): string {
   const u = new URLSearchParams();
