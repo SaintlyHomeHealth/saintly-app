@@ -67,6 +67,14 @@ function buildFilterQueryString(sp: { type?: string; q?: string }): string {
   return qs ? `?${qs}` : "";
 }
 
+/** UI-only: omit detail lines when value is empty or the usual empty sentinel (no backend change). */
+function hasContactDetailLine(v: string | null | undefined): boolean {
+  const t = (v ?? "").trim();
+  if (!t) return false;
+  if (t === "—") return false;
+  return true;
+}
+
 export default async function AdminCrmContactsPage({
   searchParams,
 }: {
@@ -266,6 +274,7 @@ export default async function AdminCrmContactsPage({
               const sourceLabel = resolveDirectorySourceLabel(r, leads);
               const statusLabel = resolveDirectoryStatusLabel(r, patient, leads);
               const cred = credentialingSummaryFromMetadata(r.relationship_metadata);
+              const phoneLine = formatPhoneForDisplay(r.primary_phone);
               const displayName = contactDirectoryDisplayName(r);
               const dup = duplicateFlags.get(r.id);
               const dupLabel =
@@ -309,26 +318,38 @@ export default async function AdminCrmContactsPage({
                   </div>
 
                   <div className="min-w-0 space-y-1.5 text-xs leading-relaxed text-slate-700">
-                    <div className="flex items-start gap-1.5">
-                      <Phone className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
-                      <span className="tabular-nums">{formatPhoneForDisplay(r.primary_phone)}</span>
-                    </div>
-                    <div className="flex min-w-0 items-start gap-1.5">
-                      <Mail className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
-                      <span className="min-w-0 break-words">{r.email?.trim() ? r.email : "—"}</span>
-                    </div>
-                    <div>
-                      <span className="text-slate-500">Source</span> · {sourceLabel}
-                    </div>
-                    <div>
-                      <span className="text-slate-500">Owner</span> · {owner ? staffPrimaryLabel(owner) : "—"}
-                    </div>
-                    <div>
-                      <span className="text-slate-500">Status</span> · {statusLabel}
-                    </div>
-                    <div className="text-slate-600">
-                      <span className="text-slate-500">Credentialing</span> · {cred}
-                    </div>
+                    {hasContactDetailLine(phoneLine) ? (
+                      <div className="flex items-start gap-1.5">
+                        <Phone className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
+                        <span className="tabular-nums">{phoneLine}</span>
+                      </div>
+                    ) : null}
+                    {hasContactDetailLine(r.email) ? (
+                      <div className="flex min-w-0 items-start gap-1.5">
+                        <Mail className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
+                        <span className="min-w-0 break-words">{(r.email ?? "").trim()}</span>
+                      </div>
+                    ) : null}
+                    {hasContactDetailLine(sourceLabel) ? (
+                      <div>
+                        <span className="text-slate-500">Source</span> · {sourceLabel}
+                      </div>
+                    ) : null}
+                    {owner ? (
+                      <div>
+                        <span className="text-slate-500">Owner</span> · {staffPrimaryLabel(owner)}
+                      </div>
+                    ) : null}
+                    {hasContactDetailLine(statusLabel) ? (
+                      <div>
+                        <span className="text-slate-500">Status</span> · {statusLabel}
+                      </div>
+                    ) : null}
+                    {hasContactDetailLine(cred) ? (
+                      <div className="text-slate-600">
+                        <span className="text-slate-500">Credentialing</span> · {cred}
+                      </div>
+                    ) : null}
                   </div>
 
                   <div className="flex min-w-0 flex-col items-stretch gap-3 sm:items-end">
