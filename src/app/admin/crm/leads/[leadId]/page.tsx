@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation";
 
 import { LeadWorkspace } from "../lead-workspace";
 import { parseEmploymentApplicationMeta, type EmploymentApplicationMeta } from "@/lib/crm/lead-employment-meta";
+import { parseLeadIntakeRequestFromMetadata } from "@/lib/crm/lead-intake-request";
 import { isLeadPipelineTerminal, isValidLeadPipelineStatus } from "@/lib/crm/lead-pipeline-status";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
@@ -182,6 +183,8 @@ export default async function LeadIntakePage({
     intake_status: str(L.intake_status),
   };
 
+  const intakeRequestDefaults = parseLeadIntakeRequestFromMetadata(L.external_source_metadata);
+
   return (
     <LeadWorkspace
       mode="existing"
@@ -211,6 +214,7 @@ export default async function LeadIntakePage({
       employmentMeta={employmentMeta}
       referralSourceLine={referralSourceLine}
       applicationNotes={typeof L.notes === "string" ? L.notes : ""}
+      intakeRequestDefaults={intakeRequestDefaults}
     />
   );
 }

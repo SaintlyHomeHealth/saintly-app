@@ -21,6 +21,10 @@ import { isValidLeadNextAction } from "@/lib/crm/lead-follow-up-options";
 import { isValidLeadPipelineStatus } from "@/lib/crm/lead-pipeline-status";
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { isValidLeadSource } from "@/lib/crm/lead-source-options";
+import {
+  hasAnyIntakeRequestDetail,
+  type LeadIntakeRequestDetails,
+} from "@/lib/crm/lead-intake-request";
 import { isValidServiceDisciplineCode, parseServiceDisciplinesFromFormData } from "@/lib/crm/service-disciplines";
 import { convertLeadToPatient } from "@/app/admin/phone/actions";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
@@ -981,6 +985,20 @@ function readOptionalIntakeText(formData: FormData, key: string): string | null 
   return t === "" ? null : t;
 }
 
+function readIntakeRequestFromForm(formData: FormData): LeadIntakeRequestDetails {
+  const get = (k: string) => {
+    const v = formData.get(k);
+    return typeof v === "string" ? v.trim() : "";
+  };
+  return {
+    zip_code: get("intake_zip_code"),
+    service_needed: get("intake_service_needed"),
+    care_for: get("intake_care_for"),
+    start_time: get("intake_start_time"),
+    situation: get("intake_situation"),
+  };
+}
+
 /** Digits-only for optional phone/fax fields (empty → null). */
 function readOptionalNormalizedPhone(formData: FormData, key: string): string | null {
   const v = formData.get(key);
@@ -1040,6 +1058,18 @@ export async function updateLeadIntake(formData: FormData) {
     return;
   }
 
+  const intake = readIntakeRequestFromForm(formData);
+  const { data: metaRow } = await supabaseAdmin
+    .from("leads")
+    .select("external_source_metadata")
+    .eq("id", leadId)
+    .maybeSingle();
+
+  const prev = metaRow?.external_source_metadata;
+  const mergedMeta: Record<string, unknown> =
+    prev && typeof prev === "object" && !Array.isArray(prev) ? { ...(prev as Record<string, unknown>) } : {};
+  mergedMeta.intake_request = intake;
+
   const disciplines = parseServiceDisciplinesFromFormData(formData);
   const pipelineStatus = readLeadPipelineStatusFromForm(formData);
   const payload = {
@@ -1060,6 +1090,8 @@ export async function updateLeadIntake(formData: FormData) {
     service_disciplines: disciplines,
     service_type: disciplines.length > 0 ? disciplines.join(", ") : null,
     intake_status: readOptionalIntakeText(formData, "intake_status"),
+    external_source_metadata: mergedMeta,
+    notes: readOptionalIntakeText(formData, "lead_notes"),
   };
 
   const { error } = await supabaseAdmin.from("leads").update(payload).eq("id", leadId).is("deleted_at", null);
@@ -1821,6 +1853,9 @@ export async function createLeadManualFromCrm(formData: FormData) {
 
   const secondary_phone = readOptionalNormalizedPhone(formData, "secondary_phone");
 
+  const intake = readIntakeRequestFromForm(formData);
+  const extMeta = hasAnyIntakeRequestDetail(intake) ? { intake_request: intake } : null;
+
   const { data: contactRow, error: cErr } = await supabaseAdmin
     .from("contacts")
     .insert({
@@ -1830,6 +1865,7 @@ export async function createLeadManualFromCrm(formData: FormData) {
       primary_phone,
       secondary_phone,
       email: readTrimmedOrNull(formData, "email"),
+      zip: readOptionalIntakeText(formData, "intake_zip_code"),
     })
     .select("id")
     .single();
@@ -1864,6 +1900,8 @@ export async function createLeadManualFromCrm(formData: FormData) {
       service_disciplines: disciplines,
       service_type: disciplines.length > 0 ? disciplines.join(", ") : null,
       intake_status: readOptionalIntakeText(formData, "intake_status"),
+      external_source_metadata: extMeta,
+      notes: readOptionalIntakeText(formData, "lead_notes"),
     })
     .select("id")
     .single();

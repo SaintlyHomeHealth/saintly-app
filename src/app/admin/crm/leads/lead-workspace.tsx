@@ -22,6 +22,7 @@ import {
   updateLeadIntake,
 } from "../actions";
 import type { EmploymentApplicationMeta } from "@/lib/crm/lead-employment-meta";
+import { hasAnyIntakeRequestDetail, type LeadIntakeRequestDetails } from "@/lib/crm/lead-intake-request";
 import { addCalendarDaysToIsoDate, getCrmCalendarTodayIso, getCrmCalendarTomorrowIso } from "@/lib/crm/crm-local-date";
 import { formatLeadLastContactSummary } from "@/lib/crm/lead-contact-outcome";
 import { formatPhoneNumber } from "@/lib/phone/us-phone-format";
@@ -143,6 +144,8 @@ export type LeadWorkspaceExistingProps = {
   referralSourceLine?: string;
   /** Raw `leads.notes` (application summary from intake). */
   applicationNotes?: string;
+  /** Facebook / Zapier / manual — `external_source_metadata.intake_request` (+ graph fallback on server). */
+  intakeRequestDefaults: LeadIntakeRequestDetails;
 };
 
 export type LeadWorkspaceNewProps = {
@@ -324,6 +327,44 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
             </div>
           </div>
 
+          <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+            <h2 className="text-sm font-semibold text-slate-900">Request details</h2>
+            <p className="mt-1 text-xs text-slate-500">
+              Same fields as Facebook / Zapier intake (stored on the lead record for reporting).
+            </p>
+            <div className="mt-4 grid max-w-2xl gap-3 sm:grid-cols-2">
+              <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+                ZIP code
+                <input name="intake_zip_code" autoComplete="postal-code" className={inp} />
+              </label>
+              <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
+                Service needed
+                <input name="intake_service_needed" className={inp} />
+              </label>
+              <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
+                Care for
+                <input name="intake_care_for" className={inp} />
+              </label>
+              <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
+                Start time / timing
+                <input name="intake_start_time" className={inp} />
+              </label>
+              <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
+                Situation
+                <textarea name="intake_situation" rows={3} className={inp} />
+              </label>
+              <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
+                Lead notes (general)
+                <textarea
+                  name="lead_notes"
+                  rows={3}
+                  className={inp}
+                  placeholder="Optional notes on this lead (separate from intake status)."
+                />
+              </label>
+            </div>
+          </div>
+
           <div>
             <button
               type="submit"
@@ -364,6 +405,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
     employmentMeta = null,
     referralSourceLine = "",
     applicationNotes = "",
+    intakeRequestDefaults,
   } = props;
 
   const lastContactLine = formatLeadLastContactSummary(lastContactAt, lastOutcome);
@@ -422,6 +464,45 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
           <span className="font-medium text-slate-900">{lastContactLine}</span>
         </p>
       </div>
+
+      {isEmployeeLead && hasAnyIntakeRequestDetail(intakeRequestDefaults) ? (
+        <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+          <h2 className="text-sm font-semibold text-slate-900">Request details</h2>
+          <p className="mt-1 text-xs text-slate-500">From lead intake metadata (same shape as Facebook / Zapier).</p>
+          <dl className="mt-3 grid gap-2 sm:grid-cols-2">
+            {intakeRequestDefaults.zip_code.trim() ? (
+              <div>
+                <dt className="text-[10px] font-semibold uppercase text-slate-500">ZIP</dt>
+                <dd className="text-sm">{intakeRequestDefaults.zip_code}</dd>
+              </div>
+            ) : null}
+            {intakeRequestDefaults.service_needed.trim() ? (
+              <div className="sm:col-span-2">
+                <dt className="text-[10px] font-semibold uppercase text-slate-500">Service needed</dt>
+                <dd className="text-sm">{intakeRequestDefaults.service_needed}</dd>
+              </div>
+            ) : null}
+            {intakeRequestDefaults.care_for.trim() ? (
+              <div className="sm:col-span-2">
+                <dt className="text-[10px] font-semibold uppercase text-slate-500">Care for</dt>
+                <dd className="text-sm">{intakeRequestDefaults.care_for}</dd>
+              </div>
+            ) : null}
+            {intakeRequestDefaults.start_time.trim() ? (
+              <div className="sm:col-span-2">
+                <dt className="text-[10px] font-semibold uppercase text-slate-500">Start time</dt>
+                <dd className="text-sm">{intakeRequestDefaults.start_time}</dd>
+              </div>
+            ) : null}
+            {intakeRequestDefaults.situation.trim() ? (
+              <div className="sm:col-span-2">
+                <dt className="text-[10px] font-semibold uppercase text-slate-500">Situation</dt>
+                <dd className="mt-1 whitespace-pre-wrap text-sm text-slate-800">{intakeRequestDefaults.situation}</dd>
+              </div>
+            ) : null}
+          </dl>
+        </div>
+      ) : null}
 
       {convertErr ? (
         <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
@@ -728,6 +809,12 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
               <input type="hidden" name="payer_type" value={intakeDefaults.payer_type} />
               <input type="hidden" name="referral_source" value={intakeDefaults.referral_source} />
               <input type="hidden" name="intake_status" value={intakeDefaults.intake_status} />
+              <input type="hidden" name="intake_zip_code" value={intakeRequestDefaults.zip_code} />
+              <input type="hidden" name="intake_service_needed" value={intakeRequestDefaults.service_needed} />
+              <input type="hidden" name="intake_care_for" value={intakeRequestDefaults.care_for} />
+              <input type="hidden" name="intake_start_time" value={intakeRequestDefaults.start_time} />
+              <input type="hidden" name="intake_situation" value={intakeRequestDefaults.situation} />
+              <input type="hidden" name="lead_notes" value={applicationNotes} />
               {leadDisciplinesForForm.map((d) => (
                 <input key={d} type="hidden" name="service_disciplines" value={d} />
               ))}
@@ -873,6 +960,57 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
           </div>
           ) : null}
 
+          {!isEmployeeLead ? (
+            <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+              <h2 className="text-sm font-semibold text-slate-900">Request details</h2>
+              <p className="mt-1 text-xs text-slate-500">
+                Same fields as Facebook / Zapier intake (`external_source_metadata.intake_request`).
+              </p>
+              <div className="mt-4 grid max-w-2xl gap-3 sm:grid-cols-2">
+                <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+                  ZIP code
+                  <input
+                    name="intake_zip_code"
+                    autoComplete="postal-code"
+                    className={inp}
+                    defaultValue={intakeRequestDefaults.zip_code}
+                  />
+                </label>
+                <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
+                  Service needed
+                  <input name="intake_service_needed" className={inp} defaultValue={intakeRequestDefaults.service_needed} />
+                </label>
+                <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
+                  Care for
+                  <input name="intake_care_for" className={inp} defaultValue={intakeRequestDefaults.care_for} />
+                </label>
+                <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
+                  Start time / timing
+                  <input name="intake_start_time" className={inp} defaultValue={intakeRequestDefaults.start_time} />
+                </label>
+                <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
+                  Situation
+                  <textarea
+                    name="intake_situation"
+                    rows={3}
+                    className={inp}
+                    defaultValue={intakeRequestDefaults.situation}
+                  />
+                </label>
+                <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
+                  Lead notes (general)
+                  <textarea
+                    name="lead_notes"
+                    rows={3}
+                    className={inp}
+                    defaultValue={applicationNotes}
+                    placeholder="Optional notes on this lead (separate from intake status)."
+                  />
+                </label>
+              </div>
+            </div>
+          ) : null}
+
           <div>
             <button
               type="submit"
@@ -902,6 +1040,43 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
               <dt className="text-[10px] font-semibold uppercase text-slate-500">Next action</dt>
               <dd>{nextActionVal || "—"}</dd>
             </div>
+            {hasAnyIntakeRequestDetail(intakeRequestDefaults) ? (
+              <div className="sm:col-span-2">
+                <dt className="text-[10px] font-semibold uppercase text-slate-500">Request details</dt>
+                <dd className="mt-1 space-y-1 text-sm text-slate-800">
+                  {intakeRequestDefaults.zip_code.trim() ? (
+                    <p>
+                      <span className="font-medium text-slate-600">ZIP: </span>
+                      {intakeRequestDefaults.zip_code}
+                    </p>
+                  ) : null}
+                  {intakeRequestDefaults.service_needed.trim() ? (
+                    <p>
+                      <span className="font-medium text-slate-600">Service needed: </span>
+                      {intakeRequestDefaults.service_needed}
+                    </p>
+                  ) : null}
+                  {intakeRequestDefaults.care_for.trim() ? (
+                    <p>
+                      <span className="font-medium text-slate-600">Care for: </span>
+                      {intakeRequestDefaults.care_for}
+                    </p>
+                  ) : null}
+                  {intakeRequestDefaults.start_time.trim() ? (
+                    <p>
+                      <span className="font-medium text-slate-600">Start time: </span>
+                      {intakeRequestDefaults.start_time}
+                    </p>
+                  ) : null}
+                  {intakeRequestDefaults.situation.trim() ? (
+                    <p className="whitespace-pre-wrap">
+                      <span className="font-medium text-slate-600">Situation: </span>
+                      {intakeRequestDefaults.situation}
+                    </p>
+                  ) : null}
+                </dd>
+              </div>
+            ) : null}
           </dl>
         </div>
       )}

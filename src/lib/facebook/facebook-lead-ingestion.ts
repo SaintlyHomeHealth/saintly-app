@@ -9,6 +9,7 @@ import { revalidatePath } from "next/cache";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { buildLeadIntakeRequestFromFieldMap } from "@/lib/crm/lead-intake-request";
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { isKnownPayerBroadCategory } from "@/lib/crm/payer-type-options";
 import { isValidServiceDisciplineCode, type ServiceDisciplineCode } from "@/lib/crm/service-disciplines";
@@ -431,6 +432,7 @@ async function completeFacebookLeadInsertFromFieldMap(
     graph_created_time: graphCreatedTime ?? null,
     raw_webhook_body: rawBodyText.slice(0, 100_000),
     graph_field_data: fieldDataForMeta ?? null,
+    intake_request: buildLeadIntakeRequestFromFieldMap(fieldMap),
     ingestion_received_at: ingestionReceivedAt,
     ingestion_completed_at: new Date().toISOString(),
   };
