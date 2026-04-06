@@ -9,3 +9,6 @@ export const MAILTO_INTAKE = `mailto:${EMAIL_INTAKE}`;
 export const ADDRESS_LINE_STREET = "64 East Broadway Rd, Suite 200-235";
 export const ADDRESS_LINE_CITY = "Tempe, AZ 85282";
 export const ADDRESS_FULL = `${ADDRESS_LINE_STREET}, ${ADDRESS_LINE_CITY}`;
+
+/** Display on Privacy Policy and Terms of Service (update when legal text changes). */
+export const LEGAL_EFFECTIVE_DATE_DISPLAY = "April 5, 2026";

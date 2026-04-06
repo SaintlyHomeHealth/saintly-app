@@ -1,5 +1,6 @@
 import { MarketingContactForm } from "./MarketingContactForm";
 import { MarketingFinalCtaStrip } from "./MarketingFinalCtaStrip";
+import { MarketingSiteFooter } from "./MarketingSiteFooter";
 import { MarketingSiteHeader } from "./MarketingSiteHeader";
 import { MarketingStickyMobileCta } from "./MarketingStickyMobileCta";
 import {
@@ -200,30 +201,7 @@ export function MarketingContactPage() {
 
         <MarketingFinalCtaStrip />
 
-        <footer className="mt-10 border-t border-slate-200 pt-8 text-center text-sm text-slate-500">
-          <p>
-            © {new Date().getFullYear()} Saintly Home Health LLC · Tempe, Arizona
-          </p>
-          <p className="mt-3">
-            <a href="/" className="font-medium text-slate-600 underline-offset-2 hover:text-slate-900">
-              Home
-            </a>
-            {" · "}
-            <a
-              href="/services"
-              className="font-medium text-slate-600 underline-offset-2 hover:text-slate-900"
-            >
-              Services
-            </a>
-            {" · "}
-            <a
-              href="/employment"
-              className="font-medium text-slate-600 underline-offset-2 hover:text-slate-900"
-            >
-              Careers
-            </a>
-          </p>
-        </footer>
+        <MarketingSiteFooter />
       </div>
 
       <MarketingStickyMobileCta />

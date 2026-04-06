@@ -1997,6 +1997,56 @@ span.shh-referral-channel-value {
   }
 }
 
+/* Legal long-form (Privacy, Terms) */
+.shh-legal-doc {
+  max-width: 42rem;
+  margin: 0 auto 48px;
+  padding: 0 4px 24px;
+  font-size: 15px;
+  line-height: 1.65;
+  color: #334155;
+}
+
+.shh-legal-doc h2 {
+  margin-top: 2rem;
+  margin-bottom: 0.75rem;
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: #0f172a;
+  letter-spacing: -0.02em;
+}
+
+.shh-legal-doc h2:first-child {
+  margin-top: 0;
+}
+
+.shh-legal-doc p {
+  margin: 0 0 1rem;
+}
+
+.shh-legal-doc ul {
+  margin: 0 0 1rem 1.25rem;
+  padding: 0;
+  list-style: disc;
+}
+
+.shh-legal-doc li {
+  margin-bottom: 0.35rem;
+}
+
+.shh-legal-lead {
+  font-size: 1.02rem;
+  color: #1e293b;
+}
+
+.shh-legal-footnote {
+  margin-top: 2rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.4);
+  font-size: 0.875rem;
+  color: #64748b;
+}
+
 /* RESPONSIVE — hero */
 @media (max-width: 900px) {
   .shh-hero-inner {

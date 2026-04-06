@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { MarketingFinalCtaStrip } from "@/components/marketing/MarketingFinalCtaStrip";
+import { MarketingSiteFooter } from "@/components/marketing/MarketingSiteFooter";
 import { MarketingSiteHeader } from "@/components/marketing/MarketingSiteHeader";
 import { MarketingStickyMobileCta } from "@/components/marketing/MarketingStickyMobileCta";
 import { MARKETING_NAV_EMPLOYMENT_PAGE } from "@/components/marketing/marketing-nav";
@@ -218,6 +219,17 @@ export function EmploymentClientPage() {
               A few focused steps—no account required. We use this information to qualify fit and follow up by
               phone or email; we do not use it to create an employee record until you complete a formal hiring
               process with our team.
+            </p>
+            <p className="mx-auto mt-4 max-w-[40rem] text-center text-xs leading-relaxed text-slate-600">
+              By submitting this application, you agree to our{" "}
+              <a className="font-semibold text-sky-800 underline-offset-2 hover:underline" href="/privacy">
+                Privacy Policy
+              </a>{" "}
+              and{" "}
+              <a className="font-semibold text-sky-800 underline-offset-2 hover:underline" href="/terms">
+                Terms of Service
+              </a>
+              .
             </p>
           </div>
 
@@ -443,22 +455,7 @@ export function EmploymentClientPage() {
 
         <MarketingFinalCtaStrip />
 
-        <footer className="mt-10 border-t border-slate-200 pt-8 text-center text-sm text-slate-500">
-          <p>© {new Date().getFullYear()} Saintly Home Health LLC · Tempe, Arizona</p>
-          <p className="mt-3">
-            <a href="/" className="font-medium text-slate-600 underline-offset-2 hover:text-slate-900">
-              Home
-            </a>
-            {" · "}
-            <a href="/contact" className="font-medium text-slate-600 underline-offset-2 hover:text-slate-900">
-              Contact
-            </a>
-            {" · "}
-            <a href="/services" className="font-medium text-slate-600 underline-offset-2 hover:text-slate-900">
-              Services
-            </a>
-          </p>
-        </footer>
+        <MarketingSiteFooter />
       </div>
 
       <MarketingStickyMobileCta />
