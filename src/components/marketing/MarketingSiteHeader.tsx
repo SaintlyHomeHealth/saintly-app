@@ -21,8 +21,9 @@ export function MarketingSiteHeader({ navLinks = MARKETING_NAV_DEFAULT }: Market
           <Image
             src="/marketing/saintly-logo.png"
             alt=""
-            width={40}
-            height={40}
+            width={1024}
+            height={656}
+            className="shh-site-brand-logo"
             priority
           />
           <span className="shh-site-brand-text">

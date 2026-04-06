@@ -56,11 +56,16 @@
   min-width: 0;
 }
 
-.shh-site-brand img {
-  width: 40px;
-  height: 40px;
+/* Logo PNG is non-square; size by height only so aspect ratio stays natural */
+.shh-site-brand img,
+.shh-site-brand-logo {
+  display: block;
+  height: 48px;
+  width: auto;
   object-fit: contain;
   flex-shrink: 0;
+  flex-grow: 0;
+  align-self: center;
 }
 
 .shh-site-brand-text {
