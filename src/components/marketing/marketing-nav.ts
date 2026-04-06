@@ -10,9 +10,8 @@ export const MARKETING_NAV_DEFAULT = [
   { href: "/contact", label: "Contact" },
 ] as const;
 
-/** Services page: include Home + in-page anchors. */
+/** Services page: in-page anchor for Services (Home = logo). */
 export const MARKETING_NAV_SERVICES_PAGE = [
-  { href: "/", label: "Home" },
   { href: "/services#featured", label: "Services" },
   { href: "/about", label: "About" },
   { href: "/referrals", label: "Referrals" },
@@ -25,7 +24,6 @@ export const MARKETING_NAV_SERVICES_PAGE = [
 
 /** Contact / intake page. */
 export const MARKETING_NAV_CONTACT_PAGE = [
-  { href: "/", label: "Home" },
   { href: "/services", label: "Services" },
   { href: "/about", label: "About" },
   { href: "/referrals", label: "Referrals" },
@@ -38,7 +36,6 @@ export const MARKETING_NAV_CONTACT_PAGE = [
 
 /** About page. */
 export const MARKETING_NAV_ABOUT_PAGE = [
-  { href: "/", label: "Home" },
   { href: "/services", label: "Services" },
   { href: "/about#top", label: "About" },
   { href: "/referrals", label: "Referrals" },
@@ -51,7 +48,6 @@ export const MARKETING_NAV_ABOUT_PAGE = [
 
 /** Referral partners page. */
 export const MARKETING_NAV_REFERRALS_PAGE = [
-  { href: "/", label: "Home" },
   { href: "/services", label: "Services" },
   { href: "/about", label: "About" },
   { href: "/referrals#top", label: "Referrals" },
@@ -64,7 +60,6 @@ export const MARKETING_NAV_REFERRALS_PAGE = [
 
 /** Careers / employment application. */
 export const MARKETING_NAV_EMPLOYMENT_PAGE = [
-  { href: "/", label: "Home" },
   { href: "/services", label: "Services" },
   { href: "/about", label: "About" },
   { href: "/referrals", label: "Referrals" },
@@ -77,7 +72,6 @@ export const MARKETING_NAV_EMPLOYMENT_PAGE = [
 
 /** FAQ page. */
 export const MARKETING_NAV_FAQ_PAGE = [
-  { href: "/", label: "Home" },
   { href: "/services", label: "Services" },
   { href: "/about", label: "About" },
   { href: "/referrals", label: "Referrals" },
@@ -90,7 +84,6 @@ export const MARKETING_NAV_FAQ_PAGE = [
 
 /** Privacy Policy, Terms of Service, and other legal long-form pages. */
 export const MARKETING_NAV_LEGAL_PAGE = [
-  { href: "/", label: "Home" },
   { href: "/services", label: "Services" },
   { href: "/about", label: "About" },
   { href: "/referrals", label: "Referrals" },
