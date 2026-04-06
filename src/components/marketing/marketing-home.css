@@ -1780,6 +1780,223 @@ span.shh-referral-channel-value {
   }
 }
 
+/* FAQ page */
+.shh-faq-toc {
+  margin: 0 0 28px;
+  padding: 16px 16px 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(148, 163, 184, 0.5);
+  background: linear-gradient(to bottom, #ffffff, #f8fafc);
+}
+
+.shh-faq-toc-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #64748b;
+  margin: 0 0 10px;
+}
+
+.shh-faq-toc ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.shh-faq-toc a {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 12px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #1d4ed8;
+  text-decoration: none;
+  background: rgba(59, 130, 246, 0.09);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+.shh-faq-toc a:hover {
+  background: rgba(59, 130, 246, 0.14);
+}
+
+.shh-faq-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.shh-faq-category-title {
+  font-size: 18px;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 0 0 12px;
+  letter-spacing: -0.02em;
+}
+
+.shh-faq-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.shh-faq-details {
+  border-radius: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.55);
+  background: #ffffff;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.04);
+  overflow: hidden;
+}
+
+.shh-faq-summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 14px 40px 14px 16px;
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f172a;
+  line-height: 1.35;
+  position: relative;
+}
+
+.shh-faq-summary::-webkit-details-marker {
+  display: none;
+}
+
+.shh-faq-summary::after {
+  content: "+";
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 18px;
+  font-weight: 700;
+  color: #1d4ed8;
+  line-height: 1;
+}
+
+.shh-faq-details[open] .shh-faq-summary::after {
+  content: "−";
+}
+
+.shh-faq-details[open] .shh-faq-summary {
+  border-bottom: 1px solid rgba(148, 163, 184, 0.35);
+  background: linear-gradient(to bottom, #f8fafc, #ffffff);
+}
+
+.shh-faq-answer {
+  padding: 14px 16px 16px;
+}
+
+.shh-faq-answer p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.55;
+  color: #475569;
+}
+
+.shh-faq-help-block {
+  border-radius: 22px;
+  padding: 22px 18px 20px;
+  background: radial-gradient(circle at top right, #e0f2fe, #ffffff 55%, #f1f5f9 100%);
+  border: 1px solid rgba(148, 163, 184, 0.65);
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.06);
+}
+
+@media (min-width: 640px) {
+  .shh-faq-help-block {
+    padding: 26px 24px 22px;
+  }
+}
+
+.shh-faq-help-title {
+  font-size: 20px;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 0 0 8px;
+  letter-spacing: -0.02em;
+}
+
+.shh-faq-help-lead {
+  margin: 0 0 18px;
+  font-size: 14px;
+  color: #475569;
+  line-height: 1.5;
+}
+
+.shh-faq-help-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+@media (min-width: 640px) {
+  .shh-faq-help-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+  }
+}
+
+.shh-faq-help-item {
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  padding: 12px 14px 10px;
+}
+
+.shh-faq-help-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #64748b;
+  margin-bottom: 6px;
+}
+
+.shh-faq-help-value {
+  font-size: 16px;
+  font-weight: 800;
+  color: #1d4ed8;
+  text-decoration: none;
+}
+
+.shh-faq-help-value:hover {
+  text-decoration: underline;
+}
+
+.shh-faq-help-value--muted {
+  color: #0f172a;
+  cursor: default;
+}
+
+.shh-faq-help-hint {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.shh-faq-help-email {
+  margin: 0;
+  text-align: center;
+  font-size: 14px;
+}
+
+@media (min-width: 640px) {
+  .shh-faq-help-email {
+    text-align: left;
+  }
+}
+
 /* RESPONSIVE — hero */
 @media (max-width: 900px) {
   .shh-hero-inner {
