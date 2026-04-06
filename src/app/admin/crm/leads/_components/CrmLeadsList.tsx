@@ -29,7 +29,7 @@ import {
   pickOutboundE164ForDial,
 } from "@/lib/workspace-phone/launch-urls";
 
-function LeadTypeBadge({ leadType }: { leadType: string | null }) {
+function LeadTypeBadge({ leadType, status }: { leadType: string | null; status: string | null }) {
   if (leadType === "employee") {
     return (
       <span className="inline-flex w-fit rounded-full bg-indigo-100 px-2 py-0.5 text-[11px] font-semibold text-indigo-900 ring-1 ring-indigo-200/70">
@@ -37,9 +37,17 @@ function LeadTypeBadge({ leadType }: { leadType: string | null }) {
       </span>
     );
   }
+  const st = (status ?? "").trim().toLowerCase();
+  if (st === "converted") {
+    return (
+      <span className="inline-flex w-fit rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-900 ring-1 ring-emerald-200/70">
+        Patient
+      </span>
+    );
+  }
   return (
-    <span className="inline-flex w-fit rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-900 ring-1 ring-emerald-200/70">
-      Patient
+    <span className="inline-flex w-fit rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-semibold text-sky-900 ring-1 ring-sky-200/70">
+      Lead
     </span>
   );
 }
@@ -326,7 +334,7 @@ export function CrmLeadsList({ initialList, employeeOnlyView, staffOptions }: Pr
                         {displayName}
                       </Link>
                       <div className="flex flex-wrap items-center gap-2">
-                        <LeadTypeBadge leadType={r.lead_type} />
+                        <LeadTypeBadge leadType={r.lead_type} status={r.status} />
                         <span className="text-xs text-slate-600">{formatLeadSourceLabel(r.source)}</span>
                       </div>
                     </div>
@@ -446,7 +454,7 @@ export function CrmLeadsList({ initialList, employeeOnlyView, staffOptions }: Pr
                         {displayName}
                       </Link>
                       <div className="flex flex-wrap items-center gap-2">
-                        <LeadTypeBadge leadType={r.lead_type} />
+                        <LeadTypeBadge leadType={r.lead_type} status={r.status} />
                         <span className="text-xs text-slate-600">{formatLeadSourceLabel(r.source)}</span>
                       </div>
                     </div>
