@@ -1,8 +1,18 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { Phone } from "lucide-react";
 
 import { PatientSmsForm } from "./patient-sms-form";
 import { updateCrmPatientStatus } from "../actions";
+import {
+  crmActionBtnMuted,
+  crmActionBtnSky,
+  crmFilterBarCls,
+  crmFilterInputCls,
+  crmListRowHoverCls,
+  crmListScrollOuterCls,
+  crmPrimaryCtaCls,
+} from "@/components/admin/crm-admin-list-styles";
 import { PAYER_BROAD_CATEGORY_OPTIONS } from "@/lib/crm/payer-type-options";
 import { SERVICE_DISCIPLINE_CODES } from "@/lib/crm/service-disciplines";
 import { supabaseAdmin } from "@/lib/admin";
@@ -148,6 +158,23 @@ function intersectIds(a: string[] | null, b: string[]): string[] {
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const EMPTY_SENTINEL = "00000000-0000-0000-0000-000000000000";
+
+function PatientStatusBadge({ status }: { status: string }) {
+  const s = status.toLowerCase();
+  const ring =
+    s === "active"
+      ? "bg-emerald-100 text-emerald-900 ring-emerald-200/70"
+      : s === "pending"
+        ? "bg-amber-100 text-amber-900 ring-amber-200/70"
+        : s === "discharged"
+          ? "bg-slate-200 text-slate-800 ring-slate-300/70"
+          : "bg-slate-100 text-slate-700 ring-slate-200/70";
+  return (
+    <span className={`inline-flex w-fit rounded-full px-2 py-0.5 text-[11px] font-semibold capitalize ring-1 ${ring}`}>
+      {status}
+    </span>
+  );
+}
 
 export default async function AdminCrmPatientsPage({
   searchParams,
@@ -298,11 +325,6 @@ export default async function AdminCrmPatientsPage({
     }
   }
 
-  const filterInputCls =
-    "rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800 shadow-sm";
-  const addPatientCls =
-    "inline-flex shrink-0 items-center justify-center rounded-[20px] bg-gradient-to-r from-sky-600 to-cyan-500 px-3 py-2 text-center text-xs font-semibold text-white shadow-sm shadow-sky-200/60 transition hover:-translate-y-px hover:shadow-md hover:shadow-sky-200/80 sm:text-sm";
-
   return (
     <div className="space-y-6 p-6">
       <AdminPageHeader
@@ -315,20 +337,16 @@ export default async function AdminCrmPatientsPage({
           </>
         }
         actions={
-          <Link href="/admin/crm/patients/new" className={addPatientCls} title="Add or convert a patient.">
+          <Link href="/admin/crm/patients/new" className={crmPrimaryCtaCls} title="Add or convert a patient.">
             + Add patient
           </Link>
         }
       />
 
-      <form
-        method="get"
-        action="/admin/crm/patients"
-        className="flex flex-wrap items-end gap-2 rounded-[20px] border border-slate-200 bg-slate-50/80 p-4 shadow-sm"
-      >
-        <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+      <form method="get" action="/admin/crm/patients" className={crmFilterBarCls}>
+        <label className="flex min-w-[8rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
           Status
-          <select name="status" defaultValue={f.status} className={filterInputCls}>
+          <select name="status" defaultValue={f.status} className={crmFilterInputCls}>
             <option value="">All</option>
             <option value="active">Active</option>
             <option value="inactive">Inactive</option>
@@ -336,9 +354,9 @@ export default async function AdminCrmPatientsPage({
             <option value="discharged">Discharged</option>
           </select>
         </label>
-        <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+        <label className="flex min-w-[10rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
           Assigned to
-          <select name="assignedTo" defaultValue={f.assignedTo} className={`${filterInputCls} min-w-[11rem]`}>
+          <select name="assignedTo" defaultValue={f.assignedTo} className={`${crmFilterInputCls} min-w-[11rem]`}>
             <option value="">All patients</option>
             <option value="me">My patients</option>
             <option value="unassigned">Unassigned (no primary nurse)</option>
@@ -351,9 +369,9 @@ export default async function AdminCrmPatientsPage({
             </optgroup>
           </select>
         </label>
-        <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+        <label className="flex min-w-[6rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
           Discipline
-          <select name="discipline" defaultValue={f.discipline} className={filterInputCls}>
+          <select name="discipline" defaultValue={f.discipline} className={crmFilterInputCls}>
             <option value="">Any</option>
             {SERVICE_DISCIPLINE_CODES.map((d) => (
               <option key={d} value={d}>
@@ -362,9 +380,9 @@ export default async function AdminCrmPatientsPage({
             ))}
           </select>
         </label>
-        <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+        <label className="flex min-w-[8rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
           Payer type
-          <select name="payerType" defaultValue={f.payerType} className={`${filterInputCls} min-w-[9rem]`}>
+          <select name="payerType" defaultValue={f.payerType} className={`${crmFilterInputCls} min-w-[9rem]`}>
             <option value="">Any</option>
             {PAYER_BROAD_CATEGORY_OPTIONS.map((p) => (
               <option key={p} value={p}>
@@ -373,9 +391,9 @@ export default async function AdminCrmPatientsPage({
             ))}
           </select>
         </label>
-        <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+        <label className="flex min-w-[10rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
           Primary nurse
-          <select name="primaryNurse" defaultValue={f.primaryNurse} className={`${filterInputCls} min-w-[11rem]`}>
+          <select name="primaryNurse" defaultValue={f.primaryNurse} className={`${crmFilterInputCls} min-w-[11rem]`}>
             <option value="">Any</option>
             {staffOptions.map((s) => (
               <option key={`pn-${s.user_id}`} value={s.user_id}>
@@ -384,14 +402,14 @@ export default async function AdminCrmPatientsPage({
             ))}
           </select>
         </label>
-        <label className="flex min-w-[10rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+        <label className="flex min-w-[12rem] flex-1 flex-col gap-0.5 text-[11px] font-medium text-slate-600">
           Search name / phone
           <input
             type="search"
             name="q"
             defaultValue={f.q}
             placeholder="Name or phone…"
-            className={filterInputCls}
+            className={crmFilterInputCls}
           />
         </label>
         <button
@@ -408,92 +426,89 @@ export default async function AdminCrmPatientsPage({
         </Link>
       </form>
 
-      <div className="overflow-x-auto rounded-[28px] border border-slate-200 bg-white shadow-sm">
-        <table className="w-full min-w-[960px] text-left text-sm">
-          <thead>
-            <tr className="border-b border-slate-100 bg-slate-50 text-xs font-semibold text-slate-600">
-              <th className="px-4 py-3">Status</th>
-              <th className="px-4 py-3">Start of care</th>
-              <th className="px-4 py-3">Services</th>
-              <th className="px-4 py-3">Payer</th>
-              <th className="px-4 py-3">Payer type</th>
-              <th className="px-4 py-3">Contact</th>
-              <th className="px-4 py-3">Primary nurse</th>
-              <th className="min-w-[180px] px-4 py-3">Clinicians</th>
-              <th className="whitespace-nowrap px-4 py-3">Actions</th>
-              <th className="min-w-[180px] px-4 py-3">SMS</th>
-            </tr>
-          </thead>
-          <tbody>
-            {list.length === 0 ? (
-              <tr>
-                <td colSpan={10} className="px-4 py-8 text-slate-500">
-                  No patients match these filters.
-                </td>
-              </tr>
-            ) : (
-              list.map((r) => {
-                const contact = normalizeContact(r.contacts);
-                const assigns = normalizeAssignments(r.patient_assignments);
-                const primaryUid = activePrimaryNurse(assigns);
-                const hasPhone = Boolean((contact?.primary_phone ?? "").trim());
-                const clinicians = assigns.filter((a) => a.is_active && a.role === "clinician" && a.assigned_user_id);
+      <div className={crmListScrollOuterCls}>
+        <div className="min-w-[1080px] text-sm">
+          <div className="hidden gap-x-6 border-b border-slate-100 bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-600 md:grid md:grid-cols-[minmax(13rem,1.15fr)_minmax(16rem,1.35fr)_minmax(18rem,1.5fr)]">
+            <div>Patient</div>
+            <div>Care &amp; coverage</div>
+            <div className="text-right">Contact &amp; actions</div>
+          </div>
+          {list.length === 0 ? (
+            <div className="px-4 py-10 text-slate-500">No patients match these filters.</div>
+          ) : (
+            list.map((r) => {
+              const contact = normalizeContact(r.contacts);
+              const displayName = contactDisplayName(contact);
+              const assigns = normalizeAssignments(r.patient_assignments);
+              const primaryUid = activePrimaryNurse(assigns);
+              const hasPhone = Boolean((contact?.primary_phone ?? "").trim());
+              const clinicians = assigns.filter((a) => a.is_active && a.role === "clinician" && a.assigned_user_id);
+              const phoneDisplay = (contact?.primary_phone ?? "").trim() ? formatPhoneForDisplay(contact?.primary_phone ?? "") : null;
 
-                return (
-                  <tr key={r.id} className="border-b border-slate-100 last:border-0">
-                    <td className="align-top px-4 py-3">
-                      <div className="flex flex-col gap-1">
-                        <span className="capitalize text-slate-800">{r.patient_status}</span>
-                        <form action={updateCrmPatientStatus} className="flex flex-wrap items-center gap-1">
-                          <input type="hidden" name="patientId" value={r.id} />
-                          <input type="hidden" name="returnTo" value={returnTo} />
-                          <select
-                            name="patient_status"
-                            defaultValue={r.patient_status}
-                            className="max-w-[9rem] rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] text-slate-800"
-                          >
-                            <option value="active">Active</option>
-                            <option value="inactive">Inactive</option>
-                            <option value="pending">Pending</option>
-                            <option value="discharged">Discharged</option>
-                          </select>
-                          <button
-                            type="submit"
-                            className="rounded border border-slate-300 bg-white px-1.5 py-0.5 text-[10px] font-medium text-slate-700 hover:bg-slate-50"
-                          >
-                            Set
-                          </button>
-                        </form>
-                      </div>
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-slate-600">{r.start_of_care ?? "—"}</td>
-                    <td className="max-w-[140px] px-4 py-3 text-xs text-slate-700" title={displayServiceLines(r)}>
-                      {displayServiceLines(r)}
-                    </td>
-                    <td className="max-w-[160px] truncate px-4 py-3 text-slate-600">{r.payer_name ?? "—"}</td>
-                    <td className="max-w-[120px] truncate px-4 py-3 text-slate-600">{r.payer_type ?? "—"}</td>
-                    <td className="px-4 py-3 text-slate-800">
-                      <div className="text-sm">{contactDisplayName(contact)}</div>
-                      {(contact?.primary_phone ?? "").trim() ? (
-                        <div className="mt-0.5 text-[11px] tabular-nums text-slate-600">
-                          {formatPhoneForDisplay(contact?.primary_phone ?? "")}
-                        </div>
-                      ) : null}
-                      <div className="font-mono text-[10px] text-slate-400">{r.contact_id}</div>
-                    </td>
-                    <td className="px-4 py-3 text-xs text-slate-700">
+              return (
+                <div
+                  key={r.id}
+                  className={`grid grid-cols-1 gap-x-6 gap-y-4 border-b border-slate-100 px-4 py-4 transition-all last:border-0 md:grid-cols-[minmax(13rem,1.15fr)_minmax(16rem,1.35fr)_minmax(18rem,1.5fr)] md:items-start ${crmListRowHoverCls}`}
+                >
+                  <div className="min-w-0 space-y-2">
+                    <Link
+                      href={`/admin/crm/patients/${r.id}`}
+                      className="block font-bold leading-snug text-slate-900 hover:text-sky-800 hover:underline"
+                    >
+                      {displayName}
+                    </Link>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <PatientStatusBadge status={r.patient_status} />
+                    </div>
+                    <p className="text-xs leading-snug text-slate-600" title={displayServiceLines(r)}>
+                      <span className="font-medium text-slate-500">Services</span> · {displayServiceLines(r)}
+                    </p>
+                    <form action={updateCrmPatientStatus} className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                      <input type="hidden" name="patientId" value={r.id} />
+                      <input type="hidden" name="returnTo" value={returnTo} />
+                      <span className="text-[10px] font-medium uppercase tracking-wide text-slate-400">Status</span>
+                      <select
+                        name="patient_status"
+                        defaultValue={r.patient_status}
+                        className="max-w-[9rem] rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-800 shadow-sm"
+                      >
+                        <option value="active">Active</option>
+                        <option value="inactive">Inactive</option>
+                        <option value="pending">Pending</option>
+                        <option value="discharged">Discharged</option>
+                      </select>
+                      <button
+                        type="submit"
+                        className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
+                      >
+                        Set
+                      </button>
+                    </form>
+                  </div>
+
+                  <div className="min-w-0 space-y-1.5 text-xs leading-relaxed text-slate-700">
+                    <div>
+                      <span className="text-slate-500">Start of care</span> ·{" "}
+                      <span className="tabular-nums">{r.start_of_care ?? "—"}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500">Payer type</span> · {r.payer_type ?? "—"}
+                    </div>
+                    <div className="break-words">
+                      <span className="text-slate-500">Payer</span> · {r.payer_name ?? "—"}
+                    </div>
+                    <div>
+                      <span className="text-slate-500">Primary nurse</span> ·{" "}
                       {primaryUid ? (
-                        <div>
-                          <div className="text-sm text-slate-800">{displayByUserId[primaryUid] ?? emailByUserId[primaryUid]}</div>
-                          <div className="mt-0.5 text-[10px] text-slate-400">
-                            {(emailByUserId[primaryUid] ?? "").trim() || "—"}
-                          </div>
-                        </div>
+                        <span title={(emailByUserId[primaryUid] ?? "").trim() || undefined}>
+                          {displayByUserId[primaryUid] ?? emailByUserId[primaryUid]}
+                        </span>
                       ) : (
                         <span className="text-slate-400">—</span>
                       )}
-                    </td>
-                    <td className="max-w-[280px] px-4 py-3 align-top text-xs leading-snug text-slate-700">
+                    </div>
+                    <div className="text-slate-700">
+                      <span className="text-slate-500">Clinicians</span> ·{" "}
                       {clinicians.length === 0 ? (
                         <span className="text-slate-400">—</span>
                       ) : (
@@ -510,32 +525,37 @@ export default async function AdminCrmPatientsPage({
                             .join(", ")}
                         </span>
                       )}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3 align-top">
-                      <div className="flex flex-col gap-1.5">
-                        <Link
-                          href={`/admin/crm/patients/${r.id}`}
-                          className="text-xs font-semibold text-sky-800 underline-offset-2 hover:underline"
-                        >
-                          Manage
-                        </Link>
-                        <Link
-                          href={`/admin/crm/patients/${r.id}/visits`}
-                          className="text-[11px] font-medium text-slate-600 underline-offset-2 hover:underline"
-                        >
-                          Visits
-                        </Link>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 align-top">
+                    </div>
+                  </div>
+
+                  <div className="flex min-w-0 flex-col gap-3 md:items-end">
+                    <div className="w-full min-w-0 md:text-right">
+                      {phoneDisplay ? (
+                        <div className="inline-flex items-center gap-1.5 text-xs text-slate-700 md:justify-end">
+                          <Phone className="h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
+                          <span className="tabular-nums">{phoneDisplay}</span>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-slate-400">No phone on file</span>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1.5 md:justify-end">
+                      <Link href={`/admin/crm/patients/${r.id}`} className={crmActionBtnSky}>
+                        Manage
+                      </Link>
+                      <Link href={`/admin/crm/patients/${r.id}/visits`} className={crmActionBtnMuted}>
+                        Visits
+                      </Link>
+                    </div>
+                    <div className="flex justify-end border-t border-slate-100 pt-2 sm:justify-end">
                       <PatientSmsForm patientId={r.id} disabled={!hasPhone} />
-                    </td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
       </div>
     </div>
   );

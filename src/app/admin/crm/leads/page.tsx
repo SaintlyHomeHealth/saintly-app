@@ -15,6 +15,7 @@ import { SERVICE_DISCIPLINE_CODES } from "@/lib/crm/service-disciplines";
 import { supabaseAdmin } from "@/lib/admin";
 import { normalizePhone } from "@/lib/phone/us-phone-format";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
+import { crmFilterBarCls, crmFilterInputCls, crmPrimaryCtaCls } from "@/components/admin/crm-admin-list-styles";
 import {
   contactDisplayName,
   normalizeContact,
@@ -185,11 +186,6 @@ export default async function AdminCrmLeadsPage({
 
   const employeeOnlyView = f.leadType === "employee";
 
-  const filterInputCls =
-    "rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800 shadow-sm";
-  const addLeadCls =
-    "inline-flex shrink-0 items-center justify-center rounded-[20px] bg-gradient-to-r from-sky-600 to-cyan-500 px-3 py-2 text-center text-xs font-semibold text-white shadow-sm shadow-sky-200/60 transition hover:-translate-y-px hover:shadow-md hover:shadow-sky-200/80 sm:text-sm";
-
   const toastBanner =
     toastParam === "lead_deleted" ? (
       <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-950">
@@ -228,20 +224,16 @@ export default async function AdminCrmLeadsPage({
           </>
         }
         actions={
-          <Link href="/admin/crm/leads/new" className={addLeadCls}>
+          <Link href="/admin/crm/leads/new" className={crmPrimaryCtaCls}>
             + New Lead
           </Link>
         }
       />
 
-      <form
-        method="get"
-        action="/admin/crm/leads"
-        className="flex flex-wrap items-end gap-3 rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm"
-      >
+      <form method="get" action="/admin/crm/leads" className={crmFilterBarCls}>
         <label className="flex min-w-[8rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
           Status
-          <select name="status" defaultValue={f.status} className={filterInputCls}>
+          <select name="status" defaultValue={f.status} className={crmFilterInputCls}>
             <option value="">All</option>
             {LEAD_PIPELINE_STATUS_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>
@@ -252,7 +244,7 @@ export default async function AdminCrmLeadsPage({
         </label>
         <label className="flex min-w-[8rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
           Source
-          <select name="source" defaultValue={f.source} className={filterInputCls}>
+          <select name="source" defaultValue={f.source} className={crmFilterInputCls}>
             <option value="">All</option>
             {LEAD_SOURCE_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>
@@ -263,7 +255,7 @@ export default async function AdminCrmLeadsPage({
         </label>
         <label className="flex min-w-[10rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
           Owner
-          <select name="owner" defaultValue={f.owner} className={filterInputCls}>
+          <select name="owner" defaultValue={f.owner} className={crmFilterInputCls}>
             <option value="">All</option>
             {staffOptions.map((s) => (
               <option key={s.user_id} value={s.user_id}>
@@ -274,14 +266,14 @@ export default async function AdminCrmLeadsPage({
         </label>
         <label className="flex min-w-[8rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
           Follow-up
-          <select name="followUp" defaultValue={followUpToday ? "today" : ""} className={filterInputCls}>
+          <select name="followUp" defaultValue={followUpToday ? "today" : ""} className={crmFilterInputCls}>
             <option value="">Any</option>
             <option value="today">Today (Central)</option>
           </select>
         </label>
         <label className="flex min-w-[8rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
           Payer type
-          <select name="payerType" defaultValue={f.payerType} className={filterInputCls}>
+          <select name="payerType" defaultValue={f.payerType} className={crmFilterInputCls}>
             <option value="">All</option>
             {PAYER_BROAD_CATEGORY_OPTIONS.map((p) => (
               <option key={p} value={p}>
@@ -292,7 +284,7 @@ export default async function AdminCrmLeadsPage({
         </label>
         <label className="flex min-w-[6rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
           Discipline
-          <select name="discipline" defaultValue={f.discipline} className={filterInputCls}>
+          <select name="discipline" defaultValue={f.discipline} className={crmFilterInputCls}>
             <option value="">All</option>
             {SERVICE_DISCIPLINE_CODES.map((d) => (
               <option key={d} value={d}>
@@ -303,7 +295,7 @@ export default async function AdminCrmLeadsPage({
         </label>
         <label className="flex min-w-[10rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
           Lead type
-          <select name="leadType" defaultValue={f.leadType} className={filterInputCls}>
+          <select name="leadType" defaultValue={f.leadType} className={crmFilterInputCls}>
             <option value="">All (mixed)</option>
             <option value="patient">Patient &amp; referral</option>
             <option value="employee">Employee applicants</option>
@@ -316,7 +308,7 @@ export default async function AdminCrmLeadsPage({
             name="q"
             defaultValue={f.q}
             placeholder="Name or phone…"
-            className={filterInputCls}
+            className={crmFilterInputCls}
           />
         </label>
         <button

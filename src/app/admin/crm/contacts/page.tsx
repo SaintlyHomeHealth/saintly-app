@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { Mail, Phone } from "lucide-react";
 
 import {
   type ContactDirectoryDbRow,
@@ -18,6 +19,15 @@ import {
   resolveDirectoryStatusLabel,
 } from "@/lib/crm/contact-directory";
 import { ContactArchiveButton } from "@/app/admin/crm/contacts/_components/ContactArchiveButton";
+import {
+  crmActionBtnMuted,
+  crmActionBtnSky,
+  crmContactsToolbarCls,
+  crmFilterInputCls,
+  crmListRowHoverCls,
+  crmListScrollOuterCls,
+  crmPrimaryCtaCls,
+} from "@/components/admin/crm-admin-list-styles";
 import { contactRowsActiveOnly } from "@/lib/crm/contacts-active";
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { buildDuplicateFlagsForBatch } from "@/lib/crm/contact-duplicate-detection";
@@ -149,8 +159,6 @@ export default async function AdminCrmContactsPage({
 
   const duplicateFlags = buildDuplicateFlagsForBatch(contacts as ContactDirectoryDbRow[]);
 
-  const filterInputCls =
-    "rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800 shadow-sm";
   const chipBase =
     "inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-semibold transition";
   const chipOff = `${chipBase} border-slate-200 bg-white text-slate-600 hover:border-sky-200 hover:bg-sky-50`;
@@ -198,7 +206,7 @@ export default async function AdminCrmContactsPage({
 
       {toastBanner}
 
-      <div className="flex flex-col gap-3 rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
+      <div className={crmContactsToolbarCls}>
         <form method="get" className="flex w-full flex-col gap-2 sm:max-w-md sm:flex-1">
           <label className="text-xs font-semibold text-slate-600" htmlFor="crm-contacts-q">
             Search
@@ -210,12 +218,9 @@ export default async function AdminCrmContactsPage({
               name="q"
               defaultValue={q}
               placeholder="Name, email, phone, plan id…"
-              className={`${filterInputCls} min-w-[200px] flex-1`}
+              className={`${crmFilterInputCls} min-w-[200px] flex-1`}
             />
-            <button
-              type="submit"
-              className="inline-flex shrink-0 items-center justify-center rounded-[20px] bg-gradient-to-r from-sky-600 to-cyan-500 px-4 py-2 text-xs font-semibold text-white shadow-sm shadow-sky-200/60 transition hover:-translate-y-px hover:shadow-md hover:shadow-sky-200/80 sm:text-sm"
-            >
+            <button type="submit" className={crmPrimaryCtaCls}>
               Apply
             </button>
           </div>
@@ -242,121 +247,113 @@ export default async function AdminCrmContactsPage({
         })}
       </div>
 
-      <div className="overflow-x-auto rounded-[28px] border border-slate-200 bg-white shadow-sm">
-        <table className="w-full min-w-[960px] text-left text-sm">
-          <thead>
-            <tr className="border-b border-slate-100 bg-slate-50 text-xs font-semibold text-slate-600">
-              <th className="px-4 py-3">Name</th>
-              <th className="px-4 py-3">Dup?</th>
-              <th className="px-4 py-3">Phone</th>
-              <th className="px-4 py-3">Email</th>
-              <th className="px-4 py-3">Type</th>
-              <th className="px-4 py-3">Status</th>
-              <th className="px-4 py-3">Owner</th>
-              <th className="px-4 py-3">Source</th>
-              <th className="px-4 py-3">Credentialing</th>
-              <th className="px-4 py-3">Records</th>
-              <th className="px-4 py-3">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {list.length === 0 ? (
-              <tr>
-                <td colSpan={11} className="px-4 py-8 text-slate-500">
-                  No contacts match these filters.
-                </td>
-              </tr>
-            ) : (
-              list.map((r) => {
-                const patient = patientByContactId.get(r.id) ?? null;
-                const leads = leadsByContactId.get(r.id) ?? [];
-                const badges = buildRelationshipTypeBadges(r, patient, leads);
-                const ownerId = resolveDirectoryOwnerUserId(r, leads);
-                const owner = ownerId ? staffByUserId[ownerId] : null;
-                const sourceLabel = resolveDirectorySourceLabel(r, leads);
-                const statusLabel = resolveDirectoryStatusLabel(r, patient, leads);
-                const cred = credentialingSummaryFromMetadata(r.relationship_metadata);
-                const displayName = contactDirectoryDisplayName(r);
-                const dup = duplicateFlags.get(r.id);
-                const dupLabel =
-                  dup && (dup.duplicateByPhone || dup.duplicateByEmail)
-                    ? dup.reasons.join(" · ")
-                    : null;
-                return (
-                  <tr key={r.id} className="border-b border-slate-100 last:border-0">
-                    <td className="px-4 py-3">
-                      <Link
-                        href={`/admin/crm/contacts/${r.id}${returnTo ? `?returnTo=${encodeURIComponent(returnTo)}` : ""}`}
-                        className="font-medium text-sky-800 underline-offset-2 hover:underline"
-                      >
-                        {displayName}
-                      </Link>
-                    </td>
-                    <td className="px-4 py-3 text-xs">
-                      {dupLabel ? (
+      <div className={crmListScrollOuterCls}>
+        <div className="min-w-[1040px] text-sm">
+          <div className="hidden gap-x-6 border-b border-slate-100 bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-600 md:grid md:grid-cols-[minmax(12rem,1.2fr)_minmax(15rem,1.35fr)_minmax(14rem,1.25fr)]">
+            <div>Contact</div>
+            <div>Details</div>
+            <div className="text-right">Records &amp; actions</div>
+          </div>
+          {list.length === 0 ? (
+            <div className="px-4 py-10 text-slate-500">No contacts match these filters.</div>
+          ) : (
+            list.map((r) => {
+              const patient = patientByContactId.get(r.id) ?? null;
+              const leads = leadsByContactId.get(r.id) ?? [];
+              const badges = buildRelationshipTypeBadges(r, patient, leads);
+              const ownerId = resolveDirectoryOwnerUserId(r, leads);
+              const owner = ownerId ? staffByUserId[ownerId] : null;
+              const sourceLabel = resolveDirectorySourceLabel(r, leads);
+              const statusLabel = resolveDirectoryStatusLabel(r, patient, leads);
+              const cred = credentialingSummaryFromMetadata(r.relationship_metadata);
+              const displayName = contactDirectoryDisplayName(r);
+              const dup = duplicateFlags.get(r.id);
+              const dupLabel =
+                dup && (dup.duplicateByPhone || dup.duplicateByEmail) ? dup.reasons.join(" · ") : null;
+              const detailHref = `/admin/crm/contacts/${r.id}${returnTo ? `?returnTo=${encodeURIComponent(returnTo)}` : ""}`;
+
+              return (
+                <div
+                  key={r.id}
+                  className={`grid grid-cols-1 gap-x-6 gap-y-4 border-b border-slate-100 px-4 py-4 transition-all last:border-0 md:grid-cols-[minmax(12rem,1.2fr)_minmax(15rem,1.35fr)_minmax(14rem,1.25fr)] md:items-start ${crmListRowHoverCls}`}
+                >
+                  <div className="min-w-0 space-y-2">
+                    <Link
+                      href={detailHref}
+                      className="block font-bold leading-snug text-slate-900 hover:text-sky-800 hover:underline"
+                    >
+                      {displayName}
+                    </Link>
+                    <div className="flex flex-wrap gap-1.5">
+                      {badges.map((b) => (
                         <span
-                          className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 font-semibold text-amber-900"
-                          title={`Possible duplicate within loaded list by: ${dupLabel}`}
+                          key={b}
+                          className="inline-flex rounded-full border border-sky-100 bg-sky-50 px-2 py-0.5 text-[11px] font-semibold text-sky-900 ring-1 ring-sky-200/60"
                         >
-                          {dup?.duplicateByPhone && dup?.duplicateByEmail ? "Phone+email" : dup?.duplicateByPhone ? "Phone" : "Email"}
+                          {b}
                         </span>
-                      ) : (
-                        <span className="text-slate-400">—</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-xs tabular-nums text-slate-700">
-                      {formatPhoneForDisplay(r.primary_phone)}
-                    </td>
-                    <td className="max-w-[180px] truncate px-4 py-3 text-slate-700">{r.email ?? "—"}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex max-w-[220px] flex-wrap gap-1">
-                        {badges.map((b) => (
-                          <span
-                            key={b}
-                            className="inline-flex rounded-full border border-sky-100 bg-sky-50 px-2 py-0.5 text-[10px] font-semibold text-sky-900"
-                          >
-                            {b}
-                          </span>
-                        ))}
-                      </div>
-                    </td>
-                    <td className="max-w-[140px] px-4 py-3 text-xs text-slate-700">{statusLabel}</td>
-                    <td className="max-w-[120px] px-4 py-3 text-xs text-slate-700">
-                      {owner ? staffPrimaryLabel(owner) : "—"}
-                    </td>
-                    <td className="max-w-[120px] truncate px-4 py-3 text-xs text-slate-600">{sourceLabel}</td>
-                    <td className="max-w-[160px] px-4 py-3 text-xs text-slate-600">{cred}</td>
-                    <td className="px-4 py-3 text-xs">
-                      <div className="flex flex-col gap-1">
-                        {patient ? (
-                          <Link
-                            href={`/admin/crm/patients/${patient.id}`}
-                            className="text-sky-800 underline-offset-2 hover:underline"
-                          >
-                            Patient
-                          </Link>
-                        ) : null}
-                        {leads.map((l) => (
-                          <Link
-                            key={l.id}
-                            href={`/admin/crm/leads/${l.id}`}
-                            className="text-sky-800 underline-offset-2 hover:underline"
-                          >
-                            Lead
-                          </Link>
-                        ))}
-                        {!patient && leads.length === 0 ? <span className="text-slate-400">—</span> : null}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 align-top">
-                      <ContactArchiveButton contactId={r.id} archiveContext="list" />
-                    </td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
+                      ))}
+                    </div>
+                    {dupLabel ? (
+                      <span
+                        className="inline-flex w-fit rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-900 ring-1 ring-amber-200/70"
+                        title={`Possible duplicate within loaded list by: ${dupLabel}`}
+                      >
+                        {dup?.duplicateByPhone && dup?.duplicateByEmail
+                          ? "Duplicate · phone+email"
+                          : dup?.duplicateByPhone
+                            ? "Duplicate · phone"
+                            : "Duplicate · email"}
+                      </span>
+                    ) : null}
+                  </div>
+
+                  <div className="min-w-0 space-y-1.5 text-xs leading-relaxed text-slate-700">
+                    <div className="flex items-start gap-1.5">
+                      <Phone className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
+                      <span className="tabular-nums">{formatPhoneForDisplay(r.primary_phone)}</span>
+                    </div>
+                    <div className="flex min-w-0 items-start gap-1.5">
+                      <Mail className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
+                      <span className="min-w-0 break-words">{r.email?.trim() ? r.email : "—"}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500">Source</span> · {sourceLabel}
+                    </div>
+                    <div>
+                      <span className="text-slate-500">Owner</span> · {owner ? staffPrimaryLabel(owner) : "—"}
+                    </div>
+                    <div>
+                      <span className="text-slate-500">Status</span> · {statusLabel}
+                    </div>
+                    <div className="text-slate-600">
+                      <span className="text-slate-500">Credentialing</span> · {cred}
+                    </div>
+                  </div>
+
+                  <div className="flex min-w-0 flex-col items-stretch gap-3 sm:items-end">
+                    <div className="flex w-full flex-wrap justify-end gap-1.5">
+                      {patient ? (
+                        <Link href={`/admin/crm/patients/${patient.id}`} className={crmActionBtnSky}>
+                          Patient
+                        </Link>
+                      ) : null}
+                      {leads.map((l) => (
+                        <Link key={l.id} href={`/admin/crm/leads/${l.id}`} className={crmActionBtnMuted}>
+                          Lead
+                        </Link>
+                      ))}
+                      {!patient && leads.length === 0 ? <span className="text-xs text-slate-400">No records</span> : null}
+                    </div>
+                    <div className="flex w-full justify-end border-t border-slate-100 pt-2">
+                      <ContactArchiveButton contactId={r.id} archiveContext="list" variant="tableInline" />
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
       </div>
     </div>
   );

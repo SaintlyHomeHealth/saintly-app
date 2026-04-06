@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 
 import { bulkSoftDeleteLeads } from "@/app/admin/crm/actions";
 import { LeadDeleteButton } from "@/app/admin/crm/leads/_components/LeadDeleteButton";
+import { crmListRowHoverCls, crmListScrollOuterCls } from "@/components/admin/crm-admin-list-styles";
 import { formatLeadLastContactSummary } from "@/lib/crm/lead-contact-outcome";
 import { formatLeadNextActionLabel } from "@/lib/crm/lead-follow-up-options";
 import { formatLeadPipelineStatusLabel } from "@/lib/crm/lead-pipeline-status";
@@ -27,9 +28,6 @@ import {
   buildWorkspaceSmsToContactHref,
   pickOutboundE164ForDial,
 } from "@/lib/workspace-phone/launch-urls";
-
-const leadRowHoverCls =
-  "hover:z-[1] hover:rounded-xl hover:border-slate-100 hover:bg-slate-50/90 hover:shadow-md hover:shadow-slate-200/60";
 
 function LeadTypeBadge({ leadType }: { leadType: string | null }) {
   if (leadType === "employee") {
@@ -257,7 +255,7 @@ export function CrmLeadsList({ initialList, employeeOnlyView, staffOptions }: Pr
   return (
     <div className="space-y-3">
       {bulkBar}
-      <div className="overflow-x-auto rounded-[28px] border border-slate-200 bg-white shadow-sm">
+      <div className={crmListScrollOuterCls}>
         {employeeOnlyView ? (
           <div className="min-w-[1040px] text-sm">
             <div className="hidden gap-x-6 border-b border-slate-100 bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-600 md:grid md:grid-cols-[2.5rem_minmax(11rem,1fr)_minmax(15rem,1.35fr)_minmax(16rem,1.5fr)_minmax(5.5rem,auto)]">
@@ -312,7 +310,7 @@ export function CrmLeadsList({ initialList, employeeOnlyView, staffOptions }: Pr
                 return (
                   <div
                     key={r.id}
-                    className={`grid grid-cols-1 gap-x-6 gap-y-4 border-b border-slate-100 px-4 py-4 transition-all last:border-0 md:grid-cols-[2.5rem_minmax(11rem,1fr)_minmax(15rem,1.35fr)_minmax(16rem,1.5fr)_minmax(5.5rem,auto)] md:items-center ${leadRowHoverCls}`}
+                    className={`grid grid-cols-1 gap-x-6 gap-y-4 border-b border-slate-100 px-4 py-4 transition-all last:border-0 md:grid-cols-[2.5rem_minmax(11rem,1fr)_minmax(15rem,1.35fr)_minmax(16rem,1.5fr)_minmax(5.5rem,auto)] md:items-center ${crmListRowHoverCls}`}
                   >
                     <div className="flex items-start justify-center pt-0.5 md:items-center md:self-center md:pt-0">
                       <input
@@ -432,7 +430,7 @@ export function CrmLeadsList({ initialList, employeeOnlyView, staffOptions }: Pr
                 return (
                   <div
                     key={r.id}
-                    className={`grid grid-cols-1 gap-x-6 gap-y-4 border-b border-slate-100 px-4 py-4 transition-all last:border-0 md:grid-cols-[2.5rem_minmax(11rem,1fr)_minmax(12rem,1.1fr)_minmax(11rem,1fr)_minmax(17rem,1.4fr)_minmax(5.5rem,auto)] md:items-center ${leadRowHoverCls}`}
+                    className={`grid grid-cols-1 gap-x-6 gap-y-4 border-b border-slate-100 px-4 py-4 transition-all last:border-0 md:grid-cols-[2.5rem_minmax(11rem,1fr)_minmax(12rem,1.1fr)_minmax(11rem,1fr)_minmax(17rem,1.4fr)_minmax(5.5rem,auto)] md:items-center ${crmListRowHoverCls}`}
                   >
                     <div className="flex items-start justify-center pt-0.5 md:items-center md:self-center md:pt-0">
                       <input

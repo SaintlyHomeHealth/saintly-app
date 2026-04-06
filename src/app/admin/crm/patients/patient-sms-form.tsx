@@ -14,13 +14,13 @@ export function PatientSmsForm({ patientId, disabled }: { patientId: string; dis
   const [isPending, startTransition] = useTransition();
 
   const inputCls =
-    "mt-1 w-full max-w-[220px] rounded border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-800 placeholder:text-slate-400";
+    "mt-1 w-full max-w-[220px] rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[11px] text-slate-800 shadow-sm placeholder:text-slate-400";
   const btnCls =
-    "rounded border border-slate-300 bg-white px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50";
+    "rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50";
   const btnPrimary =
-    "rounded border border-emerald-600 bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-900 hover:bg-emerald-100 disabled:opacity-50";
+    "rounded-lg border border-emerald-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-emerald-900 shadow-sm hover:bg-emerald-50 disabled:opacity-50";
   const btnNurse =
-    "rounded border border-sky-600 bg-sky-50 px-2 py-1 text-[11px] font-semibold text-sky-900 hover:bg-sky-100 disabled:opacity-50";
+    "rounded-lg border border-sky-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-sky-900 shadow-sm hover:bg-sky-50 disabled:opacity-50";
 
   function sendNurseOnTheWay() {
     setFeedback(null);
