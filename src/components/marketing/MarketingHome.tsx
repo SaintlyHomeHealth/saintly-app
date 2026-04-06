@@ -171,7 +171,7 @@ export function MarketingHome() {
               alt="Caregiver supporting an older adult at home"
               fill
               sizes="(max-width: 768px) 100vw, min(1120px, 100vw)"
-              className="object-cover"
+              className="object-cover shh-hero-media-img"
               priority
             />
           </div>
@@ -218,8 +218,8 @@ export function MarketingHome() {
                 src="/marketing/wound-care.jpg"
                 alt="Skilled nurse providing wound care at home"
                 fill
-                sizes="(max-width: 767px) 100vw, 400px"
-                className="object-cover"
+                sizes="(max-width: 767px) 100vw, (max-width: 1100px) 52vw, 560px"
+                className="object-cover shh-services-intro-img"
               />
             </div>
           </div>
@@ -230,7 +230,7 @@ export function MarketingHome() {
                 src="/marketing/therapy.jpg"
                 alt=""
                 fill
-                sizes="(max-width: 639px) 88px, 112px"
+                sizes="(max-width: 639px) 148px, 168px"
                 className="object-cover"
               />
             </div>
@@ -327,8 +327,8 @@ export function MarketingHome() {
                 src="/marketing/trust.jpg"
                 alt="Clinician and patient sharing a warm moment at home"
                 fill
-                sizes="(max-width: 767px) 100vw, 380px"
-                className="object-cover"
+                sizes="(max-width: 767px) 100vw, (max-width: 1100px) 55vw, 620px"
+                className="object-cover shh-trust-intro-img"
               />
             </div>
           </div>
