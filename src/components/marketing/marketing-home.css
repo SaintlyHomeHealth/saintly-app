@@ -1250,6 +1250,116 @@
   }
 }
 
+/* Services page — primary wound-care visual (full-width anchor under hero) */
+.shh-services-page-anchor {
+  margin: 0 0 32px;
+}
+
+@media (min-width: 768px) {
+  .shh-services-page-anchor {
+    margin-bottom: 40px;
+  }
+}
+
+.shh-services-page-anchor-figure {
+  position: relative;
+  width: 100%;
+  border-radius: 20px;
+  overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, 0.5);
+  box-shadow: 0 20px 48px rgba(15, 23, 42, 0.13);
+  aspect-ratio: 16 / 9;
+  min-height: 220px;
+  max-height: 420px;
+  background: #f1f5f9;
+}
+
+@media (min-width: 640px) {
+  .shh-services-page-anchor-figure {
+    min-height: 280px;
+    max-height: 480px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .shh-services-page-anchor-figure {
+    aspect-ratio: 2 / 1;
+    min-height: 320px;
+    max-height: min(52vh, 520px);
+  }
+}
+
+.shh-services-page-anchor-figure img,
+.shh-services-page-anchor-img {
+  object-fit: cover;
+  object-position: center center;
+}
+
+/* Services page — therapy band (secondary visual before PT / OT / ST cards) */
+.shh-services-therapy-feature {
+  display: grid;
+  gap: 22px;
+  margin: 8px 0 20px;
+  align-items: center;
+}
+
+@media (min-width: 768px) {
+  .shh-services-therapy-feature {
+    grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr);
+    gap: 32px;
+    margin: 4px 0 24px;
+  }
+}
+
+.shh-services-therapy-feature-figure {
+  position: relative;
+  width: 100%;
+  border-radius: 20px;
+  overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, 0.5);
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.1);
+  aspect-ratio: 4 / 3;
+  min-height: 200px;
+  max-height: 300px;
+  background: #f1f5f9;
+}
+
+@media (min-width: 640px) {
+  .shh-services-therapy-feature-figure {
+    min-height: 220px;
+    max-height: 340px;
+  }
+}
+
+@media (min-width: 768px) {
+  .shh-services-therapy-feature-figure {
+    max-height: 360px;
+  }
+}
+
+.shh-services-therapy-feature-figure img,
+.shh-services-therapy-feature-img {
+  object-fit: cover;
+  object-position: center 42%;
+}
+
+.shh-services-therapy-feature-text .shh-section-kicker {
+  margin-bottom: 6px;
+}
+
+.shh-services-therapy-feature-lead {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.65;
+  color: #475569;
+}
+
+@media (min-width: 640px) {
+  .shh-services-therapy-feature-lead {
+    font-size: 15px;
+  }
+}
+
 /* Who we help */
 .shh-who-grid {
   list-style: none;

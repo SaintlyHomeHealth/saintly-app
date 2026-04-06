@@ -1,3 +1,4 @@
+import Image from "next/image";
 import { MarketingFinalCtaStrip } from "./MarketingFinalCtaStrip";
 import { MarketingSiteFooter } from "./MarketingSiteFooter";
 import { MarketingSiteHeader } from "./MarketingSiteHeader";
@@ -38,6 +39,8 @@ const FEATURED = [
     body: "Speech, language, cognition, and swallowing support after stroke, illness, or injury.",
   },
 ] as const;
+
+const FEATURED_THERAPY_START = 2;
 
 const ADDITIONAL = [
   {
@@ -114,6 +117,22 @@ export function MarketingServicesPage() {
           </div>
         </section>
 
+        <section
+          className="shh-services-page-anchor"
+          aria-label="Skilled wound care at home"
+        >
+          <div className="shh-services-page-anchor-figure">
+            <Image
+              src="/marketing/services-wound-care.jpg"
+              alt="Saintly clinician providing wound care at home with supplies and branded bag"
+              fill
+              sizes="(max-width: 767px) 100vw, min(1120px, 100vw)"
+              className="object-cover shh-services-page-anchor-img"
+              priority
+            />
+          </div>
+        </section>
+
         <section className="shh-section" id="featured" aria-labelledby="featured-title">
           <div className="shh-section-header">
             <div className="shh-section-kicker">Featured services</div>
@@ -125,7 +144,38 @@ export function MarketingServicesPage() {
             </p>
           </div>
           <div className="shh-service-grid">
-            {FEATURED.map((s) => (
+            {FEATURED.slice(0, FEATURED_THERAPY_START).map((s) => (
+              <article key={s.title} className="shh-service-card shh-service-card--featured">
+                <div className="shh-service-tag">
+                  <span aria-hidden>{s.icon}</span> {s.tag}
+                </div>
+                <h3>{s.title}</h3>
+                <p>{s.body}</p>
+              </article>
+            ))}
+          </div>
+
+          <div className="shh-services-therapy-feature">
+            <div className="shh-services-therapy-feature-figure">
+              <Image
+                src="/marketing/services-therapy.jpg"
+                alt="Physical therapist helping a patient with walking at home"
+                fill
+                sizes="(max-width: 767px) 100vw, (max-width: 1100px) 48vw, 520px"
+                className="object-cover shh-services-therapy-feature-img"
+              />
+            </div>
+            <div className="shh-services-therapy-feature-text">
+              <div className="shh-section-kicker">Therapy at home</div>
+              <p className="shh-services-therapy-feature-lead">
+                Physical, occupational, and speech therapy visits where you live—focused on strength,
+                safety, and independence.
+              </p>
+            </div>
+          </div>
+
+          <div className="shh-service-grid">
+            {FEATURED.slice(FEATURED_THERAPY_START).map((s) => (
               <article key={s.title} className="shh-service-card shh-service-card--featured">
                 <div className="shh-service-tag">
                   <span aria-hidden>{s.icon}</span> {s.tag}
