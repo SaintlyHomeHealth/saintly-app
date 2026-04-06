@@ -224,18 +224,6 @@ export function MarketingHome() {
             </div>
           </div>
 
-          <div className="shh-therapy-visual">
-            <div className="shh-therapy-visual-img">
-              <Image
-                src="/marketing/therapy.jpg"
-                alt=""
-                fill
-                sizes="(max-width: 639px) 148px, 168px"
-                className="object-cover"
-              />
-            </div>
-          </div>
-
           <div className="shh-service-grid">
             {SERVICES.map((s) => (
               <article

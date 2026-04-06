@@ -683,7 +683,7 @@
 .shh-services-intro {
   display: grid;
   gap: 24px;
-  margin-bottom: 22px;
+  margin-bottom: 24px;
   align-items: center;
 }
 
@@ -691,7 +691,7 @@
   .shh-services-intro {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1.24fr);
     gap: 40px;
-    margin-bottom: 26px;
+    margin-bottom: 28px;
   }
 }
 
@@ -714,45 +714,6 @@
 .shh-services-intro-img {
   object-fit: cover;
   object-position: center 42%;
-}
-
-/* Therapy — accent above service cards (not thumbnail-sized) */
-.shh-therapy-visual {
-  display: flex;
-  justify-content: center;
-  margin: 8px 0 22px;
-  padding: 14px 12px 10px;
-}
-
-.shh-therapy-visual-img {
-  position: relative;
-  width: 120px;
-  height: 76px;
-  flex-shrink: 0;
-  border-radius: 16px;
-  overflow: hidden;
-  border: 1px solid rgba(148, 163, 184, 0.4);
-  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.1);
-}
-
-@media (min-width: 640px) {
-  .shh-therapy-visual-img {
-    width: 148px;
-    height: 94px;
-    border-radius: 18px;
-  }
-}
-
-@media (min-width: 768px) {
-  .shh-therapy-visual {
-    margin: 4px 0 24px;
-    padding: 16px 16px 12px;
-  }
-}
-
-.shh-therapy-visual-img img {
-  object-fit: cover;
-  object-position: center 48%;
 }
 
 .shh-service-grid {
