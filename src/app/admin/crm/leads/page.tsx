@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { Mail, Phone } from "lucide-react";
 
 import { getCrmCalendarTodayIso } from "@/lib/crm/crm-local-date";
 import { formatLeadLastContactSummary } from "@/lib/crm/lead-contact-outcome";
@@ -139,6 +140,110 @@ type LeadRow = {
 
 function contactEmail(c: ContactEmb | null): string {
   return typeof c?.email === "string" ? c.email.trim() : "";
+}
+
+const leadRowHoverCls =
+  "hover:z-[1] hover:rounded-xl hover:border-slate-100 hover:bg-slate-50/90 hover:shadow-md hover:shadow-slate-200/60";
+
+function LeadTypeBadge({ leadType }: { leadType: string | null }) {
+  if (leadType === "employee") {
+    return (
+      <span className="inline-flex w-fit rounded-full bg-indigo-100 px-2 py-0.5 text-[11px] font-semibold text-indigo-900 ring-1 ring-indigo-200/70">
+        Employee
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex w-fit rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-900 ring-1 ring-emerald-200/70">
+      Patient
+    </span>
+  );
+}
+
+function LeadContactBlock({
+  name,
+  roleLine,
+  phoneDisplay,
+  email,
+  detailHref,
+  showName = true,
+}: {
+  name: string;
+  roleLine: string | null;
+  phoneDisplay: string | null;
+  email: string | null;
+  detailHref: string;
+  /** When the lead column already shows the name, hide the duplicate here. */
+  showName?: boolean;
+}) {
+  return (
+    <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+      {showName ? (
+        <Link href={detailHref} className="font-bold leading-snug text-slate-900 hover:text-sky-800 hover:underline">
+          {name}
+        </Link>
+      ) : null}
+      {roleLine ? <p className="text-[11px] leading-snug text-slate-500">{roleLine}</p> : null}
+      {phoneDisplay ? (
+        <div className="flex items-center gap-1.5 text-xs text-slate-700">
+          <Phone className="h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
+          <span className="tabular-nums">{phoneDisplay}</span>
+        </div>
+      ) : null}
+      {email ? (
+        <div className="flex min-w-0 items-center gap-1.5 text-xs text-slate-700">
+          <Mail className="h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
+          <span className="truncate" title={email}>
+            {email}
+          </span>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function LeadActionButtonRow({
+  leadId,
+  phone,
+  keypadHref,
+  smsHref,
+}: {
+  leadId: string;
+  phone: string;
+  keypadHref: string | null;
+  smsHref: string | null;
+}) {
+  const detailHref = `/admin/crm/leads/${leadId}`;
+  const btn =
+    "inline-flex items-center justify-center rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold shadow-sm transition hover:shadow-md";
+  const disabled = "cursor-not-allowed border-slate-100 bg-slate-50 text-slate-400 opacity-60 shadow-none hover:shadow-none";
+
+  return (
+    <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5 md:ml-auto md:max-w-[14rem]">
+      {keypadHref ? (
+        <Link href={keypadHref} prefetch={false} className={`${btn} border-emerald-200 bg-white text-emerald-900 hover:border-emerald-300 hover:bg-emerald-50`}>
+          Call
+        </Link>
+      ) : (
+        <span className={`${btn} ${disabled}`} title={phone ? undefined : "No dialable phone"}>
+          Call
+        </span>
+      )}
+      {smsHref ? (
+        <Link href={smsHref} prefetch={false} className={`${btn} border-sky-200 bg-white text-sky-900 hover:border-sky-300 hover:bg-sky-50`}>
+          Text
+        </Link>
+      ) : (
+        <span className={`${btn} ${disabled}`} title={phone ? undefined : "No SMS"}>
+          Text
+        </span>
+      )}
+      <Link href={detailHref} className={`${btn} border-slate-200 bg-white text-slate-800 hover:border-slate-300 hover:bg-slate-50`}>
+        View
+      </Link>
+      <LeadDeleteButton leadId={leadId} variant="tableInline" />
+    </div>
+  );
 }
 
 export default async function AdminCrmLeadsPage({
@@ -430,228 +535,198 @@ export default async function AdminCrmLeadsPage({
 
       <div className="overflow-x-auto rounded-[28px] border border-slate-200 bg-white shadow-sm">
         {employeeOnlyView ? (
-          <table className="w-full min-w-[1040px] text-left text-sm">
-            <thead>
-              <tr className="border-b border-slate-100 bg-slate-50 text-xs font-semibold text-slate-600">
-                <th className="px-4 py-3">Applicant status</th>
-                <th className="px-4 py-3">Source</th>
-                <th className="min-w-[9rem] px-4 py-3">Channel / referral</th>
-                <th className="px-4 py-3">Owner</th>
-                <th className="min-w-[7rem] px-4 py-3">Role</th>
-                <th className="min-w-[6rem] px-4 py-3">Experience</th>
-                <th className="min-w-[8rem] px-4 py-3">Next hiring step</th>
-                <th className="min-w-[9rem] px-4 py-3">Last contact</th>
-                <th className="whitespace-nowrap px-4 py-3">Follow-up</th>
-                <th className="min-w-[12rem] px-4 py-3">Contact</th>
-                <th className="px-4 py-3">Call / text</th>
-                <th className="whitespace-nowrap px-4 py-3">Open</th>
-                <th className="whitespace-nowrap px-4 py-3">Delete</th>
-                <th className="px-4 py-3">Created</th>
-              </tr>
-            </thead>
-            <tbody>
-              {list.length === 0 ? (
-                <tr>
-                  <td colSpan={14} className="px-4 py-8 text-slate-500">
-                    No employee applicants match these filters.
-                  </td>
-                </tr>
-              ) : (
-                list.map((r) => {
-                  const contact = normalizeContact(r.contacts);
-                  const phone = (contact?.primary_phone ?? "").trim();
-                  const email = contactEmail(contact);
-                  const owner = r.owner_user_id ? staffById.get(r.owner_user_id) : null;
-                  const cid = typeof r.contact_id === "string" ? r.contact_id.trim() : "";
-                  const dialE164 = pickOutboundE164ForDial(phone);
-                  const keypadHref = dialE164
-                    ? buildWorkspaceKeypadCallHref({
-                        dial: dialE164,
-                        leadId: r.id,
-                        contactId: cid,
-                        contextName: contactDisplayName(contact),
-                      })
+          <div className="min-w-[1000px] text-sm">
+            <div className="hidden gap-x-6 border-b border-slate-100 bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-600 md:grid md:grid-cols-[minmax(11rem,1fr)_minmax(15rem,1.35fr)_minmax(16rem,1.5fr)_minmax(5.5rem,auto)]">
+              <div>Lead</div>
+              <div>Applicant pipeline</div>
+              <div className="text-right">Contact &amp; actions</div>
+              <div className="text-right">Created</div>
+            </div>
+            {list.length === 0 ? (
+              <div className="px-4 py-10 text-slate-500">No employee applicants match these filters.</div>
+            ) : (
+              list.map((r) => {
+                const contact = normalizeContact(r.contacts);
+                const displayName = contactDisplayName(contact);
+                const phone = (contact?.primary_phone ?? "").trim();
+                const email = contactEmail(contact);
+                const owner = r.owner_user_id ? staffById.get(r.owner_user_id) : null;
+                const cid = typeof r.contact_id === "string" ? r.contact_id.trim() : "";
+                const dialE164 = pickOutboundE164ForDial(phone);
+                const keypadHref = dialE164
+                  ? buildWorkspaceKeypadCallHref({
+                      dial: dialE164,
+                      leadId: r.id,
+                      contactId: cid,
+                      contextName: displayName,
+                    })
+                  : null;
+                const smsHref =
+                  cid && pickOutboundE164ForDial(phone)
+                    ? buildWorkspaceSmsToContactHref({ contactId: cid, leadId: r.id })
                     : null;
-                  const smsHref =
-                    cid && pickOutboundE164ForDial(phone)
-                      ? buildWorkspaceSmsToContactHref({ contactId: cid, leadId: r.id })
-                      : null;
-                  const emp = parseEmploymentApplicationMeta(r.external_source_metadata);
-                  const role = (emp?.position ?? "").trim() || "—";
-                  const exp = (emp?.years_experience ?? "").trim() || "—";
-                  const nextActionLabel = formatLeadNextActionLabel(r.next_action);
-                  const nextHiring =
-                    nextActionLabel !== "—" ? nextActionLabel : (r.referral_source ?? "").trim() || "—";
-                  return (
-                    <tr key={r.id} className="border-b border-slate-100 last:border-0">
-                      <td className="px-4 py-3 text-xs text-slate-800">{formatLeadPipelineStatusLabel(r.status)}</td>
-                      <td className="px-4 py-3 text-slate-700">{formatLeadSourceLabel(r.source)}</td>
-                      <td className="max-w-[14rem] px-4 py-3 text-xs text-slate-700">
-                        {(r.referral_source ?? "").trim() || "—"}
-                      </td>
-                      <td className="max-w-[120px] truncate px-4 py-3 text-xs text-slate-600">
-                        {owner ? staffPrimaryLabel(owner) : "—"}
-                      </td>
-                      <td className="max-w-[10rem] px-4 py-3 text-xs font-medium text-slate-800">{role}</td>
-                      <td className="max-w-[8rem] truncate px-4 py-3 text-xs text-slate-700">{exp}</td>
-                      <td className="max-w-[10rem] px-4 py-3 text-xs text-slate-700">{nextHiring}</td>
-                      <td className="max-w-[10rem] px-4 py-3 text-xs text-slate-700">
+                const emp = parseEmploymentApplicationMeta(r.external_source_metadata);
+                const role = (emp?.position ?? "").trim() || "—";
+                const exp = (emp?.years_experience ?? "").trim() || "—";
+                const nextActionLabel = formatLeadNextActionLabel(r.next_action);
+                const nextHiring =
+                  nextActionLabel !== "—" ? nextActionLabel : (r.referral_source ?? "").trim() || "—";
+                const detailHref = `/admin/crm/leads/${r.id}`;
+                const roleLine = [role !== "—" ? role : null, exp !== "—" ? exp : null].filter(Boolean).join(" · ") || null;
+
+                return (
+                  <div
+                    key={r.id}
+                    className={`grid grid-cols-1 gap-x-6 gap-y-4 border-b border-slate-100 px-4 py-4 transition-all last:border-0 md:grid-cols-[minmax(11rem,1fr)_minmax(15rem,1.35fr)_minmax(16rem,1.5fr)_minmax(5.5rem,auto)] md:items-center ${leadRowHoverCls}`}
+                  >
+                    <div className="min-w-0 space-y-2">
+                      <Link href={detailHref} className="block font-bold leading-snug text-slate-900 hover:text-sky-800 hover:underline">
+                        {displayName}
+                      </Link>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <LeadTypeBadge leadType={r.lead_type} />
+                        <span className="text-xs text-slate-600">{formatLeadSourceLabel(r.source)}</span>
+                      </div>
+                    </div>
+                    <div className="min-w-0 space-y-1.5 text-xs leading-relaxed text-slate-700">
+                      <div>
+                        <span className="text-slate-500">Status</span> · {formatLeadPipelineStatusLabel(r.status)}
+                      </div>
+                      <div>
+                        <span className="text-slate-500">Owner</span> · {owner ? staffPrimaryLabel(owner) : "—"}
+                      </div>
+                      <div>
+                        <span className="text-slate-500">Channel</span> · {(r.referral_source ?? "").trim() || "—"}
+                      </div>
+                      <div>
+                        <span className="text-slate-500">Role</span> · {role}
+                      </div>
+                      <div>
+                        <span className="text-slate-500">Experience</span> · {exp}
+                      </div>
+                      <div>
+                        <span className="text-slate-500">Next hiring</span> · {nextHiring}
+                      </div>
+                      <div>
+                        <span className="text-slate-500">Last contact</span> ·{" "}
                         {formatLeadLastContactSummary(r.last_contact_at, r.last_outcome)}
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-3 text-xs text-slate-700">
-                        {formatFollowUpDate(r.follow_up_date)}
-                      </td>
-                      <td className="px-4 py-3">
-                        <Link
-                          href={`/admin/crm/leads/${r.id}`}
-                          className="font-semibold text-sky-800 underline-offset-2 hover:underline"
-                        >
-                          {contactDisplayName(contact)}
-                        </Link>
-                        {phone ? (
-                          <div className="mt-0.5 text-[11px] tabular-nums text-slate-600">{formatPhoneForDisplay(phone)}</div>
-                        ) : null}
-                        {email ? (
-                          <div className="mt-0.5 text-[11px] text-slate-600">{email}</div>
-                        ) : null}
-                        <div className="font-mono text-[10px] text-slate-400">{r.contact_id}</div>
-                      </td>
-                      <td className="px-4 py-3 align-top">
-                        <div className="flex flex-col gap-1">
-                          {keypadHref ? (
-                            <Link
-                              href={keypadHref}
-                              prefetch={false}
-                              className="text-[11px] font-semibold text-emerald-800 underline-offset-2 hover:underline"
-                            >
-                              Call
-                            </Link>
-                          ) : (
-                            <span className="text-[10px] text-slate-400">No phone</span>
-                          )}
-                          {smsHref ? (
-                            <Link
-                              href={smsHref}
-                              prefetch={false}
-                              className="text-[11px] font-semibold text-sky-800 underline-offset-2 hover:underline"
-                            >
-                              Text
-                            </Link>
-                          ) : (
-                            <span className="text-[10px] text-slate-400">No SMS</span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <Link
-                          href={`/admin/crm/leads/${r.id}`}
-                          className="text-[11px] font-semibold text-sky-800 underline-offset-2 hover:underline"
-                        >
-                          Detail
-                        </Link>
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-3 align-top">
-                        <LeadDeleteButton leadId={r.id} variant="table" />
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-3 text-xs text-slate-600">
-                        {new Date(r.created_at).toLocaleString()}
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
+                      </div>
+                      <div>
+                        <span className="text-slate-500">Follow-up</span> · {formatFollowUpDate(r.follow_up_date)}
+                      </div>
+                    </div>
+                    <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+                      <LeadContactBlock
+                        name={displayName}
+                        showName={false}
+                        roleLine={roleLine}
+                        phoneDisplay={phone ? formatPhoneForDisplay(phone) : null}
+                        email={email || null}
+                        detailHref={detailHref}
+                      />
+                      <LeadActionButtonRow leadId={r.id} phone={phone} keypadHref={keypadHref} smsHref={smsHref} />
+                    </div>
+                    <div className="whitespace-nowrap text-right text-xs tabular-nums text-slate-600 md:self-center">
+                      {new Date(r.created_at).toLocaleString()}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
         ) : (
-          <table className="w-full min-w-[1200px] text-left text-sm">
-            <thead>
-              <tr className="border-b border-slate-100 bg-slate-50 text-xs font-semibold text-slate-600">
-                <th className="px-4 py-3">Status</th>
-                <th className="whitespace-nowrap px-4 py-3">Lead type</th>
-                <th className="px-4 py-3">Source</th>
-                <th className="px-4 py-3">Owner</th>
-                <th className="min-w-[8rem] px-4 py-3">Next action</th>
-                <th className="min-w-[9rem] px-4 py-3">Last contact</th>
-                <th className="whitespace-nowrap px-4 py-3">Follow-up</th>
-                <th className="px-4 py-3">Intake</th>
-                <th className="px-4 py-3">Payer type</th>
-                <th className="px-4 py-3">Payer</th>
-                <th className="px-4 py-3">Contact</th>
-                <th className="px-4 py-3">Call / text</th>
-                <th className="whitespace-nowrap px-4 py-3">Open</th>
-                <th className="whitespace-nowrap px-4 py-3">Delete</th>
-                <th className="px-4 py-3">Created</th>
-              </tr>
-            </thead>
-            <tbody>
-              {list.length === 0 ? (
-                <tr>
-                  <td colSpan={15} className="px-4 py-8 text-slate-500">
-                    No leads match these filters.
-                  </td>
-                </tr>
-              ) : (
-                list.map((r) => {
-                  const contact = normalizeContact(r.contacts);
-                  const phone = (contact?.primary_phone ?? "").trim();
-                  const email = contactEmail(contact);
-                  const owner = r.owner_user_id ? staffById.get(r.owner_user_id) : null;
-                  const cid = typeof r.contact_id === "string" ? r.contact_id.trim() : "";
-                  const dialE164 = pickOutboundE164ForDial(phone);
-                  const keypadHref = dialE164
-                    ? buildWorkspaceKeypadCallHref({
-                        dial: dialE164,
-                        leadId: r.id,
-                        contactId: cid,
-                        contextName: contactDisplayName(contact),
-                      })
+          <div className="min-w-[1100px] text-sm">
+            <div className="hidden gap-x-6 border-b border-slate-100 bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-600 md:grid md:grid-cols-[minmax(11rem,1fr)_minmax(12rem,1.1fr)_minmax(11rem,1fr)_minmax(17rem,1.4fr)_minmax(5.5rem,auto)]">
+              <div>Lead</div>
+              <div>Pipeline</div>
+              <div>Intake &amp; payer</div>
+              <div className="text-right">Contact &amp; actions</div>
+              <div className="text-right">Created</div>
+            </div>
+            {list.length === 0 ? (
+              <div className="px-4 py-10 text-slate-500">No leads match these filters.</div>
+            ) : (
+              list.map((r) => {
+                const contact = normalizeContact(r.contacts);
+                const displayName = contactDisplayName(contact);
+                const phone = (contact?.primary_phone ?? "").trim();
+                const email = contactEmail(contact);
+                const owner = r.owner_user_id ? staffById.get(r.owner_user_id) : null;
+                const cid = typeof r.contact_id === "string" ? r.contact_id.trim() : "";
+                const dialE164 = pickOutboundE164ForDial(phone);
+                const keypadHref = dialE164
+                  ? buildWorkspaceKeypadCallHref({
+                      dial: dialE164,
+                      leadId: r.id,
+                      contactId: cid,
+                      contextName: displayName,
+                    })
+                  : null;
+                const smsHref =
+                  cid && pickOutboundE164ForDial(phone)
+                    ? buildWorkspaceSmsToContactHref({ contactId: cid, leadId: r.id })
                     : null;
-                  const smsHref =
-                    cid && pickOutboundE164ForDial(phone)
-                      ? buildWorkspaceSmsToContactHref({ contactId: cid, leadId: r.id })
-                      : null;
-                  const isEmployee = r.lead_type === "employee";
-                  const emp = parseEmploymentApplicationMeta(r.external_source_metadata);
-                  const role = (emp?.position ?? "").trim();
-                  const exp = (emp?.years_experience ?? "").trim();
-                  const resume = (emp?.resume_url ?? "").trim();
-                  return (
-                    <tr key={r.id} className="border-b border-slate-100 last:border-0">
-                      <td className="px-4 py-3 text-xs text-slate-800">{formatLeadPipelineStatusLabel(r.status)}</td>
-                      <td className="whitespace-nowrap px-4 py-3 text-xs text-slate-700">
-                        {r.lead_type === "employee" ? "Employee" : "—"}
-                      </td>
-                      <td className="px-4 py-3 text-slate-700">{formatLeadSourceLabel(r.source)}</td>
-                      <td className="max-w-[120px] truncate px-4 py-3 text-xs text-slate-600">
-                        {owner ? staffPrimaryLabel(owner) : "—"}
-                      </td>
-                      <td className="max-w-[130px] px-4 py-3 text-xs text-slate-700">
-                        {formatLeadNextActionLabel(r.next_action)}
-                      </td>
-                      <td className="max-w-[10rem] px-4 py-3 text-xs text-slate-700">
+                const isEmployee = r.lead_type === "employee";
+                const emp = parseEmploymentApplicationMeta(r.external_source_metadata);
+                const role = (emp?.position ?? "").trim();
+                const exp = (emp?.years_experience ?? "").trim();
+                const resume = (emp?.resume_url ?? "").trim();
+                const detailHref = `/admin/crm/leads/${r.id}`;
+                const roleLine = isEmployee
+                  ? [role || null, exp || null].filter(Boolean).join(" · ") || null
+                  : null;
+
+                return (
+                  <div
+                    key={r.id}
+                    className={`grid grid-cols-1 gap-x-6 gap-y-4 border-b border-slate-100 px-4 py-4 transition-all last:border-0 md:grid-cols-[minmax(11rem,1fr)_minmax(12rem,1.1fr)_minmax(11rem,1fr)_minmax(17rem,1.4fr)_minmax(5.5rem,auto)] md:items-center ${leadRowHoverCls}`}
+                  >
+                    <div className="min-w-0 space-y-2">
+                      <Link href={detailHref} className="block font-bold leading-snug text-slate-900 hover:text-sky-800 hover:underline">
+                        {displayName}
+                      </Link>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <LeadTypeBadge leadType={r.lead_type} />
+                        <span className="text-xs text-slate-600">{formatLeadSourceLabel(r.source)}</span>
+                      </div>
+                    </div>
+                    <div className="min-w-0 space-y-1.5 text-xs leading-relaxed text-slate-700">
+                      <div>
+                        <span className="text-slate-500">Status</span> · {formatLeadPipelineStatusLabel(r.status)}
+                      </div>
+                      <div>
+                        <span className="text-slate-500">Owner</span> · {owner ? staffPrimaryLabel(owner) : "—"}
+                      </div>
+                      <div>
+                        <span className="text-slate-500">Next action</span> · {formatLeadNextActionLabel(r.next_action)}
+                      </div>
+                      <div>
+                        <span className="text-slate-500">Follow-up</span> · {formatFollowUpDate(r.follow_up_date)}
+                      </div>
+                      <div>
+                        <span className="text-slate-500">Last contact</span> ·{" "}
                         {formatLeadLastContactSummary(r.last_contact_at, r.last_outcome)}
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-3 text-xs text-slate-700">
-                        {formatFollowUpDate(r.follow_up_date)}
-                      </td>
+                      </div>
+                    </div>
+                    <div className="min-w-0 text-xs leading-relaxed text-slate-700">
                       {isEmployee ? (
-                        <td colSpan={3} className="max-w-[22rem] px-4 py-3 align-top">
-                          <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Applicant</div>
-                          <div className="mt-1 text-xs text-slate-800">
-                            <span className="font-medium">Role:</span> {role || "—"}
+                        <div className="rounded-lg border border-indigo-100 bg-indigo-50/40 p-3">
+                          <div className="text-[10px] font-semibold uppercase tracking-wide text-indigo-700">Applicant</div>
+                          <div className="mt-1.5">
+                            <span className="text-slate-500">Role</span> · {role || "—"}
                           </div>
                           {exp ? (
-                            <div className="mt-0.5 text-xs text-slate-700">
-                              <span className="font-medium">Experience:</span> {exp}
+                            <div className="mt-0.5">
+                              <span className="text-slate-500">Experience</span> · {exp}
                             </div>
                           ) : null}
                           {(r.referral_source ?? "").trim() ? (
-                            <div className="mt-0.5 text-xs text-slate-600">
-                              <span className="font-medium">Channel:</span> {(r.referral_source ?? "").trim()}
+                            <div className="mt-0.5">
+                              <span className="text-slate-500">Channel</span> · {(r.referral_source ?? "").trim()}
                             </div>
                           ) : null}
                           {resume ? (
-                            <div className="mt-1">
+                            <div className="mt-2">
                               <a
                                 href={resume}
                                 target="_blank"
@@ -662,73 +737,40 @@ export default async function AdminCrmLeadsPage({
                               </a>
                             </div>
                           ) : null}
-                        </td>
-                      ) : (
-                        <>
-                          <td className="max-w-[90px] truncate px-4 py-3 text-slate-600">{r.intake_status ?? "—"}</td>
-                          <td className="max-w-[100px] truncate px-4 py-3 text-xs text-slate-600">{r.payer_type ?? "—"}</td>
-                          <td className="max-w-[120px] truncate px-4 py-3 text-slate-600">{trunc(r.payer_name, 28)}</td>
-                        </>
-                      )}
-                      <td className="px-4 py-3">
-                        <Link
-                          href={`/admin/crm/leads/${r.id}`}
-                          className="font-semibold text-sky-800 underline-offset-2 hover:underline"
-                        >
-                          {contactDisplayName(contact)}
-                        </Link>
-                        {phone ? (
-                          <div className="mt-0.5 text-[11px] tabular-nums text-slate-600">{formatPhoneForDisplay(phone)}</div>
-                        ) : null}
-                        {email ? <div className="mt-0.5 text-[11px] text-slate-600">{email}</div> : null}
-                        <div className="font-mono text-[10px] text-slate-400">{r.contact_id}</div>
-                      </td>
-                      <td className="px-4 py-3 align-top">
-                        <div className="flex flex-col gap-1">
-                          {keypadHref ? (
-                            <Link
-                              href={keypadHref}
-                              prefetch={false}
-                              className="text-[11px] font-semibold text-emerald-800 underline-offset-2 hover:underline"
-                            >
-                              Call
-                            </Link>
-                          ) : (
-                            <span className="text-[10px] text-slate-400">No phone</span>
-                          )}
-                          {smsHref ? (
-                            <Link
-                              href={smsHref}
-                              prefetch={false}
-                              className="text-[11px] font-semibold text-sky-800 underline-offset-2 hover:underline"
-                            >
-                              Text
-                            </Link>
-                          ) : (
-                            <span className="text-[10px] text-slate-400">No SMS</span>
-                          )}
                         </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <Link
-                          href={`/admin/crm/leads/${r.id}`}
-                          className="text-[11px] font-semibold text-sky-800 underline-offset-2 hover:underline"
-                        >
-                          Detail
-                        </Link>
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-3 align-top">
-                        <LeadDeleteButton leadId={r.id} variant="table" />
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-3 text-xs text-slate-600">
-                        {new Date(r.created_at).toLocaleString()}
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
+                      ) : (
+                        <div className="space-y-1.5">
+                          <div>
+                            <span className="text-slate-500">Intake</span> · {r.intake_status ?? "—"}
+                          </div>
+                          <div>
+                            <span className="text-slate-500">Payer type</span> · {r.payer_type ?? "—"}
+                          </div>
+                          <div className="break-words">
+                            <span className="text-slate-500">Payer</span> · {trunc(r.payer_name, 40)}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+                      <LeadContactBlock
+                        name={displayName}
+                        showName={false}
+                        roleLine={roleLine}
+                        phoneDisplay={phone ? formatPhoneForDisplay(phone) : null}
+                        email={email || null}
+                        detailHref={detailHref}
+                      />
+                      <LeadActionButtonRow leadId={r.id} phone={phone} keypadHref={keypadHref} smsHref={smsHref} />
+                    </div>
+                    <div className="whitespace-nowrap text-right text-xs tabular-nums text-slate-600 md:self-center">
+                      {new Date(r.created_at).toLocaleString()}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
         )}
       </div>
     </div>

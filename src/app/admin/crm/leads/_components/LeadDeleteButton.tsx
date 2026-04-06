@@ -6,8 +6,8 @@ import { softDeleteLead } from "@/app/admin/crm/actions";
 
 type Props = {
   leadId: string;
-  /** Table row: compact text link. Detail page: slightly larger. */
-  variant?: "table" | "detail";
+  /** Table row: compact text link. Detail page: slightly larger. Inline: pill in CRM row action group. */
+  variant?: "table" | "tableInline" | "detail";
 };
 
 export function LeadDeleteButton({ leadId, variant = "table" }: Props) {
@@ -17,7 +17,9 @@ export function LeadDeleteButton({ leadId, variant = "table" }: Props) {
   const btnCls =
     variant === "table"
       ? "text-[11px] font-semibold text-rose-700 underline-offset-2 hover:underline"
-      : "rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-900 hover:bg-rose-100";
+      : variant === "tableInline"
+        ? "inline-flex items-center justify-center rounded-lg border border-rose-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-rose-800 shadow-sm transition hover:border-rose-300 hover:bg-rose-50 hover:shadow-md"
+        : "rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-900 hover:bg-rose-100";
 
   const confirm = () => {
     const fd = new FormData();
