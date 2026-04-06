@@ -136,6 +136,9 @@ export function MarketingHome() {
                   doctor.
                 </p>
               </div>
+              <p className="shh-hero-trust-line">
+                Serving Greater Phoenix • Medicare Certified • Fast Start of Care
+              </p>
             </div>
 
             <aside className="shh-hero-card" aria-labelledby="card-title">
