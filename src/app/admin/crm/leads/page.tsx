@@ -116,6 +116,7 @@ type LeadRow = {
   contact_id: string;
   source: string;
   status: string | null;
+  lead_type: string | null;
   owner_user_id: string | null;
   created_at: string;
   intake_status: string | null;
@@ -155,6 +156,7 @@ export default async function AdminCrmLeadsPage({
     followUp: one("followUp").trim(),
     payerType: one("payerType").trim(),
     discipline: one("discipline").trim(),
+    leadType: one("leadType").trim(),
     q: one("q").trim(),
   };
 
@@ -167,6 +169,7 @@ export default async function AdminCrmLeadsPage({
     if (f.followUp) u.set("followUp", f.followUp);
     if (f.payerType) u.set("payerType", f.payerType);
     if (f.discipline) u.set("discipline", f.discipline);
+    if (f.leadType) u.set("leadType", f.leadType);
     if (f.q) u.set("q", f.q);
     const qs = u.toString();
     return qs ? `/admin/crm/leads?${qs}` : "/admin/crm/leads";
@@ -209,7 +212,7 @@ export default async function AdminCrmLeadsPage({
     supabaseAdmin
       .from("leads")
       .select(
-        "id, contact_id, source, status, owner_user_id, created_at, intake_status, referral_source, payer_name, payer_type, referring_provider_name, next_action, follow_up_date, last_contact_at, last_outcome, service_disciplines, service_type, contacts ( full_name, first_name, last_name, primary_phone )"
+        "id, contact_id, source, status, lead_type, owner_user_id, created_at, intake_status, referral_source, payer_name, payer_type, referring_provider_name, next_action, follow_up_date, last_contact_at, last_outcome, service_disciplines, service_type, contacts ( full_name, first_name, last_name, primary_phone )"
       )
       .order("created_at", { ascending: false })
       .limit(500)
@@ -237,6 +240,10 @@ export default async function AdminCrmLeadsPage({
 
   if (f.payerType && PAYER_BROAD_CATEGORY_OPTIONS.includes(f.payerType as (typeof PAYER_BROAD_CATEGORY_OPTIONS)[number])) {
     query = query.eq("payer_type", f.payerType);
+  }
+
+  if (f.leadType === "employee") {
+    query = query.eq("lead_type", "employee");
   }
 
   const { data: rows, error } = await query;
@@ -369,6 +376,13 @@ export default async function AdminCrmLeadsPage({
             ))}
           </select>
         </label>
+        <label className="flex min-w-[8rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+          Lead type
+          <select name="leadType" defaultValue={f.leadType} className={filterInputCls}>
+            <option value="">All</option>
+            <option value="employee">Employee applicants</option>
+          </select>
+        </label>
         <label className="flex min-w-[12rem] flex-1 flex-col gap-0.5 text-[11px] font-medium text-slate-600">
           Search name / phone
           <input
@@ -398,6 +412,7 @@ export default async function AdminCrmLeadsPage({
           <thead>
             <tr className="border-b border-slate-100 bg-slate-50 text-xs font-semibold text-slate-600">
               <th className="px-4 py-3">Status</th>
+              <th className="whitespace-nowrap px-4 py-3">Lead type</th>
               <th className="px-4 py-3">Source</th>
               <th className="px-4 py-3">Owner</th>
               <th className="min-w-[8rem] px-4 py-3">Next action</th>
@@ -416,7 +431,7 @@ export default async function AdminCrmLeadsPage({
           <tbody>
             {list.length === 0 ? (
               <tr>
-                <td colSpan={14} className="px-4 py-8 text-slate-500">
+                <td colSpan={15} className="px-4 py-8 text-slate-500">
                   No leads match these filters.
                 </td>
               </tr>
@@ -442,6 +457,9 @@ export default async function AdminCrmLeadsPage({
                 return (
                   <tr key={r.id} className="border-b border-slate-100 last:border-0">
                     <td className="px-4 py-3 text-xs text-slate-800">{formatLeadPipelineStatusLabel(r.status)}</td>
+                    <td className="whitespace-nowrap px-4 py-3 text-xs text-slate-700">
+                      {r.lead_type === "employee" ? "Employee" : "—"}
+                    </td>
                     <td className="px-4 py-3 text-slate-700">{formatLeadSourceLabel(r.source)}</td>
                     <td className="max-w-[120px] truncate px-4 py-3 text-xs text-slate-600">
                       {owner ? staffPrimaryLabel(owner) : "—"}

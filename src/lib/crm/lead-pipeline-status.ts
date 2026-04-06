@@ -4,6 +4,7 @@
  */
 export const LEAD_PIPELINE_STATUS_OPTIONS = [
   { value: "new", label: "New" },
+  { value: "new_applicant", label: "New applicant" },
   { value: "attempted_contact", label: "Attempted contact" },
   { value: "intake_in_progress", label: "Intake in progress" },
   { value: "waiting_on_referral", label: "Waiting on referral" },

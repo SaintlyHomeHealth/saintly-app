@@ -57,6 +57,18 @@ export const MARKETING_NAV_REFERRALS_PAGE = [
   { href: "/contact", label: "Contact" },
 ] as const;
 
+/** Careers / employment application. */
+export const MARKETING_NAV_EMPLOYMENT_PAGE = [
+  { href: "/", label: "Home" },
+  { href: "/services", label: "Services" },
+  { href: "/about", label: "About" },
+  { href: "/referrals", label: "Referrals" },
+  { href: "/faq", label: "FAQ" },
+  { href: "/#how-it-works", label: "How it works" },
+  { href: "/#coverage", label: "Service area" },
+  { href: "/contact", label: "Contact" },
+] as const;
+
 /** FAQ page. */
 export const MARKETING_NAV_FAQ_PAGE = [
   { href: "/", label: "Home" },
