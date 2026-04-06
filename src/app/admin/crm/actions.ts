@@ -1542,6 +1542,50 @@ export async function softDeleteLead(formData: FormData) {
   redirect("/admin/crm/leads?toast=lead_deleted");
 }
 
+const LEAD_ID_UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/** Soft-delete multiple leads (same DB behavior as `softDeleteLead`). Returns counts; does not redirect. */
+export async function bulkSoftDeleteLeads(
+  leadIds: string[]
+): Promise<{ ok: true; deleted: number } | { ok: false; error: string }> {
+  const staff = await getStaffProfile();
+  if (!staff || !isManagerOrHigher(staff)) {
+    return { ok: false, error: "forbidden" };
+  }
+
+  const ids = [...new Set(leadIds.map((id) => String(id).trim()).filter((id) => LEAD_ID_UUID_RE.test(id)))];
+  if (ids.length === 0) {
+    return { ok: false, error: "invalid" };
+  }
+
+  const now = new Date().toISOString();
+  const { data, error } = await supabaseAdmin
+    .from("leads")
+    .update({ deleted_at: now })
+    .in("id", ids)
+    .is("deleted_at", null)
+    .select("id");
+
+  if (error) {
+    console.warn("[admin/crm] bulkSoftDeleteLeads:", error.message);
+    return { ok: false, error: error.message };
+  }
+
+  const deleted = data?.length ?? 0;
+
+  revalidatePath("/admin");
+  revalidatePath("/admin/crm/leads");
+  revalidatePath("/admin/crm/contacts");
+  revalidatePath("/workspace/phone/leads");
+  revalidatePath("/workspace/phone/follow-ups-today");
+  revalidatePath("/workspace/phone/inbox");
+  revalidatePath("/admin/phone");
+  revalidatePath("/admin/phone/calls");
+
+  return { ok: true, deleted };
+}
+
 export async function archiveContact(formData: FormData) {
   const staff = await getStaffProfile();
   if (!staff || !isManagerOrHigher(staff)) {
