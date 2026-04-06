@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 
 import { facebookCsvRowToFieldMap, mapHeaderToCanonical } from "@/lib/crm/facebook-csv-column-map";
-import { parseCsv } from "@/lib/crm/parse-csv";
+import { parseSpreadsheet } from "@/lib/crm/parse-csv";
 
 import { importCrmLeadsFromCsv, type CsvImportResult } from "./actions";
 
@@ -23,12 +23,17 @@ export function LeadCsvImportClient() {
     }
     const reader = new FileReader();
     reader.onload = () => {
-      const text = String(reader.result ?? "");
-      const { headers: h, rows } = parseCsv(text);
+      const buf = reader.result;
+      if (!(buf instanceof ArrayBuffer)) {
+        setHeaders([]);
+        setPreviewRows(null);
+        return;
+      }
+      const { headers: h, rows } = parseSpreadsheet(buf);
       setHeaders(h);
       setPreviewRows(rows.slice(0, 10));
     };
-    reader.readAsText(f);
+    reader.readAsArrayBuffer(f);
   }
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {

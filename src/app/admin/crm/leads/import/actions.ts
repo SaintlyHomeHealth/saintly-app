@@ -6,7 +6,7 @@ import { revalidatePath } from "next/cache";
 
 import { supabaseAdmin } from "@/lib/admin";
 import { facebookCsvRowToFieldMap } from "@/lib/crm/facebook-csv-column-map";
-import { parseCsv } from "@/lib/crm/parse-csv";
+import { parseSpreadsheet } from "@/lib/crm/parse-csv";
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { insertFacebookLeadFromCsvRow } from "@/lib/facebook/facebook-lead-ingestion";
 import { normalizePhone } from "@/lib/phone/us-phone-format";
@@ -95,8 +95,8 @@ export async function importCrmLeadsFromCsv(formData: FormData): Promise<CsvImpo
     return { ok: false, created: 0, skipped: 0, skippedEmpty: 0, skippedDuplicate: 0, skippedError: 0, error: "no_file" };
   }
 
-  const text = await file.text();
-  const { headers, rows } = parseCsv(text);
+  const buf = await file.arrayBuffer();
+  const { headers, rows } = parseSpreadsheet(buf);
   if (headers.length === 0 || rows.length === 0) {
     return { ok: false, created: 0, skipped: 0, skippedEmpty: 0, skippedDuplicate: 0, skippedError: 0, error: "empty_csv" };
   }

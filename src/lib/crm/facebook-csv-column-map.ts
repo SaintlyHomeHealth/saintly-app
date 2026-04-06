@@ -4,7 +4,11 @@
  */
 
 function norm(s: string): string {
-  return s.trim().toLowerCase().replace(/\s+/g, " ");
+  return s
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .replace(/\?+$/g, "");
 }
 
 /** Known Facebook export column labels → canonical keys */
@@ -17,6 +21,10 @@ const HEADER_ALIASES: Record<string, string> = {
   "who is this care for?": "care_for",
   "when do you need care to start?": "start_time",
   "what is the current situation?": "situation",
+  what_do_you_or_your_loved_one_need_help_with: "service_needed",
+  who_is_this_care_for: "care_for",
+  when_do_you_need_care_to_start: "start_time",
+  what_is_the_current_situation: "situation",
   id: "id",
   "lead id": "lead_id",
   lead_id: "lead_id",
