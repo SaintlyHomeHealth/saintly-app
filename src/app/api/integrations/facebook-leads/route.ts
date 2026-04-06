@@ -22,7 +22,7 @@ function webhookSecretsEqual(received: string, expected: string): boolean {
  * Facebook Lead Ads → Zapier / Make / external automation → this app.
  *
  * - Method: POST, JSON body (`Content-Type: application/json`).
- * - Auth: header `x-webhook-secret` must equal env `FACEBOOK_LEADS_WEBHOOK_SECRET`.
+ * - Auth: header `x-webhook-secret` must equal env `FACEBOOK_LEADS_WEBHOOK_SECRET` (both trimmed).
  * - Dedupes on `leads.external_source_id` = JSON `leadgen_id` (Facebook lead ID), `source` = `facebook`.
  * - Body: `AutomationFacebookLeadPayload` — require `leadgen_id` and either `field_data` (Graph shape)
  *   or `fields` (flat object).
@@ -51,23 +51,27 @@ export async function POST(req: NextRequest) {
   }
 
   /** Auth reads this exact name (HTTP headers are case-insensitive). */
-  const secret = req.headers.get("x-webhook-secret") ?? "";
+  const secretRaw = req.headers.get("x-webhook-secret") ?? "";
+  const secret = secretRaw.trim();
 
   // Safe diagnostics — no secret values or substrings logged.
-  console.log("[fb-webhook] header exists:", secret.length > 0);
+  console.log("[fb-webhook] header exists:", secretRaw.length > 0);
   console.log("[fb-webhook] env exists:", envRaw !== undefined);
   console.log("[fb-webhook] env nonempty after trim:", expected.length > 0);
-  console.log("[fb-webhook] receivedLen:", secret.length, "expectedLen:", expected.length);
+  console.log(
+    "[fb-webhook] receivedLenRaw:",
+    secretRaw.length,
+    "receivedLenTrimmed:",
+    secret.length,
+    "expectedLen:",
+    expected.length
+  );
   console.log(
     "[fb-webhook] match (=== raw header vs raw env):",
-    secret === envRaw
+    secretRaw === envRaw
   );
   const authOk = webhookSecretsEqual(secret, expected);
   console.log("[fb-webhook] match (timingSafeEqual, actual auth):", authOk);
-  console.log(
-    "[fb-webhook] would match if header trimmed:",
-    !authOk && secret.trim() !== secret && webhookSecretsEqual(secret.trim(), expected)
-  );
 
   if (!authOk) {
     console.warn("[facebook-leads] error", { reason: "unauthorized" });
