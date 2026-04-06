@@ -11,7 +11,8 @@ export const runtime = "nodejs";
 
 /**
  * Direct Meta Lead Ads webhook (Facebook → this app). **Deprecated for Saintly ops:** ingestion is
- * expected via Make.com → `POST /api/integrations/facebook-leads` (`FACEBOOK_LEADS_WEBHOOK_SECRET`).
+ * expected via Zapier / Make / external automation → `POST /api/integrations/facebook-leads`
+ * (`FACEBOOK_LEADS_WEBHOOK_SECRET`).
  * This route remains for backward compatibility if env tokens are still configured.
  *
  * Env:

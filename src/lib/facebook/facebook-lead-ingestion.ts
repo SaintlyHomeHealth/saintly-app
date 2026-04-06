@@ -1,6 +1,6 @@
 /**
- * Facebook Lead Ads → CRM: shared insert logic for (1) Make.com webhook
- * `ingestFacebookLeadFromMakePayload` and (2) legacy direct Meta webhook + Graph fetch
+ * Facebook Lead Ads → CRM: shared insert logic for (1) Zapier / Make / external automation
+ * webhook `ingestFacebookLeadFromAutomationPayload` and (2) legacy direct Meta webhook + Graph fetch
  * `ingestFacebookLeadFromWebhookPayload`.
  */
 import "server-only";
@@ -37,7 +37,7 @@ export type MetaWebhookBody = {
   }>;
 };
 
-/** Graph Lead Ads `field_data` row shape (also accepted from Make when mirroring Graph). */
+/** Graph Lead Ads `field_data` row shape (also accepted from Zapier/Make when mirroring Graph). */
 export type GraphFieldDatum = { name?: string; values?: string[] };
 
 type GraphLeadResponse = {
@@ -63,7 +63,7 @@ function buildFieldMap(fieldData: GraphFieldDatum[] | undefined): Map<string, st
   return m;
 }
 
-/** Flat object from Make (keys treated like lowercased field names). */
+/** Flat object from Zapier/Make (keys lowercased; see `normalizeAutomationFlatFieldMap`). */
 function buildFieldMapFromFlatRecord(rec: Record<string, unknown>): Map<string, string> {
   const m = new Map<string, string>();
   for (const [k, v] of Object.entries(rec)) {
@@ -80,6 +80,34 @@ function buildFieldMapFromFlatRecord(rec: Record<string, unknown>): Map<string, 
     if (valStr) m.set(key, valStr);
   }
   return m;
+}
+
+/**
+ * Fills canonical keys used by `parseNameParts` / `firstValue` when Zapier sends synonyms
+ * (e.g. `name` vs `full_name`, `phone` vs `phone_number`).
+ */
+function normalizeAutomationFlatFieldMap(map: Map<string, string>): void {
+  const pick = (...keys: string[]): string | undefined => {
+    for (const k of keys) {
+      const v = map.get(k);
+      if (v) return v;
+    }
+    return undefined;
+  };
+  const setIf = (canonical: string, val: string | undefined) => {
+    if (val && !map.get(canonical)) map.set(canonical, val);
+  };
+  setIf("full_name", pick("name", "full name", "your_full_name", "full_name"));
+  setIf("name", pick("full_name", "full name", "your_full_name"));
+  setIf("first_name", pick("first name", "firstname", "first_name"));
+  setIf("last_name", pick("last name", "lastname", "last_name"));
+  setIf("email", pick("email_address", "email"));
+  setIf("email_address", pick("email", "email_address"));
+  setIf(
+    "phone_number",
+    pick("phone", "phone number", "mobile", "mobile_phone", "mobile number", "tel", "telephone")
+  );
+  setIf("phone", pick("phone_number", "phone number", "mobile", "mobile_phone"));
 }
 
 function firstValue(map: Map<string, string>, keys: string[]): string {
@@ -264,7 +292,7 @@ async function completeFacebookLeadInsertFromFieldMap(
     graphCreatedTime: string | null;
     rawBodyText: string;
     ingestionReceivedAt: string;
-    ingestionChannel?: "make";
+    ingestionChannel?: "automation";
   }
 ): Promise<IngestFacebookLeadgenResult> {
   const {
@@ -313,8 +341,8 @@ async function completeFacebookLeadInsertFromFieldMap(
   const leadNotes = leadNotesParts.join("\n\n").slice(0, 8000) || null;
 
   const contactIntro =
-    ingestionChannel === "make"
-      ? `Imported from Facebook Lead Ads via Make (${ingestionReceivedAt}).`
+    ingestionChannel === "automation"
+      ? `Imported from Facebook Lead Ads via automation (Zapier, Make, or similar) (${ingestionReceivedAt}).`
       : `Imported from Facebook Lead Ads (${ingestionReceivedAt}).`;
   const contactNotes = [contactIntro, leadNotes].filter(Boolean).join("\n\n").slice(0, 8000);
 
@@ -332,7 +360,8 @@ async function completeFacebookLeadInsertFromFieldMap(
     .single();
 
   if (cErr || !contactRow?.id) {
-    console.warn("[facebook-lead] contact insert failed", { error: cErr?.message, leadgen_id: leadgenId });
+    const tag = ingestionChannel === "automation" ? "[facebook-leads] error" : "[facebook-lead] contact insert failed";
+    console.warn(tag, { error: cErr?.message, leadgen_id: leadgenId });
     return { ok: false, error: `contact_insert_failed:${cErr?.message ?? "unknown"}`, leadgenId };
   }
 
@@ -340,7 +369,9 @@ async function completeFacebookLeadInsertFromFieldMap(
 
   const externalMeta = {
     source: "facebook" as const,
-    ...(ingestionChannel === "make" ? { ingestion_channel: "make" as const } : {}),
+    ...(ingestionChannel === "automation"
+      ? { ingestion_channel: "automation" as const }
+      : {}),
     leadgen_id: leadgenId,
     form_id: formId,
     page_id: pageId,
@@ -373,17 +404,27 @@ async function completeFacebookLeadInsertFromFieldMap(
 
   if (lErr || !newLead?.id) {
     if (isUniqueViolation(lErr)) {
-      console.log("[facebook-lead] duplicate skipped (unique constraint)", { leadgen_id: leadgenId });
+      console.log(
+        ingestionChannel === "automation" ? "[facebook-leads] duplicate" : "[facebook-lead] duplicate skipped (unique constraint)",
+        { leadgen_id: leadgenId }
+      );
       await supabase.from("contacts").delete().eq("id", contactId);
       return { ok: true, duplicateSkipped: true, leadgenId };
     }
-    console.warn("[facebook-lead] lead insert failed", { error: lErr?.message, leadgen_id: leadgenId });
+    console.warn(
+      ingestionChannel === "automation" ? "[facebook-leads] error" : "[facebook-lead] lead insert failed",
+      { error: lErr?.message, leadgen_id: leadgenId }
+    );
     await supabase.from("contacts").delete().eq("id", contactId);
     return { ok: false, error: `lead_insert_failed:${lErr?.message ?? "unknown"}`, leadgenId };
   }
 
   const leadId = String(newLead.id);
-  console.log("[facebook-lead] insert ok", { lead_id: leadId, contact_id: contactId, leadgen_id: leadgenId });
+  if (ingestionChannel === "automation") {
+    console.log("[facebook-leads] inserted", { lead_id: leadId, contact_id: contactId, leadgen_id: leadgenId });
+  } else {
+    console.log("[facebook-lead] insert ok", { lead_id: leadId, contact_id: contactId, leadgen_id: leadgenId });
+  }
 
   revalidatePath("/admin");
   revalidatePath("/admin/crm/leads");
@@ -446,21 +487,25 @@ async function ingestOneFacebookLeadgen(
   });
 }
 
-/** JSON body from Make.com (or any HTTP client). `leadgen_id` = Facebook lead ID (dedupe key). */
-export type MakeFacebookLeadPayload = {
+/** JSON body from Zapier, Make, or any HTTP client posting to `/api/integrations/facebook-leads`. */
+export type AutomationFacebookLeadPayload = {
+  /** Facebook lead ID — dedupe key (`leads.external_source_id`). */
   leadgen_id?: unknown;
-  /** Graph API-style rows (preferred when available from Make's Facebook module). */
+  /** Graph API-style rows (e.g. from Facebook Lead Ads field export). */
   field_data?: unknown;
-  /** Flat map alternative: `{ "first name": "...", "email": "..." }` */
+  /** Flat map, e.g. `{ "full_name": "...", "email": "..." }` (Zapier-friendly). */
   fields?: unknown;
   form_id?: unknown;
   page_id?: unknown;
   created_time?: unknown;
 };
 
-export async function ingestFacebookLeadFromMakePayload(
+/** @deprecated Use `AutomationFacebookLeadPayload`. */
+export type MakeFacebookLeadPayload = AutomationFacebookLeadPayload;
+
+export async function ingestFacebookLeadFromAutomationPayload(
   supabase: SupabaseClient,
-  params: { webhookPayload: MakeFacebookLeadPayload; rawBodyText: string }
+  params: { webhookPayload: AutomationFacebookLeadPayload; rawBodyText: string }
 ): Promise<IngestFacebookLeadgenResult> {
   const { webhookPayload, rawBodyText } = params;
   const ingestionReceivedAt = new Date().toISOString();
@@ -475,7 +520,7 @@ export async function ingestFacebookLeadFromMakePayload(
   ).maybeSingle();
 
   if (existing?.id) {
-    console.log("[facebook-lead] duplicate skipped (make)", { leadgen_id: leadgenId, lead_id: existing.id });
+    console.log("[facebook-leads] duplicate", { leadgen_id: leadgenId, lead_id: existing.id });
     return { ok: true, duplicateSkipped: true, leadgenId };
   }
 
@@ -494,6 +539,8 @@ export async function ingestFacebookLeadFromMakePayload(
     return { ok: false, error: "missing_field_data_or_fields", leadgenId };
   }
 
+  normalizeAutomationFlatFieldMap(fieldMap);
+
   const formId = asTrimmedString(webhookPayload.form_id) || null;
   const pageId = asTrimmedString(webhookPayload.page_id) || null;
   const createdTimeRaw = webhookPayload.created_time as number | string | undefined;
@@ -508,9 +555,12 @@ export async function ingestFacebookLeadFromMakePayload(
     graphCreatedTime: null,
     rawBodyText,
     ingestionReceivedAt,
-    ingestionChannel: "make",
+    ingestionChannel: "automation",
   });
 }
+
+/** @deprecated Use `ingestFacebookLeadFromAutomationPayload`. */
+export const ingestFacebookLeadFromMakePayload = ingestFacebookLeadFromAutomationPayload;
 
 /**
  * Idempotent: same Meta leadgen_id maps to one CRM row via (source, external_source_id).
