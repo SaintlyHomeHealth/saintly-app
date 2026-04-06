@@ -333,6 +333,10 @@ function isUniqueViolation(err: { code?: string; message?: string } | null): boo
   return /duplicate key|unique constraint/i.test(String(err.message ?? ""));
 }
 
+function isAutomationLikeIngestion(ch: "automation" | "csv" | undefined): boolean {
+  return ch === "automation" || ch === "csv";
+}
+
 async function completeFacebookLeadInsertFromFieldMap(
   supabase: SupabaseClient,
   params: {
@@ -345,7 +349,7 @@ async function completeFacebookLeadInsertFromFieldMap(
     graphCreatedTime: string | null;
     rawBodyText: string;
     ingestionReceivedAt: string;
-    ingestionChannel?: "automation";
+    ingestionChannel?: "automation" | "csv";
   }
 ): Promise<IngestFacebookLeadgenResult> {
   const {
@@ -394,9 +398,11 @@ async function completeFacebookLeadInsertFromFieldMap(
   const leadNotes = leadNotesParts.join("\n\n").slice(0, 8000) || null;
 
   const contactIntro =
-    ingestionChannel === "automation"
-      ? `Imported from Facebook Lead Ads via automation (Zapier, Make, or similar) (${ingestionReceivedAt}).`
-      : `Imported from Facebook Lead Ads (${ingestionReceivedAt}).`;
+    ingestionChannel === "csv"
+      ? `Imported from Facebook Lead Ads CSV export (${ingestionReceivedAt}).`
+      : ingestionChannel === "automation"
+        ? `Imported from Facebook Lead Ads via automation (Zapier, Make, or similar) (${ingestionReceivedAt}).`
+        : `Imported from Facebook Lead Ads (${ingestionReceivedAt}).`;
   const contactNotes = [contactIntro, leadNotes].filter(Boolean).join("\n\n").slice(0, 8000);
 
   const { data: contactRow, error: cErr } = await supabase
@@ -413,7 +419,7 @@ async function completeFacebookLeadInsertFromFieldMap(
     .single();
 
   if (cErr || !contactRow?.id) {
-    const tag = ingestionChannel === "automation" ? "[facebook-leads] error" : "[facebook-lead] contact insert failed";
+    const tag = isAutomationLikeIngestion(ingestionChannel) ? "[facebook-leads] error" : "[facebook-lead] contact insert failed";
     console.warn(tag, { error: cErr?.message, leadgen_id: leadgenId });
     return { ok: false, error: `contact_insert_failed:${cErr?.message ?? "unknown"}`, leadgenId };
   }
@@ -424,7 +430,9 @@ async function completeFacebookLeadInsertFromFieldMap(
     source: "facebook" as const,
     ...(ingestionChannel === "automation"
       ? { ingestion_channel: "automation" as const }
-      : {}),
+      : ingestionChannel === "csv"
+        ? { ingestion_channel: "csv_import" as const }
+        : {}),
     leadgen_id: leadgenId,
     form_id: formId,
     page_id: pageId,
@@ -459,14 +467,14 @@ async function completeFacebookLeadInsertFromFieldMap(
   if (lErr || !newLead?.id) {
     if (isUniqueViolation(lErr)) {
       console.log(
-        ingestionChannel === "automation" ? "[facebook-leads] duplicate" : "[facebook-lead] duplicate skipped (unique constraint)",
+        isAutomationLikeIngestion(ingestionChannel) ? "[facebook-leads] duplicate" : "[facebook-lead] duplicate skipped (unique constraint)",
         { leadgen_id: leadgenId }
       );
       await supabase.from("contacts").delete().eq("id", contactId);
       return { ok: true, duplicateSkipped: true, leadgenId };
     }
     console.warn(
-      ingestionChannel === "automation" ? "[facebook-leads] error" : "[facebook-lead] lead insert failed",
+      isAutomationLikeIngestion(ingestionChannel) ? "[facebook-leads] error" : "[facebook-lead] lead insert failed",
       { error: lErr?.message, leadgen_id: leadgenId }
     );
     await supabase.from("contacts").delete().eq("id", contactId);
@@ -474,7 +482,7 @@ async function completeFacebookLeadInsertFromFieldMap(
   }
 
   const leadId = String(newLead.id);
-  if (ingestionChannel === "automation") {
+  if (isAutomationLikeIngestion(ingestionChannel)) {
     console.log("[facebook-leads] inserted", { lead_id: leadId, contact_id: contactId, leadgen_id: leadgenId });
   } else {
     console.log("[facebook-lead] insert ok", { lead_id: leadId, contact_id: contactId, leadgen_id: leadgenId });
@@ -487,6 +495,37 @@ async function completeFacebookLeadInsertFromFieldMap(
   revalidatePath(`/admin/crm/contacts/${contactId}`);
 
   return { ok: true, duplicateSkipped: false, leadId, contactId, leadgenId };
+}
+
+/**
+ * CSV import path: same insert pipeline as Zapier (`normalizeAutomationFlatFieldMap` + disciplines + metadata).
+ */
+export async function insertFacebookLeadFromCsvRow(
+  supabase: SupabaseClient,
+  params: {
+    fieldMap: Map<string, string>;
+    leadgenId: string;
+    rawRowText: string;
+  }
+): Promise<IngestFacebookLeadgenResult> {
+  const m = new Map(params.fieldMap);
+  normalizeAutomationFlatFieldMap(m);
+  const fieldDataForMeta: GraphFieldDatum[] = Array.from(m.entries()).map(([name, val]) => ({
+    name,
+    values: [val],
+  }));
+  return completeFacebookLeadInsertFromFieldMap(supabase, {
+    leadgenId: params.leadgenId,
+    fieldMap: m,
+    fieldDataForMeta,
+    pageId: null,
+    formId: null,
+    createdTimeRaw: undefined,
+    graphCreatedTime: null,
+    rawBodyText: params.rawRowText.slice(0, 100_000),
+    ingestionReceivedAt: new Date().toISOString(),
+    ingestionChannel: "csv",
+  });
 }
 
 async function ingestOneFacebookLeadgen(

@@ -224,9 +224,17 @@ export default async function AdminCrmLeadsPage({
           </>
         }
         actions={
-          <Link href="/admin/crm/leads/new" className={crmPrimaryCtaCls}>
-            + New Lead
-          </Link>
+          <div className="flex flex-wrap items-center gap-2">
+            <Link
+              href="/admin/crm/leads/import"
+              className="inline-flex rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50"
+            >
+              Import CSV
+            </Link>
+            <Link href="/admin/crm/leads/new" className={crmPrimaryCtaCls}>
+              + New Lead
+            </Link>
+          </div>
         }
       />
 
