@@ -21,6 +21,7 @@ import {
   updateLeadContactProfile,
   updateLeadIntake,
 } from "../actions";
+import type { EmploymentApplicationMeta } from "@/lib/crm/lead-employment-meta";
 import { addCalendarDaysToIsoDate, getCrmCalendarTodayIso, getCrmCalendarTomorrowIso } from "@/lib/crm/crm-local-date";
 import { formatLeadLastContactSummary } from "@/lib/crm/lead-contact-outcome";
 import { formatPhoneNumber } from "@/lib/phone/us-phone-format";
@@ -136,6 +137,12 @@ export type LeadWorkspaceExistingProps = {
   lastContactAt: string | null;
   lastOutcome: string | null;
   lastNote: string | null;
+  /** Hiring / employment website applicants (`leads.lead_type = employee`). */
+  isEmployeeLead?: boolean;
+  employmentMeta?: EmploymentApplicationMeta | null;
+  referralSourceLine?: string;
+  /** Raw `leads.notes` (application summary from intake). */
+  applicationNotes?: string;
 };
 
 export type LeadWorkspaceNewProps = {
@@ -353,6 +360,10 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
     lastContactAt,
     lastOutcome,
     lastNote,
+    isEmployeeLead = false,
+    employmentMeta = null,
+    referralSourceLine = "",
+    applicationNotes = "",
   } = props;
 
   const lastContactLine = formatLeadLastContactSummary(lastContactAt, lastOutcome);
@@ -381,6 +392,14 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
         <p className="mt-1 text-sm text-slate-600">
           {formatLeadSourceLabel(sourceRaw)} · Pipeline:{" "}
           <span className="font-medium text-slate-800">{formatLeadPipelineStatusLabel(rawStatus)}</span>
+          {isEmployeeLead ? (
+            <>
+              {" · "}
+              <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-[11px] font-semibold text-indigo-900">
+                Employee applicant
+              </span>
+            </>
+          ) : null}
           {" · "}
           <Link href="/admin/crm/leads" className="font-semibold text-sky-800 hover:underline">
             Back to leads
@@ -407,6 +426,83 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
       {convertErr ? (
         <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
           {convertErrorMessage(convertErr)}
+        </div>
+      ) : null}
+
+      {isEmployeeLead ? (
+        <div className="rounded-[28px] border border-indigo-200 bg-indigo-50/90 p-5 shadow-sm">
+          <h2 className="text-sm font-semibold text-indigo-950">Applicant &amp; hiring</h2>
+          <p className="mt-1 text-xs text-indigo-900/80">
+            Submitted application details. Patient intake fields below are hidden for this record.
+          </p>
+          <dl className="mt-4 grid gap-3 sm:grid-cols-2">
+            <div>
+              <dt className="text-[10px] font-semibold uppercase tracking-wide text-indigo-800/80">Applicant status</dt>
+              <dd className="text-sm font-medium text-slate-900">{formatLeadPipelineStatusLabel(rawStatus)}</dd>
+            </div>
+            <div>
+              <dt className="text-[10px] font-semibold uppercase tracking-wide text-indigo-800/80">Source / channel</dt>
+              <dd className="text-sm text-slate-900">
+                {formatLeadSourceLabel(sourceRaw)}
+                {referralSourceLine.trim() ? (
+                  <span className="block text-xs text-slate-600">{referralSourceLine.trim()}</span>
+                ) : null}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-[10px] font-semibold uppercase tracking-wide text-indigo-800/80">Role applied for</dt>
+              <dd className="text-sm text-slate-900">{(employmentMeta?.position ?? "").trim() || "—"}</dd>
+            </div>
+            <div>
+              <dt className="text-[10px] font-semibold uppercase tracking-wide text-indigo-800/80">License #</dt>
+              <dd className="text-sm text-slate-900">{(employmentMeta?.license_number ?? "").trim() || "—"}</dd>
+            </div>
+            <div>
+              <dt className="text-[10px] font-semibold uppercase tracking-wide text-indigo-800/80">Experience</dt>
+              <dd className="text-sm text-slate-900">{(employmentMeta?.years_experience ?? "").trim() || "—"}</dd>
+            </div>
+            <div>
+              <dt className="text-[10px] font-semibold uppercase tracking-wide text-indigo-800/80">Preferred hours</dt>
+              <dd className="text-sm text-slate-900">{(employmentMeta?.preferred_hours ?? "").trim() || "—"}</dd>
+            </div>
+            <div>
+              <dt className="text-[10px] font-semibold uppercase tracking-wide text-indigo-800/80">Available start</dt>
+              <dd className="text-sm text-slate-900">{(employmentMeta?.available_start_date ?? "").trim() || "—"}</dd>
+            </div>
+            <div>
+              <dt className="text-[10px] font-semibold uppercase tracking-wide text-indigo-800/80">Resume</dt>
+              <dd className="text-sm">
+                {(employmentMeta?.resume_url ?? "").trim() ? (
+                  <a
+                    href={(employmentMeta?.resume_url ?? "").trim()}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-semibold text-sky-800 underline-offset-2 hover:underline"
+                  >
+                    Open resume link
+                  </a>
+                ) : (
+                  "—"
+                )}
+              </dd>
+            </div>
+            {employmentMeta?.experience_message?.trim() ? (
+              <div className="sm:col-span-2">
+                <dt className="text-[10px] font-semibold uppercase tracking-wide text-indigo-800/80">Message / experience</dt>
+                <dd className="mt-1 whitespace-pre-wrap rounded-lg border border-indigo-100 bg-white/80 p-3 text-sm text-slate-800">
+                  {employmentMeta.experience_message.trim()}
+                </dd>
+              </div>
+            ) : null}
+            {applicationNotes.trim() ? (
+              <div className="sm:col-span-2">
+                <dt className="text-[10px] font-semibold uppercase tracking-wide text-indigo-800/80">Application notes (lead)</dt>
+                <dd className="mt-1 whitespace-pre-wrap rounded-lg border border-indigo-100 bg-white/80 p-3 text-xs text-slate-700">
+                  {applicationNotes.trim()}
+                </dd>
+              </div>
+            ) : null}
+          </dl>
         </div>
       ) : null}
 
@@ -579,7 +675,13 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
           <h2 className="text-sm font-semibold text-slate-900">Outcome</h2>
           <p className="mt-1 text-xs text-slate-600">Close the loop when the referral is won or lost.</p>
           <div className="mt-4 flex flex-wrap gap-3">
-            {!patientId ? (
+            {isEmployeeLead ? (
+              <p className="max-w-xl text-xs text-slate-600">
+                Hiring applicants are not converted to patients from this screen. Use{" "}
+                <strong>Mark dead lead</strong> if the applicant is disqualified, or continue follow-up via contact
+                outcomes above.
+              </p>
+            ) : !patientId ? (
               <form action={convertLeadToPatientFromLeadDetail}>
                 <input type="hidden" name="leadId" value={leadId} />
                 <button
@@ -613,6 +715,24 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
       {!terminal ? (
         <form action={updateLeadIntake} className="space-y-6">
           <input type="hidden" name="leadId" value={leadId} />
+          {isEmployeeLead ? (
+            <>
+              <input type="hidden" name="referring_doctor_name" value={intakeDefaults.referring_doctor_name} />
+              <input type="hidden" name="doctor_office_name" value={intakeDefaults.doctor_office_name} />
+              <input type="hidden" name="doctor_office_phone" value={intakeDefaults.doctor_office_phone} />
+              <input type="hidden" name="doctor_office_fax" value={intakeDefaults.doctor_office_fax} />
+              <input type="hidden" name="doctor_office_contact_person" value={intakeDefaults.doctor_office_contact_person} />
+              <input type="hidden" name="referring_provider_name" value={intakeDefaults.referring_provider_name} />
+              <input type="hidden" name="referring_provider_phone" value={intakeDefaults.referring_provider_phone} />
+              <input type="hidden" name="payer_name" value={intakeDefaults.payer_name} />
+              <input type="hidden" name="payer_type" value={intakeDefaults.payer_type} />
+              <input type="hidden" name="referral_source" value={intakeDefaults.referral_source} />
+              <input type="hidden" name="intake_status" value={intakeDefaults.intake_status} />
+              {leadDisciplinesForForm.map((d) => (
+                <input key={d} type="hidden" name="service_disciplines" value={d} />
+              ))}
+            </>
+          ) : null}
 
           <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
             <h2 className="text-sm font-semibold text-slate-900">Pipeline &amp; ownership</h2>
@@ -664,6 +784,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
             </div>
           </div>
 
+          {!isEmployeeLead ? (
           <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
             <h2 className="text-sm font-semibold text-slate-900">Referral &amp; doctor office</h2>
             <div className="mt-4 grid max-w-2xl gap-3 sm:grid-cols-2">
@@ -713,7 +834,9 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
               </label>
             </div>
           </div>
+          ) : null}
 
+          {!isEmployeeLead ? (
           <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
             <h2 className="text-sm font-semibold text-slate-900">Payer &amp; services</h2>
             <div className="mt-4 grid max-w-2xl gap-3 sm:grid-cols-2">
@@ -748,6 +871,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
               </label>
             </div>
           </div>
+          ) : null}
 
           <div>
             <button
