@@ -1155,6 +1155,301 @@
   line-height: 1.55;
 }
 
+/* Contact / intake — quick cards */
+.shh-contact-quick-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+}
+
+@media (min-width: 640px) {
+  .shh-contact-quick-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1024px) {
+  .shh-contact-quick-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .shh-contact-quick-card--wide {
+    grid-column: span 2;
+  }
+}
+
+.shh-contact-quick-card {
+  border-radius: 18px;
+  border: 1px solid rgba(148, 163, 184, 0.6);
+  background: linear-gradient(to bottom, #ffffff, #f8fafc);
+  padding: 16px 16px 14px;
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.06);
+}
+
+.shh-contact-quick-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #64748b;
+  margin-bottom: 8px;
+}
+
+.shh-contact-quick-value {
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f172a;
+  line-height: 1.35;
+  margin: 0;
+  word-break: break-word;
+}
+
+.shh-contact-link {
+  color: #1d4ed8;
+  text-decoration: none;
+}
+
+.shh-contact-link:hover {
+  text-decoration: underline;
+}
+
+.shh-contact-quick-meta {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: #64748b;
+  line-height: 1.4;
+}
+
+.shh-contact-address {
+  font-weight: 600;
+}
+
+/* How we can help — contact page */
+.shh-help-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+
+@media (min-width: 640px) {
+  .shh-help-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .shh-help-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.shh-help-card {
+  border-radius: 18px;
+  border: 1px solid rgba(148, 163, 184, 0.55);
+  background: #ffffff;
+  padding: 16px 14px 14px;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.05);
+}
+
+.shh-help-card h3 {
+  font-size: 15px;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 0 0 6px;
+  line-height: 1.25;
+}
+
+.shh-help-card p {
+  margin: 0;
+  font-size: 13px;
+  color: #4b5563;
+  line-height: 1.45;
+}
+
+/* Referral panel */
+.shh-referral-panel {
+  border-radius: 22px;
+  padding: 22px 18px 20px;
+  background: radial-gradient(circle at top right, #e0f2fe, #ffffff 55%, #f1f5f9 100%);
+  border: 1px solid rgba(148, 163, 184, 0.75);
+}
+
+.shh-referral-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+  margin-top: 8px;
+}
+
+@media (min-width: 768px) {
+  .shh-referral-actions {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
+  }
+}
+
+.shh-referral-channel {
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(148, 163, 184, 0.55);
+  padding: 14px 14px 12px;
+}
+
+.shh-referral-channel-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #64748b;
+  margin-bottom: 6px;
+}
+
+.shh-referral-channel-value {
+  display: block;
+  font-size: 16px;
+  font-weight: 700;
+  color: #1d4ed8;
+  text-decoration: none;
+}
+
+a.shh-referral-channel-value:hover {
+  text-decoration: underline;
+}
+
+span.shh-referral-channel-value {
+  color: #0f172a;
+}
+
+.shh-referral-channel-hint {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  color: #64748b;
+  line-height: 1.35;
+}
+
+/* Intake form */
+.shh-intake-form-wrap {
+  border-radius: 22px;
+  padding: 22px 18px 20px;
+  background: radial-gradient(circle at bottom left, #eff6ff, #ffffff 60%, #f9fafb 100%);
+  border: 1px solid rgba(148, 163, 184, 0.75);
+}
+
+@media (min-width: 640px) {
+  .shh-intake-form-wrap {
+    padding: 26px 24px 24px;
+  }
+}
+
+.shh-intake-form {
+  margin: 0;
+}
+
+.shh-field {
+  margin-bottom: 16px;
+}
+
+.shh-field label {
+  display: block;
+  font-size: 13px;
+  font-weight: 700;
+  color: #334155;
+  margin-bottom: 8px;
+}
+
+.shh-field input,
+.shh-field select,
+.shh-field textarea {
+  width: 100%;
+  padding: 14px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.85);
+  font-size: 16px;
+  font-family: inherit;
+  color: #0f172a;
+  background: #fff;
+  box-sizing: border-box;
+}
+
+.shh-field input::placeholder,
+.shh-field textarea::placeholder {
+  color: #94a3b8;
+}
+
+.shh-field textarea {
+  resize: vertical;
+  min-height: 120px;
+  line-height: 1.45;
+}
+
+.shh-field select {
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2364748b' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 36px;
+}
+
+.shh-field-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+}
+
+@media (min-width: 640px) {
+  .shh-field-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+  }
+
+  .shh-field-row .shh-field {
+    margin-bottom: 16px;
+  }
+}
+
+.shh-form-hint {
+  font-size: 12px;
+  color: #64748b;
+  line-height: 1.45;
+  margin: 0 0 16px;
+}
+
+.shh-form-notice {
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #991b1b;
+  font-size: 14px;
+}
+
+.shh-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.shh-btn-primary--form {
+  width: 100%;
+  justify-content: center;
+  min-height: 52px;
+  font-size: 16px;
+  font-weight: 700;
+  padding: 14px 22px;
+}
+
+@media (min-width: 480px) {
+  .shh-btn-primary--form {
+    width: auto;
+    min-width: 220px;
+  }
+}
+
 /* RESPONSIVE — hero */
 @media (max-width: 900px) {
   .shh-hero-inner {

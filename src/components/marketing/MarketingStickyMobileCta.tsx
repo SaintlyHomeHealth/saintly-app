@@ -7,7 +7,7 @@ export function MarketingStickyMobileCta() {
       <a className="shh-sticky-call" href="tel:+14803600008">
         Call now
       </a>
-      <a className="shh-sticky-secondary" href="#intake">
+      <a className="shh-sticky-secondary" href="/contact">
         Intake help
       </a>
     </div>

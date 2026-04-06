@@ -3,7 +3,7 @@ export const MARKETING_NAV_DEFAULT = [
   { href: "/services", label: "Services" },
   { href: "/#how-it-works", label: "How it works" },
   { href: "/#coverage", label: "Service area" },
-  { href: "/#intake", label: "Contact" },
+  { href: "/contact", label: "Contact" },
 ] as const;
 
 /** Services page: include Home + in-page anchors. */
@@ -12,7 +12,16 @@ export const MARKETING_NAV_SERVICES_PAGE = [
   { href: "/services#featured", label: "Services" },
   { href: "/#how-it-works", label: "How it works" },
   { href: "/#coverage", label: "Service area" },
-  { href: "/services#intake", label: "Contact" },
+  { href: "/contact", label: "Contact" },
+] as const;
+
+/** Contact / intake page. */
+export const MARKETING_NAV_CONTACT_PAGE = [
+  { href: "/", label: "Home" },
+  { href: "/services", label: "Services" },
+  { href: "/#how-it-works", label: "How it works" },
+  { href: "/#coverage", label: "Service area" },
+  { href: "/contact#form", label: "Contact" },
 ] as const;
 
 export type MarketingNavLink = { href: string; label: string };

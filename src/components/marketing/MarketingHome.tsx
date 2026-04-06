@@ -235,7 +235,7 @@ export function MarketingHome() {
           </div>
 
           <div className="shh-services-footer">
-            <a className="shh-btn-secondary" href="#intake">
+            <a className="shh-btn-secondary" href="/contact#form">
               Request intake help
             </a>
             <span>Questions about coverage or orders? We’ll walk you through it.</span>
