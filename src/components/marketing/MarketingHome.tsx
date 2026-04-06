@@ -1,10 +1,9 @@
 import Image from 'next/image'
+import { MarketingFinalCtaStrip } from './MarketingFinalCtaStrip'
 import { MarketingSiteHeader } from './MarketingSiteHeader'
 import { MarketingStickyMobileCta } from './MarketingStickyMobileCta'
+import { PHONE_DISPLAY, TEL } from './marketing-constants'
 import './marketing-home.css'
-
-const TEL = 'tel:+14803600008'
-const PHONE_DISPLAY = '(480) 360-0008'
 
 /** Replace with a file in /public/marketing/hero.jpg or set NEXT_PUBLIC_MARKETING_HERO_URL */
 const HERO_IMAGE_SRC =
@@ -129,7 +128,7 @@ export function MarketingHome() {
                 <a className="shh-btn-primary" href={TEL}>
                   Start care — call now
                 </a>
-                <a className="shh-btn-secondary" href="#services">
+                <a className="shh-btn-secondary" href="/services">
                   View services
                 </a>
                 <p className="shh-hero-cta-note">
@@ -394,23 +393,7 @@ export function MarketingHome() {
           </div>
         </section>
 
-        <section className="shh-final-cta" id="intake" aria-labelledby="intake-title">
-          <div>
-            <h2 id="intake-title">Talk to our intake team</h2>
-            <p>
-              Check Medicare eligibility, ask about home health, and get help coordinating with your
-              doctor—call <a href={TEL} className="text-sky-300 underline underline-offset-2">{PHONE_DISPLAY}</a>.
-            </p>
-          </div>
-          <div className="shh-final-cta-actions">
-            <a className="shh-btn-primary shh-btn-primary--lg" href={TEL}>
-              Call now
-            </a>
-            <a className="shh-btn-outline-light" href={TEL}>
-              Check Medicare eligibility
-            </a>
-          </div>
-        </section>
+        <MarketingFinalCtaStrip />
 
         <footer className="mt-10 border-t border-slate-200 pt-8 text-center text-sm text-slate-500">
           <p>

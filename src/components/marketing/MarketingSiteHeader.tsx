@@ -2,21 +2,22 @@
 
 import Image from 'next/image'
 import { useState } from 'react'
+import { PHONE_DISPLAY, TEL } from './marketing-constants'
+import { MARKETING_NAV_DEFAULT, type MarketingNavLink } from './marketing-nav'
 
-const LINKS = [
-  { href: '#services', label: 'Services' },
-  { href: '#how-it-works', label: 'How it works' },
-  { href: '#coverage', label: 'Service area' },
-  { href: '#intake', label: 'Contact' },
-] as const
+type MarketingSiteHeaderProps = {
+  /** Defaults to sitewide marketing links (home + sections on `/`). */
+  navLinks?: readonly MarketingNavLink[]
+}
 
-export function MarketingSiteHeader() {
+export function MarketingSiteHeader({ navLinks = MARKETING_NAV_DEFAULT }: MarketingSiteHeaderProps) {
   const [open, setOpen] = useState(false)
+  const links = navLinks as MarketingNavLink[]
 
   return (
     <header className="shh-site-header">
       <div className="shh-site-header-inner">
-        <a className="shh-site-brand" href="#top">
+        <a className="shh-site-brand" href="/">
           <Image
             src="/marketing/saintly-logo.png"
             alt=""
@@ -31,13 +32,13 @@ export function MarketingSiteHeader() {
         </a>
 
         <nav className="shh-site-nav" aria-label="Primary">
-          {LINKS.map((l) => (
-            <a key={l.href} href={l.href}>
+          {links.map((l) => (
+            <a key={l.href + l.label} href={l.href}>
               {l.label}
             </a>
           ))}
-          <a className="shh-site-nav-cta" href="tel:+14803600008">
-            Call (480) 360-0008
+          <a className="shh-site-nav-cta" href={TEL}>
+            Call {PHONE_DISPLAY}
           </a>
         </nav>
 
@@ -57,9 +58,9 @@ export function MarketingSiteHeader() {
         id="shh-mobile-nav"
         className={['shh-site-mobile-panel', open ? 'is-open' : ''].join(' ')}
       >
-        {LINKS.map((l) => (
+        {links.map((l) => (
           <a
-            key={l.href}
+            key={l.href + l.label}
             href={l.href}
             onClick={() => setOpen(false)}
           >
@@ -68,10 +69,10 @@ export function MarketingSiteHeader() {
         ))}
         <a
           className="shh-site-nav-cta"
-          href="tel:+14803600008"
+          href={TEL}
           onClick={() => setOpen(false)}
         >
-          Call (480) 360-0008
+          Call {PHONE_DISPLAY}
         </a>
       </div>
     </header>
