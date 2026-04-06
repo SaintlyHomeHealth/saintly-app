@@ -6,10 +6,9 @@ import { MarketingStickyMobileCta } from './MarketingStickyMobileCta'
 import { PHONE_DISPLAY, TEL } from './marketing-constants'
 import './marketing-home.css'
 
-/** Replace with a file in /public/marketing/hero.jpg or set NEXT_PUBLIC_MARKETING_HERO_URL */
+/** Local asset in /public/marketing/ or override with NEXT_PUBLIC_MARKETING_HERO_URL */
 const HERO_IMAGE_SRC =
-  process.env.NEXT_PUBLIC_MARKETING_HERO_URL ||
-  'https://images.unsplash.com/photo-1576765607924-3f6b32b7ca57?q=85&w=2400&auto=format&fit=crop'
+  process.env.NEXT_PUBLIC_MARKETING_HERO_URL || '/marketing/hero-home.jpg'
 
 type Service = {
   tag: string
@@ -171,7 +170,7 @@ export function MarketingHome() {
               src={HERO_IMAGE_SRC}
               alt="Caregiver supporting an older adult at home"
               fill
-              sizes="(max-width: 768px) 100vw, 1120px"
+              sizes="(max-width: 768px) 100vw, min(1120px, 100vw)"
               className="object-cover"
               priority
             />
@@ -203,15 +202,38 @@ export function MarketingHome() {
         </section>
 
         <section className="shh-section" id="services" aria-labelledby="services-title">
-          <div className="shh-section-header">
-            <div className="shh-section-kicker">Our services</div>
-            <h2 className="shh-section-title" id="services-title">
-              Skilled care where you live
-            </h2>
-            <p className="shh-section-text">
-              Hospital-level oversight in the comfort of home. Your plan is built with your doctor and
-              adjusted as you improve.
-            </p>
+          <div className="shh-services-intro">
+            <div className="shh-section-header shh-services-intro-text">
+              <div className="shh-section-kicker">Our services</div>
+              <h2 className="shh-section-title" id="services-title">
+                Skilled care where you live
+              </h2>
+              <p className="shh-section-text">
+                Hospital-level oversight in the comfort of home. Your plan is built with your doctor and
+                adjusted as you improve.
+              </p>
+            </div>
+            <div className="shh-services-intro-figure">
+              <Image
+                src="/marketing/wound-care.jpg"
+                alt="Skilled nurse providing wound care at home"
+                fill
+                sizes="(max-width: 767px) 100vw, 400px"
+                className="object-cover"
+              />
+            </div>
+          </div>
+
+          <div className="shh-therapy-visual">
+            <div className="shh-therapy-visual-img">
+              <Image
+                src="/marketing/therapy.jpg"
+                alt=""
+                fill
+                sizes="(max-width: 639px) 88px, 112px"
+                className="object-cover"
+              />
+            </div>
           </div>
 
           <div className="shh-service-grid">
@@ -243,7 +265,11 @@ export function MarketingHome() {
           </div>
         </section>
 
-        <section className="shh-section" id="how-it-works" aria-labelledby="how-title">
+        <section
+          className="shh-section shh-section--ambient-bg"
+          id="how-it-works"
+          aria-labelledby="how-title"
+        >
           <div className="shh-section-header">
             <div className="shh-section-kicker">How it works</div>
             <h2 className="shh-section-title" id="how-title">
@@ -285,15 +311,26 @@ export function MarketingHome() {
         </section>
 
         <section className="shh-section" id="why-saintly" aria-labelledby="why-title">
-          <div className="shh-section-header">
-            <div className="shh-section-kicker">Why families choose us</div>
-            <h2 className="shh-section-title" id="why-title">
-              Clinical skill with a human touch
-            </h2>
-            <p className="shh-section-text">
-              Clear communication, honest timelines, and respect in every visit—for families and patients
-              alike.
-            </p>
+          <div className="shh-trust-intro">
+            <div className="shh-section-header shh-trust-intro-text">
+              <div className="shh-section-kicker">Why families choose us</div>
+              <h2 className="shh-section-title" id="why-title">
+                Clinical skill with a human touch
+              </h2>
+              <p className="shh-section-text">
+                Clear communication, honest timelines, and respect in every visit—for families and patients
+                alike.
+              </p>
+            </div>
+            <div className="shh-trust-intro-figure">
+              <Image
+                src="/marketing/trust.jpg"
+                alt="Clinician and patient sharing a warm moment at home"
+                fill
+                sizes="(max-width: 767px) 100vw, 380px"
+                className="object-cover"
+              />
+            </div>
           </div>
 
           <div className="shh-reasons-grid">

@@ -643,7 +643,92 @@
   line-height: 1.65;
 }
 
+/* Soft ambient background (single section — readability preserved) */
+.shh-section--ambient-bg {
+  position: relative;
+  isolation: isolate;
+  border-radius: 18px;
+  overflow: hidden;
+  padding-block: 0.35rem;
+}
+
+.shh-section--ambient-bg::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: url("/marketing/bg-light.jpg") center / cover no-repeat;
+  opacity: 0.08;
+  pointer-events: none;
+}
+
+.shh-section--ambient-bg > * {
+  position: relative;
+  z-index: 1;
+}
+
 /* SERVICES */
+.shh-services-intro {
+  display: grid;
+  gap: 20px;
+  margin-bottom: 18px;
+  align-items: center;
+}
+
+@media (min-width: 768px) {
+  .shh-services-intro {
+    grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+    gap: 28px;
+    margin-bottom: 20px;
+  }
+}
+
+.shh-services-intro-text.shh-section-header {
+  margin-bottom: 0;
+}
+
+.shh-services-intro-figure {
+  position: relative;
+  width: 100%;
+  border-radius: 20px;
+  overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, 0.5);
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.12);
+  aspect-ratio: 8 / 5;
+  background: #f1f5f9;
+}
+
+.shh-services-intro-figure img {
+  object-fit: cover;
+  object-position: center;
+}
+
+/* Therapy — subtle accent above service cards */
+.shh-therapy-visual {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 14px;
+}
+
+.shh-therapy-visual-img {
+  position: relative;
+  width: 88px;
+  height: 56px;
+  flex-shrink: 0;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.08);
+}
+
+@media (min-width: 640px) {
+  .shh-therapy-visual-img {
+    width: 112px;
+    height: 72px;
+    border-radius: 14px;
+  }
+}
+
 .shh-service-grid {
   display: grid;
   grid-template-columns: 1fr;
@@ -807,6 +892,48 @@
 }
 
 /* WHY CHOOSE US */
+.shh-trust-intro {
+  display: grid;
+  gap: 20px;
+  margin-bottom: 16px;
+  align-items: center;
+}
+
+@media (min-width: 768px) {
+  .shh-trust-intro {
+    grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+    gap: 28px;
+    margin-bottom: 18px;
+  }
+}
+
+.shh-trust-intro-text.shh-section-header {
+  margin-bottom: 0;
+}
+
+.shh-trust-intro-figure {
+  position: relative;
+  width: 100%;
+  border-radius: 20px;
+  overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, 0.5);
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.12);
+  aspect-ratio: 5 / 4;
+  max-height: 320px;
+  background: #f1f5f9;
+}
+
+@media (min-width: 768px) {
+  .shh-trust-intro-figure {
+    max-height: none;
+  }
+}
+
+.shh-trust-intro-figure img {
+  object-fit: cover;
+  object-position: center;
+}
+
 .shh-reasons-grid {
   display: grid;
   grid-template-columns: 1fr;
