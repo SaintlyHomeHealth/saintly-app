@@ -1121,6 +1121,12 @@ export async function saveLeadOutcome(formData: FormData): Promise<SaveLeadOutco
     return { ok: false, error: "forbidden" };
   }
 
+  const received: Record<string, string> = {};
+  for (const [k, v] of formData.entries()) {
+    received[k] = typeof v === "string" ? v : String(v);
+  }
+  console.log("[admin/crm] saveLeadOutcome received", received);
+
   const idRaw = formData.get("leadId");
   const leadId = typeof idRaw === "string" ? idRaw.trim() : "";
   if (!leadId) {

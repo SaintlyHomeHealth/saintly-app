@@ -752,7 +752,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
           </p>
           <div className="mt-4">
             <LeadContactOutcomeForm
-              key={`${lastContactAt ?? ""}|${lastOutcome ?? ""}|${followUpIso}|${nextActionVal}`}
+              key={leadId}
               leadId={leadId}
               defaultNextAction={nextActionVal}
               defaultFollowUpIso={followUpIso}
@@ -1105,7 +1105,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
         </div>
       </div>
 
-      <aside className="mt-8 min-w-0 lg:mt-0 lg:sticky lg:top-6 lg:self-start">
+      <aside className="mt-8 min-h-0 min-w-0 lg:sticky lg:top-6 lg:mt-0 lg:max-h-[calc(100vh-3rem)] lg:overflow-x-hidden lg:overflow-y-auto lg:overscroll-y-contain lg:self-start">
         <LeadFollowUpContextPanel
           leadId={leadId}
           lastContactAt={lastContactAt}

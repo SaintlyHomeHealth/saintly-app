@@ -62,6 +62,15 @@ export function LeadContactOutcomeForm({
     return () => window.clearTimeout(t);
   }, [toast]);
 
+  /** When `router.refresh()` returns new server props, re-align follow-up / notes / next action without remounting (stable key={leadId}). */
+  useEffect(() => {
+    /* eslint-disable react-hooks/set-state-in-effect -- intentional sync from refreshed RSC props */
+    setFollowUp(defaultFollowUpIso);
+    setNotes(defaultNotes);
+    setNextAction(defaultNextAction);
+    /* eslint-enable react-hooks/set-state-in-effect */
+  }, [defaultFollowUpIso, defaultNotes, defaultNextAction]);
+
   return (
     <div className="relative">
       {toast ? (
@@ -81,23 +90,51 @@ export function LeadContactOutcomeForm({
         className="space-y-4"
         onSubmit={(e) => {
           e.preventDefault();
-          const formEl = e.currentTarget;
           setToast(null);
+          console.log("[LeadContactOutcomeForm] submit fired", {
+            leadId,
+            outcome,
+            contactType,
+            nextAction,
+            followUp,
+            notesLen: notes.length,
+          });
           startTransition(async () => {
-            const fd = new FormData(formEl);
-            const result = await saveLeadOutcome(fd);
-            if (result.ok) {
-              console.log("[LeadContactOutcomeForm] saveLeadOutcome success");
-              setToast({ type: "ok", message: toastMessage(result) });
-              setOutcome("");
-              setFollowUp(defaultFollowUpIso);
-              setNotes("");
-              setNextAction(defaultNextAction);
-              setContactType("call");
-              router.refresh();
-            } else {
-              console.warn("[LeadContactOutcomeForm] saveLeadOutcome failed", result);
-              setToast({ type: "err", message: toastMessage(result) });
+            try {
+              // Build FormData from React state — new FormData(formElement) can omit/mis-serialize controlled fields.
+              const fd = new FormData();
+              fd.set("leadId", leadId);
+              fd.set("outcome", outcome);
+              fd.set("contact_type", contactType);
+              fd.set("next_action", nextAction);
+              fd.set("follow_up_date", followUp);
+              fd.set("notes", notes);
+              const outgoing: Record<string, string> = {};
+              fd.forEach((v, k) => {
+                outgoing[k] = typeof v === "string" ? v : String(v);
+              });
+              console.log("[LeadContactOutcomeForm] outgoing payload", outgoing);
+
+              const result = await saveLeadOutcome(fd);
+              if (result.ok) {
+                console.log("[LeadContactOutcomeForm] saveLeadOutcome success", result);
+                setToast({ type: "ok", message: toastMessage(result) });
+                setOutcome("");
+                setFollowUp(defaultFollowUpIso);
+                setNotes("");
+                setNextAction(defaultNextAction);
+                setContactType("call");
+                await router.refresh();
+              } else {
+                console.warn("[LeadContactOutcomeForm] saveLeadOutcome rejected", result);
+                setToast({ type: "err", message: toastMessage(result) });
+              }
+            } catch (err) {
+              console.error("[LeadContactOutcomeForm] saveLeadOutcome threw", err);
+              setToast({
+                type: "err",
+                message: err instanceof Error ? err.message : "Could not save outcome. Try again.",
+              });
             }
           });
         }}
