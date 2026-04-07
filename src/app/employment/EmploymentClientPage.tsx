@@ -101,6 +101,10 @@ export function EmploymentClientPage() {
       setMessage("Please enter a valid email address.");
       return;
     }
+    if (!smsConsent) {
+      setMessage("Please check the SMS consent box to continue.");
+      return;
+    }
     setStep(2);
   };
 
@@ -125,7 +129,7 @@ export function EmploymentClientPage() {
           last_name: form.last_name,
           email: form.email,
           phone: form.phone,
-          sms_consent: true,
+          sms_consent: smsConsent,
           address: form.address,
           city: form.city,
           state: form.state,
@@ -162,10 +166,6 @@ export function EmploymentClientPage() {
     setMessage("");
     if (!form.position) {
       setMessage("Please select the role you are applying for.");
-      return;
-    }
-    if (!smsConsent) {
-      setMessage("Please check the SMS consent box to submit your application.");
       return;
     }
     void submitApplication();
@@ -309,8 +309,27 @@ export function EmploymentClientPage() {
                     required
                   />
                 </div>
+                <div className="shh-sms-consent">
+                  <label htmlFor="emp-sms-consent" className="shh-sms-consent__label">
+                    <input
+                      id="emp-sms-consent"
+                      name="sms_consent"
+                      type="checkbox"
+                      checked={smsConsent}
+                      onChange={(e) => setSmsConsent(e.target.checked)}
+                      className="shh-sms-consent__input"
+                    />
+                    <span className="shh-sms-consent__text">{SMS_CONSENT_CHECKBOX_LABEL}</span>
+                  </label>
+                  <p className="shh-sms-consent__note">{SMS_CONSENT_PURCHASE_NOTE}</p>
+                </div>
                 <div className="shh-form-actions">
-                  <button type="button" className="shh-btn-primary shh-btn-primary--form" onClick={handleStep1Next}>
+                  <button
+                    type="button"
+                    className="shh-btn-primary shh-btn-primary--form"
+                    onClick={handleStep1Next}
+                    disabled={!smsConsent}
+                  >
                     Continue
                   </button>
                 </div>
@@ -427,20 +446,6 @@ export function EmploymentClientPage() {
                     uploads on this form.
                   </p>
                 </div>
-                <div className="shh-sms-consent">
-                  <label htmlFor="emp-sms-consent" className="shh-sms-consent__label">
-                    <input
-                      id="emp-sms-consent"
-                      name="sms_consent"
-                      type="checkbox"
-                      checked={smsConsent}
-                      onChange={(e) => setSmsConsent(e.target.checked)}
-                      className="shh-sms-consent__input"
-                    />
-                    <span className="shh-sms-consent__text">{SMS_CONSENT_CHECKBOX_LABEL}</span>
-                  </label>
-                  <p className="shh-sms-consent__note">{SMS_CONSENT_PURCHASE_NOTE}</p>
-                </div>
                 <div className="flex flex-wrap gap-3">
                   <button type="button" className="shh-btn-secondary" onClick={() => setStep(2)}>
                     Back
@@ -449,7 +454,7 @@ export function EmploymentClientPage() {
                     type="button"
                     className="shh-btn-primary shh-btn-primary--form"
                     onClick={handleStep3Submit}
-                    disabled={loading || !smsConsent}
+                    disabled={loading}
                   >
                     {loading ? "Submitting…" : "Submit application"}
                   </button>
