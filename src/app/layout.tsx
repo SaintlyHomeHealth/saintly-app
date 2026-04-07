@@ -15,10 +15,10 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   metadataBase: new URL("https://saintly.local"),
   title: {
-    default: "Saintly",
-    template: "%s · Saintly",
+    default: "Saintly Home Health",
+    template: "%s · Saintly Home Health",
   },
-  description: "Saintly Home Health internal operations portal.",
+  description: "Home Health Services",
   applicationName: "Saintly Phone",
   manifest: "/manifest.webmanifest",
   appleWebApp: {
@@ -27,10 +27,11 @@ export const metadata: Metadata = {
     title: "Saintly Phone",
   },
   icons: {
-    apple: [{ url: "/apple-icon", sizes: "180x180", type: "image/png" }],
     icon: [
-      { url: "/icon", sizes: "512x512", type: "image/png" },
+      { url: "/favicon.png", sizes: "512x512", type: "image/png" },
+      { url: "/favicon.ico", sizes: "256x256" },
     ],
+    apple: [{ url: "/apple-icon", sizes: "180x180", type: "image/png" }],
   },
 };
 
