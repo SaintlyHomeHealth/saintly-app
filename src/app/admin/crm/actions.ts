@@ -1107,28 +1107,36 @@ export async function updateLeadIntake(formData: FormData) {
   revalidatePath("/workspace/phone/follow-ups-today");
 }
 
-export async function saveLeadContactOutcome(formData: FormData) {
+export type SaveLeadOutcomeResult =
+  | { ok: true }
+  | { ok: false; error: "forbidden" | "invalid_lead" | "invalid_outcome" | "invalid_contact_type" | "save_failed" };
+
+/**
+ * Persists a contact attempt on the lead (`leads.last_*` columns — equivalent to a lead_outcomes row; no separate table).
+ */
+export async function saveLeadOutcome(formData: FormData): Promise<SaveLeadOutcomeResult> {
   const staff = await getStaffProfile();
   if (!staff || !isManagerOrHigher(staff)) {
-    return;
+    console.warn("[admin/crm] saveLeadOutcome: forbidden");
+    return { ok: false, error: "forbidden" };
   }
 
   const idRaw = formData.get("leadId");
   const leadId = typeof idRaw === "string" ? idRaw.trim() : "";
   if (!leadId) {
-    return;
+    return { ok: false, error: "invalid_lead" };
   }
 
   const outcomeRaw = formData.get("outcome");
   const outcome = typeof outcomeRaw === "string" ? outcomeRaw.trim() : "";
   if (!outcome || !isValidLeadContactOutcome(outcome)) {
-    return;
+    return { ok: false, error: "invalid_outcome" };
   }
 
   const typeRaw = formData.get("contact_type");
   const contactType = typeof typeRaw === "string" ? typeRaw.trim() : "";
   if (!contactType || !isValidLeadContactType(contactType)) {
-    return;
+    return { ok: false, error: "invalid_contact_type" };
   }
 
   const notesRaw = formData.get("notes");
@@ -1137,29 +1145,55 @@ export async function saveLeadContactOutcome(formData: FormData) {
   const nextAction = readLeadNextActionFromForm(formData);
   const followUpDate = readOptionalFollowUpDateIso(formData);
 
-  const { error } = await supabaseAdmin
+  const lastContactAt = new Date().toISOString();
+  const payloadLog = {
+    lead_id: leadId,
+    outcome,
+    created_by: staff.user_id,
+    notes: notes === "" ? null : notes,
+    next_action: nextAction,
+    follow_up_date: followUpDate,
+    last_contact_type: contactType,
+    last_contact_at: lastContactAt,
+  };
+  console.log("[admin/crm] saveLeadOutcome payload (before persist)", JSON.stringify(payloadLog));
+
+  const rowUpdate = {
+    last_contact_at: lastContactAt,
+    last_contact_type: contactType,
+    last_outcome: outcome,
+    last_note: notes === "" ? null : notes,
+    next_action: nextAction,
+    follow_up_date: followUpDate,
+  };
+
+  const { data, error } = await supabaseAdmin
     .from("leads")
-    .update({
-      last_contact_at: new Date().toISOString(),
-      last_contact_type: contactType,
-      last_outcome: outcome,
-      last_note: notes === "" ? null : notes,
-      next_action: nextAction,
-      follow_up_date: followUpDate,
-    })
+    .update(rowUpdate)
     .eq("id", leadId)
-    .is("deleted_at", null);
+    .is("deleted_at", null)
+    .select("id, last_outcome, last_contact_at, next_action, follow_up_date, last_note")
+    .maybeSingle();
 
   if (error) {
-    console.warn("[admin/crm] saveLeadContactOutcome:", error.message);
-    return;
+    console.error("[admin/crm] saveLeadOutcome DB error:", error.message, error);
+    return { ok: false, error: "save_failed" };
   }
+
+  if (!data?.id) {
+    console.error("[admin/crm] saveLeadOutcome: no row updated (lead missing or deleted?)");
+    return { ok: false, error: "save_failed" };
+  }
+
+  console.log("[admin/crm] saveLeadOutcome DB response:", JSON.stringify(data));
 
   revalidatePath("/admin");
   revalidatePath("/admin/crm/leads");
   revalidatePath(`/admin/crm/leads/${leadId}`);
   revalidatePath("/workspace/phone/leads");
   revalidatePath("/workspace/phone/follow-ups-today");
+
+  return { ok: true };
 }
 
 /** Split display full name into CRM first/last (first token = first name, remainder = last). */
