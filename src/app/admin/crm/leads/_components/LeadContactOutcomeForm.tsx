@@ -2,7 +2,7 @@
 
 import { Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 
 import { saveLeadOutcome, type SaveLeadOutcomeResult } from "@/app/admin/crm/actions";
 import { LEAD_CONTACT_OUTCOME_OPTIONS } from "@/lib/crm/lead-contact-outcome";
@@ -49,12 +49,14 @@ export function LeadContactOutcomeForm({
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [toast, setToast] = useState<null | { type: "ok" | "err"; message: string }>(null);
+  const outcomeSelectRef = useRef<HTMLSelectElement>(null);
 
   const [outcome, setOutcome] = useState("");
   const [followUp, setFollowUp] = useState(defaultFollowUpIso);
   const [notes, setNotes] = useState(defaultNotes);
   const [nextAction, setNextAction] = useState(defaultNextAction);
   const [contactType, setContactType] = useState("call");
+  const [outcomeFieldError, setOutcomeFieldError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!toast || toast.type !== "ok") return;
@@ -88,10 +90,13 @@ export function LeadContactOutcomeForm({
 
       <form
         className="space-y-4"
+        noValidate
         onSubmit={(e) => {
           e.preventDefault();
           setToast(null);
-          console.log("[LeadContactOutcomeForm] submit fired", {
+          setOutcomeFieldError(null);
+
+          console.log("[LeadContactOutcomeForm] submit attempt", {
             leadId,
             outcome,
             contactType,
@@ -99,6 +104,27 @@ export function LeadContactOutcomeForm({
             followUp,
             notesLen: notes.length,
           });
+
+          const outcomeOk = outcome.trim() !== "";
+          const contactOk = contactType === "call" || contactType === "text";
+          console.log("[LeadContactOutcomeForm] client validation", { outcomeOk, contactOk });
+
+          if (!outcomeOk) {
+            console.warn("[LeadContactOutcomeForm] validation blocked: outcome blank");
+            setOutcomeFieldError("Please select an outcome.");
+            queueMicrotask(() => {
+              outcomeSelectRef.current?.focus();
+              outcomeSelectRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+            });
+            return;
+          }
+
+          if (!contactOk) {
+            console.warn("[LeadContactOutcomeForm] validation blocked: contact_type invalid");
+            setToast({ type: "err", message: "Select call or text for contact type." });
+            return;
+          }
+
           startTransition(async () => {
             try {
               // Build FormData from React state — new FormData(formElement) can omit/mis-serialize controlled fields.
@@ -113,11 +139,14 @@ export function LeadContactOutcomeForm({
               fd.forEach((v, k) => {
                 outgoing[k] = typeof v === "string" ? v : String(v);
               });
-              console.log("[LeadContactOutcomeForm] outgoing payload", outgoing);
+              console.log("[LeadContactOutcomeForm] outgoing payload (after validation)", outgoing);
 
               const result = await saveLeadOutcome(fd);
+              console.log("[LeadContactOutcomeForm] saveLeadOutcome result", result);
+
               if (result.ok) {
                 console.log("[LeadContactOutcomeForm] saveLeadOutcome success", result);
+                setOutcomeFieldError(null);
                 setToast({ type: "ok", message: toastMessage(result) });
                 setOutcome("");
                 setFollowUp(defaultFollowUpIso);
@@ -126,8 +155,16 @@ export function LeadContactOutcomeForm({
                 setContactType("call");
                 await router.refresh();
               } else {
-                console.warn("[LeadContactOutcomeForm] saveLeadOutcome rejected", result);
-                setToast({ type: "err", message: toastMessage(result) });
+                const msg = toastMessage(result);
+                console.warn("[LeadContactOutcomeForm] saveLeadOutcome rejected", result, msg);
+                setToast({ type: "err", message: msg });
+                if (result.error === "invalid_outcome") {
+                  setOutcomeFieldError("Please select a valid outcome.");
+                  queueMicrotask(() => {
+                    outcomeSelectRef.current?.focus();
+                    outcomeSelectRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                  });
+                }
               }
             } catch (err) {
               console.error("[LeadContactOutcomeForm] saveLeadOutcome threw", err);
@@ -142,15 +179,29 @@ export function LeadContactOutcomeForm({
         <input type="hidden" name="leadId" value={leadId} />
         <div className="grid max-w-2xl gap-3 sm:grid-cols-2">
           <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
-            Outcome <span className="text-red-600">*</span>
+            <span>
+              Outcome <span className="text-red-600">*</span>{" "}
+              <span className="font-semibold text-slate-800">(required)</span>
+            </span>
+            <span id={`lead-contact-outcome-hint-${leadId}`} className="text-[11px] font-normal text-slate-500">
+              Required before saving.
+            </span>
             <select
+              ref={outcomeSelectRef}
+              id={`lead-contact-outcome-${leadId}`}
               name="outcome"
-              required
               value={outcome}
-              className={inputCls}
+              aria-invalid={outcomeFieldError ? "true" : "false"}
+              aria-describedby={
+                outcomeFieldError
+                  ? `lead-contact-outcome-hint-${leadId} lead-contact-outcome-err-${leadId}`
+                  : `lead-contact-outcome-hint-${leadId}`
+              }
+              className={`${inputCls} ${outcomeFieldError ? "border-rose-500 ring-2 ring-rose-500/25" : ""}`}
               onChange={(e) => {
                 const v = e.target.value;
                 setOutcome(v);
+                setOutcomeFieldError(null);
                 if (v === "no_answer") {
                   setFollowUp(tomorrowIso);
                 } else if (v === "left_voicemail") {
@@ -167,12 +218,16 @@ export function LeadContactOutcomeForm({
                 </option>
               ))}
             </select>
+            {outcomeFieldError ? (
+              <p id={`lead-contact-outcome-err-${leadId}`} role="alert" className="text-xs font-medium text-rose-700">
+                {outcomeFieldError}
+              </p>
+            ) : null}
           </label>
           <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
             Contact type <span className="text-red-600">*</span>
             <select
               name="contact_type"
-              required
               className={inputCls}
               value={contactType}
               onChange={(e) => setContactType(e.target.value)}
