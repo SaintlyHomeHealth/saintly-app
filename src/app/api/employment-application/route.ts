@@ -10,6 +10,8 @@ type Body = {
   last_name?: string;
   email?: string;
   phone?: string;
+  /** Required true (A2P 10DLC): user agreed to SMS terms on employment form. */
+  sms_consent?: boolean;
   address?: string;
   city?: string;
   state?: string;
@@ -42,6 +44,10 @@ export async function POST(req: Request) {
   const emailRaw = trimStr(body.email, 320);
   const phoneRaw = trimStr(body.phone, 40);
   const position = trimStr(body.position, 80);
+
+  if (body.sms_consent !== true) {
+    return NextResponse.json({ ok: false, error: "sms_consent_required" } as const, { status: 400 });
+  }
 
   if (!first_name || !last_name || !emailRaw || !phoneRaw || !position) {
     return NextResponse.json({ ok: false, error: "validation_required" } as const, { status: 400 });
@@ -85,6 +91,7 @@ export async function POST(req: Request) {
   const external_source_metadata = {
     employment_application: {
       submitted_at: submittedAt,
+      sms_consent: true,
       position,
       license_number: license_number || null,
       years_experience: years_experience || null,

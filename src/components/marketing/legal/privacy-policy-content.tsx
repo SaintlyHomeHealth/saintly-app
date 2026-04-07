@@ -30,19 +30,13 @@ export function PrivacyPolicyContent() {
         <li>Improve our services and operations</li>
       </ul>
 
-      <h2>SMS/Text Messaging</h2>
-      <p>By providing your phone number, you consent to receive text messages from Saintly Home Health LLC related to:</p>
-      <ul>
-        <li>Intake and eligibility follow-up</li>
-        <li>Appointment coordination</li>
-        <li>Care-related communication</li>
-        <li>Employment or application follow-up</li>
-      </ul>
-      <p>Message frequency may vary. Message and data rates may apply.</p>
+      <h2>SMS Communications</h2>
       <p>
-        You may opt out at any time by replying STOP.
-        <br />
-        For assistance, reply HELP or contact us directly.
+        Saintly Home Health LLC may send SMS messages related to care coordination, scheduling, service updates, and
+        follow-up communication. Message frequency may vary. Message and data rates may apply. You may opt out at any
+        time by replying STOP. For assistance, reply HELP. Consent to receive SMS messages is not a condition of
+        purchase. We do not sell or share SMS consent or phone numbers with third parties or affiliates for
+        third-party marketing purposes.
       </p>
 
       <h2>Information Sharing</h2>

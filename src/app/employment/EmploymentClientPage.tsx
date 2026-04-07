@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 
 import { MarketingFinalCtaStrip } from "@/components/marketing/MarketingFinalCtaStrip";
@@ -7,6 +8,7 @@ import { MarketingSiteFooter } from "@/components/marketing/MarketingSiteFooter"
 import { MarketingSiteHeader } from "@/components/marketing/MarketingSiteHeader";
 import { MarketingStickyMobileCta } from "@/components/marketing/MarketingStickyMobileCta";
 import { MARKETING_NAV_EMPLOYMENT_PAGE } from "@/components/marketing/marketing-nav";
+import { SMS_CONSENT_CHECKBOX_LABEL, SMS_CONSENT_PURCHASE_NOTE } from "@/lib/marketing/sms-consent-copy";
 import "@/components/marketing/marketing-home.css";
 
 const CLINICAL = [
@@ -62,6 +64,8 @@ export function EmploymentClientPage() {
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
+
+  const [smsConsent, setSmsConsent] = useState(false);
 
   const [form, setForm] = useState({
     first_name: "",
@@ -121,6 +125,7 @@ export function EmploymentClientPage() {
           last_name: form.last_name,
           email: form.email,
           phone: form.phone,
+          sms_consent: true,
           address: form.address,
           city: form.city,
           state: form.state,
@@ -139,7 +144,9 @@ export function EmploymentClientPage() {
         setMessage(
           data.error === "validation_phone"
             ? "Please enter a valid 10-digit U.S. phone number."
-            : "We could not submit your application. Please try again or call our office."
+            : data.error === "sms_consent_required"
+              ? "Please check the SMS consent box to submit your application."
+              : "We could not submit your application. Please try again or call our office."
         );
         return;
       }
@@ -155,6 +162,10 @@ export function EmploymentClientPage() {
     setMessage("");
     if (!form.position) {
       setMessage("Please select the role you are applying for.");
+      return;
+    }
+    if (!smsConsent) {
+      setMessage("Please check the SMS consent box to submit your application.");
       return;
     }
     void submitApplication();
@@ -416,6 +427,20 @@ export function EmploymentClientPage() {
                     uploads on this form.
                   </p>
                 </div>
+                <div className="shh-sms-consent">
+                  <label htmlFor="emp-sms-consent" className="shh-sms-consent__label">
+                    <input
+                      id="emp-sms-consent"
+                      name="sms_consent"
+                      type="checkbox"
+                      checked={smsConsent}
+                      onChange={(e) => setSmsConsent(e.target.checked)}
+                      className="shh-sms-consent__input"
+                    />
+                    <span className="shh-sms-consent__text">{SMS_CONSENT_CHECKBOX_LABEL}</span>
+                  </label>
+                  <p className="shh-sms-consent__note">{SMS_CONSENT_PURCHASE_NOTE}</p>
+                </div>
                 <div className="flex flex-wrap gap-3">
                   <button type="button" className="shh-btn-secondary" onClick={() => setStep(2)}>
                     Back
@@ -424,7 +449,7 @@ export function EmploymentClientPage() {
                     type="button"
                     className="shh-btn-primary shh-btn-primary--form"
                     onClick={handleStep3Submit}
-                    disabled={loading}
+                    disabled={loading || !smsConsent}
                   >
                     {loading ? "Submitting…" : "Submit application"}
                   </button>
@@ -439,9 +464,9 @@ export function EmploymentClientPage() {
                   Your application was received. Our recruiting team will review your information and reach out if
                   there is a match. We appreciate your interest in Saintly Home Health.
                 </p>
-                <a href="/" className="inline-flex mt-2 text-sm font-semibold text-sky-800 underline-offset-2 hover:underline">
+                <Link href="/" className="inline-flex mt-2 text-sm font-semibold text-sky-800 underline-offset-2 hover:underline">
                   Return to home
-                </a>
+                </Link>
               </div>
             )}
 

@@ -20,25 +20,14 @@ export function TermsOfServiceContent() {
         Always consult your physician or qualified healthcare provider regarding any medical condition.
       </p>
 
-      <h2>SMS/Text Messaging Terms</h2>
+      <h2>SMS Communications</h2>
       <p>
-        By providing your phone number, you consent to receive SMS/text messages from Saintly Home Health LLC related
-        to:
+        If you provide a mobile number and opt in through our website forms, Saintly Home Health LLC may send SMS
+        messages for care coordination, scheduling, service updates, follow-up communication, and (where applicable)
+        employment or application updates. Message frequency may vary. Message and data rates may apply. Reply STOP to
+        opt out and HELP for help. Consent to receive SMS is not a condition of purchase. We do not sell or share SMS
+        consent or phone numbers with third parties or affiliates for third-party marketing purposes.
       </p>
-      <ul>
-        <li>Patient intake and eligibility</li>
-        <li>Care coordination and scheduling</li>
-        <li>Service-related communication</li>
-        <li>Employment or application updates</li>
-      </ul>
-      <p>SMS Terms:</p>
-      <ul>
-        <li>Message frequency may vary</li>
-        <li>Message and data rates may apply</li>
-        <li>You may opt out at any time by replying STOP</li>
-        <li>For help, reply HELP or contact us</li>
-      </ul>
-      <p>Consent to receive messages is not a condition of receiving services.</p>
 
       <h2>User Responsibilities</h2>
       <p>You agree to:</p>

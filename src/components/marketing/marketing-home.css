@@ -1718,6 +1718,49 @@ span.shh-referral-channel-value {
   margin: 0 0 16px;
 }
 
+/* A2P / SMS opt-in (required checkbox above submit) */
+.shh-sms-consent {
+  margin: 0 0 18px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  background: linear-gradient(180deg, rgba(248, 250, 252, 0.98) 0%, rgba(241, 245, 249, 0.65) 100%);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.8) inset;
+}
+
+.shh-sms-consent__label {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  margin: 0;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #334155;
+  font-weight: 500;
+}
+
+.shh-sms-consent__input {
+  margin-top: 3px;
+  width: 1.125rem;
+  height: 1.125rem;
+  flex-shrink: 0;
+  accent-color: #0284c7;
+}
+
+.shh-sms-consent__text {
+  flex: 1;
+  min-width: 0;
+}
+
+.shh-sms-consent__note {
+  margin: 10px 0 0;
+  padding-left: calc(1.125rem + 12px);
+  font-size: 11px;
+  line-height: 1.45;
+  color: #64748b;
+}
+
 .shh-form-notice {
   margin: 0 0 14px;
   padding: 12px 14px;

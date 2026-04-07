@@ -4,6 +4,8 @@
 
 export type EmploymentApplicationMeta = {
   submitted_at?: string | null;
+  /** Recorded when applicant checked A2P SMS consent on the employment form. */
+  sms_consent?: boolean | null;
   position?: string | null;
   license_number?: string | null;
   years_experience?: string | null;
@@ -20,8 +22,10 @@ export function parseEmploymentApplicationMeta(external: unknown): EmploymentApp
   if (!emp || typeof emp !== "object") return null;
   const e = emp as Record<string, unknown>;
   const str = (k: string) => (typeof e[k] === "string" ? e[k] : null);
+  const smsConsent = e.sms_consent;
   return {
     submitted_at: str("submitted_at"),
+    sms_consent: smsConsent === true ? true : smsConsent === false ? false : null,
     position: str("position"),
     license_number: str("license_number"),
     years_experience: str("years_experience"),

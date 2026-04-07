@@ -1,63 +1,67 @@
 "use client";
 
 import { useState } from "react";
-import { EMAIL_INTAKE, MAILTO_INTAKE } from "./marketing-constants";
-
-const RELATION_OPTIONS = [
-  { value: "self", label: "Patient / self" },
-  { value: "family", label: "Family member" },
-  { value: "referral", label: "Referral source (physician, hospital, etc.)" },
-] as const;
-
-const SERVICE_OPTIONS = [
-  { value: "general", label: "General question" },
-  { value: "wound", label: "Wound care" },
-  { value: "nursing", label: "Skilled nursing" },
-  { value: "therapy", label: "Therapy (PT / OT / ST)" },
-] as const;
+import { EMAIL_INTAKE } from "./marketing-constants";
+import { CONTACT_RELATION_OPTIONS, CONTACT_SERVICE_OPTIONS } from "@/lib/marketing/contact-intake-mailto";
+import { SMS_CONSENT_CHECKBOX_LABEL, SMS_CONSENT_PURCHASE_NOTE } from "@/lib/marketing/sms-consent-copy";
 
 export function MarketingContactForm() {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
-  const [relation, setRelation] = useState<string>(RELATION_OPTIONS[0].value);
-  const [service, setService] = useState<string>(SERVICE_OPTIONS[0].value);
+  const [relation, setRelation] = useState<string>(CONTACT_RELATION_OPTIONS[0].value);
+  const [service, setService] = useState<string>(CONTACT_SERVICE_OPTIONS[0].value);
   const [message, setMessage] = useState("");
+  const [smsConsent, setSmsConsent] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setNotice(null);
 
-    const trimmedName = name.trim();
-    if (!trimmedName) {
-      setNotice("Please enter your name so we can follow up.");
+    if (!smsConsent) {
+      setNotice("Please check the SMS consent box to continue—we need your agreement before we can follow up by text.");
       return;
     }
 
-    const relLabel = RELATION_OPTIONS.find((r) => r.value === relation)?.label ?? relation;
-    const svcLabel = SERVICE_OPTIONS.find((s) => s.value === service)?.label ?? service;
+    setPending(true);
+    try {
+      const res = await fetch("/api/contact-intake", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name,
+          phone,
+          email,
+          relation,
+          service,
+          message,
+          sms_consent: true,
+        }),
+      });
+      const data = (await res.json()) as { ok?: boolean; error?: string; mailtoHref?: string };
 
-    const bodyLines = [
-      `Name: ${trimmedName}`,
-      `Phone: ${phone.trim() || "—"}`,
-      `Email: ${email.trim() || "—"}`,
-      `I am: ${relLabel}`,
-      `Service needed: ${svcLabel}`,
-      "",
-      message.trim() || "(no additional message)",
-    ];
+      if (!res.ok || !data.ok || !data.mailtoHref) {
+        const err = data.error;
+        if (err === "sms_consent_required") {
+          setNotice("SMS consent is required to submit this form.");
+        } else if (err === "validation_name") {
+          setNotice("Please enter your name so we can follow up.");
+        } else if (err === "message_too_long") {
+          setNotice("Message is a bit long—please shorten it or call us directly.");
+        } else {
+          setNotice("Something went wrong. Please try again or call us.");
+        }
+        return;
+      }
 
-    const subject = encodeURIComponent("Intake inquiry — Saintly Home Health");
-    const body = encodeURIComponent(bodyLines.join("\n"));
-    const href = `${MAILTO_INTAKE}?subject=${subject}&body=${body}`;
-
-    if (href.length > 1800) {
-      setNotice("Message is a bit long—please shorten it or call us directly.");
-      return;
+      window.location.href = data.mailtoHref;
+    } catch {
+      setNotice("We could not reach the server. Check your connection and try again.");
+    } finally {
+      setPending(false);
     }
-
-    window.location.href = href;
   }
 
   return (
@@ -119,7 +123,7 @@ export function MarketingContactForm() {
             value={relation}
             onChange={(e) => setRelation(e.target.value)}
           >
-            {RELATION_OPTIONS.map((o) => (
+            {CONTACT_RELATION_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>
                 {o.label}
               </option>
@@ -134,7 +138,7 @@ export function MarketingContactForm() {
             value={service}
             onChange={(e) => setService(e.target.value)}
           >
-            {SERVICE_OPTIONS.map((o) => (
+            {CONTACT_SERVICE_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>
                 {o.label}
               </option>
@@ -156,13 +160,28 @@ export function MarketingContactForm() {
       </div>
 
       <p className="shh-form-hint">
-        Submitting opens your email app to send a message to {EMAIL_INTAKE}. If nothing opens, call us or
-        email us directly.
+        Submitting opens your email app to send a message to {EMAIL_INTAKE}. If nothing opens, call us or email us
+        directly.
       </p>
 
+      <div className="shh-sms-consent">
+        <label htmlFor="intake-sms-consent" className="shh-sms-consent__label">
+          <input
+            id="intake-sms-consent"
+            name="sms_consent"
+            type="checkbox"
+            checked={smsConsent}
+            onChange={(e) => setSmsConsent(e.target.checked)}
+            className="shh-sms-consent__input"
+          />
+          <span className="shh-sms-consent__text">{SMS_CONSENT_CHECKBOX_LABEL}</span>
+        </label>
+        <p className="shh-sms-consent__note">{SMS_CONSENT_PURCHASE_NOTE}</p>
+      </div>
+
       <div className="shh-form-actions">
-        <button type="submit" className="shh-btn-primary shh-btn-primary--form">
-          Send intake message
+        <button type="submit" className="shh-btn-primary shh-btn-primary--form" disabled={pending || !smsConsent}>
+          {pending ? "Preparing message…" : "Send intake message"}
         </button>
       </div>
     </form>
