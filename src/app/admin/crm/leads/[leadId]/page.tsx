@@ -70,7 +70,7 @@ export default async function LeadIntakePage({
     supabase
       .from("leads")
       .select(
-        "id, contact_id, source, status, owner_user_id, lead_type, next_action, follow_up_date, last_contact_at, last_outcome, last_note, notes, external_source_metadata, referring_doctor_name, doctor_office_name, doctor_office_phone, doctor_office_fax, doctor_office_contact_person, referring_provider_name, referring_provider_phone, payer_name, payer_type, referral_source, service_type, service_disciplines, intake_status, contacts ( full_name, first_name, last_name, primary_phone, secondary_phone, email, address_line_1, address_line_2, city, state, zip, notes )"
+        "id, contact_id, source, status, owner_user_id, lead_type, next_action, follow_up_date, created_at, last_contact_at, last_contact_type, last_outcome, last_note, notes, external_source_metadata, referring_doctor_name, doctor_office_name, doctor_office_phone, doctor_office_fax, doctor_office_contact_person, referring_provider_name, referring_provider_phone, payer_name, payer_type, referral_source, service_type, service_disciplines, intake_status, contacts ( full_name, first_name, last_name, primary_phone, secondary_phone, email, address_line_1, address_line_2, city, state, zip, notes )"
       )
       .eq("id", leadId.trim())
   ).maybeSingle();
@@ -159,8 +159,11 @@ export default async function LeadIntakePage({
   };
 
   const lastContactAt = typeof L.last_contact_at === "string" && L.last_contact_at.trim() ? L.last_contact_at : null;
+  const lastContactType =
+    typeof L.last_contact_type === "string" && L.last_contact_type.trim() ? L.last_contact_type.trim() : null;
   const lastOutcome = typeof L.last_outcome === "string" && L.last_outcome.trim() ? L.last_outcome.trim() : null;
   const lastNote = typeof L.last_note === "string" ? L.last_note : "";
+  const leadCreatedAt = typeof L.created_at === "string" && L.created_at.trim() ? L.created_at : null;
 
   const leadTypeRaw = typeof L.lead_type === "string" ? L.lead_type.trim() : "";
   const isEmployeeLead = leadTypeRaw === "employee";
@@ -208,8 +211,10 @@ export default async function LeadIntakePage({
       contactProfileDefaults={contactProfileDefaults}
       staffOptions={staffOptions}
       lastContactAt={lastContactAt}
+      lastContactType={lastContactType}
       lastOutcome={lastOutcome}
       lastNote={lastNote}
+      leadCreatedAt={leadCreatedAt}
       isEmployeeLead={isEmployeeLead}
       employmentMeta={employmentMeta}
       referralSourceLine={referralSourceLine}

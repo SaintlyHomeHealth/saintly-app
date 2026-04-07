@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ArrowLeft } from "lucide-react";
 
 import { FormattedPhoneInput } from "@/components/phone/FormattedPhoneInput";
 import { PayerTypeSelect } from "@/components/crm/PayerTypeSelect";
@@ -14,6 +15,7 @@ import { LEAD_SOURCE_OPTIONS, formatLeadSourceLabel } from "@/lib/crm/lead-sourc
 
 import { LeadDeleteButton } from "@/app/admin/crm/leads/_components/LeadDeleteButton";
 import { LeadContactOutcomeForm } from "@/app/admin/crm/leads/_components/LeadContactOutcomeForm";
+import { LeadFollowUpContextPanel } from "@/app/admin/crm/leads/_components/LeadFollowUpContextPanel";
 import {
   convertLeadToPatientFromLeadDetail,
   createLeadManualFromCrm,
@@ -136,8 +138,10 @@ export type LeadWorkspaceExistingProps = {
   contactProfileDefaults: LeadWorkspaceContactProfileDefaults;
   staffOptions: LeadWorkspaceStaffOption[];
   lastContactAt: string | null;
+  lastContactType: string | null;
   lastOutcome: string | null;
   lastNote: string | null;
+  leadCreatedAt: string | null;
   /** Hiring / employment website applicants (`leads.lead_type = employee`). */
   isEmployeeLead?: boolean;
   employmentMeta?: EmploymentApplicationMeta | null;
@@ -399,8 +403,10 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
     contactProfileDefaults,
     staffOptions,
     lastContactAt,
+    lastContactType = null,
     lastOutcome,
     lastNote,
+    leadCreatedAt = null,
     isEmployeeLead = false,
     employmentMeta = null,
     referralSourceLine = "",
@@ -427,45 +433,53 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
       : null;
 
   return (
-    <div className="space-y-6 p-6">
-      <div>
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Lead workspace</p>
-        <h1 className="mt-1 text-2xl font-bold text-slate-900">{displayName}</h1>
-        <p className="mt-1 text-sm text-slate-600">
-          {formatLeadSourceLabel(sourceRaw)} · Pipeline:{" "}
-          <span className="font-medium text-slate-800">{formatLeadPipelineStatusLabel(rawStatus)}</span>
-          {isEmployeeLead ? (
-            <>
-              {" · "}
-              <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-[11px] font-semibold text-indigo-900">
-                Employee applicant
-              </span>
-            </>
-          ) : null}
-          {" · "}
-          <Link href="/admin/crm/leads" className="font-semibold text-sky-800 hover:underline">
-            Back to leads
-          </Link>
-          {" · "}
-          <span className="inline-flex items-center gap-1">
-            <LeadDeleteButton leadId={leadId} variant="detail" />
-          </span>
-        </p>
-        {primaryPhone ? (
-          <p className="mt-1 text-xs text-slate-600 tabular-nums">{formatPhoneNumber(primaryPhone)}</p>
-        ) : null}
-        {contactProfileDefaults.secondaryPhone ? (
-          <p className="mt-1 text-xs text-slate-600 tabular-nums">
-            Caregiver / alternate: {formatPhoneNumber(contactProfileDefaults.secondaryPhone)}
-          </p>
-        ) : null}
-        <p className="mt-1 text-xs text-slate-600">
-          Last contact:{" "}
-          <span className="font-medium text-slate-900">{lastContactLine}</span>
-        </p>
+    <div className="p-6">
+      <div className="mb-5">
+        <Link
+          href="/admin/crm/leads"
+          className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50"
+        >
+          <ArrowLeft className="h-4 w-4 shrink-0 text-slate-600" aria-hidden />
+          Back to leads
+        </Link>
       </div>
 
-      {isEmployeeLead && hasAnyIntakeRequestDetail(intakeRequestDefaults) ? (
+      <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(300px,380px)] lg:gap-8 lg:items-start">
+        <div className="min-w-0 space-y-6">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Lead workspace</p>
+            <h1 className="mt-1 text-2xl font-bold text-slate-900">{displayName}</h1>
+            <p className="mt-1 text-sm text-slate-600">
+              {formatLeadSourceLabel(sourceRaw)} · Pipeline:{" "}
+              <span className="font-medium text-slate-800">{formatLeadPipelineStatusLabel(rawStatus)}</span>
+              {isEmployeeLead ? (
+                <>
+                  {" · "}
+                  <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-[11px] font-semibold text-indigo-900">
+                    Employee applicant
+                  </span>
+                </>
+              ) : null}
+              {" · "}
+              <span className="inline-flex items-center gap-1">
+                <LeadDeleteButton leadId={leadId} variant="detail" />
+              </span>
+            </p>
+            {primaryPhone ? (
+              <p className="mt-1 text-xs text-slate-600 tabular-nums">{formatPhoneNumber(primaryPhone)}</p>
+            ) : null}
+            {contactProfileDefaults.secondaryPhone ? (
+              <p className="mt-1 text-xs text-slate-600 tabular-nums">
+                Caregiver / alternate: {formatPhoneNumber(contactProfileDefaults.secondaryPhone)}
+              </p>
+            ) : null}
+            <p className="mt-1 text-xs text-slate-600">
+              Last contact:{" "}
+              <span className="font-medium text-slate-900">{lastContactLine}</span>
+            </p>
+          </div>
+
+          {isEmployeeLead && hasAnyIntakeRequestDetail(intakeRequestDefaults) ? (
         <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
           <h2 className="text-sm font-semibold text-slate-900">Request details</h2>
           <p className="mt-1 text-xs text-slate-500">From lead intake metadata (same shape as Facebook / Zapier).</p>
@@ -1080,6 +1094,31 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
           </dl>
         </div>
       )}
+        <div className="border-t border-slate-200 pt-6">
+          <Link
+            href="/admin/crm/leads"
+            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50"
+          >
+            <ArrowLeft className="h-4 w-4 shrink-0 text-slate-600" aria-hidden />
+            Back to leads
+          </Link>
+        </div>
+      </div>
+
+      <aside className="mt-8 min-w-0 lg:mt-0 lg:sticky lg:top-6 lg:self-start">
+        <LeadFollowUpContextPanel
+          leadId={leadId}
+          lastContactAt={lastContactAt}
+          lastOutcome={lastOutcome}
+          lastNote={lastNote}
+          lastContactType={lastContactType}
+          leadCreatedAt={leadCreatedAt}
+          applicationNotes={applicationNotes}
+          followUpIso={followUpIso}
+          nextActionVal={nextActionVal}
+        />
+      </aside>
+    </div>
     </div>
   );
 }

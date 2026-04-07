@@ -1196,6 +1196,86 @@ export async function saveLeadOutcome(formData: FormData): Promise<SaveLeadOutco
   return { ok: true };
 }
 
+export type SaveLeadQuickNoteResult =
+  | { ok: true }
+  | { ok: false; error: "forbidden" | "invalid_lead" | "empty" | "load_failed" | "save_failed" };
+
+/**
+ * Appends a timestamped line to `leads.last_note` and bumps `last_contact_at`.
+ * No separate history table — running context lives in the same fields as contact outcomes.
+ */
+export async function saveLeadQuickNote(formData: FormData): Promise<SaveLeadQuickNoteResult> {
+  const staff = await getStaffProfile();
+  if (!staff || !isManagerOrHigher(staff)) {
+    console.warn("[admin/crm] saveLeadQuickNote: forbidden");
+    return { ok: false, error: "forbidden" };
+  }
+
+  const idRaw = formData.get("leadId");
+  const leadId = typeof idRaw === "string" ? idRaw.trim() : "";
+  if (!leadId) {
+    return { ok: false, error: "invalid_lead" };
+  }
+
+  const noteRaw = formData.get("quick_note");
+  const note = typeof noteRaw === "string" ? noteRaw.trim().slice(0, 4000) : "";
+  if (!note) {
+    return { ok: false, error: "empty" };
+  }
+
+  const { data: prevRow, error: loadErr } = await leadRowsActiveOnly(
+    supabaseAdmin.from("leads").select("last_note").eq("id", leadId)
+  ).maybeSingle();
+
+  if (loadErr) {
+    console.error("[admin/crm] saveLeadQuickNote load:", loadErr.message);
+    return { ok: false, error: "load_failed" };
+  }
+  if (!prevRow) {
+    return { ok: false, error: "load_failed" };
+  }
+
+  const prev = typeof prevRow.last_note === "string" ? prevRow.last_note : "";
+  const stamp = new Date().toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  const line = `[Quick note ${stamp}] ${note}`;
+  const nextNote = prev.trim() ? `${prev.trim()}\n\n${line}` : line;
+
+  const { data, error } = await supabaseAdmin
+    .from("leads")
+    .update({
+      last_note: nextNote,
+      last_contact_at: new Date().toISOString(),
+    })
+    .eq("id", leadId)
+    .is("deleted_at", null)
+    .select("id, last_note, last_contact_at")
+    .maybeSingle();
+
+  if (error) {
+    console.error("[admin/crm] saveLeadQuickNote DB error:", error.message, error);
+    return { ok: false, error: "save_failed" };
+  }
+
+  if (!data?.id) {
+    console.error("[admin/crm] saveLeadQuickNote: no row updated");
+    return { ok: false, error: "save_failed" };
+  }
+
+  revalidatePath("/admin");
+  revalidatePath("/admin/crm/leads");
+  revalidatePath(`/admin/crm/leads/${leadId}`);
+  revalidatePath("/workspace/phone/leads");
+  revalidatePath("/workspace/phone/follow-ups-today");
+
+  return { ok: true };
+}
+
 /** Split display full name into CRM first/last (first token = first name, remainder = last). */
 function splitFullNameToFirstLast(full: string): {
   full_name: string;
