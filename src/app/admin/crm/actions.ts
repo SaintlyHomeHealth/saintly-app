@@ -1172,6 +1172,7 @@ export async function saveLeadOutcome(formData: FormData): Promise<SaveLeadOutco
     next_action: nextAction,
     follow_up_date: followUpDate,
   };
+  console.log("[admin/crm] saveLeadOutcome rowUpdate (exact DB update object)", rowUpdate);
 
   const { data, error } = await supabaseAdmin
     .from("leads")

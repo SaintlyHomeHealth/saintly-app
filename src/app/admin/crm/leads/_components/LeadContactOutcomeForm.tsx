@@ -5,11 +5,19 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
 
 import { saveLeadOutcome, type SaveLeadOutcomeResult } from "@/app/admin/crm/actions";
-import { LEAD_CONTACT_OUTCOME_OPTIONS } from "@/lib/crm/lead-contact-outcome";
+import {
+  isValidLeadContactOutcome,
+  isValidLeadContactType,
+  LEAD_CONTACT_OUTCOME_OPTIONS,
+} from "@/lib/crm/lead-contact-outcome";
 import { LEAD_NEXT_ACTION_OPTIONS } from "@/lib/crm/lead-follow-up-options";
 
 type Props = {
   leadId: string;
+  /** `leads.last_outcome` from server — keeps Outcome select in sync after save/refresh */
+  savedLastOutcome: string | null;
+  /** `leads.last_contact_type` from server */
+  savedLastContactType: string | null;
   defaultNextAction: string;
   defaultFollowUpIso: string;
   defaultNotes: string;
@@ -37,8 +45,20 @@ function toastMessage(result: SaveLeadOutcomeResult): string {
   }
 }
 
+function outcomeSelectValue(v: string | null): string {
+  if (v && isValidLeadContactOutcome(v)) return v;
+  return "";
+}
+
+function contactTypeValue(v: string | null): "call" | "text" {
+  if (v && isValidLeadContactType(v)) return v;
+  return "call";
+}
+
 export function LeadContactOutcomeForm({
   leadId,
+  savedLastOutcome,
+  savedLastContactType,
   defaultNextAction,
   defaultFollowUpIso,
   defaultNotes,
@@ -51,11 +71,11 @@ export function LeadContactOutcomeForm({
   const [toast, setToast] = useState<null | { type: "ok" | "err"; message: string }>(null);
   const outcomeSelectRef = useRef<HTMLSelectElement>(null);
 
-  const [outcome, setOutcome] = useState("");
+  const [outcome, setOutcome] = useState(() => outcomeSelectValue(savedLastOutcome));
   const [followUp, setFollowUp] = useState(defaultFollowUpIso);
   const [notes, setNotes] = useState(defaultNotes);
   const [nextAction, setNextAction] = useState(defaultNextAction);
-  const [contactType, setContactType] = useState("call");
+  const [contactType, setContactType] = useState(() => contactTypeValue(savedLastContactType));
   const [outcomeFieldError, setOutcomeFieldError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -64,14 +84,16 @@ export function LeadContactOutcomeForm({
     return () => window.clearTimeout(t);
   }, [toast]);
 
-  /** When `router.refresh()` returns new server props, re-align follow-up / notes / next action without remounting (stable key={leadId}). */
+  /** When `router.refresh()` returns new server props, re-align all fields from DB (incl. last_outcome / last_contact_type). */
   useEffect(() => {
     /* eslint-disable react-hooks/set-state-in-effect -- intentional sync from refreshed RSC props */
     setFollowUp(defaultFollowUpIso);
     setNotes(defaultNotes);
     setNextAction(defaultNextAction);
+    setOutcome(outcomeSelectValue(savedLastOutcome));
+    setContactType(contactTypeValue(savedLastContactType));
     /* eslint-enable react-hooks/set-state-in-effect */
-  }, [defaultFollowUpIso, defaultNotes, defaultNextAction]);
+  }, [defaultFollowUpIso, defaultNotes, defaultNextAction, savedLastOutcome, savedLastContactType]);
 
   return (
     <div className="relative">
@@ -140,6 +162,7 @@ export function LeadContactOutcomeForm({
                 outgoing[k] = typeof v === "string" ? v : String(v);
               });
               console.log("[LeadContactOutcomeForm] outgoing payload (after validation)", outgoing);
+              console.log("[LeadContactOutcomeForm] selected outcome raw (state)", outcome);
 
               const result = await saveLeadOutcome(fd);
               console.log("[LeadContactOutcomeForm] saveLeadOutcome result", result);
@@ -148,11 +171,8 @@ export function LeadContactOutcomeForm({
                 console.log("[LeadContactOutcomeForm] saveLeadOutcome success", result);
                 setOutcomeFieldError(null);
                 setToast({ type: "ok", message: toastMessage(result) });
-                setOutcome("");
-                setFollowUp(defaultFollowUpIso);
-                setNotes("");
-                setNextAction(defaultNextAction);
-                setContactType("call");
+                // Do not clear fields before refresh — that caused empty notes/outcome until props updated.
+                // Await refresh so RSC passes new savedLastOutcome / defaultNotes; useEffect syncs from server.
                 await router.refresh();
               } else {
                 const msg = toastMessage(result);

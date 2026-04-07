@@ -754,6 +754,8 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
             <LeadContactOutcomeForm
               key={leadId}
               leadId={leadId}
+              savedLastOutcome={lastOutcome}
+              savedLastContactType={lastContactType}
               defaultNextAction={nextActionVal}
               defaultFollowUpIso={followUpIso}
               defaultNotes={lastNote ?? ""}
