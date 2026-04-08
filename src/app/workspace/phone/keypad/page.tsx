@@ -45,7 +45,7 @@ export default async function WorkspaceKeypadPage({
   }
 
   return (
-    <div className="flex flex-1 flex-col bg-gradient-to-b from-sky-50/30 via-white to-slate-100/50 px-4 pb-6 pt-5 sm:px-5 lg:px-8">
+    <div className="flex flex-1 flex-col bg-gradient-to-b from-slate-100/80 via-sky-50/25 to-sky-100/20 px-4 pb-6 pt-5 sm:px-5 lg:px-8">
       <WorkspacePhonePageHeader
         title="Keypad"
         subtitle="Dial out with the Saintly line. Stay on this screen to hear inbound calls on this device."
@@ -63,7 +63,7 @@ export default async function WorkspaceKeypadPage({
         </p>
       ) : null}
       <div className="mt-6 flex flex-1 flex-col items-stretch gap-6 lg:mt-8 lg:flex-row lg:items-start lg:justify-center lg:gap-10">
-        <div className="w-full max-w-md shrink-0 rounded-[32px] border border-slate-200/50 bg-gradient-to-b from-white via-white to-slate-50/80 p-5 shadow-[0_12px_40px_-12px_rgba(15,23,42,0.12),0_4px_16px_-8px_rgba(15,23,42,0.08)] sm:p-7 lg:max-w-lg">
+        <div className="w-full max-w-md shrink-0 rounded-[32px] border border-sky-100/60 bg-gradient-to-b from-white via-white to-sky-50/40 p-5 shadow-[0_12px_40px_-12px_rgba(30,58,138,0.1),0_4px_16px_-8px_rgba(15,23,42,0.06)] sm:p-7 lg:max-w-lg">
           <KeypadDialerLazy
             key={dialerKey}
             staffDisplayName={staffDisplayName}
@@ -72,11 +72,11 @@ export default async function WorkspaceKeypadPage({
             autoPlaceCall={autoPlaceCall && Boolean(dial)}
           />
         </div>
-        <aside className="hidden max-w-sm flex-1 rounded-2xl border border-slate-200/70 bg-slate-50/80 p-5 text-sm text-slate-600 lg:block">
+        <aside className="hidden max-w-sm flex-1 rounded-2xl border border-sky-100/70 bg-gradient-to-b from-white to-sky-50/35 p-5 text-sm text-slate-600 shadow-sm shadow-sky-100/40 lg:block">
           <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Tips</p>
           <ul className="mt-3 list-inside list-disc space-y-2 leading-relaxed">
             <li>Tap a number on the pad once to unlock ringtone audio on mobile browsers.</li>
-            <li>Use the large green call button — it stays easy to hit while you are moving.</li>
+            <li>Use the large blue Call button — it stays easy to hit while you are moving.</li>
             <li>Patient and lead actions elsewhere can deep-link you here with a number ready to dial.</li>
           </ul>
         </aside>

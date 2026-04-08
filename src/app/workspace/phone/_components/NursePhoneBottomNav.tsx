@@ -148,11 +148,13 @@ export function NursePhoneBottomNav({ showLeadsNav = true }: NavProps) {
               <Link
                 href={t.href}
                 className={`flex flex-col items-center justify-center rounded-xl px-0.5 py-2 text-[10px] font-semibold leading-tight transition sm:text-[11px] ${
-                  active ? "bg-sky-50 text-sky-900" : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"
+                  active
+                    ? "bg-sky-100/95 text-slate-900 ring-1 ring-inset ring-sky-200/70"
+                    : "text-slate-500 hover:bg-sky-50/60 hover:text-slate-800"
                 }`}
               >
                 <span
-                  className={`mb-0.5 flex flex-col items-center ${active ? "text-sky-700" : "text-slate-400"}`}
+                  className={`mb-0.5 flex flex-col items-center ${active ? "text-blue-900" : "text-slate-400"}`}
                   title={t.iconTitle}
                 >
                   {t.icon}
