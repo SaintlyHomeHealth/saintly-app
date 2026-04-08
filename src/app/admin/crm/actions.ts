@@ -15,10 +15,12 @@ import { normalizePhone } from "@/lib/phone/us-phone-format";
 import { phoneLookupCandidates } from "@/lib/crm/phone-lookup-candidates";
 import { sendSms } from "@/lib/twilio/send-sms";
 import {
-  isValidLeadContactOutcome,
-  isValidLeadContactType,
-} from "@/lib/crm/lead-contact-outcome";
-import { isValidLeadNextAction } from "@/lib/crm/lead-follow-up-options";
+  ATTEMPT_ACTION_KEYS,
+  deriveContactTypeFromActions,
+  formatContactAttemptLogBlock,
+} from "@/lib/crm/lead-contact-log";
+import { formatLeadContactOutcomeLabel, isValidLeadContactOutcome } from "@/lib/crm/lead-contact-outcome";
+import { formatLeadNextActionLabel, isValidLeadNextAction } from "@/lib/crm/lead-follow-up-options";
 import { isValidLeadPipelineStatus } from "@/lib/crm/lead-pipeline-status";
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import {
@@ -34,7 +36,7 @@ import {
 } from "@/lib/crm/lead-intake-request";
 import { isValidServiceDisciplineCode, parseServiceDisciplinesFromFormData } from "@/lib/crm/service-disciplines";
 import { convertLeadToPatient } from "@/app/admin/phone/actions";
-import { getCrmCalendarTomorrowIso } from "@/lib/crm/crm-local-date";
+import { getCrmCalendarDateIsoFromInstant, getCrmCalendarTomorrowIso } from "@/lib/crm/crm-local-date";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 import { findOpenDuplicatePatientVisitId } from "@/lib/crm/dispatch-duplicate-visit";
 import {
@@ -1132,6 +1134,27 @@ export type SaveLeadOutcomeResult =
 /**
  * Persists a contact attempt on the lead (`leads.last_*` columns — equivalent to a lead_outcomes row; no separate table).
  */
+function readIsoInstantFromForm(formData: FormData, key: string): Date | null {
+  const v = formData.get(key);
+  if (typeof v !== "string") return null;
+  const t = v.trim();
+  if (!t) return null;
+  const d = new Date(t);
+  if (Number.isNaN(d.getTime())) return null;
+  return d;
+}
+
+function readAttemptActionsFromForm(formData: FormData): string[] {
+  const raw = formData.getAll("attempt_actions");
+  const allowed = new Set<string>(ATTEMPT_ACTION_KEYS);
+  const out: string[] = [];
+  for (const v of raw) {
+    const s = typeof v === "string" ? v.trim() : "";
+    if (s && allowed.has(s)) out.push(s);
+  }
+  return [...new Set(out)];
+}
+
 export async function saveLeadOutcome(formData: FormData): Promise<SaveLeadOutcomeResult> {
   const staff = await getStaffProfile();
   if (!staff || !isManagerOrHigher(staff)) {
@@ -1157,16 +1180,15 @@ export async function saveLeadOutcome(formData: FormData): Promise<SaveLeadOutco
     return { ok: false, error: "invalid_outcome" };
   }
 
-  const typeRaw = formData.get("contact_type");
-  const contactType = typeof typeRaw === "string" ? typeRaw.trim() : "";
-  if (!contactType || !isValidLeadContactType(contactType)) {
-    return { ok: false, error: "invalid_contact_type" };
+  const actionKeys = readAttemptActionsFromForm(formData);
+  if (actionKeys.length === 0) {
+    return { ok: false, error: "invalid_outcome" };
   }
 
   const { data: leadBefore, error: leadLoadErr } = await leadRowsActiveOnly(
     supabaseAdmin
       .from("leads")
-      .select("last_outcome, contacts ( full_name, first_name, last_name, primary_phone, email )")
+      .select("last_outcome, last_note, contacts ( full_name, first_name, last_name, primary_phone, email )")
       .eq("id", leadId)
   ).maybeSingle();
 
@@ -1178,37 +1200,43 @@ export async function saveLeadOutcome(formData: FormData): Promise<SaveLeadOutco
   const notes = typeof notesRaw === "string" ? notesRaw.trim().slice(0, 4000) : "";
 
   const nextAction = readLeadNextActionFromForm(formData);
-  const followUpDate = readOptionalFollowUpDateIso(formData);
 
-  const lastContactAt = new Date().toISOString();
-  const payloadLog = {
-    lead_id: leadId,
-    outcome,
-    created_by: staff.user_id,
-    notes: notes === "" ? null : notes,
-    next_action: nextAction,
-    follow_up_date: followUpDate,
-    last_contact_type: contactType,
-    last_contact_at: lastContactAt,
-  };
-  console.log("[admin/crm] saveLeadOutcome payload (before persist)", JSON.stringify(payloadLog));
+  const attemptAt = readIsoInstantFromForm(formData, "attempt_at_iso") ?? new Date();
+  const followUpAt = readIsoInstantFromForm(formData, "follow_up_at_iso");
+
+  const contactType = deriveContactTypeFromActions(actionKeys);
+
+  const logBlock = formatContactAttemptLogBlock({
+    attemptAt,
+    resultLabel: formatLeadContactOutcomeLabel(outcome),
+    actionKeys,
+    nextStepLabel: nextAction ? formatLeadNextActionLabel(nextAction) : "—",
+    followUpAt,
+    note: notes,
+  });
+
+  const prevNote = typeof leadBefore.last_note === "string" ? leadBefore.last_note.trim() : "";
+  const appendedNote = prevNote ? `${prevNote}\n\n---\n\n${logBlock}` : logBlock;
 
   const rowUpdate = {
-    last_contact_at: lastContactAt,
+    last_contact_at: attemptAt.toISOString(),
     last_contact_type: contactType,
     last_outcome: outcome,
-    last_note: notes === "" ? null : notes,
+    last_note: appendedNote,
     next_action: nextAction,
-    follow_up_date: followUpDate,
+    follow_up_date: followUpAt ? getCrmCalendarDateIsoFromInstant(followUpAt) : null,
+    follow_up_at: followUpAt ? followUpAt.toISOString() : null,
+    contact_attempt_actions: actionKeys,
   };
-  console.log("[admin/crm] saveLeadOutcome rowUpdate (exact DB update object)", rowUpdate);
+
+  console.log("[admin/crm] saveLeadOutcome rowUpdate", rowUpdate);
 
   const { data, error } = await supabaseAdmin
     .from("leads")
     .update(rowUpdate)
     .eq("id", leadId)
     .is("deleted_at", null)
-    .select("id, last_outcome, last_contact_at, next_action, follow_up_date, last_note")
+    .select("id, last_outcome, last_contact_at, next_action, follow_up_date, follow_up_at, last_note")
     .maybeSingle();
 
   if (error) {
@@ -1220,8 +1248,6 @@ export async function saveLeadOutcome(formData: FormData): Promise<SaveLeadOutco
     console.error("[admin/crm] saveLeadOutcome: no row updated (lead missing or deleted?)");
     return { ok: false, error: "save_failed" };
   }
-
-  console.log("[admin/crm] saveLeadOutcome DB response:", JSON.stringify(data));
 
   if (outcome === "spoke") {
     const prev = typeof leadBefore.last_outcome === "string" ? leadBefore.last_outcome.trim() : "";

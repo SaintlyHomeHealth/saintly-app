@@ -135,6 +135,8 @@ export type LeadWorkspaceExistingProps = {
   ownerUid: string;
   nextActionVal: string;
   followUpIso: string;
+  /** Next follow-up instant from `leads.follow_up_at` (Central calendar date aligns with `follow_up_date`). */
+  followUpAtIso: string | null;
   leadDisciplinesForForm: string[];
   intakeDefaults: LeadWorkspaceIntakeDefaults;
   contactProfileDefaults: LeadWorkspaceContactProfileDefaults;
@@ -406,6 +408,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
     ownerUid,
     nextActionVal,
     followUpIso,
+    followUpAtIso,
     leadDisciplinesForForm,
     intakeDefaults,
     contactProfileDefaults,
@@ -446,7 +449,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
       : null;
 
   return (
-    <div className="scroll-smooth p-6 pb-28 lg:pb-32">
+    <div className="scroll-smooth p-6 pb-44 lg:pb-52">
       <div className="mb-5">
         <Link
           href="/admin/crm/leads"
@@ -829,10 +832,9 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
               key={leadId}
               leadId={leadId}
               savedLastOutcome={lastOutcome}
-              savedLastContactType={lastContactType}
               defaultNextAction={nextActionVal}
               defaultFollowUpIso={followUpIso}
-              defaultNotes={lastNote ?? ""}
+              defaultFollowUpAtIso={followUpAtIso}
               tomorrowIso={tomorrowIso}
               voicemailSuggestedIso={voicemailSuggestedIso}
               inputCls={inp}
@@ -1222,7 +1224,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
         </div>
       </div>
 
-      <aside className="mt-8 min-h-0 min-w-0 lg:sticky lg:top-6 lg:mt-0 lg:max-h-[calc(100vh-3rem)] lg:overflow-x-hidden lg:overflow-y-auto lg:overscroll-y-contain lg:self-start">
+      <aside className="mt-8 min-h-0 min-w-0 pb-32 lg:sticky lg:top-28 lg:mt-0 lg:max-h-[calc(100vh-8rem)] lg:overflow-x-hidden lg:overflow-y-auto lg:overscroll-y-contain lg:self-start">
         <LeadFollowUpContextPanel
           leadId={leadId}
           lastContactAt={lastContactAt}
@@ -1232,6 +1234,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
           leadCreatedAt={leadCreatedAt}
           applicationNotes={applicationNotes}
           followUpIso={followUpIso}
+          followUpAtIso={followUpAtIso}
           nextActionVal={nextActionVal}
         />
       </aside>

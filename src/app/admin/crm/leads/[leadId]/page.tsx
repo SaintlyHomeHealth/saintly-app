@@ -81,7 +81,7 @@ export default async function LeadIntakePage({
     supabase
       .from("leads")
       .select(
-        "id, contact_id, source, status, owner_user_id, lead_type, next_action, follow_up_date, created_at, last_contact_at, last_contact_type, last_outcome, last_note, notes, external_source_metadata, referring_doctor_name, doctor_office_name, doctor_office_phone, doctor_office_fax, doctor_office_contact_person, referring_provider_name, referring_provider_phone, payer_name, payer_type, referral_source, service_type, service_disciplines, intake_status, dob, primary_insurance_file_url, secondary_insurance_file_url, contacts ( full_name, first_name, last_name, primary_phone, secondary_phone, email, address_line_1, address_line_2, city, state, zip, notes )"
+        "id, contact_id, source, status, owner_user_id, lead_type, next_action, follow_up_date, follow_up_at, created_at, last_contact_at, last_contact_type, last_outcome, last_note, notes, external_source_metadata, referring_doctor_name, doctor_office_name, doctor_office_phone, doctor_office_fax, doctor_office_contact_person, referring_provider_name, referring_provider_phone, payer_name, payer_type, referral_source, service_type, service_disciplines, intake_status, dob, primary_insurance_file_url, secondary_insurance_file_url, contacts ( full_name, first_name, last_name, primary_phone, secondary_phone, email, address_line_1, address_line_2, city, state, zip, notes )"
       )
       .eq("id", leadId.trim())
   ).maybeSingle();
@@ -132,6 +132,10 @@ export default async function LeadIntakePage({
     typeof followUpRaw === "string" && /^\d{4}-\d{2}-\d{2}/.test(followUpRaw)
       ? followUpRaw.slice(0, 10)
       : "";
+
+  const followUpAtRaw = L.follow_up_at;
+  const followUpAtIso =
+    typeof followUpAtRaw === "string" && followUpAtRaw.trim() ? followUpAtRaw.trim() : null;
 
   const rawStatus = typeof L.status === "string" ? L.status.trim() : "";
   const pipelineDefault =
@@ -237,6 +241,7 @@ export default async function LeadIntakePage({
       ownerUid={ownerUid}
       nextActionVal={nextActionVal}
       followUpIso={followUpIso}
+      followUpAtIso={followUpAtIso}
       leadDisciplinesForForm={leadDisciplinesForForm}
       intakeDefaults={intakeDefaults}
       contactProfileDefaults={contactProfileDefaults}

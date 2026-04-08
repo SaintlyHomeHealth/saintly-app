@@ -2,27 +2,24 @@
 
 import { Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 
 import { saveLeadOutcome, type SaveLeadOutcomeResult } from "@/app/admin/crm/actions";
 import {
   isValidLeadContactOutcome,
-  isValidLeadContactType,
   LEAD_CONTACT_OUTCOME_OPTIONS,
 } from "@/lib/crm/lead-contact-outcome";
 import { LEAD_NEXT_ACTION_OPTIONS } from "@/lib/crm/lead-follow-up-options";
+import { ATTEMPT_ACTION_KEYS, type AttemptActionKey } from "@/lib/crm/lead-contact-log";
 
 type Props = {
   leadId: string;
-  /** `leads.last_outcome` from server — keeps Outcome select in sync after save/refresh */
   savedLastOutcome: string | null;
-  /** `leads.last_contact_type` from server */
-  savedLastContactType: string | null;
   defaultNextAction: string;
   defaultFollowUpIso: string;
-  defaultNotes: string;
+  /** ISO instant when server has `follow_up_at`; drives date+time fields. */
+  defaultFollowUpAtIso: string | null;
   tomorrowIso: string;
-  /** Suggested follow-up after voicemail (+2 days from “today” in Central CRM calendar). */
   voicemailSuggestedIso: string;
   inputCls: string;
 };
@@ -35,9 +32,9 @@ function toastMessage(result: SaveLeadOutcomeResult): string {
     case "invalid_lead":
       return "Missing lead. Refresh and try again.";
     case "invalid_outcome":
-      return "Select a valid outcome.";
+      return "Select a result and at least one attempted action.";
     case "invalid_contact_type":
-      return "Select call or text.";
+      return "Select call or text for contact type.";
     case "save_failed":
       return "Could not save outcome. Try again.";
     default:
@@ -50,18 +47,45 @@ function outcomeSelectValue(v: string | null): string {
   return "";
 }
 
-function contactTypeValue(v: string | null): "call" | "text" {
-  if (v && isValidLeadContactType(v)) return v;
-  return "call";
+function toDatetimeLocalValue(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function defaultFollowUpParts(followIso: string, followAtIso: string | null): { date: string; time: string } {
+  if (followAtIso) {
+    const d = new Date(followAtIso);
+    if (!Number.isNaN(d.getTime())) {
+      return { date: toDatetimeLocalValue(d).slice(0, 10), time: `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}` };
+    }
+  }
+  const d = followIso.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(d)) {
+    return { date: d, time: "09:00" };
+  }
+  return { date: "", time: "09:00" };
+}
+
+function helperForOutcome(outcome: string): string | null {
+  switch (outcome) {
+    case "no_answer":
+      return "Tip: mark whether voicemail was left and whether a text was sent.";
+    case "spoke":
+    case "spoke_scheduled":
+      return "Capture the next step before saving.";
+    case "left_voicemail":
+      return "Set a follow-up date and time so this lead does not get lost.";
+    default:
+      return null;
+  }
 }
 
 export function LeadContactOutcomeForm({
   leadId,
   savedLastOutcome,
-  savedLastContactType,
   defaultNextAction,
   defaultFollowUpIso,
-  defaultNotes,
+  defaultFollowUpAtIso,
   tomorrowIso,
   voicemailSuggestedIso,
   inputCls,
@@ -72,11 +96,28 @@ export function LeadContactOutcomeForm({
   const outcomeSelectRef = useRef<HTMLSelectElement>(null);
 
   const [outcome, setOutcome] = useState(() => outcomeSelectValue(savedLastOutcome));
-  const [followUp, setFollowUp] = useState(defaultFollowUpIso);
-  const [notes, setNotes] = useState(defaultNotes);
+  const [actions, setActions] = useState<Set<AttemptActionKey>>(new Set());
+  const [attemptLocal, setAttemptLocal] = useState(() => toDatetimeLocalValue(new Date()));
+  const [followDate, setFollowDate] = useState(() => defaultFollowUpParts(defaultFollowUpIso, defaultFollowUpAtIso).date);
+  const [followTime, setFollowTime] = useState(() => defaultFollowUpParts(defaultFollowUpIso, defaultFollowUpAtIso).time);
+  /** Only this attempt's note — not the full running `last_note` log. */
+  const [notes, setNotes] = useState("");
   const [nextAction, setNextAction] = useState(defaultNextAction);
-  const [contactType, setContactType] = useState(() => contactTypeValue(savedLastContactType));
   const [outcomeFieldError, setOutcomeFieldError] = useState<string | null>(null);
+
+  const followUpInstantIso = useMemo(() => {
+    if (!followDate.trim()) return "";
+    const t = followTime.trim() || "09:00";
+    const d = new Date(`${followDate.trim()}T${t}:00`);
+    if (Number.isNaN(d.getTime())) return "";
+    return d.toISOString();
+  }, [followDate, followTime]);
+
+  const attemptInstantIso = useMemo(() => {
+    const d = new Date(attemptLocal);
+    if (Number.isNaN(d.getTime())) return new Date().toISOString();
+    return d.toISOString();
+  }, [attemptLocal]);
 
   useEffect(() => {
     if (!toast || toast.type !== "ok") return;
@@ -84,16 +125,24 @@ export function LeadContactOutcomeForm({
     return () => window.clearTimeout(t);
   }, [toast]);
 
-  /** When `router.refresh()` returns new server props, re-align all fields from DB (incl. last_outcome / last_contact_type). */
   useEffect(() => {
-    /* eslint-disable react-hooks/set-state-in-effect -- intentional sync from refreshed RSC props */
-    setFollowUp(defaultFollowUpIso);
-    setNotes(defaultNotes);
+    setFollowDate(defaultFollowUpParts(defaultFollowUpIso, defaultFollowUpAtIso).date);
+    setFollowTime(defaultFollowUpParts(defaultFollowUpIso, defaultFollowUpAtIso).time);
     setNextAction(defaultNextAction);
     setOutcome(outcomeSelectValue(savedLastOutcome));
-    setContactType(contactTypeValue(savedLastContactType));
-    /* eslint-enable react-hooks/set-state-in-effect */
-  }, [defaultFollowUpIso, defaultNotes, defaultNextAction, savedLastOutcome, savedLastContactType]);
+  }, [defaultFollowUpIso, defaultFollowUpAtIso, defaultNextAction, savedLastOutcome]);
+
+  const toggleAction = (k: AttemptActionKey) => {
+    setActions((prev) => {
+      const n = new Set(prev);
+      if (n.has(k)) n.delete(k);
+      else n.add(k);
+      return n;
+    });
+  };
+
+  const chipCls =
+    "rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 shadow-sm hover:border-sky-300 hover:bg-sky-50";
 
   return (
     <div className="relative">
@@ -110,30 +159,48 @@ export function LeadContactOutcomeForm({
         </div>
       ) : null}
 
+      <div className="mb-4 flex flex-wrap gap-2">
+        <span className="w-full text-[10px] font-semibold uppercase tracking-wide text-slate-500">Quick actions</span>
+        <button type="button" className={chipCls} onClick={() => {
+          setOutcome("spoke");
+          setActions(new Set(["called", "spoke_live"]));
+        }}>
+          Spoke
+        </button>
+        <button type="button" className={chipCls} onClick={() => {
+          setOutcome("left_voicemail");
+          setActions(new Set(["called", "left_voicemail"]));
+          setFollowDate(voicemailSuggestedIso.slice(0, 10));
+          setFollowTime("09:00");
+        }}>
+          Left VM
+        </button>
+        <button type="button" className={chipCls} onClick={() => {
+          setOutcome("text_sent");
+          setActions(new Set(["sent_text"]));
+        }}>
+          Sent text
+        </button>
+        <button type="button" className={chipCls} onClick={() => {
+          setOutcome("no_answer");
+          setActions(new Set(["called"]));
+          setFollowDate(tomorrowIso);
+          setFollowTime("09:00");
+        }}>
+          Called
+        </button>
+      </div>
+
       <form
-        className="space-y-4"
+        className="space-y-5"
         noValidate
         onSubmit={(e) => {
           e.preventDefault();
           setToast(null);
           setOutcomeFieldError(null);
 
-          console.log("[LeadContactOutcomeForm] submit attempt", {
-            leadId,
-            outcome,
-            contactType,
-            nextAction,
-            followUp,
-            notesLen: notes.length,
-          });
-
-          const outcomeOk = outcome.trim() !== "";
-          const contactOk = contactType === "call" || contactType === "text";
-          console.log("[LeadContactOutcomeForm] client validation", { outcomeOk, contactOk });
-
-          if (!outcomeOk) {
-            console.warn("[LeadContactOutcomeForm] validation blocked: outcome blank");
-            setOutcomeFieldError("Please select an outcome.");
+          if (!outcome.trim()) {
+            setOutcomeFieldError("Please select a contact result.");
             queueMicrotask(() => {
               outcomeSelectRef.current?.focus();
               outcomeSelectRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -141,53 +208,39 @@ export function LeadContactOutcomeForm({
             return;
           }
 
-          if (!contactOk) {
-            console.warn("[LeadContactOutcomeForm] validation blocked: contact_type invalid");
-            setToast({ type: "err", message: "Select call or text for contact type." });
+          if (actions.size === 0) {
+            setToast({ type: "err", message: "Select at least one attempted action." });
             return;
           }
 
           startTransition(async () => {
             try {
-              // Build FormData from React state — new FormData(formElement) can omit/mis-serialize controlled fields.
               const fd = new FormData();
               fd.set("leadId", leadId);
               fd.set("outcome", outcome);
-              fd.set("contact_type", contactType);
+              for (const a of actions) {
+                fd.append("attempt_actions", a);
+              }
+              fd.set("attempt_at_iso", attemptInstantIso);
+              fd.set("follow_up_at_iso", followUpInstantIso);
               fd.set("next_action", nextAction);
-              fd.set("follow_up_date", followUp);
               fd.set("notes", notes);
-              const outgoing: Record<string, string> = {};
-              fd.forEach((v, k) => {
-                outgoing[k] = typeof v === "string" ? v : String(v);
-              });
-              console.log("[LeadContactOutcomeForm] outgoing payload (after validation)", outgoing);
-              console.log("[LeadContactOutcomeForm] selected outcome raw (state)", outcome);
 
               const result = await saveLeadOutcome(fd);
-              console.log("[LeadContactOutcomeForm] saveLeadOutcome result", result);
 
               if (result.ok) {
-                console.log("[LeadContactOutcomeForm] saveLeadOutcome success", result);
                 setOutcomeFieldError(null);
+                setNotes("");
+                setActions(new Set());
                 setToast({ type: "ok", message: toastMessage(result) });
-                // Do not clear fields before refresh — that caused empty notes/outcome until props updated.
-                // Await refresh so RSC passes new savedLastOutcome / defaultNotes; useEffect syncs from server.
                 await router.refresh();
               } else {
-                const msg = toastMessage(result);
-                console.warn("[LeadContactOutcomeForm] saveLeadOutcome rejected", result, msg);
-                setToast({ type: "err", message: msg });
+                setToast({ type: "err", message: toastMessage(result) });
                 if (result.error === "invalid_outcome") {
-                  setOutcomeFieldError("Please select a valid outcome.");
-                  queueMicrotask(() => {
-                    outcomeSelectRef.current?.focus();
-                    outcomeSelectRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-                  });
+                  setOutcomeFieldError("Check result and attempted actions.");
                 }
               }
             } catch (err) {
-              console.error("[LeadContactOutcomeForm] saveLeadOutcome threw", err);
               setToast({
                 type: "err",
                 message: err instanceof Error ? err.message : "Could not save outcome. Try again.",
@@ -197,35 +250,28 @@ export function LeadContactOutcomeForm({
         }}
       >
         <input type="hidden" name="leadId" value={leadId} />
-        <div className="grid max-w-2xl gap-3 sm:grid-cols-2">
+
+        <div className="grid max-w-2xl gap-4 sm:grid-cols-2">
           <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
             <span>
-              Outcome <span className="text-red-600">*</span>{" "}
-              <span className="font-semibold text-slate-800">(required)</span>
-            </span>
-            <span id={`lead-contact-outcome-hint-${leadId}`} className="text-[11px] font-normal text-slate-500">
-              Required before saving.
+              Contact result <span className="text-red-600">*</span>
             </span>
             <select
               ref={outcomeSelectRef}
-              id={`lead-contact-outcome-${leadId}`}
               name="outcome"
               value={outcome}
               aria-invalid={outcomeFieldError ? "true" : "false"}
-              aria-describedby={
-                outcomeFieldError
-                  ? `lead-contact-outcome-hint-${leadId} lead-contact-outcome-err-${leadId}`
-                  : `lead-contact-outcome-hint-${leadId}`
-              }
               className={`${inputCls} ${outcomeFieldError ? "border-rose-500 ring-2 ring-rose-500/25" : ""}`}
               onChange={(e) => {
                 const v = e.target.value;
                 setOutcome(v);
                 setOutcomeFieldError(null);
                 if (v === "no_answer") {
-                  setFollowUp(tomorrowIso);
+                  setFollowDate(tomorrowIso);
+                  setFollowTime("09:00");
                 } else if (v === "left_voicemail") {
-                  setFollowUp(voicemailSuggestedIso);
+                  setFollowDate(voicemailSuggestedIso.slice(0, 10));
+                  setFollowTime("09:00");
                 }
               }}
             >
@@ -239,31 +285,58 @@ export function LeadContactOutcomeForm({
               ))}
             </select>
             {outcomeFieldError ? (
-              <p id={`lead-contact-outcome-err-${leadId}`} role="alert" className="text-xs font-medium text-rose-700">
+              <p role="alert" className="text-xs font-medium text-rose-700">
                 {outcomeFieldError}
               </p>
             ) : null}
+            {helperForOutcome(outcome) ? (
+              <p className="text-[11px] font-normal text-slate-500">{helperForOutcome(outcome)}</p>
+            ) : null}
           </label>
-          <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-            Contact type <span className="text-red-600">*</span>
-            <select
-              name="contact_type"
+
+          <div className="sm:col-span-2">
+            <p className="text-[11px] font-medium text-slate-600">
+              Attempted actions <span className="text-red-600">*</span>
+            </p>
+            <div className="mt-2 flex flex-wrap gap-3">
+              {ATTEMPT_ACTION_KEYS.map((k) => (
+                <label key={k} className="inline-flex cursor-pointer items-center gap-2 text-sm text-slate-800">
+                  <input
+                    type="checkbox"
+                    checked={actions.has(k)}
+                    onChange={() => toggleAction(k)}
+                    className="rounded border-slate-300 text-sky-700 focus:ring-sky-600"
+                  />
+                  <span>
+                    {k === "called"
+                      ? "Called"
+                      : k === "left_voicemail"
+                        ? "Left voicemail"
+                        : k === "sent_text"
+                          ? "Sent text"
+                          : k === "received_text"
+                            ? "Received text"
+                            : "Spoke live"}
+                  </span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
+            Attempt date &amp; time
+            <input
+              type="datetime-local"
               className={inputCls}
-              value={contactType}
-              onChange={(e) => setContactType(e.target.value)}
-            >
-              <option value="call">Call</option>
-              <option value="text">Text</option>
-            </select>
+              value={attemptLocal}
+              onChange={(e) => setAttemptLocal(e.target.value)}
+            />
+            <span className="text-[11px] font-normal text-slate-500">When this attempt happened (defaults to now).</span>
           </label>
-          <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-            Next action
-            <select
-              name="next_action"
-              className={inputCls}
-              value={nextAction}
-              onChange={(e) => setNextAction(e.target.value)}
-            >
+
+          <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
+            Next step
+            <select name="next_action" className={inputCls} value={nextAction} onChange={(e) => setNextAction(e.target.value)}>
               <option value="">—</option>
               {LEAD_NEXT_ACTION_OPTIONS.map((o) => (
                 <option key={o.value} value={o.value}>
@@ -272,32 +345,33 @@ export function LeadContactOutcomeForm({
               ))}
             </select>
           </label>
-          <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
+
+          <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
             Follow-up date
-            <input
-              type="date"
-              name="follow_up_date"
-              className={inputCls}
-              value={followUp}
-              onChange={(e) => setFollowUp(e.target.value)}
-            />
+            <input type="date" className={inputCls} value={followDate} onChange={(e) => setFollowDate(e.target.value)} />
           </label>
+          <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+            Follow-up time
+            <input type="time" className={inputCls} value={followTime} onChange={(e) => setFollowTime(e.target.value)} />
+          </label>
+
           <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
-            Notes
+            Outcome note
             <textarea
               name="notes"
-              rows={3}
+              rows={4}
               className={inputCls}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="Optional"
+              placeholder="What happened on this attempt? Be specific — this appends to the contact log."
             />
           </label>
         </div>
+
         <button
           type="submit"
           disabled={pending}
-          className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-800 bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+          className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-800 bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {pending ? <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden /> : null}
           {pending ? "Saving…" : "Save outcome"}

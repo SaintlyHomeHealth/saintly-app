@@ -31,3 +31,13 @@ export function addCalendarDaysToIsoDate(ymd: string, deltaDays: number): string
 export function getCrmCalendarTomorrowIso(): string {
   return addCalendarDaysToIsoDate(getCrmCalendarTodayIso(), 1);
 }
+
+/** Calendar `YYYY-MM-DD` in CRM timezone for a given instant (for `leads.follow_up_date`). */
+export function getCrmCalendarDateIsoFromInstant(d: Date): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: CRM_CALENDAR_TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d);
+}

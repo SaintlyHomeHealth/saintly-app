@@ -1,12 +1,14 @@
 /**
- * `leads.last_outcome` — logged result of a contact attempt.
+ * `leads.last_outcome` — logged result of a contact attempt (DB check constraint).
  */
 export const LEAD_CONTACT_OUTCOME_OPTIONS = [
   { value: "spoke", label: "Spoke" },
-  { value: "left_voicemail", label: "Left voicemail" },
   { value: "no_answer", label: "No answer" },
-  { value: "wrong_number", label: "Wrong number" },
+  { value: "left_voicemail", label: "Left voicemail" },
+  { value: "text_sent", label: "Text sent" },
+  { value: "spoke_scheduled", label: "Spoke + scheduled" },
   { value: "not_interested", label: "Not interested" },
+  { value: "wrong_number", label: "Wrong number" },
 ] as const;
 
 export type LeadContactOutcomeValue = (typeof LEAD_CONTACT_OUTCOME_OPTIONS)[number]["value"];
