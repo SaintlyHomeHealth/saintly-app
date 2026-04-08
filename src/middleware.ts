@@ -136,7 +136,7 @@ export async function middleware(request: NextRequest) {
       role === "nurse" || role === "employee" || role === "staff";
     if (workspaceOnly) {
       const url = request.nextUrl.clone();
-      url.pathname = "/workspace/phone/today";
+      url.pathname = "/workspace/phone/keypad";
       url.search = "";
       return NextResponse.redirect(url);
     }
@@ -159,7 +159,7 @@ export async function middleware(request: NextRequest) {
         return NextResponse.redirect(new URL(next, request.url));
       }
       if (gate.role === "nurse") {
-        return NextResponse.redirect(new URL("/workspace/phone/today", request.url));
+        return NextResponse.redirect(new URL("/workspace/phone/keypad", request.url));
       }
       return NextResponse.redirect(new URL("/admin", request.url));
     }

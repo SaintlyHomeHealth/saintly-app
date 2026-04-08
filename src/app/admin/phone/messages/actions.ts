@@ -11,6 +11,10 @@ import {
   canStaffAccessConversationRow,
   canStaffClaimConversation,
 } from "@/lib/phone/staff-conversation-access";
+import {
+  loadContactForZapierByConversation,
+  notifyZapierLeadStatus,
+} from "@/lib/integrations/zapier-lead-status-webhook";
 import { parseLeadStatus } from "@/lib/phone/lead-status";
 import { isValidE164, normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
 import { sendSms } from "@/lib/twilio/send-sms";
@@ -55,6 +59,7 @@ type ConversationAccessRow = {
   assigned_to_user_id: string | null;
   primary_contact_id: string | null;
   main_phone_e164: string | null;
+  lead_status: string | null;
 };
 
 async function loadConversationForAccess(
@@ -62,7 +67,7 @@ async function loadConversationForAccess(
 ): Promise<{ row: ConversationAccessRow | null }> {
   const { data, error } = await supabaseAdmin
     .from("conversations")
-    .select("id, assigned_to_user_id, primary_contact_id, main_phone_e164")
+    .select("id, assigned_to_user_id, primary_contact_id, main_phone_e164, lead_status")
     .eq("id", conversationId)
     .eq("channel", "sms")
     .maybeSingle();
@@ -83,6 +88,7 @@ async function loadConversationForAccess(
           ? String(data.primary_contact_id)
           : null,
       main_phone_e164: typeof data.main_phone_e164 === "string" ? data.main_phone_e164 : null,
+      lead_status: typeof data.lead_status === "string" ? data.lead_status : null,
     },
   };
 }
@@ -237,6 +243,8 @@ export async function updateConversationLeadStatus(formData: FormData) {
     return;
   }
 
+  const prevStatus = typeof row.lead_status === "string" ? row.lead_status.trim() : "";
+
   const { error } = await supabaseAdmin
     .from("conversations")
     .update({ lead_status: leadStatus })
@@ -245,6 +253,19 @@ export async function updateConversationLeadStatus(formData: FormData) {
   if (error) {
     console.warn("[messages] updateConversationLeadStatus:", error.message);
     return;
+  }
+
+  const zapierStatuses = new Set(["contacted", "scheduled", "admitted"]);
+  if (zapierStatuses.has(leadStatus) && prevStatus !== leadStatus) {
+    const contact = await loadContactForZapierByConversation(row.primary_contact_id, row.main_phone_e164);
+    const statusForZapier =
+      leadStatus === "contacted" ? "spoke" : leadStatus === "scheduled" ? "scheduled" : "admitted";
+    notifyZapierLeadStatus({
+      email: contact.email,
+      phone: contact.phone,
+      status: statusForZapier,
+      name: contact.name,
+    });
   }
 
   revalidateSmsConversationViews(conversationId);

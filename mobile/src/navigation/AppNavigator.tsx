@@ -22,7 +22,11 @@ export function AppNavigator() {
           contentStyle: { backgroundColor: colors.background },
         }}
       >
-        <Stack.Screen name="Home" component={HomeScreen} options={{ title: 'Home' }} />
+        <Stack.Screen
+          name="Home"
+          component={HomeScreen}
+          options={{ headerShown: false }}
+        />
       </Stack.Navigator>
     </NavigationContainer>
   );

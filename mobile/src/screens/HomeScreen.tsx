@@ -1,14 +1,22 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { WebView } from 'react-native-webview';
 
-import { SaintlyCard, ScreenContainer } from '../components';
+import { env } from '../config/env';
 import { useNativePushRegistration } from '../hooks/useNativePushRegistration';
 import { colors } from '../theme/colors';
-import { typography } from '../theme/typography';
 
 import type { HomeScreenProps } from '../navigation/types';
 
-function pushStatusLine(env: string): string {
-  switch (env) {
+/** Workspace phone keypad; base from `env` (see `app.config.ts` / `EXPO_PUBLIC_API_BASE_URL`). */
+function portalUrl(): string {
+  const base = env.apiBaseUrl.replace(/\/$/, '') || 'https://appsaintlyhomehealth.com';
+  return `${base}/workspace/phone/keypad`;
+}
+
+function pushStatusLine(environment: string): string {
+  switch (environment) {
     case 'expo_go':
       return 'Running in Expo Go — native VoIP push registers in a development build.';
     case 'development_build':
@@ -22,67 +30,72 @@ function pushStatusLine(env: string): string {
 
 export function HomeScreen(_props: HomeScreenProps) {
   const pushState = useNativePushRegistration();
-  const env =
+  const pushEnv =
     pushState.status === 'ready' ? pushState.result.environment : null;
+  const [loading, setLoading] = useState(true);
 
   return (
-    <ScreenContainer>
-      <View style={styles.hero}>
-        <Text style={styles.kicker}>Saintly Home Health</Text>
-        <SaintlyCard>
-          <View style={styles.ring} />
-          <Text style={styles.title}>Saintly Phone - Ready for Calls</Text>
-          <Text style={styles.subtitle}>
-            Voice and call signaling will connect here. Twilio Voice and native
-            push are stubbed until the development build is wired.
-          </Text>
-          {env ? (
-            <Text style={styles.hintNeutral}>{pushStatusLine(env)}</Text>
+    <SafeAreaView style={styles.safe} edges={['top']}>
+      <View style={styles.container}>
+        <WebView
+          source={{ uri: portalUrl() }}
+          style={styles.webview}
+          javaScriptEnabled
+          domStorageEnabled
+          thirdPartyCookiesEnabled
+          sharedCookiesEnabled
+          onLoadStart={() => setLoading(true)}
+          onLoadEnd={() => setLoading(false)}
+          allowsBackForwardNavigationGestures
+        />
+        {loading ? (
+          <View style={styles.loadingOverlay}>
+            <ActivityIndicator size="large" color={colors.primary} />
+          </View>
+        ) : null}
+        <View style={styles.pushBar} pointerEvents="none">
+          {pushEnv ? (
+            <Text style={styles.pushText}>{pushStatusLine(pushEnv)}</Text>
           ) : (
-            <Text style={styles.hintNeutral}>Preparing call environment…</Text>
+            <Text style={styles.pushText}>Preparing call environment…</Text>
           )}
-        </SaintlyCard>
+        </View>
       </View>
-    </ScreenContainer>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  hero: {
+  safe: {
     flex: 1,
+    backgroundColor: '#ffffff',
+  },
+  container: {
+    flex: 1,
+    backgroundColor: '#ffffff',
+  },
+  webview: {
+    flex: 1,
+  },
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
     justifyContent: 'center',
-    paddingBottom: 32,
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
   },
-  kicker: {
-    ...typography.label,
-    color: colors.primary,
-    marginBottom: 16,
-    marginLeft: 4,
+  pushBar: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: 'rgba(244, 247, 251, 0.96)',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#e2e8f0',
   },
-  ring: {
-    alignSelf: 'center',
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: colors.primaryMuted,
-    marginBottom: 24,
-    borderWidth: 2,
-    borderColor: colors.ring,
-  },
-  title: {
-    ...typography.title,
-    color: colors.textPrimary,
-    textAlign: 'center',
-    marginBottom: 12,
-  },
-  subtitle: {
-    ...typography.subtitle,
-    color: colors.textSecondary,
-    textAlign: 'center',
-  },
-  hintNeutral: {
-    marginTop: 16,
-    fontSize: 13,
+  pushText: {
+    fontSize: 11,
     color: colors.textMuted,
     textAlign: 'center',
   },

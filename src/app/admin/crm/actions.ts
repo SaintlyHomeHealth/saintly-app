@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { insertAuditLog, insertAuditLogTrusted } from "@/lib/audit-log";
+import { contactFieldsFromLeadContactJoin, notifyZapierLeadStatus } from "@/lib/integrations/zapier-lead-status-webhook";
 import { diffNumber, diffString, truncateChanges, type FieldChange } from "@/lib/crm/patient-profile-diff";
 import { notifyOperationalVisitStatus } from "@/lib/ops/visit-operational-alert";
 import { NURSE_ON_THE_WAY_MESSAGE, nurseLabelFromStaffEmail } from "@/lib/crm/patient-sms";
@@ -1146,6 +1147,17 @@ export async function saveLeadOutcome(formData: FormData): Promise<SaveLeadOutco
     return { ok: false, error: "invalid_contact_type" };
   }
 
+  const { data: leadBefore, error: leadLoadErr } = await leadRowsActiveOnly(
+    supabaseAdmin
+      .from("leads")
+      .select("last_outcome, contacts ( full_name, first_name, last_name, primary_phone, email )")
+      .eq("id", leadId)
+  ).maybeSingle();
+
+  if (leadLoadErr || !leadBefore) {
+    return { ok: false, error: "invalid_lead" };
+  }
+
   const notesRaw = formData.get("notes");
   const notes = typeof notesRaw === "string" ? notesRaw.trim().slice(0, 4000) : "";
 
@@ -1194,6 +1206,19 @@ export async function saveLeadOutcome(formData: FormData): Promise<SaveLeadOutco
   }
 
   console.log("[admin/crm] saveLeadOutcome DB response:", JSON.stringify(data));
+
+  if (outcome === "spoke") {
+    const prev = typeof leadBefore.last_outcome === "string" ? leadBefore.last_outcome.trim() : "";
+    if (prev !== "spoke") {
+      const c = contactFieldsFromLeadContactJoin(leadBefore.contacts);
+      notifyZapierLeadStatus({
+        email: c.email,
+        phone: c.phone,
+        status: "spoke",
+        name: c.name,
+      });
+    }
+  }
 
   revalidatePath("/admin");
   revalidatePath("/admin/crm/leads");
@@ -1853,6 +1878,18 @@ export async function quickMarkLeadSpoke(formData: FormData): Promise<CrmLeadLis
   if (!leadId) {
     return { ok: false, error: "invalid_lead" };
   }
+
+  const { data: leadBefore, error: leadLoadErr } = await leadRowsActiveOnly(
+    supabaseAdmin
+      .from("leads")
+      .select("last_outcome, contacts ( full_name, first_name, last_name, primary_phone, email )")
+      .eq("id", leadId)
+  ).maybeSingle();
+
+  if (leadLoadErr || !leadBefore) {
+    return { ok: false, error: "invalid_lead" };
+  }
+
   const lastContactAt = new Date().toISOString();
   const { error } = await supabaseAdmin
     .from("leads")
@@ -1867,6 +1904,17 @@ export async function quickMarkLeadSpoke(formData: FormData): Promise<CrmLeadLis
   if (error) {
     console.warn("[admin/crm] quickMarkLeadSpoke:", error.message);
     return { ok: false, error: "save_failed" };
+  }
+
+  const prev = typeof leadBefore.last_outcome === "string" ? leadBefore.last_outcome.trim() : "";
+  if (prev !== "spoke") {
+    const c = contactFieldsFromLeadContactJoin(leadBefore.contacts);
+    notifyZapierLeadStatus({
+      email: c.email,
+      phone: c.phone,
+      status: "spoke",
+      name: c.name,
+    });
   }
 
   revalidatePath("/admin");
