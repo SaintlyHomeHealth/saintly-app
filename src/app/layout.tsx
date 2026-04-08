@@ -13,7 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://saintly.local"),
+  /** Same build serves www + app subdomains; set per deploy for absolute OG URLs. */
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "https://www.saintlyhomehealth.com"),
   title: {
     default: "Saintly Home Health",
     template: "%s · Saintly Home Health",
@@ -44,7 +45,8 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
-  themeColor: "#0f172a",
+  /** Matches PWA / app icon field (Saintly blue) */
+  themeColor: "#0284c7",
 };
 
 export default function RootLayout({
