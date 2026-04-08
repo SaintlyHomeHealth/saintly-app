@@ -2,16 +2,15 @@ import crypto from "crypto";
 
 import { supabaseAdmin } from "@/lib/admin";
 
-function sha256(value: string): string | null {
-  if (!value) return null;
-  return crypto.createHash("sha256").update(value.trim().toLowerCase()).digest("hex");
+function sha256(value: string): string {
+  return crypto.createHash("sha256").update(value).digest("hex");
 }
 
 /**
  * POST JSON to Zapier when lead-relevant status changes. Set `ZAPIER_LEAD_STATUS_WEBHOOK_URL`
  * in the environment to the Catch Hook URL from Zapier.
  *
- * `email` and `phone` are plaintext; they are SHA256-hashed in the request body.
+ * `email` and `phone` are plaintext inputs; normalized and SHA-256-hashed in the request body.
  */
 export type ZapierLeadStatusPayload = {
   email: string | null;
@@ -82,9 +81,10 @@ export function notifyZapierLeadStatus(payload: ZapierLeadStatusPayload): void {
 
   void (async () => {
     try {
-      const hashedEmail = sha256(payload.email || "");
-      const cleanedPhone = (payload.phone || "").replace(/\D/g, "");
-      const hashedPhone = sha256(cleanedPhone);
+      const normalizedEmail = (payload.email ?? "").trim().toLowerCase();
+      const normalizedPhoneDigits = (payload.phone ?? "").replace(/\D/g, "");
+      const hashedEmail = sha256(normalizedEmail);
+      const hashedPhone = sha256(normalizedPhoneDigits);
       const body = JSON.stringify({
         email: hashedEmail,
         phone: hashedPhone,
@@ -97,7 +97,13 @@ export function notifyZapierLeadStatus(payload: ZapierLeadStatusPayload): void {
         body,
         signal: AbortSignal.timeout(15_000),
       });
-      if (!res.ok) {
+      if (res.ok) {
+        console.log("[zapier-lead-status] hashed email/phone payload sent to Zapier", {
+          status: payload.status,
+          name: payload.name,
+          httpStatus: res.status,
+        });
+      } else {
         const t = await res.text().catch(() => "");
         console.warn("[zapier-lead-status] webhook non-OK", res.status, t.slice(0, 500));
       }
