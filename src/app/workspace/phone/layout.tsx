@@ -25,7 +25,7 @@ export default async function WorkspacePhoneLayout({ children }: { children: Rea
 
     return (
       <div className="flex min-h-[100dvh] flex-col bg-gradient-to-b from-slate-50 via-white to-slate-50/80 text-slate-900">
-        <header className="sticky top-0 z-30 border-b border-slate-200/60 bg-white/95 px-4 py-3 shadow-sm shadow-slate-200/20 backdrop-blur-md supports-[backdrop-filter]:bg-white/85">
+        <header className="sticky top-0 z-30 border-b border-slate-200/60 bg-white/95 px-4 pb-3 pt-[calc(0.75rem+env(safe-area-inset-top,0px))] shadow-sm shadow-slate-200/20 backdrop-blur-md supports-[backdrop-filter]:bg-white/85">
           <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-3">
             <div className="min-w-0">
               <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-sky-900/55">Saintly Phone</p>
