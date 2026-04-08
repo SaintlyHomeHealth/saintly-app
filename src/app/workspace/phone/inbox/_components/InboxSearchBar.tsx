@@ -2,17 +2,14 @@
 
 type Props = {
   defaultQuery: string;
-  /** When set, search submits preserve the current thread selection. */
-  selectedConversationId: string | null;
 };
 
 /**
- * GET form for `/workspace/phone/inbox` — keeps `selected` in sync when filtering the list.
+ * GET form for `/workspace/phone/inbox` — filters the conversation list.
  */
-export function InboxSearchBar({ defaultQuery, selectedConversationId }: Props) {
+export function InboxSearchBar({ defaultQuery }: Props) {
   return (
     <form method="get" action="/workspace/phone/inbox" className="w-full min-[400px]:w-52 sm:w-60">
-      {selectedConversationId ? <input type="hidden" name="selected" value={selectedConversationId} /> : null}
       <input
         name="q"
         defaultValue={defaultQuery}

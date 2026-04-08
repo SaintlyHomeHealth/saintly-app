@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import { ChevronLeft } from "lucide-react";
 
 import {
   assignConversation,
@@ -12,8 +13,12 @@ import {
   updateConversationFollowUp,
 } from "../actions";
 import { SmsReplyComposer } from "./SmsReplyComposer";
+import { WorkspaceSmsThreadView } from "@/app/workspace/phone/inbox/_components/WorkspaceSmsThreadView";
 import { supabaseAdmin } from "@/lib/admin";
+import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
+import { labelForContactType } from "@/lib/crm/contact-types";
 import { ADMIN_PHONE_DISPLAY_TIMEZONE, formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
+import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import {
   canStaffAccessConversationRow,
   canStaffClaimConversation,
@@ -23,6 +28,7 @@ import {
   getStaffProfile,
   hasFullCallVisibility,
   isAdminOrHigher,
+  isWorkspaceEmployeeRole,
 } from "@/lib/staff-profile";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { isValidE164 } from "@/lib/softphone/phone-number";
@@ -310,6 +316,51 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
         })
       : null;
 
+  let workspaceLeadId: string | null = null;
+  let workspacePatientId: string | null = null;
+  let canOpenWorkspacePatientDetail = false;
+  if (workspaceShell && primaryContactId) {
+    const { data: leadRow } = await leadRowsActiveOnly(
+      supabase.from("leads").select("id").eq("contact_id", primaryContactId).limit(1)
+    ).maybeSingle();
+    if (leadRow && typeof leadRow.id === "string") workspaceLeadId = leadRow.id;
+
+    const { data: patRow } = await supabase
+      .from("patients")
+      .select("id")
+      .eq("contact_id", primaryContactId)
+      .maybeSingle();
+    if (patRow && typeof patRow.id === "string") workspacePatientId = patRow.id;
+
+    if (workspacePatientId) {
+      const { data: assignRows } = await supabaseAdmin
+        .from("patient_assignments")
+        .select("id")
+        .eq("patient_id", workspacePatientId)
+        .eq("assigned_user_id", staff.user_id)
+        .eq("is_active", true)
+        .limit(1);
+      canOpenWorkspacePatientDetail = Boolean(assignRows?.length);
+    }
+  }
+
+  const canOpenLeadInCrm = Boolean(workspaceLeadId) && !isWorkspaceEmployeeRole(staff.role);
+
+  const workspaceEntityLabel = (() => {
+    if (!conv.primary_contact_id && unknownTexter) return "Unknown";
+    if (workspacePatientId) return "Patient";
+    if (workspaceLeadId) return "Lead";
+    const ct = contact && typeof contact.contact_type === "string" ? contact.contact_type.trim() : "";
+    if (ct) {
+      const lab = labelForContactType(ct);
+      if (lab !== "—") return lab;
+    }
+    return conv.primary_contact_id ? "Contact" : "Unknown";
+  })();
+
+  const phoneDisplayFormatted =
+    mainE164 && mainE164 !== "" ? formatPhoneForDisplay(mainE164) : phoneDisplay;
+
   const leadBadge = (() => {
     switch (leadStatus) {
       case "contacted":
@@ -363,8 +414,490 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
       ? conv.follow_up_completed_at
       : null;
 
+  const threadMessages = messages.map((m) => ({
+    id: String(m.id),
+    created_at: typeof m.created_at === "string" ? m.created_at : null,
+    direction: String(m.direction ?? ""),
+    body: typeof m.body === "string" ? m.body : null,
+  }));
+
+  if (workspaceShell) {
+    return (
+      <div className="flex min-h-[calc(100dvh-8rem)] min-h-0 flex-1 flex-col overflow-hidden px-0 pb-28 sm:pb-32">
+        <header className="sticky top-0 z-20 shrink-0 border-b border-sky-100/80 bg-white/95 px-4 py-3 shadow-sm shadow-slate-200/30 backdrop-blur-md supports-[backdrop-filter]:bg-white/90">
+          <Link
+            href={inboxHref}
+            className="inline-flex items-center gap-0.5 text-sm font-semibold text-blue-900 hover:underline"
+          >
+            <ChevronLeft className="h-4 w-4" aria-hidden />
+            Inbox
+          </Link>
+          <div className="mt-2 flex items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <h1 className="truncate text-lg font-bold leading-tight text-slate-900 sm:text-xl">
+                {contactName ? contactName : unknownTexter ? "Unknown" : phoneDisplayFormatted}
+              </h1>
+              <p className="mt-0.5 font-mono text-xs text-slate-600">{phoneDisplayFormatted}</p>
+              <span className="mt-2 inline-flex rounded-full border border-sky-200/80 bg-sky-50/90 px-2.5 py-0.5 text-[11px] font-semibold text-sky-950">
+                {workspaceEntityLabel}
+              </span>
+            </div>
+            <div className="flex shrink-0 flex-col items-end gap-2">
+              {workspaceCallHref ? (
+                <Link
+                  href={workspaceCallHref}
+                  className="rounded-full bg-gradient-to-r from-blue-950 via-blue-700 to-sky-500 px-3.5 py-2 text-xs font-semibold text-white shadow-sm shadow-blue-900/20"
+                >
+                  Call
+                </Link>
+              ) : (
+                <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-400">
+                  Call
+                </span>
+              )}
+              {canOpenLeadInCrm && workspaceLeadId ? (
+                <Link
+                  href={`/admin/crm/leads/${workspaceLeadId}`}
+                  className="text-xs font-semibold text-blue-800 underline-offset-2 hover:underline"
+                >
+                  View CRM
+                </Link>
+              ) : workspacePatientId && canOpenWorkspacePatientDetail ? (
+                <Link
+                  href={`/workspace/phone/patients/${workspacePatientId}`}
+                  className="text-xs font-semibold text-blue-800 underline-offset-2 hover:underline"
+                >
+                  View patient
+                </Link>
+              ) : workspacePatientId ? (
+                <Link
+                  href="/workspace/phone/patients"
+                  className="text-xs font-semibold text-slate-600 underline-offset-2 hover:underline"
+                >
+                  Patients
+                </Link>
+              ) : null}
+            </div>
+          </div>
+        </header>
+
+        {ok === "intake" ? (
+          <div className="mx-4 mt-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+            Contact saved and linked to this thread.
+          </div>
+        ) : null}
+        {ok === "sms_sent" ? (
+          <div className="mx-4 mt-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+            Message sent.
+          </div>
+        ) : null}
+        {intakeErr ? (
+          <div className="mx-4 mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">
+            {intakeErr}
+          </div>
+        ) : null}
+        {smsSendErr ? (
+          <div className="mx-4 mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">
+            {smsSendErr}
+          </div>
+        ) : null}
+
+        {leadIdFromUrl && UUID_RE.test(leadIdFromUrl) ? (
+          <div className="mx-4 mt-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-950">
+            Deep-linked lead:{" "}
+            <Link href={`/admin/crm/leads/${leadIdFromUrl}`} className="font-semibold underline">
+              Open in CRM
+            </Link>
+          </div>
+        ) : null}
+
+        <div className="flex min-h-0 flex-1 flex-col bg-gradient-to-b from-slate-50/80 to-white">
+          <WorkspaceSmsThreadView
+            conversationId={conversationId}
+            initialMessages={threadMessages}
+            initialSuggestion={initialSmsSuggestion}
+            suggestionForMessageId={
+              initialSmsSuggestion && suggestionMeta ? suggestionMeta.for_message_id : null
+            }
+            composerInitialDraft={composerInitialDraft}
+            belowMessagesSlot={
+        <details className="mx-3 shrink-0 rounded-2xl border border-slate-200/90 bg-white/95 text-sm shadow-sm">
+          <summary className="cursor-pointer list-none px-4 py-3 font-semibold text-slate-800 [&::-webkit-details-marker]:hidden">
+            <span className="text-slate-500">▸</span> Thread details & CRM
+          </summary>
+          <div className="border-t border-slate-100 px-3 pb-4 pt-2">
+            {(aiMini.summary || aiMini.category || aiMini.urgency) && (
+              <section className="mb-4 rounded-xl border border-sky-100 bg-sky-50/50 p-3">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-sky-800">AI insight</p>
+                {aiMini.summary ? (
+                  <p className="mt-1 text-sm text-slate-700">{aiMini.summary}</p>
+                ) : (
+                  <p className="mt-1 text-sm text-slate-500">No AI summary yet for this thread.</p>
+                )}
+                <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
+                  {aiMini.category ? (
+                    <span className="rounded-full bg-white px-2 py-0.5 font-semibold text-slate-700">
+                      {aiMini.category.replace(/_/g, " ")}
+                    </span>
+                  ) : null}
+                  {aiMini.urgency ? (
+                    <span className="rounded-full bg-white px-2 py-0.5 font-semibold text-slate-700">
+                      {aiMini.urgency}
+                    </span>
+                  ) : null}
+                </div>
+              </section>
+            )}
+
+            <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+              <h2 className="text-sm font-semibold text-slate-900">Assignment</h2>
+              <div className="mt-3 space-y-3 text-sm">
+                <div>
+                  <p className="text-xs font-medium text-slate-500">Lead status</p>
+                  <div className="mt-1 flex flex-wrap items-center gap-2">
+                    {leadBadge}
+                    <form action={updateConversationLeadStatus} className="flex items-center gap-2">
+                      <input type="hidden" name="conversationId" value={conversationId} />
+                      <label className="sr-only" htmlFor="leadStatusWs">
+                        Lead status
+                      </label>
+                      <select
+                        id="leadStatusWs"
+                        name="leadStatus"
+                        defaultValue={leadStatus}
+                        required
+                        className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-sm text-slate-900"
+                      >
+                        <option value="unclassified">Unclassified</option>
+                        <option value="new_lead">New lead</option>
+                        <option value="contacted">Contacted</option>
+                        <option value="scheduled">Scheduled</option>
+                        <option value="admitted">Admitted</option>
+                        <option value="not_qualified">Not qualified</option>
+                      </select>
+                      <button
+                        type="submit"
+                        className="rounded-lg bg-sky-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-sky-700"
+                      >
+                        Update
+                      </button>
+                    </form>
+                  </div>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-slate-500">Assigned to</p>
+                  <p className="mt-1 font-medium text-slate-900">{assigneeLabel ?? "Unassigned"}</p>
+                  {conv.assigned_at ? (
+                    <p className="mt-0.5 text-xs text-slate-500">
+                      Since {formatAdminPhoneWhen(typeof conv.assigned_at === "string" ? conv.assigned_at : null)}
+                    </p>
+                  ) : null}
+                </div>
+                {canClaim ? (
+                  <form action={claimConversation}>
+                    <input type="hidden" name="conversationId" value={conversationId} />
+                    <button
+                      type="submit"
+                      className="rounded-lg bg-sky-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-sky-700"
+                    >
+                      Claim conversation
+                    </button>
+                  </form>
+                ) : null}
+                {hasFull ? (
+                  <form action={assignConversation} className="flex flex-wrap items-center gap-2">
+                    <input type="hidden" name="conversationId" value={conversationId} />
+                    <label className="text-slate-600">
+                      Reassign
+                      <select
+                        name="assignToUserId"
+                        defaultValue={assignedTo ?? ""}
+                        required
+                        className="ml-2 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-slate-900"
+                      >
+                        <option value="" disabled>
+                          Select staff…
+                        </option>
+                        {assignedTo && !assignableStaff.some((s) => s.user_id === assignedTo) ? (
+                          <option value={assignedTo}>{assigneeLabel ?? `${assignedTo.slice(0, 8)}…`} (current)</option>
+                        ) : null}
+                        {assignableStaff.map((s) => (
+                          <option key={s.user_id} value={s.user_id}>
+                            {s.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <button
+                      type="submit"
+                      className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-800 hover:bg-slate-50"
+                    >
+                      Assign
+                    </button>
+                  </form>
+                ) : null}
+                {isAdminOrHigher(staff) ? (
+                  <form action={unassignConversation} className="pt-1">
+                    <input type="hidden" name="conversationId" value={conversationId} />
+                    <button
+                      type="submit"
+                      className="text-xs font-medium text-slate-500 underline hover:text-slate-800"
+                    >
+                      Unassign (admin)
+                    </button>
+                  </form>
+                ) : null}
+              </div>
+            </section>
+
+            <section className="mt-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+              <h2 className="text-sm font-semibold text-slate-900">Next action</h2>
+              <div className="mt-3 space-y-3 text-sm">
+                {followUpCompletedAt ? (
+                  <div className="rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-2 text-emerald-900">
+                    Completed {formatAdminPhoneWhen(followUpCompletedAt)}
+                  </div>
+                ) : null}
+
+                <form action={updateConversationFollowUp} className="space-y-3">
+                  <input type="hidden" name="conversationId" value={conversationId} />
+
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600">Next action</label>
+                    <input
+                      name="nextAction"
+                      defaultValue={nextAction}
+                      className="mt-0.5 w-full rounded border border-slate-200 bg-white px-2 py-1.5 text-sm"
+                      placeholder="e.g. Call back / Schedule assessment"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600">Due</label>
+                    <input
+                      type="datetime-local"
+                      name="dueAt"
+                      defaultValue={isoToDatetimeLocalValue(followUpDueAt)}
+                      className="mt-0.5 w-full rounded border border-slate-200 bg-white px-2 py-1.5 text-sm"
+                    />
+                    {followUpDueAt ? (
+                      <p className="mt-1 text-[11px] text-slate-500">
+                        Current: {formatAdminPhoneWhen(followUpDueAt)}
+                      </p>
+                    ) : (
+                      <p className="mt-1 text-[11px] text-slate-500">Optional</p>
+                    )}
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="rounded-lg bg-sky-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-sky-700"
+                  >
+                    Save / update
+                  </button>
+                </form>
+
+                {!followUpCompletedAt ? (
+                  <>
+                    <form action={completeConversationFollowUp}>
+                      <input type="hidden" name="conversationId" value={conversationId} />
+                      <button
+                        type="submit"
+                        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-800 hover:bg-slate-50"
+                      >
+                        Mark complete
+                      </button>
+                    </form>
+                    <form action={clearConversationFollowUp}>
+                      <input type="hidden" name="conversationId" value={conversationId} />
+                      <button
+                        type="submit"
+                        className="w-full text-xs font-medium text-slate-500 underline hover:text-slate-800"
+                      >
+                        Clear next action
+                      </button>
+                    </form>
+                  </>
+                ) : null}
+              </div>
+            </section>
+
+            <section className="mt-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+              <h2 className="text-sm font-semibold text-slate-900">CRM</h2>
+              {contact && conv.primary_contact_id ? (
+                <dl className="mt-3 grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
+                  <div>
+                    <dt className="text-xs text-slate-500">Name</dt>
+                    <dd>{contactName ?? "—"}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-slate-500">Type</dt>
+                    <dd>{typeof contact.contact_type === "string" ? contact.contact_type : "—"}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-slate-500">Email</dt>
+                    <dd>{typeof contact.email === "string" && contact.email.trim() ? contact.email : "—"}</dd>
+                  </div>
+                </dl>
+              ) : (
+                <div className="mt-3">
+                  {unknownTexter ? (
+                    <p className="rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-sm text-amber-950">
+                      New unknown texter — not in CRM yet (auto-detected from SMS). Add a contact below when
+                      ready.
+                    </p>
+                  ) : (
+                    <p className="text-sm text-slate-600">No linked contact.</p>
+                  )}
+                  <form
+                    action={createContactIntakeFromConversation}
+                    className="mt-3 max-w-md space-y-3 rounded-xl border border-slate-200 bg-slate-50/50 p-3"
+                  >
+                    <input type="hidden" name="conversationId" value={conversationId} />
+                    <input type="hidden" name="returnTo" value="workspace" />
+                    <div className="space-y-2">
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        <div>
+                          <label className="block text-xs font-medium text-slate-600">First name</label>
+                          <input
+                            name="firstName"
+                            className="mt-0.5 w-full rounded border border-slate-200 px-2 py-1.5 text-sm"
+                            placeholder="First name"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-slate-600">Last name</label>
+                          <input
+                            name="lastName"
+                            className="mt-0.5 w-full rounded border border-slate-200 px-2 py-1.5 text-sm"
+                            placeholder="Last name"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-medium text-slate-600">
+                          Full name <span className="text-slate-500">(optional if first name provided)</span>
+                        </label>
+                        <input
+                          name="fullName"
+                          className="mt-0.5 w-full rounded border border-slate-200 px-2 py-1.5 text-sm"
+                          placeholder="Full name"
+                        />
+                        <p className="mt-1 text-[11px] text-slate-500">Required: first name OR full name.</p>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600">Phone</label>
+                      <input
+                        name="phone"
+                        required
+                        defaultValue={phoneDisplay !== "—" ? phoneDisplay : ""}
+                        className="mt-0.5 w-full rounded border border-slate-200 px-2 py-1.5 text-sm"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600">Type</label>
+                      <select
+                        name="intakeType"
+                        required
+                        className="mt-0.5 w-full rounded border border-slate-200 px-2 py-1.5 text-sm"
+                        defaultValue="patient"
+                      >
+                        <option value="patient">Patient</option>
+                        <option value="family">Family</option>
+                        <option value="referral">Referral</option>
+                      </select>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      <div>
+                        <label className="block text-xs font-medium text-slate-600">Email</label>
+                        <input
+                          name="email"
+                          className="mt-0.5 w-full rounded border border-slate-200 px-2 py-1.5 text-sm"
+                          placeholder="Email"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-slate-600">Referral source</label>
+                        <input
+                          name="referralSource"
+                          className="mt-0.5 w-full rounded border border-slate-200 px-2 py-1.5 text-sm"
+                          placeholder="Referral source"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <div>
+                        <label className="block text-xs font-medium text-slate-600">Address line 1</label>
+                        <input
+                          name="addressLine1"
+                          className="mt-0.5 w-full rounded border border-slate-200 px-2 py-1.5 text-sm"
+                          placeholder="Address line 1"
+                        />
+                      </div>
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                        <div>
+                          <label className="block text-xs font-medium text-slate-600">City</label>
+                          <input
+                            name="city"
+                            className="mt-0.5 w-full rounded border border-slate-200 px-2 py-1.5 text-sm"
+                            placeholder="City"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-slate-600">State</label>
+                          <input
+                            name="state"
+                            className="mt-0.5 w-full rounded border border-slate-200 px-2 py-1.5 text-sm"
+                            placeholder="State"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-slate-600">Zip</label>
+                          <input
+                            name="zip"
+                            className="mt-0.5 w-full rounded border border-slate-200 px-2 py-1.5 text-sm"
+                            placeholder="Zip"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600">Notes</label>
+                      <textarea
+                        name="notes"
+                        rows={3}
+                        className="mt-0.5 w-full resize-none rounded border border-slate-200 px-2 py-1.5 text-sm"
+                        placeholder="Notes"
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-semibold text-white hover:bg-slate-800"
+                    >
+                      Create contact / intake
+                    </button>
+                  </form>
+                </div>
+              )}
+            </section>
+          </div>
+        </details>
+            }
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className={`flex min-h-0 flex-1 flex-col gap-4 px-4 py-4 sm:gap-6 sm:p-6 ${workspaceShell ? "pb-24" : ""}`}>
+    <div className="flex min-h-0 flex-1 flex-col gap-4 px-4 py-4 sm:gap-6 sm:p-6">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <Link href={inboxHref} className="text-sm font-medium text-sky-800 hover:underline">
@@ -377,35 +910,6 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
             <p className="mt-0.5 text-sm text-slate-600">{phoneDisplay}</p>
           ) : null}
         </div>
-        {workspaceShell ? (
-          <div className="flex gap-2">
-            {workspaceCallHref ? (
-              <Link
-                href={workspaceCallHref}
-                className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm shadow-slate-200/60"
-              >
-                Call
-              </Link>
-            ) : (
-              <span className="rounded-full border border-slate-100 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-400">
-                Call
-              </span>
-            )}
-            <Link
-              href="#sms-reply"
-              className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm shadow-slate-200/60"
-            >
-              Text
-            </Link>
-            <button
-              type="button"
-              className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-500"
-              disabled
-            >
-              More
-            </button>
-          </div>
-        ) : null}
       </div>
 
       {ok === "intake" ? (
@@ -429,7 +933,7 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
         </div>
       ) : null}
 
-      {workspaceShell && leadIdFromUrl && UUID_RE.test(leadIdFromUrl) ? (
+      {leadIdFromUrl && UUID_RE.test(leadIdFromUrl) ? (
         <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-950">
           Open this lead in CRM:{" "}
           <Link
@@ -441,28 +945,7 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
         </div>
       ) : null}
 
-      {workspaceShell ? (
-        <section className="rounded-2xl border border-slate-200/70 bg-white/95 p-4 shadow-sm shadow-slate-200/60">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">AI insight</p>
-          {aiMini.summary ? (
-            <p className="mt-1 text-sm text-slate-700">{aiMini.summary}</p>
-          ) : (
-            <p className="mt-1 text-sm text-slate-500">No AI summary yet for this thread.</p>
-          )}
-          <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
-            {aiMini.category ? (
-              <span className="rounded-full bg-slate-100 px-2 py-0.5 font-semibold text-slate-700">
-                {aiMini.category.replace(/_/g, " ")}
-              </span>
-            ) : null}
-            {aiMini.urgency ? (
-              <span className="rounded-full bg-slate-100 px-2 py-0.5 font-semibold text-slate-700">{aiMini.urgency}</span>
-            ) : null}
-          </div>
-        </section>
-      ) : null}
-
-      <section className={`rounded-xl border border-slate-200 bg-white p-4 shadow-sm ${workspaceShell ? "shadow-slate-200/50" : ""}`}>
+      <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         <h2 className="text-sm font-semibold text-slate-900">Assignment</h2>
         <div className="mt-3 space-y-3 text-sm">
           <div>
@@ -563,7 +1046,7 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
         </div>
       </section>
 
-      <section className={`rounded-xl border border-slate-200 bg-white p-4 shadow-sm ${workspaceShell ? "shadow-slate-200/50" : ""}`}>
+      <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         <h2 className="text-sm font-semibold text-slate-900">Next action</h2>
         <div className="mt-3 space-y-3 text-sm">
           {followUpCompletedAt ? (
@@ -635,7 +1118,7 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
         </div>
       </section>
 
-      <section className={`rounded-xl border border-slate-200 bg-white p-4 shadow-sm ${workspaceShell ? "shadow-slate-200/50" : ""}`}>
+      <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         <h2 className="text-sm font-semibold text-slate-900">CRM</h2>
         {contact && conv.primary_contact_id ? (
           <dl className="mt-3 grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
@@ -667,7 +1150,6 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
               className="mt-3 max-w-md space-y-3 rounded-xl border border-slate-200 bg-slate-50/50 p-3"
             >
               <input type="hidden" name="conversationId" value={conversationId} />
-              {workspaceShell ? <input type="hidden" name="returnTo" value="workspace" /> : null}
               <div className="space-y-2">
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                   <div>
@@ -801,7 +1283,7 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
         )}
       </section>
 
-      <section className={`flex min-h-0 flex-1 flex-col rounded-xl border border-slate-200 ${workspaceShell ? "bg-white shadow-sm shadow-slate-200/50" : "bg-slate-50/50"}`}>
+      <section className="flex min-h-0 flex-1 flex-col rounded-xl border border-slate-200 bg-slate-50/50">
         <h2 className="border-b border-slate-200 px-4 py-2 text-sm font-semibold text-slate-900">
           Messages
         </h2>
@@ -844,7 +1326,6 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
             initialSmsSuggestion && suggestionMeta ? suggestionMeta.for_message_id : null
           }
           initialDraft={composerInitialDraft}
-          workspaceThread={workspaceShell}
         />
       </section>
     </div>
