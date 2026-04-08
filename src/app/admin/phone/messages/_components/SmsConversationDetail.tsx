@@ -513,6 +513,7 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
 
         <div className="flex min-h-0 flex-1 flex-col bg-gradient-to-b from-slate-50/80 to-white">
           <WorkspaceSmsThreadView
+            key={`${conversationId}-${threadMessages.length}`}
             conversationId={conversationId}
             initialMessages={threadMessages}
             initialSuggestion={initialSmsSuggestion}
@@ -520,12 +521,12 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
               initialSmsSuggestion && suggestionMeta ? suggestionMeta.for_message_id : null
             }
             composerInitialDraft={composerInitialDraft}
-            belowMessagesSlot={
-        <details className="mx-3 shrink-0 rounded-2xl border border-slate-200/90 bg-white/95 text-sm shadow-sm">
+            belowComposerSlot={
+        <details className="mx-3 mb-2 shrink-0 rounded-2xl border border-slate-200/90 bg-white/95 text-sm shadow-sm">
           <summary className="cursor-pointer list-none px-4 py-3 font-semibold text-slate-800 [&::-webkit-details-marker]:hidden">
             <span className="text-slate-500">▸</span> Thread details & CRM
           </summary>
-          <div className="border-t border-slate-100 px-3 pb-4 pt-2">
+          <div className="max-h-[min(50vh,26rem)] overflow-y-auto overscroll-contain border-t border-slate-100 px-3 pb-4 pt-2">
             {(aiMini.summary || aiMini.category || aiMini.urgency) && (
               <section className="mb-4 rounded-xl border border-sky-100 bg-sky-50/50 p-3">
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-sky-800">AI insight</p>
