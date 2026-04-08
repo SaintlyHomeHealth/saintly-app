@@ -5,7 +5,9 @@ import { parseEmploymentApplicationMeta, type EmploymentApplicationMeta } from "
 import { parseLeadIntakeRequestFromMetadata } from "@/lib/crm/lead-intake-request";
 import { isLeadPipelineTerminal, isValidLeadPipelineStatus } from "@/lib/crm/lead-pipeline-status";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
+import { supabaseAdmin } from "@/lib/admin";
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
+import { LEAD_INSURANCE_BUCKET } from "@/lib/crm/lead-insurance-storage";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 type ContactEmb = {
@@ -33,6 +35,15 @@ function contactDisplayName(c: ContactEmb | null): string {
 
 function str(v: unknown): string {
   return typeof v === "string" ? v : "";
+}
+
+async function leadInsuranceSignedUrl(path: string | null | undefined): Promise<string | null> {
+  if (!path || typeof path !== "string" || !path.trim()) return null;
+  const { data, error } = await supabaseAdmin.storage
+    .from(LEAD_INSURANCE_BUCKET)
+    .createSignedUrl(path.trim(), 3600);
+  if (error || !data?.signedUrl) return null;
+  return data.signedUrl;
 }
 
 export default async function LeadIntakePage({
@@ -70,7 +81,7 @@ export default async function LeadIntakePage({
     supabase
       .from("leads")
       .select(
-        "id, contact_id, source, status, owner_user_id, lead_type, next_action, follow_up_date, created_at, last_contact_at, last_contact_type, last_outcome, last_note, notes, external_source_metadata, referring_doctor_name, doctor_office_name, doctor_office_phone, doctor_office_fax, doctor_office_contact_person, referring_provider_name, referring_provider_phone, payer_name, payer_type, referral_source, service_type, service_disciplines, intake_status, contacts ( full_name, first_name, last_name, primary_phone, secondary_phone, email, address_line_1, address_line_2, city, state, zip, notes )"
+        "id, contact_id, source, status, owner_user_id, lead_type, next_action, follow_up_date, created_at, last_contact_at, last_contact_type, last_outcome, last_note, notes, external_source_metadata, referring_doctor_name, doctor_office_name, doctor_office_phone, doctor_office_fax, doctor_office_contact_person, referring_provider_name, referring_provider_phone, payer_name, payer_type, referral_source, service_type, service_disciplines, intake_status, dob, primary_insurance_file_url, secondary_insurance_file_url, contacts ( full_name, first_name, last_name, primary_phone, secondary_phone, email, address_line_1, address_line_2, city, state, zip, notes )"
       )
       .eq("id", leadId.trim())
   ).maybeSingle();
@@ -188,6 +199,26 @@ export default async function LeadIntakePage({
 
   const intakeRequestDefaults = parseLeadIntakeRequestFromMetadata(L.external_source_metadata);
 
+  const dobRaw = L.dob;
+  const dobIso =
+    typeof dobRaw === "string" && /^\d{4}-\d{2}-\d{2}/.test(dobRaw)
+      ? dobRaw.slice(0, 10)
+      : null;
+
+  const primaryInsurancePath =
+    typeof L.primary_insurance_file_url === "string" && L.primary_insurance_file_url.trim() !== ""
+      ? L.primary_insurance_file_url.trim()
+      : null;
+  const secondaryInsurancePath =
+    typeof L.secondary_insurance_file_url === "string" && L.secondary_insurance_file_url.trim() !== ""
+      ? L.secondary_insurance_file_url.trim()
+      : null;
+
+  const [primaryInsuranceViewUrl, secondaryInsuranceViewUrl] = await Promise.all([
+    leadInsuranceSignedUrl(primaryInsurancePath),
+    leadInsuranceSignedUrl(secondaryInsurancePath),
+  ]);
+
   return (
     <LeadWorkspace
       mode="existing"
@@ -220,6 +251,11 @@ export default async function LeadIntakePage({
       referralSourceLine={referralSourceLine}
       applicationNotes={typeof L.notes === "string" ? L.notes : ""}
       intakeRequestDefaults={intakeRequestDefaults}
+      dobIso={dobIso}
+      primaryInsurancePath={primaryInsurancePath}
+      secondaryInsurancePath={secondaryInsurancePath}
+      primaryInsuranceViewUrl={primaryInsuranceViewUrl}
+      secondaryInsuranceViewUrl={secondaryInsuranceViewUrl}
     />
   );
 }

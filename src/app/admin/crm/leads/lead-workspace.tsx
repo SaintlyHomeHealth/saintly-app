@@ -16,6 +16,8 @@ import { LEAD_SOURCE_OPTIONS, formatLeadSourceLabel } from "@/lib/crm/lead-sourc
 import { LeadDeleteButton } from "@/app/admin/crm/leads/_components/LeadDeleteButton";
 import { LeadContactOutcomeForm } from "@/app/admin/crm/leads/_components/LeadContactOutcomeForm";
 import { LeadFollowUpContextPanel } from "@/app/admin/crm/leads/_components/LeadFollowUpContextPanel";
+import { LeadInsuranceSection } from "@/app/admin/crm/leads/_components/LeadInsuranceSection";
+import { LeadSectionCard } from "@/app/admin/crm/leads/_components/LeadSectionCard";
 import {
   convertLeadToPatientFromLeadDetail,
   createLeadManualFromCrm,
@@ -150,6 +152,12 @@ export type LeadWorkspaceExistingProps = {
   applicationNotes?: string;
   /** Facebook / Zapier / manual — `external_source_metadata.intake_request` (+ graph fallback on server). */
   intakeRequestDefaults: LeadIntakeRequestDetails;
+  /** `YYYY-MM-DD` from `leads.dob`. */
+  dobIso: string | null;
+  primaryInsurancePath: string | null;
+  secondaryInsurancePath: string | null;
+  primaryInsuranceViewUrl: string | null;
+  secondaryInsuranceViewUrl: string | null;
 };
 
 export type LeadWorkspaceNewProps = {
@@ -412,6 +420,11 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
     referralSourceLine = "",
     applicationNotes = "",
     intakeRequestDefaults,
+    dobIso,
+    primaryInsurancePath,
+    secondaryInsurancePath,
+    primaryInsuranceViewUrl,
+    secondaryInsuranceViewUrl,
   } = props;
 
   const lastContactLine = formatLeadLastContactSummary(lastContactAt, lastOutcome);
@@ -433,7 +446,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
       : null;
 
   return (
-    <div className="p-6">
+    <div className="scroll-smooth p-6 pb-28 lg:pb-32">
       <div className="mb-5">
         <Link
           href="/admin/crm/leads"
@@ -444,8 +457,59 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
         </Link>
       </div>
 
-      <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(300px,380px)] lg:gap-8 lg:items-start">
-        <div className="min-w-0 space-y-6">
+      <nav
+        aria-label="Jump to section"
+        className="sticky top-0 z-30 mb-8 rounded-2xl border border-slate-200/90 bg-white/95 px-3 py-3 shadow-sm backdrop-blur-md sm:px-5"
+      >
+        <ul className="flex flex-nowrap gap-x-4 gap-y-2 overflow-x-auto pb-0.5 text-sm font-medium text-slate-600 sm:flex-wrap">
+          <li>
+            <a href="#section-contact" className="whitespace-nowrap hover:text-sky-800">
+              Contact
+            </a>
+          </li>
+          <li>
+            <a href="#section-outcome" className="whitespace-nowrap hover:text-sky-800">
+              Outcome
+            </a>
+          </li>
+          <li>
+            <a href="#section-pipeline" className="whitespace-nowrap hover:text-sky-800">
+              Pipeline
+            </a>
+          </li>
+          {!isEmployeeLead ? (
+            <li>
+              <a href="#section-insurance" className="whitespace-nowrap hover:text-sky-800">
+                Insurance
+              </a>
+            </li>
+          ) : null}
+          {!isEmployeeLead ? (
+            <li>
+              <a href="#section-referral" className="whitespace-nowrap hover:text-sky-800">
+                Referral
+              </a>
+            </li>
+          ) : null}
+          {!isEmployeeLead ? (
+            <li>
+              <a href="#section-payer" className="whitespace-nowrap hover:text-sky-800">
+                Payer
+              </a>
+            </li>
+          ) : null}
+          {!isEmployeeLead ? (
+            <li>
+              <a href="#section-request" className="whitespace-nowrap hover:text-sky-800">
+                Request
+              </a>
+            </li>
+          ) : null}
+        </ul>
+      </nav>
+
+      <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(300px,380px)] lg:gap-10 lg:items-start">
+        <div className="min-w-0 space-y-10">
           <div>
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Lead workspace</p>
             <h1 className="mt-1 text-2xl font-bold text-slate-900">{displayName}</h1>
@@ -619,14 +683,14 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
         </div>
       ) : null}
 
-      <form action={updateLeadContactProfile} className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
-        <h2 className="text-sm font-semibold text-slate-900">Lead contact</h2>
-        <p className="mt-1 text-xs text-slate-500">
-          CRM contact linked to this lead (same record if converted to a patient). Updates name, phone, and address
-          everywhere that contact is shown.
-        </p>
-        <input type="hidden" name="leadId" value={leadId} />
-        <div className="mt-4 grid max-w-2xl gap-3 sm:grid-cols-2">
+      <LeadSectionCard
+        id="section-contact"
+        title="Lead contact"
+        description="CRM contact linked to this lead (same record if converted to a patient). Updates name, phones, email, date of birth, address, and notes everywhere this contact appears."
+      >
+        <form action={updateLeadContactProfile} id="form-lead-contact" className="space-y-0">
+          <input type="hidden" name="leadId" value={leadId} />
+          <div className="grid max-w-2xl gap-4 sm:grid-cols-2">
           <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
             Full name <span className="text-red-600">*</span>
             <input
@@ -659,6 +723,10 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
           <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
             Email
             <input name="email" type="email" autoComplete="email" className={inp} defaultValue={contactProfileDefaults.email} />
+          </label>
+          <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
+            Date of birth
+            <input name="dob" type="date" className={inp} defaultValue={dobIso ?? ""} />
           </label>
           <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
             Address line 1
@@ -701,56 +769,62 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
             />
           </label>
         </div>
-        <div className="mt-4">
+        <div className="mt-6">
           <button
             type="submit"
-            className="rounded border border-sky-600 bg-sky-50 px-3 py-1.5 text-sm font-semibold text-sky-900 hover:bg-sky-100"
+            className="rounded-lg border border-sky-600 bg-sky-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-sky-700"
           >
             Save contact
           </button>
         </div>
       </form>
 
-      <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
-        <h2 className="text-sm font-semibold text-slate-900">Communication</h2>
-        <p className="mt-1 text-xs text-slate-500">
-          Opens the staff phone workspace (Twilio keypad and SMS inbox). Requires phone workspace access on your
-          account.
-        </p>
-        <div className="mt-3 flex flex-wrap items-center gap-3">
-          {keypadHref ? (
-            <Link
-              href={keypadHref}
-              prefetch={false}
-              className="inline-flex rounded-lg border border-emerald-600 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-900 hover:bg-emerald-100"
-            >
-              Call lead
-            </Link>
-          ) : (
-            <span className="text-xs text-slate-400">No dialable phone on file</span>
-          )}
-          {smsHref ? (
-            <Link
-              href={smsHref}
-              prefetch={false}
-              className="inline-flex rounded-lg border border-sky-600 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-900 hover:bg-sky-100"
-            >
-              Text lead
-            </Link>
-          ) : (
-            <span className="text-xs text-slate-400">Add a valid primary phone to text</span>
-          )}
+        <div className="mt-8 border-t border-slate-200/80 pt-6">
+          <h3 className="text-sm font-semibold text-slate-900">Communication</h3>
+          <p className="mt-1 text-xs text-slate-500">
+            Opens the staff phone workspace (Twilio keypad and SMS inbox). Requires phone workspace access on your
+            account.
+          </p>
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            {keypadHref ? (
+              <Link
+                href={keypadHref}
+                prefetch={false}
+                className="inline-flex rounded-lg border border-emerald-600 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-900 hover:bg-emerald-100"
+              >
+                Call lead
+              </Link>
+            ) : (
+              <span className="text-xs text-slate-400">No dialable phone on file</span>
+            )}
+            {smsHref ? (
+              <Link
+                href={smsHref}
+                prefetch={false}
+                className="inline-flex rounded-lg border border-sky-600 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-900 hover:bg-sky-100"
+              >
+                Text lead
+              </Link>
+            ) : (
+              <span className="text-xs text-slate-400">Add a valid primary phone to text</span>
+            )}
+          </div>
         </div>
-      </div>
+      </LeadSectionCard>
 
       {!terminal ? (
-        <div className="rounded-[28px] border border-amber-100 bg-amber-50/25 p-5 shadow-sm ring-1 ring-amber-100/60">
-          <h2 className="text-sm font-semibold text-slate-900">Contact Outcome</h2>
-          <p className="mt-1 text-xs text-slate-600">
-            Log each attempt. <strong>No answer</strong> sets follow-up to tomorrow; <strong>Left voicemail</strong>{" "}
-            suggests two days out (edit before save if you prefer).
-          </p>
-          <div className="mt-4">
+        <LeadSectionCard
+          id="section-outcome"
+          title="Contact outcome"
+          description={
+            <>
+              Log each attempt. <strong>No answer</strong> sets follow-up to tomorrow; <strong>Left voicemail</strong>{" "}
+              suggests two days out (edit before save if you prefer).
+            </>
+          }
+          className="border-amber-200/80 bg-amber-50/20 ring-amber-100/50"
+        >
+          <div className="mt-0">
             <LeadContactOutcomeForm
               key={leadId}
               leadId={leadId}
@@ -764,53 +838,11 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
               inputCls={inp}
             />
           </div>
-        </div>
+        </LeadSectionCard>
       ) : null}
 
       {!terminal ? (
-        <div className="rounded-[28px] border border-indigo-100 bg-indigo-50/40 p-5 shadow-sm ring-1 ring-indigo-100/60">
-          <h2 className="text-sm font-semibold text-slate-900">Outcome</h2>
-          <p className="mt-1 text-xs text-slate-600">Close the loop when the referral is won or lost.</p>
-          <div className="mt-4 flex flex-wrap gap-3">
-            {isEmployeeLead ? (
-              <p className="max-w-xl text-xs text-slate-600">
-                Hiring applicants are not converted to patients from this screen. Use{" "}
-                <strong>Mark dead lead</strong> if the applicant is disqualified, or continue follow-up via contact
-                outcomes above.
-              </p>
-            ) : !patientId ? (
-              <form action={convertLeadToPatientFromLeadDetail}>
-                <input type="hidden" name="leadId" value={leadId} />
-                <button
-                  type="submit"
-                  className="rounded-lg border border-sky-600 bg-sky-600 px-3 py-2 text-xs font-semibold text-white hover:bg-sky-700"
-                >
-                  Convert to patient
-                </button>
-              </form>
-            ) : (
-              <Link
-                href={`/admin/crm/patients/${patientId}`}
-                className="inline-flex rounded-lg border border-sky-600 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-900 hover:bg-sky-100"
-              >
-                Open existing patient
-              </Link>
-            )}
-            <form action={markLeadDead}>
-              <input type="hidden" name="leadId" value={leadId} />
-              <button
-                type="submit"
-                className="rounded-lg border border-slate-400 bg-white px-3 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-50"
-              >
-                Mark dead lead
-              </button>
-            </form>
-          </div>
-        </div>
-      ) : null}
-
-      {!terminal ? (
-        <form action={updateLeadIntake} className="space-y-6">
+        <form action={updateLeadIntake} id="form-lead-intake" className="space-y-10">
           <input type="hidden" name="leadId" value={leadId} />
           {isEmployeeLead ? (
             <>
@@ -837,10 +869,13 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
             </>
           ) : null}
 
-          <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
-            <h2 className="text-sm font-semibold text-slate-900">Pipeline &amp; ownership</h2>
-            <p className="mt-1 text-xs text-slate-500">Status, owner, and next touch.</p>
-            <div className="mt-4 grid max-w-2xl gap-3 sm:grid-cols-2">
+          <LeadSectionCard
+            id="section-pipeline"
+            title="Pipeline & ownership"
+            description="Status, owner, and next touch. Use disposition when the referral is won or lost."
+            className="border-indigo-100/90 bg-indigo-50/20 ring-indigo-100/40"
+          >
+            <div className="grid max-w-2xl gap-4 sm:grid-cols-2">
               <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
                 Pipeline status
                 <select name="pipeline_status" className={inp} defaultValue={pipelineDefault}>
@@ -885,12 +920,70 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
                 <input type="date" name="follow_up_date" className={inp} defaultValue={followUpIso} />
               </label>
             </div>
-          </div>
+            <div className="mt-8 border-t border-slate-200/80 pt-6">
+              <h3 className="text-sm font-semibold text-slate-900">Disposition</h3>
+              <p className="mt-1 text-xs text-slate-500">Convert to a patient chart or mark the lead dead.</p>
+              <div className="mt-4 flex flex-wrap gap-3">
+                {isEmployeeLead ? (
+                  <p className="max-w-xl text-xs text-slate-600">
+                    Hiring applicants are not converted to patients from this screen. Use{" "}
+                    <strong>Mark dead lead</strong> if the applicant is disqualified, or continue follow-up via contact
+                    outcomes above.
+                  </p>
+                ) : !patientId ? (
+                  <form action={convertLeadToPatientFromLeadDetail}>
+                    <input type="hidden" name="leadId" value={leadId} />
+                    <button
+                      type="submit"
+                      className="rounded-lg border border-sky-600 bg-sky-600 px-3 py-2 text-xs font-semibold text-white hover:bg-sky-700"
+                    >
+                      Convert to patient
+                    </button>
+                  </form>
+                ) : (
+                  <Link
+                    href={`/admin/crm/patients/${patientId}`}
+                    className="inline-flex rounded-lg border border-sky-600 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-900 hover:bg-sky-100"
+                  >
+                    Open existing patient
+                  </Link>
+                )}
+                <form action={markLeadDead}>
+                  <input type="hidden" name="leadId" value={leadId} />
+                  <button
+                    type="submit"
+                    className="rounded-lg border border-slate-400 bg-white px-3 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-50"
+                  >
+                    Mark dead lead
+                  </button>
+                </form>
+              </div>
+            </div>
+          </LeadSectionCard>
 
           {!isEmployeeLead ? (
-          <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
-            <h2 className="text-sm font-semibold text-slate-900">Referral &amp; doctor office</h2>
-            <div className="mt-4 grid max-w-2xl gap-3 sm:grid-cols-2">
+            <LeadSectionCard
+              id="section-insurance"
+              title="Insurance information"
+              description="Upload primary and secondary insurance card images or PDFs. Stored in a lead-specific folder."
+            >
+              <LeadInsuranceSection
+                leadId={leadId}
+                primaryPath={primaryInsurancePath}
+                secondaryPath={secondaryInsurancePath}
+                primaryViewUrl={primaryInsuranceViewUrl}
+                secondaryViewUrl={secondaryInsuranceViewUrl}
+              />
+            </LeadSectionCard>
+          ) : null}
+
+          {!isEmployeeLead ? (
+          <LeadSectionCard
+            id="section-referral"
+            title="Referral & doctor office"
+            description="Referring physician, facility, and contact details for this lead."
+          >
+            <div className="grid max-w-2xl gap-4 sm:grid-cols-2">
               <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
                 Referring doctor name
                 <input name="referring_doctor_name" className={inp} defaultValue={intakeDefaults.referring_doctor_name} />
@@ -936,13 +1029,16 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
                 />
               </label>
             </div>
-          </div>
+          </LeadSectionCard>
           ) : null}
 
           {!isEmployeeLead ? (
-          <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
-            <h2 className="text-sm font-semibold text-slate-900">Payer &amp; services</h2>
-            <div className="mt-4 grid max-w-2xl gap-3 sm:grid-cols-2">
+          <LeadSectionCard
+            id="section-payer"
+            title="Payer & services"
+            description="Coverage, disciplines, and intake status for scheduling."
+          >
+            <div className="grid max-w-2xl gap-4 sm:grid-cols-2">
               <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
                 Payer
                 <SearchablePayerSelect
@@ -973,16 +1069,16 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
                 <input name="intake_status" className={inp} defaultValue={intakeDefaults.intake_status} />
               </label>
             </div>
-          </div>
+          </LeadSectionCard>
           ) : null}
 
           {!isEmployeeLead ? (
-            <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
-              <h2 className="text-sm font-semibold text-slate-900">Request details</h2>
-              <p className="mt-1 text-xs text-slate-500">
-                Same fields as Facebook / Zapier intake (`external_source_metadata.intake_request`).
-              </p>
-              <div className="mt-4 grid max-w-2xl gap-3 sm:grid-cols-2">
+            <LeadSectionCard
+              id="section-request"
+              title="Request details"
+              description="Same fields as Facebook / Zapier intake (stored in external_source_metadata.intake_request)."
+            >
+              <div className="grid max-w-2xl gap-4 sm:grid-cols-2">
                 <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
                   ZIP code
                   <input
@@ -1024,15 +1120,15 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
                   />
                 </label>
               </div>
-            </div>
+            </LeadSectionCard>
           ) : null}
 
-          <div>
+          <div className="flex flex-wrap items-center gap-3 pt-2">
             <button
               type="submit"
-              className="rounded border border-sky-600 bg-sky-50 px-3 py-1.5 text-sm font-semibold text-sky-900 hover:bg-sky-100"
+              className="rounded-lg border border-sky-600 bg-sky-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-sky-700"
             >
-              Save changes
+              Save intake
             </button>
           </div>
         </form>
@@ -1104,6 +1200,25 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
             <ArrowLeft className="h-4 w-4 shrink-0 text-slate-600" aria-hidden />
             Back to leads
           </Link>
+        </div>
+
+        <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 hidden gap-3 border-t border-slate-200 bg-white/95 px-4 py-3 shadow-[0_-8px_30px_rgba(15,23,42,0.08)] backdrop-blur supports-[backdrop-filter]:bg-white/85 lg:flex lg:justify-end">
+          <button
+            type="submit"
+            form="form-lead-contact"
+            className="pointer-events-auto rounded-lg border border-sky-600 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-900 shadow-sm hover:bg-sky-100"
+          >
+            Save contact
+          </button>
+          {!terminal ? (
+            <button
+              type="submit"
+              form="form-lead-intake"
+              className="pointer-events-auto rounded-lg border border-sky-600 bg-sky-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-sky-700"
+            >
+              Save intake
+            </button>
+          ) : null}
         </div>
       </div>
 

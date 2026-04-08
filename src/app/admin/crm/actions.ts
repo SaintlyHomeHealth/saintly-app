@@ -21,6 +21,12 @@ import {
 import { isValidLeadNextAction } from "@/lib/crm/lead-follow-up-options";
 import { isValidLeadPipelineStatus } from "@/lib/crm/lead-pipeline-status";
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
+import {
+  isAllowedLeadInsuranceMime,
+  LEAD_INSURANCE_BUCKET,
+  LEAD_INSURANCE_MAX_BYTES,
+  sanitizeLeadInsuranceFileName,
+} from "@/lib/crm/lead-insurance-storage";
 import { isValidLeadSource } from "@/lib/crm/lead-source-options";
 import {
   hasAnyIntakeRequestDetail,
@@ -1030,6 +1036,16 @@ function readOptionalFollowUpDateIso(formData: FormData): string | null {
   return t;
 }
 
+/** `YYYY-MM-DD` for `leads.dob`, or null when cleared / invalid. */
+function readOptionalDobIso(formData: FormData): string | null {
+  const v = formData.get("dob");
+  if (typeof v !== "string") return null;
+  const t = v.trim();
+  if (t === "") return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(t)) return null;
+  return t;
+}
+
 function readLeadNextActionFromForm(formData: FormData): string | null {
   const v = formData.get("next_action");
   if (typeof v !== "string") return null;
@@ -1401,6 +1417,16 @@ export async function updateLeadContactProfile(formData: FormData) {
     return;
   }
 
+  const dobIso = readOptionalDobIso(formData);
+  const { error: dobErr } = await supabaseAdmin
+    .from("leads")
+    .update({ dob: dobIso })
+    .eq("id", leadId)
+    .is("deleted_at", null);
+  if (dobErr) {
+    console.warn("[admin/crm] updateLeadContactProfile leads dob:", dobErr.message);
+  }
+
   if (changes.length > 0) {
     await insertAuditLogTrusted({
       action: "crm_lead_contact_update",
@@ -1429,6 +1455,92 @@ export async function updateLeadContactProfile(formData: FormData) {
     revalidatePath(`/workspace/phone/patients/${patientId}`);
     revalidatePath("/workspace/phone/patients");
   }
+}
+
+export async function uploadLeadInsuranceCard(formData: FormData) {
+  const staff = await getStaffProfile();
+  if (!staff || !isManagerOrHigher(staff)) {
+    return;
+  }
+
+  const leadId = readTrimmedField(formData, "leadId");
+  const slotRaw = readTrimmedField(formData, "slot");
+  if (!leadId || !LEAD_OWNER_UUID_RE.test(leadId)) {
+    return;
+  }
+  if (slotRaw !== "primary" && slotRaw !== "secondary") {
+    return;
+  }
+
+  const fileEntry = formData.get("file");
+  if (!(fileEntry instanceof File) || fileEntry.size < 1) {
+    return;
+  }
+
+  if (fileEntry.size > LEAD_INSURANCE_MAX_BYTES) {
+    console.warn("[admin/crm] uploadLeadInsuranceCard: file too large");
+    return;
+  }
+
+  const mimeRaw = fileEntry.type || "application/octet-stream";
+  if (!isAllowedLeadInsuranceMime(mimeRaw)) {
+    console.warn("[admin/crm] uploadLeadInsuranceCard: disallowed mime", mimeRaw);
+    return;
+  }
+
+  const { data: leadRow, error: lErr } = await leadRowsActiveOnly(
+    supabaseAdmin
+      .from("leads")
+      .select("id, primary_insurance_file_url, secondary_insurance_file_url")
+      .eq("id", leadId)
+  ).maybeSingle();
+
+  if (lErr || !leadRow?.id) {
+    console.warn("[admin/crm] uploadLeadInsuranceCard: lead not found");
+    return;
+  }
+
+  const column =
+    slotRaw === "primary" ? ("primary_insurance_file_url" as const) : ("secondary_insurance_file_url" as const);
+  const prev = leadRow as Record<string, unknown>;
+  const oldPath =
+    typeof prev[column] === "string" && (prev[column] as string).trim() !== ""
+      ? (prev[column] as string).trim()
+      : "";
+
+  const safeName = sanitizeLeadInsuranceFileName(fileEntry.name);
+  const storagePath = `${leadId}/${slotRaw}-${Date.now()}-${safeName}`;
+  const buffer = Buffer.from(await fileEntry.arrayBuffer());
+  const contentType = mimeRaw.split(";")[0]?.trim() ?? "application/octet-stream";
+
+  const { error: upErr } = await supabaseAdmin.storage.from(LEAD_INSURANCE_BUCKET).upload(storagePath, buffer, {
+    contentType,
+    upsert: false,
+  });
+
+  if (upErr) {
+    console.warn("[admin/crm] uploadLeadInsuranceCard storage:", upErr.message);
+    return;
+  }
+
+  const { error: dbErr } = await supabaseAdmin
+    .from("leads")
+    .update({ [column]: storagePath })
+    .eq("id", leadId)
+    .is("deleted_at", null);
+
+  if (dbErr) {
+    console.warn("[admin/crm] uploadLeadInsuranceCard leads update:", dbErr.message);
+    await supabaseAdmin.storage.from(LEAD_INSURANCE_BUCKET).remove([storagePath]).catch(() => {});
+    return;
+  }
+
+  if (oldPath && oldPath !== storagePath) {
+    await supabaseAdmin.storage.from(LEAD_INSURANCE_BUCKET).remove([oldPath]).catch(() => {});
+  }
+
+  revalidatePath("/admin/crm/leads");
+  revalidatePath(`/admin/crm/leads/${leadId}`);
 }
 
 export async function updatePatientIntake(formData: FormData) {
