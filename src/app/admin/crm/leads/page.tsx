@@ -13,16 +13,11 @@ import { contactRowsActiveOnly } from "@/lib/crm/contacts-active";
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { SERVICE_DISCIPLINE_CODES } from "@/lib/crm/service-disciplines";
 import { supabaseAdmin } from "@/lib/admin";
-import { normalizePhone } from "@/lib/phone/us-phone-format";
+import { buildContactSearchOrClause, matchesLeadSearchRow } from "@/lib/crm/crm-leads-search";
+import { sortLeadsForPipelineDefault } from "@/lib/crm/crm-leads-sort";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { crmFilterBarCls, crmFilterInputCls, crmPrimaryCtaCls } from "@/components/admin/crm-admin-list-styles";
-import {
-  contactDisplayName,
-  normalizeContact,
-  staffPrimaryLabel,
-  type CrmLeadRow,
-  type CrmLeadsContactEmb,
-} from "@/lib/crm/crm-leads-table-helpers";
+import { normalizeContact, staffPrimaryLabel, type CrmLeadRow } from "@/lib/crm/crm-leads-table-helpers";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 
 function matchesDisciplineLead(
@@ -37,23 +32,8 @@ function matchesDisciplineLead(
   return legacy.split(",").some((x) => x.trim() === disc);
 }
 
-function matchesSearchLead(contact: CrmLeadsContactEmb | null, q: string): boolean {
-  if (!q.trim()) return true;
-  const n = contactDisplayName(contact).toLowerCase();
-  const phone = (contact?.primary_phone ?? "").toLowerCase();
-  const needle = q.trim().toLowerCase();
-  const phoneDigits = normalizePhone(contact?.primary_phone ?? "");
-  const needleDigits = normalizePhone(q);
-  if (needleDigits && phoneDigits.includes(needleDigits)) return true;
-  return n.includes(needle) || phone.includes(needle);
-}
-
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const EMPTY_SENTINEL = "00000000-0000-0000-0000-000000000000";
-
-function escapeIlikeToken(s: string): string {
-  return s.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_").replace(/[(),]/g, " ");
-}
 
 export default async function AdminCrmLeadsPage({
   searchParams,
@@ -81,6 +61,7 @@ export default async function AdminCrmLeadsPage({
     leadType: one("leadType").trim(),
     q: one("q").trim(),
   };
+  const showDead = one("showDead").trim() === "1";
 
   const toastParam = one("toast").trim();
   const dismissToastHref = (() => {
@@ -93,6 +74,7 @@ export default async function AdminCrmLeadsPage({
     if (f.discipline) u.set("discipline", f.discipline);
     if (f.leadType) u.set("leadType", f.leadType);
     if (f.q) u.set("q", f.q);
+    if (showDead) u.set("showDead", "1");
     const qs = u.toString();
     return qs ? `/admin/crm/leads?${qs}` : "/admin/crm/leads";
   })();
@@ -113,14 +95,10 @@ export default async function AdminCrmLeadsPage({
   }[];
 
   let contactIdFilter: string[] | null = null;
-  if (f.q.trim()) {
-    const needle = escapeIlikeToken(f.q.trim().slice(0, 120));
+  const contactOr = buildContactSearchOrClause(f.q);
+  if (contactOr) {
     const { data: hits } = await contactRowsActiveOnly(
-      supabaseAdmin
-        .from("contacts")
-        .select("id")
-        .or(`full_name.ilike.%${needle}%,primary_phone.ilike.%${needle}%`)
-        .limit(300)
+      supabaseAdmin.from("contacts").select("id").or(contactOr).limit(300)
     );
     contactIdFilter = [...new Set((hits ?? []).map((h) => String(h.id)).filter(Boolean))];
     if (contactIdFilter.length === 0) {
@@ -132,7 +110,7 @@ export default async function AdminCrmLeadsPage({
     supabaseAdmin
       .from("leads")
       .select(
-        "id, contact_id, source, status, lead_type, owner_user_id, created_at, intake_status, referral_source, payer_name, payer_type, referring_provider_name, next_action, follow_up_date, last_contact_at, last_outcome, service_disciplines, service_type, notes, external_source_metadata, contacts ( full_name, first_name, last_name, primary_phone, email )"
+        "id, contact_id, source, status, lead_type, owner_user_id, created_at, intake_status, referral_source, payer_name, payer_type, referring_provider_name, next_action, follow_up_date, last_contact_at, last_outcome, service_disciplines, service_type, notes, external_source_metadata, contacts ( full_name, first_name, last_name, primary_phone, secondary_phone, email )"
       )
       .order("created_at", { ascending: false })
       .limit(500)
@@ -170,6 +148,10 @@ export default async function AdminCrmLeadsPage({
     query = query.is("lead_type", null);
   }
 
+  if (!showDead && !f.status) {
+    query = query.neq("status", "dead_lead");
+  }
+
   const { data: rows, error } = await query;
 
   let list = (rows ?? []) as CrmLeadRow[];
@@ -179,8 +161,10 @@ export default async function AdminCrmLeadsPage({
   }
 
   if (f.q.trim()) {
-    list = list.filter((r) => matchesSearchLead(normalizeContact(r.contacts), f.q));
+    list = list.filter((r) => matchesLeadSearchRow(normalizeContact(r.contacts), f.q));
   }
+
+  list = sortLeadsForPipelineDefault(list, todayIso, showDead);
 
   list = list.slice(0, 100);
 
@@ -309,13 +293,17 @@ export default async function AdminCrmLeadsPage({
             <option value="employee">Employee applicants</option>
           </select>
         </label>
+        <label className="flex min-w-[11rem] items-center gap-2 pt-5 text-[11px] font-medium text-slate-600">
+          <input type="checkbox" name="showDead" value="1" defaultChecked={showDead} className="h-4 w-4 rounded border-slate-300 text-sky-600" />
+          Show dead leads
+        </label>
         <label className="flex min-w-[12rem] flex-1 flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-          Search name / phone
+          Search name, phone, or email
           <input
             type="search"
             name="q"
             defaultValue={f.q}
-            placeholder="Name or phone…"
+            placeholder="Name, phone, or email…"
             className={crmFilterInputCls}
           />
         </label>
@@ -340,10 +328,10 @@ export default async function AdminCrmLeadsPage({
       ) : null}
 
       <CrmLeadsList
-        key={list.map((r) => r.id).join("|")}
         initialList={list}
         employeeOnlyView={employeeOnlyView}
         staffOptions={staffOptions}
+        todayIso={todayIso}
       />
     </div>
   );

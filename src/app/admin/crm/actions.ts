@@ -27,6 +27,7 @@ import {
 } from "@/lib/crm/lead-intake-request";
 import { isValidServiceDisciplineCode, parseServiceDisciplinesFromFormData } from "@/lib/crm/service-disciplines";
 import { convertLeadToPatient } from "@/app/admin/phone/actions";
+import { getCrmCalendarTomorrowIso } from "@/lib/crm/crm-local-date";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 import { findOpenDuplicatePatientVisitId } from "@/lib/crm/dispatch-duplicate-visit";
 import {
@@ -1836,6 +1837,102 @@ export async function convertLeadToPatientFromLeadDetail(formData: FormData) {
 function readTrimmedField(formData: FormData, key: string): string {
   const v = formData.get(key);
   return typeof v === "string" ? v.trim() : "";
+}
+
+export type CrmLeadListQuickActionResult =
+  | { ok: true }
+  | { ok: false; error: "forbidden" | "invalid_lead" | "save_failed" };
+
+/** List row: log spoke without clearing last_note / follow-up (does not mirror full outcome form). */
+export async function quickMarkLeadSpoke(formData: FormData): Promise<CrmLeadListQuickActionResult> {
+  const staff = await getStaffProfile();
+  if (!staff || !isManagerOrHigher(staff)) {
+    return { ok: false, error: "forbidden" };
+  }
+  const leadId = readTrimmedField(formData, "leadId");
+  if (!leadId) {
+    return { ok: false, error: "invalid_lead" };
+  }
+  const lastContactAt = new Date().toISOString();
+  const { error } = await supabaseAdmin
+    .from("leads")
+    .update({
+      last_outcome: "spoke",
+      last_contact_type: "call",
+      last_contact_at: lastContactAt,
+    })
+    .eq("id", leadId)
+    .is("deleted_at", null);
+
+  if (error) {
+    console.warn("[admin/crm] quickMarkLeadSpoke:", error.message);
+    return { ok: false, error: "save_failed" };
+  }
+
+  revalidatePath("/admin");
+  revalidatePath("/admin/crm/leads");
+  revalidatePath(`/admin/crm/leads/${leadId}`);
+  revalidatePath("/workspace/phone/leads");
+  revalidatePath("/workspace/phone/follow-ups-today");
+  return { ok: true };
+}
+
+/** List row: set follow-up to tomorrow (Central CRM calendar). */
+export async function quickSetLeadFollowUpTomorrow(formData: FormData): Promise<CrmLeadListQuickActionResult> {
+  const staff = await getStaffProfile();
+  if (!staff || !isManagerOrHigher(staff)) {
+    return { ok: false, error: "forbidden" };
+  }
+  const leadId = readTrimmedField(formData, "leadId");
+  if (!leadId) {
+    return { ok: false, error: "invalid_lead" };
+  }
+  const tomorrow = getCrmCalendarTomorrowIso();
+  const { error } = await supabaseAdmin
+    .from("leads")
+    .update({ follow_up_date: tomorrow })
+    .eq("id", leadId)
+    .is("deleted_at", null);
+
+  if (error) {
+    console.warn("[admin/crm] quickSetLeadFollowUpTomorrow:", error.message);
+    return { ok: false, error: "save_failed" };
+  }
+
+  revalidatePath("/admin");
+  revalidatePath("/admin/crm/leads");
+  revalidatePath(`/admin/crm/leads/${leadId}`);
+  revalidatePath("/workspace/phone/leads");
+  revalidatePath("/workspace/phone/follow-ups-today");
+  return { ok: true };
+}
+
+/** Same as mark dead, but returns a result for list quick-action (no redirect). */
+export async function markLeadDeadFromList(formData: FormData): Promise<CrmLeadListQuickActionResult> {
+  const staff = await getStaffProfile();
+  if (!staff || !isManagerOrHigher(staff)) {
+    return { ok: false, error: "forbidden" };
+  }
+  const leadId = readTrimmedField(formData, "leadId");
+  if (!leadId) {
+    return { ok: false, error: "invalid_lead" };
+  }
+
+  const { error } = await supabaseAdmin
+    .from("leads")
+    .update({ status: "dead_lead" })
+    .eq("id", leadId)
+    .is("deleted_at", null);
+
+  if (error) {
+    console.warn("[admin/crm] markLeadDeadFromList:", error.message);
+    return { ok: false, error: "save_failed" };
+  }
+
+  revalidatePath("/admin");
+  revalidatePath("/admin/crm/leads");
+  revalidatePath(`/admin/crm/leads/${leadId}`);
+  return { ok: true };
 }
 
 export async function createPatientManualFromCrm(formData: FormData) {

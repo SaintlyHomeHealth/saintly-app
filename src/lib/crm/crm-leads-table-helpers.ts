@@ -5,6 +5,7 @@ export type CrmLeadsContactEmb = {
   first_name?: string | null;
   last_name?: string | null;
   primary_phone?: string | null;
+  secondary_phone?: string | null;
   email?: string | null;
 };
 
