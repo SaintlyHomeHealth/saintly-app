@@ -45,7 +45,7 @@ export default async function WorkspaceKeypadPage({
   }
 
   return (
-    <div className="flex flex-1 flex-col px-4 pb-6 pt-5 sm:px-5 lg:px-8">
+    <div className="flex flex-1 flex-col bg-gradient-to-b from-sky-50/30 via-white to-slate-100/50 px-4 pb-6 pt-5 sm:px-5 lg:px-8">
       <WorkspacePhonePageHeader
         title="Keypad"
         subtitle="Dial out with the Saintly line. Stay on this screen to hear inbound calls on this device."
@@ -63,7 +63,7 @@ export default async function WorkspaceKeypadPage({
         </p>
       ) : null}
       <div className="mt-6 flex flex-1 flex-col items-stretch gap-6 lg:mt-8 lg:flex-row lg:items-start lg:justify-center lg:gap-10">
-        <div className="w-full max-w-md shrink-0 rounded-[32px] border border-slate-200/80 bg-white p-5 shadow-md shadow-slate-200/50 sm:p-7 lg:max-w-lg">
+        <div className="w-full max-w-md shrink-0 rounded-[32px] border border-slate-200/50 bg-gradient-to-b from-white via-white to-slate-50/80 p-5 shadow-[0_12px_40px_-12px_rgba(15,23,42,0.12),0_4px_16px_-8px_rgba(15,23,42,0.08)] sm:p-7 lg:max-w-lg">
           <KeypadDialerLazy
             key={dialerKey}
             staffDisplayName={staffDisplayName}
