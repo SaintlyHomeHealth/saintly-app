@@ -373,9 +373,13 @@ export function SoftphoneDialer({
                   type="button"
                   onClick={() => void startCall()}
                   disabled={!digits.trim() || !canDial}
-                  className="flex h-[4.25rem] min-w-[min(100%,15rem)] touch-manipulation select-none items-center justify-center gap-2.5 rounded-full bg-gradient-to-r from-blue-950 via-blue-700 to-sky-500 px-8 text-lg font-bold text-white shadow-[0_10px_32px_-6px_rgba(29,78,216,0.5),0_4px_12px_-4px_rgba(56,189,248,0.3)] ring-1 ring-white/30 transition-[transform,opacity,filter] duration-150 ease-out hover:brightness-[1.03] active:scale-[0.97] disabled:pointer-events-none disabled:opacity-45 disabled:shadow-none disabled:brightness-90 disabled:saturate-[0.35] sm:h-[4.5rem] sm:min-w-[min(100%,16rem)] sm:px-10"
+                  className="group flex h-[4.25rem] min-w-[min(100%,15rem)] touch-manipulation select-none items-center justify-center gap-2.5 rounded-full px-8 text-lg font-bold transition-[transform,box-shadow,filter] duration-300 ease-out enabled:bg-gradient-to-r enabled:from-blue-950 enabled:via-blue-700 enabled:to-sky-500 enabled:text-white enabled:shadow-[0_10px_32px_-6px_rgba(29,78,216,0.5),0_4px_12px_-4px_rgba(56,189,248,0.3)] enabled:ring-1 enabled:ring-white/30 enabled:hover:brightness-[1.03] enabled:active:scale-[0.97] disabled:pointer-events-none disabled:bg-gradient-to-r disabled:from-blue-950/45 disabled:via-blue-800/35 disabled:to-sky-100/95 disabled:text-sky-950/60 disabled:shadow-[0_8px_26px_-10px_rgba(30,58,138,0.11),0_2px_12px_-4px_rgba(56,189,248,0.14)] disabled:ring-1 disabled:ring-sky-400/40 sm:h-[4.5rem] sm:min-w-[min(100%,16rem)] sm:px-10"
                 >
-                  <Phone className="h-6 w-6 shrink-0 sm:h-6 sm:w-6" strokeWidth={2.25} aria-hidden />
+                  <Phone
+                    className="h-6 w-6 shrink-0 text-current group-disabled:opacity-90 sm:h-6 sm:w-6"
+                    strokeWidth={2.25}
+                    aria-hidden
+                  />
                   Call
                 </button>
               ) : null}
