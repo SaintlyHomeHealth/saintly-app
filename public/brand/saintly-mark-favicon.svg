@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  Favicon / PWA master — vector source of truth. Bold strokes for 16–32px legibility.
-  Outline PNG (saintly-logo-source.png) is reference only, not rasterized for icons.
+  Optional vector reference. The favicon/PWA pipeline uses:
+  public/brand/saintly-app-icon-master.png (replace that PNG, then npm run icons:generate).
 -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Saintly Home Health">
   <defs>

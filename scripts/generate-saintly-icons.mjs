@@ -1,8 +1,12 @@
 /**
- * Rasterizes the hand-tuned SVG mark (thick strokes / filled shapes) for favicon + PWA.
- * Do NOT use the thin outline PNG as the icon source — see public/brand/saintly-mark-favicon.svg
+ * Favicon + PWA outputs from ONE raster master (blue-background Saintly mark).
  *
- * Master PNG output: public/brand/saintly-app-icon-master.png
+ * Master (you replace this file when the artwork updates):
+ *   public/brand/saintly-app-icon-master.png
+ *   Prefer 1024×1024+ square PNG. Script normalizes to 1024×1024 for derivatives only.
+ *
+ * Optional vector reference (not used by this script): public/brand/saintly-mark-favicon.svg
+ *
  * Run: npm run icons:generate
  */
 import { execSync } from "node:child_process";
@@ -17,12 +21,20 @@ const ROOT = join(__dirname, "..");
 
 const BRAND_BLUE = "#0284c7";
 
-/** Vector source of truth — bold house + halo + dome, readable at 16px+ */
-const SVG_MASTER = join(ROOT, "public/brand/saintly-mark-favicon.svg");
+/** Canonical favicon/PWA master — blue-background Saintly icon */
+const MASTER_PNG = join(ROOT, "public/brand/saintly-app-icon-master.png");
 
-async function rasterizeMaster(size) {
-  const svgBuf = readFileSync(SVG_MASTER);
-  return sharp(svgBuf).resize(size, size, { fit: "fill" }).png().toBuffer();
+const MASTER_INTERNAL = 1024;
+
+async function loadMasterBuffer() {
+  if (!existsSync(MASTER_PNG)) {
+    console.error("Missing master PNG. Add:", MASTER_PNG);
+    process.exit(1);
+  }
+  return sharp(MASTER_PNG)
+    .resize(MASTER_INTERNAL, MASTER_INTERNAL, { fit: "cover", position: "centre" })
+    .png()
+    .toBuffer();
 }
 
 async function buildMaskable512(master1024) {
@@ -43,20 +55,10 @@ async function buildMaskable512(master1024) {
 }
 
 async function main() {
-  if (!existsSync(SVG_MASTER)) {
-    console.error("Missing SVG master:", SVG_MASTER);
-    process.exit(1);
-  }
-
-  const masterSize = 1024;
-  const masterBuf = await rasterizeMaster(masterSize);
+  const masterBuf = await loadMasterBuffer();
 
   const brandDir = join(ROOT, "public/brand");
   mkdirSync(brandDir, { recursive: true });
-
-  const masterPath = join(brandDir, "saintly-app-icon-master.png");
-  writeFileSync(masterPath, masterBuf);
-  console.log("Wrote", masterPath);
 
   const outputs = [
     ["public/favicon.png", 512],
@@ -78,11 +80,13 @@ async function main() {
   writeFileSync(maskPath, maskBuf);
   console.log("Wrote", maskPath);
 
+  const preview16 = join(brandDir, "icon-preview-16.png");
   const preview32 = join(brandDir, "icon-preview-32.png");
   const preview64 = join(brandDir, "icon-preview-64.png");
+  await sharp(masterBuf).resize(16, 16, { fit: "fill" }).png().toFile(preview16);
   await sharp(masterBuf).resize(32, 32, { fit: "fill" }).png().toFile(preview32);
   await sharp(masterBuf).resize(64, 64, { fit: "fill" }).png().toFile(preview64);
-  console.log("Wrote", preview32, preview64, "(QA: open to verify house reads at tiny size)");
+  console.log("Wrote", preview16, preview32, preview64, "(QA: tiny-size check)");
 
   const tmp32 = join(tmpdir(), "saintly-favicon-32.png");
   const tmp48 = join(tmpdir(), "saintly-favicon-48.png");
