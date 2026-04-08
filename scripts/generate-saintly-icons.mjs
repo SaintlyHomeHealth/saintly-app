@@ -1,11 +1,11 @@
 /**
- * Favicon + PWA outputs from ONE raster master (blue-background Saintly mark).
+ * Favicon + PWA outputs from ONE vector master (transparent, black Saintly mark).
  *
- * Master (you replace this file when the artwork updates):
- *   public/brand/saintly-app-icon-master.png
- *   Prefer 1024×1024+ square PNG. Script normalizes to 1024×1024 for derivatives only.
+ * Master: public/brand/saintly-icon-master.svg
+ * Also writes: public/brand/saintly-app-icon-master.png (1024×1024 PNG export for reference)
  *
- * Optional vector reference (not used by this script): public/brand/saintly-mark-favicon.svg
+ * - Normal icons: transparent PNG (tab, apple, PWA "any")
+ * - Maskable only: white background + scaled mark (Android safe zone; no blue tile)
  *
  * Run: npm run icons:generate
  */
@@ -19,43 +19,48 @@ import sharp from "sharp";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
 
-const BRAND_BLUE = "#0284c7";
+/** Maskable tile: neutral light field (not brand blue) */
+const MASKABLE_BG = "#ffffff";
 
-/** Canonical favicon/PWA master — blue-background Saintly icon */
-const MASTER_PNG = join(ROOT, "public/brand/saintly-app-icon-master.png");
+const MASTER_SVG = join(ROOT, "public/brand/saintly-icon-master.svg");
+const MASTER_PNG_EXPORT = join(ROOT, "public/brand/saintly-app-icon-master.png");
 
-const MASTER_INTERNAL = 1024;
+const RASTER = 1024;
 
-async function loadMasterBuffer() {
-  if (!existsSync(MASTER_PNG)) {
-    console.error("Missing master PNG. Add:", MASTER_PNG);
+async function rasterizeMaster() {
+  if (!existsSync(MASTER_SVG)) {
+    console.error("Missing master SVG:", MASTER_SVG);
     process.exit(1);
   }
-  return sharp(MASTER_PNG)
-    .resize(MASTER_INTERNAL, MASTER_INTERNAL, { fit: "cover", position: "centre" })
-    .png()
-    .toBuffer();
+  const svgBuf = readFileSync(MASTER_SVG);
+  return sharp(svgBuf).resize(RASTER, RASTER, { fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 0 } }).png().toBuffer();
 }
 
 async function buildMaskable512(master1024) {
-  const inner = 296;
-  const innerBuf = await sharp(master1024).resize(inner, inner, { fit: "fill" }).png().toBuffer();
-  const pad = Math.round((512 - inner) / 2);
+  const inner = 280;
+  const innerBuf = await sharp(master1024).resize(inner, inner, { fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 0 } }).png().toBuffer();
+  const meta = await sharp(innerBuf).metadata();
+  const w = meta.width ?? inner;
+  const h = meta.height ?? inner;
+  const left = Math.round((512 - w) / 2);
+  const top = Math.round((512 - h) / 2);
   return sharp({
     create: {
       width: 512,
       height: 512,
       channels: 4,
-      background: BRAND_BLUE,
+      background: MASKABLE_BG,
     },
   })
-    .composite([{ input: innerBuf, left: pad, top: pad }])
+    .composite([{ input: innerBuf, left, top }])
     .png()
     .toBuffer();
 }
 
 async function main() {
-  const masterBuf = await loadMasterBuffer();
+  const masterBuf = await rasterizeMaster();
+  writeFileSync(MASTER_PNG_EXPORT, masterBuf);
+  console.log("Wrote", MASTER_PNG_EXPORT);
 
   const brandDir = join(ROOT, "public/brand");
   mkdirSync(brandDir, { recursive: true });
@@ -71,7 +76,7 @@ async function main() {
   for (const [rel, size] of outputs) {
     const outPath = join(ROOT, rel);
     mkdirSync(dirname(outPath), { recursive: true });
-    await sharp(masterBuf).resize(size, size, { fit: "fill" }).png().toFile(outPath);
+    await sharp(masterBuf).resize(size, size, { fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 0 } }).png().toFile(outPath);
     console.log("Wrote", outPath);
   }
 
@@ -80,18 +85,20 @@ async function main() {
   writeFileSync(maskPath, maskBuf);
   console.log("Wrote", maskPath);
 
-  const preview16 = join(brandDir, "icon-preview-16.png");
-  const preview32 = join(brandDir, "icon-preview-32.png");
-  const preview64 = join(brandDir, "icon-preview-64.png");
-  await sharp(masterBuf).resize(16, 16, { fit: "fill" }).png().toFile(preview16);
-  await sharp(masterBuf).resize(32, 32, { fit: "fill" }).png().toFile(preview32);
-  await sharp(masterBuf).resize(64, 64, { fit: "fill" }).png().toFile(preview64);
-  console.log("Wrote", preview16, preview32, preview64, "(QA: tiny-size check)");
+  for (const [name, px] of [
+    ["icon-preview-16.png", 16],
+    ["icon-preview-32.png", 32],
+    ["icon-preview-64.png", 64],
+  ]) {
+    const p = join(brandDir, name);
+    await sharp(masterBuf).resize(px, px, { fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 0 } }).png().toFile(p);
+    console.log("Wrote", p);
+  }
 
   const tmp32 = join(tmpdir(), "saintly-favicon-32.png");
   const tmp48 = join(tmpdir(), "saintly-favicon-48.png");
-  await sharp(masterBuf).resize(32, 32, { fit: "fill" }).png().toFile(tmp32);
-  await sharp(masterBuf).resize(48, 48, { fit: "fill" }).png().toFile(tmp48);
+  await sharp(masterBuf).resize(32, 32, { fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 0 } }).png().toFile(tmp32);
+  await sharp(masterBuf).resize(48, 48, { fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 0 } }).png().toFile(tmp48);
 
   const faviconIco = join(ROOT, "src/app/favicon.ico");
   const faviconIcoPublic = join(ROOT, "public/favicon.ico");

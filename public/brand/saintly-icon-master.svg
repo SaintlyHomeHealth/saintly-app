@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Single source of truth for favicon + PWA icons (transparent).
+  Black mark (#0f172a) reads well on light browser chrome; no blue tile.
+  Regenerate rasters: npm run icons:generate
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Saintly Home Health">
+  <defs>
+    <style>
+      .ink { fill: #0f172a; }
+      .arc {
+        fill: none;
+        stroke: #0f172a;
+        stroke-width: 48;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+    </style>
+  </defs>
+  <!-- Transparent canvas, no background square -->
+  <path class="arc" d="M 40 384 Q 256 52 472 384" />
+  <path class="ink" d="M 256 208 L 152 318 L 152 416 L 360 416 L 360 318 Z" />
+  <rect class="ink" x="72" y="432" width="368" height="36" rx="14" />
+  <ellipse class="ink" cx="256" cy="142" rx="118" ry="44" />
+</svg>

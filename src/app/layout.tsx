@@ -27,10 +27,7 @@ export const metadata: Metadata = {
     statusBarStyle: "default",
     title: "Saintly Home Health",
   },
-  /**
-   * Icons: also provided via file convention in /src/app/
-   * (favicon.ico, icon.png, apple-icon.png) so browsers + PWAs get the Saintly mark.
-   */
+  /** Transparent Saintly mark (see public/brand/saintly-icon-master.svg + npm run icons:generate). */
   icons: {
     icon: [
       { url: "/favicon.ico", sizes: "any" },
@@ -45,8 +42,8 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
-  /** Matches PWA / app icon field (Saintly blue) */
-  themeColor: "#0284c7",
+  /** Matches icon ink + manifest theme */
+  themeColor: "#0f172a",
 };
 
 export default function RootLayout({
