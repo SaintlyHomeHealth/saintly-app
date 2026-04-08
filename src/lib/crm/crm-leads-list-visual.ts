@@ -56,16 +56,44 @@ export function followUpUrgency(followUpIso: string | null | undefined, todayIso
   return "future";
 }
 
+/**
+ * Subtle left-edge accent for pipeline scanning (premium, not loud).
+ * Priority: dead → overdue FU → today FU → qualified/ready → new → default.
+ */
+export function leadRowCardClass(row: CrmLeadRow, fu: FollowUpUrgency): string {
+  const st = (row.status ?? "").trim().toLowerCase();
+  if (st === "dead_lead") {
+    return "border-l-[3px] border-l-slate-400/70 bg-slate-50/35";
+  }
+  if (fu === "overdue") {
+    return "border-l-[3px] border-l-rose-500 bg-rose-50/20";
+  }
+  if (fu === "today") {
+    return "border-l-[3px] border-l-amber-400 bg-amber-50/15";
+  }
+  if (st === "ready_to_convert") {
+    return "border-l-[3px] border-l-emerald-400/80 bg-emerald-50/12";
+  }
+  if (st === "new" || st === "new_applicant") {
+    return "border-l-[3px] border-l-sky-400/90 bg-sky-50/15";
+  }
+  if (fu === "future") {
+    return "border-l-[3px] border-l-slate-200 bg-white";
+  }
+  return "border-l-[3px] border-l-slate-200 bg-white";
+}
+
+/** @deprecated Prefer leadRowCardClass — kept for any external imports */
 export function followUpUrgencyRowClass(u: FollowUpUrgency): string {
   switch (u) {
     case "overdue":
-      return "border-l-4 border-l-rose-400 bg-rose-50/40";
+      return "border-l-[3px] border-l-rose-500 bg-rose-50/20";
     case "today":
-      return "border-l-4 border-l-amber-400 bg-amber-50/35";
+      return "border-l-[3px] border-l-amber-400 bg-amber-50/15";
     case "future":
-      return "border-l-4 border-l-sky-300/80 bg-sky-50/20";
+      return "border-l-[3px] border-l-slate-200 bg-white";
     default:
-      return "";
+      return "border-l-[3px] border-l-slate-200 bg-white";
   }
 }
 

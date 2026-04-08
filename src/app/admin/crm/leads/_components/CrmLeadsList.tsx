@@ -18,10 +18,10 @@ import { formatLeadSourceLabel } from "@/lib/crm/lead-source-options";
 import { parseEmploymentApplicationMeta } from "@/lib/crm/lead-employment-meta";
 import {
   derivePipelineHeat,
-  followUpUrgencyRowClass,
   formatStatusPillLabel,
   lastContactHumanLine,
   lastContactToneClass,
+  leadRowCardClass,
   pipelineHeatBadgeClass,
   pipelineStatusBadgeClass,
   followUpUrgency,
@@ -42,61 +42,36 @@ import {
   pickOutboundE164ForDial,
 } from "@/lib/workspace-phone/launch-urls";
 
+const pillBase = "inline-flex max-w-full shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ring-1";
+
 function LeadTypeBadge({ leadType, status }: { leadType: string | null; status: string | null }) {
   if (leadType === "employee") {
     return (
-      <span className="inline-flex w-fit rounded-full bg-indigo-100 px-2 py-0.5 text-[11px] font-semibold text-indigo-900 ring-1 ring-indigo-200/70">
-        Employee
-      </span>
+      <span className={`${pillBase} bg-indigo-50 text-indigo-900 ring-indigo-200/70`}>Employee</span>
     );
   }
   const st = (status ?? "").trim().toLowerCase();
   if (st === "converted") {
-    return (
-      <span className="inline-flex w-fit rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-900 ring-1 ring-emerald-200/70">
-        Patient
-      </span>
-    );
+    return <span className={`${pillBase} bg-emerald-50 text-emerald-900 ring-emerald-200/70`}>Patient</span>;
   }
-  return (
-    <span className="inline-flex w-fit rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-semibold text-sky-900 ring-1 ring-sky-200/70">
-      Lead
-    </span>
-  );
+  return <span className={`${pillBase} bg-sky-50 text-sky-900 ring-sky-200/70`}>Lead</span>;
 }
 
-function LeadContactBlock({
-  name,
-  roleLine,
-  phoneDisplay,
-  email,
-  detailHref,
-  showName = true,
-}: {
-  name: string;
-  roleLine: string | null;
-  phoneDisplay: string | null;
-  email: string | null;
-  detailHref: string;
-  showName?: boolean;
-}) {
+function CompactContactLines({ phoneDisplay, email }: { phoneDisplay: string | null; email: string | null }) {
+  if (!phoneDisplay && !email) {
+    return <span className="text-[10px] text-slate-400">No phone or email</span>;
+  }
   return (
-    <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-      {showName ? (
-        <Link href={detailHref} className="font-bold leading-snug text-slate-900 hover:text-sky-800 hover:underline">
-          {name}
-        </Link>
-      ) : null}
-      {roleLine ? <p className="text-[11px] leading-snug text-slate-500">{roleLine}</p> : null}
+    <div className="flex min-w-0 flex-col gap-0.5 text-[11px] leading-tight text-slate-600">
       {phoneDisplay ? (
-        <div className="flex items-center gap-1.5 text-xs text-slate-700">
-          <Phone className="h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
-          <span className="tabular-nums">{phoneDisplay}</span>
+        <div className="flex items-center justify-end gap-1 tabular-nums md:justify-start">
+          <Phone className="h-3 w-3 shrink-0 text-slate-400" aria-hidden />
+          <span>{phoneDisplay}</span>
         </div>
       ) : null}
       {email ? (
-        <div className="flex min-w-0 items-center gap-1.5 text-xs text-slate-700">
-          <Mail className="h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
+        <div className="flex min-w-0 items-center justify-end gap-1 md:justify-start">
+          <Mail className="h-3 w-3 shrink-0 text-slate-400" aria-hidden />
           <span className="truncate" title={email}>
             {email}
           </span>
@@ -118,34 +93,45 @@ function LeadActionButtonRow({
   smsHref: string | null;
 }) {
   const detailHref = `/admin/crm/leads/${leadId}`;
-  const btn =
-    "inline-flex items-center justify-center rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold shadow-sm transition hover:shadow-md";
-  const disabled = "cursor-not-allowed border-slate-100 bg-slate-50 text-slate-400 opacity-60 shadow-none hover:shadow-none";
+  const primary =
+    "inline-flex items-center justify-center rounded-md border px-2 py-1 text-[10px] font-semibold shadow-sm transition hover:shadow";
+  const secondary =
+    "inline-flex items-center justify-center rounded-md border border-slate-200 bg-white px-2 py-1 text-[10px] font-semibold text-slate-700 shadow-sm hover:border-slate-300 hover:bg-slate-50";
+  const disabled =
+    "inline-flex cursor-not-allowed items-center justify-center rounded-md border border-slate-100 bg-slate-50 px-2 py-1 text-[10px] font-semibold text-slate-400 opacity-60 shadow-none";
 
   return (
-    <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5 md:ml-auto md:max-w-[14rem]">
+    <div className="flex w-full shrink-0 flex-nowrap items-center justify-end gap-1">
       {keypadHref ? (
-        <Link href={keypadHref} prefetch={false} className={`${btn} border-emerald-200 bg-white text-emerald-900 hover:border-emerald-300 hover:bg-emerald-50`}>
+        <Link
+          href={keypadHref}
+          prefetch={false}
+          className={`${primary} border-emerald-200 bg-emerald-50/80 text-emerald-900 hover:border-emerald-300 hover:bg-emerald-50`}
+        >
           Call
         </Link>
       ) : (
-        <span className={`${btn} ${disabled}`} title={phone ? undefined : "No dialable phone"}>
+        <span className={disabled} title={phone ? undefined : "No dialable phone"}>
           Call
         </span>
       )}
       {smsHref ? (
-        <Link href={smsHref} prefetch={false} className={`${btn} border-sky-200 bg-white text-sky-900 hover:border-sky-300 hover:bg-sky-50`}>
+        <Link
+          href={smsHref}
+          prefetch={false}
+          className={`${primary} border-sky-200 bg-sky-50/80 text-sky-900 hover:border-sky-300 hover:bg-sky-50`}
+        >
           Text
         </Link>
       ) : (
-        <span className={`${btn} ${disabled}`} title={phone ? undefined : "No SMS"}>
+        <span className={disabled} title={phone ? undefined : "No SMS"}>
           Text
         </span>
       )}
-      <Link href={detailHref} className={`${btn} border-slate-200 bg-white text-slate-800 hover:border-slate-300 hover:bg-slate-50`}>
+      <Link href={detailHref} className={secondary}>
         View
       </Link>
-      <LeadDeleteButton leadId={leadId} variant="tableInline" />
+      <LeadDeleteButton leadId={leadId} variant="tableInlineSubtle" />
     </div>
   );
 }
@@ -168,12 +154,12 @@ type Props = {
 };
 
 const quickBtnCls =
-  "inline-flex items-center justify-center rounded-md border border-slate-200 bg-white px-2 py-1 text-[10px] font-semibold text-slate-800 shadow-sm hover:border-slate-300 hover:bg-slate-50 disabled:opacity-50";
+  "inline-flex items-center justify-center rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-medium text-slate-800 shadow-sm hover:border-slate-300 hover:bg-slate-50 disabled:opacity-50";
 
 function LeadQuickActions({ leadId }: { leadId: string }) {
   const router = useRouter();
   return (
-    <div className="flex flex-wrap gap-1">
+    <div className="flex flex-nowrap gap-0.5 pt-0.5">
       <form
         action={async (fd) => {
           const r = await quickMarkLeadSpoke(fd);
@@ -208,7 +194,7 @@ function LeadQuickActions({ leadId }: { leadId: string }) {
         <input type="hidden" name="leadId" value={leadId} />
         <button
           type="submit"
-          className={`${quickBtnCls} border-rose-200 text-rose-900 hover:bg-rose-50`}
+          className={`${quickBtnCls} border-rose-200/80 text-rose-800 hover:bg-rose-50/80`}
           title="Mark this lead as dead"
         >
           Dead
@@ -216,6 +202,12 @@ function LeadQuickActions({ leadId }: { leadId: string }) {
       </form>
     </div>
   );
+}
+
+function followUpValueClass(fu: ReturnType<typeof followUpUrgency>): string {
+  if (fu === "overdue") return "font-medium text-rose-800";
+  if (fu === "today") return "font-medium text-amber-900";
+  return "text-slate-700";
 }
 
 export function CrmLeadsList({ initialList, employeeOnlyView, staffOptions, todayIso }: Props) {
@@ -330,13 +322,20 @@ export function CrmLeadsList({ initialList, employeeOnlyView, staffOptions, toda
     </div>
   ) : null;
 
+  const employeeGrid =
+    "md:grid-cols-[2rem_minmax(10rem,1fr)_minmax(12.5rem,1.2fr)_minmax(9.5rem,0.85fr)_minmax(13rem,1.2fr)_minmax(4.25rem,auto)]";
+  const mixedGrid =
+    "md:grid-cols-[2rem_minmax(10rem,1fr)_minmax(12.5rem,1.15fr)_minmax(9.5rem,0.9fr)_minmax(13rem,1.2fr)_minmax(4.25rem,auto)]";
+
   return (
     <div className="space-y-3">
       {bulkBar}
       <div className={crmListScrollOuterCls}>
         {employeeOnlyView ? (
-          <div className="min-w-[1040px] text-sm">
-            <div className="hidden gap-x-6 border-b border-slate-100 bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-600 md:grid md:grid-cols-[2.5rem_minmax(11rem,1fr)_minmax(15rem,1.35fr)_minmax(16rem,1.5fr)_minmax(5.5rem,auto)]">
+          <div className="min-w-[1080px] text-sm">
+            <div
+              className={`hidden gap-x-4 border-b border-slate-100 bg-slate-50/90 px-3 py-2 text-[11px] font-semibold tracking-tight text-slate-600 md:grid ${employeeGrid}`}
+            >
               <div className="flex items-center justify-center">
                 <input
                   ref={selectAllRef}
@@ -349,8 +348,9 @@ export function CrmLeadsList({ initialList, employeeOnlyView, staffOptions, toda
                 />
               </div>
               <div>Lead</div>
-              <div>Applicant pipeline</div>
-              <div className="text-right">Contact &amp; actions</div>
+              <div>Pipeline</div>
+              <div>Intake</div>
+              <div className="text-right">Contact</div>
               <div className="text-right">Created</div>
             </div>
             {rows.length === 0 ? (
@@ -379,11 +379,9 @@ export function CrmLeadsList({ initialList, employeeOnlyView, staffOptions, toda
                 const emp = parseEmploymentApplicationMeta(r.external_source_metadata);
                 const role = (emp?.position ?? "").trim() || "—";
                 const exp = (emp?.years_experience ?? "").trim() || "—";
+                const resume = (emp?.resume_url ?? "").trim();
                 const nextActionLabel = formatLeadNextActionLabel(r.next_action);
-                const nextHiring =
-                  nextActionLabel !== "—" ? nextActionLabel : (r.referral_source ?? "").trim() || "—";
                 const detailHref = `/admin/crm/leads/${r.id}`;
-                const roleLine = [role !== "—" ? role : null, exp !== "—" ? exp : null].filter(Boolean).join(" · ") || null;
                 const fu = followUpUrgency(r.follow_up_date, todayIso);
                 const heat = derivePipelineHeat(r, todayIso);
                 const lcHuman = lastContactHumanLine(r.last_contact_at, r.last_outcome, todayIso);
@@ -391,9 +389,9 @@ export function CrmLeadsList({ initialList, employeeOnlyView, staffOptions, toda
                 return (
                   <div
                     key={r.id}
-                    className={`grid grid-cols-1 gap-x-6 gap-y-4 border-b border-slate-100 px-4 py-4 transition-all last:border-0 md:grid-cols-[2.5rem_minmax(11rem,1fr)_minmax(15rem,1.35fr)_minmax(16rem,1.5fr)_minmax(5.5rem,auto)] md:items-center ${followUpUrgencyRowClass(fu)} ${crmListRowHoverCls}`}
+                    className={`grid grid-cols-1 gap-x-4 gap-y-2 border-b border-slate-100 px-3 py-2.5 transition-colors last:border-0 md:items-start ${employeeGrid} ${leadRowCardClass(r, fu)} ${crmListRowHoverCls}`}
                   >
-                    <div className="flex items-start justify-center pt-0.5 md:items-center md:self-center md:pt-0">
+                    <div className="flex items-start justify-center pt-0.5 md:pt-1">
                       <input
                         type="checkbox"
                         className={checkboxCls}
@@ -402,87 +400,71 @@ export function CrmLeadsList({ initialList, employeeOnlyView, staffOptions, toda
                         aria-label={`Select lead ${displayName}`}
                       />
                     </div>
-                    <div className="min-w-0 space-y-2">
-                      <Link href={detailHref} className="block font-bold leading-snug text-slate-900 hover:text-sky-800 hover:underline">
+                    <div className="min-w-0 space-y-1">
+                      <Link
+                        href={detailHref}
+                        className="block text-[15px] font-semibold leading-tight text-slate-900 hover:text-sky-800 hover:underline"
+                      >
                         {displayName}
                       </Link>
-                      <div className="flex flex-wrap items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-1.5">
                         <LeadTypeBadge leadType={r.lead_type} status={r.status} />
-                        <span className="text-xs text-slate-600">{formatLeadSourceLabel(r.source)}</span>
+                        <span className="text-[11px] text-slate-500">{formatLeadSourceLabel(r.source)}</span>
                       </div>
                     </div>
-                    <div className="min-w-0 space-y-2 rounded-lg px-1 py-1 text-xs leading-relaxed text-slate-700">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <span
-                          className={`inline-flex w-fit rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ${pipelineStatusBadgeClass(r.status)}`}
-                        >
+                    <div className="min-w-0 space-y-1 text-[11px] leading-snug text-slate-600">
+                      <div className="flex flex-wrap items-center gap-1">
+                        <span className={`${pillBase} ${pipelineStatusBadgeClass(r.status)}`}>
                           {formatStatusPillLabel(r.status)}
                         </span>
-                        <span
-                          className={`inline-flex w-fit rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ${pipelineHeatBadgeClass(heat)}`}
-                        >
-                          {heat}
-                        </span>
+                        <span className={`${pillBase} ${pipelineHeatBadgeClass(heat)}`}>{heat}</span>
+                      </div>
+                      <p className="text-[13px] leading-snug text-slate-900">
+                        <span className="font-normal text-slate-500">Next: </span>
+                        {nextActionLabel !== "—" ? (
+                          <span className="font-semibold">{nextActionLabel}</span>
+                        ) : (
+                          <span className="font-normal text-slate-400">No next action</span>
+                        )}
+                      </p>
+                      <div>
+                        <span className="text-slate-400">Follow-up: </span>
+                        <span className={followUpValueClass(fu)}>{formatFollowUpDate(r.follow_up_date)}</span>
                       </div>
                       <div>
-                        <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Next action</div>
-                        <div className="text-sm font-semibold text-slate-900">
-                          {nextActionLabel !== "—" ? (
-                            nextActionLabel
-                          ) : (
-                            <span className="text-xs font-normal text-slate-400">No next action</span>
-                          )}
-                        </div>
+                        <span className="text-slate-400">Last: </span>
+                        <span className={`font-medium ${lastContactToneClass(lcHuman.tone)}`}>{lcHuman.line}</span>
                       </div>
                       <div>
-                        <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Next hiring / channel</div>
-                        <div className="text-xs text-slate-800">{nextHiring}</div>
-                      </div>
-                      <div>
-                        <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Follow-up</div>
-                        <div
-                          className={
-                            fu === "overdue"
-                              ? "font-semibold text-rose-800"
-                              : fu === "today"
-                                ? "font-semibold text-amber-900"
-                                : "text-slate-700"
-                          }
-                        >
-                          {formatFollowUpDate(r.follow_up_date)}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Last contact</div>
-                        <div className={`text-xs font-medium ${lastContactToneClass(lcHuman.tone)}`}>{lcHuman.line}</div>
-                      </div>
-                      <div>
-                        <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Owner</div>
-                        <div className="text-xs">{owner ? staffPrimaryLabel(owner) : "—"}</div>
-                      </div>
-                      <div className="text-xs text-slate-600">
-                        <span className="text-slate-500">Channel</span> · {(r.referral_source ?? "").trim() || "—"}
-                      </div>
-                      <div className="text-xs text-slate-600">
-                        <span className="text-slate-500">Role</span> · {role}
-                      </div>
-                      <div className="text-xs text-slate-600">
-                        <span className="text-slate-500">Experience</span> · {exp}
+                        <span className="text-slate-400">Owner: </span>
+                        {owner ? staffPrimaryLabel(owner) : "—"}
                       </div>
                       <LeadQuickActions leadId={r.id} />
                     </div>
-                    <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-                      <LeadContactBlock
-                        name={displayName}
-                        showName={false}
-                        roleLine={roleLine}
-                        phoneDisplay={phone ? formatPhoneForDisplay(phone) : null}
-                        email={email || null}
-                        detailHref={detailHref}
-                      />
+                    <div className="min-w-0 text-[11px] leading-snug text-slate-600">
+                      <div className="rounded-md border border-slate-100 bg-slate-50/50 px-2 py-1.5">
+                        <div className="font-medium text-slate-700">{role}</div>
+                        {exp !== "—" ? <div className="text-slate-500">{exp}</div> : null}
+                        {(r.referral_source ?? "").trim() ? (
+                          <div className="mt-0.5 text-slate-500">{(r.referral_source ?? "").trim()}</div>
+                        ) : null}
+                        {resume ? (
+                          <a
+                            href={resume}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="mt-1 inline-block font-medium text-sky-800 underline-offset-2 hover:underline"
+                          >
+                            Resume
+                          </a>
+                        ) : null}
+                      </div>
+                    </div>
+                    <div className="flex min-w-0 flex-col gap-2 md:items-end">
+                      <CompactContactLines phoneDisplay={phone ? formatPhoneForDisplay(phone) : null} email={email || null} />
                       <LeadActionButtonRow leadId={r.id} phone={phone} keypadHref={keypadHref} smsHref={smsHref} />
                     </div>
-                    <div className="whitespace-nowrap text-right text-xs tabular-nums text-slate-600 md:self-center">
+                    <div className="whitespace-nowrap text-right text-[11px] tabular-nums text-slate-500 md:pt-1">
                       {new Date(r.created_at).toLocaleString()}
                     </div>
                   </div>
@@ -491,8 +473,10 @@ export function CrmLeadsList({ initialList, employeeOnlyView, staffOptions, toda
             )}
           </div>
         ) : (
-          <div className="min-w-[1140px] text-sm">
-            <div className="hidden gap-x-6 border-b border-slate-100 bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-600 md:grid md:grid-cols-[2.5rem_minmax(11rem,1fr)_minmax(12rem,1.1fr)_minmax(11rem,1fr)_minmax(17rem,1.4fr)_minmax(5.5rem,auto)]">
+          <div className="min-w-[1080px] text-sm">
+            <div
+              className={`hidden gap-x-4 border-b border-slate-100 bg-slate-50/90 px-3 py-2 text-[11px] font-semibold tracking-tight text-slate-600 md:grid ${mixedGrid}`}
+            >
               <div className="flex items-center justify-center">
                 <input
                   ref={selectAllRef}
@@ -506,8 +490,8 @@ export function CrmLeadsList({ initialList, employeeOnlyView, staffOptions, toda
               </div>
               <div>Lead</div>
               <div>Pipeline</div>
-              <div>Intake &amp; payer</div>
-              <div className="text-right">Contact &amp; actions</div>
+              <div>Intake</div>
+              <div className="text-right">Contact</div>
               <div className="text-right">Created</div>
             </div>
             {rows.length === 0 ? (
@@ -539,10 +523,7 @@ export function CrmLeadsList({ initialList, employeeOnlyView, staffOptions, toda
                 const exp = (emp?.years_experience ?? "").trim();
                 const resume = (emp?.resume_url ?? "").trim();
                 const detailHref = `/admin/crm/leads/${r.id}`;
-                const roleLine = isEmployee ? [role || null, exp || null].filter(Boolean).join(" · ") || null : null;
                 const nextActionLabel = formatLeadNextActionLabel(r.next_action);
-                const nextHiring =
-                  nextActionLabel !== "—" ? nextActionLabel : (r.referral_source ?? "").trim() || "—";
                 const fu = followUpUrgency(r.follow_up_date, todayIso);
                 const heat = derivePipelineHeat(r, todayIso);
                 const lcHuman = lastContactHumanLine(r.last_contact_at, r.last_outcome, todayIso);
@@ -550,9 +531,9 @@ export function CrmLeadsList({ initialList, employeeOnlyView, staffOptions, toda
                 return (
                   <div
                     key={r.id}
-                    className={`grid grid-cols-1 gap-x-6 gap-y-4 border-b border-slate-100 px-4 py-4 transition-all last:border-0 md:grid-cols-[2.5rem_minmax(11rem,1fr)_minmax(12rem,1.1fr)_minmax(11rem,1fr)_minmax(17rem,1.4fr)_minmax(5.5rem,auto)] md:items-center ${followUpUrgencyRowClass(fu)} ${crmListRowHoverCls}`}
+                    className={`grid grid-cols-1 gap-x-4 gap-y-2 border-b border-slate-100 px-3 py-2.5 transition-colors last:border-0 md:items-start ${mixedGrid} ${leadRowCardClass(r, fu)} ${crmListRowHoverCls}`}
                   >
-                    <div className="flex items-start justify-center pt-0.5 md:items-center md:self-center md:pt-0">
+                    <div className="flex items-start justify-center pt-0.5 md:pt-1">
                       <input
                         type="checkbox"
                         className={checkboxCls}
@@ -561,129 +542,89 @@ export function CrmLeadsList({ initialList, employeeOnlyView, staffOptions, toda
                         aria-label={`Select lead ${displayName}`}
                       />
                     </div>
-                    <div className="min-w-0 space-y-2">
-                      <Link href={detailHref} className="block font-bold leading-snug text-slate-900 hover:text-sky-800 hover:underline">
+                    <div className="min-w-0 space-y-1">
+                      <Link
+                        href={detailHref}
+                        className="block text-[15px] font-semibold leading-tight text-slate-900 hover:text-sky-800 hover:underline"
+                      >
                         {displayName}
                       </Link>
-                      <div className="flex flex-wrap items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-1.5">
                         <LeadTypeBadge leadType={r.lead_type} status={r.status} />
-                        <span className="text-xs text-slate-600">{formatLeadSourceLabel(r.source)}</span>
+                        <span className="text-[11px] text-slate-500">{formatLeadSourceLabel(r.source)}</span>
                       </div>
                     </div>
-                    <div className="min-w-0 space-y-2 rounded-lg px-1 py-1 text-xs leading-relaxed text-slate-700">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <span
-                          className={`inline-flex w-fit rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ${pipelineStatusBadgeClass(r.status)}`}
-                        >
+                    <div className="min-w-0 space-y-1 text-[11px] leading-snug text-slate-600">
+                      <div className="flex flex-wrap items-center gap-1">
+                        <span className={`${pillBase} ${pipelineStatusBadgeClass(r.status)}`}>
                           {formatStatusPillLabel(r.status)}
                         </span>
-                        <span
-                          className={`inline-flex w-fit rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ${pipelineHeatBadgeClass(heat)}`}
-                        >
-                          {heat}
-                        </span>
+                        <span className={`${pillBase} ${pipelineHeatBadgeClass(heat)}`}>{heat}</span>
+                      </div>
+                      <p className="text-[13px] leading-snug text-slate-900">
+                        <span className="font-normal text-slate-500">Next: </span>
+                        {nextActionLabel !== "—" ? (
+                          <span className="font-semibold">{nextActionLabel}</span>
+                        ) : (
+                          <span className="font-normal text-slate-400">No next action</span>
+                        )}
+                      </p>
+                      <div>
+                        <span className="text-slate-400">Follow-up: </span>
+                        <span className={followUpValueClass(fu)}>{formatFollowUpDate(r.follow_up_date)}</span>
                       </div>
                       <div>
-                        <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Next action</div>
-                        <div className="text-sm font-semibold text-slate-900">
-                          {nextActionLabel !== "—" ? (
-                            nextActionLabel
-                          ) : (
-                            <span className="text-xs font-normal text-slate-400">No next action</span>
-                          )}
-                        </div>
-                      </div>
-                      {isEmployee ? (
-                        <div>
-                          <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Next hiring / channel</div>
-                          <div className="text-xs text-slate-800">{nextHiring}</div>
-                        </div>
-                      ) : (
-                        <div>
-                          <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Channel</div>
-                          <div className="text-xs text-slate-800">{(r.referral_source ?? "").trim() || "—"}</div>
-                        </div>
-                      )}
-                      <div>
-                        <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Follow-up</div>
-                        <div
-                          className={
-                            fu === "overdue"
-                              ? "font-semibold text-rose-800"
-                              : fu === "today"
-                                ? "font-semibold text-amber-900"
-                                : "text-slate-700"
-                          }
-                        >
-                          {formatFollowUpDate(r.follow_up_date)}
-                        </div>
+                        <span className="text-slate-400">Last: </span>
+                        <span className={`font-medium ${lastContactToneClass(lcHuman.tone)}`}>{lcHuman.line}</span>
                       </div>
                       <div>
-                        <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Last contact</div>
-                        <div className={`text-xs font-medium ${lastContactToneClass(lcHuman.tone)}`}>{lcHuman.line}</div>
-                      </div>
-                      <div>
-                        <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Owner</div>
-                        <div className="text-xs">{owner ? staffPrimaryLabel(owner) : "—"}</div>
+                        <span className="text-slate-400">Owner: </span>
+                        {owner ? staffPrimaryLabel(owner) : "—"}
                       </div>
                       <LeadQuickActions leadId={r.id} />
                     </div>
-                    <div className="min-w-0 text-xs leading-relaxed text-slate-700">
+                    <div className="min-w-0 text-[11px] leading-snug text-slate-600">
                       {isEmployee ? (
-                        <div className="rounded-lg border border-indigo-100 bg-indigo-50/40 p-3">
-                          <div className="text-[10px] font-semibold uppercase tracking-wide text-indigo-700">Applicant</div>
-                          <div className="mt-1.5">
-                            <span className="text-slate-500">Role</span> · {role || "—"}
-                          </div>
-                          {exp ? (
-                            <div className="mt-0.5">
-                              <span className="text-slate-500">Experience</span> · {exp}
-                            </div>
-                          ) : null}
+                        <div className="rounded-md border border-slate-100 bg-slate-50/50 px-2 py-1.5">
+                          <div className="font-medium text-slate-700">{role || "—"}</div>
+                          {exp ? <div className="text-slate-500">{exp}</div> : null}
                           {(r.referral_source ?? "").trim() ? (
-                            <div className="mt-0.5">
-                              <span className="text-slate-500">Channel</span> · {(r.referral_source ?? "").trim()}
-                            </div>
+                            <div className="mt-0.5 text-slate-500">{(r.referral_source ?? "").trim()}</div>
                           ) : null}
                           {resume ? (
-                            <div className="mt-2">
-                              <a
-                                href={resume}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-[11px] font-semibold text-sky-800 underline-offset-2 hover:underline"
-                              >
-                                Resume link
-                              </a>
-                            </div>
+                            <a
+                              href={resume}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="mt-1 inline-block font-medium text-sky-800 underline-offset-2 hover:underline"
+                            >
+                              Resume
+                            </a>
                           ) : null}
                         </div>
                       ) : (
-                        <div className="space-y-1.5">
-                          <div>
-                            <span className="text-slate-500">Intake</span> · {r.intake_status ?? "—"}
+                        <div className="rounded-md border border-slate-100 bg-slate-50/30 px-2 py-1.5 text-slate-600">
+                          <div className="flex flex-wrap gap-x-2 gap-y-0.5">
+                            <span>{(r.intake_status ?? "").trim() || "—"}</span>
+                            {(r.payer_type ?? "").trim() ? (
+                              <span className="text-slate-500">· {(r.payer_type ?? "").trim()}</span>
+                            ) : null}
                           </div>
-                          <div>
-                            <span className="text-slate-500">Payer type</span> · {r.payer_type ?? "—"}
-                          </div>
-                          <div className="break-words">
-                            <span className="text-slate-500">Payer</span> · {trunc(r.payer_name, 40)}
-                          </div>
+                          {(r.payer_name ?? "").trim() ? (
+                            <div className="mt-0.5 truncate text-slate-500" title={(r.payer_name ?? "").trim()}>
+                              {trunc(r.payer_name, 42)}
+                            </div>
+                          ) : (
+                            <div className="mt-0.5 text-slate-400">Payer not set</div>
+                          )}
                         </div>
                       )}
                     </div>
-                    <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-                      <LeadContactBlock
-                        name={displayName}
-                        showName={false}
-                        roleLine={roleLine}
-                        phoneDisplay={phone ? formatPhoneForDisplay(phone) : null}
-                        email={email || null}
-                        detailHref={detailHref}
-                      />
+                    <div className="flex min-w-0 flex-col gap-2 md:items-end">
+                      <CompactContactLines phoneDisplay={phone ? formatPhoneForDisplay(phone) : null} email={email || null} />
                       <LeadActionButtonRow leadId={r.id} phone={phone} keypadHref={keypadHref} smsHref={smsHref} />
                     </div>
-                    <div className="whitespace-nowrap text-right text-xs tabular-nums text-slate-600 md:self-center">
+                    <div className="whitespace-nowrap text-right text-[11px] tabular-nums text-slate-500 md:pt-1">
                       {new Date(r.created_at).toLocaleString()}
                     </div>
                   </div>

@@ -16,7 +16,7 @@ import { supabaseAdmin } from "@/lib/admin";
 import { buildContactSearchOrClause, matchesLeadSearchRow } from "@/lib/crm/crm-leads-search";
 import { sortLeadsForPipelineDefault } from "@/lib/crm/crm-leads-sort";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
-import { crmFilterBarCls, crmFilterInputCls, crmPrimaryCtaCls } from "@/components/admin/crm-admin-list-styles";
+import { crmFilterInputCls, crmPrimaryCtaCls } from "@/components/admin/crm-admin-list-styles";
 import { normalizeContact, staffPrimaryLabel, type CrmLeadRow } from "@/lib/crm/crm-leads-table-helpers";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 
@@ -222,8 +222,12 @@ export default async function AdminCrmLeadsPage({
         }
       />
 
-      <form method="get" action="/admin/crm/leads" className={crmFilterBarCls}>
-        <label className="flex min-w-[8rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+      <form
+        method="get"
+        action="/admin/crm/leads"
+        className="flex flex-wrap items-end gap-2 rounded-[24px] border border-slate-200 bg-white p-3 shadow-sm"
+      >
+        <label className="flex min-w-[7.5rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
           Status
           <select name="status" defaultValue={f.status} className={crmFilterInputCls}>
             <option value="">All</option>
@@ -234,7 +238,7 @@ export default async function AdminCrmLeadsPage({
             ))}
           </select>
         </label>
-        <label className="flex min-w-[8rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+        <label className="flex min-w-[7.5rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
           Source
           <select name="source" defaultValue={f.source} className={crmFilterInputCls}>
             <option value="">All</option>
@@ -245,7 +249,7 @@ export default async function AdminCrmLeadsPage({
             ))}
           </select>
         </label>
-        <label className="flex min-w-[10rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+        <label className="flex min-w-[9.5rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
           Owner
           <select name="owner" defaultValue={f.owner} className={crmFilterInputCls}>
             <option value="">All</option>
@@ -256,14 +260,14 @@ export default async function AdminCrmLeadsPage({
             ))}
           </select>
         </label>
-        <label className="flex min-w-[8rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+        <label className="flex min-w-[7.5rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
           Follow-up
           <select name="followUp" defaultValue={followUpToday ? "today" : ""} className={crmFilterInputCls}>
             <option value="">Any</option>
             <option value="today">Today (Central)</option>
           </select>
         </label>
-        <label className="flex min-w-[8rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+        <label className="flex min-w-[7.5rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
           Payer type
           <select name="payerType" defaultValue={f.payerType} className={crmFilterInputCls}>
             <option value="">All</option>
@@ -274,7 +278,7 @@ export default async function AdminCrmLeadsPage({
             ))}
           </select>
         </label>
-        <label className="flex min-w-[6rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+        <label className="flex min-w-[5.5rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
           Discipline
           <select name="discipline" defaultValue={f.discipline} className={crmFilterInputCls}>
             <option value="">All</option>
@@ -285,7 +289,7 @@ export default async function AdminCrmLeadsPage({
             ))}
           </select>
         </label>
-        <label className="flex min-w-[10rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+        <label className="flex min-w-[9.5rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
           Lead type
           <select name="leadType" defaultValue={f.leadType} className={crmFilterInputCls}>
             <option value="">All (mixed)</option>
@@ -293,18 +297,20 @@ export default async function AdminCrmLeadsPage({
             <option value="employee">Employee applicants</option>
           </select>
         </label>
-        <label className="flex min-w-[11rem] items-center gap-2 pt-5 text-[11px] font-medium text-slate-600">
-          <input type="checkbox" name="showDead" value="1" defaultChecked={showDead} className="h-4 w-4 rounded border-slate-300 text-sky-600" />
-          Show dead leads
-        </label>
-        <label className="flex min-w-[12rem] flex-1 flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+        <div className="flex min-h-[2.25rem] items-center gap-2 rounded-lg border border-slate-200 bg-slate-50/80 px-2.5">
+          <label className="flex cursor-pointer items-center gap-2 text-[11px] font-medium text-slate-600">
+            <input type="checkbox" name="showDead" value="1" defaultChecked={showDead} className="h-3.5 w-3.5 rounded border-slate-300 text-sky-600" />
+            Show dead leads
+          </label>
+        </div>
+        <label className="flex min-w-[min(100%,14rem)] flex-1 flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:min-w-[14rem]">
           Search name, phone, or email
           <input
             type="search"
             name="q"
             defaultValue={f.q}
             placeholder="Name, phone, or email…"
-            className={crmFilterInputCls}
+            className={`${crmFilterInputCls} min-h-[2.25rem]`}
           />
         </label>
         <button
