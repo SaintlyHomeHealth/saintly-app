@@ -1,8 +1,8 @@
 /**
- * Builds PWA/favicon assets from the line-art logo:
- * Saintly blue field + white mark + padding (not raw black-on-transparent resize).
+ * Rasterizes the hand-tuned SVG mark (thick strokes / filled shapes) for favicon + PWA.
+ * Do NOT use the thin outline PNG as the icon source — see public/brand/saintly-mark-favicon.svg
  *
- * Master output: public/brand/saintly-app-icon-master.png
+ * Master PNG output: public/brand/saintly-app-icon-master.png
  * Run: npm run icons:generate
  */
 import { execSync } from "node:child_process";
@@ -15,71 +15,41 @@ import sharp from "sharp";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
 
-/** Sky-600 — readable, medical-friendly “Saintly blue” */
 const BRAND_BLUE = "#0284c7";
 
-const SOURCE = join(ROOT, "public/brand/saintly-logo-source.png");
+/** Vector source of truth — bold house + halo + dome, readable at 16px+ */
+const SVG_MASTER = join(ROOT, "public/brand/saintly-mark-favicon.svg");
 
-/**
- * @param {Buffer} rgbaInput - PNG buffer
- * @param {number} canvasSize
- * @param {number} contentRatio — fraction of canvas used by logo bounding box (before centering)
- */
-async function composeIcon(rgbaInput, canvasSize, contentRatio) {
-  const inner = Math.round(canvasSize * contentRatio);
-  const resized = await sharp(rgbaInput).resize(inner, inner, { fit: "inside" }).ensureAlpha().toBuffer();
+async function rasterizeMaster(size) {
+  const svgBuf = readFileSync(SVG_MASTER);
+  return sharp(svgBuf).resize(size, size, { fit: "fill" }).png().toBuffer();
+}
 
-  const meta = await sharp(resized).metadata();
-  const w = meta.width ?? inner;
-  const h = meta.height ?? inner;
-
-  const { data, info } = await sharp(resized).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
-  const out = Buffer.alloc(info.width * info.height * 4);
-  for (let i = 0; i < data.length; i += 4) {
-    const a = data[i + 3];
-    out[i] = 255;
-    out[i + 1] = 255;
-    out[i + 2] = 255;
-    out[i + 3] = a;
-  }
-
-  const whiteLogo = await sharp(out, {
-    raw: { width: info.width, height: info.height, channels: 4 },
-  })
-    .png()
-    .toBuffer();
-
-  const left = Math.round((canvasSize - w) / 2);
-  const top = Math.round((canvasSize - h) / 2);
-
+async function buildMaskable512(master1024) {
+  const inner = 296;
+  const innerBuf = await sharp(master1024).resize(inner, inner, { fit: "fill" }).png().toBuffer();
+  const pad = Math.round((512 - inner) / 2);
   return sharp({
     create: {
-      width: canvasSize,
-      height: canvasSize,
+      width: 512,
+      height: 512,
       channels: 4,
       background: BRAND_BLUE,
     },
   })
-    .composite([{ input: whiteLogo, left, top }])
-    .png();
+    .composite([{ input: innerBuf, left: pad, top: pad }])
+    .png()
+    .toBuffer();
 }
 
 async function main() {
-  if (!existsSync(SOURCE)) {
-    console.error("Missing source:", SOURCE);
+  if (!existsSync(SVG_MASTER)) {
+    console.error("Missing SVG master:", SVG_MASTER);
     process.exit(1);
   }
 
-  const srcBuf = await sharp(SOURCE).ensureAlpha().toBuffer();
-
   const masterSize = 1024;
-  /** ~14% padding each side → logo reads clearly at 16–32px */
-  const standardRatio = 0.72;
-  /** Smaller mark for Android maskable safe zone (~80% circle) */
-  const maskableRatio = 0.52;
-
-  const master = await composeIcon(srcBuf, masterSize, standardRatio);
-  const masterBuf = await master.toBuffer();
+  const masterBuf = await rasterizeMaster(masterSize);
 
   const brandDir = join(ROOT, "public/brand");
   mkdirSync(brandDir, { recursive: true });
@@ -103,10 +73,16 @@ async function main() {
     console.log("Wrote", outPath);
   }
 
-  const maskable512 = await composeIcon(srcBuf, 512, maskableRatio);
+  const maskBuf = await buildMaskable512(masterBuf);
   const maskPath = join(ROOT, "public/icon-512-maskable.png");
-  await maskable512.toFile(maskPath);
+  writeFileSync(maskPath, maskBuf);
   console.log("Wrote", maskPath);
+
+  const preview32 = join(brandDir, "icon-preview-32.png");
+  const preview64 = join(brandDir, "icon-preview-64.png");
+  await sharp(masterBuf).resize(32, 32, { fit: "fill" }).png().toFile(preview32);
+  await sharp(masterBuf).resize(64, 64, { fit: "fill" }).png().toFile(preview64);
+  console.log("Wrote", preview32, preview64, "(QA: open to verify house reads at tiny size)");
 
   const tmp32 = join(tmpdir(), "saintly-favicon-32.png");
   const tmp48 = join(tmpdir(), "saintly-favicon-48.png");
