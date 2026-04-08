@@ -19,19 +19,24 @@ export const metadata: Metadata = {
     template: "%s · Saintly Home Health",
   },
   description: "Home Health Services",
-  applicationName: "Saintly Phone",
+  applicationName: "Saintly Home Health",
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "Saintly Phone",
+    title: "Saintly Home Health",
   },
+  /**
+   * Icons: also provided via file convention in /src/app/
+   * (favicon.ico, icon.png, apple-icon.png) so browsers + PWAs get the Saintly mark.
+   */
   icons: {
     icon: [
+      { url: "/favicon.ico", sizes: "any" },
       { url: "/favicon.png", sizes: "512x512", type: "image/png" },
-      { url: "/favicon.ico", sizes: "256x256" },
+      { url: "/icon-192.png", sizes: "192x192", type: "image/png" },
     ],
-    apple: [{ url: "/apple-icon", sizes: "180x180", type: "image/png" }],
+    apple: [{ url: "/apple-icon.png", sizes: "180x180", type: "image/png" }],
   },
 };
 

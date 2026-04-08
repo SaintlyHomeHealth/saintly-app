@@ -2,9 +2,9 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Saintly Workspace Phone",
-    short_name: "Saintly Phone",
-    description: "Installable workspace phone experience for Saintly staff.",
+    name: "Saintly Home Health",
+    short_name: "Saintly",
+    description: "Saintly Home Health — staff workspace and tools.",
     start_url: "/workspace/phone/today",
     scope: "/workspace/phone",
     display: "standalone",
@@ -13,13 +13,19 @@ export default function manifest(): MetadataRoute.Manifest {
     theme_color: "#0f172a",
     icons: [
       {
-        src: "/icon",
+        src: "/icon-192.png",
         sizes: "192x192",
         type: "image/png",
-        purpose: "maskable",
+        purpose: "any",
       },
       {
-        src: "/icon",
+        src: "/icon-512.png",
+        sizes: "512x512",
+        type: "image/png",
+        purpose: "any",
+      },
+      {
+        src: "/icon-512.png",
         sizes: "512x512",
         type: "image/png",
         purpose: "maskable",
