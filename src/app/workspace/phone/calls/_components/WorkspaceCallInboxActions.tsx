@@ -28,7 +28,7 @@ export function WorkspaceCallInboxActions({ callbackE164, contactId, patientId }
       {callHref ? (
         <Link
           href={callHref}
-          className={`${btnBase} border-emerald-200 bg-emerald-600 text-white shadow-emerald-600/20 hover:bg-emerald-700`}
+          className={`${btnBase} border-sky-400/40 bg-gradient-to-r from-blue-950 via-blue-700 to-sky-500 text-white shadow-md shadow-blue-900/25 hover:brightness-105`}
         >
           <Phone className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
           Call back
@@ -46,7 +46,7 @@ export function WorkspaceCallInboxActions({ callbackE164, contactId, patientId }
       {patientId ? (
         <Link
           href={`/workspace/phone/patients/${patientId}`}
-          className={`${btnBase} border-slate-200 bg-white text-slate-800 hover:bg-slate-50`}
+          className={`${btnBase} border-sky-200/90 bg-white text-phone-ink hover:bg-phone-ice`}
         >
           <UserRound className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
           Patient

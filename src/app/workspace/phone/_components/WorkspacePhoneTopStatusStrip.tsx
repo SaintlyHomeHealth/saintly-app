@@ -30,17 +30,20 @@ export function WorkspacePhoneTopStatusStrip({ displayName, inboundRingEnabled }
   const status = useMemo(() => {
     if (!inboundRingEnabled) return { label: "Ready (limited)", tone: "text-amber-900 bg-amber-100 border-amber-200" };
     if (ui.phase === "incoming" || ui.phase === "active") {
-      return { label: ui.phase === "incoming" ? "Incoming call" : "On call", tone: "text-emerald-900 bg-emerald-100 border-emerald-200" };
+      return {
+        label: ui.phase === "incoming" ? "Incoming call" : "On call",
+        tone: "text-phone-live bg-phone-live-bg border-sky-300/80",
+      };
     }
     if (ui.phase === "outbound_ringing") {
-      return { label: "Connecting", tone: "text-sky-900 bg-sky-100 border-sky-200" };
+      return { label: "Connecting", tone: "text-phone-ink bg-sky-100 border-sky-200/90" };
     }
-    return { label: "Ready for calls", tone: "text-emerald-900 bg-emerald-100 border-emerald-200" };
+    return { label: "Ready for calls", tone: "text-phone-ink bg-phone-ice border-phone-border" };
   }, [inboundRingEnabled, ui.phase]);
 
   return (
     <div className="mx-auto mt-2 w-full max-w-6xl px-4 sm:px-5">
-      <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-slate-200/80 bg-white/85 px-3 py-2.5 shadow-sm shadow-slate-200/40 backdrop-blur">
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-sky-100/80 bg-white/90 px-3 py-2.5 shadow-sm shadow-sky-950/5 backdrop-blur">
         <div className="min-w-0">
           <p className="truncate text-xs font-semibold text-slate-700">Signed in: {displayName}</p>
           {ui.remoteLabel ? <p className="truncate text-[11px] text-slate-500">{ui.remoteLabel}</p> : null}

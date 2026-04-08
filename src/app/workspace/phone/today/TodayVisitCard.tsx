@@ -11,10 +11,10 @@ import {
 
 function statusBadgeClass(statusKey: string): string {
   const s = statusKey.trim().toLowerCase();
-  if (s === "confirmed") return "bg-violet-100 text-violet-900 ring-violet-200/80";
+  if (s === "confirmed") return "bg-indigo-50 text-indigo-950 ring-indigo-200/80";
   if (s === "scheduled") return "bg-slate-100 text-slate-800 ring-slate-200/80";
-  if (s === "en_route") return "bg-sky-100 text-sky-900 ring-sky-200/80";
-  if (s === "arrived") return "bg-emerald-100 text-emerald-900 ring-emerald-200/80";
+  if (s === "en_route") return "bg-sky-100 text-sky-950 ring-sky-200/80";
+  if (s === "arrived") return "bg-sky-100 text-sky-950 ring-sky-300/80";
   if (s === "completed") return "bg-slate-100 text-slate-600 ring-slate-200/60";
   if (s === "missed" || s === "canceled") return "bg-red-50 text-red-800 ring-red-200/70";
   if (s === "rescheduled") return "bg-amber-50 text-amber-900 ring-amber-200/80";
@@ -48,9 +48,9 @@ type Props = {
 };
 
 const btnCls =
-  "inline-flex min-h-[34px] items-center justify-center rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 transition hover:bg-slate-50 hover:shadow-sm disabled:cursor-not-allowed disabled:opacity-40";
+  "inline-flex min-h-[34px] items-center justify-center rounded-xl border border-sky-200/90 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-phone-ink transition hover:bg-phone-ice hover:shadow-sm disabled:cursor-not-allowed disabled:opacity-40";
 const btnPrimaryCls =
-  "inline-flex min-h-[34px] items-center justify-center rounded-xl bg-slate-900 px-2.5 py-1.5 text-[11px] font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40";
+  "inline-flex min-h-[34px] items-center justify-center rounded-xl bg-gradient-to-r from-blue-950 via-blue-700 to-sky-500 px-2.5 py-1.5 text-[11px] font-semibold text-white shadow-sm shadow-blue-900/20 transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-40";
 
 function readCurrentPositionOrNull(): Promise<{ lat: number; lng: number; accuracyMeters: number | null } | null> {
   return new Promise((resolve) => {
@@ -113,10 +113,10 @@ export function TodayVisitCard(props: Props) {
   };
 
   return (
-    <li className="rounded-2xl bg-white/95 p-3.5 shadow-md shadow-slate-200/55 ring-1 ring-slate-200/70">
+    <li className="ws-phone-card p-3.5">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="truncate text-base font-semibold text-slate-900">{props.patientName}</p>
+          <p className="truncate text-base font-semibold text-phone-navy">{props.patientName}</p>
           <p className="mt-0.5 text-xs text-slate-500">{props.whenLabel}</p>
           {props.addressLine ? <p className="mt-1 line-clamp-2 text-xs text-slate-500">{props.addressLine}</p> : null}
         </div>
@@ -131,11 +131,11 @@ export function TodayVisitCard(props: Props) {
         <span className="rounded-full bg-sky-50 px-2 py-0.5 text-[10px] font-semibold text-sky-800">
           {props.reminderLabel}
         </span>
-        <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-800">
+        <span className="rounded-full bg-phone-ice px-2 py-0.5 text-[10px] font-semibold text-phone-ink">
           {props.reminderStateLabel}
         </span>
         {props.locationCapturedLabel ? (
-          <span className="rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-semibold text-violet-800">
+          <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-900">
             {props.locationCapturedLabel}
           </span>
         ) : null}
@@ -215,13 +215,13 @@ export function TodayVisitCard(props: Props) {
             type="date"
             required
             min={nowDate}
-            className="rounded-xl border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800"
+            className="ws-phone-input rounded-xl px-2 py-1.5 text-xs text-slate-800"
           />
           <input
             name="visitTime"
             type="time"
             required
-            className="rounded-xl border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800"
+            className="ws-phone-input rounded-xl px-2 py-1.5 text-xs text-slate-800"
           />
           <button type="submit" disabled={isPending} className={`${btnPrimaryCls} col-span-2`}>
             Save reschedule

@@ -23,11 +23,12 @@ type Props = {
 };
 
 const actionBtnCls =
-  "inline-flex min-h-[32px] items-center justify-center rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 transition hover:bg-slate-50";
+  "inline-flex min-h-[32px] items-center justify-center rounded-xl border border-sky-200/90 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-phone-ink transition hover:bg-phone-ice";
 const actionPrimaryCls =
-  "inline-flex min-h-[32px] items-center justify-center rounded-xl bg-slate-900 px-2.5 py-1.5 text-[11px] font-semibold text-white transition hover:bg-slate-800";
+  "inline-flex min-h-[32px] items-center justify-center rounded-xl bg-gradient-to-r from-blue-950 via-blue-700 to-sky-500 px-2.5 py-1.5 text-[11px] font-semibold text-white shadow-sm shadow-blue-900/20 transition hover:brightness-105";
 
-const placeholderCls = "rounded-xl border border-dashed border-slate-200 bg-slate-50/80 px-2.5 py-2 text-[11px] leading-snug text-slate-500";
+const placeholderCls =
+  "rounded-xl border border-dashed border-sky-200/80 bg-phone-powder/50 px-2.5 py-2 text-[11px] leading-snug text-slate-600";
 
 export function VoicemailCard({
   callId,
@@ -51,7 +52,7 @@ export function VoicemailCard({
     (transcriptStatus === "queued" || transcriptStatus === "processing" || transcriptStatus === "pending");
 
   const transcriptBody = transcript ? (
-    <p className="rounded-xl border border-slate-100 bg-slate-50/90 px-2.5 py-2 text-[11px] leading-snug text-slate-800">
+    <p className="rounded-xl border border-sky-100/90 bg-phone-ice/70 px-2.5 py-2 text-[11px] leading-snug text-slate-800">
       {transcript}
     </p>
   ) : transcriptPending ? (
@@ -64,20 +65,18 @@ export function VoicemailCard({
 
   return (
     <li
-      className={`rounded-2xl bg-white/90 px-3 py-2.5 text-xs ring-1 ring-violet-100/80 ${
-        compact ? "space-y-2" : "space-y-2.5"
-      }`}
+      className={`ws-phone-card px-3 py-2.5 text-xs ${compact ? "space-y-2" : "space-y-2.5"}`}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="truncate text-sm font-semibold text-slate-900">{title}</p>
+          <p className="truncate text-sm font-semibold text-phone-navy">{title}</p>
           <p className="mt-0.5 truncate text-[11px] text-slate-500">{subtitle}</p>
           <p className="mt-0.5 text-[11px] text-slate-500">
             {whenLabel} · {durationLabel}
           </p>
         </div>
         {patientHref ? (
-          <Link href={patientHref} className="shrink-0 text-[11px] font-semibold text-violet-900 hover:underline">
+          <Link href={patientHref} className="shrink-0 text-[11px] font-semibold text-phone-ink hover:underline">
             Patient
           </Link>
         ) : null}
@@ -95,7 +94,7 @@ export function VoicemailCard({
       <div className="space-y-1.5">
         <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">AI recap</p>
         {aiRecap ? (
-          <p className="rounded-xl border border-violet-100 bg-violet-50/60 px-2.5 py-2 text-[11px] leading-snug text-slate-800">
+          <p className="rounded-xl border border-sky-100/90 bg-phone-powder/60 px-2.5 py-2 text-[11px] leading-snug text-slate-800">
             {aiRecap}
           </p>
         ) : transcriptPending ? (

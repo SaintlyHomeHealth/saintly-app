@@ -74,19 +74,19 @@ export function WorkspaceCallInboxCard({ row, variant, patientId }: Props) {
   const shell =
     missed
       ? "border-rose-200/90 bg-gradient-to-br from-rose-50/95 to-white shadow-rose-100/50"
-      : "border-slate-200/80 bg-white shadow-slate-200/40";
+      : "border-sky-100/80 bg-white shadow-sky-950/5";
 
   return (
     <li className={`rounded-2xl border p-4 shadow-sm ${shell}`}>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
-          <p className={`truncate text-base font-semibold ${missed ? "text-rose-950" : "text-slate-900"}`}>{title}</p>
+          <p className={`truncate text-base font-semibold ${missed ? "text-rose-950" : "text-phone-navy"}`}>{title}</p>
           <p className="mt-0.5 font-mono text-sm tabular-nums text-slate-600">{numberDisplay}</p>
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1">
           <span
             className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
-              missed ? "bg-rose-600 text-white" : "bg-slate-100 text-slate-700"
+              missed ? "bg-rose-600 text-white" : "bg-phone-ice text-phone-ink"
             }`}
           >
             {missed ? "Missed" : dir === "inbound" ? "Inbound" : dir === "outbound" ? "Outbound" : "Call"}

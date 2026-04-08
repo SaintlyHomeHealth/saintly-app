@@ -137,7 +137,7 @@ export function NursePhoneBottomNav({ showLeadsNav = true }: NavProps) {
 
   return (
     <nav
-      className="fixed bottom-0 left-0 right-0 z-40 border-t border-slate-200/80 bg-white/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-1px_0_rgba(0,0,0,0.04)] backdrop-blur supports-[backdrop-filter]:bg-white/80"
+      className="fixed bottom-0 left-0 right-0 z-40 border-t border-sky-100/80 bg-white/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-4px_24px_-8px_rgba(30,58,138,0.07)] backdrop-blur supports-[backdrop-filter]:bg-white/85"
       aria-label="Phone workspace"
     >
       <ul className="mx-auto flex w-full max-w-6xl items-stretch justify-between gap-0.5 px-1 pt-1">
@@ -149,12 +149,12 @@ export function NursePhoneBottomNav({ showLeadsNav = true }: NavProps) {
                 href={t.href}
                 className={`flex flex-col items-center justify-center rounded-xl px-0.5 py-2 text-[10px] font-semibold leading-tight transition sm:text-[11px] ${
                   active
-                    ? "bg-sky-100/95 text-slate-900 ring-1 ring-inset ring-sky-200/70"
-                    : "text-slate-500 hover:bg-sky-50/60 hover:text-slate-800"
+                    ? "bg-phone-nav-active text-phone-navy ring-1 ring-inset ring-phone-border"
+                    : "text-slate-500 hover:bg-phone-ice/80 hover:text-phone-ink"
                 }`}
               >
                 <span
-                  className={`mb-0.5 flex flex-col items-center ${active ? "text-blue-900" : "text-slate-400"}`}
+                  className={`mb-0.5 flex flex-col items-center ${active ? "text-phone-ink" : "text-slate-400"}`}
                   title={t.iconTitle}
                 >
                   {t.icon}

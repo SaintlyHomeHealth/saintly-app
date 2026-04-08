@@ -14,7 +14,7 @@ export function InboxSearchBar({ defaultQuery }: Props) {
         name="q"
         defaultValue={defaultQuery}
         placeholder="Search name or number"
-        className="w-full rounded-full border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm shadow-slate-200/50 outline-none ring-sky-200 transition focus:ring"
+        className="ws-phone-input w-full rounded-full px-3 py-2 text-sm shadow-sm shadow-sky-950/5 ring-offset-0"
       />
     </form>
   );

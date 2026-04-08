@@ -80,7 +80,7 @@ export default async function WorkspaceFollowUpsTodayPage() {
   });
 
   return (
-    <div className="flex flex-1 flex-col px-4 pb-6 pt-5 sm:px-5">
+    <div className="ws-phone-page-shell flex flex-1 flex-col px-4 pb-6 pt-5 sm:px-5">
       <WorkspacePhonePageHeader
         title="Follow-ups today"
         subtitle={
@@ -99,7 +99,7 @@ export default async function WorkspaceFollowUpsTodayPage() {
 
       <ul className="mt-6 space-y-3">
         {due.length === 0 ? (
-          <li className="rounded-2xl border border-slate-200/80 bg-white/90 px-4 py-6 text-center text-sm text-slate-600 shadow-sm">
+          <li className="ws-phone-card px-4 py-6 text-center text-sm text-slate-600">
             No leads due for follow-up today.
           </li>
         ) : null}
@@ -115,7 +115,7 @@ export default async function WorkspaceFollowUpsTodayPage() {
           return (
             <li
               key={row.id}
-              className="rounded-2xl border border-amber-200/60 bg-white/95 p-4 shadow-sm shadow-amber-100/40"
+              className="rounded-2xl border border-amber-200/55 bg-white/95 p-4 shadow-sm shadow-amber-100/35"
             >
               <div className="min-w-0">
                 <p className="truncate text-sm font-semibold text-slate-900">{name}</p>
@@ -127,7 +127,7 @@ export default async function WorkspaceFollowUpsTodayPage() {
                   </span>
                 </p>
                 <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                  <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-700">
+                  <span className="rounded-full bg-phone-ice px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-phone-ink">
                     {formatLeadPipelineStatusLabel(row.status)}
                   </span>
                   {row.next_action ? (
@@ -138,7 +138,9 @@ export default async function WorkspaceFollowUpsTodayPage() {
                       Next: {nextLabel}
                     </span>
                   ) : (
-                    <span className="rounded-full bg-slate-50 px-2 py-0.5 text-[10px] text-slate-500">No next action</span>
+                    <span className="rounded-full border border-sky-100/80 bg-phone-powder/60 px-2 py-0.5 text-[10px] text-slate-600">
+                      No next action
+                    </span>
                   )}
                 </div>
               </div>

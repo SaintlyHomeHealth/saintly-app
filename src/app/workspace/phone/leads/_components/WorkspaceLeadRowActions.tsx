@@ -8,9 +8,9 @@ import {
 } from "@/lib/workspace-phone/launch-urls";
 
 const btnPrimary =
-  "inline-flex min-h-[36px] flex-1 items-center justify-center rounded-xl bg-slate-900 px-2 py-1.5 text-[11px] font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40";
+  "inline-flex min-h-[36px] flex-1 items-center justify-center rounded-xl bg-gradient-to-r from-blue-950 via-blue-700 to-sky-500 px-2 py-1.5 text-[11px] font-semibold text-white shadow-sm shadow-blue-900/20 transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-40";
 const btnGhost =
-  "inline-flex min-h-[36px] flex-1 items-center justify-center rounded-xl border border-slate-200/80 bg-white px-2 py-1.5 text-[11px] font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40";
+  "inline-flex min-h-[36px] flex-1 items-center justify-center rounded-xl border border-sky-200/90 bg-white px-2 py-1.5 text-[11px] font-semibold text-phone-ink shadow-sm transition hover:bg-phone-ice disabled:cursor-not-allowed disabled:opacity-40";
 
 type Props = {
   leadId: string;

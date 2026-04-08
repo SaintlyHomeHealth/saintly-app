@@ -45,7 +45,7 @@ export default async function WorkspaceKeypadPage({
   }
 
   return (
-    <div className="flex flex-1 flex-col bg-gradient-to-b from-slate-100/80 via-sky-50/25 to-sky-100/20 px-4 pb-6 pt-6 sm:px-5 sm:pt-7 lg:px-8">
+    <div className="ws-phone-page-shell flex flex-1 flex-col px-4 pb-6 pt-6 sm:px-5 sm:pt-7 lg:px-8">
       <WorkspacePhonePageHeader
         title="Keypad"
         subtitle="Dial out with the Saintly line. Stay on this screen to hear inbound calls on this device."

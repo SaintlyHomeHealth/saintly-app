@@ -120,7 +120,7 @@ export function WorkspaceSmsThreadView({
                 <div
                   className={`max-w-[min(85%,28rem)] rounded-[1.15rem] px-3.5 py-2.5 text-[15px] leading-snug shadow-sm ${
                     inbound
-                      ? "rounded-bl-md border border-slate-200/90 bg-slate-100 text-slate-900"
+                      ? "rounded-bl-md border border-sky-100/90 bg-gradient-to-b from-sky-50/95 to-white text-slate-900 shadow-sky-950/5"
                       : "rounded-br-md bg-gradient-to-br from-blue-950 via-blue-800 to-sky-600 text-white shadow-blue-900/15"
                   } ${isPending ? "opacity-85" : ""}`}
                 >
@@ -154,7 +154,9 @@ export function WorkspaceSmsThreadView({
         />
       </div>
 
-      {belowComposerSlot ? <div className="shrink-0 border-t border-slate-100/80 bg-slate-50/30">{belowComposerSlot}</div> : null}
+      {belowComposerSlot ? (
+        <div className="shrink-0 border-t border-sky-100/70 bg-phone-powder/50">{belowComposerSlot}</div>
+      ) : null}
     </div>
   );
 }

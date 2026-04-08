@@ -8,7 +8,7 @@ const SoftphoneDialer = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="flex min-h-[280px] items-center justify-center rounded-2xl border border-slate-200/80 bg-slate-50/80 text-sm text-slate-500">
+      <div className="flex min-h-[280px] items-center justify-center rounded-2xl border border-sky-100/90 bg-phone-powder/50 text-sm text-slate-600">
         Loading dialer…
       </div>
     ),

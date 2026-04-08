@@ -126,7 +126,7 @@ export default async function WorkspacePhoneLeadsPage({
   });
 
   return (
-    <div className="flex flex-1 flex-col px-4 pb-6 pt-5 sm:px-5">
+    <div className="ws-phone-page-shell flex flex-1 flex-col px-4 pb-6 pt-5 sm:px-5">
       <WorkspacePhonePageHeader
         title="Leads"
         subtitle={
@@ -148,7 +148,7 @@ export default async function WorkspacePhoneLeadsPage({
 
       <ul className="mt-4 space-y-3">
         {openLeads.length === 0 ? (
-          <li className="rounded-2xl border border-slate-200/80 bg-white/90 px-4 py-6 text-center text-sm text-slate-600 shadow-sm">
+          <li className="ws-phone-card px-4 py-6 text-center text-sm text-slate-600">
             No open leads in the pipeline.
           </li>
         ) : null}
@@ -166,11 +166,11 @@ export default async function WorkspacePhoneLeadsPage({
           return (
             <li
               key={row.id}
-              className="rounded-2xl border border-slate-200/80 bg-white/95 p-4 shadow-sm shadow-slate-200/40"
+              className="ws-phone-card p-4"
             >
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold text-slate-900">{name}</p>
+                  <p className="truncate text-sm font-semibold text-phone-navy">{name}</p>
                   <p className="mt-0.5 text-xs text-slate-600">{phoneDisplay}</p>
                   <p className="mt-1 text-[11px] text-slate-500">
                     Last contact:{" "}
@@ -179,7 +179,7 @@ export default async function WorkspacePhoneLeadsPage({
                     </span>
                   </p>
                   <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-700">
+                    <span className="rounded-full bg-phone-ice px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-phone-ink">
                       {formatLeadPipelineStatusLabel(row.status)}
                     </span>
                     {followUpToday ? (

@@ -359,7 +359,7 @@ export default async function WorkspacePatientDetailPage(props: { params: Promis
   };
 
   return (
-    <div className="px-4 pb-28 pt-4">
+    <div className="ws-phone-page-shell px-4 pb-28 pt-4">
       <Link href="/workspace/phone/patients" className="text-sm font-medium text-sky-900/90 hover:underline">
         ← Patients
       </Link>
@@ -479,7 +479,7 @@ export default async function WorkspacePatientDetailPage(props: { params: Promis
           <span className="rounded-full bg-slate-100/90 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
             {roleLabel}
           </span>
-          <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold text-emerald-900">
+          <span className="rounded-full bg-phone-ice px-2.5 py-1 text-[10px] font-semibold text-phone-ink">
             {viewerName}
           </span>
           {typeof conv?.lead_status === "string" && conv.lead_status.trim() ? (
@@ -746,7 +746,7 @@ export default async function WorkspacePatientDetailPage(props: { params: Promis
         </ul>
       </section>
 
-      <section className="mt-4 rounded-2xl bg-slate-50/80 px-3 py-3 text-xs leading-relaxed text-slate-500 ring-1 ring-slate-200/40">
+      <section className="mt-4 rounded-2xl border border-sky-100/70 bg-phone-powder/50 px-3 py-3 text-xs leading-relaxed text-slate-600">
         <p className="font-semibold text-slate-600">Automated reminders</p>
         <p className="mt-1">
           Day-before and day-of SMS run from scheduled visits (see upcoming list). Ops schedules{" "}

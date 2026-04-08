@@ -157,14 +157,14 @@ export default async function WorkspaceVoicemailPage() {
   }
 
   return (
-    <div className="flex flex-1 flex-col px-4 pb-6 pt-5 sm:px-5">
+    <div className="ws-phone-page-shell flex flex-1 flex-col px-4 pb-6 pt-5 sm:px-5">
       <WorkspacePhonePageHeader
         title="Voicemail"
         subtitle="Newest first — play messages, call back, or jump to the patient thread."
       />
 
       {calls.length === 0 ? (
-        <div className="mt-4 rounded-2xl border border-dashed border-slate-200 bg-slate-50/60 p-10 text-center text-sm text-slate-500">
+        <div className="ws-phone-empty mt-4 p-10">
           You are all caught up. No voicemail to review.
         </div>
       ) : (

@@ -287,12 +287,12 @@ export default async function WorkspaceTodayPage() {
         <p className="mt-1 text-sm text-slate-600">{subtitle}</p>
       </div>
       {items.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/60 p-6 text-center">
-          <BellRing className="mx-auto h-5 w-5 text-slate-400" strokeWidth={2} />
-          <p className="mt-2 text-sm text-slate-500">Nothing to work here right now.</p>
+        <div className="ws-phone-empty">
+          <BellRing className="mx-auto h-5 w-5 text-sky-400" strokeWidth={2} />
+          <p className="mt-2 text-sm text-slate-600">Nothing to work here right now.</p>
           <Link
             href={emptyCta.href}
-            className="mt-3 inline-flex rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+            className="mt-3 inline-flex rounded-full border border-sky-200/90 bg-white px-3 py-1.5 text-xs font-semibold text-phone-ink hover:bg-phone-ice"
           >
             {emptyCta.label}
           </Link>
@@ -346,7 +346,7 @@ export default async function WorkspaceTodayPage() {
   }
 
   return (
-    <div className="px-4 pb-8 pt-5 sm:px-5 lg:mx-auto lg:max-w-4xl lg:px-6">
+    <div className="ws-phone-page-shell px-4 pb-8 pt-5 sm:px-5 lg:mx-auto lg:max-w-4xl lg:px-6">
       <WorkspacePhonePageHeader
         title="Today"
         subtitle="Your next visits and anything that needs a decision before you go."
@@ -354,23 +354,23 @@ export default async function WorkspaceTodayPage() {
       <div className="mt-2">
         <WorkspacePhoneQuickActions />
       </div>
-      <section className="mt-5 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-md shadow-slate-200/45">
-        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">Next up</p>
+      <section className="ws-phone-card mt-5 p-4">
+        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-phone-ink/70">Next up</p>
         {nextVisit ? (
           <div className="mt-2">
-            <p className="truncate text-base font-semibold text-slate-900">{nextVisit.patientName}</p>
+            <p className="truncate text-base font-semibold text-phone-navy">{nextVisit.patientName}</p>
             <p className="mt-0.5 text-sm text-slate-600">{nextVisit.whenLabel}</p>
             <div className="mt-2 flex flex-wrap gap-2">
               <Link
                 href={`/workspace/phone/patients/${nextVisit.patient_id}`}
-                className="rounded-full bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800"
+                className="rounded-full bg-gradient-to-r from-blue-950 via-blue-700 to-sky-500 px-3 py-1.5 text-xs font-semibold text-white shadow-sm shadow-blue-900/20 hover:brightness-105"
               >
                 Open patient
               </Link>
               {nextVisit.inboxHref ? (
                 <Link
                   href={nextVisit.inboxHref}
-                  className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                  className="rounded-full border border-sky-200/90 bg-white px-3 py-1.5 text-xs font-semibold text-phone-ink hover:bg-phone-ice"
                 >
                   Open thread
                 </Link>
@@ -381,17 +381,17 @@ export default async function WorkspaceTodayPage() {
           <p className="mt-2 text-sm text-slate-500">No upcoming visits yet.</p>
         )}
         <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
-          <div className="rounded-xl bg-slate-50 px-3 py-2">
-            <p className="flex items-center gap-1 text-[11px] font-semibold text-slate-600">
+          <div className="rounded-xl border border-sky-100/70 bg-phone-ice/80 px-3 py-2">
+            <p className="flex items-center gap-1 text-[11px] font-semibold text-phone-ink/80">
               <CalendarClock className="h-3.5 w-3.5" /> Visits today
             </p>
-            <p className="mt-1 text-lg font-semibold text-slate-900">{today.length}</p>
+            <p className="mt-1 text-lg font-semibold text-phone-navy">{today.length}</p>
           </div>
-          <div className="rounded-xl bg-slate-50 px-3 py-2">
-            <p className="flex items-center gap-1 text-[11px] font-semibold text-slate-600">
+          <div className="rounded-xl border border-sky-100/70 bg-phone-ice/80 px-3 py-2">
+            <p className="flex items-center gap-1 text-[11px] font-semibold text-phone-ink/80">
               <Inbox className="h-3.5 w-3.5" /> Inbox threads
             </p>
-            <p className="mt-1 text-lg font-semibold text-slate-900">{inboxCount ?? 0}</p>
+            <p className="mt-1 text-lg font-semibold text-phone-navy">{inboxCount ?? 0}</p>
           </div>
           <div className="rounded-xl bg-rose-50 px-3 py-2">
             <p className="flex items-center gap-1 text-[11px] font-semibold text-rose-700">

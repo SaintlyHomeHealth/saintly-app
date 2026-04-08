@@ -20,7 +20,7 @@ type Initial = {
 
 const labelCls = "block text-[11px] font-medium text-slate-500";
 const inputCls =
-  "mt-1 w-full rounded-2xl border-0 bg-white px-3 py-2 text-sm text-slate-900 ring-1 ring-slate-200/80 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-300/80";
+  "mt-1 w-full rounded-2xl border-0 bg-white px-3 py-2 text-sm text-slate-900 ring-1 ring-sky-200/80 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-phone-ring/80";
 
 type Props = {
   patientId: string;
@@ -123,7 +123,7 @@ export function PatientProfileEditForm({ patientId, initial }: Props) {
         <button
           type="submit"
           disabled={pending}
-          className="w-full rounded-2xl bg-slate-900 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:opacity-50"
+          className="w-full rounded-2xl bg-gradient-to-r from-blue-950 via-blue-700 to-sky-500 py-2.5 text-sm font-semibold text-white shadow-sm shadow-blue-900/20 transition hover:brightness-105 disabled:opacity-50"
         >
           {pending ? "Saving…" : "Save updates"}
         </button>

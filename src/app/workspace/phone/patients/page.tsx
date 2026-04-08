@@ -312,7 +312,7 @@ export default async function WorkspacePatientsPage() {
   });
 
   return (
-    <div className="px-4 pb-8 pt-5 sm:px-5">
+    <div className="ws-phone-page-shell px-4 pb-8 pt-5 sm:px-5">
       <WorkspacePhonePageHeader
         title="Patients"
         subtitle="Assigned to you — call, text, and follow up without opening the CRM."
@@ -331,14 +331,14 @@ export default async function WorkspacePatientsPage() {
       ) : null}
 
       {merged.length === 0 ? (
-        <div className="rounded-2xl bg-slate-100/80 px-4 py-10 text-center">
+        <div className="ws-phone-empty px-4 py-10">
           <p className="text-sm font-medium text-slate-700">No patients yet</p>
-          <p className="mt-2 text-sm text-slate-500">
+          <p className="mt-2 text-sm text-slate-600">
             When a patient is assigned to you in the chart or routed to you in messaging, they will appear here.
           </p>
           <Link
             href="/workspace/phone/inbox"
-            className="mt-4 inline-flex rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white"
+            className="mt-4 inline-flex rounded-full bg-gradient-to-r from-blue-950 via-blue-700 to-sky-500 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-blue-900/20 hover:brightness-105"
           >
             Open inbox
           </Link>
@@ -392,19 +392,19 @@ function PatientListCard({ item }: { item: ListItemPatient | ListItemThread }) {
         {alt ? <p className="mt-0.5 text-[11px] tabular-nums text-slate-500">Alt {alt}</p> : null}
 
         <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
-          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
+          <span className="rounded-full bg-phone-ice px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-phone-ink/90">
             {chip}
           </span>
           <span className="rounded-full bg-sky-50 px-2 py-0.5 text-[10px] font-semibold capitalize text-sky-800">
             {lead}
           </span>
           {statusChip ? (
-            <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold capitalize text-emerald-900">
+            <span className="rounded-full bg-sky-100/90 px-2 py-0.5 text-[10px] font-semibold capitalize text-sky-950">
               {statusChip}
             </span>
           ) : null}
           {item.kind === "patient" && item.hasVoicemail ? (
-            <span className="rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-semibold text-violet-900">
+            <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-900">
               Voicemail
             </span>
           ) : null}

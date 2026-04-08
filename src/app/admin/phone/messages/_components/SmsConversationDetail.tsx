@@ -424,7 +424,7 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
   if (workspaceShell) {
     return (
       <div className="flex min-h-[calc(100dvh-8rem)] min-h-0 flex-1 flex-col overflow-hidden px-0 pb-28 sm:pb-32">
-        <header className="sticky top-0 z-20 shrink-0 border-b border-sky-100/80 bg-white/95 px-4 py-3 shadow-sm shadow-slate-200/30 backdrop-blur-md supports-[backdrop-filter]:bg-white/90">
+        <header className="sticky top-0 z-20 shrink-0 border-b border-sky-100/80 bg-white/95 px-4 py-3 shadow-sm shadow-sky-950/5 backdrop-blur-md supports-[backdrop-filter]:bg-white/90">
           <Link
             href={inboxHref}
             className="inline-flex items-center gap-0.5 text-sm font-semibold text-blue-900 hover:underline"
@@ -434,7 +434,7 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
           </Link>
           <div className="mt-2 flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
-              <h1 className="truncate text-lg font-bold leading-tight text-slate-900 sm:text-xl">
+              <h1 className="truncate text-lg font-bold leading-tight text-phone-navy sm:text-xl">
                 {contactName ? contactName : unknownTexter ? "Unknown" : phoneDisplayFormatted}
               </h1>
               <p className="mt-0.5 font-mono text-xs text-slate-600">{phoneDisplayFormatted}</p>
@@ -451,7 +451,7 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
                   Call
                 </Link>
               ) : (
-                <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-400">
+                <span className="rounded-full border border-sky-200/80 bg-phone-ice/80 px-3 py-2 text-xs font-semibold text-slate-400">
                   Call
                 </span>
               )}
@@ -482,12 +482,12 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
         </header>
 
         {ok === "intake" ? (
-          <div className="mx-4 mt-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+          <div className="mx-4 mt-2 rounded-lg border border-sky-200/90 bg-phone-ice px-3 py-2 text-sm text-phone-ink">
             Contact saved and linked to this thread.
           </div>
         ) : null}
         {ok === "sms_sent" ? (
-          <div className="mx-4 mt-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+          <div className="mx-4 mt-2 rounded-lg border border-sky-200/90 bg-phone-ice px-3 py-2 text-sm text-phone-ink">
             Message sent.
           </div>
         ) : null}
@@ -511,7 +511,7 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
           </div>
         ) : null}
 
-        <div className="flex min-h-0 flex-1 flex-col bg-gradient-to-b from-slate-50/80 to-white">
+        <div className="flex min-h-0 flex-1 flex-col bg-gradient-to-b from-phone-powder/35 via-white to-white">
           <WorkspaceSmsThreadView
             key={`${conversationId}-${threadMessages.length}`}
             conversationId={conversationId}

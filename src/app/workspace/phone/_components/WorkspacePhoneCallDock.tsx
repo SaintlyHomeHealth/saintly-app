@@ -51,22 +51,22 @@ export function WorkspacePhoneCallDock() {
 
   return (
     <div
-      className="fixed bottom-[calc(5.5rem+env(safe-area-inset-bottom,0px))] left-0 right-0 z-[42] border-t border-emerald-200/80 bg-emerald-950/95 px-4 py-2.5 text-emerald-50 shadow-[0_-4px_24px_rgba(0,0,0,0.12)] backdrop-blur-sm supports-[backdrop-filter]:bg-emerald-950/90"
+      className="fixed bottom-[calc(5.5rem+env(safe-area-inset-bottom,0px))] left-0 right-0 z-[42] border-t border-sky-400/35 bg-gradient-to-r from-blue-950 via-slate-900 to-blue-950 px-4 py-2.5 text-sky-50 shadow-[0_-8px_32px_-8px_rgba(30,58,138,0.35)] backdrop-blur-sm supports-[backdrop-filter]:bg-blue-950/92"
       role="status"
       aria-live="polite"
     >
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-xs font-semibold uppercase tracking-wide text-emerald-200/90">{label}</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-sky-200/90">{label}</p>
           {ui.remoteLabel ? (
             <p className="truncate font-mono text-sm text-white">{ui.remoteLabel}</p>
           ) : (
-            <p className="text-sm text-emerald-100/90">Use Keypad to answer or control the call.</p>
+            <p className="text-sm text-sky-100/90">Use Keypad to answer or control the call.</p>
           )}
         </div>
         <Link
           href="/workspace/phone/keypad"
-          className="shrink-0 rounded-full bg-white px-4 py-2 text-xs font-bold text-emerald-950 shadow-sm transition hover:bg-emerald-50"
+          className="shrink-0 rounded-full bg-white px-4 py-2 text-xs font-bold text-phone-ink shadow-sm transition hover:bg-phone-ice"
         >
           Open keypad
         </Link>

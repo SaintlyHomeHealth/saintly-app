@@ -13,9 +13,9 @@ import {
 import type { OutboundSmsRecipient } from "@/lib/crm/outbound-patient-sms";
 
 const btnPrimary =
-  "inline-flex flex-1 min-h-[40px] items-center justify-center rounded-2xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white shadow-sm shadow-slate-900/10 transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40";
+  "inline-flex flex-1 min-h-[40px] items-center justify-center rounded-2xl bg-gradient-to-r from-blue-950 via-blue-700 to-sky-500 px-3 py-2 text-xs font-semibold text-white shadow-sm shadow-blue-900/20 transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-40";
 const btnGhost =
-  "inline-flex flex-1 min-h-[40px] items-center justify-center rounded-2xl border border-slate-200/80 bg-white px-3 py-2 text-xs font-semibold text-slate-800 shadow-sm shadow-slate-200/30 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40";
+  "inline-flex flex-1 min-h-[40px] items-center justify-center rounded-2xl border border-sky-200/90 bg-white px-3 py-2 text-xs font-semibold text-phone-ink shadow-sm shadow-sky-950/5 transition hover:bg-phone-ice disabled:cursor-not-allowed disabled:opacity-40";
 
 type Props = {
   patientId: string;
@@ -98,7 +98,7 @@ export function PatientHubClient({ patientId, primaryPhone, secondaryPhone, conv
         </div>
       ) : null}
 
-      <section className="rounded-3xl bg-white/90 p-4 shadow-sm shadow-slate-200/40 ring-1 ring-slate-200/50 backdrop-blur-sm">
+      <section className="rounded-3xl border border-sky-100/70 bg-white/95 p-4 shadow-sm shadow-sky-950/5 backdrop-blur-sm">
         <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">Communicate</p>
         <div className="mt-3 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
           {primaryPhone ? (
@@ -128,7 +128,7 @@ export function PatientHubClient({ patientId, primaryPhone, secondaryPhone, conv
         </div>
       </section>
 
-      <section className="rounded-3xl bg-gradient-to-br from-slate-900/[0.03] to-white p-4 ring-1 ring-slate-200/40">
+      <section className="rounded-3xl border border-sky-100/60 bg-gradient-to-br from-phone-powder/80 to-white p-4 shadow-sm shadow-sky-950/5">
         <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">Quick texts</p>
         <p className="mt-1 text-xs text-slate-500">Choose who receives the preset, then tap a message.</p>
         <div className="mt-2 flex flex-wrap gap-2">
@@ -139,8 +139,8 @@ export function PatientHubClient({ patientId, primaryPhone, secondaryPhone, conv
               onClick={() => setSmsRecipient(r)}
               className={`rounded-full px-3 py-1 text-[11px] font-semibold transition ${
                 smsRecipient === r
-                  ? "bg-slate-900 text-white"
-                  : "bg-white text-slate-600 ring-1 ring-slate-200/80 hover:bg-slate-50"
+                  ? "bg-gradient-to-r from-blue-950 to-sky-600 text-white shadow-sm shadow-blue-900/20"
+                  : "bg-white text-slate-600 ring-1 ring-sky-200/80 hover:bg-phone-ice"
               }`}
             >
               {r === "patient" ? "Patient" : r === "caregiver" ? "Caregiver" : "Both"}
@@ -152,7 +152,7 @@ export function PatientHubClient({ patientId, primaryPhone, secondaryPhone, conv
             type="button"
             disabled={pending}
             onClick={onMyWay}
-            className="rounded-full bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:opacity-50"
+            className="rounded-full bg-gradient-to-r from-blue-950 via-blue-700 to-sky-500 px-3 py-1.5 text-xs font-semibold text-white shadow-sm shadow-blue-900/20 transition hover:brightness-105 disabled:opacity-50"
           >
             On my way
           </button>
@@ -160,7 +160,7 @@ export function PatientHubClient({ patientId, primaryPhone, secondaryPhone, conv
             type="button"
             disabled={pending}
             onClick={() => sendPreset(copy.confirm, smsRecipient)}
-            className="rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 ring-1 ring-slate-200/80 transition hover:bg-slate-50 disabled:opacity-50"
+            className="rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-phone-ink ring-1 ring-sky-200/90 transition hover:bg-phone-ice disabled:opacity-50"
           >
             Please confirm
           </button>
@@ -168,7 +168,7 @@ export function PatientHubClient({ patientId, primaryPhone, secondaryPhone, conv
             type="button"
             disabled={pending}
             onClick={() => sendPreset(copy.reschedule, smsRecipient)}
-            className="rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 ring-1 ring-slate-200/80 transition hover:bg-slate-50 disabled:opacity-50"
+            className="rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-phone-ink ring-1 ring-sky-200/90 transition hover:bg-phone-ice disabled:opacity-50"
           >
             Need to reschedule
           </button>
@@ -176,7 +176,7 @@ export function PatientHubClient({ patientId, primaryPhone, secondaryPhone, conv
             type="button"
             disabled={pending}
             onClick={() => sendPreset(copy.runningLate, smsRecipient)}
-            className="rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 ring-1 ring-slate-200/80 transition hover:bg-slate-50 disabled:opacity-50"
+            className="rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-phone-ink ring-1 ring-sky-200/90 transition hover:bg-phone-ice disabled:opacity-50"
           >
             Running late
           </button>
@@ -192,7 +192,7 @@ export function PatientHubClient({ patientId, primaryPhone, secondaryPhone, conv
             value={smsBody}
             onChange={(e) => setSmsBody(e.target.value)}
             placeholder="Type a message…"
-            className="w-full resize-none rounded-2xl border-0 bg-white/90 px-3 py-2 text-sm text-slate-900 ring-1 ring-slate-200/80 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-300/80"
+            className="w-full resize-none rounded-2xl border-0 bg-white/90 px-3 py-2 text-sm text-slate-900 ring-1 ring-sky-200/80 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-phone-ring/80"
           />
           <button type="submit" disabled={pending || !smsBody.trim()} className={`${btnPrimary} w-full`}>
             Send custom text
@@ -200,7 +200,7 @@ export function PatientHubClient({ patientId, primaryPhone, secondaryPhone, conv
         </form>
       </section>
 
-      <section className="rounded-3xl bg-white/90 p-4 shadow-sm shadow-slate-200/40 ring-1 ring-slate-200/50">
+      <section className="rounded-3xl border border-sky-100/70 bg-white/95 p-4 shadow-sm shadow-sky-950/5">
         <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">Schedule visit</p>
         <form onSubmit={onSchedule} className="mt-3 space-y-3">
           <input type="hidden" name="patientId" value={patientId} />
@@ -211,7 +211,7 @@ export function PatientHubClient({ patientId, primaryPhone, secondaryPhone, conv
                 name="visitDate"
                 type="date"
                 required
-                className="mt-1 w-full rounded-2xl border-0 bg-slate-50/90 px-3 py-2 text-sm text-slate-900 ring-1 ring-slate-200/80 focus:outline-none focus:ring-2 focus:ring-sky-300/80"
+                className="mt-1 w-full rounded-2xl border-0 bg-phone-ice/60 px-3 py-2 text-sm text-slate-900 ring-1 ring-sky-200/80 focus:outline-none focus:ring-2 focus:ring-phone-ring/80"
               />
             </label>
             <label className="block text-xs font-medium text-slate-600">
@@ -220,7 +220,7 @@ export function PatientHubClient({ patientId, primaryPhone, secondaryPhone, conv
                 name="visitTime"
                 type="time"
                 required
-                className="mt-1 w-full rounded-2xl border-0 bg-slate-50/90 px-3 py-2 text-sm text-slate-900 ring-1 ring-slate-200/80 focus:outline-none focus:ring-2 focus:ring-sky-300/80"
+                className="mt-1 w-full rounded-2xl border-0 bg-phone-ice/60 px-3 py-2 text-sm text-slate-900 ring-1 ring-sky-200/80 focus:outline-none focus:ring-2 focus:ring-phone-ring/80"
               />
             </label>
           </div>
@@ -229,7 +229,7 @@ export function PatientHubClient({ patientId, primaryPhone, secondaryPhone, conv
             <input
               name="visitNote"
               type="text"
-              className="mt-1 w-full rounded-2xl border-0 bg-slate-50/90 px-3 py-2 text-sm text-slate-900 ring-1 ring-slate-200/80 focus:outline-none focus:ring-2 focus:ring-sky-300/80"
+              className="mt-1 w-full rounded-2xl border-0 bg-phone-ice/60 px-3 py-2 text-sm text-slate-900 ring-1 ring-sky-200/80 focus:outline-none focus:ring-2 focus:ring-phone-ring/80"
               placeholder="Gate code, pet, focus…"
             />
           </label>
@@ -238,7 +238,7 @@ export function PatientHubClient({ patientId, primaryPhone, secondaryPhone, conv
             <select
               name="reminderRecipient"
               defaultValue="patient"
-              className="mt-1 w-full rounded-2xl border-0 bg-slate-50/90 px-3 py-2 text-sm text-slate-900 ring-1 ring-slate-200/80 focus:outline-none focus:ring-2 focus:ring-sky-300/80"
+              className="mt-1 w-full rounded-2xl border-0 bg-phone-ice/60 px-3 py-2 text-sm text-slate-900 ring-1 ring-sky-200/80 focus:outline-none focus:ring-2 focus:ring-phone-ring/80"
             >
               <option value="patient">Patient</option>
               <option value="caregiver">Caregiver</option>
