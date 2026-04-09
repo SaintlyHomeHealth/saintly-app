@@ -69,11 +69,11 @@ async function main() {
   mkdirSync(brandDir, { recursive: true });
 
   const outputs = [
-    ["public/favicon.png", 512],
-    ["public/icon-192.png", 192],
-    ["public/icon-512.png", 512],
-    ["src/app/icon.png", 512],
-    ["src/app/apple-icon.png", 180],
+    ["public/favicon-16x16.png", 16],
+    ["public/favicon-32x32.png", 32],
+    ["public/apple-touch-icon.png", 180],
+    ["public/android-chrome-192x192.png", 192],
+    ["public/android-chrome-512x512.png", 512],
   ];
 
   const resizeSquare = (buf, px) =>
@@ -87,7 +87,7 @@ async function main() {
   }
 
   const maskBuf = await buildMaskable512(masterBuf);
-  const maskPath = join(ROOT, "public/icon-512-maskable.png");
+  const maskPath = join(ROOT, "public/android-chrome-512x512-maskable.png");
   writeFileSync(maskPath, maskBuf);
   console.log("Wrote", maskPath);
 
@@ -102,22 +102,20 @@ async function main() {
     console.log("Wrote", p);
   }
 
+  const tmp16 = join(tmpdir(), "saintly-favicon-16.png");
   const tmp32 = join(tmpdir(), "saintly-favicon-32.png");
-  const tmp48 = join(tmpdir(), "saintly-favicon-48.png");
+  await resizeSquare(masterBuf, 16).toFile(tmp16);
   await resizeSquare(masterBuf, 32).toFile(tmp32);
-  await resizeSquare(masterBuf, 48).toFile(tmp48);
 
-  const faviconIco = join(ROOT, "src/app/favicon.ico");
   const faviconIcoPublic = join(ROOT, "public/favicon.ico");
-  execSync(`npx --yes png-to-ico "${tmp32}" "${tmp48}" > "${faviconIco}"`, { cwd: ROOT, stdio: "inherit" });
-  writeFileSync(faviconIcoPublic, readFileSync(faviconIco));
+  execSync(`npx --yes png-to-ico "${tmp16}" "${tmp32}" > "${faviconIcoPublic}"`, { cwd: ROOT, stdio: "inherit" });
   try {
+    unlinkSync(tmp16);
     unlinkSync(tmp32);
-    unlinkSync(tmp48);
   } catch {
     /* ignore */
   }
-  console.log("Wrote", faviconIco, faviconIcoPublic);
+  console.log("Wrote", faviconIcoPublic);
 }
 
 main().catch((e) => {
