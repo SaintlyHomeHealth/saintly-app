@@ -14,12 +14,13 @@ const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const ROOT = join(__dirname, "..");
 const input = join(ROOT, "public/icon-1024.png");
 
+/** Optional center crop (fraction of min side) before resize — makes the mark larger in tiny favicons. */
 const sizes = [
-  { name: "favicon-16x16.png", size: 16 },
-  { name: "favicon-32x32.png", size: 32 },
+  { name: "favicon-16x16.png", size: 16, zoomCrop: 0.7 },
+  { name: "favicon-32x32.png", size: 32, zoomCrop: 0.7 },
   { name: "android-chrome-192x192.png", size: 192 },
   { name: "android-chrome-512x512.png", size: 512 },
-  { name: "apple-touch-icon.png", size: 180 },
+  { name: "apple-touch-icon.png", size: 180, zoomCrop: 0.88 },
 ];
 
 async function generate() {
@@ -39,16 +40,27 @@ async function generate() {
 
   const k = sharp.kernel.lanczos3;
 
+  function applyZoomCrop(pipeline, zoomCrop) {
+    if (zoomCrop == null || zoomCrop >= 1) return pipeline;
+    const side = Math.min(w, h);
+    const newSide = Math.max(1, Math.round(side * zoomCrop));
+    const left = Math.max(0, Math.round((w - newSide) / 2));
+    const top = Math.max(0, Math.round((h - newSide) / 2));
+    return pipeline.extract({ left, top, width: newSide, height: newSide });
+  }
+
   for (const s of sizes) {
     if (s.size > minSide) {
       console.error(`Refusing to upscale: need ${s.size}px but source min side is ${minSide}px`);
       process.exit(1);
     }
-    await sharp(input)
+    let pipeline = sharp(input);
+    pipeline = applyZoomCrop(pipeline, s.zoomCrop);
+    await pipeline
       .resize(s.size, s.size, { kernel: k, fit: "fill" })
       .png()
       .toFile(join(ROOT, "public", s.name));
-    console.log("Wrote public/" + s.name);
+    console.log("Wrote public/" + s.name + (s.zoomCrop ? ` (zoom ${s.zoomCrop})` : ""));
   }
 
   const f16 = join(ROOT, "public/favicon-16x16.png");
