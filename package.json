@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "icons:generate": "node scripts/generate-saintly-icons.mjs",
+    "icons:favicons-from-512": "node scripts/generate-favicons-from-512.mjs",
     "realtime-bridge": "tsx scripts/twilio-openai-realtime-bridge.ts"
   },
   "dependencies": {
