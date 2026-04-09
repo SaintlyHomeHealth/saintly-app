@@ -3,7 +3,6 @@ import { redirect } from "next/navigation";
 
 import { WorkspaceCallInboxCard, type CallInboxRow } from "./_components/WorkspaceCallInboxCard";
 import { WorkspacePhonePageHeader } from "../_components/WorkspacePhonePageHeader";
-import { SoftphoneDialer } from "@/components/softphone/SoftphoneDialer";
 import {
   canAccessWorkspacePhone,
   getStaffProfile,
@@ -131,24 +130,19 @@ export default async function WorkspaceCallsPage() {
     }
   }
 
-  const staffDisplayName =
-    staff.full_name?.trim() ||
-    staff.email?.trim() ||
-    `${staff.role.replace(/_/g, " ")} (${staff.user_id.slice(0, 8)}…)`;
-
   return (
     <div className="ws-phone-page-shell flex flex-1 flex-col px-4 pb-6 pt-5 sm:px-5">
       <WorkspacePhonePageHeader
         title="Calls"
-        subtitle="Dial from here and review your call timeline. If anything was missed, it appears at the top until handled."
+        subtitle="Your call history and timeline. Missed calls stay at the top until you handle them. To dial out, use Keypad."
       />
 
-      <div className="mt-2 rounded-[28px] border border-sky-100/80 bg-white p-4 shadow-md shadow-sky-950/5 sm:p-5">
-        <SoftphoneDialer staffDisplayName={staffDisplayName} />
-      </div>
+      <p className="mt-2 text-sm text-slate-600" role="status">
+        🟢 Ready for calls
+      </p>
 
       {missed.length > 0 ? (
-        <section className="mt-8" aria-labelledby="workspace-calls-missed-heading">
+        <section className="mt-6" aria-labelledby="workspace-calls-missed-heading">
           <div className="mb-4 rounded-2xl border border-rose-200/70 bg-gradient-to-b from-rose-50/90 to-white px-4 py-3 sm:px-5">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
               <div>
