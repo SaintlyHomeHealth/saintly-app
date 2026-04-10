@@ -2,7 +2,14 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   /* config options here */
-  serverExternalPackages: ["pdf-parse", "pdfjs-dist", "mammoth", "word-extractor"],
+  serverExternalPackages: [
+    "pdf-parse",
+    "pdfjs-dist",
+    "mammoth",
+    "word-extractor",
+    "canvas",
+    "tesseract.js",
+  ],
   allowedDevOrigins: ["hector-coud-karine.ngrok-free.dev"],
   typescript: {
     ignoreBuildErrors: true,

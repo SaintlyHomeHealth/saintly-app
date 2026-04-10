@@ -18,8 +18,7 @@ import {
 } from "@/lib/recruiting/recruiting-contact-normalize";
 import { findRecruitingDuplicateCandidates, type RecruitingDuplicateRow } from "@/lib/recruiting/recruiting-duplicates";
 import { RECRUITING_RESUMES_BUCKET } from "@/lib/recruiting/recruiting-resume-storage";
-import { parseResumePlainText } from "@/lib/recruiting/resume-parse-heuristics";
-import { extractResumeText } from "@/lib/recruiting/resume-text-extract";
+import { resumeParsedActivityBody, runResumeExtractPipeline } from "@/lib/recruiting/resume-extract-pipeline";
 import { supabaseAdmin } from "@/lib/admin";
 import { getAuthenticatedUser } from "@/lib/supabase/server";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
@@ -620,16 +619,12 @@ async function finalizeResumeAfterStorage(input: {
     created_by: userId,
   });
 
-  let parsedBody = "Resume stored. Auto-fill could not read this file well enough.";
+  let parsedBody = resumeParsedActivityBody("manual");
   try {
-    const { text, error: extErr } = await extractResumeText(buffer, safeName);
-    const minLen = 20;
-    if (!extErr && text && text.length >= minLen) {
-      parseResumePlainText(text);
-      parsedBody = "Resume parsed and suggestions generated";
-    }
+    const pipeline = await runResumeExtractPipeline(buffer, safeName);
+    parsedBody = resumeParsedActivityBody(pipeline.quality);
   } catch {
-    parsedBody = "Resume stored; parsing encountered an error.";
+    parsedBody = resumeParsedActivityBody("manual");
   }
 
   await supabaseAdmin.from("recruiting_candidate_activities").insert({

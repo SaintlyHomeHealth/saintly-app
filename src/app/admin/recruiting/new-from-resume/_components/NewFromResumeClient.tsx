@@ -15,7 +15,7 @@ import {
   RECRUITING_SOURCE_OPTIONS,
 } from "@/lib/recruiting/recruiting-options";
 import type { RecruitingDuplicateRow } from "@/lib/recruiting/recruiting-duplicates";
-import type { ParsedResumeSuggestions } from "@/lib/recruiting/resume-parse-types";
+import type { ParsedResumeSuggestions, ResumeParseQuality } from "@/lib/recruiting/resume-parse-types";
 
 import { attachResumeToExistingCandidate, createRecruitingCandidateFromResume } from "../../actions";
 import { RecruitingDuplicateModal } from "../../_components/RecruitingDuplicateModal";
@@ -28,9 +28,45 @@ type Step = "pick" | "review";
 
 type ParsePayload = {
   ok: boolean;
+  quality: ResumeParseQuality;
   suggestions: ParsedResumeSuggestions | null;
+  messages: string[];
+  /** @deprecated use messages */
   warning?: string;
 };
+
+function parseStatusBannerClass(q: ResumeParseQuality): string {
+  switch (q) {
+    case "parsed_ok":
+      return "border-emerald-200 bg-emerald-50 text-emerald-950";
+    case "limited_parse":
+      return "border-amber-200 bg-amber-50 text-amber-950";
+    case "ocr_success":
+    case "ocr_limited":
+      return "border-sky-200 bg-sky-50 text-sky-950";
+    case "manual":
+      return "border-slate-200 bg-slate-50 text-slate-900";
+    default:
+      return "border-slate-200 bg-slate-50 text-slate-900";
+  }
+}
+
+function parseStatusTitle(q: ResumeParseQuality): string {
+  switch (q) {
+    case "parsed_ok":
+      return "Parsed successfully";
+    case "limited_parse":
+      return "Limited parse";
+    case "ocr_success":
+      return "Image-based resume — OCR used";
+    case "ocr_limited":
+      return "Image-based resume — OCR used (partial)";
+    case "manual":
+      return "Could not auto-read enough text — continue manually";
+    default:
+      return "Parse status";
+  }
+}
 
 type NewFromResumeClientProps = {
   initialError: string | null;
@@ -121,11 +157,21 @@ export function NewFromResumeClient({ initialError }: NewFromResumeClientProps) 
           parse?: ParsePayload;
         };
         if (!res.ok) {
-          setToast(json.error || "Could not read that file.");
+          setToast(json.error || "Upload could not be processed — try another file or format.");
           setStep("pick");
           return;
         }
-        setParse(json.parse ?? { ok: false, suggestions: null });
+        setParse(
+          json.parse ?? {
+            ok: false,
+            quality: "manual",
+            suggestions: null,
+            messages: [
+              "Resume uploaded, but we could not auto-read enough text from this file.",
+              "You can still create the candidate manually or try OCR fallback if enabled.",
+            ],
+          }
+        );
         setStep("review");
       } catch {
         setToast("Network error — try again.");
@@ -216,10 +262,20 @@ export function NewFromResumeClient({ initialError }: NewFromResumeClientProps) 
                 <h2 className="text-base font-semibold text-slate-900">2. Review & create</h2>
                 <p className="mt-1 text-sm text-slate-600">
                   File: <span className="font-medium text-slate-800">{file.name}</span>
-                  {parse?.warning ? (
-                    <span className="mt-2 block text-amber-800">Parser note: {parse.warning}</span>
-                  ) : null}
                 </p>
+                {parse ? (
+                  <div
+                    className={`mt-4 rounded-xl border px-4 py-3 text-sm ${parseStatusBannerClass(parse.quality)}`}
+                    role="status"
+                  >
+                    <p className="font-semibold">{parseStatusTitle(parse.quality)}</p>
+                    <ul className="mt-2 list-disc space-y-1 pl-5">
+                      {(parse.messages?.length ? parse.messages : parse.warning ? [parse.warning] : []).map((line) => (
+                        <li key={line}>{line}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
               </div>
               <button
                 type="button"

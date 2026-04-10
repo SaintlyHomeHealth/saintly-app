@@ -2,6 +2,14 @@
  * Shared types for resume parsing + apply flow (API + client).
  */
 
+/** Outcome of upload → extract (optional OCR) → heuristics (API + new-from-resume UI). */
+export type ResumeParseQuality =
+  | "parsed_ok"
+  | "limited_parse"
+  | "ocr_success"
+  | "ocr_limited"
+  | "manual";
+
 export type ResumeParseConfidence = "high" | "medium" | "low";
 
 /** Maps to UI: High confidence / Possible match / Review needed */

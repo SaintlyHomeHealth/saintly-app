@@ -3,7 +3,7 @@
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
-import type { ParsedResumeSuggestions } from "@/lib/recruiting/resume-parse-types";
+import type { ParsedResumeSuggestions, ResumeParseQuality } from "@/lib/recruiting/resume-parse-types";
 import { crmPrimaryCtaCls } from "@/components/admin/crm-admin-list-styles";
 
 import { RecruitingResumeSuggestionsPanel } from "./RecruitingResumeSuggestionsPanel";
@@ -29,6 +29,8 @@ type ParsePayload = {
   ok: boolean;
   suggestions: ParsedResumeSuggestions | null;
   warning?: string;
+  messages?: string[];
+  quality?: ResumeParseQuality;
 };
 
 type CandidateSnapshot = {
@@ -117,19 +119,25 @@ export function RecruitingResumeCard({
         setParse(p ?? null);
         setPanelKey((k) => k + 1);
 
+        const q = p?.quality;
+        const ocrHint = q === "ocr_success" || q === "ocr_limited";
         if (p?.ok) {
           setToast({
             kind: "ok",
-            message: wasReplace
-              ? "Resume replaced — review suggestions below."
-              : "Resume uploaded — review suggestions below.",
+            message: ocrHint
+              ? wasReplace
+                ? "Resume replaced — text was read with OCR; review suggestions below."
+                : "Resume uploaded — text was read with OCR; review suggestions below."
+              : wasReplace
+                ? "Resume replaced — review suggestions below."
+                : "Resume uploaded — review suggestions below.",
           });
         } else {
           setToast({
             kind: "ok",
             message: wasReplace
-              ? "Resume replaced. Auto-fill had limited data — you can still edit the profile."
-              : "Resume uploaded. Auto-fill had limited data — you can still edit the profile.",
+              ? "Resume replaced. We could not auto-read enough text — you can still edit the profile."
+              : "Resume uploaded. We could not auto-read enough text — you can still edit the profile.",
           });
         }
       } catch {

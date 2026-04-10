@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 
-import { parseResumePlainText } from "@/lib/recruiting/resume-parse-heuristics";
-import type { ParsedResumeSuggestions } from "@/lib/recruiting/resume-parse-types";
-import { extractResumeText } from "@/lib/recruiting/resume-text-extract";
+import type { ParsedResumeSuggestions, ResumeParseQuality } from "@/lib/recruiting/resume-parse-types";
+import { runResumeExtractPipeline } from "@/lib/recruiting/resume-extract-pipeline";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 
 const MAX_BYTES = 10 * 1024 * 1024;
@@ -36,6 +35,15 @@ function sanitizeOriginalName(name: string): string {
   const cleaned = base.replace(/[^a-zA-Z0-9._\- ]/g, "_").trim();
   return cleaned.slice(0, 180) || "resume";
 }
+
+export type ParseOnlyParsePayload = {
+  ok: boolean;
+  quality: ResumeParseQuality;
+  suggestions: ParsedResumeSuggestions | null;
+  messages: string[];
+  /** @deprecated prefer messages */
+  warning?: string;
+};
 
 export async function POST(req: Request) {
   const staff = await getStaffProfile();
@@ -73,29 +81,27 @@ export async function POST(req: Request) {
   const arrayBuffer = await file.arrayBuffer();
   const buffer = Buffer.from(arrayBuffer);
 
-  let parseOut: {
-    ok: boolean;
-    suggestions: ParsedResumeSuggestions | null;
-    warning?: string;
-  } = { ok: false, suggestions: null };
+  let parseOut: ParseOnlyParsePayload;
 
   try {
-    const { text, error: extErr } = await extractResumeText(buffer, safeName);
-    const minLen = 20;
-    if (!extErr && text && text.length >= minLen) {
-      const suggestions = parseResumePlainText(text);
-      parseOut = { ok: true, suggestions };
-    } else {
-      parseOut = {
-        ok: false,
-        suggestions: null,
-        warning: extErr || "Could not extract enough text from this file for auto-fill.",
-      };
-    }
+    const pipeline = await runResumeExtractPipeline(buffer, safeName);
+    const ok = pipeline.quality !== "manual";
+    parseOut = {
+      ok,
+      quality: pipeline.quality,
+      suggestions: pipeline.suggestions,
+      messages: pipeline.messages,
+      warning: pipeline.messages.join("\n"),
+    };
   } catch (e) {
     parseOut = {
       ok: false,
+      quality: "manual",
       suggestions: null,
+      messages: [
+        "Resume uploaded, but we could not auto-read enough text from this file.",
+        "You can still create the candidate manually or try OCR fallback if enabled.",
+      ],
       warning: e instanceof Error ? e.message : "Parsing failed",
     };
   }

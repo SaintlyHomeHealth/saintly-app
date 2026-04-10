@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 
-import { parseResumePlainText } from "@/lib/recruiting/resume-parse-heuristics";
-import type { ParsedResumeSuggestions } from "@/lib/recruiting/resume-parse-types";
-import { extractResumeText } from "@/lib/recruiting/resume-text-extract";
+import type { ParsedResumeSuggestions, ResumeParseQuality } from "@/lib/recruiting/resume-parse-types";
+import { resumeParsedActivityBody, runResumeExtractPipeline } from "@/lib/recruiting/resume-extract-pipeline";
 import { RECRUITING_RESUMES_BUCKET } from "@/lib/recruiting/recruiting-resume-storage";
 import { supabaseAdmin } from "@/lib/admin";
 import { getAuthenticatedUser } from "@/lib/supabase/server";
@@ -172,29 +171,33 @@ export async function POST(req: Request) {
     ok: boolean;
     suggestions: ParsedResumeSuggestions | null;
     warning?: string;
+    messages?: string[];
+    quality?: ResumeParseQuality;
   } = { ok: false, suggestions: null };
 
-  let parsedActivityBody = "Resume stored. Auto-fill could not read this file well enough.";
+  let parsedActivityBody = resumeParsedActivityBody("manual");
 
   try {
-    const { text, error: extErr } = await extractResumeText(buffer, safeName);
-    const minLen = 20;
-    if (!extErr && text && text.length >= minLen) {
-      const suggestions = parseResumePlainText(text);
-      parseOut = { ok: true, suggestions };
-      parsedActivityBody = "Resume parsed and suggestions generated";
-    } else {
-      parseOut = {
-        ok: false,
-        suggestions: null,
-        warning: extErr || "Could not extract enough text from this file for auto-fill.",
-      };
-    }
+    const pipeline = await runResumeExtractPipeline(buffer, safeName);
+    parsedActivityBody = resumeParsedActivityBody(pipeline.quality);
+    parseOut = {
+      ok: pipeline.quality !== "manual",
+      suggestions: pipeline.suggestions,
+      messages: pipeline.messages,
+      quality: pipeline.quality,
+      warning: pipeline.messages.join("\n"),
+    };
   } catch (e) {
+    parsedActivityBody = resumeParsedActivityBody("manual");
     parseOut = {
       ok: false,
+      quality: "manual",
       suggestions: null,
       warning: e instanceof Error ? e.message : "Parsing failed",
+      messages: [
+        "Resume uploaded, but we could not auto-read enough text from this file.",
+        "You can still create the candidate manually or try OCR fallback if enabled.",
+      ],
     };
   }
 
