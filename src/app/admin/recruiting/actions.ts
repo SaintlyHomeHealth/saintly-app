@@ -11,6 +11,12 @@ import {
   isValidRecruitingSource,
   isValidRecruitingStatus,
 } from "@/lib/recruiting/recruiting-options";
+import {
+  normalizeRecruitingEmail,
+  normalizeRecruitingPhoneForStorage,
+  recruitingNameCityKey,
+} from "@/lib/recruiting/recruiting-contact-normalize";
+import { findRecruitingDuplicateCandidates, type RecruitingDuplicateRow } from "@/lib/recruiting/recruiting-duplicates";
 import { RECRUITING_RESUMES_BUCKET } from "@/lib/recruiting/recruiting-resume-storage";
 import { parseResumePlainText } from "@/lib/recruiting/resume-parse-heuristics";
 import { extractResumeText } from "@/lib/recruiting/resume-text-extract";
@@ -88,12 +94,38 @@ function uuidOk(id: string): boolean {
   return /^[0-9a-f-]{36}$/i.test(id);
 }
 
-export async function createRecruitingCandidate(formData: FormData) {
+function recruitingNormalizedFields(
+  email: string | null,
+  phone: string | null,
+  fullName: string,
+  city: string | null
+): {
+  normalized_email: string | null;
+  normalized_phone: string | null;
+  name_city_key: string | null;
+} {
+  return {
+    normalized_email: normalizeRecruitingEmail(email),
+    normalized_phone: normalizeRecruitingPhoneForStorage(phone),
+    name_city_key: recruitingNameCityKey(fullName, city),
+  };
+}
+
+function forceDuplicateFromForm(formData: FormData): boolean {
+  return str(formData, "force_duplicate") === "1";
+}
+
+export type CreateRecruitingCandidateResult =
+  | { ok: true; candidateId: string }
+  | { ok: false; reason: "duplicates"; duplicates: RecruitingDuplicateRow[] }
+  | { ok: false; reason: "missing_name" | "save_failed" };
+
+export async function createRecruitingCandidate(formData: FormData): Promise<CreateRecruitingCandidateResult> {
   await requireManager();
 
   const full_name = str(formData, "full_name");
   if (!full_name) {
-    redirect("/admin/recruiting/new?error=missing_name");
+    return { ok: false, reason: "missing_name" };
   }
 
   const sourceRaw = str(formData, "source");
@@ -108,15 +140,33 @@ export async function createRecruitingCandidate(formData: FormData) {
   const interestRaw = str(formData, "interest_level");
   const interest_level = interestRaw ? (isValidRecruitingInterestLevel(interestRaw) ? interestRaw : interestRaw) : null;
 
+  const email = optStr(formData, "email");
+  const phone = optStr(formData, "phone");
+  const city = optStr(formData, "city");
+
+  if (!forceDuplicateFromForm(formData)) {
+    const duplicates = await findRecruitingDuplicateCandidates(supabaseAdmin, {
+      email,
+      phone,
+      fullName: full_name,
+      city,
+    });
+    if (duplicates.length > 0) {
+      return { ok: false, reason: "duplicates", duplicates };
+    }
+  }
+
+  const norm = recruitingNormalizedFields(email, phone, full_name, city);
+
   const { data, error } = await supabaseAdmin
     .from("recruiting_candidates")
     .insert({
       full_name,
       first_name: optStr(formData, "first_name"),
       last_name: optStr(formData, "last_name"),
-      phone: optStr(formData, "phone"),
-      email: optStr(formData, "email"),
-      city: optStr(formData, "city"),
+      phone,
+      email,
+      city,
       state: optStr(formData, "state"),
       zip: optStr(formData, "zip"),
       coverage_area: optStr(formData, "coverage_area"),
@@ -134,17 +184,18 @@ export async function createRecruitingCandidate(formData: FormData) {
         const p = str(formData, "preferred_contact_method");
         return p && isValidRecruitingPreferredContact(p) ? p : p || null;
       })(),
+      ...norm,
     })
     .select("id")
     .maybeSingle();
 
   if (error || !data?.id) {
     console.warn("[recruiting] createRecruitingCandidate:", error?.message);
-    redirect("/admin/recruiting/new?error=save_failed");
+    return { ok: false, reason: "save_failed" };
   }
 
   revalidatePath("/admin/recruiting");
-  redirect(`/admin/recruiting/${data.id}`);
+  return { ok: true, candidateId: data.id as string };
 }
 
 export async function updateRecruitingCandidate(formData: FormData) {
@@ -237,6 +288,11 @@ export async function updateRecruitingCandidate(formData: FormData) {
   if (sms_opt_out_at !== undefined) {
     updatePayload.sms_opt_out_at = sms_opt_out_at;
   }
+
+  const emailUp = optStr(formData, "email");
+  const phoneUp = optStr(formData, "phone");
+  const cityUp = optStr(formData, "city");
+  Object.assign(updatePayload, recruitingNormalizedFields(emailUp, phoneUp, full_name, cityUp));
 
   const { error } = await supabaseAdmin.from("recruiting_candidates").update(updatePayload).eq("id", id);
 
@@ -501,6 +557,20 @@ export async function applyRecruitingResumeSuggestions(input: {
     return { ok: false, message: "Nothing to apply — fill a field or enable overwrite." };
   }
 
+  const mergedEmail = typeof patch.email === "string" ? patch.email : row.email;
+  const mergedPhone = typeof patch.phone === "string" ? patch.phone : row.phone;
+  const mergedFull = typeof patch.full_name === "string" ? patch.full_name : row.full_name;
+  const mergedCity = typeof patch.city === "string" ? patch.city : row.city;
+  Object.assign(
+    patch,
+    recruitingNormalizedFields(
+      mergedEmail != null ? String(mergedEmail) : null,
+      mergedPhone != null ? String(mergedPhone) : null,
+      typeof mergedFull === "string" && mergedFull.trim() ? mergedFull : String(row.full_name ?? ""),
+      mergedCity != null ? String(mergedCity) : null
+    )
+  );
+
   const { error: updErr } = await supabaseAdmin.from("recruiting_candidates").update(patch).eq("id", candidateId);
 
   if (updErr) {
@@ -525,125 +595,29 @@ export async function applyRecruitingResumeSuggestions(input: {
   return { ok: true };
 }
 
-export async function createRecruitingCandidateFromResume(formData: FormData) {
-  await requireManager();
-  const user = await getAuthenticatedUser();
+export type CreateRecruitingCandidateFromResumeResult =
+  | { ok: true; candidateId: string }
+  | { ok: false; reason: "duplicates"; duplicates: RecruitingDuplicateRow[] }
+  | { ok: false; reason: "missing_name" | "missing_file" | "file_too_large" | "bad_type" | "save_failed" | "upload_failed" };
 
-  const full_name = str(formData, "full_name");
-  if (!full_name) {
-    redirect("/admin/recruiting/new-from-resume?error=missing_name");
-  }
+async function finalizeResumeAfterStorage(input: {
+  candidateId: string;
+  safeName: string;
+  buffer: Buffer;
+  userId: string | null;
+  isReplace: boolean;
+  oldPath: string | null;
+  newStoragePath: string;
+}) {
+  const { candidateId, safeName, buffer, userId, isReplace, oldPath, newStoragePath } = input;
 
-  const file = formData.get("file");
-  if (!(file instanceof File) || file.size <= 0) {
-    redirect("/admin/recruiting/new-from-resume?error=missing_file");
-  }
-
-  if (file.size > RESUME_MAX_BYTES) {
-    redirect("/admin/recruiting/new-from-resume?error=file_too_large");
-  }
-
-  const originalName = file.name || "resume";
-  if (!resumeHasAllowedExtension(originalName)) {
-    redirect("/admin/recruiting/new-from-resume?error=bad_type");
-  }
-
-  const mime = typeof file.type === "string" ? file.type.trim() : "";
-  if (!resumeMimeOk(mime, originalName)) {
-    redirect("/admin/recruiting/new-from-resume?error=bad_type");
-  }
-
-  const safeName = sanitizeResumeOriginalName(originalName);
-  const sourceRaw = str(formData, "source");
-  const source = sourceRaw ? (isValidRecruitingSource(sourceRaw) ? sourceRaw : sourceRaw) : "Indeed";
-
-  const disciplineRaw = str(formData, "discipline");
-  const discipline = disciplineRaw ? (isValidRecruitingDiscipline(disciplineRaw) ? disciplineRaw : disciplineRaw) : null;
-
-  const interestRaw = str(formData, "interest_level");
-  const interest_level = interestRaw ? (isValidRecruitingInterestLevel(interestRaw) ? interestRaw : interestRaw) : null;
-
-  const preferredRaw = str(formData, "preferred_contact_method");
-  const preferred_contact_method = preferredRaw
-    ? isValidRecruitingPreferredContact(preferredRaw)
-      ? preferredRaw
-      : preferredRaw
-    : null;
-
-  const { data: inserted, error: insErr } = await supabaseAdmin
-    .from("recruiting_candidates")
-    .insert({
-      full_name,
-      first_name: optStr(formData, "first_name"),
-      last_name: optStr(formData, "last_name"),
-      phone: optStr(formData, "phone"),
-      email: optStr(formData, "email"),
-      city: optStr(formData, "city"),
-      state: optStr(formData, "state"),
-      coverage_area: optStr(formData, "coverage_area"),
-      discipline,
-      source,
-      status: "New",
-      notes: optStr(formData, "notes"),
-      interest_level,
-      specialties: optStr(formData, "specialties"),
-      recruiting_tags: optStr(formData, "recruiting_tags"),
-      follow_up_bucket: optStr(formData, "follow_up_bucket"),
-      preferred_contact_method,
-    })
-    .select("id")
-    .maybeSingle();
-
-  if (insErr || !inserted?.id) {
-    console.warn("[recruiting] createRecruitingCandidateFromResume insert:", insErr?.message);
-    redirect("/admin/recruiting/new-from-resume?error=save_failed");
-  }
-
-  const candidateId = inserted.id as string;
-  const timestamp = Date.now();
-  const storagePath = `${candidateId}/${timestamp}-${safeName}`;
-  const arrayBuffer = await file.arrayBuffer();
-  const buffer = Buffer.from(arrayBuffer);
-  const contentType = guessContentType(safeName);
-
-  const { error: uploadErr } = await supabaseAdmin.storage
-    .from(RECRUITING_RESUMES_BUCKET)
-    .upload(storagePath, buffer, {
-      contentType,
-      upsert: false,
-    });
-
-  if (uploadErr) {
-    await supabaseAdmin.from("recruiting_candidates").delete().eq("id", candidateId);
-    console.warn("[recruiting] create from resume upload:", uploadErr.message);
-    redirect("/admin/recruiting/new-from-resume?error=upload_failed");
-  }
-
-  const uploadedAt = new Date().toISOString();
-
-  const { error: updErr } = await supabaseAdmin
-    .from("recruiting_candidates")
-    .update({
-      resume_file_name: safeName,
-      resume_storage_path: storagePath,
-      resume_uploaded_at: uploadedAt,
-    })
-    .eq("id", candidateId);
-
-  if (updErr) {
-    await supabaseAdmin.storage.from(RECRUITING_RESUMES_BUCKET).remove([storagePath]);
-    await supabaseAdmin.from("recruiting_candidates").delete().eq("id", candidateId);
-    console.warn("[recruiting] create from resume DB:", updErr.message);
-    redirect("/admin/recruiting/new-from-resume?error=save_failed");
-  }
-
-  const bodyText = `Uploaded resume: ${safeName}`;
+  const bodyText = isReplace ? `Replaced resume with: ${safeName}` : `Uploaded resume: ${safeName}`;
   await supabaseAdmin.from("recruiting_candidate_activities").insert({
     candidate_id: candidateId,
-    activity_type: "resume_uploaded",
+    activity_type: isReplace ? "resume_replaced" : "resume_uploaded",
     outcome: null,
     body: bodyText,
-    created_by: user?.id ?? null,
+    created_by: userId,
   });
 
   let parsedBody = "Resume stored. Auto-fill could not read this file well enough.";
@@ -663,10 +637,259 @@ export async function createRecruitingCandidateFromResume(formData: FormData) {
     activity_type: "resume_parsed",
     outcome: null,
     body: parsedBody,
-    created_by: user?.id ?? null,
+    created_by: userId,
+  });
+
+  if (isReplace && oldPath && oldPath !== newStoragePath) {
+    const { error: rmErr } = await supabaseAdmin.storage.from(RECRUITING_RESUMES_BUCKET).remove([oldPath]);
+    if (rmErr) {
+      console.warn("[recruiting] resume old file remove:", rmErr.message);
+    }
+  }
+}
+
+export type AttachResumeToCandidateResult = { ok: true } | { ok: false; reason: string };
+
+/** Upload/replace resume on an existing candidate (e.g. duplicate flow). Does not change profile fields. */
+export async function attachResumeToExistingCandidate(formData: FormData): Promise<AttachResumeToCandidateResult> {
+  await requireManager();
+  const user = await getAuthenticatedUser();
+
+  const candidateId = str(formData, "candidateId");
+  if (!candidateId || !uuidOk(candidateId)) {
+    return { ok: false, reason: "Invalid candidate." };
+  }
+
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size <= 0) {
+    return { ok: false, reason: "Choose a resume file." };
+  }
+
+  if (file.size > RESUME_MAX_BYTES) {
+    return { ok: false, reason: "File too large (max 10 MB)." };
+  }
+
+  const originalName = file.name || "resume";
+  if (!resumeHasAllowedExtension(originalName)) {
+    return { ok: false, reason: "Only PDF, DOC, or DOCX files are allowed." };
+  }
+
+  const mime = typeof file.type === "string" ? file.type.trim() : "";
+  if (!resumeMimeOk(mime, originalName)) {
+    return { ok: false, reason: "Unsupported file type." };
+  }
+
+  const { data: existing, error: fetchErr } = await supabaseAdmin
+    .from("recruiting_candidates")
+    .select("id, resume_storage_path")
+    .eq("id", candidateId)
+    .maybeSingle();
+
+  if (fetchErr || !existing?.id) {
+    return { ok: false, reason: "Candidate not found." };
+  }
+
+  const safeName = sanitizeResumeOriginalName(originalName);
+  const timestamp = Date.now();
+  const storagePath = `${candidateId}/${timestamp}-${safeName}`;
+  const arrayBuffer = await file.arrayBuffer();
+  const buffer = Buffer.from(arrayBuffer);
+  const contentType = guessContentType(safeName);
+
+  const oldPath =
+    typeof existing.resume_storage_path === "string" && existing.resume_storage_path.trim()
+      ? existing.resume_storage_path.trim()
+      : null;
+  const isReplace = Boolean(oldPath);
+
+  const { error: uploadErr } = await supabaseAdmin.storage
+    .from(RECRUITING_RESUMES_BUCKET)
+    .upload(storagePath, buffer, {
+      contentType,
+      upsert: false,
+    });
+
+  if (uploadErr) {
+    console.warn("[recruiting] attach resume upload:", uploadErr.message);
+    return { ok: false, reason: uploadErr.message || "Upload failed." };
+  }
+
+  const uploadedAt = new Date().toISOString();
+
+  const { error: updErr } = await supabaseAdmin
+    .from("recruiting_candidates")
+    .update({
+      resume_file_name: safeName,
+      resume_storage_path: storagePath,
+      resume_uploaded_at: uploadedAt,
+    })
+    .eq("id", candidateId);
+
+  if (updErr) {
+    await supabaseAdmin.storage.from(RECRUITING_RESUMES_BUCKET).remove([storagePath]);
+    console.warn("[recruiting] attach resume DB:", updErr.message);
+    return { ok: false, reason: "Could not save resume metadata." };
+  }
+
+  await finalizeResumeAfterStorage({
+    candidateId,
+    safeName,
+    buffer,
+    userId: user?.id ?? null,
+    isReplace,
+    oldPath,
+    newStoragePath: storagePath,
   });
 
   revalidatePath("/admin/recruiting");
   revalidatePath(`/admin/recruiting/${candidateId}`);
-  redirect(`/admin/recruiting/${candidateId}`);
+  return { ok: true };
+}
+
+export async function createRecruitingCandidateFromResume(
+  formData: FormData
+): Promise<CreateRecruitingCandidateFromResumeResult> {
+  await requireManager();
+  const user = await getAuthenticatedUser();
+
+  const full_name = str(formData, "full_name");
+  if (!full_name) {
+    return { ok: false, reason: "missing_name" };
+  }
+
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size <= 0) {
+    return { ok: false, reason: "missing_file" };
+  }
+
+  if (file.size > RESUME_MAX_BYTES) {
+    return { ok: false, reason: "file_too_large" };
+  }
+
+  const originalName = file.name || "resume";
+  if (!resumeHasAllowedExtension(originalName)) {
+    return { ok: false, reason: "bad_type" };
+  }
+
+  const mime = typeof file.type === "string" ? file.type.trim() : "";
+  if (!resumeMimeOk(mime, originalName)) {
+    return { ok: false, reason: "bad_type" };
+  }
+
+  const safeName = sanitizeResumeOriginalName(originalName);
+  const sourceRaw = str(formData, "source");
+  const source = sourceRaw ? (isValidRecruitingSource(sourceRaw) ? sourceRaw : sourceRaw) : "Indeed";
+
+  const disciplineRaw = str(formData, "discipline");
+  const discipline = disciplineRaw ? (isValidRecruitingDiscipline(disciplineRaw) ? disciplineRaw : disciplineRaw) : null;
+
+  const interestRaw = str(formData, "interest_level");
+  const interest_level = interestRaw ? (isValidRecruitingInterestLevel(interestRaw) ? interestRaw : interestRaw) : null;
+
+  const preferredRaw = str(formData, "preferred_contact_method");
+  const preferred_contact_method = preferredRaw
+    ? isValidRecruitingPreferredContact(preferredRaw)
+      ? preferredRaw
+      : preferredRaw
+    : null;
+
+  const email = optStr(formData, "email");
+  const phone = optStr(formData, "phone");
+  const city = optStr(formData, "city");
+
+  if (!forceDuplicateFromForm(formData)) {
+    const duplicates = await findRecruitingDuplicateCandidates(supabaseAdmin, {
+      email,
+      phone,
+      fullName: full_name,
+      city,
+    });
+    if (duplicates.length > 0) {
+      return { ok: false, reason: "duplicates", duplicates };
+    }
+  }
+
+  const norm = recruitingNormalizedFields(email, phone, full_name, city);
+
+  const { data: inserted, error: insErr } = await supabaseAdmin
+    .from("recruiting_candidates")
+    .insert({
+      full_name,
+      first_name: optStr(formData, "first_name"),
+      last_name: optStr(formData, "last_name"),
+      phone,
+      email,
+      city,
+      state: optStr(formData, "state"),
+      coverage_area: optStr(formData, "coverage_area"),
+      discipline,
+      source,
+      status: "New",
+      notes: optStr(formData, "notes"),
+      interest_level,
+      specialties: optStr(formData, "specialties"),
+      recruiting_tags: optStr(formData, "recruiting_tags"),
+      follow_up_bucket: optStr(formData, "follow_up_bucket"),
+      preferred_contact_method,
+      ...norm,
+    })
+    .select("id")
+    .maybeSingle();
+
+  if (insErr || !inserted?.id) {
+    console.warn("[recruiting] createRecruitingCandidateFromResume insert:", insErr?.message);
+    return { ok: false, reason: "save_failed" };
+  }
+
+  const candidateId = inserted.id as string;
+  const arrayBuffer = await file.arrayBuffer();
+  const buffer = Buffer.from(arrayBuffer);
+  const contentType = guessContentType(safeName);
+  const timestamp = Date.now();
+  const storagePath = `${candidateId}/${timestamp}-${safeName}`;
+
+  const { error: uploadErr } = await supabaseAdmin.storage
+    .from(RECRUITING_RESUMES_BUCKET)
+    .upload(storagePath, buffer, {
+      contentType,
+      upsert: false,
+    });
+
+  if (uploadErr) {
+    await supabaseAdmin.from("recruiting_candidates").delete().eq("id", candidateId);
+    console.warn("[recruiting] create from resume upload:", uploadErr.message);
+    return { ok: false, reason: "upload_failed" };
+  }
+
+  const uploadedAt = new Date().toISOString();
+
+  const { error: updErr } = await supabaseAdmin
+    .from("recruiting_candidates")
+    .update({
+      resume_file_name: safeName,
+      resume_storage_path: storagePath,
+      resume_uploaded_at: uploadedAt,
+    })
+    .eq("id", candidateId);
+
+  if (updErr) {
+    await supabaseAdmin.storage.from(RECRUITING_RESUMES_BUCKET).remove([storagePath]);
+    await supabaseAdmin.from("recruiting_candidates").delete().eq("id", candidateId);
+    console.warn("[recruiting] create from resume DB:", updErr.message);
+    return { ok: false, reason: "save_failed" };
+  }
+
+  await finalizeResumeAfterStorage({
+    candidateId,
+    safeName,
+    buffer,
+    userId: user?.id ?? null,
+    isReplace: false,
+    oldPath: null,
+    newStoragePath: storagePath,
+  });
+
+  revalidatePath("/admin/recruiting");
+  revalidatePath(`/admin/recruiting/${candidateId}`);
+  return { ok: true, candidateId };
 }

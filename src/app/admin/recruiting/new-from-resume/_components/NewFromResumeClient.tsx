@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { useMemo, useRef, useState, useTransition } from "react";
 
 import {
   crmFilterInputCls,
@@ -13,9 +14,11 @@ import {
   RECRUITING_PREFERRED_CONTACT_OPTIONS,
   RECRUITING_SOURCE_OPTIONS,
 } from "@/lib/recruiting/recruiting-options";
+import type { RecruitingDuplicateRow } from "@/lib/recruiting/recruiting-duplicates";
 import type { ParsedResumeSuggestions } from "@/lib/recruiting/resume-parse-types";
 
-import { createRecruitingCandidateFromResume } from "../../actions";
+import { attachResumeToExistingCandidate, createRecruitingCandidateFromResume } from "../../actions";
+import { RecruitingDuplicateModal } from "../../_components/RecruitingDuplicateModal";
 
 function pick(s?: { value: string } | undefined): string {
   return s?.value?.trim() ? s.value.trim() : "";
@@ -34,11 +37,14 @@ type NewFromResumeClientProps = {
 };
 
 export function NewFromResumeClient({ initialError }: NewFromResumeClientProps) {
+  const router = useRouter();
+  const formRef = useRef<HTMLFormElement>(null);
   const [pending, startTransition] = useTransition();
   const [step, setStep] = useState<Step>("pick");
   const [toast, setToast] = useState<string | null>(initialError);
   const [file, setFile] = useState<File | null>(null);
   const [parse, setParse] = useState<ParsePayload | null>(null);
+  const [dupes, setDupes] = useState<RecruitingDuplicateRow[] | null>(null);
 
   const disciplineExtra = useMemo(() => {
     const d = parse?.suggestions?.discipline?.value?.trim() ?? "";
@@ -127,6 +133,46 @@ export function NewFromResumeClient({ initialError }: NewFromResumeClientProps) 
     });
   }
 
+  function mapResumeCreateError(reason: string): string {
+    switch (reason) {
+      case "missing_name":
+        return "Full name is required.";
+      case "missing_file":
+        return "Resume file is missing.";
+      case "file_too_large":
+        return "File is too large (max 10 MB).";
+      case "bad_type":
+        return "Only PDF, DOC, or DOCX files are allowed.";
+      case "save_failed":
+        return "Could not save the candidate.";
+      case "upload_failed":
+        return "Resume upload failed — try again.";
+      default:
+        return "Something went wrong.";
+    }
+  }
+
+  function runCreateFromResume(forceDuplicate: boolean) {
+    if (!formRef.current || !file) return;
+    const fd = new FormData(formRef.current);
+    fd.set("file", file);
+    if (forceDuplicate) fd.set("force_duplicate", "1");
+    startTransition(async () => {
+      setToast(null);
+      const res = await createRecruitingCandidateFromResume(fd);
+      if (res.ok) {
+        setDupes(null);
+        router.push(`/admin/recruiting/${res.candidateId}`);
+        return;
+      }
+      if (res.reason === "duplicates") {
+        setDupes(res.duplicates);
+        return;
+      }
+      setToast(mapResumeCreateError(res.reason));
+    });
+  }
+
   return (
     <div className="space-y-6">
       {toast ? (
@@ -157,16 +203,11 @@ export function NewFromResumeClient({ initialError }: NewFromResumeClientProps) 
 
       {step === "review" && file ? (
         <form
+          ref={formRef}
           className="space-y-6"
           onSubmit={(e) => {
             e.preventDefault();
-            const form = e.currentTarget;
-            const fd = new FormData(form);
-            fd.set("file", file);
-            startTransition(async () => {
-              setToast(null);
-              await createRecruitingCandidateFromResume(fd);
-            });
+            runCreateFromResume(false);
           }}
         >
           <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
@@ -309,6 +350,38 @@ export function NewFromResumeClient({ initialError }: NewFromResumeClientProps) 
           </div>
         </form>
       ) : null}
+
+      <RecruitingDuplicateModal
+        open={Boolean(dupes?.length)}
+        title="Existing candidate found"
+        duplicates={dupes ?? []}
+        resumeFile={file}
+        pending={pending}
+        onOpenCandidate={(id) => {
+          setDupes(null);
+          router.push(`/admin/recruiting/${id}`);
+        }}
+        onContinueAnyway={() => {
+          setDupes(null);
+          runCreateFromResume(true);
+        }}
+        onAttachResumeTo={(candidateId) => {
+          if (!file) return;
+          const fd = new FormData();
+          fd.set("candidateId", candidateId);
+          fd.set("file", file);
+          startTransition(async () => {
+            const r = await attachResumeToExistingCandidate(fd);
+            if (r.ok) {
+              setDupes(null);
+              router.push(`/admin/recruiting/${candidateId}`);
+              return;
+            }
+            setToast(r.reason);
+          });
+        }}
+        onCancel={() => setDupes(null)}
+      />
     </div>
   );
 }
