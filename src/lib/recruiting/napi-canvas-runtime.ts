@@ -32,6 +32,11 @@ export function getLastNativeCanvasLoadError(): string | undefined {
  * Loads `@napi-rs/canvas` only on the Node server at call time via CommonJS `require`.
  * Avoids static/dynamic `import("@napi-rs/canvas")` in modules Turbopack would place in ESM chunks.
  */
+/** True when `@napi-rs/canvas` loaded (pdf.js + OCR can render pages). */
+export function isNativePdfOcrCanvasAvailable(): boolean {
+  return getNodeCanvasRuntime() !== null;
+}
+
 export function getNodeCanvasRuntime(): NapiCanvasRuntime | null {
   if (cached !== undefined) return cached;
   if (typeof process === "undefined" || !process.versions?.node) {

@@ -7,7 +7,7 @@ import { parseResumePlainText } from "@/lib/recruiting/resume-parse-heuristics";
 import type { ParsedResumeSuggestions, ResumeParseQuality } from "@/lib/recruiting/resume-parse-types";
 import type { PdfOcrDebug, PdfOcrResult } from "@/lib/recruiting/resume-pdf-ocr";
 import { ocrPdfBuffer } from "@/lib/recruiting/resume-pdf-ocr";
-import { getLastNativeCanvasLoadError } from "@/lib/recruiting/napi-canvas-runtime";
+import { getLastNativeCanvasLoadError, isNativePdfOcrCanvasAvailable } from "@/lib/recruiting/napi-canvas-runtime";
 import { extractResumeText } from "@/lib/recruiting/resume-text-extract";
 
 /** Minimum character count to treat extraction as usable for heuristics. */
@@ -30,6 +30,7 @@ export type ResumeExtractFailureStep =
   | "none"
   | "direct_extraction_empty"
   | "ocr_disabled_or_unavailable"
+  | "native_canvas_unavailable"
   | "pdf_render_failed"
   | "ocr_init_failed"
   | "ocr_empty_text"
@@ -78,6 +79,9 @@ export type ResumeExtractDebugSummary = {
   pagesRenderedForOcr: number;
 };
 
+export const RESUME_STATUS_HEADLINE_SCANNED_NO_NATIVE_OCR =
+  "This resume appears to be image-based. Auto-fill is limited. You can still create the candidate manually.";
+
 export type ResumeExtractPipelineResult = {
   text: string;
   extractionSource: ResumeExtractionSource;
@@ -87,6 +91,8 @@ export type ResumeExtractPipelineResult = {
   ocrError?: string;
   /** Short UI lines for banners */
   messages: string[];
+  /** Overrides default parse banner title when set (e.g. scanned PDF without native canvas) */
+  statusHeadline?: string;
   /** Present when `includeDebugSummaryAlways` or dev/debug `includeDebug` requests metrics */
   debug?: ResumeExtractDebugSummary;
   /** When force page-1 OCR debug ran: raw text from Tesseract (page 1 only) */
@@ -144,10 +150,10 @@ function suggestionPreview(s: ParsedResumeSuggestions | null): Record<string, st
 }
 
 /**
- * PDF only. Run OCR when direct text is short, or when long text still does not yield strong parse signals.
+ * PDF only — whether we *want* OCR for heuristics (before native canvas check).
  * **Important:** Do not skip OCR solely because direct text length ≥ 200 — scanned PDFs often embed junk text.
  */
-function shouldAttemptPdfOcr(directText: string, filename: string): boolean {
+function pdfOcrDesiredByHeuristics(directText: string, filename: string): boolean {
   if (!isPdfFilename(filename)) return false;
   if (!canRunResumePdfOcr()) return false;
 
@@ -177,6 +183,12 @@ function shouldAttemptPdfOcr(directText: string, filename: string): boolean {
   return true;
 }
 
+/** True when we should run pdf.js + Tesseract (requires native `@napi-rs/canvas`). */
+function shouldAttemptPdfOcr(directText: string, filename: string): boolean {
+  if (!pdfOcrDesiredByHeuristics(directText, filename)) return false;
+  return isNativePdfOcrCanvasAvailable();
+}
+
 function buildQuality(
   extractionSource: ResumeExtractionSource,
   textLen: number,
@@ -201,14 +213,23 @@ type MessageCtx = {
   /** Bundled data present and env flag allows OCR */
   ocrRunnable: boolean;
   ocrAttempted: boolean;
+  /** PDF would need OCR for text but native canvas did not load — do not imply silent failure */
+  nativeCanvasUnavailable?: boolean;
 };
 
 function buildMessages(quality: ResumeParseQuality, ctx?: MessageCtx): string[] {
   switch (quality) {
     case "parsed_ok":
       return ["Parsed successfully."];
-    case "limited_parse":
+    case "limited_parse": {
+      if (ctx?.nativeCanvasUnavailable && ctx.ocrApplicable && ctx.ocrRunnable) {
+        return [
+          RESUME_STATUS_HEADLINE_SCANNED_NO_NATIVE_OCR,
+          "Review and edit suggested fields before saving.",
+        ];
+      }
       return ["Limited parse — review and edit fields before saving."];
+    }
     case "ocr_success":
       return ["Image-based resume — OCR was used to read text.", "Review suggestions before saving."];
     case "ocr_limited":
@@ -217,6 +238,9 @@ function buildMessages(quality: ResumeParseQuality, ctx?: MessageCtx): string[] 
         "Resume uploaded, but we could not auto-read enough text for full suggestions — edit fields as needed.",
       ];
     case "manual": {
+      if (ctx?.nativeCanvasUnavailable && ctx.ocrApplicable && ctx.ocrRunnable) {
+        return [RESUME_STATUS_HEADLINE_SCANNED_NO_NATIVE_OCR];
+      }
       if (!ctx?.ocrApplicable || !ctx?.ocrRunnable || ctx.ocrAttempted) {
         return [RESUME_SOFT_MANUAL_PARSE_CREATE];
       }
@@ -293,16 +317,42 @@ function shouldLogPipeline(): boolean {
 
 function inferFailureStep(args: {
   directLen: number;
+  directText: string;
+  filename: string;
   ocrRunnable: boolean;
   ocrAttempted: boolean;
   ocr: PdfOcrResult;
   pickedTextLen: number;
   parseInputLen: number;
   suggestions: ParsedResumeSuggestions | null;
+  isPdf: boolean;
+  nativeCanvasAvailable: boolean;
 }): ResumeExtractFailureStep {
-  const { directLen, ocrRunnable, ocrAttempted, ocr, pickedTextLen, parseInputLen, suggestions } = args;
+  const {
+    directLen,
+    directText,
+    filename,
+    ocrRunnable,
+    ocrAttempted,
+    ocr,
+    pickedTextLen,
+    parseInputLen,
+    suggestions,
+    isPdf,
+    nativeCanvasAvailable,
+  } = args;
   const ocrLen = (ocr.text ?? "").trim().length;
   const dbg = ocr.debug;
+
+  if (
+    isPdf &&
+    ocrRunnable &&
+    !nativeCanvasAvailable &&
+    !ocrAttempted &&
+    pdfOcrDesiredByHeuristics(directText, filename)
+  ) {
+    return "native_canvas_unavailable";
+  }
 
   /** Junk direct text (e.g. page markers) can exceed min length while every page render fails — still OCR-blocked */
   if (ocrAttempted && ocrLen === 0 && dbg?.pages?.length) {
@@ -390,6 +440,7 @@ async function runResumeExtractPipelineInternal(
 
   const ocrApplicable = isPdfFilename(filename);
   const ocrRunnable = canRunResumePdfOcr();
+  const nativeCanvasAvailable = isNativePdfOcrCanvasAvailable();
   let ocrAttempted = false;
   let ocrError: string | undefined;
   let ocrRawLen = 0;
@@ -398,7 +449,7 @@ async function runResumeExtractPipelineInternal(
   let text = directText;
   let extractionSource: ResumeExtractionSource = "direct";
 
-  if (forcePage1 && ocrApplicable && ocrRunnable) {
+  if (forcePage1 && ocrApplicable && ocrRunnable && nativeCanvasAvailable) {
     ocrAttempted = true;
     ocrResult = await ocrPdfBuffer(buffer, {
       filename,
@@ -445,6 +496,11 @@ async function runResumeExtractPipelineInternal(
     ocrApplicable,
     ocrRunnable,
     ocrAttempted,
+    nativeCanvasUnavailable:
+      ocrApplicable &&
+      ocrRunnable &&
+      !nativeCanvasAvailable &&
+      pdfOcrDesiredByHeuristics(directText, filename),
   };
 
   if (shouldLogPipeline()) {
@@ -512,13 +568,20 @@ async function runResumeExtractPipelineInternal(
 
   const failureStep = inferFailureStep({
     directLen: directText.length,
+    directText,
+    filename,
     ocrRunnable,
     ocrAttempted,
     ocr: ocrResult,
     pickedTextLen: textOut.length,
     parseInputLen: parseInput.length,
     suggestions,
+    isPdf: ocrApplicable,
+    nativeCanvasAvailable,
   });
+
+  const statusHeadline =
+    failureStep === "native_canvas_unavailable" ? RESUME_STATUS_HEADLINE_SCANNED_NO_NATIVE_OCR : undefined;
 
   if (shouldLogPipeline()) {
     console.log("[resume pipeline] failureStep", { failureStep });
@@ -534,6 +597,7 @@ async function runResumeExtractPipelineInternal(
       directError: direct.error,
       ocrError,
       messages: buildMessages(quality, msgCtx),
+      ...(statusHeadline ? { statusHeadline } : {}),
       ...(forcePage1 && ocrApplicable && (includeDebugSummary || options?.forceOcrPage1Debug)
         ? {
             forceOcrPage1Debug: true,
@@ -566,10 +630,9 @@ async function runResumeExtractPipelineInternal(
         ocrTextPreview: (ocrResult.text ?? "").slice(0, 500),
         finalParsePreview: parseInput.slice(0, 500),
         ocrRuntimeAvailable: ocrRunnable,
-        canvasRuntimeLoaded: ocrAttempted ? (ocrResult.debug?.canvasImportOk ?? false) : false,
-        canvasRuntimeError: ocrAttempted
-          ? (ocrResult.debug?.canvasImportError ?? getLastNativeCanvasLoadError())
-          : undefined,
+        canvasRuntimeLoaded: ocrApplicable ? nativeCanvasAvailable : false,
+        canvasRuntimeError:
+          ocrApplicable && !nativeCanvasAvailable ? getLastNativeCanvasLoadError() : undefined,
         pagesRenderedForOcr: ocrAttempted ? (ocrResult.debug?.pagesRendered ?? 0) : 0,
       };
     }
@@ -580,6 +643,11 @@ async function runResumeExtractPipelineInternal(
   }
 
   const quality = buildQuality(extractionSourceOut, textOut.length, suggestions);
+  const headline =
+    failureStep === "native_canvas_unavailable" ||
+    (quality === "limited_parse" && msgCtx.nativeCanvasUnavailable && ocrApplicable && ocrRunnable)
+      ? RESUME_STATUS_HEADLINE_SCANNED_NO_NATIVE_OCR
+      : undefined;
   const result: ResumeExtractPipelineResult = {
     text: textOut,
     extractionSource: extractionSourceOut === "ocr" ? "ocr" : "direct",
@@ -588,6 +656,7 @@ async function runResumeExtractPipelineInternal(
     directError: direct.error,
     ocrError,
     messages: buildMessages(quality, msgCtx),
+    ...(headline ? { statusHeadline: headline } : {}),
     ...(forcePage1 && ocrApplicable && (includeDebugSummary || options?.forceOcrPage1Debug)
       ? {
           forceOcrPage1Debug: true,
@@ -620,10 +689,9 @@ async function runResumeExtractPipelineInternal(
       ocrTextPreview: (ocrResult.text ?? "").slice(0, 500),
       finalParsePreview: parseInput.slice(0, 500),
       ocrRuntimeAvailable: ocrRunnable,
-      canvasRuntimeLoaded: ocrAttempted ? (ocrResult.debug?.canvasImportOk ?? false) : false,
-      canvasRuntimeError: ocrAttempted
-        ? (ocrResult.debug?.canvasImportError ?? getLastNativeCanvasLoadError())
-        : undefined,
+      canvasRuntimeLoaded: ocrApplicable ? nativeCanvasAvailable : false,
+      canvasRuntimeError:
+        ocrApplicable && !nativeCanvasAvailable ? getLastNativeCanvasLoadError() : undefined,
       pagesRenderedForOcr: ocrAttempted ? (ocrResult.debug?.pagesRendered ?? 0) : 0,
     };
   }

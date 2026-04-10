@@ -100,6 +100,8 @@ type ParsePayload = {
   quality: ResumeParseQuality;
   suggestions: ParsedResumeSuggestions | null;
   messages: string[];
+  /** Banner title override from API (e.g. scanned PDF without OCR in this environment) */
+  statusHeadline?: string;
   /** @deprecated use messages */
   warning?: string;
 };
@@ -120,7 +122,8 @@ function parseStatusBannerClass(q: ResumeParseQuality): string {
   }
 }
 
-function parseStatusTitle(q: ResumeParseQuality): string {
+function parseStatusTitle(q: ResumeParseQuality, headline?: string | null): string {
+  if (headline?.trim()) return headline.trim();
   switch (q) {
     case "parsed_ok":
       return "Parsed successfully";
@@ -333,7 +336,7 @@ export function NewFromResumeClient({ initialError }: NewFromResumeClientProps) 
                     className={`mt-4 rounded-xl border px-4 py-3 text-sm ${parseStatusBannerClass(parse.quality)}`}
                     role="status"
                   >
-                    <p className="font-semibold">{parseStatusTitle(parse.quality)}</p>
+                    <p className="font-semibold">{parseStatusTitle(parse.quality, parse.statusHeadline)}</p>
                     <ul className="mt-2 list-disc space-y-1 pl-5">
                       {(parse.messages?.length ? parse.messages : parse.warning ? [parse.warning] : []).map((line) => (
                         <li key={line}>{line}</li>

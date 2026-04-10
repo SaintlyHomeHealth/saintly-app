@@ -168,6 +168,7 @@ export async function POST(req: Request) {
     warning?: string;
     messages?: string[];
     quality?: ResumeParseQuality;
+    statusHeadline?: string;
   } = { ok: false, suggestions: null };
 
   let parsedActivityBody = resumeParsedActivityBody("manual");
@@ -182,6 +183,7 @@ export async function POST(req: Request) {
       suggestions: pipeline.suggestions,
       messages: pipeline.messages,
       quality: pipeline.quality,
+      statusHeadline: pipeline.statusHeadline,
       warning: pipeline.messages.join("\n"),
     };
   } catch (e) {

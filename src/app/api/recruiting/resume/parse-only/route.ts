@@ -36,6 +36,8 @@ export type ParseOnlyParsePayload = {
   quality: ResumeParseQuality;
   suggestions: ParsedResumeSuggestions | null;
   messages: string[];
+  /** Overrides default banner title when present (e.g. scanned PDF without server-side OCR) */
+  statusHeadline?: string;
   /** @deprecated prefer messages */
   warning?: string;
 };
@@ -118,6 +120,7 @@ export async function POST(req: Request) {
       quality: pipeline.quality,
       suggestions: pipeline.suggestions,
       messages: pipeline.messages,
+      statusHeadline: pipeline.statusHeadline,
       warning: pipeline.messages.join("\n"),
     };
   } catch (e) {
