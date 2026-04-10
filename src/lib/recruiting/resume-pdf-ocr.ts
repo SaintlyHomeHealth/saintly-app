@@ -74,8 +74,8 @@ async function ensurePdfWorker(): Promise<void> {
   if (workerSrcSet) return;
   const require = createRequire(import.meta.url);
   const pdfRoot = path.dirname(require.resolve("pdfjs-dist/package.json"));
-  const workerPath = path.join(pdfRoot, "build", "pdf.worker.mjs");
-  const { GlobalWorkerOptions } = await import("pdfjs-dist/build/pdf.mjs");
+  const workerPath = path.join(pdfRoot, "legacy", "build", "pdf.worker.mjs");
+  const { GlobalWorkerOptions } = await import("pdfjs-dist/legacy/build/pdf.mjs");
   GlobalWorkerOptions.workerSrc = pathToFileURL(workerPath).href;
   workerSrcSet = true;
 }
@@ -161,7 +161,7 @@ export async function ocrPdfBuffer(buffer: Buffer, options?: OcrPdfOptions): Pro
     return { text: "", error: `OCR skipped (${msg})`, debug: wantDebug(options) ? debug : undefined };
   }
 
-  const { getDocument } = await import("pdfjs-dist/build/pdf.mjs");
+  const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");
   const { createWorker, OEM } = await import("tesseract.js");
 
   const data = new Uint8Array(buffer.length);

@@ -1,7 +1,7 @@
 import "server-only";
 
 import { RESUME_SOFT_MANUAL_PARSE_CREATE } from "@/lib/recruiting/resume-upload-mime";
-import { isResumeExtractDebugEnabled } from "@/lib/recruiting/resume-extract-debug";
+import { isForceOcrPage1DebugMode, isResumeExtractDebugEnabled } from "@/lib/recruiting/resume-extract-debug";
 import { canRunResumePdfOcr } from "@/lib/recruiting/recruiting-ocr-env";
 import { parseResumePlainText } from "@/lib/recruiting/resume-parse-heuristics";
 import type { ParsedResumeSuggestions, ResumeParseQuality } from "@/lib/recruiting/resume-parse-types";
@@ -46,6 +46,10 @@ export type ResumeExtractDebugSummary = {
   pdfOcrDebug?: PdfOcrDebug;
   /** Combined OCR text length (trimmed) */
   ocrRawTextLen: number;
+  /** Page-1-only OCR when force-debug is on */
+  forceOcrPage1Debug?: boolean;
+  /** Raw OCR text from page 1 (force-debug) or first page slice */
+  ocrPage1RawText?: string;
   finalTextLen: number;
   extractionSource: ResumeExtractionSource;
   parseHeuristicsInputLen: number;
@@ -55,6 +59,8 @@ export type ResumeExtractDebugSummary = {
   /** Flattened values for logs */
   suggestedFieldPreview: Record<string, string>;
   failureStep: ResumeExtractFailureStep;
+  /** First 500 chars passed to parseResumePlainText */
+  parseInputFirst500?: string;
 };
 
 export type ResumeExtractPipelineResult = {
@@ -68,11 +74,19 @@ export type ResumeExtractPipelineResult = {
   messages: string[];
   /** Present when `includeDebug` was requested and debug logging is enabled */
   debug?: ResumeExtractDebugSummary;
+  /** When force page-1 OCR debug ran: raw text from Tesseract (page 1 only) */
+  ocrPage1RawText?: string;
+  forceOcrPage1Debug?: boolean;
 };
 
 export type ResumeExtractPipelineOptions = {
   mimeType?: string;
   includeDebug?: boolean;
+  /**
+   * Run OCR on PDF page 1 only and include raw text in debug (also when env
+   * `RECRUITING_RESUME_FORCE_OCR_PAGE1_DEBUG=1` in development).
+   */
+  forceOcrPage1Debug?: boolean;
 };
 
 function isPdfFilename(filename: string): boolean {
@@ -339,7 +353,10 @@ async function runResumeExtractPipelineInternal(
   options?: ResumeExtractPipelineOptions
 ): Promise<ResumeExtractPipelineResult> {
   const mimeType = options?.mimeType;
-  const includeDebug = Boolean(options?.includeDebug) && shouldLogPipeline();
+  const forcePage1 =
+    Boolean(options?.forceOcrPage1Debug) || (isForceOcrPage1DebugMode() && isPdfFilename(filename));
+  const includeDebug =
+    (Boolean(options?.includeDebug) || Boolean(options?.forceOcrPage1Debug)) && shouldLogPipeline();
 
   const direct = await extractResumeText(buffer, filename);
   const directText = (direct.text ?? "").trim();
@@ -354,7 +371,22 @@ async function runResumeExtractPipelineInternal(
   let text = directText;
   let extractionSource: ResumeExtractionSource = "direct";
 
-  if (shouldAttemptPdfOcr(directText, filename)) {
+  if (forcePage1 && ocrApplicable && ocrRunnable) {
+    ocrAttempted = true;
+    ocrResult = await ocrPdfBuffer(buffer, {
+      filename,
+      mimeType,
+      maxPages: 1,
+      forceDebug: true,
+    });
+    ocrRawLen = (ocrResult.text ?? "").trim().length;
+    if (ocrResult.error) {
+      ocrError = ocrResult.error;
+    }
+    const picked = pickBestText(directText, ocrResult.text ?? "", ocrAttempted);
+    text = picked.text;
+    extractionSource = picked.source;
+  } else if (shouldAttemptPdfOcr(directText, filename)) {
     ocrAttempted = true;
     ocrResult = await ocrPdfBuffer(buffer, {
       filename,
@@ -403,6 +435,7 @@ async function runResumeExtractPipelineInternal(
       filename,
       mimeType: mimeType ?? null,
       directTextLen: directText.length,
+      directFirst500: directText.slice(0, 500),
       directError: direct.error ?? null,
       ocrAttempted,
       ocrRunnable,
@@ -425,6 +458,9 @@ async function runResumeExtractPipelineInternal(
       extractionSourceOut,
       parseHeuristicsReceivedOcrText: parseReceivedOcr,
       parseHeuristicsInputLen: parseInput.length,
+      parseInputFirst500: parseInput.slice(0, 500),
+      ocrFirst500: (ocrResult.text ?? "").slice(0, 500),
+      forceOcrPage1: forcePage1,
     });
   }
 
@@ -471,6 +507,12 @@ async function runResumeExtractPipelineInternal(
       directError: direct.error,
       ocrError,
       messages: buildMessages(quality, msgCtx),
+      ...(forcePage1 && ocrApplicable && (includeDebug || options?.forceOcrPage1Debug)
+        ? {
+            forceOcrPage1Debug: true,
+            ocrPage1RawText: ocrResult.text ?? "",
+          }
+        : {}),
     };
     if (includeDebug) {
       result.debug = {
@@ -483,6 +525,8 @@ async function runResumeExtractPipelineInternal(
         ocrError,
         pdfOcrDebug: ocrResult.debug,
         ocrRawTextLen: ocrRawLen,
+        forceOcrPage1Debug: forcePage1,
+        ocrPage1RawText: forcePage1 ? (ocrResult.text ?? "") : undefined,
         finalTextLen: textOut.length,
         extractionSource: extractionSourceOut,
         parseHeuristicsInputLen: parseInput.length,
@@ -490,6 +534,7 @@ async function runResumeExtractPipelineInternal(
         suggestionFieldKeys: [],
         suggestedFieldPreview: {},
         failureStep,
+        parseInputFirst500: parseInput.slice(0, 500),
       };
     }
     if (shouldLogPipeline()) {
@@ -507,6 +552,12 @@ async function runResumeExtractPipelineInternal(
     directError: direct.error,
     ocrError,
     messages: buildMessages(quality, msgCtx),
+    ...(forcePage1 && ocrApplicable && (includeDebug || options?.forceOcrPage1Debug)
+      ? {
+          forceOcrPage1Debug: true,
+          ocrPage1RawText: ocrResult.text ?? "",
+        }
+      : {}),
   };
   if (includeDebug) {
     result.debug = {
@@ -519,6 +570,8 @@ async function runResumeExtractPipelineInternal(
       ocrError,
       pdfOcrDebug: ocrResult.debug,
       ocrRawTextLen: ocrRawLen,
+      forceOcrPage1Debug: forcePage1,
+      ocrPage1RawText: forcePage1 ? (ocrResult.text ?? "") : undefined,
       finalTextLen: textOut.length,
       extractionSource: extractionSourceOut,
       parseHeuristicsInputLen: parseInput.length,
@@ -526,6 +579,7 @@ async function runResumeExtractPipelineInternal(
       suggestionFieldKeys: suggestionKeys(suggestions),
       suggestedFieldPreview: suggestionPreview(suggestions),
       failureStep,
+      parseInputFirst500: parseInput.slice(0, 500),
     };
   }
   if (shouldLogPipeline()) {

@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 
 import { isResumeOcrDebugEndpointEnabled } from "@/lib/recruiting/resume-extract-debug";
 import { evaluateResumeOcrSanity } from "@/lib/recruiting/resume-ocr-sanity";
-import { ocrPdfBufferFirstPage } from "@/lib/recruiting/resume-pdf-ocr";
 import {
   normalizeBaseMime,
   isResumeMimeAllowed,
@@ -76,15 +75,18 @@ export async function POST(req: Request) {
   const arrayBuffer = await file.arrayBuffer();
   const buffer = Buffer.from(arrayBuffer);
 
+  const url = new URL(req.url);
+  const forceOcrPage1 = url.searchParams.get("forceOcrPage1") === "1";
+
   const pipeline = await runResumeExtractPipeline(buffer, safeName, {
     mimeType: baseMime,
     includeDebug: true,
+    ...(forceOcrPage1 ? { forceOcrPage1Debug: true } : {}),
   });
 
   let page1Sanity: { matched: string[]; missing: string[] } | null = null;
   if (safeName.toLowerCase().endsWith(".pdf")) {
-    const first = await ocrPdfBufferFirstPage(buffer, { filename: safeName, mimeType: baseMime, forceDebug: false });
-    const p1 = first.text?.split(/\n\n/)?.[0]?.trim() ?? first.text ?? "";
+    const p1 = (pipeline.ocrPage1RawText ?? pipeline.debug?.ocrPage1RawText ?? "").trim();
     page1Sanity = evaluateResumeOcrSanity(p1);
   }
 

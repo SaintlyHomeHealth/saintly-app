@@ -32,6 +32,8 @@ const EMAIL_RE = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/;
 const PHONE_RES = [
   /\b(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b/g,
   /\b\d{3}[-.\s]\d{3}[-.\s]\d{4}\b/g,
+  /** OCR often inserts spaces between digit groups */
+  /\b\d{3}\s+\d{3}\s+\d{4}\b/g,
 ];
 
 const SKIP_NAME_LINE = /resume|curriculum|vitae|cv\b|phone|email|objective|summary|experience|education|skills|linkedin|http|www|\d{3}[-.\s]?\d{3}/i;
@@ -46,10 +48,28 @@ function normalizeWhitespace(s: string): string {
   return s.replace(/\s+/g, " ").trim();
 }
 
+/** Fix common OCR artifacts before regex-based extraction (keeps newlines). */
+function ocrNormalizeForParsing(raw: string): string {
+  return raw
+    .replace(/\u00a0/g, " ")
+    .replace(/([a-zA-Z0-9._%+\-])\s+@\s+([a-zA-Z0-9.\-])/g, "$1@$2");
+}
+
 function extractEmail(text: string): SuggestedResumeField | undefined {
   const m = text.match(EMAIL_RE);
   if (!m?.[0]) return undefined;
   return sf(m[0], "high") ?? undefined;
+}
+
+function formatUsPhoneDigits(digits: string): string {
+  const d = digits.replace(/\D/g, "");
+  if (d.length === 10) {
+    return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
+  }
+  if (d.length === 11 && d.startsWith("1")) {
+    return `(${d.slice(1, 4)}) ${d.slice(4, 7)}-${d.slice(7)}`;
+  }
+  return digits;
 }
 
 function extractPhone(text: string): SuggestedResumeField | undefined {
@@ -59,7 +79,9 @@ function extractPhone(text: string): SuggestedResumeField | undefined {
     if (m?.[0]) {
       const digits = m[0].replace(/\D/g, "");
       if (digits.length >= 10) {
-        return sf(m[0].trim(), "high") ?? undefined;
+        const core = digits.length > 10 ? digits.slice(-10) : digits.slice(0, 10);
+        const display = formatUsPhoneDigits(core);
+        return sf(display, "high") ?? undefined;
       }
     }
   }
@@ -72,6 +94,31 @@ function extractNameFromTop(text: string): { full?: SuggestedResumeField; first?
     .map((l) => l.trim())
     .filter(Boolean)
     .slice(0, 35);
+
+  /** OCR often splits "First Last" across two lines */
+  for (let i = 0; i < Math.min(lines.length - 1, 10); i++) {
+    const a = lines[i]!;
+    const b = lines[i + 1]!;
+    if (a.length < 2 || b.length < 2 || a.length > 55 || b.length > 55) continue;
+    if (SKIP_NAME_LINE.test(a) || SKIP_NAME_LINE.test(b)) continue;
+    if (EMAIL_RE.test(a) || EMAIL_RE.test(b)) continue;
+    if (/\d{3}[-.\s]?\d{3}/.test(a) || /\d{3}[-.\s]?\d{3}/.test(b)) continue;
+    const wa = a.split(/\s+/).filter((w) => /^[A-Za-z][A-Za-z'.-]*$/.test(w));
+    const wb = b.split(/\s+/).filter((w) => /^[A-Za-z][A-Za-z'.-]*$/.test(w));
+    if (wa.length !== 1 || wb.length !== 1) continue;
+    const firstW = wa[0]!;
+    const lastW = wb[0]!;
+    if (firstW.length < 2 || lastW.length < 2) continue;
+    if (/^(skills|education|experience|employment|work|summary|contact|objective|profile)$/i.test(a)) continue;
+    const conf: ResumeParseConfidence = "low";
+    const fullName = `${firstW} ${lastW}`;
+    const full = sf(fullName, conf);
+    const fi = sf(firstW, conf);
+    const la = sf(lastW, conf);
+    if (full && fi && la) {
+      return { full, first: fi, last: la };
+    }
+  }
 
   for (const line of lines) {
     if (line.length < 4 || line.length > 90) continue;
@@ -168,7 +215,8 @@ function buildSummary(text: string): SuggestedResumeField | undefined {
 }
 
 export function parseResumePlainText(rawText: string): ParsedResumeSuggestions {
-  const text = normalizeWhitespace(rawText.replace(/\0/g, " "));
+  const rawClean = ocrNormalizeForParsing(rawText.replace(/\0/g, " "));
+  const text = normalizeWhitespace(rawClean);
   if (text.length < 15) {
     return {};
   }
@@ -181,7 +229,7 @@ export function parseResumePlainText(rawText: string): ParsedResumeSuggestions {
   const phone = extractPhone(text);
   if (phone) out.phone = phone;
 
-  const names = extractNameFromTop(rawText);
+  const names = extractNameFromTop(rawClean);
   if (names.full) out.full_name = names.full;
   if (names.first) out.first_name = names.first;
   if (names.last) out.last_name = names.last;
@@ -214,7 +262,7 @@ export function parseResumePlainText(rawText: string): ParsedResumeSuggestions {
     if (c) out.certifications = c;
   }
 
-  const summary = buildSummary(rawText);
+  const summary = buildSummary(rawClean);
   if (summary) {
     out.notes_summary = summary;
   }
