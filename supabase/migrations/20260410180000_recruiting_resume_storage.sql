@@ -1,17 +1,32 @@
 -- Recruiting CRM: resume file metadata + private Storage bucket `recruiting-resumes`.
+-- Uses IF EXISTS so this file can be run before 20260410163000 without failing (no-op until table exists).
 
-alter table public.recruiting_candidates
+alter table if exists public.recruiting_candidates
   add column if not exists resume_file_name text;
 
-alter table public.recruiting_candidates
+alter table if exists public.recruiting_candidates
   add column if not exists resume_storage_path text;
 
-alter table public.recruiting_candidates
+alter table if exists public.recruiting_candidates
   add column if not exists resume_uploaded_at timestamptz;
 
-comment on column public.recruiting_candidates.resume_file_name is 'Original filename of the uploaded resume.';
-comment on column public.recruiting_candidates.resume_storage_path is 'Object path in Storage bucket recruiting-resumes.';
-comment on column public.recruiting_candidates.resume_uploaded_at is 'When the current resume file was uploaded.';
+do $resume_meta$
+begin
+  if to_regclass('public.recruiting_candidates') is null then
+    raise notice 'Skipping resume column comments: recruiting_candidates not found.';
+    return;
+  end if;
+  execute $c1$
+    comment on column public.recruiting_candidates.resume_file_name is 'Original filename of the uploaded resume.';
+  $c1$;
+  execute $c2$
+    comment on column public.recruiting_candidates.resume_storage_path is 'Object path in Storage bucket recruiting-resumes.';
+  $c2$;
+  execute $c3$
+    comment on column public.recruiting_candidates.resume_uploaded_at is 'When the current resume file was uploaded.';
+  $c3$;
+end;
+$resume_meta$;
 
 insert into storage.buckets (id, name, public)
 values ('recruiting-resumes', 'recruiting-resumes', false)
