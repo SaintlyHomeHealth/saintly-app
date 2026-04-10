@@ -1,7 +1,11 @@
 import { createFacility, updateFacility } from "@/app/admin/facilities/actions";
 import { DatetimeLocalField } from "@/app/admin/facilities/_components/DatetimeLocalField";
 import { FacilityTypeSelect } from "@/app/admin/facilities/_components/FacilityTypeSelect";
-import { FACILITY_PRIORITY_OPTIONS, FACILITY_STATUS_OPTIONS } from "@/lib/crm/facility-options";
+import {
+  FACILITY_PRIORITY_OPTIONS,
+  FACILITY_STATUS_OPTIONS,
+  VISIT_FREQUENCY_OPTIONS,
+} from "@/lib/crm/facility-options";
 
 type StaffOpt = {
   user_id: string;
@@ -32,6 +36,8 @@ export type FacilityRecord = {
   best_time_to_visit: string | null;
   last_visit_at: string | null;
   next_follow_up_at: string | null;
+  visit_frequency: string | null;
+  relationship_strength: number | null;
   is_active: boolean;
   general_notes: string | null;
 };
@@ -137,6 +143,42 @@ export function FacilityForm({ mode, facility, staffOptions, errorMessage }: Fac
       </section>
 
       <section className="rounded-2xl border border-slate-200/90 bg-white p-6 shadow-sm sm:p-8">
+        <h2 className="text-lg font-semibold text-slate-900">Territory &amp; cadence</h2>
+        <p className="mt-1 text-sm text-slate-500">
+          How often to touch this account and how strong the relationship is. Next due date uses follow-up first, or last
+          visit + cadence.
+        </p>
+        <div className="mt-6 grid gap-4 sm:grid-cols-2">
+          <label className={labelCls}>
+            Visit frequency
+            <select name="visit_frequency" defaultValue={f?.visit_frequency ?? ""} className={inputCls}>
+              <option value="">— Not set —</option>
+              {VISIT_FREQUENCY_OPTIONS.map((vf) => (
+                <option key={vf} value={vf}>
+                  {vf === "weekly" ? "Weekly" : vf === "biweekly" ? "Biweekly" : "Monthly"}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className={labelCls}>
+            Relationship strength (1–5)
+            <select
+              name="relationship_strength"
+              defaultValue={f?.relationship_strength != null ? String(f.relationship_strength) : ""}
+              className={inputCls}
+            >
+              <option value="">— Not set —</option>
+              {[1, 2, 3, 4, 5].map((n) => (
+                <option key={n} value={String(n)}>
+                  {n} — {n <= 2 ? "Early" : n === 3 ? "Building" : "Strong"}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-slate-200/90 bg-white p-6 shadow-sm sm:p-8">
         <h2 className="text-lg font-semibold text-slate-900">Location &amp; reachability</h2>
         <div className="mt-6 grid gap-4 sm:grid-cols-2">
           <label className={`${labelCls} sm:col-span-2`}>
@@ -229,7 +271,8 @@ export function FacilityForm({ mode, facility, staffOptions, errorMessage }: Fac
           </label>
         </div>
         <p className="mt-3 text-xs text-slate-500">
-          Logging a visit with a follow-up date updates this automatically. You can still adjust it here.
+          Logging a visit with a follow-up date updates last visit automatically. If next follow-up is empty, the list
+          computes “next due” from last visit + visit frequency (territory cadence).
         </p>
       </section>
 

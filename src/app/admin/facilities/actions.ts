@@ -9,6 +9,7 @@ import {
   isValidFacilityPriority,
   isValidFacilityStatus,
   isValidFacilityType,
+  isValidVisitFrequency,
 } from "@/lib/crm/facility-options";
 import { supabaseAdmin } from "@/lib/admin";
 import { getAuthenticatedUser } from "@/lib/supabase/server";
@@ -42,6 +43,20 @@ async function requireManager() {
     redirect("/admin");
   }
   return staff;
+}
+
+function parseVisitFrequency(formData: FormData): string | null {
+  const s = str(formData, "visit_frequency");
+  if (!s) return null;
+  return isValidVisitFrequency(s) ? s : null;
+}
+
+function parseRelationshipStrength(formData: FormData): number | null {
+  const s = str(formData, "relationship_strength");
+  if (!s) return null;
+  const n = parseInt(s, 10);
+  if (Number.isFinite(n) && n >= 1 && n <= 5) return n;
+  return null;
 }
 
 export async function createFacility(formData: FormData) {
@@ -92,6 +107,8 @@ export async function createFacility(formData: FormData) {
       intake_notes: optStr(formData, "intake_notes"),
       best_time_to_visit: optStr(formData, "best_time_to_visit"),
       next_follow_up_at,
+      visit_frequency: parseVisitFrequency(formData),
+      relationship_strength: parseRelationshipStrength(formData),
       general_notes: optStr(formData, "general_notes"),
       is_active: true,
     })
@@ -162,6 +179,8 @@ export async function updateFacility(formData: FormData) {
       best_time_to_visit: optStr(formData, "best_time_to_visit"),
       last_visit_at,
       next_follow_up_at,
+      visit_frequency: parseVisitFrequency(formData),
+      relationship_strength: parseRelationshipStrength(formData),
       general_notes: optStr(formData, "general_notes"),
       is_active: str(formData, "is_active") === "1",
     })

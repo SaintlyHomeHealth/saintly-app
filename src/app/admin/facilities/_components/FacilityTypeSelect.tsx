@@ -82,14 +82,14 @@ export function FacilityTypeSelect({ name, defaultValue, emptyLabel, triggerClas
         <div
           role="listbox"
           aria-labelledby={id}
-          className="absolute left-0 z-50 mt-1 max-h-[min(28rem,75vh)] w-[min(100vw-1rem,28rem)] max-w-[min(100vw-1rem,28rem)] overflow-y-auto rounded-2xl border border-slate-200/90 bg-white py-0 shadow-lg shadow-slate-200/40 ring-1 ring-slate-200/60"
+          className="absolute left-0 z-50 mt-1 max-h-[min(28rem,75vh)] w-[min(100vw-1rem,28rem)] max-w-[min(100vw-1rem,28rem)] overflow-y-auto rounded-2xl border border-slate-200/90 bg-white py-1.5 shadow-lg shadow-slate-200/40 ring-1 ring-slate-200/60"
         >
           <button
             type="button"
             role="option"
             aria-selected={value === ""}
             onClick={() => pick("")}
-            className="flex w-full flex-col gap-0 border-b border-slate-100 px-3.5 py-3 text-left text-sm text-slate-900 hover:bg-sky-50/90"
+            className="flex w-full flex-col gap-0 border-b border-slate-100/90 px-4 py-3.5 text-left text-sm font-medium text-slate-800 hover:bg-sky-50/90"
           >
             {emptyLabel}
           </button>
@@ -104,16 +104,18 @@ export function FacilityTypeSelect({ name, defaultValue, emptyLabel, triggerClas
                 role="option"
                 aria-selected={selected}
                 onClick={() => pick(t)}
-                className={`flex w-full flex-col items-stretch gap-0 border-b border-slate-100 px-3.5 py-3 text-left last:border-b-0 hover:bg-sky-50/90 ${
-                  selected ? "bg-sky-50/70" : ""
+                className={`flex w-full flex-col items-stretch border-b border-slate-100/90 px-4 py-4 text-left last:border-b-0 hover:bg-sky-50/90 ${
+                  selected ? "bg-sky-50/80" : ""
                 }`}
               >
-                <span className="text-sm font-medium leading-snug text-slate-900">{title}</span>
-                <span className="mt-1 line-clamp-2 text-[11px] leading-snug text-slate-500">{row.description}</span>
-                <span className="mt-1.5 text-[11px] leading-snug">
-                  <span className="font-bold text-sky-700">PLAY:</span>{" "}
-                  <span className="font-semibold text-sky-950">{row.play}</span>
+                <span className="text-sm font-semibold leading-snug tracking-tight text-slate-900">{title}</span>
+                <span className="mt-2 line-clamp-2 text-[10px] font-normal leading-relaxed text-slate-500 sm:text-[11px]">
+                  {row.description}
                 </span>
+                <div className="mt-2.5 rounded-lg border border-sky-200/60 bg-gradient-to-r from-sky-50/95 to-cyan-50/40 px-2.5 py-1.5 text-left shadow-sm shadow-sky-100/40">
+                  <span className="text-[11px] font-bold text-sky-700">PLAY:</span>{" "}
+                  <span className="text-[11px] font-semibold leading-snug text-sky-950">{row.play}</span>
+                </div>
               </button>
             );
           })}

@@ -164,6 +164,23 @@ export const FACILITY_PRIORITY_OPTIONS = ["High", "Medium", "Low"] as const;
 
 export type FacilityPriorityOption = (typeof FACILITY_PRIORITY_OPTIONS)[number];
 
+/** Expected visit cadence for territory planning (drives “next due” when follow-up is blank). */
+export const VISIT_FREQUENCY_OPTIONS = ["weekly", "biweekly", "monthly"] as const;
+
+export type VisitFrequencyOption = (typeof VISIT_FREQUENCY_OPTIONS)[number];
+
+export function formatVisitFrequencyLabel(v: string | null | undefined): string {
+  if (!v) return "—";
+  if (v === "weekly") return "Weekly";
+  if (v === "biweekly") return "Biweekly";
+  if (v === "monthly") return "Monthly";
+  return v;
+}
+
+export function isValidVisitFrequency(v: string): v is VisitFrequencyOption {
+  return (VISIT_FREQUENCY_OPTIONS as readonly string[]).includes(v);
+}
+
 export const FACILITY_ACTIVITY_TYPE_OPTIONS = [
   "In-Person Visit",
   "Cold Drop-In",

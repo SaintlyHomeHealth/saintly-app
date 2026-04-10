@@ -1,12 +1,19 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
+import { FacilityDueBadge } from "@/app/admin/facilities/_components/FacilityDueBadge";
 import { FacilityDetailInteractive } from "@/app/admin/facilities/_components/FacilityDetailInteractive";
 import { FacilityFollowUpForm } from "@/app/admin/facilities/_components/FacilityFollowUpForm";
 import { LeadSectionCard } from "@/app/admin/crm/leads/_components/LeadSectionCard";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { crmPrimaryCtaCls } from "@/components/admin/crm-admin-list-styles";
-import { buildFacilityFullAddress, formatFacilityDateTime, googleMapsSearchUrlForAddress } from "@/lib/crm/facility-address";
+import { buildFacilityFullAddress, formatFacilityDate, formatFacilityDateTime, googleMapsSearchUrlForAddress } from "@/lib/crm/facility-address";
+import { formatVisitFrequencyLabel } from "@/lib/crm/facility-options";
+import {
+  computeFacilityDueInfo,
+  formatDueYmdAsDisplay,
+  formatRelationshipStrengthDots,
+} from "@/lib/crm/facility-territory-due";
 import { staffPrimaryLabel } from "@/lib/crm/crm-leads-table-helpers";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import { supabaseAdmin } from "@/lib/admin";
@@ -35,6 +42,8 @@ type FacilityRow = Record<string, unknown> & {
   best_time_to_visit: string | null;
   last_visit_at: string | null;
   next_follow_up_at: string | null;
+  visit_frequency: string | null;
+  relationship_strength: number | null;
   general_notes: string | null;
 };
 
@@ -87,6 +96,12 @@ export default async function AdminFacilityDetailPage({
   }
 
   const F = facility as unknown as FacilityRow;
+
+  const due = computeFacilityDueInfo({
+    last_visit_at: F.last_visit_at,
+    next_follow_up_at: F.next_follow_up_at,
+    visit_frequency: F.visit_frequency,
+  });
 
   const { data: staffRows } = await supabaseAdmin
     .from("staff_profiles")
@@ -190,11 +205,33 @@ export default async function AdminFacilityDetailPage({
             </div>
             <div>
               <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Last visit</p>
-              <p className="mt-1 text-sm font-semibold text-slate-900">{formatFacilityDateTime(F.last_visit_at)}</p>
+              <p className="mt-1 text-sm font-semibold text-slate-900">{formatFacilityDate(F.last_visit_at)}</p>
             </div>
             <div>
-              <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Next follow-up</p>
+              <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Visit cadence</p>
+              <p className="mt-1 text-sm font-semibold text-slate-900">{formatVisitFrequencyLabel(F.visit_frequency)}</p>
+            </div>
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Relationship</p>
+              <p className="mt-1 text-sm font-semibold text-slate-900">{formatRelationshipStrengthDots(F.relationship_strength)}</p>
+            </div>
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Next follow-up (scheduled)</p>
               <p className="mt-1 text-sm font-semibold text-slate-900">{formatFacilityDateTime(F.next_follow_up_at)}</p>
+            </div>
+            <div className="sm:col-span-2 lg:col-span-3">
+              <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Next due (visit)</p>
+              <div className="mt-1 flex flex-wrap items-center gap-2">
+                <FacilityDueBadge band={due.band} />
+                <span className="text-sm font-semibold text-slate-900">{formatDueYmdAsDisplay(due.effectiveNextDueYmd)}</span>
+              </div>
+              <p className="mt-1 text-[11px] leading-snug text-slate-500">
+                {due.effectiveNextDueYmd
+                  ? due.usesExplicitFollowUp
+                    ? "Uses the scheduled follow-up date."
+                    : "From last visit + cadence (no follow-up date set)."
+                  : "Set a follow-up or log a visit with cadence to see a due date."}
+              </p>
             </div>
           </div>
         </div>

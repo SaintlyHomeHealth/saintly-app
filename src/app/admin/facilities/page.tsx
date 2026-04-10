@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { FacilitiesEmptyState } from "@/app/admin/facilities/_components/FacilitiesEmptyState";
+import { FacilityDueBadge } from "@/app/admin/facilities/_components/FacilityDueBadge";
 import { FacilityTypeSelect } from "@/app/admin/facilities/_components/FacilityTypeSelect";
 import {
   crmActionBtnMuted,
@@ -13,8 +14,14 @@ import {
   crmPrimaryCtaCls,
 } from "@/components/admin/crm-admin-list-styles";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
-import { buildFacilityFullAddress, formatFacilityDateTime, googleMapsSearchUrlForAddress } from "@/lib/crm/facility-address";
+import { buildFacilityFullAddress, formatFacilityDate, googleMapsSearchUrlForAddress } from "@/lib/crm/facility-address";
 import { FACILITY_PRIORITY_OPTIONS, FACILITY_STATUS_OPTIONS } from "@/lib/crm/facility-options";
+import {
+  computeFacilityDueInfo,
+  facilityDueCardBorderClass,
+  formatDueYmdAsDisplay,
+  formatRelationshipStrengthDots,
+} from "@/lib/crm/facility-territory-due";
 import { staffPrimaryLabel } from "@/lib/crm/crm-leads-table-helpers";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import { supabaseAdmin } from "@/lib/admin";
@@ -35,6 +42,8 @@ type FacilityRow = {
   assigned_rep_user_id: string | null;
   last_visit_at: string | null;
   next_follow_up_at: string | null;
+  visit_frequency: string | null;
+  relationship_strength: number | null;
   is_active: boolean;
 };
 
@@ -165,7 +174,15 @@ export default async function AdminFacilitiesPage({
     ),
   ].sort((a, b) => a.localeCompare(b));
 
-  const filterQs = buildFilterQs(f);
+  const filterQs = buildFilterQs({
+    q: f.q,
+    type: f.type,
+    status: f.status,
+    rep: f.rep,
+    city: f.city,
+    priority: f.priority,
+    showInactive: f.showInactive ? "1" : undefined,
+  });
 
   return (
     <div className="space-y-6 p-6">
@@ -280,10 +297,15 @@ export default async function AdminFacilitiesPage({
               const mapsUrl = googleMapsSearchUrlForAddress(addr);
               const rep = r.assigned_rep_user_id ? staffById[r.assigned_rep_user_id] : null;
               const tel = (r.main_phone ?? "").trim() ? `tel:${r.main_phone!.replace(/[^\d+]/g, "")}` : null;
+              const due = computeFacilityDueInfo({
+                last_visit_at: r.last_visit_at,
+                next_follow_up_at: r.next_follow_up_at,
+                visit_frequency: r.visit_frequency,
+              });
               return (
                 <div
                   key={r.id}
-                  className={`rounded-2xl border border-slate-200 bg-white p-4 shadow-sm ${crmListRowHoverCls}`}
+                  className={`rounded-2xl border border-slate-200 bg-white p-4 shadow-sm ${facilityDueCardBorderClass(due.band)} ${crmListRowHoverCls}`}
                 >
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div className="min-w-0">
@@ -294,18 +316,29 @@ export default async function AdminFacilitiesPage({
                         {[r.type, r.city].filter(Boolean).join(" · ") || "—"}
                       </p>
                     </div>
-                    <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700 ring-1 ring-slate-200/80">
-                      {r.status}
-                    </span>
+                    <div className="flex shrink-0 flex-col items-end gap-1.5">
+                      <FacilityDueBadge band={due.band} />
+                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700 ring-1 ring-slate-200/80">
+                        {r.status}
+                      </span>
+                    </div>
                   </div>
-                  <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-600">
+                  <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-xs text-slate-600">
                     <div>
                       <span className="font-medium text-slate-500">Rep</span>
-                      <div>{rep ? staffPrimaryLabel(rep) : "—"}</div>
+                      <div className="text-slate-800">{rep ? staffPrimaryLabel(rep) : "—"}</div>
                     </div>
                     <div>
-                      <span className="font-medium text-slate-500">Next F/U</span>
-                      <div>{formatFacilityDateTime(r.next_follow_up_at)}</div>
+                      <span className="font-medium text-slate-500">Relationship</span>
+                      <div className="font-medium text-slate-800">{formatRelationshipStrengthDots(r.relationship_strength)}</div>
+                    </div>
+                    <div>
+                      <span className="font-medium text-slate-500">Last visit</span>
+                      <div>{formatFacilityDate(r.last_visit_at)}</div>
+                    </div>
+                    <div>
+                      <span className="font-medium text-slate-500">Next due</span>
+                      <div className="text-slate-800">{formatDueYmdAsDisplay(due.effectiveNextDueYmd)}</div>
                     </div>
                   </div>
                   <div className="mt-4 flex flex-wrap gap-2">
@@ -340,16 +373,17 @@ export default async function AdminFacilitiesPage({
 
           {/* Desktop table */}
           <div className={`${crmListScrollOuterCls} hidden md:block`}>
-            <div className="min-w-[1080px] text-sm">
-              <div className="grid w-full gap-x-4 border-b border-slate-100 bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-600 md:grid-cols-[minmax(13rem,1.15fr)_minmax(7rem,0.7fr)_minmax(7rem,0.65fr)_minmax(8rem,0.75fr)_minmax(9rem,0.85fr)_minmax(7rem,0.65fr)_minmax(8rem,0.75fr)_minmax(8rem,0.75fr)_minmax(14rem,1.15fr)]">
+            <div className="min-w-[1280px] text-sm">
+              <div className="grid w-full gap-x-3 border-b border-slate-100 bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-600 md:grid-cols-[minmax(11rem,1fr)_minmax(5.5rem,0.55fr)_minmax(5.5rem,0.55fr)_minmax(6.5rem,0.65fr)_minmax(7.5rem,0.75fr)_minmax(5rem,0.5fr)_minmax(6.5rem,0.65fr)_minmax(8rem,0.85fr)_minmax(5rem,0.5fr)_minmax(12rem,1fr)]">
                 <div>Facility</div>
                 <div>Type</div>
                 <div>City</div>
                 <div>Phone</div>
-                <div>Assigned rep</div>
+                <div>Rep</div>
                 <div>Status</div>
                 <div>Last visit</div>
-                <div>Next F/U</div>
+                <div>Next due</div>
+                <div>Rel</div>
                 <div className="text-right">Actions</div>
               </div>
               {list.map((r) => {
@@ -358,10 +392,15 @@ export default async function AdminFacilitiesPage({
                 const rep = r.assigned_rep_user_id ? staffById[r.assigned_rep_user_id] : null;
                 const tel = (r.main_phone ?? "").trim() ? `tel:${r.main_phone!.replace(/[^\d+]/g, "")}` : null;
                 const phoneDisplay = r.main_phone ? formatPhoneForDisplay(r.main_phone) : "—";
+                const due = computeFacilityDueInfo({
+                  last_visit_at: r.last_visit_at,
+                  next_follow_up_at: r.next_follow_up_at,
+                  visit_frequency: r.visit_frequency,
+                });
                 return (
                   <div
                     key={r.id}
-                    className={`grid w-full gap-x-4 border-b border-slate-100 px-4 py-3 last:border-0 md:grid-cols-[minmax(13rem,1.15fr)_minmax(7rem,0.7fr)_minmax(7rem,0.65fr)_minmax(8rem,0.75fr)_minmax(9rem,0.85fr)_minmax(7rem,0.65fr)_minmax(8rem,0.75fr)_minmax(8rem,0.75fr)_minmax(14rem,1.15fr)] md:items-center ${crmListRowHoverCls}`}
+                    className={`grid w-full gap-x-3 border-b border-slate-100 px-4 py-3 last:border-0 md:grid-cols-[minmax(11rem,1fr)_minmax(5.5rem,0.55fr)_minmax(5.5rem,0.55fr)_minmax(6.5rem,0.65fr)_minmax(7.5rem,0.75fr)_minmax(5rem,0.5fr)_minmax(6.5rem,0.65fr)_minmax(8rem,0.85fr)_minmax(5rem,0.5fr)_minmax(12rem,1fr)] md:items-center ${facilityDueCardBorderClass(due.band)} ${crmListRowHoverCls}`}
                   >
                     <div className="min-w-0">
                       <Link href={`/admin/facilities/${r.id}`} className="font-semibold text-slate-900 hover:text-sky-800 hover:underline">
@@ -376,10 +415,14 @@ export default async function AdminFacilitiesPage({
                     <div className="text-xs text-slate-700">{r.type ?? "—"}</div>
                     <div className="text-xs text-slate-700">{r.city ?? "—"}</div>
                     <div className="text-xs text-slate-700">{phoneDisplay}</div>
-                    <div className="text-xs text-slate-700">{rep ? staffPrimaryLabel(rep) : "—"}</div>
+                    <div className="text-xs text-slate-800">{rep ? staffPrimaryLabel(rep) : "—"}</div>
                     <div className="text-xs text-slate-700">{r.status}</div>
-                    <div className="text-xs text-slate-700">{formatFacilityDateTime(r.last_visit_at)}</div>
-                    <div className="text-xs text-slate-700">{formatFacilityDateTime(r.next_follow_up_at)}</div>
+                    <div className="text-xs text-slate-700">{formatFacilityDate(r.last_visit_at)}</div>
+                    <div className="flex min-w-0 flex-col gap-1">
+                      <FacilityDueBadge band={due.band} />
+                      <span className="text-[11px] text-slate-600">{formatDueYmdAsDisplay(due.effectiveNextDueYmd)}</span>
+                    </div>
+                    <div className="text-xs text-slate-800 tabular-nums">{formatRelationshipStrengthDots(r.relationship_strength)}</div>
                     <div className="flex flex-wrap justify-end gap-1.5">
                       <Link href={`/admin/facilities/${r.id}`} className={crmActionBtnSky}>
                         Open

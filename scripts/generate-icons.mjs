@@ -1,7 +1,7 @@
 /**
- * 1) Build `public/icon-1024.png` from `public/saintly-logo.png` (house + halo only, no wordmark):
- *    crop top region, white mark on #0B5FFF, centered with ~22.5% padding.
- * 2) Downscale to favicon / PWA sizes — always from 1024 master, never upscale.
+ * Build `public/icon-1024.png` from `public/saintly-logo.png`:
+ * letterbox to 1024² on white (preserves black-on-white artwork, no recoloring).
+ * Downscale to favicon / PWA sizes — always from 1024 master, never upscale.
  *
  * Run: npm run icons:generate-icons
  */
@@ -14,13 +14,7 @@ import sharp from "sharp";
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const ROOT = join(__dirname, "..");
 
-const SAINTLY_BLUE = { r: 11, g: 95, b: 255 }; // #0B5FFF
-/** Top portion of square logo = mark only (excludes “SAINTLY” / “HOME HEALTH” below). */
-const TOP_STRIP_FRAC = 0.52;
-/** Target inner art ~77.5% of canvas → ~22.5% total breathing room. */
-const INNER_FRAC = 1 - 0.225;
-/** Pixels darker than this (on white) become white ink on blue. */
-const LINE_LUM_THRESHOLD = 238;
+const WHITE = { r: 255, g: 255, b: 255, alpha: 1 };
 
 const logoPath = join(ROOT, "public/saintly-logo.png");
 const masterPath = join(ROOT, "public/icon-1024.png");
@@ -45,62 +39,16 @@ async function buildMasterFromFullLogo() {
     throw new Error("saintly-logo.png too small");
   }
 
-  const stripH = Math.floor(H * TOP_STRIP_FRAC);
-  const square = Math.min(W, stripH);
-  const left = Math.max(0, Math.floor((W - square) / 2));
-  const top = 0;
-
-  const { data, info } = await sharp(logoPath)
-    .extract({ left, top, width: square, height: square })
-    .ensureAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-
-  const w = info.width;
-  const h = info.height;
-  const ch = info.channels;
-  const px = w * h;
-  const out = Buffer.alloc(px * 4);
-  for (let i = 0; i < px; i++) {
-    const o = i * ch;
-    const lum = (data[o] + data[o + 1] + data[o + 2]) / 3;
-    const j = i * 4;
-    if (lum < LINE_LUM_THRESHOLD) {
-      out[j] = 255;
-      out[j + 1] = 255;
-      out[j + 2] = 255;
-      out[j + 3] = 255;
-    } else {
-      out[j] = SAINTLY_BLUE.r;
-      out[j + 1] = SAINTLY_BLUE.g;
-      out[j + 2] = SAINTLY_BLUE.b;
-      out[j + 3] = 255;
-    }
-  }
-
-  const inner = Math.round(1024 * INNER_FRAC);
-  const markPng = await sharp(out, { raw: { width: w, height: h, channels: 4 } })
-    .png()
-    .resize(inner, inner, {
+  await sharp(logoPath)
+    .resize(1024, 1024, {
+      fit: "contain",
+      background: WHITE,
       kernel: sharp.kernel.lanczos3,
-      fit: "inside",
-      background: { ...SAINTLY_BLUE, alpha: 1 },
     })
-    .toBuffer();
-
-  await sharp({
-    create: {
-      width: 1024,
-      height: 1024,
-      channels: 4,
-      background: { ...SAINTLY_BLUE, alpha: 1 },
-    },
-  })
-    .composite([{ input: markPng, gravity: "center" }])
     .png()
     .toFile(masterPath);
 
-  console.log("Wrote public/icon-1024.png (house mark, white on #0B5FFF, from saintly-logo.png)");
+  console.log("Wrote public/icon-1024.png (letterboxed on white, from saintly-logo.png)");
   return true;
 }
 
