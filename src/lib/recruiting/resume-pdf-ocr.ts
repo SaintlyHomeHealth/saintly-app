@@ -106,7 +106,8 @@ function sampleCanvasNonWhiteRatio(canvas: { width: number; height: number; getC
   return total ? nonWhite / total : 0;
 }
 
-function wantDebug(opts?: OcrPdfOptions): boolean {
+/** Verbose console logs + OCR text previews (dev / RECRUITING_RESUME_PARSE_DEBUG / forceDebug). */
+function wantVerboseOcrLogs(opts?: OcrPdfOptions): boolean {
   return Boolean(opts?.forceDebug) || isResumeExtractDebugEnabled();
 }
 
@@ -130,20 +131,20 @@ export async function ocrPdfBuffer(buffer: Buffer, options?: OcrPdfOptions): Pro
   };
 
   const log = (...args: unknown[]) => {
-    if (wantDebug(options)) console.log("[resume pdf ocr]", ...args);
+    if (wantVerboseOcrLogs(options)) console.log("[resume pdf ocr]", ...args);
   };
 
   if (!canRunResumePdfOcr()) {
     debug.langDir = getBundledTesseractEngLangDir();
     log("skip: canRunResumePdfOcr() false (env or missing lang data path)", { langDir: debug.langDir });
-    return { text: "", debug: wantDebug(options) ? { ...debug, fatalError: "OCR disabled or lang dir unavailable" } : undefined };
+    return { text: "", debug: { ...debug, fatalError: "OCR disabled or lang dir unavailable" } };
   }
 
   const langDir = getBundledTesseractEngLangDir();
   debug.langDir = langDir;
   if (!langDir) {
     log("skip: getBundledTesseractEngLangDir null");
-    return { text: "", error: "Bundled OCR language data is not available.", debug: wantDebug(options) ? debug : undefined };
+    return { text: "", error: "Bundled OCR language data is not available.", debug };
   }
 
   await ensurePdfWorker();
@@ -159,7 +160,7 @@ export async function ocrPdfBuffer(buffer: Buffer, options?: OcrPdfOptions): Pro
     debug.canvasImportOk = false;
     debug.canvasImportError = msg;
     log("canvas runtime unavailable", msg);
-    return { text: "", error: `OCR skipped (${msg})`, debug: wantDebug(options) ? debug : undefined };
+    return { text: "", error: `OCR skipped (${msg})`, debug };
   }
   debug.canvasImportOk = true;
   const { createCanvas } = napiCanvas;
@@ -223,11 +224,9 @@ export async function ocrPdfBuffer(buffer: Buffer, options?: OcrPdfOptions): Pro
       const ctx = canvas.getContext("2d");
       if (!ctx) {
         pageDebug.renderLikelyFailed = true;
+        pageDebug.ocrPreview300 = "[render error: no 2d context]";
         log(`page ${i} getContext('2d') returned null`);
-        if (wantDebug(options)) {
-          pageDebug.ocrPreview300 = "[render error: no 2d context]";
-          debug.pages.push(pageDebug);
-        }
+        debug.pages.push(pageDebug);
         continue;
       }
       ctx.fillStyle = "#ffffff";
@@ -243,11 +242,9 @@ export async function ocrPdfBuffer(buffer: Buffer, options?: OcrPdfOptions): Pro
       } catch (re) {
         pageDebug.renderLikelyFailed = true;
         const rmsg = re instanceof Error ? re.message : String(re);
+        pageDebug.ocrPreview300 = `[render error: ${rmsg}]`;
         log(`page ${i} pdf.js render() failed`, rmsg);
-        if (wantDebug(options)) {
-          pageDebug.ocrPreview300 = `[render error: ${rmsg}]`;
-          debug.pages.push(pageDebug);
-        }
+        debug.pages.push(pageDebug);
         continue;
       }
 
@@ -278,9 +275,10 @@ export async function ocrPdfBuffer(buffer: Buffer, options?: OcrPdfOptions): Pro
       }
 
       pageDebug.ocrRawTextLen = pageText.length;
-      if (wantDebug(options) && process.env.NODE_ENV === "development") {
-        pageDebug.ocrPreview300 = pageText.slice(0, 300);
-      } else if (wantDebug(options) && process.env.RECRUITING_RESUME_PARSE_DEBUG === "1") {
+      if (
+        wantVerboseOcrLogs(options) &&
+        (process.env.NODE_ENV === "development" || process.env.RECRUITING_RESUME_PARSE_DEBUG === "1")
+      ) {
         pageDebug.ocrPreview300 = pageText.slice(0, 300);
       }
 
@@ -305,13 +303,13 @@ export async function ocrPdfBuffer(buffer: Buffer, options?: OcrPdfOptions): Pro
       pagesRendered: debug.pagesRendered,
       combinedOcrTextLen: debug.combinedOcrTextLen,
     });
-    return { text: combined, debug: wantDebug(options) ? debug : undefined };
+    return { text: combined, debug };
   } catch (e) {
     const msg = e instanceof Error ? e.message : "OCR failed";
     debug.fatalError = msg;
     console.error("[resume pdf ocr] fatal", { msg, stack: e instanceof Error ? e.stack : undefined });
     log("fatal", msg);
-    return { text: "", error: msg, debug: wantDebug(options) ? debug : undefined };
+    return { text: "", error: msg, debug };
   } finally {
     if (worker) {
       try {

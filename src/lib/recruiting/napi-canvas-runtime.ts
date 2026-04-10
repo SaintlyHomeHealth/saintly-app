@@ -21,6 +21,12 @@ export type NapiCanvasRuntime = {
 };
 
 let cached: NapiCanvasRuntime | null | undefined;
+/** Last require() failure message (e.g. Vercel missing native binary). */
+let lastLoadError: string | undefined;
+
+export function getLastNativeCanvasLoadError(): string | undefined {
+  return lastLoadError;
+}
 
 /**
  * Loads `@napi-rs/canvas` only on the Node server at call time via CommonJS `require`.
@@ -29,6 +35,7 @@ let cached: NapiCanvasRuntime | null | undefined;
 export function getNodeCanvasRuntime(): NapiCanvasRuntime | null {
   if (cached !== undefined) return cached;
   if (typeof process === "undefined" || !process.versions?.node) {
+    lastLoadError = "not Node runtime";
     cached = null;
     return null;
   }
@@ -36,12 +43,15 @@ export function getNodeCanvasRuntime(): NapiCanvasRuntime | null {
     const require = createRequire(import.meta.url);
     const mod = require("@napi-rs/canvas") as { createCanvas?: unknown };
     if (typeof mod?.createCanvas !== "function") {
+      lastLoadError = "@napi-rs/canvas missing createCanvas";
       cached = null;
       return null;
     }
+    lastLoadError = undefined;
     cached = { createCanvas: mod.createCanvas as NapiCanvasRuntime["createCanvas"] };
     return cached;
-  } catch {
+  } catch (e) {
+    lastLoadError = e instanceof Error ? e.message : String(e);
     cached = null;
     return null;
   }

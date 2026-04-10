@@ -81,6 +81,7 @@ export async function POST(req: Request) {
   const pipeline = await runResumeExtractPipeline(buffer, safeName, {
     mimeType: baseMime,
     includeDebug: true,
+    includeDebugSummaryAlways: true,
     ...(forceOcrPage1 ? { forceOcrPage1Debug: true } : {}),
   });
 
@@ -98,6 +99,10 @@ export async function POST(req: Request) {
         directTextLen: dbg.directTextLen,
         directTextPreview: dbg.directTextPreview,
         ocrAttempted: dbg.ocrAttempted,
+        ocrRuntimeAvailable: dbg.ocrRuntimeAvailable,
+        canvasRuntimeLoaded: dbg.canvasRuntimeLoaded,
+        canvasRuntimeError: dbg.canvasRuntimeError,
+        pagesRendered: dbg.pagesRenderedForOcr,
         ocrRawTextLen: dbg.ocrRawTextLen,
         ocrTextPreview: dbg.ocrTextPreview,
         finalParseInputLen: dbg.parseHeuristicsInputLen,

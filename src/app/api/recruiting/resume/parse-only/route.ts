@@ -53,6 +53,11 @@ function logParseOnly(label: string, payload: Record<string, unknown>) {
   }
 }
 
+/** Structured metrics for every parse (no resume text — safe for production logs). */
+function logParseOnlyProductionMetrics(payload: Record<string, unknown>) {
+  console.log(JSON.stringify({ source: "parse-only/metrics", ...payload }));
+}
+
 export async function POST(req: Request) {
   logParseOnly("entered", {});
 
@@ -105,6 +110,7 @@ export async function POST(req: Request) {
     pipeline = await runResumeExtractPipeline(buffer, safeName, {
       mimeType: baseMime,
       includeDebug: hardDebug,
+      includeDebugSummaryAlways: true,
     });
     const ok = pipeline.quality !== "manual";
     parseOut = {
@@ -127,6 +133,23 @@ export async function POST(req: Request) {
 
   logParseOnly("response", { quality: parseOut.quality, parseOk: parseOut.ok });
 
+  if (pipeline?.debug) {
+    const d = pipeline.debug;
+    logParseOnlyProductionMetrics({
+      resume_file_name: safeName,
+      mimeType: baseMime,
+      directTextLen: d.directTextLen,
+      ocrAttempted: d.ocrAttempted,
+      ocrRuntimeAvailable: d.ocrRuntimeAvailable,
+      canvasRuntimeLoaded: d.canvasRuntimeLoaded,
+      canvasRuntimeError: d.canvasRuntimeError ?? null,
+      pagesRendered: d.pagesRenderedForOcr,
+      ocrRawTextLen: d.ocrRawTextLen,
+      quality: pipeline.quality,
+      failureStep: d.failureStep,
+    });
+  }
+
   const hardDebugPayload =
     hardDebug && pipeline?.debug
       ? {
@@ -135,6 +158,10 @@ export async function POST(req: Request) {
           directTextLen: pipeline.debug.directTextLen,
           directTextPreview: pipeline.debug.directTextPreview,
           ocrAttempted: pipeline.debug.ocrAttempted,
+          ocrRuntimeAvailable: pipeline.debug.ocrRuntimeAvailable,
+          canvasRuntimeLoaded: pipeline.debug.canvasRuntimeLoaded,
+          canvasRuntimeError: pipeline.debug.canvasRuntimeError,
+          pagesRendered: pipeline.debug.pagesRenderedForOcr,
           ocrRawTextLen: pipeline.debug.ocrRawTextLen,
           ocrTextPreview: pipeline.debug.ocrTextPreview,
           finalParseInputLen: pipeline.debug.parseHeuristicsInputLen,

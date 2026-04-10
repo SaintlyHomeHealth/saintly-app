@@ -7,6 +7,7 @@ import { parseResumePlainText } from "@/lib/recruiting/resume-parse-heuristics";
 import type { ParsedResumeSuggestions, ResumeParseQuality } from "@/lib/recruiting/resume-parse-types";
 import type { PdfOcrDebug, PdfOcrResult } from "@/lib/recruiting/resume-pdf-ocr";
 import { ocrPdfBuffer } from "@/lib/recruiting/resume-pdf-ocr";
+import { getLastNativeCanvasLoadError } from "@/lib/recruiting/napi-canvas-runtime";
 import { extractResumeText } from "@/lib/recruiting/resume-text-extract";
 
 /** Minimum character count to treat extraction as usable for heuristics. */
@@ -67,6 +68,14 @@ export type ResumeExtractDebugSummary = {
   ocrTextPreview?: string;
   /** Same slice as parseInputFirst500 — explicit name for API hard-debug */
   finalParsePreview?: string;
+  /** Tesseract bundle + env allow OCR (`canRunResumePdfOcr`) */
+  ocrRuntimeAvailable: boolean;
+  /** `@napi-rs/canvas` loaded successfully for this request */
+  canvasRuntimeLoaded: boolean;
+  /** Native canvas require error when canvas did not load (production diagnostics) */
+  canvasRuntimeError?: string;
+  /** Pages successfully rendered + OCR'd */
+  pagesRenderedForOcr: number;
 };
 
 export type ResumeExtractPipelineResult = {
@@ -78,7 +87,7 @@ export type ResumeExtractPipelineResult = {
   ocrError?: string;
   /** Short UI lines for banners */
   messages: string[];
-  /** Present when `includeDebug` was requested and debug logging is enabled */
+  /** Present when `includeDebugSummaryAlways` or dev/debug `includeDebug` requests metrics */
   debug?: ResumeExtractDebugSummary;
   /** When force page-1 OCR debug ran: raw text from Tesseract (page 1 only) */
   ocrPage1RawText?: string;
@@ -88,6 +97,11 @@ export type ResumeExtractPipelineResult = {
 export type ResumeExtractPipelineOptions = {
   mimeType?: string;
   includeDebug?: boolean;
+  /**
+   * When true, always attach `debug` on the pipeline result (metrics + previews)
+   * even in production. Used by parse-only for observability; does not enable verbose console logs.
+   */
+  includeDebugSummaryAlways?: boolean;
   /**
    * Run OCR on PDF page 1 only and include raw text in debug (also when env
    * `RECRUITING_RESUME_FORCE_OCR_PAGE1_DEBUG=1` in development).
@@ -367,8 +381,9 @@ async function runResumeExtractPipelineInternal(
   const mimeType = options?.mimeType;
   const forcePage1 =
     Boolean(options?.forceOcrPage1Debug) || (isForceOcrPage1DebugMode() && isPdfFilename(filename));
-  const includeDebug =
-    (Boolean(options?.includeDebug) || Boolean(options?.forceOcrPage1Debug)) && shouldLogPipeline();
+  const includeDebugSummary =
+    Boolean(options?.includeDebugSummaryAlways) ||
+    ((Boolean(options?.includeDebug) || Boolean(options?.forceOcrPage1Debug)) && shouldLogPipeline());
 
   const direct = await extractResumeText(buffer, filename);
   const directText = (direct.text ?? "").trim();
@@ -403,7 +418,7 @@ async function runResumeExtractPipelineInternal(
     ocrResult = await ocrPdfBuffer(buffer, {
       filename,
       mimeType,
-      forceDebug: includeDebug || shouldLogPipeline(),
+      forceDebug: shouldLogPipeline(),
     });
     ocrRawLen = (ocrResult.text ?? "").trim().length;
     if (ocrResult.error) {
@@ -519,14 +534,14 @@ async function runResumeExtractPipelineInternal(
       directError: direct.error,
       ocrError,
       messages: buildMessages(quality, msgCtx),
-      ...(forcePage1 && ocrApplicable && (includeDebug || options?.forceOcrPage1Debug)
+      ...(forcePage1 && ocrApplicable && (includeDebugSummary || options?.forceOcrPage1Debug)
         ? {
             forceOcrPage1Debug: true,
             ocrPage1RawText: ocrResult.text ?? "",
           }
         : {}),
     };
-    if (includeDebug) {
+    if (includeDebugSummary) {
       result.debug = {
         filename,
         mimeType,
@@ -550,6 +565,12 @@ async function runResumeExtractPipelineInternal(
         directTextPreview: directText.slice(0, 500),
         ocrTextPreview: (ocrResult.text ?? "").slice(0, 500),
         finalParsePreview: parseInput.slice(0, 500),
+        ocrRuntimeAvailable: ocrRunnable,
+        canvasRuntimeLoaded: ocrAttempted ? (ocrResult.debug?.canvasImportOk ?? false) : false,
+        canvasRuntimeError: ocrAttempted
+          ? (ocrResult.debug?.canvasImportError ?? getLastNativeCanvasLoadError())
+          : undefined,
+        pagesRenderedForOcr: ocrAttempted ? (ocrResult.debug?.pagesRendered ?? 0) : 0,
       };
     }
     if (shouldLogPipeline()) {
@@ -567,14 +588,14 @@ async function runResumeExtractPipelineInternal(
     directError: direct.error,
     ocrError,
     messages: buildMessages(quality, msgCtx),
-    ...(forcePage1 && ocrApplicable && (includeDebug || options?.forceOcrPage1Debug)
+    ...(forcePage1 && ocrApplicable && (includeDebugSummary || options?.forceOcrPage1Debug)
       ? {
           forceOcrPage1Debug: true,
           ocrPage1RawText: ocrResult.text ?? "",
         }
       : {}),
   };
-  if (includeDebug) {
+  if (includeDebugSummary) {
     result.debug = {
       filename,
       mimeType,
@@ -598,6 +619,12 @@ async function runResumeExtractPipelineInternal(
       directTextPreview: directText.slice(0, 500),
       ocrTextPreview: (ocrResult.text ?? "").slice(0, 500),
       finalParsePreview: parseInput.slice(0, 500),
+      ocrRuntimeAvailable: ocrRunnable,
+      canvasRuntimeLoaded: ocrAttempted ? (ocrResult.debug?.canvasImportOk ?? false) : false,
+      canvasRuntimeError: ocrAttempted
+        ? (ocrResult.debug?.canvasImportError ?? getLastNativeCanvasLoadError())
+        : undefined,
+      pagesRenderedForOcr: ocrAttempted ? (ocrResult.debug?.pagesRendered ?? 0) : 0,
     };
   }
   if (shouldLogPipeline()) {
