@@ -16,6 +16,12 @@ import {
 } from "@/lib/recruiting/recruiting-options";
 import type { RecruitingDuplicateRow } from "@/lib/recruiting/recruiting-duplicates";
 import type { ParsedResumeSuggestions, ResumeParseQuality } from "@/lib/recruiting/resume-parse-types";
+import {
+  RESUME_HARD_ERROR_CHOOSE_FILE,
+  RESUME_HARD_ERROR_INVALID_FILE,
+  RESUME_HARD_ERROR_TOO_LARGE,
+  RESUME_SOFT_MANUAL_PARSE_CREATE,
+} from "@/lib/recruiting/resume-upload-mime";
 
 import { attachResumeToExistingCandidate, createRecruitingCandidateFromResume } from "../../actions";
 import { RecruitingDuplicateModal } from "../../_components/RecruitingDuplicateModal";
@@ -156,24 +162,60 @@ export function NewFromResumeClient({ initialError }: NewFromResumeClientProps) 
           error?: string;
           parse?: ParsePayload;
         };
-        if (!res.ok) {
-          setToast(json.error || "Upload could not be processed — try another file or format.");
+
+        const isDev = process.env.NODE_ENV === "development";
+        if (isDev) {
+          console.log("[new-from-resume] parse-only response", {
+            status: res.status,
+            httpOk: res.ok,
+            fatalClient: res.status === 400 || res.status === 403,
+            quality: json.parse?.quality,
+            json,
+          });
+        }
+
+        /** Only true validation / auth failures block the flow (red banner, stay on upload step). */
+        if (res.status === 403) {
+          setToast(json.error ?? "You do not have access to this action.");
           setStep("pick");
           return;
         }
+        if (res.status === 400) {
+          setToast(json.error ?? "Invalid file — check type and size (max 10 MB).");
+          setStep("pick");
+          return;
+        }
+
+        if (!res.ok) {
+          if (isDev) {
+            console.warn("[new-from-resume] non-2xx but continuing with manual review", res.status, json);
+          }
+          setToast(null);
+          setParse(
+            json.parse ?? {
+              ok: false,
+              quality: "manual",
+              suggestions: null,
+              messages: [RESUME_SOFT_MANUAL_PARSE_CREATE],
+            }
+          );
+          setStep("review");
+          return;
+        }
+
         setParse(
           json.parse ?? {
             ok: false,
             quality: "manual",
             suggestions: null,
-            messages: [
-              "Resume uploaded, but we could not auto-read enough text from this file.",
-              "You can still create the candidate manually or try OCR fallback if enabled.",
-            ],
+            messages: [RESUME_SOFT_MANUAL_PARSE_CREATE],
           }
         );
         setStep("review");
-      } catch {
+      } catch (e) {
+        if (process.env.NODE_ENV === "development") {
+          console.error("[new-from-resume] parse-only fetch failed", e);
+        }
         setToast("Network error — try again.");
       }
     });
@@ -184,11 +226,11 @@ export function NewFromResumeClient({ initialError }: NewFromResumeClientProps) 
       case "missing_name":
         return "Full name is required.";
       case "missing_file":
-        return "Resume file is missing.";
+        return RESUME_HARD_ERROR_CHOOSE_FILE;
       case "file_too_large":
-        return "File is too large (max 10 MB).";
+        return RESUME_HARD_ERROR_TOO_LARGE;
       case "bad_type":
-        return "Only PDF, DOC, or DOCX files are allowed.";
+        return RESUME_HARD_ERROR_INVALID_FILE;
       case "save_failed":
         return "Could not save the candidate.";
       case "upload_failed":

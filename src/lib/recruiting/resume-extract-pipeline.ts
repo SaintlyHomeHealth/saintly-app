@@ -1,5 +1,6 @@
 import "server-only";
 
+import { RESUME_SOFT_MANUAL_PARSE_CREATE } from "@/lib/recruiting/resume-upload-mime";
 import { canRunResumePdfOcr } from "@/lib/recruiting/recruiting-ocr-env";
 import { parseResumePlainText } from "@/lib/recruiting/resume-parse-heuristics";
 import type { ParsedResumeSuggestions, ResumeParseQuality } from "@/lib/recruiting/resume-parse-types";
@@ -121,17 +122,13 @@ function buildMessages(quality: ResumeParseQuality, ctx?: MessageCtx): string[] 
         "Resume uploaded, but we could not auto-read enough text for full suggestions — edit fields as needed.",
       ];
     case "manual": {
-      const line1 = "Resume uploaded, but we could not auto-read enough text from this file.";
-      if (!ctx?.ocrApplicable) {
-        return [line1, "You can still create the candidate manually."];
+      if (!ctx?.ocrApplicable || !ctx.ocrRunnable || ctx.ocrAttempted) {
+        return [RESUME_SOFT_MANUAL_PARSE_CREATE];
       }
-      if (!ctx.ocrRunnable) {
-        return [line1, "You can still create the candidate manually."];
-      }
-      if (ctx.ocrAttempted) {
-        return [line1, "You can still create the candidate manually."];
-      }
-      return [line1, "You can still create the candidate manually or try OCR fallback if enabled."];
+      return [
+        RESUME_SOFT_MANUAL_PARSE_CREATE,
+        "OCR fallback may be disabled in this environment — fill in the form below.",
+      ];
     }
     default: {
       const _exhaustive: never = quality;
@@ -155,10 +152,45 @@ function pickBestText(direct: string, ocr: string): { text: string; source: Resu
   return { text: d || o, source: d.length > 0 ? "direct" : o.length > 0 ? "ocr" : "none" };
 }
 
+function shouldLogPipeline(): boolean {
+  return process.env.RECRUITING_RESUME_PARSE_DEBUG === "1" || process.env.NODE_ENV === "development";
+}
+
 /**
  * Extract text (PDF/DOC/DOCX), optionally OCR PDFs when direct text is empty/short or heuristics are weak.
+ * Never throws — failures become `quality: manual` for API routes.
  */
 export async function runResumeExtractPipeline(buffer: Buffer, filename: string): Promise<ResumeExtractPipelineResult> {
+  try {
+    return await runResumeExtractPipelineInternal(buffer, filename);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    const stack = e instanceof Error ? e.stack : undefined;
+    if (shouldLogPipeline()) {
+      console.error("[resume pipeline] fatal (recovering to manual)", { filename, msg, stack });
+    }
+    const ocrApplicable = isPdfFilename(filename);
+    const ocrRunnable = canRunResumePdfOcr();
+    return {
+      text: "",
+      extractionSource: "none",
+      quality: "manual",
+      suggestions: null,
+      directError: msg,
+      ocrError: msg,
+      messages: buildMessages("manual", {
+        ocrApplicable,
+        ocrRunnable,
+        ocrAttempted: false,
+      }),
+    };
+  }
+}
+
+async function runResumeExtractPipelineInternal(
+  buffer: Buffer,
+  filename: string
+): Promise<ResumeExtractPipelineResult> {
   const direct = await extractResumeText(buffer, filename);
   const directText = (direct.text ?? "").trim();
 
@@ -166,6 +198,7 @@ export async function runResumeExtractPipeline(buffer: Buffer, filename: string)
   const ocrRunnable = canRunResumePdfOcr();
   let ocrAttempted = false;
   let ocrError: string | undefined;
+  let ocrRawLen = 0;
 
   let text = directText;
   let extractionSource: ResumeExtractionSource = "direct";
@@ -173,6 +206,7 @@ export async function runResumeExtractPipeline(buffer: Buffer, filename: string)
   if (shouldAttemptPdfOcr(directText, filename)) {
     ocrAttempted = true;
     const ocr = await ocrPdfBuffer(buffer);
+    ocrRawLen = (ocr.text ?? "").trim().length;
     if (ocr.error) {
       ocrError = ocr.error;
     }
@@ -187,9 +221,22 @@ export async function runResumeExtractPipeline(buffer: Buffer, filename: string)
     ocrAttempted,
   };
 
+  if (shouldLogPipeline()) {
+    console.log("[resume pipeline]", {
+      filename,
+      directTextLen: directText.length,
+      directError: direct.error ?? null,
+      ocrAttempted,
+      ocrRawTextLen: ocrAttempted ? ocrRawLen : 0,
+      ocrError: ocrError ?? null,
+      finalTextLen: text.length,
+      extractionSource,
+    });
+  }
+
   if (text.length < MIN_USABLE_TEXT_LEN) {
     const quality: ResumeParseQuality = "manual";
-    return {
+    const result: ResumeExtractPipelineResult = {
       text,
       extractionSource: text.length > 0 && extractionSource === "ocr" ? "ocr" : "none",
       quality,
@@ -198,6 +245,10 @@ export async function runResumeExtractPipeline(buffer: Buffer, filename: string)
       ocrError,
       messages: buildMessages(quality, msgCtx),
     };
+    if (shouldLogPipeline()) {
+      console.log("[resume pipeline] quality", { quality: result.quality });
+    }
+    return result;
   }
 
   let suggestions: ParsedResumeSuggestions | null = null;
@@ -208,7 +259,7 @@ export async function runResumeExtractPipeline(buffer: Buffer, filename: string)
   }
 
   const quality = buildQuality(extractionSource, text.length, suggestions);
-  return {
+  const result: ResumeExtractPipelineResult = {
     text,
     extractionSource: extractionSource === "ocr" ? "ocr" : "direct",
     quality,
@@ -217,6 +268,10 @@ export async function runResumeExtractPipeline(buffer: Buffer, filename: string)
     ocrError,
     messages: buildMessages(quality, msgCtx),
   };
+  if (shouldLogPipeline()) {
+    console.log("[resume pipeline] quality", { quality: result.quality });
+  }
+  return result;
 }
 
 /** Activity body for recruiting_candidate_activities.resume_parsed */

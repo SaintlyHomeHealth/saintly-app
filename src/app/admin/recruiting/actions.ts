@@ -19,6 +19,13 @@ import {
 import { findRecruitingDuplicateCandidates, type RecruitingDuplicateRow } from "@/lib/recruiting/recruiting-duplicates";
 import { RECRUITING_RESUMES_BUCKET } from "@/lib/recruiting/recruiting-resume-storage";
 import { resumeParsedActivityBody, runResumeExtractPipeline } from "@/lib/recruiting/resume-extract-pipeline";
+import {
+  isResumeMimeAllowed,
+  resumeFileMimeFromFile,
+  RESUME_HARD_ERROR_CHOOSE_FILE,
+  RESUME_HARD_ERROR_INVALID_FILE,
+  RESUME_HARD_ERROR_TOO_LARGE,
+} from "@/lib/recruiting/resume-upload-mime";
 import { supabaseAdmin } from "@/lib/admin";
 import { getAuthenticatedUser } from "@/lib/supabase/server";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
@@ -62,23 +69,6 @@ const RESUME_ALLOWED_EXT = [".pdf", ".doc", ".docx"] as const;
 function resumeHasAllowedExtension(name: string): boolean {
   const lower = name.toLowerCase();
   return RESUME_ALLOWED_EXT.some((ext) => lower.endsWith(ext));
-}
-
-const RESUME_ALLOWED_MIME = new Set([
-  "application/pdf",
-  "application/msword",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  "application/octet-stream",
-  "",
-]);
-
-function resumeMimeOk(mime: string, filename: string): boolean {
-  if (RESUME_ALLOWED_MIME.has(mime)) return true;
-  const lower = filename.toLowerCase();
-  if (lower.endsWith(".docx") && (mime === "application/zip" || mime === "application/x-zip-compressed")) {
-    return true;
-  }
-  return false;
 }
 
 async function requireManager() {
@@ -657,21 +647,21 @@ export async function attachResumeToExistingCandidate(formData: FormData): Promi
 
   const file = formData.get("file");
   if (!(file instanceof File) || file.size <= 0) {
-    return { ok: false, reason: "Choose a resume file." };
+    return { ok: false, reason: RESUME_HARD_ERROR_CHOOSE_FILE };
   }
 
   if (file.size > RESUME_MAX_BYTES) {
-    return { ok: false, reason: "File too large (max 10 MB)." };
+    return { ok: false, reason: RESUME_HARD_ERROR_TOO_LARGE };
   }
 
   const originalName = file.name || "resume";
   if (!resumeHasAllowedExtension(originalName)) {
-    return { ok: false, reason: "Only PDF, DOC, or DOCX files are allowed." };
+    return { ok: false, reason: RESUME_HARD_ERROR_INVALID_FILE };
   }
 
-  const mime = typeof file.type === "string" ? file.type.trim() : "";
-  if (!resumeMimeOk(mime, originalName)) {
-    return { ok: false, reason: "Unsupported file type." };
+  const mime = resumeFileMimeFromFile(file);
+  if (!isResumeMimeAllowed(mime, originalName)) {
+    return { ok: false, reason: RESUME_HARD_ERROR_INVALID_FILE };
   }
 
   const { data: existing, error: fetchErr } = await supabaseAdmin
@@ -766,8 +756,8 @@ export async function createRecruitingCandidateFromResume(
     return { ok: false, reason: "bad_type" };
   }
 
-  const mime = typeof file.type === "string" ? file.type.trim() : "";
-  if (!resumeMimeOk(mime, originalName)) {
+  const mime = resumeFileMimeFromFile(file);
+  if (!isResumeMimeAllowed(mime, originalName)) {
     return { ok: false, reason: "bad_type" };
   }
 

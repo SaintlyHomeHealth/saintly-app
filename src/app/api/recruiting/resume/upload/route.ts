@@ -2,6 +2,14 @@ import { NextResponse } from "next/server";
 
 import type { ParsedResumeSuggestions, ResumeParseQuality } from "@/lib/recruiting/resume-parse-types";
 import { resumeParsedActivityBody, runResumeExtractPipeline } from "@/lib/recruiting/resume-extract-pipeline";
+import {
+  isResumeMimeAllowed,
+  resumeFileMimeFromFile,
+  RESUME_HARD_ERROR_CHOOSE_FILE,
+  RESUME_HARD_ERROR_INVALID_FILE,
+  RESUME_HARD_ERROR_TOO_LARGE,
+  RESUME_SOFT_MANUAL_PARSE_PROFILE,
+} from "@/lib/recruiting/resume-upload-mime";
 import { RECRUITING_RESUMES_BUCKET } from "@/lib/recruiting/recruiting-resume-storage";
 import { supabaseAdmin } from "@/lib/admin";
 import { getAuthenticatedUser } from "@/lib/supabase/server";
@@ -13,26 +21,9 @@ const MAX_BYTES = 10 * 1024 * 1024;
 
 const ALLOWED_EXT = [".pdf", ".doc", ".docx"] as const;
 
-const ALLOWED_MIME = new Set([
-  "application/pdf",
-  "application/msword",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  "application/octet-stream",
-  "",
-]);
-
 function hasAllowedExtension(name: string): boolean {
   const lower = name.toLowerCase();
   return ALLOWED_EXT.some((ext) => lower.endsWith(ext));
-}
-
-function mimeOk(mime: string, filename: string): boolean {
-  if (ALLOWED_MIME.has(mime)) return true;
-  const lower = filename.toLowerCase();
-  if (lower.endsWith(".docx") && (mime === "application/zip" || mime === "application/x-zip-compressed")) {
-    return true;
-  }
-  return false;
 }
 
 function sanitizeOriginalName(name: string): string {
@@ -73,21 +64,21 @@ export async function POST(req: Request) {
   }
 
   if (!(file instanceof File) || file.size <= 0) {
-    return NextResponse.json({ error: "Choose a resume file" }, { status: 400 });
+    return NextResponse.json({ error: RESUME_HARD_ERROR_CHOOSE_FILE }, { status: 400 });
   }
 
   if (file.size > MAX_BYTES) {
-    return NextResponse.json({ error: "File too large (max 10 MB)" }, { status: 400 });
+    return NextResponse.json({ error: RESUME_HARD_ERROR_TOO_LARGE }, { status: 400 });
   }
 
   const originalName = file.name || "resume";
   if (!hasAllowedExtension(originalName)) {
-    return NextResponse.json({ error: "Only PDF, DOC, or DOCX files are allowed" }, { status: 400 });
+    return NextResponse.json({ error: RESUME_HARD_ERROR_INVALID_FILE }, { status: 400 });
   }
 
-  const mime = typeof file.type === "string" ? file.type.trim() : "";
-  if (!mimeOk(mime, originalName)) {
-    return NextResponse.json({ error: "Unsupported file type" }, { status: 400 });
+  const mime = resumeFileMimeFromFile(file);
+  if (!isResumeMimeAllowed(mime, originalName)) {
+    return NextResponse.json({ error: RESUME_HARD_ERROR_INVALID_FILE }, { status: 400 });
   }
 
   const safeName = sanitizeOriginalName(originalName);
@@ -194,10 +185,7 @@ export async function POST(req: Request) {
       quality: "manual",
       suggestions: null,
       warning: e instanceof Error ? e.message : "Parsing failed",
-      messages: [
-        "Resume uploaded, but we could not auto-read enough text from this file.",
-        "You can still create the candidate manually or try OCR fallback if enabled.",
-      ],
+      messages: [RESUME_SOFT_MANUAL_PARSE_PROFILE],
     };
   }
 

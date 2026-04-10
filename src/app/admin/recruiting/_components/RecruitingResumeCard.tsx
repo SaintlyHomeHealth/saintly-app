@@ -4,6 +4,7 @@ import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 import type { ParsedResumeSuggestions, ResumeParseQuality } from "@/lib/recruiting/resume-parse-types";
+import { RESUME_HARD_ERROR_INVALID_FILE, RESUME_SOFT_MANUAL_PARSE_PROFILE } from "@/lib/recruiting/resume-upload-mime";
 import { crmPrimaryCtaCls } from "@/components/admin/crm-admin-list-styles";
 
 import { RecruitingResumeSuggestionsPanel } from "./RecruitingResumeSuggestionsPanel";
@@ -111,7 +112,10 @@ export function RecruitingResumeCard({
           parse?: ParsePayload;
         };
         if (!res.ok) {
-          setToast({ kind: "err", message: json.error || "Upload failed" });
+          setToast({
+            kind: "err",
+            message: json.error || RESUME_HARD_ERROR_INVALID_FILE,
+          });
           return;
         }
         const wasReplace = hasResume;
@@ -136,8 +140,8 @@ export function RecruitingResumeCard({
           setToast({
             kind: "ok",
             message: wasReplace
-              ? "Resume replaced. We could not auto-read enough text — you can still edit the profile."
-              : "Resume uploaded. We could not auto-read enough text — you can still edit the profile.",
+              ? `Resume replaced. ${RESUME_SOFT_MANUAL_PARSE_PROFILE}`
+              : RESUME_SOFT_MANUAL_PARSE_PROFILE,
           });
         }
       } catch {

@@ -1,33 +1,28 @@
 import { NextResponse } from "next/server";
 
 import type { ParsedResumeSuggestions, ResumeParseQuality } from "@/lib/recruiting/resume-parse-types";
+import {
+  normalizeBaseMime,
+  isResumeMimeAllowed,
+  resumeFileMimeFromFile,
+  RESUME_HARD_ERROR_CHOOSE_FILE,
+  RESUME_HARD_ERROR_INVALID_FILE,
+  RESUME_HARD_ERROR_TOO_LARGE,
+  RESUME_SOFT_MANUAL_PARSE_CREATE,
+} from "@/lib/recruiting/resume-upload-mime";
 import { runResumeExtractPipeline } from "@/lib/recruiting/resume-extract-pipeline";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
+
+/** PDF/DOC parsing uses Node Buffer + native deps — avoid Edge runtime. */
+export const runtime = "nodejs";
 
 const MAX_BYTES = 10 * 1024 * 1024;
 
 const ALLOWED_EXT = [".pdf", ".doc", ".docx"] as const;
 
-const ALLOWED_MIME = new Set([
-  "application/pdf",
-  "application/msword",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  "application/octet-stream",
-  "",
-]);
-
 function hasAllowedExtension(name: string): boolean {
   const lower = name.toLowerCase();
   return ALLOWED_EXT.some((ext) => lower.endsWith(ext));
-}
-
-function mimeOk(mime: string, filename: string): boolean {
-  if (ALLOWED_MIME.has(mime)) return true;
-  const lower = filename.toLowerCase();
-  if (lower.endsWith(".docx") && (mime === "application/zip" || mime === "application/x-zip-compressed")) {
-    return true;
-  }
-  return false;
 }
 
 function sanitizeOriginalName(name: string): string {
@@ -45,7 +40,22 @@ export type ParseOnlyParsePayload = {
   warning?: string;
 };
 
+const RECOVERABLE_MANUAL: ParseOnlyParsePayload = {
+  ok: false,
+  quality: "manual",
+  suggestions: null,
+  messages: [RESUME_SOFT_MANUAL_PARSE_CREATE],
+};
+
+function logParseOnly(label: string, payload: Record<string, unknown>) {
+  if (process.env.RECRUITING_RESUME_PARSE_DEBUG === "1" || process.env.NODE_ENV === "development") {
+    console.log(`[parse-only] ${label}`, payload);
+  }
+}
+
 export async function POST(req: Request) {
+  logParseOnly("entered", {});
+
   const staff = await getStaffProfile();
   if (!staff || !isManagerOrHigher(staff)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -60,30 +70,34 @@ export async function POST(req: Request) {
 
   const file = formData.get("file");
   if (!(file instanceof File) || file.size <= 0) {
-    return NextResponse.json({ error: "Choose a resume file" }, { status: 400 });
+    return NextResponse.json({ error: RESUME_HARD_ERROR_CHOOSE_FILE }, { status: 400 });
   }
 
   if (file.size > MAX_BYTES) {
-    return NextResponse.json({ error: "File too large (max 10 MB)" }, { status: 400 });
+    return NextResponse.json({ error: RESUME_HARD_ERROR_TOO_LARGE }, { status: 400 });
   }
 
   const originalName = file.name || "resume";
   if (!hasAllowedExtension(originalName)) {
-    return NextResponse.json({ error: "Only PDF, DOC, or DOCX files are allowed" }, { status: 400 });
+    return NextResponse.json({ error: RESUME_HARD_ERROR_INVALID_FILE }, { status: 400 });
   }
 
-  const mime = typeof file.type === "string" ? file.type.trim() : "";
-  if (!mimeOk(mime, originalName)) {
-    return NextResponse.json({ error: "Unsupported file type" }, { status: 400 });
+  const mime = resumeFileMimeFromFile(file);
+  const baseMime = normalizeBaseMime(mime);
+  logParseOnly("file", { mime: baseMime, size: file.size, name: originalName });
+
+  if (!isResumeMimeAllowed(mime, originalName)) {
+    return NextResponse.json({ error: RESUME_HARD_ERROR_INVALID_FILE }, { status: 400 });
   }
 
   const safeName = sanitizeOriginalName(originalName);
-  const arrayBuffer = await file.arrayBuffer();
-  const buffer = Buffer.from(arrayBuffer);
 
   let parseOut: ParseOnlyParsePayload;
 
   try {
+    const arrayBuffer = await file.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+
     const pipeline = await runResumeExtractPipeline(buffer, safeName);
     const ok = pipeline.quality !== "manual";
     parseOut = {
@@ -94,17 +108,17 @@ export async function POST(req: Request) {
       warning: pipeline.messages.join("\n"),
     };
   } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    const stack = e instanceof Error ? e.stack : undefined;
+    logParseOnly("recoverable_catch", { message: msg, stack });
+    console.error("[parse-only] unexpected error after validation — returning manual parse", e);
     parseOut = {
-      ok: false,
-      quality: "manual",
-      suggestions: null,
-      messages: [
-        "Resume uploaded, but we could not auto-read enough text from this file.",
-        "You can still create the candidate manually or try OCR fallback if enabled.",
-      ],
-      warning: e instanceof Error ? e.message : "Parsing failed",
+      ...RECOVERABLE_MANUAL,
+      warning: msg,
     };
   }
+
+  logParseOnly("response", { quality: parseOut.quality, parseOk: parseOut.ok });
 
   return NextResponse.json({
     ok: true,
