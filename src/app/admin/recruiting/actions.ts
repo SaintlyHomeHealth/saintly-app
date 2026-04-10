@@ -21,6 +21,7 @@ import { RECRUITING_RESUMES_BUCKET } from "@/lib/recruiting/recruiting-resume-st
 import { resumeParsedActivityBody, runResumeExtractPipeline } from "@/lib/recruiting/resume-extract-pipeline";
 import {
   isResumeMimeAllowed,
+  normalizeBaseMime,
   resumeFileMimeFromFile,
   RESUME_HARD_ERROR_CHOOSE_FILE,
   RESUME_HARD_ERROR_INVALID_FILE,
@@ -593,12 +594,13 @@ async function finalizeResumeAfterStorage(input: {
   candidateId: string;
   safeName: string;
   buffer: Buffer;
+  mimeType?: string;
   userId: string | null;
   isReplace: boolean;
   oldPath: string | null;
   newStoragePath: string;
 }) {
-  const { candidateId, safeName, buffer, userId, isReplace, oldPath, newStoragePath } = input;
+  const { candidateId, safeName, buffer, mimeType, userId, isReplace, oldPath, newStoragePath } = input;
 
   const bodyText = isReplace ? `Replaced resume with: ${safeName}` : `Uploaded resume: ${safeName}`;
   await supabaseAdmin.from("recruiting_candidate_activities").insert({
@@ -611,7 +613,7 @@ async function finalizeResumeAfterStorage(input: {
 
   let parsedBody = resumeParsedActivityBody("manual");
   try {
-    const pipeline = await runResumeExtractPipeline(buffer, safeName);
+    const pipeline = await runResumeExtractPipeline(buffer, safeName, mimeType ? { mimeType } : undefined);
     parsedBody = resumeParsedActivityBody(pipeline.quality);
   } catch {
     parsedBody = resumeParsedActivityBody("manual");
@@ -720,6 +722,7 @@ export async function attachResumeToExistingCandidate(formData: FormData): Promi
     candidateId,
     safeName,
     buffer,
+    mimeType: normalizeBaseMime(mime),
     userId: user?.id ?? null,
     isReplace,
     oldPath,
@@ -868,6 +871,7 @@ export async function createRecruitingCandidateFromResume(
     candidateId,
     safeName,
     buffer,
+    mimeType: normalizeBaseMime(mime),
     userId: user?.id ?? null,
     isReplace: false,
     oldPath: null,

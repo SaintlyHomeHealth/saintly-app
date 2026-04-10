@@ -1,5 +1,6 @@
 import "server-only";
 
+import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 
@@ -23,6 +24,13 @@ export function getBundledTesseractEngLangDir(): string | null {
   } catch {
     return null;
   }
+}
+
+/** True when `eng.traineddata.gz` is present on disk (Tesseract LSTM). */
+export function bundledEngTrainedDataExists(): boolean {
+  const dir = getBundledTesseractEngLangDir();
+  if (!dir) return false;
+  return existsSync(path.join(dir, "eng.traineddata.gz"));
 }
 
 export function canRunResumePdfOcr(): boolean {

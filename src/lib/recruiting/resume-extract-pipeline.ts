@@ -1,9 +1,11 @@
 import "server-only";
 
 import { RESUME_SOFT_MANUAL_PARSE_CREATE } from "@/lib/recruiting/resume-upload-mime";
+import { isResumeExtractDebugEnabled } from "@/lib/recruiting/resume-extract-debug";
 import { canRunResumePdfOcr } from "@/lib/recruiting/recruiting-ocr-env";
 import { parseResumePlainText } from "@/lib/recruiting/resume-parse-heuristics";
 import type { ParsedResumeSuggestions, ResumeParseQuality } from "@/lib/recruiting/resume-parse-types";
+import type { PdfOcrDebug, PdfOcrResult } from "@/lib/recruiting/resume-pdf-ocr";
 import { ocrPdfBuffer } from "@/lib/recruiting/resume-pdf-ocr";
 import { extractResumeText } from "@/lib/recruiting/resume-text-extract";
 
@@ -11,7 +13,8 @@ import { extractResumeText } from "@/lib/recruiting/resume-text-extract";
 export const MIN_USABLE_TEXT_LEN = 20;
 
 /**
- * If direct PDF text is at least this long, assume a normal text PDF and skip OCR (performance).
+ * If direct PDF text is at least this long *and* heuristics find strong contact fields,
+ * skip OCR (performance).
  */
 const OCR_SKIP_IF_DIRECT_CHARS = 200;
 
@@ -22,6 +25,38 @@ const OCR_SHORT_DIRECT_CHARS = 45;
 
 export type ResumeExtractionSource = "direct" | "ocr" | "none";
 
+export type ResumeExtractFailureStep =
+  | "none"
+  | "direct_extraction_empty"
+  | "ocr_disabled_or_unavailable"
+  | "pdf_render_failed"
+  | "ocr_init_failed"
+  | "ocr_empty_text"
+  | "parse_heuristics_no_fields"
+  | "parse_heuristics_weak";
+
+export type ResumeExtractDebugSummary = {
+  filename: string;
+  mimeType?: string;
+  directTextLen: number;
+  directError?: string;
+  ocrRunnable: boolean;
+  ocrAttempted: boolean;
+  ocrError?: string;
+  pdfOcrDebug?: PdfOcrDebug;
+  /** Combined OCR text length (trimmed) */
+  ocrRawTextLen: number;
+  finalTextLen: number;
+  extractionSource: ResumeExtractionSource;
+  parseHeuristicsInputLen: number;
+  parseHeuristicsReceivedOcrText: boolean;
+  /** Keys of non-undefined suggested fields */
+  suggestionFieldKeys: string[];
+  /** Flattened values for logs */
+  suggestedFieldPreview: Record<string, string>;
+  failureStep: ResumeExtractFailureStep;
+};
+
 export type ResumeExtractPipelineResult = {
   text: string;
   extractionSource: ResumeExtractionSource;
@@ -31,6 +66,13 @@ export type ResumeExtractPipelineResult = {
   ocrError?: string;
   /** Short UI lines for banners */
   messages: string[];
+  /** Present when `includeDebug` was requested and debug logging is enabled */
+  debug?: ResumeExtractDebugSummary;
+};
+
+export type ResumeExtractPipelineOptions = {
+  mimeType?: string;
+  includeDebug?: boolean;
 };
 
 function isPdfFilename(filename: string): boolean {
@@ -52,13 +94,28 @@ function hasAnySuggestion(s: ParsedResumeSuggestions): boolean {
   return Object.keys(s).length > 0;
 }
 
+function suggestionKeys(s: ParsedResumeSuggestions | null): string[] {
+  if (!s) return [];
+  return Object.keys(s).filter((k) => s[k as keyof ParsedResumeSuggestions] != null);
+}
+
+function suggestionPreview(s: ParsedResumeSuggestions | null): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!s) return out;
+  for (const key of Object.keys(s) as (keyof ParsedResumeSuggestions)[]) {
+    const f = s[key];
+    if (f?.value) out[key] = String(f.value).slice(0, 200);
+  }
+  return out;
+}
+
 /**
- * PDF only. Conservative: skip OCR for clearly text-based PDFs; only run when direct text looks unusable.
+ * PDF only. Run OCR when direct text is short, or when long text still does not yield strong parse signals.
+ * **Important:** Do not skip OCR solely because direct text length ≥ 200 — scanned PDFs often embed junk text.
  */
 function shouldAttemptPdfOcr(directText: string, filename: string): boolean {
   if (!isPdfFilename(filename)) return false;
   if (!canRunResumePdfOcr()) return false;
-  if (directText.length >= OCR_SKIP_IF_DIRECT_CHARS) return false;
 
   if (directText.length <= OCR_SHORT_DIRECT_CHARS) {
     return true;
@@ -69,6 +126,10 @@ function shouldAttemptPdfOcr(directText: string, filename: string): boolean {
     suggestions = parseResumePlainText(directText);
   } catch {
     suggestions = null;
+  }
+
+  if (directText.length >= OCR_SKIP_IF_DIRECT_CHARS && suggestions && hasStrongSuggestions(suggestions)) {
+    return false;
   }
 
   if (!suggestions || !hasAnySuggestion(suggestions)) {
@@ -122,7 +183,7 @@ function buildMessages(quality: ResumeParseQuality, ctx?: MessageCtx): string[] 
         "Resume uploaded, but we could not auto-read enough text for full suggestions — edit fields as needed.",
       ];
     case "manual": {
-      if (!ctx?.ocrApplicable || !ctx.ocrRunnable || ctx.ocrAttempted) {
+      if (!ctx?.ocrApplicable || !ctx?.ocrRunnable || ctx.ocrAttempted) {
         return [RESUME_SOFT_MANUAL_PARSE_CREATE];
       }
       return [
@@ -137,9 +198,32 @@ function buildMessages(quality: ResumeParseQuality, ctx?: MessageCtx): string[] 
   }
 }
 
-function pickBestText(direct: string, ocr: string): { text: string; source: ResumeExtractionSource } {
+function pickBestText(
+  direct: string,
+  ocr: string,
+  ocrAttempted: boolean
+): { text: string; source: ResumeExtractionSource } {
   const d = direct.trim();
   const o = ocr.trim();
+
+  // After an OCR attempt, long "direct" text is often PDF metadata or junk; prefer OCR when it produced text.
+  if (ocrAttempted && o.length >= MIN_USABLE_TEXT_LEN) {
+    let directStrong = false;
+    try {
+      const parsed = parseResumePlainText(d);
+      directStrong = parsed ? hasStrongSuggestions(parsed) : false;
+    } catch {
+      directStrong = false;
+    }
+    if (!directStrong) {
+      return { text: o.slice(0, 120_000), source: "ocr" };
+    }
+    if (o.length >= d.length) {
+      return { text: o.slice(0, 120_000), source: "ocr" };
+    }
+    return { text: d.slice(0, 120_000), source: "direct" };
+  }
+
   if (o.length >= MIN_USABLE_TEXT_LEN && o.length > d.length) {
     return { text: o.slice(0, 120_000), source: "ocr" };
   }
@@ -152,17 +236,79 @@ function pickBestText(direct: string, ocr: string): { text: string; source: Resu
   return { text: d || o, source: d.length > 0 ? "direct" : o.length > 0 ? "ocr" : "none" };
 }
 
+/**
+ * Prefer OCR-first when OCR ran and produced usable text so noisy direct metadata does not hide the visible resume.
+ */
+function buildTextForHeuristics(
+  directText: string,
+  ocrText: string | undefined,
+  ocrAttempted: boolean,
+  picked: { text: string; source: ResumeExtractionSource }
+): { parseInput: string; parseReceivedOcr: boolean } {
+  const o = (ocrText ?? "").trim();
+  const d = directText.trim();
+  if (ocrAttempted && o.length >= MIN_USABLE_TEXT_LEN) {
+    return { parseInput: `${o}\n\n${d}`.slice(0, 120_000), parseReceivedOcr: true };
+  }
+  return { parseInput: picked.text, parseReceivedOcr: false };
+}
+
 function shouldLogPipeline(): boolean {
-  return process.env.RECRUITING_RESUME_PARSE_DEBUG === "1" || process.env.NODE_ENV === "development";
+  return isResumeExtractDebugEnabled();
+}
+
+function inferFailureStep(args: {
+  directLen: number;
+  ocrRunnable: boolean;
+  ocrAttempted: boolean;
+  ocr: PdfOcrResult;
+  pickedTextLen: number;
+  parseInputLen: number;
+  suggestions: ParsedResumeSuggestions | null;
+}): ResumeExtractFailureStep {
+  const { directLen, ocrRunnable, ocrAttempted, ocr, pickedTextLen, parseInputLen, suggestions } = args;
+  const ocrLen = (ocr.text ?? "").trim().length;
+  const dbg = ocr.debug;
+
+  if (pickedTextLen < MIN_USABLE_TEXT_LEN) {
+    if (directLen === 0 && !ocrAttempted) {
+      return ocrRunnable ? "direct_extraction_empty" : "ocr_disabled_or_unavailable";
+    }
+    if (!ocrRunnable && ocrAttempted === false) return "ocr_disabled_or_unavailable";
+    if (ocrAttempted && dbg && !dbg.workerInitOk) return "ocr_init_failed";
+    if (ocrAttempted && dbg?.pages?.length) {
+      const allBad = dbg.pages.every((p) => p.renderLikelyFailed);
+      if (allBad) return "pdf_render_failed";
+    }
+    if (ocrAttempted && ocrLen === 0) {
+      if (ocr.error?.toLowerCase().includes("worker") || ocr.error?.toLowerCase().includes("tesseract")) {
+        return "ocr_init_failed";
+      }
+      return "ocr_empty_text";
+    }
+    return "direct_extraction_empty";
+  }
+
+  if (parseInputLen >= MIN_USABLE_TEXT_LEN && (!suggestions || !hasAnySuggestion(suggestions))) {
+    return "parse_heuristics_no_fields";
+  }
+  if (parseInputLen >= MIN_USABLE_TEXT_LEN && suggestions && !hasStrongSuggestions(suggestions)) {
+    return "parse_heuristics_weak";
+  }
+  return "none";
 }
 
 /**
  * Extract text (PDF/DOC/DOCX), optionally OCR PDFs when direct text is empty/short or heuristics are weak.
  * Never throws — failures become `quality: manual` for API routes.
  */
-export async function runResumeExtractPipeline(buffer: Buffer, filename: string): Promise<ResumeExtractPipelineResult> {
+export async function runResumeExtractPipeline(
+  buffer: Buffer,
+  filename: string,
+  options?: ResumeExtractPipelineOptions
+): Promise<ResumeExtractPipelineResult> {
   try {
-    return await runResumeExtractPipelineInternal(buffer, filename);
+    return await runResumeExtractPipelineInternal(buffer, filename, options);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     const stack = e instanceof Error ? e.stack : undefined;
@@ -189,8 +335,12 @@ export async function runResumeExtractPipeline(buffer: Buffer, filename: string)
 
 async function runResumeExtractPipelineInternal(
   buffer: Buffer,
-  filename: string
+  filename: string,
+  options?: ResumeExtractPipelineOptions
 ): Promise<ResumeExtractPipelineResult> {
+  const mimeType = options?.mimeType;
+  const includeDebug = Boolean(options?.includeDebug) && shouldLogPipeline();
+
   const direct = await extractResumeText(buffer, filename);
   const directText = (direct.text ?? "").trim();
 
@@ -199,21 +349,38 @@ async function runResumeExtractPipelineInternal(
   let ocrAttempted = false;
   let ocrError: string | undefined;
   let ocrRawLen = 0;
+  let ocrResult: PdfOcrResult = { text: "" };
 
   let text = directText;
   let extractionSource: ResumeExtractionSource = "direct";
 
   if (shouldAttemptPdfOcr(directText, filename)) {
     ocrAttempted = true;
-    const ocr = await ocrPdfBuffer(buffer);
-    ocrRawLen = (ocr.text ?? "").trim().length;
-    if (ocr.error) {
-      ocrError = ocr.error;
+    ocrResult = await ocrPdfBuffer(buffer, {
+      filename,
+      mimeType,
+      forceDebug: includeDebug || shouldLogPipeline(),
+    });
+    ocrRawLen = (ocrResult.text ?? "").trim().length;
+    if (ocrResult.error) {
+      ocrError = ocrResult.error;
     }
-    const picked = pickBestText(directText, ocr.text ?? "");
+    const picked = pickBestText(directText, ocrResult.text ?? "", ocrAttempted);
     text = picked.text;
     extractionSource = picked.source;
   }
+
+  const { parseInput, parseReceivedOcr } = buildTextForHeuristics(
+    directText,
+    ocrResult.text,
+    ocrAttempted,
+    { text, source: extractionSource }
+  );
+
+  /** Prefer merged OCR-first text for API + quality when it carries more than `text` alone */
+  const textOut = parseInput.trim().length > text.trim().length ? parseInput : text;
+  const extractionSourceOut: ResumeExtractionSource =
+    parseReceivedOcr && textOut === parseInput ? "ocr" : extractionSource;
 
   const msgCtx: MessageCtx = {
     ocrApplicable,
@@ -222,52 +389,145 @@ async function runResumeExtractPipelineInternal(
   };
 
   if (shouldLogPipeline()) {
-    console.log("[resume pipeline]", {
+    const ocrPages = ocrResult.debug?.pages ?? [];
+    const first300 =
+      process.env.NODE_ENV === "development" || process.env.RECRUITING_RESUME_PARSE_DEBUG === "1"
+        ? ocrPages.map((p) => ({
+            page: p.pageIndex,
+            len: p.ocrRawTextLen,
+            first300: p.ocrPreview300 ?? "",
+          }))
+        : ocrPages.map((p) => ({ page: p.pageIndex, len: p.ocrRawTextLen }));
+
+    console.log("[resume pipeline] extract", {
       filename,
+      mimeType: mimeType ?? null,
       directTextLen: directText.length,
       directError: direct.error ?? null,
       ocrAttempted,
+      ocrRunnable,
       ocrRawTextLen: ocrAttempted ? ocrRawLen : 0,
       ocrError: ocrError ?? null,
-      finalTextLen: text.length,
+      pdfNumPages: ocrResult.debug?.pdfNumPages ?? null,
+      pagesRenderedForOcr: ocrResult.debug?.pagesRendered ?? null,
+      pageDimensions: ocrPages.map((p) => ({
+        page: p.pageIndex,
+        w: p.canvasWidth,
+        h: p.canvasHeight,
+        nonWhiteRatio: Number(p.nonWhiteSampleRatio.toFixed(4)),
+        renderLikelyFailed: p.renderLikelyFailed,
+      })),
+      ocrPageSummaries: first300,
+      combinedOcrTextLen: ocrAttempted ? ocrRawLen : 0,
+      finalPickedTextLen: text.length,
+      textOutLen: textOut.length,
       extractionSource,
+      extractionSourceOut,
+      parseHeuristicsReceivedOcrText: parseReceivedOcr,
+      parseHeuristicsInputLen: parseInput.length,
     });
   }
 
-  if (text.length < MIN_USABLE_TEXT_LEN) {
+  let suggestions: ParsedResumeSuggestions | null = null;
+  try {
+    suggestions = parseResumePlainText(parseInput);
+  } catch (pe) {
+    if (shouldLogPipeline()) {
+      console.error("[resume pipeline] parseResumePlainText threw", pe);
+    }
+    suggestions = null;
+  }
+
+  if (shouldLogPipeline()) {
+    const keys = suggestionKeys(suggestions);
+    console.log("[resume pipeline] parse", {
+      suggestionFieldKeys: keys,
+      suggestedFieldPreview: suggestionPreview(suggestions),
+      parseHeuristicsReceivedOcrText: parseReceivedOcr,
+    });
+  }
+
+  const failureStep = inferFailureStep({
+    directLen: directText.length,
+    ocrRunnable,
+    ocrAttempted,
+    ocr: ocrResult,
+    pickedTextLen: textOut.length,
+    parseInputLen: parseInput.length,
+    suggestions,
+  });
+
+  if (shouldLogPipeline()) {
+    console.log("[resume pipeline] failureStep", { failureStep });
+  }
+
+  if (textOut.length < MIN_USABLE_TEXT_LEN) {
     const quality: ResumeParseQuality = "manual";
     const result: ResumeExtractPipelineResult = {
-      text,
-      extractionSource: text.length > 0 && extractionSource === "ocr" ? "ocr" : "none",
+      text: textOut,
+      extractionSource: textOut.length > 0 && extractionSourceOut === "ocr" ? "ocr" : "none",
       quality,
       suggestions: null,
       directError: direct.error,
       ocrError,
       messages: buildMessages(quality, msgCtx),
     };
+    if (includeDebug) {
+      result.debug = {
+        filename,
+        mimeType,
+        directTextLen: directText.length,
+        directError: direct.error,
+        ocrRunnable,
+        ocrAttempted,
+        ocrError,
+        pdfOcrDebug: ocrResult.debug,
+        ocrRawTextLen: ocrRawLen,
+        finalTextLen: textOut.length,
+        extractionSource: extractionSourceOut,
+        parseHeuristicsInputLen: parseInput.length,
+        parseHeuristicsReceivedOcrText: parseReceivedOcr,
+        suggestionFieldKeys: [],
+        suggestedFieldPreview: {},
+        failureStep,
+      };
+    }
     if (shouldLogPipeline()) {
       console.log("[resume pipeline] quality", { quality: result.quality });
     }
     return result;
   }
 
-  let suggestions: ParsedResumeSuggestions | null = null;
-  try {
-    suggestions = parseResumePlainText(text);
-  } catch {
-    suggestions = null;
-  }
-
-  const quality = buildQuality(extractionSource, text.length, suggestions);
+  const quality = buildQuality(extractionSourceOut, textOut.length, suggestions);
   const result: ResumeExtractPipelineResult = {
-    text,
-    extractionSource: extractionSource === "ocr" ? "ocr" : "direct",
+    text: textOut,
+    extractionSource: extractionSourceOut === "ocr" ? "ocr" : "direct",
     quality,
     suggestions,
     directError: direct.error,
     ocrError,
     messages: buildMessages(quality, msgCtx),
   };
+  if (includeDebug) {
+    result.debug = {
+      filename,
+      mimeType,
+      directTextLen: directText.length,
+      directError: direct.error,
+      ocrRunnable,
+      ocrAttempted,
+      ocrError,
+      pdfOcrDebug: ocrResult.debug,
+      ocrRawTextLen: ocrRawLen,
+      finalTextLen: textOut.length,
+      extractionSource: extractionSourceOut,
+      parseHeuristicsInputLen: parseInput.length,
+      parseHeuristicsReceivedOcrText: parseReceivedOcr,
+      suggestionFieldKeys: suggestionKeys(suggestions),
+      suggestedFieldPreview: suggestionPreview(suggestions),
+      failureStep,
+    };
+  }
   if (shouldLogPipeline()) {
     console.log("[resume pipeline] quality", { quality: result.quality });
   }

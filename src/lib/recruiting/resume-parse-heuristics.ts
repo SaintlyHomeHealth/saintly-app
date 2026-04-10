@@ -16,6 +16,8 @@ const DISCIPLINE_RULES: { pattern: RegExp; value: string }[] = [
   { pattern: /\bLVN\b/i, value: "LPN" },
   { pattern: /\bLPN\b/i, value: "LPN" },
   { pattern: /\bRN\b/i, value: "RN" },
+  /** OCR often preserves degree line without "RN" token */
+  { pattern: /\bBSN\b/i, value: "RN" },
   { pattern: /\bCNA\b/i, value: "CNA" },
   { pattern: /\bHHA\b/i, value: "HHA" },
   { pattern: /\bMSW\b/i, value: "MSW" },

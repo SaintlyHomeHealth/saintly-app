@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 
-import type { ParsedResumeSuggestions, ResumeParseQuality } from "@/lib/recruiting/resume-parse-types";
+import { isResumeOcrDebugEndpointEnabled } from "@/lib/recruiting/resume-extract-debug";
+import { evaluateResumeOcrSanity } from "@/lib/recruiting/resume-ocr-sanity";
+import { ocrPdfBufferFirstPage } from "@/lib/recruiting/resume-pdf-ocr";
 import {
   normalizeBaseMime,
   isResumeMimeAllowed,
@@ -8,12 +10,10 @@ import {
   RESUME_HARD_ERROR_CHOOSE_FILE,
   RESUME_HARD_ERROR_INVALID_FILE,
   RESUME_HARD_ERROR_TOO_LARGE,
-  RESUME_SOFT_MANUAL_PARSE_CREATE,
 } from "@/lib/recruiting/resume-upload-mime";
 import { runResumeExtractPipeline } from "@/lib/recruiting/resume-extract-pipeline";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 
-/** PDF/DOC parsing uses Node Buffer + native deps — avoid Edge runtime. */
 export const runtime = "nodejs";
 
 const MAX_BYTES = 10 * 1024 * 1024;
@@ -31,39 +31,23 @@ function sanitizeOriginalName(name: string): string {
   return cleaned.slice(0, 180) || "resume";
 }
 
-export type ParseOnlyParsePayload = {
-  ok: boolean;
-  quality: ResumeParseQuality;
-  suggestions: ParsedResumeSuggestions | null;
-  messages: string[];
-  /** @deprecated prefer messages */
-  warning?: string;
-};
-
-const RECOVERABLE_MANUAL: ParseOnlyParsePayload = {
-  ok: false,
-  quality: "manual",
-  suggestions: null,
-  messages: [RESUME_SOFT_MANUAL_PARSE_CREATE],
-};
-
-function logParseOnly(label: string, payload: Record<string, unknown>) {
-  if (process.env.RECRUITING_RESUME_PARSE_DEBUG === "1" || process.env.NODE_ENV === "development") {
-    console.log(`[parse-only] ${label}`, payload);
-  }
-}
-
+/**
+ * Dev / RECRUITING_RESUME_PARSE_DEBUG-only: full OCR + pipeline debug JSON for a resume upload.
+ * Does not persist files. Manager+ only.
+ */
 export async function POST(req: Request) {
-  logParseOnly("entered", {});
+  if (!isResumeOcrDebugEndpointEnabled()) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
 
   const staff = await getStaffProfile();
   if (!staff || !isManagerOrHigher(staff)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  let formData: FormData;
+  let formData: { get: (name: string) => FormDataEntryValue | null };
   try {
-    formData = await req.formData();
+    formData = (await req.formData()) as unknown as { get: (name: string) => FormDataEntryValue | null };
   } catch {
     return NextResponse.json({ error: "Invalid form data" }, { status: 400 });
   }
@@ -84,47 +68,36 @@ export async function POST(req: Request) {
 
   const mime = resumeFileMimeFromFile(file);
   const baseMime = normalizeBaseMime(mime);
-  logParseOnly("file", { mime: baseMime, size: file.size, name: originalName });
-
   if (!isResumeMimeAllowed(mime, originalName)) {
     return NextResponse.json({ error: RESUME_HARD_ERROR_INVALID_FILE }, { status: 400 });
   }
 
   const safeName = sanitizeOriginalName(originalName);
+  const arrayBuffer = await file.arrayBuffer();
+  const buffer = Buffer.from(arrayBuffer);
 
-  let parseOut: ParseOnlyParsePayload;
+  const pipeline = await runResumeExtractPipeline(buffer, safeName, {
+    mimeType: baseMime,
+    includeDebug: true,
+  });
 
-  try {
-    const arrayBuffer = await file.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-
-    const pipeline = await runResumeExtractPipeline(buffer, safeName, {
-      mimeType: baseMime,
-    });
-    const ok = pipeline.quality !== "manual";
-    parseOut = {
-      ok,
-      quality: pipeline.quality,
-      suggestions: pipeline.suggestions,
-      messages: pipeline.messages,
-      warning: pipeline.messages.join("\n"),
-    };
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    const stack = e instanceof Error ? e.stack : undefined;
-    logParseOnly("recoverable_catch", { message: msg, stack });
-    console.error("[parse-only] unexpected error after validation — returning manual parse", e);
-    parseOut = {
-      ...RECOVERABLE_MANUAL,
-      warning: msg,
-    };
+  let page1Sanity: { matched: string[]; missing: string[] } | null = null;
+  if (safeName.toLowerCase().endsWith(".pdf")) {
+    const first = await ocrPdfBufferFirstPage(buffer, { filename: safeName, mimeType: baseMime, forceDebug: false });
+    const p1 = first.text?.split(/\n\n/)?.[0]?.trim() ?? first.text ?? "";
+    page1Sanity = evaluateResumeOcrSanity(p1);
   }
-
-  logParseOnly("response", { quality: parseOut.quality, parseOk: parseOut.ok });
 
   return NextResponse.json({
     ok: true,
     resume_file_name: safeName,
-    parse: parseOut,
+    mime: baseMime,
+    parse: {
+      quality: pipeline.quality,
+      suggestions: pipeline.suggestions,
+      messages: pipeline.messages,
+    },
+    debug: pipeline.debug ?? null,
+    ocrPage1Sanity: page1Sanity,
   });
 }

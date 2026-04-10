@@ -4,6 +4,7 @@ import type { ParsedResumeSuggestions, ResumeParseQuality } from "@/lib/recruiti
 import { resumeParsedActivityBody, runResumeExtractPipeline } from "@/lib/recruiting/resume-extract-pipeline";
 import {
   isResumeMimeAllowed,
+  normalizeBaseMime,
   resumeFileMimeFromFile,
   RESUME_HARD_ERROR_CHOOSE_FILE,
   RESUME_HARD_ERROR_INVALID_FILE,
@@ -14,6 +15,9 @@ import { RECRUITING_RESUMES_BUCKET } from "@/lib/recruiting/recruiting-resume-st
 import { supabaseAdmin } from "@/lib/admin";
 import { getAuthenticatedUser } from "@/lib/supabase/server";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
+
+/** PDF/DOC parsing uses Node Buffer + canvas + tesseract — not Edge. */
+export const runtime = "nodejs";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -169,7 +173,9 @@ export async function POST(req: Request) {
   let parsedActivityBody = resumeParsedActivityBody("manual");
 
   try {
-    const pipeline = await runResumeExtractPipeline(buffer, safeName);
+    const pipeline = await runResumeExtractPipeline(buffer, safeName, {
+      mimeType: normalizeBaseMime(mime),
+    });
     parsedActivityBody = resumeParsedActivityBody(pipeline.quality);
     parseOut = {
       ok: pipeline.quality !== "manual",
