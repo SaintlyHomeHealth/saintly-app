@@ -8,6 +8,7 @@ const nextConfig: NextConfig = {
     "mammoth",
     "word-extractor",
     "canvas",
+    "@napi-rs/canvas",
     "tesseract.js",
   ],
   allowedDevOrigins: ["hector-coud-karine.ngrok-free.dev"],

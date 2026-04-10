@@ -13,8 +13,6 @@ import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 
-import { createCanvas } from "@napi-rs/canvas";
-
 const RENDER_SCALE = 2;
 const MAX_EDGE = 2400;
 
@@ -54,6 +52,14 @@ async function main() {
   }
 
   const require = createRequire(import.meta.url);
+  const { createCanvas } = require("@napi-rs/canvas") as {
+    createCanvas: (w: number, h: number) => {
+      width: number;
+      height: number;
+      getContext: (t: "2d") => { fillStyle: string; fillRect: (...a: number[]) => void; getImageData: (...a: number[]) => ImageData } | null;
+      toBuffer: (m: "image/png") => Buffer;
+    };
+  };
   const pdfRoot = dirname(require.resolve("pdfjs-dist/package.json"));
   const workerPath = join(pdfRoot, "legacy", "build", "pdf.worker.mjs");
   const { GlobalWorkerOptions, getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");

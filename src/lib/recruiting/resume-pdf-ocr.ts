@@ -10,6 +10,7 @@ import {
   canRunResumePdfOcr,
   getBundledTesseractEngLangDir,
 } from "@/lib/recruiting/recruiting-ocr-env";
+import { getNodeCanvasRuntime } from "@/lib/recruiting/napi-canvas-runtime";
 
 /**
  * OCR for image-based PDFs (no text layer). Server-only: pdf.js + node canvas + tesseract.
@@ -149,22 +150,19 @@ export async function ocrPdfBuffer(buffer: Buffer, options?: OcrPdfOptions): Pro
   debug.pdfWorkerConfigured = true;
 
   /**
-   * pdf.js 5.x uses {@link NodeCanvasFactory} which calls `@napi-rs/canvas`.
-   * Passing a `canvas` (node-canvas) context breaks internal `drawImage` with
-   * "Image or Canvas expected" — bitmaps from the worker must use the same impl.
+   * pdf.js 5.x Node path expects `@napi-rs/canvas` (same as pdf.js NodeCanvasFactory).
+   * Loaded via CommonJS `require` in {@link getNodeCanvasRuntime} so Turbopack does not bundle native bindings.
    */
-  let createCanvas: typeof import("@napi-rs/canvas").createCanvas;
-  try {
-    const napi = await import("@napi-rs/canvas");
-    createCanvas = napi.createCanvas;
-    debug.canvasImportOk = true;
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : "canvas unavailable";
+  const napiCanvas = getNodeCanvasRuntime();
+  if (!napiCanvas) {
+    const msg = "native canvas runtime unavailable (@napi-rs/canvas)";
     debug.canvasImportOk = false;
     debug.canvasImportError = msg;
-    log("canvas import failed", msg);
+    log("canvas runtime unavailable", msg);
     return { text: "", error: `OCR skipped (${msg})`, debug: wantDebug(options) ? debug : undefined };
   }
+  debug.canvasImportOk = true;
+  const { createCanvas } = napiCanvas;
 
   const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");
   const { createWorker, OEM } = await import("tesseract.js");
