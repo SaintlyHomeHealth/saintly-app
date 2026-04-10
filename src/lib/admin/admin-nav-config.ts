@@ -13,6 +13,7 @@ export const ADMIN_NAV_LABELS = {
   commandCenter: "Command Center",
   contacts: "Contacts",
   leads: "Leads",
+  recruiting: "Recruiting",
   facilities: "Facilities",
   patients: "Patients",
   credentialing: "Credentialing",
@@ -27,6 +28,7 @@ export type AdminNavItemId =
   | "command_center"
   | "contacts"
   | "leads"
+  | "recruiting"
   | "facilities"
   | "patients"
   | "credentialing"
@@ -75,6 +77,13 @@ export function buildAdminNavItems(staff: StaffProfile | null): AdminNavItemReso
       id: "leads",
       label: ADMIN_NAV_LABELS.leads,
       href: "/admin/crm/leads",
+      disabled: managerOnly,
+      disabledReason: "Manager access required",
+    },
+    {
+      id: "recruiting",
+      label: ADMIN_NAV_LABELS.recruiting,
+      href: "/admin/recruiting",
       disabled: managerOnly,
       disabledReason: "Manager access required",
     },
