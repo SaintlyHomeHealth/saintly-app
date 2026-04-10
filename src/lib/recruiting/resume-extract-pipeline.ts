@@ -61,6 +61,12 @@ export type ResumeExtractDebugSummary = {
   failureStep: ResumeExtractFailureStep;
   /** First 500 chars passed to parseResumePlainText */
   parseInputFirst500?: string;
+  /** First 500 chars of direct PDF/DOC extract (before OCR merge) */
+  directTextPreview?: string;
+  /** First 500 chars of raw OCR output (combined pages) */
+  ocrTextPreview?: string;
+  /** Same slice as parseInputFirst500 — explicit name for API hard-debug */
+  finalParsePreview?: string;
 };
 
 export type ResumeExtractPipelineResult = {
@@ -283,6 +289,12 @@ function inferFailureStep(args: {
   const { directLen, ocrRunnable, ocrAttempted, ocr, pickedTextLen, parseInputLen, suggestions } = args;
   const ocrLen = (ocr.text ?? "").trim().length;
   const dbg = ocr.debug;
+
+  /** Junk direct text (e.g. page markers) can exceed min length while every page render fails — still OCR-blocked */
+  if (ocrAttempted && ocrLen === 0 && dbg?.pages?.length) {
+    const allRenderFailed = dbg.pages.every((p) => p.renderLikelyFailed);
+    if (allRenderFailed) return "pdf_render_failed";
+  }
 
   if (pickedTextLen < MIN_USABLE_TEXT_LEN) {
     if (directLen === 0 && !ocrAttempted) {
@@ -535,6 +547,9 @@ async function runResumeExtractPipelineInternal(
         suggestedFieldPreview: {},
         failureStep,
         parseInputFirst500: parseInput.slice(0, 500),
+        directTextPreview: directText.slice(0, 500),
+        ocrTextPreview: (ocrResult.text ?? "").slice(0, 500),
+        finalParsePreview: parseInput.slice(0, 500),
       };
     }
     if (shouldLogPipeline()) {
@@ -580,6 +595,9 @@ async function runResumeExtractPipelineInternal(
       suggestedFieldPreview: suggestionPreview(suggestions),
       failureStep,
       parseInputFirst500: parseInput.slice(0, 500),
+      directTextPreview: directText.slice(0, 500),
+      ocrTextPreview: (ocrResult.text ?? "").slice(0, 500),
+      finalParsePreview: parseInput.slice(0, 500),
     };
   }
   if (shouldLogPipeline()) {

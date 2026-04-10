@@ -93,13 +93,18 @@ export async function POST(req: Request) {
   const safeName = sanitizeOriginalName(originalName);
 
   let parseOut: ParseOnlyParsePayload;
+  let pipeline: Awaited<ReturnType<typeof runResumeExtractPipeline>> | undefined;
+
+  const hardDebug =
+    process.env.NODE_ENV === "development" || process.env.RECRUITING_RESUME_PARSE_DEBUG === "1";
 
   try {
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
-    const pipeline = await runResumeExtractPipeline(buffer, safeName, {
+    pipeline = await runResumeExtractPipeline(buffer, safeName, {
       mimeType: baseMime,
+      includeDebug: hardDebug,
     });
     const ok = pipeline.quality !== "manual";
     parseOut = {
@@ -122,9 +127,28 @@ export async function POST(req: Request) {
 
   logParseOnly("response", { quality: parseOut.quality, parseOk: parseOut.ok });
 
+  const hardDebugPayload =
+    hardDebug && pipeline?.debug
+      ? {
+          filename: pipeline.debug.filename,
+          mimeType: pipeline.debug.mimeType,
+          directTextLen: pipeline.debug.directTextLen,
+          directTextPreview: pipeline.debug.directTextPreview,
+          ocrAttempted: pipeline.debug.ocrAttempted,
+          ocrRawTextLen: pipeline.debug.ocrRawTextLen,
+          ocrTextPreview: pipeline.debug.ocrTextPreview,
+          finalParseInputLen: pipeline.debug.parseHeuristicsInputLen,
+          finalParsePreview: pipeline.debug.finalParsePreview,
+          suggestions: pipeline.suggestions,
+          quality: pipeline.quality,
+          failureStep: pipeline.debug.failureStep,
+        }
+      : undefined;
+
   return NextResponse.json({
     ok: true,
     resume_file_name: safeName,
     parse: parseOut,
+    ...(hardDebugPayload ? { hardDebug: hardDebugPayload } : {}),
   });
 }

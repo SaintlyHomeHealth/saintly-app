@@ -148,10 +148,15 @@ export async function ocrPdfBuffer(buffer: Buffer, options?: OcrPdfOptions): Pro
   await ensurePdfWorker();
   debug.pdfWorkerConfigured = true;
 
-  let createCanvas: typeof import("canvas").createCanvas;
+  /**
+   * pdf.js 5.x uses {@link NodeCanvasFactory} which calls `@napi-rs/canvas`.
+   * Passing a `canvas` (node-canvas) context breaks internal `drawImage` with
+   * "Image or Canvas expected" — bitmaps from the worker must use the same impl.
+   */
+  let createCanvas: typeof import("@napi-rs/canvas").createCanvas;
   try {
-    const canvasMod = await import("canvas");
-    createCanvas = canvasMod.createCanvas;
+    const napi = await import("@napi-rs/canvas");
+    createCanvas = napi.createCanvas;
     debug.canvasImportOk = true;
   } catch (e) {
     const msg = e instanceof Error ? e.message : "canvas unavailable";
@@ -208,10 +213,6 @@ export async function ocrPdfBuffer(buffer: Buffer, options?: OcrPdfOptions): Pro
       }
       const viewport = page.getViewport({ scale });
       const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
-      const ctx = canvas.getContext("2d");
-      ctx.fillStyle = "#ffffff";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-
       const pageDebug: PdfOcrPageDebug = {
         pageIndex: i,
         canvasWidth: canvas.width,
@@ -221,11 +222,23 @@ export async function ocrPdfBuffer(buffer: Buffer, options?: OcrPdfOptions): Pro
         renderLikelyFailed: false,
         ocrRawTextLen: 0,
       };
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        pageDebug.renderLikelyFailed = true;
+        log(`page ${i} getContext('2d') returned null`);
+        if (wantDebug(options)) {
+          pageDebug.ocrPreview300 = "[render error: no 2d context]";
+          debug.pages.push(pageDebug);
+        }
+        continue;
+      }
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
 
       try {
         await page
           .render({
-            canvasContext: ctx as unknown as CanvasRenderingContext2D,
+            canvas: canvas as unknown as HTMLCanvasElement,
             viewport,
           })
           .promise;
@@ -250,7 +263,7 @@ export async function ocrPdfBuffer(buffer: Buffer, options?: OcrPdfOptions): Pro
         });
       }
 
-      const png = canvas.toBuffer("image/png");
+      const png = Buffer.from(canvas.toBuffer("image/png"));
       let pageText = "";
       try {
         const {

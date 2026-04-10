@@ -90,6 +90,24 @@ export async function POST(req: Request) {
     page1Sanity = evaluateResumeOcrSanity(p1);
   }
 
+  const dbg = pipeline.debug;
+  const hardDebug = dbg
+    ? {
+        filename: dbg.filename,
+        mimeType: dbg.mimeType,
+        directTextLen: dbg.directTextLen,
+        directTextPreview: dbg.directTextPreview,
+        ocrAttempted: dbg.ocrAttempted,
+        ocrRawTextLen: dbg.ocrRawTextLen,
+        ocrTextPreview: dbg.ocrTextPreview,
+        finalParseInputLen: dbg.parseHeuristicsInputLen,
+        finalParsePreview: dbg.finalParsePreview,
+        suggestions: pipeline.suggestions,
+        quality: pipeline.quality,
+        failureStep: dbg.failureStep,
+      }
+    : null;
+
   return NextResponse.json({
     ok: true,
     resume_file_name: safeName,
@@ -100,6 +118,7 @@ export async function POST(req: Request) {
       messages: pipeline.messages,
     },
     debug: pipeline.debug ?? null,
+    hardDebug,
     ocrPage1Sanity: page1Sanity,
   });
 }

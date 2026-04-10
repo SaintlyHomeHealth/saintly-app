@@ -25,6 +25,7 @@ function guessMime(name: string): string {
 async function main() {
   const args = process.argv.slice(2);
   const paths = args.filter((a) => !a.startsWith("-"));
+  const forcePage1 = args.includes("--page1");
 
   const { extractResumeText } = await import("../src/lib/recruiting/resume-text-extract.ts");
   const { runResumeExtractPipeline } = await import("../src/lib/recruiting/resume-extract-pipeline.ts");
@@ -39,14 +40,15 @@ async function main() {
     page.drawText("jane.doe@example.com", { x: 72, y: 676, size: 11, font, color: rgb(0.1, 0.1, 0.15) });
     page.drawText("(480) 555-0100", { x: 72, y: 654, size: 11, font, color: rgb(0.1, 0.1, 0.15) });
     const buf = Buffer.from(await doc.save());
-    await printReport("fixture-inline.pdf", "application/pdf", buf, extractResumeText, runResumeExtractPipeline);
+    await printReport("fixture-inline.pdf", "application/pdf", buf, extractResumeText, runResumeExtractPipeline, false);
     return;
   }
 
   if (paths.length === 0) {
     console.error(
       "Usage: NODE_OPTIONS='--conditions=react-server' npx tsx scripts/debug-resume-extract.ts <file.pdf|doc|docx> [...]\n" +
-        "   or: ... --fixture   (generates a tiny text PDF in memory)\n"
+        "   or: ... --fixture   (generates a tiny text PDF in memory)\n" +
+        "   Optional: --page1  (force OCR page 1 only + raw page-1 text; default matches production multi-page OCR)\n"
     );
     process.exit(1);
   }
@@ -55,7 +57,7 @@ async function main() {
     const filename = basename(filePath);
     const mime = guessMime(filename);
     const buffer = readFileSync(filePath);
-    await printReport(filename, mime, buffer, extractResumeText, runResumeExtractPipeline);
+    await printReport(filename, mime, buffer, extractResumeText, runResumeExtractPipeline, forcePage1);
   }
 }
 
@@ -64,7 +66,8 @@ async function printReport(
   mime: string,
   buffer: Buffer,
   extractResumeText: typeof import("../src/lib/recruiting/resume-text-extract.ts").extractResumeText,
-  runResumeExtractPipeline: typeof import("../src/lib/recruiting/resume-extract-pipeline.ts").runResumeExtractPipeline
+  runResumeExtractPipeline: typeof import("../src/lib/recruiting/resume-extract-pipeline.ts").runResumeExtractPipeline,
+  forcePage1: boolean
 ) {
   const direct = await extractResumeText(buffer, filename);
   const directText = (direct.text ?? "").trim();
@@ -72,24 +75,25 @@ async function printReport(
   const pipeline = await runResumeExtractPipeline(buffer, filename, {
     mimeType: mime,
     includeDebug: true,
-    forceOcrPage1Debug: true,
+    ...(forcePage1 ? { forceOcrPage1Debug: true } : {}),
   });
 
   const ocrAttempted = pipeline.debug?.ocrAttempted ?? false;
-  const ocrText = pipeline.ocrPage1RawText ?? pipeline.debug?.ocrPage1RawText ?? "";
-  const ocrLen = ocrText.trim().length;
-  const parseInputSample = pipeline.debug?.parseInputFirst500 ?? "";
+  /** Full OCR length from debug when available (preview is capped at 500) */
+  const ocrLen = pipeline.debug?.ocrRawTextLen ?? 0;
+  const parseInputSample =
+    pipeline.debug?.finalParsePreview ?? pipeline.debug?.parseInputFirst500 ?? "";
   const parseLen = pipeline.debug?.parseHeuristicsInputLen ?? pipeline.text.length;
 
   console.log("\n==========", filename, "==========");
-  console.log(JSON.stringify({ mimeType: mime }, null, 0));
+  console.log(JSON.stringify({ mimeType: mime, forcePage1OcrDebug: forcePage1 }, null, 0));
   console.log("directTextLen:", directText.length);
-  console.log("directFirst500:\n", directText.slice(0, 500));
+  console.log("directTextPreview (first 500):\n", pipeline.debug?.directTextPreview ?? directText.slice(0, 500));
   console.log("ocrAttempted:", ocrAttempted);
   console.log("ocrTextLen:", ocrLen);
-  console.log("ocrFirst500:\n", ocrText.slice(0, 500));
+  console.log("ocrTextPreview (first 500):\n", pipeline.debug?.ocrTextPreview ?? "");
   console.log("finalParseInputLen:", parseLen);
-  console.log("parseInputFirst500:\n", parseInputSample);
+  console.log("finalParsePreview (first 500):\n", parseInputSample);
   console.log("finalParsedSuggestions:", JSON.stringify(pipeline.suggestions, null, 2));
   console.log("quality:", pipeline.quality);
   console.log("failureStep:", pipeline.debug?.failureStep);
