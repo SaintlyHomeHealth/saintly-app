@@ -32,32 +32,33 @@ export const FACILITY_TYPE_OPTIONS = [
 export type FacilityTypeOption = (typeof FACILITY_TYPE_OPTIONS)[number];
 
 /**
- * Short explanations for facility types (filters and forms). Keys match stored `type` values.
+ * One-line, sales-focused blurbs for facility types (why they matter for home health referrals).
+ * Keys match stored `type` values; used in FacilityTypeSelect only (filtering unchanged).
  */
 export const FACILITY_TYPE_DESCRIPTIONS: Record<FacilityTypeOption, string> = {
-  Hospital: "Acute care for injuries, surgeries, and medical emergencies",
-  "Skilled Nursing Facility": "Short-term rehab and nursing care after hospital discharge",
-  "Assisted Living": "Help with daily activities, not skilled medical care",
-  "Independent Living": "Senior housing with little to no medical support",
-  "Rehab Hospital": "Intensive rehab (3+ hrs/day) for stroke, surgery, or injury recovery",
-  LTACH: "For medically complex patients (ventilators, severe wounds, ICU step-down)",
-  "Wound Clinic": "Specialized treatment for chronic or non-healing wounds",
-  "Primary Care Office": "General medical care and referrals for all conditions",
-  "Cardiology Office": "Heart conditions, monitoring, and post-cardiac care",
-  "Orthopedic Office": "Bone, joint, and post-surgical rehab patients",
-  "Podiatry Office": "Foot care, wounds, and diabetic complications",
-  "Nephrology Office": "Kidney disease and dialysis-related care",
-  "Pulmonology Office": "Lung conditions like COPD and breathing issues",
-  "Oncology Office": "Cancer treatment and ongoing care coordination",
-  "Pain Management": "Chronic pain treatment and injection therapies",
-  "Neurology Office": "Stroke, brain, and neurological conditions",
-  "Internal Medicine": "Primary care focused on adult patients",
-  Geriatrics: "Medical care specialized for elderly patients",
-  Hospice: "End-of-life comfort and support care",
-  "Dialysis Center": "Ongoing dialysis treatment for kidney failure patients",
-  "Case Management Office": "Coordinates care and referrals for patients",
-  "Home Visit Physician Group": "Doctors who see patients at home",
-  Other: "Miscellaneous or uncategorized facility",
+  Hospital: "24/7 discharges—post-acute patients who still need skilled care at home.",
+  "Skilled Nursing Facility": "Daily discharges—patients stepping down who may still qualify for HH.",
+  "Assisted Living": "When needs spike, AL looks outward—opening for skilled nursing at home.",
+  "Independent Living": "Lighter clinical touch, but moves & crises still open referral windows.",
+  "Rehab Hospital": "Rehab-to-home handoffs—nursing & therapy where they live.",
+  LTACH: "Long, complex stays—discharge planning decides who’s HH-eligible.",
+  "Wound Clinic": "Chronic wounds need skilled nursing—easy home-visit story.",
+  "Primary Care Office": "Orders & panels—relationships drive chronic-care referrals.",
+  "Cardiology Office": "CHF & post-cardiac volume—HH cuts readmissions & bounce-backs.",
+  "Orthopedic Office": "Joints & fractures—post-op skilled nursing & PT at home.",
+  "Podiatry Office": "Diabetic feet & wounds—nursing & wound care in the home.",
+  "Nephrology Office": "CKD complexity—stabilize between clinic visits.",
+  "Pulmonology Office": "COPD & O2—home support keeps patients out of the hospital.",
+  "Oncology Office": "Weakness & caregiver load—bridge care between treatments.",
+  "Pain Management": "High-touch patients—pairs with nursing, PT, or safety at home.",
+  "Neurology Office": "Stroke, MS, Parkinson’s—therapy & nursing in the home.",
+  "Internal Medicine": "Chronic panels—scripts, intros, and follow-up referrals start here.",
+  Geriatrics: "Frailty, falls, med stacks—classic skilled home candidates.",
+  Hospice: "Know hospice vs HH—right talk keeps placements appropriate.",
+  "Dialysis Center": "Skilled, co-morbid crowd—support between chair days.",
+  "Case Management Office": "Discharge planners steer beds—often your fastest referral path.",
+  "Home Visit Physician Group": "Already in the home—fastest path to ongoing skilled orders.",
+  Other: "Qualify source & path each visit—no default playbook.",
 };
 
 /**

@@ -114,7 +114,9 @@ export function FacilityTypeSelect({ name, defaultValue, emptyLabel, triggerClas
                 }`}
               >
                 <span className="text-sm font-normal leading-snug text-slate-900">{title}</span>
-                {desc ? <span className="mt-0.5 text-[11px] leading-snug text-slate-500">{desc}</span> : null}
+                {desc ? (
+                  <span className="mt-0.5 line-clamp-1 text-[11px] leading-snug text-slate-500">{desc}</span>
+                ) : null}
               </button>
             );
           })}
