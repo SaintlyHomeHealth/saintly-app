@@ -16,6 +16,7 @@ import { staffPrimaryLabel } from "@/lib/crm/crm-leads-table-helpers";
 
 import { recruitingQuickAction, type RecruitingQuickActionKind, updateRecruitingCandidate } from "../actions";
 import { recruitingStatusPillClass } from "../recruiting-status-styles";
+import { RecruitingResumeCard } from "./RecruitingResumeCard";
 
 type CandidateRow = {
   id: string;
@@ -34,6 +35,9 @@ type CandidateRow = {
   assigned_to: string | null;
   indeed_url: string | null;
   resume_url: string | null;
+  resume_file_name: string | null;
+  resume_storage_path: string | null;
+  resume_uploaded_at: string | null;
   notes: string | null;
   last_call_at: string | null;
   last_text_at: string | null;
@@ -111,6 +115,8 @@ function activityTitle(a: ActivityRow): string {
   if (t === "status_change" && o === "not_interested") return "Status — not interested";
   if (t === "follow_up_set") return "Follow-up scheduled";
   if (t === "note") return "Note";
+  if (t === "resume_uploaded") return "Resume uploaded";
+  if (t === "resume_replaced") return "Resume replaced";
   return [t, o].filter(Boolean).join(" · ") || "Activity";
 }
 
@@ -326,6 +332,13 @@ export function RecruitingCandidateDetailClient({
               </button>
             </div>
           </div>
+
+          <RecruitingResumeCard
+            candidateId={initial.id}
+            resumeFileName={initial.resume_file_name ?? null}
+            resumeStoragePath={initial.resume_storage_path ?? null}
+            resumeUploadedAt={initial.resume_uploaded_at ?? null}
+          />
 
           <form action={updateRecruitingCandidate} className="space-y-5 rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
             <input type="hidden" name="id" value={initial.id} />
