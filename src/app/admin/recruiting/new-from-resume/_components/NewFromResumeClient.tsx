@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
 
 import {
   crmFilterInputCls,
@@ -28,6 +28,69 @@ import { RecruitingDuplicateModal } from "../../_components/RecruitingDuplicateM
 
 function pick(s?: { value: string } | undefined): string {
   return s?.value?.trim() ? s.value.trim() : "";
+}
+
+/** Form field state for review step (controlled inputs — not defaultValue). */
+type ReviewFormFields = {
+  full_name: string;
+  first_name: string;
+  last_name: string;
+  phone: string;
+  email: string;
+  city: string;
+  state: string;
+  discipline: string;
+  notes: string;
+  specialties: string;
+  coverage_area: string;
+  interest_level: string;
+  recruiting_tags: string;
+  follow_up_bucket: string;
+  preferred_contact_method: string;
+  source: string;
+};
+
+const EMPTY_REVIEW_FORM: ReviewFormFields = {
+  full_name: "",
+  first_name: "",
+  last_name: "",
+  phone: "",
+  email: "",
+  city: "",
+  state: "",
+  discipline: "",
+  notes: "",
+  specialties: "",
+  coverage_area: "",
+  interest_level: "",
+  recruiting_tags: "",
+  follow_up_bucket: "",
+  preferred_contact_method: "",
+  source: "Indeed",
+};
+
+function buildReviewFormFromSuggestions(s: ParsedResumeSuggestions): ReviewFormFields {
+  const notesParts: string[] = [];
+  const summary = pick(s.notes_summary);
+  if (summary) notesParts.push(summary);
+  const yrs = pick(s.years_of_experience);
+  if (yrs) notesParts.push(`Experience: ${yrs}`);
+  const cert = pick(s.certifications);
+  if (cert) notesParts.push(`Certifications: ${cert}`);
+
+  return {
+    ...EMPTY_REVIEW_FORM,
+    full_name: pick(s.full_name) || [pick(s.first_name), pick(s.last_name)].filter(Boolean).join(" "),
+    first_name: pick(s.first_name),
+    last_name: pick(s.last_name),
+    phone: pick(s.phone),
+    email: pick(s.email),
+    city: pick(s.city),
+    state: pick(s.state),
+    discipline: pick(s.discipline),
+    notes: notesParts.join("\n"),
+    specialties: pick(s.specialties),
+  };
 }
 
 type Step = "pick" | "review";
@@ -87,59 +150,21 @@ export function NewFromResumeClient({ initialError }: NewFromResumeClientProps) 
   const [file, setFile] = useState<File | null>(null);
   const [parse, setParse] = useState<ParsePayload | null>(null);
   const [dupes, setDupes] = useState<RecruitingDuplicateRow[] | null>(null);
+  const [reviewForm, setReviewForm] = useState<ReviewFormFields>(EMPTY_REVIEW_FORM);
+
+  /** Sync controlled fields when parse result arrives (defaultValue would not update). */
+  useLayoutEffect(() => {
+    if (parse?.suggestions) {
+      setReviewForm(buildReviewFormFromSuggestions(parse.suggestions));
+    } else {
+      setReviewForm(EMPTY_REVIEW_FORM);
+    }
+  }, [parse]);
 
   const disciplineExtra = useMemo(() => {
-    const d = parse?.suggestions?.discipline?.value?.trim() ?? "";
+    const d = reviewForm.discipline.trim();
     return d && !(RECRUITING_DISCIPLINE_OPTIONS as readonly string[]).includes(d) ? d : null;
-  }, [parse?.suggestions]);
-
-  const defaults = useMemo(() => {
-    const s = parse?.suggestions;
-    if (!s) {
-      return {
-        full_name: "",
-        first_name: "",
-        last_name: "",
-        phone: "",
-        email: "",
-        city: "",
-        state: "",
-        discipline: "",
-        notes: "",
-        specialties: "",
-        coverage_area: "",
-        interest_level: "",
-        recruiting_tags: "",
-        follow_up_bucket: "",
-        preferred_contact_method: "",
-      };
-    }
-    const notesParts: string[] = [];
-    const summary = pick(s.notes_summary);
-    if (summary) notesParts.push(summary);
-    const yrs = pick(s.years_of_experience);
-    if (yrs) notesParts.push(`Experience: ${yrs}`);
-    const cert = pick(s.certifications);
-    if (cert) notesParts.push(`Certifications: ${cert}`);
-
-    return {
-      full_name: pick(s.full_name) || [pick(s.first_name), pick(s.last_name)].filter(Boolean).join(" "),
-      first_name: pick(s.first_name),
-      last_name: pick(s.last_name),
-      phone: pick(s.phone),
-      email: pick(s.email),
-      city: pick(s.city),
-      state: pick(s.state),
-      discipline: pick(s.discipline),
-      notes: notesParts.join("\n"),
-      specialties: pick(s.specialties),
-      coverage_area: "",
-      interest_level: "",
-      recruiting_tags: "",
-      follow_up_bucket: "",
-      preferred_contact_method: "",
-    };
-  }, [parse]);
+  }, [reviewForm.discipline]);
 
   function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
@@ -159,19 +184,17 @@ export function NewFromResumeClient({ initialError }: NewFromResumeClientProps) 
           body: fd,
         });
         const json = (await res.json().catch(() => ({}))) as {
+          ok?: boolean;
+          resume_file_name?: string;
           error?: string;
           parse?: ParsePayload;
         };
 
         const isDev = process.env.NODE_ENV === "development";
         if (isDev) {
-          console.log("[new-from-resume] parse-only response", {
-            status: res.status,
-            httpOk: res.ok,
-            fatalClient: res.status === 400 || res.status === 403,
-            quality: json.parse?.quality,
-            json,
-          });
+          console.log("[new-from-resume] parse-only full API response", json);
+          console.log("[new-from-resume] json.parse", json.parse);
+          console.log("[new-from-resume] json.parse?.suggestions", json.parse?.suggestions);
         }
 
         /** Only true validation / auth failures block the flow (red banner, stay on upload step). */
@@ -318,6 +341,14 @@ export function NewFromResumeClient({ initialError }: NewFromResumeClientProps) 
                     </ul>
                   </div>
                 ) : null}
+                {process.env.NODE_ENV === "development" && parse?.suggestions ? (
+                  <div className="mt-4 rounded-lg border border-dashed border-amber-400 bg-amber-50 p-3 text-left">
+                    <p className="text-xs font-semibold text-amber-900">Debug (dev): raw suggestions received by client</p>
+                    <pre className="mt-2 max-h-48 overflow-auto text-[11px] leading-snug text-amber-950">
+                      {JSON.stringify(parse.suggestions, null, 2)}
+                    </pre>
+                  </div>
+                ) : null}
               </div>
               <button
                 type="button"
@@ -327,6 +358,7 @@ export function NewFromResumeClient({ initialError }: NewFromResumeClientProps) 
                   setStep("pick");
                   setFile(null);
                   setParse(null);
+                  setReviewForm(EMPTY_REVIEW_FORM);
                 }}
               >
                 Start over
@@ -339,33 +371,65 @@ export function NewFromResumeClient({ initialError }: NewFromResumeClientProps) 
                 <input
                   name="full_name"
                   required
-                  defaultValue={defaults.full_name}
+                  value={reviewForm.full_name}
+                  onChange={(e) => setReviewForm((p) => ({ ...p, full_name: e.target.value }))}
                   className={crmFilterInputCls}
                 />
               </label>
               <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
                 Phone
-                <input name="phone" defaultValue={defaults.phone} className={crmFilterInputCls} />
+                <input
+                  name="phone"
+                  value={reviewForm.phone}
+                  onChange={(e) => setReviewForm((p) => ({ ...p, phone: e.target.value }))}
+                  className={crmFilterInputCls}
+                />
               </label>
               <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
                 Email
-                <input name="email" type="email" defaultValue={defaults.email} className={crmFilterInputCls} />
+                <input
+                  name="email"
+                  type="email"
+                  value={reviewForm.email}
+                  onChange={(e) => setReviewForm((p) => ({ ...p, email: e.target.value }))}
+                  className={crmFilterInputCls}
+                />
               </label>
               <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
                 City
-                <input name="city" defaultValue={defaults.city} className={crmFilterInputCls} />
+                <input
+                  name="city"
+                  value={reviewForm.city}
+                  onChange={(e) => setReviewForm((p) => ({ ...p, city: e.target.value }))}
+                  className={crmFilterInputCls}
+                />
               </label>
               <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
                 State
-                <input name="state" defaultValue={defaults.state} className={crmFilterInputCls} />
+                <input
+                  name="state"
+                  value={reviewForm.state}
+                  onChange={(e) => setReviewForm((p) => ({ ...p, state: e.target.value }))}
+                  className={crmFilterInputCls}
+                />
               </label>
               <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
                 Coverage area
-                <input name="coverage_area" defaultValue={defaults.coverage_area} className={crmFilterInputCls} />
+                <input
+                  name="coverage_area"
+                  value={reviewForm.coverage_area}
+                  onChange={(e) => setReviewForm((p) => ({ ...p, coverage_area: e.target.value }))}
+                  className={crmFilterInputCls}
+                />
               </label>
               <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
                 Discipline
-                <select name="discipline" defaultValue={defaults.discipline} className={crmFilterInputCls}>
+                <select
+                  name="discipline"
+                  value={reviewForm.discipline}
+                  onChange={(e) => setReviewForm((p) => ({ ...p, discipline: e.target.value }))}
+                  className={crmFilterInputCls}
+                >
                   <option value="">—</option>
                   {disciplineExtra ? (
                     <option value={disciplineExtra}>{disciplineExtra} (parsed)</option>
@@ -379,7 +443,12 @@ export function NewFromResumeClient({ initialError }: NewFromResumeClientProps) 
               </label>
               <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
                 Source
-                <select name="source" defaultValue="Indeed" className={crmFilterInputCls}>
+                <select
+                  name="source"
+                  value={reviewForm.source}
+                  onChange={(e) => setReviewForm((p) => ({ ...p, source: e.target.value }))}
+                  className={crmFilterInputCls}
+                >
                   {RECRUITING_SOURCE_OPTIONS.map((s) => (
                     <option key={s} value={s}>
                       {s}
@@ -389,7 +458,12 @@ export function NewFromResumeClient({ initialError }: NewFromResumeClientProps) 
               </label>
               <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
                 Interest level
-                <select name="interest_level" defaultValue={defaults.interest_level} className={crmFilterInputCls}>
+                <select
+                  name="interest_level"
+                  value={reviewForm.interest_level}
+                  onChange={(e) => setReviewForm((p) => ({ ...p, interest_level: e.target.value }))}
+                  className={crmFilterInputCls}
+                >
                   <option value="">—</option>
                   {RECRUITING_INTEREST_LEVEL_OPTIONS.map((x) => (
                     <option key={x} value={x}>
@@ -402,7 +476,8 @@ export function NewFromResumeClient({ initialError }: NewFromResumeClientProps) 
                 Preferred contact
                 <select
                   name="preferred_contact_method"
-                  defaultValue={defaults.preferred_contact_method}
+                  value={reviewForm.preferred_contact_method}
+                  onChange={(e) => setReviewForm((p) => ({ ...p, preferred_contact_method: e.target.value }))}
                   className={crmFilterInputCls}
                 >
                   <option value="">—</option>
@@ -415,24 +490,45 @@ export function NewFromResumeClient({ initialError }: NewFromResumeClientProps) 
               </label>
               <label className="sm:col-span-2 flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
                 Specialties
-                <input name="specialties" defaultValue={defaults.specialties} className={crmFilterInputCls} />
+                <input
+                  name="specialties"
+                  value={reviewForm.specialties}
+                  onChange={(e) => setReviewForm((p) => ({ ...p, specialties: e.target.value }))}
+                  className={crmFilterInputCls}
+                />
               </label>
               <label className="sm:col-span-2 flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
                 Tags / campaigns (free text)
-                <input name="recruiting_tags" defaultValue={defaults.recruiting_tags} className={crmFilterInputCls} />
+                <input
+                  name="recruiting_tags"
+                  value={reviewForm.recruiting_tags}
+                  onChange={(e) => setReviewForm((p) => ({ ...p, recruiting_tags: e.target.value }))}
+                  className={crmFilterInputCls}
+                />
               </label>
               <label className="sm:col-span-2 flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
                 Nurture bucket (e.g. East Valley)
-                <input name="follow_up_bucket" defaultValue={defaults.follow_up_bucket} className={crmFilterInputCls} />
+                <input
+                  name="follow_up_bucket"
+                  value={reviewForm.follow_up_bucket}
+                  onChange={(e) => setReviewForm((p) => ({ ...p, follow_up_bucket: e.target.value }))}
+                  className={crmFilterInputCls}
+                />
               </label>
               <label className="sm:col-span-2 flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
                 Notes summary
-                <textarea name="notes" rows={5} defaultValue={defaults.notes} className={`${crmFilterInputCls} min-h-[7rem]`} />
+                <textarea
+                  name="notes"
+                  rows={5}
+                  value={reviewForm.notes}
+                  onChange={(e) => setReviewForm((p) => ({ ...p, notes: e.target.value }))}
+                  className={`${crmFilterInputCls} min-h-[7rem]`}
+                />
               </label>
             </div>
 
-            <input type="hidden" name="first_name" value={defaults.first_name} />
-            <input type="hidden" name="last_name" value={defaults.last_name} />
+            <input type="hidden" name="first_name" value={reviewForm.first_name} />
+            <input type="hidden" name="last_name" value={reviewForm.last_name} />
 
             <div className="mt-6 flex flex-wrap gap-3">
               <button type="submit" disabled={pending} className={crmPrimaryCtaCls}>
