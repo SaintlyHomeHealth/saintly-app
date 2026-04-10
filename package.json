@@ -13,11 +13,11 @@
     "debug:resume": "NODE_OPTIONS='--conditions=react-server' tsx scripts/debug-resume-extract.ts"
   },
   "dependencies": {
+    "@napi-rs/canvas": "^0.1.80",
     "@supabase/ssr": "^0.6.1",
     "@supabase/supabase-js": "^2.99.2",
     "@tesseract.js-data/eng": "^1.0.0",
     "@twilio/voice-sdk": "^2.18.1",
-    "@napi-rs/canvas": "^0.1.80",
     "canvas": "^3.2.3",
     "jszip": "^3.10.1",
     "lucide-react": "^0.577.0",

@@ -3,6 +3,7 @@ import "server-only";
 import { RESUME_SOFT_MANUAL_PARSE_CREATE } from "@/lib/recruiting/resume-upload-mime";
 import { isForceOcrPage1DebugMode, isResumeExtractDebugEnabled } from "@/lib/recruiting/resume-extract-debug";
 import { canRunResumePdfOcr } from "@/lib/recruiting/recruiting-ocr-env";
+import { isOcrSpaceRecruitingConfigured, ocrSpaceFromBuffer } from "@/lib/recruiting/ocr-space";
 import { parseResumePlainText } from "@/lib/recruiting/resume-parse-heuristics";
 import type { ParsedResumeSuggestions, ResumeParseQuality } from "@/lib/recruiting/resume-parse-types";
 import type { PdfOcrDebug, PdfOcrResult } from "@/lib/recruiting/resume-pdf-ocr";
@@ -31,6 +32,9 @@ export type ResumeExtractFailureStep =
   | "direct_extraction_empty"
   | "ocr_disabled_or_unavailable"
   | "native_canvas_unavailable"
+  | "scanned_pdf_ocr_unavailable"
+  | "ocr_space_skipped_limits"
+  | "ocr_space_failed"
   | "pdf_render_failed"
   | "ocr_init_failed"
   | "ocr_empty_text"
@@ -77,10 +81,19 @@ export type ResumeExtractDebugSummary = {
   canvasRuntimeError?: string;
   /** Pages successfully rendered + OCR'd */
   pagesRenderedForOcr: number;
+  /** OCR.space (when configured) */
+  ocrSpaceConfigured: boolean;
+  /** True when OCR.space HTTP API was called */
+  ocrSpaceAttempted: boolean;
+  ocrSpaceSkippedLimits: boolean;
+  ocrSpaceTextLen: number;
+  ocrSpaceError?: string;
+  /** Set when OCR.space returned usable text */
+  ocrSource?: "ocr.space";
 };
 
 export const RESUME_STATUS_HEADLINE_SCANNED_NO_NATIVE_OCR =
-  "This resume appears to be image-based. Auto-fill is limited. You can still create the candidate manually.";
+  "This resume appears to be image-based (scanned). Auto-fill may be limited — please review and complete the fields below.";
 
 export type ResumeExtractPipelineResult = {
   text: string;
@@ -150,12 +163,42 @@ function suggestionPreview(s: ParsedResumeSuggestions | null): Record<string, st
 }
 
 /**
- * PDF only — whether we *want* OCR for heuristics (before native canvas check).
+ * Opt-in: pdf.js + canvas + Tesseract. Never used on Vercel — local/dev/debug only.
+ * Requires `RECRUITING_RESUME_NATIVE_PDF_OCR` plus non-Vercel host and (development
+ * or `RECRUITING_RESUME_NATIVE_PDF_OCR_DEBUG=1` for e.g. `next start` locally).
+ */
+function isNativePdfOcrEnabled(): boolean {
+  const v = process.env.RECRUITING_RESUME_NATIVE_PDF_OCR?.trim().toLowerCase();
+  return v === "true" || v === "1" || v === "yes";
+}
+
+function isVercelDeployment(): boolean {
+  return Boolean(process.env.VERCEL);
+}
+
+/** Native canvas OCR is allowed only off Vercel (local `next dev` / self-hosted) or with explicit debug flag. */
+function isNativePdfOcrDevOrLocalOnly(): boolean {
+  if (isVercelDeployment()) return false;
+  if (process.env.NODE_ENV === "development") return true;
+  const v = process.env.RECRUITING_RESUME_NATIVE_PDF_OCR_DEBUG?.trim().toLowerCase();
+  return v === "true" || v === "1" || v === "yes";
+}
+
+function nativePdfOcrBackendReady(): boolean {
+  if (!isNativePdfOcrDevOrLocalOnly()) return false;
+  return canRunResumePdfOcr() && isNativePdfOcrEnabled() && isNativePdfOcrCanvasAvailable();
+}
+
+function anyPdfOcrBackendAvailable(): boolean {
+  return isOcrSpaceRecruitingConfigured() || nativePdfOcrBackendReady();
+}
+
+/**
+ * PDF only — whether direct extraction looks image-based / weak (independent of OCR backend availability).
  * **Important:** Do not skip OCR solely because direct text length ≥ 200 — scanned PDFs often embed junk text.
  */
-function pdfOcrDesiredByHeuristics(directText: string, filename: string): boolean {
+function pdfNeedsOcrByHeuristics(directText: string, filename: string): boolean {
   if (!isPdfFilename(filename)) return false;
-  if (!canRunResumePdfOcr()) return false;
 
   if (directText.length <= OCR_SHORT_DIRECT_CHARS) {
     return true;
@@ -183,10 +226,9 @@ function pdfOcrDesiredByHeuristics(directText: string, filename: string): boolea
   return true;
 }
 
-/** True when we should run pdf.js + Tesseract (requires native `@napi-rs/canvas`). */
-function shouldAttemptPdfOcr(directText: string, filename: string): boolean {
-  if (!pdfOcrDesiredByHeuristics(directText, filename)) return false;
-  return isNativePdfOcrCanvasAvailable();
+/** True when heuristics say OCR is needed and a backend exists (OCR.space in production; native only in dev/local). */
+function shouldRunPdfOcrThisRequest(directText: string, filename: string): boolean {
+  return pdfNeedsOcrByHeuristics(directText, filename) && anyPdfOcrBackendAvailable();
 }
 
 function buildQuality(
@@ -321,12 +363,16 @@ function inferFailureStep(args: {
   filename: string;
   ocrRunnable: boolean;
   ocrAttempted: boolean;
+  ocrSpaceAttempted: boolean;
+  ocrSpaceSkippedLimits: boolean;
+  ocrSpaceTextLen: number;
+  ocrSpaceConfigured: boolean;
+  nativeOcrBackendReady: boolean;
   ocr: PdfOcrResult;
   pickedTextLen: number;
   parseInputLen: number;
   suggestions: ParsedResumeSuggestions | null;
   isPdf: boolean;
-  nativeCanvasAvailable: boolean;
 }): ResumeExtractFailureStep {
   const {
     directLen,
@@ -334,28 +380,40 @@ function inferFailureStep(args: {
     filename,
     ocrRunnable,
     ocrAttempted,
+    ocrSpaceAttempted,
+    ocrSpaceSkippedLimits,
+    ocrSpaceTextLen,
+    ocrSpaceConfigured,
+    nativeOcrBackendReady,
     ocr,
     pickedTextLen,
     parseInputLen,
     suggestions,
     isPdf,
-    nativeCanvasAvailable,
   } = args;
   const ocrLen = (ocr.text ?? "").trim().length;
   const dbg = ocr.debug;
 
   if (
     isPdf &&
-    ocrRunnable &&
-    !nativeCanvasAvailable &&
+    pdfNeedsOcrByHeuristics(directText, filename) &&
     !ocrAttempted &&
-    pdfOcrDesiredByHeuristics(directText, filename)
+    !ocrSpaceConfigured &&
+    !nativeOcrBackendReady
   ) {
-    return "native_canvas_unavailable";
+    return "scanned_pdf_ocr_unavailable";
+  }
+
+  if (ocrSpaceSkippedLimits && pickedTextLen < MIN_USABLE_TEXT_LEN) {
+    return "ocr_space_skipped_limits";
+  }
+
+  if (ocrSpaceAttempted && ocrSpaceTextLen === 0 && pickedTextLen < MIN_USABLE_TEXT_LEN) {
+    return "ocr_space_failed";
   }
 
   /** Junk direct text (e.g. page markers) can exceed min length while every page render fails — still OCR-blocked */
-  if (ocrAttempted && ocrLen === 0 && dbg?.pages?.length) {
+  if (ocrAttempted && !ocrSpaceAttempted && ocrLen === 0 && dbg?.pages?.length) {
     const allRenderFailed = dbg.pages.every((p) => p.renderLikelyFailed);
     if (allRenderFailed) return "pdf_render_failed";
   }
@@ -365,12 +423,13 @@ function inferFailureStep(args: {
       return ocrRunnable ? "direct_extraction_empty" : "ocr_disabled_or_unavailable";
     }
     if (!ocrRunnable && ocrAttempted === false) return "ocr_disabled_or_unavailable";
-    if (ocrAttempted && dbg && !dbg.workerInitOk) return "ocr_init_failed";
-    if (ocrAttempted && dbg?.pages?.length) {
+    if (ocrAttempted && !ocrSpaceAttempted && dbg && !dbg.workerInitOk) return "ocr_init_failed";
+    if (ocrAttempted && !ocrSpaceAttempted && dbg?.pages?.length) {
       const allBad = dbg.pages.every((p) => p.renderLikelyFailed);
       if (allBad) return "pdf_render_failed";
     }
     if (ocrAttempted && ocrLen === 0) {
+      if (ocrSpaceAttempted) return "ocr_space_failed";
       if (ocr.error?.toLowerCase().includes("worker") || ocr.error?.toLowerCase().includes("tesseract")) {
         return "ocr_init_failed";
       }
@@ -406,7 +465,8 @@ export async function runResumeExtractPipeline(
       console.error("[resume pipeline] fatal (recovering to manual)", { filename, msg, stack });
     }
     const ocrApplicable = isPdfFilename(filename);
-    const ocrRunnable = canRunResumePdfOcr();
+    const ocrRunnable =
+      isOcrSpaceRecruitingConfigured() || nativePdfOcrBackendReady();
     return {
       text: "",
       extractionSource: "none",
@@ -439,8 +499,15 @@ async function runResumeExtractPipelineInternal(
   const directText = (direct.text ?? "").trim();
 
   const ocrApplicable = isPdfFilename(filename);
-  const ocrRunnable = canRunResumePdfOcr();
+  const ocrSpaceConfigured = isOcrSpaceRecruitingConfigured();
+  const nativeOcrReady = nativePdfOcrBackendReady();
+  const ocrRunnable = ocrSpaceConfigured || nativeOcrReady;
   const nativeCanvasAvailable = isNativePdfOcrCanvasAvailable();
+  let ocrSpaceAttempted = false;
+  let ocrSpaceSkippedLimits = false;
+  let ocrSpaceTextLen = 0;
+  let ocrSpaceError: string | undefined;
+  let ocrSource: "ocr.space" | undefined;
   let ocrAttempted = false;
   let ocrError: string | undefined;
   let ocrRawLen = 0;
@@ -449,31 +516,48 @@ async function runResumeExtractPipelineInternal(
   let text = directText;
   let extractionSource: ResumeExtractionSource = "direct";
 
-  if (forcePage1 && ocrApplicable && ocrRunnable && nativeCanvasAvailable) {
+  const runOcrSpace = async () => {
     ocrAttempted = true;
-    ocrResult = await ocrPdfBuffer(buffer, {
-      filename,
-      mimeType,
-      maxPages: 1,
-      forceDebug: true,
-    });
-    ocrRawLen = (ocrResult.text ?? "").trim().length;
-    if (ocrResult.error) {
-      ocrError = ocrResult.error;
+    const r = await ocrSpaceFromBuffer(buffer, filename, mimeType);
+    ocrSpaceTextLen = r.text.trim().length;
+    ocrSpaceError = r.error;
+    if (r.debug?.apiCalled) ocrSpaceAttempted = true;
+    if (r.debug?.skipReason) ocrSpaceSkippedLimits = true;
+    ocrResult = { text: r.text, error: r.error };
+    ocrRawLen = ocrSpaceTextLen;
+    if (r.error) ocrError = r.error;
+    if (ocrSpaceTextLen > 0) ocrSource = "ocr.space";
+  };
+
+  if (forcePage1 && ocrApplicable && ocrRunnable) {
+    if (ocrSpaceConfigured) {
+      await runOcrSpace();
+    } else if (nativeOcrReady) {
+      ocrAttempted = true;
+      ocrResult = await ocrPdfBuffer(buffer, {
+        filename,
+        mimeType,
+        maxPages: 1,
+        forceDebug: true,
+      });
+      ocrRawLen = (ocrResult.text ?? "").trim().length;
+      if (ocrResult.error) ocrError = ocrResult.error;
     }
     const picked = pickBestText(directText, ocrResult.text ?? "", ocrAttempted);
     text = picked.text;
     extractionSource = picked.source;
-  } else if (shouldAttemptPdfOcr(directText, filename)) {
-    ocrAttempted = true;
-    ocrResult = await ocrPdfBuffer(buffer, {
-      filename,
-      mimeType,
-      forceDebug: shouldLogPipeline(),
-    });
-    ocrRawLen = (ocrResult.text ?? "").trim().length;
-    if (ocrResult.error) {
-      ocrError = ocrResult.error;
+  } else if (shouldRunPdfOcrThisRequest(directText, filename)) {
+    if (ocrSpaceConfigured) {
+      await runOcrSpace();
+    } else if (nativeOcrReady) {
+      ocrAttempted = true;
+      ocrResult = await ocrPdfBuffer(buffer, {
+        filename,
+        mimeType,
+        forceDebug: shouldLogPipeline(),
+      });
+      ocrRawLen = (ocrResult.text ?? "").trim().length;
+      if (ocrResult.error) ocrError = ocrResult.error;
     }
     const picked = pickBestText(directText, ocrResult.text ?? "", ocrAttempted);
     text = picked.text;
@@ -498,9 +582,8 @@ async function runResumeExtractPipelineInternal(
     ocrAttempted,
     nativeCanvasUnavailable:
       ocrApplicable &&
-      ocrRunnable &&
-      !nativeCanvasAvailable &&
-      pdfOcrDesiredByHeuristics(directText, filename),
+      pdfNeedsOcrByHeuristics(directText, filename) &&
+      ((!ocrSpaceConfigured && !nativeOcrReady) || (ocrAttempted && ocrRawLen === 0)),
   };
 
   if (shouldLogPipeline()) {
@@ -520,6 +603,11 @@ async function runResumeExtractPipelineInternal(
       directTextLen: directText.length,
       directFirst500: directText.slice(0, 500),
       directError: direct.error ?? null,
+      ocrSpaceConfigured,
+      ocrSpaceAttempted,
+      ocrSpaceSkippedLimits,
+      ocrSpaceTextLen,
+      ocrSpaceError: ocrSpaceError ?? null,
       ocrAttempted,
       ocrRunnable,
       ocrRawTextLen: ocrAttempted ? ocrRawLen : 0,
@@ -572,16 +660,27 @@ async function runResumeExtractPipelineInternal(
     filename,
     ocrRunnable,
     ocrAttempted,
+    ocrSpaceAttempted,
+    ocrSpaceSkippedLimits,
+    ocrSpaceTextLen,
+    ocrSpaceConfigured,
+    nativeOcrBackendReady: nativeOcrReady,
     ocr: ocrResult,
     pickedTextLen: textOut.length,
     parseInputLen: parseInput.length,
     suggestions,
     isPdf: ocrApplicable,
-    nativeCanvasAvailable,
   });
 
-  const statusHeadline =
-    failureStep === "native_canvas_unavailable" ? RESUME_STATUS_HEADLINE_SCANNED_NO_NATIVE_OCR : undefined;
+  const scannedHeadlineFailure =
+    failureStep === "scanned_pdf_ocr_unavailable" ||
+    failureStep === "ocr_space_failed" ||
+    failureStep === "ocr_space_skipped_limits" ||
+    failureStep === "native_canvas_unavailable";
+
+  const statusHeadline = scannedHeadlineFailure
+    ? RESUME_STATUS_HEADLINE_SCANNED_NO_NATIVE_OCR
+    : undefined;
 
   if (shouldLogPipeline()) {
     console.log("[resume pipeline] failureStep", { failureStep });
@@ -629,12 +728,32 @@ async function runResumeExtractPipelineInternal(
         directTextPreview: directText.slice(0, 500),
         ocrTextPreview: (ocrResult.text ?? "").slice(0, 500),
         finalParsePreview: parseInput.slice(0, 500),
-        ocrRuntimeAvailable: ocrRunnable,
+        ocrRuntimeAvailable: canRunResumePdfOcr(),
+        ocrSpaceConfigured,
+        ocrSpaceAttempted,
+        ocrSpaceSkippedLimits,
+        ocrSpaceTextLen,
+        ocrSpaceError,
+        ocrSource,
         canvasRuntimeLoaded: ocrApplicable ? nativeCanvasAvailable : false,
         canvasRuntimeError:
           ocrApplicable && !nativeCanvasAvailable ? getLastNativeCanvasLoadError() : undefined,
         pagesRenderedForOcr: ocrAttempted ? (ocrResult.debug?.pagesRendered ?? 0) : 0,
       };
+    }
+    if (includeDebugSummary) {
+      console.log(
+        JSON.stringify({
+          source: "resume-extract-pipeline/metrics",
+          directTextLen: directText.length,
+          ocrSpaceAttempted,
+          ocrSpaceTextLen,
+          ocrAttempted,
+          ocrRawTextLen: ocrRawLen,
+          quality: result.quality,
+          failureStep,
+        })
+      );
     }
     if (shouldLogPipeline()) {
       console.log("[resume pipeline] quality", { quality: result.quality });
@@ -644,7 +763,7 @@ async function runResumeExtractPipelineInternal(
 
   const quality = buildQuality(extractionSourceOut, textOut.length, suggestions);
   const headline =
-    failureStep === "native_canvas_unavailable" ||
+    scannedHeadlineFailure ||
     (quality === "limited_parse" && msgCtx.nativeCanvasUnavailable && ocrApplicable && ocrRunnable)
       ? RESUME_STATUS_HEADLINE_SCANNED_NO_NATIVE_OCR
       : undefined;
@@ -688,12 +807,32 @@ async function runResumeExtractPipelineInternal(
       directTextPreview: directText.slice(0, 500),
       ocrTextPreview: (ocrResult.text ?? "").slice(0, 500),
       finalParsePreview: parseInput.slice(0, 500),
-      ocrRuntimeAvailable: ocrRunnable,
+      ocrRuntimeAvailable: canRunResumePdfOcr(),
+      ocrSpaceConfigured,
+      ocrSpaceAttempted,
+      ocrSpaceSkippedLimits,
+      ocrSpaceTextLen,
+      ocrSpaceError,
+      ocrSource,
       canvasRuntimeLoaded: ocrApplicable ? nativeCanvasAvailable : false,
       canvasRuntimeError:
         ocrApplicable && !nativeCanvasAvailable ? getLastNativeCanvasLoadError() : undefined,
       pagesRenderedForOcr: ocrAttempted ? (ocrResult.debug?.pagesRendered ?? 0) : 0,
     };
+  }
+  if (includeDebugSummary) {
+    console.log(
+      JSON.stringify({
+        source: "resume-extract-pipeline/metrics",
+        directTextLen: directText.length,
+        ocrSpaceAttempted,
+        ocrSpaceTextLen,
+        ocrAttempted,
+        ocrRawTextLen: ocrRawLen,
+        quality: result.quality,
+        failureStep,
+      })
+    );
   }
   if (shouldLogPipeline()) {
     console.log("[resume pipeline] quality", { quality: result.quality });
