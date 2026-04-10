@@ -1702,6 +1702,14 @@ export default async function AdminDashboardPage({
               <span className="mt-1 text-xs leading-snug text-slate-600">New inquiries</span>
             </Link>
             <Link
+              href="/admin/facilities"
+              className="flex flex-col rounded-[22px] border border-slate-200/90 bg-white/90 p-4 shadow-sm transition hover:border-indigo-300 hover:shadow-md"
+            >
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Field sales</span>
+              <span className="mt-2 text-base font-semibold text-slate-900">Facilities</span>
+              <span className="mt-1 text-xs leading-snug text-slate-600">Referral buildings &amp; visits</span>
+            </Link>
+            <Link
               href={crmPatientsHref}
               className="flex flex-col rounded-[22px] border border-slate-200/90 bg-white/90 p-4 shadow-sm transition hover:border-indigo-300 hover:shadow-md"
             >
