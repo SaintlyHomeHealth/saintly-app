@@ -31,34 +31,108 @@ export const FACILITY_TYPE_OPTIONS = [
 
 export type FacilityTypeOption = (typeof FACILITY_TYPE_OPTIONS)[number];
 
+export type FacilityTypePlaybookEntry = {
+  description: string;
+  play: string;
+};
+
 /**
- * One-line, sales-focused blurbs for facility types (why they matter for home health referrals).
- * Keys match stored `type` values; used in FacilityTypeSelect only (filtering unchanged).
+ * Sales playbook for facility types: why it matters + who to ask.
+ * Keys match stored `type` values (LTACH uses canonical key; display title may differ).
  */
-export const FACILITY_TYPE_DESCRIPTIONS: Record<FacilityTypeOption, string> = {
-  Hospital: "24/7 discharges—post-acute patients who still need skilled care at home.",
-  "Skilled Nursing Facility": "Daily discharges—patients stepping down who may still qualify for HH.",
-  "Assisted Living": "When needs spike, AL looks outward—opening for skilled nursing at home.",
-  "Independent Living": "Lighter clinical touch, but moves & crises still open referral windows.",
-  "Rehab Hospital": "Rehab-to-home handoffs—nursing & therapy where they live.",
-  LTACH: "Long, complex stays—discharge planning decides who’s HH-eligible.",
-  "Wound Clinic": "Chronic wounds need skilled nursing—easy home-visit story.",
-  "Primary Care Office": "Orders & panels—relationships drive chronic-care referrals.",
-  "Cardiology Office": "CHF & post-cardiac volume—HH cuts readmissions & bounce-backs.",
-  "Orthopedic Office": "Joints & fractures—post-op skilled nursing & PT at home.",
-  "Podiatry Office": "Diabetic feet & wounds—nursing & wound care in the home.",
-  "Nephrology Office": "CKD complexity—stabilize between clinic visits.",
-  "Pulmonology Office": "COPD & O2—home support keeps patients out of the hospital.",
-  "Oncology Office": "Weakness & caregiver load—bridge care between treatments.",
-  "Pain Management": "High-touch patients—pairs with nursing, PT, or safety at home.",
-  "Neurology Office": "Stroke, MS, Parkinson’s—therapy & nursing in the home.",
-  "Internal Medicine": "Chronic panels—scripts, intros, and follow-up referrals start here.",
-  Geriatrics: "Frailty, falls, med stacks—classic skilled home candidates.",
-  Hospice: "Know hospice vs HH—right talk keeps placements appropriate.",
-  "Dialysis Center": "Skilled, co-morbid crowd—support between chair days.",
-  "Case Management Office": "Discharge planners steer beds—often your fastest referral path.",
-  "Home Visit Physician Group": "Already in the home—fastest path to ongoing skilled orders.",
-  Other: "Qualify source & path each visit—no default playbook.",
+export const FACILITY_TYPE_PLAYBOOK: Record<FacilityTypeOption, FacilityTypePlaybookEntry> = {
+  Hospital: {
+    description: "Daily discharges → prime home health referrals",
+    play: "Ask for case management department",
+  },
+  "Skilled Nursing Facility": {
+    description: "Short-term rehab → constant home health discharges",
+    play: "Ask for discharge planner or social worker",
+  },
+  "Assisted Living": {
+    description: "Residents decline over time → steady home health referrals",
+    play: "Ask for wellness director or nurse",
+  },
+  "Independent Living": {
+    description: "Low care residents → early intervention = new patients",
+    play: "Ask for front desk + community director",
+  },
+  "Rehab Hospital": {
+    description: "3+ hrs PT/OT daily → discharge home with home health",
+    play: "Ask for case manager or discharge planner",
+  },
+  LTACH: {
+    description: "Vent/wound patients → step down to SNF or home health",
+    play: "Ask for case manager handling discharges",
+  },
+  "Wound Clinic": {
+    description: "Chronic wounds → recurring skilled nursing referrals",
+    play: "Ask provider about home wound care follow-up",
+  },
+  "Primary Care Office": {
+    description: "Controls patient care → consistent referral source",
+    play: "Build relationship with front desk + provider",
+  },
+  "Cardiology Office": {
+    description: "CHF/post-cardiac → frequent home health needs",
+    play: "Ask about patients needing monitoring at home",
+  },
+  "Orthopedic Office": {
+    description: "Post-surgery → PT + home health referrals",
+    play: "Ask about post-op discharge support",
+  },
+  "Podiatry Office": {
+    description: "Foot wounds/diabetes → high SN referrals",
+    play: "Ask about wound care at home",
+  },
+  "Nephrology Office": {
+    description: "Dialysis patients → high-risk, frequent HH needs",
+    play: "Ask about unstable patients needing support",
+  },
+  "Pulmonology Office": {
+    description: "COPD/oxygen → recurring SN referrals",
+    play: "Ask about patients struggling at home",
+  },
+  "Oncology Office": {
+    description: "Weak/immunocompromised → SN support at home",
+    play: "Ask about patients needing home monitoring",
+  },
+  "Pain Management": {
+    description: "Chronic pain → PT + monitoring needs",
+    play: "Ask about mobility or safety concerns",
+  },
+  "Neurology Office": {
+    description: "Stroke/neuro → strong PT/OT referrals",
+    play: "Ask about post-stroke patients",
+  },
+  "Internal Medicine": {
+    description: "Primary adult care → steady referral base",
+    play: "Build long-term referral relationship",
+  },
+  Geriatrics: {
+    description: "Elderly patients → ideal HH pipeline",
+    play: "Ask about patients declining at home",
+  },
+  Hospice: {
+    description: "End-of-life → relationship-driven referrals",
+    play: "Build relationship for future transitions",
+  },
+  "Dialysis Center": {
+    description: "Frequent visits → high comorbidity patients",
+    play: "Ask about patients struggling between treatments",
+  },
+  "Case Management Office": {
+    description: "Controls discharges → key referral source",
+    play: "Build direct relationship with case managers",
+  },
+  "Home Visit Physician Group": {
+    description: "Sees homebound patients → direct HH referrals",
+    play: "Partner for immediate referrals",
+  },
+  Other: {
+    description: "Misc facility → evaluate opportunity",
+    play: "Ask who handles patient care decisions",
+  },
 };
 
 /**
