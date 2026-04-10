@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { FacilitiesEmptyState } from "@/app/admin/facilities/_components/FacilitiesEmptyState";
+import { FacilityTypeSelect } from "@/app/admin/facilities/_components/FacilityTypeSelect";
 import {
   crmActionBtnMuted,
   crmActionBtnSky,
@@ -13,11 +14,7 @@ import {
 } from "@/components/admin/crm-admin-list-styles";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { buildFacilityFullAddress, formatFacilityDateTime, googleMapsSearchUrlForAddress } from "@/lib/crm/facility-address";
-import {
-  FACILITY_PRIORITY_OPTIONS,
-  FACILITY_STATUS_OPTIONS,
-  FACILITY_TYPE_OPTIONS,
-} from "@/lib/crm/facility-options";
+import { FACILITY_PRIORITY_OPTIONS, FACILITY_STATUS_OPTIONS } from "@/lib/crm/facility-options";
 import { staffPrimaryLabel } from "@/lib/crm/crm-leads-table-helpers";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import { supabaseAdmin } from "@/lib/admin";
@@ -194,16 +191,14 @@ export default async function AdminFacilitiesPage({
             className={`${crmFilterInputCls} min-w-[12rem]`}
           />
         </label>
-        <label className="flex min-w-[8rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+        <label className="flex min-w-[10rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
           Type
-          <select name="type" defaultValue={f.type} className={crmFilterInputCls}>
-            <option value="">All</option>
-            {FACILITY_TYPE_OPTIONS.map((t) => (
-              <option key={t} value={t}>
-                {t}
-              </option>
-            ))}
-          </select>
+          <FacilityTypeSelect
+            name="type"
+            defaultValue={f.type}
+            emptyLabel="All"
+            triggerClassName={`${crmFilterInputCls} min-w-[12rem]`}
+          />
         </label>
         <label className="flex min-w-[8rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
           Status

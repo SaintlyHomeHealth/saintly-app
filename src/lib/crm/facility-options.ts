@@ -31,6 +31,46 @@ export const FACILITY_TYPE_OPTIONS = [
 
 export type FacilityTypeOption = (typeof FACILITY_TYPE_OPTIONS)[number];
 
+/**
+ * Short explanations for facility types (filters and forms). Keys match stored `type` values.
+ */
+export const FACILITY_TYPE_DESCRIPTIONS: Record<FacilityTypeOption, string> = {
+  Hospital: "Acute care for injuries, surgeries, and medical emergencies",
+  "Skilled Nursing Facility": "Short-term rehab and nursing care after hospital discharge",
+  "Assisted Living": "Help with daily activities, not skilled medical care",
+  "Independent Living": "Senior housing with little to no medical support",
+  "Rehab Hospital": "Intensive rehab (3+ hrs/day) for stroke, surgery, or injury recovery",
+  LTACH: "For medically complex patients (ventilators, severe wounds, ICU step-down)",
+  "Wound Clinic": "Specialized treatment for chronic or non-healing wounds",
+  "Primary Care Office": "General medical care and referrals for all conditions",
+  "Cardiology Office": "Heart conditions, monitoring, and post-cardiac care",
+  "Orthopedic Office": "Bone, joint, and post-surgical rehab patients",
+  "Podiatry Office": "Foot care, wounds, and diabetic complications",
+  "Nephrology Office": "Kidney disease and dialysis-related care",
+  "Pulmonology Office": "Lung conditions like COPD and breathing issues",
+  "Oncology Office": "Cancer treatment and ongoing care coordination",
+  "Pain Management": "Chronic pain treatment and injection therapies",
+  "Neurology Office": "Stroke, brain, and neurological conditions",
+  "Internal Medicine": "Primary care focused on adult patients",
+  Geriatrics: "Medical care specialized for elderly patients",
+  Hospice: "End-of-life comfort and support care",
+  "Dialysis Center": "Ongoing dialysis treatment for kidney failure patients",
+  "Case Management Office": "Coordinates care and referrals for patients",
+  "Home Visit Physician Group": "Doctors who see patients at home",
+  Other: "Miscellaneous or uncategorized facility",
+};
+
+/**
+ * Optional longer first line in dropdowns; value stored remains the canonical type (e.g. LTACH).
+ */
+export const FACILITY_TYPE_DISPLAY_TITLE: Partial<Record<FacilityTypeOption, string>> = {
+  LTACH: "LTACH (Critical Illness Recovery)",
+};
+
+export function facilityTypeDropdownTitle(t: FacilityTypeOption): string {
+  return FACILITY_TYPE_DISPLAY_TITLE[t] ?? t;
+}
+
 export const FACILITY_STATUS_OPTIONS = [
   "New",
   "Prospect",

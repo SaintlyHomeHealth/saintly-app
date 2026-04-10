@@ -1,10 +1,7 @@
 import { createFacility, updateFacility } from "@/app/admin/facilities/actions";
 import { DatetimeLocalField } from "@/app/admin/facilities/_components/DatetimeLocalField";
-import {
-  FACILITY_PRIORITY_OPTIONS,
-  FACILITY_STATUS_OPTIONS,
-  FACILITY_TYPE_OPTIONS,
-} from "@/lib/crm/facility-options";
+import { FacilityTypeSelect } from "@/app/admin/facilities/_components/FacilityTypeSelect";
+import { FACILITY_PRIORITY_OPTIONS, FACILITY_STATUS_OPTIONS } from "@/lib/crm/facility-options";
 
 type StaffOpt = {
   user_id: string;
@@ -85,14 +82,12 @@ export function FacilityForm({ mode, facility, staffOptions, errorMessage }: Fac
           </label>
           <label className={labelCls}>
             Type
-            <select name="type" defaultValue={f?.type ?? ""} className={inputCls}>
-              <option value="">Select type…</option>
-              {FACILITY_TYPE_OPTIONS.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </select>
+            <FacilityTypeSelect
+              name="type"
+              defaultValue={f?.type ?? ""}
+              emptyLabel="Select type…"
+              triggerClassName={inputCls}
+            />
           </label>
           <label className={labelCls}>
             Status
