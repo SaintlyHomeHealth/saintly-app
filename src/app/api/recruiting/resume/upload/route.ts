@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 
+import { parseResumePlainText } from "@/lib/recruiting/resume-parse-heuristics";
+import type { ParsedResumeSuggestions } from "@/lib/recruiting/resume-parse-types";
+import { extractResumeText } from "@/lib/recruiting/resume-text-extract";
 import { RECRUITING_RESUMES_BUCKET } from "@/lib/recruiting/recruiting-resume-storage";
 import { supabaseAdmin } from "@/lib/admin";
 import { getAuthenticatedUser } from "@/lib/supabase/server";
@@ -165,10 +168,53 @@ export async function POST(req: Request) {
     console.warn("[recruiting] resume activity:", actErr.message);
   }
 
+  let parseOut: {
+    ok: boolean;
+    suggestions: ParsedResumeSuggestions | null;
+    warning?: string;
+  } = { ok: false, suggestions: null };
+
+  let parsedActivityBody = "Resume stored. Auto-fill could not read this file well enough.";
+
+  try {
+    const { text, error: extErr } = await extractResumeText(buffer, safeName);
+    const minLen = 20;
+    if (!extErr && text && text.length >= minLen) {
+      const suggestions = parseResumePlainText(text);
+      parseOut = { ok: true, suggestions };
+      parsedActivityBody = "Resume parsed and suggestions generated";
+    } else {
+      parseOut = {
+        ok: false,
+        suggestions: null,
+        warning: extErr || "Could not extract enough text from this file for auto-fill.",
+      };
+    }
+  } catch (e) {
+    parseOut = {
+      ok: false,
+      suggestions: null,
+      warning: e instanceof Error ? e.message : "Parsing failed",
+    };
+  }
+
+  const { error: parseActErr } = await supabaseAdmin.from("recruiting_candidate_activities").insert({
+    candidate_id: candidateId,
+    activity_type: "resume_parsed",
+    outcome: null,
+    body: parsedActivityBody,
+    created_by: user?.id ?? null,
+  });
+
+  if (parseActErr) {
+    console.warn("[recruiting] resume_parsed activity:", parseActErr.message);
+  }
+
   return NextResponse.json({
     ok: true,
     resume_file_name: safeName,
     resume_storage_path: storagePath,
     resume_uploaded_at: uploadedAt,
+    parse: parseOut,
   });
 }

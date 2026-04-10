@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
+import type { ApplyableResumeField } from "@/lib/recruiting/resume-parse-types";
 import {
   isValidRecruitingDiscipline,
   isValidRecruitingSource,
@@ -297,6 +298,109 @@ export async function recruitingQuickAction(input: {
   if (updErr) {
     console.warn("[recruiting] candidate update:", updErr.message);
     return { ok: false, message: "Could not update candidate." };
+  }
+
+  revalidatePath("/admin/recruiting");
+  revalidatePath(`/admin/recruiting/${candidateId}`);
+  return { ok: true };
+}
+
+function isBlankField(v: unknown): boolean {
+  if (v == null) return true;
+  return String(v).trim() === "";
+}
+
+export async function applyRecruitingResumeSuggestions(input: {
+  candidateId: string;
+  values: Partial<Record<ApplyableResumeField, string>>;
+  overwrite: Partial<Record<ApplyableResumeField, boolean>>;
+}): Promise<{ ok: true } | { ok: false; message: string }> {
+  await requireManager();
+  const user = await getAuthenticatedUser();
+
+  const candidateId = input.candidateId?.trim() ?? "";
+  if (!uuidOk(candidateId)) {
+    return { ok: false, message: "Invalid candidate." };
+  }
+
+  const { data: row, error } = await supabaseAdmin
+    .from("recruiting_candidates")
+    .select("id, full_name, first_name, last_name, phone, email, city, state, discipline, notes")
+    .eq("id", candidateId)
+    .maybeSingle();
+
+  if (error || !row?.id) {
+    return { ok: false, message: "Candidate not found." };
+  }
+
+  const patch: Record<string, unknown> = {};
+  const ov = input.overwrite;
+  const r = row as Record<string, unknown>;
+
+  function applyScalar(dbKey: "full_name" | "first_name" | "last_name" | "phone" | "email" | "city" | "state" | "discipline", formKey: ApplyableResumeField) {
+    const val = input.values[formKey]?.trim();
+    if (!val) return;
+    const cur = r[dbKey];
+    if (isBlankField(cur) || ov[formKey]) {
+      patch[dbKey] = val;
+    }
+  }
+
+  applyScalar("full_name", "full_name");
+  applyScalar("first_name", "first_name");
+  applyScalar("last_name", "last_name");
+  applyScalar("phone", "phone");
+  applyScalar("email", "email");
+  applyScalar("city", "city");
+  applyScalar("state", "state");
+  applyScalar("discipline", "discipline");
+
+  const summary = input.values.notes_summary?.trim();
+  const yrs = input.values.years_of_experience?.trim();
+  const spec = input.values.specialties?.trim();
+  const cert = input.values.certifications?.trim();
+
+  const parts: string[] = [];
+  if (summary) parts.push(`Summary: ${summary}`);
+  if (yrs) parts.push(`Experience: ${yrs}`);
+  if (spec) parts.push(`Specialties: ${spec}`);
+  if (cert) parts.push(`Certifications: ${cert}`);
+
+  if (parts.length > 0) {
+    const block = `From resume:\n${parts.join("\n")}`;
+    const existingNotes = typeof row.notes === "string" ? row.notes.trim() : "";
+    const overwriteNotes = !!ov.notes_summary;
+
+    if (!existingNotes) {
+      patch.notes = block;
+    } else if (overwriteNotes) {
+      patch.notes = block;
+    } else {
+      patch.notes = `${existingNotes}\n\n${block}`;
+    }
+  }
+
+  if (Object.keys(patch).length === 0) {
+    return { ok: false, message: "Nothing to apply — fill a field or enable overwrite." };
+  }
+
+  const { error: updErr } = await supabaseAdmin.from("recruiting_candidates").update(patch).eq("id", candidateId);
+
+  if (updErr) {
+    console.warn("[recruiting] apply resume suggestions:", updErr.message);
+    return { ok: false, message: "Could not save changes." };
+  }
+
+  const { error: actErr } = await supabaseAdmin.from("recruiting_candidate_activities").insert({
+    candidate_id: candidateId,
+    activity_type: "resume_applied",
+    outcome: null,
+    body: "Applied candidate details from resume",
+    created_by: user?.id ?? null,
+  });
+
+  if (actErr) {
+    console.warn("[recruiting] resume_applied activity:", actErr.message);
   }
 
   revalidatePath("/admin/recruiting");

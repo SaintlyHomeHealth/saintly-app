@@ -117,6 +117,8 @@ function activityTitle(a: ActivityRow): string {
   if (t === "note") return "Note";
   if (t === "resume_uploaded") return "Resume uploaded";
   if (t === "resume_replaced") return "Resume replaced";
+  if (t === "resume_parsed") return "Resume parsed";
+  if (t === "resume_applied") return "Applied resume details";
   return [t, o].filter(Boolean).join(" · ") || "Activity";
 }
 
@@ -338,6 +340,17 @@ export function RecruitingCandidateDetailClient({
             resumeFileName={initial.resume_file_name ?? null}
             resumeStoragePath={initial.resume_storage_path ?? null}
             resumeUploadedAt={initial.resume_uploaded_at ?? null}
+            candidate={{
+              full_name: initial.full_name,
+              first_name: initial.first_name,
+              last_name: initial.last_name,
+              phone: initial.phone,
+              email: initial.email,
+              city: initial.city,
+              state: initial.state,
+              discipline: initial.discipline,
+              notes: initial.notes,
+            }}
           />
 
           <form action={updateRecruitingCandidate} className="space-y-5 rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
