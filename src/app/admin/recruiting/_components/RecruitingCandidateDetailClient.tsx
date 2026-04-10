@@ -7,7 +7,10 @@ import { useMemo, useState, useTransition } from "react";
 import { crmFilterInputCls, crmPrimaryCtaCls } from "@/components/admin/crm-admin-list-styles";
 import {
   RECRUITING_DISCIPLINE_OPTIONS,
+  RECRUITING_INTEREST_LEVEL_OPTIONS,
+  RECRUITING_PREFERRED_CONTACT_OPTIONS,
   RECRUITING_SOURCE_OPTIONS,
+  RECRUITING_STATUS_LEGACY_OPTIONS,
   RECRUITING_STATUS_OPTIONS,
   RECRUITING_TEXT_TEMPLATES,
 } from "@/lib/recruiting/recruiting-options";
@@ -15,7 +18,7 @@ import { isPhoenixSameCalendarDay, phoenixEndOfTodayIso } from "@/lib/recruiting
 import { staffPrimaryLabel } from "@/lib/crm/crm-leads-table-helpers";
 
 import { recruitingQuickAction, type RecruitingQuickActionKind, updateRecruitingCandidate } from "../actions";
-import { recruitingStatusPillClass } from "../recruiting-status-styles";
+import { recruitingInterestPillClass, recruitingStatusPillClass } from "../recruiting-status-styles";
 import { RecruitingResumeCard } from "./RecruitingResumeCard";
 
 type CandidateRow = {
@@ -45,6 +48,14 @@ type CandidateRow = {
   next_follow_up_at: string | null;
   created_at: string | null;
   updated_at: string | null;
+  interest_level: string | null;
+  last_response_at: string | null;
+  sms_opt_out: boolean | null;
+  sms_opt_out_at: string | null;
+  preferred_contact_method: string | null;
+  follow_up_bucket: string | null;
+  specialties: string | null;
+  recruiting_tags: string | null;
 };
 
 type ActivityRow = {
@@ -113,6 +124,9 @@ function activityTitle(a: ActivityRow): string {
   if (t === "text" && o === "sent") return "Text sent";
   if (t === "status_change" && o === "interested") return "Status — interested";
   if (t === "status_change" && o === "not_interested") return "Status — not interested";
+  if (t === "status_change" && o === "maybe_later") return "Status — maybe later";
+  if (t === "status_change" && o === "follow_up_later") return "Status — follow up later";
+  if (t === "status_change" && o === "no_response") return "Status — no response";
   if (t === "follow_up_set") return "Follow-up scheduled";
   if (t === "note") return "Note";
   if (t === "resume_uploaded") return "Resume uploaded";
@@ -177,13 +191,32 @@ export function RecruitingCandidateDetailClient({
       : null;
   const statusExtra =
     initial.status &&
-    !(RECRUITING_STATUS_OPTIONS as readonly string[]).includes(initial.status as (typeof RECRUITING_STATUS_OPTIONS)[number])
+    !(RECRUITING_STATUS_OPTIONS as readonly string[]).includes(initial.status as (typeof RECRUITING_STATUS_OPTIONS)[number]) &&
+    !(RECRUITING_STATUS_LEGACY_OPTIONS as readonly string[]).includes(
+      initial.status as (typeof RECRUITING_STATUS_LEGACY_OPTIONS)[number]
+    )
       ? initial.status
       : null;
   const sourceExtra =
     initial.source &&
     !(RECRUITING_SOURCE_OPTIONS as readonly string[]).includes(initial.source as (typeof RECRUITING_SOURCE_OPTIONS)[number])
       ? initial.source
+      : null;
+
+  const interestExtra =
+    initial.interest_level &&
+    !(RECRUITING_INTEREST_LEVEL_OPTIONS as readonly string[]).includes(
+      initial.interest_level as (typeof RECRUITING_INTEREST_LEVEL_OPTIONS)[number]
+    )
+      ? initial.interest_level
+      : null;
+
+  const preferredExtra =
+    initial.preferred_contact_method &&
+    !(RECRUITING_PREFERRED_CONTACT_OPTIONS as readonly string[]).includes(
+      initial.preferred_contact_method as (typeof RECRUITING_PREFERRED_CONTACT_OPTIONS)[number]
+    )
+      ? initial.preferred_contact_method
       : null;
 
   function runQuick(kind: RecruitingQuickActionKind, extra?: { body?: string | null; nextFollowUpAt?: string | null }) {
@@ -227,6 +260,11 @@ export function RecruitingCandidateDetailClient({
               <div className="flex flex-wrap items-center gap-2">
                 <h2 className="text-xl font-bold tracking-tight text-slate-900">{initial.full_name}</h2>
                 <span className={recruitingStatusPillClass(initial.status ?? "")}>{initial.status ?? "—"}</span>
+                {initial.interest_level?.trim() ? (
+                  <span className={recruitingInterestPillClass(initial.interest_level)}>
+                    {initial.interest_level.replace(/_/g, " ")}
+                  </span>
+                ) : null}
                 {dueBucket ? (
                   <span className="rounded-full bg-amber-50 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-900 ring-1 ring-amber-200">
                     {dueToday ? "Follow-up due today" : "Follow-up due"}
@@ -258,6 +296,81 @@ export function RecruitingCandidateDetailClient({
                 <span className={`${btnGhost} cursor-not-allowed opacity-50`}>Text</span>
               )}
             </div>
+          </div>
+
+          <div className="rounded-2xl border border-sky-100 bg-gradient-to-br from-sky-50/40 to-white p-4 shadow-sm sm:p-5">
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">At a glance</div>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <div>
+                <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Discipline</div>
+                <div className="mt-0.5 text-sm font-semibold text-slate-900">{initial.discipline?.trim() || "—"}</div>
+              </div>
+              <div>
+                <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">City / coverage</div>
+                <div className="mt-0.5 text-sm font-semibold text-slate-900">
+                  {[initial.city, initial.coverage_area].filter(Boolean).join(" · ") || "—"}
+                </div>
+              </div>
+              <div>
+                <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Interest</div>
+                <div className="mt-0.5">
+                  {initial.interest_level?.trim() ? (
+                    <span className={recruitingInterestPillClass(initial.interest_level)}>
+                      {initial.interest_level.replace(/_/g, " ")}
+                    </span>
+                  ) : (
+                    <span className="text-sm font-semibold text-slate-400">—</span>
+                  )}
+                </div>
+              </div>
+              <div>
+                <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Last contact</div>
+                <div className="mt-0.5 text-sm font-semibold text-slate-900">{formatWhen(initial.last_contact_at)}</div>
+              </div>
+              <div>
+                <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Next follow-up</div>
+                <div className="mt-0.5 text-sm font-semibold text-slate-900">{formatWhen(initial.next_follow_up_at)}</div>
+              </div>
+              <div>
+                <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Resume</div>
+                <div className="mt-0.5 text-sm font-semibold text-slate-900">
+                  {initial.resume_storage_path?.trim() ? (
+                    <a
+                      href={`/api/recruiting/resume/${encodeURIComponent(initial.id)}?mode=view`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-semibold text-sky-800 hover:underline"
+                    >
+                      View file
+                    </a>
+                  ) : (
+                    "—"
+                  )}
+                </div>
+              </div>
+            </div>
+            {initial.follow_up_bucket?.trim() || initial.specialties?.trim() || initial.recruiting_tags?.trim() ? (
+              <div className="mt-4 border-t border-sky-100/80 pt-3 text-xs text-slate-600">
+                {initial.follow_up_bucket?.trim() ? (
+                  <p>
+                    <span className="font-semibold text-slate-700">Bucket: </span>
+                    {initial.follow_up_bucket}
+                  </p>
+                ) : null}
+                {initial.specialties?.trim() ? (
+                  <p className={initial.follow_up_bucket?.trim() ? "mt-1" : ""}>
+                    <span className="font-semibold text-slate-700">Specialties: </span>
+                    {initial.specialties}
+                  </p>
+                ) : null}
+                {initial.recruiting_tags?.trim() ? (
+                  <p className={initial.specialties?.trim() || initial.follow_up_bucket?.trim() ? "mt-1" : ""}>
+                    <span className="font-semibold text-slate-700">Tags: </span>
+                    {initial.recruiting_tags}
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
           </div>
 
           <div className="rounded-2xl border border-slate-200/90 bg-gradient-to-b from-white to-slate-50/90 p-4 shadow-sm sm:p-5">
@@ -303,8 +416,17 @@ export function RecruitingCandidateDetailClient({
               <button type="button" className={btnGhost} disabled={pending} onClick={() => runQuick("spoke")}>
                 Spoke
               </button>
+              <button type="button" className={btnGhost} disabled={pending} onClick={() => runQuick("no_response")}>
+                No response
+              </button>
               <button type="button" className={btnPrimary} disabled={pending} onClick={() => runQuick("interested")}>
                 Interested
+              </button>
+              <button type="button" className={btnGhost} disabled={pending} onClick={() => runQuick("maybe_later")}>
+                Maybe later
+              </button>
+              <button type="button" className={btnGhost} disabled={pending} onClick={() => runQuick("follow_up_later")}>
+                Follow up later
               </button>
               <button type="button" className={btnRose} disabled={pending} onClick={() => runQuick("not_interested")}>
                 Not interested
@@ -353,7 +475,11 @@ export function RecruitingCandidateDetailClient({
             }}
           />
 
-          <form action={updateRecruitingCandidate} className="space-y-5 rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
+          <form
+            key={`${initial.updated_at ?? ""}-${initial.id}`}
+            action={updateRecruitingCandidate}
+            className="space-y-5 rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm sm:p-7"
+          >
             <input type="hidden" name="id" value={initial.id} />
             <div className="flex flex-wrap items-end justify-between gap-3">
               <div>
@@ -446,12 +572,87 @@ export function RecruitingCandidateDetailClient({
                   {statusExtra ? (
                     <option value={statusExtra}>{statusExtra} (custom)</option>
                   ) : null}
+                  {RECRUITING_STATUS_LEGACY_OPTIONS.map((s) => (
+                    <option key={s} value={s}>
+                      {s} (legacy)
+                    </option>
+                  ))}
                   {RECRUITING_STATUS_OPTIONS.map((s) => (
                     <option key={s} value={s}>
                       {s}
                     </option>
                   ))}
                 </select>
+              </label>
+              <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                Interest level
+                <select name="interest_level" defaultValue={initial.interest_level ?? ""} className={crmFilterInputCls}>
+                  <option value="">—</option>
+                  {interestExtra ? (
+                    <option value={interestExtra}>{interestExtra} (custom)</option>
+                  ) : null}
+                  {RECRUITING_INTEREST_LEVEL_OPTIONS.map((x) => (
+                    <option key={x} value={x}>
+                      {x.replace(/_/g, " ")}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                Preferred contact
+                <select
+                  name="preferred_contact_method"
+                  defaultValue={initial.preferred_contact_method ?? ""}
+                  className={crmFilterInputCls}
+                >
+                  <option value="">—</option>
+                  {preferredExtra ? (
+                    <option value={preferredExtra}>{preferredExtra} (custom)</option>
+                  ) : null}
+                  {RECRUITING_PREFERRED_CONTACT_OPTIONS.map((x) => (
+                    <option key={x} value={x}>
+                      {x}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="sm:col-span-2 flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                Specialties
+                <input name="specialties" defaultValue={initial.specialties ?? ""} className={crmFilterInputCls} />
+              </label>
+              <label className="sm:col-span-2 flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                Tags / campaigns
+                <input name="recruiting_tags" defaultValue={initial.recruiting_tags ?? ""} className={crmFilterInputCls} />
+              </label>
+              <label className="sm:col-span-2 flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                Nurture bucket
+                <input name="follow_up_bucket" defaultValue={initial.follow_up_bucket ?? ""} className={crmFilterInputCls} />
+              </label>
+              <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                Last response
+                <input
+                  name="last_response_at"
+                  type="datetime-local"
+                  defaultValue={toDatetimeLocalValue(initial.last_response_at)}
+                  className={crmFilterInputCls}
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600 sm:col-span-2">
+                <span className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    name="sms_opt_out"
+                    value="on"
+                    defaultChecked={Boolean(initial.sms_opt_out)}
+                    className="h-4 w-4 rounded border-slate-300 text-sky-600"
+                  />
+                  SMS opt-out (do not send recruiting texts)
+                </span>
+                {initial.sms_opt_out_at ? (
+                  <span className="mt-1 text-[10px] font-normal normal-case text-slate-500">
+                    Recorded {formatWhen(initial.sms_opt_out_at)}
+                  </span>
+                ) : null}
               </label>
               <label className="sm:col-span-2 flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
                 Indeed URL
@@ -518,6 +719,10 @@ export function RecruitingCandidateDetailClient({
                 <div>
                   <span className="font-medium text-slate-500">Last text</span>
                   <div className="font-semibold text-slate-800">{formatWhen(initial.last_text_at)}</div>
+                </div>
+                <div className="col-span-2">
+                  <span className="font-medium text-slate-500">Last contact (any)</span>
+                  <div className="font-semibold text-slate-800">{formatWhen(initial.last_contact_at)}</div>
                 </div>
               </div>
             </div>

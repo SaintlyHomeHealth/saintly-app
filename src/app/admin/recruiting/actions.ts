@@ -6,9 +6,14 @@ import { redirect } from "next/navigation";
 import type { ApplyableResumeField } from "@/lib/recruiting/resume-parse-types";
 import {
   isValidRecruitingDiscipline,
+  isValidRecruitingInterestLevel,
+  isValidRecruitingPreferredContact,
   isValidRecruitingSource,
   isValidRecruitingStatus,
 } from "@/lib/recruiting/recruiting-options";
+import { RECRUITING_RESUMES_BUCKET } from "@/lib/recruiting/recruiting-resume-storage";
+import { parseResumePlainText } from "@/lib/recruiting/resume-parse-heuristics";
+import { extractResumeText } from "@/lib/recruiting/resume-text-extract";
 import { supabaseAdmin } from "@/lib/admin";
 import { getAuthenticatedUser } from "@/lib/supabase/server";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
@@ -28,6 +33,47 @@ function parseIsoDatetime(raw: string | null): string | null {
   const d = new Date(raw.trim());
   if (Number.isNaN(d.getTime())) return null;
   return d.toISOString();
+}
+
+function guessContentType(filename: string): string {
+  const l = filename.toLowerCase();
+  if (l.endsWith(".pdf")) return "application/pdf";
+  if (l.endsWith(".docx")) {
+    return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  }
+  if (l.endsWith(".doc")) return "application/msword";
+  return "application/octet-stream";
+}
+
+function sanitizeResumeOriginalName(name: string): string {
+  const base = name.split(/[/\\]/).pop() ?? "resume";
+  const cleaned = base.replace(/[^a-zA-Z0-9._\- ]/g, "_").trim();
+  return cleaned.slice(0, 180) || "resume";
+}
+
+const RESUME_MAX_BYTES = 10 * 1024 * 1024;
+const RESUME_ALLOWED_EXT = [".pdf", ".doc", ".docx"] as const;
+
+function resumeHasAllowedExtension(name: string): boolean {
+  const lower = name.toLowerCase();
+  return RESUME_ALLOWED_EXT.some((ext) => lower.endsWith(ext));
+}
+
+const RESUME_ALLOWED_MIME = new Set([
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/octet-stream",
+  "",
+]);
+
+function resumeMimeOk(mime: string, filename: string): boolean {
+  if (RESUME_ALLOWED_MIME.has(mime)) return true;
+  const lower = filename.toLowerCase();
+  if (lower.endsWith(".docx") && (mime === "application/zip" || mime === "application/x-zip-compressed")) {
+    return true;
+  }
+  return false;
 }
 
 async function requireManager() {
@@ -59,6 +105,9 @@ export async function createRecruitingCandidate(formData: FormData) {
   const assignedRaw = str(formData, "assigned_to");
   const assigned_to = assignedRaw && uuidOk(assignedRaw) ? assignedRaw : null;
 
+  const interestRaw = str(formData, "interest_level");
+  const interest_level = interestRaw ? (isValidRecruitingInterestLevel(interestRaw) ? interestRaw : interestRaw) : null;
+
   const { data, error } = await supabaseAdmin
     .from("recruiting_candidates")
     .insert({
@@ -77,6 +126,14 @@ export async function createRecruitingCandidate(formData: FormData) {
       assigned_to,
       indeed_url: optStr(formData, "indeed_url"),
       notes: optStr(formData, "notes"),
+      interest_level,
+      specialties: optStr(formData, "specialties"),
+      recruiting_tags: optStr(formData, "recruiting_tags"),
+      follow_up_bucket: optStr(formData, "follow_up_bucket"),
+      preferred_contact_method: (() => {
+        const p = str(formData, "preferred_contact_method");
+        return p && isValidRecruitingPreferredContact(p) ? p : p || null;
+      })(),
     })
     .select("id")
     .maybeSingle();
@@ -112,6 +169,16 @@ export async function updateRecruitingCandidate(formData: FormData) {
   const statusRaw = str(formData, "status");
   const status = statusRaw ? (isValidRecruitingStatus(statusRaw) ? statusRaw : statusRaw) : "New";
 
+  const interestRaw = str(formData, "interest_level");
+  const interest_level = interestRaw ? (isValidRecruitingInterestLevel(interestRaw) ? interestRaw : interestRaw) : null;
+
+  const preferredRaw = str(formData, "preferred_contact_method");
+  const preferred_contact_method = preferredRaw
+    ? isValidRecruitingPreferredContact(preferredRaw)
+      ? preferredRaw
+      : preferredRaw
+    : null;
+
   const assignedRaw = str(formData, "assigned_to");
   const assigned_to = assignedRaw && uuidOk(assignedRaw) ? assignedRaw : null;
 
@@ -119,32 +186,59 @@ export async function updateRecruitingCandidate(formData: FormData) {
   const last_text_at = parseIsoDatetime(str(formData, "last_text_at"));
   const last_contact_at = parseIsoDatetime(str(formData, "last_contact_at"));
   const next_follow_up_at = parseIsoDatetime(str(formData, "next_follow_up_at"));
+  const last_response_at = parseIsoDatetime(str(formData, "last_response_at"));
 
-  const { error } = await supabaseAdmin
+  const { data: smsRow } = await supabaseAdmin
     .from("recruiting_candidates")
-    .update({
-      full_name,
-      first_name: optStr(formData, "first_name"),
-      last_name: optStr(formData, "last_name"),
-      phone: optStr(formData, "phone"),
-      email: optStr(formData, "email"),
-      city: optStr(formData, "city"),
-      state: optStr(formData, "state"),
-      zip: optStr(formData, "zip"),
-      coverage_area: optStr(formData, "coverage_area"),
-      discipline,
-      source,
-      status,
-      assigned_to,
-      indeed_url: optStr(formData, "indeed_url"),
-      resume_url: optStr(formData, "resume_url"),
-      notes: optStr(formData, "notes"),
-      last_call_at,
-      last_text_at,
-      last_contact_at,
-      next_follow_up_at,
-    })
-    .eq("id", id);
+    .select("sms_opt_out")
+    .eq("id", id)
+    .maybeSingle();
+
+  const prevSmsOptOut = Boolean((smsRow as { sms_opt_out?: boolean } | null)?.sms_opt_out);
+  const smsOptOut = formData.get("sms_opt_out") === "on";
+  const nowIso = new Date().toISOString();
+  let sms_opt_out_at: string | null | undefined;
+  if (smsOptOut && !prevSmsOptOut) {
+    sms_opt_out_at = nowIso;
+  } else if (!smsOptOut) {
+    sms_opt_out_at = null;
+  }
+
+  const updatePayload: Record<string, unknown> = {
+    full_name,
+    first_name: optStr(formData, "first_name"),
+    last_name: optStr(formData, "last_name"),
+    phone: optStr(formData, "phone"),
+    email: optStr(formData, "email"),
+    city: optStr(formData, "city"),
+    state: optStr(formData, "state"),
+    zip: optStr(formData, "zip"),
+    coverage_area: optStr(formData, "coverage_area"),
+    discipline,
+    source,
+    status,
+    interest_level,
+    assigned_to,
+    indeed_url: optStr(formData, "indeed_url"),
+    resume_url: optStr(formData, "resume_url"),
+    notes: optStr(formData, "notes"),
+    specialties: optStr(formData, "specialties"),
+    recruiting_tags: optStr(formData, "recruiting_tags"),
+    follow_up_bucket: optStr(formData, "follow_up_bucket"),
+    preferred_contact_method,
+    last_call_at,
+    last_text_at,
+    last_contact_at,
+    last_response_at,
+    next_follow_up_at,
+    sms_opt_out: smsOptOut,
+  };
+
+  if (sms_opt_out_at !== undefined) {
+    updatePayload.sms_opt_out_at = sms_opt_out_at;
+  }
+
+  const { error } = await supabaseAdmin.from("recruiting_candidates").update(updatePayload).eq("id", id);
 
   if (error) {
     console.warn("[recruiting] updateRecruitingCandidate:", error.message);
@@ -164,6 +258,9 @@ export type RecruitingQuickActionKind =
   | "spoke"
   | "interested"
   | "not_interested"
+  | "maybe_later"
+  | "follow_up_later"
+  | "no_response"
   | "follow_up_set"
   | "note";
 
@@ -215,11 +312,7 @@ export async function recruitingQuickAction(input: {
       outcome = "sent";
       patch.last_text_at = nowIso;
       patch.last_contact_at = nowIso;
-      if (prevStatus === "New") {
-        patch.status = "Text Sent";
-      } else {
-        patch.status = "Waiting on Reply";
-      }
+      patch.status = "Text Sent";
       break;
     case "no_answer":
       activity_type = "call";
@@ -254,6 +347,25 @@ export async function recruitingQuickAction(input: {
       outcome = "not_interested";
       patch.last_contact_at = nowIso;
       patch.status = "Not Interested";
+      break;
+    case "maybe_later":
+      activity_type = "status_change";
+      outcome = "maybe_later";
+      patch.last_contact_at = nowIso;
+      patch.status = "Maybe Later";
+      patch.interest_level = "maybe_later";
+      break;
+    case "follow_up_later":
+      activity_type = "status_change";
+      outcome = "follow_up_later";
+      patch.last_contact_at = nowIso;
+      patch.status = "Follow Up Later";
+      break;
+    case "no_response":
+      activity_type = "status_change";
+      outcome = "no_response";
+      patch.last_contact_at = nowIso;
+      patch.status = "No Response";
       break;
     case "follow_up_set": {
       activity_type = "follow_up_set";
@@ -325,7 +437,7 @@ export async function applyRecruitingResumeSuggestions(input: {
 
   const { data: row, error } = await supabaseAdmin
     .from("recruiting_candidates")
-    .select("id, full_name, first_name, last_name, phone, email, city, state, discipline, notes")
+    .select("id, full_name, first_name, last_name, phone, email, city, state, discipline, notes, specialties")
     .eq("id", candidateId)
     .maybeSingle();
 
@@ -354,6 +466,11 @@ export async function applyRecruitingResumeSuggestions(input: {
   applyScalar("city", "city");
   applyScalar("state", "state");
   applyScalar("discipline", "discipline");
+
+  const specOnly = input.values.specialties?.trim();
+  if (specOnly && (isBlankField(r.specialties) || ov.specialties)) {
+    patch.specialties = specOnly;
+  }
 
   const summary = input.values.notes_summary?.trim();
   const yrs = input.values.years_of_experience?.trim();
@@ -406,4 +523,150 @@ export async function applyRecruitingResumeSuggestions(input: {
   revalidatePath("/admin/recruiting");
   revalidatePath(`/admin/recruiting/${candidateId}`);
   return { ok: true };
+}
+
+export async function createRecruitingCandidateFromResume(formData: FormData) {
+  await requireManager();
+  const user = await getAuthenticatedUser();
+
+  const full_name = str(formData, "full_name");
+  if (!full_name) {
+    redirect("/admin/recruiting/new-from-resume?error=missing_name");
+  }
+
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size <= 0) {
+    redirect("/admin/recruiting/new-from-resume?error=missing_file");
+  }
+
+  if (file.size > RESUME_MAX_BYTES) {
+    redirect("/admin/recruiting/new-from-resume?error=file_too_large");
+  }
+
+  const originalName = file.name || "resume";
+  if (!resumeHasAllowedExtension(originalName)) {
+    redirect("/admin/recruiting/new-from-resume?error=bad_type");
+  }
+
+  const mime = typeof file.type === "string" ? file.type.trim() : "";
+  if (!resumeMimeOk(mime, originalName)) {
+    redirect("/admin/recruiting/new-from-resume?error=bad_type");
+  }
+
+  const safeName = sanitizeResumeOriginalName(originalName);
+  const sourceRaw = str(formData, "source");
+  const source = sourceRaw ? (isValidRecruitingSource(sourceRaw) ? sourceRaw : sourceRaw) : "Indeed";
+
+  const disciplineRaw = str(formData, "discipline");
+  const discipline = disciplineRaw ? (isValidRecruitingDiscipline(disciplineRaw) ? disciplineRaw : disciplineRaw) : null;
+
+  const interestRaw = str(formData, "interest_level");
+  const interest_level = interestRaw ? (isValidRecruitingInterestLevel(interestRaw) ? interestRaw : interestRaw) : null;
+
+  const preferredRaw = str(formData, "preferred_contact_method");
+  const preferred_contact_method = preferredRaw
+    ? isValidRecruitingPreferredContact(preferredRaw)
+      ? preferredRaw
+      : preferredRaw
+    : null;
+
+  const { data: inserted, error: insErr } = await supabaseAdmin
+    .from("recruiting_candidates")
+    .insert({
+      full_name,
+      first_name: optStr(formData, "first_name"),
+      last_name: optStr(formData, "last_name"),
+      phone: optStr(formData, "phone"),
+      email: optStr(formData, "email"),
+      city: optStr(formData, "city"),
+      state: optStr(formData, "state"),
+      coverage_area: optStr(formData, "coverage_area"),
+      discipline,
+      source,
+      status: "New",
+      notes: optStr(formData, "notes"),
+      interest_level,
+      specialties: optStr(formData, "specialties"),
+      recruiting_tags: optStr(formData, "recruiting_tags"),
+      follow_up_bucket: optStr(formData, "follow_up_bucket"),
+      preferred_contact_method,
+    })
+    .select("id")
+    .maybeSingle();
+
+  if (insErr || !inserted?.id) {
+    console.warn("[recruiting] createRecruitingCandidateFromResume insert:", insErr?.message);
+    redirect("/admin/recruiting/new-from-resume?error=save_failed");
+  }
+
+  const candidateId = inserted.id as string;
+  const timestamp = Date.now();
+  const storagePath = `${candidateId}/${timestamp}-${safeName}`;
+  const arrayBuffer = await file.arrayBuffer();
+  const buffer = Buffer.from(arrayBuffer);
+  const contentType = guessContentType(safeName);
+
+  const { error: uploadErr } = await supabaseAdmin.storage
+    .from(RECRUITING_RESUMES_BUCKET)
+    .upload(storagePath, buffer, {
+      contentType,
+      upsert: false,
+    });
+
+  if (uploadErr) {
+    await supabaseAdmin.from("recruiting_candidates").delete().eq("id", candidateId);
+    console.warn("[recruiting] create from resume upload:", uploadErr.message);
+    redirect("/admin/recruiting/new-from-resume?error=upload_failed");
+  }
+
+  const uploadedAt = new Date().toISOString();
+
+  const { error: updErr } = await supabaseAdmin
+    .from("recruiting_candidates")
+    .update({
+      resume_file_name: safeName,
+      resume_storage_path: storagePath,
+      resume_uploaded_at: uploadedAt,
+    })
+    .eq("id", candidateId);
+
+  if (updErr) {
+    await supabaseAdmin.storage.from(RECRUITING_RESUMES_BUCKET).remove([storagePath]);
+    await supabaseAdmin.from("recruiting_candidates").delete().eq("id", candidateId);
+    console.warn("[recruiting] create from resume DB:", updErr.message);
+    redirect("/admin/recruiting/new-from-resume?error=save_failed");
+  }
+
+  const bodyText = `Uploaded resume: ${safeName}`;
+  await supabaseAdmin.from("recruiting_candidate_activities").insert({
+    candidate_id: candidateId,
+    activity_type: "resume_uploaded",
+    outcome: null,
+    body: bodyText,
+    created_by: user?.id ?? null,
+  });
+
+  let parsedBody = "Resume stored. Auto-fill could not read this file well enough.";
+  try {
+    const { text, error: extErr } = await extractResumeText(buffer, safeName);
+    const minLen = 20;
+    if (!extErr && text && text.length >= minLen) {
+      parseResumePlainText(text);
+      parsedBody = "Resume parsed and suggestions generated";
+    }
+  } catch {
+    parsedBody = "Resume stored; parsing encountered an error.";
+  }
+
+  await supabaseAdmin.from("recruiting_candidate_activities").insert({
+    candidate_id: candidateId,
+    activity_type: "resume_parsed",
+    outcome: null,
+    body: parsedBody,
+    created_by: user?.id ?? null,
+  });
+
+  revalidatePath("/admin/recruiting");
+  revalidatePath(`/admin/recruiting/${candidateId}`);
+  redirect(`/admin/recruiting/${candidateId}`);
 }

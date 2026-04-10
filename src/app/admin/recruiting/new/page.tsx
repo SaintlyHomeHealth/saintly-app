@@ -51,9 +51,17 @@ export default async function NewRecruitingCandidatePage({
         title="New candidate"
         description="Create a profile for an Indeed applicant or inbound referral. You can log calls and texts from the candidate record."
         actions={
-          <Link href="/admin/recruiting" className={crmPrimaryCtaCls}>
-            Back to list
-          </Link>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <Link
+              href="/admin/recruiting/new-from-resume"
+              className="inline-flex items-center justify-center rounded-[20px] border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-900 shadow-sm hover:bg-sky-100"
+            >
+              From resume
+            </Link>
+            <Link href="/admin/recruiting" className={crmPrimaryCtaCls}>
+              Back to list
+            </Link>
+          </div>
         }
       />
 

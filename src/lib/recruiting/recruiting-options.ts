@@ -17,18 +17,32 @@ export const RECRUITING_DISCIPLINE_OPTIONS = [
 
 export const RECRUITING_STATUS_OPTIONS = [
   "New",
+  "Not Contacted",
   "Attempted Contact",
   "Text Sent",
-  "Waiting on Reply",
   "Spoke",
   "Interested",
+  "Maybe Later",
+  "Follow Up Later",
   "Not Interested",
-  "On Hold",
+  "No Response",
+  "Interviewing",
+  "Hired",
+  "Archived",
 ] as const;
+
+/** Legacy rows may still use these — keep selectable in forms. */
+export const RECRUITING_STATUS_LEGACY_OPTIONS = ["Waiting on Reply", "On Hold"] as const;
+
+export const RECRUITING_INTEREST_LEVEL_OPTIONS = ["hot", "warm", "cold", "maybe_later"] as const;
+
+export const RECRUITING_PREFERRED_CONTACT_OPTIONS = ["call", "text", "email"] as const;
 
 export type RecruitingSourceOption = (typeof RECRUITING_SOURCE_OPTIONS)[number];
 export type RecruitingDisciplineOption = (typeof RECRUITING_DISCIPLINE_OPTIONS)[number];
 export type RecruitingStatusOption = (typeof RECRUITING_STATUS_OPTIONS)[number];
+export type RecruitingInterestLevelOption = (typeof RECRUITING_INTEREST_LEVEL_OPTIONS)[number];
+export type RecruitingPreferredContactOption = (typeof RECRUITING_PREFERRED_CONTACT_OPTIONS)[number];
 
 export function isValidRecruitingSource(v: string): v is RecruitingSourceOption {
   return (RECRUITING_SOURCE_OPTIONS as readonly string[]).includes(v);
@@ -40,6 +54,14 @@ export function isValidRecruitingDiscipline(v: string): v is RecruitingDisciplin
 
 export function isValidRecruitingStatus(v: string): v is RecruitingStatusOption {
   return (RECRUITING_STATUS_OPTIONS as readonly string[]).includes(v);
+}
+
+export function isValidRecruitingInterestLevel(v: string): v is RecruitingInterestLevelOption {
+  return (RECRUITING_INTEREST_LEVEL_OPTIONS as readonly string[]).includes(v);
+}
+
+export function isValidRecruitingPreferredContact(v: string): v is RecruitingPreferredContactOption {
+  return (RECRUITING_PREFERRED_CONTACT_OPTIONS as readonly string[]).includes(v);
 }
 
 /** Default SMS snippets for one-tap compose (Phoenix / Saintly context). */

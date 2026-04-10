@@ -13,16 +13,23 @@ function buildListBackHref(sp: Record<string, string | string[] | undefined>): s
     const v = sp[k];
     return typeof v === "string" ? v : Array.isArray(v) ? v[0] : "";
   };
-  const status = one("status").trim();
-  const discipline = one("discipline").trim();
-  const area = one("area").trim();
-  const source = one("source").trim();
-  const followUp = one("followUp").trim();
-  if (status) u.set("status", status);
-  if (discipline) u.set("discipline", discipline);
-  if (area) u.set("area", area);
-  if (source) u.set("source", source);
-  if (followUp) u.set("followUp", followUp);
+  const keys = [
+    "status",
+    "discipline",
+    "area",
+    "city",
+    "coverage",
+    "source",
+    "followUp",
+    "interest",
+    "tags",
+    "lastContactFrom",
+    "lastContactTo",
+  ] as const;
+  for (const k of keys) {
+    const v = one(k).trim();
+    if (v) u.set(k, v);
+  }
   const s = u.toString();
   return s ? `/admin/recruiting?${s}` : "/admin/recruiting";
 }

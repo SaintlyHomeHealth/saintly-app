@@ -41,3 +41,16 @@ export function isPhoenixSameCalendarDay(iso: string | null | undefined, d = new
   const b = phoenixTodayYmd(new Date(t));
   return a === b;
 }
+
+/** `ymd` is YYYY-MM-DD in Phoenix calendar terms (from a date input). */
+export function phoenixYmdStartIso(ymd: string): string | null {
+  const t = ymd.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(t)) return null;
+  return `${t}T00:00:00.000-07:00`;
+}
+
+export function phoenixYmdEndIso(ymd: string): string | null {
+  const t = ymd.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(t)) return null;
+  return `${t}T23:59:59.999-07:00`;
+}
