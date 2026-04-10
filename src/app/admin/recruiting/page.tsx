@@ -197,6 +197,12 @@ export default async function AdminRecruitingListPage({
         actions={
           <div className="flex flex-wrap items-center justify-end gap-2">
             <Link
+              href="/admin/recruiting/bulk-upload"
+              className="inline-flex items-center justify-center rounded-[20px] border border-violet-200 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-900 shadow-sm hover:bg-violet-100"
+            >
+              Bulk resumes
+            </Link>
+            <Link
               href="/admin/recruiting/new-from-resume"
               className="inline-flex items-center justify-center rounded-[20px] border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-900 shadow-sm hover:bg-sky-100"
             >

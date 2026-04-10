@@ -16,7 +16,15 @@ import {
   normalizeRecruitingPhoneForStorage,
   recruitingNameCityKey,
 } from "@/lib/recruiting/recruiting-contact-normalize";
-import { findRecruitingDuplicateCandidates, type RecruitingDuplicateRow } from "@/lib/recruiting/recruiting-duplicates";
+import {
+  describeDuplicateReasons,
+  findRecruitingDuplicateCandidates,
+  type RecruitingDuplicateRow,
+} from "@/lib/recruiting/recruiting-duplicates";
+import {
+  canBulkAutoCreateFromFields,
+  parsedSuggestionsToResumeFields,
+} from "@/lib/recruiting/resume-suggestions-to-fields";
 import { RECRUITING_RESUMES_BUCKET } from "@/lib/recruiting/recruiting-resume-storage";
 import { resumeParsedActivityBody, runResumeExtractPipeline } from "@/lib/recruiting/resume-extract-pipeline";
 import {
@@ -881,4 +889,199 @@ export async function createRecruitingCandidateFromResume(
   revalidatePath("/admin/recruiting");
   revalidatePath(`/admin/recruiting/${candidateId}`);
   return { ok: true, candidateId };
+}
+
+export type BulkResumeProcessResult = {
+  fileName: string;
+  status: "created" | "duplicate" | "needs_review" | "failed";
+  extractedName: string | null;
+  discipline: string | null;
+  phone: string | null;
+  email: string | null;
+  candidateId: string | null;
+  existingCandidateId: string | null;
+  duplicateReasonLabel: string | null;
+  errorMessage: string | null;
+};
+
+/**
+ * Process one resume for bulk upload: same pipeline as single upload, then duplicate check and optional auto-create.
+ * Each file should be submitted in its own request (caller loops).
+ */
+export async function processBulkResumeFile(formData: FormData): Promise<BulkResumeProcessResult> {
+  const emptyRow = (fileName: string): BulkResumeProcessResult => ({
+    fileName,
+    status: "failed",
+    extractedName: null,
+    discipline: null,
+    phone: null,
+    email: null,
+    candidateId: null,
+    existingCandidateId: null,
+    duplicateReasonLabel: null,
+    errorMessage: null,
+  });
+
+  await requireManager();
+
+  const file = formData.get("file");
+  const originalName = file instanceof File ? file.name || "resume" : "resume";
+
+  if (!(file instanceof File) || file.size <= 0) {
+    return {
+      ...emptyRow(originalName),
+      errorMessage: RESUME_HARD_ERROR_CHOOSE_FILE,
+    };
+  }
+
+  if (file.size > RESUME_MAX_BYTES) {
+    return {
+      ...emptyRow(originalName),
+      errorMessage: RESUME_HARD_ERROR_TOO_LARGE,
+    };
+  }
+
+  if (!resumeHasAllowedExtension(originalName)) {
+    return {
+      ...emptyRow(originalName),
+      errorMessage: RESUME_HARD_ERROR_INVALID_FILE,
+    };
+  }
+
+  const mime = resumeFileMimeFromFile(file);
+  if (!isResumeMimeAllowed(mime, originalName)) {
+    return {
+      ...emptyRow(originalName),
+      errorMessage: RESUME_HARD_ERROR_INVALID_FILE,
+    };
+  }
+
+  const safeName = sanitizeResumeOriginalName(originalName);
+  let buffer: Buffer;
+  try {
+    buffer = Buffer.from(await file.arrayBuffer());
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return {
+      ...emptyRow(safeName),
+      errorMessage: msg || "Could not read file.",
+    };
+  }
+
+  let fields: ReturnType<typeof parsedSuggestionsToResumeFields>;
+  try {
+    const pipeline = await runResumeExtractPipeline(buffer, safeName, {
+      mimeType: normalizeBaseMime(mime),
+    });
+    fields = parsedSuggestionsToResumeFields(pipeline.suggestions);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return {
+      ...emptyRow(safeName),
+      errorMessage: msg || "Resume processing failed.",
+    };
+  }
+
+  const extractedName = fields.full_name.trim() || null;
+  const discipline = fields.discipline.trim() || null;
+  const phone = fields.phone.trim() || null;
+  const email = fields.email.trim() || null;
+
+  const baseOut: Omit<BulkResumeProcessResult, "status" | "candidateId" | "existingCandidateId" | "duplicateReasonLabel" | "errorMessage"> = {
+    fileName: safeName,
+    extractedName,
+    discipline,
+    phone,
+    email,
+    candidateId: null,
+    existingCandidateId: null,
+    duplicateReasonLabel: null,
+    errorMessage: null,
+  };
+
+  const fullNameForDup = extractedName ?? "";
+  const hasContact = Boolean(email || phone);
+  const shouldDupCheck = Boolean(fullNameForDup.trim()) || hasContact;
+
+  if (shouldDupCheck) {
+    try {
+      const duplicates = await findRecruitingDuplicateCandidates(supabaseAdmin, {
+        email,
+        phone,
+        fullName: fullNameForDup.trim() || "Unknown",
+        city: fields.city.trim() || null,
+      });
+      if (duplicates.length > 0) {
+        const primary = duplicates[0];
+        return {
+          ...baseOut,
+          status: "duplicate",
+          existingCandidateId: primary.id,
+          duplicateReasonLabel: describeDuplicateReasons(primary.reasons),
+        };
+      }
+    } catch (e) {
+      console.warn("[recruiting] bulk duplicate check:", e);
+      return {
+        ...baseOut,
+        status: "failed",
+        errorMessage: "Duplicate check failed — try again.",
+      };
+    }
+  }
+
+  if (!canBulkAutoCreateFromFields(fields)) {
+    return {
+      ...baseOut,
+      status: "needs_review",
+    };
+  }
+
+  const fd = new FormData();
+  fd.set("full_name", fields.full_name.trim());
+  if (fields.first_name.trim()) fd.set("first_name", fields.first_name.trim());
+  if (fields.last_name.trim()) fd.set("last_name", fields.last_name.trim());
+  if (phone) fd.set("phone", phone);
+  if (email) fd.set("email", email);
+  if (fields.city.trim()) fd.set("city", fields.city.trim());
+  if (fields.state.trim()) fd.set("state", fields.state.trim());
+  if (discipline) fd.set("discipline", discipline);
+  if (fields.notes.trim()) fd.set("notes", fields.notes.trim());
+  if (fields.specialties.trim()) fd.set("specialties", fields.specialties.trim());
+  fd.set("source", "Indeed");
+
+  const contentType = guessContentType(safeName);
+  const uploadFile = new File([new Uint8Array(buffer)], safeName, { type: contentType });
+  fd.set("file", uploadFile);
+
+  const created = await createRecruitingCandidateFromResume(fd);
+  if (created.ok) {
+    return {
+      ...baseOut,
+      status: "created",
+      candidateId: created.candidateId,
+    };
+  }
+  if (created.reason === "duplicates" && created.duplicates.length > 0) {
+    const primary = created.duplicates[0];
+    return {
+      ...baseOut,
+      status: "duplicate",
+      existingCandidateId: primary.id,
+      duplicateReasonLabel: describeDuplicateReasons(primary.reasons),
+    };
+  }
+  const errMap: Record<string, string> = {
+    missing_name: "Missing full name.",
+    missing_file: "File missing.",
+    file_too_large: RESUME_HARD_ERROR_TOO_LARGE,
+    bad_type: RESUME_HARD_ERROR_INVALID_FILE,
+    save_failed: "Could not save candidate.",
+    upload_failed: "Resume upload failed.",
+  };
+  return {
+    ...baseOut,
+    status: "failed",
+    errorMessage: errMap[created.reason] ?? "Could not create candidate.",
+  };
 }
