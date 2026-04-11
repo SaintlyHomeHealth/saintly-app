@@ -9,6 +9,7 @@ import {
   UserPlus,
   Users,
   Voicemail,
+  Wallet,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -119,6 +120,17 @@ const tabsBase: Tab[] = [
       </span>
     ),
     iconTitle: "Keypad",
+  },
+  {
+    href: "/workspace/pay",
+    label: "Pay",
+    match: /^\/workspace\/pay/,
+    icon: (
+      <span className={iconWrap}>
+        <Wallet className="h-4 w-4" strokeWidth={2} aria-hidden />
+      </span>
+    ),
+    iconTitle: "Pay",
   },
 ];
 

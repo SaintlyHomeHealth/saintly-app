@@ -82,7 +82,11 @@ async function loadStaffAuthDiagnostics(rows: StaffRow[]): Promise<Map<string, S
 
 function isStaffRole(value: string): value is StaffRole {
   return (
-    value === "super_admin" || value === "admin" || value === "manager" || value === "nurse"
+    value === "super_admin" ||
+    value === "admin" ||
+    value === "manager" ||
+    value === "nurse" ||
+    value === "don"
   );
 }
 
@@ -91,6 +95,7 @@ function roleLabel(role: StaffRole): string {
   if (role === "admin") return "Admin";
   if (role === "manager") return "Manager";
   if (role === "nurse") return "Nurse";
+  if (role === "don") return "DON";
   return role;
 }
 
@@ -247,6 +252,7 @@ export default async function AdminStaffPage({
                 >
                   <option value="admin">Admin</option>
                   <option value="manager">Manager</option>
+                  <option value="don">DON</option>
                   <option value="nurse">Nurse</option>
                   {canAssignSuperAdmin ? <option value="super_admin">Super admin</option> : null}
                 </select>
@@ -312,6 +318,7 @@ export default async function AdminStaffPage({
                               >
                                 <option value="admin">Admin</option>
                                 <option value="manager">Manager</option>
+                                <option value="don">DON</option>
                                 <option value="nurse">Nurse</option>
                                 {canAssignSuperAdmin ? <option value="super_admin">Super admin</option> : null}
                               </select>

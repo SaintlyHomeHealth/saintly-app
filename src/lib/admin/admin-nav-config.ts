@@ -21,6 +21,7 @@ export const ADMIN_NAV_LABELS = {
   workspaceKeypad: "Workspace Keypad",
   dispatch: "Dispatch",
   employees: "Employees",
+  payroll: "Payroll",
   staffAccess: "Staff Access",
 } as const;
 
@@ -36,6 +37,7 @@ export type AdminNavItemId =
   | "workspace_keypad"
   | "dispatch"
   | "employees"
+  | "payroll"
   | "staff_access";
 
 export type AdminNavItemResolved = {
@@ -133,6 +135,13 @@ export function buildAdminNavItems(staff: StaffProfile | null): AdminNavItemReso
       id: "employees",
       label: ADMIN_NAV_LABELS.employees,
       href: "/admin/employees",
+      disabled: managerOnly,
+      disabledReason: "Manager access required",
+    },
+    {
+      id: "payroll",
+      label: ADMIN_NAV_LABELS.payroll,
+      href: "/admin/payroll",
       disabled: managerOnly,
       disabledReason: "Manager access required",
     },

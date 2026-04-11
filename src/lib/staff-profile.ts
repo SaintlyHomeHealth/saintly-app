@@ -2,7 +2,7 @@ import { cache } from "react";
 
 import { createServerSupabaseClient, getAuthenticatedUser } from "@/lib/supabase/server";
 
-export type StaffRole = "super_admin" | "admin" | "manager" | "nurse";
+export type StaffRole = "super_admin" | "admin" | "manager" | "nurse" | "don";
 
 export type StaffProfile = {
   id: string;
@@ -15,15 +15,18 @@ export type StaffProfile = {
   is_active: boolean;
   phone_access_enabled: boolean;
   inbound_ring_enabled: boolean;
+  /** When set, maps this login to applicants.id (payroll / contracts). */
+  applicant_id: string | null;
 };
 
 /**
  * Higher number = more privilege. Used by `isAdminOrHigher` / `isManagerOrHigher`.
- * nurse=0, manager=1, admin=2, super_admin=3
+ * nurse=0, manager=1, don=1, admin=2, super_admin=3
  */
 const ROLE_RANK: Record<StaffRole, number> = {
   nurse: 0,
   manager: 1,
+  don: 1,
   admin: 2,
   super_admin: 3,
 };
@@ -38,7 +41,16 @@ export function isAdminOrHigher(profile: StaffProfile | null | undefined): boole
   return ROLE_RANK[profile.role] >= ROLE_RANK.admin;
 }
 
-/** True for `super_admin`, `admin`, and `manager` (excludes `nurse`). */
+/**
+ * Approve weekly payroll / mark batches paid / export — not managers.
+ * DON-equivalent included.
+ */
+export function isPayrollApprover(profile: StaffProfile | null | undefined): boolean {
+  const r = profile?.role;
+  return r === "super_admin" || r === "admin" || r === "don";
+}
+
+/** True for `super_admin`, `admin`, `manager`, and `don` (excludes `nurse`). */
 export function isManagerOrHigher(profile: StaffProfile | null | undefined): boolean {
   if (!profile) return false;
   return ROLE_RANK[profile.role] >= ROLE_RANK.manager;
@@ -84,7 +96,8 @@ function isStaffRole(value: string): value is StaffRole {
     value === "super_admin" ||
     value === "admin" ||
     value === "manager" ||
-    value === "nurse"
+    value === "nurse" ||
+    value === "don"
   );
 }
 
@@ -102,7 +115,7 @@ async function loadStaffProfile(): Promise<StaffProfile | null> {
   const { data, error } = await supabase
     .from("staff_profiles")
     .select(
-      "id, user_id, email, role, created_at, updated_at, full_name, is_active, phone_access_enabled, inbound_ring_enabled"
+      "id, user_id, email, role, created_at, updated_at, full_name, is_active, phone_access_enabled, inbound_ring_enabled, applicant_id"
     )
     .eq("user_id", user.id)
     .maybeSingle();
@@ -127,6 +140,7 @@ async function loadStaffProfile(): Promise<StaffProfile | null> {
     is_active: data.is_active !== false,
     phone_access_enabled: data.phone_access_enabled === true,
     inbound_ring_enabled: data.inbound_ring_enabled === true,
+    applicant_id: typeof data.applicant_id === "string" ? data.applicant_id : null,
   };
 }
 

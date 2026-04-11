@@ -49,7 +49,7 @@ async function resolveStaffGate(
   }
 
   const role = typeof data.role === "string" ? data.role : "";
-  const allowedRoles = new Set(["super_admin", "admin", "manager", "nurse"]);
+  const allowedRoles = new Set(["super_admin", "admin", "manager", "nurse", "don"]);
   if (!allowedRoles.has(role)) {
     return { ok: false, reason: "role_not_allowed" };
   }

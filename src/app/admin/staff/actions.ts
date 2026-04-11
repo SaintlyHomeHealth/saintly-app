@@ -16,7 +16,11 @@ import {
 
 function isStaffRole(value: string): value is StaffRole {
   return (
-    value === "super_admin" || value === "admin" || value === "manager" || value === "nurse"
+    value === "super_admin" ||
+    value === "admin" ||
+    value === "manager" ||
+    value === "nurse" ||
+    value === "don"
   );
 }
 
