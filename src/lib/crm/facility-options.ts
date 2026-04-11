@@ -114,8 +114,9 @@ export const FACILITY_TYPE_PLAYBOOK: Record<FacilityTypeOption, FacilityTypePlay
     play: "Ask about patients declining at home",
   },
   Hospice: {
-    description: "End-of-life → relationship-driven referrals",
-    play: "Build relationship for future transitions",
+    description:
+      "Dedicated hospice providers: end-of-life coordination and family support—not a miscellaneous catch-all",
+    play: "Ask for intake or social work; discuss home health for comfort care and caregiver relief",
   },
   "Dialysis Center": {
     description: "Frequent visits → high comorbidity patients",
