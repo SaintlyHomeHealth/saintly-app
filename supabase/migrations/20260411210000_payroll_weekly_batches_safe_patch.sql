@@ -31,6 +31,23 @@ FROM public.employee_contracts ec
 GROUP BY ec.applicant_id, ec.effective_date
 HAVING count(*) > 1;
 
+-- Detail rows in duplicate groups (only columns guaranteed on employee_contracts)
+SELECT 'diag_employee_contracts_duplicate_rows' AS diagnostic,
+  ec.id,
+  ec.applicant_id,
+  ec.effective_date,
+  ec.is_current,
+  ec.created_at,
+  ec.updated_at
+FROM public.employee_contracts ec
+WHERE (ec.applicant_id, ec.effective_date) IN (
+  SELECT ec2.applicant_id, ec2.effective_date
+  FROM public.employee_contracts ec2
+  GROUP BY ec2.applicant_id, ec2.effective_date
+  HAVING count(*) > 1
+)
+ORDER BY ec.applicant_id, ec.effective_date, ec.updated_at DESC NULLS LAST, ec.id;
+
 SELECT 'diag_employee_contracts_null_effective_date' AS diagnostic,
   ec.id,
   ec.applicant_id,
@@ -136,11 +153,14 @@ alter table public.staff_profiles
 
 -- ============================================================================
 -- 4) employee_contracts: null effective_date + duplicate-safe unique index
+-- Only references guaranteed columns: id, applicant_id, effective_date,
+-- created_at, updated_at, is_current (no contract_status, pay fields, signed_at, etc.).
 -- ============================================================================
 
 update public.employee_contracts ec
 set effective_date = coalesce(
   (ec.created_at at time zone 'utc')::date,
+  (ec.updated_at at time zone 'utc')::date,
   current_date
 )
 where ec.effective_date is null;
@@ -417,16 +437,10 @@ FROM (
 -- MANUAL CLEANUP (run in SQL editor only after reviewing diagnostics; not auto-run)
 -- ============================================================================
 --
--- A) Duplicate employee_contracts (keep newest row per pair):
---    WITH ranked AS (
---      SELECT id, ROW_NUMBER() OVER (
---        PARTITION BY applicant_id, effective_date ORDER BY created_at DESC NULLS LAST, id DESC
---      ) AS rn
---      FROM public.employee_contracts
---    )
---    DELETE FROM public.employee_contracts ec
---    USING ranked r WHERE ec.id = r.id AND r.rn > 1;
---    Then re-run: CREATE UNIQUE INDEX IF NOT EXISTS employee_contracts_applicant_effective_unique
+-- A) Duplicate employee_contracts — use scripts/employee_contracts_duplicate_cleanup.sql
+--    (one row per applicant_id + effective_date; keeps is_current=true first, else newest
+--    updated_at/created_at, else largest id). Then create unique index:
+--    CREATE UNIQUE INDEX IF NOT EXISTS employee_contracts_applicant_effective_unique
 --      ON public.employee_contracts (applicant_id, effective_date);
 --
 -- B) Visits still NULL service_date (set manually or delete bad rows):
