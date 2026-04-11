@@ -505,3 +505,97 @@ export async function removeStaffRecord(formData: FormData) {
   revalidatePath("/admin/staff");
   redirect("/admin/staff?ok=removed");
 }
+
+function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+/**
+ * Links staff_profiles.applicant_id to an applicants row (payroll / workspace employee record).
+ */
+export async function setStaffApplicantLink(formData: FormData) {
+  const actor = await getStaffProfile();
+  if (!actor || !isAdminOrHigher(actor)) {
+    redirect("/admin");
+  }
+
+  const staffProfileId = String(formData.get("staffProfileId") ?? "").trim();
+  const applicantId = String(formData.get("applicantId") ?? "").trim();
+
+  if (!staffProfileId || !applicantId || !isUuid(applicantId)) {
+    redirect("/admin/staff?err=invalid");
+  }
+
+  const { data: applicant, error: apErr } = await supabaseAdmin
+    .from("applicants")
+    .select("id")
+    .eq("id", applicantId)
+    .maybeSingle();
+
+  if (apErr || !applicant?.id) {
+    redirect("/admin/staff?err=invalid");
+  }
+
+  const { data: conflict } = await supabaseAdmin
+    .from("staff_profiles")
+    .select("id")
+    .eq("applicant_id", applicantId)
+    .neq("id", staffProfileId)
+    .maybeSingle();
+
+  if (conflict?.id) {
+    redirect("/admin/staff?err=applicant_taken");
+  }
+
+  const { error } = await supabaseAdmin
+    .from("staff_profiles")
+    .update({ applicant_id: applicantId, updated_at: new Date().toISOString() })
+    .eq("id", staffProfileId);
+
+  if (error) {
+    console.warn("[staff] setStaffApplicantLink:", error.message);
+    redirect("/admin/staff?err=update");
+  }
+
+  await insertAuditLog({
+    action: "staff.applicant_link_set",
+    entityType: "staff_profiles",
+    entityId: staffProfileId,
+    metadata: { applicant_id: applicantId },
+  });
+
+  revalidatePath("/admin/staff");
+  redirect("/admin/staff?ok=payroll_link");
+}
+
+export async function clearStaffApplicantLink(formData: FormData) {
+  const actor = await getStaffProfile();
+  if (!actor || !isAdminOrHigher(actor)) {
+    redirect("/admin");
+  }
+
+  const staffProfileId = String(formData.get("staffProfileId") ?? "").trim();
+  if (!staffProfileId) {
+    redirect("/admin/staff?err=invalid");
+  }
+
+  const { error } = await supabaseAdmin
+    .from("staff_profiles")
+    .update({ applicant_id: null, updated_at: new Date().toISOString() })
+    .eq("id", staffProfileId);
+
+  if (error) {
+    console.warn("[staff] clearStaffApplicantLink:", error.message);
+    redirect("/admin/staff?err=update");
+  }
+
+  await insertAuditLog({
+    action: "staff.applicant_link_clear",
+    entityType: "staff_profiles",
+    entityId: staffProfileId,
+    metadata: {},
+  });
+
+  revalidatePath("/admin/staff");
+  redirect("/admin/staff?ok=payroll_link_clear");
+}

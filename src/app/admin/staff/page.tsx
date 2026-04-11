@@ -11,6 +11,7 @@ import {
 
 import { CreateLoginDialog } from "./create-login-dialog";
 import { EditStaffDialog } from "./edit-staff-dialog";
+import { PayrollStaffLinkDialog } from "./payroll-staff-link-dialog";
 import { RepairLoginLinkButton } from "./repair-login-link-button";
 import { RemoveStaffDialog } from "./remove-staff-dialog";
 import { ResetPasswordDialog } from "./reset-password-dialog";
@@ -36,7 +37,57 @@ type StaffRow = {
   phone_access_enabled: boolean;
   inbound_ring_enabled: boolean;
   sms_notify_phone: string | null;
+  applicant_id: string | null;
 };
+
+type ApplicantLite = {
+  id: string;
+  first_name: string | null;
+  last_name: string | null;
+  email: string | null;
+};
+
+async function loadPayrollContext(list: StaffRow[]) {
+  const linkedIds = [...new Set(list.map((r) => r.applicant_id).filter(Boolean))] as string[];
+  const applicantById = new Map<string, ApplicantLite>();
+  const contractApplicantIds = new Set<string>();
+  const suggestionByStaffId = new Map<string, ApplicantLite>();
+
+  if (linkedIds.length > 0) {
+    const { data: applicants } = await supabaseAdmin
+      .from("applicants")
+      .select("id, first_name, last_name, email")
+      .in("id", linkedIds);
+    for (const a of applicants ?? []) {
+      applicantById.set(a.id, a as ApplicantLite);
+    }
+    const { data: contracts } = await supabaseAdmin
+      .from("employee_contracts")
+      .select("applicant_id")
+      .in("applicant_id", linkedIds);
+    for (const c of contracts ?? []) {
+      if (typeof c.applicant_id === "string") contractApplicantIds.add(c.applicant_id);
+    }
+  }
+
+  const needsSuggestion = list.some((r) => !r.applicant_id && Boolean(r.email?.trim()));
+  if (needsSuggestion) {
+    const { data: pool } = await supabaseAdmin
+      .from("applicants")
+      .select("id, first_name, last_name, email")
+      .order("created_at", { ascending: false })
+      .limit(4000);
+    for (const row of list) {
+      if (row.applicant_id) continue;
+      const em = normalizeStaffLookupEmail(row.email);
+      if (!em) continue;
+      const hit = pool?.find((a) => normalizeStaffLookupEmail(a.email ?? "") === em);
+      if (hit) suggestionByStaffId.set(row.id, hit as ApplicantLite);
+    }
+  }
+
+  return { applicantById, contractApplicantIds, suggestionByStaffId };
+}
 
 type StaffAuthDiagnostics = {
   authUserExists: boolean;
@@ -105,6 +156,7 @@ function flashForErr(code: string | undefined): string | null {
     invalid: "Check all fields and try again.",
     forbidden: "You cannot assign that role.",
     insert: "Could not add staff (duplicate email?).",
+    applicant_taken: "That employee is already linked to another staff login.",
     load: "Could not load that staff record.",
     has_login: "This person already has a login.",
     email: "Add a work email before creating a login.",
@@ -135,6 +187,8 @@ function flashForOk(code: string | undefined): string | null {
     profile: "Name and email updated.",
     removed: "Placeholder staff row removed.",
     deactivated: "Staff deactivated (login preserved).",
+    payroll_link: "Payroll employee link saved.",
+    payroll_link_clear: "Payroll employee link cleared.",
   };
   return m[code] ?? "Saved.";
 }
@@ -152,7 +206,7 @@ export default async function AdminStaffPage({
   const { data: rows, error } = await supabaseAdmin
     .from("staff_profiles")
     .select(
-      "id, full_name, email, role, is_active, user_id, phone_access_enabled, inbound_ring_enabled, sms_notify_phone"
+      "id, full_name, email, role, is_active, user_id, phone_access_enabled, inbound_ring_enabled, sms_notify_phone, applicant_id"
     )
     .order("full_name", { ascending: true });
 
@@ -165,6 +219,8 @@ export default async function AdminStaffPage({
     const role = o.role;
     return typeof role === "string" && isStaffRole(role);
   }) as StaffRow[];
+
+  const payrollCtx = await loadPayrollContext(list);
 
   const sp = (await searchParams) ?? {};
   const errRaw = sp.err;
@@ -195,7 +251,7 @@ export default async function AdminStaffPage({
         accent="indigo"
         eyebrow="Administration"
         title="Staff Access"
-        description="Create logins, roles, and phone permissions. Accounts are provisioned automatically — you never need Supabase user IDs."
+        description="Create logins, roles, and phone permissions. Link each login to an employee (applicant) record under Payroll for visit pay — no SQL required. Accounts are provisioned automatically — you never need Supabase user IDs."
       />
 
       <div className="overflow-hidden rounded-[32px] border border-indigo-100/90 bg-gradient-to-br from-indigo-50/45 via-white to-sky-50/30 shadow-sm">
@@ -269,7 +325,7 @@ export default async function AdminStaffPage({
           </div>
 
           <div className="mt-6 overflow-x-auto rounded-[24px] border border-slate-200/90 bg-white shadow-sm">
-            <table className="w-full min-w-[1420px] text-left text-xs">
+            <table className="w-full min-w-[1600px] text-left text-xs">
               <thead>
                 <tr className="border-b border-indigo-100/80 bg-slate-50/90 text-slate-600">
                   <th className="whitespace-nowrap px-4 py-3 font-semibold">Name</th>
@@ -283,13 +339,14 @@ export default async function AdminStaffPage({
                   <th className="whitespace-nowrap px-4 py-3 font-semibold">Phone</th>
                   <th className="whitespace-nowrap px-4 py-3 font-semibold">Inbound ring</th>
                   <th className="whitespace-nowrap px-4 py-3 font-semibold">Dispatch SMS #</th>
+                  <th className="min-w-[200px] whitespace-nowrap px-4 py-3 font-semibold">Payroll</th>
                   <th className="whitespace-nowrap px-4 py-3 font-semibold">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {list.length === 0 ? (
                   <tr>
-                    <td colSpan={12} className="px-4 py-6 text-center text-sm text-slate-500">
+                    <td colSpan={13} className="px-4 py-6 text-center text-sm text-slate-500">
                       No staff rows yet.
                     </td>
                   </tr>
@@ -301,6 +358,22 @@ export default async function AdminStaffPage({
                       (row.full_name ?? "").trim() ||
                       (row.email ?? "").split("@")[0] ||
                       "—";
+                    const linkedApplicant = row.applicant_id
+                      ? payrollCtx.applicantById.get(row.applicant_id)
+                      : undefined;
+                    const linkedName =
+                      linkedApplicant != null
+                        ? `${linkedApplicant.first_name ?? ""} ${linkedApplicant.last_name ?? ""}`.trim() || null
+                        : null;
+                    const linkedEmail = linkedApplicant?.email ?? null;
+                    const hasContract =
+                      Boolean(row.applicant_id) && payrollCtx.contractApplicantIds.has(row.applicant_id!);
+                    const payrollReady = Boolean(row.applicant_id) && hasContract;
+                    const sugg = payrollCtx.suggestionByStaffId.get(row.id);
+                    const suggestedName =
+                      sugg != null
+                        ? `${sugg.first_name ?? ""} ${sugg.last_name ?? ""}`.trim() || null
+                        : null;
                     return (
                       <tr key={row.id} className="border-b border-slate-100 last:border-0">
                         <td className="px-4 py-3 font-medium text-slate-900">{name}</td>
@@ -416,6 +489,20 @@ export default async function AdminStaffPage({
                               Save #
                             </button>
                           </form>
+                        </td>
+                        <td className="align-top px-4 py-3 text-slate-700">
+                          <PayrollStaffLinkDialog
+                            staffProfileId={row.id}
+                            staffEmail={(row.email ?? "").trim()}
+                            applicantId={row.applicant_id}
+                            linkedName={linkedName}
+                            linkedEmail={linkedEmail}
+                            hasContract={hasContract}
+                            payrollReady={payrollReady}
+                            suggestedApplicantId={sugg?.id ?? null}
+                            suggestedName={suggestedName}
+                            suggestedEmail={sugg?.email ?? null}
+                          />
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex flex-col gap-2">
