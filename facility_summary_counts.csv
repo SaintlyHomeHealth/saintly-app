@@ -1,0 +1,17 @@
+Group,Key,Count
+Referral Priority,TOTAL,2495
+Referral Priority,A,179
+Referral Priority,B,217
+Referral Priority,C,392
+Referral Priority,X,1707
+
+Facility Type,Key,Count
+Facility Type,Hospital,46
+Facility Type,Rehab / Inpatient Rehab,121
+Facility Type,Skilled Nursing / Nursing Facility,0
+Facility Type,Assisted Living / Memory Care,0
+Facility Type,Hospice,217
+Facility Type,Orthopedic,7
+Facility Type,Wound Care,5
+Facility Type,Other Medical,392
+Facility Type,Exclude / Not Useful,1707
