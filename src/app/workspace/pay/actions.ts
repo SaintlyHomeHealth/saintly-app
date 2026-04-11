@@ -7,6 +7,15 @@ import { getOrCreatePayrollBatchForPeriod } from "@/lib/payroll/get-or-create-ba
 import { getPayPeriodForDate, serviceDateInPeriod } from "@/lib/payroll/pay-period";
 import { getStaffProfile } from "@/lib/staff-profile";
 
+export async function refreshPayrollDashboardAction(): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    revalidatePath("/workspace/pay");
+    return { ok: true as const };
+  } catch (e) {
+    return { ok: false as const, error: e instanceof Error ? e.message : "Could not refresh." };
+  }
+}
+
 export async function submitWeeklyPayrollAction() {
   const staff = await getStaffProfile();
   if (!staff) {
