@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Delete, Phone } from "lucide-react";
 
 import { useWorkspaceSoftphone } from "@/components/softphone/WorkspaceSoftphoneProvider";
+import { isValidE164, normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
 import { isPlausiblePstnCallerRawForSubline } from "@/lib/softphone/twilio-incoming-caller-display";
 import { openSoftphoneAppSettings } from "@/lib/softphone/open-app-settings";
 
@@ -90,9 +91,14 @@ export function SoftphoneDialer({
     incoming,
     micMuted,
     isClientHold,
+    isPstnHold,
+    holdBusy,
     toggleMute,
     toggleHold,
     callContext,
+    coldTransferTo,
+    addConferenceParticipant,
+    startLiveTranscriptStream,
     clearCallError,
     startCall,
     hangUp,
@@ -103,6 +109,9 @@ export function SoftphoneDialer({
     activeRemoteLabel,
   } = useWorkspaceSoftphone();
   const autoPlaceStartedRef = useRef(false);
+  const [actionBusy, setActionBusy] = useState<"xfer" | "add" | "tx" | null>(null);
+
+  const isOnHold = isPstnHold || isClientHold;
 
   useEffect(() => {
     const seed = (initialDigits ?? "").trim();
@@ -351,16 +360,20 @@ export function SoftphoneDialer({
                 <p className="text-center text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">
                   In-call controls
                 </p>
-                {isClientHold ? (
-                  <p className="mt-1 text-center text-[11px] font-semibold text-amber-800">On hold — resume to speak again</p>
+                {isOnHold ? (
+                  <p className="mt-1 text-center text-[11px] font-semibold text-amber-800">
+                    {isPstnHold ? "Caller on hold (PSTN) — hold music" : "Local hold — resume to speak again"}
+                  </p>
                 ) : (
-                  <p className="mt-1 text-center text-[11px] text-slate-500">Mute and hold work on this device. Transfer is next.</p>
+                  <p className="mt-1 text-center text-[11px] text-slate-500">
+                    Conference mode uses Twilio hold for the caller; otherwise local hold.
+                  </p>
                 )}
                 <div className="mt-3 grid grid-cols-3 gap-2">
                   <button
                     type="button"
                     onClick={toggleMute}
-                    disabled={isClientHold}
+                    disabled={isClientHold || holdBusy}
                     className={`rounded-xl border py-2.5 text-xs font-semibold shadow-sm ${
                       micMuted
                         ? "border-blue-300 bg-blue-50 text-blue-950"
@@ -371,26 +384,102 @@ export function SoftphoneDialer({
                   </button>
                   <button
                     type="button"
-                    onClick={toggleHold}
+                    onClick={() => void toggleHold()}
+                    disabled={holdBusy}
                     className={`rounded-xl border py-2.5 text-xs font-semibold shadow-sm ${
-                      isClientHold
+                      isOnHold
                         ? "border-amber-300 bg-amber-50 text-amber-950"
                         : "border-slate-200/80 bg-gradient-to-b from-white to-slate-50/90 text-slate-800"
-                    }`}
+                    } disabled:opacity-40`}
                   >
-                    {isClientHold ? "Resume" : "Hold"}
+                    {holdBusy ? "…" : isOnHold ? "Resume" : "Hold"}
                   </button>
                   <button
                     type="button"
-                    disabled
-                    title="Cold / warm transfer — coming in next release"
-                    className="rounded-xl border border-slate-200/80 bg-gradient-to-b from-white to-slate-50/90 py-2.5 text-xs font-semibold text-slate-400 shadow-sm"
+                    disabled={actionBusy !== null}
+                    title="Cold transfer — moves PSTN to another number"
+                    onClick={() => {
+                      void (async () => {
+                        const raw = typeof window !== "undefined" ? window.prompt("Cold transfer to (10 digits or +1…)") : null;
+                        if (!raw?.trim()) return;
+                        const e164 = isValidE164(raw.trim()) ? raw.trim() : normalizeDialInputToE164(raw.trim());
+                        if (!e164 || !isValidE164(e164)) {
+                          window.alert("Enter a valid US number.");
+                          return;
+                        }
+                        setActionBusy("xfer");
+                        try {
+                          const r = await coldTransferTo(e164);
+                          if (!r.ok) {
+                            window.alert(r.error ?? "Transfer failed");
+                            return;
+                          }
+                          const ok = typeof window !== "undefined" ? window.confirm("Hang up your line to leave the caller with the new number?") : true;
+                          if (ok) hangUp();
+                        } finally {
+                          setActionBusy(null);
+                        }
+                      })();
+                    }}
+                    className="rounded-xl border border-slate-200/80 bg-gradient-to-b from-white to-slate-50/90 py-2.5 text-xs font-semibold text-slate-800 shadow-sm disabled:opacity-40"
                   >
-                    Transfer
+                    {actionBusy === "xfer" ? "…" : "Transfer"}
                   </button>
                 </div>
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    disabled={actionBusy !== null}
+                    onClick={() => {
+                      void (async () => {
+                        const raw = typeof window !== "undefined" ? window.prompt("Add call — dial (10 digits or +1…)") : null;
+                        if (!raw?.trim()) return;
+                        const e164 = isValidE164(raw.trim()) ? raw.trim() : normalizeDialInputToE164(raw.trim());
+                        if (!e164 || !isValidE164(e164)) {
+                          window.alert("Enter a valid number.");
+                          return;
+                        }
+                        setActionBusy("add");
+                        try {
+                          const r = await addConferenceParticipant(e164);
+                          if (!r.ok) window.alert(r.error ?? "Could not add participant");
+                        } finally {
+                          setActionBusy(null);
+                        }
+                      })();
+                    }}
+                    className="rounded-xl border border-sky-200/80 bg-white py-2.5 text-xs font-semibold text-slate-800 shadow-sm disabled:opacity-40"
+                  >
+                    {actionBusy === "add" ? "…" : "Add / 3-way"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={actionBusy !== null}
+                    onClick={() => {
+                      void (async () => {
+                        setActionBusy("tx");
+                        try {
+                          const r = await startLiveTranscriptStream();
+                          if (!r.ok) window.alert(r.error ?? "Could not start media stream");
+                        } finally {
+                          setActionBusy(null);
+                        }
+                      })();
+                    }}
+                    className="rounded-xl border border-sky-200/80 bg-white py-2.5 text-xs font-semibold text-slate-800 shadow-sm disabled:opacity-40"
+                  >
+                    {actionBusy === "tx" ? "…" : "Live stream"}
+                  </button>
+                </div>
+                <p className="mt-2 text-center text-[10px] leading-snug text-slate-500">
+                  Warm transfer: hold the caller, use Add / 3-way, then Transfer when ready.
+                </p>
               </div>
-              <LiveCallContextPanel voiceAi={callContext?.voice_ai ?? null} remoteLabel={activeRemoteLabel} />
+              <LiveCallContextPanel
+                voiceAi={callContext?.voice_ai ?? null}
+                conference={callContext?.conference ?? null}
+                remoteLabel={activeRemoteLabel}
+              />
             </div>
           ) : null}
 

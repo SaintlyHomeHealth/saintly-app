@@ -22,6 +22,8 @@ export function ActiveCallBar() {
     hangUp,
     micMuted,
     isClientHold,
+    isPstnHold,
+    holdBusy,
     toggleMute,
     toggleHold,
     callContext,
@@ -37,7 +39,7 @@ export function ActiveCallBar() {
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold">{activeRemoteLabel ?? "On call"}</p>
             <p className="text-[11px] font-medium text-sky-200">
-              {isClientHold ? "On hold · " : null}
+              {isPstnHold ? "PSTN on hold · " : isClientHold ? "Local hold · " : null}
               Duration {formatDuration(durationSec)}
             </p>
           </div>
@@ -45,7 +47,7 @@ export function ActiveCallBar() {
             <button
               type="button"
               onClick={toggleMute}
-              disabled={isClientHold}
+              disabled={isClientHold || holdBusy}
               title={isClientHold ? "Unhold to change mute" : micMuted ? "Unmute" : "Mute"}
               className={`inline-flex h-9 w-9 items-center justify-center rounded-full border border-sky-400/35 ${
                 micMuted ? "bg-sky-500/25 text-white" : "text-sky-100"
@@ -55,13 +57,19 @@ export function ActiveCallBar() {
             </button>
             <button
               type="button"
-              onClick={toggleHold}
-              title={isClientHold ? "Resume" : "Hold"}
+              onClick={() => void toggleHold()}
+              disabled={holdBusy}
+              title={isPstnHold || isClientHold ? "Resume" : "Hold"}
               className={`inline-flex h-9 items-center justify-center gap-1 rounded-full border border-sky-400/35 px-2.5 text-xs font-semibold ${
-                isClientHold ? "bg-amber-500/30 text-amber-50" : "text-sky-100"
-              }`}
+                isPstnHold || isClientHold ? "bg-amber-500/30 text-amber-50" : "text-sky-100"
+              } disabled:opacity-40`}
             >
-              {isClientHold ? (
+              {holdBusy ? (
+                <>
+                  <PauseCircle className="h-4 w-4" strokeWidth={2} />
+                  …
+                </>
+              ) : isPstnHold || isClientHold ? (
                 <>
                   <PlayCircle className="h-4 w-4" strokeWidth={2} />
                   Resume
@@ -93,7 +101,11 @@ export function ActiveCallBar() {
         </div>
         {ctxOpen ? (
           <div className="rounded-2xl border border-sky-200/40 bg-white/95 p-2 shadow-lg shadow-slate-900/10 backdrop-blur">
-            <LiveCallContextPanel voiceAi={callContext?.voice_ai ?? null} remoteLabel={activeRemoteLabel} />
+            <LiveCallContextPanel
+              voiceAi={callContext?.voice_ai ?? null}
+              conference={callContext?.conference ?? null}
+              remoteLabel={activeRemoteLabel}
+            />
           </div>
         ) : null}
       </div>

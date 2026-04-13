@@ -1,17 +1,45 @@
 import { NextRequest, NextResponse } from "next/server";
+import twilio from "twilio";
 
 import { supabaseAdmin } from "@/lib/admin";
 import { upsertPhoneCallFromWebhook } from "@/lib/phone/log-call";
 import { isValidE164 } from "@/lib/softphone/phone-number";
 import { parseStaffUserIdFromTwilioClientFrom } from "@/lib/softphone/twilio-client-identity";
+import { escapeXml, softphoneConferenceRoomName } from "@/lib/twilio/softphone-conference";
 import { parseVerifiedTwilioFormBody } from "@/lib/twilio/verify-form-post";
 
-function escapeXml(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+/**
+ * When `true`, outbound browser softphone uses Twilio Conference (Client + REST PSTN leg).
+ * Set `TWILIO_SOFTPHONE_USE_CONFERENCE=true` after validation. Default keeps legacy `<Dial><Number>`.
+ */
+function useConferenceOutbound(): boolean {
+  return process.env.TWILIO_SOFTPHONE_USE_CONFERENCE === "true";
+}
+
+async function createPstnLegIntoConference(input: {
+  toE164: string;
+  fromE164: string;
+  roomName: string;
+}): Promise<void> {
+  const accountSid = process.env.TWILIO_ACCOUNT_SID?.trim();
+  const authToken = process.env.TWILIO_AUTH_TOKEN?.trim();
+  const publicBase = process.env.TWILIO_PUBLIC_BASE_URL?.trim().replace(/\/$/, "");
+  if (!accountSid || !authToken || !publicBase) {
+    console.error("[twilio/voice/softphone] PSTN leg skipped — missing TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, or TWILIO_PUBLIC_BASE_URL");
+    return;
+  }
+  const joinUrl = `${publicBase}/api/twilio/voice/softphone-pstn-join/${encodeURIComponent(input.roomName)}`;
+  try {
+    const client = twilio(accountSid, authToken);
+    await client.calls.create({
+      to: input.toE164,
+      from: input.fromE164,
+      url: joinUrl,
+      method: "POST",
+    });
+  } catch (e) {
+    console.error("[twilio/voice/softphone] PSTN conference leg create failed", e);
+  }
 }
 
 const NOT_CONFIGURED =
@@ -66,6 +94,8 @@ export async function POST(req: NextRequest) {
 
   const staffUserId = parseStaffUserIdFromTwilioClientFrom(fromRaw);
   const startedAt = new Date().toISOString();
+  const conferenceMode = useConferenceOutbound() && Boolean(toRaw && isValidE164(toRaw));
+  const roomName = conferenceMode ? softphoneConferenceRoomName(callSid) : "";
 
   const logResult = await upsertPhoneCallFromWebhook(supabaseAdmin, {
     external_call_id: callSid,
@@ -79,6 +109,14 @@ export async function POST(req: NextRequest) {
       source: "twilio_voice_softphone",
       twilio_client_from: fromRaw,
       ...(staffUserId ? { staff_user_id: staffUserId } : {}),
+      ...(conferenceMode
+        ? {
+            softphone_conference: {
+              friendly_name: roomName,
+              mode: "conference",
+            },
+          }
+        : {}),
     },
   });
 
@@ -89,6 +127,32 @@ export async function POST(req: NextRequest) {
   const publicBase = process.env.TWILIO_PUBLIC_BASE_URL?.trim().replace(/\/$/, "");
   const statusCallbackUrl = publicBase ? `${publicBase}/api/twilio/voice/status` : "";
   const dialActionUrl = publicBase ? `${publicBase}/api/twilio/voice/softphone-dial-result` : "";
+
+  if (conferenceMode && toRaw && isValidE164(toRaw)) {
+    const confStatus = publicBase
+      ? ` statusCallback="${escapeXml(`${publicBase}/api/twilio/voice/softphone-conference-events`)}" statusCallbackMethod="POST" statusCallbackEvent="join leave mute hold start end"`
+      : "";
+    const dialAttrs = publicBase
+      ? ` timeout="55" action="${escapeXml(dialActionUrl)}" method="POST"`
+      : ` timeout="55"`;
+
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Dial${dialAttrs}>
+    <Conference beep="false" startConferenceOnEnter="true" endConferenceOnExit="false" participantLabel="staff"${confStatus}>${escapeXml(
+      roomName
+    )}</Conference>
+  </Dial>
+</Response>`.trim();
+
+    await createPstnLegIntoConference({
+      toE164: toRaw,
+      fromE164: callerId,
+      roomName,
+    });
+
+    return new NextResponse(xml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
+  }
 
   const dialAttrs = publicBase
     ? ` answerOnBridge="true" timeout="55" callerId="${escapeXml(

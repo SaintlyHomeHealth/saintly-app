@@ -2,14 +2,15 @@
 
 import { formatVoiceAiCallerCategoryLabel, formatVoiceAiRouteTargetLabel } from "@/app/admin/phone/_lib/voice-ai-metadata";
 
-import type { CallContextVoiceAi } from "@/components/softphone/WorkspaceSoftphoneProvider";
+import type { CallContextVoiceAi, SoftphoneConferenceContext } from "@/components/softphone/WorkspaceSoftphoneProvider";
 
 type Props = {
   voiceAi: CallContextVoiceAi | null;
+  conference: SoftphoneConferenceContext | null;
   remoteLabel: string | null;
 };
 
-export function LiveCallContextPanel({ voiceAi, remoteLabel }: Props) {
+export function LiveCallContextPanel({ voiceAi, conference, remoteLabel }: Props) {
   return (
     <div className="w-full max-w-sm rounded-2xl border border-sky-100/80 bg-gradient-to-b from-white to-sky-50/40 p-4 text-left shadow-[0_6px_24px_-12px_rgba(30,58,138,0.12)]">
       <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">Caller context</p>
@@ -18,6 +19,18 @@ export function LiveCallContextPanel({ voiceAi, remoteLabel }: Props) {
       ) : (
         <p className="mt-1 text-sm text-slate-500">Connecting…</p>
       )}
+      {conference?.mode === "conference" ? (
+        <p className="mt-2 text-[11px] text-slate-600">
+          Conference leg
+          {conference.conference_sid ? (
+            <span className="ml-1 font-mono text-[10px] text-slate-500">
+              {conference.conference_sid.slice(0, 8)}…
+            </span>
+          ) : (
+            <span className="text-amber-800"> — linking…</span>
+          )}
+        </p>
+      ) : null}
       {!voiceAi ? (
         <p className="mt-3 text-xs leading-relaxed text-slate-600">
           Live AI summary and transcript appear here when the call is linked to Saintly voice AI (same Twilio Call SID

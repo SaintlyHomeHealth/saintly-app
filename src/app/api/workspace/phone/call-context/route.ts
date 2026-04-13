@@ -43,11 +43,27 @@ export async function GET(req: Request) {
 
   const meta = data.metadata;
   const voiceAi = readVoiceAiMetadataFromMetadata(meta);
+  const sc =
+    meta && typeof meta === "object" && !Array.isArray(meta)
+      ? (meta as Record<string, unknown>).softphone_conference
+      : null;
+  const conf =
+    sc && typeof sc === "object" && !Array.isArray(sc)
+      ? (sc as Record<string, unknown>)
+      : null;
 
   return NextResponse.json({
     found: true,
     phone_call_id: data.id,
     from_e164: typeof data.from_e164 === "string" ? data.from_e164 : null,
+    softphone_conference: conf
+      ? {
+          conference_sid: typeof conf.conference_sid === "string" ? conf.conference_sid : null,
+          pstn_call_sid: typeof conf.pstn_call_sid === "string" ? conf.pstn_call_sid : null,
+          pstn_on_hold: typeof conf.pstn_on_hold === "boolean" ? conf.pstn_on_hold : null,
+          mode: typeof conf.mode === "string" ? conf.mode : null,
+        }
+      : null,
     voice_ai: voiceAi
       ? {
           short_summary: voiceAi.short_summary || null,

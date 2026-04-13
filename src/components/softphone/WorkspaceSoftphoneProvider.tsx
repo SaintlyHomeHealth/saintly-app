@@ -51,6 +51,18 @@ export type CallContextVoiceAi = {
   confidence_summary: string | null;
 };
 
+export type SoftphoneConferenceContext = {
+  conference_sid: string | null;
+  pstn_call_sid: string | null;
+  pstn_on_hold: boolean | null;
+  mode: string | null;
+};
+
+export type CallDeskContext = {
+  voice_ai: CallContextVoiceAi | null;
+  conference: SoftphoneConferenceContext | null;
+};
+
 type Ctx = {
   digits: string;
   setDigits: Dispatch<SetStateAction<string>>;
@@ -73,10 +85,13 @@ type Ctx = {
   durationSec: number;
   /** Microphone mute (Twilio `Call.mute`). */
   micMuted: boolean;
-  /** Client-side hold: mutes mic + silences remote audio until resumed. PSTN hold music is a later phase. */
+  /** Client-side hold fallback when conference PSTN hold is unavailable. */
   isClientHold: boolean;
+  /** Twilio Conference PSTN participant hold (true PSTN hold + hold music). */
+  isPstnHold: boolean;
+  holdBusy: boolean;
   toggleMute: () => void;
-  toggleHold: () => void;
+  toggleHold: () => Promise<void>;
   /** Second inbound while already on an active call (call waiting). */
   callWaiting: boolean;
   callWaitingCallerContactName: string | null;
@@ -84,8 +99,11 @@ type Ctx = {
   callWaitingRawFrom: string | null;
   answerCallWaitingEndAndAccept: () => void;
   declineCallWaiting: () => void;
-  /** AI summary / transcript polled from `phone_calls` for this CallSid. */
-  callContext: { voice_ai: CallContextVoiceAi | null } | null;
+  /** AI summary + conference metadata polled from `phone_calls` for this CallSid. */
+  callContext: CallDeskContext | null;
+  coldTransferTo: (toE164: string) => Promise<{ ok: boolean; error?: string }>;
+  addConferenceParticipant: (toE164: string) => Promise<{ ok: boolean; error?: string }>;
+  startLiveTranscriptStream: () => Promise<{ ok: boolean; error?: string }>;
   clearCallError: () => void;
   startCall: (toOverride?: string) => Promise<void>;
   hangUp: () => void;
@@ -178,8 +196,10 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
   const [hintMeta, setHintMeta] = useState<{ suggestSettings: boolean; canRetry: boolean } | null>(null);
   const [micMuted, setMicMuted] = useState(false);
   const [isClientHold, setIsClientHold] = useState(false);
+  const [isPstnHold, setIsPstnHold] = useState(false);
+  const [holdBusy, setHoldBusy] = useState(false);
   const micMutedBeforeHoldRef = useRef(false);
-  const [callContext, setCallContext] = useState<{ voice_ai: CallContextVoiceAi | null } | null>(null);
+  const [callContext, setCallContext] = useState<CallDeskContext | null>(null);
   const [tokenIdentity, setTokenIdentity] = useState<string | null>(null);
   const [ringtoneUnlocked, setRingtoneUnlocked] = useState(false);
   const [durationSec, setDurationSec] = useState(0);
@@ -232,10 +252,17 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
         const j = (await res.json()) as {
           found?: boolean;
           voice_ai?: CallContextVoiceAi | null;
+          softphone_conference?: SoftphoneConferenceContext | null;
         };
         if (cancelled) return;
         if (j.found) {
-          setCallContext({ voice_ai: j.voice_ai ?? null });
+          setCallContext({
+            voice_ai: j.voice_ai ?? null,
+            conference: j.softphone_conference ?? null,
+          });
+          if (typeof j.softphone_conference?.pstn_on_hold === "boolean") {
+            setIsPstnHold(j.softphone_conference.pstn_on_hold);
+          }
         } else {
           setCallContext(null);
         }
@@ -268,6 +295,8 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       setHintMeta(null);
       setMicMuted(false);
       setIsClientHold(false);
+      setIsPstnHold(false);
+      setHoldBusy(false);
       micMutedBeforeHoldRef.current = false;
       setCallContext(null);
       setInboundAiAssist(null);
@@ -751,22 +780,126 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     c.mute(!c.isMuted());
   }, [isClientHold]);
 
-  const toggleHold = useCallback(() => {
+  const toggleHold = useCallback(async () => {
     const c = activeCallRef.current;
-    if (!c) return;
-    if (!isClientHold) {
-      micMutedBeforeHoldRef.current = c.isMuted();
-      c.mute(true);
-      setRemoteAudioEnabled(c, false);
-      setIsClientHold(true);
-      setMicMuted(true);
-    } else {
+    if (!c || holdBusy) return;
+    const sid = readCallSid(c);
+    if (!sid) return;
+
+    const currentlyHeld = isPstnHold || isClientHold;
+
+    if (isPstnHold) {
+      setHoldBusy(true);
+      try {
+        const res = await fetch("/api/workspace/phone/conference/hold", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ hold: false, callSid: sid }),
+        });
+        if (res.ok) {
+          setIsPstnHold(false);
+          return;
+        }
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        setHint(j.error ?? "Could not resume the call.");
+      } finally {
+        setHoldBusy(false);
+      }
+      return;
+    }
+
+    if (!currentlyHeld) {
+      setHoldBusy(true);
+      try {
+        const res = await fetch("/api/workspace/phone/conference/hold", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ hold: true, callSid: sid }),
+        });
+        if (res.ok) {
+          setIsPstnHold(true);
+          return;
+        }
+        if (res.status === 409) {
+          micMutedBeforeHoldRef.current = c.isMuted();
+          c.mute(true);
+          setRemoteAudioEnabled(c, false);
+          setIsClientHold(true);
+          setMicMuted(true);
+          setHint(null);
+          return;
+        }
+        const j = (await res.json().catch(() => ({}))) as { error?: string; hint?: string };
+        setHint(j.hint ?? j.error ?? "Hold is not available yet.");
+      } finally {
+        setHoldBusy(false);
+      }
+      return;
+    }
+
+    if (isClientHold) {
       c.mute(micMutedBeforeHoldRef.current);
       setRemoteAudioEnabled(c, true);
       setIsClientHold(false);
       setMicMuted(c.isMuted());
     }
-  }, [isClientHold]);
+  }, [holdBusy, isPstnHold, isClientHold]);
+
+  const coldTransferTo = useCallback(async (toE164: string) => {
+    const c = activeCallRef.current;
+    if (!c) return { ok: false as const, error: "No active call" };
+    const sid = readCallSid(c);
+    if (!sid) return { ok: false as const, error: "No CallSid" };
+    const res = await fetch("/api/workspace/phone/conference/cold-transfer", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ toE164, callSid: sid }),
+    });
+    if (!res.ok) {
+      const j = (await res.json().catch(() => ({}))) as { error?: string };
+      return { ok: false as const, error: j.error ?? `HTTP ${res.status}` };
+    }
+    return { ok: true as const };
+  }, []);
+
+  const addConferenceParticipant = useCallback(async (toE164: string) => {
+    const c = activeCallRef.current;
+    if (!c) return { ok: false as const, error: "No active call" };
+    const sid = readCallSid(c);
+    if (!sid) return { ok: false as const, error: "No CallSid" };
+    const res = await fetch("/api/workspace/phone/conference/add-participant", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ toE164, callSid: sid }),
+    });
+    if (!res.ok) {
+      const j = (await res.json().catch(() => ({}))) as { error?: string };
+      return { ok: false as const, error: j.error ?? `HTTP ${res.status}` };
+    }
+    return { ok: true as const };
+  }, []);
+
+  const startLiveTranscriptStream = useCallback(async () => {
+    const c = activeCallRef.current;
+    if (!c) return { ok: false as const, error: "No active call" };
+    const sid = readCallSid(c);
+    if (!sid) return { ok: false as const, error: "No CallSid" };
+    const res = await fetch("/api/workspace/phone/conference/start-transcript", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ callSid: sid }),
+    });
+    if (!res.ok) {
+      const j = (await res.json().catch(() => ({}))) as { error?: string };
+      return { ok: false as const, error: j.error ?? `HTTP ${res.status}` };
+    }
+    return { ok: true as const };
+  }, []);
 
   const declineCallWaiting = useCallback(() => {
     callWaitingCall?.reject();
@@ -927,6 +1060,8 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       durationSec,
       micMuted,
       isClientHold,
+      isPstnHold,
+      holdBusy,
       toggleMute,
       toggleHold,
       callWaiting: Boolean(callWaitingCall),
@@ -936,6 +1071,9 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       answerCallWaitingEndAndAccept,
       declineCallWaiting,
       callContext,
+      coldTransferTo,
+      addConferenceParticipant,
+      startLiveTranscriptStream,
       clearCallError,
       startCall,
       hangUp,
@@ -961,8 +1099,13 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     durationSec,
     micMuted,
     isClientHold,
+    isPstnHold,
+    holdBusy,
     toggleMute,
     toggleHold,
+    coldTransferTo,
+    addConferenceParticipant,
+    startLiveTranscriptStream,
     answerCallWaitingEndAndAccept,
     declineCallWaiting,
     callContext,
