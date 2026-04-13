@@ -20,7 +20,10 @@ import {
   formatContactAttemptLogBlock,
 } from "@/lib/crm/lead-contact-log";
 import { formatLeadContactOutcomeLabel, isValidLeadContactOutcome } from "@/lib/crm/lead-contact-outcome";
-import { formatLeadNextActionLabel, isValidLeadNextAction } from "@/lib/crm/lead-follow-up-options";
+import {
+  formatLeadNextActionLabel,
+  normalizeLeadNextActionInput,
+} from "@/lib/crm/lead-follow-up-options";
 import { formatLeadPipelineStatusLabel, isValidLeadPipelineStatus } from "@/lib/crm/lead-pipeline-status";
 import {
   normalizeAttemptActionKeys,
@@ -1125,10 +1128,9 @@ function staffShortLabel(
 function readLeadNextActionFromForm(formData: FormData): string | null {
   const v = formData.get("next_action");
   if (typeof v !== "string") return null;
-  const t = v.trim();
-  if (!t) return null;
-  if (!isValidLeadNextAction(t)) return null;
-  return t;
+  const n = normalizeLeadNextActionInput(v);
+  if (!n.ok) return null;
+  return n.value;
 }
 
 function readLeadPipelineStatusFromForm(formData: FormData): string | null {
@@ -1512,7 +1514,15 @@ export async function saveLeadOutcomeCore(input: SaveLeadOutcomeInput): Promise<
   }
 
   const notes = input.notes.trim().slice(0, 4000);
-  const nextAction = input.nextAction;
+
+  let nextAction: string | null = null;
+  if (input.nextAction != null && String(input.nextAction).trim() !== "") {
+    const n = normalizeLeadNextActionInput(input.nextAction);
+    if (!n.ok) {
+      return { ok: false, error: "invalid_outcome", message: n.message };
+    }
+    nextAction = n.value;
+  }
 
   const attemptAt = input.attemptAt;
   if (Number.isNaN(attemptAt.getTime())) {
@@ -1554,10 +1564,18 @@ export async function saveLeadOutcomeCore(input: SaveLeadOutcomeInput): Promise<
 
   if (error) {
     console.error("[admin/crm] saveLeadOutcomeCore DB error:", error.message, error);
+    const code = typeof (error as { code?: string }).code === "string" ? (error as { code: string }).code : "";
+    let message = error.message || "Database error while saving outcome.";
+    if (
+      code === "23514" ||
+      /leads_next_action_check|violates check constraint.*next_action/i.test(message)
+    ) {
+      message = "Next step is not valid. Choose an option from the list.";
+    }
     return {
       ok: false,
       error: "save_failed",
-      message: error.message || "Database error while saving outcome.",
+      message,
     };
   }
 

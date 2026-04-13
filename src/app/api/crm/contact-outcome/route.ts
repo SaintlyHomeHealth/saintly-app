@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { saveLeadOutcomeCore, type SaveLeadOutcomeResult } from "@/app/admin/crm/actions";
-import { isValidLeadNextAction } from "@/lib/crm/lead-follow-up-options";
+import { normalizeLeadNextActionInput } from "@/lib/crm/lead-follow-up-options";
 
 function parseIsoInstant(v: unknown): Date | null {
   if (v == null || v === "") return null;
@@ -15,12 +15,7 @@ function parseNextStep(
 ): { ok: true; value: string | null } | { ok: false; message: string } {
   if (v == null || v === "") return { ok: true, value: null };
   if (typeof v !== "string") return { ok: false, message: "next_step must be a string or null." };
-  const t = v.trim();
-  if (!t) return { ok: true, value: null };
-  if (!isValidLeadNextAction(t)) {
-    return { ok: false, message: "Invalid next step value." };
-  }
-  return { ok: true, value: t };
+  return normalizeLeadNextActionInput(v);
 }
 
 function httpStatusForResult(result: SaveLeadOutcomeResult): number {
