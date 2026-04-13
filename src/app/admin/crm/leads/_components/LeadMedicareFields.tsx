@@ -33,8 +33,9 @@ export function LeadMedicareFields(props: Props) {
       <div className="sm:col-span-2 rounded-xl border border-teal-100/90 bg-teal-50/30 p-4 ring-1 ring-teal-100/50">
         <p className="text-xs font-semibold text-teal-950">Medicare (typed entry)</p>
         <p className="mt-1 text-[11px] leading-snug text-teal-900/90">
-          Enter the 11-character Medicare Beneficiary Identifier (MBI) from the card when you have it. This is stored in
-          the lead record for intake only — verify eligibility through your normal process.
+          Enter the 11-character Medicare Beneficiary Identifier (MBI) from the card when you have it. This is additive
+          with the payer you select above (e.g. Medicare + Medicaid / BCBS) — it does not replace payer selection. Stored
+          for intake only — verify eligibility through your normal process.
         </p>
       </div>
       <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">

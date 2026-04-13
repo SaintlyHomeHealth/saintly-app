@@ -510,7 +510,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
           {!isEmployeeLead ? (
             <li>
               <a href="#section-payer" className="whitespace-nowrap hover:text-sky-800">
-                Payer
+                Services
               </a>
             </li>
           ) : null}
@@ -925,15 +925,13 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
                     outcomes above.
                   </p>
                 ) : !patientId ? (
-                  <form action={convertLeadToPatientFromLeadDetail}>
-                    <input type="hidden" name="leadId" value={leadId} />
-                    <button
-                      type="submit"
-                      className="rounded-lg border border-sky-600 bg-sky-600 px-3 py-2 text-xs font-semibold text-white hover:bg-sky-700"
-                    >
-                      Convert to patient
-                    </button>
-                  </form>
+                  <button
+                    type="submit"
+                    formAction={convertLeadToPatientFromLeadDetail}
+                    className="rounded-lg border border-sky-600 bg-sky-600 px-3 py-2 text-xs font-semibold text-white hover:bg-sky-700"
+                  >
+                    Convert to patient
+                  </button>
                 ) : (
                   <Link
                     href={`/admin/crm/patients/${patientId}`}
@@ -942,15 +940,13 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
                     Open existing patient
                   </Link>
                 )}
-                <form action={markLeadDead}>
-                  <input type="hidden" name="leadId" value={leadId} />
-                  <button
-                    type="submit"
-                    className="rounded-lg border border-slate-400 bg-white px-3 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-50"
-                  >
-                    Mark dead lead
-                  </button>
-                </form>
+                <button
+                  type="submit"
+                  formAction={markLeadDead}
+                  className="rounded-lg border border-slate-400 bg-white px-3 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-50"
+                >
+                  Mark dead lead
+                </button>
               </div>
             </div>
           </LeadSectionCard>
@@ -959,7 +955,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
             <LeadSectionCard
               id="section-insurance"
               title="Insurance information"
-              description="Upload primary and secondary insurance card images or PDFs. Add typed Medicare details when you have them — uploads stay the source of truth for card images."
+              description="Upload primary and secondary card files, choose the payer (Medicare Advantage, Medicaid, BCBS, etc.), and add typed Medicare (MBI) when you have it — all of these work together; Medicare fields do not replace payer selection."
             >
               <LeadInsuranceSection
                 leadId={leadId}
@@ -968,6 +964,29 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
                 primaryViewUrl={primaryInsuranceViewUrl}
                 secondaryViewUrl={secondaryInsuranceViewUrl}
               />
+              <div className="mt-8 border-t border-slate-200/80 pt-8">
+                <p className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Payer selection</p>
+                <div className="grid max-w-2xl gap-4 sm:grid-cols-2">
+                  <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
+                    Payer
+                    <SearchablePayerSelect
+                      name="payer_name"
+                      defaultValue={intakeDefaults.payer_name}
+                      className={inp}
+                      id="lead-workspace-existing-payer"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
+                    Payer type (category)
+                    <PayerTypeSelect
+                      name="payer_type"
+                      className={inp}
+                      defaultValue={intakeDefaults.payer_type}
+                      id="lead-workspace-existing-payer-type"
+                    />
+                  </label>
+                </div>
+              </div>
               <div className="mt-8 border-t border-slate-200/80 pt-8">
                 <LeadMedicareFields
                   defaultNumber={medicareNumber}
@@ -1036,27 +1055,10 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
           {!isEmployeeLead ? (
           <LeadSectionCard
             id="section-payer"
-            title="Payer & services"
-            description="Coverage, disciplines, and intake status for scheduling."
+            title="Services & intake"
+            description="Referral source, disciplines, and intake status. Payer and Medicare are saved in Insurance above."
           >
             <div className="grid max-w-2xl gap-4 sm:grid-cols-2">
-              <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
-                Payer
-                <SearchablePayerSelect
-                  defaultValue={intakeDefaults.payer_name}
-                  className={inp}
-                  id="lead-workspace-existing-payer"
-                />
-              </label>
-              <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-                Payer type (category)
-                <PayerTypeSelect
-                  name="payer_type"
-                  className={inp}
-                  defaultValue={intakeDefaults.payer_type}
-                  id="lead-workspace-existing-payer-type"
-                />
-              </label>
               <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
                 Referral source
                 <input name="referral_source" className={inp} defaultValue={intakeDefaults.referral_source} />
