@@ -3,11 +3,13 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/admin";
 import { mergeSoftphoneConferenceMetadata } from "@/lib/phone/merge-softphone-conference-metadata";
 import { canAccessWorkspacePhone, getStaffProfile } from "@/lib/staff-profile";
+import { resolveTwilioMediaStreamWssUrl } from "@/lib/twilio/resolve-media-stream-wss-url";
 import { startCallMediaStream } from "@/lib/twilio/start-call-media-stream";
 
 /**
- * Starts Twilio Media Streams on the Client leg; point `TWILIO_SOFTPHONE_MEDIA_STREAM_WSS_URL` at your
- * OpenAI Realtime bridge (e.g. scripts/twilio-openai-realtime-bridge.ts). No marketplace plugins.
+ * Starts Twilio Media Streams on the Client leg. WSS URL from
+ * `TWILIO_SOFTPHONE_MEDIA_STREAM_WSS_URL` or `TWILIO_REALTIME_MEDIA_STREAM_WSS_URL` (full URL with path).
+ * No marketplace plugins.
  */
 export async function POST(req: Request) {
   const staff = await getStaffProfile();
@@ -27,11 +29,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "callSid required" }, { status: 400 });
   }
 
-  const wssUrl = process.env.TWILIO_SOFTPHONE_MEDIA_STREAM_WSS_URL?.trim();
+  const wssUrl = resolveTwilioMediaStreamWssUrl();
   if (!wssUrl || !wssUrl.startsWith("wss://")) {
     return NextResponse.json(
       {
-        error: "TWILIO_SOFTPHONE_MEDIA_STREAM_WSS_URL not set (must be wss://… to your media bridge)",
+        error:
+          "Media stream WSS URL not set. Set TWILIO_SOFTPHONE_MEDIA_STREAM_WSS_URL or TWILIO_REALTIME_MEDIA_STREAM_WSS_URL to the full wss://host/path (e.g. …/twilio/realtime-stream).",
         code: "media_stream_not_configured",
       },
       { status: 503 }

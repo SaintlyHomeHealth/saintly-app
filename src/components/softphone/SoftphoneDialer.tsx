@@ -575,7 +575,7 @@ export function SoftphoneDialer({
                           setSoftphoneNotice({
                             kind: "error",
                             message:
-                              "Live transcript is not configured yet. Set TWILIO_SOFTPHONE_MEDIA_STREAM_WSS_URL (wss://…) to your media bridge, then redeploy.",
+                              "Live transcript is not configured yet. Set TWILIO_SOFTPHONE_MEDIA_STREAM_WSS_URL or TWILIO_REALTIME_MEDIA_STREAM_WSS_URL to the full wss://host/…/path, then redeploy.",
                           });
                           return;
                         }
@@ -587,7 +587,7 @@ export function SoftphoneDialer({
                               kind: "error",
                               message:
                                 r.error?.includes("TWILIO_SOFTPHONE_MEDIA_STREAM") || r.error?.includes("not set")
-                                  ? "Live transcript is not configured yet. Ask your admin to set TWILIO_SOFTPHONE_MEDIA_STREAM_WSS_URL on the server."
+                                  ? "Live transcript is not configured yet. Ask your admin to set the media stream WSS URL (full path) on the server."
                                   : r.error ?? "Could not start media stream.",
                             });
                             return;
@@ -621,8 +621,8 @@ export function SoftphoneDialer({
                 />
                 {!transcriptBridgeConfigured ? (
                   <p className="mt-2 text-center text-[10px] leading-snug text-slate-500">
-                    Live transcript: not configured — set <span className="font-mono">TWILIO_SOFTPHONE_MEDIA_STREAM_WSS_URL</span>{" "}
-                    (wss://…) to your Twilio Media Streams bridge.
+                    Live transcript: not configured — set <span className="font-mono">TWILIO_SOFTPHONE_MEDIA_STREAM_WSS_URL</span> or{" "}
+                    <span className="font-mono">TWILIO_REALTIME_MEDIA_STREAM_WSS_URL</span> to the full bridge URL (e.g. …/twilio/realtime-stream).
                   </p>
                 ) : null}
                 <p className="mt-2 text-center text-[10px] leading-snug text-slate-500">

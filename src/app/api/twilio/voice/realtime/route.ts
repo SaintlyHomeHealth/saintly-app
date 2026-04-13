@@ -62,7 +62,7 @@ function streamUrlLogFields(streamUrlTrimmed: string): {
 function realtimeInboundSkipReasons(s: RealtimeInboundGateSnapshot): string[] {
   const reasons: string[] = [];
   if (!s.streamUrlPresent) {
-    reasons.push("missing_or_empty_TWILIO_REALTIME_MEDIA_STREAM_WSS_URL");
+    reasons.push("missing_or_empty_media_stream_wss_url_TWILIO_SOFTPHONE_or_TWILIO_REALTIME");
   }
   if (!s.realtimeEnabled) {
     reasons.push("realtime_disabled_TWILIO_VOICE_REALTIME_ENABLED_not_true");

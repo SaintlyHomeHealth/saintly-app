@@ -933,7 +933,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
         return {
           ok: false as const,
           error:
-            "Live transcript is not configured yet. Set TWILIO_SOFTPHONE_MEDIA_STREAM_WSS_URL (wss://…) on the server.",
+            "Live transcript is not configured yet. Set TWILIO_SOFTPHONE_MEDIA_STREAM_WSS_URL or TWILIO_REALTIME_MEDIA_STREAM_WSS_URL to the full wss://host/…/path on the server.",
         };
       }
       return { ok: false as const, error: j.error ?? `HTTP ${res.status}` };

@@ -6,6 +6,8 @@
  * caller while TWILIO_VOICE_REALTIME_ENABLED=true — use `*` only for short-lived testing.
  */
 
+import { resolveTwilioMediaStreamWssUrl } from "@/lib/twilio/resolve-media-stream-wss-url";
+
 export type RealtimeInboundGateSnapshot = {
   streamUrlTrimmed: string;
   streamUrlPresent: boolean;
@@ -47,8 +49,9 @@ export function shouldUseTwilioVoiceRealtimeInbound(fromE164: string): boolean {
   return entries.includes(from);
 }
 
+/** @deprecated Prefer {@link resolveTwilioMediaStreamWssUrl} — kept for call sites; same resolution. */
 export function resolveTwilioRealtimeMediaStreamWssUrl(): string {
-  return process.env.TWILIO_REALTIME_MEDIA_STREAM_WSS_URL?.trim().replace(/\/$/, "") ?? "";
+  return resolveTwilioMediaStreamWssUrl();
 }
 
 /**

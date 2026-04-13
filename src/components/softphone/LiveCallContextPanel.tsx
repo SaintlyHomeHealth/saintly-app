@@ -40,8 +40,8 @@ export function LiveCallContextPanel({ voiceAi, conference, remoteLabel, transcr
       ) : null}
       {transcriptConfigured === false ? (
         <p className="mt-2 rounded-lg border border-sky-100/90 bg-sky-50/80 px-2 py-1.5 text-[11px] text-sky-950">
-          Live transcript is not configured yet. Set <span className="font-mono">TWILIO_SOFTPHONE_MEDIA_STREAM_WSS_URL</span>{" "}
-          (wss://…) on the server.
+          Live transcript is not configured yet. Set <span className="font-mono">TWILIO_SOFTPHONE_MEDIA_STREAM_WSS_URL</span> or{" "}
+          <span className="font-mono">TWILIO_REALTIME_MEDIA_STREAM_WSS_URL</span> to the full WebSocket URL including path.
         </p>
       ) : null}
       {!voiceAi ? (
