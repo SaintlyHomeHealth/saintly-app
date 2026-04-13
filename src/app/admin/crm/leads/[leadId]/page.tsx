@@ -53,7 +53,7 @@ const LEAD_DETAIL_CONTACTS_EMBED =
   "contacts ( full_name, first_name, last_name, primary_phone, secondary_phone, email, address_line_1, address_line_2, city, state, zip, notes )";
 
 const LEAD_DETAIL_SELECT_CORE =
-  "id, contact_id, source, status, owner_user_id, lead_type, next_action, follow_up_date, follow_up_at, created_at, last_contact_at, last_contact_type, last_outcome, last_note, notes, external_source_metadata, referring_doctor_name, doctor_office_name, doctor_office_phone, doctor_office_fax, doctor_office_contact_person, referring_provider_name, referring_provider_phone, payer_name, payer_type, referral_source, service_type, service_disciplines, intake_status, dob, primary_insurance_file_url, secondary_insurance_file_url";
+  "id, contact_id, source, status, owner_user_id, lead_type, next_action, follow_up_date, follow_up_at, created_at, last_contact_at, last_contact_type, last_outcome, last_note, notes, external_source_metadata, referring_doctor_name, doctor_office_name, doctor_office_phone, doctor_office_fax, doctor_office_contact_person, referring_provider_name, referring_provider_phone, payer_name, payer_type, referral_source, service_type, service_disciplines, intake_status, dob, primary_insurance_file_url, secondary_insurance_file_url, lead_temperature";
 
 const LEAD_DETAIL_SELECT_WITH_MEDICARE = `${LEAD_DETAIL_SELECT_CORE}, medicare_number, medicare_effective_date, medicare_notes, ${LEAD_DETAIL_CONTACTS_EMBED}`;
 const LEAD_DETAIL_SELECT_LEGACY = `${LEAD_DETAIL_SELECT_CORE}, ${LEAD_DETAIL_CONTACTS_EMBED}`;
@@ -263,6 +263,11 @@ export default async function LeadIntakePage({
       ? medicareEffRaw.slice(0, 10)
       : "";
 
+  const leadTemperatureStr =
+    typeof (L as Record<string, unknown>).lead_temperature === "string"
+      ? String((L as Record<string, unknown>).lead_temperature).trim()
+      : "";
+
   return (
     <LeadWorkspace
       mode="existing"
@@ -304,6 +309,7 @@ export default async function LeadIntakePage({
       medicareEffectiveDateIso={medicareEffectiveDateIso}
       medicareNotes={medicareNotesStr}
       initialActivities={initialActivities}
+      leadTemperature={leadTemperatureStr}
     />
   );
 }

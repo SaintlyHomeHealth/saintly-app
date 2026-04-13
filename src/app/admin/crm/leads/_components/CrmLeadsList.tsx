@@ -10,7 +10,10 @@ import {
   markLeadDeadFromList,
   quickMarkLeadSpoke,
   quickSetLeadFollowUpTomorrow,
+  quickSetLeadTemperature,
 } from "@/app/admin/crm/actions";
+import type { LeadTemperature } from "@/lib/crm/lead-temperature";
+import { leadTemperatureLabel, normalizeLeadTemperature } from "@/lib/crm/lead-temperature";
 import { LeadDeleteButton } from "@/app/admin/crm/leads/_components/LeadDeleteButton";
 import { crmListRowHoverCls, crmListScrollOuterCls } from "@/components/admin/crm-admin-list-styles";
 import { formatLeadNextActionLabel } from "@/lib/crm/lead-follow-up-options";
@@ -154,6 +157,69 @@ type Props = {
 const quickBtnCls =
   "inline-flex items-center justify-center rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-medium text-slate-800 shadow-sm hover:border-slate-300 hover:bg-slate-50 disabled:opacity-50";
 
+const TEMP_OPTIONS: { value: LeadTemperature; label: string }[] = [
+  { value: "hot", label: "Hot" },
+  { value: "warm", label: "Warm" },
+  { value: "cool", label: "Cool" },
+  { value: "dead", label: "Dead" },
+];
+
+function leadTemperaturePillClass(t: LeadTemperature, selected: boolean): string {
+  const base =
+    "inline-flex min-w-[2.75rem] shrink-0 items-center justify-center rounded-md border px-1 py-0.5 text-[10px] font-semibold transition disabled:opacity-50";
+  if (!selected) {
+    return `${base} border-slate-200/90 bg-white text-slate-600 shadow-sm hover:border-slate-300 hover:bg-slate-50`;
+  }
+  switch (t) {
+    case "hot":
+      return `${base} border-rose-600 bg-rose-600 text-white shadow-sm ring-1 ring-rose-700/30`;
+    case "warm":
+      return `${base} border-amber-500 bg-amber-400 text-amber-950 shadow-sm ring-1 ring-amber-600/25`;
+    case "cool":
+      return `${base} border-slate-500 bg-slate-400 text-white shadow-sm ring-1 ring-slate-600/25`;
+    case "dead":
+      return `${base} border-stone-500 bg-stone-500 text-stone-100 shadow-sm ring-1 ring-stone-700/30`;
+    default:
+      return `${base} border-slate-200 bg-white text-slate-600`;
+  }
+}
+
+function LeadTemperatureQuickSet({ leadId, value }: { leadId: string; value: string | null }) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const current = normalizeLeadTemperature(value);
+
+  const onPick = (next: LeadTemperature) => {
+    startTransition(async () => {
+      const fd = new FormData();
+      fd.set("leadId", leadId);
+      fd.set("lead_temperature", next);
+      const r = await quickSetLeadTemperature(fd);
+      if (r.ok) router.refresh();
+    });
+  };
+
+  return (
+    <div className="pt-1" role="group" aria-label="Lead priority">
+      <p className="mb-0.5 text-[9px] font-semibold uppercase tracking-wide text-slate-500">Priority</p>
+      <div className="flex flex-wrap gap-0.5">
+        {TEMP_OPTIONS.map((o) => (
+          <button
+            key={o.value}
+            type="button"
+            disabled={pending}
+            title={`Set priority: ${o.label}`}
+            onClick={() => onPick(o.value)}
+            className={leadTemperaturePillClass(o.value, current === o.value)}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function LeadQuickActions({ leadId }: { leadId: string }) {
   const router = useRouter();
   return (
@@ -200,6 +266,21 @@ function LeadQuickActions({ leadId }: { leadId: string }) {
       </form>
     </div>
   );
+}
+
+function glanceTemperaturePillClass(t: LeadTemperature): string {
+  switch (t) {
+    case "hot":
+      return "bg-rose-100 text-rose-900 ring-rose-300/80";
+    case "warm":
+      return "bg-amber-100 text-amber-950 ring-amber-300/80";
+    case "cool":
+      return "bg-slate-200 text-slate-800 ring-slate-400/70";
+    case "dead":
+      return "bg-stone-200 text-stone-700 ring-stone-400/80";
+    default:
+      return "bg-slate-100 text-slate-800 ring-slate-200/80";
+  }
 }
 
 function followUpValueClass(fu: ReturnType<typeof followUpUrgency>): string {
@@ -411,6 +492,14 @@ export function CrmLeadsList({ initialList, employeeOnlyView, staffOptions, toda
                         >
                           {formatStatusPillLabel(r.status)}
                         </span>
+                        {normalizeLeadTemperature(r.lead_temperature ?? null) ? (
+                          <span
+                            className={`${pillBase} shrink-0 ${glanceTemperaturePillClass(normalizeLeadTemperature(r.lead_temperature ?? null)!)}`}
+                            title="Lead priority (triage)"
+                          >
+                            {leadTemperatureLabel(normalizeLeadTemperature(r.lead_temperature ?? null))}
+                          </span>
+                        ) : null}
                       </div>
                       <div className="flex flex-wrap items-center gap-1.5">
                         <LeadTypeBadge leadType={r.lead_type} status={r.status} />
@@ -439,6 +528,7 @@ export function CrmLeadsList({ initialList, employeeOnlyView, staffOptions, toda
                         {owner ? staffPrimaryLabel(owner) : "—"}
                       </div>
                       <LeadQuickActions leadId={r.id} />
+                      <LeadTemperatureQuickSet leadId={r.id} value={r.lead_temperature ?? null} />
                     </div>
                     <div className="min-w-0 text-[11px] leading-snug text-slate-600">
                       <div className="rounded-md border border-slate-100 bg-slate-50/50 px-2 py-1.5">
@@ -554,6 +644,14 @@ export function CrmLeadsList({ initialList, employeeOnlyView, staffOptions, toda
                         >
                           {formatStatusPillLabel(r.status)}
                         </span>
+                        {normalizeLeadTemperature(r.lead_temperature ?? null) ? (
+                          <span
+                            className={`${pillBase} shrink-0 ${glanceTemperaturePillClass(normalizeLeadTemperature(r.lead_temperature ?? null)!)}`}
+                            title="Lead priority (triage)"
+                          >
+                            {leadTemperatureLabel(normalizeLeadTemperature(r.lead_temperature ?? null))}
+                          </span>
+                        ) : null}
                       </div>
                       <div className="flex flex-wrap items-center gap-1.5">
                         <LeadTypeBadge leadType={r.lead_type} status={r.status} />
@@ -582,6 +680,7 @@ export function CrmLeadsList({ initialList, employeeOnlyView, staffOptions, toda
                         {owner ? staffPrimaryLabel(owner) : "—"}
                       </div>
                       <LeadQuickActions leadId={r.id} />
+                      <LeadTemperatureQuickSet leadId={r.id} value={r.lead_temperature ?? null} />
                     </div>
                     <div className="min-w-0 text-[11px] leading-snug text-slate-600">
                       {isEmployee ? (

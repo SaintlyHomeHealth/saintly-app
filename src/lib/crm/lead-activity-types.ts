@@ -16,6 +16,7 @@ export const LEAD_ACTIVITY_EVENT = {
   dob_updated: "dob_updated",
   converted: "converted",
   marked_dead: "marked_dead",
+  lead_temperature_updated: "lead_temperature_updated",
 } as const;
 
 export type LeadActivityEventType = (typeof LEAD_ACTIVITY_EVENT)[keyof typeof LEAD_ACTIVITY_EVENT];
@@ -55,6 +56,8 @@ export function leadActivityEventLabel(eventType: string): string {
       return "Converted";
     case LEAD_ACTIVITY_EVENT.marked_dead:
       return "Closed";
+    case LEAD_ACTIVITY_EVENT.lead_temperature_updated:
+      return "Priority";
     default:
       return eventType.replace(/_/g, " ");
   }
@@ -91,7 +94,11 @@ export function leadActivityThreadClasses(eventType: string): { rail: string; bu
       label: "text-violet-900",
     };
   }
-  if (t === LEAD_ACTIVITY_EVENT.follow_up_changed || t === LEAD_ACTIVITY_EVENT.next_action_changed) {
+  if (
+    t === LEAD_ACTIVITY_EVENT.follow_up_changed ||
+    t === LEAD_ACTIVITY_EVENT.next_action_changed ||
+    t === LEAD_ACTIVITY_EVENT.lead_temperature_updated
+  ) {
     return {
       rail: "bg-cyan-400/80",
       bubble: "border-cyan-200/85 bg-cyan-50/65 text-slate-900",

@@ -23,6 +23,11 @@ import { formatLeadContactOutcomeLabel, isValidLeadContactOutcome } from "@/lib/
 import { formatLeadNextActionLabel, isValidLeadNextAction } from "@/lib/crm/lead-follow-up-options";
 import { formatLeadPipelineStatusLabel, isValidLeadPipelineStatus } from "@/lib/crm/lead-pipeline-status";
 import { LEAD_ACTIVITY_EVENT } from "@/lib/crm/lead-activity-types";
+import {
+  isValidLeadTemperature,
+  leadTemperatureLabel,
+  normalizeLeadTemperature,
+} from "@/lib/crm/lead-temperature";
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import {
   isAllowedLeadInsuranceMime,
@@ -1060,6 +1065,15 @@ function readOptionalMedicareEffectiveDateIso(formData: FormData): string | null
   return t;
 }
 
+function readOptionalLeadTemperature(formData: FormData): string | null {
+  const v = formData.get("lead_temperature");
+  if (typeof v !== "string") return null;
+  const t = v.trim();
+  if (t === "") return null;
+  if (!isValidLeadTemperature(t)) return null;
+  return t;
+}
+
 async function insertLeadActivityRow(input: {
   leadId: string;
   eventType: string;
@@ -1143,7 +1157,7 @@ export async function updateLeadIntake(formData: FormData) {
     supabaseAdmin
       .from("leads")
       .select(
-        "id, status, owner_user_id, next_action, follow_up_date, referring_doctor_name, doctor_office_name, doctor_office_phone, doctor_office_fax, doctor_office_contact_person, referring_provider_name, referring_provider_phone, payer_name, payer_type, referral_source, service_disciplines, service_type, intake_status, notes, external_source_metadata, medicare_number, medicare_effective_date, medicare_notes"
+        "id, status, owner_user_id, next_action, follow_up_date, referring_doctor_name, doctor_office_name, doctor_office_phone, doctor_office_fax, doctor_office_contact_person, referring_provider_name, referring_provider_phone, payer_name, payer_type, referral_source, service_disciplines, service_type, intake_status, notes, external_source_metadata, medicare_number, medicare_effective_date, medicare_notes, lead_temperature"
       )
       .eq("id", leadId)
   ).maybeSingle();
@@ -1197,6 +1211,7 @@ export async function updateLeadIntake(formData: FormData) {
     medicare_number: readOptionalIntakeText(formData, "medicare_number"),
     medicare_effective_date: readOptionalMedicareEffectiveDateIso(formData),
     medicare_notes: readOptionalIntakeText(formData, "medicare_notes"),
+    lead_temperature: readOptionalLeadTemperature(formData),
   };
 
   const B = beforeRow as Record<string, unknown>;
@@ -1324,6 +1339,20 @@ export async function updateLeadIntake(formData: FormData) {
       eventType: LEAD_ACTIVITY_EVENT.intake_field_updated,
       body: `Intake status changed from ${normStr(B.intake_status) ?? "—"} to ${normStr(payload.intake_status) ?? "—"}`,
       metadata: { field: "intake_status", before: normStr(B.intake_status), after: normStr(payload.intake_status) },
+      createdByUserId: uid,
+    });
+  }
+
+  const beforeTmp = normalizeLeadTemperature(
+    typeof B.lead_temperature === "string" ? B.lead_temperature : null
+  );
+  const afterTmp = normalizeLeadTemperature(payload.lead_temperature);
+  if (beforeTmp !== afterTmp) {
+    await insertLeadActivityRow({
+      leadId,
+      eventType: LEAD_ACTIVITY_EVENT.lead_temperature_updated,
+      body: `Priority changed from ${leadTemperatureLabel(beforeTmp)} to ${leadTemperatureLabel(afterTmp)}`,
+      metadata: { before: beforeTmp, after: afterTmp },
       createdByUserId: uid,
     });
   }
@@ -2495,6 +2524,65 @@ export async function markLeadDeadFromList(formData: FormData): Promise<CrmLeadL
   revalidatePath("/admin");
   revalidatePath("/admin/crm/leads");
   revalidatePath(`/admin/crm/leads/${leadId}`);
+  return { ok: true };
+}
+
+/** List view: quick-set visual triage (`leads.lead_temperature`). Does not change pipeline `status`. */
+export async function quickSetLeadTemperature(formData: FormData): Promise<CrmLeadListQuickActionResult> {
+  const staff = await getStaffProfile();
+  if (!staff || !isManagerOrHigher(staff)) {
+    return { ok: false, error: "forbidden" };
+  }
+  const leadId = readTrimmedField(formData, "leadId");
+  if (!leadId) {
+    return { ok: false, error: "invalid_lead" };
+  }
+  const raw = formData.get("lead_temperature");
+  if (typeof raw !== "string") {
+    return { ok: false, error: "invalid_lead" };
+  }
+  const t = raw.trim();
+  if (t === "") {
+    return { ok: false, error: "invalid_lead" };
+  }
+  if (!isValidLeadTemperature(t)) {
+    return { ok: false, error: "invalid_lead" };
+  }
+
+  const { data: prevRow } = await leadRowsActiveOnly(
+    supabaseAdmin.from("leads").select("lead_temperature").eq("id", leadId)
+  ).maybeSingle();
+
+  const before = normalizeLeadTemperature(
+    typeof prevRow?.lead_temperature === "string" ? prevRow.lead_temperature : null
+  );
+
+  const { error } = await supabaseAdmin
+    .from("leads")
+    .update({ lead_temperature: t })
+    .eq("id", leadId)
+    .is("deleted_at", null);
+
+  if (error) {
+    console.warn("[admin/crm] quickSetLeadTemperature:", error.message);
+    return { ok: false, error: "save_failed" };
+  }
+
+  if (before !== normalizeLeadTemperature(t)) {
+    await insertLeadActivityRow({
+      leadId,
+      eventType: LEAD_ACTIVITY_EVENT.lead_temperature_updated,
+      body: `Priority changed from ${leadTemperatureLabel(before)} to ${leadTemperatureLabel(normalizeLeadTemperature(t))}`,
+      metadata: { before, after: t },
+      createdByUserId: staff.user_id,
+    });
+  }
+
+  revalidatePath("/admin");
+  revalidatePath("/admin/crm/leads");
+  revalidatePath(`/admin/crm/leads/${leadId}`);
+  revalidatePath("/workspace/phone/leads");
+  revalidatePath("/workspace/phone/follow-ups-today");
   return { ok: true };
 }
 

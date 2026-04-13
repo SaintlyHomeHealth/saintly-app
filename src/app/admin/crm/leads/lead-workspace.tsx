@@ -166,6 +166,8 @@ export type LeadWorkspaceExistingProps = {
   medicareNotes: string;
   /** Structured CRM thread (`lead_activities`). */
   initialActivities: LeadActivityRow[];
+  /** Visual triage (`leads.lead_temperature`); empty string = unset. */
+  leadTemperature: string;
 };
 
 export type LeadWorkspaceNewProps = {
@@ -437,6 +439,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
     medicareEffectiveDateIso,
     medicareNotes,
     initialActivities,
+    leadTemperature,
   } = props;
 
   const tomorrowIso = getCrmCalendarTomorrowIso();
@@ -548,6 +551,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
             medicareNumber={medicareNumber}
             medicareEffectiveDateIso={medicareEffectiveDateIso}
             medicareNotes={medicareNotes}
+            leadTemperature={leadTemperature}
             primaryInsurancePath={primaryInsurancePath}
             secondaryInsurancePath={secondaryInsurancePath}
             isEmployeeLead={isEmployeeLead}
@@ -857,6 +861,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
               <input type="hidden" name="intake_start_time" value={intakeRequestDefaults.start_time} />
               <input type="hidden" name="intake_situation" value={intakeRequestDefaults.situation} />
               <input type="hidden" name="lead_notes" value={applicationNotes} />
+              <input type="hidden" name="lead_temperature" value={leadTemperature} />
               {leadDisciplinesForForm.map((d) => (
                 <input key={d} type="hidden" name="service_disciplines" value={d} />
               ))}
@@ -912,6 +917,24 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
               <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
                 Follow-up date
                 <input type="date" name="follow_up_date" className={inp} defaultValue={followUpIso} />
+              </label>
+              <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
+                Lead priority (visual triage)
+                <select
+                  name="lead_temperature"
+                  className={inp}
+                  defaultValue={leadTemperature || ""}
+                  aria-describedby="lead-temperature-hint"
+                >
+                  <option value="">— Not set —</option>
+                  <option value="hot">Hot</option>
+                  <option value="warm">Warm</option>
+                  <option value="cool">Cool</option>
+                  <option value="dead">Dead (triage)</option>
+                </select>
+                <span id="lead-temperature-hint" className="mt-1 text-[10px] font-normal text-slate-500">
+                  List triage only — separate from pipeline status and insurance. Use for what needs attention first.
+                </span>
               </label>
             </div>
             <div className="mt-8 border-t border-slate-200/80 pt-6">

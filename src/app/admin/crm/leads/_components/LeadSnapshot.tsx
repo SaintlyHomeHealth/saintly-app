@@ -10,6 +10,7 @@ import { hasAnyIntakeRequestDetail } from "@/lib/crm/lead-intake-request";
 import { formatPhoneNumber } from "@/lib/phone/us-phone-format";
 
 import type { LeadWorkspaceContactProfileDefaults, LeadWorkspaceIntakeDefaults, LeadWorkspaceStaffOption } from "../lead-workspace";
+import { leadTemperatureLabel, normalizeLeadTemperature } from "@/lib/crm/lead-temperature";
 import { LeadSnapshotCopyButton, LeadSnapshotMedicareReveal } from "./lead-snapshot-client";
 import { LeadDeleteButton } from "./LeadDeleteButton";
 
@@ -126,6 +127,8 @@ export type LeadSnapshotProps = {
   isConverted: boolean;
   isDead: boolean;
   patientId: string | null;
+  /** Raw `leads.lead_temperature` (empty = unset). */
+  leadTemperature: string;
 };
 
 function buildSnapshotPlainText(p: LeadSnapshotProps): string {
@@ -153,6 +156,7 @@ function buildSnapshotPlainText(p: LeadSnapshotProps): string {
   L("Owner", staffLabel(p.staffOptions, p.ownerUid) || "—");
   L("Next action", formatLeadNextActionLabel(p.nextActionVal));
   L("Follow-up date", p.followUpIso ? fmtIsoDate(p.followUpIso) : "—");
+  L("Lead priority", leadTemperatureLabel(normalizeLeadTemperature(p.leadTemperature)));
   L("Last contact", formatLeadLastContactSummary(p.lastContactAt, p.lastOutcome));
 
   if (!p.isEmployeeLead) {
@@ -209,6 +213,7 @@ export function LeadSnapshot(props: LeadSnapshotProps) {
     isConverted,
     isDead,
     patientId,
+    leadTemperature,
   } = props;
 
   const addrParts = [
@@ -222,6 +227,18 @@ export function LeadSnapshot(props: LeadSnapshotProps) {
   const payerName = intakeDefaults.payer_name.trim();
   const payerType = intakeDefaults.payer_type.trim();
   const lowerPayer = `${payerName} ${payerType}`.toLowerCase();
+
+  const tempNorm = normalizeLeadTemperature(leadTemperature);
+  const tempBadge =
+    tempNorm === "hot" ? (
+      <Badge tone="rose">Hot</Badge>
+    ) : tempNorm === "warm" ? (
+      <Badge tone="amber">Warm</Badge>
+    ) : tempNorm === "cool" ? (
+      <Badge tone="slate">Cool</Badge>
+    ) : tempNorm === "dead" ? (
+      <Badge tone="slate">Dead</Badge>
+    ) : null;
 
   const flags: { key: string; node: ReactNode }[] = [];
   if (isEmployeeLead) flags.push({ key: "emp", node: <Badge tone="violet">New applicant</Badge> });
@@ -312,6 +329,9 @@ export function LeadSnapshot(props: LeadSnapshotProps) {
               ) : (
                 <span className="text-slate-400">Not provided</span>
               )}
+            </Field>
+            <Field label="Lead priority" emphasis>
+              {tempBadge ?? <span className="text-slate-400">Not set</span>}
             </Field>
             <Field label="Last contact / outcome" emphasis>
               <span className="font-medium text-slate-900">{formatLeadLastContactSummary(lastContactAt, lastOutcome)}</span>
