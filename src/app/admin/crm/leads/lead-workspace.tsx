@@ -20,6 +20,7 @@ import { LeadMedicareFields } from "@/app/admin/crm/leads/_components/LeadMedica
 import type { LeadActivityRow } from "@/lib/crm/lead-activities-timeline";
 import { LeadSectionCard } from "@/app/admin/crm/leads/_components/LeadSectionCard";
 import { LeadSnapshot } from "@/app/admin/crm/leads/_components/LeadSnapshot";
+import { MapboxUsAddressFields } from "@/components/address/MapboxUsAddressFields";
 import {
   convertLeadToPatientFromLeadDetail,
   createLeadManualFromCrm,
@@ -741,36 +742,17 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
             Date of birth
             <input name="dob" type="date" className={inp} defaultValue={dobIso ?? ""} />
           </label>
-          <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
-            Address line 1
-            <input
-              name="address_line_1"
-              autoComplete="address-line1"
-              className={inp}
-              defaultValue={contactProfileDefaults.address_line_1}
-            />
-          </label>
-          <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
-            Address line 2
-            <input
-              name="address_line_2"
-              autoComplete="address-line2"
-              className={inp}
-              defaultValue={contactProfileDefaults.address_line_2}
-            />
-          </label>
-          <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-            City
-            <input name="city" autoComplete="address-level2" className={inp} defaultValue={contactProfileDefaults.city} />
-          </label>
-          <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-            State
-            <input name="state" autoComplete="address-level1" className={inp} defaultValue={contactProfileDefaults.state} />
-          </label>
-          <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
-            ZIP
-            <input name="zip" autoComplete="postal-code" className={inp} defaultValue={contactProfileDefaults.zip} />
-          </label>
+          <MapboxUsAddressFields
+            key={leadId}
+            inputClassName={inp}
+            defaults={{
+              address_line_1: contactProfileDefaults.address_line_1,
+              address_line_2: contactProfileDefaults.address_line_2,
+              city: contactProfileDefaults.city,
+              state: contactProfileDefaults.state,
+              zip: contactProfileDefaults.zip,
+            }}
+          />
           <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
             Notes
             <textarea
