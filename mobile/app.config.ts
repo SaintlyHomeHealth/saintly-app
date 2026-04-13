@@ -6,7 +6,7 @@ import type { ExpoConfig, ConfigContext } from 'expo/config';
  *
  * Native Firebase: place `GoogleService-Info.plist` and `google-services.json` in this directory
  * (same paths as `ios.googleServicesFile` / `android.googleServicesFile`). Firebase app IDs must
- * use bundle id / package `com.saintly.softphone`.
+ * use bundle id / package `com.saintlyhomehealth.app` (must match Firebase app registration).
  *
  * `expo-dev-client` is omitted for `EAS_BUILD_PROFILE=production` so store / TestFlight builds
  * are not development clients.
@@ -31,7 +31,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   ios: {
     supportsTablet: true,
-    bundleIdentifier: 'com.saintly.softphone',
+    bundleIdentifier: 'com.saintlyhomehealth.app',
     googleServicesFile: './GoogleService-Info.plist',
     infoPlist: {
       NSMicrophoneUsageDescription:
@@ -47,7 +47,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       foregroundImage: './assets/adaptive-icon.png',
       backgroundColor: '#f4f7fb',
     },
-    package: 'com.saintly.softphone',
+    package: 'com.saintlyhomehealth.app',
     googleServicesFile: './google-services.json',
     edgeToEdgeEnabled: true,
     predictiveBackGestureEnabled: false,

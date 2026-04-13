@@ -26,8 +26,8 @@ mobile/
 
 Minimal **placeholder** `GoogleService-Info.plist` and `google-services.json` are in `mobile/` so `expo prebuild` succeeds without secrets. **Replace both files** with downloads from Firebase Console before relying on any Firebase or FCM behavior.
 
-1. In Firebase Console, register **iOS** with bundle ID `com.saintly.softphone` and **Android** with package `com.saintly.softphone`.
-2. Download the real `GoogleService-Info.plist` and `google-services.json` and overwrite the files in **`mobile/`**.
+1. In Firebase Console, register **iOS** with bundle ID `com.saintlyhomehealth.app` and **Android** with package `com.saintlyhomehealth.app`.
+2. Download the real `GoogleService-Info.plist` and `google-services.json` and overwrite the files in **`mobile/`**. The `BUNDLE_ID` / `package_name` must match `app.config.ts`; if you register a new iOS app in Firebase for this bundle ID, use the plist Firebase generates for that app (it includes the correct `GOOGLE_APP_ID`).
 3. Run a **development build** — React Native Firebase does not run inside Expo Go once you import native APIs; the config here is for `expo prebuild` / EAS.
 
 Config uses `@react-native-firebase/app` and `expo-build-properties` (`useFrameworks: static` on iOS), per React Native Firebase’s Expo guide.
