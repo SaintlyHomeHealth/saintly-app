@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import twilio from "twilio";
 
 import { supabaseAdmin } from "@/lib/admin";
+import { mergeSoftphoneConferenceMetadata } from "@/lib/phone/merge-softphone-conference-metadata";
 import { upsertPhoneCallFromWebhook } from "@/lib/phone/log-call";
 import { isValidE164 } from "@/lib/softphone/phone-number";
 import { parseStaffUserIdFromTwilioClientFrom } from "@/lib/softphone/twilio-client-identity";
@@ -16,29 +17,42 @@ function useConferenceOutbound(): boolean {
   return process.env.TWILIO_SOFTPHONE_USE_CONFERENCE === "true";
 }
 
+/**
+ * Creates the REST outbound leg into the conference room. Returns the PSTN CallSid from Twilio (authoritative).
+ * Conference participant webhooks can confirm later; this must not depend on join event shape alone.
+ */
 async function createPstnLegIntoConference(input: {
   toE164: string;
   fromE164: string;
   roomName: string;
-}): Promise<void> {
+}): Promise<string | null> {
   const accountSid = process.env.TWILIO_ACCOUNT_SID?.trim();
   const authToken = process.env.TWILIO_AUTH_TOKEN?.trim();
   const publicBase = process.env.TWILIO_PUBLIC_BASE_URL?.trim().replace(/\/$/, "");
   if (!accountSid || !authToken || !publicBase) {
     console.error("[twilio/voice/softphone] PSTN leg skipped — missing TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, or TWILIO_PUBLIC_BASE_URL");
-    return;
+    return null;
   }
   const joinUrl = `${publicBase}/api/twilio/voice/softphone-pstn-join/${encodeURIComponent(input.roomName)}`;
   try {
     const client = twilio(accountSid, authToken);
-    await client.calls.create({
+    const call = await client.calls.create({
       to: input.toE164,
       from: input.fromE164,
       url: joinUrl,
       method: "POST",
     });
+    const pstnSid = typeof call.sid === "string" && call.sid.startsWith("CA") ? call.sid : null;
+    if (pstnSid) {
+      console.log("[twilio/voice/softphone] PSTN leg created via REST (calls.create)", {
+        pstnLeg: `${pstnSid.slice(0, 10)}…`,
+        room: input.roomName.slice(0, 24),
+      });
+    }
+    return pstnSid;
   } catch (e) {
     console.error("[twilio/voice/softphone] PSTN conference leg create failed", e);
+    return null;
   }
 }
 
@@ -145,11 +159,26 @@ export async function POST(req: NextRequest) {
   </Dial>
 </Response>`.trim();
 
-    await createPstnLegIntoConference({
+    const pstnLegSid = await createPstnLegIntoConference({
       toE164: toRaw,
       fromE164: callerId,
       roomName,
     });
+
+    if (pstnLegSid && callSid) {
+      const merged = await mergeSoftphoneConferenceMetadata(supabaseAdmin, callSid, {
+        pstn_call_sid: pstnLegSid,
+        friendly_name: roomName,
+      });
+      if (!merged.ok) {
+        console.warn("[twilio/voice/softphone] merge PSTN sid after REST create failed", merged.error);
+      } else {
+        console.log("[twilio/voice/softphone] metadata merge after PSTN REST create", {
+          clientLeg: `${callSid.slice(0, 10)}…`,
+          pstnLeg: `${pstnLegSid.slice(0, 10)}…`,
+        });
+      }
+    }
 
     return new NextResponse(xml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
   }

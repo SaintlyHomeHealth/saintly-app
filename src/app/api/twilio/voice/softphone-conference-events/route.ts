@@ -46,9 +46,10 @@ export async function POST(req: NextRequest) {
   };
 
   /**
-   * Correlate by CallSid identity (reliable): the browser Client leg’s CallSid equals `clientSid`
-   * from the room name `sf-<clientSid>`. Any other participant CallSid is the REST PSTN leg (primary
-   * callee). Labels / From are fallbacks only — Twilio casing varies.
+   * Correlate by CallSid: browser leg === clientSid from room `sf-<clientSid>`; any other CA… in the
+   * same conference is treated as PSTN (primary callee). Only set leg SIDs when CallSid is a real CA…
+   * so we never write empty strings into metadata (that used to wipe REST-populated pstn_call_sid).
+   * REST `calls.create` already stores pstn_call_sid first; events here confirm or leave it unchanged.
    */
   if (participantCallSid.startsWith("CA")) {
     if (participantCallSid === clientSid) {
@@ -56,10 +57,19 @@ export async function POST(req: NextRequest) {
     } else {
       patch.pstn_call_sid = participantCallSid;
     }
+  } else if (participantCallSid.length > 0) {
+    console.log("[softphone-conference-events] skip_leg_mapping_non_ca_call_sid", {
+      participantCallSid: participantCallSid.slice(0, 32),
+      label,
+      event,
+    });
   } else if (label === "pstn" || (!label && !isClientIdentityFrom(from))) {
-    patch.pstn_call_sid = participantCallSid;
+    console.log("[softphone-conference-events] pstn_hint_no_call_sid_yet (conference_sid still merged)", {
+      label,
+      event,
+    });
   } else if (label === "staff" || (!label && isClientIdentityFrom(from))) {
-    patch.client_call_sid = participantCallSid;
+    console.log("[softphone-conference-events] staff_hint_no_call_sid_yet", { label, event });
   }
 
   console.log("[softphone-conference-events]", {
