@@ -7,6 +7,7 @@ import { isLeadPipelineTerminal, isValidLeadPipelineStatus } from "@/lib/crm/lea
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 import { supabaseAdmin } from "@/lib/admin";
 import type { LeadActivityRow } from "@/lib/crm/lead-activities-timeline";
+import { isMissingSchemaObjectError } from "@/lib/crm/supabase-migration-fallback";
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { LEAD_INSURANCE_BUCKET } from "@/lib/crm/lead-insurance-storage";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
@@ -47,6 +48,16 @@ async function leadInsuranceSignedUrl(path: string | null | undefined): Promise<
   return data.signedUrl;
 }
 
+/** Without `medicare_*` — works before migration `20260413120000_lead_activities_medicare.sql`. */
+const LEAD_DETAIL_CONTACTS_EMBED =
+  "contacts ( full_name, first_name, last_name, primary_phone, secondary_phone, email, address_line_1, address_line_2, city, state, zip, notes )";
+
+const LEAD_DETAIL_SELECT_CORE =
+  "id, contact_id, source, status, owner_user_id, lead_type, next_action, follow_up_date, follow_up_at, created_at, last_contact_at, last_contact_type, last_outcome, last_note, notes, external_source_metadata, referring_doctor_name, doctor_office_name, doctor_office_phone, doctor_office_fax, doctor_office_contact_person, referring_provider_name, referring_provider_phone, payer_name, payer_type, referral_source, service_type, service_disciplines, intake_status, dob, primary_insurance_file_url, secondary_insurance_file_url";
+
+const LEAD_DETAIL_SELECT_WITH_MEDICARE = `${LEAD_DETAIL_SELECT_CORE}, medicare_number, medicare_effective_date, medicare_notes, ${LEAD_DETAIL_CONTACTS_EMBED}`;
+const LEAD_DETAIL_SELECT_LEGACY = `${LEAD_DETAIL_SELECT_CORE}, ${LEAD_DETAIL_CONTACTS_EMBED}`;
+
 export default async function LeadIntakePage({
   params,
   searchParams,
@@ -78,14 +89,18 @@ export default async function LeadIntakePage({
   }
 
   const supabase = await createServerSupabaseClient();
-  const { data: row, error } = await leadRowsActiveOnly(
-    supabase
-      .from("leads")
-      .select(
-        "id, contact_id, source, status, owner_user_id, lead_type, next_action, follow_up_date, follow_up_at, created_at, last_contact_at, last_contact_type, last_outcome, last_note, notes, external_source_metadata, referring_doctor_name, doctor_office_name, doctor_office_phone, doctor_office_fax, doctor_office_contact_person, referring_provider_name, referring_provider_phone, payer_name, payer_type, referral_source, service_type, service_disciplines, intake_status, dob, primary_insurance_file_url, secondary_insurance_file_url, medicare_number, medicare_effective_date, medicare_notes, contacts ( full_name, first_name, last_name, primary_phone, secondary_phone, email, address_line_1, address_line_2, city, state, zip, notes )"
-      )
-      .eq("id", leadId.trim())
+
+  let rowRes = await leadRowsActiveOnly(
+    supabase.from("leads").select(LEAD_DETAIL_SELECT_WITH_MEDICARE).eq("id", leadId.trim())
   ).maybeSingle();
+
+  if (rowRes.error && isMissingSchemaObjectError(rowRes.error)) {
+    rowRes = await leadRowsActiveOnly(
+      supabase.from("leads").select(LEAD_DETAIL_SELECT_LEGACY).eq("id", leadId.trim())
+    ).maybeSingle();
+  }
+
+  const { data: row, error } = rowRes;
 
   if (error || !row?.id) {
     notFound();
@@ -224,14 +239,23 @@ export default async function LeadIntakePage({
     leadInsuranceSignedUrl(secondaryInsurancePath),
   ]);
 
-  const { data: activityRows } = await supabaseAdmin
+  const activityRes = await supabaseAdmin
     .from("lead_activities")
     .select("id, lead_id, event_type, body, metadata, created_at, created_by_user_id, deleted_at, deletable")
     .eq("lead_id", leadId.trim())
     .is("deleted_at", null)
     .order("created_at", { ascending: true });
 
-  const initialActivities = (activityRows ?? []) as LeadActivityRow[];
+  let initialActivities: LeadActivityRow[] = [];
+  if (activityRes.error) {
+    if (isMissingSchemaObjectError(activityRes.error)) {
+      console.warn("[crm/lead detail] lead_activities unavailable (migration not applied?):", activityRes.error.message);
+    } else {
+      console.warn("[crm/lead detail] lead_activities query failed:", activityRes.error.message);
+    }
+  } else {
+    initialActivities = (activityRes.data ?? []) as LeadActivityRow[];
+  }
 
   const medicareNum = typeof L.medicare_number === "string" ? L.medicare_number : "";
   const medicareNotesStr = typeof L.medicare_notes === "string" ? L.medicare_notes : "";
