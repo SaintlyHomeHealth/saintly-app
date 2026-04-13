@@ -1,7 +1,7 @@
 import type { CallContextVoiceAi } from "@/components/softphone/WorkspaceSoftphoneProvider";
 import type { LiveTranscriptEntry, LiveTranscriptSpeaker } from "@/lib/phone/live-transcript-entries";
 
-export type TranscriptSpeaker = "saintly" | "caller" | "unknown";
+export type TranscriptSpeaker = "saintly" | "caller" | "local" | "unknown";
 
 export type TranscriptBubble = {
   id: string;
@@ -14,6 +14,7 @@ const SAINTLY_LABEL = "Saintly Home Health";
 /** Public labels for UI (not stored in DB). */
 export function transcriptSpeakerLabel(speaker: TranscriptSpeaker, callerLabel: string): string {
   if (speaker === "saintly") return SAINTLY_LABEL;
+  if (speaker === "local") return "You";
   if (speaker === "unknown") return "Speaker";
   return callerLabel.trim() || "Caller";
 }
@@ -21,6 +22,7 @@ export function transcriptSpeakerLabel(speaker: TranscriptSpeaker, callerLabel: 
 function mapLiveSpeaker(s: LiveTranscriptSpeaker): TranscriptSpeaker {
   if (s === "agent") return "saintly";
   if (s === "caller") return "caller";
+  if (s === "staff") return "local";
   return "unknown";
 }
 

@@ -11,3 +11,21 @@ export function resolveTwilioMediaStreamWssUrl(): string {
   const fallback = process.env.TWILIO_REALTIME_MEDIA_STREAM_WSS_URL?.trim();
   return (primary || fallback || "").replace(/\/$/, "");
 }
+
+/**
+ * Appends query params the realtime bridge reads to route transcript rows and avoid
+ * mixing legs. `transcript_external_id` is always the workspace `phone_calls.external_call_id`
+ * (Client/WebRTC CallSid), even when the Twilio stream is on the PSTN leg.
+ */
+export function appendSoftphoneTranscriptStreamParams(
+  baseWss: string,
+  opts: { transcriptExternalId: string; inputRole: "staff" | "caller" }
+): string {
+  const trimmed = baseWss.trim().replace(/\/$/, "");
+  if (!trimmed.startsWith("wss://")) return trimmed;
+  const u = new URL(trimmed.replace(/^wss:\/\//i, "https://"));
+  u.searchParams.set("transcript_external_id", opts.transcriptExternalId);
+  u.searchParams.set("input_role", opts.inputRole);
+  u.searchParams.set("softphone_transcript", "1");
+  return u.toString().replace(/^https:\/\//i, "wss://");
+}

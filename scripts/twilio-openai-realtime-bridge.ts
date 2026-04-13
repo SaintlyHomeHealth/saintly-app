@@ -164,8 +164,8 @@ function dialTwiml(input: {
 async function postBridgeTranscript(input: {
   externalCallId: string;
   text: string;
-  /** caller = remote party speech; agent = assistant / Saintly model speech */
-  speaker?: "caller" | "agent" | "unknown";
+  /** caller = PSTN remote; staff = browser mic (Client leg inbound); agent = model TTS text */
+  speaker?: "caller" | "agent" | "staff" | "unknown";
 }): Promise<void> {
   const baseRaw = process.env.APP_PUBLIC_BASE_URL?.trim();
   const secret = process.env.REALTIME_BRIDGE_SHARED_SECRET?.trim();
@@ -409,7 +409,7 @@ function sendOpenAiJson(oai: WebSocket, msg: Record<string, unknown>): void {
   oai.send(JSON.stringify(msg));
 }
 
-function buildSessionUpdateMessage(): Record<string, unknown> {
+function buildSessionUpdateMessage(opts?: { softphoneTranscriptOnly?: boolean }): Record<string, unknown> {
   const silenceMs = Number.parseInt(process.env.OPENAI_REALTIME_SILENCE_DURATION_MS || "550", 10);
   const silenceDurationMs =
     Number.isFinite(silenceMs) ? Math.min(1200, Math.max(250, silenceMs)) : 550;
@@ -418,6 +418,28 @@ function buildSessionUpdateMessage(): Record<string, unknown> {
     thresholdRaw != null && thresholdRaw.trim() !== ""
       ? Math.min(0.95, Math.max(0.2, Number.parseFloat(thresholdRaw)))
       : 0.58;
+  if (opts?.softphoneTranscriptOnly) {
+    return {
+      type: "session.update",
+      session: {
+        modalities: ["text"],
+        instructions:
+          "Transcribe incoming audio only. Do not produce spoken audio, tool calls, or conversational assistant replies.",
+        input_audio_format: "g711_ulaw",
+        turn_detection: {
+          type: "server_vad",
+          threshold,
+          prefix_padding_ms: 280,
+          silence_duration_ms: silenceDurationMs,
+        },
+        input_audio_transcription: {
+          model: "whisper-1",
+        },
+        tools: [],
+        tool_choice: "none",
+      },
+    };
+  }
   return {
     type: "session.update",
     session: {
@@ -441,8 +463,8 @@ function buildSessionUpdateMessage(): Record<string, unknown> {
   };
 }
 
-function sendSessionUpdate(oai: WebSocket): void {
-  sendOpenAiJson(oai, buildSessionUpdateMessage());
+function sendSessionUpdate(oai: WebSocket, opts?: { softphoneTranscriptOnly?: boolean }): void {
+  sendOpenAiJson(oai, buildSessionUpdateMessage(opts));
 }
 
 function logOpenAiInboundLifecycle(
@@ -516,15 +538,49 @@ function wsPathFromRequest(req: http.IncomingMessage): string {
   }
 }
 
+/** Softphone transcript streams append these query params (see `appendSoftphoneTranscriptStreamParams`). */
+function parseTranscriptWsQuery(req: http.IncomingMessage): {
+  transcriptExternalId: string | null;
+  inputRole: "staff" | "caller" | null;
+  softphoneTranscript: boolean;
+} {
+  try {
+    const host = req.headers.host || "localhost";
+    const u = new URL(req.url || "/", `http://${host}`);
+    const tid = u.searchParams.get("transcript_external_id")?.trim();
+    const role = u.searchParams.get("input_role")?.trim().toLowerCase();
+    const inputRole = role === "staff" || role === "caller" ? role : null;
+    const softphone =
+      u.searchParams.get("softphone_transcript") === "1" || u.searchParams.get("softphone_transcript") === "true";
+    return {
+      transcriptExternalId: tid && tid.startsWith("CA") ? tid : null,
+      inputRole,
+      softphoneTranscript: softphone,
+    };
+  } catch {
+    return { transcriptExternalId: null, inputRole: null, softphoneTranscript: false };
+  }
+}
+
 wss.on("connection", (twilioWs, req) => {
+  const transcriptQuery = parseTranscriptWsQuery(req);
+  const transcriptExternalIdParam = transcriptQuery.transcriptExternalId;
+  const inputTranscriptRoleParam = transcriptQuery.inputRole;
+  const softphoneTranscriptMode = transcriptQuery.softphoneTranscript;
+
   const reqPath = wsPathFromRequest(req);
   console.log("[realtime-bridge][diag] twilio_websocket_client_connected", {
     path: reqPath,
     remoteAddress: req.socket.remoteAddress,
+    transcriptExternalIdParam: transcriptExternalIdParam ? transcriptExternalIdParam.slice(0, 12) + "…" : null,
+    inputRole: inputTranscriptRoleParam,
+    softphoneTranscriptMode,
   });
 
   let streamSid: string | null = null;
   let callSid: string | null = null;
+  /** Row key for `/bridge-transcript` — Client CallSid when present, else Twilio stream CallSid. */
+  let bridgeExternalCallIdForTranscript: string | null = null;
   let callerIdForDial = "";
   /** Inbound caller (Stream Parameter `from` / Twilio {{From}}). */
   let callerFromStream = "";
@@ -539,6 +595,9 @@ wss.on("connection", (twilioWs, req) => {
   let firstTwilioOutboundMediaLogged = false;
   /** Accumulates `response.*audio_transcript.delta` until done (assistant side). */
   let agentTranscriptBuffer = "";
+  /** Twilio `media.track` sample counts (inbound vs outbound) for diagnosing mixed streams. */
+  let mediaChunksByTrack: Record<string, number> = {};
+  let mediaTrackDiagLogged = false;
 
   const safeClose = () => {
     try {
@@ -595,6 +654,8 @@ wss.on("connection", (twilioWs, req) => {
         return;
       }
 
+      bridgeExternalCallIdForTranscript = transcriptExternalIdParam ?? callSid;
+
       console.log("[realtime-bridge][diag] twilio_start_event_received", {
         streamSid,
         callSid: callSid.slice(0, 12) + "…",
@@ -602,6 +663,19 @@ wss.on("connection", (twilioWs, req) => {
         streamFromParameter: callerFromStream || null,
         streamToParameter: streamToFromTwilio || null,
         callerIdUsedForTransfer: callerIdForDial || null,
+      });
+
+      console.log("[realtime-bridge][diag] transcript_stream_context", {
+        twilioMediaCallSid: callSid.slice(0, 12) + "…",
+        transcriptExternalId: bridgeExternalCallIdForTranscript.slice(0, 12) + "…",
+        inputRole: inputTranscriptRoleParam,
+        softphoneTranscriptMode,
+        note:
+          inputTranscriptRoleParam === "staff"
+            ? "Whisper input ≈ browser mic (Client leg inbound)"
+            : inputTranscriptRoleParam === "caller"
+              ? "Whisper input ≈ PSTN toward Twilio (PSTN leg inbound)"
+              : "legacy stream — input speaker defaults to caller",
       });
 
       latRef = {
@@ -631,14 +705,15 @@ wss.on("connection", (twilioWs, req) => {
         console.log("[realtime-bridge][oai] voice_turn_policy", {
           turn_detection: "server_vad+tuned",
           REALTIME_DIAG_RESPONSE_CREATE_ON_CONNECT,
+          softphoneTranscriptMode,
           env: {
             OPENAI_REALTIME_SILENCE_DURATION_MS: process.env.OPENAI_REALTIME_SILENCE_DURATION_MS ?? "(default 400)",
             OPENAI_REALTIME_VAD_THRESHOLD: process.env.OPENAI_REALTIME_VAD_THRESHOLD ?? "(default 0.42)",
           },
         });
-        sendSessionUpdate(oai!);
+        sendSessionUpdate(oai!, { softphoneTranscriptOnly: softphoneTranscriptMode });
         markLatency("session_update_sent");
-        if (REALTIME_DIAG_RESPONSE_CREATE_ON_CONNECT) {
+        if (!softphoneTranscriptMode && REALTIME_DIAG_RESPONSE_CREATE_ON_CONNECT) {
           sendOpenAiJson(oai!, {
             type: "response.create",
             response: {
@@ -648,6 +723,10 @@ wss.on("connection", (twilioWs, req) => {
             },
           });
           markLatency("response_create_sent");
+        } else if (softphoneTranscriptMode) {
+          console.log("[realtime-bridge][diag] softphone_transcript_skip_initial_response_create", {
+            callSid: callSid!.slice(0, 12) + "…",
+          });
         }
       });
 
@@ -705,13 +784,23 @@ wss.on("connection", (twilioWs, req) => {
 
         if (type === "conversation.item.input_audio_transcription.completed") {
           const transcript = typeof ev.transcript === "string" ? ev.transcript.trim() : "";
-          if (transcript && callSid) {
+          const extId = bridgeExternalCallIdForTranscript ?? callSid;
+          const inputSpeaker: "staff" | "caller" =
+            inputTranscriptRoleParam === "staff"
+              ? "staff"
+              : inputTranscriptRoleParam === "caller"
+                ? "caller"
+                : "caller";
+          if (transcript && extId) {
             console.log("[realtime-bridge] transcript_delta_received", {
-              kind: "caller_utterance_complete",
-              callSid: callSid.slice(0, 10) + "…",
+              kind: "input_utterance_whisper_complete",
+              callSid: callSid?.slice(0, 10) + "…",
+              transcriptExternalId: extId.slice(0, 10) + "…",
+              speakerLabelBeforeStore: inputSpeaker,
+              softphoneTranscriptMode,
               len: transcript.length,
             });
-            void postBridgeTranscript({ externalCallId: callSid, text: transcript, speaker: "caller" });
+            void postBridgeTranscript({ externalCallId: extId, text: transcript, speaker: inputSpeaker });
           }
           return;
         }
@@ -736,13 +825,21 @@ wss.on("connection", (twilioWs, req) => {
         if (type === "response.audio_transcript.done" || type === "response.output_audio_transcript.done") {
           const text = agentTranscriptBuffer.trim();
           agentTranscriptBuffer = "";
-          if (text && callSid) {
+          const extId = bridgeExternalCallIdForTranscript ?? callSid;
+          if (text && extId) {
+            if (softphoneTranscriptMode) {
+              console.log("[realtime-bridge] bridge_transcript_agent_skipped_softphone_transcribe_only", {
+                len: text.length,
+                callSid: callSid?.slice(0, 10) + "…",
+              });
+              return;
+            }
             console.log("[realtime-bridge] transcript_delta_received", {
               kind: "assistant_utterance_done",
               len: text.length,
-              callSid: callSid.slice(0, 10) + "…",
+              callSid: callSid?.slice(0, 10) + "…",
             });
-            void postBridgeTranscript({ externalCallId: callSid, text, speaker: "agent" });
+            void postBridgeTranscript({ externalCallId: extId, text, speaker: "agent" });
           }
           return;
         }
@@ -894,6 +991,22 @@ wss.on("connection", (twilioWs, req) => {
     }
 
     if (event === "media") {
+      const media = msg.media as Record<string, unknown> | undefined;
+      const track = media && typeof media.track === "string" ? media.track : "unknown";
+      mediaChunksByTrack[track] = (mediaChunksByTrack[track] ?? 0) + 1;
+      if (!mediaTrackDiagLogged) {
+        const total = Object.values(mediaChunksByTrack).reduce((a, b) => a + b, 0);
+        if (total >= 24) {
+          mediaTrackDiagLogged = true;
+          console.log("[realtime-bridge][diag] twilio_media_track_sample", {
+            streamSid,
+            callSid: callSid ? callSid.slice(0, 12) + "…" : null,
+            chunksByTrack: { ...mediaChunksByTrack },
+            softphoneTranscriptMode,
+            inputTranscriptRole: inputTranscriptRoleParam,
+          });
+        }
+      }
       if (!firstTwilioMediaLogged) {
         firstTwilioMediaLogged = true;
         if (latRef) {
@@ -901,8 +1014,6 @@ wss.on("connection", (twilioWs, req) => {
             latRef.ms.first_twilio_inbound_media = Math.round(performance.now() - latRef.t0);
           }
         }
-        const media = msg.media as Record<string, unknown> | undefined;
-        const track = media && typeof media.track === "string" ? media.track : undefined;
         console.log("[realtime-bridge][diag] twilio_first_media_event_received", {
           streamSid,
           callSid: callSid ? callSid.slice(0, 12) + "…" : null,

@@ -3,7 +3,10 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/admin";
 import { mergeSoftphoneConferenceMetadata } from "@/lib/phone/merge-softphone-conference-metadata";
 import { canAccessWorkspacePhone, getStaffProfile } from "@/lib/staff-profile";
-import { resolveTwilioMediaStreamWssUrl } from "@/lib/twilio/resolve-media-stream-wss-url";
+import {
+  appendSoftphoneTranscriptStreamParams,
+  resolveTwilioMediaStreamWssUrl,
+} from "@/lib/twilio/resolve-media-stream-wss-url";
 import { startCallMediaStream } from "@/lib/twilio/start-call-media-stream";
 
 /**
@@ -29,8 +32,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "callSid required" }, { status: 400 });
   }
 
-  const wssUrl = resolveTwilioMediaStreamWssUrl();
-  if (!wssUrl || !wssUrl.startsWith("wss://")) {
+  const baseWss = resolveTwilioMediaStreamWssUrl();
+  if (!baseWss || !baseWss.startsWith("wss://")) {
     return NextResponse.json(
       {
         error:
@@ -41,30 +44,91 @@ export async function POST(req: Request) {
     );
   }
 
+  /** Default `inbound_track`: WebRTC Client leg audio *from the browser toward Twilio* (staff mic). `both_tracks` mixes mic + playback (PSTN/conference/assistant) and confuses Whisper + labels. */
+  const track = body.track ?? "inbound_track";
+
+  const clientWss = appendSoftphoneTranscriptStreamParams(baseWss, {
+    transcriptExternalId: callSid,
+    inputRole: "staff",
+  });
+
+  const { data: confRow } = await supabaseAdmin
+    .from("phone_calls")
+    .select("metadata")
+    .eq("external_call_id", callSid)
+    .maybeSingle();
+
+  const meta = confRow?.metadata && typeof confRow.metadata === "object" && !Array.isArray(confRow.metadata)
+    ? (confRow.metadata as Record<string, unknown>)
+    : {};
+  const sc =
+    meta.softphone_conference && typeof meta.softphone_conference === "object" && !Array.isArray(meta.softphone_conference)
+      ? (meta.softphone_conference as Record<string, unknown>)
+      : {};
+  const pstnCallSid =
+    typeof sc.pstn_call_sid === "string" && sc.pstn_call_sid.startsWith("CA") ? sc.pstn_call_sid.trim() : null;
+
   console.log("[start-transcript] media_stream_requested", {
-    callSid: callSid.slice(0, 12),
-    track: body.track ?? "both_tracks",
+    clientCallSid: callSid.slice(0, 12),
+    track,
+    audioIntent:
+      track === "inbound_track"
+        ? "client_leg_inbound (browser microphone toward Twilio)"
+        : track === "outbound_track"
+          ? "client_leg_outbound (audio Twilio plays to the browser earpiece)"
+          : "both_tracks (mixed — not recommended for attribution)",
+    pstnStream: pstnCallSid ? `will_start pstn inbound ${pstnCallSid.slice(0, 12)}…` : "skipped (no pstn_call_sid on row yet)",
   });
 
-  const result = await startCallMediaStream({
+  const clientResult = await startCallMediaStream({
     callSid,
-    wssUrl,
-    track: body.track ?? "both_tracks",
+    wssUrl: clientWss,
+    track,
   });
 
-  if (!result.ok) {
-    return NextResponse.json({ error: result.error }, { status: 502 });
+  if (!clientResult.ok) {
+    return NextResponse.json({ error: clientResult.error }, { status: 502 });
+  }
+
+  let pstnStreamSid: string | null = null;
+  let pstnStreamError: string | null = null;
+  if (pstnCallSid && track === "inbound_track") {
+    const pstnWss = appendSoftphoneTranscriptStreamParams(baseWss, {
+      transcriptExternalId: callSid,
+      inputRole: "caller",
+    });
+    const pstnResult = await startCallMediaStream({
+      callSid: pstnCallSid,
+      wssUrl: pstnWss,
+      track: "inbound_track",
+    });
+    if (pstnResult.ok) {
+      pstnStreamSid = pstnResult.streamSid ?? null;
+    } else {
+      pstnStreamError = pstnResult.error;
+      console.warn("[start-transcript] pstn_media_stream_failed", {
+        pstnCallSid: pstnCallSid.slice(0, 12),
+        error: pstnResult.error.slice(0, 200),
+      });
+    }
   }
 
   console.log("[start-transcript] twilio_media_stream_connected", {
-    callSid: callSid.slice(0, 12),
-    streamSid: result.streamSid ?? null,
-    wssTarget: wssUrl.replace(/^wss:\/\/([^/]+).*/, "wss://$1/…"),
+    clientCallSid: callSid.slice(0, 12),
+    clientStreamSid: clientResult.streamSid ?? null,
+    pstnStreamSid,
+    pstnStreamError,
+    wssTarget: baseWss.replace(/^wss:\/\/([^/]+).*/, "wss://$1/…"),
   });
 
   await mergeSoftphoneConferenceMetadata(supabaseAdmin, callSid, {
     last_conference_event: "media_stream_started",
   });
 
-  return NextResponse.json({ ok: true, streamSid: result.streamSid ?? null });
+  return NextResponse.json({
+    ok: true,
+    streamSid: clientResult.streamSid ?? null,
+    pstnStreamSid,
+    pstnStreamError,
+  });
 }

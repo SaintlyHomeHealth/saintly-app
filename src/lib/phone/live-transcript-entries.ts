@@ -3,7 +3,7 @@
  * Separate from AI summary fields — append-only with monotonic `seq`.
  */
 
-export type LiveTranscriptSpeaker = "caller" | "agent" | "unknown";
+export type LiveTranscriptSpeaker = "caller" | "agent" | "staff" | "unknown";
 
 export type LiveTranscriptEntry = {
   seq: number;
@@ -18,7 +18,7 @@ const MAX_TEXT_PER_ENTRY = 12_000;
 
 export function normalizeSpeaker(raw: unknown): LiveTranscriptSpeaker {
   const s = typeof raw === "string" ? raw.trim().toLowerCase() : "";
-  if (s === "caller" || s === "agent" || s === "unknown") return s;
+  if (s === "caller" || s === "agent" || s === "staff" || s === "unknown") return s;
   return "unknown";
 }
 
