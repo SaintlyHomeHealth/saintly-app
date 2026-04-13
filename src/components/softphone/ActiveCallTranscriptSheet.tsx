@@ -75,12 +75,15 @@ export function ActiveCallTranscriptSheet() {
   const [showAssistantDebugLines, setShowAssistantDebugLines] = useState(false);
 
   const voiceAi = callContext?.voice_ai ?? null;
-  const softphoneTranscriptMode = Boolean(voiceAi?.softphone_transcript_streams?.client_stream_started_at);
-  const messages = buildTranscriptMessages(voiceAi, { humanSpeechOnly: softphoneTranscriptMode });
-  const assistantDebugEntries = softphoneTranscriptMode ? buildSoftphoneAssistantDebugEntries(voiceAi) : [];
+  /** Staff softphone calls: only You + Caller in the main thread (no AI assistant lines). */
+  const softphoneHumanTranscript =
+    Boolean(callContext?.workspace_softphone_session) ||
+    Boolean(voiceAi?.softphone_transcript_streams?.client_stream_started_at);
+  const messages = buildTranscriptMessages(voiceAi, { humanSpeechOnly: softphoneHumanTranscript });
+  const assistantDebugEntries = softphoneHumanTranscript ? buildSoftphoneAssistantDebugEntries(voiceAi) : [];
   const aiNotes = buildTranscriptAiNotes(voiceAi);
   const callerLabel = activeRemoteLabel ?? "Caller";
-  const headerSubtitle = softphoneTranscriptMode ? "You and the remote caller" : callerLabel;
+  const headerSubtitle = softphoneHumanTranscript ? "You and the remote caller" : callerLabel;
 
   useEffect(() => {
     if (!transcriptPanelOpen || !transcriptEnabled) return;
@@ -141,7 +144,7 @@ export function ActiveCallTranscriptSheet() {
               Waiting for speech. Lines appear after each utterance is transcribed (usually within a second or two after
               you stop talking).
             </p>
-            {softphoneTranscriptMode && assistantDebugEntries.length > 0 ? (
+            {softphoneHumanTranscript && assistantDebugEntries.length > 0 ? (
               <p className="mt-3 text-xs text-slate-400">
                 The main feed shows only <span className="text-slate-300">You</span> and{" "}
                 <span className="text-slate-300">Caller</span>. Assistant lines are hidden here — use{" "}
@@ -157,14 +160,14 @@ export function ActiveCallTranscriptSheet() {
                 key={m.id}
                 msg={m}
                 callerLabel={callerLabel}
-                softphoneTranscript={softphoneTranscriptMode}
+                softphoneTranscript={softphoneHumanTranscript}
               />
             ))}
             <div ref={bottomRef} className="h-px w-full shrink-0" aria-hidden />
           </div>
         )}
 
-        {transcriptEnabled && !callContextLoadError && softphoneTranscriptMode && assistantDebugEntries.length > 0 ? (
+        {transcriptEnabled && !callContextLoadError && softphoneHumanTranscript && assistantDebugEntries.length > 0 ? (
           <div className="mx-auto mt-4 max-w-lg border-t border-white/10 pt-4">
             <button
               type="button"
@@ -184,7 +187,7 @@ export function ActiveCallTranscriptSheet() {
           </div>
         ) : null}
 
-        {transcriptEnabled && !callContextLoadError && aiNotes.length > 0 ? (
+        {transcriptEnabled && !callContextLoadError && aiNotes.length > 0 && !softphoneHumanTranscript ? (
           <div className="mx-auto mt-6 max-w-lg border-t border-white/10 pt-4">
             <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">AI notes</p>
             <p className="mt-1 text-[11px] text-slate-500">

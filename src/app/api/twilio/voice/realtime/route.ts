@@ -3,12 +3,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/admin";
 import { ensureIncomingCallAlert } from "@/lib/phone/incoming-call-alerts";
 import { upsertPhoneCallFromWebhook } from "@/lib/phone/log-call";
+import { buildTwiMLAppIncomingClientRingTwiml } from "@/lib/phone/twilio-voice-handoff";
 import { buildRealtimeConnectStreamTwiml } from "@/lib/phone/twilio-realtime-stream-twiml";
 import {
   getRealtimeInboundGateSnapshot,
   resolveTwilioRealtimeMediaStreamWssUrl,
   type RealtimeInboundGateSnapshot,
 } from "@/lib/phone/twilio-voice-realtime-gate";
+import { isTwilioVoiceJsClientFrom, isTwilioVoiceJsClientTo } from "@/lib/twilio/twilio-voice-client-leg";
 import { parseVerifiedTwilioFormBody } from "@/lib/twilio/verify-form-post";
 
 /**
@@ -167,6 +169,40 @@ export async function POST(req: NextRequest) {
     return new NextResponse(xml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
   }
 
+  const publicBase = resolvePublicBase(req);
+
+  if (isTwilioVoiceJsClientFrom(from)) {
+    if (!publicBase) {
+      const xml = `<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna">${escapeXml(
+        "Our phone system URL is not configured. Please try again later."
+      )}</Say></Response>`;
+      return new NextResponse(xml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
+    }
+    const softphoneUrl = `${publicBase}/api/twilio/voice/softphone`;
+    console.warn("[twilio/voice/realtime] bypassing_ai_redirecting_softphone_client_from", {
+      callSid: shortCallSid(callSid),
+      redirect_to: softphoneUrl,
+    });
+    const xml = `<?xml version="1.0" encoding="UTF-8"?><Response><Redirect method="POST">${escapeXml(
+      softphoneUrl
+    )}</Redirect></Response>`;
+    return new NextResponse(xml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
+  }
+
+  if (isTwilioVoiceJsClientTo(to) && publicBase) {
+    const twiml = buildTwiMLAppIncomingClientRingTwiml({
+      publicBase,
+      toClientUri: to!,
+      pstnCallerE164: from ?? "",
+    });
+    if (twiml) {
+      console.warn("[twilio/voice/realtime] bypassing_ai_incoming_client_to", {
+        callSid: shortCallSid(callSid),
+      });
+      return new NextResponse(twiml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
+    }
+  }
+
   const logResult = await upsertPhoneCallFromWebhook(supabaseAdmin, {
     external_call_id: callSid,
     direction: "inbound",
@@ -198,7 +234,6 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const publicBase = resolvePublicBase(req);
   const streamWss = resolveTwilioRealtimeMediaStreamWssUrl();
   const gateSnap = getRealtimeInboundGateSnapshot(from);
   const useRealtime = gateSnap.useRealtime;

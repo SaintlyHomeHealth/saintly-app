@@ -15,6 +15,13 @@ import {
 
 export type WorkspaceCallContextPayload = {
   phone_call_id: string;
+  /** `phone_calls.metadata.source` when set (e.g. `twilio_voice_softphone`). */
+  metadata_source: string | null;
+  /**
+   * True when this row is a staff workspace softphone session (`metadata.source=twilio_voice_softphone`).
+   * Used to keep live transcript UI to You/Caller only (no AI lines in the main thread).
+   */
+  workspace_softphone_session: boolean;
   from_e164: string | null;
   external_call_id: string;
   softphone_conference: {
@@ -61,6 +68,13 @@ export async function buildWorkspaceCallContextPayload(
   }
 
   const meta = data.metadata;
+  const rawMeta =
+    meta && typeof meta === "object" && !Array.isArray(meta) ? (meta as Record<string, unknown>) : null;
+  const metadataSource =
+    rawMeta && typeof rawMeta.source === "string" && rawMeta.source.trim() !== ""
+      ? rawMeta.source.trim()
+      : null;
+  const workspaceSoftphoneSession = metadataSource === "twilio_voice_softphone";
   const voiceAi = readVoiceAiMetadataFromMetadata(meta);
   const rawVoiceAi =
     meta && typeof meta === "object" && !Array.isArray(meta)
@@ -129,6 +143,8 @@ export async function buildWorkspaceCallContextPayload(
 
   const payload: WorkspaceCallContextPayload = {
     phone_call_id: data.id as string,
+    metadata_source: metadataSource,
+    workspace_softphone_session: workspaceSoftphoneSession,
     from_e164: typeof data.from_e164 === "string" ? data.from_e164 : null,
     external_call_id: typeof data.external_call_id === "string" ? data.external_call_id : callSid,
     softphone_conference: conf

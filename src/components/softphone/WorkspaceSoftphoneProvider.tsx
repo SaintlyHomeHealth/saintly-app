@@ -72,6 +72,8 @@ export type CallDeskContext = {
   conference_gating: ConferenceGatingSnapshot | null;
   /** Manual recording state from `phone_calls.metadata.softphone_recording`. */
   softphone_recording: SoftphoneRecordingMeta | null;
+  /** Staff softphone row (`metadata.source=twilio_voice_softphone`) — transcript is human-only. */
+  workspace_softphone_session: boolean;
 };
 
 /** Server flags from `/api/workspace/phone/softphone-capabilities` (no secrets). */
@@ -335,6 +337,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
         if (currentSid !== sid) return;
         const j = (await res.json()) as {
           found?: boolean;
+          workspace_softphone_session?: boolean;
           voice_ai?: (CallContextVoiceAi & { live_transcript_entries?: LiveTranscriptEntry[] | null }) | null;
           softphone_conference?: SoftphoneConferenceContext | null;
           conference_gating?: ConferenceGatingSnapshot | null;
@@ -376,6 +379,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
             conference: j.softphone_conference ?? null,
             conference_gating: j.conference_gating ?? null,
             softphone_recording: j.softphone_recording ?? null,
+            workspace_softphone_session: Boolean(j.workspace_softphone_session),
           });
           if (typeof j.softphone_conference?.pstn_on_hold === "boolean") {
             setIsPstnHold(j.softphone_conference.pstn_on_hold);

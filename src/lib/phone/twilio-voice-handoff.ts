@@ -122,3 +122,45 @@ export async function buildVoiceHandoffTwiml(input: {
   </Dial>
 </Response>`.trim();
 }
+
+/**
+ * TwiML Application request whose **To** is `client:…` (incoming ring to a Voice SDK browser).
+ * Never use the AI receptionist / OpenAI realtime path — bridge the caller to the WebRTC client.
+ */
+export function buildTwiMLAppIncomingClientRingTwiml(input: {
+  publicBase: string;
+  /** Twilio `To`, e.g. `client:saintly_<uuid>`. */
+  toClientUri: string;
+  /** Twilio `From` — PSTN caller E.164 when present. */
+  pstnCallerE164: string;
+}): string | null {
+  const base = input.publicBase.trim().replace(/\/$/, "");
+  const to = input.toClientUri.trim();
+  if (!base || !to.toLowerCase().startsWith("client:")) {
+    return null;
+  }
+  const identity = to.slice("client:".length).trim();
+  if (!identity) {
+    return null;
+  }
+  const pstn = input.pstnCallerE164.trim();
+  const browserFallbackActionUrl = `${base}/api/twilio/voice/inbound-browser-fallback`;
+  const statusCallbackUrl = `${base}/api/twilio/voice/status`;
+  const browserRingSec = resolveBrowserFirstRingTimeoutSeconds();
+  const callerIdForDial = pstn || identity;
+
+  const browserDialAttrs = ` answerOnBridge="true" timeout="${browserRingSec}" callerId="${escapeXml(
+    callerIdForDial
+  )}" action="${escapeXml(browserFallbackActionUrl)}" method="POST" statusCallback="${escapeXml(
+    statusCallbackUrl
+  )}" statusCallbackMethod="POST" statusCallbackEvent="initiated ringing answered completed"`;
+
+  const clientBody = clientDialNounXml(identity, pstn);
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Dial${browserDialAttrs}>
+    ${clientBody}
+  </Dial>
+</Response>`.trim();
+}

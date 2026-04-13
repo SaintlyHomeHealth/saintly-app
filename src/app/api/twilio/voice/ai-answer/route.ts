@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/admin";
 import { ensureIncomingCallAlert } from "@/lib/phone/incoming-call-alerts";
 import { upsertPhoneCallFromWebhook } from "@/lib/phone/log-call";
+import { buildTwiMLAppIncomingClientRingTwiml } from "@/lib/phone/twilio-voice-handoff";
+import { isTwilioVoiceJsClientFrom, isTwilioVoiceJsClientTo } from "@/lib/twilio/twilio-voice-client-leg";
 import { parseVerifiedTwilioFormBody } from "@/lib/twilio/verify-form-post";
 
 /**
@@ -51,6 +53,24 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  const publicBase = resolvePublicBase();
+  if (isTwilioVoiceJsClientFrom(from) && publicBase) {
+    const xml = `<?xml version="1.0" encoding="UTF-8"?><Response><Redirect method="POST">${escapeXml(
+      `${publicBase}/api/twilio/voice/softphone`
+    )}</Redirect></Response>`;
+    return new NextResponse(xml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
+  }
+  if (isTwilioVoiceJsClientTo(to) && publicBase) {
+    const twiml = buildTwiMLAppIncomingClientRingTwiml({
+      publicBase,
+      toClientUri: to,
+      pstnCallerE164: from,
+    });
+    if (twiml) {
+      return new NextResponse(twiml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
+    }
+  }
+
   console.log("[ai-voice] received call", { callSid, from, to });
 
   const logResult = await upsertPhoneCallFromWebhook(supabaseAdmin, {
@@ -78,7 +98,6 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const publicBase = resolvePublicBase();
   if (!publicBase) {
     const xml = `<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna">${escapeXml(
       "Our phone system URL is not configured. Please try again later."
