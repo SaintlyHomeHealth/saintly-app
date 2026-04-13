@@ -7,6 +7,7 @@ import { upsertPhoneCallFromWebhook } from "@/lib/phone/log-call";
 import { isValidE164 } from "@/lib/softphone/phone-number";
 import { parseStaffUserIdFromTwilioClientFrom } from "@/lib/softphone/twilio-client-identity";
 import { escapeXml, softphoneConferenceRoomName } from "@/lib/twilio/softphone-conference";
+import { logTwilioVoiceTrace, summarizeTwimlResponse } from "@/lib/twilio/twilio-voice-trace-log";
 import { parseVerifiedTwilioFormBody } from "@/lib/twilio/verify-form-post";
 
 /**
@@ -71,9 +72,22 @@ export async function POST(req: NextRequest) {
   const callSid = params.CallSid?.trim();
   const fromRaw = params.From?.trim();
   const toRaw = params.To?.trim();
+  const parentCallSid = typeof params.ParentCallSid === "string" ? params.ParentCallSid.trim() : null;
 
   if (toRaw?.toLowerCase().startsWith("client:")) {
     const xml = `<?xml version="1.0" encoding="UTF-8"?><Response></Response>`;
+    logTwilioVoiceTrace({
+      route: "POST /api/twilio/voice/softphone",
+      client_call_sid: callSid ?? null,
+      pstn_call_sid: null,
+      ai_path_entered: false,
+      softphone_bypass_path_entered: true,
+      twiml_summary: summarizeTwimlResponse(xml),
+      branch: "empty_response_to_client_uri",
+      parent_call_sid: parentCallSid,
+      from_raw: fromRaw,
+      to_raw: toRaw,
+    });
     return new NextResponse(xml, {
       status: 200,
       headers: { "Content-Type": "text/xml; charset=utf-8" },
@@ -84,6 +98,18 @@ export async function POST(req: NextRequest) {
     const xml = `<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna">${escapeXml(
       "We could not start this call."
     )}</Say></Response>`;
+    logTwilioVoiceTrace({
+      route: "POST /api/twilio/voice/softphone",
+      client_call_sid: callSid ?? null,
+      pstn_call_sid: null,
+      ai_path_entered: false,
+      softphone_bypass_path_entered: true,
+      twiml_summary: summarizeTwimlResponse(xml),
+      branch: "missing_callsid_or_from",
+      parent_call_sid: parentCallSid,
+      from_raw: fromRaw,
+      to_raw: toRaw,
+    });
     return new NextResponse(xml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
   }
 
@@ -95,11 +121,35 @@ export async function POST(req: NextRequest) {
     const xml = `<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna">${escapeXml(
       NOT_CONFIGURED
     )}</Say></Response>`;
+    logTwilioVoiceTrace({
+      route: "POST /api/twilio/voice/softphone",
+      client_call_sid: callSid,
+      pstn_call_sid: null,
+      ai_path_entered: false,
+      softphone_bypass_path_entered: true,
+      twiml_summary: summarizeTwimlResponse(xml),
+      branch: "caller_id_not_configured",
+      parent_call_sid: parentCallSid,
+      from_raw: fromRaw,
+      to_raw: toRaw,
+    });
     return new NextResponse(xml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
   }
 
   if (toRaw?.toLowerCase().startsWith("client:")) {
     const xml = `<?xml version="1.0" encoding="UTF-8"?><Response></Response>`;
+    logTwilioVoiceTrace({
+      route: "POST /api/twilio/voice/softphone",
+      client_call_sid: callSid,
+      pstn_call_sid: null,
+      ai_path_entered: false,
+      softphone_bypass_path_entered: true,
+      twiml_summary: summarizeTwimlResponse(xml),
+      branch: "empty_response_to_client_uri_late",
+      parent_call_sid: parentCallSid,
+      from_raw: fromRaw,
+      to_raw: toRaw,
+    });
     return new NextResponse(xml, {
       status: 200,
       headers: { "Content-Type": "text/xml; charset=utf-8" },
@@ -180,6 +230,18 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    logTwilioVoiceTrace({
+      route: "POST /api/twilio/voice/softphone",
+      client_call_sid: callSid,
+      pstn_call_sid: pstnLegSid,
+      ai_path_entered: false,
+      softphone_bypass_path_entered: true,
+      twiml_summary: summarizeTwimlResponse(xml),
+      branch: "conference_outbound_client_plus_pstn_rest_leg",
+      parent_call_sid: parentCallSid,
+      from_raw: fromRaw,
+      to_raw: toRaw,
+    });
     return new NextResponse(xml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
   }
 
@@ -198,5 +260,17 @@ export async function POST(req: NextRequest) {
   </Dial>
 </Response>`.trim();
 
+  logTwilioVoiceTrace({
+    route: "POST /api/twilio/voice/softphone",
+    client_call_sid: callSid,
+    pstn_call_sid: null,
+    ai_path_entered: false,
+    softphone_bypass_path_entered: true,
+    twiml_summary: summarizeTwimlResponse(xml),
+    branch: "legacy_dial_number_pstn",
+    parent_call_sid: parentCallSid,
+    from_raw: fromRaw,
+    to_raw: toRaw,
+  });
   return new NextResponse(xml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
 }

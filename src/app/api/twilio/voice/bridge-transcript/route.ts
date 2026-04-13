@@ -8,6 +8,7 @@ import {
   type LiveTranscriptEntry,
   type LiveTranscriptSpeaker,
 } from "@/lib/phone/live-transcript-entries";
+import { logTwilioVoiceTrace } from "@/lib/twilio/twilio-voice-trace-log";
 
 /**
  * Incremental live transcript from the Railway Twilio↔OpenAI bridge (Media Streams).
@@ -62,6 +63,8 @@ export async function POST(req: NextRequest) {
     row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata)
       ? (row.metadata as Record<string, unknown>)
       : {};
+  const rowSource = typeof meta.source === "string" ? meta.source.trim() : "";
+  const workspaceSoftphoneRow = rowSource === "twilio_voice_softphone";
   const prevVoice =
     meta.voice_ai && typeof meta.voice_ai === "object" && !Array.isArray(meta.voice_ai)
       ? (meta.voice_ai as Record<string, unknown>)
@@ -107,6 +110,20 @@ export async function POST(req: NextRequest) {
     speaker_stored: speaker,
     entriesTotal: mergedEntries.length,
   });
+
+  if (speaker === "agent") {
+    logTwilioVoiceTrace({
+      route: "POST /api/twilio/voice/bridge-transcript",
+      client_call_sid: externalCallId,
+      pstn_call_sid: null,
+      ai_path_entered: true,
+      softphone_bypass_path_entered: false,
+      twiml_summary: `stored_transcript_speaker=agent|seq=${entry.seq}`,
+      branch: workspaceSoftphoneRow
+        ? "agent_line_on_softphone_phone_call_row_filter_in_ui"
+        : "agent_line_inbound_receptionist_or_other",
+    });
+  }
 
   return NextResponse.json({ ok: true, seq: entry.seq });
 }

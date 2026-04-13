@@ -72,6 +72,7 @@ export function ActiveCallTranscriptSheet() {
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const uiAssistantLeakTraceLoggedRef = useRef(false);
   const [showAssistantDebugLines, setShowAssistantDebugLines] = useState(false);
 
   const voiceAi = callContext?.voice_ai ?? null;
@@ -84,6 +85,29 @@ export function ActiveCallTranscriptSheet() {
   const aiNotes = buildTranscriptAiNotes(voiceAi);
   const callerLabel = activeRemoteLabel ?? "Caller";
   const headerSubtitle = softphoneHumanTranscript ? "You and the remote caller" : callerLabel;
+
+  /** One-shot browser log: correlate with server `[twilio-voice-trace]` if assistant lines still exist in softphone human-only mode. */
+  useEffect(() => {
+    if (!softphoneHumanTranscript || assistantDebugEntries.length === 0) {
+      uiAssistantLeakTraceLoggedRef.current = false;
+      return;
+    }
+    if (uiAssistantLeakTraceLoggedRef.current) return;
+    uiAssistantLeakTraceLoggedRef.current = true;
+    console.log(
+      "[twilio-voice-trace]",
+      JSON.stringify({
+        trace: "workspace_transcript_ui_assistant_lines_present",
+        client_call_sid: callContext?.external_call_id ?? null,
+        assistant_debug_line_count: assistantDebugEntries.length,
+        note: "Main thread hides these; debug section lists them.",
+      })
+    );
+  }, [
+    softphoneHumanTranscript,
+    assistantDebugEntries.length,
+    callContext?.external_call_id,
+  ]);
 
   useEffect(() => {
     if (!transcriptPanelOpen || !transcriptEnabled) return;

@@ -12,6 +12,7 @@ import {
   resolveTwilioMediaStreamWssUrl,
 } from "@/lib/twilio/resolve-media-stream-wss-url";
 import { startCallMediaStream } from "@/lib/twilio/start-call-media-stream";
+import { logTwilioVoiceTrace } from "@/lib/twilio/twilio-voice-trace-log";
 
 /**
  * Starts Twilio Media Streams on the Client leg (and PSTN when linked). WSS URL from
@@ -64,6 +65,15 @@ export async function POST(req: Request) {
     if (!deferred.ok && deferred.error) {
       return NextResponse.json({ ok: false, error: deferred.error, pstnOnly: true, deferred }, { status: 502 });
     }
+    logTwilioVoiceTrace({
+      route: "POST /api/workspace/phone/conference/start-transcript",
+      client_call_sid: callSid,
+      pstn_call_sid: null,
+      ai_path_entered: false,
+      softphone_bypass_path_entered: true,
+      twiml_summary: "rest_start_media_stream|pstn_only_deferred",
+      branch: "pstn_transcript_stream_followup",
+    });
     return NextResponse.json({
       ok: true,
       pstnOnly: true,
@@ -161,6 +171,16 @@ export async function POST(req: Request) {
     clientStreamStarted: true,
     clientStreamSid: clientResult.streamSid ?? null,
     pstnDeferred,
+  });
+
+  logTwilioVoiceTrace({
+    route: "POST /api/workspace/phone/conference/start-transcript",
+    client_call_sid: callSid,
+    pstn_call_sid: pstnCallSid,
+    ai_path_entered: false,
+    softphone_bypass_path_entered: true,
+    twiml_summary: `rest_start_media_stream|track=${track}|softphone_transcript_only`,
+    branch: "staff_requested_live_transcript_streams",
   });
 
   await mergeSoftphoneConferenceMetadata(supabaseAdmin, callSid, {

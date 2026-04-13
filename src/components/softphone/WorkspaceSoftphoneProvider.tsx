@@ -66,6 +66,8 @@ export type SoftphoneConferenceContext = {
 };
 
 export type CallDeskContext = {
+  /** Twilio Client leg CallSid — matches `phone_calls.external_call_id` and server logs. */
+  external_call_id: string | null;
   voice_ai: CallContextVoiceAi | null;
   conference: SoftphoneConferenceContext | null;
   /** Server-computed gating — use for disabling controls with real reasons. */
@@ -337,6 +339,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
         if (currentSid !== sid) return;
         const j = (await res.json()) as {
           found?: boolean;
+          external_call_id?: string;
           workspace_softphone_session?: boolean;
           voice_ai?: (CallContextVoiceAi & { live_transcript_entries?: LiveTranscriptEntry[] | null }) | null;
           softphone_conference?: SoftphoneConferenceContext | null;
@@ -363,6 +366,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
           }
           const va = j.voice_ai;
           setCallContext({
+            external_call_id: typeof j.external_call_id === "string" ? j.external_call_id : null,
             voice_ai: va
               ? {
                   short_summary: va.short_summary ?? null,
