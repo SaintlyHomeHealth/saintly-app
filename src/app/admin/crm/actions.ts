@@ -22,6 +22,10 @@ import {
 import { formatLeadContactOutcomeLabel, isValidLeadContactOutcome } from "@/lib/crm/lead-contact-outcome";
 import { formatLeadNextActionLabel, isValidLeadNextAction } from "@/lib/crm/lead-follow-up-options";
 import { formatLeadPipelineStatusLabel, isValidLeadPipelineStatus } from "@/lib/crm/lead-pipeline-status";
+import {
+  normalizeAttemptActionKeys,
+  normalizeContactOutcomeResult,
+} from "@/lib/crm/lead-contact-outcome-normalize";
 import { LEAD_ACTIVITY_EVENT } from "@/lib/crm/lead-activity-types";
 import {
   isValidLeadTemperature,
@@ -1410,7 +1414,12 @@ export async function updateLeadIntake(formData: FormData) {
 
 export type SaveLeadOutcomeResult =
   | { ok: true }
-  | { ok: false; error: "forbidden" | "invalid_lead" | "invalid_outcome" | "invalid_contact_type" | "save_failed" };
+  | {
+      ok: false;
+      error: "forbidden" | "invalid_lead" | "invalid_outcome" | "invalid_contact_type" | "save_failed";
+      /** Human-readable detail (DB message, validation, etc.) */
+      message?: string;
+    };
 
 /**
  * Persists a contact attempt on the lead (`leads.last_*` columns) and appends a structured row to `lead_activities`.
@@ -1433,37 +1442,50 @@ function readAttemptActionsFromForm(formData: FormData): string[] {
     const s = typeof v === "string" ? v.trim() : "";
     if (s && allowed.has(s)) out.push(s);
   }
-  return [...new Set(out)];
+  return normalizeAttemptActionKeys([...new Set(out)]);
 }
 
-export async function saveLeadOutcome(formData: FormData): Promise<SaveLeadOutcomeResult> {
+export type SaveLeadOutcomeInput = {
+  leadId: string;
+  outcome: string;
+  actionKeys: string[];
+  attemptAt: Date;
+  followUpAt: Date | null;
+  nextAction: string | null;
+  notes: string;
+};
+
+/**
+ * Shared persistence for contact outcomes (used by server action + `/api/crm/contact-outcome`).
+ */
+export async function saveLeadOutcomeCore(input: SaveLeadOutcomeInput): Promise<SaveLeadOutcomeResult> {
   const staff = await getStaffProfile();
   if (!staff || !isManagerOrHigher(staff)) {
-    console.warn("[admin/crm] saveLeadOutcome: forbidden");
-    return { ok: false, error: "forbidden" };
+    console.warn("[admin/crm] saveLeadOutcomeCore: forbidden");
+    return { ok: false, error: "forbidden", message: "You don't have permission to save this outcome." };
   }
 
-  const received: Record<string, string> = {};
-  for (const [k, v] of formData.entries()) {
-    received[k] = typeof v === "string" ? v : String(v);
-  }
-  console.log("[admin/crm] saveLeadOutcome received", received);
-
-  const idRaw = formData.get("leadId");
-  const leadId = typeof idRaw === "string" ? idRaw.trim() : "";
+  const leadId = input.leadId.trim();
   if (!leadId) {
-    return { ok: false, error: "invalid_lead" };
+    return { ok: false, error: "invalid_lead", message: "Missing lead id." };
   }
 
-  const outcomeRaw = formData.get("outcome");
-  const outcome = typeof outcomeRaw === "string" ? outcomeRaw.trim() : "";
+  const outcome = normalizeContactOutcomeResult(input.outcome);
   if (!outcome || !isValidLeadContactOutcome(outcome)) {
-    return { ok: false, error: "invalid_outcome" };
+    return {
+      ok: false,
+      error: "invalid_outcome",
+      message: "Select a valid contact result.",
+    };
   }
 
-  const actionKeys = readAttemptActionsFromForm(formData);
+  const actionKeys = normalizeAttemptActionKeys(input.actionKeys);
   if (actionKeys.length === 0) {
-    return { ok: false, error: "invalid_outcome" };
+    return {
+      ok: false,
+      error: "invalid_outcome",
+      message: "Select at least one attempted action.",
+    };
   }
 
   const { data: leadBefore, error: leadLoadErr } = await leadRowsActiveOnly(
@@ -1473,17 +1495,31 @@ export async function saveLeadOutcome(formData: FormData): Promise<SaveLeadOutco
       .eq("id", leadId)
   ).maybeSingle();
 
-  if (leadLoadErr || !leadBefore) {
-    return { ok: false, error: "invalid_lead" };
+  if (leadLoadErr) {
+    console.error("[admin/crm] saveLeadOutcomeCore load:", leadLoadErr.message);
+    return {
+      ok: false,
+      error: "invalid_lead",
+      message: leadLoadErr.message || "Could not load lead.",
+    };
+  }
+  if (!leadBefore) {
+    return {
+      ok: false,
+      error: "invalid_lead",
+      message: "Lead not found or may have been archived.",
+    };
   }
 
-  const notesRaw = formData.get("notes");
-  const notes = typeof notesRaw === "string" ? notesRaw.trim().slice(0, 4000) : "";
+  const notes = input.notes.trim().slice(0, 4000);
+  const nextAction = input.nextAction;
 
-  const nextAction = readLeadNextActionFromForm(formData);
+  const attemptAt = input.attemptAt;
+  if (Number.isNaN(attemptAt.getTime())) {
+    return { ok: false, error: "invalid_outcome", message: "Invalid attempt date/time." };
+  }
 
-  const attemptAt = readIsoInstantFromForm(formData, "attempt_at_iso") ?? new Date();
-  const followUpAt = readIsoInstantFromForm(formData, "follow_up_at_iso");
+  const followUpAt = input.followUpAt;
 
   const contactType = deriveContactTypeFromActions(actionKeys);
 
@@ -1506,7 +1542,7 @@ export async function saveLeadOutcome(formData: FormData): Promise<SaveLeadOutco
     contact_attempt_actions: actionKeys,
   };
 
-  console.log("[admin/crm] saveLeadOutcome rowUpdate", rowUpdate);
+  console.log("[admin/crm] saveLeadOutcomeCore rowUpdate", rowUpdate);
 
   const { data, error } = await supabaseAdmin
     .from("leads")
@@ -1517,16 +1553,24 @@ export async function saveLeadOutcome(formData: FormData): Promise<SaveLeadOutco
     .maybeSingle();
 
   if (error) {
-    console.error("[admin/crm] saveLeadOutcome DB error:", error.message, error);
-    return { ok: false, error: "save_failed" };
+    console.error("[admin/crm] saveLeadOutcomeCore DB error:", error.message, error);
+    return {
+      ok: false,
+      error: "save_failed",
+      message: error.message || "Database error while saving outcome.",
+    };
   }
 
   if (!data?.id) {
-    console.error("[admin/crm] saveLeadOutcome: no row updated (lead missing or deleted?)");
-    return { ok: false, error: "save_failed" };
+    console.error("[admin/crm] saveLeadOutcomeCore: no row updated (lead missing or deleted?)");
+    return {
+      ok: false,
+      error: "save_failed",
+      message: "No row updated — lead may be missing or archived.",
+    };
   }
 
-  await insertLeadActivityRow({
+  const activityOk = await insertLeadActivityRow({
     leadId,
     eventType: LEAD_ACTIVITY_EVENT.contact_attempt,
     body: logBlock,
@@ -1538,6 +1582,10 @@ export async function saveLeadOutcome(formData: FormData): Promise<SaveLeadOutco
     },
     createdByUserId: staff.user_id,
   });
+
+  if (!activityOk) {
+    console.error("[admin/crm] saveLeadOutcomeCore: activity insert failed after lead update");
+  }
 
   if (outcome === "spoke") {
     const prev = typeof leadBefore.last_outcome === "string" ? leadBefore.last_outcome.trim() : "";
@@ -1559,6 +1607,43 @@ export async function saveLeadOutcome(formData: FormData): Promise<SaveLeadOutco
   revalidatePath("/workspace/phone/follow-ups-today");
 
   return { ok: true };
+}
+
+export async function saveLeadOutcome(formData: FormData): Promise<SaveLeadOutcomeResult> {
+  const received: Record<string, string> = {};
+  for (const [k, v] of formData.entries()) {
+    received[k] = typeof v === "string" ? v : String(v);
+  }
+  console.log("[admin/crm] saveLeadOutcome received", received);
+
+  const idRaw = formData.get("leadId");
+  const leadId = typeof idRaw === "string" ? idRaw.trim() : "";
+  if (!leadId) {
+    return { ok: false, error: "invalid_lead", message: "Missing lead id." };
+  }
+
+  const outcomeRaw = formData.get("outcome");
+  const outcome = typeof outcomeRaw === "string" ? outcomeRaw.trim() : "";
+
+  const actionKeys = readAttemptActionsFromForm(formData);
+
+  const notesRaw = formData.get("notes");
+  const notes = typeof notesRaw === "string" ? notesRaw.trim().slice(0, 4000) : "";
+
+  const nextAction = readLeadNextActionFromForm(formData);
+
+  const attemptAt = readIsoInstantFromForm(formData, "attempt_at_iso") ?? new Date();
+  const followUpAt = readIsoInstantFromForm(formData, "follow_up_at_iso");
+
+  return saveLeadOutcomeCore({
+    leadId,
+    outcome,
+    actionKeys,
+    attemptAt,
+    followUpAt,
+    nextAction,
+    notes,
+  });
 }
 
 export type SaveLeadQuickNoteResult =

@@ -4,7 +4,11 @@ import { Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 
-import { saveLeadOutcome, type SaveLeadOutcomeResult } from "@/app/admin/crm/actions";
+import { type SaveLeadOutcomeResult } from "@/app/admin/crm/actions";
+import {
+  normalizeAttemptActionKeys,
+  normalizeContactOutcomeResult,
+} from "@/lib/crm/lead-contact-outcome-normalize";
 import {
   isValidLeadContactOutcome,
   LEAD_CONTACT_OUTCOME_OPTIONS,
@@ -26,6 +30,7 @@ type Props = {
 
 function toastMessage(result: SaveLeadOutcomeResult): string {
   if (result.ok) return "Outcome saved";
+  if (!result.ok && result.message) return result.message;
   switch (result.error) {
     case "forbidden":
       return "You don't have permission to save this outcome.";
@@ -215,18 +220,30 @@ export function LeadContactOutcomeForm({
 
           startTransition(async () => {
             try {
-              const fd = new FormData();
-              fd.set("leadId", leadId);
-              fd.set("outcome", outcome);
-              for (const a of actions) {
-                fd.append("attempt_actions", a);
-              }
-              fd.set("attempt_at_iso", attemptInstantIso);
-              fd.set("follow_up_at_iso", followUpInstantIso);
-              fd.set("next_action", nextAction);
-              fd.set("notes", notes);
+              const payload = {
+                contact_result: normalizeContactOutcomeResult(outcome),
+                attempted_actions: normalizeAttemptActionKeys([...actions]),
+                attempt_at: attemptInstantIso,
+                next_step: nextAction.trim() || null,
+                follow_up_at: followUpInstantIso || null,
+                outcome_note: notes.trim() || null,
+                lead_id: leadId,
+              };
+              console.log("CONTACT OUTCOME PAYLOAD", payload);
 
-              const result = await saveLeadOutcome(fd);
+              const res = await fetch("/api/crm/contact-outcome", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload),
+              });
+
+              let result: SaveLeadOutcomeResult;
+              try {
+                result = (await res.json()) as SaveLeadOutcomeResult;
+              } catch {
+                setToast({ type: "err", message: `Save failed (${res.status})` });
+                return;
+              }
 
               if (result.ok) {
                 setOutcomeFieldError(null);
@@ -241,9 +258,10 @@ export function LeadContactOutcomeForm({
                 }
               }
             } catch (err) {
+              console.error(err);
               setToast({
                 type: "err",
-                message: err instanceof Error ? err.message : "Could not save outcome. Try again.",
+                message: err instanceof Error ? err.message : "Failed to save outcome",
               });
             }
           });
