@@ -28,6 +28,9 @@ export async function POST(req: NextRequest) {
 
   const clientSid = clientCallSidFromConferenceFriendlyName(friendly);
   if (!clientSid) {
+    console.warn("[softphone-conference-events] skip_unrecognized_friendly_name", {
+      friendly: friendly.slice(0, 80),
+    });
     return new NextResponse("OK", { status: 200, headers: { "Content-Type": "text/plain" } });
   }
 
@@ -37,19 +40,35 @@ export async function POST(req: NextRequest) {
     last_conference_event: event || undefined,
   };
 
+  /**
+   * Correlate by CallSid identity (reliable): the browser Client leg’s CallSid equals `clientSid`
+   * from the room name `sf-<clientSid>`. Any other participant CallSid is the REST PSTN leg (primary
+   * callee). Labels / From are fallbacks only — Twilio casing varies.
+   */
   if (participantCallSid.startsWith("CA")) {
-    if (label === "pstn" || (!label && !isClientIdentityFrom(from))) {
-      patch.pstn_call_sid = participantCallSid;
-    } else if (label === "staff" || (!label && isClientIdentityFrom(from))) {
+    if (participantCallSid === clientSid) {
       patch.client_call_sid = participantCallSid;
     } else {
       patch.pstn_call_sid = participantCallSid;
     }
+  } else if (label === "pstn" || (!label && !isClientIdentityFrom(from))) {
+    patch.pstn_call_sid = participantCallSid;
+  } else if (label === "staff" || (!label && isClientIdentityFrom(from))) {
+    patch.client_call_sid = participantCallSid;
   }
 
+  console.log("[softphone-conference-events]", {
+    friendly: friendly.slice(0, 48),
+    event,
+    conferenceSid: conferenceSid ? `${conferenceSid.slice(0, 12)}…` : null,
+    participantCallSid: participantCallSid ? `${participantCallSid.slice(0, 12)}…` : null,
+    clientSidMatch: participantCallSid === clientSid,
+    label,
+  });
+
   const result = await mergeSoftphoneConferenceMetadata(supabaseAdmin, clientSid, patch);
-  if (!result.ok && process.env.NODE_ENV === "development") {
-    console.warn("[softphone-conference-events]", result.error);
+  if (!result.ok) {
+    console.warn("[softphone-conference-events] merge_failed", result.error, { clientSid: clientSid.slice(0, 12) });
   }
 
   return new NextResponse("OK", { status: 200, headers: { "Content-Type": "text/plain; charset=utf-8" } });

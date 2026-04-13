@@ -51,6 +51,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: result.error }, { status: 502 });
   }
 
+  console.log("[start-transcript] twilio_media_stream_started", {
+    callSid: callSid.slice(0, 12),
+    streamSid: result.streamSid ?? null,
+    wssTarget: wssUrl.replace(/^wss:\/\/([^/]+).*/, "wss://$1/…"),
+  });
+
   await mergeSoftphoneConferenceMetadata(supabaseAdmin, callSid, {
     last_conference_event: "media_stream_started",
   });

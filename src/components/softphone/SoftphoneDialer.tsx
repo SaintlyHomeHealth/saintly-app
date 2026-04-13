@@ -8,6 +8,7 @@ import {
   type SoftphoneServerCapabilities,
   type SoftphoneConferenceContext,
 } from "@/components/softphone/WorkspaceSoftphoneProvider";
+import type { ConferenceGatingSnapshot } from "@/lib/phone/conference-gating";
 import { isValidE164, normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
 import { isPlausiblePstnCallerRawForSubline } from "@/lib/softphone/twilio-incoming-caller-display";
 import { openSoftphoneAppSettings } from "@/lib/softphone/open-app-settings";
@@ -46,6 +47,27 @@ function softphoneConnectionBanner(
     text: "Conference + PSTN linked — advanced calling is ready.",
     className: "border-emerald-200/90 bg-emerald-50/80 text-emerald-950",
   };
+}
+
+/** Prefer server `conference_gating` from call-context (authoritative); fallback while polling. */
+function resolveAdvancedCallBanner(
+  gating: ConferenceGatingSnapshot | null | undefined,
+  caps: SoftphoneServerCapabilities | null,
+  conf: SoftphoneConferenceContext | null
+): { text: string; className: string } {
+  if (gating) {
+    if (gating.blockers.length === 0) {
+      return {
+        text: "Server: conference + PSTN linked — hold, transfer, and 3-way are enabled.",
+        className: "border-emerald-200/90 bg-emerald-50/80 text-emerald-950",
+      };
+    }
+    return {
+      text: gating.blockers.join(" "),
+      className: "border-amber-200/90 bg-amber-50/90 text-amber-950",
+    };
+  }
+  return softphoneConnectionBanner(caps, conf);
 }
 
 const DIALPAD_ROWS: ReadonlyArray<ReadonlyArray<{ digit: string; sub?: string }>> = [
@@ -157,13 +179,12 @@ export function SoftphoneDialer({
 
   const isOnHold = isPstnHold || isClientHold;
   const conf = callContext?.conference ?? null;
-  const connBanner = softphoneConnectionBanner(softphoneCapabilities, conf);
-  const pstnConferenceReady =
-    Boolean(softphoneCapabilities?.conference_outbound_enabled) &&
-    conf?.mode === "conference" &&
-    Boolean(conf?.conference_sid) &&
-    Boolean(conf?.pstn_call_sid);
-  const transcriptBridgeConfigured = Boolean(softphoneCapabilities?.media_stream_wss_configured);
+  const gating = callContext?.conference_gating;
+  const connBanner = resolveAdvancedCallBanner(gating, softphoneCapabilities, conf);
+  const pstnConferenceReady = Boolean(gating?.can_cold_transfer);
+  const mediaStreamOk = Boolean(gating?.media_stream_wss_configured);
+  const transcriptWritebackOk = Boolean(gating?.transcript_writeback_configured);
+  const liveStreamButtonEnabled = mediaStreamOk;
 
   useEffect(() => {
     const seed = (initialDigits ?? "").trim();
@@ -562,20 +583,22 @@ export function SoftphoneDialer({
                   </button>
                   <button
                     type="button"
-                    disabled={actionBusy !== null || !transcriptBridgeConfigured}
+                    disabled={actionBusy !== null || !liveStreamButtonEnabled}
                     title={
-                      transcriptBridgeConfigured
-                        ? "Start Twilio Media Stream (requires bridge process)"
-                        : "Live transcript bridge not configured on the server"
+                      liveStreamButtonEnabled
+                        ? transcriptWritebackOk
+                          ? "Start Twilio Media Stream (bridge must be running)"
+                          : "Media stream can start, but REALTIME_BRIDGE_SHARED_SECRET is missing — transcript will not save to the app"
+                        : "Set media stream WSS URL on the server (full wss://host/path)"
                     }
                     onClick={() => {
                       void (async () => {
                         setSoftphoneNotice(null);
-                        if (!transcriptBridgeConfigured) {
+                        if (!liveStreamButtonEnabled) {
                           setSoftphoneNotice({
                             kind: "error",
                             message:
-                              "Live transcript is not configured yet. Set TWILIO_SOFTPHONE_MEDIA_STREAM_WSS_URL or TWILIO_REALTIME_MEDIA_STREAM_WSS_URL to the full wss://host/…/path, then redeploy.",
+                              "Live stream URL not configured. Set TWILIO_SOFTPHONE_MEDIA_STREAM_WSS_URL or TWILIO_REALTIME_MEDIA_STREAM_WSS_URL to the full wss://host/…/path, then redeploy.",
                           });
                           return;
                         }
@@ -619,10 +642,13 @@ export function SoftphoneDialer({
                   onChange={(e) => setAddTo(e.target.value)}
                   className="mt-1 w-full rounded-lg border border-slate-200/90 bg-white px-2.5 py-1.5 text-xs text-slate-900 outline-none ring-sky-500/25 focus:ring-2 disabled:bg-slate-50"
                 />
-                {!transcriptBridgeConfigured ? (
+                {!mediaStreamOk ? (
                   <p className="mt-2 text-center text-[10px] leading-snug text-slate-500">
-                    Live transcript: not configured — set <span className="font-mono">TWILIO_SOFTPHONE_MEDIA_STREAM_WSS_URL</span> or{" "}
-                    <span className="font-mono">TWILIO_REALTIME_MEDIA_STREAM_WSS_URL</span> to the full bridge URL (e.g. …/twilio/realtime-stream).
+                    Live stream: set media WSS URL (full path, e.g. …/twilio/realtime-stream).
+                  </p>
+                ) : !transcriptWritebackOk ? (
+                  <p className="mt-2 text-center text-[10px] leading-snug text-amber-900/90">
+                    Transcript will not persist until <span className="font-mono">REALTIME_BRIDGE_SHARED_SECRET</span> matches on the app and Railway bridge.
                   </p>
                 ) : null}
                 <p className="mt-2 text-center text-[10px] leading-snug text-slate-500">
@@ -633,7 +659,7 @@ export function SoftphoneDialer({
                 voiceAi={callContext?.voice_ai ?? null}
                 conference={callContext?.conference ?? null}
                 remoteLabel={activeRemoteLabel}
-                transcriptConfigured={transcriptBridgeConfigured}
+                conferenceGating={gating ?? null}
               />
             </div>
           ) : null}

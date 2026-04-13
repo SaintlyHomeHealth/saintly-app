@@ -16,5 +16,7 @@ export async function GET() {
   return NextResponse.json({
     conference_outbound_enabled: process.env.TWILIO_SOFTPHONE_USE_CONFERENCE === "true",
     media_stream_wss_configured: wss.startsWith("wss://"),
+    /** Bridge can POST transcript lines to /api/twilio/voice/bridge-transcript */
+    transcript_writeback_configured: Boolean(process.env.REALTIME_BRIDGE_SHARED_SECRET?.trim()),
   });
 }

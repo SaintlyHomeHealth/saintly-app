@@ -161,6 +161,31 @@ function dialTwiml(input: {
 </Response>`.trim();
 }
 
+async function postBridgeTranscript(input: { externalCallId: string; text: string }): Promise<void> {
+  const baseRaw = process.env.APP_PUBLIC_BASE_URL?.trim();
+  const secret = process.env.REALTIME_BRIDGE_SHARED_SECRET?.trim();
+  if (!baseRaw || !secret) {
+    return;
+  }
+  const base = baseRaw.replace(/\/$/, "");
+  const url = `${base}/api/twilio/voice/bridge-transcript`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Realtime-Bridge-Secret": secret,
+    },
+    body: JSON.stringify({
+      external_call_id: input.externalCallId,
+      text: input.text,
+    }),
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    console.warn("[realtime-bridge] bridge-transcript POST failed", res.status, t.slice(0, 200));
+  }
+}
+
 async function postSessionResult(input: {
   externalCallId: string;
   intent: string;
@@ -394,6 +419,9 @@ function buildSessionUpdateMessage(): Record<string, unknown> {
         threshold,
         prefix_padding_ms: 280,
         silence_duration_ms: silenceDurationMs,
+      },
+      input_audio_transcription: {
+        model: "whisper-1",
       },
       tools: VOICE_AI_REALTIME_TOOLS,
       tool_choice: "auto",
@@ -660,6 +688,14 @@ wss.on("connection", (twilioWs, req) => {
         };
 
         logOpenAiInboundLifecycle(ev, { logAudioDelta });
+
+        if (type === "conversation.item.input_audio_transcription.completed") {
+          const transcript = typeof ev.transcript === "string" ? ev.transcript.trim() : "";
+          if (transcript && callSid) {
+            void postBridgeTranscript({ externalCallId: callSid, text: transcript });
+          }
+          return;
+        }
 
         if (type === "response.audio.delta") {
           const delta = typeof ev.delta === "string" ? ev.delta : "";

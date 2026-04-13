@@ -25,6 +25,7 @@ import {
   type WorkspaceSoftphoneForceClearDetail,
 } from "@/lib/softphone/workspace-ui-events";
 import { twilioErrorToFriendly } from "@/lib/softphone/twilio-user-friendly-errors";
+import type { ConferenceGatingSnapshot } from "@/lib/phone/conference-gating";
 
 type CallHandle = Awaited<ReturnType<Device["connect"]>>;
 
@@ -61,12 +62,15 @@ export type SoftphoneConferenceContext = {
 export type CallDeskContext = {
   voice_ai: CallContextVoiceAi | null;
   conference: SoftphoneConferenceContext | null;
+  /** Server-computed gating — use for disabling controls with real reasons. */
+  conference_gating: ConferenceGatingSnapshot | null;
 };
 
 /** Server flags from `/api/workspace/phone/softphone-capabilities` (no secrets). */
 export type SoftphoneServerCapabilities = {
   conference_outbound_enabled: boolean;
   media_stream_wss_configured: boolean;
+  transcript_writeback_configured: boolean;
 };
 
 type Ctx = {
@@ -237,11 +241,13 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
         const j = (await res.json()) as {
           conference_outbound_enabled?: boolean;
           media_stream_wss_configured?: boolean;
+          transcript_writeback_configured?: boolean;
         };
         if (cancelled) return;
         setSoftphoneCapabilities({
           conference_outbound_enabled: Boolean(j.conference_outbound_enabled),
           media_stream_wss_configured: Boolean(j.media_stream_wss_configured),
+          transcript_writeback_configured: Boolean(j.transcript_writeback_configured),
         });
       } catch {
         /* ignore */
@@ -286,12 +292,14 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
           found?: boolean;
           voice_ai?: CallContextVoiceAi | null;
           softphone_conference?: SoftphoneConferenceContext | null;
+          conference_gating?: ConferenceGatingSnapshot | null;
         };
         if (cancelled) return;
         if (j.found) {
           setCallContext({
             voice_ai: j.voice_ai ?? null,
             conference: j.softphone_conference ?? null,
+            conference_gating: j.conference_gating ?? null,
           });
           if (typeof j.softphone_conference?.pstn_on_hold === "boolean") {
             setIsPstnHold(j.softphone_conference.pstn_on_hold);

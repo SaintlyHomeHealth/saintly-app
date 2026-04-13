@@ -3,16 +3,17 @@
 import { formatVoiceAiCallerCategoryLabel, formatVoiceAiRouteTargetLabel } from "@/app/admin/phone/_lib/voice-ai-metadata";
 
 import type { CallContextVoiceAi, SoftphoneConferenceContext } from "@/components/softphone/WorkspaceSoftphoneProvider";
+import type { ConferenceGatingSnapshot } from "@/lib/phone/conference-gating";
 
 type Props = {
   voiceAi: CallContextVoiceAi | null;
   conference: SoftphoneConferenceContext | null;
   remoteLabel: string | null;
-  /** When false, show a short note that live transcript bridge is not configured (server env). */
-  transcriptConfigured?: boolean;
+  /** Server truth from call-context (blockers, SIDs, media URL). */
+  conferenceGating: ConferenceGatingSnapshot | null;
 };
 
-export function LiveCallContextPanel({ voiceAi, conference, remoteLabel, transcriptConfigured }: Props) {
+export function LiveCallContextPanel({ voiceAi, conference, remoteLabel, conferenceGating }: Props) {
   return (
     <div className="w-full max-w-sm rounded-2xl border border-sky-100/80 bg-gradient-to-b from-white to-sky-50/40 p-4 text-left shadow-[0_6px_24px_-12px_rgba(30,58,138,0.12)]">
       <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">Caller context</p>
@@ -38,12 +39,46 @@ export function LiveCallContextPanel({ voiceAi, conference, remoteLabel, transcr
           )}
         </p>
       ) : null}
-      {transcriptConfigured === false ? (
-        <p className="mt-2 rounded-lg border border-sky-100/90 bg-sky-50/80 px-2 py-1.5 text-[11px] text-sky-950">
-          Live transcript is not configured yet. Set <span className="font-mono">TWILIO_SOFTPHONE_MEDIA_STREAM_WSS_URL</span> or{" "}
-          <span className="font-mono">TWILIO_REALTIME_MEDIA_STREAM_WSS_URL</span> to the full WebSocket URL including path.
-        </p>
-      ) : null}
+      {conferenceGating ? (
+        <div className="mt-2 space-y-1.5 rounded-lg border border-slate-200/90 bg-slate-50/90 px-2 py-1.5 text-[10px] leading-snug text-slate-700">
+          <p className="font-semibold text-slate-800">Diagnostics</p>
+          <p>
+            <span className="text-slate-500">Client leg:</span>{" "}
+            <span className="font-mono text-[10px] text-slate-900">
+              {conferenceGating.client_leg_call_sid ? `${conferenceGating.client_leg_call_sid.slice(0, 10)}…` : "—"}
+            </span>
+          </p>
+          <p>
+            <span className="text-slate-500">Conference SID:</span>{" "}
+            <span className="font-mono text-[10px] text-slate-900">
+              {conferenceGating.conference_sid ? `${conferenceGating.conference_sid.slice(0, 10)}…` : "missing"}
+            </span>
+          </p>
+          <p>
+            <span className="text-slate-500">PSTN leg:</span>{" "}
+            <span className="font-mono text-[10px] text-slate-900">
+              {conferenceGating.pstn_call_sid ? `${conferenceGating.pstn_call_sid.slice(0, 10)}…` : "missing"}
+            </span>
+          </p>
+          <p>
+            <span className="text-slate-500">Media stream WSS (masked):</span>{" "}
+            <span className="font-mono text-[10px] text-slate-900">
+              {conferenceGating.media_stream_wss_target_masked ?? "not resolved"}
+            </span>
+          </p>
+          {conferenceGating.blockers.length > 0 ? (
+            <ul className="list-disc space-y-0.5 pl-4 text-amber-950">
+              {conferenceGating.blockers.map((b) => (
+                <li key={b}>{b}</li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-emerald-900">No blockers — server sees conference + PSTN + media + transcript writeback.</p>
+          )}
+        </div>
+      ) : (
+        <p className="mt-2 text-[11px] text-slate-500">Loading server diagnostics…</p>
+      )}
       {!voiceAi ? (
         <p className="mt-3 text-xs leading-relaxed text-slate-600">
           Live AI summary and transcript appear here when the call is linked to Saintly voice AI (same Twilio Call SID

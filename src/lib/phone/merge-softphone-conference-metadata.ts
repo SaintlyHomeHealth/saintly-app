@@ -34,6 +34,14 @@ export async function mergeSoftphoneConferenceMetadata(
     ...patch,
     updated_at: new Date().toISOString(),
   };
+  /** First PSTN leg wins (primary callee); do not replace when 3-way adds another PSTN leg. */
+  if (
+    prev.pstn_call_sid &&
+    patch.pstn_call_sid &&
+    patch.pstn_call_sid !== prev.pstn_call_sid
+  ) {
+    next.pstn_call_sid = prev.pstn_call_sid;
+  }
   meta.softphone_conference = next as unknown as Record<string, unknown>;
 
   const { error: upErr } = await supabase.from("phone_calls").update({ metadata: meta }).eq("id", row.id);

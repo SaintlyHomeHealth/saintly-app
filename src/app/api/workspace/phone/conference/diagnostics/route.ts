@@ -5,8 +5,8 @@ import { buildWorkspaceCallContextPayload } from "@/lib/phone/build-workspace-ca
 import { canAccessWorkspacePhone, getStaffProfile } from "@/lib/staff-profile";
 
 /**
- * Live caller context for the workspace softphone (AI summary + transcript + conference gating).
- * Query: `call_sid` — Twilio CallSid on the Client leg (`phone_calls.external_call_id`).
+ * Support / engineering: same data as call-context, explicit name for logs.
+ * Use during a live call with the browser Client leg CallSid (CA…).
  */
 export async function GET(req: Request) {
   const staff = await getStaffProfile();
@@ -22,11 +22,20 @@ export async function GET(req: Request) {
 
   const built = await buildWorkspaceCallContextPayload(supabaseAdmin, callSid);
   if (!built.found) {
-    return NextResponse.json({ found: false }, { status: 200 });
+    return NextResponse.json(
+      {
+        found: false,
+        hint: "No phone_calls row for this CallSid — outbound softphone may not have logged yet.",
+      },
+      { status: 200 }
+    );
   }
 
   return NextResponse.json({
     found: true,
+    env: {
+      TWILIO_SOFTPHONE_USE_CONFERENCE: process.env.TWILIO_SOFTPHONE_USE_CONFERENCE === "true",
+    },
     ...built.payload,
   });
 }
