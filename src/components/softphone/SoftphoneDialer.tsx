@@ -3,12 +3,50 @@
 import { useEffect, useRef, useState } from "react";
 import { Delete, Phone } from "lucide-react";
 
-import { useWorkspaceSoftphone } from "@/components/softphone/WorkspaceSoftphoneProvider";
+import {
+  useWorkspaceSoftphone,
+  type SoftphoneServerCapabilities,
+  type SoftphoneConferenceContext,
+} from "@/components/softphone/WorkspaceSoftphoneProvider";
 import { isValidE164, normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
 import { isPlausiblePstnCallerRawForSubline } from "@/lib/softphone/twilio-incoming-caller-display";
 import { openSoftphoneAppSettings } from "@/lib/softphone/open-app-settings";
 
 import { LiveCallContextPanel } from "@/components/softphone/LiveCallContextPanel";
+
+function softphoneConnectionBanner(
+  caps: SoftphoneServerCapabilities | null,
+  conference: SoftphoneConferenceContext | null
+): { text: string; className: string } {
+  if (!caps) {
+    return {
+      text: "Checking phone features…",
+      className: "border-slate-200/80 bg-slate-50/90 text-slate-700",
+    };
+  }
+  if (!caps.conference_outbound_enabled) {
+    return {
+      text: "Local browser call — conference features require TWILIO_SOFTPHONE_USE_CONFERENCE on the server.",
+      className: "border-amber-200/90 bg-amber-50/90 text-amber-950",
+    };
+  }
+  if (conference?.mode !== "conference" || !conference?.conference_sid) {
+    return {
+      text: "Conference linking… (wait a few seconds after connect).",
+      className: "border-amber-200/90 bg-amber-50/90 text-amber-950",
+    };
+  }
+  if (!conference.pstn_call_sid) {
+    return {
+      text: "PSTN leg not linked yet — hold/transfer/3-way need the outbound PSTN leg in Saintly logs.",
+      className: "border-amber-200/90 bg-amber-50/90 text-amber-950",
+    };
+  }
+  return {
+    text: "Conference + PSTN linked — advanced calling is ready.",
+    className: "border-emerald-200/90 bg-emerald-50/80 text-emerald-950",
+  };
+}
 
 const DIALPAD_ROWS: ReadonlyArray<ReadonlyArray<{ digit: string; sub?: string }>> = [
   [
@@ -96,6 +134,7 @@ export function SoftphoneDialer({
     toggleMute,
     toggleHold,
     callContext,
+    softphoneCapabilities,
     coldTransferTo,
     addConferenceParticipant,
     startLiveTranscriptStream,
@@ -110,8 +149,21 @@ export function SoftphoneDialer({
   } = useWorkspaceSoftphone();
   const autoPlaceStartedRef = useRef(false);
   const [actionBusy, setActionBusy] = useState<"xfer" | "add" | "tx" | null>(null);
+  const [xferTo, setXferTo] = useState("");
+  const [addTo, setAddTo] = useState("");
+  const [softphoneNotice, setSoftphoneNotice] = useState<{ kind: "error" | "info"; message: string } | null>(
+    null
+  );
 
   const isOnHold = isPstnHold || isClientHold;
+  const conf = callContext?.conference ?? null;
+  const connBanner = softphoneConnectionBanner(softphoneCapabilities, conf);
+  const pstnConferenceReady =
+    Boolean(softphoneCapabilities?.conference_outbound_enabled) &&
+    conf?.mode === "conference" &&
+    Boolean(conf?.conference_sid) &&
+    Boolean(conf?.pstn_call_sid);
+  const transcriptBridgeConfigured = Boolean(softphoneCapabilities?.media_stream_wss_configured);
 
   useEffect(() => {
     const seed = (initialDigits ?? "").trim();
@@ -360,13 +412,28 @@ export function SoftphoneDialer({
                 <p className="text-center text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">
                   In-call controls
                 </p>
+                <div className={`mt-2 rounded-xl border px-2.5 py-2 text-[11px] leading-snug ${connBanner.className}`}>
+                  {connBanner.text}
+                </div>
+                {softphoneNotice ? (
+                  <div
+                    className={`mt-2 rounded-xl border px-2.5 py-2 text-[11px] leading-snug ${
+                      softphoneNotice.kind === "error"
+                        ? "border-red-200/90 bg-red-50/95 text-red-950"
+                        : "border-sky-200/90 bg-sky-50/90 text-sky-950"
+                    }`}
+                  >
+                    <span className="font-semibold">{softphoneNotice.kind === "error" ? "Notice — " : ""}</span>
+                    {softphoneNotice.message}
+                  </div>
+                ) : null}
                 {isOnHold ? (
-                  <p className="mt-1 text-center text-[11px] font-semibold text-amber-800">
+                  <p className="mt-2 text-center text-[11px] font-semibold text-amber-800">
                     {isPstnHold ? "Caller on hold (PSTN) — hold music" : "Local hold — resume to speak again"}
                   </p>
                 ) : (
-                  <p className="mt-1 text-center text-[11px] text-slate-500">
-                    Conference mode uses Twilio hold for the caller; otherwise local hold.
+                  <p className="mt-2 text-center text-[11px] text-slate-500">
+                    Hold tries PSTN conference first when linked; otherwise local hold.
                   </p>
                 )}
                 <div className="mt-3 grid grid-cols-3 gap-2">
@@ -396,26 +463,41 @@ export function SoftphoneDialer({
                   </button>
                   <button
                     type="button"
-                    disabled={actionBusy !== null}
-                    title="Cold transfer — moves PSTN to another number"
+                    disabled={actionBusy !== null || !pstnConferenceReady}
+                    title={
+                      pstnConferenceReady
+                        ? "Cold transfer — moves PSTN to another number"
+                        : "Wait until conference and PSTN leg are linked"
+                    }
                     onClick={() => {
                       void (async () => {
-                        const raw = typeof window !== "undefined" ? window.prompt("Cold transfer to (10 digits or +1…)") : null;
-                        if (!raw?.trim()) return;
-                        const e164 = isValidE164(raw.trim()) ? raw.trim() : normalizeDialInputToE164(raw.trim());
+                        setSoftphoneNotice(null);
+                        const raw = xferTo.trim();
+                        if (!raw) {
+                          setSoftphoneNotice({ kind: "error", message: "Enter a number to transfer." });
+                          return;
+                        }
+                        const e164 = isValidE164(raw) ? raw : normalizeDialInputToE164(raw);
                         if (!e164 || !isValidE164(e164)) {
-                          window.alert("Enter a valid US number.");
+                          setSoftphoneNotice({ kind: "error", message: "Enter a valid US number (10 digits or +1…)." });
                           return;
                         }
                         setActionBusy("xfer");
                         try {
                           const r = await coldTransferTo(e164);
                           if (!r.ok) {
-                            window.alert(r.error ?? "Transfer failed");
+                            setSoftphoneNotice({
+                              kind: "error",
+                              message: r.error ?? "Transfer could not be completed. Try again when PSTN is linked.",
+                            });
                             return;
                           }
-                          const ok = typeof window !== "undefined" ? window.confirm("Hang up your line to leave the caller with the new number?") : true;
-                          if (ok) hangUp();
+                          setSoftphoneNotice({
+                            kind: "info",
+                            message:
+                              "Transfer started on the PSTN leg. Hang up your softphone when you are ready to leave the caller with the new number.",
+                          });
+                          setXferTo("");
                         } finally {
                           setActionBusy(null);
                         }
@@ -426,23 +508,49 @@ export function SoftphoneDialer({
                     {actionBusy === "xfer" ? "…" : "Transfer"}
                   </button>
                 </div>
+                <label className="mt-2 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                  Transfer to
+                </label>
+                <input
+                  type="tel"
+                  inputMode="tel"
+                  autoComplete="tel"
+                  placeholder="+1 or 10-digit"
+                  value={xferTo}
+                  disabled={!pstnConferenceReady}
+                  onChange={(e) => setXferTo(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-slate-200/90 bg-white px-2.5 py-1.5 text-xs text-slate-900 outline-none ring-sky-500/25 focus:ring-2 disabled:bg-slate-50"
+                />
                 <div className="mt-2 grid grid-cols-2 gap-2">
                   <button
                     type="button"
-                    disabled={actionBusy !== null}
+                    disabled={actionBusy !== null || !pstnConferenceReady}
+                    title={pstnConferenceReady ? "Dial a third party into the conference" : "Conference + PSTN required"}
                     onClick={() => {
                       void (async () => {
-                        const raw = typeof window !== "undefined" ? window.prompt("Add call — dial (10 digits or +1…)") : null;
-                        if (!raw?.trim()) return;
-                        const e164 = isValidE164(raw.trim()) ? raw.trim() : normalizeDialInputToE164(raw.trim());
+                        setSoftphoneNotice(null);
+                        const raw = addTo.trim();
+                        if (!raw) {
+                          setSoftphoneNotice({ kind: "error", message: "Enter a number to add." });
+                          return;
+                        }
+                        const e164 = isValidE164(raw) ? raw : normalizeDialInputToE164(raw);
                         if (!e164 || !isValidE164(e164)) {
-                          window.alert("Enter a valid number.");
+                          setSoftphoneNotice({ kind: "error", message: "Enter a valid number to add." });
                           return;
                         }
                         setActionBusy("add");
                         try {
                           const r = await addConferenceParticipant(e164);
-                          if (!r.ok) window.alert(r.error ?? "Could not add participant");
+                          if (!r.ok) {
+                            setSoftphoneNotice({
+                              kind: "error",
+                              message: r.error ?? "Could not add participant. Confirm conference mode and PSTN leg.",
+                            });
+                            return;
+                          }
+                          setSoftphoneNotice({ kind: "info", message: "Adding participant — they should ring shortly." });
+                          setAddTo("");
                         } finally {
                           setActionBusy(null);
                         }
@@ -454,13 +562,40 @@ export function SoftphoneDialer({
                   </button>
                   <button
                     type="button"
-                    disabled={actionBusy !== null}
+                    disabled={actionBusy !== null || !transcriptBridgeConfigured}
+                    title={
+                      transcriptBridgeConfigured
+                        ? "Start Twilio Media Stream (requires bridge process)"
+                        : "Live transcript bridge not configured on the server"
+                    }
                     onClick={() => {
                       void (async () => {
+                        setSoftphoneNotice(null);
+                        if (!transcriptBridgeConfigured) {
+                          setSoftphoneNotice({
+                            kind: "error",
+                            message:
+                              "Live transcript is not configured yet. Set TWILIO_SOFTPHONE_MEDIA_STREAM_WSS_URL (wss://…) to your media bridge, then redeploy.",
+                          });
+                          return;
+                        }
                         setActionBusy("tx");
                         try {
                           const r = await startLiveTranscriptStream();
-                          if (!r.ok) window.alert(r.error ?? "Could not start media stream");
+                          if (!r.ok) {
+                            setSoftphoneNotice({
+                              kind: "error",
+                              message:
+                                r.error?.includes("TWILIO_SOFTPHONE_MEDIA_STREAM") || r.error?.includes("not set")
+                                  ? "Live transcript is not configured yet. Ask your admin to set TWILIO_SOFTPHONE_MEDIA_STREAM_WSS_URL on the server."
+                                  : r.error ?? "Could not start media stream.",
+                            });
+                            return;
+                          }
+                          setSoftphoneNotice({
+                            kind: "info",
+                            message: "Media stream start requested — audio will flow if your bridge is running.",
+                          });
                         } finally {
                           setActionBusy(null);
                         }
@@ -471,6 +606,25 @@ export function SoftphoneDialer({
                     {actionBusy === "tx" ? "…" : "Live stream"}
                   </button>
                 </div>
+                <label className="mt-2 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                  Add / 3-way number
+                </label>
+                <input
+                  type="tel"
+                  inputMode="tel"
+                  autoComplete="tel"
+                  placeholder="+1 or 10-digit"
+                  value={addTo}
+                  disabled={!pstnConferenceReady}
+                  onChange={(e) => setAddTo(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-slate-200/90 bg-white px-2.5 py-1.5 text-xs text-slate-900 outline-none ring-sky-500/25 focus:ring-2 disabled:bg-slate-50"
+                />
+                {!transcriptBridgeConfigured ? (
+                  <p className="mt-2 text-center text-[10px] leading-snug text-slate-500">
+                    Live transcript: not configured — set <span className="font-mono">TWILIO_SOFTPHONE_MEDIA_STREAM_WSS_URL</span>{" "}
+                    (wss://…) to your Twilio Media Streams bridge.
+                  </p>
+                ) : null}
                 <p className="mt-2 text-center text-[10px] leading-snug text-slate-500">
                   Warm transfer: hold the caller, use Add / 3-way, then Transfer when ready.
                 </p>
@@ -479,6 +633,7 @@ export function SoftphoneDialer({
                 voiceAi={callContext?.voice_ai ?? null}
                 conference={callContext?.conference ?? null}
                 remoteLabel={activeRemoteLabel}
+                transcriptConfigured={transcriptBridgeConfigured}
               />
             </div>
           ) : null}

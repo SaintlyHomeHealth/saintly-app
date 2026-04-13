@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { revalidatePath } from "next/cache";
 
 import type { VoiceAiFollowupPayload } from "@/lib/phone/voice-ai-followup-task";
+import { shouldSuppressMissedCallStyleSms } from "@/lib/phone/inbound-call-sms-guards";
 import { isValidCallerIdForPriority } from "@/lib/phone/priority-sms-rules";
 import {
   appendOutboundSmsToConversation,
@@ -86,7 +87,7 @@ export async function maybeSendVoiceAiCallbackFollowupSms(
 
   const { data: row, error: selErr } = await supabase
     .from("phone_calls")
-    .select("id, direction, from_e164, auto_reply_sms_sent_at, metadata")
+    .select("id, direction, status, duration_seconds, from_e164, auto_reply_sms_sent_at, metadata")
     .eq("id", callId)
     .maybeSingle();
 
@@ -95,6 +96,10 @@ export async function maybeSendVoiceAiCallbackFollowupSms(
     return;
   }
   if (!row?.id) {
+    return;
+  }
+
+  if (shouldSuppressMissedCallStyleSms(row)) {
     return;
   }
 

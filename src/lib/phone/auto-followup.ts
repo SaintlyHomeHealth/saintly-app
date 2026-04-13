@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { shouldSuppressMissedCallStyleSms } from "@/lib/phone/inbound-call-sms-guards";
 import { isValidCallerIdForPriority } from "@/lib/phone/priority-sms-rules";
 import {
   appendOutboundSmsToConversation,
@@ -200,6 +201,9 @@ export function isEligibleForAutoFollowUp(row: {
   const status = (row.status ?? "").trim().toLowerCase();
   if (!isTerminalPhoneStatusLocal(status)) return false;
 
+  /** Successful completions (staff or AI→staff bridge) must never run missed-call SMS / auto follow-up. */
+  if (status === "completed") return false;
+
   if (isSpamCallRow({ primary_tag: row.primary_tag, metadata: row.metadata })) return false;
 
   if (followUpStatusNeeded(row.metadata)) return true;
@@ -256,7 +260,7 @@ export async function triggerAutoFollowUp(
   const { data: row, error: selErr } = await supabase
     .from("phone_calls")
     .select(
-      "id, direction, status, from_e164, metadata, primary_tag, voicemail_recording_sid, auto_reply_sms_sent_at, assigned_to_user_id"
+      "id, direction, status, duration_seconds, from_e164, metadata, primary_tag, voicemail_recording_sid, auto_reply_sms_sent_at, assigned_to_user_id"
     )
     .eq("id", callId)
     .maybeSingle();
@@ -309,7 +313,7 @@ export async function triggerAutoFollowUp(
   const metaPatch: Record<string, unknown> = {};
   let markPipelineComplete = true;
 
-  if (allowSms && isValidCallerIdForPriority(fromE164)) {
+  if (allowSms && isValidCallerIdForPriority(fromE164) && !shouldSuppressMissedCallStyleSms(row)) {
     const recent = await hasRecentMissedCallAutoReplyToPhone(supabase, fromE164, FOLLOWUP_SMS_COOLDOWN_MS);
     if (recent) {
       console.warn("[auto-followup] sms cooldown skip", { callId, to: fromE164.slice(0, 6) });

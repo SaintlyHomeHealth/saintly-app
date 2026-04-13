@@ -8,9 +8,11 @@ type Props = {
   voiceAi: CallContextVoiceAi | null;
   conference: SoftphoneConferenceContext | null;
   remoteLabel: string | null;
+  /** When false, show a short note that live transcript bridge is not configured (server env). */
+  transcriptConfigured?: boolean;
 };
 
-export function LiveCallContextPanel({ voiceAi, conference, remoteLabel }: Props) {
+export function LiveCallContextPanel({ voiceAi, conference, remoteLabel, transcriptConfigured }: Props) {
   return (
     <div className="w-full max-w-sm rounded-2xl border border-sky-100/80 bg-gradient-to-b from-white to-sky-50/40 p-4 text-left shadow-[0_6px_24px_-12px_rgba(30,58,138,0.12)]">
       <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">Caller context</p>
@@ -29,6 +31,17 @@ export function LiveCallContextPanel({ voiceAi, conference, remoteLabel }: Props
           ) : (
             <span className="text-amber-800"> — linking…</span>
           )}
+          {conference.pstn_call_sid ? (
+            <span className="ml-1 font-mono text-[10px] text-emerald-800">· PSTN</span>
+          ) : (
+            <span className="text-amber-800"> · PSTN not linked</span>
+          )}
+        </p>
+      ) : null}
+      {transcriptConfigured === false ? (
+        <p className="mt-2 rounded-lg border border-sky-100/90 bg-sky-50/80 px-2 py-1.5 text-[11px] text-sky-950">
+          Live transcript is not configured yet. Set <span className="font-mono">TWILIO_SOFTPHONE_MEDIA_STREAM_WSS_URL</span>{" "}
+          (wss://…) on the server.
         </p>
       ) : null}
       {!voiceAi ? (

@@ -27,6 +27,7 @@ export function ActiveCallBar() {
     toggleMute,
     toggleHold,
     callContext,
+    softphoneCapabilities,
   } = useWorkspaceSoftphone();
   const [ctxOpen, setCtxOpen] = useState(false);
 
@@ -105,6 +106,7 @@ export function ActiveCallBar() {
               voiceAi={callContext?.voice_ai ?? null}
               conference={callContext?.conference ?? null}
               remoteLabel={activeRemoteLabel}
+              transcriptConfigured={Boolean(softphoneCapabilities?.media_stream_wss_configured)}
             />
           </div>
         ) : null}

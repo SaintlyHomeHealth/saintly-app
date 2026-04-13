@@ -63,6 +63,12 @@ export type CallDeskContext = {
   conference: SoftphoneConferenceContext | null;
 };
 
+/** Server flags from `/api/workspace/phone/softphone-capabilities` (no secrets). */
+export type SoftphoneServerCapabilities = {
+  conference_outbound_enabled: boolean;
+  media_stream_wss_configured: boolean;
+};
+
 type Ctx = {
   digits: string;
   setDigits: Dispatch<SetStateAction<string>>;
@@ -101,6 +107,8 @@ type Ctx = {
   declineCallWaiting: () => void;
   /** AI summary + conference metadata polled from `phone_calls` for this CallSid. */
   callContext: CallDeskContext | null;
+  /** Twilio env flags for conference + media stream (UI gating). */
+  softphoneCapabilities: SoftphoneServerCapabilities | null;
   coldTransferTo: (toE164: string) => Promise<{ ok: boolean; error?: string }>;
   addConferenceParticipant: (toE164: string) => Promise<{ ok: boolean; error?: string }>;
   startLiveTranscriptStream: () => Promise<{ ok: boolean; error?: string }>;
@@ -200,6 +208,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
   const [holdBusy, setHoldBusy] = useState(false);
   const micMutedBeforeHoldRef = useRef(false);
   const [callContext, setCallContext] = useState<CallDeskContext | null>(null);
+  const [softphoneCapabilities, setSoftphoneCapabilities] = useState<SoftphoneServerCapabilities | null>(null);
   const [tokenIdentity, setTokenIdentity] = useState<string | null>(null);
   const [ringtoneUnlocked, setRingtoneUnlocked] = useState(false);
   const [durationSec, setDurationSec] = useState(0);
@@ -218,6 +227,30 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
   useEffect(() => {
     statusRef.current = status;
   }, [status]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/workspace/phone/softphone-capabilities", { credentials: "include" });
+        if (!res.ok) return;
+        const j = (await res.json()) as {
+          conference_outbound_enabled?: boolean;
+          media_stream_wss_configured?: boolean;
+        };
+        if (cancelled) return;
+        setSoftphoneCapabilities({
+          conference_outbound_enabled: Boolean(j.conference_outbound_enabled),
+          media_stream_wss_configured: Boolean(j.media_stream_wss_configured),
+        });
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!callStartedAtMs) {
@@ -895,7 +928,14 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       body: JSON.stringify({ callSid: sid }),
     });
     if (!res.ok) {
-      const j = (await res.json().catch(() => ({}))) as { error?: string };
+      const j = (await res.json().catch(() => ({}))) as { error?: string; code?: string };
+      if (j.code === "media_stream_not_configured") {
+        return {
+          ok: false as const,
+          error:
+            "Live transcript is not configured yet. Set TWILIO_SOFTPHONE_MEDIA_STREAM_WSS_URL (wss://…) on the server.",
+        };
+      }
       return { ok: false as const, error: j.error ?? `HTTP ${res.status}` };
     }
     return { ok: true as const };
@@ -1071,6 +1111,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       answerCallWaitingEndAndAccept,
       declineCallWaiting,
       callContext,
+      softphoneCapabilities,
       coldTransferTo,
       addConferenceParticipant,
       startLiveTranscriptStream,
@@ -1109,6 +1150,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     answerCallWaitingEndAndAccept,
     declineCallWaiting,
     callContext,
+    softphoneCapabilities,
     clearCallError,
     startCall,
     hangUp,

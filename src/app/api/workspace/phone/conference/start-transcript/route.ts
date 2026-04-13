@@ -32,6 +32,7 @@ export async function POST(req: Request) {
     return NextResponse.json(
       {
         error: "TWILIO_SOFTPHONE_MEDIA_STREAM_WSS_URL not set (must be wss://… to your media bridge)",
+        code: "media_stream_not_configured",
       },
       { status: 503 }
     );
