@@ -142,7 +142,6 @@ export type LeadWorkspaceExistingProps = {
   contactProfileDefaults: LeadWorkspaceContactProfileDefaults;
   staffOptions: LeadWorkspaceStaffOption[];
   lastContactAt: string | null;
-  lastContactType: string | null;
   lastOutcome: string | null;
   lastNote: string | null;
   leadCreatedAt: string | null;
@@ -420,7 +419,6 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
     contactProfileDefaults,
     staffOptions,
     lastContactAt,
-    lastContactType = null,
     lastOutcome,
     lastNote,
     leadCreatedAt = null,
@@ -1243,15 +1241,12 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
         </div>
       </div>
 
-      <aside className="mt-8 min-h-0 min-w-0 pb-32 lg:sticky lg:top-28 lg:mt-0 lg:max-h-[calc(100vh-8rem)] lg:overflow-x-hidden lg:overflow-y-auto lg:overscroll-y-contain lg:self-start">
+      <aside className="mt-8 flex min-h-0 min-w-0 flex-col pb-32 lg:sticky lg:top-28 lg:mt-0 lg:max-h-[calc(100vh-8rem)] lg:overflow-hidden lg:self-start">
         <LeadFollowUpContextPanel
           leadId={leadId}
           activities={initialActivities}
           staffOptions={staffOptions}
-          lastContactAt={lastContactAt}
-          lastOutcome={lastOutcome}
           lastNote={lastNote}
-          lastContactType={lastContactType}
           leadCreatedAt={leadCreatedAt}
           applicationNotes={applicationNotes}
           followUpIso={followUpIso}

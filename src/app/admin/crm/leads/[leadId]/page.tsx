@@ -190,8 +190,6 @@ export default async function LeadIntakePage({
   };
 
   const lastContactAt = typeof L.last_contact_at === "string" && L.last_contact_at.trim() ? L.last_contact_at : null;
-  const lastContactType =
-    typeof L.last_contact_type === "string" && L.last_contact_type.trim() ? L.last_contact_type.trim() : null;
   const lastOutcome = typeof L.last_outcome === "string" && L.last_outcome.trim() ? L.last_outcome.trim() : null;
   const lastNote = typeof L.last_note === "string" ? L.last_note : "";
   const leadCreatedAt = typeof L.created_at === "string" && L.created_at.trim() ? L.created_at : null;
@@ -289,7 +287,6 @@ export default async function LeadIntakePage({
       contactProfileDefaults={contactProfileDefaults}
       staffOptions={staffOptions}
       lastContactAt={lastContactAt}
-      lastContactType={lastContactType}
       lastOutcome={lastOutcome}
       lastNote={lastNote}
       leadCreatedAt={leadCreatedAt}

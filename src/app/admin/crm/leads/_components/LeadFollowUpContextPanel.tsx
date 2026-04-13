@@ -1,7 +1,3 @@
-import {
-  formatLeadContactOutcomeLabel,
-  formatLeadContactTypeLabel,
-} from "@/lib/crm/lead-contact-outcome";
 import { formatFollowUpDate } from "@/lib/crm/crm-leads-table-helpers";
 import { getCrmCalendarDateIsoFromInstant, getCrmCalendarTodayIso } from "@/lib/crm/crm-local-date";
 import { formatLeadNextActionLabel } from "@/lib/crm/lead-follow-up-options";
@@ -16,14 +12,6 @@ function formatFollowUpDateTime(iso: string): string {
   const datePart = d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
   const timePart = d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
   return `${datePart} at ${timePart}`;
-}
-
-function followUpLabel(iso: string): "overdue" | "today" | "upcoming" | "none" {
-  if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return "none";
-  const today = getCrmCalendarTodayIso();
-  if (iso < today) return "overdue";
-  if (iso === today) return "today";
-  return "upcoming";
 }
 
 type StaffOpt = {
@@ -46,10 +34,7 @@ export function LeadFollowUpContextPanel(props: {
   leadId: string;
   activities: LeadActivityRow[];
   staffOptions: StaffOpt[];
-  lastContactAt: string | null;
-  lastOutcome: string | null;
   lastNote: string | null;
-  lastContactType: string | null;
   leadCreatedAt: string | null;
   applicationNotes: string;
   followUpIso: string;
@@ -79,75 +64,36 @@ export function LeadFollowUpContextPanel(props: {
   const followUpDateForBadge = props.followUpAtIso
     ? getCrmCalendarDateIsoFromInstant(new Date(props.followUpAtIso))
     : props.followUpIso;
-  const fu = followUpLabel(followUpDateForBadge);
 
-  const lastContactSummary =
-    props.lastContactAt?.trim() && !Number.isNaN(Date.parse(props.lastContactAt)) ? (
-      <p className="text-[11px] text-slate-400">
-        Last outcome: {formatLeadContactTypeLabel(props.lastContactType)} ·{" "}
-        {formatLeadContactOutcomeLabel(props.lastOutcome)}
-      </p>
-    ) : (
-      <p className="text-[11px] text-slate-400">No logged call or text on this lead yet.</p>
-    );
+  const today = getCrmCalendarTodayIso();
+  const overdue =
+    followUpDateForBadge &&
+    /^\d{4}-\d{2}-\d{2}$/.test(followUpDateForBadge) &&
+    followUpDateForBadge < today;
+
+  const followUpLine = props.followUpAtIso
+    ? `Follow-up set for ${formatFollowUpDateTime(props.followUpAtIso)}${overdue ? " · Overdue" : ""}`
+    : props.followUpIso && /^\d{4}-\d{2}-\d{2}/.test(props.followUpIso)
+      ? `Follow-up set for ${formatFollowUpDate(props.followUpIso)}${overdue ? " · Overdue" : ""}`
+      : null;
+
+  const nextActionLine = props.nextActionVal?.trim()
+    ? `Next action: ${formatLeadNextActionLabel(props.nextActionVal)}`
+    : null;
 
   return (
-    <div className="space-y-4">
-      <div className="rounded-2xl border border-slate-200/70 bg-white/90 p-4 shadow-sm">
-        <p className="text-xs font-medium text-slate-600">Conversation</p>
-        {lastContactSummary}
-        <div className="mt-3 max-h-[min(70vh,36rem)] overflow-y-auto pr-0.5">
-          {timeline.length === 0 ? (
-            <p className="text-sm text-slate-600">No activity yet.</p>
-          ) : (
-            <LeadActivityThread leadId={props.leadId} items={timeline} authorLabels={authorLabels} />
-          )}
-        </div>
+    <div className="flex h-full min-h-[min(70vh,36rem)] flex-col overflow-hidden rounded-2xl border border-slate-200/70 bg-slate-100/80">
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+        <LeadActivityThread
+          leadId={props.leadId}
+          items={timeline}
+          authorLabels={authorLabels}
+          currentFollowUpLine={followUpLine}
+          currentNextActionLine={nextActionLine}
+        />
       </div>
-
-      <div className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm ring-1 ring-slate-100/80">
-        <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Next follow-up</p>
-        {props.followUpAtIso ? (
-          <>
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              <p className="text-lg font-semibold tabular-nums text-slate-900">{formatFollowUpDateTime(props.followUpAtIso)}</p>
-              {fu === "overdue" ? (
-                <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-semibold text-rose-900">Overdue</span>
-              ) : fu === "today" ? (
-                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-950">Due today</span>
-              ) : (
-                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-700">Upcoming</span>
-              )}
-            </div>
-          </>
-        ) : props.followUpIso ? (
-          <div className="mt-2 flex flex-wrap items-center gap-2">
-            <p className="text-lg font-semibold tabular-nums text-slate-900">{formatFollowUpDate(props.followUpIso)}</p>
-            {fu === "overdue" ? (
-              <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-semibold text-rose-900">Overdue</span>
-            ) : fu === "today" ? (
-              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-950">Due today</span>
-            ) : (
-              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-700">Upcoming</span>
-            )}
-          </div>
-        ) : (
-          <p className="mt-2 text-sm text-slate-600">No follow-up date set.</p>
-        )}
-        {props.nextActionVal ? (
-          <p className="mt-2 text-xs text-slate-600">
-            Next action:{" "}
-            <span className="font-medium text-slate-800">{formatLeadNextActionLabel(props.nextActionVal)}</span>
-          </p>
-        ) : null}
-      </div>
-
-      <div className="rounded-2xl border border-slate-200/90 bg-slate-50/80 p-4 shadow-sm ring-1 ring-slate-100/80">
-        <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Quick note</p>
-        <p className="mt-0.5 text-xs text-slate-500">Saved to the thread immediately.</p>
-        <div className="mt-3">
-          <LeadQuickNoteForm leadId={props.leadId} />
-        </div>
+      <div className="shrink-0 border-t border-slate-200/80 bg-white/95 p-2 backdrop-blur supports-[backdrop-filter]:bg-white/90">
+        <LeadQuickNoteForm leadId={props.leadId} />
       </div>
     </div>
   );
