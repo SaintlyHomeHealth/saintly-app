@@ -83,21 +83,20 @@ export function LeadFollowUpContextPanel(props: {
 
   const lastContactSummary =
     props.lastContactAt?.trim() && !Number.isNaN(Date.parse(props.lastContactAt)) ? (
-      <p className="text-[11px] text-slate-500">
-        Last logged: {formatLeadContactTypeLabel(props.lastContactType)} ·{" "}
+      <p className="text-[11px] text-slate-400">
+        Last outcome: {formatLeadContactTypeLabel(props.lastContactType)} ·{" "}
         {formatLeadContactOutcomeLabel(props.lastOutcome)}
       </p>
     ) : (
-      <p className="text-[11px] text-slate-500">No contact attempt logged on the lead record yet.</p>
+      <p className="text-[11px] text-slate-400">No logged call or text on this lead yet.</p>
     );
 
   return (
     <div className="space-y-4">
-      <div className="rounded-2xl border border-slate-200/90 bg-gradient-to-b from-slate-50/90 to-white p-4 shadow-sm ring-1 ring-slate-100/80">
-        <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Activity thread</p>
-        <p className="mt-0.5 text-xs text-slate-500">Newest at the bottom · system entries and notes stay in one place.</p>
+      <div className="rounded-2xl border border-slate-200/70 bg-white/90 p-4 shadow-sm">
+        <p className="text-xs font-medium text-slate-600">Conversation</p>
         {lastContactSummary}
-        <div className="mt-4 max-h-[min(70vh,36rem)] overflow-y-auto pr-1">
+        <div className="mt-3 max-h-[min(70vh,36rem)] overflow-y-auto pr-0.5">
           {timeline.length === 0 ? (
             <p className="text-sm text-slate-600">No activity yet.</p>
           ) : (
