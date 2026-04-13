@@ -227,6 +227,8 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
   const assistHandoffSnapshotRef = useRef<AssistHandoffSnapshot | null>(null);
   /** After local hangup, ignore stale `inbound-active` rows until DB flips or a new CallSid appears. */
   const pollSuppressedSidRef = useRef<string | null>(null);
+  const lastPollCallSidRef = useRef<string | null>(null);
+  const prevTranscriptLenRef = useRef(0);
 
   useEffect(() => {
     statusRef.current = status;
@@ -274,6 +276,8 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
   useEffect(() => {
     if (status !== "in_call") {
       setCallContext(null);
+      lastPollCallSidRef.current = null;
+      prevTranscriptLenRef.current = 0;
       return;
     }
     let cancelled = false;
@@ -283,11 +287,18 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
         if (!cancelled) setCallContext(null);
         return;
       }
+      if (sid !== lastPollCallSidRef.current) {
+        lastPollCallSidRef.current = sid;
+        prevTranscriptLenRef.current = 0;
+        console.log("[softphone] call-context poll: active CallSid changed", sid.slice(0, 10) + "…");
+      }
       try {
         const res = await fetch(`/api/workspace/phone/call-context?call_sid=${encodeURIComponent(sid)}`, {
           credentials: "include",
         });
         if (cancelled || !res.ok) return;
+        const currentSid = readCallSid(activeCallRef.current);
+        if (currentSid !== sid) return;
         const j = (await res.json()) as {
           found?: boolean;
           voice_ai?: CallContextVoiceAi | null;
@@ -296,6 +307,12 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
         };
         if (cancelled) return;
         if (j.found) {
+          const excerpt = j.voice_ai?.live_transcript_excerpt;
+          const len = typeof excerpt === "string" ? excerpt.length : 0;
+          if (len !== prevTranscriptLenRef.current) {
+            prevTranscriptLenRef.current = len;
+            console.log("[softphone] transcript event received (poll)", { callSid: sid.slice(0, 10) + "…", excerptLen: len });
+          }
           setCallContext({
             voice_ai: j.voice_ai ?? null,
             conference: j.softphone_conference ?? null,
@@ -312,28 +329,27 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       }
     };
     void poll();
-    const id = window.setInterval(poll, 3500);
+    const id = window.setInterval(poll, 2000);
     return () => {
       cancelled = true;
       window.clearInterval(id);
     };
   }, [status]);
 
-  const clearCallUiState = useCallback(
-    (
-      reason: string,
-      options: { endedCallSid?: string | null; releaseActiveLeg?: boolean } = {}
-    ) => {
-      const releaseActive = options.releaseActiveLeg !== false;
-      console.log("[softphone] call ended", reason);
-      console.log("[softphone] clearing active call state");
-      if (releaseActive) {
-        activeCallRef.current = null;
-        setStatus("idle");
-        setCallStartedAtMs(null);
+  /**
+   * Single teardown path for the browser leg: always returns UI to idle and clears conference/transcript state.
+   * Safe to call multiple times (e.g. hangup + Twilio disconnect).
+   */
+  const finalizeCallCleanup = useCallback(
+    (reason: string, options?: { endedCallSid?: string | null; clearHint?: boolean }) => {
+      console.log("[softphone] finalizeCallCleanup", reason);
+      activeCallRef.current = null;
+      setStatus("idle");
+      setCallStartedAtMs(null);
+      if (options?.clearHint !== false) {
+        setHint(null);
+        setHintMeta(null);
       }
-      setHint(null);
-      setHintMeta(null);
       setMicMuted(false);
       setIsClientHold(false);
       setIsPstnHold(false);
@@ -341,12 +357,12 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       micMutedBeforeHoldRef.current = false;
       setCallContext(null);
       setInboundAiAssist(null);
-      if (options.endedCallSid) {
+      lastPollCallSidRef.current = null;
+      prevTranscriptLenRef.current = 0;
+      if (options?.endedCallSid) {
         pollSuppressedSidRef.current = options.endedCallSid;
       }
-      if (releaseActive || statusRef.current !== "in_call") {
-        dispatchWorkspaceSoftphoneUi({ phase: "idle" });
-      }
+      dispatchWorkspaceSoftphoneUi({ phase: "idle" });
     },
     []
   );
@@ -363,10 +379,12 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
         if (activeCallRef.current) {
           setCallWaitingCall(call);
           call.on("disconnect", () => {
+            console.log("[softphone] Twilio disconnect (call waiting leg)");
             setCallWaitingCall((c) => (c === call ? null : c));
             setCallWaitingCallerUi(null);
           });
           call.on("cancel", () => {
+            console.log("[softphone] Twilio cancel (call waiting leg)");
             setCallWaitingCall((c) => (c === call ? null : c));
             setCallWaitingCallerUi(null);
           });
@@ -374,33 +392,50 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
           setIncomingCall(call);
           call.on("disconnect", (disconnectedArg: Call | undefined) => {
             const disconnected = disconnectedArg ?? call;
+            console.log("[softphone] Twilio disconnect (incoming ring)", readCallSid(disconnected));
             setIncomingCall((c) => (c === call ? null : c));
-            const sid = readCallSid(disconnected);
-            clearCallUiState("twilio:incoming.disconnect", { endedCallSid: sid, releaseActiveLeg: false });
+            setHint(null);
+            setHintMeta(null);
           });
-          call.on("cancel", () => setIncomingCall((c) => (c === call ? null : c)));
+          call.on("cancel", () => {
+            console.log("[softphone] Twilio cancel (incoming ring)");
+            setIncomingCall((c) => (c === call ? null : c));
+          });
+          call.on("reject", () => {
+            console.log("[softphone] Twilio reject (incoming ring)");
+            setIncomingCall((c) => (c === call ? null : c));
+          });
         }
       });
     },
-    [clearCallUiState]
+    []
   );
 
   const attachActiveCallHandlers = useCallback(
     (call: Call | CallHandle) => {
+      const sidAtStart = readCallSid(call);
+      console.log("[softphone] active call created", sidAtStart ? `${sidAtStart.slice(0, 10)}…` : "(no CallSid yet)");
       activeCallRef.current = call;
       setStatus("in_call");
       setCallStartedAtMs(Date.now());
       call.on("disconnect", (disconnectedArg) => {
         const disconnected = disconnectedArg ?? call;
-        if (activeCallRef.current === disconnected) {
-          activeCallRef.current = null;
-        }
         const sid = readCallSid(disconnected);
-        clearCallUiState("twilio:call.disconnect", { endedCallSid: sid, releaseActiveLeg: true });
+        console.log("[softphone] Twilio disconnect event", sid ? `${sid.slice(0, 10)}…` : "(unknown)");
+        finalizeCallCleanup("twilio:call.disconnect", { endedCallSid: sid });
+      });
+      call.on("cancel", () => {
+        console.log("[softphone] Twilio cancel (active leg)");
+        finalizeCallCleanup("twilio:call.cancel", { endedCallSid: readCallSid(call) });
+      });
+      call.on("reject", () => {
+        console.log("[softphone] Twilio reject (active leg)");
+        finalizeCallCleanup("twilio:call.reject", { endedCallSid: readCallSid(call) });
       });
       call.on("error", (err) => {
         console.error("[softphone] active call error", err);
         const friendly = twilioErrorToFriendly(err);
+        finalizeCallCleanup("twilio:call.error", { endedCallSid: readCallSid(call), clearHint: false });
         setHint(friendly.userMessage);
         setHintMeta({ suggestSettings: friendly.suggestOpenSettings, canRetry: friendly.canRetry });
       });
@@ -409,7 +444,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
         setMicMuted(muted);
       });
     },
-    [clearCallUiState]
+    [finalizeCallCleanup]
   );
 
   useEffect(() => {
@@ -769,11 +804,11 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     return () => {
       cancelled = true;
       activeCallRef.current?.disconnect();
-      clearCallUiState("provider:device_effect_cleanup", { releaseActiveLeg: true });
+      finalizeCallCleanup("provider:device_effect_cleanup");
       deviceRef.current?.destroy();
       deviceRef.current = null;
     };
-  }, [bindDeviceLifecycle, clearCallUiState]);
+  }, [bindDeviceLifecycle, finalizeCallCleanup]);
 
   useEffect(() => {
     const onForce = (ev: Event) => {
@@ -782,20 +817,28 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
         typeof ce.detail?.reason === "string" && ce.detail.reason.trim()
           ? ce.detail.reason.trim()
           : "workspace:softphoneForceClear";
-      clearCallUiState(`workspace:force_clear:${reason}`, { releaseActiveLeg: false });
+      console.log("[softphone] workspace force clear", reason);
+      finalizeCallCleanup(`workspace:force_clear:${reason}`);
     };
     window.addEventListener(WORKSPACE_SOFTPHONE_FORCE_CLEAR_EVENT, onForce);
     return () => window.removeEventListener(WORKSPACE_SOFTPHONE_FORCE_CLEAR_EVENT, onForce);
-  }, [clearCallUiState]);
+  }, [finalizeCallCleanup]);
 
   const hangUp = useCallback(() => {
+    console.log("[softphone] hangup pressed");
     const c = activeCallRef.current;
+    const sid = c ? readCallSid(c) : null;
     if (c) {
-      c.disconnect();
+      try {
+        c.disconnect();
+      } catch (e) {
+        console.warn("[softphone] hangup disconnect threw", e);
+      }
     } else {
-      clearCallUiState("hangUp_no_active_leg", { releaseActiveLeg: false });
+      console.warn("[softphone] hangup with no activeCallRef — forcing idle UI");
     }
-  }, [clearCallUiState]);
+    finalizeCallCleanup("hangup", { endedCallSid: sid });
+  }, [finalizeCallCleanup]);
 
   const answerIncoming = useCallback(() => {
     const call = incomingCall;
@@ -893,6 +936,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     if (!c) return { ok: false as const, error: "No active call" };
     const sid = readCallSid(c);
     if (!sid) return { ok: false as const, error: "No CallSid" };
+    console.log("[softphone] transfer started", { toE164, callSid: `${sid.slice(0, 10)}…` });
     const res = await fetch("/api/workspace/phone/conference/cold-transfer", {
       method: "POST",
       credentials: "include",
@@ -903,6 +947,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       const j = (await res.json().catch(() => ({}))) as { error?: string };
       return { ok: false as const, error: j.error ?? `HTTP ${res.status}` };
     }
+    console.log("[softphone] transfer completed (server accepted cold-transfer)", { toE164 });
     return { ok: true as const };
   }, []);
 

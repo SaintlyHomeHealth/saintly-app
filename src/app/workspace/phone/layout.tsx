@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 
 import { NursePhoneBottomNav } from "./_components/NursePhoneBottomNav";
+import { WorkspacePhoneMainPad } from "./_components/WorkspacePhoneMainPad";
 import { WorkspacePhoneTopStatusStrip } from "./_components/WorkspacePhoneTopStatusStrip";
 import { SignOutButton } from "@/components/SignOutButton";
 import { routePerfLog, routePerfStart } from "@/lib/perf/route-perf";
@@ -53,7 +54,7 @@ export default async function WorkspacePhoneLayout({ children }: { children: Rea
           inboundRingEnabled={staff.inbound_ring_enabled}
         />
 
-        <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col pb-32">{children}</main>
+        <WorkspacePhoneMainPad>{children}</WorkspacePhoneMainPad>
 
         <NursePhoneBottomNav showLeadsNav={showAdminLink} />
       </div>

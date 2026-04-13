@@ -81,8 +81,8 @@ export function LiveCallContextPanel({ voiceAi, conference, remoteLabel, confere
       )}
       {!voiceAi ? (
         <p className="mt-3 text-xs leading-relaxed text-slate-600">
-          Live AI summary and transcript appear here when the call is linked to Saintly voice AI (same Twilio Call SID
-          in our logs).
+          Live AI summary appears when this browser leg matches a phone_calls row (same Twilio Call SID). Transcript
+          updates below from server metadata (bridge + voice AI).
         </p>
       ) : (
         <div className="mt-3 space-y-3 text-xs text-slate-700">
@@ -115,21 +115,31 @@ export function LiveCallContextPanel({ voiceAi, conference, remoteLabel, confere
               <p className="mt-1 leading-relaxed">{voiceAi.recommended_action}</p>
             </div>
           ) : null}
-          <div>
-            <p className="font-semibold text-slate-900">Live transcript (excerpt)</p>
-            <div className="mt-2 max-h-40 overflow-y-auto rounded-xl border border-sky-100/80 bg-white/90 p-3 font-mono text-[11px] leading-relaxed text-slate-800">
-              {voiceAi.live_transcript_excerpt ? (
-                <>
-                  <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">AI Receptionist</p>
-                  <p className="mt-1 whitespace-pre-wrap">{voiceAi.live_transcript_excerpt}</p>
-                </>
-              ) : (
-                <p className="text-slate-500">No live transcript excerpt yet for this leg.</p>
-              )}
-            </div>
-          </div>
         </div>
       )}
+      <div className="mt-3">
+        <p className="text-xs font-semibold text-slate-900">Live transcript (excerpt)</p>
+        <p className="mt-0.5 text-[10px] text-slate-500">
+          Pulled from phone call metadata on this leg
+          {conferenceGating?.client_leg_call_sid
+            ? ` (${conferenceGating.client_leg_call_sid.slice(0, 10)}…)`
+            : ""}
+          . Refreshes about every 2s while you are in a call.
+        </p>
+        <div className="mt-2 max-h-40 overflow-y-auto rounded-xl border border-sky-100/80 bg-white/90 p-3 font-mono text-[11px] leading-relaxed text-slate-800">
+          {voiceAi?.live_transcript_excerpt?.trim() ? (
+            <>
+              <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">AI Receptionist</p>
+              <p className="mt-1 whitespace-pre-wrap">{voiceAi.live_transcript_excerpt}</p>
+            </>
+          ) : (
+            <p className="text-slate-500">
+              Transcript will appear when available — start the media stream if you use the live bridge, or wait for
+              voice AI to write lines to this call.
+            </p>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

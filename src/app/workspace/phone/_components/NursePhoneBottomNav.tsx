@@ -1,5 +1,6 @@
 "use client";
 
+import { useWorkspaceSoftphone } from "@/components/softphone/WorkspaceSoftphoneProvider";
 import {
   CalendarDays,
   Hash,
@@ -145,11 +146,17 @@ type NavProps = {
 
 export function NursePhoneBottomNav({ showLeadsNav = true }: NavProps) {
   const pathname = usePathname() ?? "";
+  const { status } = useWorkspaceSoftphone();
   const tabs = showLeadsNav ? [...tabsBase.slice(0, 6), leadsTab, ...tabsBase.slice(6)] : tabsBase;
+
+  /** ActiveCallBar is fixed above the nav; hiding nav during a call avoids double-stack + wrong safe-area math on iPhone. */
+  if (status === "in_call") {
+    return null;
+  }
 
   return (
     <nav
-      className="fixed bottom-0 left-0 right-0 z-40 border-t border-sky-100/80 bg-white/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-4px_24px_-8px_rgba(30,58,138,0.07)] backdrop-blur supports-[backdrop-filter]:bg-white/85"
+      className="fixed bottom-0 left-0 right-0 z-40 border-t border-sky-100/80 bg-white/95 pb-[max(0.25rem,env(safe-area-inset-bottom,0px))] shadow-[0_-4px_24px_-8px_rgba(30,58,138,0.07)] backdrop-blur supports-[backdrop-filter]:bg-white/85"
       aria-label="Phone workspace"
     >
       <ul className="mx-auto flex w-full max-w-6xl items-stretch justify-between gap-0.5 px-1 pt-1">

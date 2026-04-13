@@ -656,6 +656,7 @@ export function SoftphoneDialer({
                 </p>
               </div>
               <LiveCallContextPanel
+                key={gating?.client_leg_call_sid ?? "call-context"}
                 voiceAi={callContext?.voice_ai ?? null}
                 conference={callContext?.conference ?? null}
                 remoteLabel={activeRemoteLabel}

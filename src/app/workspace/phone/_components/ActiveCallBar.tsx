@@ -33,7 +33,7 @@ export function ActiveCallBar() {
   if (status !== "in_call") return null;
 
   return (
-    <div className="fixed bottom-[calc(5.5rem+env(safe-area-inset-bottom,0px))] left-0 right-0 z-[43] px-4 pb-2 sm:px-5">
+    <div className="fixed bottom-0 left-0 right-0 z-[43] px-4 pb-[max(0.75rem,env(safe-area-inset-bottom,0px))] pt-2 sm:px-5">
       <div className="mx-auto w-full max-w-6xl space-y-2">
         <div className="flex w-full items-center justify-between gap-3 rounded-2xl border border-sky-400/40 bg-gradient-to-r from-blue-950 via-slate-900 to-blue-950 px-3 py-2.5 text-sky-50 shadow-xl shadow-blue-950/40">
           <div className="min-w-0">
@@ -102,6 +102,7 @@ export function ActiveCallBar() {
         {ctxOpen ? (
           <div className="rounded-2xl border border-sky-200/40 bg-white/95 p-2 shadow-lg shadow-slate-900/10 backdrop-blur">
             <LiveCallContextPanel
+              key={callContext?.conference_gating?.client_leg_call_sid ?? "call-context"}
               voiceAi={callContext?.voice_ai ?? null}
               conference={callContext?.conference ?? null}
               remoteLabel={activeRemoteLabel}
