@@ -7,7 +7,12 @@ import type { ExpoConfig, ConfigContext } from 'expo/config';
  * Native Firebase: place `GoogleService-Info.plist` and `google-services.json` in this directory
  * (same paths as `ios.googleServicesFile` / `android.googleServicesFile`). Firebase app IDs must
  * use bundle id / package `com.saintly.softphone`.
+ *
+ * `expo-dev-client` is omitted for `EAS_BUILD_PROFILE=production` so store / TestFlight builds
+ * are not development clients.
  */
+const isProductionEASBuild = process.env.EAS_BUILD_PROFILE === 'production';
+
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
   /** Shown under the icon and in system UI — production-facing Saintly Home Health branding. */
@@ -33,6 +38,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         'This app requires microphone access to make and receive calls.',
       NSLocationWhenInUseUsageDescription:
         'This app uses location to support call workflows and staff features.',
+      /** Standard HTTPS / platform crypto only — aligns with App Store export compliance. */
+      ITSAppUsesNonExemptEncryption: false,
     },
   },
   android: {
@@ -50,7 +57,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   plugins: [
     ...(Array.isArray(config.plugins) ? config.plugins : []),
-    'expo-dev-client',
+    ...(isProductionEASBuild ? [] : (['expo-dev-client'] as const)),
     'expo-location',
     '@react-native-firebase/app',
     [
