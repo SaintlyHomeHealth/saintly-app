@@ -10,7 +10,8 @@ import type { ExpoConfig, ConfigContext } from 'expo/config';
  */
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
-  name: 'Saintly Phone',
+  /** Shown under the icon and in system UI — production-facing Saintly Home Health branding. */
+  name: 'Saintly Home Health',
   slug: 'saintly-phone',
   version: '1.0.0',
   orientation: 'portrait',
@@ -27,6 +28,12 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     supportsTablet: true,
     bundleIdentifier: 'com.saintly.softphone',
     googleServicesFile: './GoogleService-Info.plist',
+    infoPlist: {
+      NSMicrophoneUsageDescription:
+        'This app requires microphone access to make and receive calls.',
+      NSLocationWhenInUseUsageDescription:
+        'This app uses location to support call workflows and staff features.',
+    },
   },
   android: {
     adaptiveIcon: {
@@ -44,6 +51,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   plugins: [
     ...(Array.isArray(config.plugins) ? config.plugins : []),
     'expo-dev-client',
+    'expo-location',
     '@react-native-firebase/app',
     [
       'expo-build-properties',

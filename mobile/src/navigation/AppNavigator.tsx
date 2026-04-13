@@ -14,7 +14,7 @@ export function AppNavigator() {
       <Stack.Navigator
         screenOptions={{
           headerShown: true,
-          headerTitle: 'Saintly Phone',
+          headerTitle: 'Saintly Home Health',
           headerStyle: { backgroundColor: colors.surface },
           headerShadowVisible: false,
           headerTintColor: colors.textPrimary,

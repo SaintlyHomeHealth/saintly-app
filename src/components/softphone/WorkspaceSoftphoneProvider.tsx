@@ -24,6 +24,7 @@ import {
   dispatchWorkspaceSoftphoneUi,
   type WorkspaceSoftphoneForceClearDetail,
 } from "@/lib/softphone/workspace-ui-events";
+import { twilioErrorToFriendly } from "@/lib/softphone/twilio-user-friendly-errors";
 
 type CallHandle = Awaited<ReturnType<Device["connect"]>>;
 
@@ -40,6 +41,16 @@ type InboundAiAssistState = {
   contactName: string | null;
 };
 
+export type CallContextVoiceAi = {
+  short_summary: string | null;
+  urgency: string | null;
+  route_target: string | null;
+  caller_category: string | null;
+  live_transcript_excerpt: string | null;
+  recommended_action: string | null;
+  confidence_summary: string | null;
+};
+
 type Ctx = {
   digits: string;
   setDigits: Dispatch<SetStateAction<string>>;
@@ -48,6 +59,8 @@ type Ctx = {
   isInCall: boolean;
   status: "idle" | "fetching_token" | "connecting" | "in_call" | "error";
   hint: string | null;
+  /** Extra UI for mapped Twilio/WebRTC errors (Settings / retry). */
+  hintMeta: { suggestSettings: boolean; canRetry: boolean } | null;
   incomingCallerContactName: string | null;
   incomingCallerNumberFormatted: string;
   incomingCallerRawFrom: string | null;
@@ -58,6 +71,22 @@ type Ctx = {
   canDial: boolean;
   incoming: boolean;
   durationSec: number;
+  /** Microphone mute (Twilio `Call.mute`). */
+  micMuted: boolean;
+  /** Client-side hold: mutes mic + silences remote audio until resumed. PSTN hold music is a later phase. */
+  isClientHold: boolean;
+  toggleMute: () => void;
+  toggleHold: () => void;
+  /** Second inbound while already on an active call (call waiting). */
+  callWaiting: boolean;
+  callWaitingCallerContactName: string | null;
+  callWaitingNumberFormatted: string;
+  callWaitingRawFrom: string | null;
+  answerCallWaitingEndAndAccept: () => void;
+  declineCallWaiting: () => void;
+  /** AI summary / transcript polled from `phone_calls` for this CallSid. */
+  callContext: { voice_ai: CallContextVoiceAi | null } | null;
+  clearCallError: () => void;
   startCall: (toOverride?: string) => Promise<void>;
   hangUp: () => void;
   answerIncoming: () => void;
@@ -108,6 +137,13 @@ function readCallSid(call: { parameters?: Record<string, string> } | null | unde
   return sid && sid.length > 0 ? sid : null;
 }
 
+function setRemoteAudioEnabled(call: Call, enabled: boolean) {
+  const stream = call.getRemoteStream();
+  stream?.getAudioTracks().forEach((t) => {
+    t.enabled = enabled;
+  });
+}
+
 function formatDialpadDisplay(raw: string): string {
   const t = raw.trim();
   if (!t) return "";
@@ -136,7 +172,14 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
   const [status, setStatus] = useState<"idle" | "fetching_token" | "connecting" | "in_call" | "error">("idle");
   const [hint, setHint] = useState<string | null>(null);
   const [incomingCall, setIncomingCall] = useState<Call | null>(null);
+  const [callWaitingCall, setCallWaitingCall] = useState<Call | null>(null);
   const [incomingCallerUi, setIncomingCallerUi] = useState<IncomingCallerUi | null>(null);
+  const [callWaitingCallerUi, setCallWaitingCallerUi] = useState<IncomingCallerUi | null>(null);
+  const [hintMeta, setHintMeta] = useState<{ suggestSettings: boolean; canRetry: boolean } | null>(null);
+  const [micMuted, setMicMuted] = useState(false);
+  const [isClientHold, setIsClientHold] = useState(false);
+  const micMutedBeforeHoldRef = useRef(false);
+  const [callContext, setCallContext] = useState<{ voice_ai: CallContextVoiceAi | null } | null>(null);
   const [tokenIdentity, setTokenIdentity] = useState<string | null>(null);
   const [ringtoneUnlocked, setRingtoneUnlocked] = useState(false);
   const [durationSec, setDurationSec] = useState(0);
@@ -169,6 +212,45 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     return () => window.clearInterval(id);
   }, [callStartedAtMs]);
 
+  useEffect(() => {
+    if (status !== "in_call") {
+      setCallContext(null);
+      return;
+    }
+    let cancelled = false;
+    const poll = async () => {
+      const sid = readCallSid(activeCallRef.current);
+      if (!sid) {
+        if (!cancelled) setCallContext(null);
+        return;
+      }
+      try {
+        const res = await fetch(`/api/workspace/phone/call-context?call_sid=${encodeURIComponent(sid)}`, {
+          credentials: "include",
+        });
+        if (cancelled || !res.ok) return;
+        const j = (await res.json()) as {
+          found?: boolean;
+          voice_ai?: CallContextVoiceAi | null;
+        };
+        if (cancelled) return;
+        if (j.found) {
+          setCallContext({ voice_ai: j.voice_ai ?? null });
+        } else {
+          setCallContext(null);
+        }
+      } catch {
+        if (!cancelled) setCallContext(null);
+      }
+    };
+    void poll();
+    const id = window.setInterval(poll, 3500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [status]);
+
   const clearCallUiState = useCallback(
     (
       reason: string,
@@ -183,6 +265,11 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
         setCallStartedAtMs(null);
       }
       setHint(null);
+      setHintMeta(null);
+      setMicMuted(false);
+      setIsClientHold(false);
+      micMutedBeforeHoldRef.current = false;
+      setCallContext(null);
       setInboundAiAssist(null);
       if (options.endedCallSid) {
         pollSuppressedSidRef.current = options.endedCallSid;
@@ -197,21 +284,32 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
   const bindDeviceLifecycle = useCallback(
     (device: Device) => {
       device.on("error", (err) => {
-        const msg =
-          err && typeof err === "object" && "message" in err && typeof err.message === "string"
-            ? err.message
-            : String(err);
-        setHint(msg || "Phone error");
+        console.error("[softphone] device error", err);
+        const friendly = twilioErrorToFriendly(err);
+        setHint(friendly.userMessage);
+        setHintMeta({ suggestSettings: friendly.suggestOpenSettings, canRetry: friendly.canRetry });
       });
       device.on("incoming", (call) => {
-        setIncomingCall(call);
-        call.on("disconnect", (disconnectedArg) => {
-          const disconnected = disconnectedArg ?? call;
-          setIncomingCall((c) => (c === call ? null : c));
-          const sid = readCallSid(disconnected);
-          clearCallUiState("twilio:incoming.disconnect", { endedCallSid: sid, releaseActiveLeg: false });
-        });
-        call.on("cancel", () => setIncomingCall((c) => (c === call ? null : c)));
+        if (activeCallRef.current) {
+          setCallWaitingCall(call);
+          call.on("disconnect", () => {
+            setCallWaitingCall((c) => (c === call ? null : c));
+            setCallWaitingCallerUi(null);
+          });
+          call.on("cancel", () => {
+            setCallWaitingCall((c) => (c === call ? null : c));
+            setCallWaitingCallerUi(null);
+          });
+        } else {
+          setIncomingCall(call);
+          call.on("disconnect", (disconnectedArg: Call | undefined) => {
+            const disconnected = disconnectedArg ?? call;
+            setIncomingCall((c) => (c === call ? null : c));
+            const sid = readCallSid(disconnected);
+            clearCallUiState("twilio:incoming.disconnect", { endedCallSid: sid, releaseActiveLeg: false });
+          });
+          call.on("cancel", () => setIncomingCall((c) => (c === call ? null : c)));
+        }
       });
     },
     [clearCallUiState]
@@ -231,7 +329,14 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
         clearCallUiState("twilio:call.disconnect", { endedCallSid: sid, releaseActiveLeg: true });
       });
       call.on("error", (err) => {
-        setHint(err.message ?? "Call error");
+        console.error("[softphone] active call error", err);
+        const friendly = twilioErrorToFriendly(err);
+        setHint(friendly.userMessage);
+        setHintMeta({ suggestSettings: friendly.suggestOpenSettings, canRetry: friendly.canRetry });
+      });
+      setMicMuted(call.isMuted());
+      call.on("mute", (muted: boolean) => {
+        setMicMuted(muted);
       });
     },
     [clearCallUiState]
@@ -261,12 +366,12 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     );
     const snap = assistHandoffSnapshotRef.current;
     const snapMatches =
-      Boolean(snap) &&
+      snap != null &&
       now - snap.savedAt < ASSIST_HANDOFF_SNAPSHOT_TTL_MS &&
       normalizePhone(snap.raw).length >= 10 &&
       normalizePhone(snap.raw) === normalizePhone(raw) &&
       normalizePhone(raw).length >= 10;
-    const seededContactName = snapMatches ? snap.contactName : null;
+    const seededContactName = snapMatches && snap ? snap.contactName : null;
 
     const formattedNumber = formatInboundCallerFromRaw(raw);
     setIncomingCallerUi({ rawFrom: raw, formattedNumber, contactName: seededContactName });
@@ -290,6 +395,49 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       cancelled = true;
     };
   }, [incomingCall]);
+
+  useEffect(() => {
+    if (!callWaitingCall) {
+      setCallWaitingCallerUi(null);
+      return;
+    }
+    const now = Date.now();
+    const raw = mergeRawWithAssistSnapshot(
+      readIncomingCallerRawFromCall(callWaitingCall),
+      assistHandoffSnapshotRef.current,
+      now
+    );
+    const snap = assistHandoffSnapshotRef.current;
+    const snapMatches =
+      snap != null &&
+      now - snap.savedAt < ASSIST_HANDOFF_SNAPSHOT_TTL_MS &&
+      normalizePhone(snap.raw).length >= 10 &&
+      normalizePhone(snap.raw) === normalizePhone(raw) &&
+      normalizePhone(raw).length >= 10;
+    const seededContactName = snapMatches && snap ? snap.contactName : null;
+
+    const formattedNumber = formatInboundCallerFromRaw(raw);
+    setCallWaitingCallerUi({ rawFrom: raw, formattedNumber, contactName: seededContactName });
+
+    const lower = raw.toLowerCase();
+    const digits = normalizePhone(raw);
+    if (lower.startsWith("client:") || digits.length < 10 || !raw.trim()) {
+      return;
+    }
+
+    let cancelled = false;
+    const q = encodeURIComponent(raw);
+    void fetch(`/api/workspace/phone/incoming-caller-lookup?from=${q}`, { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j: { contactName?: unknown } | null) => {
+        const name = j && typeof j.contactName === "string" ? j.contactName.trim() : "";
+        if (cancelled || !name) return;
+        setCallWaitingCallerUi((prev) => (prev && prev.rawFrom === raw ? { ...prev, contactName: name } : prev));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [callWaitingCall]);
 
   useEffect(() => {
     if (!inboundAiAssist?.rawFrom || inboundAiAssist.contactName) return;
@@ -518,6 +666,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
         if (!res.ok || !body.token) {
           setListenState("error");
           setHint(body.error ?? "Softphone token unavailable.");
+          setHintMeta(null);
           return;
         }
         setTokenIdentity(typeof body.identity === "string" ? body.identity : null);
@@ -538,8 +687,10 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       } catch (e) {
         if (!cancelled) {
           setListenState("error");
-          const msg = e instanceof Error ? e.message : "Softphone init failed.";
-          setHint(msg);
+          console.error("[softphone] device init failed", e);
+          const friendly = twilioErrorToFriendly(e);
+          setHint(friendly.userMessage);
+          setHintMeta({ suggestSettings: friendly.suggestOpenSettings, canRetry: friendly.canRetry });
         }
       }
     };
@@ -589,14 +740,75 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     setIncomingCall(null);
   }, [incomingCall]);
 
+  const clearCallError = useCallback(() => {
+    setHint(null);
+    setHintMeta(null);
+  }, []);
+
+  const toggleMute = useCallback(() => {
+    const c = activeCallRef.current;
+    if (!c || isClientHold) return;
+    c.mute(!c.isMuted());
+  }, [isClientHold]);
+
+  const toggleHold = useCallback(() => {
+    const c = activeCallRef.current;
+    if (!c) return;
+    if (!isClientHold) {
+      micMutedBeforeHoldRef.current = c.isMuted();
+      c.mute(true);
+      setRemoteAudioEnabled(c, false);
+      setIsClientHold(true);
+      setMicMuted(true);
+    } else {
+      c.mute(micMutedBeforeHoldRef.current);
+      setRemoteAudioEnabled(c, true);
+      setIsClientHold(false);
+      setMicMuted(c.isMuted());
+    }
+  }, [isClientHold]);
+
+  const declineCallWaiting = useCallback(() => {
+    callWaitingCall?.reject();
+    setCallWaitingCall(null);
+    setCallWaitingCallerUi(null);
+  }, [callWaitingCall]);
+
+  const answerCallWaitingEndAndAccept = useCallback(() => {
+    const waiting = callWaitingCall;
+    if (!waiting) return;
+    setCallWaitingCall(null);
+    setCallWaitingCallerUi(null);
+    const cur = activeCallRef.current;
+    const acceptWaiting = () => {
+      try {
+        waiting.accept();
+        attachActiveCallHandlers(waiting);
+      } catch (e) {
+        console.error("[softphone] endAndAccept waiting", e);
+        const friendly = twilioErrorToFriendly(e);
+        setHint(friendly.userMessage);
+        setHintMeta({ suggestSettings: friendly.suggestOpenSettings, canRetry: friendly.canRetry });
+      }
+    };
+    if (cur) {
+      cur.once("disconnect", acceptWaiting);
+      cur.disconnect();
+    } else {
+      acceptWaiting();
+    }
+  }, [callWaitingCall, attachActiveCallHandlers]);
+
   const startCall = useCallback(
     async (toOverride?: string) => {
       setHint(null);
+      setHintMeta(null);
       const raw = typeof toOverride === "string" ? toOverride : digits;
       const trimmed = raw.trim();
       const e164 = isValidE164(trimmed) ? trimmed : normalizeDialInputToE164(trimmed);
       if (!e164 || !isValidE164(e164)) {
         setHint("Enter a valid US number (10 digits) or full E.164 (e.g. +1…).");
+        setHintMeta(null);
         return;
       }
       if (typeof toOverride === "string") setDigits(trimmed);
@@ -613,12 +825,14 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
         if (!res.ok || !tokenJson.token) {
           setStatus("error");
           setHint(tokenJson.error ?? `Could not get call token (${res.status}).`);
+          setHintMeta(null);
           return;
         }
         if (typeof tokenJson.identity === "string") setTokenIdentity(tokenJson.identity);
       } catch {
         setStatus("error");
         setHint("Network error while requesting call token.");
+        setHintMeta(null);
         return;
       }
 
@@ -638,15 +852,18 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
         const call = await device.connect({ params: { To: e164 } });
         attachActiveCallHandlers(call);
       } catch (e) {
+        console.error("[softphone] startCall failed", e);
         setStatus("error");
-        setHint(e instanceof Error ? e.message : "Could not start call.");
+        const friendly = twilioErrorToFriendly(e);
+        setHint(friendly.userMessage);
+        setHintMeta({ suggestSettings: friendly.suggestOpenSettings, canRetry: friendly.canRetry });
       }
     },
     [digits, attachActiveCallHandlers, bindDeviceLifecycle]
   );
 
   const busy = status === "fetching_token" || status === "connecting" || status === "in_call";
-  const canDial = listenState !== "loading" && !incomingCall;
+  const canDial = listenState !== "loading" && !incomingCall && !callWaitingCall;
 
   useEffect(() => {
     const handler = (ev: Event) => {
@@ -697,6 +914,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       isInCall: status === "in_call",
       status,
       hint,
+      hintMeta,
       incomingCallerContactName: incomingCallerUi?.contactName ?? null,
       incomingCallerNumberFormatted: incomingCallerUi?.formattedNumber ?? "",
       incomingCallerRawFrom: incomingCallerUi?.rawFrom ?? null,
@@ -707,6 +925,18 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       canDial,
       incoming: Boolean(incomingCall),
       durationSec,
+      micMuted,
+      isClientHold,
+      toggleMute,
+      toggleHold,
+      callWaiting: Boolean(callWaitingCall),
+      callWaitingCallerContactName: callWaitingCallerUi?.contactName ?? null,
+      callWaitingNumberFormatted: callWaitingCallerUi?.formattedNumber ?? "",
+      callWaitingRawFrom: callWaitingCallerUi?.rawFrom ?? null,
+      answerCallWaitingEndAndAccept,
+      declineCallWaiting,
+      callContext,
+      clearCallError,
       startCall,
       hangUp,
       answerIncoming,
@@ -719,13 +949,24 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     listenState,
     status,
     hint,
+    hintMeta,
     incomingCallerUi,
     tokenIdentity,
     ringtoneUnlocked,
     busy,
     canDial,
     incomingCall,
+    callWaitingCall,
+    callWaitingCallerUi,
     durationSec,
+    micMuted,
+    isClientHold,
+    toggleMute,
+    toggleHold,
+    answerCallWaitingEndAndAccept,
+    declineCallWaiting,
+    callContext,
+    clearCallError,
     startCall,
     hangUp,
     answerIncoming,

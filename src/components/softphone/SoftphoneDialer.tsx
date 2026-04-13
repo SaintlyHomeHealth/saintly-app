@@ -5,6 +5,9 @@ import { Delete, Phone } from "lucide-react";
 
 import { useWorkspaceSoftphone } from "@/components/softphone/WorkspaceSoftphoneProvider";
 import { isPlausiblePstnCallerRawForSubline } from "@/lib/softphone/twilio-incoming-caller-display";
+import { openSoftphoneAppSettings } from "@/lib/softphone/open-app-settings";
+
+import { LiveCallContextPanel } from "@/components/softphone/LiveCallContextPanel";
 
 const DIALPAD_ROWS: ReadonlyArray<ReadonlyArray<{ digit: string; sub?: string }>> = [
   [
@@ -77,6 +80,7 @@ export function SoftphoneDialer({
     listenState,
     status,
     hint,
+    hintMeta,
     incomingCallerContactName,
     incomingCallerNumberFormatted,
     incomingCallerRawFrom,
@@ -84,12 +88,19 @@ export function SoftphoneDialer({
     busy,
     canDial,
     incoming,
+    micMuted,
+    isClientHold,
+    toggleMute,
+    toggleHold,
+    callContext,
+    clearCallError,
     startCall,
     hangUp,
     answerIncoming,
     rejectIncoming,
     testRingtone,
     unlockRingtoneFromGesture,
+    activeRemoteLabel,
   } = useWorkspaceSoftphone();
   const autoPlaceStartedRef = useRef(false);
 
@@ -335,25 +346,51 @@ export function SoftphoneDialer({
           </div>
 
           {status === "in_call" ? (
-            <div className="w-full max-w-sm rounded-2xl border border-sky-100/70 bg-gradient-to-b from-sky-50/50 to-white px-3 py-3.5 shadow-[0_4px_16px_-8px_rgba(30,58,138,0.07)]">
-              <p className="text-center text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">
-                In-call controls
-              </p>
-              <p className="mt-1 text-center text-[11px] text-slate-500">Mute, hold, and transfer will wire up next.</p>
-              <div className="mt-3 grid grid-cols-3 gap-2">
-                {(["Mute", "Hold", "Transfer"] as const).map((label) => (
+            <div className="flex w-full max-w-sm flex-col gap-4">
+              <div className="rounded-2xl border border-sky-100/70 bg-gradient-to-b from-sky-50/50 to-white px-3 py-3.5 shadow-[0_4px_16px_-8px_rgba(30,58,138,0.07)]">
+                <p className="text-center text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">
+                  In-call controls
+                </p>
+                {isClientHold ? (
+                  <p className="mt-1 text-center text-[11px] font-semibold text-amber-800">On hold — resume to speak again</p>
+                ) : (
+                  <p className="mt-1 text-center text-[11px] text-slate-500">Mute and hold work on this device. Transfer is next.</p>
+                )}
+                <div className="mt-3 grid grid-cols-3 gap-2">
                   <button
-                    key={label}
+                    type="button"
+                    onClick={toggleMute}
+                    disabled={isClientHold}
+                    className={`rounded-xl border py-2.5 text-xs font-semibold shadow-sm ${
+                      micMuted
+                        ? "border-blue-300 bg-blue-50 text-blue-950"
+                        : "border-slate-200/80 bg-gradient-to-b from-white to-slate-50/90 text-slate-800"
+                    } disabled:opacity-40`}
+                  >
+                    {micMuted ? "Unmute" : "Mute"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={toggleHold}
+                    className={`rounded-xl border py-2.5 text-xs font-semibold shadow-sm ${
+                      isClientHold
+                        ? "border-amber-300 bg-amber-50 text-amber-950"
+                        : "border-slate-200/80 bg-gradient-to-b from-white to-slate-50/90 text-slate-800"
+                    }`}
+                  >
+                    {isClientHold ? "Resume" : "Hold"}
+                  </button>
+                  <button
                     type="button"
                     disabled
-                    aria-disabled="true"
-                    title="Coming soon"
+                    title="Cold / warm transfer — coming in next release"
                     className="rounded-xl border border-slate-200/80 bg-gradient-to-b from-white to-slate-50/90 py-2.5 text-xs font-semibold text-slate-400 shadow-sm"
                   >
-                    {label}
+                    Transfer
                   </button>
-                ))}
+                </div>
               </div>
+              <LiveCallContextPanel voiceAi={callContext?.voice_ai ?? null} remoteLabel={activeRemoteLabel} />
             </div>
           ) : null}
 
@@ -443,9 +480,41 @@ export function SoftphoneDialer({
         </p>
       ) : null}
       {hint ? (
-        <p className={variant === "keypad" ? "mt-3 text-center text-sm text-amber-900" : "mt-2 text-xs text-amber-900"}>
-          {hint}
-        </p>
+        <div
+          className={
+            variant === "keypad"
+              ? "mt-3 rounded-2xl border border-amber-200/90 bg-amber-50/95 px-4 py-3 text-left shadow-sm"
+              : "mt-2 rounded-xl border border-amber-200/90 bg-amber-50/95 px-3 py-2 text-left"
+          }
+          role="alert"
+        >
+          <p className={variant === "keypad" ? "text-sm font-medium text-amber-950" : "text-xs font-medium text-amber-950"}>
+            {hint}
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {hintMeta?.suggestSettings ? (
+              <button
+                type="button"
+                onClick={() => openSoftphoneAppSettings()}
+                className="rounded-full bg-blue-950 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-blue-900"
+              >
+                Open Settings
+              </button>
+            ) : null}
+            {hintMeta?.canRetry ? (
+              <button
+                type="button"
+                onClick={() => {
+                  clearCallError();
+                  void startCall();
+                }}
+                className="rounded-full border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-950 hover:bg-amber-100/80"
+              >
+                Try again
+              </button>
+            ) : null}
+          </div>
+        </div>
       ) : null}
     </section>
   );

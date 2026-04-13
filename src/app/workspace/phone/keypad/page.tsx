@@ -45,10 +45,10 @@ export default async function WorkspaceKeypadPage({
   }
 
   return (
-    <div className="ws-phone-page-shell flex flex-1 flex-col px-4 pb-6 pt-6 sm:px-5 sm:pt-7 lg:px-8">
+    <div className="ws-phone-page-shell flex flex-1 flex-col px-4 pb-4 pt-5 sm:px-5 sm:pt-6 lg:px-8">
       <WorkspacePhonePageHeader
         title="Keypad"
-        subtitle="Dial out with the Saintly line. Stay on this screen to hear inbound calls on this device."
+        subtitle="Saintly Home Health · Dial with the Saintly line. Stay on this screen for inbound calls on this device."
       />
       {leadId && UUID_RE.test(leadId) ? (
         <p className="mt-2 rounded-2xl border border-sky-200/80 bg-sky-50/90 px-4 py-3 text-sm text-sky-950">
