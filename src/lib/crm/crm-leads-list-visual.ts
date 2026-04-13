@@ -3,6 +3,74 @@ import { formatLeadPipelineStatusLabel } from "@/lib/crm/lead-pipeline-status";
 
 import type { CrmLeadRow } from "./crm-leads-table-helpers";
 
+/**
+ * Contact stage (glance badge) — driven by `last_contact_at` + `last_outcome`, not `leads.status` pipeline.
+ * "New" only when we have never logged a contact time.
+ */
+export function contactStageBadgeLabel(row: CrmLeadRow): { label: string; badgeClass: string } {
+  const lastAt = (row.last_contact_at ?? "").trim();
+  if (!lastAt) {
+    return { label: "New", badgeClass: "bg-sky-50 text-sky-950 ring-sky-200/70" };
+  }
+
+  const raw = (row.last_outcome ?? "").trim();
+  if (!raw) {
+    return { label: "Contacted", badgeClass: "bg-slate-100 text-slate-700 ring-slate-200/80" };
+  }
+
+  const lo = raw.toLowerCase();
+  return {
+    label: contactStageShortLabel(lo, raw),
+    badgeClass: contactStageBadgeClassForOutcome(lo),
+  };
+}
+
+function contactStageShortLabel(outcomeLower: string, outcomeRaw: string): string {
+  switch (outcomeLower) {
+    case "spoke":
+    case "spoke_scheduled":
+      return "Spoke";
+    case "left_voicemail":
+      return "Left VM";
+    case "text_sent":
+      return "Texted";
+    case "no_answer":
+      return "No answer";
+    case "not_interested":
+      return "Not interested";
+    case "wrong_number":
+      return "Wrong number";
+    default:
+      return formatLeadContactOutcomeLabel(outcomeRaw);
+  }
+}
+
+function contactStageBadgeClassForOutcome(outcomeLower: string): string {
+  switch (outcomeLower) {
+    case "spoke":
+    case "spoke_scheduled":
+      return "bg-purple-50 text-purple-950 ring-purple-200/70";
+    case "left_voicemail":
+      return "bg-amber-50 text-amber-950 ring-amber-200/70";
+    case "text_sent":
+      return "bg-sky-50 text-sky-950 ring-sky-200/70";
+    case "no_answer":
+      return "bg-amber-50 text-amber-950 ring-amber-200/70";
+    case "not_interested":
+      return "bg-rose-50 text-rose-900 ring-rose-200/70";
+    case "wrong_number":
+      return "bg-slate-100 text-slate-700 ring-slate-200/80";
+    default:
+      return "bg-slate-100 text-slate-700 ring-slate-200/80";
+  }
+}
+
+/** Show pipeline label next to source when it adds info beyond default "new". */
+export function shouldShowPipelineStatusOnLeadRow(status: string | null | undefined): boolean {
+  const s = (status ?? "").trim().toLowerCase();
+  return s !== "" && s !== "new" && s !== "new_applicant";
+}
+
 export type PipelineHeat = "HOT" | "WARM" | "NEW" | "COLD" | "DEAD";
 
 export function derivePipelineHeat(row: CrmLeadRow, todayIso: string): PipelineHeat {
@@ -74,6 +142,7 @@ export function followUpUrgency(followUpIso: string | null | undefined, todayIso
  */
 export function leadRowCardClass(row: CrmLeadRow, fu: FollowUpUrgency): string {
   const st = (row.status ?? "").trim().toLowerCase();
+  const lo = (row.last_outcome ?? "").trim().toLowerCase();
   if (st === "dead_lead") {
     return "border-l-[3px] border-l-slate-400/70 bg-slate-50/35";
   }
@@ -85,6 +154,10 @@ export function leadRowCardClass(row: CrmLeadRow, fu: FollowUpUrgency): string {
   }
   if (st === "ready_to_convert" || st === "converted") {
     return "border-l-[3px] border-l-emerald-400/80 bg-emerald-50/12";
+  }
+  // Real contact outcome (saved on attempt) — can be ahead of pipeline `status` still "new"
+  if (lo === "spoke" || lo === "spoke_scheduled") {
+    return "border-l-[3px] border-l-purple-400/80 bg-purple-50/12";
   }
   if (st === "new" || st === "new_applicant") {
     return "border-l-[3px] border-l-sky-400/90 bg-sky-50/15";

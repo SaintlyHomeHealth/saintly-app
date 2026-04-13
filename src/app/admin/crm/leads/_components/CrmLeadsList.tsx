@@ -20,13 +20,14 @@ import { formatLeadNextActionLabel } from "@/lib/crm/lead-follow-up-options";
 import { formatLeadSourceLabel } from "@/lib/crm/lead-source-options";
 import { parseEmploymentApplicationMeta } from "@/lib/crm/lead-employment-meta";
 import {
-  formatStatusPillLabel,
+  contactStageBadgeLabel,
   lastContactHumanLine,
   lastContactToneClass,
   leadRowCardClass,
-  pipelineStatusBadgeClass,
   followUpUrgency,
+  shouldShowPipelineStatusOnLeadRow,
 } from "@/lib/crm/crm-leads-list-visual";
+import { formatLeadPipelineStatusLabel } from "@/lib/crm/lead-pipeline-status";
 import {
   contactDisplayName,
   contactEmail,
@@ -463,6 +464,7 @@ export function CrmLeadsList({ initialList, employeeOnlyView, staffOptions, toda
                 const detailHref = `/admin/crm/leads/${r.id}`;
                 const fu = followUpUrgency(r.follow_up_date, todayIso);
                 const lcHuman = lastContactHumanLine(r.last_contact_at, r.last_outcome, todayIso);
+                const contactStage = contactStageBadgeLabel(r);
 
                 return (
                   <div
@@ -487,10 +489,10 @@ export function CrmLeadsList({ initialList, employeeOnlyView, staffOptions, toda
                           {displayName}
                         </Link>
                         <span
-                          className={`${pillBase} max-w-[min(100%,14rem)] truncate ${pipelineStatusBadgeClass(r.status)}`}
-                          title={formatStatusPillLabel(r.status)}
+                          className={`${pillBase} max-w-[min(100%,14rem)] truncate ${contactStage.badgeClass}`}
+                          title={contactStage.label}
                         >
-                          {formatStatusPillLabel(r.status)}
+                          {contactStage.label}
                         </span>
                         {normalizeLeadTemperature(r.lead_temperature ?? null) ? (
                           <span
@@ -503,7 +505,12 @@ export function CrmLeadsList({ initialList, employeeOnlyView, staffOptions, toda
                       </div>
                       <div className="flex flex-wrap items-center gap-1.5">
                         <LeadTypeBadge leadType={r.lead_type} status={r.status} />
-                        <span className="text-[10px] text-slate-500">{formatLeadSourceLabel(r.source)}</span>
+                        <span className="text-[10px] text-slate-500">
+                          {formatLeadSourceLabel(r.source)}
+                          {shouldShowPipelineStatusOnLeadRow(r.status) ? (
+                            <span className="text-slate-400"> · {formatLeadPipelineStatusLabel(r.status)}</span>
+                          ) : null}
+                        </span>
                       </div>
                     </div>
                     <div className="min-w-0 space-y-1 text-[11px] leading-snug text-slate-600">
@@ -615,6 +622,7 @@ export function CrmLeadsList({ initialList, employeeOnlyView, staffOptions, toda
                 const nextActionLabel = formatLeadNextActionLabel(r.next_action);
                 const fu = followUpUrgency(r.follow_up_date, todayIso);
                 const lcHuman = lastContactHumanLine(r.last_contact_at, r.last_outcome, todayIso);
+                const contactStage = contactStageBadgeLabel(r);
 
                 return (
                   <div
@@ -639,10 +647,10 @@ export function CrmLeadsList({ initialList, employeeOnlyView, staffOptions, toda
                           {displayName}
                         </Link>
                         <span
-                          className={`${pillBase} max-w-[min(100%,14rem)] truncate ${pipelineStatusBadgeClass(r.status)}`}
-                          title={formatStatusPillLabel(r.status)}
+                          className={`${pillBase} max-w-[min(100%,14rem)] truncate ${contactStage.badgeClass}`}
+                          title={contactStage.label}
                         >
-                          {formatStatusPillLabel(r.status)}
+                          {contactStage.label}
                         </span>
                         {normalizeLeadTemperature(r.lead_temperature ?? null) ? (
                           <span
@@ -655,7 +663,12 @@ export function CrmLeadsList({ initialList, employeeOnlyView, staffOptions, toda
                       </div>
                       <div className="flex flex-wrap items-center gap-1.5">
                         <LeadTypeBadge leadType={r.lead_type} status={r.status} />
-                        <span className="text-[10px] text-slate-500">{formatLeadSourceLabel(r.source)}</span>
+                        <span className="text-[10px] text-slate-500">
+                          {formatLeadSourceLabel(r.source)}
+                          {shouldShowPipelineStatusOnLeadRow(r.status) ? (
+                            <span className="text-slate-400"> · {formatLeadPipelineStatusLabel(r.status)}</span>
+                          ) : null}
+                        </span>
                       </div>
                     </div>
                     <div className="min-w-0 space-y-1 text-[11px] leading-snug text-slate-600">
