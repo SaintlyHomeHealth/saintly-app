@@ -3,6 +3,11 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { readVoiceAiMetadataFromMetadata } from "@/app/admin/phone/_lib/voice-ai-metadata";
 import { computeConferenceGating, type ConferenceGatingSnapshot } from "@/lib/phone/conference-gating";
 import {
+  parseLiveTranscriptEntriesFromMetadata,
+  readUnclampedLiveTranscriptExcerpt,
+  type LiveTranscriptEntry,
+} from "@/lib/phone/live-transcript-entries";
+import {
   defaultSoftphoneRecordingMeta,
   type SoftphoneRecordingMeta,
 } from "@/lib/twilio/softphone-recording-types";
@@ -23,7 +28,10 @@ export type WorkspaceCallContextPayload = {
     urgency: string | null;
     route_target: string | null;
     caller_category: string | null;
+    /** Legacy rolling text; prefer `live_transcript_entries` for UI. Unclamped for workspace. */
     live_transcript_excerpt: string | null;
+    /** Incremental live lines from Media Stream bridge (append-only). */
+    live_transcript_entries: LiveTranscriptEntry[] | null;
     recommended_action: string | null;
     confidence_summary: string | null;
   } | null;
@@ -51,6 +59,18 @@ export async function buildWorkspaceCallContextPayload(
 
   const meta = data.metadata;
   const voiceAi = readVoiceAiMetadataFromMetadata(meta);
+  const rawVoiceAi =
+    meta && typeof meta === "object" && !Array.isArray(meta)
+      ? (meta as Record<string, unknown>).voice_ai
+      : null;
+  const liveEntries =
+    rawVoiceAi && typeof rawVoiceAi === "object" && !Array.isArray(rawVoiceAi)
+      ? parseLiveTranscriptEntriesFromMetadata(rawVoiceAi)
+      : [];
+  const excerptUnclamped =
+    rawVoiceAi && typeof rawVoiceAi === "object" && !Array.isArray(rawVoiceAi)
+      ? readUnclampedLiveTranscriptExcerpt(rawVoiceAi)
+      : null;
   const sc =
     meta && typeof meta === "object" && !Array.isArray(meta)
       ? (meta as Record<string, unknown>).softphone_conference
@@ -109,17 +129,19 @@ export async function buildWorkspaceCallContextPayload(
         }
       : null,
     softphone_recording: softphoneRecording ?? defaultSoftphoneRecordingMeta(),
-    voice_ai: voiceAi
-      ? {
-          short_summary: voiceAi.short_summary || null,
-          urgency: voiceAi.urgency || null,
-          route_target: voiceAi.route_target || null,
-          caller_category: voiceAi.caller_category || null,
-          live_transcript_excerpt: voiceAi.live_transcript_excerpt || null,
-          recommended_action: voiceAi.recommended_action || null,
-          confidence_summary: voiceAi.confidence_summary || null,
-        }
-      : null,
+    voice_ai:
+      voiceAi || liveEntries.length > 0 || excerptUnclamped
+        ? {
+            short_summary: voiceAi?.short_summary || null,
+            urgency: voiceAi?.urgency || null,
+            route_target: voiceAi?.route_target || null,
+            caller_category: voiceAi?.caller_category || null,
+            live_transcript_excerpt: excerptUnclamped ?? voiceAi?.live_transcript_excerpt ?? null,
+            live_transcript_entries: liveEntries.length > 0 ? liveEntries : null,
+            recommended_action: voiceAi?.recommended_action || null,
+            confidence_summary: voiceAi?.confidence_summary || null,
+          }
+        : null,
     conference_gating: gating,
   };
 

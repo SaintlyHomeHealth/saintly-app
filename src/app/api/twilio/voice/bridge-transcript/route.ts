@@ -1,11 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { supabaseAdmin } from "@/lib/admin";
+import {
+  normalizeSpeaker,
+  parseLiveTranscriptEntriesFromMetadata,
+  trimEntries,
+  type LiveTranscriptEntry,
+  type LiveTranscriptSpeaker,
+} from "@/lib/phone/live-transcript-entries";
 
 /**
- * Incremental caller transcript from the Railway Twilio↔OpenAI bridge (Media Streams).
+ * Incremental live transcript from the Railway Twilio↔OpenAI bridge (Media Streams).
  * Secured with REALTIME_BRIDGE_SHARED_SECRET (same header as realtime/result).
- * Appends into `metadata.voice_ai.live_transcript_excerpt` for workspace caller context.
+ *
+ * Appends `metadata.voice_ai.live_transcript_entries` (seq, speaker, text, ts).
+ * Keeps `live_transcript_excerpt` as a rolling concat for legacy readers (unclamped in DB).
  */
 export async function POST(req: NextRequest) {
   const secret = process.env.REALTIME_BRIDGE_SHARED_SECRET?.trim();
@@ -17,18 +26,26 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
   }
 
-  let body: { external_call_id?: string; text?: string };
+  let body: { external_call_id?: string; text?: string; speaker?: string };
   try {
-    body = (await req.json()) as { external_call_id?: string; text?: string };
+    body = (await req.json()) as { external_call_id?: string; text?: string; speaker?: string };
   } catch {
     return NextResponse.json({ ok: false, error: "invalid_json" }, { status: 400 });
   }
 
   const externalCallId = typeof body.external_call_id === "string" ? body.external_call_id.trim() : "";
   const text = typeof body.text === "string" ? body.text.trim() : "";
+  const speaker: LiveTranscriptSpeaker = normalizeSpeaker(body.speaker ?? "caller");
+
   if (!externalCallId.startsWith("CA") || !text) {
     return NextResponse.json({ ok: false, error: "missing_fields" }, { status: 400 });
   }
+
+  console.log("[bridge-transcript] transcript_delta_received", {
+    callSid: `${externalCallId.slice(0, 10)}…`,
+    speaker,
+    textLen: text.length,
+  });
 
   const { data: row, error: selErr } = await supabaseAdmin
     .from("phone_calls")
@@ -37,6 +54,7 @@ export async function POST(req: NextRequest) {
     .maybeSingle();
 
   if (selErr || !row?.id) {
+    console.warn("[bridge-transcript] call_not_found", { externalCallId: externalCallId.slice(0, 10) });
     return NextResponse.json({ ok: false, error: "call_not_found" }, { status: 404 });
   }
 
@@ -48,20 +66,47 @@ export async function POST(req: NextRequest) {
     meta.voice_ai && typeof meta.voice_ai === "object" && !Array.isArray(meta.voice_ai)
       ? (meta.voice_ai as Record<string, unknown>)
       : {};
+
+  const prevEntries = parseLiveTranscriptEntriesFromMetadata(prevVoice);
+  const maxFromEntries = prevEntries.length > 0 ? Math.max(...prevEntries.map((e) => e.seq)) : 0;
+  const storedNext =
+    typeof prevVoice.live_transcript_next_seq === "number" && Number.isFinite(prevVoice.live_transcript_next_seq)
+      ? prevVoice.live_transcript_next_seq
+      : 1;
+  const nextSeq = Math.max(storedNext, maxFromEntries + 1);
+
+  const entry: LiveTranscriptEntry = {
+    seq: nextSeq,
+    speaker,
+    text: text.slice(0, 12_000),
+    ts: new Date().toISOString(),
+  };
+  const mergedEntries = trimEntries([...prevEntries, entry]);
+
   const prevTx = typeof prevVoice.live_transcript_excerpt === "string" ? prevVoice.live_transcript_excerpt.trim() : "";
   const nextTx = prevTx ? `${prevTx}\n${text}` : text;
-  const clipped = nextTx.length > 8000 ? nextTx.slice(-8000) : nextTx;
+  const clippedExcerpt = nextTx.length > 100_000 ? nextTx.slice(-100_000) : nextTx;
 
   meta.voice_ai = {
     ...prevVoice,
-    live_transcript_excerpt: clipped.slice(0, 5000),
+    live_transcript_entries: mergedEntries,
+    live_transcript_next_seq: nextSeq + 1,
+    live_transcript_excerpt: clippedExcerpt,
     source: typeof prevVoice.source === "string" ? prevVoice.source : "live_receptionist",
   };
 
   const { error: upErr } = await supabaseAdmin.from("phone_calls").update({ metadata: meta }).eq("id", row.id);
   if (upErr) {
+    console.error("[bridge-transcript] update_failed", upErr.message);
     return NextResponse.json({ ok: false, error: upErr.message }, { status: 500 });
   }
 
-  return NextResponse.json({ ok: true });
+  console.log("[bridge-transcript] transcript_chunk_written", {
+    callSid: `${externalCallId.slice(0, 10)}…`,
+    seq: entry.seq,
+    speaker,
+    entriesTotal: mergedEntries.length,
+  });
+
+  return NextResponse.json({ ok: true, seq: entry.seq });
 }

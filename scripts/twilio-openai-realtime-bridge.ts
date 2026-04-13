@@ -161,7 +161,12 @@ function dialTwiml(input: {
 </Response>`.trim();
 }
 
-async function postBridgeTranscript(input: { externalCallId: string; text: string }): Promise<void> {
+async function postBridgeTranscript(input: {
+  externalCallId: string;
+  text: string;
+  /** caller = remote party speech; agent = assistant / Saintly model speech */
+  speaker?: "caller" | "agent" | "unknown";
+}): Promise<void> {
   const baseRaw = process.env.APP_PUBLIC_BASE_URL?.trim();
   const secret = process.env.REALTIME_BRIDGE_SHARED_SECRET?.trim();
   if (!baseRaw || !secret) {
@@ -178,11 +183,18 @@ async function postBridgeTranscript(input: { externalCallId: string; text: strin
     body: JSON.stringify({
       external_call_id: input.externalCallId,
       text: input.text,
+      speaker: input.speaker ?? "caller",
     }),
   });
   if (!res.ok) {
     const t = await res.text();
     console.warn("[realtime-bridge] bridge-transcript POST failed", res.status, t.slice(0, 200));
+  } else {
+    console.log("[realtime-bridge] bridge_transcript_chunk_posted_ok", {
+      callSid: input.externalCallId.slice(0, 10) + "…",
+      speaker: input.speaker ?? "caller",
+      textLen: input.text.length,
+    });
   }
 }
 
@@ -525,6 +537,8 @@ wss.on("connection", (twilioWs, req) => {
   let latRef: { t0: number; wallMs: number; ms: Record<string, number> } | null = null;
   let firstOaiAudioDeltaLogged = false;
   let firstTwilioOutboundMediaLogged = false;
+  /** Accumulates `response.*audio_transcript.delta` until done (assistant side). */
+  let agentTranscriptBuffer = "";
 
   const safeClose = () => {
     try {
@@ -692,7 +706,43 @@ wss.on("connection", (twilioWs, req) => {
         if (type === "conversation.item.input_audio_transcription.completed") {
           const transcript = typeof ev.transcript === "string" ? ev.transcript.trim() : "";
           if (transcript && callSid) {
-            void postBridgeTranscript({ externalCallId: callSid, text: transcript });
+            console.log("[realtime-bridge] transcript_delta_received", {
+              kind: "caller_utterance_complete",
+              callSid: callSid.slice(0, 10) + "…",
+              len: transcript.length,
+            });
+            void postBridgeTranscript({ externalCallId: callSid, text: transcript, speaker: "caller" });
+          }
+          return;
+        }
+
+        if (
+          type === "response.audio_transcript.delta" ||
+          type === "response.output_audio_transcript.delta"
+        ) {
+          const delta = typeof ev.delta === "string" ? ev.delta : "";
+          agentTranscriptBuffer += delta;
+          if (delta) {
+            console.log("[realtime-bridge] transcript_delta_received", {
+              kind: "assistant_delta",
+              type,
+              deltaLen: delta.length,
+              callSid: callSid ? callSid.slice(0, 10) + "…" : null,
+            });
+          }
+          return;
+        }
+
+        if (type === "response.audio_transcript.done" || type === "response.output_audio_transcript.done") {
+          const text = agentTranscriptBuffer.trim();
+          agentTranscriptBuffer = "";
+          if (text && callSid) {
+            console.log("[realtime-bridge] transcript_delta_received", {
+              kind: "assistant_utterance_done",
+              len: text.length,
+              callSid: callSid.slice(0, 10) + "…",
+            });
+            void postBridgeTranscript({ externalCallId: callSid, text, speaker: "agent" });
           }
           return;
         }

@@ -4,11 +4,11 @@ import { useEffect, useRef } from "react";
 import { X } from "lucide-react";
 
 import {
+  buildTranscriptAiNotes,
   buildTranscriptMessages,
   transcriptSpeakerLabel,
   type TranscriptBubble,
 } from "@/components/softphone/build-transcript-messages";
-import type { CallContextVoiceAi } from "@/components/softphone/WorkspaceSoftphoneProvider";
 import { useWorkspaceSoftphone } from "@/components/softphone/WorkspaceSoftphoneProvider";
 
 function BubbleRow({
@@ -19,13 +19,20 @@ function BubbleRow({
   callerLabel: string;
 }) {
   const isSaintly = msg.speaker === "saintly";
+  const isUnknown = msg.speaker === "unknown";
   return (
-    <div className={`flex w-full ${isSaintly ? "justify-start" : "justify-end"}`}>
+    <div
+      className={`flex w-full ${
+        isUnknown ? "justify-center" : isSaintly ? "justify-start" : "justify-end"
+      }`}
+    >
       <div
         className={`max-w-[min(100%,20rem)] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed shadow-[0_2px_12px_-4px_rgba(0,0,0,0.35)] ${
-          isSaintly
-            ? "rounded-tl-sm border border-sky-500/25 bg-gradient-to-br from-sky-900/90 to-slate-900/95 text-sky-50"
-            : "rounded-tr-sm border border-white/10 bg-slate-800/90 text-slate-100"
+          isUnknown
+            ? "rounded-lg border border-white/10 bg-slate-800/70 text-slate-200"
+            : isSaintly
+              ? "rounded-tl-sm border border-sky-500/25 bg-gradient-to-br from-sky-900/90 to-slate-900/95 text-sky-50"
+              : "rounded-tr-sm border border-white/10 bg-slate-800/90 text-slate-100"
         }`}
       >
         <p className="text-[10px] font-bold uppercase tracking-wide text-sky-200/80">
@@ -53,7 +60,8 @@ export function ActiveCallTranscriptSheet() {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const voiceAi = callContext?.voice_ai ?? null;
-  const messages = buildTranscriptMessages(voiceAi, activeRemoteLabel ?? "Caller");
+  const messages = buildTranscriptMessages(voiceAi);
+  const aiNotes = buildTranscriptAiNotes(voiceAi);
   const callerLabel = activeRemoteLabel ?? "Caller";
 
   useEffect(() => {
@@ -109,7 +117,13 @@ export function ActiveCallTranscriptSheet() {
             Unable to load transcript right now.
           </p>
         ) : messages.length === 0 ? (
-          <p className="text-center text-sm text-slate-400">Listening… transcript will appear shortly.</p>
+          <div className="mx-auto max-w-lg text-center">
+            <p className="text-sm font-medium text-sky-200/90">Listening…</p>
+            <p className="mt-2 text-xs leading-relaxed text-slate-500">
+              Waiting for speech. Lines appear after each utterance is transcribed (usually within a second or two after
+              you stop talking).
+            </p>
+          </div>
         ) : (
           <div className="mx-auto flex w-full max-w-lg flex-col gap-4 pb-8">
             {messages.map((m) => (
@@ -118,6 +132,23 @@ export function ActiveCallTranscriptSheet() {
             <div ref={bottomRef} className="h-px w-full shrink-0" aria-hidden />
           </div>
         )}
+
+        {transcriptEnabled && !callContextLoadError && aiNotes.length > 0 ? (
+          <div className="mx-auto mt-6 max-w-lg border-t border-white/10 pt-4">
+            <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">AI notes</p>
+            <p className="mt-1 text-[11px] text-slate-500">
+              Summary and actions from classification — not the live speech log.
+            </p>
+            <div className="mt-3 space-y-3">
+              {aiNotes.map((n) => (
+                <div key={n.id} className="rounded-xl border border-white/5 bg-white/5 px-3 py-2.5 text-left">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{n.title}</p>
+                  <p className="mt-1 text-xs leading-relaxed text-slate-300">{n.text}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   );

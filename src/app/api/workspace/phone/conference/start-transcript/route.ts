@@ -41,6 +41,11 @@ export async function POST(req: Request) {
     );
   }
 
+  console.log("[start-transcript] media_stream_requested", {
+    callSid: callSid.slice(0, 12),
+    track: body.track ?? "both_tracks",
+  });
+
   const result = await startCallMediaStream({
     callSid,
     wssUrl,
@@ -51,7 +56,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: result.error }, { status: 502 });
   }
 
-  console.log("[start-transcript] twilio_media_stream_started", {
+  console.log("[start-transcript] twilio_media_stream_connected", {
     callSid: callSid.slice(0, 12),
     streamSid: result.streamSid ?? null,
     wssTarget: wssUrl.replace(/^wss:\/\/([^/]+).*/, "wss://$1/…"),

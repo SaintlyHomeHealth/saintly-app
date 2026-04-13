@@ -26,6 +26,7 @@ import {
 } from "@/lib/softphone/workspace-ui-events";
 import { twilioErrorToFriendly } from "@/lib/softphone/twilio-user-friendly-errors";
 import type { ConferenceGatingSnapshot } from "@/lib/phone/conference-gating";
+import type { LiveTranscriptEntry } from "@/lib/phone/live-transcript-entries";
 import type { SoftphoneRecordingMeta } from "@/lib/twilio/softphone-recording-types";
 
 type CallHandle = Awaited<ReturnType<Device["connect"]>>;
@@ -49,6 +50,8 @@ export type CallContextVoiceAi = {
   route_target: string | null;
   caller_category: string | null;
   live_transcript_excerpt: string | null;
+  /** Append-only lines from Media Stream bridge (preferred over excerpt for live UI). */
+  live_transcript_entries: LiveTranscriptEntry[] | null;
   recommended_action: string | null;
   confidence_summary: string | null;
 };
@@ -328,7 +331,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
         if (currentSid !== sid) return;
         const j = (await res.json()) as {
           found?: boolean;
-          voice_ai?: CallContextVoiceAi | null;
+          voice_ai?: (CallContextVoiceAi & { live_transcript_entries?: LiveTranscriptEntry[] | null }) | null;
           softphone_conference?: SoftphoneConferenceContext | null;
           conference_gating?: ConferenceGatingSnapshot | null;
           softphone_recording?: SoftphoneRecordingMeta | null;
@@ -336,19 +339,35 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
         if (cancelled) return;
         if (!cancelled) setCallContextLoadError(false);
         if (j.found) {
+          const entries = j.voice_ai?.live_transcript_entries;
+          const entryLen = Array.isArray(entries) ? entries.length : 0;
           const excerpt = j.voice_ai?.live_transcript_excerpt;
-          const len = typeof excerpt === "string" ? excerpt.length : 0;
-          if (len !== prevTranscriptLenRef.current) {
-            prevTranscriptLenRef.current = len;
+          const excerptLen = typeof excerpt === "string" ? excerpt.length : 0;
+          const tick = entryLen > 0 ? entryLen * 1_000_000 + excerptLen : excerptLen;
+          if (tick !== prevTranscriptLenRef.current) {
+            prevTranscriptLenRef.current = tick;
             if (transcriptEnabled) {
-              console.log("[softphone] transcript event received (poll)", {
-                callSid: sid.slice(0, 10) + "…",
-                excerptLen: len,
+              console.log("[softphone] ui_transcript_refresh_received", {
+                callSid: `${sid.slice(0, 10)}…`,
+                entryCount: entryLen,
+                excerptLen: excerptLen,
               });
             }
           }
+          const va = j.voice_ai;
           setCallContext({
-            voice_ai: j.voice_ai ?? null,
+            voice_ai: va
+              ? {
+                  short_summary: va.short_summary ?? null,
+                  urgency: va.urgency ?? null,
+                  route_target: va.route_target ?? null,
+                  caller_category: va.caller_category ?? null,
+                  live_transcript_excerpt: va.live_transcript_excerpt ?? null,
+                  live_transcript_entries: va.live_transcript_entries ?? null,
+                  recommended_action: va.recommended_action ?? null,
+                  confidence_summary: va.confidence_summary ?? null,
+                }
+              : null,
             conference: j.softphone_conference ?? null,
             conference_gating: j.conference_gating ?? null,
             softphone_recording: j.softphone_recording ?? null,
@@ -367,13 +386,14 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       }
     };
     void poll();
-    const intervalMs = transcriptEnabled ? 1800 : 2200;
+    const intervalMs =
+      transcriptEnabled && transcriptPanelOpen ? 700 : transcriptEnabled ? 1400 : 2200;
     const id = window.setInterval(poll, intervalMs);
     return () => {
       cancelled = true;
       window.clearInterval(id);
     };
-  }, [status, transcriptEnabled]);
+  }, [status, transcriptEnabled, transcriptPanelOpen]);
 
   /**
    * Single teardown path for the browser leg: always returns UI to idle and clears conference/transcript state.
@@ -1057,6 +1077,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       }
       return { ok: false as const, error: j.error ?? `HTTP ${res.status}` };
     }
+    console.log("[softphone] media_stream_start_ok", { callSid: `${sid.slice(0, 10)}…` });
     transcriptStreamStartedRef.current = true;
     return { ok: true as const };
   }, []);
