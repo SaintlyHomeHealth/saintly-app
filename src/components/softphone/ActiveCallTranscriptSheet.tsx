@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 
 import {
+  buildSoftphoneAssistantDebugEntries,
   buildTranscriptAiNotes,
   buildTranscriptMessages,
   transcriptSpeakerLabel,
@@ -14,9 +15,11 @@ import { useWorkspaceSoftphone } from "@/components/softphone/WorkspaceSoftphone
 function BubbleRow({
   msg,
   callerLabel,
+  softphoneTranscript,
 }: {
   msg: TranscriptBubble;
   callerLabel: string;
+  softphoneTranscript: boolean;
 }) {
   const isSaintly = msg.speaker === "saintly";
   const isUnknown = msg.speaker === "unknown";
@@ -36,8 +39,19 @@ function BubbleRow({
         }`}
       >
         <p className="text-[10px] font-bold uppercase tracking-wide text-sky-200/80">
-          {transcriptSpeakerLabel(msg.speaker, callerLabel)}
+          {transcriptSpeakerLabel(msg.speaker, callerLabel, { softphoneTranscript })}
         </p>
+        <p className="mt-1 whitespace-pre-wrap">{msg.text}</p>
+      </div>
+    </div>
+  );
+}
+
+function DebugAssistantRow({ msg }: { msg: TranscriptBubble }) {
+  return (
+    <div className="flex w-full justify-start">
+      <div className="max-w-[min(100%,20rem)] rounded-2xl rounded-tl-sm border border-amber-500/20 bg-amber-950/40 px-3.5 py-2.5 text-sm leading-relaxed text-amber-50/95">
+        <p className="text-[10px] font-bold uppercase tracking-wide text-amber-200/70">Assistant / system (debug)</p>
         <p className="mt-1 whitespace-pre-wrap">{msg.text}</p>
       </div>
     </div>
@@ -58,11 +72,15 @@ export function ActiveCallTranscriptSheet() {
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [showAssistantDebugLines, setShowAssistantDebugLines] = useState(false);
 
   const voiceAi = callContext?.voice_ai ?? null;
-  const messages = buildTranscriptMessages(voiceAi);
+  const softphoneTranscriptMode = Boolean(voiceAi?.softphone_transcript_streams?.client_stream_started_at);
+  const messages = buildTranscriptMessages(voiceAi, { humanSpeechOnly: softphoneTranscriptMode });
+  const assistantDebugEntries = softphoneTranscriptMode ? buildSoftphoneAssistantDebugEntries(voiceAi) : [];
   const aiNotes = buildTranscriptAiNotes(voiceAi);
   const callerLabel = activeRemoteLabel ?? "Caller";
+  const headerSubtitle = softphoneTranscriptMode ? "You and the remote caller" : callerLabel;
 
   useEffect(() => {
     if (!transcriptPanelOpen || !transcriptEnabled) return;
@@ -82,7 +100,7 @@ export function ActiveCallTranscriptSheet() {
       <header className="relative flex shrink-0 items-center justify-between border-b border-white/10 px-4 pb-3 pt-[calc(0.75rem+env(safe-area-inset-top,0px))]">
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.14em] text-sky-300/90">Live transcript</p>
-          <p className="mt-0.5 truncate text-sm font-semibold text-white">{callerLabel}</p>
+          <p className="mt-0.5 truncate text-sm font-semibold text-white">{headerSubtitle}</p>
         </div>
         <button
           type="button"
@@ -123,15 +141,48 @@ export function ActiveCallTranscriptSheet() {
               Waiting for speech. Lines appear after each utterance is transcribed (usually within a second or two after
               you stop talking).
             </p>
+            {softphoneTranscriptMode && assistantDebugEntries.length > 0 ? (
+              <p className="mt-3 text-xs text-slate-400">
+                The main feed shows only <span className="text-slate-300">You</span> and{" "}
+                <span className="text-slate-300">Caller</span>. Assistant lines are hidden here — use{" "}
+                <span className="text-slate-300">Show assistant / system lines</span> below if you need them for
+                debugging.
+              </p>
+            ) : null}
           </div>
         ) : (
           <div className="mx-auto flex w-full max-w-lg flex-col gap-4 pb-8">
             {messages.map((m) => (
-              <BubbleRow key={m.id} msg={m} callerLabel={callerLabel} />
+              <BubbleRow
+                key={m.id}
+                msg={m}
+                callerLabel={callerLabel}
+                softphoneTranscript={softphoneTranscriptMode}
+              />
             ))}
             <div ref={bottomRef} className="h-px w-full shrink-0" aria-hidden />
           </div>
         )}
+
+        {transcriptEnabled && !callContextLoadError && softphoneTranscriptMode && assistantDebugEntries.length > 0 ? (
+          <div className="mx-auto mt-4 max-w-lg border-t border-white/10 pt-4">
+            <button
+              type="button"
+              onClick={() => setShowAssistantDebugLines((v) => !v)}
+              className="text-left text-[11px] font-medium text-slate-500 underline decoration-slate-600 underline-offset-2 hover:text-slate-400"
+            >
+              {showAssistantDebugLines ? "Hide" : "Show"} assistant / system lines (debug) — {assistantDebugEntries.length}{" "}
+              line{assistantDebugEntries.length === 1 ? "" : "s"}
+            </button>
+            {showAssistantDebugLines ? (
+              <div className="mt-3 flex flex-col gap-3">
+                {assistantDebugEntries.map((m) => (
+                  <DebugAssistantRow key={m.id} msg={m} />
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
 
         {transcriptEnabled && !callContextLoadError && aiNotes.length > 0 ? (
           <div className="mx-auto mt-6 max-w-lg border-t border-white/10 pt-4">

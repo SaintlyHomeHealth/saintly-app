@@ -11,11 +11,23 @@ export type TranscriptBubble = {
 
 const SAINTLY_LABEL = "Saintly Home Health";
 
+export type TranscriptLabelOptions = {
+  /**
+   * When true, the remote PSTN side is always labeled "Caller" (not the workspace line / mis-attributed CLI).
+   */
+  softphoneTranscript?: boolean;
+};
+
 /** Public labels for UI (not stored in DB). */
-export function transcriptSpeakerLabel(speaker: TranscriptSpeaker, callerLabel: string): string {
+export function transcriptSpeakerLabel(
+  speaker: TranscriptSpeaker,
+  callerLabel: string,
+  opts?: TranscriptLabelOptions
+): string {
   if (speaker === "saintly") return SAINTLY_LABEL;
   if (speaker === "local") return "You";
   if (speaker === "unknown") return "Speaker";
+  if (opts?.softphoneTranscript && speaker === "caller") return "Caller";
   return callerLabel.trim() || "Caller";
 }
 
@@ -26,15 +38,52 @@ function mapLiveSpeaker(s: LiveTranscriptSpeaker): TranscriptSpeaker {
   return "unknown";
 }
 
+export type BuildTranscriptMessagesOptions = {
+  /**
+   * Softphone live transcript: show only real human legs (staff + caller). Assistant/agent lines
+   * belong in {@link buildSoftphoneAssistantDebugEntries} or AI notes — not the main thread.
+   */
+  humanSpeechOnly?: boolean;
+};
+
+function isHumanSpeechEntry(s: LiveTranscriptSpeaker): boolean {
+  return s === "staff" || s === "caller";
+}
+
+/**
+ * Assistant / system lines from the media bridge (speaker=agent), for optional debug UI only.
+ */
+export function buildSoftphoneAssistantDebugEntries(voiceAi: CallContextVoiceAi | null): TranscriptBubble[] {
+  const out: TranscriptBubble[] = [];
+  if (!voiceAi) return out;
+  const entries = voiceAi.live_transcript_entries;
+  if (!Array.isArray(entries) || entries.length === 0) return out;
+  const sorted = [...(entries as LiveTranscriptEntry[])].sort((a, b) => a.seq - b.seq);
+  for (const e of sorted) {
+    if (e.speaker !== "agent") continue;
+    const id = `dbg-${e.seq}`;
+    const speaker = mapLiveSpeaker(e.speaker);
+    const text = (e.text ?? "").trim();
+    if (!text) continue;
+    out.push({ id, speaker, text });
+  }
+  return out;
+}
+
 /**
  * Live conversation bubbles: prefer incremental `live_transcript_entries` from the bridge.
  * Falls back to splitting `live_transcript_excerpt` when entries are empty (legacy).
  *
  * Does not use AI summary / recommended_action as chat lines — those are advisory only.
  */
-export function buildTranscriptMessages(voiceAi: CallContextVoiceAi | null): TranscriptBubble[] {
+export function buildTranscriptMessages(
+  voiceAi: CallContextVoiceAi | null,
+  opts?: BuildTranscriptMessagesOptions
+): TranscriptBubble[] {
   const out: TranscriptBubble[] = [];
   if (!voiceAi) return out;
+
+  const humanOnly = Boolean(opts?.humanSpeechOnly);
 
   const entries = voiceAi.live_transcript_entries;
   if (Array.isArray(entries) && entries.length > 0) {
@@ -45,12 +94,18 @@ export function buildTranscriptMessages(voiceAi: CallContextVoiceAi | null): Tra
       return a.seq - b.seq;
     });
     for (const e of sorted) {
+      if (humanOnly && !isHumanSpeechEntry(e.speaker)) continue;
       const id = `e-${e.seq}`;
       const speaker = mapLiveSpeaker(e.speaker);
       const text = (e.text ?? "").trim();
       if (!text) continue;
       out.push({ id, speaker, text });
     }
+    return out;
+  }
+
+  /** Rolling excerpt can mix assistant + humans; never use it for softphone human-only mode. */
+  if (humanOnly) {
     return out;
   }
 
