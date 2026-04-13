@@ -1121,6 +1121,14 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     if (!c) return { ok: false as const, error: "No active call" };
     const sid = readCallSid(c);
     if (!sid) return { ok: false as const, error: "No CallSid" };
+    console.log(
+      "[enable-transcript-flow]",
+      JSON.stringify({
+        phase: "browser_fetch_start_transcript",
+        client_call_sid: sid,
+        target: "POST /api/workspace/phone/conference/start-transcript",
+      })
+    );
     const res = await fetch("/api/workspace/phone/conference/start-transcript", {
       method: "POST",
       credentials: "include",

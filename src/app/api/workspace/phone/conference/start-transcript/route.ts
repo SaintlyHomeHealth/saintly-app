@@ -108,6 +108,19 @@ export async function POST(req: Request) {
   const pstnCallSid =
     typeof sc.pstn_call_sid === "string" && sc.pstn_call_sid.startsWith("CA") ? sc.pstn_call_sid.trim() : null;
 
+  console.log(
+    "[enable-transcript-flow]",
+    JSON.stringify({
+      phase: "api_before_twilio_streams_create",
+      client_call_sid: callSid,
+      pstn_call_sid_from_row: pstnCallSid,
+      track,
+      wss_has_softphone_transcript: clientWss.includes("softphone_transcript=1"),
+      wss_has_transcript_external_id: clientWss.includes("transcript_external_id="),
+      wss_has_input_role_staff: clientWss.includes("input_role=staff") || clientWss.includes("input_role%3Dstaff"),
+    })
+  );
+
   console.log("[start-transcript] media_stream_requested", {
     phase: "client_then_maybe_pstn",
     clientCallSid: callSid,

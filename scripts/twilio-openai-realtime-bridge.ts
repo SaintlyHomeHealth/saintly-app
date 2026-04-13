@@ -424,8 +424,9 @@ function buildSessionUpdateMessage(opts?: { softphoneTranscriptOnly?: boolean })
       session: {
         modalities: ["text"],
         instructions:
-          "Transcribe incoming audio only. Do not produce spoken audio, tool calls, or conversational assistant replies.",
+          "You are a silent transcription layer. Only transcribe user/caller audio. Never speak, never call tools, never output assistant messages.",
         input_audio_format: "g711_ulaw",
+        /** No assistant audio modality — must not pair with output_audio_format */
         turn_detection: {
           type: "server_vad",
           threshold,
@@ -553,6 +554,12 @@ function parseTranscriptWsQuery(req: http.IncomingMessage): {
   transcriptExternalId: string | null;
   inputRole: "staff" | "caller" | null;
   softphoneTranscript: boolean;
+  /**
+   * Transcribe-only: never forward assistant audio to Twilio, tools, or greetings.
+   * True when `softphone_transcript=1` OR when both `transcript_external_id` and `input_role` are set
+   * (defense if the flag is stripped from the WSS URL).
+   */
+  transcriptOnlyMode: boolean;
 } {
   try {
     const host = req.headers.host || "localhost";
@@ -562,13 +569,22 @@ function parseTranscriptWsQuery(req: http.IncomingMessage): {
     const inputRole = role === "staff" || role === "caller" ? role : null;
     const softphone =
       u.searchParams.get("softphone_transcript") === "1" || u.searchParams.get("softphone_transcript") === "true";
+    const transcriptExternalId = tid && tid.startsWith("CA") ? tid : null;
+    const transcriptOnlyMode =
+      softphone || (Boolean(transcriptExternalId) && inputRole !== null);
     return {
-      transcriptExternalId: tid && tid.startsWith("CA") ? tid : null,
+      transcriptExternalId,
       inputRole,
       softphoneTranscript: softphone,
+      transcriptOnlyMode,
     };
   } catch {
-    return { transcriptExternalId: null, inputRole: null, softphoneTranscript: false };
+    return {
+      transcriptExternalId: null,
+      inputRole: null,
+      softphoneTranscript: false,
+      transcriptOnlyMode: false,
+    };
   }
 }
 
@@ -577,6 +593,8 @@ wss.on("connection", (twilioWs, req) => {
   const transcriptExternalIdParam = transcriptQuery.transcriptExternalId;
   const inputTranscriptRoleParam = transcriptQuery.inputRole;
   const softphoneTranscriptMode = transcriptQuery.softphoneTranscript;
+  /** Staff transcript streams — read-only; must never inject audio or run tools (see `response.audio.delta` guard). */
+  const transcriptOnlyMode = transcriptQuery.transcriptOnlyMode;
 
   const reqPath = wsPathFromRequest(req);
   const wsQuery = wsSearchFromRequest(req);
@@ -588,8 +606,21 @@ wss.on("connection", (twilioWs, req) => {
     transcriptExternalIdParam: transcriptExternalIdParam ? transcriptExternalIdParam.slice(0, 12) + "…" : null,
     inputRole: inputTranscriptRoleParam,
     softphoneTranscriptMode,
+    transcriptOnlyMode,
     isCallerPstnLeg,
   });
+  console.log(
+    "[softphone-transcript-trace]",
+    JSON.stringify({
+      phase: "wss_connection",
+      transcriptOnlyMode,
+      softphoneTranscriptFlag: softphoneTranscriptMode,
+      hasTranscriptExternalId: Boolean(transcriptExternalIdParam),
+      inputRole: inputTranscriptRoleParam,
+      willSkipResponseCreate: transcriptOnlyMode,
+      willDropAssistantAudioToTwilio: transcriptOnlyMode,
+    })
+  );
 
   let streamSid: string | null = null;
   let callSid: string | null = null;
@@ -685,6 +716,7 @@ wss.on("connection", (twilioWs, req) => {
         transcriptExternalId: bridgeExternalCallIdForTranscript.slice(0, 12) + "…",
         inputRole: inputTranscriptRoleParam,
         softphoneTranscript: softphoneTranscriptMode,
+        transcriptOnlyMode,
         isCallerPstnLeg,
         wsQuery,
       });
@@ -716,15 +748,23 @@ wss.on("connection", (twilioWs, req) => {
         console.log("[realtime-bridge][oai] voice_turn_policy", {
           turn_detection: "server_vad+tuned",
           REALTIME_DIAG_RESPONSE_CREATE_ON_CONNECT,
-          softphoneTranscriptMode,
+          transcriptOnlyMode,
           env: {
             OPENAI_REALTIME_SILENCE_DURATION_MS: process.env.OPENAI_REALTIME_SILENCE_DURATION_MS ?? "(default 400)",
             OPENAI_REALTIME_VAD_THRESHOLD: process.env.OPENAI_REALTIME_VAD_THRESHOLD ?? "(default 0.42)",
           },
         });
-        sendSessionUpdate(oai!, { softphoneTranscriptOnly: softphoneTranscriptMode });
+        console.log(
+          "[softphone-transcript-trace]",
+          JSON.stringify({
+            phase: "openai_session_update",
+            transcriptOnlyMode,
+            sessionPayload: "transcribe_only|modalities_text_only|tools_none|no_response_create",
+          })
+        );
+        sendSessionUpdate(oai!, { softphoneTranscriptOnly: transcriptOnlyMode });
         markLatency("session_update_sent");
-        if (!softphoneTranscriptMode && REALTIME_DIAG_RESPONSE_CREATE_ON_CONNECT) {
+        if (!transcriptOnlyMode && REALTIME_DIAG_RESPONSE_CREATE_ON_CONNECT) {
           sendOpenAiJson(oai!, {
             type: "response.create",
             response: {
@@ -734,10 +774,15 @@ wss.on("connection", (twilioWs, req) => {
             },
           });
           markLatency("response_create_sent");
-        } else if (softphoneTranscriptMode) {
-          console.log("[realtime-bridge][diag] softphone_transcript_skip_initial_response_create", {
+          console.log("[softphone-transcript-trace]", JSON.stringify({ phase: "response_create_sent", aiGreeting: true }));
+        } else if (transcriptOnlyMode) {
+          console.log("[realtime-bridge][diag] transcript_only_skip_initial_response_create", {
             callSid: callSid!.slice(0, 12) + "…",
           });
+          console.log(
+            "[softphone-transcript-trace]",
+            JSON.stringify({ phase: "response_create_skipped", reason: "transcript_only_mode" })
+          );
         }
       });
 
@@ -808,7 +853,7 @@ wss.on("connection", (twilioWs, req) => {
               callSid: callSid?.slice(0, 10) + "…",
               transcriptExternalId: extId.slice(0, 10) + "…",
               speakerLabelBeforeStore: inputSpeaker,
-              softphoneTranscriptMode,
+              transcriptOnlyMode,
               isCallerPstnLeg,
               pstnTranscript: isCallerPstnLeg ? "whisper_complete_posting_bridge_transcript" : undefined,
               len: transcript.length,
@@ -822,6 +867,9 @@ wss.on("connection", (twilioWs, req) => {
           type === "response.audio_transcript.delta" ||
           type === "response.output_audio_transcript.delta"
         ) {
+          if (transcriptOnlyMode) {
+            return;
+          }
           const delta = typeof ev.delta === "string" ? ev.delta : "";
           agentTranscriptBuffer += delta;
           if (delta) {
@@ -840,7 +888,7 @@ wss.on("connection", (twilioWs, req) => {
           agentTranscriptBuffer = "";
           const extId = bridgeExternalCallIdForTranscript ?? callSid;
           if (text && extId) {
-            if (softphoneTranscriptMode) {
+            if (transcriptOnlyMode) {
               console.log("[realtime-bridge] bridge_transcript_agent_skipped_softphone_transcribe_only", {
                 len: text.length,
                 callSid: callSid?.slice(0, 10) + "…",
@@ -857,8 +905,27 @@ wss.on("connection", (twilioWs, req) => {
           return;
         }
 
-        if (type === "response.audio.delta") {
+        /** Inbound AI path only — transcript-only mode must NEVER inject assistant audio into Twilio. */
+        if (type === "response.audio.delta" || type === "response.output_audio.delta") {
           const delta = typeof ev.delta === "string" ? ev.delta : "";
+          if (transcriptOnlyMode) {
+            if (delta) {
+              console.warn("[realtime-bridge][transcript-only] dropped_assistant_audio_delta", {
+                type,
+                base64Len: delta.length,
+                callSid: callSid ? callSid.slice(0, 12) + "…" : null,
+              });
+              console.log(
+                "[softphone-transcript-trace]",
+                JSON.stringify({
+                  phase: "dropped_audio_to_twilio",
+                  reason: "transcript_only_mode",
+                  eventType: type,
+                })
+              );
+            }
+            return;
+          }
           if (delta && streamSid && twilioWs.readyState === WebSocket.OPEN) {
             if (!firstTwilioOutboundMediaLogged) {
               firstTwilioOutboundMediaLogged = true;
@@ -875,6 +942,12 @@ wss.on("connection", (twilioWs, req) => {
         }
 
         if (type === "response.function_call_arguments.done") {
+          if (transcriptOnlyMode) {
+            console.warn("[realtime-bridge][transcript-only] ignored_tool_call_in_transcribe_mode", {
+              callSid: callSid ? callSid.slice(0, 12) + "…" : null,
+            });
+            return;
+          }
           const name = typeof ev.name === "string" ? ev.name : "";
           const argsRaw = typeof ev.arguments === "string" ? ev.arguments : "";
           if (name !== "route_call" || routed) return;
@@ -1015,7 +1088,7 @@ wss.on("connection", (twilioWs, req) => {
             streamSid,
             callSid: callSid ? callSid.slice(0, 12) + "…" : null,
             chunksByTrack: { ...mediaChunksByTrack },
-            softphoneTranscriptMode,
+            transcriptOnlyMode,
             inputTranscriptRole: inputTranscriptRoleParam,
             isCallerPstnLeg,
           });
