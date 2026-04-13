@@ -825,19 +825,36 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
   }, [finalizeCallCleanup]);
 
   const hangUp = useCallback(() => {
-    console.log("[softphone] hangup pressed");
-    const c = activeCallRef.current;
-    const sid = c ? readCallSid(c) : null;
-    if (c) {
-      try {
-        c.disconnect();
-      } catch (e) {
-        console.warn("[softphone] hangup disconnect threw", e);
+    void (async () => {
+      console.log("[softphone] hangup pressed");
+      const c = activeCallRef.current;
+      const sid = c ? readCallSid(c) : null;
+      if (sid) {
+        try {
+          console.log("[softphone] server end-call request", { callSid: `${sid.slice(0, 10)}…` });
+          const res = await fetch("/api/workspace/phone/conference/end-call", {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ callSid: sid }),
+          });
+          const j = (await res.json().catch(() => ({}))) as { ok?: boolean; steps?: string[]; error?: string };
+          console.log("[softphone] server end-call response", res.status, j);
+        } catch (e) {
+          console.warn("[softphone] end-call server request failed", e);
+        }
+      } else {
+        console.warn("[softphone] hangup with no activeCallRef — forcing idle UI");
       }
-    } else {
-      console.warn("[softphone] hangup with no activeCallRef — forcing idle UI");
-    }
-    finalizeCallCleanup("hangup", { endedCallSid: sid });
+      if (c) {
+        try {
+          c.disconnect();
+        } catch (e) {
+          console.warn("[softphone] hangup disconnect threw", e);
+        }
+      }
+      finalizeCallCleanup("hangup", { endedCallSid: sid });
+    })();
   }, [finalizeCallCleanup]);
 
   const answerIncoming = useCallback(() => {
