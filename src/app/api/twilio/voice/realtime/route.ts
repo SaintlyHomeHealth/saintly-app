@@ -5,6 +5,7 @@ import { ensureIncomingCallAlert } from "@/lib/phone/incoming-call-alerts";
 import { upsertPhoneCallFromWebhook } from "@/lib/phone/log-call";
 import { buildTwiMLAppIncomingClientRingTwiml } from "@/lib/phone/twilio-voice-handoff";
 import { buildRealtimeConnectStreamTwiml } from "@/lib/phone/twilio-realtime-stream-twiml";
+import { appendInboundReceptionistAiStreamParam } from "@/lib/twilio/resolve-media-stream-wss-url";
 import {
   getRealtimeInboundGateSnapshot,
   resolveTwilioRealtimeMediaStreamWssUrl,
@@ -309,8 +310,9 @@ export async function POST(req: NextRequest) {
       });
     }
     const statusCallbackUrl = publicBase ? `${publicBase}/api/twilio/voice/status` : "";
+    const streamWssInboundAi = appendInboundReceptionistAiStreamParam(streamWss);
     const twiml = buildRealtimeConnectStreamTwiml({
-      streamWssUrl: streamWss,
+      streamWssUrl: streamWssInboundAi,
       statusCallbackUrl: statusCallbackUrl || undefined,
     });
     console.log("[twilio/voice/realtime] status_callback_for_stream", {

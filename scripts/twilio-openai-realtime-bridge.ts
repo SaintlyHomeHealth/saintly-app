@@ -432,7 +432,9 @@ function buildSessionUpdateMessage(opts?: { softphoneTranscriptOnly?: boolean })
           threshold,
           prefix_padding_ms: 280,
           silence_duration_ms: silenceDurationMs,
-        },
+          /** When supported, prevents VAD from auto-starting assistant responses (transcript-only). */
+          create_response: false,
+        } as Record<string, unknown>,
         input_audio_transcription: {
           model: "whisper-1",
         },
@@ -554,12 +556,15 @@ function parseTranscriptWsQuery(req: http.IncomingMessage): {
   transcriptExternalId: string | null;
   inputRole: "staff" | "caller" | null;
   softphoneTranscript: boolean;
+  /** Next.js TwiML adds this for inbound receptionist only — enables conversational AI. */
+  inboundAi: boolean;
   /**
-   * Transcribe-only: never forward assistant audio to Twilio, tools, or greetings.
-   * True when `softphone_transcript=1` OR when both `transcript_external_id` and `input_role` are set
-   * (defense if the flag is stripped from the WSS URL).
+   * Transcribe-only (read-only): no assistant audio, tools, transfers, hangup.
+   * **Fail-closed:** `true` unless `inbound_ai=1` AND no softphone markers.
+   * If query params are missing/stripped (common bug), we default safe → transcript-only.
    */
   transcriptOnlyMode: boolean;
+  transcriptOnlyReason: string;
 } {
   try {
     const host = req.headers.host || "localhost";
@@ -570,22 +575,46 @@ function parseTranscriptWsQuery(req: http.IncomingMessage): {
     const softphone =
       u.searchParams.get("softphone_transcript") === "1" || u.searchParams.get("softphone_transcript") === "true";
     const transcriptExternalId = tid && tid.startsWith("CA") ? tid : null;
-    const transcriptOnlyMode =
-      softphone || (Boolean(transcriptExternalId) && inputRole !== null);
+    const inboundAi =
+      u.searchParams.get("inbound_ai") === "1" || u.searchParams.get("inbound_ai")?.toLowerCase() === "true";
+    const softphoneMarkers = softphone || (Boolean(transcriptExternalId) && inputRole !== null);
+
+    let transcriptOnlyMode: boolean;
+    let transcriptOnlyReason: string;
+    if (softphoneMarkers) {
+      transcriptOnlyMode = true;
+      transcriptOnlyReason = "softphone_transcript_or_transcript_external_id+input_role";
+    } else if (inboundAi) {
+      transcriptOnlyMode = false;
+      transcriptOnlyReason = "inbound_ai=1_explicit_conversational";
+    } else {
+      transcriptOnlyMode = true;
+      transcriptOnlyReason = "fail_closed_no_inbound_ai_flag";
+    }
+
     return {
       transcriptExternalId,
       inputRole,
       softphoneTranscript: softphone,
+      inboundAi,
       transcriptOnlyMode,
+      transcriptOnlyReason,
     };
   } catch {
     return {
       transcriptExternalId: null,
       inputRole: null,
       softphoneTranscript: false,
-      transcriptOnlyMode: false,
+      inboundAi: false,
+      transcriptOnlyMode: true,
+      transcriptOnlyReason: "url_parse_error_fail_closed",
     };
   }
+}
+
+/** One JSON line per critical step — grep by `client_call_sid` or `transcript_external_id`. */
+function emitE2eTrace(input: Record<string, unknown>): void {
+  console.log("[transcript-e2e]", JSON.stringify({ ts: new Date().toISOString(), ...input }));
 }
 
 wss.on("connection", (twilioWs, req) => {
@@ -593,6 +622,10 @@ wss.on("connection", (twilioWs, req) => {
   const transcriptExternalIdParam = transcriptQuery.transcriptExternalId;
   const inputTranscriptRoleParam = transcriptQuery.inputRole;
   const softphoneTranscriptMode = transcriptQuery.softphoneTranscript;
+  const transcriptOnlyReason = transcriptQuery.transcriptOnlyReason;
+  const inboundAiFlag = transcriptQuery.inboundAi;
+  const softphoneMarkers =
+    softphoneTranscriptMode || (Boolean(transcriptExternalIdParam) && inputTranscriptRoleParam !== null);
   /** Staff transcript streams — read-only; must never inject audio or run tools (see `response.audio.delta` guard). */
   const transcriptOnlyMode = transcriptQuery.transcriptOnlyMode;
 
@@ -607,13 +640,29 @@ wss.on("connection", (twilioWs, req) => {
     inputRole: inputTranscriptRoleParam,
     softphoneTranscriptMode,
     transcriptOnlyMode,
+    transcriptOnlyReason,
+    inboundAi: inboundAiFlag,
     isCallerPstnLeg,
+  });
+  emitE2eTrace({
+    phase: "wss_connected",
+    route: "railway_twilio_openai_bridge",
+    transcript_external_id: transcriptExternalIdParam,
+    streamSid: null,
+    client_call_sid: transcriptExternalIdParam,
+    pstn_call_sid: null,
+    transcriptOnlyMode,
+    transcriptOnlyReason,
+    inbound_ai: inboundAiFlag,
+    ai_path_entered: !transcriptOnlyMode,
+    softphone_bypass_path_entered: Boolean(inboundAiFlag && !softphoneMarkers),
   });
   console.log(
     "[softphone-transcript-trace]",
     JSON.stringify({
       phase: "wss_connection",
       transcriptOnlyMode,
+      transcriptOnlyReason,
       softphoneTranscriptFlag: softphoneTranscriptMode,
       hasTranscriptExternalId: Boolean(transcriptExternalIdParam),
       inputRole: inputTranscriptRoleParam,
@@ -721,6 +770,21 @@ wss.on("connection", (twilioWs, req) => {
         wsQuery,
       });
 
+      emitE2eTrace({
+        phase: "twilio_media_stream_start",
+        route: "railway_twilio_openai_bridge",
+        streamSid,
+        transcript_external_id: bridgeExternalCallIdForTranscript,
+        stream_twilio_call_sid: callSid,
+        client_call_sid: transcriptExternalIdParam,
+        pstn_call_sid: isCallerPstnLeg ? callSid : null,
+        transcriptOnlyMode,
+        transcriptOnlyReason,
+        inbound_ai: inboundAiFlag,
+        ai_path_entered: !transcriptOnlyMode,
+        softphone_bypass_path_entered: Boolean(inboundAiFlag && !softphoneMarkers),
+      });
+
       latRef = {
         t0: performance.now(),
         wallMs: Date.now(),
@@ -738,8 +802,37 @@ wss.on("connection", (twilioWs, req) => {
         safeClose();
         return;
       }
+
+      const guardedSendOpenAi = (oaiWs: WebSocket, msg: Record<string, unknown>) => {
+        const t = typeof msg.type === "string" ? msg.type : "";
+        if (transcriptOnlyMode && t === "response.create") {
+          emitE2eTrace({
+            phase: "blocked_response_create_guard",
+            route: "railway_twilio_openai_bridge",
+            streamSid,
+            transcript_external_id: bridgeExternalCallIdForTranscript,
+            stream_twilio_call_sid: callSid,
+            transcriptOnlyMode,
+          });
+          return;
+        }
+        sendOpenAiJson(oaiWs, msg);
+      };
+
       oai.on("open", () => {
         markLatency("oai_ws_open");
+        emitE2eTrace({
+          phase: "openai_ws_open",
+          route: "railway_twilio_openai_bridge",
+          streamSid,
+          transcript_external_id: bridgeExternalCallIdForTranscript,
+          stream_twilio_call_sid: callSid,
+          transcriptOnlyMode,
+          transcriptOnlyReason,
+          inbound_ai: inboundAiFlag,
+          ai_path_entered: !transcriptOnlyMode,
+          will_send_session_update_transcript_only: transcriptOnlyMode,
+        });
         console.log("[realtime-bridge][diag] openai_realtime_session_ws_open", {
           callSid: callSid!.slice(0, 12) + "…",
           streamSid,
@@ -765,7 +858,7 @@ wss.on("connection", (twilioWs, req) => {
         sendSessionUpdate(oai!, { softphoneTranscriptOnly: transcriptOnlyMode });
         markLatency("session_update_sent");
         if (!transcriptOnlyMode && REALTIME_DIAG_RESPONSE_CREATE_ON_CONNECT) {
-          sendOpenAiJson(oai!, {
+          guardedSendOpenAi(oai!, {
             type: "response.create",
             response: {
               modalities: ["text", "audio"],
@@ -774,10 +867,27 @@ wss.on("connection", (twilioWs, req) => {
             },
           });
           markLatency("response_create_sent");
+          emitE2eTrace({
+            phase: "response_create_sent",
+            route: "railway_twilio_openai_bridge",
+            streamSid,
+            transcript_external_id: bridgeExternalCallIdForTranscript,
+            stream_twilio_call_sid: callSid,
+            ai_path_entered: true,
+            modalities: ["text", "audio"],
+          });
           console.log("[softphone-transcript-trace]", JSON.stringify({ phase: "response_create_sent", aiGreeting: true }));
         } else if (transcriptOnlyMode) {
           console.log("[realtime-bridge][diag] transcript_only_skip_initial_response_create", {
             callSid: callSid!.slice(0, 12) + "…",
+          });
+          emitE2eTrace({
+            phase: "response_create_skipped",
+            route: "railway_twilio_openai_bridge",
+            streamSid,
+            transcript_external_id: bridgeExternalCallIdForTranscript,
+            stream_twilio_call_sid: callSid,
+            transcriptOnlyReason,
           });
           console.log(
             "[softphone-transcript-trace]",
@@ -796,6 +906,19 @@ wss.on("connection", (twilioWs, req) => {
 
         const type = typeof ev.type === "string" ? ev.type : "";
 
+        if (transcriptOnlyMode && type.startsWith("response.function_call")) {
+          emitE2eTrace({
+            event: "blocked_openai_function_family",
+            openai_event_type: type,
+            route: "railway_twilio_openai_bridge",
+            streamSid,
+            transcript_external_id: bridgeExternalCallIdForTranscript ?? transcriptExternalIdParam,
+            stream_twilio_call_sid: callSid,
+            transcriptOnlyMode,
+          });
+          return;
+        }
+
         if (type === "input_audio_buffer.speech_started") {
           markLatency("vad_speech_started");
         }
@@ -804,6 +927,15 @@ wss.on("connection", (twilioWs, req) => {
         }
         if (type === "response.created") {
           markLatency("first_response_created");
+          if (transcriptOnlyMode) {
+            emitE2eTrace({
+              event: "unexpected_response_created_in_transcript_only",
+              route: "railway_twilio_openai_bridge",
+              streamSid,
+              transcript_external_id: bridgeExternalCallIdForTranscript ?? transcriptExternalIdParam,
+              stream_twilio_call_sid: callSid,
+            });
+          }
         }
 
         const logAudioDelta = () => {
@@ -914,6 +1046,15 @@ wss.on("connection", (twilioWs, req) => {
                 type,
                 base64Len: delta.length,
                 callSid: callSid ? callSid.slice(0, 12) + "…" : null,
+              });
+              emitE2eTrace({
+                event: "dropped_response_audio_delta_to_twilio",
+                openai_event_type: type,
+                route: "railway_twilio_openai_bridge",
+                streamSid,
+                transcript_external_id: bridgeExternalCallIdForTranscript ?? transcriptExternalIdParam,
+                stream_twilio_call_sid: callSid,
+                base64Len: delta.length,
               });
               console.log(
                 "[softphone-transcript-trace]",

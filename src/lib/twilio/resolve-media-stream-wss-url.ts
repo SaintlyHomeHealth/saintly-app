@@ -29,3 +29,16 @@ export function appendSoftphoneTranscriptStreamParams(
   u.searchParams.set("softphone_transcript", "1");
   return u.toString().replace(/^https:\/\//i, "wss://");
 }
+
+/**
+ * Inbound AI receptionist TwiML `<Stream url>` — marks the bridge WebSocket as **conversational**
+ * (assistant, tools, transfers). Without this, the bridge **fail-closes** to transcript-only (safe).
+ * @see scripts/twilio-openai-realtime-bridge.ts `parseTranscriptWsQuery` / `inbound_ai`
+ */
+export function appendInboundReceptionistAiStreamParam(baseWss: string): string {
+  const trimmed = baseWss.trim().replace(/\/$/, "");
+  if (!trimmed.startsWith("wss://")) return trimmed;
+  const u = new URL(trimmed.replace(/^wss:\/\//i, "https://"));
+  u.searchParams.set("inbound_ai", "1");
+  return u.toString().replace(/^https:\/\//i, "wss://");
+}
