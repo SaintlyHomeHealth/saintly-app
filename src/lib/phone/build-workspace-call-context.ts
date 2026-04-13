@@ -2,6 +2,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { readVoiceAiMetadataFromMetadata } from "@/app/admin/phone/_lib/voice-ai-metadata";
 import { computeConferenceGating, type ConferenceGatingSnapshot } from "@/lib/phone/conference-gating";
+import {
+  defaultSoftphoneRecordingMeta,
+  type SoftphoneRecordingMeta,
+} from "@/lib/twilio/softphone-recording-types";
 
 export type WorkspaceCallContextPayload = {
   phone_call_id: string;
@@ -13,6 +17,7 @@ export type WorkspaceCallContextPayload = {
     pstn_on_hold: boolean | null;
     mode: string | null;
   } | null;
+  softphone_recording: SoftphoneRecordingMeta | null;
   voice_ai: {
     short_summary: string | null;
     urgency: string | null;
@@ -63,6 +68,29 @@ export async function buildWorkspaceCallContextPayload(
       }
     : null;
 
+  const srRaw =
+    meta && typeof meta === "object" && !Array.isArray(meta)
+      ? (meta as Record<string, unknown>).softphone_recording
+      : null;
+  let softphoneRecording: SoftphoneRecordingMeta | null = null;
+  if (srRaw && typeof srRaw === "object" && !Array.isArray(srRaw)) {
+    const sr = srRaw as Record<string, unknown>;
+    const status =
+      sr.status === "in-progress" || sr.status === "stopped" || sr.status === "failed" || sr.status === "idle"
+        ? sr.status
+        : "idle";
+    const source =
+      sr.source === "conference" || sr.source === "pstn_leg" || sr.source === "client_leg" ? sr.source : null;
+    softphoneRecording = {
+      recording_sid: typeof sr.recording_sid === "string" ? sr.recording_sid : null,
+      source,
+      status,
+      started_at: typeof sr.started_at === "string" ? sr.started_at : null,
+      stopped_at: typeof sr.stopped_at === "string" ? sr.stopped_at : null,
+      last_error_message: typeof sr.last_error_message === "string" ? sr.last_error_message : null,
+    };
+  }
+
   const gating = computeConferenceGating({
     clientCallSid: typeof data.external_call_id === "string" ? data.external_call_id : callSid,
     softphoneConference: softphoneConference,
@@ -80,6 +108,7 @@ export async function buildWorkspaceCallContextPayload(
           mode: typeof conf.mode === "string" ? conf.mode : null,
         }
       : null,
+    softphone_recording: softphoneRecording ?? defaultSoftphoneRecordingMeta(),
     voice_ai: voiceAi
       ? {
           short_summary: voiceAi.short_summary || null,

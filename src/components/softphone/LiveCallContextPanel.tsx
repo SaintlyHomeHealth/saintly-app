@@ -1,5 +1,8 @@
 "use client";
 
+import { useState } from "react";
+import { ChevronDown, ChevronUp } from "lucide-react";
+
 import { formatVoiceAiCallerCategoryLabel, formatVoiceAiRouteTargetLabel } from "@/app/admin/phone/_lib/voice-ai-metadata";
 
 import type { CallContextVoiceAi, SoftphoneConferenceContext } from "@/components/softphone/WorkspaceSoftphoneProvider";
@@ -11,132 +14,163 @@ type Props = {
   remoteLabel: string | null;
   /** Server truth from call-context (blockers, SIDs, media URL). */
   conferenceGating: ConferenceGatingSnapshot | null;
+  /** When set, controls the technical details drawer (ActiveCallBar passes debug mode). */
+  debugExpanded?: boolean;
+  onToggleDebug?: () => void;
 };
 
-export function LiveCallContextPanel({ voiceAi, conference, remoteLabel, conferenceGating }: Props) {
+export function LiveCallContextPanel({
+  voiceAi,
+  conference,
+  remoteLabel,
+  conferenceGating,
+  debugExpanded,
+  onToggleDebug,
+}: Props) {
+  const [localDebug, setLocalDebug] = useState(false);
+  const debug = typeof debugExpanded === "boolean" ? debugExpanded : localDebug;
+  const toggleDebug = () => {
+    if (onToggleDebug) onToggleDebug();
+    else setLocalDebug((d) => !d);
+  };
+
   return (
-    <div className="w-full max-w-sm rounded-2xl border border-sky-100/80 bg-gradient-to-b from-white to-sky-50/40 p-4 text-left shadow-[0_6px_24px_-12px_rgba(30,58,138,0.12)]">
-      <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">Caller context</p>
+    <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-gradient-to-b from-slate-950/90 to-indigo-950/40 p-4 text-left shadow-[0_6px_24px_-12px_rgba(30,58,138,0.25)]">
+      <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-indigo-200/80">Context</p>
       {remoteLabel ? (
-        <p className="mt-1 text-sm font-semibold text-slate-900">{remoteLabel}</p>
+        <p className="mt-1 text-sm font-semibold text-white">{remoteLabel}</p>
       ) : (
-        <p className="mt-1 text-sm text-slate-500">Connecting…</p>
+        <p className="mt-1 text-sm text-slate-400">Connecting…</p>
       )}
-      {conference?.mode === "conference" ? (
-        <p className="mt-2 text-[11px] text-slate-600">
-          Conference leg
-          {conference.conference_sid ? (
-            <span className="ml-1 font-mono text-[10px] text-slate-500">
-              {conference.conference_sid.slice(0, 8)}…
-            </span>
-          ) : (
-            <span className="text-amber-800"> — linking…</span>
-          )}
-          {conference.pstn_call_sid ? (
-            <span className="ml-1 font-mono text-[10px] text-emerald-800">· PSTN</span>
-          ) : (
-            <span className="text-amber-800"> · PSTN not linked</span>
-          )}
-        </p>
-      ) : null}
-      {conferenceGating ? (
-        <div className="mt-2 space-y-1.5 rounded-lg border border-slate-200/90 bg-slate-50/90 px-2 py-1.5 text-[10px] leading-snug text-slate-700">
-          <p className="font-semibold text-slate-800">Diagnostics</p>
-          <p>
-            <span className="text-slate-500">Client leg:</span>{" "}
-            <span className="font-mono text-[10px] text-slate-900">
-              {conferenceGating.client_leg_call_sid ? `${conferenceGating.client_leg_call_sid.slice(0, 10)}…` : "—"}
-            </span>
-          </p>
-          <p>
-            <span className="text-slate-500">Conference SID:</span>{" "}
-            <span className="font-mono text-[10px] text-slate-900">
-              {conferenceGating.conference_sid ? `${conferenceGating.conference_sid.slice(0, 10)}…` : "missing"}
-            </span>
-          </p>
-          <p>
-            <span className="text-slate-500">PSTN leg:</span>{" "}
-            <span className="font-mono text-[10px] text-slate-900">
-              {conferenceGating.pstn_call_sid ? `${conferenceGating.pstn_call_sid.slice(0, 10)}…` : "missing"}
-            </span>
-          </p>
-          <p>
-            <span className="text-slate-500">Media stream WSS (masked):</span>{" "}
-            <span className="font-mono text-[10px] text-slate-900">
-              {conferenceGating.media_stream_wss_target_masked ?? "not resolved"}
-            </span>
-          </p>
-          {conferenceGating.blockers.length > 0 ? (
-            <ul className="list-disc space-y-0.5 pl-4 text-amber-950">
-              {conferenceGating.blockers.map((b) => (
-                <li key={b}>{b}</li>
-              ))}
-            </ul>
-          ) : (
-            <p className="text-emerald-900">No blockers — server sees conference + PSTN + media + transcript writeback.</p>
-          )}
-        </div>
+
+      {conferenceGating && conferenceGating.blockers.length === 0 ? (
+        <p className="mt-2 text-[11px] text-emerald-200/90">Advanced calling is ready (hold, transfer, 3-way).</p>
+      ) : conferenceGating && conferenceGating.blockers.length > 0 ? (
+        <p className="mt-2 text-[11px] leading-snug text-amber-100/90">{conferenceGating.blockers[0]}</p>
       ) : (
-        <p className="mt-2 text-[11px] text-slate-500">Loading server diagnostics…</p>
+        <p className="mt-2 text-[11px] text-slate-400">Checking server link…</p>
       )}
+
       {!voiceAi ? (
-        <p className="mt-3 text-xs leading-relaxed text-slate-600">
-          Live AI summary appears when this browser leg matches a phone_calls row (same Twilio Call SID). Transcript
-          updates below from server metadata (bridge + voice AI).
+        <p className="mt-3 text-xs leading-relaxed text-slate-400">
+          Live AI summary appears when this browser leg matches a logged call. Open Transcript for the full live view.
         </p>
       ) : (
-        <div className="mt-3 space-y-3 text-xs text-slate-700">
+        <div className="mt-3 space-y-3 text-xs text-slate-200">
           {voiceAi.short_summary ? (
             <div>
-              <p className="font-semibold text-slate-900">AI summary</p>
-              <p className="mt-1 leading-relaxed">{voiceAi.short_summary}</p>
+              <p className="font-semibold text-white">AI summary</p>
+              <p className="mt-1 leading-relaxed text-slate-200/95">{voiceAi.short_summary}</p>
             </div>
           ) : null}
           <div className="flex flex-wrap gap-2">
             {voiceAi.urgency ? (
-              <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-800">
+              <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[11px] font-semibold text-slate-100">
                 Urgency: {voiceAi.urgency}
               </span>
             ) : null}
             {voiceAi.route_target ? (
-              <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-800">
+              <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[11px] font-semibold text-slate-100">
                 Route: {formatVoiceAiRouteTargetLabel(voiceAi.route_target)}
               </span>
             ) : null}
             {voiceAi.caller_category ? (
-              <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-800">
+              <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[11px] font-semibold text-slate-100">
                 {formatVoiceAiCallerCategoryLabel(voiceAi.caller_category)}
               </span>
             ) : null}
           </div>
           {voiceAi.recommended_action ? (
             <div>
-              <p className="font-semibold text-slate-900">Suggested action</p>
-              <p className="mt-1 leading-relaxed">{voiceAi.recommended_action}</p>
+              <p className="font-semibold text-white">Suggested action</p>
+              <p className="mt-1 leading-relaxed text-slate-200/95">{voiceAi.recommended_action}</p>
             </div>
           ) : null}
         </div>
       )}
+
       <div className="mt-3">
-        <p className="text-xs font-semibold text-slate-900">Live transcript (excerpt)</p>
+        <button
+          type="button"
+          onClick={toggleDebug}
+          className="flex w-full items-center justify-between rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-left text-[11px] font-semibold text-indigo-100/90"
+        >
+          <span>Technical details</span>
+          {debug ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+        </button>
+        {debug ? (
+          <div className="mt-2 space-y-2 rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-[10px] leading-snug text-slate-300">
+            {conference?.mode === "conference" ? (
+              <p>
+                Conference
+                {conference.conference_sid ? (
+                  <span className="ml-1 font-mono text-[10px] text-slate-400">
+                    {conference.conference_sid.slice(0, 10)}…
+                  </span>
+                ) : (
+                  <span className="text-amber-200"> — linking…</span>
+                )}
+                {conference.pstn_call_sid ? (
+                  <span className="ml-1 font-mono text-[10px] text-emerald-300">· PSTN</span>
+                ) : (
+                  <span className="text-amber-200"> · PSTN not linked</span>
+                )}
+              </p>
+            ) : null}
+            {conferenceGating ? (
+              <>
+                <p>
+                  <span className="text-slate-500">Client leg:</span>{" "}
+                  <span className="font-mono text-[10px] text-slate-100">
+                    {conferenceGating.client_leg_call_sid ? `${conferenceGating.client_leg_call_sid.slice(0, 10)}…` : "—"}
+                  </span>
+                </p>
+                <p>
+                  <span className="text-slate-500">Conference SID:</span>{" "}
+                  <span className="font-mono text-[10px] text-slate-100">
+                    {conferenceGating.conference_sid ? `${conferenceGating.conference_sid.slice(0, 10)}…` : "missing"}
+                  </span>
+                </p>
+                <p>
+                  <span className="text-slate-500">PSTN leg:</span>{" "}
+                  <span className="font-mono text-[10px] text-slate-100">
+                    {conferenceGating.pstn_call_sid ? `${conferenceGating.pstn_call_sid.slice(0, 10)}…` : "missing"}
+                  </span>
+                </p>
+                <p>
+                  <span className="text-slate-500">Media stream (masked):</span>{" "}
+                  <span className="font-mono text-[10px] text-slate-100">
+                    {conferenceGating.media_stream_wss_target_masked ?? "not resolved"}
+                  </span>
+                </p>
+                {conferenceGating.blockers.length > 1 ? (
+                  <ul className="list-disc space-y-0.5 pl-4 text-amber-100/90">
+                    {conferenceGating.blockers.slice(1).map((b) => (
+                      <li key={b}>{b}</li>
+                    ))}
+                  </ul>
+                ) : null}
+              </>
+            ) : (
+              <p className="text-slate-500">Loading diagnostics…</p>
+            )}
+          </div>
+        ) : null}
+      </div>
+
+      <div className="mt-3 rounded-xl border border-white/10 bg-black/25 p-3">
+        <p className="text-xs font-semibold text-white">Transcript excerpt</p>
         <p className="mt-0.5 text-[10px] text-slate-500">
-          Pulled from phone call metadata on this leg
-          {conferenceGating?.client_leg_call_sid
-            ? ` (${conferenceGating.client_leg_call_sid.slice(0, 10)}…)`
-            : ""}
-          . Refreshes about every 2s while you are in a call.
+          From call metadata — open the Transcript tab for the full live stream.
         </p>
-        <div className="mt-2 max-h-40 overflow-y-auto rounded-xl border border-sky-100/80 bg-white/90 p-3 font-mono text-[11px] leading-relaxed text-slate-800">
+        <div className="mt-2 max-h-36 overflow-y-auto rounded-lg border border-white/5 bg-slate-950/50 p-2.5 font-mono text-[11px] leading-relaxed text-slate-200">
           {voiceAi?.live_transcript_excerpt?.trim() ? (
             <>
-              <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">AI Receptionist</p>
+              <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Bridge / AI</p>
               <p className="mt-1 whitespace-pre-wrap">{voiceAi.live_transcript_excerpt}</p>
             </>
           ) : (
-            <p className="text-slate-500">
-              Transcript will appear when available — start the media stream if you use the live bridge, or wait for
-              voice AI to write lines to this call.
-            </p>
+            <p className="text-slate-500">No excerpt yet — enable Transcript when you are ready.</p>
           )}
         </div>
       </div>

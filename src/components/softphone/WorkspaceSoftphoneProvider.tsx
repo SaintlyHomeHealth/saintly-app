@@ -26,6 +26,7 @@ import {
 } from "@/lib/softphone/workspace-ui-events";
 import { twilioErrorToFriendly } from "@/lib/softphone/twilio-user-friendly-errors";
 import type { ConferenceGatingSnapshot } from "@/lib/phone/conference-gating";
+import type { SoftphoneRecordingMeta } from "@/lib/twilio/softphone-recording-types";
 
 type CallHandle = Awaited<ReturnType<Device["connect"]>>;
 
@@ -64,6 +65,8 @@ export type CallDeskContext = {
   conference: SoftphoneConferenceContext | null;
   /** Server-computed gating — use for disabling controls with real reasons. */
   conference_gating: ConferenceGatingSnapshot | null;
+  /** Manual recording state from `phone_calls.metadata.softphone_recording`. */
+  softphone_recording: SoftphoneRecordingMeta | null;
 };
 
 /** Server flags from `/api/workspace/phone/softphone-capabilities` (no secrets). */
@@ -122,6 +125,12 @@ type Ctx = {
   transcriptPanelOpen: boolean;
   setTranscriptPanelOpen: Dispatch<SetStateAction<boolean>>;
   enableTranscriptManual: () => Promise<void>;
+  /** Manual Twilio-backed recording (metadata on phone_calls). */
+  softphoneRecording: SoftphoneRecordingMeta | null;
+  recordingBusy: boolean;
+  recordingActionError: string | null;
+  toggleCallRecording: () => Promise<void>;
+  sendDtmfDigits: (digits: string) => void;
   /** Last call-context fetch failed (for transcript empty state). */
   callContextLoadError: boolean;
   clearCallError: () => void;
@@ -241,6 +250,8 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
   const [transcriptEnabled, setTranscriptEnabled] = useState(false);
   const [transcriptPanelOpen, setTranscriptPanelOpen] = useState(false);
   const [callContextLoadError, setCallContextLoadError] = useState(false);
+  const [recordingBusy, setRecordingBusy] = useState(false);
+  const [recordingActionError, setRecordingActionError] = useState<string | null>(null);
 
   useEffect(() => {
     statusRef.current = status;
@@ -320,6 +331,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
           voice_ai?: CallContextVoiceAi | null;
           softphone_conference?: SoftphoneConferenceContext | null;
           conference_gating?: ConferenceGatingSnapshot | null;
+          softphone_recording?: SoftphoneRecordingMeta | null;
         };
         if (cancelled) return;
         if (!cancelled) setCallContextLoadError(false);
@@ -339,6 +351,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
             voice_ai: j.voice_ai ?? null,
             conference: j.softphone_conference ?? null,
             conference_gating: j.conference_gating ?? null,
+            softphone_recording: j.softphone_recording ?? null,
           });
           if (typeof j.softphone_conference?.pstn_on_hold === "boolean") {
             setIsPstnHold(j.softphone_conference.pstn_on_hold);
@@ -388,6 +401,8 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       setTranscriptEnabled(false);
       setTranscriptPanelOpen(false);
       setCallContextLoadError(false);
+      setRecordingBusy(false);
+      setRecordingActionError(null);
       transcriptStreamStartedRef.current = false;
       if (options?.endedCallSid) {
         pollSuppressedSidRef.current = options.endedCallSid;
@@ -1052,6 +1067,54 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     await startLiveTranscriptStream();
   }, [startLiveTranscriptStream]);
 
+  const toggleCallRecording = useCallback(async () => {
+    const c = activeCallRef.current;
+    if (!c || recordingBusy) return;
+    const sid = readCallSid(c);
+    if (!sid) return;
+    setRecordingBusy(true);
+    setRecordingActionError(null);
+    try {
+      const rec = callContext?.softphone_recording;
+      const isOn = rec?.status === "in-progress";
+      const res = await fetch("/api/workspace/phone/call-recording", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: isOn ? "stop" : "start", callSid: sid }),
+      });
+      const j = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        detail?: string;
+        recording?: SoftphoneRecordingMeta;
+      };
+      if (!res.ok || !j.ok) {
+        setRecordingActionError(j.detail ?? j.error ?? "Recording could not be updated.");
+        return;
+      }
+      if (j.recording) {
+        setCallContext((prev) =>
+          prev ? { ...prev, softphone_recording: j.recording ?? prev.softphone_recording } : prev
+        );
+      }
+    } finally {
+      setRecordingBusy(false);
+    }
+  }, [callContext, recordingBusy]);
+
+  const sendDtmfDigits = useCallback((digits: string) => {
+    const c = activeCallRef.current;
+    if (!c || statusRef.current !== "in_call") return;
+    const s = digits.replace(/[^0-9*#]/g, "");
+    if (!s) return;
+    try {
+      c.sendDigits(s);
+    } catch (e) {
+      console.warn("[softphone] sendDigits failed", e);
+    }
+  }, []);
+
   const declineCallWaiting = useCallback(() => {
     callWaitingCall?.reject();
     setCallWaitingCall(null);
@@ -1164,7 +1227,6 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
   const value = useMemo<Ctx>(() => {
     let activeRemoteLabel: string | null = null;
     if (status === "in_call") {
-      /* eslint-disable react-hooks/purity -- snapshot TTL uses wall clock inside useMemo */
       const now = Date.now();
       const active = activeCallRef.current;
       if (active) {
@@ -1184,7 +1246,6 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
           }
         }
       }
-      /* eslint-enable react-hooks/purity */
       if (!activeRemoteLabel) {
         activeRemoteLabel = digits.trim() ? formatDialpadDisplay(digits) : null;
       }
@@ -1231,6 +1292,11 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       transcriptPanelOpen,
       setTranscriptPanelOpen,
       enableTranscriptManual,
+      softphoneRecording: callContext?.softphone_recording ?? null,
+      recordingBusy,
+      recordingActionError,
+      toggleCallRecording,
+      sendDtmfDigits,
       callContextLoadError,
       clearCallError,
       startCall,
@@ -1269,10 +1335,14 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     transcriptPanelOpen,
     setTranscriptPanelOpen,
     enableTranscriptManual,
+    callContext,
+    recordingBusy,
+    recordingActionError,
+    toggleCallRecording,
+    sendDtmfDigits,
     callContextLoadError,
     answerCallWaitingEndAndAccept,
     declineCallWaiting,
-    callContext,
     softphoneCapabilities,
     clearCallError,
     startCall,
