@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown, ChevronUp, Mic, MicOff, PauseCircle, PhoneOff, PlayCircle } from "lucide-react";
+import { ChevronDown, ChevronUp, MessageSquareText, Mic, MicOff, PauseCircle, PhoneOff, PlayCircle } from "lucide-react";
 
 import { useWorkspaceSoftphone } from "@/components/softphone/WorkspaceSoftphoneProvider";
 
@@ -27,6 +27,7 @@ export function ActiveCallBar() {
     toggleMute,
     toggleHold,
     callContext,
+    setTranscriptPanelOpen,
   } = useWorkspaceSoftphone();
   const [ctxOpen, setCtxOpen] = useState(false);
 
@@ -80,6 +81,14 @@ export function ActiveCallBar() {
                   Hold
                 </>
               )}
+            </button>
+            <button
+              type="button"
+              onClick={() => setTranscriptPanelOpen(true)}
+              className="inline-flex h-9 items-center gap-1 rounded-full border border-sky-400/35 px-2.5 text-xs font-semibold text-sky-100"
+            >
+              <MessageSquareText className="h-4 w-4" strokeWidth={2} />
+              Transcript
             </button>
             <button
               type="button"

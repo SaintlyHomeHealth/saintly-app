@@ -1,5 +1,7 @@
 "use client";
 
+import { ActiveCallTranscriptSheet } from "@/components/softphone/ActiveCallTranscriptSheet";
+
 import { ActiveCallBar } from "./phone/_components/ActiveCallBar";
 import { CallWaitingBanner } from "./phone/_components/CallWaitingBanner";
 import { IncomingCallBanner } from "./phone/_components/IncomingCallBanner";
@@ -16,6 +18,7 @@ export function WorkspaceGlobalSoftphoneShell({ children }: { children: React.Re
       <CallWaitingBanner />
       <WorkspacePhoneCallDock />
       {children}
+      <ActiveCallTranscriptSheet />
       <ActiveCallBar />
     </WorkspaceSoftphoneProvider>
   );

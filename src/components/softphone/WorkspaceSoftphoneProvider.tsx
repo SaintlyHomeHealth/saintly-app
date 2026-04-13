@@ -116,6 +116,14 @@ type Ctx = {
   coldTransferTo: (toE164: string) => Promise<{ ok: boolean; error?: string }>;
   addConferenceParticipant: (toE164: string) => Promise<{ ok: boolean; error?: string }>;
   startLiveTranscriptStream: () => Promise<{ ok: boolean; error?: string }>;
+  /** Manual Dialpad-style: user must opt in before we treat transcript as “on”. */
+  transcriptEnabled: boolean;
+  setTranscriptEnabled: Dispatch<SetStateAction<boolean>>;
+  transcriptPanelOpen: boolean;
+  setTranscriptPanelOpen: Dispatch<SetStateAction<boolean>>;
+  enableTranscriptManual: () => Promise<void>;
+  /** Last call-context fetch failed (for transcript empty state). */
+  callContextLoadError: boolean;
   clearCallError: () => void;
   startCall: (toOverride?: string) => Promise<void>;
   hangUp: () => void;
@@ -229,6 +237,10 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
   const pollSuppressedSidRef = useRef<string | null>(null);
   const lastPollCallSidRef = useRef<string | null>(null);
   const prevTranscriptLenRef = useRef(0);
+  const transcriptStreamStartedRef = useRef(false);
+  const [transcriptEnabled, setTranscriptEnabled] = useState(false);
+  const [transcriptPanelOpen, setTranscriptPanelOpen] = useState(false);
+  const [callContextLoadError, setCallContextLoadError] = useState(false);
 
   useEffect(() => {
     statusRef.current = status;
@@ -296,7 +308,11 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
         const res = await fetch(`/api/workspace/phone/call-context?call_sid=${encodeURIComponent(sid)}`, {
           credentials: "include",
         });
-        if (cancelled || !res.ok) return;
+        if (cancelled) return;
+        if (!res.ok) {
+          if (!cancelled) setCallContextLoadError(true);
+          return;
+        }
         const currentSid = readCallSid(activeCallRef.current);
         if (currentSid !== sid) return;
         const j = (await res.json()) as {
@@ -306,12 +322,18 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
           conference_gating?: ConferenceGatingSnapshot | null;
         };
         if (cancelled) return;
+        if (!cancelled) setCallContextLoadError(false);
         if (j.found) {
           const excerpt = j.voice_ai?.live_transcript_excerpt;
           const len = typeof excerpt === "string" ? excerpt.length : 0;
           if (len !== prevTranscriptLenRef.current) {
             prevTranscriptLenRef.current = len;
-            console.log("[softphone] transcript event received (poll)", { callSid: sid.slice(0, 10) + "…", excerptLen: len });
+            if (transcriptEnabled) {
+              console.log("[softphone] transcript event received (poll)", {
+                callSid: sid.slice(0, 10) + "…",
+                excerptLen: len,
+              });
+            }
           }
           setCallContext({
             voice_ai: j.voice_ai ?? null,
@@ -325,16 +347,20 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
           setCallContext(null);
         }
       } catch {
-        if (!cancelled) setCallContext(null);
+        if (!cancelled) {
+          setCallContext(null);
+          setCallContextLoadError(true);
+        }
       }
     };
     void poll();
-    const id = window.setInterval(poll, 2000);
+    const intervalMs = transcriptEnabled ? 1800 : 2200;
+    const id = window.setInterval(poll, intervalMs);
     return () => {
       cancelled = true;
       window.clearInterval(id);
     };
-  }, [status]);
+  }, [status, transcriptEnabled]);
 
   /**
    * Single teardown path for the browser leg: always returns UI to idle and clears conference/transcript state.
@@ -359,6 +385,10 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       setInboundAiAssist(null);
       lastPollCallSidRef.current = null;
       prevTranscriptLenRef.current = 0;
+      setTranscriptEnabled(false);
+      setTranscriptPanelOpen(false);
+      setCallContextLoadError(false);
+      transcriptStreamStartedRef.current = false;
       if (options?.endedCallSid) {
         pollSuppressedSidRef.current = options.endedCallSid;
       }
@@ -416,6 +446,10 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       const sidAtStart = readCallSid(call);
       console.log("[softphone] active call created", sidAtStart ? `${sidAtStart.slice(0, 10)}…` : "(no CallSid yet)");
       activeCallRef.current = call;
+      setTranscriptEnabled(false);
+      setTranscriptPanelOpen(false);
+      setCallContextLoadError(false);
+      transcriptStreamStartedRef.current = false;
       setStatus("in_call");
       setCallStartedAtMs(Date.now());
       call.on("disconnect", (disconnectedArg) => {
@@ -1008,8 +1042,15 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       }
       return { ok: false as const, error: j.error ?? `HTTP ${res.status}` };
     }
+    transcriptStreamStartedRef.current = true;
     return { ok: true as const };
   }, []);
+
+  const enableTranscriptManual = useCallback(async () => {
+    setTranscriptEnabled(true);
+    if (transcriptStreamStartedRef.current) return;
+    await startLiveTranscriptStream();
+  }, [startLiveTranscriptStream]);
 
   const declineCallWaiting = useCallback(() => {
     callWaitingCall?.reject();
@@ -1185,6 +1226,12 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       coldTransferTo,
       addConferenceParticipant,
       startLiveTranscriptStream,
+      transcriptEnabled,
+      setTranscriptEnabled,
+      transcriptPanelOpen,
+      setTranscriptPanelOpen,
+      enableTranscriptManual,
+      callContextLoadError,
       clearCallError,
       startCall,
       hangUp,
@@ -1217,6 +1264,12 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     coldTransferTo,
     addConferenceParticipant,
     startLiveTranscriptStream,
+    transcriptEnabled,
+    setTranscriptEnabled,
+    transcriptPanelOpen,
+    setTranscriptPanelOpen,
+    enableTranscriptManual,
+    callContextLoadError,
     answerCallWaitingEndAndAccept,
     declineCallWaiting,
     callContext,
