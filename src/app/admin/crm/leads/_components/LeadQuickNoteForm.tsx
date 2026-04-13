@@ -28,8 +28,11 @@ export function LeadQuickNoteForm({ leadId }: { leadId: string }) {
           const r = await saveLeadQuickNote(fd);
           if (r.ok) {
             setText("");
-            setFeedback({ type: "ok", message: "Note added to contact log" });
+            setFeedback({ type: "ok", message: "Note added to thread" });
             router.refresh();
+            requestAnimationFrame(() => {
+              document.getElementById("lead-thread-end")?.scrollIntoView({ behavior: "smooth", block: "end" });
+            });
           } else {
             const msg =
               r.error === "empty"

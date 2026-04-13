@@ -5,6 +5,7 @@ import { WorkspacePhonePageHeader } from "../_components/WorkspacePhonePageHeade
 import { WorkspaceLeadRowActions } from "@/app/workspace/phone/leads/_components/WorkspaceLeadRowActions";
 import { displayNameFromContact } from "@/app/workspace/phone/patients/_lib/patient-hub";
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
+import { pipelineStatusBadgeClass } from "@/lib/crm/crm-leads-list-visual";
 import { getCrmCalendarTodayIso } from "@/lib/crm/crm-local-date";
 import { formatLeadLastContactSummary } from "@/lib/crm/lead-contact-outcome";
 import { formatLeadNextActionLabel } from "@/lib/crm/lead-follow-up-options";
@@ -179,7 +180,9 @@ export default async function WorkspacePhoneLeadsPage({
                     </span>
                   </p>
                   <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                    <span className="rounded-full bg-phone-ice px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-phone-ink">
+                    <span
+                      className={`inline-flex max-w-full shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ring-1 ${pipelineStatusBadgeClass(row.status)}`}
+                    >
                       {formatLeadPipelineStatusLabel(row.status)}
                     </span>
                     {followUpToday ? (

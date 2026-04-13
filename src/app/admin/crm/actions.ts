@@ -21,7 +21,8 @@ import {
 } from "@/lib/crm/lead-contact-log";
 import { formatLeadContactOutcomeLabel, isValidLeadContactOutcome } from "@/lib/crm/lead-contact-outcome";
 import { formatLeadNextActionLabel, isValidLeadNextAction } from "@/lib/crm/lead-follow-up-options";
-import { isValidLeadPipelineStatus } from "@/lib/crm/lead-pipeline-status";
+import { formatLeadPipelineStatusLabel, isValidLeadPipelineStatus } from "@/lib/crm/lead-pipeline-status";
+import { LEAD_ACTIVITY_EVENT } from "@/lib/crm/lead-activity-types";
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import {
   isAllowedLeadInsuranceMime,
@@ -32,9 +33,11 @@ import {
 import { isValidLeadSource } from "@/lib/crm/lead-source-options";
 import {
   hasAnyIntakeRequestDetail,
+  parseLeadIntakeRequestFromMetadata,
   type LeadIntakeRequestDetails,
 } from "@/lib/crm/lead-intake-request";
 import { isValidServiceDisciplineCode, parseServiceDisciplinesFromFormData } from "@/lib/crm/service-disciplines";
+import { formatFollowUpDate } from "@/lib/crm/crm-leads-table-helpers";
 import { convertLeadToPatient } from "@/app/admin/phone/actions";
 import { getCrmCalendarDateIsoFromInstant, getCrmCalendarTomorrowIso } from "@/lib/crm/crm-local-date";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
@@ -1048,6 +1051,59 @@ function readOptionalDobIso(formData: FormData): string | null {
   return t;
 }
 
+function readOptionalMedicareEffectiveDateIso(formData: FormData): string | null {
+  const v = formData.get("medicare_effective_date");
+  if (typeof v !== "string") return null;
+  const t = v.trim();
+  if (t === "") return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(t)) return null;
+  return t;
+}
+
+async function insertLeadActivityRow(input: {
+  leadId: string;
+  eventType: string;
+  body: string;
+  metadata?: Record<string, unknown>;
+  createdByUserId: string | null;
+  deletable?: boolean;
+}): Promise<boolean> {
+  const { error } = await supabaseAdmin.from("lead_activities").insert({
+    lead_id: input.leadId,
+    event_type: input.eventType,
+    body: input.body,
+    metadata: input.metadata ?? {},
+    created_by_user_id: input.createdByUserId,
+    deletable: input.deletable ?? false,
+  });
+  if (error) {
+    console.warn("[admin/crm] insertLeadActivityRow:", error.message);
+    return false;
+  }
+  return true;
+}
+
+function normStr(v: unknown): string | null {
+  if (v == null) return null;
+  if (typeof v !== "string") return null;
+  const t = v.trim();
+  return t === "" ? null : t;
+}
+
+function staffShortLabel(
+  userId: string | null | undefined,
+  map: Map<string, { email: string | null; full_name: string | null }>
+): string {
+  if (!userId?.trim()) return "Unassigned";
+  const s = map.get(userId.trim());
+  const name = (s?.full_name ?? "").trim();
+  if (name) return name;
+  const em = (s?.email ?? "").trim();
+  if (em) return em;
+  return `${userId.slice(0, 8)}…`;
+}
+
+
 function readLeadNextActionFromForm(formData: FormData): string | null {
   const v = formData.get("next_action");
   if (typeof v !== "string") return null;
@@ -1066,6 +1122,11 @@ function readLeadPipelineStatusFromForm(formData: FormData): string | null {
   return t;
 }
 
+function normDisciplinesList(v: unknown): string {
+  const arr = Array.isArray(v) ? v.filter((x): x is string => typeof x === "string" && x.trim() !== "") : [];
+  return [...new Set(arr.map((x) => x.trim()))].sort().join(", ");
+}
+
 export async function updateLeadIntake(formData: FormData) {
   const staff = await getStaffProfile();
   if (!staff || !isManagerOrHigher(staff)) {
@@ -1077,6 +1138,27 @@ export async function updateLeadIntake(formData: FormData) {
   if (!leadId) {
     return;
   }
+
+  const { data: beforeRow, error: beforeErr } = await leadRowsActiveOnly(
+    supabaseAdmin
+      .from("leads")
+      .select(
+        "id, status, owner_user_id, next_action, follow_up_date, referring_doctor_name, doctor_office_name, doctor_office_phone, doctor_office_fax, doctor_office_contact_person, referring_provider_name, referring_provider_phone, payer_name, payer_type, referral_source, service_disciplines, service_type, intake_status, notes, external_source_metadata, medicare_number, medicare_effective_date, medicare_notes"
+      )
+      .eq("id", leadId)
+  ).maybeSingle();
+
+  if (beforeErr || !beforeRow?.id) {
+    console.warn("[admin/crm] updateLeadIntake load:", beforeErr?.message);
+    return;
+  }
+
+  const { data: staffRows } = await supabaseAdmin
+    .from("staff_profiles")
+    .select("user_id, email, full_name");
+  const staffById = new Map(
+    (staffRows ?? []).map((s) => [s.user_id, { email: s.email, full_name: s.full_name }])
+  );
 
   const intake = readIntakeRequestFromForm(formData);
   const { data: metaRow } = await supabaseAdmin
@@ -1112,12 +1194,182 @@ export async function updateLeadIntake(formData: FormData) {
     intake_status: readOptionalIntakeText(formData, "intake_status"),
     external_source_metadata: mergedMeta,
     notes: readOptionalIntakeText(formData, "lead_notes"),
+    medicare_number: readOptionalIntakeText(formData, "medicare_number"),
+    medicare_effective_date: readOptionalMedicareEffectiveDateIso(formData),
+    medicare_notes: readOptionalIntakeText(formData, "medicare_notes"),
   };
+
+  const B = beforeRow as Record<string, unknown>;
+  const uid = staff.user_id;
 
   const { error } = await supabaseAdmin.from("leads").update(payload).eq("id", leadId).is("deleted_at", null);
   if (error) {
     console.warn("[admin/crm] updateLeadIntake:", error.message);
     return;
+  }
+
+  const beforeIr = parseLeadIntakeRequestFromMetadata(B.external_source_metadata);
+  const irChanged =
+    beforeIr.zip_code !== intake.zip_code ||
+    beforeIr.service_needed !== intake.service_needed ||
+    beforeIr.care_for !== intake.care_for ||
+    beforeIr.start_time !== intake.start_time ||
+    beforeIr.situation !== intake.situation;
+
+  if (pipelineStatus !== null && normStr(B.status) !== normStr(pipelineStatus)) {
+    await insertLeadActivityRow({
+      leadId,
+      eventType: LEAD_ACTIVITY_EVENT.status_changed,
+      body: `Status changed from ${formatLeadPipelineStatusLabel(normStr(B.status))} to ${formatLeadPipelineStatusLabel(
+        normStr(pipelineStatus)
+      )}`,
+      metadata: { before: normStr(B.status), after: normStr(pipelineStatus) },
+      createdByUserId: uid,
+    });
+  }
+
+  const oldOwner = normStr(B.owner_user_id);
+  const newOwner = readOptionalOwnerUserId(formData);
+  const newOwnerNorm = newOwner == null ? null : newOwner;
+  if (oldOwner !== newOwnerNorm) {
+    await insertLeadActivityRow({
+      leadId,
+      eventType: LEAD_ACTIVITY_EVENT.owner_changed,
+      body: `Owner changed from ${staffShortLabel(oldOwner, staffById)} to ${staffShortLabel(newOwnerNorm, staffById)}`,
+      metadata: { before: oldOwner, after: newOwnerNorm },
+      createdByUserId: uid,
+    });
+  }
+
+  const oldNext = normStr(B.next_action);
+  const newNext = readLeadNextActionFromForm(formData);
+  const newNextNorm = newNext == null ? null : newNext;
+  if (oldNext !== newNextNorm) {
+    await insertLeadActivityRow({
+      leadId,
+      eventType: LEAD_ACTIVITY_EVENT.next_action_changed,
+      body: `Next action changed from ${formatLeadNextActionLabel(oldNext)} to ${formatLeadNextActionLabel(newNextNorm)}`,
+      metadata: { before: oldNext, after: newNextNorm },
+      createdByUserId: uid,
+    });
+  }
+
+  const oldFu = normStr(B.follow_up_date);
+  const newFu = readOptionalFollowUpDateIso(formData);
+  const newFuNorm = newFu == null ? null : newFu;
+  if (oldFu !== newFuNorm) {
+    await insertLeadActivityRow({
+      leadId,
+      eventType: LEAD_ACTIVITY_EVENT.follow_up_changed,
+      body: `Follow-up changed from ${formatFollowUpDate(oldFu)} to ${formatFollowUpDate(newFuNorm)}`,
+      metadata: { before: oldFu, after: newFuNorm },
+      createdByUserId: uid,
+    });
+  }
+
+  const oldDisc = normDisciplinesList(B.service_disciplines);
+  const newDisc = normDisciplinesList(disciplines);
+  if (oldDisc !== newDisc) {
+    await insertLeadActivityRow({
+      leadId,
+      eventType: LEAD_ACTIVITY_EVENT.intake_field_updated,
+      body: `Service disciplines updated`,
+      metadata: { before: oldDisc || "—", after: newDisc || "—" },
+      createdByUserId: uid,
+    });
+  }
+
+  if (normStr(B.payer_name) !== normStr(payload.payer_name) || normStr(B.payer_type) !== normStr(payload.payer_type)) {
+    await insertLeadActivityRow({
+      leadId,
+      eventType: LEAD_ACTIVITY_EVENT.payer_updated,
+      body: `Payer updated (${normStr(payload.payer_type) ?? "—"} · ${normStr(payload.payer_name) ?? "—"})`,
+      metadata: {
+        payer_type_before: normStr(B.payer_type),
+        payer_type_after: normStr(payload.payer_type),
+        payer_name_before: normStr(B.payer_name),
+        payer_name_after: normStr(payload.payer_name),
+      },
+      createdByUserId: uid,
+    });
+  }
+
+  const referralFieldNames = [
+    "referring_doctor_name",
+    "doctor_office_name",
+    "doctor_office_phone",
+    "doctor_office_fax",
+    "doctor_office_contact_person",
+    "referring_provider_name",
+    "referring_provider_phone",
+    "referral_source",
+  ] as const;
+  const referralChanged: string[] = [];
+  for (const k of referralFieldNames) {
+    if (normStr(B[k]) !== normStr(payload[k])) referralChanged.push(k);
+  }
+  if (referralChanged.length > 0) {
+    await insertLeadActivityRow({
+      leadId,
+      eventType: LEAD_ACTIVITY_EVENT.referral_updated,
+      body: "Referral or doctor office details were updated",
+      metadata: { fields: referralChanged },
+      createdByUserId: uid,
+    });
+  }
+
+  if (normStr(B.intake_status) !== normStr(payload.intake_status)) {
+    await insertLeadActivityRow({
+      leadId,
+      eventType: LEAD_ACTIVITY_EVENT.intake_field_updated,
+      body: `Intake status changed from ${normStr(B.intake_status) ?? "—"} to ${normStr(payload.intake_status) ?? "—"}`,
+      metadata: { field: "intake_status", before: normStr(B.intake_status), after: normStr(payload.intake_status) },
+      createdByUserId: uid,
+    });
+  }
+
+  if (irChanged) {
+    await insertLeadActivityRow({
+      leadId,
+      eventType: LEAD_ACTIVITY_EVENT.request_details_updated,
+      body: "Request details (ZIP, service, care, timing, or situation) were updated",
+      metadata: { before: beforeIr, after: intake },
+      createdByUserId: uid,
+    });
+  }
+
+  if (normStr(B.notes) !== normStr(payload.notes)) {
+    await insertLeadActivityRow({
+      leadId,
+      eventType: LEAD_ACTIVITY_EVENT.lead_notes_updated,
+      body: "Lead notes (general) were updated",
+      metadata: {},
+      createdByUserId: uid,
+    });
+  }
+
+  const medNum = normStr(B.medicare_number) !== normStr(payload.medicare_number);
+  const beforeMedDt =
+    typeof B.medicare_effective_date === "string"
+      ? B.medicare_effective_date.slice(0, 10)
+      : B.medicare_effective_date instanceof Date
+        ? B.medicare_effective_date.toISOString().slice(0, 10)
+        : "";
+  const afterMedDt = payload.medicare_effective_date ?? "";
+  const medDt = beforeMedDt !== afterMedDt;
+  const medNotes = normStr(B.medicare_notes) !== normStr(payload.medicare_notes);
+  if (medNum || medDt || medNotes) {
+    await insertLeadActivityRow({
+      leadId,
+      eventType: LEAD_ACTIVITY_EVENT.medicare_updated,
+      body: "Medicare fields were updated",
+      metadata: {
+        number_changed: medNum,
+        effective_date_changed: medDt,
+        notes_changed: medNotes,
+      },
+      createdByUserId: uid,
+    });
   }
 
   revalidatePath("/admin");
@@ -1132,7 +1384,7 @@ export type SaveLeadOutcomeResult =
   | { ok: false; error: "forbidden" | "invalid_lead" | "invalid_outcome" | "invalid_contact_type" | "save_failed" };
 
 /**
- * Persists a contact attempt on the lead (`leads.last_*` columns — equivalent to a lead_outcomes row; no separate table).
+ * Persists a contact attempt on the lead (`leads.last_*` columns) and appends a structured row to `lead_activities`.
  */
 function readIsoInstantFromForm(formData: FormData, key: string): Date | null {
   const v = formData.get(key);
@@ -1188,7 +1440,7 @@ export async function saveLeadOutcome(formData: FormData): Promise<SaveLeadOutco
   const { data: leadBefore, error: leadLoadErr } = await leadRowsActiveOnly(
     supabaseAdmin
       .from("leads")
-      .select("last_outcome, last_note, contacts ( full_name, first_name, last_name, primary_phone, email )")
+      .select("last_outcome, contacts ( full_name, first_name, last_name, primary_phone, email )")
       .eq("id", leadId)
   ).maybeSingle();
 
@@ -1215,14 +1467,10 @@ export async function saveLeadOutcome(formData: FormData): Promise<SaveLeadOutco
     note: notes,
   });
 
-  const prevNote = typeof leadBefore.last_note === "string" ? leadBefore.last_note.trim() : "";
-  const appendedNote = prevNote ? `${prevNote}\n\n---\n\n${logBlock}` : logBlock;
-
   const rowUpdate = {
     last_contact_at: attemptAt.toISOString(),
     last_contact_type: contactType,
     last_outcome: outcome,
-    last_note: appendedNote,
     next_action: nextAction,
     follow_up_date: followUpAt ? getCrmCalendarDateIsoFromInstant(followUpAt) : null,
     follow_up_at: followUpAt ? followUpAt.toISOString() : null,
@@ -1236,7 +1484,7 @@ export async function saveLeadOutcome(formData: FormData): Promise<SaveLeadOutco
     .update(rowUpdate)
     .eq("id", leadId)
     .is("deleted_at", null)
-    .select("id, last_outcome, last_contact_at, next_action, follow_up_date, follow_up_at, last_note")
+    .select("id, last_outcome, last_contact_at, next_action, follow_up_date, follow_up_at")
     .maybeSingle();
 
   if (error) {
@@ -1248,6 +1496,19 @@ export async function saveLeadOutcome(formData: FormData): Promise<SaveLeadOutco
     console.error("[admin/crm] saveLeadOutcome: no row updated (lead missing or deleted?)");
     return { ok: false, error: "save_failed" };
   }
+
+  await insertLeadActivityRow({
+    leadId,
+    eventType: LEAD_ACTIVITY_EVENT.contact_attempt,
+    body: logBlock,
+    metadata: {
+      outcome,
+      actionKeys,
+      next_action: nextAction,
+      follow_up_at: followUpAt ? followUpAt.toISOString() : null,
+    },
+    createdByUserId: staff.user_id,
+  });
 
   if (outcome === "spoke") {
     const prev = typeof leadBefore.last_outcome === "string" ? leadBefore.last_outcome.trim() : "";
@@ -1275,10 +1536,7 @@ export type SaveLeadQuickNoteResult =
   | { ok: true }
   | { ok: false; error: "forbidden" | "invalid_lead" | "empty" | "load_failed" | "save_failed" };
 
-/**
- * Appends a timestamped line to `leads.last_note` and bumps `last_contact_at`.
- * No separate history table — running context lives in the same fields as contact outcomes.
- */
+/** Inserts `lead_activities` manual note and bumps `last_contact_at` (legacy `last_note` is unchanged). */
 export async function saveLeadQuickNote(formData: FormData): Promise<SaveLeadQuickNoteResult> {
   const staff = await getStaffProfile();
   if (!staff || !isManagerOrHigher(staff)) {
@@ -1299,7 +1557,7 @@ export async function saveLeadQuickNote(formData: FormData): Promise<SaveLeadQui
   }
 
   const { data: prevRow, error: loadErr } = await leadRowsActiveOnly(
-    supabaseAdmin.from("leads").select("last_note").eq("id", leadId)
+    supabaseAdmin.from("leads").select("id").eq("id", leadId)
   ).maybeSingle();
 
   if (loadErr) {
@@ -1310,26 +1568,26 @@ export async function saveLeadQuickNote(formData: FormData): Promise<SaveLeadQui
     return { ok: false, error: "load_failed" };
   }
 
-  const prev = typeof prevRow.last_note === "string" ? prevRow.last_note : "";
-  const stamp = new Date().toLocaleString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
+  const inserted = await insertLeadActivityRow({
+    leadId,
+    eventType: LEAD_ACTIVITY_EVENT.manual_note,
+    body: note,
+    metadata: {},
+    createdByUserId: staff.user_id,
+    deletable: true,
   });
-  const line = `[Quick note ${stamp}] ${note}`;
-  const nextNote = prev.trim() ? `${prev.trim()}\n\n${line}` : line;
+  if (!inserted) {
+    return { ok: false, error: "save_failed" };
+  }
 
   const { data, error } = await supabaseAdmin
     .from("leads")
     .update({
-      last_note: nextNote,
       last_contact_at: new Date().toISOString(),
     })
     .eq("id", leadId)
     .is("deleted_at", null)
-    .select("id, last_note, last_contact_at")
+    .select("id, last_contact_at")
     .maybeSingle();
 
   if (error) {
@@ -1348,6 +1606,54 @@ export async function saveLeadQuickNote(formData: FormData): Promise<SaveLeadQui
   revalidatePath("/workspace/phone/leads");
   revalidatePath("/workspace/phone/follow-ups-today");
 
+  return { ok: true };
+}
+
+export type DeleteLeadActivityResult =
+  | { ok: true }
+  | { ok: false; error: "forbidden" | "invalid" | "not_found" | "not_deletable" | "save_failed" };
+
+export async function deleteLeadActivity(formData: FormData): Promise<DeleteLeadActivityResult> {
+  const staff = await getStaffProfile();
+  if (!staff || !isManagerOrHigher(staff)) {
+    return { ok: false, error: "forbidden" };
+  }
+  const leadId = readTrimmedField(formData, "leadId");
+  const activityId = readTrimmedField(formData, "activityId");
+  if (!leadId || !activityId) {
+    return { ok: false, error: "invalid" };
+  }
+
+  const { data: row, error: loadErr } = await supabaseAdmin
+    .from("lead_activities")
+    .select("id, lead_id, event_type, deletable, deleted_at")
+    .eq("id", activityId)
+    .eq("lead_id", leadId)
+    .maybeSingle();
+
+  if (loadErr || !row?.id) {
+    return { ok: false, error: "not_found" };
+  }
+  if (row.deleted_at) {
+    return { ok: true };
+  }
+  if (row.event_type !== LEAD_ACTIVITY_EVENT.manual_note || !row.deletable) {
+    return { ok: false, error: "not_deletable" };
+  }
+
+  const { error } = await supabaseAdmin
+    .from("lead_activities")
+    .update({ deleted_at: new Date().toISOString() })
+    .eq("id", activityId)
+    .eq("lead_id", leadId);
+
+  if (error) {
+    console.warn("[admin/crm] deleteLeadActivity:", error.message);
+    return { ok: false, error: "save_failed" };
+  }
+
+  revalidatePath("/admin/crm/leads");
+  revalidatePath(`/admin/crm/leads/${leadId}`);
   return { ok: true };
 }
 
@@ -1384,7 +1690,7 @@ export async function updateLeadContactProfile(formData: FormData) {
   }
 
   const { data: leadRow, error: lErr } = await leadRowsActiveOnly(
-    supabaseAdmin.from("leads").select("id, contact_id").eq("id", leadId)
+    supabaseAdmin.from("leads").select("id, contact_id, dob").eq("id", leadId)
   ).maybeSingle();
 
   if (lErr || !leadRow?.contact_id) {
@@ -1444,6 +1750,13 @@ export async function updateLeadContactProfile(formData: FormData) {
   }
 
   const dobIso = readOptionalDobIso(formData);
+  const beforeDob =
+    typeof leadRow.dob === "string"
+      ? leadRow.dob.trim().slice(0, 10)
+      : leadRow.dob instanceof Date
+        ? leadRow.dob.toISOString().slice(0, 10)
+        : "";
+  const afterDob = dobIso ?? "";
   const { error: dobErr } = await supabaseAdmin
     .from("leads")
     .update({ dob: dobIso })
@@ -1451,6 +1764,14 @@ export async function updateLeadContactProfile(formData: FormData) {
     .is("deleted_at", null);
   if (dobErr) {
     console.warn("[admin/crm] updateLeadContactProfile leads dob:", dobErr.message);
+  } else if (beforeDob !== afterDob) {
+    await insertLeadActivityRow({
+      leadId,
+      eventType: LEAD_ACTIVITY_EVENT.dob_updated,
+      body: `Date of birth changed from ${beforeDob || "—"} to ${afterDob || "—"}`,
+      metadata: { before: beforeDob || null, after: afterDob || null },
+      createdByUserId: staff.user_id,
+    });
   }
 
   if (changes.length > 0) {
@@ -1564,6 +1885,17 @@ export async function uploadLeadInsuranceCard(formData: FormData) {
   if (oldPath && oldPath !== storagePath) {
     await supabaseAdmin.storage.from(LEAD_INSURANCE_BUCKET).remove([oldPath]).catch(() => {});
   }
+
+  await insertLeadActivityRow({
+    leadId,
+    eventType: LEAD_ACTIVITY_EVENT.document_uploaded,
+    body:
+      slotRaw === "primary"
+        ? "Primary insurance card document uploaded or replaced"
+        : "Secondary insurance card document uploaded or replaced",
+    metadata: { slot: slotRaw, storage_path: storagePath },
+    createdByUserId: staff.user_id,
+  });
 
   revalidatePath("/admin/crm/leads");
   revalidatePath(`/admin/crm/leads/${leadId}`);
@@ -1961,6 +2293,10 @@ export async function markLeadDead(formData: FormData) {
     return;
   }
 
+  const { data: prevLead } = await leadRowsActiveOnly(
+    supabaseAdmin.from("leads").select("status").eq("id", leadId)
+  ).maybeSingle();
+
   const { error } = await supabaseAdmin
     .from("leads")
     .update({ status: "dead_lead" })
@@ -1971,6 +2307,14 @@ export async function markLeadDead(formData: FormData) {
     console.warn("[admin/crm] markLeadDead:", error.message);
     return;
   }
+
+  await insertLeadActivityRow({
+    leadId,
+    eventType: LEAD_ACTIVITY_EVENT.marked_dead,
+    body: `Status changed from ${formatLeadPipelineStatusLabel(normStr(prevLead?.status))} to ${formatLeadPipelineStatusLabel("dead_lead")}`,
+    metadata: { before: normStr(prevLead?.status), after: "dead_lead" },
+    createdByUserId: staff.user_id,
+  });
 
   revalidatePath("/admin");
   revalidatePath("/admin/crm/leads");
@@ -1993,6 +2337,14 @@ export async function convertLeadToPatientFromLeadDetail(formData: FormData) {
   if (!res.ok) {
     redirect(`/admin/crm/leads/${leadId}?convertError=${encodeURIComponent(res.error)}`);
   }
+
+  await insertLeadActivityRow({
+    leadId,
+    eventType: LEAD_ACTIVITY_EVENT.converted,
+    body: "Lead converted to patient",
+    metadata: { patient_id: res.patientId },
+    createdByUserId: staff.user_id,
+  });
 
   redirect(`/admin/crm/patients/${res.patientId}`);
 }
@@ -2074,6 +2426,11 @@ export async function quickSetLeadFollowUpTomorrow(formData: FormData): Promise<
     return { ok: false, error: "invalid_lead" };
   }
   const tomorrow = getCrmCalendarTomorrowIso();
+
+  const { data: prevLead } = await leadRowsActiveOnly(
+    supabaseAdmin.from("leads").select("follow_up_date").eq("id", leadId)
+  ).maybeSingle();
+
   const { error } = await supabaseAdmin
     .from("leads")
     .update({ follow_up_date: tomorrow })
@@ -2084,6 +2441,14 @@ export async function quickSetLeadFollowUpTomorrow(formData: FormData): Promise<
     console.warn("[admin/crm] quickSetLeadFollowUpTomorrow:", error.message);
     return { ok: false, error: "save_failed" };
   }
+
+  await insertLeadActivityRow({
+    leadId,
+    eventType: LEAD_ACTIVITY_EVENT.follow_up_changed,
+    body: `Follow-up changed from ${formatFollowUpDate(normStr(prevLead?.follow_up_date))} to ${formatFollowUpDate(tomorrow)}`,
+    metadata: { before: normStr(prevLead?.follow_up_date), after: tomorrow },
+    createdByUserId: staff.user_id,
+  });
 
   revalidatePath("/admin");
   revalidatePath("/admin/crm/leads");
@@ -2104,6 +2469,10 @@ export async function markLeadDeadFromList(formData: FormData): Promise<CrmLeadL
     return { ok: false, error: "invalid_lead" };
   }
 
+  const { data: prevLead } = await leadRowsActiveOnly(
+    supabaseAdmin.from("leads").select("status").eq("id", leadId)
+  ).maybeSingle();
+
   const { error } = await supabaseAdmin
     .from("leads")
     .update({ status: "dead_lead" })
@@ -2114,6 +2483,14 @@ export async function markLeadDeadFromList(formData: FormData): Promise<CrmLeadL
     console.warn("[admin/crm] markLeadDeadFromList:", error.message);
     return { ok: false, error: "save_failed" };
   }
+
+  await insertLeadActivityRow({
+    leadId,
+    eventType: LEAD_ACTIVITY_EVENT.marked_dead,
+    body: `Status changed from ${formatLeadPipelineStatusLabel(normStr(prevLead?.status))} to ${formatLeadPipelineStatusLabel("dead_lead")}`,
+    metadata: { before: normStr(prevLead?.status), after: "dead_lead" },
+    createdByUserId: staff.user_id,
+  });
 
   revalidatePath("/admin");
   revalidatePath("/admin/crm/leads");

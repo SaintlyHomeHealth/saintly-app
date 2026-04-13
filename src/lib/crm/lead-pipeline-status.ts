@@ -5,13 +5,15 @@
 export const LEAD_PIPELINE_STATUS_OPTIONS = [
   { value: "new", label: "New" },
   { value: "new_applicant", label: "New applicant" },
-  { value: "attempted_contact", label: "Attempted contact" },
-  { value: "intake_in_progress", label: "Intake in progress" },
-  { value: "waiting_on_referral", label: "Waiting on referral" },
-  { value: "waiting_on_documents", label: "Waiting on documents" },
-  { value: "ready_to_convert", label: "Ready to convert" },
+  { value: "attempted_contact", label: "Attempting contact" },
+  { value: "spoke", label: "Spoke" },
+  { value: "intake_in_progress", label: "Interested / hot" },
+  { value: "waiting_on_documents", label: "Need documents" },
+  { value: "verify_insurance", label: "Verify insurance" },
+  { value: "waiting_on_referral", label: "Pending doctor / referral" },
+  { value: "ready_to_convert", label: "Scheduled / ready to admit" },
   { value: "converted", label: "Converted" },
-  { value: "dead_lead", label: "Dead lead" },
+  { value: "dead_lead", label: "Dead / not qualified" },
 ] as const;
 
 /** CRM lead edit form: terminal states use explicit actions (convert / mark dead). */

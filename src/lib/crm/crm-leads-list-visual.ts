@@ -12,7 +12,15 @@ export function derivePipelineHeat(row: CrmLeadRow, todayIso: string): PipelineH
   const fu = row.follow_up_date?.slice(0, 10) ?? "";
   if (fu && fu <= todayIso) return "HOT";
   if (s === "ready_to_convert" || s === "intake_in_progress") return "HOT";
-  if (s === "attempted_contact" || s === "waiting_on_referral" || s === "waiting_on_documents") return "WARM";
+  if (
+    s === "attempted_contact" ||
+    s === "spoke" ||
+    s === "waiting_on_referral" ||
+    s === "waiting_on_documents" ||
+    s === "verify_insurance"
+  ) {
+    return "WARM";
+  }
   if (s === "new" || s === "new_applicant") return "NEW";
   return "COLD";
 }
@@ -34,12 +42,16 @@ export function pipelineHeatBadgeClass(h: PipelineHeat): string {
   }
 }
 
-/** Soft status pill colors aligned with pipeline labels (premium, not neon). */
+/** Soft status pill colors — consistent CRM palette (scan-friendly, not neon). */
 export function pipelineStatusBadgeClass(status: string | null | undefined): string {
   const s = (status ?? "").trim().toLowerCase();
   if (s === "new" || s === "new_applicant") return "bg-sky-50 text-sky-950 ring-sky-200/70";
   if (s === "attempted_contact") return "bg-amber-50 text-amber-950 ring-amber-200/70";
-  if (s === "intake_in_progress" || s === "waiting_on_referral" || s === "waiting_on_documents") return "bg-violet-50 text-violet-950 ring-violet-200/70";
+  if (s === "spoke") return "bg-purple-50 text-purple-950 ring-purple-200/70";
+  if (s === "intake_in_progress") return "bg-orange-50 text-orange-950 ring-orange-200/70";
+  if (s === "waiting_on_documents") return "bg-indigo-50 text-indigo-950 ring-indigo-200/70";
+  if (s === "verify_insurance") return "bg-teal-50 text-teal-950 ring-teal-200/70";
+  if (s === "waiting_on_referral") return "bg-yellow-50 text-yellow-950 ring-yellow-200/70";
   if (s === "ready_to_convert") return "bg-emerald-50 text-emerald-950 ring-emerald-200/70";
   if (s === "converted") return "bg-emerald-50 text-emerald-900 ring-emerald-200/70";
   if (s === "dead_lead") return "bg-rose-50 text-rose-900 ring-rose-200/70";
@@ -71,11 +83,17 @@ export function leadRowCardClass(row: CrmLeadRow, fu: FollowUpUrgency): string {
   if (fu === "today") {
     return "border-l-[3px] border-l-amber-400 bg-amber-50/15";
   }
-  if (st === "ready_to_convert") {
+  if (st === "ready_to_convert" || st === "converted") {
     return "border-l-[3px] border-l-emerald-400/80 bg-emerald-50/12";
   }
   if (st === "new" || st === "new_applicant") {
     return "border-l-[3px] border-l-sky-400/90 bg-sky-50/15";
+  }
+  if (st === "verify_insurance") {
+    return "border-l-[3px] border-l-teal-400/80 bg-teal-50/12";
+  }
+  if (st === "spoke") {
+    return "border-l-[3px] border-l-purple-400/80 bg-purple-50/12";
   }
   if (fu === "future") {
     return "border-l-[3px] border-l-slate-200 bg-white";

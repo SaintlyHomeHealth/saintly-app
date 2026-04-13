@@ -17,12 +17,10 @@ import { formatLeadNextActionLabel } from "@/lib/crm/lead-follow-up-options";
 import { formatLeadSourceLabel } from "@/lib/crm/lead-source-options";
 import { parseEmploymentApplicationMeta } from "@/lib/crm/lead-employment-meta";
 import {
-  derivePipelineHeat,
   formatStatusPillLabel,
   lastContactHumanLine,
   lastContactToneClass,
   leadRowCardClass,
-  pipelineHeatBadgeClass,
   pipelineStatusBadgeClass,
   followUpUrgency,
 } from "@/lib/crm/crm-leads-list-visual";
@@ -323,9 +321,9 @@ export function CrmLeadsList({ initialList, employeeOnlyView, staffOptions, toda
   ) : null;
 
   const employeeGrid =
-    "md:grid-cols-[2rem_minmax(10rem,1fr)_minmax(12.5rem,1.2fr)_minmax(9.5rem,0.85fr)_minmax(13rem,1.2fr)_minmax(4.25rem,auto)]";
+    "md:grid-cols-[2rem_minmax(11rem,1.15fr)_minmax(11rem,1fr)_minmax(9.5rem,0.85fr)_minmax(12.5rem,1.1fr)_minmax(4.25rem,auto)]";
   const mixedGrid =
-    "md:grid-cols-[2rem_minmax(10rem,1fr)_minmax(12.5rem,1.15fr)_minmax(9.5rem,0.9fr)_minmax(13rem,1.2fr)_minmax(4.25rem,auto)]";
+    "md:grid-cols-[2rem_minmax(11rem,1.15fr)_minmax(11rem,1fr)_minmax(9.5rem,0.9fr)_minmax(12.5rem,1.1fr)_minmax(4.25rem,auto)]";
 
   return (
     <div className="space-y-3">
@@ -383,13 +381,12 @@ export function CrmLeadsList({ initialList, employeeOnlyView, staffOptions, toda
                 const nextActionLabel = formatLeadNextActionLabel(r.next_action);
                 const detailHref = `/admin/crm/leads/${r.id}`;
                 const fu = followUpUrgency(r.follow_up_date, todayIso);
-                const heat = derivePipelineHeat(r, todayIso);
                 const lcHuman = lastContactHumanLine(r.last_contact_at, r.last_outcome, todayIso);
 
                 return (
                   <div
                     key={r.id}
-                    className={`grid grid-cols-1 gap-x-4 gap-y-2 border-b border-slate-100 px-3 py-2.5 transition-colors last:border-0 md:items-start ${employeeGrid} ${leadRowCardClass(r, fu)} ${crmListRowHoverCls}`}
+                    className={`grid grid-cols-1 gap-x-3 gap-y-1.5 border-b border-slate-100 px-3 py-2 transition-colors last:border-0 md:items-start ${employeeGrid} ${leadRowCardClass(r, fu)} ${crmListRowHoverCls}`}
                   >
                     <div className="flex items-start justify-center pt-0.5 md:pt-1">
                       <input
@@ -401,42 +398,44 @@ export function CrmLeadsList({ initialList, employeeOnlyView, staffOptions, toda
                       />
                     </div>
                     <div className="min-w-0 space-y-1">
-                      <Link
-                        href={detailHref}
-                        className="block text-[15px] font-semibold leading-tight text-slate-900 hover:text-sky-800 hover:underline"
-                      >
-                        {displayName}
-                      </Link>
+                      <div className="flex min-w-0 flex-wrap items-center gap-2">
+                        <Link
+                          href={detailHref}
+                          className="min-w-0 text-[15px] font-bold leading-tight text-slate-900 hover:text-sky-800 hover:underline"
+                        >
+                          {displayName}
+                        </Link>
+                        <span
+                          className={`${pillBase} max-w-[min(100%,14rem)] truncate ${pipelineStatusBadgeClass(r.status)}`}
+                          title={formatStatusPillLabel(r.status)}
+                        >
+                          {formatStatusPillLabel(r.status)}
+                        </span>
+                      </div>
                       <div className="flex flex-wrap items-center gap-1.5">
                         <LeadTypeBadge leadType={r.lead_type} status={r.status} />
-                        <span className="text-[11px] text-slate-500">{formatLeadSourceLabel(r.source)}</span>
+                        <span className="text-[10px] text-slate-500">{formatLeadSourceLabel(r.source)}</span>
                       </div>
                     </div>
                     <div className="min-w-0 space-y-1 text-[11px] leading-snug text-slate-600">
-                      <div className="flex flex-wrap items-center gap-1">
-                        <span className={`${pillBase} ${pipelineStatusBadgeClass(r.status)}`}>
-                          {formatStatusPillLabel(r.status)}
-                        </span>
-                        <span className={`${pillBase} ${pipelineHeatBadgeClass(heat)}`}>{heat}</span>
-                      </div>
                       <p className="text-[13px] leading-snug text-slate-900">
                         <span className="font-normal text-slate-500">Next: </span>
                         {nextActionLabel !== "—" ? (
-                          <span className="font-semibold">{nextActionLabel}</span>
+                          <span className="font-semibold text-slate-900">{nextActionLabel}</span>
                         ) : (
                           <span className="font-normal text-slate-400">No next action</span>
                         )}
                       </p>
                       <div>
-                        <span className="text-slate-400">Follow-up: </span>
+                        <span className="text-slate-500">Follow-up: </span>
                         <span className={followUpValueClass(fu)}>{formatFollowUpDate(r.follow_up_date)}</span>
                       </div>
-                      <div>
-                        <span className="text-slate-400">Last: </span>
-                        <span className={`font-medium ${lastContactToneClass(lcHuman.tone)}`}>{lcHuman.line}</span>
+                      <div className="text-[10px] text-slate-400">
+                        <span className="text-slate-400">Last contact: </span>
+                        <span className={`font-normal ${lastContactToneClass(lcHuman.tone)}`}>{lcHuman.line}</span>
                       </div>
                       <div>
-                        <span className="text-slate-400">Owner: </span>
+                        <span className="text-slate-500">Owner: </span>
                         {owner ? staffPrimaryLabel(owner) : "—"}
                       </div>
                       <LeadQuickActions leadId={r.id} />
@@ -525,13 +524,12 @@ export function CrmLeadsList({ initialList, employeeOnlyView, staffOptions, toda
                 const detailHref = `/admin/crm/leads/${r.id}`;
                 const nextActionLabel = formatLeadNextActionLabel(r.next_action);
                 const fu = followUpUrgency(r.follow_up_date, todayIso);
-                const heat = derivePipelineHeat(r, todayIso);
                 const lcHuman = lastContactHumanLine(r.last_contact_at, r.last_outcome, todayIso);
 
                 return (
                   <div
                     key={r.id}
-                    className={`grid grid-cols-1 gap-x-4 gap-y-2 border-b border-slate-100 px-3 py-2.5 transition-colors last:border-0 md:items-start ${mixedGrid} ${leadRowCardClass(r, fu)} ${crmListRowHoverCls}`}
+                    className={`grid grid-cols-1 gap-x-3 gap-y-1.5 border-b border-slate-100 px-3 py-2 transition-colors last:border-0 md:items-start ${mixedGrid} ${leadRowCardClass(r, fu)} ${crmListRowHoverCls}`}
                   >
                     <div className="flex items-start justify-center pt-0.5 md:pt-1">
                       <input
@@ -543,42 +541,44 @@ export function CrmLeadsList({ initialList, employeeOnlyView, staffOptions, toda
                       />
                     </div>
                     <div className="min-w-0 space-y-1">
-                      <Link
-                        href={detailHref}
-                        className="block text-[15px] font-semibold leading-tight text-slate-900 hover:text-sky-800 hover:underline"
-                      >
-                        {displayName}
-                      </Link>
+                      <div className="flex min-w-0 flex-wrap items-center gap-2">
+                        <Link
+                          href={detailHref}
+                          className="min-w-0 text-[15px] font-bold leading-tight text-slate-900 hover:text-sky-800 hover:underline"
+                        >
+                          {displayName}
+                        </Link>
+                        <span
+                          className={`${pillBase} max-w-[min(100%,14rem)] truncate ${pipelineStatusBadgeClass(r.status)}`}
+                          title={formatStatusPillLabel(r.status)}
+                        >
+                          {formatStatusPillLabel(r.status)}
+                        </span>
+                      </div>
                       <div className="flex flex-wrap items-center gap-1.5">
                         <LeadTypeBadge leadType={r.lead_type} status={r.status} />
-                        <span className="text-[11px] text-slate-500">{formatLeadSourceLabel(r.source)}</span>
+                        <span className="text-[10px] text-slate-500">{formatLeadSourceLabel(r.source)}</span>
                       </div>
                     </div>
                     <div className="min-w-0 space-y-1 text-[11px] leading-snug text-slate-600">
-                      <div className="flex flex-wrap items-center gap-1">
-                        <span className={`${pillBase} ${pipelineStatusBadgeClass(r.status)}`}>
-                          {formatStatusPillLabel(r.status)}
-                        </span>
-                        <span className={`${pillBase} ${pipelineHeatBadgeClass(heat)}`}>{heat}</span>
-                      </div>
                       <p className="text-[13px] leading-snug text-slate-900">
                         <span className="font-normal text-slate-500">Next: </span>
                         {nextActionLabel !== "—" ? (
-                          <span className="font-semibold">{nextActionLabel}</span>
+                          <span className="font-semibold text-slate-900">{nextActionLabel}</span>
                         ) : (
                           <span className="font-normal text-slate-400">No next action</span>
                         )}
                       </p>
                       <div>
-                        <span className="text-slate-400">Follow-up: </span>
+                        <span className="text-slate-500">Follow-up: </span>
                         <span className={followUpValueClass(fu)}>{formatFollowUpDate(r.follow_up_date)}</span>
                       </div>
-                      <div>
-                        <span className="text-slate-400">Last: </span>
-                        <span className={`font-medium ${lastContactToneClass(lcHuman.tone)}`}>{lcHuman.line}</span>
+                      <div className="text-[10px] text-slate-400">
+                        <span className="text-slate-400">Last contact: </span>
+                        <span className={`font-normal ${lastContactToneClass(lcHuman.tone)}`}>{lcHuman.line}</span>
                       </div>
                       <div>
-                        <span className="text-slate-400">Owner: </span>
+                        <span className="text-slate-500">Owner: </span>
                         {owner ? staffPrimaryLabel(owner) : "—"}
                       </div>
                       <LeadQuickActions leadId={r.id} />

@@ -17,6 +17,8 @@ import { LeadDeleteButton } from "@/app/admin/crm/leads/_components/LeadDeleteBu
 import { LeadContactOutcomeForm } from "@/app/admin/crm/leads/_components/LeadContactOutcomeForm";
 import { LeadFollowUpContextPanel } from "@/app/admin/crm/leads/_components/LeadFollowUpContextPanel";
 import { LeadInsuranceSection } from "@/app/admin/crm/leads/_components/LeadInsuranceSection";
+import { LeadMedicareFields } from "@/app/admin/crm/leads/_components/LeadMedicareFields";
+import type { LeadActivityRow } from "@/lib/crm/lead-activities-timeline";
 import { LeadSectionCard } from "@/app/admin/crm/leads/_components/LeadSectionCard";
 import {
   convertLeadToPatientFromLeadDetail,
@@ -160,6 +162,12 @@ export type LeadWorkspaceExistingProps = {
   secondaryInsurancePath: string | null;
   primaryInsuranceViewUrl: string | null;
   secondaryInsuranceViewUrl: string | null;
+  /** Typed Medicare fields (`leads.medicare_*`). */
+  medicareNumber: string;
+  medicareEffectiveDateIso: string;
+  medicareNotes: string;
+  /** Structured CRM thread (`lead_activities`). */
+  initialActivities: LeadActivityRow[];
 };
 
 export type LeadWorkspaceNewProps = {
@@ -428,6 +436,10 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
     secondaryInsurancePath,
     primaryInsuranceViewUrl,
     secondaryInsuranceViewUrl,
+    medicareNumber,
+    medicareEffectiveDateIso,
+    medicareNotes,
+    initialActivities,
   } = props;
 
   const lastContactLine = formatLeadLastContactSummary(lastContactAt, lastOutcome);
@@ -967,7 +979,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
             <LeadSectionCard
               id="section-insurance"
               title="Insurance information"
-              description="Upload primary and secondary insurance card images or PDFs. Stored in a lead-specific folder."
+              description="Upload primary and secondary insurance card images or PDFs. Add typed Medicare details when you have them — uploads stay the source of truth for card images."
             >
               <LeadInsuranceSection
                 leadId={leadId}
@@ -976,6 +988,13 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
                 primaryViewUrl={primaryInsuranceViewUrl}
                 secondaryViewUrl={secondaryInsuranceViewUrl}
               />
+              <div className="mt-8 border-t border-slate-200/80 pt-8">
+                <LeadMedicareFields
+                  defaultNumber={medicareNumber}
+                  defaultEffectiveDate={medicareEffectiveDateIso}
+                  defaultNotes={medicareNotes}
+                />
+              </div>
             </LeadSectionCard>
           ) : null}
 
@@ -1227,6 +1246,8 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
       <aside className="mt-8 min-h-0 min-w-0 pb-32 lg:sticky lg:top-28 lg:mt-0 lg:max-h-[calc(100vh-8rem)] lg:overflow-x-hidden lg:overflow-y-auto lg:overscroll-y-contain lg:self-start">
         <LeadFollowUpContextPanel
           leadId={leadId}
+          activities={initialActivities}
+          staffOptions={staffOptions}
           lastContactAt={lastContactAt}
           lastOutcome={lastOutcome}
           lastNote={lastNote}

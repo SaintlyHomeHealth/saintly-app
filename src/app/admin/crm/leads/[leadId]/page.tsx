@@ -6,6 +6,7 @@ import { parseLeadIntakeRequestFromMetadata } from "@/lib/crm/lead-intake-reques
 import { isLeadPipelineTerminal, isValidLeadPipelineStatus } from "@/lib/crm/lead-pipeline-status";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 import { supabaseAdmin } from "@/lib/admin";
+import type { LeadActivityRow } from "@/lib/crm/lead-activities-timeline";
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { LEAD_INSURANCE_BUCKET } from "@/lib/crm/lead-insurance-storage";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
@@ -81,7 +82,7 @@ export default async function LeadIntakePage({
     supabase
       .from("leads")
       .select(
-        "id, contact_id, source, status, owner_user_id, lead_type, next_action, follow_up_date, follow_up_at, created_at, last_contact_at, last_contact_type, last_outcome, last_note, notes, external_source_metadata, referring_doctor_name, doctor_office_name, doctor_office_phone, doctor_office_fax, doctor_office_contact_person, referring_provider_name, referring_provider_phone, payer_name, payer_type, referral_source, service_type, service_disciplines, intake_status, dob, primary_insurance_file_url, secondary_insurance_file_url, contacts ( full_name, first_name, last_name, primary_phone, secondary_phone, email, address_line_1, address_line_2, city, state, zip, notes )"
+        "id, contact_id, source, status, owner_user_id, lead_type, next_action, follow_up_date, follow_up_at, created_at, last_contact_at, last_contact_type, last_outcome, last_note, notes, external_source_metadata, referring_doctor_name, doctor_office_name, doctor_office_phone, doctor_office_fax, doctor_office_contact_person, referring_provider_name, referring_provider_phone, payer_name, payer_type, referral_source, service_type, service_disciplines, intake_status, dob, primary_insurance_file_url, secondary_insurance_file_url, medicare_number, medicare_effective_date, medicare_notes, contacts ( full_name, first_name, last_name, primary_phone, secondary_phone, email, address_line_1, address_line_2, city, state, zip, notes )"
       )
       .eq("id", leadId.trim())
   ).maybeSingle();
@@ -223,6 +224,23 @@ export default async function LeadIntakePage({
     leadInsuranceSignedUrl(secondaryInsurancePath),
   ]);
 
+  const { data: activityRows } = await supabaseAdmin
+    .from("lead_activities")
+    .select("id, lead_id, event_type, body, metadata, created_at, created_by_user_id, deleted_at, deletable")
+    .eq("lead_id", leadId.trim())
+    .is("deleted_at", null)
+    .order("created_at", { ascending: true });
+
+  const initialActivities = (activityRows ?? []) as LeadActivityRow[];
+
+  const medicareNum = typeof L.medicare_number === "string" ? L.medicare_number : "";
+  const medicareNotesStr = typeof L.medicare_notes === "string" ? L.medicare_notes : "";
+  const medicareEffRaw = L.medicare_effective_date;
+  const medicareEffectiveDateIso =
+    typeof medicareEffRaw === "string" && /^\d{4}-\d{2}-\d{2}/.test(medicareEffRaw)
+      ? medicareEffRaw.slice(0, 10)
+      : "";
+
   return (
     <LeadWorkspace
       mode="existing"
@@ -261,6 +279,10 @@ export default async function LeadIntakePage({
       secondaryInsurancePath={secondaryInsurancePath}
       primaryInsuranceViewUrl={primaryInsuranceViewUrl}
       secondaryInsuranceViewUrl={secondaryInsuranceViewUrl}
+      medicareNumber={medicareNum}
+      medicareEffectiveDateIso={medicareEffectiveDateIso}
+      medicareNotes={medicareNotesStr}
+      initialActivities={initialActivities}
     />
   );
 }
