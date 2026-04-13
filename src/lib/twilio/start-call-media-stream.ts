@@ -38,7 +38,8 @@ export async function startCallMediaStream(input: {
 
   const text = await res.text();
   if (!res.ok) {
-    return { ok: false, error: text.slice(0, 400) || `HTTP ${res.status}` };
+    const err = text.trim() || `HTTP ${res.status}`;
+    return { ok: false, error: err.length > 8000 ? `${err.slice(0, 8000)}…(truncated)` : err };
   }
   try {
     const j = JSON.parse(text) as { sid?: string };

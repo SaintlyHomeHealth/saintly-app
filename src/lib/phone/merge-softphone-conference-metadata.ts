@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { maybeStartDeferredPstnTranscriptStream } from "@/lib/phone/softphone-transcript-streams";
 import type { SoftphoneConferenceMeta } from "@/lib/twilio/softphone-conference";
 
 function asRecord(v: unknown): Record<string, unknown> {
@@ -75,5 +76,10 @@ export async function mergeSoftphoneConferenceMetadata(
 
   const { error: upErr } = await supabase.from("phone_calls").update({ metadata: meta }).eq("id", row.id);
   if (upErr) return { ok: false, error: upErr.message };
+
+  void maybeStartDeferredPstnTranscriptStream(supabase, sid, "merge_softphone_conference_metadata").catch((e) => {
+    console.error("[merge-softphone-conference-metadata] pstn_transcript_deferred_failed", e);
+  });
+
   return { ok: true };
 }

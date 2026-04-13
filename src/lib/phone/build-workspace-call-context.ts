@@ -7,6 +7,7 @@ import {
   readUnclampedLiveTranscriptExcerpt,
   type LiveTranscriptEntry,
 } from "@/lib/phone/live-transcript-entries";
+import type { SoftphoneTranscriptStreamsMeta } from "@/lib/phone/softphone-transcript-stream-meta";
 import {
   defaultSoftphoneRecordingMeta,
   type SoftphoneRecordingMeta,
@@ -34,6 +35,8 @@ export type WorkspaceCallContextPayload = {
     live_transcript_entries: LiveTranscriptEntry[] | null;
     recommended_action: string | null;
     confidence_summary: string | null;
+    /** Client + PSTN transcript stream bookkeeping (for deferred PSTN start). */
+    softphone_transcript_streams: SoftphoneTranscriptStreamsMeta | null;
   } | null;
   conference_gating: ConferenceGatingSnapshot;
 };
@@ -70,6 +73,14 @@ export async function buildWorkspaceCallContextPayload(
   const excerptUnclamped =
     rawVoiceAi && typeof rawVoiceAi === "object" && !Array.isArray(rawVoiceAi)
       ? readUnclampedLiveTranscriptExcerpt(rawVoiceAi)
+      : null;
+  const transcriptStreamsRaw =
+    rawVoiceAi && typeof rawVoiceAi === "object" && !Array.isArray(rawVoiceAi)
+      ? (rawVoiceAi as Record<string, unknown>).softphone_transcript_streams
+      : null;
+  const softphoneTranscriptStreams: SoftphoneTranscriptStreamsMeta | null =
+    transcriptStreamsRaw && typeof transcriptStreamsRaw === "object" && !Array.isArray(transcriptStreamsRaw)
+      ? (transcriptStreamsRaw as SoftphoneTranscriptStreamsMeta)
       : null;
   const sc =
     meta && typeof meta === "object" && !Array.isArray(meta)
@@ -130,7 +141,7 @@ export async function buildWorkspaceCallContextPayload(
       : null,
     softphone_recording: softphoneRecording ?? defaultSoftphoneRecordingMeta(),
     voice_ai:
-      voiceAi || liveEntries.length > 0 || excerptUnclamped
+      voiceAi || liveEntries.length > 0 || excerptUnclamped || softphoneTranscriptStreams
         ? {
             short_summary: voiceAi?.short_summary || null,
             urgency: voiceAi?.urgency || null,
@@ -140,6 +151,7 @@ export async function buildWorkspaceCallContextPayload(
             live_transcript_entries: liveEntries.length > 0 ? liveEntries : null,
             recommended_action: voiceAi?.recommended_action || null,
             confidence_summary: voiceAi?.confidence_summary || null,
+            softphone_transcript_streams: softphoneTranscriptStreams,
           }
         : null,
     conference_gating: gating,

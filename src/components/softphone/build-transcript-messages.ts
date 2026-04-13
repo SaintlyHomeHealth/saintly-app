@@ -38,7 +38,13 @@ export function buildTranscriptMessages(voiceAi: CallContextVoiceAi | null): Tra
 
   const entries = voiceAi.live_transcript_entries;
   if (Array.isArray(entries) && entries.length > 0) {
-    for (const e of entries as LiveTranscriptEntry[]) {
+    const sorted = [...(entries as LiveTranscriptEntry[])].sort((a, b) => {
+      const aw = a.speaker === "agent" ? 1 : 0;
+      const bw = b.speaker === "agent" ? 1 : 0;
+      if (aw !== bw) return aw - bw;
+      return a.seq - b.seq;
+    });
+    for (const e of sorted) {
       const id = `e-${e.seq}`;
       const speaker = mapLiveSpeaker(e.speaker);
       const text = (e.text ?? "").trim();

@@ -27,6 +27,7 @@ import {
 import { twilioErrorToFriendly } from "@/lib/softphone/twilio-user-friendly-errors";
 import type { ConferenceGatingSnapshot } from "@/lib/phone/conference-gating";
 import type { LiveTranscriptEntry } from "@/lib/phone/live-transcript-entries";
+import type { SoftphoneTranscriptStreamsMeta } from "@/lib/phone/softphone-transcript-stream-meta";
 import type { SoftphoneRecordingMeta } from "@/lib/twilio/softphone-recording-types";
 
 type CallHandle = Awaited<ReturnType<Device["connect"]>>;
@@ -54,6 +55,7 @@ export type CallContextVoiceAi = {
   live_transcript_entries: LiveTranscriptEntry[] | null;
   recommended_action: string | null;
   confidence_summary: string | null;
+  softphone_transcript_streams: SoftphoneTranscriptStreamsMeta | null;
 };
 
 export type SoftphoneConferenceContext = {
@@ -250,6 +252,8 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
   const lastPollCallSidRef = useRef<string | null>(null);
   const prevTranscriptLenRef = useRef(0);
   const transcriptStreamStartedRef = useRef(false);
+  const pstnTranscriptFollowupBusyRef = useRef(false);
+  const lastPstnOnlyAttemptRef = useRef<{ sid: string; at: number } | null>(null);
   const [transcriptEnabled, setTranscriptEnabled] = useState(false);
   const [transcriptPanelOpen, setTranscriptPanelOpen] = useState(false);
   const [callContextLoadError, setCallContextLoadError] = useState(false);
@@ -366,6 +370,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
                   live_transcript_entries: va.live_transcript_entries ?? null,
                   recommended_action: va.recommended_action ?? null,
                   confidence_summary: va.confidence_summary ?? null,
+                  softphone_transcript_streams: va.softphone_transcript_streams ?? null,
                 }
               : null,
             conference: j.softphone_conference ?? null,
@@ -396,6 +401,52 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
   }, [status, transcriptEnabled, transcriptPanelOpen]);
 
   /**
+   * When PSTN links after live transcript was already started, start the deferred PSTN inbound stream
+   * (merge hook also tries server-side; this covers the client poll path).
+   */
+  useEffect(() => {
+    if (status !== "in_call") {
+      lastPstnOnlyAttemptRef.current = null;
+      pstnTranscriptFollowupBusyRef.current = false;
+      return;
+    }
+    const sid = readCallSid(activeCallRef.current);
+    if (!sid) return;
+    if (!transcriptEnabled || !transcriptStreamStartedRef.current) return;
+    const pstn = callContext?.conference?.pstn_call_sid;
+    const streams = callContext?.voice_ai?.softphone_transcript_streams;
+    if (!pstn?.startsWith("CA")) return;
+    if (streams?.pstn_stream_started_at) return;
+    if (pstnTranscriptFollowupBusyRef.current) return;
+    const last = lastPstnOnlyAttemptRef.current;
+    if (last?.sid === sid && Date.now() - last.at < 5000) return;
+
+    pstnTranscriptFollowupBusyRef.current = true;
+    lastPstnOnlyAttemptRef.current = { sid, at: Date.now() };
+    void fetch("/api/workspace/phone/conference/start-transcript", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ callSid: sid, pstnOnly: true }),
+    })
+      .then(async (res) => {
+        const j = (await res.json().catch(() => ({}))) as {
+          ok?: boolean;
+          skipped?: string;
+          error?: string;
+        };
+        if (res.ok && j.ok) {
+          console.log("[softphone] pstn_transcript_deferred_ok", { skipped: j.skipped ?? null });
+        } else {
+          console.warn("[softphone] pstn_transcript_deferred_failed", { status: res.status, body: j });
+        }
+      })
+      .finally(() => {
+        pstnTranscriptFollowupBusyRef.current = false;
+      });
+  }, [status, transcriptEnabled, callContext]);
+
+  /**
    * Single teardown path for the browser leg: always returns UI to idle and clears conference/transcript state.
    * Safe to call multiple times (e.g. hangup + Twilio disconnect).
    */
@@ -424,6 +475,8 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       setRecordingBusy(false);
       setRecordingActionError(null);
       transcriptStreamStartedRef.current = false;
+      lastPstnOnlyAttemptRef.current = null;
+      pstnTranscriptFollowupBusyRef.current = false;
       if (options?.endedCallSid) {
         pollSuppressedSidRef.current = options.endedCallSid;
       }

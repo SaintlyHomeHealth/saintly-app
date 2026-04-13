@@ -538,6 +538,16 @@ function wsPathFromRequest(req: http.IncomingMessage): string {
   }
 }
 
+function wsSearchFromRequest(req: http.IncomingMessage): string {
+  try {
+    const host = req.headers.host || "localhost";
+    const s = new URL(req.url || "/", `http://${host}`).search;
+    return s && s.length > 1 ? s : "(no query)";
+  } catch {
+    return "(unparseable)";
+  }
+}
+
 /** Softphone transcript streams append these query params (see `appendSoftphoneTranscriptStreamParams`). */
 function parseTranscriptWsQuery(req: http.IncomingMessage): {
   transcriptExternalId: string | null;
@@ -569,12 +579,16 @@ wss.on("connection", (twilioWs, req) => {
   const softphoneTranscriptMode = transcriptQuery.softphoneTranscript;
 
   const reqPath = wsPathFromRequest(req);
+  const wsQuery = wsSearchFromRequest(req);
+  const isCallerPstnLeg = inputTranscriptRoleParam === "caller";
   console.log("[realtime-bridge][diag] twilio_websocket_client_connected", {
     path: reqPath,
+    wsQuery,
     remoteAddress: req.socket.remoteAddress,
     transcriptExternalIdParam: transcriptExternalIdParam ? transcriptExternalIdParam.slice(0, 12) + "…" : null,
     inputRole: inputTranscriptRoleParam,
     softphoneTranscriptMode,
+    isCallerPstnLeg,
   });
 
   let streamSid: string | null = null;
@@ -665,17 +679,14 @@ wss.on("connection", (twilioWs, req) => {
         callerIdUsedForTransfer: callerIdForDial || null,
       });
 
-      console.log("[realtime-bridge][diag] transcript_stream_context", {
-        twilioMediaCallSid: callSid.slice(0, 12) + "…",
+      console.log("[realtime-bridge][transcript] connection_ready", {
+        streamSid,
+        sourceTwilioCallSid: callSid.slice(0, 12) + "…",
         transcriptExternalId: bridgeExternalCallIdForTranscript.slice(0, 12) + "…",
         inputRole: inputTranscriptRoleParam,
-        softphoneTranscriptMode,
-        note:
-          inputTranscriptRoleParam === "staff"
-            ? "Whisper input ≈ browser mic (Client leg inbound)"
-            : inputTranscriptRoleParam === "caller"
-              ? "Whisper input ≈ PSTN toward Twilio (PSTN leg inbound)"
-              : "legacy stream — input speaker defaults to caller",
+        softphoneTranscript: softphoneTranscriptMode,
+        isCallerPstnLeg,
+        wsQuery,
       });
 
       latRef = {
@@ -798,6 +809,8 @@ wss.on("connection", (twilioWs, req) => {
               transcriptExternalId: extId.slice(0, 10) + "…",
               speakerLabelBeforeStore: inputSpeaker,
               softphoneTranscriptMode,
+              isCallerPstnLeg,
+              pstnTranscript: isCallerPstnLeg ? "whisper_complete_posting_bridge_transcript" : undefined,
               len: transcript.length,
             });
             void postBridgeTranscript({ externalCallId: extId, text: transcript, speaker: inputSpeaker });
@@ -1004,6 +1017,7 @@ wss.on("connection", (twilioWs, req) => {
             chunksByTrack: { ...mediaChunksByTrack },
             softphoneTranscriptMode,
             inputTranscriptRole: inputTranscriptRoleParam,
+            isCallerPstnLeg,
           });
         }
       }
@@ -1018,9 +1032,17 @@ wss.on("connection", (twilioWs, req) => {
           streamSid,
           callSid: callSid ? callSid.slice(0, 12) + "…" : null,
           track,
+          isCallerPstnLeg,
           oaiReady: Boolean(oai && oai.readyState === WebSocket.OPEN),
           msSinceStreamStart: latRef?.ms.first_twilio_inbound_media,
         });
+        if (isCallerPstnLeg) {
+          console.log("[realtime-bridge][pstn-transcript] first_media_frame", {
+            streamSid,
+            twilioCallSid: callSid ? callSid.slice(0, 12) + "…" : null,
+            track,
+          });
+        }
       }
     }
 

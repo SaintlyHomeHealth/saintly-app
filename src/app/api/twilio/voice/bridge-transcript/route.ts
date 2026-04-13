@@ -42,8 +42,8 @@ export async function POST(req: NextRequest) {
   }
 
   console.log("[bridge-transcript] transcript_delta_received", {
-    callSid: `${externalCallId.slice(0, 10)}…`,
-    speaker,
+    transcript_external_id: `${externalCallId.slice(0, 10)}…`,
+    speaker_label_before_store: speaker,
     textLen: text.length,
   });
 
@@ -102,9 +102,9 @@ export async function POST(req: NextRequest) {
   }
 
   console.log("[bridge-transcript] transcript_chunk_written", {
-    callSid: `${externalCallId.slice(0, 10)}…`,
+    transcript_external_id: `${externalCallId.slice(0, 10)}…`,
     seq: entry.seq,
-    speaker,
+    speaker_stored: speaker,
     entriesTotal: mergedEntries.length,
   });
 
