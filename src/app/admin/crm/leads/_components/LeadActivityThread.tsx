@@ -4,7 +4,6 @@ import { Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useRef, useState, useTransition } from "react";
 
-import { deleteLeadActivity } from "@/app/admin/crm/actions";
 import { leadActivityEventLabel, leadActivityThreadClasses } from "@/lib/crm/lead-activity-types";
 import type { UnifiedTimelineItem } from "@/lib/crm/lead-activities-timeline";
 
@@ -23,9 +22,10 @@ function formatWhen(iso: string): string {
 export function LeadActivityThread(props: {
   leadId: string;
   items: UnifiedTimelineItem[];
-  authorLabel: (userId: string | null | undefined) => string;
+  /** Pre-resolved display names for `created_by_user_id` (serializable; no functions from server). */
+  authorLabels: Record<string, string>;
 }) {
-  const { leadId, items, authorLabel } = props;
+  const { leadId, items, authorLabels } = props;
   const router = useRouter();
   const endRef = useRef<HTMLDivElement>(null);
   const [pending, startTransition] = useTransition();
@@ -85,7 +85,8 @@ export function LeadActivityThread(props: {
           const cls = leadActivityThreadClasses(act.event_type);
           const label = leadActivityEventLabel(act.event_type);
           const when = formatWhen(act.created_at);
-          const who = authorLabel(act.created_by_user_id);
+          const uid = typeof act.created_by_user_id === "string" ? act.created_by_user_id.trim() : "";
+          const who = uid ? (authorLabels[uid] ?? `${uid.slice(0, 8)}…`) : "System";
           const canDelete = act.deletable && act.event_type === "manual_note";
 
           return (
@@ -112,11 +113,14 @@ export function LeadActivityThread(props: {
                           return;
                         }
                         startTransition(async () => {
-                          const fd = new FormData();
-                          fd.set("leadId", leadId);
-                          fd.set("activityId", act.id);
-                          const r = await deleteLeadActivity(fd);
-                          if (r.ok) {
+                          const res = await fetch("/api/crm/lead-activities/delete", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            credentials: "same-origin",
+                            body: JSON.stringify({ leadId, activityId: act.id }),
+                          });
+                          const r = (await res.json().catch(() => ({ ok: false }))) as { ok?: boolean };
+                          if (res.ok && r.ok) {
                             setConfirmId(null);
                             router.refresh();
                           }

@@ -58,6 +58,17 @@ export function LeadFollowUpContextPanel(props: {
 }) {
   const staffById = new Map(props.staffOptions.map((s) => [s.user_id, s]));
 
+  const authorLabels: Record<string, string> = {};
+  for (const s of props.staffOptions) {
+    authorLabels[s.user_id] = staffLabelFromMap(staffById, s.user_id);
+  }
+  for (const a of props.activities) {
+    const uid = typeof a.created_by_user_id === "string" ? a.created_by_user_id.trim() : "";
+    if (uid && authorLabels[uid] === undefined) {
+      authorLabels[uid] = staffLabelFromMap(staffById, uid);
+    }
+  }
+
   const timeline = buildUnifiedLeadTimeline({
     activities: props.activities,
     lastNote: props.lastNote,
@@ -90,11 +101,7 @@ export function LeadFollowUpContextPanel(props: {
           {timeline.length === 0 ? (
             <p className="text-sm text-slate-600">No activity yet.</p>
           ) : (
-            <LeadActivityThread
-              leadId={props.leadId}
-              items={timeline}
-              authorLabel={(id) => staffLabelFromMap(staffById, id)}
-            />
+            <LeadActivityThread leadId={props.leadId} items={timeline} authorLabels={authorLabels} />
           )}
         </div>
       </div>

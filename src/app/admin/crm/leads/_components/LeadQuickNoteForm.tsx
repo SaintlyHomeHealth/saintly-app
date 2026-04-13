@@ -4,8 +4,6 @@ import { Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
-import { saveLeadQuickNote } from "@/app/admin/crm/actions";
-
 const quickNoteInputCls =
   "mt-0.5 w-full rounded border border-slate-200 px-2 py-1.5 text-sm text-slate-800";
 
@@ -22,11 +20,17 @@ export function LeadQuickNoteForm({ leadId }: { leadId: string }) {
         e.preventDefault();
         setFeedback(null);
         startTransition(async () => {
-          const fd = new FormData();
-          fd.set("leadId", leadId);
-          fd.set("quick_note", text);
-          const r = await saveLeadQuickNote(fd);
-          if (r.ok) {
+          const res = await fetch("/api/crm/lead-activities/quick-note", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "same-origin",
+            body: JSON.stringify({ leadId, quick_note: text }),
+          });
+          const r = (await res.json().catch(() => ({ ok: false as const }))) as {
+            ok: boolean;
+            error?: string;
+          };
+          if (res.ok && r.ok) {
             setText("");
             setFeedback({ type: "ok", message: "Note added to thread" });
             router.refresh();
