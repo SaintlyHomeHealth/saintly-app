@@ -13,13 +13,13 @@ import {
 } from "@/lib/crm/lead-pipeline-status";
 import { LEAD_SOURCE_OPTIONS, formatLeadSourceLabel } from "@/lib/crm/lead-source-options";
 
-import { LeadDeleteButton } from "@/app/admin/crm/leads/_components/LeadDeleteButton";
 import { LeadContactOutcomeForm } from "@/app/admin/crm/leads/_components/LeadContactOutcomeForm";
 import { LeadFollowUpContextPanel } from "@/app/admin/crm/leads/_components/LeadFollowUpContextPanel";
 import { LeadInsuranceSection } from "@/app/admin/crm/leads/_components/LeadInsuranceSection";
 import { LeadMedicareFields } from "@/app/admin/crm/leads/_components/LeadMedicareFields";
 import type { LeadActivityRow } from "@/lib/crm/lead-activities-timeline";
 import { LeadSectionCard } from "@/app/admin/crm/leads/_components/LeadSectionCard";
+import { LeadSnapshot } from "@/app/admin/crm/leads/_components/LeadSnapshot";
 import {
   convertLeadToPatientFromLeadDetail,
   createLeadManualFromCrm,
@@ -30,8 +30,6 @@ import {
 import type { EmploymentApplicationMeta } from "@/lib/crm/lead-employment-meta";
 import { hasAnyIntakeRequestDetail, type LeadIntakeRequestDetails } from "@/lib/crm/lead-intake-request";
 import { addCalendarDaysToIsoDate, getCrmCalendarTodayIso, getCrmCalendarTomorrowIso } from "@/lib/crm/crm-local-date";
-import { formatLeadLastContactSummary } from "@/lib/crm/lead-contact-outcome";
-import { formatPhoneNumber } from "@/lib/phone/us-phone-format";
 import {
   buildWorkspaceKeypadCallHref,
   buildWorkspaceSmsToContactHref,
@@ -442,7 +440,6 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
     initialActivities,
   } = props;
 
-  const lastContactLine = formatLeadLastContactSummary(lastContactAt, lastOutcome);
   const tomorrowIso = getCrmCalendarTomorrowIso();
   const voicemailSuggestedIso = addCalendarDaysToIsoDate(getCrmCalendarTodayIso(), 2);
 
@@ -477,6 +474,11 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
         className="sticky top-0 z-30 mb-8 rounded-2xl border border-slate-200/90 bg-white/95 px-3 py-3 shadow-sm backdrop-blur-md sm:px-5"
       >
         <ul className="flex flex-nowrap gap-x-4 gap-y-2 overflow-x-auto pb-0.5 text-sm font-medium text-slate-600 sm:flex-wrap">
+          <li>
+            <a href="#section-snapshot" className="whitespace-nowrap hover:text-sky-800">
+              Snapshot
+            </a>
+          </li>
           <li>
             <a href="#section-contact" className="whitespace-nowrap hover:text-sky-800">
               Contact
@@ -525,38 +527,36 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
 
       <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(300px,380px)] lg:gap-10 lg:items-start">
         <div className="min-w-0 space-y-10">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Lead workspace</p>
-            <h1 className="mt-1 text-2xl font-bold text-slate-900">{displayName}</h1>
-            <p className="mt-1 text-sm text-slate-600">
-              {formatLeadSourceLabel(sourceRaw)} · Pipeline:{" "}
-              <span className="font-medium text-slate-800">{formatLeadPipelineStatusLabel(rawStatus)}</span>
-              {isEmployeeLead ? (
-                <>
-                  {" · "}
-                  <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-[11px] font-semibold text-indigo-900">
-                    Employee applicant
-                  </span>
-                </>
-              ) : null}
-              {" · "}
-              <span className="inline-flex items-center gap-1">
-                <LeadDeleteButton leadId={leadId} variant="detail" />
-              </span>
-            </p>
-            {primaryPhone ? (
-              <p className="mt-1 text-xs text-slate-600 tabular-nums">{formatPhoneNumber(primaryPhone)}</p>
-            ) : null}
-            {contactProfileDefaults.secondaryPhone ? (
-              <p className="mt-1 text-xs text-slate-600 tabular-nums">
-                Caregiver / alternate: {formatPhoneNumber(contactProfileDefaults.secondaryPhone)}
-              </p>
-            ) : null}
-            <p className="mt-1 text-xs text-slate-600">
-              Last contact:{" "}
-              <span className="font-medium text-slate-900">{lastContactLine}</span>
-            </p>
-          </div>
+          <LeadSnapshot
+            leadId={leadId}
+            displayName={displayName}
+            sourceRaw={sourceRaw}
+            rawStatus={rawStatus}
+            contact={contactProfileDefaults}
+            dobIso={dobIso}
+            ownerUid={ownerUid}
+            staffOptions={staffOptions}
+            nextActionVal={nextActionVal}
+            followUpIso={followUpIso}
+            followUpAtIso={followUpAtIso}
+            lastContactAt={lastContactAt}
+            lastOutcome={lastOutcome}
+            intakeDefaults={intakeDefaults}
+            intakeRequest={intakeRequestDefaults}
+            leadDisciplinesForForm={leadDisciplinesForForm}
+            applicationNotes={applicationNotes}
+            referralSourceLine={referralSourceLine}
+            medicareNumber={medicareNumber}
+            medicareEffectiveDateIso={medicareEffectiveDateIso}
+            medicareNotes={medicareNotes}
+            primaryInsurancePath={primaryInsurancePath}
+            secondaryInsurancePath={secondaryInsurancePath}
+            isEmployeeLead={isEmployeeLead}
+            employmentMeta={employmentMeta}
+            isConverted={isConverted}
+            isDead={isDead}
+            patientId={patientId}
+          />
 
           {isEmployeeLead && hasAnyIntakeRequestDetail(intakeRequestDefaults) ? (
         <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
