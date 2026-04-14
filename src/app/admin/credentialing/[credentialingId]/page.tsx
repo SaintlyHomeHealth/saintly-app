@@ -125,6 +125,12 @@ function daysInPipeline(createdAt: string): number | null {
   return Math.floor((Date.now() - t) / 86400000);
 }
 
+/** User-written timeline entries (`manual_note` in DB; `note` accepted if ever stored). */
+function isCredentialingManualNote(activityType: string): boolean {
+  const t = activityType.trim();
+  return t === "note" || t === PAYER_CREDENTIALING_ACTIVITY_TYPES.manual_note;
+}
+
 function ActivityTypeIcon({ activityType }: { activityType: string }) {
   const t = activityType.trim();
   const wrap = (node: ReactNode) => (
@@ -638,19 +644,38 @@ export default async function AdminCredentialingDetailPage({
                   dateStyle: "medium",
                   timeStyle: "short",
                 });
+                const isNote = isCredentialingManualNote(a.activity_type);
+                const noteBody = (a.details?.trim() || a.summary || "").trim();
+
+                if (isNote) {
+                  return (
+                    <li key={a.id} className="flex w-full justify-end">
+                      <div className="max-w-[70%] rounded-2xl bg-gradient-to-b from-blue-500 to-blue-600 px-4 py-2 text-white shadow-sm">
+                        <p className="text-[15px] leading-snug whitespace-pre-wrap break-words [word-break:break-word]">
+                          {noteBody || "—"}
+                        </p>
+                        <p className="mt-2 text-xs text-blue-100/90">
+                          By <span className="font-medium">{who}</span>
+                        </p>
+                        <p className="mt-0.5 text-xs text-blue-100/70 opacity-90 tabular-nums">{when}</p>
+                      </div>
+                    </li>
+                  );
+                }
+
                 return (
-                  <li key={a.id} className="flex gap-3">
+                  <li key={a.id} className="flex w-full justify-start gap-3">
                     <ActivityTypeIcon activityType={a.activity_type} />
-                    <div className="min-w-0 flex-1 rounded-2xl border border-slate-200/90 bg-white px-4 py-3 text-sm text-slate-800 shadow-sm">
+                    <div className="min-w-0 flex-1 rounded-2xl border border-slate-200/80 bg-white/90 px-4 py-3 text-sm text-slate-600 shadow-sm">
                       <div className="flex flex-wrap items-baseline justify-between gap-2">
-                        <span className="font-semibold text-slate-900">{a.summary}</span>
-                        <span className="text-[10px] font-medium uppercase tracking-wide text-slate-500">
+                        <span className="font-semibold text-slate-800">{a.summary}</span>
+                        <span className="text-[10px] font-medium uppercase tracking-wide text-slate-400">
                           {formatCredentialingActivityTypeLabel(a.activity_type)} · {when}
                         </span>
                       </div>
-                      <p className="mt-1 text-[11px] text-slate-500">By {who}</p>
+                      <p className="mt-1 text-[11px] text-slate-500/90">By {who}</p>
                       {a.details?.trim() ? (
-                        <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-slate-50/90 p-2 font-sans text-xs text-slate-700">
+                        <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-slate-50/80 p-2 font-sans text-xs text-slate-600">
                           {a.details}
                         </pre>
                       ) : null}
