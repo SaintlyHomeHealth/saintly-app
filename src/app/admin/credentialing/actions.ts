@@ -328,6 +328,153 @@ export async function updatePayerCredentialingRecord(formData: FormData) {
   revalidatePath(`/admin/credentialing/${id}`);
 }
 
+/**
+ * Partial update for header, pipeline, and quick actions. Only fields present in `FormData` are applied
+ * (unlike `updatePayerCredentialingRecord`, which expects the full edit form).
+ */
+export async function patchPayerCredentialingRecord(formData: FormData) {
+  const staff = await getStaffProfile();
+  if (!staff || !isManagerOrHigher(staff)) {
+    return;
+  }
+
+  const id = readTrimmed(formData, "id");
+  if (!id) return;
+
+  const { data: oldRow, error: fetchErr } = await supabaseAdmin
+    .from("payer_credentialing_records")
+    .select(
+      "id, payer_name, payer_type, market_state, credentialing_status, contracting_status, portal_url, portal_username_hint, primary_contact_name, primary_contact_phone, primary_contact_email, notes, last_follow_up_at, assigned_owner_user_id, next_action, next_action_due_date, priority"
+    )
+    .eq("id", id)
+    .maybeSingle();
+
+  if (fetchErr || !oldRow) {
+    console.warn("[credentialing] patch fetch:", fetchErr?.message);
+    return;
+  }
+
+  const old = oldRow as PayerRecordRow;
+  const payload: Record<string, unknown> = {};
+
+  if (formData.has("credentialing_status")) {
+    const cred = readTrimmed(formData, "credentialing_status");
+    if (cred && !isCredentialingStatus(cred)) return;
+    if (cred) payload.credentialing_status = cred;
+  }
+  if (formData.has("contracting_status")) {
+    const cont = readTrimmed(formData, "contracting_status");
+    if (cont && !isContractingStatus(cont)) return;
+    if (cont) payload.contracting_status = cont;
+  }
+  if (formData.has("priority")) {
+    const pr = readTrimmed(formData, "priority");
+    if (pr && isCredentialingPriority(pr)) {
+      payload.priority = pr;
+    }
+  }
+  if (formData.has("next_action")) {
+    payload.next_action = readTrimmed(formData, "next_action");
+  }
+  if (formData.has("next_action_due_date")) {
+    payload.next_action_due_date = readTrimmed(formData, "next_action_due_date");
+  }
+  if (formData.has("assigned_owner_user_id")) {
+    payload.assigned_owner_user_id = readOwnerId(formData);
+  }
+
+  const markFollowUp = formData.get("mark_follow_up_now") === "1";
+  if (markFollowUp) {
+    payload.last_follow_up_at = new Date().toISOString();
+  }
+
+  if (Object.keys(payload).length === 0 && !markFollowUp) {
+    return;
+  }
+
+  const { error } = await supabaseAdmin.from("payer_credentialing_records").update(payload).eq("id", id);
+  if (error) {
+    console.warn("[credentialing] patch:", error.message);
+    return;
+  }
+
+  const nu = (v: unknown) => (typeof v === "string" ? v : v == null ? "" : String(v));
+  const newCred = payload.credentialing_status != null ? nu(payload.credentialing_status) : nu(old.credentialing_status);
+  const newCont = payload.contracting_status != null ? nu(payload.contracting_status) : nu(old.contracting_status);
+
+  if (payload.credentialing_status != null && !strEq(old.credentialing_status, newCred)) {
+    await insertCredentialingActivity({
+      credentialingRecordId: id,
+      activityType: PAYER_CREDENTIALING_ACTIVITY_TYPES.status_change,
+      summary: `Credentialing: ${credentialingStatusLabel(nu(old.credentialing_status))} → ${credentialingStatusLabel(newCred)}`,
+      details: null,
+      createdByUserId: staff.user_id,
+    });
+  }
+  if (payload.contracting_status != null && !strEq(old.contracting_status, newCont)) {
+    await insertCredentialingActivity({
+      credentialingRecordId: id,
+      activityType: PAYER_CREDENTIALING_ACTIVITY_TYPES.status_change,
+      summary: `Contracting: ${contractingStatusLabel(nu(old.contracting_status))} → ${contractingStatusLabel(newCont)}`,
+      details: null,
+      createdByUserId: staff.user_id,
+    });
+  }
+
+  if (formData.has("assigned_owner_user_id")) {
+    const newOwner = readOwnerId(formData);
+    const prevOwner = old.assigned_owner_user_id;
+    if ((prevOwner ?? "") !== (newOwner ?? "")) {
+      await insertCredentialingActivity({
+        credentialingRecordId: id,
+        activityType: PAYER_CREDENTIALING_ACTIVITY_TYPES.owner_change,
+        summary: newOwner ? "Owner assigned or changed" : "Owner unassigned",
+        details: `Previous: ${prevOwner ?? "—"}\nNow: ${newOwner ?? "—"}`,
+        createdByUserId: staff.user_id,
+      });
+    }
+  }
+
+  if (markFollowUp) {
+    await insertCredentialingActivity({
+      credentialingRecordId: id,
+      activityType: PAYER_CREDENTIALING_ACTIVITY_TYPES.follow_up,
+      summary: "Follow-up logged (timestamp updated)",
+      details: null,
+      createdByUserId: staff.user_id,
+    });
+  }
+
+  const fieldLines: string[] = [];
+  if (payload.next_action != null && !strEq(old.next_action, readTrimmed(formData, "next_action") ?? "")) {
+    fieldLines.push("Next action updated");
+  }
+  if (
+    payload.next_action_due_date != null &&
+    !strEq(old.next_action_due_date, readTrimmed(formData, "next_action_due_date") ?? "")
+  ) {
+    fieldLines.push("Next action due date updated");
+  }
+  if (
+    payload.priority != null &&
+    !strEq(old.priority ?? "medium", readTrimmed(formData, "priority") ?? "medium")
+  ) {
+    fieldLines.push("Priority updated");
+  }
+  if (fieldLines.length > 0) {
+    await insertCredentialingActivity({
+      credentialingRecordId: id,
+      activityType: PAYER_CREDENTIALING_ACTIVITY_TYPES.record_updated,
+      summary: "Record details updated",
+      details: fieldLines.join("\n"),
+      createdByUserId: staff.user_id,
+    });
+  }
+
+  revalidatePath("/admin/credentialing");
+  revalidatePath(`/admin/credentialing/${id}`);
+}
+
 export async function appendCredentialingActivityNote(formData: FormData) {
   const staff = await getStaffProfile();
   if (!staff || !isManagerOrHigher(staff)) {

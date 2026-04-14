@@ -1,14 +1,31 @@
+import {
+  ArrowLeft,
+  Calendar,
+  FilePlus,
+  FileText,
+  FolderOpen,
+  GitBranch,
+  MessageSquare,
+  Paperclip,
+  Pencil,
+  Trash2,
+  User,
+} from "lucide-react";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
 import {
   appendCredentialingActivityNote,
   deletePayerCredentialingAttachment,
+  patchPayerCredentialingRecord,
   updatePayerCredentialingDocuments,
   updatePayerCredentialingRecord,
   uploadPayerCredentialingAttachment,
 } from "../actions";
-import { formatCredentialingActivityTypeLabel } from "@/lib/crm/credentialing-activity-types";
+import {
+  formatCredentialingActivityTypeLabel,
+  PAYER_CREDENTIALING_ACTIVITY_TYPES,
+} from "@/lib/crm/credentialing-activity-types";
 import {
   CONTRACTING_STATUS_LABELS,
   CONTRACTING_STATUS_VALUES,
@@ -26,10 +43,17 @@ import {
   type PayerCredentialingListRow,
 } from "@/lib/crm/credentialing-command-center";
 import {
+  CREDENTIALING_PIPELINE_STEPS,
+  getCredentialingPipelineStepIndex,
+  getCredentialingPipelineTargets,
+  credentialingPipelineStepButtonClass,
+} from "@/lib/crm/credentialing-pipeline-ui";
+import {
   PAYER_CREDENTIALING_DOC_LABELS,
   PAYER_CREDENTIALING_DOC_STATUS_LABELS,
   PAYER_CREDENTIALING_DOC_STATUS_VALUES,
   PAYER_CREDENTIALING_DOC_TYPES,
+  summarizePayerDocuments,
   type PayerCredentialingDocType,
 } from "@/lib/crm/credentialing-documents";
 import { PAYER_CREDENTIALING_MAX_ATTACHMENT_BYTES } from "@/lib/crm/payer-credentialing-storage";
@@ -40,13 +64,13 @@ import {
 } from "@/lib/crm/credentialing-staff-directory";
 import {
   ContractingStatusBadge,
-  CredentialingPriorityBadge,
   CredentialingStatusBadge,
   ReadyToBillBadge,
 } from "@/components/crm/CredentialingBadges";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import type { ReactNode } from "react";
 
 const inp =
   "mt-0.5 w-full max-w-lg rounded border border-slate-200 px-2 py-1.5 text-sm text-slate-800";
@@ -93,6 +117,45 @@ function formatAttachmentBytes(n: number | null): string {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function daysInPipeline(createdAt: string): number | null {
+  const t = Date.parse(createdAt);
+  if (Number.isNaN(t)) return null;
+  return Math.floor((Date.now() - t) / 86400000);
+}
+
+function ActivityTypeIcon({ activityType }: { activityType: string }) {
+  const t = activityType.trim();
+  const wrap = (node: ReactNode) => (
+    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-200/90 bg-white text-slate-600 shadow-sm">
+      {node}
+    </span>
+  );
+  switch (t) {
+    case PAYER_CREDENTIALING_ACTIVITY_TYPES.record_created:
+      return wrap(<FilePlus className="h-4 w-4" aria-hidden />);
+    case PAYER_CREDENTIALING_ACTIVITY_TYPES.record_updated:
+      return wrap(<Pencil className="h-4 w-4" aria-hidden />);
+    case PAYER_CREDENTIALING_ACTIVITY_TYPES.status_change:
+      return wrap(<GitBranch className="h-4 w-4" aria-hidden />);
+    case PAYER_CREDENTIALING_ACTIVITY_TYPES.follow_up:
+      return wrap(<Calendar className="h-4 w-4" aria-hidden />);
+    case PAYER_CREDENTIALING_ACTIVITY_TYPES.notes_updated:
+      return wrap(<FileText className="h-4 w-4" aria-hidden />);
+    case PAYER_CREDENTIALING_ACTIVITY_TYPES.document_update:
+      return wrap(<FolderOpen className="h-4 w-4" aria-hidden />);
+    case PAYER_CREDENTIALING_ACTIVITY_TYPES.owner_change:
+      return wrap(<User className="h-4 w-4" aria-hidden />);
+    case PAYER_CREDENTIALING_ACTIVITY_TYPES.manual_note:
+      return wrap(<MessageSquare className="h-4 w-4" aria-hidden />);
+    case PAYER_CREDENTIALING_ACTIVITY_TYPES.attachment_added:
+      return wrap(<Paperclip className="h-4 w-4" aria-hidden />);
+    case PAYER_CREDENTIALING_ACTIVITY_TYPES.attachment_removed:
+      return wrap(<Trash2 className="h-4 w-4" aria-hidden />);
+    default:
+      return wrap(<FileText className="h-4 w-4" aria-hidden />);
+  }
 }
 
 const ATTACH_ERR_MESSAGES: Record<string, string> = {
@@ -222,6 +285,7 @@ export default async function AdminCredentialingDetailPage({
     ? (() => {
         const t = Date.parse(latestActivity.created_at);
         if (Number.isNaN(t)) return "";
+        /* eslint-disable-next-line react-hooks/purity -- server-rendered snapshot at request time */
         const days = Math.floor((Date.now() - t) / 86400000);
         if (days <= 0) return "today";
         if (days === 1) return "yesterday";
@@ -229,8 +293,27 @@ export default async function AdminCredentialingDetailPage({
       })()
     : "";
 
+  const pipelineStep = getCredentialingPipelineStepIndex(credentialing_status, contracting_status);
+  const docSummary = summarizePayerDocuments(documents);
+  const pipelineDays = daysInPipeline(created_at);
+  const primaryEmail = typeof r.primary_contact_email === "string" ? r.primary_contact_email.trim() : "";
+  const mailtoHref = primaryEmail ? `mailto:${encodeURIComponent(primaryEmail)}` : "";
+
+  const cardShell =
+    "rounded-[28px] border border-slate-200/90 bg-gradient-to-b from-white to-slate-50/90 shadow-[0_1px_3px_rgba(15,23,42,0.06)] ring-1 ring-slate-200/60";
+
   return (
-    <div className="space-y-6 p-6">
+    <div className="scroll-smooth space-y-8 p-6 pb-24">
+      <div>
+        <Link
+          href="/admin/credentialing"
+          className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50"
+        >
+          <ArrowLeft className="h-4 w-4 shrink-0 text-slate-600" aria-hidden />
+          Back to credentialing
+        </Link>
+      </div>
+
       {attachErrMsg ? (
         <div
           role="alert"
@@ -252,42 +335,41 @@ export default async function AdminCredentialingDetailPage({
         </p>
       ) : null}
 
-      <section className="overflow-hidden rounded-[28px] border border-slate-200 bg-gradient-to-br from-white via-sky-50/40 to-cyan-50/30 p-5 shadow-sm">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div className="min-w-0 flex-1 space-y-3">
+      {/* Hero card — CRM lead snapshot style */}
+      <section
+        id="credentialing-hero"
+        className={`scroll-mt-28 ${cardShell} p-5 sm:p-7`}
+      >
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0 flex-1 space-y-4">
             <div>
-              <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Payer</p>
-              <h1 className="mt-0.5 text-2xl font-bold text-slate-900">{payer_name}</h1>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Payer credentialing</p>
+              <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-950 sm:text-[1.65rem]">{payer_name}</h1>
               <p className="mt-1 font-mono text-[11px] text-slate-400">{credentialingId}</p>
             </div>
-            <div className="flex flex-wrap gap-2 text-sm text-slate-700">
-              {(payer_type ?? "").trim() ? (
-                <span className="inline-flex items-center rounded-lg border border-slate-200 bg-white/80 px-3 py-1 text-xs font-medium text-slate-800">
-                  <span className="text-slate-500">Type · </span>
-                  &nbsp;{payer_type.trim()}
-                </span>
-              ) : (
-                <span className="inline-flex items-center rounded-lg border border-dashed border-slate-200 bg-white/60 px-3 py-1 text-xs text-slate-500">
-                  Type not set
-                </span>
-              )}
+
+            <div className="flex flex-wrap gap-2">
               {(market_state ?? "").trim() ? (
-                <span className="inline-flex items-center rounded-lg border border-slate-200 bg-white/80 px-3 py-1 text-xs font-medium text-slate-800">
-                  <span className="text-slate-500">Market · </span>
-                  &nbsp;{market_state.trim()}
+                <span className="inline-flex items-center rounded-full border border-slate-200/90 bg-white px-3 py-1 text-[11px] font-semibold text-slate-800 ring-1 ring-slate-100">
+                  {market_state.trim()}
                 </span>
               ) : (
-                <span className="inline-flex items-center rounded-lg border border-dashed border-slate-200 bg-white/60 px-3 py-1 text-xs text-slate-500">
-                  Market not set
+                <span className="inline-flex items-center rounded-full border border-dashed border-slate-200 bg-white/60 px-3 py-1 text-[11px] text-slate-500">
+                  State not set
                 </span>
               )}
-              <span className="inline-flex items-center rounded-lg border border-indigo-200 bg-indigo-50/90 px-3 py-1 text-xs font-medium text-indigo-950">
-                <span className="text-indigo-600">Owner · </span>
-                &nbsp;{ownerLabel}
-              </span>
+              {(payer_type ?? "").trim() ? (
+                <span className="inline-flex items-center rounded-full border border-slate-200/90 bg-white px-3 py-1 text-[11px] font-semibold text-slate-800 ring-1 ring-slate-100">
+                  {payer_type.trim()}
+                </span>
+              ) : (
+                <span className="inline-flex items-center rounded-full border border-dashed border-slate-200 bg-white/60 px-3 py-1 text-[11px] text-slate-500">
+                  Payer type not set
+                </span>
+              )}
             </div>
+
             <div className="flex flex-wrap items-center gap-2">
-              <CredentialingPriorityBadge priority={priority} />
               <CredentialingStatusBadge status={credentialing_status} />
               <ContractingStatusBadge status={contracting_status} />
               {readyToBill ? <ReadyToBillBadge /> : null}
@@ -301,78 +383,90 @@ export default async function AdminCredentialingDetailPage({
                 </span>
               )}
             </div>
-            <div className="rounded-xl border border-slate-100 bg-white/70 px-3 py-2 text-sm text-slate-700 shadow-sm">
-              <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Next action</p>
-              <p className="mt-1 font-medium text-slate-900">{next_action.trim() || "—"}</p>
-              <p className="mt-1 text-xs text-slate-600">
-                <span className="font-semibold text-slate-700">Due: </span>
-                {formatCredentialingDueDateLabel(next_action_due_date.trim() || null)}
-              </p>
-            </div>
-            {latestActivity ? (
-              <p className="text-sm text-slate-600">
-                <span className="font-semibold text-slate-700">Last activity: </span>
-                <span className="text-slate-800">{latestActivity.summary}</span>
-                {latestActivityRel ? (
-                  <span className="text-slate-500">
-                    {" "}
-                    ({latestActivityRel})
-                  </span>
-                ) : null}
-              </p>
-            ) : null}
-            <p className="text-sm text-slate-600">
-              <span className="font-semibold text-slate-700">Last follow-up: </span>
-              {last_follow_up_at
-                ? new Date(last_follow_up_at).toLocaleString("en-US", {
-                    dateStyle: "medium",
-                    timeStyle: "short",
-                  })
-                : "—"}
-            </p>
           </div>
-          <div className="flex min-w-[220px] shrink-0 flex-col gap-3">
-            {portal_url.trim() ? (
-              <>
-                <a
-                  href={portal_url.trim()}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center justify-center gap-2 rounded-[20px] bg-gradient-to-r from-sky-600 to-cyan-500 px-5 py-2.5 text-sm font-semibold text-white shadow-sm shadow-sky-200/60 transition hover:-translate-y-px hover:shadow-md"
-                >
-                  <span aria-hidden>↗</span>
-                  Open portal
-                </a>
-                {portal_username_hint.trim() ? (
-                  <p className="rounded-xl border border-sky-100 bg-white/90 px-3 py-2 text-[11px] text-slate-700 shadow-sm">
-                    <span className="font-semibold text-sky-900/80">Username hint: </span>
-                    {portal_username_hint.trim()}
-                  </p>
-                ) : null}
-              </>
-            ) : (
-              <div className="rounded-[20px] border border-sky-100 bg-gradient-to-b from-sky-50/90 to-white px-4 py-4 shadow-sm ring-1 ring-sky-100/80">
-                <p className="text-[11px] font-bold uppercase tracking-wide text-sky-900/85">Portal access</p>
-                <p className="mt-2 text-sm leading-relaxed text-slate-700">
-                  There is no portal URL on this record yet. When you add one in{" "}
-                  <span className="font-semibold text-slate-900">Update record</span>, a primary button will appear here
-                  for one-click access. Follow-up still works using contacts and notes.
-                </p>
-                {portal_username_hint.trim() ? (
-                  <p className="mt-3 rounded-xl border border-white/90 bg-white/80 px-3 py-2 text-[11px] text-slate-700">
-                    <span className="font-semibold text-slate-600">Saved username hint: </span>
-                    {portal_username_hint.trim()}
-                  </p>
-                ) : null}
+
+          <div className="w-full min-w-0 shrink-0 lg:max-w-md">
+            <form action={patchPayerCredentialingRecord} className={`${cardShell} bg-white/90 p-4`}>
+              <input type="hidden" name="id" value={credentialingId} />
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Working queue</p>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
+                  Assigned owner
+                  <select
+                    name="assigned_owner_user_id"
+                    className={inp}
+                    defaultValue={assigned_owner_user_id || ""}
+                  >
+                    <option value="">Unassigned</option>
+                    {staffOptions.map((s) => (
+                      <option key={s.user_id} value={s.user_id}>
+                        {credentialingStaffLabel(s)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+                  Priority
+                  <select name="priority" className={inp} defaultValue={priority}>
+                    {CREDENTIALING_PRIORITY_VALUES.map((v) => (
+                      <option key={v} value={v}>
+                        {CREDENTIALING_PRIORITY_LABELS[v]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label id="credentialing-hero-follow" className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+                  Follow-up date
+                  <input name="next_action_due_date" type="date" className={inp} defaultValue={next_action_due_date} />
+                </label>
+                <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
+                  Next action
+                  <input
+                    name="next_action"
+                    className={inp}
+                    defaultValue={next_action}
+                    placeholder="e.g. Call payer re: application status"
+                  />
+                </label>
               </div>
-            )}
-            <Link
-              href="/admin/credentialing"
-              className="inline-flex items-center justify-center rounded-[20px] border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50"
-            >
-              Back to list
-            </Link>
+              <div className="mt-4 flex flex-wrap items-center gap-2">
+                <button
+                  type="submit"
+                  className="rounded-xl border border-sky-600 bg-sky-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-sky-700"
+                >
+                  Save header
+                </button>
+                <span className="text-[11px] text-slate-500">
+                  Owner shown: <span className="font-medium text-slate-700">{ownerLabel}</span>
+                </span>
+              </div>
+            </form>
           </div>
+        </div>
+
+        <div className="mt-6 flex flex-col gap-3 border-t border-slate-100 pt-6 sm:flex-row sm:items-center sm:justify-between">
+          {portal_url.trim() ? (
+            <a
+              href={portal_url.trim()}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-sky-600 to-cyan-500 px-5 py-2.5 text-sm font-semibold text-white shadow-sm shadow-sky-200/60 transition hover:-translate-y-px hover:shadow-md"
+            >
+              <span aria-hidden>↗</span>
+              Open portal
+            </a>
+          ) : (
+            <p className="max-w-prose text-sm text-slate-600">
+              <span className="font-semibold text-slate-800">No portal URL yet.</span> Add one under Edit Details for
+              one-click access.
+            </p>
+          )}
+          {portal_username_hint.trim() ? (
+            <p className="rounded-xl border border-sky-100 bg-sky-50/80 px-3 py-2 text-[11px] text-slate-700">
+              <span className="font-semibold text-sky-900/80">Username hint: </span>
+              {portal_username_hint.trim()}
+            </p>
+          ) : null}
         </div>
 
         {attention.needsAttention ? (
@@ -386,208 +480,256 @@ export default async function AdminCredentialingDetailPage({
         ) : null}
       </section>
 
-      <form
-        action={updatePayerCredentialingRecord}
-        className="space-y-6 rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm"
-      >
-        <input type="hidden" name="id" value={credentialingId} />
-        <h2 className="text-sm font-bold text-slate-900">Update record</h2>
-
-        <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-          Assigned owner
-          <select
-            name="assigned_owner_user_id"
-            className={inp}
-            defaultValue={assigned_owner_user_id || ""}
+      {/* Quick actions */}
+      <div className="flex flex-wrap gap-2">
+        <form action={patchPayerCredentialingRecord} className="inline">
+          <input type="hidden" name="id" value={credentialingId} />
+          <input type="hidden" name="credentialing_status" value="submitted" />
+          <button
+            type="submit"
+            className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm ring-1 ring-slate-200/80 hover:bg-slate-50"
           >
-            <option value="">Unassigned</option>
-            {staffOptions.map((s) => (
-              <option key={s.user_id} value={s.user_id}>
-                {credentialingStaffLabel(s)}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-          Priority
-          <select name="priority" className={inp} defaultValue={priority}>
-            {CREDENTIALING_PRIORITY_VALUES.map((v) => (
-              <option key={v} value={v}>
-                {CREDENTIALING_PRIORITY_LABELS[v]}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-          Next action (what to do next)
-          <input name="next_action" className={inp} defaultValue={next_action} placeholder="e.g. Call payer re: application" />
-        </label>
-        <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-          Next action due date
-          <input name="next_action_due_date" type="date" className={inp} defaultValue={next_action_due_date} />
-        </label>
-
-        <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-          Payer name
-          <input name="payer_name" className={inp} defaultValue={payer_name} required />
-        </label>
-        <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-          Payer type / plan type
-          <input name="payer_type" className={inp} defaultValue={payer_type} />
-        </label>
-        <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-          State / market
-          <input name="market_state" className={inp} defaultValue={market_state} />
-        </label>
-
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-            Credentialing status
-            <select
-              name="credentialing_status"
-              className={inp}
-              defaultValue={credentialing_status || "in_progress"}
-            >
-              {CREDENTIALING_STATUS_VALUES.map((v) => (
-                <option key={v} value={v}>
-                  {CREDENTIALING_STATUS_LABELS[v]}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-            Contracting status
-            <select
-              name="contracting_status"
-              className={inp}
-              defaultValue={contracting_status || "pending"}
-            >
-              {CONTRACTING_STATUS_VALUES.map((v) => (
-                <option key={v} value={v}>
-                  {CONTRACTING_STATUS_LABELS[v]}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-
-        <div id="record-portal" className="scroll-mt-24 space-y-3 rounded-[20px] border border-sky-100/80 bg-sky-50/30 p-4">
-          <p className="text-[10px] font-bold uppercase tracking-wide text-sky-900/80">Portal</p>
-          <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-            Portal URL
-            <input name="portal_url" type="url" className={inp} defaultValue={portal_url} />
-          </label>
-          <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-            Portal username hint (not password)
-            <input
-              name="portal_username_hint"
-              className={inp}
-              defaultValue={portal_username_hint}
-            />
-          </label>
-        </div>
-
-        <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-          Primary contact name
-          <input
-            name="primary_contact_name"
-            className={inp}
-            defaultValue={String(r.primary_contact_name ?? "")}
-          />
-        </label>
-        <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-          Primary contact phone
-          <input
-            name="primary_contact_phone"
-            className={inp}
-            defaultValue={String(r.primary_contact_phone ?? "")}
-            autoComplete="tel"
-          />
-        </label>
-        <p className="text-xs text-slate-500">
-          Display:{" "}
-          <span className="tabular-nums font-medium text-slate-700">
-            {formatPhoneForDisplay(typeof r.primary_contact_phone === "string" ? r.primary_contact_phone : "")}
+            Mark Submitted
+          </button>
+        </form>
+        <a
+          href="#credentialing-additional-docs"
+          className="inline-flex items-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm ring-1 ring-slate-200/80 hover:bg-slate-50"
+        >
+          Upload Document
+        </a>
+        <a
+          href="#credentialing-timeline"
+          className="inline-flex items-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm ring-1 ring-slate-200/80 hover:bg-slate-50"
+        >
+          Log Activity
+        </a>
+        {mailtoHref ? (
+          <a
+            href={mailtoHref}
+            className="inline-flex items-center rounded-xl border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-950 shadow-sm hover:bg-sky-100"
+          >
+            Send Email
+          </a>
+        ) : (
+          <span
+            className="inline-flex cursor-not-allowed items-center rounded-xl border border-slate-100 bg-slate-50 px-4 py-2 text-sm font-semibold text-slate-400"
+            title="Add a primary contact email under Edit Details"
+          >
+            Send Email
           </span>
-        </p>
-        <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-          Primary contact email
-          <input
-            name="primary_contact_email"
-            type="email"
-            className={inp}
-            defaultValue={String(r.primary_contact_email ?? "")}
-          />
-        </label>
+        )}
+        <a
+          href="#credentialing-hero-follow"
+          className="inline-flex items-center rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-950 shadow-sm hover:bg-indigo-100"
+        >
+          Set Follow-up
+        </a>
+      </div>
 
-        <div className="rounded-[20px] border border-slate-100 bg-slate-50/80 p-4">
-          <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-            Working notes
-            <textarea name="notes" rows={5} className={inp} defaultValue={String(r.notes ?? "")} />
-          </label>
-          <p className="mt-2 text-[11px] text-slate-500">
-            Notes are also copied to the timeline when you save (see Activity). Use “Add timeline entry” below for
-            quick dated comments without changing this field.
+      {/* Pipeline stepper */}
+      <section className={`${cardShell} p-4 sm:p-5`}>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h2 className="text-sm font-semibold text-slate-900">Pipeline</h2>
+            <p className="mt-1 text-xs text-slate-500">Click a stage to update credentialing and contracting status.</p>
+          </div>
+          <p className="text-[11px] font-medium text-slate-500">
+            Current: <span className="text-slate-800">{CREDENTIALING_PIPELINE_STEPS[pipelineStep]?.label ?? "—"}</span>
           </p>
         </div>
+        <div className="mt-4 flex w-full flex-col gap-2 sm:flex-row sm:flex-nowrap sm:items-stretch sm:gap-1">
+          {CREDENTIALING_PIPELINE_STEPS.map((step, idx) => {
+            const targets = getCredentialingPipelineTargets(idx as 0 | 1 | 2 | 3 | 4 | 5);
+            const cls = credentialingPipelineStepButtonClass(idx, pipelineStep);
+            return (
+              <form key={step.label} action={patchPayerCredentialingRecord} className="min-w-0 flex-1">
+                <input type="hidden" name="id" value={credentialingId} />
+                <input type="hidden" name="credentialing_status" value={targets.credentialing_status} />
+                <input type="hidden" name="contracting_status" value={targets.contracting_status} />
+                <button
+                  type="submit"
+                  title={step.label}
+                  className={`flex w-full min-w-0 flex-col items-center justify-center rounded-xl border px-1.5 py-2.5 text-center text-[10px] font-semibold leading-tight transition sm:text-[11px] ${cls}`}
+                >
+                  <span className="hidden sm:inline">{step.label}</span>
+                  <span className="sm:hidden">{step.short}</span>
+                </button>
+              </form>
+            );
+          })}
+        </div>
+      </section>
 
-        <label className="flex items-center gap-2 text-sm text-slate-700">
-          <input type="checkbox" name="mark_follow_up_now" value="1" className="rounded border-slate-300" />
-          Log follow-up as now (sets <span className="font-mono text-xs">last_follow_up_at</span>)
-        </label>
+      {/* Summary */}
+      <section className={`${cardShell} p-5 sm:p-6`}>
+        <h2 className="text-sm font-semibold text-slate-900">Credentialing summary</h2>
+        <p className="mt-1 text-xs text-slate-500">At-a-glance operational view (same data as before, condensed).</p>
+        <dl className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="rounded-xl border border-slate-100 bg-white/80 p-3">
+            <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Last activity</dt>
+            <dd className="mt-1 text-sm font-medium text-slate-900">
+              {latestActivity ? (
+                <>
+                  {latestActivity.summary}
+                  {latestActivityRel ? (
+                    <span className="block text-xs font-normal text-slate-500">({latestActivityRel})</span>
+                  ) : null}
+                </>
+              ) : (
+                <span className="text-slate-400">None yet</span>
+              )}
+            </dd>
+          </div>
+          <div className="rounded-xl border border-slate-100 bg-white/80 p-3">
+            <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Next step</dt>
+            <dd className="mt-1 text-sm font-medium text-slate-900">{next_action.trim() || "—"}</dd>
+          </div>
+          <div className="rounded-xl border border-slate-100 bg-white/80 p-3">
+            <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Missing documents</dt>
+            <dd className="mt-1 text-sm font-medium text-slate-900">
+              {documents.length === 0 ? (
+                <span className="text-slate-400">Checklist not loaded</span>
+              ) : docSummary.hasMissing ? (
+                <span className="text-amber-900">{docSummary.missing} missing</span>
+              ) : (
+                <span className="text-emerald-800">None</span>
+              )}
+            </dd>
+          </div>
+          <div className="rounded-xl border border-slate-100 bg-white/80 p-3">
+            <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Days in pipeline</dt>
+            <dd className="mt-1 text-sm font-medium tabular-nums text-slate-900">
+              {pipelineDays != null ? `${pipelineDays} days` : "—"}
+            </dd>
+          </div>
+        </dl>
+        <p className="mt-4 text-xs text-slate-500">
+          <span className="font-semibold text-slate-600">Last follow-up: </span>
+          {last_follow_up_at
+            ? new Date(last_follow_up_at).toLocaleString("en-US", {
+                dateStyle: "medium",
+                timeStyle: "short",
+              })
+            : "—"}
+          {" · "}
+          <span className="font-semibold text-slate-600">Next action due: </span>
+          {formatCredentialingDueDateLabel(next_action_due_date.trim() || null)}
+        </p>
+      </section>
 
-        <button
-          type="submit"
-          className="rounded-[20px] border border-sky-600 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-900 shadow-sm hover:bg-sky-100"
-        >
-          Save changes
-        </button>
-      </form>
+      {/* Timeline — above documents */}
+      <section
+        id="credentialing-timeline"
+        className={`scroll-mt-28 flex max-h-[min(70vh,40rem)] flex-col overflow-hidden ${cardShell} bg-slate-100/80 p-0`}
+      >
+        <div className="border-b border-slate-200/80 bg-white/90 px-5 py-4">
+          <h2 className="text-sm font-semibold text-slate-900">Timeline</h2>
+          <p className="mt-1 text-xs text-slate-500">Newest first — same activity feed as before.</p>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+          <ul className="space-y-4">
+            {activities.length === 0 ? (
+              <li className="text-sm text-slate-500">No activity yet. Saving the record or logging an entry will populate this list.</li>
+            ) : (
+              activities.map((a) => {
+                const who = a.created_by_user_id ? actorLabels.get(a.created_by_user_id) ?? "Staff" : "System";
+                const when = new Date(a.created_at).toLocaleString("en-US", {
+                  dateStyle: "medium",
+                  timeStyle: "short",
+                });
+                return (
+                  <li key={a.id} className="flex gap-3">
+                    <ActivityTypeIcon activityType={a.activity_type} />
+                    <div className="min-w-0 flex-1 rounded-2xl border border-slate-200/90 bg-white px-4 py-3 text-sm text-slate-800 shadow-sm">
+                      <div className="flex flex-wrap items-baseline justify-between gap-2">
+                        <span className="font-semibold text-slate-900">{a.summary}</span>
+                        <span className="text-[10px] font-medium uppercase tracking-wide text-slate-500">
+                          {formatCredentialingActivityTypeLabel(a.activity_type)} · {when}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-[11px] text-slate-500">By {who}</p>
+                      {a.details?.trim() ? (
+                        <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-slate-50/90 p-2 font-sans text-xs text-slate-700">
+                          {a.details}
+                        </pre>
+                      ) : null}
+                    </div>
+                  </li>
+                );
+              })
+            )}
+          </ul>
+        </div>
+        <div className="shrink-0 border-t border-slate-200/80 bg-white/95 p-3 backdrop-blur supports-[backdrop-filter]:bg-white/90">
+          <form action={appendCredentialingActivityNote} className="space-y-2">
+            <input type="hidden" name="credentialing_id" value={credentialingId} />
+            <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-700">
+              Add timeline entry
+              <textarea
+                name="activity_note"
+                required
+                rows={3}
+                className={inp}
+                placeholder="e.g. Called payer — left voicemail, expect callback Thursday."
+              />
+            </label>
+            <button
+              type="submit"
+              className="rounded-lg border border-sky-600 bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-700"
+            >
+              Log entry
+            </button>
+          </form>
+        </div>
+      </section>
 
+      {/* Document checklist */}
       {documents.length > 0 ? (
         <form
           id="credentialing-checklist"
           action={updatePayerCredentialingDocuments}
-          className="scroll-mt-24 space-y-4 rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm"
+          className={`scroll-mt-28 space-y-4 ${cardShell} bg-white p-5 sm:p-6`}
         >
           <input type="hidden" name="credentialing_id" value={credentialingId} />
           <div>
-            <h2 className="text-sm font-bold text-slate-900">Document checklist</h2>
+            <h2 className="text-sm font-semibold text-slate-900">Document checklist</h2>
             <p className="mt-1 text-xs text-slate-600">
-              Structured enrollment checklist (status only). For actual files, use{" "}
-              <span className="font-semibold text-slate-800">Additional documents</span> below. Mark N/A when a payer
-              does not require a row.
+              Structured enrollment checklist. Files live in{" "}
+              <span className="font-semibold text-slate-800">Additional documents</span> below — use View / Replace to
+              jump there.
             </p>
           </div>
-          <div className="overflow-x-auto rounded-[20px] border border-slate-100">
-            <table className="w-full min-w-[640px] text-left text-sm">
+          <div className="overflow-x-auto rounded-2xl border border-slate-100">
+            <table className="w-full min-w-[720px] text-left text-sm">
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50 text-xs font-semibold text-slate-600">
                   <th className="px-3 py-2">Document</th>
                   <th className="px-3 py-2">Status</th>
                   <th className="px-3 py-2">Uploaded</th>
-                  <th className="px-3 py-2">Set date now</th>
+                  <th className="px-3 py-2">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {documents.map((d) => {
                   const label =
                     PAYER_CREDENTIALING_DOC_LABELS[d.doc_type as PayerCredentialingDocType] ?? d.doc_type;
-                  const rowTone =
-                    d.status === "missing"
-                      ? "bg-red-50/90"
-                      : d.status === "uploaded"
-                        ? "bg-emerald-50/40"
-                        : "";
+                  const missing = d.status === "missing";
+                  const rowTone = missing ? "bg-red-50/90" : d.status === "uploaded" ? "bg-emerald-50/35" : "";
                   return (
                     <tr key={d.id} className={`border-b border-slate-50 last:border-0 ${rowTone}`}>
-                      <td className="px-3 py-2 font-medium text-slate-800">{label}</td>
+                      <td className="px-3 py-2">
+                        <span className="font-medium text-slate-900">{label}</span>
+                        {missing ? (
+                          <span className="ml-2 inline-flex rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-bold text-red-900">
+                            Needed
+                          </span>
+                        ) : null}
+                      </td>
                       <td className="px-3 py-2">
                         <select
                           name={`doc_status_${d.id}`}
-                          className="w-full max-w-[200px] rounded border border-slate-200 px-2 py-1 text-xs"
+                          className="w-full max-w-[220px] rounded-lg border border-slate-200 px-2 py-1.5 text-xs"
                           defaultValue={d.status}
                         >
                           {PAYER_CREDENTIALING_DOC_STATUS_VALUES.map((v) => (
@@ -606,10 +748,24 @@ export default async function AdminCredentialingDetailPage({
                           : "—"}
                       </td>
                       <td className="px-3 py-2">
-                        <label className="flex items-center gap-2 text-xs text-slate-700">
-                          <input type="checkbox" name={`doc_uploaded_now_${d.id}`} value="1" className="rounded border-slate-300" />
-                          Stamp now
-                        </label>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <a
+                            href="#credentialing-additional-docs"
+                            className="inline-flex rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-800 hover:bg-slate-50"
+                          >
+                            View
+                          </a>
+                          <a
+                            href="#credentialing-additional-docs"
+                            className="inline-flex rounded-lg border border-sky-200 bg-sky-50 px-2 py-1 text-[11px] font-semibold text-sky-900 hover:bg-sky-100"
+                          >
+                            Replace
+                          </a>
+                          <label className="inline-flex items-center gap-1 text-[11px] text-slate-600">
+                            <input type="checkbox" name={`doc_uploaded_now_${d.id}`} value="1" className="rounded border-slate-300" />
+                            Stamp now
+                          </label>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -619,24 +775,26 @@ export default async function AdminCredentialingDetailPage({
           </div>
           <button
             type="submit"
-            className="rounded-[20px] border border-violet-600 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-950 hover:bg-violet-100"
+            className="rounded-xl border border-violet-600 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-950 hover:bg-violet-100"
           >
             Save document statuses
           </button>
         </form>
       ) : (
-        <div className="rounded-[28px] border border-dashed border-slate-200 bg-slate-50/50 p-5 text-sm text-slate-600">
-          Document checklist will appear after migrations add <span className="font-mono text-xs">payer_credentialing_documents</span>.
+        <div className={`${cardShell} p-5 text-sm text-slate-600`}>
+          Document checklist will appear after migrations add{" "}
+          <span className="font-mono text-xs">payer_credentialing_documents</span>.
         </div>
       )}
 
+      {/* Additional documents */}
       {!attachFetchErr ? (
         <section
           id="credentialing-additional-docs"
-          className="scroll-mt-24 space-y-4 rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm"
+          className={`scroll-mt-28 space-y-4 ${cardShell} bg-white p-5 sm:p-6`}
         >
           <div>
-            <h2 className="text-sm font-bold text-slate-900">Additional documents</h2>
+            <h2 className="text-sm font-semibold text-slate-900">Additional documents</h2>
             <p className="mt-1 text-xs text-slate-600">
               Upload contracts, welcome letters, screenshots, or payer-specific forms. Files are stored in Supabase
               Storage (bucket <span className="font-mono text-[10px]">payer-credentialing</span>
@@ -648,7 +806,7 @@ export default async function AdminCredentialingDetailPage({
           <form
             action={uploadPayerCredentialingAttachment}
             encType="multipart/form-data"
-            className="rounded-[20px] border border-slate-100 bg-slate-50/50 p-4 space-y-3"
+            className="space-y-3 rounded-2xl border border-slate-100 bg-slate-50/50 p-4"
           >
             <input type="hidden" name="credentialing_id" value={credentialingId} />
             <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-700">
@@ -679,13 +837,13 @@ export default async function AdminCredentialingDetailPage({
             </label>
             <button
               type="submit"
-              className="rounded-[20px] border border-slate-800 bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+              className="rounded-xl border border-slate-800 bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
             >
               Upload attachment
             </button>
           </form>
 
-          <div className="overflow-x-auto rounded-[20px] border border-slate-100">
+          <div className="overflow-x-auto rounded-2xl border border-slate-100">
             <table className="w-full min-w-[720px] text-left text-sm">
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50 text-xs font-semibold text-slate-600">
@@ -759,63 +917,173 @@ export default async function AdminCredentialingDetailPage({
         </section>
       ) : null}
 
-      <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
-        <h2 className="text-sm font-bold text-slate-900">Activity &amp; timeline</h2>
-        <p className="mt-1 text-xs text-slate-600">Newest first. Append-only audit trail.</p>
+      {/* Edit details — full update form */}
+      <details className={`group ${cardShell} bg-white`}>
+        <summary className="cursor-pointer list-none px-5 py-4 text-base font-semibold text-slate-900 [&::-webkit-details-marker]:hidden">
+          <span className="inline-flex items-center gap-2">
+            Edit Details
+            <span className="text-xs font-normal text-slate-500">(all fields — same save behavior as before)</span>
+          </span>
+        </summary>
+        <div className="border-t border-slate-100 px-5 pb-6 pt-2">
+          <form action={updatePayerCredentialingRecord} className="space-y-6">
+            <input type="hidden" name="id" value={credentialingId} />
+            <h3 className="text-sm font-semibold text-slate-900">Update record</h3>
 
-        <form action={appendCredentialingActivityNote} className="mt-4 space-y-2 rounded-[20px] border border-sky-100 bg-sky-50/40 p-4">
-          <input type="hidden" name="credentialing_id" value={credentialingId} />
-          <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-700">
-            Add timeline entry
-            <textarea
-              name="activity_note"
-              required
-              rows={3}
-              className={inp}
-              placeholder="e.g. Called payer — left voicemail, expect callback Thursday."
-            />
-          </label>
-          <button
-            type="submit"
-            className="rounded-lg border border-sky-600 bg-white px-3 py-1.5 text-xs font-semibold text-sky-900 hover:bg-sky-50"
-          >
-            Log entry
-          </button>
-        </form>
+            <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+              Assigned owner
+              <select
+                name="assigned_owner_user_id"
+                className={inp}
+                defaultValue={assigned_owner_user_id || ""}
+              >
+                <option value="">Unassigned</option>
+                {staffOptions.map((s) => (
+                  <option key={s.user_id} value={s.user_id}>
+                    {credentialingStaffLabel(s)}
+                  </option>
+                ))}
+              </select>
+            </label>
 
-        <ul className="mt-6 space-y-3">
-          {activities.length === 0 ? (
-            <li className="text-sm text-slate-500">No activity yet. Saving the record or logging an entry will populate this list.</li>
-          ) : (
-            activities.map((a) => {
-              const who = a.created_by_user_id ? actorLabels.get(a.created_by_user_id) ?? "Staff" : "System";
-              const when = new Date(a.created_at).toLocaleString("en-US", {
-                dateStyle: "medium",
-                timeStyle: "short",
-              });
-              return (
-                <li
-                  key={a.id}
-                  className="rounded-[20px] border border-slate-100 bg-slate-50/60 px-4 py-3 text-sm text-slate-800"
+            <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+              Priority
+              <select name="priority" className={inp} defaultValue={priority}>
+                {CREDENTIALING_PRIORITY_VALUES.map((v) => (
+                  <option key={v} value={v}>
+                    {CREDENTIALING_PRIORITY_LABELS[v]}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+              Next action (what to do next)
+              <input name="next_action" className={inp} defaultValue={next_action} placeholder="e.g. Call payer re: application" />
+            </label>
+            <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+              Next action due date
+              <input name="next_action_due_date" type="date" className={inp} defaultValue={next_action_due_date} />
+            </label>
+
+            <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+              Payer name
+              <input name="payer_name" className={inp} defaultValue={payer_name} required />
+            </label>
+            <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+              Payer type / plan type
+              <input name="payer_type" className={inp} defaultValue={payer_type} />
+            </label>
+            <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+              State / market
+              <input name="market_state" className={inp} defaultValue={market_state} />
+            </label>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+                Credentialing status
+                <select
+                  name="credentialing_status"
+                  className={inp}
+                  defaultValue={credentialing_status || "in_progress"}
                 >
-                  <div className="flex flex-wrap items-baseline justify-between gap-2">
-                    <span className="font-semibold text-slate-900">{a.summary}</span>
-                    <span className="text-[10px] font-medium uppercase tracking-wide text-slate-500">
-                      {formatCredentialingActivityTypeLabel(a.activity_type)} · {when}
-                    </span>
-                  </div>
-                  <p className="mt-1 text-[11px] text-slate-500">By {who}</p>
-                  {a.details?.trim() ? (
-                    <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-white/80 p-2 font-sans text-xs text-slate-700">
-                      {a.details}
-                    </pre>
-                  ) : null}
-                </li>
-              );
-            })
-          )}
-        </ul>
-      </section>
+                  {CREDENTIALING_STATUS_VALUES.map((v) => (
+                    <option key={v} value={v}>
+                      {CREDENTIALING_STATUS_LABELS[v]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+                Contracting status
+                <select
+                  name="contracting_status"
+                  className={inp}
+                  defaultValue={contracting_status || "pending"}
+                >
+                  {CONTRACTING_STATUS_VALUES.map((v) => (
+                    <option key={v} value={v}>
+                      {CONTRACTING_STATUS_LABELS[v]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <div id="record-portal" className="scroll-mt-24 space-y-3 rounded-2xl border border-sky-100/80 bg-sky-50/30 p-4">
+              <p className="text-[10px] font-bold uppercase tracking-wide text-sky-900/80">Portal</p>
+              <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+                Portal URL
+                <input name="portal_url" type="url" className={inp} defaultValue={portal_url} />
+              </label>
+              <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+                Portal username hint (not password)
+                <input
+                  name="portal_username_hint"
+                  className={inp}
+                  defaultValue={portal_username_hint}
+                />
+              </label>
+            </div>
+
+            <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+              Primary contact name
+              <input
+                name="primary_contact_name"
+                className={inp}
+                defaultValue={String(r.primary_contact_name ?? "")}
+              />
+            </label>
+            <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+              Primary contact phone
+              <input
+                name="primary_contact_phone"
+                className={inp}
+                defaultValue={String(r.primary_contact_phone ?? "")}
+                autoComplete="tel"
+              />
+            </label>
+            <p className="text-xs text-slate-500">
+              Display:{" "}
+              <span className="tabular-nums font-medium text-slate-700">
+                {formatPhoneForDisplay(typeof r.primary_contact_phone === "string" ? r.primary_contact_phone : "")}
+              </span>
+            </p>
+            <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+              Primary contact email
+              <input
+                name="primary_contact_email"
+                type="email"
+                className={inp}
+                defaultValue={String(r.primary_contact_email ?? "")}
+              />
+            </label>
+
+            <div className="rounded-2xl border border-slate-100 bg-slate-50/80 p-4">
+              <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+                Working notes
+                <textarea name="notes" rows={5} className={inp} defaultValue={String(r.notes ?? "")} />
+              </label>
+              <p className="mt-2 text-[11px] text-slate-500">
+                Notes are also copied to the timeline when you save (see Activity). Use “Add timeline entry” above for
+                quick dated comments without changing this field.
+              </p>
+            </div>
+
+            <label className="flex items-center gap-2 text-sm text-slate-700">
+              <input type="checkbox" name="mark_follow_up_now" value="1" className="rounded border-slate-300" />
+              Log follow-up as now (sets <span className="font-mono text-xs">last_follow_up_at</span>)
+            </label>
+
+            <button
+              type="submit"
+              className="rounded-xl border border-sky-600 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-900 shadow-sm hover:bg-sky-100"
+            >
+              Save changes
+            </button>
+          </form>
+        </div>
+      </details>
 
       <div className="rounded-[28px] border border-slate-100 bg-slate-50/80 p-4 text-xs text-slate-600">
         <p>
