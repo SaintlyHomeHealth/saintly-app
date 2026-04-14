@@ -38,26 +38,31 @@ import {
 import {
   analyzePayerCredentialingAttention,
   CREDENTIALING_ATTENTION_REASON_LABELS,
-  formatCredentialingDueDateLabel,
-  payerCredentialingReadyToBill,
   type PayerCredentialingListRow,
 } from "@/lib/crm/credentialing-command-center";
+import {
+  computeCredentialingPipelineBlocker,
+  computeCredentialingPipelineStage,
+  credentialingPipelineBlockerBadgeClass,
+  credentialingPipelineStageBadgeClass,
+  CREDENTIALING_PIPELINE_BLOCKER_LABELS,
+  CREDENTIALING_PIPELINE_STAGE_LABELS,
+} from "@/lib/crm/credentialing-pipeline-display";
 import {
   CREDENTIALING_DISPLAY_TIMEZONE,
   formatCredentialingDateTime,
 } from "@/lib/crm/credentialing-datetime";
 import {
-  CREDENTIALING_PIPELINE_STEPS,
-  getCredentialingPipelineStepIndex,
-  getCredentialingPipelineTargets,
-  credentialingPipelineStepButtonClass,
+  getSimplifiedCredentialingPipelineStepIndex,
+  getSimplifiedCredentialingPipelineTargets,
+  SIMPLIFIED_CREDENTIALING_PIPELINE_STEPS,
+  simplifiedCredentialingPipelineStepButtonClass,
 } from "@/lib/crm/credentialing-pipeline-ui";
 import {
   PAYER_CREDENTIALING_DOC_LABELS,
   PAYER_CREDENTIALING_DOC_STATUS_LABELS,
   PAYER_CREDENTIALING_DOC_STATUS_VALUES,
   PAYER_CREDENTIALING_DOC_TYPES,
-  summarizePayerDocuments,
   type PayerCredentialingDocType,
 } from "@/lib/crm/credentialing-documents";
 import { PAYER_CREDENTIALING_MAX_ATTACHMENT_BYTES } from "@/lib/crm/payer-credentialing-storage";
@@ -66,11 +71,6 @@ import {
   loadCredentialingStaffAssignees,
   loadCredentialingStaffLabelMap,
 } from "@/lib/crm/credentialing-staff-directory";
-import {
-  ContractingStatusBadge,
-  CredentialingStatusBadge,
-  ReadyToBillBadge,
-} from "@/components/crm/CredentialingBadges";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
@@ -121,12 +121,6 @@ function formatAttachmentBytes(n: number | null): string {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function daysInPipeline(createdAt: string): number | null {
-  const t = Date.parse(createdAt);
-  if (Number.isNaN(t)) return null;
-  return Math.floor((Date.now() - t) / 86400000);
 }
 
 /** User-written timeline entries (`manual_note` in DB; `note` accepted if ever stored). */
@@ -289,23 +283,9 @@ export default async function AdminCredentialingDetailPage({
 
   const attention = analyzePayerCredentialingAttention(attentionRow);
   const attentionReasonText = attention.reasons.map((x) => CREDENTIALING_ATTENTION_REASON_LABELS[x]).join(" · ");
-  const readyToBill = payerCredentialingReadyToBill(credentialing_status, contracting_status);
-  const latestActivity = activities[0];
-  const latestActivityRel = latestActivity
-    ? (() => {
-        const t = Date.parse(latestActivity.created_at);
-        if (Number.isNaN(t)) return "";
-        /* eslint-disable-next-line react-hooks/purity -- server-rendered snapshot at request time */
-        const days = Math.floor((Date.now() - t) / 86400000);
-        if (days <= 0) return "today";
-        if (days === 1) return "yesterday";
-        return `${days} days ago`;
-      })()
-    : "";
-
-  const pipelineStep = getCredentialingPipelineStepIndex(credentialing_status, contracting_status);
-  const docSummary = summarizePayerDocuments(documents);
-  const pipelineDays = daysInPipeline(created_at);
+  const pipelineStage = computeCredentialingPipelineStage(attentionRow);
+  const pipelineBlocker = computeCredentialingPipelineBlocker(attentionRow);
+  const pipelineStep = getSimplifiedCredentialingPipelineStepIndex(credentialing_status, contracting_status);
   const primaryEmail = typeof r.primary_contact_email === "string" ? r.primary_contact_email.trim() : "";
   const mailtoHref = primaryEmail ? `mailto:${encodeURIComponent(primaryEmail)}` : "";
 
@@ -345,149 +325,117 @@ export default async function AdminCredentialingDetailPage({
         </p>
       ) : null}
 
-      {/* Hero card — CRM lead snapshot style */}
-      <section
-        id="credentialing-hero"
-        className={`scroll-mt-28 ${cardShell} p-5 sm:p-7`}
-      >
-        <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
-          <div className="min-w-0 flex-1 space-y-4">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Payer credentialing</p>
-              <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-950 sm:text-[1.65rem]">{payer_name}</h1>
-              <p className="mt-1 font-mono text-[11px] text-slate-400">{credentialingId}</p>
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              {(market_state ?? "").trim() ? (
-                <span className="inline-flex items-center rounded-full border border-slate-200/90 bg-white px-3 py-1 text-[11px] font-semibold text-slate-800 ring-1 ring-slate-100">
-                  {market_state.trim()}
-                </span>
-              ) : (
-                <span className="inline-flex items-center rounded-full border border-dashed border-slate-200 bg-white/60 px-3 py-1 text-[11px] text-slate-500">
-                  State not set
-                </span>
-              )}
-              {(payer_type ?? "").trim() ? (
-                <span className="inline-flex items-center rounded-full border border-slate-200/90 bg-white px-3 py-1 text-[11px] font-semibold text-slate-800 ring-1 ring-slate-100">
-                  {payer_type.trim()}
-                </span>
-              ) : (
-                <span className="inline-flex items-center rounded-full border border-dashed border-slate-200 bg-white/60 px-3 py-1 text-[11px] text-slate-500">
-                  Payer type not set
-                </span>
-              )}
-            </div>
-
+      {/* What to do next — action-first */}
+      <section id="credentialing-hero" className={`scroll-mt-28 ${cardShell} p-5 sm:p-6`}>
+        <p className="text-sm font-semibold text-slate-900">What to do next</p>
+        <div className="mt-4 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0 flex-1 space-y-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Payer credentialing</p>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-950 sm:text-[1.65rem]">{payer_name}</h1>
+            <p className="font-mono text-[11px] text-slate-400">{credentialingId}</p>
             <div className="flex flex-wrap items-center gap-2">
-              <CredentialingStatusBadge status={credentialing_status} />
-              <ContractingStatusBadge status={contracting_status} />
-              {readyToBill ? <ReadyToBillBadge /> : null}
-              {attention.needsAttention ? (
-                <span className="inline-flex items-center rounded-full border border-amber-400 bg-amber-100 px-3 py-1 text-[11px] font-bold text-amber-950">
-                  Needs attention
-                </span>
-              ) : (
-                <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[11px] font-semibold text-emerald-900">
-                  On track
-                </span>
-              )}
+              <span className={credentialingPipelineStageBadgeClass(pipelineStage)} title="Pipeline stage (derived)">
+                {CREDENTIALING_PIPELINE_STAGE_LABELS[pipelineStage]}
+              </span>
+              <span className={credentialingPipelineBlockerBadgeClass(pipelineBlocker)} title="Blocker (derived)">
+                {CREDENTIALING_PIPELINE_BLOCKER_LABELS[pipelineBlocker]}
+              </span>
             </div>
+            <p className="text-xs text-slate-500">
+              Raw credentialing / contracting values are unchanged — edit them anytime under{" "}
+              <span className="font-semibold text-slate-700">Edit Details</span>.
+            </p>
           </div>
+          <form action={patchPayerCredentialingRecord} className="w-full min-w-0 shrink-0 lg:max-w-md">
+            <input type="hidden" name="id" value={credentialingId} />
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
+                Next action
+                <input
+                  name="next_action"
+                  className={inp}
+                  defaultValue={next_action}
+                  placeholder="e.g. Call payer re: application status"
+                />
+              </label>
+              <label id="credentialing-hero-follow" className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+                Due date
+                <input name="next_action_due_date" type="date" className={inp} defaultValue={next_action_due_date} />
+              </label>
+              <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+                Owner
+                <select
+                  name="assigned_owner_user_id"
+                  className={inp}
+                  defaultValue={assigned_owner_user_id || ""}
+                >
+                  <option value="">Unassigned</option>
+                  {staffOptions.map((s) => (
+                    <option key={s.user_id} value={s.user_id}>
+                      {credentialingStaffLabel(s)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
+                Priority
+                <select name="priority" className={inp} defaultValue={priority}>
+                  {CREDENTIALING_PRIORITY_VALUES.map((v) => (
+                    <option key={v} value={v}>
+                      {CREDENTIALING_PRIORITY_LABELS[v]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              <button
+                type="submit"
+                className="rounded-xl border border-sky-600 bg-sky-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-sky-700"
+              >
+                Save queue
+              </button>
+              <span className="text-[11px] text-slate-500">
+                Owner: <span className="font-medium text-slate-700">{ownerLabel}</span>
+              </span>
+            </div>
+          </form>
+        </div>
+      </section>
 
-          <div className="w-full min-w-0 shrink-0 lg:max-w-md">
-            <form action={patchPayerCredentialingRecord} className={`${cardShell} bg-white/90 p-4`}>
-              <input type="hidden" name="id" value={credentialingId} />
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Working queue</p>
-              <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
-                  Assigned owner
-                  <select
-                    name="assigned_owner_user_id"
-                    className={inp}
-                    defaultValue={assigned_owner_user_id || ""}
-                  >
-                    <option value="">Unassigned</option>
-                    {staffOptions.map((s) => (
-                      <option key={s.user_id} value={s.user_id}>
-                        {credentialingStaffLabel(s)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-                  Priority
-                  <select name="priority" className={inp} defaultValue={priority}>
-                    {CREDENTIALING_PRIORITY_VALUES.map((v) => (
-                      <option key={v} value={v}>
-                        {CREDENTIALING_PRIORITY_LABELS[v]}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label id="credentialing-hero-follow" className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-                  Follow-up date
-                  <input name="next_action_due_date" type="date" className={inp} defaultValue={next_action_due_date} />
-                </label>
-                <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
-                  Next action
-                  <input
-                    name="next_action"
-                    className={inp}
-                    defaultValue={next_action}
-                    placeholder="e.g. Call payer re: application status"
-                  />
-                </label>
-              </div>
-              <div className="mt-4 flex flex-wrap items-center gap-2">
+      {/* Pipeline — simplified stages (writes underlying credentialing + contracting fields) */}
+      <section className={`${cardShell} p-4 sm:p-5`}>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h2 className="text-sm font-semibold text-slate-900">Pipeline</h2>
+            <p className="mt-1 text-xs text-slate-500">Click a stage to update credentialing and contracting status.</p>
+          </div>
+          <p className="text-[11px] font-medium text-slate-500">
+            Stepper:{" "}
+            <span className="text-slate-800">{SIMPLIFIED_CREDENTIALING_PIPELINE_STEPS[pipelineStep]?.label ?? "—"}</span>
+          </p>
+        </div>
+        <div className="mt-4 flex w-full flex-col gap-2 sm:flex-row sm:flex-nowrap sm:items-stretch sm:gap-1">
+          {SIMPLIFIED_CREDENTIALING_PIPELINE_STEPS.map((step, idx) => {
+            const targets = getSimplifiedCredentialingPipelineTargets(idx as 0 | 1 | 2 | 3 | 4 | 5);
+            const cls = simplifiedCredentialingPipelineStepButtonClass(idx, pipelineStep);
+            return (
+              <form key={step.label} action={patchPayerCredentialingRecord} className="min-w-0 flex-1">
+                <input type="hidden" name="id" value={credentialingId} />
+                <input type="hidden" name="credentialing_status" value={targets.credentialing_status} />
+                <input type="hidden" name="contracting_status" value={targets.contracting_status} />
                 <button
                   type="submit"
-                  className="rounded-xl border border-sky-600 bg-sky-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-sky-700"
+                  title={step.label}
+                  className={`flex w-full min-w-0 flex-col items-center justify-center rounded-xl border px-1.5 py-2.5 text-center text-[10px] font-semibold leading-tight transition sm:text-[11px] ${cls}`}
                 >
-                  Save header
+                  <span className="hidden sm:inline">{step.label}</span>
+                  <span className="sm:hidden">{step.short}</span>
                 </button>
-                <span className="text-[11px] text-slate-500">
-                  Owner shown: <span className="font-medium text-slate-700">{ownerLabel}</span>
-                </span>
-              </div>
-            </form>
-          </div>
+              </form>
+            );
+          })}
         </div>
-
-        <div className="mt-6 flex flex-col gap-3 border-t border-slate-100 pt-6 sm:flex-row sm:items-center sm:justify-between">
-          {portal_url.trim() ? (
-            <a
-              href={portal_url.trim()}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-sky-600 to-cyan-500 px-5 py-2.5 text-sm font-semibold text-white shadow-sm shadow-sky-200/60 transition hover:-translate-y-px hover:shadow-md"
-            >
-              <span aria-hidden>↗</span>
-              Open portal
-            </a>
-          ) : (
-            <p className="max-w-prose text-sm text-slate-600">
-              <span className="font-semibold text-slate-800">No portal URL yet.</span> Add one under Edit Details for
-              one-click access.
-            </p>
-          )}
-          {portal_username_hint.trim() ? (
-            <p className="rounded-xl border border-sky-100 bg-sky-50/80 px-3 py-2 text-[11px] text-slate-700">
-              <span className="font-semibold text-sky-900/80">Username hint: </span>
-              {portal_username_hint.trim()}
-            </p>
-          ) : null}
-        </div>
-
-        {attention.needsAttention ? (
-          <div
-            className="mt-4 rounded-[20px] border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950"
-            role="status"
-          >
-            <p className="font-bold">Operational attention</p>
-            <p className="mt-1 text-xs leading-relaxed text-amber-900">{attentionReasonText}</p>
-          </div>
-        ) : null}
       </section>
 
       {/* Quick actions */}
@@ -533,95 +481,49 @@ export default async function AdminCredentialingDetailPage({
           href="#credentialing-hero-follow"
           className="inline-flex items-center rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-950 shadow-sm hover:bg-indigo-100"
         >
-          Set Follow-up
+          Set due date
         </a>
       </div>
 
-      {/* Pipeline stepper */}
+      {/* Portal — secondary */}
       <section className={`${cardShell} p-4 sm:p-5`}>
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <h2 className="text-sm font-semibold text-slate-900">Pipeline</h2>
-            <p className="mt-1 text-xs text-slate-500">Click a stage to update credentialing and contracting status.</p>
-          </div>
-          <p className="text-[11px] font-medium text-slate-500">
-            Current: <span className="text-slate-800">{CREDENTIALING_PIPELINE_STEPS[pipelineStep]?.label ?? "—"}</span>
-          </p>
-        </div>
-        <div className="mt-4 flex w-full flex-col gap-2 sm:flex-row sm:flex-nowrap sm:items-stretch sm:gap-1">
-          {CREDENTIALING_PIPELINE_STEPS.map((step, idx) => {
-            const targets = getCredentialingPipelineTargets(idx as 0 | 1 | 2 | 3 | 4 | 5);
-            const cls = credentialingPipelineStepButtonClass(idx, pipelineStep);
-            return (
-              <form key={step.label} action={patchPayerCredentialingRecord} className="min-w-0 flex-1">
-                <input type="hidden" name="id" value={credentialingId} />
-                <input type="hidden" name="credentialing_status" value={targets.credentialing_status} />
-                <input type="hidden" name="contracting_status" value={targets.contracting_status} />
-                <button
-                  type="submit"
-                  title={step.label}
-                  className={`flex w-full min-w-0 flex-col items-center justify-center rounded-xl border px-1.5 py-2.5 text-center text-[10px] font-semibold leading-tight transition sm:text-[11px] ${cls}`}
-                >
-                  <span className="hidden sm:inline">{step.label}</span>
-                  <span className="sm:hidden">{step.short}</span>
-                </button>
-              </form>
-            );
-          })}
+        <h2 className="text-sm font-semibold text-slate-900">Portal</h2>
+        <p className="mt-1 text-xs text-slate-500">One-click access and hints (full fields under Edit Details).</p>
+        <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          {portal_url.trim() ? (
+            <a
+              href={portal_url.trim()}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-sky-600 to-cyan-500 px-5 py-2.5 text-sm font-semibold text-white shadow-sm shadow-sky-200/60 transition hover:-translate-y-px hover:shadow-md"
+            >
+              <span aria-hidden>↗</span>
+              Open portal
+            </a>
+          ) : (
+            <p className="max-w-prose text-sm text-slate-600">
+              <span className="font-semibold text-slate-800">No portal URL yet.</span> Add one under Edit Details for
+              one-click access.
+            </p>
+          )}
+          {portal_username_hint.trim() ? (
+            <p className="rounded-xl border border-sky-100 bg-sky-50/80 px-3 py-2 text-[11px] text-slate-700">
+              <span className="font-semibold text-sky-900/80">Username hint: </span>
+              {portal_username_hint.trim()}
+            </p>
+          ) : null}
         </div>
       </section>
 
-      {/* Summary */}
-      <section className={`${cardShell} p-5 sm:p-6`}>
-        <h2 className="text-sm font-semibold text-slate-900">Credentialing summary</h2>
-        <p className="mt-1 text-xs text-slate-500">At-a-glance operational view (same data as before, condensed).</p>
-        <dl className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="rounded-xl border border-slate-100 bg-white/80 p-3">
-            <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Last activity</dt>
-            <dd className="mt-1 text-sm font-medium text-slate-900">
-              {latestActivity ? (
-                <>
-                  {latestActivity.summary}
-                  {latestActivityRel ? (
-                    <span className="block text-xs font-normal text-slate-500">({latestActivityRel})</span>
-                  ) : null}
-                </>
-              ) : (
-                <span className="text-slate-400">None yet</span>
-              )}
-            </dd>
-          </div>
-          <div className="rounded-xl border border-slate-100 bg-white/80 p-3">
-            <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Next step</dt>
-            <dd className="mt-1 text-sm font-medium text-slate-900">{next_action.trim() || "—"}</dd>
-          </div>
-          <div className="rounded-xl border border-slate-100 bg-white/80 p-3">
-            <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Missing documents</dt>
-            <dd className="mt-1 text-sm font-medium text-slate-900">
-              {documents.length === 0 ? (
-                <span className="text-slate-400">Checklist not loaded</span>
-              ) : docSummary.hasMissing ? (
-                <span className="text-amber-900">{docSummary.missing} missing</span>
-              ) : (
-                <span className="text-emerald-800">None</span>
-              )}
-            </dd>
-          </div>
-          <div className="rounded-xl border border-slate-100 bg-white/80 p-3">
-            <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Days in pipeline</dt>
-            <dd className="mt-1 text-sm font-medium tabular-nums text-slate-900">
-              {pipelineDays != null ? `${pipelineDays} days` : "—"}
-            </dd>
-          </div>
-        </dl>
-        <p className="mt-4 text-xs text-slate-500">
-          <span className="font-semibold text-slate-600">Last follow-up: </span>
-          {last_follow_up_at ? formatCredentialingDateTime(last_follow_up_at) : "—"}
-          {" · "}
-          <span className="font-semibold text-slate-600">Next action due: </span>
-          {formatCredentialingDueDateLabel(next_action_due_date.trim() || null)}
-        </p>
-      </section>
+      {attention.needsAttention ? (
+        <div
+          className="rounded-[20px] border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 shadow-sm"
+          role="status"
+        >
+          <p className="font-bold">Operational attention</p>
+          <p className="mt-1 text-xs leading-relaxed text-amber-900">{attentionReasonText}</p>
+        </div>
+      ) : null}
 
       {/* Timeline — above documents */}
       <section
