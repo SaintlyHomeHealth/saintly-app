@@ -60,6 +60,9 @@ function matchesSegment(r: PayerCredentialingListRow, segment: CredentialingList
   if (segment === "stalled") {
     return r.credentialing_status === "stalled" || r.contracting_status === "stalled";
   }
+  if (segment === "denied") {
+    return r.credentialing_status === "denied";
+  }
   if (segment === "ready_to_bill") {
     return payerCredentialingReadyToBill(r.credentialing_status, r.contracting_status);
   }
@@ -92,6 +95,7 @@ function matchesSearch(r: PayerCredentialingListRow, q: string): boolean {
     ...extraEmails,
     r.portal_url,
     r.next_action,
+    r.denial_reason,
   ]
     .map((x) => (x ?? "").toLowerCase())
     .join(" ");
@@ -116,6 +120,7 @@ function normalizeCredentialingRows(raw: unknown[]): PayerCredentialingListRow[]
       priority: typeof r.priority === "string" ? r.priority : "medium",
       next_action: typeof r.next_action === "string" ? r.next_action : null,
       next_action_due_date: typeof r.next_action_due_date === "string" ? r.next_action_due_date : null,
+      denial_reason: typeof r.denial_reason === "string" ? r.denial_reason : null,
       primary_contact_phone_direct:
         typeof r.primary_contact_phone_direct === "string" ? r.primary_contact_phone_direct : null,
       primary_contact_fax: typeof r.primary_contact_fax === "string" ? r.primary_contact_fax : null,
@@ -160,7 +165,7 @@ export default async function AdminCredentialingPage({
        portal_url, primary_contact_name, primary_contact_phone, primary_contact_phone_direct, primary_contact_fax,
        primary_contact_email,
        notes, last_follow_up_at, updated_at, created_at, assigned_owner_user_id,
-       next_action, next_action_due_date, priority,
+       next_action, next_action_due_date, priority, denial_reason,
        payer_credentialing_record_emails ( email ),
        payer_credentialing_documents ( id, doc_type, status, uploaded_at )`
     )
@@ -223,7 +228,7 @@ export default async function AdminCredentialingPage({
         </p>
       ) : null}
 
-      <section className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
+      <section className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
         <Link
           href={buildCredentialingHref({ segment: "all", q: qTrim, priority: priorityFilter, bucket: "not_started" })}
           className={`${statCardBase} ${bucket === "not_started" ? "border-slate-800/25 ring-2 ring-slate-300/80" : "border-slate-200"}`}
@@ -258,6 +263,13 @@ export default async function AdminCredentialingPage({
         >
           <p className={statLabel}>Blocked</p>
           <p className={statValue}>{bucketStats.blocked}</p>
+        </Link>
+        <Link
+          href={buildCredentialingHref({ segment: "all", q: qTrim, priority: priorityFilter, bucket: "denied" })}
+          className={`${statCardBase} ${bucket === "denied" ? "border-red-400 ring-2 ring-red-200/90" : "border-red-100 bg-red-50/35"}`}
+        >
+          <p className={statLabel}>Denied</p>
+          <p className={`${statValue} text-red-950`}>{bucketStats.denied}</p>
         </Link>
       </section>
 

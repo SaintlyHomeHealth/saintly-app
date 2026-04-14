@@ -5,6 +5,7 @@ export const CREDENTIALING_STATUS_VALUES = [
   "submitted",
   "enrolled",
   "stalled",
+  "denied",
 ] as const;
 
 export type CredentialingStatusValue = (typeof CREDENTIALING_STATUS_VALUES)[number];
@@ -15,6 +16,7 @@ export const CREDENTIALING_STATUS_LABELS: Record<CredentialingStatusValue, strin
   submitted: "Submitted",
   enrolled: "Enrolled",
   stalled: "Stalled / needs follow-up",
+  denied: "Denied",
 };
 
 /** DB check: payer_credentialing_records.contracting_status */
@@ -66,6 +68,7 @@ export type CredentialingListSegment =
   | "enrolled"
   | "contracted"
   | "stalled"
+  | "denied"
   | "needs_attention"
   | "docs_missing"
   | "ready_to_bill";
@@ -77,6 +80,7 @@ export const CREDENTIALING_LIST_SEGMENTS: { value: CredentialingListSegment; lab
   { value: "enrolled", label: "Enrolled" },
   { value: "contracted", label: "Contracted" },
   { value: "stalled", label: "Stalled" },
+  { value: "denied", label: "Denied only" },
   { value: "ready_to_bill", label: "Ready to bill" },
   { value: "needs_attention", label: "Needs attention" },
   { value: "docs_missing", label: "Docs missing" },

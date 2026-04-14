@@ -21,6 +21,7 @@ export function credentialingBadgeTone(status: string): CredentialingBadgeTone {
     case "in_progress":
     case "submitted":
       return "yellow";
+    case "denied":
     case "stalled":
       return "red";
     case "not_started":
@@ -133,6 +134,8 @@ export type PayerCredentialingListRow = {
   next_action: string | null;
   next_action_due_date: string | null;
   priority: string;
+  /** Set when payer declined contracting (optional reporting field). */
+  denial_reason?: string | null;
   /** From nested select; empty if migration not applied yet */
   payer_credentialing_documents?: PayerCredentialingDocumentStub[] | null;
 };
@@ -161,6 +164,7 @@ function isStalledRow(r: PayerCredentialingListRow): boolean {
 }
 
 function isTightFollowUpLane(r: PayerCredentialingListRow): boolean {
+  if (r.credentialing_status === "denied") return false;
   return (
     r.credentialing_status === "in_progress" ||
     r.credentialing_status === "submitted" ||
@@ -218,6 +222,10 @@ export function analyzePayerCredentialingAttention(r: PayerCredentialingListRow)
 } {
   const reasons: CredentialingAttentionReason[] = [];
 
+  if (r.credentialing_status === "denied") {
+    return { needsAttention: false, reasons: [] };
+  }
+
   if (isStalledRow(r)) {
     reasons.push("stalled");
   }
@@ -270,6 +278,7 @@ export function computeCredentialingSummaryStats(rows: PayerCredentialingListRow
   enrolled: number;
   contracted: number;
   stalled: number;
+  denied: number;
   needsAttention: number;
   docsMissing: number;
   readyToBill: number;
@@ -280,12 +289,14 @@ export function computeCredentialingSummaryStats(rows: PayerCredentialingListRow
   let enrolled = 0;
   let contracted = 0;
   let stalled = 0;
+  let denied = 0;
   let needsAttention = 0;
   let docsMissing = 0;
   let readyToBill = 0;
   let highPriority = 0;
 
   for (const r of rows) {
+    if (r.credentialing_status === "denied") denied += 1;
     if (r.credentialing_status === "in_progress") inProgress += 1;
     if (r.credentialing_status === "submitted") submitted += 1;
     if (r.credentialing_status === "enrolled") enrolled += 1;
@@ -305,6 +316,7 @@ export function computeCredentialingSummaryStats(rows: PayerCredentialingListRow
     enrolled,
     contracted,
     stalled,
+    denied,
     needsAttention,
     docsMissing,
     readyToBill,

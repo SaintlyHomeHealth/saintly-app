@@ -12,6 +12,11 @@ import {
   type PayerCredentialingDocType,
 } from "@/lib/crm/credentialing-documents";
 import {
+  buildStoredDenialReason,
+  CREDENTIALING_DENIED_REAPPLY_DAYS,
+  CREDENTIALING_NEXT_ACTION_REAPPLY,
+} from "@/lib/crm/credentialing-denial";
+import {
   isContractingStatus,
   isCredentialingPriority,
   isCredentialingStatus,
@@ -62,10 +67,11 @@ type PayerRecordRow = {
   next_action: string | null;
   next_action_due_date: string | null;
   priority: string | null;
+  denial_reason: string | null;
 };
 
 const PAYER_RECORD_SELECT_FULL =
-  "id, payer_name, payer_type, market_state, credentialing_status, contracting_status, portal_url, portal_username_hint, primary_contact_name, primary_contact_phone, primary_contact_phone_direct, primary_contact_fax, primary_contact_email, primary_contact_title, primary_contact_department, primary_contact_website, primary_contact_notes, primary_contact_last_contacted_at, primary_contact_preferred_method, primary_contact_status, notes, last_follow_up_at, assigned_owner_user_id, next_action, next_action_due_date, priority";
+  "id, payer_name, payer_type, market_state, credentialing_status, contracting_status, portal_url, portal_username_hint, primary_contact_name, primary_contact_phone, primary_contact_phone_direct, primary_contact_fax, primary_contact_email, primary_contact_title, primary_contact_department, primary_contact_website, primary_contact_notes, primary_contact_last_contacted_at, primary_contact_preferred_method, primary_contact_status, notes, last_follow_up_at, assigned_owner_user_id, next_action, next_action_due_date, priority, denial_reason";
 
 /** Keeps payer_credentialing_record_emails primary row in sync when the legacy single email field changes. */
 async function syncPrimaryEmailRowForRecord(recordId: string, primaryEmail: string | null) {
@@ -113,6 +119,12 @@ async function insertCredentialingActivity(params: {
   if (error) {
     console.warn("[credentialing] activity insert:", error.message);
   }
+}
+
+function credentialingDueDatePlusDays(days: number): string {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
 }
 
 function readOwnerId(formData: FormData): string | null {
@@ -278,6 +290,10 @@ export async function updatePayerCredentialingRecord(formData: FormData) {
   }
   if (cred) payload.credentialing_status = cred;
   if (cont) payload.contracting_status = cont;
+
+  if (cred && cred !== "denied" && (old.credentialing_status ?? "").trim() === "denied") {
+    payload.denial_reason = null;
+  }
 
   if (ownerFieldPresent) {
     payload.assigned_owner_user_id = newOwner ?? null;
@@ -455,6 +471,13 @@ export async function patchPayerCredentialingRecord(formData: FormData) {
     payload.assigned_owner_user_id = readOwnerId(formData);
   }
 
+  if (payload.credentialing_status != null) {
+    const nc = String(payload.credentialing_status).trim();
+    if ((old.credentialing_status ?? "").trim() === "denied" && nc !== "denied") {
+      payload.denial_reason = null;
+    }
+  }
+
   const markFollowUp = formData.get("mark_follow_up_now") === "1";
   if (markFollowUp) {
     payload.last_follow_up_at = new Date().toISOString();
@@ -562,6 +585,101 @@ export async function appendCredentialingActivityNote(formData: FormData) {
     activityType: PAYER_CREDENTIALING_ACTIVITY_TYPES.manual_note,
     summary: "Note",
     details: body,
+    createdByUserId: staff.user_id,
+  });
+
+  revalidatePath("/admin/credentialing");
+  revalidatePath(`/admin/credentialing/${id}`);
+}
+
+/** Sets credentialing to denied, optional reason, and schedules reapply follow-up (+90 days by default). */
+export async function markPayerCredentialingDenied(formData: FormData) {
+  const staff = await getStaffProfile();
+  if (!staff || !isManagerOrHigher(staff)) {
+    return;
+  }
+
+  const id = readTrimmed(formData, "credentialing_id");
+  if (!id) return;
+
+  const category = readTrimmed(formData, "denial_reason_category");
+  const other = readTrimmed(formData, "denial_reason_other");
+  const storedReason = buildStoredDenialReason(category, other);
+
+  const due = credentialingDueDatePlusDays(CREDENTIALING_DENIED_REAPPLY_DAYS);
+
+  const { error } = await supabaseAdmin
+    .from("payer_credentialing_records")
+    .update({
+      credentialing_status: "denied",
+      contracting_status: "pending",
+      denial_reason: storedReason,
+      next_action: CREDENTIALING_NEXT_ACTION_REAPPLY,
+      next_action_due_date: due,
+    })
+    .eq("id", id);
+
+  if (error) {
+    console.warn("[credentialing] mark denied:", error.message);
+    return;
+  }
+
+  const detailsLines: string[] = [];
+  if (storedReason) detailsLines.push(`Reason: ${storedReason}`);
+  detailsLines.push(`Reapply follow-up due: ${due}`);
+
+  await insertCredentialingActivity({
+    credentialingRecordId: id,
+    activityType: PAYER_CREDENTIALING_ACTIVITY_TYPES.status_change,
+    summary: "Marked as denied",
+    details: detailsLines.join("\n"),
+    createdByUserId: staff.user_id,
+  });
+
+  revalidatePath("/admin/credentialing");
+  revalidatePath(`/admin/credentialing/${id}`);
+}
+
+/** Clears denial and returns the file to active work (in progress). */
+export async function reapplyPayerCredentialing(formData: FormData) {
+  const staff = await getStaffProfile();
+  if (!staff || !isManagerOrHigher(staff)) {
+    return;
+  }
+
+  const id = readTrimmed(formData, "credentialing_id");
+  if (!id) return;
+
+  const { data: cur, error: loadErr } = await supabaseAdmin
+    .from("payer_credentialing_records")
+    .select("credentialing_status")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (loadErr || !cur || (cur as { credentialing_status: string | null }).credentialing_status !== "denied") {
+    if (loadErr) console.warn("[credentialing] reapply load:", loadErr.message);
+    return;
+  }
+
+  const { error } = await supabaseAdmin
+    .from("payer_credentialing_records")
+    .update({
+      credentialing_status: "in_progress",
+      contracting_status: "pending",
+      denial_reason: null,
+    })
+    .eq("id", id);
+
+  if (error) {
+    console.warn("[credentialing] reapply:", error.message);
+    return;
+  }
+
+  await insertCredentialingActivity({
+    credentialingRecordId: id,
+    activityType: PAYER_CREDENTIALING_ACTIVITY_TYPES.status_change,
+    summary: "Reapplication started",
+    details: "Credentialing set to In progress; denial reason cleared.",
     createdByUserId: staff.user_id,
   });
 

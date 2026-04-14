@@ -4,7 +4,9 @@ import { notFound, redirect } from "next/navigation";
 
 import {
   deletePayerCredentialingAttachment,
+  markPayerCredentialingDenied,
   patchPayerCredentialingRecord,
+  reapplyPayerCredentialing,
   updatePayerCredentialingDocuments,
   updatePayerCredentialingRecord,
 } from "../actions";
@@ -40,6 +42,7 @@ import { formatCredentialingDateTime } from "@/lib/crm/credentialing-datetime";
 import {
   getSimplifiedCredentialingPipelineStepIndex,
   getSimplifiedCredentialingPipelineTargets,
+  type SimplifiedCredentialingPipelineStepIndex,
   SIMPLIFIED_CREDENTIALING_PIPELINE_STEPS,
   simplifiedCredentialingPipelineStepButtonClass,
 } from "@/lib/crm/credentialing-pipeline-ui";
@@ -50,6 +53,7 @@ import {
   PAYER_CREDENTIALING_DOC_TYPES,
   type PayerCredentialingDocType,
 } from "@/lib/crm/credentialing-documents";
+import { PAYER_DENIAL_REASON_VALUES } from "@/lib/crm/credentialing-denial";
 import { PAYER_CREDENTIALING_MAX_ATTACHMENT_BYTES } from "@/lib/crm/payer-credentialing-storage";
 import {
   credentialingStaffLabel,
@@ -154,6 +158,7 @@ export default async function AdminCredentialingDetailPage({
   const market_state = String(r.market_state ?? "");
   const credentialing_status = String(r.credentialing_status ?? "in_progress");
   const contracting_status = String(r.contracting_status ?? "pending");
+  const denial_reason = typeof r.denial_reason === "string" ? r.denial_reason : "";
   const last_follow_up_at = typeof r.last_follow_up_at === "string" ? r.last_follow_up_at : null;
   const assigned_owner_user_id =
     typeof r.assigned_owner_user_id === "string" ? r.assigned_owner_user_id.trim() : "";
@@ -451,12 +456,28 @@ export default async function AdminCredentialingDetailPage({
             <span className="text-slate-800">{SIMPLIFIED_CREDENTIALING_PIPELINE_STEPS[pipelineStep]?.label ?? "—"}</span>
           </p>
         </div>
-        <div className="mt-4 flex w-full flex-col gap-2 sm:flex-row sm:flex-nowrap sm:items-stretch sm:gap-1">
+        <div className="mt-4 flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-stretch sm:gap-1">
           {SIMPLIFIED_CREDENTIALING_PIPELINE_STEPS.map((step, idx) => {
-            const targets = getSimplifiedCredentialingPipelineTargets(idx as 0 | 1 | 2 | 3 | 4 | 5);
-            const cls = simplifiedCredentialingPipelineStepButtonClass(idx, pipelineStep);
+            if (idx === 5) {
+              const cls = simplifiedCredentialingPipelineStepButtonClass(idx, pipelineStep, { deniedStepIndex: 5 });
+              return (
+                <form key={step.label} action={markPayerCredentialingDenied} className="min-w-[88px] flex-1">
+                  <input type="hidden" name="credentialing_id" value={credentialingId} />
+                  <button
+                    type="submit"
+                    title="Mark denied (sets follow-up for reapply)"
+                    className={`flex w-full min-w-0 flex-col items-center justify-center rounded-xl border px-1.5 py-2.5 text-center text-[10px] font-semibold leading-tight transition sm:text-[11px] ${cls}`}
+                  >
+                    <span className="hidden sm:inline">{step.label}</span>
+                    <span className="sm:hidden">{step.short}</span>
+                  </button>
+                </form>
+              );
+            }
+            const targets = getSimplifiedCredentialingPipelineTargets(idx as SimplifiedCredentialingPipelineStepIndex);
+            const cls = simplifiedCredentialingPipelineStepButtonClass(idx, pipelineStep, { deniedStepIndex: 5 });
             return (
-              <form key={step.label} action={patchPayerCredentialingRecord} className="min-w-0 flex-1">
+              <form key={step.label} action={patchPayerCredentialingRecord} className="min-w-[88px] flex-1">
                 <input type="hidden" name="id" value={credentialingId} />
                 <input type="hidden" name="credentialing_status" value={targets.credentialing_status} />
                 <input type="hidden" name="contracting_status" value={targets.contracting_status} />
@@ -472,6 +493,12 @@ export default async function AdminCredentialingDetailPage({
             );
           })}
         </div>
+        {denial_reason.trim() ? (
+          <p className="mt-3 rounded-xl border border-red-200/80 bg-red-50/90 px-3 py-2 text-xs text-red-950">
+            <span className="font-semibold">Denial reason: </span>
+            {denial_reason}
+          </p>
+        ) : null}
       </section>
 
       {/* Quick actions */}
@@ -519,6 +546,53 @@ export default async function AdminCredentialingDetailPage({
         >
           Set due date
         </a>
+        {credentialing_status === "denied" ? (
+          <form action={reapplyPayerCredentialing} className="inline">
+            <input type="hidden" name="credentialing_id" value={credentialingId} />
+            <button
+              type="submit"
+              className="rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-950 shadow-sm ring-1 ring-emerald-200/80 hover:bg-emerald-100"
+            >
+              Reapply
+            </button>
+          </form>
+        ) : (
+          <form
+            action={markPayerCredentialingDenied}
+            className="flex flex-col gap-2 rounded-xl border border-red-200/90 bg-red-50/40 p-3 sm:inline-flex sm:flex-row sm:flex-wrap sm:items-end"
+          >
+            <input type="hidden" name="credentialing_id" value={credentialingId} />
+            <div className="flex min-w-[180px] flex-col gap-1">
+              <span className="text-[11px] font-semibold text-red-950">Mark Denied</span>
+              <select
+                name="denial_reason_category"
+                className="rounded-lg border border-red-200/90 bg-white px-2 py-1.5 text-sm text-slate-900"
+                defaultValue=""
+              >
+                <option value="">Reason (optional)…</option>
+                {PAYER_DENIAL_REASON_VALUES.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <label className="flex min-w-[160px] flex-col gap-1 text-[11px] font-medium text-red-900/90">
+              Other detail
+              <input
+                name="denial_reason_other"
+                placeholder="If “Other”"
+                className="rounded-lg border border-red-200/90 bg-white px-2 py-1.5 text-sm text-slate-900"
+              />
+            </label>
+            <button
+              type="submit"
+              className="rounded-xl border border-red-600 bg-red-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-red-700"
+            >
+              Mark Denied
+            </button>
+          </form>
+        )}
       </div>
 
       <PayerWorkingContactCard
