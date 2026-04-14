@@ -21,7 +21,9 @@ import {
   updatePayerCredentialingDocuments,
   updatePayerCredentialingRecord,
 } from "../actions";
+import { PayerContactQuickStrip, PayerWorkingContactCard } from "./PayerContactBlocks";
 import { CredentialingAttachmentUploadForm } from "./CredentialingAttachmentUploadForm";
+import { PayerCredentialingEmailsForm } from "@/components/credentialing/PayerCredentialingEmailsForm";
 import {
   formatCredentialingActivityTypeLabel,
   PAYER_CREDENTIALING_ACTIVITY_TYPES,
@@ -71,6 +73,7 @@ import {
   loadCredentialingStaffAssignees,
   loadCredentialingStaffLabelMap,
 } from "@/lib/crm/credentialing-staff-directory";
+import type { PayerCredentialingRecordEmail } from "@/lib/crm/payer-credentialing-contact";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
@@ -247,6 +250,16 @@ export default async function AdminCredentialingDetailPage({
 
   const attachments = !attachFetchErr ? ((rawAttachments ?? []) as AttachmentRow[]) : [];
 
+  const { data: rawEmailRows, error: emailFetchErr } = await supabase
+    .from("payer_credentialing_record_emails")
+    .select("id, email, label, is_primary, sort_order")
+    .eq("credentialing_record_id", id)
+    .order("sort_order", { ascending: true });
+
+  const emailRows: PayerCredentialingRecordEmail[] = !emailFetchErr
+    ? ((rawEmailRows ?? []) as PayerCredentialingRecordEmail[])
+    : [];
+
   const actorIds = [
     ...activities.map((a) => a.created_by_user_id),
     ...attachments.map((a) => a.uploaded_by_user_id),
@@ -259,6 +272,26 @@ export default async function AdminCredentialingDetailPage({
     ? ownerLabelMap.get(assigned_owner_user_id) ?? `${assigned_owner_user_id.slice(0, 8)}…`
     : "Unassigned";
 
+  const primaryEmail = typeof r.primary_contact_email === "string" ? r.primary_contact_email.trim() : "";
+  const primary_phone_direct = typeof r.primary_contact_phone_direct === "string" ? r.primary_contact_phone_direct : "";
+  const primary_fax = typeof r.primary_contact_fax === "string" ? r.primary_contact_fax : "";
+  const primary_title = typeof r.primary_contact_title === "string" ? r.primary_contact_title : "";
+  const primary_dept = typeof r.primary_contact_department === "string" ? r.primary_contact_department : "";
+  const primary_website = typeof r.primary_contact_website === "string" ? r.primary_contact_website : "";
+  const primary_contact_notes_field =
+    typeof r.primary_contact_notes === "string" ? r.primary_contact_notes : "";
+  const primary_last_contacted =
+    typeof r.primary_contact_last_contacted_at === "string" ? r.primary_contact_last_contacted_at : "";
+  const primary_pref =
+    typeof r.primary_contact_preferred_method === "string" ? r.primary_contact_preferred_method.trim() : "";
+  const primary_status =
+    typeof r.primary_contact_status === "string" &&
+    (r.primary_contact_status === "active" || r.primary_contact_status === "inactive")
+      ? r.primary_contact_status
+      : "active";
+  const lastContactedDate =
+    primary_last_contacted && primary_last_contacted.length >= 10 ? primary_last_contacted.slice(0, 10) : "";
+
   const attentionRow: PayerCredentialingListRow = {
     id,
     payer_name,
@@ -269,7 +302,15 @@ export default async function AdminCredentialingDetailPage({
     portal_url: portal_url.trim() ? portal_url : null,
     primary_contact_name: typeof r.primary_contact_name === "string" ? r.primary_contact_name : null,
     primary_contact_phone: typeof r.primary_contact_phone === "string" ? r.primary_contact_phone : null,
+    primary_contact_phone_direct: primary_phone_direct.trim() ? primary_phone_direct : null,
+    primary_contact_fax: primary_fax.trim() ? primary_fax : null,
     primary_contact_email: typeof r.primary_contact_email === "string" ? r.primary_contact_email : null,
+    payer_credentialing_record_emails:
+      emailRows.length > 0
+        ? emailRows.map((e) => ({ email: e.email }))
+        : primaryEmail
+          ? [{ email: primaryEmail }]
+          : [],
     notes: typeof r.notes === "string" ? r.notes : null,
     last_follow_up_at,
     updated_at: typeof r.updated_at === "string" ? r.updated_at : "",
@@ -286,8 +327,40 @@ export default async function AdminCredentialingDetailPage({
   const pipelineStage = computeCredentialingPipelineStage(attentionRow);
   const pipelineBlocker = computeCredentialingPipelineBlocker(attentionRow);
   const pipelineStep = getSimplifiedCredentialingPipelineStepIndex(credentialing_status, contracting_status);
-  const primaryEmail = typeof r.primary_contact_email === "string" ? r.primary_contact_email.trim() : "";
+
   const mailtoHref = primaryEmail ? `mailto:${encodeURIComponent(primaryEmail)}` : "";
+
+  const emailsForStrip =
+    emailRows.length > 0
+      ? emailRows.map((e) => ({ email: e.email, label: e.label, is_primary: e.is_primary }))
+      : primaryEmail
+        ? [{ email: primaryEmail, label: null as string | null, is_primary: true }]
+        : [];
+
+  const lastSnapshot = activities[0]
+    ? {
+        summary: activities[0].summary,
+        when: formatCredentialingDateTime(activities[0].created_at),
+      }
+    : null;
+
+  const emailRowsForForm =
+    emailRows.length > 0
+      ? emailRows.map((e) => ({
+          email: e.email,
+          label: e.label?.trim() ?? "",
+          is_primary: e.is_primary,
+        }))
+      : primaryEmail
+        ? [{ email: primaryEmail, label: "", is_primary: true }]
+        : [];
+
+  const displayEmailsForCard: PayerCredentialingRecordEmail[] =
+    emailRows.length > 0
+      ? emailRows
+      : primaryEmail
+        ? [{ id: "legacy-primary", email: primaryEmail, label: null, is_primary: true }]
+        : [];
 
   const cardShell =
     "rounded-[28px] border border-slate-200/90 bg-gradient-to-b from-white to-slate-50/90 shadow-[0_1px_3px_rgba(15,23,42,0.06)] ring-1 ring-slate-200/60";
@@ -324,6 +397,24 @@ export default async function AdminCredentialingDetailPage({
           applied.
         </p>
       ) : null}
+      {emailFetchErr ? (
+        <p className="text-sm text-amber-900">
+          Contact email list is unavailable until{" "}
+          <span className="font-mono text-xs">payer_credentialing_record_emails</span> is migrated.
+        </p>
+      ) : null}
+
+      <PayerContactQuickStrip
+        payerName={payer_name}
+        contactName={typeof r.primary_contact_name === "string" ? r.primary_contact_name : ""}
+        portalUrl={portal_url}
+        portalUsernameHint={portal_username_hint}
+        mainPhone={typeof r.primary_contact_phone === "string" ? r.primary_contact_phone : ""}
+        directPhone={primary_phone_direct}
+        fax={primary_fax}
+        emails={emailsForStrip}
+        lastSnapshot={lastSnapshot}
+      />
 
       {/* What to do next — action-first */}
       <section id="credentialing-hero" className={`scroll-mt-28 ${cardShell} p-5 sm:p-6`}>
@@ -485,35 +576,21 @@ export default async function AdminCredentialingDetailPage({
         </a>
       </div>
 
-      {/* Portal — secondary */}
-      <section className={`${cardShell} p-4 sm:p-5`}>
-        <h2 className="text-sm font-semibold text-slate-900">Portal</h2>
-        <p className="mt-1 text-xs text-slate-500">One-click access and hints (full fields under Edit Details).</p>
-        <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          {portal_url.trim() ? (
-            <a
-              href={portal_url.trim()}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-sky-600 to-cyan-500 px-5 py-2.5 text-sm font-semibold text-white shadow-sm shadow-sky-200/60 transition hover:-translate-y-px hover:shadow-md"
-            >
-              <span aria-hidden>↗</span>
-              Open portal
-            </a>
-          ) : (
-            <p className="max-w-prose text-sm text-slate-600">
-              <span className="font-semibold text-slate-800">No portal URL yet.</span> Add one under Edit Details for
-              one-click access.
-            </p>
-          )}
-          {portal_username_hint.trim() ? (
-            <p className="rounded-xl border border-sky-100 bg-sky-50/80 px-3 py-2 text-[11px] text-slate-700">
-              <span className="font-semibold text-sky-900/80">Username hint: </span>
-              {portal_username_hint.trim()}
-            </p>
-          ) : null}
-        </div>
-      </section>
+      <PayerWorkingContactCard
+        contactName={typeof r.primary_contact_name === "string" ? r.primary_contact_name : ""}
+        title={primary_title}
+        department={primary_dept}
+        mainPhone={typeof r.primary_contact_phone === "string" ? r.primary_contact_phone : ""}
+        directPhone={primary_phone_direct}
+        fax={primary_fax}
+        preferred={primary_pref}
+        status={primary_status}
+        website={primary_website}
+        contactNotes={primary_contact_notes_field}
+        lastContactedAt={primary_last_contacted}
+        portalUrl={portal_url}
+        displayEmails={displayEmailsForCard}
+      />
 
       {attention.needsAttention ? (
         <div
@@ -797,7 +874,7 @@ export default async function AdminCredentialingDetailPage({
       ) : null}
 
       {/* Edit details — full update form */}
-      <details className={`group ${cardShell} bg-white`}>
+      <details id="credentialing-edit-details" className={`group scroll-mt-28 ${cardShell} bg-white`}>
         <summary className="cursor-pointer list-none px-5 py-4 text-base font-semibold text-slate-900 [&::-webkit-details-marker]:hidden">
           <span className="inline-flex items-center gap-2">
             Edit Details
@@ -913,8 +990,18 @@ export default async function AdminCredentialingDetailPage({
                 defaultValue={String(r.primary_contact_name ?? "")}
               />
             </label>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+                Title
+                <input name="primary_contact_title" className={inp} defaultValue={primary_title} />
+              </label>
+              <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+                Department
+                <input name="primary_contact_department" className={inp} defaultValue={primary_dept} />
+              </label>
+            </div>
             <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-              Primary contact phone
+              Main phone
               <input
                 name="primary_contact_phone"
                 className={inp}
@@ -922,19 +1009,76 @@ export default async function AdminCredentialingDetailPage({
                 autoComplete="tel"
               />
             </label>
+            <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+              Direct phone
+              <input
+                name="primary_contact_phone_direct"
+                className={inp}
+                defaultValue={primary_phone_direct}
+                autoComplete="tel"
+              />
+            </label>
+            <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+              Fax
+              <input name="primary_contact_fax" className={inp} defaultValue={primary_fax} autoComplete="tel" />
+            </label>
             <p className="text-xs text-slate-500">
-              Display:{" "}
+              Display (main):{" "}
               <span className="tabular-nums font-medium text-slate-700">
                 {formatPhoneForDisplay(typeof r.primary_contact_phone === "string" ? r.primary_contact_phone : "")}
               </span>
             </p>
             <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-              Primary contact email
+              Primary contact email (legacy column — synced from email list save)
               <input
                 name="primary_contact_email"
                 type="email"
                 className={inp}
                 defaultValue={String(r.primary_contact_email ?? "")}
+              />
+            </label>
+
+            <PayerCredentialingEmailsForm credentialingId={credentialingId} initialRows={emailRowsForForm} />
+
+            <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+              Contact website (payer site)
+              <input name="primary_contact_website" type="url" className={inp} defaultValue={primary_website} />
+            </label>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+                Last contacted
+                <input
+                  name="primary_contact_last_contacted_at"
+                  type="date"
+                  className={inp}
+                  defaultValue={lastContactedDate}
+                />
+              </label>
+              <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+                Preferred contact method
+                <select name="primary_contact_preferred_method" className={inp} defaultValue={primary_pref || ""}>
+                  <option value="">—</option>
+                  <option value="phone">Phone</option>
+                  <option value="email">Email</option>
+                  <option value="fax">Fax</option>
+                </select>
+              </label>
+            </div>
+            <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+              Contact status
+              <select name="primary_contact_status" className={inp} defaultValue={primary_status}>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+              </select>
+            </label>
+            <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+              Notes about this contact
+              <textarea
+                name="primary_contact_notes"
+                rows={3}
+                className={inp}
+                defaultValue={primary_contact_notes_field}
+                placeholder="Context: best time to call, escalation path, relationship notes…"
               />
             </label>
 

@@ -23,6 +23,7 @@ import {
   credentialingPipelineStageBadgeClass,
   CREDENTIALING_PIPELINE_BLOCKER_LABELS,
   CREDENTIALING_PIPELINE_STAGE_LABELS,
+  getCredentialingSummaryBucketForRow,
   isCredentialingSummaryBucket,
   matchesCredentialingSummaryBucket,
   type CredentialingSummaryBucket,
@@ -51,7 +52,8 @@ function buildCredentialingHref(sp: {
 
 function matchesSegment(r: PayerCredentialingListRow, segment: CredentialingListSegment): boolean {
   if (segment === "all") return true;
-  if (segment === "in_progress") return r.credentialing_status === "in_progress";
+  // Align with summary "In progress" bucket (same as row pipeline stage), not raw DB status alone.
+  if (segment === "in_progress") return getCredentialingSummaryBucketForRow(r) === "in_progress";
   if (segment === "submitted") return r.credentialing_status === "submitted";
   if (segment === "enrolled") return r.credentialing_status === "enrolled";
   if (segment === "contracted") return r.contracting_status === "contracted";
@@ -79,11 +81,15 @@ function matchesPriorityFilter(r: PayerCredentialingListRow, pf: PriorityFilter)
 function matchesSearch(r: PayerCredentialingListRow, q: string): boolean {
   const needle = q.trim().toLowerCase();
   if (!needle) return true;
+  const extraEmails = (r.payer_credentialing_record_emails ?? []).map((e) => e.email);
   const hay = [
     r.payer_name,
     r.primary_contact_name,
     r.primary_contact_phone,
+    r.primary_contact_phone_direct,
+    r.primary_contact_fax,
     r.primary_contact_email,
+    ...extraEmails,
     r.portal_url,
     r.next_action,
   ]
@@ -97,6 +103,12 @@ function normalizeCredentialingRows(raw: unknown[]): PayerCredentialingListRow[]
     const r = row as Record<string, unknown>;
     const updated = typeof r.updated_at === "string" ? r.updated_at : "";
     const created = typeof r.created_at === "string" ? r.created_at : updated;
+    const nested =
+      Array.isArray(r.payer_credentialing_record_emails) && r.payer_credentialing_record_emails.length > 0
+        ? (r.payer_credentialing_record_emails as { email?: string }[])
+            .map((e) => ({ email: typeof e.email === "string" ? e.email : "" }))
+            .filter((e) => e.email.trim())
+        : null;
     return {
       ...(row as PayerCredentialingListRow),
       created_at: created,
@@ -104,6 +116,10 @@ function normalizeCredentialingRows(raw: unknown[]): PayerCredentialingListRow[]
       priority: typeof r.priority === "string" ? r.priority : "medium",
       next_action: typeof r.next_action === "string" ? r.next_action : null,
       next_action_due_date: typeof r.next_action_due_date === "string" ? r.next_action_due_date : null,
+      primary_contact_phone_direct:
+        typeof r.primary_contact_phone_direct === "string" ? r.primary_contact_phone_direct : null,
+      primary_contact_fax: typeof r.primary_contact_fax === "string" ? r.primary_contact_fax : null,
+      payer_credentialing_record_emails: nested,
     };
   });
 }
@@ -141,9 +157,11 @@ export default async function AdminCredentialingPage({
     .from("payer_credentialing_records")
     .select(
       `id, payer_name, payer_type, market_state, credentialing_status, contracting_status,
-       portal_url, primary_contact_name, primary_contact_phone, primary_contact_email,
+       portal_url, primary_contact_name, primary_contact_phone, primary_contact_phone_direct, primary_contact_fax,
+       primary_contact_email,
        notes, last_follow_up_at, updated_at, created_at, assigned_owner_user_id,
        next_action, next_action_due_date, priority,
+       payer_credentialing_record_emails ( email ),
        payer_credentialing_documents ( id, doc_type, status, uploaded_at )`
     )
     .order("updated_at", { ascending: false })

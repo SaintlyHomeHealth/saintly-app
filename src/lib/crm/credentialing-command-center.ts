@@ -120,7 +120,11 @@ export type PayerCredentialingListRow = {
   portal_url: string | null;
   primary_contact_name: string | null;
   primary_contact_phone: string | null;
+  primary_contact_phone_direct?: string | null;
+  primary_contact_fax?: string | null;
   primary_contact_email: string | null;
+  /** From nested select; used for reachability + search */
+  payer_credentialing_record_emails?: { email: string }[] | null;
   notes: string | null;
   last_follow_up_at: string | null;
   updated_at: string;
@@ -165,9 +169,19 @@ function isTightFollowUpLane(r: PayerCredentialingListRow): boolean {
 }
 
 export function hasReachableContact(r: PayerCredentialingListRow): boolean {
-  const phone = (r.primary_contact_phone ?? "").trim();
-  const email = (r.primary_contact_email ?? "").trim();
-  return Boolean(phone || email);
+  const phones = [
+    r.primary_contact_phone,
+    r.primary_contact_phone_direct,
+    r.primary_contact_fax,
+  ];
+  if (phones.some((p) => (p ?? "").trim())) return true;
+  const legacyEmail = (r.primary_contact_email ?? "").trim();
+  if (legacyEmail) return true;
+  const extras = r.payer_credentialing_record_emails;
+  if (extras && extras.length > 0) {
+    return extras.some((e) => (e.email ?? "").trim());
+  }
+  return false;
 }
 
 function getDocList(r: PayerCredentialingListRow): PayerCredentialingDocumentStub[] {

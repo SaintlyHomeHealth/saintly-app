@@ -36,6 +36,43 @@ export const CREDENTIALING_PIPELINE_BLOCKER_LABELS: Record<CredentialingPipeline
   complete: "Complete",
 };
 
+/** True when there is real operational work on the file (vs default in_progress queue). */
+export function credentialingPipelineWorkHasBegun(r: PayerCredentialingListRow): boolean {
+  if ((r.last_follow_up_at ?? "").trim()) return true;
+
+  const docs = r.payer_credentialing_documents ?? [];
+  if (docs.length > 0) {
+    const sum = summarizePayerDocuments(docs);
+    if (sum.total > 0 && sum.missing < sum.total) return true;
+    if (sum.hasMissing && credentialingMeaningfulNextAction(r.next_action)) return true;
+  } else if (credentialingMeaningfulNextAction(r.next_action)) {
+    return true;
+  }
+
+  return credentialingMeaningfulNextAction(r.next_action);
+}
+
+const PLACEHOLDER_NEXT_ACTIONS = new Set([
+  "tbd",
+  "todo",
+  "n/a",
+  "na",
+  "none",
+  "pending",
+  "—",
+  "-",
+  "...",
+]);
+
+/** Non-empty next step that is not a placeholder (sync with dashboard bucket logic). */
+export function credentialingMeaningfulNextAction(next_action: string | null | undefined): boolean {
+  const t = (next_action ?? "").trim();
+  if (t.length < 4) return false;
+  const lower = t.toLowerCase();
+  if (PLACEHOLDER_NEXT_ACTIONS.has(lower)) return false;
+  return true;
+}
+
 export function computeCredentialingPipelineStage(r: PayerCredentialingListRow): CredentialingPipelineStage {
   const cred = (r.credentialing_status ?? "").trim();
   const cont = (r.contracting_status ?? "").trim();
@@ -52,14 +89,18 @@ export function computeCredentialingPipelineStage(r: PayerCredentialingListRow):
 
   if (cred === "submitted") return "submitted";
 
+  // Queue-only: still "Not started" until real work signals (matches summary cards).
+  if (cred === "not_started") return "not_started";
+
+  // Default in_progress without follow-up / docs / next step counts as Not started for display.
+  if (cred === "in_progress" && !credentialingPipelineWorkHasBegun(r)) return "not_started";
+
   const docs = r.payer_credentialing_documents ?? [];
   if (docs.length > 0 && summarizePayerDocuments(docs).hasMissing) {
     return "gathering_docs";
   }
 
   if (cred === "in_progress") return "gathering_docs";
-
-  if (cred === "not_started") return "not_started";
 
   return "gathering_docs";
 }

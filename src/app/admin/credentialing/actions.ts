@@ -46,7 +46,16 @@ type PayerRecordRow = {
   portal_username_hint: string | null;
   primary_contact_name: string | null;
   primary_contact_phone: string | null;
+  primary_contact_phone_direct: string | null;
+  primary_contact_fax: string | null;
   primary_contact_email: string | null;
+  primary_contact_title: string | null;
+  primary_contact_department: string | null;
+  primary_contact_website: string | null;
+  primary_contact_notes: string | null;
+  primary_contact_last_contacted_at: string | null;
+  primary_contact_preferred_method: string | null;
+  primary_contact_status: string | null;
   notes: string | null;
   last_follow_up_at: string | null;
   assigned_owner_user_id: string | null;
@@ -54,6 +63,38 @@ type PayerRecordRow = {
   next_action_due_date: string | null;
   priority: string | null;
 };
+
+const PAYER_RECORD_SELECT_FULL =
+  "id, payer_name, payer_type, market_state, credentialing_status, contracting_status, portal_url, portal_username_hint, primary_contact_name, primary_contact_phone, primary_contact_phone_direct, primary_contact_fax, primary_contact_email, primary_contact_title, primary_contact_department, primary_contact_website, primary_contact_notes, primary_contact_last_contacted_at, primary_contact_preferred_method, primary_contact_status, notes, last_follow_up_at, assigned_owner_user_id, next_action, next_action_due_date, priority";
+
+/** Keeps payer_credentialing_record_emails primary row in sync when the legacy single email field changes. */
+async function syncPrimaryEmailRowForRecord(recordId: string, primaryEmail: string | null) {
+  const email = primaryEmail?.trim() ?? "";
+  const { data: existing } = await supabaseAdmin
+    .from("payer_credentialing_record_emails")
+    .select("id")
+    .eq("credentialing_record_id", recordId)
+    .eq("is_primary", true)
+    .maybeSingle();
+
+  if (!email) {
+    if (existing?.id) {
+      await supabaseAdmin.from("payer_credentialing_record_emails").delete().eq("id", existing.id);
+    }
+    return;
+  }
+
+  if (existing?.id) {
+    await supabaseAdmin.from("payer_credentialing_record_emails").update({ email }).eq("id", existing.id);
+  } else {
+    await supabaseAdmin.from("payer_credentialing_record_emails").insert({
+      credentialing_record_id: recordId,
+      email,
+      is_primary: true,
+      sort_order: 0,
+    });
+  }
+}
 
 async function insertCredentialingActivity(params: {
   credentialingRecordId: string;
@@ -129,6 +170,18 @@ export async function createPayerCredentialingRecord(formData: FormData) {
   }
 
   const id = String(data.id);
+  const initialEmail = readTrimmed(formData, "primary_contact_email");
+  if (initialEmail) {
+    const { error: emErr } = await supabaseAdmin.from("payer_credentialing_record_emails").insert({
+      credentialing_record_id: id,
+      email: initialEmail,
+      is_primary: true,
+      sort_order: 0,
+    });
+    if (emErr) {
+      console.warn("[credentialing] create primary email row:", emErr.message);
+    }
+  }
   await insertCredentialingActivity({
     credentialingRecordId: id,
     activityType: PAYER_CREDENTIALING_ACTIVITY_TYPES.record_created,
@@ -165,9 +218,7 @@ export async function updatePayerCredentialingRecord(formData: FormData) {
 
   const { data: oldRow, error: fetchErr } = await supabaseAdmin
     .from("payer_credentialing_records")
-    .select(
-      "id, payer_name, payer_type, market_state, credentialing_status, contracting_status, portal_url, portal_username_hint, primary_contact_name, primary_contact_phone, primary_contact_email, notes, last_follow_up_at, assigned_owner_user_id, next_action, next_action_due_date, priority"
-    )
+    .select(PAYER_RECORD_SELECT_FULL)
     .eq("id", id)
     .maybeSingle();
 
@@ -186,6 +237,18 @@ export async function updatePayerCredentialingRecord(formData: FormData) {
   const ownerFieldPresent = formData.has("assigned_owner_user_id");
   const newOwner = ownerFieldPresent ? readOwnerId(formData) : undefined;
 
+  const prefRaw = readTrimmed(formData, "primary_contact_preferred_method");
+  const prefOk =
+    prefRaw === "phone" || prefRaw === "email" || prefRaw === "fax" ? prefRaw : null;
+  const stRaw = readTrimmed(formData, "primary_contact_status");
+  const statusOk = stRaw === "active" || stRaw === "inactive" ? stRaw : "active";
+
+  const lastContactRaw = readTrimmed(formData, "primary_contact_last_contacted_at");
+  let lastContactIso: string | null = null;
+  if (lastContactRaw && /^\d{4}-\d{2}-\d{2}$/.test(lastContactRaw)) {
+    lastContactIso = `${lastContactRaw}T12:00:00.000Z`;
+  }
+
   const payload: Record<string, unknown> = {
     payer_name: readTrimmed(formData, "payer_name"),
     payer_type: readTrimmed(formData, "payer_type"),
@@ -194,7 +257,16 @@ export async function updatePayerCredentialingRecord(formData: FormData) {
     portal_username_hint: readTrimmed(formData, "portal_username_hint"),
     primary_contact_name: readTrimmed(formData, "primary_contact_name"),
     primary_contact_phone: readTrimmed(formData, "primary_contact_phone"),
+    primary_contact_phone_direct: readTrimmed(formData, "primary_contact_phone_direct"),
+    primary_contact_fax: readTrimmed(formData, "primary_contact_fax"),
     primary_contact_email: readTrimmed(formData, "primary_contact_email"),
+    primary_contact_title: readTrimmed(formData, "primary_contact_title"),
+    primary_contact_department: readTrimmed(formData, "primary_contact_department"),
+    primary_contact_website: readTrimmed(formData, "primary_contact_website"),
+    primary_contact_notes: readTrimmed(formData, "primary_contact_notes"),
+    primary_contact_last_contacted_at: lastContactIso,
+    primary_contact_preferred_method: prefOk,
+    primary_contact_status: statusOk,
     notes: readTrimmed(formData, "notes"),
     next_action: readTrimmed(formData, "next_action"),
     next_action_due_date: readTrimmed(formData, "next_action_due_date"),
@@ -221,6 +293,8 @@ export async function updatePayerCredentialingRecord(formData: FormData) {
     console.warn("[credentialing] update:", error.message);
     return;
   }
+
+  await syncPrimaryEmailRowForRecord(id, readTrimmed(formData, "primary_contact_email"));
 
   const nu = (v: unknown) => (typeof v === "string" ? v : v == null ? "" : String(v));
   const newCred = cred ?? nu(old.credentialing_status);
@@ -343,9 +417,7 @@ export async function patchPayerCredentialingRecord(formData: FormData) {
 
   const { data: oldRow, error: fetchErr } = await supabaseAdmin
     .from("payer_credentialing_records")
-    .select(
-      "id, payer_name, payer_type, market_state, credentialing_status, contracting_status, portal_url, portal_username_hint, primary_contact_name, primary_contact_phone, primary_contact_email, notes, last_follow_up_at, assigned_owner_user_id, next_action, next_action_due_date, priority"
-    )
+    .select(PAYER_RECORD_SELECT_FULL)
     .eq("id", id)
     .maybeSingle();
 
@@ -900,4 +972,93 @@ export async function deletePayerCredentialingAttachment(formData: FormData) {
 
   revalidatePath("/admin/credentialing");
   revalidatePath(`/admin/credentialing/${credentialingId}`);
+}
+
+const EMAIL_LABEL_MAX = 120;
+
+/** Replace all email rows for a payer credentialing record; keeps legacy primary_contact_email in sync. */
+export async function savePayerCredentialingRecordEmails(formData: FormData) {
+  const staff = await getStaffProfile();
+  if (!staff || !isManagerOrHigher(staff)) {
+    return;
+  }
+
+  const recordId = readTrimmed(formData, "credentialing_id");
+  if (!recordId || !UUID_RE.test(recordId)) return;
+
+  const countRaw = readTrimmed(formData, "email_row_count");
+  const count = Math.min(24, Math.max(0, parseInt(countRaw ?? "0", 10) || 0));
+
+  const rows: { email: string; label: string | null; is_primary: boolean; sort_order: number }[] = [];
+  for (let i = 0; i < count; i++) {
+    const addr = readTrimmed(formData, `email_${i}_address`);
+    if (!addr) continue;
+    const labelRaw = readTrimmed(formData, `email_${i}_label`);
+    const label =
+      labelRaw && labelRaw.length <= EMAIL_LABEL_MAX ? labelRaw : labelRaw ? labelRaw.slice(0, EMAIL_LABEL_MAX) : null;
+    rows.push({ email: addr.trim(), label, is_primary: false, sort_order: rows.length });
+  }
+
+  if (rows.length === 0) {
+    await supabaseAdmin.from("payer_credentialing_record_emails").delete().eq("credentialing_record_id", recordId);
+    await supabaseAdmin.from("payer_credentialing_records").update({ primary_contact_email: null }).eq("id", recordId);
+    revalidatePath("/admin/credentialing");
+    revalidatePath(`/admin/credentialing/${recordId}`);
+    return;
+  }
+
+  const primaryPick = readTrimmed(formData, "email_primary");
+  let primaryIdx = 0;
+  if (primaryPick !== null && /^\d+$/.test(primaryPick)) {
+    primaryIdx = Math.min(rows.length - 1, Math.max(0, parseInt(primaryPick, 10)));
+  }
+  rows.forEach((r, i) => {
+    r.is_primary = i === primaryIdx;
+    r.sort_order = i;
+  });
+
+  const primaryAddr = rows[primaryIdx].email;
+
+  const { error: delErr } = await supabaseAdmin
+    .from("payer_credentialing_record_emails")
+    .delete()
+    .eq("credentialing_record_id", recordId);
+  if (delErr) {
+    console.warn("[credentialing] emails delete:", delErr.message);
+    return;
+  }
+
+  for (const r of rows) {
+    const { error: insErr } = await supabaseAdmin.from("payer_credentialing_record_emails").insert({
+      credentialing_record_id: recordId,
+      email: r.email,
+      label: r.label,
+      is_primary: r.is_primary,
+      sort_order: r.sort_order,
+    });
+    if (insErr) {
+      console.warn("[credentialing] emails insert:", insErr.message);
+      return;
+    }
+  }
+
+  const { error: upErr } = await supabaseAdmin
+    .from("payer_credentialing_records")
+    .update({ primary_contact_email: primaryAddr })
+    .eq("id", recordId);
+  if (upErr) {
+    console.warn("[credentialing] emails primary column sync:", upErr.message);
+    return;
+  }
+
+  await insertCredentialingActivity({
+    credentialingRecordId: recordId,
+    activityType: PAYER_CREDENTIALING_ACTIVITY_TYPES.record_updated,
+    summary: "Contact emails updated",
+    details: `${rows.length} address(es); primary: ${primaryAddr}`,
+    createdByUserId: staff.user_id,
+  });
+
+  revalidatePath("/admin/credentialing");
+  revalidatePath(`/admin/credentialing/${recordId}`);
 }
