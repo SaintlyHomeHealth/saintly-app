@@ -20,8 +20,8 @@ import {
   patchPayerCredentialingRecord,
   updatePayerCredentialingDocuments,
   updatePayerCredentialingRecord,
-  uploadPayerCredentialingAttachment,
 } from "../actions";
+import { CredentialingAttachmentUploadForm } from "./CredentialingAttachmentUploadForm";
 import {
   formatCredentialingActivityTypeLabel,
   PAYER_CREDENTIALING_ACTIVITY_TYPES,
@@ -42,6 +42,10 @@ import {
   payerCredentialingReadyToBill,
   type PayerCredentialingListRow,
 } from "@/lib/crm/credentialing-command-center";
+import {
+  CREDENTIALING_DISPLAY_TIMEZONE,
+  formatCredentialingDateTime,
+} from "@/lib/crm/credentialing-datetime";
 import {
   CREDENTIALING_PIPELINE_STEPS,
   getCredentialingPipelineStepIndex,
@@ -612,12 +616,7 @@ export default async function AdminCredentialingDetailPage({
         </dl>
         <p className="mt-4 text-xs text-slate-500">
           <span className="font-semibold text-slate-600">Last follow-up: </span>
-          {last_follow_up_at
-            ? new Date(last_follow_up_at).toLocaleString("en-US", {
-                dateStyle: "medium",
-                timeStyle: "short",
-              })
-            : "—"}
+          {last_follow_up_at ? formatCredentialingDateTime(last_follow_up_at) : "—"}
           {" · "}
           <span className="font-semibold text-slate-600">Next action due: </span>
           {formatCredentialingDueDateLabel(next_action_due_date.trim() || null)}
@@ -631,7 +630,9 @@ export default async function AdminCredentialingDetailPage({
       >
         <div className="border-b border-slate-200/80 bg-white/90 px-5 py-4">
           <h2 className="text-sm font-semibold text-slate-900">Timeline</h2>
-          <p className="mt-1 text-xs text-slate-500">Newest first — same activity feed as before.</p>
+          <p className="mt-1 text-xs text-slate-500">
+            Newest first. Timestamps use Pacific Time ({CREDENTIALING_DISPLAY_TIMEZONE}).
+          </p>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
           <ul className="space-y-4">
@@ -640,10 +641,7 @@ export default async function AdminCredentialingDetailPage({
             ) : (
               activities.map((a) => {
                 const who = a.created_by_user_id ? actorLabels.get(a.created_by_user_id) ?? "Staff" : "System";
-                const when = new Date(a.created_at).toLocaleString("en-US", {
-                  dateStyle: "medium",
-                  timeStyle: "short",
-                });
+                const when = formatCredentialingDateTime(a.created_at);
                 const isNote = isCredentialingManualNote(a.activity_type);
                 const noteBody = (a.details?.trim() || a.summary || "").trim();
 
@@ -765,12 +763,7 @@ export default async function AdminCredentialingDetailPage({
                         </select>
                       </td>
                       <td className="px-3 py-2 text-xs text-slate-600">
-                        {d.uploaded_at
-                          ? new Date(d.uploaded_at).toLocaleString("en-US", {
-                              dateStyle: "medium",
-                              timeStyle: "short",
-                            })
-                          : "—"}
+                        {d.uploaded_at ? formatCredentialingDateTime(d.uploaded_at) : "—"}
                       </td>
                       <td className="px-3 py-2">
                         <div className="flex flex-wrap items-center gap-2">
@@ -828,45 +821,7 @@ export default async function AdminCredentialingDetailPage({
             </p>
           </div>
 
-          <form
-            action={uploadPayerCredentialingAttachment}
-            encType="multipart/form-data"
-            className="space-y-3 rounded-2xl border border-slate-100 bg-slate-50/50 p-4"
-          >
-            <input type="hidden" name="credentialing_id" value={credentialingId} />
-            <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-700">
-              File <span className="text-red-600">*</span>
-              <input
-                name="file"
-                type="file"
-                required
-                className="text-sm text-slate-800 file:mr-3 file:rounded-lg file:border file:border-sky-200 file:bg-sky-50 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-sky-900"
-              />
-            </label>
-            <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-700">
-              Category / type <span className="font-normal text-slate-500">(optional)</span>
-              <input
-                name="attachment_category"
-                className={inp}
-                placeholder="e.g. Contract, Welcome letter, Screenshot"
-              />
-            </label>
-            <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-700">
-              Description <span className="font-normal text-slate-500">(optional)</span>
-              <textarea
-                name="attachment_description"
-                rows={2}
-                className={inp}
-                placeholder="Short note about what this file is"
-              />
-            </label>
-            <button
-              type="submit"
-              className="rounded-xl border border-slate-800 bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
-            >
-              Upload attachment
-            </button>
-          </form>
+          <CredentialingAttachmentUploadForm credentialingId={credentialingId} />
 
           <div className="overflow-x-auto rounded-2xl border border-slate-100">
             <table className="w-full min-w-[720px] text-left text-sm">
@@ -892,10 +847,7 @@ export default async function AdminCredentialingDetailPage({
                     const by = a.uploaded_by_user_id
                       ? actorLabels.get(a.uploaded_by_user_id) ?? "Staff"
                       : "—";
-                    const when = new Date(a.uploaded_at).toLocaleString("en-US", {
-                      dateStyle: "medium",
-                      timeStyle: "short",
-                    });
+                    const when = formatCredentialingDateTime(a.uploaded_at);
                     return (
                       <tr key={a.id} className="border-b border-slate-50 last:border-0">
                         <td className="px-3 py-2">
@@ -1113,12 +1065,7 @@ export default async function AdminCredentialingDetailPage({
       <div className="rounded-[28px] border border-slate-100 bg-slate-50/80 p-4 text-xs text-slate-600">
         <p>
           Record updated:{" "}
-          {r.updated_at
-            ? new Date(String(r.updated_at)).toLocaleString("en-US", {
-                dateStyle: "medium",
-                timeStyle: "short",
-              })
-            : "—"}
+          {r.updated_at ? formatCredentialingDateTime(String(r.updated_at)) : "—"}
         </p>
       </div>
     </div>

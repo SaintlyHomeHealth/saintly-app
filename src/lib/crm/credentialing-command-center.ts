@@ -7,6 +7,7 @@ import {
   type CredentialingStatusValue,
 } from "@/lib/crm/credentialing-status-options";
 import { summarizePayerDocuments } from "@/lib/crm/credentialing-documents";
+import { formatCredentialingDueDateLabel as formatCredentialingDueDateLabelFromTz } from "@/lib/crm/credentialing-datetime";
 
 export type CredentialingBadgeTone = "green" | "yellow" | "red" | "gray";
 
@@ -139,23 +140,9 @@ function msDaysSince(iso: string | null): number | null {
   return (Date.now() - t) / (1000 * 60 * 60 * 24);
 }
 
+/** Relative labels use the same display timezone as `credentialing-datetime` (Pacific). */
 export function formatCredentialingDueDateLabel(isoDate: string | null): string {
-  if (!isoDate?.trim()) return "—";
-  const s = isoDate.trim().slice(0, 10);
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
-  if (!m) return s;
-  const due = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
-  if (Number.isNaN(due.getTime())) return s;
-  const today = new Date();
-  const t0 = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
-  const d0 = Date.UTC(due.getUTCFullYear(), due.getUTCMonth(), due.getUTCDate());
-  const diff = Math.round((d0 - t0) / 86400000);
-  if (diff === 0) return "Today";
-  if (diff === 1) return "Tomorrow";
-  if (diff === -1) return "Yesterday";
-  if (diff > 1) return `In ${diff} days`;
-  if (diff < -1) return `${Math.abs(diff)} days overdue`;
-  return s;
+  return formatCredentialingDueDateLabelFromTz(isoDate);
 }
 
 export function isPayerCredentialingQueueOnly(r: PayerCredentialingListRow): boolean {

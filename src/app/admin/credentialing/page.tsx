@@ -18,6 +18,7 @@ import {
   payerCredentialingReadyToBill,
   type PayerCredentialingListRow,
 } from "@/lib/crm/credentialing-command-center";
+import { formatCredentialingDateFromInstant } from "@/lib/crm/credentialing-datetime";
 import { summarizePayerDocuments } from "@/lib/crm/credentialing-documents";
 import { loadCredentialingStaffLabelMap } from "@/lib/crm/credentialing-staff-directory";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
@@ -558,21 +559,11 @@ export default async function AdminCredentialingPage({
                       className={`whitespace-nowrap px-3 py-3 text-xs tabular-nums ${stale ? "font-semibold text-amber-800" : "text-slate-600"}`}
                       title={stale ? `No follow-up in ${7}+ days (active lane)` : undefined}
                     >
-                      {r.last_follow_up_at
-                        ? new Date(r.last_follow_up_at).toLocaleDateString("en-US", {
-                            month: "short",
-                            day: "numeric",
-                            year: "numeric",
-                          })
-                        : "—"}
+                      {r.last_follow_up_at ? formatCredentialingDateFromInstant(r.last_follow_up_at) : "—"}
                       {stale ? <span className="ml-1 text-[10px] uppercase">Aging</span> : null}
                     </td>
                     <td className="whitespace-nowrap px-3 py-3 text-xs text-slate-600">
-                      {new Date(r.updated_at).toLocaleDateString("en-US", {
-                        month: "short",
-                        day: "numeric",
-                        year: "numeric",
-                      })}
+                      {formatCredentialingDateFromInstant(r.updated_at)}
                     </td>
                     <td className="px-3 py-3 text-xs">
                       <Link
