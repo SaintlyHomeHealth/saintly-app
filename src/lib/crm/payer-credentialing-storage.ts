@@ -1,8 +1,8 @@
 /** Supabase Storage bucket for payer credentialing ad-hoc attachments. */
 export const PAYER_CREDENTIALING_STORAGE_BUCKET = "payer-credentialing";
 
-/** 25 MB */
-export const PAYER_CREDENTIALING_MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
+/** Per-file max for credentialing attachment uploads (aligned with UI + server validation). */
+export const PAYER_CREDENTIALING_MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 
 export const PAYER_CREDENTIALING_ALLOWED_MIME_TYPES = [
   "application/pdf",
