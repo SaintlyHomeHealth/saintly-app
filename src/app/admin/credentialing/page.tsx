@@ -164,10 +164,10 @@ export default async function AdminCredentialingPage({
       `id, payer_name, payer_type, market_state, credentialing_status, contracting_status,
        portal_url, primary_contact_name, primary_contact_phone, primary_contact_phone_direct, primary_contact_fax,
        primary_contact_email,
-       notes, last_follow_up_at, updated_at, created_at, assigned_owner_user_id,
+       last_follow_up_at, updated_at, created_at, assigned_owner_user_id,
        next_action, next_action_due_date, priority, denial_reason,
        payer_credentialing_record_emails ( email ),
-       payer_credentialing_documents ( id, doc_type, status, uploaded_at )`
+       payer_credentialing_documents ( status )`
     )
     .order("updated_at", { ascending: false })
     .limit(2000);

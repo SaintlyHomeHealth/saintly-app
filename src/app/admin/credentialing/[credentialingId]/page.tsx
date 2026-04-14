@@ -1,20 +1,28 @@
 import { ArrowLeft } from "lucide-react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
+import { Suspense } from "react";
 import { notFound, redirect } from "next/navigation";
 
 import {
-  deletePayerCredentialingAttachment,
   markPayerCredentialingDenied,
   patchPayerCredentialingRecord,
   reapplyPayerCredentialing,
-  updatePayerCredentialingDocuments,
   updatePayerCredentialingRecord,
 } from "../actions";
 import { PayerContactQuickStrip, PayerWorkingContactCard } from "./PayerContactBlocks";
-import { CredentialingAttachmentUploadForm } from "./CredentialingAttachmentUploadForm";
-import { CredentialingNoteComposer } from "@/components/credentialing/CredentialingNoteComposer";
-import { CredentialingTimelinePanel } from "@/components/credentialing/CredentialingTimelinePanel";
-import { PayerCredentialingEmailsForm } from "@/components/credentialing/PayerCredentialingEmailsForm";
+import {
+  CredentialingActivitySection,
+  CredentialingActivitySectionFallback,
+} from "./CredentialingActivitySection";
+import {
+  CredentialingAttachmentsSection,
+  CredentialingAttachmentsSectionFallback,
+} from "./CredentialingAttachmentsSection";
+import {
+  CredentialingChecklistSection,
+  CredentialingChecklistSectionFallback,
+} from "./CredentialingChecklistSection";
 import {
   CONTRACTING_STATUS_LABELS,
   CONTRACTING_STATUS_VALUES,
@@ -29,7 +37,6 @@ import {
   CREDENTIALING_ATTENTION_REASON_LABELS,
   type PayerCredentialingListRow,
 } from "@/lib/crm/credentialing-command-center";
-import { partitionCredentialingTimeline } from "@/lib/crm/credentialing-timeline";
 import {
   computeCredentialingPipelineBlocker,
   computeCredentialingPipelineStage,
@@ -46,14 +53,8 @@ import {
   SIMPLIFIED_CREDENTIALING_PIPELINE_STEPS,
   simplifiedCredentialingPipelineStepButtonClass,
 } from "@/lib/crm/credentialing-pipeline-ui";
-import {
-  PAYER_CREDENTIALING_DOC_LABELS,
-  PAYER_CREDENTIALING_DOC_STATUS_LABELS,
-  PAYER_CREDENTIALING_DOC_STATUS_VALUES,
-  PAYER_CREDENTIALING_DOC_TYPES,
-  type PayerCredentialingDocType,
-} from "@/lib/crm/credentialing-documents";
 import { PAYER_DENIAL_REASON_VALUES } from "@/lib/crm/credentialing-denial";
+import { PAYER_CREDENTIALING_RECORD_DETAIL_SELECT } from "@/lib/crm/payer-credentialing-record-select";
 import { PAYER_CREDENTIALING_MAX_ATTACHMENT_BYTES } from "@/lib/crm/payer-credentialing-storage";
 import {
   credentialingStaffLabel,
@@ -65,52 +66,13 @@ import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
+const PayerCredentialingEmailsFormLazy = dynamic(
+  () => import("@/components/credentialing/PayerCredentialingEmailsForm").then((m) => m.PayerCredentialingEmailsForm),
+  { loading: () => <p className="text-xs text-slate-500">Loading email editor…</p> }
+);
+
 const inp =
   "mt-0.5 w-full max-w-lg rounded border border-slate-200 px-2 py-1.5 text-sm text-slate-800";
-
-type DocRow = {
-  id: string;
-  doc_type: string;
-  status: string;
-  uploaded_at: string | null;
-  notes: string | null;
-};
-
-type ActivityRow = {
-  id: string;
-  activity_type: string;
-  summary: string;
-  details: string | null;
-  created_at: string;
-  created_by_user_id: string | null;
-};
-
-type AttachmentRow = {
-  id: string;
-  file_name: string;
-  file_type: string | null;
-  file_size: number | null;
-  category: string | null;
-  description: string | null;
-  uploaded_at: string;
-  uploaded_by_user_id: string | null;
-};
-
-function sortDocsByCatalog(docs: DocRow[]): DocRow[] {
-  const order = new Map(PAYER_CREDENTIALING_DOC_TYPES.map((t, i) => [t, i]));
-  return [...docs].sort((a, b) => {
-    const ia = order.get(a.doc_type as PayerCredentialingDocType) ?? 99;
-    const ib = order.get(b.doc_type as PayerCredentialingDocType) ?? 99;
-    return ia - ib;
-  });
-}
-
-function formatAttachmentBytes(n: number | null): string {
-  if (n == null || Number.isNaN(n)) return "—";
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
-}
 
 const ATTACH_ERR_MESSAGES: Record<string, string> = {
   missing_file: "Choose a file to upload.",
@@ -144,11 +106,32 @@ export default async function AdminCredentialingDetailPage({
   const supabase = await createServerSupabaseClient();
   const id = credentialingId.trim();
 
-  const { data: row, error } = await supabase.from("payer_credentialing_records").select("*").eq("id", id).maybeSingle();
+  const { data: row, error } = await supabase
+    .from("payer_credentialing_records")
+    .select(PAYER_CREDENTIALING_RECORD_DETAIL_SELECT)
+    .eq("id", id)
+    .maybeSingle();
 
   if (error || !row) {
     notFound();
   }
+
+  const [{ data: lastAct }, { data: docStatusRows }, { data: rawEmailRows, error: emailFetchErr }] =
+    await Promise.all([
+      supabase
+        .from("payer_credentialing_activity")
+        .select("summary, created_at")
+        .eq("credentialing_record_id", id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      supabase.from("payer_credentialing_documents").select("status").eq("credentialing_record_id", id),
+      supabase
+        .from("payer_credentialing_record_emails")
+        .select("id, email, label, is_primary, sort_order")
+        .eq("credentialing_record_id", id)
+        .order("sort_order", { ascending: true }),
+    ]);
 
   const r = row as Record<string, unknown>;
   const payer_name = String(r.payer_name ?? "");
@@ -174,47 +157,11 @@ export default async function AdminCredentialingDetailPage({
         ? r.updated_at
         : "";
 
-  const { data: rawDocs } = await supabase
-    .from("payer_credentialing_documents")
-    .select("id, doc_type, status, uploaded_at, notes")
-    .eq("credentialing_record_id", id);
-
-  const documents = sortDocsByCatalog((rawDocs ?? []) as DocRow[]);
-
-  const { data: rawActivity } = await supabase
-    .from("payer_credentialing_activity")
-    .select("id, activity_type, summary, details, created_at, created_by_user_id")
-    .eq("credentialing_record_id", id)
-    .order("created_at", { ascending: false })
-    .limit(300);
-
-  const activities = (rawActivity ?? []) as ActivityRow[];
-
-  const { data: rawAttachments, error: attachFetchErr } = await supabase
-    .from("payer_credentialing_attachments")
-    .select("id, file_name, file_type, file_size, category, description, uploaded_at, uploaded_by_user_id")
-    .eq("credentialing_record_id", id)
-    .order("uploaded_at", { ascending: false });
-
-  const attachments = !attachFetchErr ? ((rawAttachments ?? []) as AttachmentRow[]) : [];
-
-  const { data: rawEmailRows, error: emailFetchErr } = await supabase
-    .from("payer_credentialing_record_emails")
-    .select("id, email, label, is_primary, sort_order")
-    .eq("credentialing_record_id", id)
-    .order("sort_order", { ascending: true });
+  const docStatusesForAttention = (docStatusRows ?? []) as { status: string | null }[];
 
   const emailRows: PayerCredentialingRecordEmail[] = !emailFetchErr
     ? ((rawEmailRows ?? []) as PayerCredentialingRecordEmail[])
     : [];
-
-  const actorIds = [
-    ...activities.map((a) => a.created_by_user_id),
-    ...attachments.map((a) => a.uploaded_by_user_id),
-  ].filter((x): x is string => Boolean(x));
-  const actorLabels = await loadCredentialingStaffLabelMap(actorIds);
-  const actorLabelRecord = Object.fromEntries(actorLabels);
-  const { conversation: timelineConversation, system: timelineSystem } = partitionCredentialingTimeline(activities);
 
   const staffOptions = await loadCredentialingStaffAssignees();
   const ownerLabelMap = await loadCredentialingStaffLabelMap(assigned_owner_user_id ? [assigned_owner_user_id] : []);
@@ -241,6 +188,28 @@ export default async function AdminCredentialingDetailPage({
       : "active";
   const lastContactedDate =
     primary_last_contacted && primary_last_contacted.length >= 10 ? primary_last_contacted.slice(0, 10) : "";
+
+  const lastSnapshot =
+    lastAct && typeof lastAct === "object" && lastAct !== null && "summary" in lastAct && "created_at" in lastAct
+      ? {
+          summary: String((lastAct as { summary?: string }).summary ?? ""),
+          when: formatCredentialingDateTime(String((lastAct as { created_at?: string }).created_at ?? "")),
+        }
+      : null;
+
+  const emailsForStrip =
+    emailRows.length > 0
+      ? emailRows.map((e) => ({ email: e.email, label: e.label, is_primary: e.is_primary }))
+      : primaryEmail
+        ? [{ email: primaryEmail, label: null as string | null, is_primary: true }]
+        : [];
+
+  const displayEmailsForCard: PayerCredentialingRecordEmail[] =
+    emailRows.length > 0
+      ? emailRows
+      : primaryEmail
+        ? [{ id: "legacy-primary", email: primaryEmail, label: null, is_primary: true }]
+        : [];
 
   const attentionRow: PayerCredentialingListRow = {
     id,
@@ -269,7 +238,8 @@ export default async function AdminCredentialingDetailPage({
     next_action: next_action.trim() ? next_action : null,
     next_action_due_date: next_action_due_date.trim() ? next_action_due_date : null,
     priority,
-    payer_credentialing_documents: documents.map((d) => ({ status: d.status })),
+    denial_reason: denial_reason.trim() ? denial_reason : null,
+    payer_credentialing_documents: docStatusesForAttention.map((d) => ({ status: d.status ?? "" })),
   };
 
   const attention = analyzePayerCredentialingAttention(attentionRow);
@@ -280,20 +250,6 @@ export default async function AdminCredentialingDetailPage({
 
   const mailtoHref = primaryEmail ? `mailto:${encodeURIComponent(primaryEmail)}` : "";
 
-  const emailsForStrip =
-    emailRows.length > 0
-      ? emailRows.map((e) => ({ email: e.email, label: e.label, is_primary: e.is_primary }))
-      : primaryEmail
-        ? [{ email: primaryEmail, label: null as string | null, is_primary: true }]
-        : [];
-
-  const lastSnapshot = activities[0]
-    ? {
-        summary: activities[0].summary,
-        when: formatCredentialingDateTime(activities[0].created_at),
-      }
-    : null;
-
   const emailRowsForForm =
     emailRows.length > 0
       ? emailRows.map((e) => ({
@@ -303,13 +259,6 @@ export default async function AdminCredentialingDetailPage({
         }))
       : primaryEmail
         ? [{ email: primaryEmail, label: "", is_primary: true }]
-        : [];
-
-  const displayEmailsForCard: PayerCredentialingRecordEmail[] =
-    emailRows.length > 0
-      ? emailRows
-      : primaryEmail
-        ? [{ id: "legacy-primary", email: primaryEmail, label: null, is_primary: true }]
         : [];
 
   const cardShell =
@@ -340,13 +289,6 @@ export default async function AdminCredentialingDetailPage({
           Attachment uploaded successfully.
         </div>
       ) : null}
-      {attachFetchErr ? (
-        <p className="text-sm text-amber-900">
-          Additional documents are unavailable until the{" "}
-          <span className="font-mono text-xs">payer_credentialing_attachments</span> migration and Storage bucket are
-          applied.
-        </p>
-      ) : null}
       {emailFetchErr ? (
         <p className="text-sm text-amber-900">
           Contact email list is unavailable until{" "}
@@ -366,7 +308,6 @@ export default async function AdminCredentialingDetailPage({
         lastSnapshot={lastSnapshot}
       />
 
-      {/* What to do next — action-first */}
       <section id="credentialing-hero" className={`scroll-mt-28 ${cardShell} p-5 sm:p-6`}>
         <p className="text-sm font-semibold text-slate-900">What to do next</p>
         <div className="mt-4 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -444,7 +385,6 @@ export default async function AdminCredentialingDetailPage({
         </div>
       </section>
 
-      {/* Pipeline — simplified stages (writes underlying credentialing + contracting fields) */}
       <section className={`${cardShell} p-4 sm:p-5`}>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div>
@@ -501,7 +441,6 @@ export default async function AdminCredentialingDetailPage({
         ) : null}
       </section>
 
-      {/* Quick actions */}
       <div className="flex flex-wrap gap-2">
         <form action={patchPayerCredentialingRecord} className="inline">
           <input type="hidden" name="id" value={credentialingId} />
@@ -595,21 +534,29 @@ export default async function AdminCredentialingDetailPage({
         )}
       </div>
 
-      <PayerWorkingContactCard
-        contactName={typeof r.primary_contact_name === "string" ? r.primary_contact_name : ""}
-        title={primary_title}
-        department={primary_dept}
-        mainPhone={typeof r.primary_contact_phone === "string" ? r.primary_contact_phone : ""}
-        directPhone={primary_phone_direct}
-        fax={primary_fax}
-        preferred={primary_pref}
-        status={primary_status}
-        website={primary_website}
-        contactNotes={primary_contact_notes_field}
-        lastContactedAt={primary_last_contacted}
-        portalUrl={portal_url}
-        displayEmails={displayEmailsForCard}
-      />
+      <details className={`${cardShell} bg-white`}>
+        <summary className="cursor-pointer list-none px-5 py-4 text-sm font-semibold text-slate-900 [&::-webkit-details-marker]:hidden">
+          Full contact card
+          <span className="ml-2 font-normal text-slate-500">(title, prefs, notes — quick strip above has dial/email)</span>
+        </summary>
+        <div className="border-t border-slate-100 px-5 pb-5">
+          <PayerWorkingContactCard
+            contactName={typeof r.primary_contact_name === "string" ? r.primary_contact_name : ""}
+            title={primary_title}
+            department={primary_dept}
+            mainPhone={typeof r.primary_contact_phone === "string" ? r.primary_contact_phone : ""}
+            directPhone={primary_phone_direct}
+            fax={primary_fax}
+            preferred={primary_pref}
+            status={primary_status}
+            website={primary_website}
+            contactNotes={primary_contact_notes_field}
+            lastContactedAt={primary_last_contacted}
+            portalUrl={portal_url}
+            displayEmails={displayEmailsForCard}
+          />
+        </div>
+      </details>
 
       {attention.needsAttention ? (
         <div
@@ -621,216 +568,18 @@ export default async function AdminCredentialingDetailPage({
         </div>
       ) : null}
 
-      {/* Timeline — above documents (conversation-first; system log optional) */}
-      <section
-        id="credentialing-timeline"
-        className={`scroll-mt-28 flex min-h-0 max-h-[min(70vh,40rem)] flex-col overflow-hidden ${cardShell} bg-slate-100/80 p-0`}
-      >
-        <CredentialingTimelinePanel
-          conversation={timelineConversation}
-          system={timelineSystem}
-          actorLabels={actorLabelRecord}
-          viewerUserId={staff.user_id}
-        />
-        <div className="shrink-0 border-t border-slate-200/80 bg-white/95 px-4 py-4 backdrop-blur supports-[backdrop-filter]:bg-white/90 sm:px-5">
-          <label
-            className="mb-2 block text-[11px] font-semibold text-slate-700"
-            htmlFor={`credentialing-note-${credentialingId}`}
-          >
-            Add timeline entry
-          </label>
-          <CredentialingNoteComposer credentialingId={credentialingId} />
-        </div>
-      </section>
+      <Suspense fallback={<CredentialingActivitySectionFallback />}>
+        <CredentialingActivitySection credentialingId={credentialingId} viewerUserId={staff.user_id} />
+      </Suspense>
 
-      {/* Document checklist */}
-      {documents.length > 0 ? (
-        <form
-          id="credentialing-checklist"
-          action={updatePayerCredentialingDocuments}
-          className={`scroll-mt-28 space-y-4 ${cardShell} bg-white p-5 sm:p-6`}
-        >
-          <input type="hidden" name="credentialing_id" value={credentialingId} />
-          <div>
-            <h2 className="text-sm font-semibold text-slate-900">Document checklist</h2>
-            <p className="mt-1 text-xs text-slate-600">
-              Structured enrollment checklist. Files live in{" "}
-              <span className="font-semibold text-slate-800">Additional documents</span> below — use View / Replace to
-              jump there.
-            </p>
-          </div>
-          <div className="overflow-x-auto rounded-2xl border border-slate-100">
-            <table className="w-full min-w-[720px] text-left text-sm">
-              <thead>
-                <tr className="border-b border-slate-100 bg-slate-50 text-xs font-semibold text-slate-600">
-                  <th className="px-3 py-2">Document</th>
-                  <th className="px-3 py-2">Status</th>
-                  <th className="px-3 py-2">Uploaded</th>
-                  <th className="px-3 py-2">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {documents.map((d) => {
-                  const label =
-                    PAYER_CREDENTIALING_DOC_LABELS[d.doc_type as PayerCredentialingDocType] ?? d.doc_type;
-                  const missing = d.status === "missing";
-                  const rowTone = missing ? "bg-red-50/90" : d.status === "uploaded" ? "bg-emerald-50/35" : "";
-                  return (
-                    <tr key={d.id} className={`border-b border-slate-50 last:border-0 ${rowTone}`}>
-                      <td className="px-3 py-2">
-                        <span className="font-medium text-slate-900">{label}</span>
-                        {missing ? (
-                          <span className="ml-2 inline-flex rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-bold text-red-900">
-                            Needed
-                          </span>
-                        ) : null}
-                      </td>
-                      <td className="px-3 py-2">
-                        <select
-                          name={`doc_status_${d.id}`}
-                          className="w-full max-w-[220px] rounded-lg border border-slate-200 px-2 py-1.5 text-xs"
-                          defaultValue={d.status}
-                        >
-                          {PAYER_CREDENTIALING_DOC_STATUS_VALUES.map((v) => (
-                            <option key={v} value={v}>
-                              {PAYER_CREDENTIALING_DOC_STATUS_LABELS[v]}
-                            </option>
-                          ))}
-                        </select>
-                      </td>
-                      <td className="px-3 py-2 text-xs text-slate-600">
-                        {d.uploaded_at ? formatCredentialingDateTime(d.uploaded_at) : "—"}
-                      </td>
-                      <td className="px-3 py-2">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <a
-                            href="#credentialing-additional-docs"
-                            className="inline-flex rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-800 hover:bg-slate-50"
-                          >
-                            View
-                          </a>
-                          <a
-                            href="#credentialing-additional-docs"
-                            className="inline-flex rounded-lg border border-sky-200 bg-sky-50 px-2 py-1 text-[11px] font-semibold text-sky-900 hover:bg-sky-100"
-                          >
-                            Replace
-                          </a>
-                          <label className="inline-flex items-center gap-1 text-[11px] text-slate-600">
-                            <input type="checkbox" name={`doc_uploaded_now_${d.id}`} value="1" className="rounded border-slate-300" />
-                            Stamp now
-                          </label>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          <button
-            type="submit"
-            className="rounded-xl border border-violet-600 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-950 hover:bg-violet-100"
-          >
-            Save document statuses
-          </button>
-        </form>
-      ) : (
-        <div className={`${cardShell} p-5 text-sm text-slate-600`}>
-          Document checklist will appear after migrations add{" "}
-          <span className="font-mono text-xs">payer_credentialing_documents</span>.
-        </div>
-      )}
+      <Suspense fallback={<CredentialingChecklistSectionFallback />}>
+        <CredentialingChecklistSection credentialingId={credentialingId} />
+      </Suspense>
 
-      {/* Additional documents */}
-      {!attachFetchErr ? (
-        <section
-          id="credentialing-additional-docs"
-          className={`scroll-mt-28 space-y-4 ${cardShell} bg-white p-5 sm:p-6`}
-        >
-          <div>
-            <h2 className="text-sm font-semibold text-slate-900">Additional documents</h2>
-            <p className="mt-1 text-xs text-slate-600">
-              Upload contracts, welcome letters, screenshots, or payer-specific forms. Files are stored in Supabase
-              Storage (bucket <span className="font-mono text-[10px]">payer-credentialing</span>
-              ). Max {Math.round(PAYER_CREDENTIALING_MAX_ATTACHMENT_BYTES / (1024 * 1024))} MB; PDF, images, Word, Excel,
-              CSV, TXT, or ZIP.
-            </p>
-          </div>
+      <Suspense fallback={<CredentialingAttachmentsSectionFallback />}>
+        <CredentialingAttachmentsSection credentialingId={credentialingId} />
+      </Suspense>
 
-          <CredentialingAttachmentUploadForm credentialingId={credentialingId} />
-
-          <div className="overflow-x-auto rounded-2xl border border-slate-100">
-            <table className="w-full min-w-[720px] text-left text-sm">
-              <thead>
-                <tr className="border-b border-slate-100 bg-slate-50 text-xs font-semibold text-slate-600">
-                  <th className="px-3 py-2">File</th>
-                  <th className="px-3 py-2">Category</th>
-                  <th className="px-3 py-2">Description</th>
-                  <th className="px-3 py-2">Uploaded</th>
-                  <th className="px-3 py-2">By</th>
-                  <th className="px-3 py-2">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {attachments.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="px-3 py-6 text-center text-sm text-slate-500">
-                      No attachments yet.
-                    </td>
-                  </tr>
-                ) : (
-                  attachments.map((a) => {
-                    const by = a.uploaded_by_user_id
-                      ? actorLabels.get(a.uploaded_by_user_id) ?? "Staff"
-                      : "—";
-                    const when = formatCredentialingDateTime(a.uploaded_at);
-                    return (
-                      <tr key={a.id} className="border-b border-slate-50 last:border-0">
-                        <td className="px-3 py-2">
-                          <p className="font-medium text-slate-900">{a.file_name}</p>
-                          <p className="text-[10px] text-slate-500">
-                            {(a.file_type ?? "").trim() || "—"} · {formatAttachmentBytes(a.file_size)}
-                          </p>
-                        </td>
-                        <td className="px-3 py-2 text-xs text-slate-700">{(a.category ?? "").trim() || "—"}</td>
-                        <td className="max-w-[220px] px-3 py-2 text-xs text-slate-600">
-                          <span className="line-clamp-3 whitespace-pre-wrap break-words">
-                            {(a.description ?? "").trim() || "—"}
-                          </span>
-                        </td>
-                        <td className="whitespace-nowrap px-3 py-2 text-xs text-slate-600">{when}</td>
-                        <td className="px-3 py-2 text-xs text-slate-700">{by}</td>
-                        <td className="px-3 py-2">
-                          <div className="flex flex-wrap gap-2">
-                            <a
-                              href={`/api/payer-credentialing-attachments/${a.id}/download`}
-                              className="inline-flex rounded-lg border border-sky-200 bg-sky-50 px-2 py-1 text-[11px] font-bold text-sky-900 hover:bg-sky-100"
-                            >
-                              Download
-                            </a>
-                            <form action={deletePayerCredentialingAttachment}>
-                              <input type="hidden" name="credentialing_id" value={credentialingId} />
-                              <input type="hidden" name="attachment_id" value={a.id} />
-                              <button
-                                type="submit"
-                                className="rounded-lg border border-red-200 bg-red-50 px-2 py-1 text-[11px] font-bold text-red-900 hover:bg-red-100"
-                              >
-                                Remove
-                              </button>
-                            </form>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      ) : null}
-
-      {/* Edit details — full update form */}
       <details id="credentialing-edit-details" className={`group scroll-mt-28 ${cardShell} bg-white`}>
         <summary className="cursor-pointer list-none px-5 py-4 text-base font-semibold text-slate-900 [&::-webkit-details-marker]:hidden">
           <span className="inline-flex items-center gap-2">
@@ -995,7 +744,7 @@ export default async function AdminCredentialingDetailPage({
               />
             </label>
 
-            <PayerCredentialingEmailsForm credentialingId={credentialingId} initialRows={emailRowsForForm} />
+            <PayerCredentialingEmailsFormLazy credentialingId={credentialingId} initialRows={emailRowsForForm} />
 
             <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
               Contact website (payer site)

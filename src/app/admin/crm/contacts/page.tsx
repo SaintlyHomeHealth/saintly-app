@@ -86,7 +86,7 @@ export default async function AdminCrmContactsPage({
       supabase
         .from("contacts")
         .select(
-          "id, first_name, last_name, full_name, organization_name, primary_phone, secondary_phone, email, address_line_1, address_line_2, city, state, zip, contact_type, status, referral_source, owner_user_id, relationship_metadata, notes, created_at, updated_at, archived_at"
+          "id, first_name, last_name, full_name, organization_name, primary_phone, secondary_phone, email, address_line_1, address_line_2, city, state, zip, contact_type, status, referral_source, owner_user_id, relationship_metadata, created_at, updated_at, archived_at"
         )
         .order("created_at", { ascending: false })
         .limit(DIRECTORY_FETCH_LIMIT)

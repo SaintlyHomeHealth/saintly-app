@@ -29,6 +29,7 @@ import {
   sanitizePayerCredentialingFileName,
 } from "@/lib/crm/payer-credentialing-storage";
 import { supabaseAdmin } from "@/lib/admin";
+import { PAYER_RECORD_SELECT_FULL } from "@/lib/crm/payer-credentialing-record-select";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -69,9 +70,6 @@ type PayerRecordRow = {
   priority: string | null;
   denial_reason: string | null;
 };
-
-const PAYER_RECORD_SELECT_FULL =
-  "id, payer_name, payer_type, market_state, credentialing_status, contracting_status, portal_url, portal_username_hint, primary_contact_name, primary_contact_phone, primary_contact_phone_direct, primary_contact_fax, primary_contact_email, primary_contact_title, primary_contact_department, primary_contact_website, primary_contact_notes, primary_contact_last_contacted_at, primary_contact_preferred_method, primary_contact_status, notes, last_follow_up_at, assigned_owner_user_id, next_action, next_action_due_date, priority, denial_reason";
 
 /** Keeps payer_credentialing_record_emails primary row in sync when the legacy single email field changes. */
 async function syncPrimaryEmailRowForRecord(recordId: string, primaryEmail: string | null) {

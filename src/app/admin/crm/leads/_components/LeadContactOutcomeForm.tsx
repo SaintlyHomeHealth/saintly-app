@@ -229,7 +229,6 @@ export function LeadContactOutcomeForm({
                 outcome_note: notes.trim() || null,
                 lead_id: leadId,
               };
-              console.log("CONTACT OUTCOME PAYLOAD", payload);
 
               const res = await fetch("/api/crm/contact-outcome", {
                 method: "POST",

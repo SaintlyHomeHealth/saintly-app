@@ -44,7 +44,8 @@ export type ContactDirectoryDbRow = {
   referral_source: string | null;
   owner_user_id: string | null;
   relationship_metadata: unknown;
-  notes: string | null;
+  /** Omitted on directory list query to trim payload; detail views load when needed. */
+  notes?: string | null;
   archived_at?: string | null;
   created_at: string;
   updated_at: string;

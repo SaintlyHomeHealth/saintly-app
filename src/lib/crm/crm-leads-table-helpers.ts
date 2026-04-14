@@ -28,7 +28,7 @@ export type CrmLeadRow = {
   last_outcome: string | null;
   service_disciplines: string[] | null;
   service_type: string | null;
-  notes: string | null;
+  notes?: string | null;
   external_source_metadata: unknown | null;
   /** Visual triage: hot | warm | cool | dead — `null` = unset. */
   lead_temperature?: string | null;

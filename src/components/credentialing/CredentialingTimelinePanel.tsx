@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useState } from "react";
 
 import {
   formatCredentialingActivityTypeLabel,
@@ -43,8 +43,8 @@ export function CredentialingTimelinePanel({
 
   const hasSystem = system.length > 0;
 
-  const actorName = useMemo(
-    () => (userId: string | null) => {
+  const actorName = useCallback(
+    (userId: string | null) => {
       if (!userId) return "System";
       if (userId === viewerUserId) return "You";
       return actorLabels[userId] ?? "Staff";
