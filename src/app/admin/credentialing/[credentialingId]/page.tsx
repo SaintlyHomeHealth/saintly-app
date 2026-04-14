@@ -1,21 +1,8 @@
-import {
-  ArrowLeft,
-  Calendar,
-  FilePlus,
-  FileText,
-  FolderOpen,
-  GitBranch,
-  MessageSquare,
-  Paperclip,
-  Pencil,
-  Trash2,
-  User,
-} from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
 import {
-  appendCredentialingActivityNote,
   deletePayerCredentialingAttachment,
   patchPayerCredentialingRecord,
   updatePayerCredentialingDocuments,
@@ -23,11 +10,9 @@ import {
 } from "../actions";
 import { PayerContactQuickStrip, PayerWorkingContactCard } from "./PayerContactBlocks";
 import { CredentialingAttachmentUploadForm } from "./CredentialingAttachmentUploadForm";
+import { CredentialingNoteComposer } from "@/components/credentialing/CredentialingNoteComposer";
+import { CredentialingTimelinePanel } from "@/components/credentialing/CredentialingTimelinePanel";
 import { PayerCredentialingEmailsForm } from "@/components/credentialing/PayerCredentialingEmailsForm";
-import {
-  formatCredentialingActivityTypeLabel,
-  PAYER_CREDENTIALING_ACTIVITY_TYPES,
-} from "@/lib/crm/credentialing-activity-types";
 import {
   CONTRACTING_STATUS_LABELS,
   CONTRACTING_STATUS_VALUES,
@@ -42,6 +27,7 @@ import {
   CREDENTIALING_ATTENTION_REASON_LABELS,
   type PayerCredentialingListRow,
 } from "@/lib/crm/credentialing-command-center";
+import { partitionCredentialingTimeline } from "@/lib/crm/credentialing-timeline";
 import {
   computeCredentialingPipelineBlocker,
   computeCredentialingPipelineStage,
@@ -50,10 +36,7 @@ import {
   CREDENTIALING_PIPELINE_BLOCKER_LABELS,
   CREDENTIALING_PIPELINE_STAGE_LABELS,
 } from "@/lib/crm/credentialing-pipeline-display";
-import {
-  CREDENTIALING_DISPLAY_TIMEZONE,
-  formatCredentialingDateTime,
-} from "@/lib/crm/credentialing-datetime";
+import { formatCredentialingDateTime } from "@/lib/crm/credentialing-datetime";
 import {
   getSimplifiedCredentialingPipelineStepIndex,
   getSimplifiedCredentialingPipelineTargets,
@@ -77,7 +60,6 @@ import type { PayerCredentialingRecordEmail } from "@/lib/crm/payer-credentialin
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
-import type { ReactNode } from "react";
 
 const inp =
   "mt-0.5 w-full max-w-lg rounded border border-slate-200 px-2 py-1.5 text-sm text-slate-800";
@@ -124,45 +106,6 @@ function formatAttachmentBytes(n: number | null): string {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-/** User-written timeline entries (`manual_note` in DB; `note` accepted if ever stored). */
-function isCredentialingManualNote(activityType: string): boolean {
-  const t = activityType.trim();
-  return t === "note" || t === PAYER_CREDENTIALING_ACTIVITY_TYPES.manual_note;
-}
-
-function ActivityTypeIcon({ activityType }: { activityType: string }) {
-  const t = activityType.trim();
-  const wrap = (node: ReactNode) => (
-    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-200/90 bg-white text-slate-600 shadow-sm">
-      {node}
-    </span>
-  );
-  switch (t) {
-    case PAYER_CREDENTIALING_ACTIVITY_TYPES.record_created:
-      return wrap(<FilePlus className="h-4 w-4" aria-hidden />);
-    case PAYER_CREDENTIALING_ACTIVITY_TYPES.record_updated:
-      return wrap(<Pencil className="h-4 w-4" aria-hidden />);
-    case PAYER_CREDENTIALING_ACTIVITY_TYPES.status_change:
-      return wrap(<GitBranch className="h-4 w-4" aria-hidden />);
-    case PAYER_CREDENTIALING_ACTIVITY_TYPES.follow_up:
-      return wrap(<Calendar className="h-4 w-4" aria-hidden />);
-    case PAYER_CREDENTIALING_ACTIVITY_TYPES.notes_updated:
-      return wrap(<FileText className="h-4 w-4" aria-hidden />);
-    case PAYER_CREDENTIALING_ACTIVITY_TYPES.document_update:
-      return wrap(<FolderOpen className="h-4 w-4" aria-hidden />);
-    case PAYER_CREDENTIALING_ACTIVITY_TYPES.owner_change:
-      return wrap(<User className="h-4 w-4" aria-hidden />);
-    case PAYER_CREDENTIALING_ACTIVITY_TYPES.manual_note:
-      return wrap(<MessageSquare className="h-4 w-4" aria-hidden />);
-    case PAYER_CREDENTIALING_ACTIVITY_TYPES.attachment_added:
-      return wrap(<Paperclip className="h-4 w-4" aria-hidden />);
-    case PAYER_CREDENTIALING_ACTIVITY_TYPES.attachment_removed:
-      return wrap(<Trash2 className="h-4 w-4" aria-hidden />);
-    default:
-      return wrap(<FileText className="h-4 w-4" aria-hidden />);
-  }
 }
 
 const ATTACH_ERR_MESSAGES: Record<string, string> = {
@@ -265,6 +208,8 @@ export default async function AdminCredentialingDetailPage({
     ...attachments.map((a) => a.uploaded_by_user_id),
   ].filter((x): x is string => Boolean(x));
   const actorLabels = await loadCredentialingStaffLabelMap(actorIds);
+  const actorLabelRecord = Object.fromEntries(actorLabels);
+  const { conversation: timelineConversation, system: timelineSystem } = partitionCredentialingTimeline(activities);
 
   const staffOptions = await loadCredentialingStaffAssignees();
   const ownerLabelMap = await loadCredentialingStaffLabelMap(assigned_owner_user_id ? [assigned_owner_user_id] : []);
@@ -602,87 +547,25 @@ export default async function AdminCredentialingDetailPage({
         </div>
       ) : null}
 
-      {/* Timeline — above documents */}
+      {/* Timeline — above documents (conversation-first; system log optional) */}
       <section
         id="credentialing-timeline"
-        className={`scroll-mt-28 flex max-h-[min(70vh,40rem)] flex-col overflow-hidden ${cardShell} bg-slate-100/80 p-0`}
+        className={`scroll-mt-28 flex min-h-0 max-h-[min(70vh,40rem)] flex-col overflow-hidden ${cardShell} bg-slate-100/80 p-0`}
       >
-        <div className="border-b border-slate-200/80 bg-white/90 px-5 py-4">
-          <h2 className="text-sm font-semibold text-slate-900">Timeline</h2>
-          <p className="mt-1 text-xs text-slate-500">
-            Newest first. Timestamps use Pacific Time ({CREDENTIALING_DISPLAY_TIMEZONE}).
-          </p>
-        </div>
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-          <ul className="space-y-4">
-            {activities.length === 0 ? (
-              <li className="text-sm text-slate-500">No activity yet. Saving the record or logging an entry will populate this list.</li>
-            ) : (
-              activities.map((a) => {
-                const who = a.created_by_user_id ? actorLabels.get(a.created_by_user_id) ?? "Staff" : "System";
-                const when = formatCredentialingDateTime(a.created_at);
-                const isNote = isCredentialingManualNote(a.activity_type);
-                const noteBody = (a.details?.trim() || a.summary || "").trim();
-
-                if (isNote) {
-                  return (
-                    <li key={a.id} className="flex w-full justify-end">
-                      <div className="max-w-[70%] rounded-2xl bg-gradient-to-b from-blue-500 to-blue-600 px-4 py-2 text-white shadow-sm">
-                        <p className="text-[15px] leading-snug whitespace-pre-wrap break-words [word-break:break-word]">
-                          {noteBody || "—"}
-                        </p>
-                        <p className="mt-2 text-xs text-blue-100/90">
-                          By <span className="font-medium">{who}</span>
-                        </p>
-                        <p className="mt-0.5 text-xs text-blue-100/70 opacity-90 tabular-nums">{when}</p>
-                      </div>
-                    </li>
-                  );
-                }
-
-                return (
-                  <li key={a.id} className="flex w-full justify-start gap-3">
-                    <ActivityTypeIcon activityType={a.activity_type} />
-                    <div className="min-w-0 flex-1 rounded-2xl border border-slate-200/80 bg-white/90 px-4 py-3 text-sm text-slate-600 shadow-sm">
-                      <div className="flex flex-wrap items-baseline justify-between gap-2">
-                        <span className="font-semibold text-slate-800">{a.summary}</span>
-                        <span className="text-[10px] font-medium uppercase tracking-wide text-slate-400">
-                          {formatCredentialingActivityTypeLabel(a.activity_type)} · {when}
-                        </span>
-                      </div>
-                      <p className="mt-1 text-[11px] text-slate-500/90">By {who}</p>
-                      {a.details?.trim() ? (
-                        <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-slate-50/80 p-2 font-sans text-xs text-slate-600">
-                          {a.details}
-                        </pre>
-                      ) : null}
-                    </div>
-                  </li>
-                );
-              })
-            )}
-          </ul>
-        </div>
-        <div className="shrink-0 border-t border-slate-200/80 bg-white/95 p-3 backdrop-blur supports-[backdrop-filter]:bg-white/90">
-          <form action={appendCredentialingActivityNote} className="space-y-2">
-            <input type="hidden" name="credentialing_id" value={credentialingId} />
-            <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-700">
-              Add timeline entry
-              <textarea
-                name="activity_note"
-                required
-                rows={3}
-                className={inp}
-                placeholder="e.g. Called payer — left voicemail, expect callback Thursday."
-              />
-            </label>
-            <button
-              type="submit"
-              className="rounded-lg border border-sky-600 bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-700"
-            >
-              Log entry
-            </button>
-          </form>
+        <CredentialingTimelinePanel
+          conversation={timelineConversation}
+          system={timelineSystem}
+          actorLabels={actorLabelRecord}
+          viewerUserId={staff.user_id}
+        />
+        <div className="shrink-0 border-t border-slate-200/80 bg-white/95 px-4 py-4 backdrop-blur supports-[backdrop-filter]:bg-white/90 sm:px-5">
+          <label
+            className="mb-2 block text-[11px] font-semibold text-slate-700"
+            htmlFor={`credentialing-note-${credentialingId}`}
+          >
+            Add timeline entry
+          </label>
+          <CredentialingNoteComposer credentialingId={credentialingId} />
         </div>
       </section>
 
