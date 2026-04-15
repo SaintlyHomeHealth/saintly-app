@@ -12,6 +12,7 @@ import {
   updateConversationFollowUp,
 } from "../actions";
 import { SmsReplyComposer } from "./SmsReplyComposer";
+import { SmsThreadMarkViewedClient } from "./SmsThreadMarkViewedClient";
 import { SmsThreadContactPanel } from "@/app/workspace/phone/inbox/_components/sms-thread-contact-panel";
 import { WorkspaceSmsConversationShell } from "@/app/workspace/phone/inbox/_components/workspace-sms-conversation-shell";
 import { WorkspaceSmsThreadView } from "@/app/workspace/phone/inbox/_components/WorkspaceSmsThreadView";
@@ -691,14 +692,16 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
     );
 
     const shell = (
-      <WorkspaceSmsConversationShell
-        inboxHref={inboxHref}
-        initialDisplayName={workspaceHeaderTitle}
-        initialPhoneLine={phoneDisplayFormatted}
-        initialBadge={workspaceEntityLabel}
-        workspaceCallHref={workspaceCallHref}
-        appDesktopSplit={workspaceDesktopSplit}
-        headerAside={
+      <>
+        <SmsThreadMarkViewedClient conversationId={conversationId} />
+        <WorkspaceSmsConversationShell
+          inboxHref={inboxHref}
+          initialDisplayName={workspaceHeaderTitle}
+          initialPhoneLine={phoneDisplayFormatted}
+          initialBadge={workspaceEntityLabel}
+          workspaceCallHref={workspaceCallHref}
+          appDesktopSplit={workspaceDesktopSplit}
+          headerAside={
           canOpenLeadInCrm && workspaceLeadId ? (
             <Link
               href={`/admin/crm/leads/${workspaceLeadId}`}
@@ -721,8 +724,8 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
               Patients
             </Link>
           ) : null
-        }
-        banners={
+          }
+          banners={
           <>
             {ok === "intake" ? (
               <div className="mx-4 mt-2 rounded-lg border border-sky-200/90 bg-phone-ice px-3 py-2 text-sm text-phone-ink">
@@ -753,10 +756,11 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
               </div>
             ) : null}
           </>
-        }
-      >
-        {threadView}
-      </WorkspaceSmsConversationShell>
+          }
+        >
+          {threadView}
+        </WorkspaceSmsConversationShell>
+      </>
     );
 
     if (workspaceDesktopSplit) {
@@ -779,7 +783,9 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4 px-4 py-4 sm:gap-6 sm:p-6">
+    <>
+      <SmsThreadMarkViewedClient conversationId={conversationId} />
+      <div className="flex min-h-0 flex-1 flex-col gap-4 px-4 py-4 sm:gap-6 sm:p-6">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <Link href={inboxHref} className="text-sm font-medium text-sky-800 hover:underline">
@@ -1211,5 +1217,6 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
         />
       </section>
     </div>
+    </>
   );
 }

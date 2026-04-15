@@ -9,6 +9,7 @@ import {
   isAdminOrHigher,
   isPhoneWorkspaceUser,
 } from "@/lib/staff-profile";
+import { countUnreadInboundByConversationIds } from "@/lib/phone/sms-inbound-unread";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 type ContactEmbed = { full_name?: unknown; first_name?: unknown; last_name?: unknown };
@@ -156,6 +157,7 @@ export default async function AdminSmsInboxPage({ searchParams }: PageProps) {
     });
   }
   const ids = rows.map((r) => r.id as string);
+  const unreadByConvId = await countUnreadInboundByConversationIds(supabase, ids);
   const assigneeIds = [...new Set(rows.map((r) => r.assigned_to_user_id as string | null).filter(Boolean))] as string[];
 
   const labelByUserId: Record<string, string> = {};
@@ -384,16 +386,28 @@ export default async function AdminSmsInboxPage({ searchParams }: PageProps) {
                   );
                 })();
                 const aid = raw.assigned_to_user_id as string | null;
+                const unreadCount = unreadByConvId[id] ?? 0;
+                const hasUnread = unreadCount > 0;
                 return (
                   <tr key={id} className="hover:bg-slate-50/80">
                     <td className="px-4 py-3">
                       <Link
                         href={`/admin/phone/messages/${id}`}
-                        className="font-medium text-sky-800 underline-offset-2 hover:underline"
+                        className={`inline-flex items-start gap-2 underline-offset-2 hover:underline ${
+                          hasUnread ? "font-semibold text-slate-900" : "font-medium text-sky-800"
+                        }`}
                       >
-                        {title}
-                        {leadBadge}
-                        {followBadge}
+                        {hasUnread ? (
+                          <span
+                            className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-sky-500 shadow-sm shadow-sky-900/10 ring-1 ring-sky-400/40"
+                            aria-hidden
+                          />
+                        ) : null}
+                        <span>
+                          {title}
+                          {leadBadge}
+                          {followBadge}
+                        </span>
                       </Link>
                     </td>
                     <td className="max-w-xs truncate px-4 py-3 text-slate-600">

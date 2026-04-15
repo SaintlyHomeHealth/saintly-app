@@ -19,6 +19,7 @@ import {
 } from "@/lib/integrations/zapier-lead-status-webhook";
 import { parseLeadStatus } from "@/lib/phone/lead-status";
 import { isValidE164, normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
+import { markInboundMessagesViewedForConversation } from "@/lib/phone/sms-inbound-unread";
 import { sendSms } from "@/lib/twilio/send-sms";
 import {
   canAccessWorkspacePhone,
@@ -94,6 +95,29 @@ async function loadConversationForAccess(
       lead_status: typeof data.lead_status === "string" ? data.lead_status : null,
     },
   };
+}
+
+/** Marks inbound SMS as read for staff; revalidates inbox when any rows were updated. */
+export async function markSmsThreadInboundViewed(conversationId: string) {
+  const staff = await getStaffProfile();
+  if (!requirePhoneMessagingStaff(staff)) return { ok: false as const };
+  if (!conversationId || !UUID_RE.test(conversationId)) return { ok: false as const };
+
+  const { row } = await loadConversationForAccess(conversationId);
+  if (!row) return { ok: false as const };
+  if (
+    !canStaffAccessConversationRow(staff, {
+      assigned_to_user_id: row.assigned_to_user_id,
+    })
+  ) {
+    return { ok: false as const };
+  }
+
+  const marked = await markInboundMessagesViewedForConversation(conversationId);
+  if (marked > 0) {
+    revalidateSmsConversationViews(conversationId);
+  }
+  return { ok: true as const, marked };
 }
 
 export async function claimConversation(formData: FormData) {

@@ -10,6 +10,7 @@ import { WorkspacePhonePageHeader } from "../_components/WorkspacePhonePageHeade
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { labelForContactType } from "@/lib/crm/contact-types";
 import { formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
+import { countUnreadInboundByConversationIds } from "@/lib/phone/sms-inbound-unread";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import { routePerfLog, routePerfStart } from "@/lib/perf/route-perf";
 import {
@@ -65,12 +66,6 @@ function normalizeContact(contactsRaw: unknown): ContactEmbed | null {
     return contactsRaw[0] as ContactEmbed;
   }
   return null;
-}
-
-function unreadCountFromMetadata(raw: unknown): number {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return 0;
-  const v = (raw as Record<string, unknown>).unread_count;
-  return typeof v === "number" && Number.isFinite(v) && v > 0 ? Math.floor(v) : 0;
 }
 
 function entityLabel(input: {
@@ -146,6 +141,7 @@ export default async function WorkspaceInboxPage(props: PageProps) {
   }
 
   const ids = rows.map((r) => r.id as string);
+  const unreadByConvId = await countUnreadInboundByConversationIds(supabase, ids);
   const previewByConvId: Record<string, string> = {};
   if (ids.length > 0) {
     const previewRowCap = Math.min(500, Math.max(120, ids.length * 8));
@@ -295,7 +291,7 @@ export default async function WorkspaceInboxPage(props: PageProps) {
                       typeof r.last_message_at === "string" ? r.last_message_at : null
                     );
                     const preview = previewByConvId[id] ?? "";
-                    const unreadCount = unreadCountFromMetadata((r as { metadata?: unknown }).metadata);
+                    const unreadCount = unreadByConvId[id] ?? 0;
                     const pc =
                       (r as { primary_contact_id?: unknown }).primary_contact_id != null &&
                       String((r as { primary_contact_id?: unknown }).primary_contact_id).trim() !== ""
