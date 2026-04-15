@@ -52,7 +52,7 @@ export function WorkspaceSmsConversationShell({
 
   return (
     <WorkspaceSmsContactCtx.Provider value={{ onContactSaved }}>
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-0 pb-28 sm:pb-32">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-0 pb-0">
         <header className="sticky top-0 z-20 shrink-0 border-b border-sky-200/50 bg-gradient-to-b from-white via-white to-sky-50/40 px-4 pb-4 pt-3 shadow-[0_8px_28px_-14px_rgba(15,23,42,0.1)] backdrop-blur-xl supports-[backdrop-filter]:bg-white/90 sm:px-5 sm:pb-5">
           <Link
             href={inboxHref}

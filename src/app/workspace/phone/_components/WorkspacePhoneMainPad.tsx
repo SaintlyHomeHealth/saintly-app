@@ -15,6 +15,6 @@ export function WorkspacePhoneMainPad({ children }: { children: ReactNode }) {
       ? "pb-[max(6.5rem,env(safe-area-inset-bottom,0px))]"
       : "pb-32";
   return (
-    <main className={`mx-auto flex min-h-0 w-full max-w-6xl flex-1 flex-col overflow-hidden ${pb}`}>{children}</main>
+    <main className={`mx-auto flex min-h-0 w-full max-w-6xl flex-1 flex-col overflow-y-auto ${pb}`}>{children}</main>
   );
 }
