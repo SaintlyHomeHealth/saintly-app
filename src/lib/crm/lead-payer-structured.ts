@@ -93,3 +93,65 @@ export function leadDisplaySecondaryPayerTypeLine(d: { secondary_payer_type: str
   if (!p) return "";
   return isValidLeadStructuredPayerType(p) ? leadStructuredPayerTypeLabel(p) : p;
 }
+
+/** One line: `Payer name · Payer type` (structured label when applicable). */
+export function leadInsurancePayerLineSegment(name: string, structuredType: string): string {
+  const n = name.trim();
+  const t = structuredType.trim();
+  const typeLabel = t ? (isValidLeadStructuredPayerType(t) ? leadStructuredPayerTypeLabel(t) : t) : "";
+  if (!n && !typeLabel) return "";
+  if (!typeLabel) return n;
+  if (!n) return typeLabel;
+  return `${n} · ${typeLabel}`;
+}
+
+export type LeadInsuranceIntakeShape = {
+  primary_payer_name: string;
+  primary_payer_type: string;
+  secondary_payer_name: string;
+  secondary_payer_type: string;
+  payer_name: string;
+  payer_type: string;
+};
+
+/**
+ * Formatted insurance lines for snapshot / lists — never merges supplement into Medicare Advantage.
+ * Falls back to legacy `payer_name` / `payer_type` when structured fields are empty.
+ */
+export function leadInsuranceDisplayLines(d: LeadInsuranceIntakeShape): string[] {
+  const primaryName = leadDisplayPrimaryPayerName(d);
+  const primaryLine = leadInsurancePayerLineSegment(primaryName, d.primary_payer_type);
+  const secondaryName = leadDisplaySecondaryPayerName(d);
+  const secondaryLine = leadInsurancePayerLineSegment(secondaryName, d.secondary_payer_type);
+
+  const lines: string[] = [];
+  if (primaryLine) lines.push(primaryLine);
+  if (secondaryLine) lines.push(secondaryLine);
+
+  if (lines.length > 0) return lines;
+
+  const legacyName = d.payer_name.trim();
+  const legacyType = d.payer_type.trim();
+  if (!legacyName && !legacyType) return [];
+  if (legacyName && legacyType) return [`${legacyName} · ${legacyType}`];
+  return [legacyName || legacyType];
+}
+
+/** List / table rows — same formatting as {@link leadInsuranceDisplayLines} with nullable DB fields. */
+export function leadInsuranceDisplayLinesFromRow(r: {
+  primary_payer_name?: string | null;
+  primary_payer_type?: string | null;
+  secondary_payer_name?: string | null;
+  secondary_payer_type?: string | null;
+  payer_name?: string | null;
+  payer_type?: string | null;
+}): string[] {
+  return leadInsuranceDisplayLines({
+    primary_payer_name: r.primary_payer_name ?? "",
+    primary_payer_type: r.primary_payer_type ?? "",
+    secondary_payer_name: r.secondary_payer_name ?? "",
+    secondary_payer_type: r.secondary_payer_type ?? "",
+    payer_name: r.payer_name ?? "",
+    payer_type: r.payer_type ?? "",
+  });
+}

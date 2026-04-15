@@ -12,7 +12,7 @@ import {
   leadDisplayPrimaryPayerName,
   leadDisplayPrimaryPayerTypeLine,
   leadDisplaySecondaryPayerName,
-  leadDisplaySecondaryPayerTypeLine,
+  leadInsuranceDisplayLines,
 } from "@/lib/crm/lead-payer-structured";
 
 import type { LeadWorkspaceContactProfileDefaults, LeadWorkspaceIntakeDefaults, LeadWorkspaceStaffOption } from "../lead-workspace";
@@ -175,10 +175,10 @@ function buildSnapshotPlainText(p: LeadSnapshotProps): string {
       "Waiting on doctor's orders",
       p.waitingOnDoctorsOrders ? "YES — do not schedule/start until signed orders are received" : "No"
     );
-    L("Primary payer", leadDisplayPrimaryPayerName(p.intakeDefaults));
-    L("Primary payer type", leadDisplayPrimaryPayerTypeLine(p.intakeDefaults));
-    L("Secondary payer", leadDisplaySecondaryPayerName(p.intakeDefaults));
-    L("Secondary payer type", leadDisplaySecondaryPayerTypeLine(p.intakeDefaults));
+    {
+      const insLines = leadInsuranceDisplayLines(p.intakeDefaults);
+      L("Insurance", insLines.length ? insLines.join("\n") : "—");
+    }
     L("Medicare #", p.medicareNumber.trim() ? "(masked in UI)" : "—");
     L("Medicare effective", p.medicareEffectiveDateIso ? fmtIsoDate(p.medicareEffectiveDateIso) : "—");
     L("Medicare notes", p.medicareNotes.trim());
@@ -246,7 +246,7 @@ export function LeadSnapshot(props: LeadSnapshotProps) {
   const primaryPayerName = leadDisplayPrimaryPayerName(intakeDefaults);
   const primaryPayerTypeLine = leadDisplayPrimaryPayerTypeLine(intakeDefaults);
   const secondaryPayerName = leadDisplaySecondaryPayerName(intakeDefaults);
-  const secondaryPayerTypeLine = leadDisplaySecondaryPayerTypeLine(intakeDefaults);
+  const insuranceDisplayLines = leadInsuranceDisplayLines(intakeDefaults);
   const lowerPayer = `${primaryPayerName} ${secondaryPayerName} ${primaryPayerTypeLine}`.toLowerCase();
 
   const tempNorm = normalizeLeadTemperature(leadTemperature);
@@ -403,26 +403,15 @@ export function LeadSnapshot(props: LeadSnapshotProps) {
         <div className="mt-4 grid gap-4 lg:grid-cols-2">
           <SubCard title="Insurance">
             <dl className="grid gap-3 sm:grid-cols-2">
-              <Field label="Primary payer" emphasis>
-                {textOrMuted(primaryPayerName)}
-              </Field>
-              <Field label="Primary payer type">
-                {primaryPayerTypeLine ? (
-                  <span className="text-slate-800">{primaryPayerTypeLine}</span>
-                ) : (
-                  <span className="text-slate-400">Not provided</span>
-                )}
-              </Field>
-              <Field label="Secondary payer">
-                {secondaryPayerName.trim() ? (
-                  <span className="text-slate-800">{secondaryPayerName.trim()}</span>
-                ) : (
-                  <span className="text-slate-400">Not provided</span>
-                )}
-              </Field>
-              <Field label="Secondary payer type">
-                {secondaryPayerTypeLine ? (
-                  <span className="text-slate-800">{secondaryPayerTypeLine}</span>
+              <Field label="Coverage" emphasis className="sm:col-span-2">
+                {insuranceDisplayLines.length > 0 ? (
+                  <div className="space-y-1.5 text-slate-900">
+                    {insuranceDisplayLines.map((line, i) => (
+                      <p key={`ins-${i}`} className="leading-snug">
+                        {line}
+                      </p>
+                    ))}
+                  </div>
                 ) : (
                   <span className="text-slate-400">Not provided</span>
                 )}

@@ -37,6 +37,7 @@ import {
   trunc,
   type CrmLeadRow,
 } from "@/lib/crm/crm-leads-table-helpers";
+import { leadInsuranceDisplayLinesFromRow } from "@/lib/crm/lead-payer-structured";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import {
   buildWorkspaceKeypadCallHref,
@@ -726,17 +727,23 @@ export function CrmLeadsList({ initialList, employeeOnlyView, staffOptions, toda
                         <div className="rounded-md border border-slate-100 bg-slate-50/30 px-2 py-1.5 text-slate-600">
                           <div className="flex flex-wrap gap-x-2 gap-y-0.5">
                             <span>{(r.intake_status ?? "").trim() || "—"}</span>
-                            {(r.payer_type ?? "").trim() ? (
-                              <span className="text-slate-500">· {(r.payer_type ?? "").trim()}</span>
-                            ) : null}
                           </div>
-                          {(r.payer_name ?? "").trim() ? (
-                            <div className="mt-0.5 truncate text-slate-500" title={(r.payer_name ?? "").trim()}>
-                              {trunc(r.payer_name, 42)}
-                            </div>
-                          ) : (
-                            <div className="mt-0.5 text-slate-400">Payer not set</div>
-                          )}
+                          {(() => {
+                            const insLines = leadInsuranceDisplayLinesFromRow(r);
+                            const title = insLines.join("\n");
+                            if (insLines.length === 0) {
+                              return <div className="mt-0.5 text-slate-400">Payer not set</div>;
+                            }
+                            return (
+                              <div className="mt-1 space-y-0.5 text-[10px] leading-snug text-slate-600">
+                                {insLines.map((line, i) => (
+                                  <div key={`ins-${r.id}-${i}`} className={i === 0 ? "font-medium text-slate-700" : ""} title={title}>
+                                    {trunc(line, 52)}
+                                  </div>
+                                ))}
+                              </div>
+                            );
+                          })()}
                         </div>
                       )}
                     </div>

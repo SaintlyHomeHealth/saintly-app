@@ -8,6 +8,10 @@ import {
   isValidLeadStructuredPayerType,
   leadStructuredPayerTypeLabel,
 } from "@/lib/crm/lead-payer-structured";
+import {
+  ORIGINAL_MEDICARE_DEFAULT_PAYER_NAME,
+  getPayerNameOptionsForLeadStructuredType,
+} from "@/lib/crm/payer-options";
 
 type Props = {
   inp: string;
@@ -22,14 +26,28 @@ export function LeadPayerInsuranceFields(props: Props) {
   const { inp, primaryPayerType, primaryPayerName, secondaryPayerType, secondaryPayerName, idPrefix } = props;
 
   const [primaryType, setPrimaryType] = useState(() => primaryPayerType.trim());
+  const [secondaryType, setSecondaryType] = useState(() => secondaryPayerType.trim());
+
+  const [primaryName, setPrimaryName] = useState(() => {
+    const n = primaryPayerName.trim();
+    const t = primaryPayerType.trim();
+    if (n) return n;
+    if (t === "original_medicare") return ORIGINAL_MEDICARE_DEFAULT_PAYER_NAME;
+    return "";
+  });
+
+  const [secondaryName, setSecondaryName] = useState(() => secondaryPayerName.trim());
 
   const legacyPrimaryType =
     primaryType.trim() && !isValidLeadStructuredPayerType(primaryType) ? primaryType.trim() : null;
   const legacySecondaryType =
-    secondaryPayerType.trim() && !isValidLeadStructuredPayerType(secondaryPayerType) ? secondaryPayerType.trim() : null;
+    secondaryType.trim() && !isValidLeadStructuredPayerType(secondaryType) ? secondaryType.trim() : null;
+
+  const primaryOptions = useMemo(() => getPayerNameOptionsForLeadStructuredType(primaryType), [primaryType]);
+  const secondaryOptions = useMemo(() => getPayerNameOptionsForLeadStructuredType(secondaryType), [secondaryType]);
 
   const primaryNamePlaceholder = useMemo(() => {
-    if (primaryType.trim() === "original_medicare") return "e.g. Medicare Part A/B";
+    if (primaryType.trim() === "original_medicare") return "e.g. Medicare (Original Medicare)";
     return "Search or type a payer…";
   }, [primaryType]);
 
@@ -42,7 +60,14 @@ export function LeadPayerInsuranceFields(props: Props) {
           id={`${idPrefix}-primary-type`}
           className={inp}
           value={primaryType}
-          onChange={(e) => setPrimaryType(e.target.value)}
+          onChange={(e) => {
+            const next = e.target.value;
+            const prev = primaryType.trim();
+            setPrimaryType(next);
+            if (next.trim() === "original_medicare" && prev !== "original_medicare" && !primaryName.trim()) {
+              setPrimaryName(ORIGINAL_MEDICARE_DEFAULT_PAYER_NAME);
+            }
+          }}
         >
           <option value="">—</option>
           {LEAD_STRUCTURED_PAYER_TYPES.map((v) => (
@@ -61,7 +86,9 @@ export function LeadPayerInsuranceFields(props: Props) {
         Primary payer name
         <SearchablePayerSelect
           name="primary_payer_name"
-          defaultValue={primaryPayerName}
+          value={primaryName}
+          onValueChange={setPrimaryName}
+          options={primaryOptions}
           className={inp}
           id={`${idPrefix}-primary-name`}
           placeholder={primaryNamePlaceholder}
@@ -69,8 +96,8 @@ export function LeadPayerInsuranceFields(props: Props) {
       </label>
       {primaryType.trim() === "original_medicare" ? (
         <p className="text-[11px] leading-snug text-slate-500 sm:col-span-2">
-          For Original Medicare, enter the member-facing label (often <strong>Medicare Part A/B</strong>). Add the
-          supplement or Medicaid crossover under secondary payer.
+          For Original Medicare, the default label is <strong>{ORIGINAL_MEDICARE_DEFAULT_PAYER_NAME}</strong>. Add the
+          supplement or Medicaid crossover under secondary payer. You can override the primary name if needed.
         </p>
       ) : null}
 
@@ -80,7 +107,8 @@ export function LeadPayerInsuranceFields(props: Props) {
           name="secondary_payer_type"
           id={`${idPrefix}-secondary-type`}
           className={inp}
-          defaultValue={secondaryPayerType.trim()}
+          value={secondaryType}
+          onChange={(e) => setSecondaryType(e.target.value)}
         >
           <option value="">—</option>
           {LEAD_STRUCTURED_PAYER_TYPES.map((v) => (
@@ -99,10 +127,12 @@ export function LeadPayerInsuranceFields(props: Props) {
         Secondary payer name <span className="font-normal text-slate-400">(optional)</span>
         <SearchablePayerSelect
           name="secondary_payer_name"
-          defaultValue={secondaryPayerName}
+          value={secondaryName}
+          onValueChange={setSecondaryName}
+          options={secondaryOptions}
           className={inp}
           id={`${idPrefix}-secondary-name`}
-          placeholder="e.g. UnitedHealthcare supplement"
+          placeholder="e.g. UnitedHealthcare"
         />
       </label>
     </div>

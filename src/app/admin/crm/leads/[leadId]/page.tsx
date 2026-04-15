@@ -52,11 +52,18 @@ async function leadInsuranceSignedUrl(path: string | null | undefined): Promise<
 const LEAD_DETAIL_CONTACTS_EMBED =
   "contacts ( full_name, first_name, last_name, primary_phone, secondary_phone, email, address_line_1, address_line_2, city, state, zip, notes )";
 
-const LEAD_DETAIL_SELECT_CORE =
-  "id, contact_id, source, status, owner_user_id, lead_type, next_action, follow_up_date, follow_up_at, created_at, last_contact_at, last_contact_type, last_outcome, last_note, notes, external_source_metadata, referring_doctor_name, doctor_office_name, doctor_office_phone, doctor_office_fax, doctor_office_contact_person, referring_provider_name, referring_provider_phone, payer_name, payer_type, primary_payer_type, primary_payer_name, secondary_payer_type, secondary_payer_name, referral_source, service_type, service_disciplines, intake_status, dob, primary_insurance_file_url, secondary_insurance_file_url, lead_temperature, waiting_on_doctors_orders";
+/** Base columns without optional migration-gated fields. */
+const LEAD_DETAIL_CORE_NO_WAITING =
+  "id, contact_id, source, status, owner_user_id, lead_type, next_action, follow_up_date, follow_up_at, created_at, last_contact_at, last_contact_type, last_outcome, last_note, notes, external_source_metadata, referring_doctor_name, doctor_office_name, doctor_office_phone, doctor_office_fax, doctor_office_contact_person, referring_provider_name, referring_provider_phone, payer_name, payer_type, primary_payer_type, primary_payer_name, secondary_payer_type, secondary_payer_name, referral_source, service_type, service_disciplines, intake_status, dob, primary_insurance_file_url, secondary_insurance_file_url, lead_temperature";
 
-const LEAD_DETAIL_SELECT_WITH_MEDICARE = `${LEAD_DETAIL_SELECT_CORE}, medicare_number, medicare_effective_date, medicare_notes, ${LEAD_DETAIL_CONTACTS_EMBED}`;
-const LEAD_DETAIL_SELECT_LEGACY = `${LEAD_DETAIL_SELECT_CORE}, ${LEAD_DETAIL_CONTACTS_EMBED}`;
+/** After migration `20260424120000_leads_waiting_on_doctors_orders.sql`. */
+const LEAD_DETAIL_CORE_WITH_WAITING = `${LEAD_DETAIL_CORE_NO_WAITING}, waiting_on_doctors_orders`;
+
+const LEAD_DETAIL_SELECT_WITH_MEDICARE = `${LEAD_DETAIL_CORE_WITH_WAITING}, medicare_number, medicare_effective_date, medicare_notes, ${LEAD_DETAIL_CONTACTS_EMBED}`;
+/** Same as WITH_MEDICARE but without `waiting_on_doctors_orders` (migration not applied yet). */
+const LEAD_DETAIL_SELECT_WITH_MEDICARE_NO_WAITING = `${LEAD_DETAIL_CORE_NO_WAITING}, medicare_number, medicare_effective_date, medicare_notes, ${LEAD_DETAIL_CONTACTS_EMBED}`;
+/** Without medicare_* — works before migration `20260413120000_lead_activities_medicare.sql`. */
+const LEAD_DETAIL_SELECT_LEGACY = `${LEAD_DETAIL_CORE_NO_WAITING}, ${LEAD_DETAIL_CONTACTS_EMBED}`;
 
 export default async function LeadIntakePage({
   params,
@@ -93,6 +100,12 @@ export default async function LeadIntakePage({
   let rowRes = await leadRowsActiveOnly(
     supabase.from("leads").select(LEAD_DETAIL_SELECT_WITH_MEDICARE).eq("id", leadId.trim())
   ).maybeSingle();
+
+  if (rowRes.error && isMissingSchemaObjectError(rowRes.error)) {
+    rowRes = await leadRowsActiveOnly(
+      supabase.from("leads").select(LEAD_DETAIL_SELECT_WITH_MEDICARE_NO_WAITING).eq("id", leadId.trim())
+    ).maybeSingle();
+  }
 
   if (rowRes.error && isMissingSchemaObjectError(rowRes.error)) {
     rowRes = await leadRowsActiveOnly(

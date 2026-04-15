@@ -21,6 +21,10 @@ export type CrmLeadRow = {
   referral_source: string | null;
   payer_name: string | null;
   payer_type: string | null;
+  primary_payer_type?: string | null;
+  primary_payer_name?: string | null;
+  secondary_payer_type?: string | null;
+  secondary_payer_name?: string | null;
   referring_provider_name: string | null;
   next_action: string | null;
   follow_up_date: string | null;

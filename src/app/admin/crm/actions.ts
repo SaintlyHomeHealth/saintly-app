@@ -10,6 +10,7 @@ import { notifyOperationalVisitStatus } from "@/lib/ops/visit-operational-alert"
 import { NURSE_ON_THE_WAY_MESSAGE, nurseLabelFromStaffEmail } from "@/lib/crm/patient-sms";
 import { sendOutboundSmsForContact, sendOutboundSmsForPatient } from "@/lib/crm/outbound-patient-sms";
 import { supabaseAdmin } from "@/lib/admin";
+import { isMissingSchemaObjectError } from "@/lib/crm/supabase-migration-fallback";
 import { VISIT_STATUS_TRANSITIONS } from "@/lib/crm/patient-visit-status";
 import { normalizePhone } from "@/lib/phone/us-phone-format";
 import { phoneLookupCandidates } from "@/lib/crm/phone-lookup-candidates";
@@ -2555,6 +2556,12 @@ export async function setLeadWaitingOnDoctorsOrders(formData: FormData) {
     .is("deleted_at", null);
 
   if (error) {
+    if (isMissingSchemaObjectError(error)) {
+      console.warn(
+        "[admin/crm] setLeadWaitingOnDoctorsOrders: DB migration not applied (waiting_on_doctors_orders); toggle skipped."
+      );
+      return;
+    }
     console.warn("[admin/crm] setLeadWaitingOnDoctorsOrders:", error.message);
     return;
   }

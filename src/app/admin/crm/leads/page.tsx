@@ -18,6 +18,7 @@ import { sortLeadsForPipelineDefault } from "@/lib/crm/crm-leads-sort";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { crmFilterInputCls, crmPrimaryCtaCls } from "@/components/admin/crm-admin-list-styles";
 import { normalizeContact, staffPrimaryLabel, type CrmLeadRow } from "@/lib/crm/crm-leads-table-helpers";
+import { isMissingSchemaObjectError } from "@/lib/crm/supabase-migration-fallback";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 
 function matchesDisciplineLead(
@@ -34,6 +35,18 @@ function matchesDisciplineLead(
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const EMPTY_SENTINEL = "00000000-0000-0000-0000-000000000000";
+
+/** `public.leads` — shared column list for CRM list (without optional migration-gated columns). */
+const CRM_LEADS_LIST_SELECT_BASE =
+  "id, contact_id, source, status, lead_type, owner_user_id, created_at, intake_status, referral_source, payer_name, payer_type, primary_payer_type, primary_payer_name, secondary_payer_type, secondary_payer_name, referring_provider_name, next_action, follow_up_date, last_contact_at, last_outcome, service_disciplines, service_type, external_source_metadata, lead_temperature";
+
+const CRM_LEADS_LIST_CONTACTS_EMBED =
+  "contacts ( full_name, first_name, last_name, primary_phone, secondary_phone, email )";
+
+/** Includes `waiting_on_doctors_orders` after migration `20260424120000_leads_waiting_on_doctors_orders.sql`. */
+const CRM_LEADS_LIST_SELECT_WITH_WAITING = `${CRM_LEADS_LIST_SELECT_BASE}, waiting_on_doctors_orders, ${CRM_LEADS_LIST_CONTACTS_EMBED}`;
+
+const CRM_LEADS_LIST_SELECT_WITHOUT_WAITING = `${CRM_LEADS_LIST_SELECT_BASE}, ${CRM_LEADS_LIST_CONTACTS_EMBED}`;
 
 export default async function AdminCrmLeadsPage({
   searchParams,
@@ -106,53 +119,57 @@ export default async function AdminCrmLeadsPage({
     }
   }
 
-  let query = leadRowsActiveOnly(
-    supabaseAdmin
-      .from("leads")
-      .select(
-        "id, contact_id, source, status, lead_type, owner_user_id, created_at, intake_status, referral_source, payer_name, payer_type, referring_provider_name, next_action, follow_up_date, last_contact_at, last_outcome, service_disciplines, service_type, external_source_metadata, lead_temperature, waiting_on_doctors_orders, contacts ( full_name, first_name, last_name, primary_phone, secondary_phone, email )"
-      )
-      .order("created_at", { ascending: false })
-      .limit(500)
-  );
+  const buildFilteredLeadsQuery = (selectStr: string) => {
+    let q = leadRowsActiveOnly(
+      supabaseAdmin.from("leads").select(selectStr).order("created_at", { ascending: false }).limit(500)
+    );
 
-  if (contactIdFilter) {
-    query = query.in("contact_id", contactIdFilter);
-  }
-
-  if (f.status && isValidLeadPipelineStatus(f.status)) {
-    query = query.eq("status", f.status);
-  }
-
-  if (f.source && LEAD_SOURCE_OPTIONS.some((o) => o.value === f.source)) {
-    query = query.eq("source", f.source);
-  }
-
-  if (UUID_RE.test(f.owner)) {
-    query = query.eq("owner_user_id", f.owner);
-  }
-
-  if (followUpToday) {
-    query = query.eq("follow_up_date", todayIso);
-  }
-
-  if (f.leadType !== "employee") {
-    if (f.payerType && PAYER_BROAD_CATEGORY_OPTIONS.includes(f.payerType as (typeof PAYER_BROAD_CATEGORY_OPTIONS)[number])) {
-      query = query.eq("payer_type", f.payerType);
+    if (contactIdFilter) {
+      q = q.in("contact_id", contactIdFilter);
     }
-  }
 
-  if (f.leadType === "employee") {
-    query = query.eq("lead_type", "employee");
-  } else if (f.leadType === "patient") {
-    query = query.is("lead_type", null);
-  }
+    if (f.status && isValidLeadPipelineStatus(f.status)) {
+      q = q.eq("status", f.status);
+    }
 
-  if (!showDead && !f.status) {
-    query = query.neq("status", "dead_lead");
-  }
+    if (f.source && LEAD_SOURCE_OPTIONS.some((o) => o.value === f.source)) {
+      q = q.eq("source", f.source);
+    }
 
-  const { data: rows, error } = await query;
+    if (UUID_RE.test(f.owner)) {
+      q = q.eq("owner_user_id", f.owner);
+    }
+
+    if (followUpToday) {
+      q = q.eq("follow_up_date", todayIso);
+    }
+
+    if (f.leadType !== "employee") {
+      if (f.payerType && PAYER_BROAD_CATEGORY_OPTIONS.includes(f.payerType as (typeof PAYER_BROAD_CATEGORY_OPTIONS)[number])) {
+        q = q.eq("payer_type", f.payerType);
+      }
+    }
+
+    if (f.leadType === "employee") {
+      q = q.eq("lead_type", "employee");
+    } else if (f.leadType === "patient") {
+      q = q.is("lead_type", null);
+    }
+
+    if (!showDead && !f.status) {
+      q = q.neq("status", "dead_lead");
+    }
+
+    return q;
+  };
+
+  let { data: rows, error } = await buildFilteredLeadsQuery(CRM_LEADS_LIST_SELECT_WITH_WAITING);
+  if (error && isMissingSchemaObjectError(error)) {
+    ({ data: rows, error } = await buildFilteredLeadsQuery(CRM_LEADS_LIST_SELECT_WITHOUT_WAITING));
+  }
+  if (error) {
+    console.warn("[crm/leads] leads query failed:", error.message);
+  }
 
   let list = (rows ?? []) as CrmLeadRow[];
 
