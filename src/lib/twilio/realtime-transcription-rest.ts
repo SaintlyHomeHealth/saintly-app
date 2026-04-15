@@ -39,6 +39,24 @@ export async function createRealtimeTranscription(input: {
   body.set("LanguageCode", input.languageCode?.trim() || "en-US");
   body.set("PartialResults", input.partialResults === true ? "true" : "false");
 
+  console.log(
+    "[twilio_rt]",
+    JSON.stringify({
+      step: "twilio_rt_step_01_twilio_request_sent",
+      twilio_rest_url: url,
+      call_sid: input.callSid,
+      track: input.track,
+      status_callback_url_exact: input.statusCallbackUrl,
+      status_callback_host: (() => {
+        try {
+          return new URL(input.statusCallbackUrl).host;
+        } catch {
+          return null;
+        }
+      })(),
+    })
+  );
+
   const res = await fetch(url, {
     method: "POST",
     headers: {
@@ -51,16 +69,55 @@ export async function createRealtimeTranscription(input: {
   const text = await res.text();
   if (!res.ok) {
     const err = text.trim() || `HTTP ${res.status}`;
-    return { ok: false, error: err.length > 4000 ? `${err.slice(0, 4000)}…` : err };
+    const clipped = err.length > 4000 ? `${err.slice(0, 4000)}…` : err;
+    console.log(
+      "[twilio_rt]",
+      JSON.stringify({
+        step: "twilio_rt_step_02_twilio_response_received",
+        http_status: res.status,
+        ok: false,
+        twilio_error_body: clipped,
+      })
+    );
+    return { ok: false, error: clipped };
   }
   try {
     const j = JSON.parse(text) as { sid?: string };
     const sid = typeof j.sid === "string" && j.sid.startsWith("GT") ? j.sid : null;
     if (!sid) {
+      console.log(
+        "[twilio_rt]",
+        JSON.stringify({
+          step: "twilio_rt_step_02_twilio_response_received",
+          http_status: res.status,
+          ok: false,
+          parse_error: "transcription_create_missing_sid",
+          response_body_preview: text.length > 800 ? `${text.slice(0, 800)}…` : text,
+        })
+      );
       return { ok: false, error: "transcription_create_missing_sid" };
     }
+    console.log(
+      "[twilio_rt]",
+      JSON.stringify({
+        step: "twilio_rt_step_02_twilio_response_received",
+        http_status: res.status,
+        ok: true,
+        transcription_sid: sid,
+      })
+    );
     return { ok: true, transcriptionSid: sid };
   } catch {
+    console.log(
+      "[twilio_rt]",
+      JSON.stringify({
+        step: "twilio_rt_step_02_twilio_response_received",
+        http_status: res.status,
+        ok: false,
+        parse_error: "transcription_create_invalid_json",
+        response_body_preview: text.length > 800 ? `${text.slice(0, 800)}…` : text,
+      })
+    );
     return { ok: false, error: "transcription_create_invalid_json" };
   }
 }

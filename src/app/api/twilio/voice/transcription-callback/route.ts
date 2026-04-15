@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/admin";
 import { appendLiveTranscriptChunkToPhoneCall } from "@/lib/phone/persist-live-transcript-chunk";
 import type { LiveTranscriptSpeaker } from "@/lib/phone/live-transcript-entries";
+import { getTwilioWebhookSignatureUrl } from "@/lib/twilio/signature-url";
 import { parseVerifiedTwilioFormBody } from "@/lib/twilio/verify-form-post";
 
 /** Route: POST /api/twilio/voice/transcription-callback */
@@ -29,7 +30,45 @@ function extractTranscriptFromTranscriptionDataJson(raw: string): string {
  * @see https://www.twilio.com/docs/voice/twiml/transcription#statuscallbackurl
  */
 export async function POST(req: NextRequest) {
+  const host = req.headers.get("x-forwarded-host")?.split(",")[0]?.trim() || req.headers.get("host") || "";
+  const proto =
+    (req.headers.get("x-forwarded-proto")?.split(",")[0]?.trim() || req.nextUrl.protocol.replace(":", "")) ||
+    "https";
+  const urlInferred = `${proto}://${host}${req.nextUrl.pathname}`;
+  const signatureUrlUsed = getTwilioWebhookSignatureUrl(req);
+  let signatureHost: string | null = null;
+  try {
+    signatureHost = new URL(signatureUrlUsed).host;
+  } catch {
+    signatureHost = null;
+  }
+
+  console.warn(
+    "[twilio_rt]",
+    JSON.stringify({
+      step: "twilio_rt_step_03_callback_route_entered",
+      route: "POST /api/twilio/voice/transcription-callback",
+      request_method: req.method,
+      host,
+      forwarded_host: req.headers.get("x-forwarded-host"),
+      pathname: req.nextUrl.pathname,
+      url_inferred_from_headers: urlInferred,
+      signature_url_used_for_validation_exact: signatureUrlUsed,
+      signature_validation_host: signatureHost,
+    })
+  );
+
   const parsed = await parseVerifiedTwilioFormBody(req);
+
+  console.log(
+    "[twilio_rt]",
+    JSON.stringify({
+      step: "twilio_rt_step_03f_signature_verification",
+      ok: parsed.ok,
+      http_status_if_failed: parsed.ok ? null : 403,
+    })
+  );
+
   if (!parsed.ok) {
     return parsed.response;
   }

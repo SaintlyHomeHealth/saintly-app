@@ -68,6 +68,9 @@ export function ActiveCallTranscriptSheet() {
     transcriptEnabled,
     setTranscriptEnabled,
     enableTranscriptManual,
+    transcriptStartPending,
+    transcriptStartError,
+    clearTranscriptStartError,
     stopLiveTranscriptStream,
     callContextLoadError,
   } = useWorkspaceSoftphone();
@@ -120,13 +123,13 @@ export function ActiveCallTranscriptSheet() {
   }, [messages, transcriptPanelOpen, transcriptEnabled]);
 
   useEffect(() => {
-    if (!transcriptEnabled || messages.length > 0 || callContextLoadError) {
+    if (!transcriptEnabled || messages.length > 0 || callContextLoadError || transcriptStartPending) {
       setListeningStall(false);
       return;
     }
     const t = window.setTimeout(() => setListeningStall(true), 15_000);
     return () => window.clearTimeout(t);
-  }, [transcriptEnabled, messages.length, callContextLoadError]);
+  }, [transcriptEnabled, messages.length, callContextLoadError, transcriptStartPending]);
 
   if (status !== "in_call" || !transcriptPanelOpen) return null;
 
@@ -173,7 +176,36 @@ export function ActiveCallTranscriptSheet() {
         ref={scrollRef}
         className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 pb-[max(1.25rem,env(safe-area-inset-bottom,0px))]"
       >
-        {!transcriptEnabled ? (
+        {transcriptStartError && !transcriptEnabled ? (
+          <div className="mx-auto flex max-w-md flex-col items-center justify-center px-4 py-12 text-center">
+            <p className="text-lg font-semibold text-red-200/95">Live transcription did not start</p>
+            <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-relaxed text-red-100/90">
+              {transcriptStartError}
+            </p>
+            <p className="mt-3 text-xs text-slate-500">
+              Check the browser console for <span className="font-mono text-slate-400">[transcript-ui]</span> and Vercel
+              for <span className="font-mono text-slate-400">[twilio_rt]</span> (look for{" "}
+              <span className="font-mono text-slate-400">twilio_rt_step_00</span>).
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                clearTranscriptStartError();
+                void enableTranscriptManual();
+              }}
+              className="mt-6 rounded-full border border-white/20 bg-white/10 px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-white/15"
+            >
+              Try again
+            </button>
+          </div>
+        ) : transcriptStartPending && !transcriptEnabled ? (
+          <div className="mx-auto flex max-w-md flex-col items-center justify-center px-4 py-16 text-center">
+            <p className="text-lg font-semibold text-white">Starting live transcription…</p>
+            <p className="mt-2 text-sm leading-relaxed text-slate-400">
+              Contacting the server and Twilio. This should finish in a few seconds.
+            </p>
+          </div>
+        ) : !transcriptEnabled ? (
           <div className="mx-auto flex max-w-md flex-col items-center justify-center px-4 py-16 text-center">
             <p className="text-lg font-semibold text-white">Transcription is off</p>
             <p className="mt-2 text-sm leading-relaxed text-slate-400">
@@ -181,7 +213,18 @@ export function ActiveCallTranscriptSheet() {
             </p>
             <button
               type="button"
-              onClick={() => void enableTranscriptManual()}
+              onClick={() => {
+                console.log(
+                  "[transcript-ui]",
+                  JSON.stringify({
+                    event: "start_transcript_button_clicked",
+                    source: "ActiveCallTranscriptSheet",
+                    api_path: "/api/workspace/phone/conference/start-transcript",
+                    active_call_sid: callContext?.external_call_id ?? null,
+                  })
+                );
+                void enableTranscriptManual();
+              }}
               className="mt-8 rounded-full bg-gradient-to-r from-sky-500 to-blue-600 px-8 py-3 text-sm font-bold text-white shadow-lg shadow-blue-500/25 transition hover:brightness-110 active:scale-[0.98]"
             >
               Enable Transcript

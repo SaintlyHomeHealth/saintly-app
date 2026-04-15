@@ -49,3 +49,26 @@ export function getTwilioWebhookSignatureUrl(req: NextRequest): string {
     "https";
   return `${proto}://${host}${req.nextUrl.pathname}`;
 }
+
+/**
+ * Same URL string Twilio signs for a given pathname when env bases are set (no request headers).
+ * Use to log alongside `resolveTranscriptionStatusCallbackUrl()` for debugging signature mismatches.
+ */
+export function getTwilioWebhookSignatureUrlForPathname(pathname: string): string | null {
+  const base = process.env.TWILIO_WEBHOOK_BASE_URL?.trim().replace(/\/$/, "");
+  if (base) return `${base}${pathname}`;
+
+  const publicBase = process.env.TWILIO_PUBLIC_BASE_URL?.trim().replace(/\/$/, "");
+  if (publicBase) return `${publicBase}${pathname}`;
+
+  const legacyFull = process.env.TWILIO_WEBHOOK_SIGNATURE_URL?.trim();
+  if (legacyFull) {
+    try {
+      const u = new URL(legacyFull);
+      return `${u.origin}${pathname}`;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}

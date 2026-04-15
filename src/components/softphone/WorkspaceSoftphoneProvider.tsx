@@ -141,6 +141,11 @@ type Ctx = {
   transcriptPanelOpen: boolean;
   setTranscriptPanelOpen: Dispatch<SetStateAction<boolean>>;
   enableTranscriptManual: () => Promise<void>;
+  /** True while POST start-transcript is in flight (Enable Transcript / auto inbound). */
+  transcriptStartPending: boolean;
+  /** Set when start-transcript failed; cleared on success or new call. */
+  transcriptStartError: string | null;
+  clearTranscriptStartError: () => void;
   /** Manual Twilio-backed recording (metadata on phone_calls). */
   softphoneRecording: SoftphoneRecordingMeta | null;
   recordingBusy: boolean;
@@ -269,10 +274,16 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
   const pstnTranscriptFollowupBusyRef = useRef(false);
   const lastPstnOnlyAttemptRef = useRef<{ sid: string; at: number } | null>(null);
   const [transcriptEnabled, setTranscriptEnabled] = useState(false);
+  const [transcriptStartPending, setTranscriptStartPending] = useState(false);
+  const [transcriptStartError, setTranscriptStartError] = useState<string | null>(null);
   const [transcriptPanelOpen, setTranscriptPanelOpen] = useState(false);
   const [callContextLoadError, setCallContextLoadError] = useState(false);
   const [recordingBusy, setRecordingBusy] = useState(false);
   const [recordingActionError, setRecordingActionError] = useState<string | null>(null);
+
+  const clearTranscriptStartError = useCallback(() => {
+    setTranscriptStartError(null);
+  }, []);
 
   const startLiveTranscriptStream = useCallback(async () => {
     if (transcriptStreamStartedRef.current) return { ok: true as const };
@@ -281,6 +292,15 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     if (!c) return { ok: false as const, error: "No active call" };
     const sid = readCallSid(c);
     if (!sid) return { ok: false as const, error: "No CallSid" };
+    console.log(
+      "[transcript-ui]",
+      JSON.stringify({
+        event: "start_transcript_client_request",
+        source: "startLiveTranscriptStream",
+        api_path: "/api/workspace/phone/conference/start-transcript",
+        active_call_sid: sid,
+      })
+    );
     transcriptStartInFlightRef.current = true;
     console.log(
       "[transcript-e2e]",
@@ -356,9 +376,26 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
   }, []);
 
   const enableTranscriptManual = useCallback(async () => {
-    setTranscriptEnabled(true);
-    if (transcriptStreamStartedRef.current) return;
-    await startLiveTranscriptStream();
+    setTranscriptStartError(null);
+    if (transcriptStreamStartedRef.current) {
+      setTranscriptEnabled(true);
+      return;
+    }
+    setTranscriptStartPending(true);
+    try {
+      const r = await startLiveTranscriptStream();
+      if (r.ok) {
+        setTranscriptEnabled(true);
+      } else {
+        setTranscriptEnabled(false);
+        setTranscriptStartError(r.error ?? "Live transcription failed to start.");
+      }
+    } catch (e) {
+      setTranscriptEnabled(false);
+      setTranscriptStartError(e instanceof Error ? e.message : "Network error starting transcription.");
+    } finally {
+      setTranscriptStartPending(false);
+    }
   }, [startLiveTranscriptStream]);
 
   const stopLiveTranscriptStream = useCallback(async () => {
@@ -480,20 +517,34 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
             const key = `${sid}:${inboundTs}`;
             if (inboundServerTranscriptUiKeyRef.current !== key) {
               inboundServerTranscriptUiKeyRef.current = key;
-              setTranscriptEnabled(true);
               setTranscriptPanelOpen(true);
               console.log(
                 JSON.stringify({
                   tag: "transcript-e2e",
                   phase: "e2e_step_10_ui_auto_transcript_enabled_from_poll",
-                  outcome: "ui_auto_transcript_enabled",
+                  outcome: "ui_auto_transcript_panel_opened",
                   client_leg_call_sid: sid,
                   canonical_external_call_id:
                     typeof j.external_call_id === "string" ? j.external_call_id : null,
                   manual_enable_path: false,
                 })
               );
-              void startLiveTranscriptStream();
+              void (async () => {
+                setTranscriptStartError(null);
+                setTranscriptStartPending(true);
+                try {
+                  const r = await startLiveTranscriptStream();
+                  if (r.ok) {
+                    setTranscriptEnabled(true);
+                  } else {
+                    setTranscriptStartError(r.error ?? "Live transcription failed to start.");
+                  }
+                } catch (e) {
+                  setTranscriptStartError(e instanceof Error ? e.message : "Network error starting transcription.");
+                } finally {
+                  setTranscriptStartPending(false);
+                }
+              })();
             }
           }
           const entries = j.voice_ai?.live_transcript_entries;
@@ -646,6 +697,8 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       lastPollCallSidRef.current = null;
       prevTranscriptLenRef.current = 0;
       setTranscriptEnabled(false);
+      setTranscriptStartPending(false);
+      setTranscriptStartError(null);
       setTranscriptPanelOpen(false);
       setCallContextLoadError(false);
       setRecordingBusy(false);
@@ -713,6 +766,8 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       console.log("[softphone] active call created", sidAtStart ? `${sidAtStart.slice(0, 10)}…` : "(no CallSid yet)");
       activeCallRef.current = call;
       setTranscriptEnabled(false);
+      setTranscriptStartPending(false);
+      setTranscriptStartError(null);
       setTranscriptPanelOpen(false);
       setCallContextLoadError(false);
       transcriptStreamStartedRef.current = false;
@@ -1525,6 +1580,9 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       transcriptPanelOpen,
       setTranscriptPanelOpen,
       enableTranscriptManual,
+      transcriptStartPending,
+      transcriptStartError,
+      clearTranscriptStartError,
       softphoneRecording: callContext?.softphone_recording ?? null,
       recordingBusy,
       recordingActionError,
@@ -1569,6 +1627,9 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     transcriptPanelOpen,
     setTranscriptPanelOpen,
     enableTranscriptManual,
+    transcriptStartPending,
+    transcriptStartError,
+    clearTranscriptStartError,
     callContext,
     recordingBusy,
     recordingActionError,

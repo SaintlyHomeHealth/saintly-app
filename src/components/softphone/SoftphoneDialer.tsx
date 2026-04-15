@@ -390,6 +390,16 @@ export function SoftphoneDialer({
                       : "Set TWILIO_WEBHOOK_BASE_URL (or TWILIO_PUBLIC_BASE_URL) for transcription callbacks, or REALTIME_BRIDGE_SHARED_SECRET for legacy bridge"
                   }
                   onClick={() => {
+                    const sidForLog = callContext?.conference_gating?.client_leg_call_sid ?? null;
+                    console.log(
+                      "[transcript-ui]",
+                      JSON.stringify({
+                        event: "start_transcript_button_clicked",
+                        source: "SoftphoneDialer",
+                        api_path: "/api/workspace/phone/conference/start-transcript",
+                        active_call_sid: sidForLog,
+                      })
+                    );
                     void (async () => {
                       setSoftphoneNotice(null);
                       if (!liveStreamButtonEnabled) {
