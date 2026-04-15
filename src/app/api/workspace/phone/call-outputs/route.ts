@@ -2,7 +2,10 @@ import { NextResponse } from "next/server";
 
 import { supabaseAdmin } from "@/lib/admin";
 import { findPhoneCallRowByTwilioCallSid } from "@/lib/phone/phone-call-lookup-by-call-sid";
+import { canStaffAccessPhoneCallRow } from "@/lib/phone/staff-call-access";
 import { canAccessWorkspacePhone, getStaffProfile } from "@/lib/staff-profile";
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const TYPES = new Set<string>(["soap", "summary", "intake"]);
 const MAX_CONTENT = 500_000;
@@ -16,9 +19,23 @@ export type CallOutputRow = {
   updated_at: string;
 };
 
+async function loadCallAssignment(phoneCallId: string): Promise<string | null | undefined> {
+  const { data: callRow, error } = await supabaseAdmin
+    .from("phone_calls")
+    .select("id, assigned_to_user_id")
+    .eq("id", phoneCallId)
+    .maybeSingle();
+
+  if (error || !callRow?.id) {
+    return undefined;
+  }
+
+  return typeof callRow.assigned_to_user_id === "string" ? callRow.assigned_to_user_id : null;
+}
+
 /**
  * GET saved AI outputs for a call.
- * Query: `call_sid` (Twilio CallSid on the Client leg or resolvable leg).
+ * Query: `callId` (phone_calls.id, preferred for CRM / call detail) or `call_sid` (Twilio CallSid).
  */
 export async function GET(req: Request) {
   const staff = await getStaffProfile();
@@ -27,21 +44,42 @@ export async function GET(req: Request) {
   }
 
   const url = new URL(req.url);
+  const callId = (url.searchParams.get("callId") ?? "").trim();
   const callSid = (url.searchParams.get("call_sid") ?? "").trim();
-  if (!callSid.startsWith("CA")) {
-    return NextResponse.json({ error: "call_sid required" }, { status: 400 });
-  }
 
-  const row = await findPhoneCallRowByTwilioCallSid(supabaseAdmin, callSid);
-  if (!row) {
-    return NextResponse.json({ error: "Call not found" }, { status: 404 });
+  let phoneCallId: string;
+
+  if (callId && UUID_RE.test(callId)) {
+    const assigned = await loadCallAssignment(callId);
+    if (assigned === undefined) {
+      return NextResponse.json({ error: "Call not found" }, { status: 404 });
+    }
+    if (!canStaffAccessPhoneCallRow(staff, { assigned_to_user_id: assigned })) {
+      return NextResponse.json({ error: "Call not found" }, { status: 404 });
+    }
+    phoneCallId = callId;
+  } else if (callSid.startsWith("CA")) {
+    const row = await findPhoneCallRowByTwilioCallSid(supabaseAdmin, callSid);
+    if (!row) {
+      return NextResponse.json({ error: "Call not found" }, { status: 404 });
+    }
+    const assigned = await loadCallAssignment(row.id);
+    if (assigned === undefined) {
+      return NextResponse.json({ error: "Call not found" }, { status: 404 });
+    }
+    if (!canStaffAccessPhoneCallRow(staff, { assigned_to_user_id: assigned })) {
+      return NextResponse.json({ error: "Call not found" }, { status: 404 });
+    }
+    phoneCallId = row.id;
+  } else {
+    return NextResponse.json({ error: "callId or call_sid required" }, { status: 400 });
   }
 
   const { data, error } = await supabaseAdmin
     .from("call_outputs")
     .select("id, phone_call_id, type, content, created_at, updated_at")
-    .eq("phone_call_id", row.id)
-    .order("type", { ascending: true });
+    .eq("phone_call_id", phoneCallId)
+    .order("created_at", { ascending: false });
 
   if (error) {
     console.warn("[call-outputs] list_failed", error.message);
@@ -50,7 +88,7 @@ export async function GET(req: Request) {
 
   return NextResponse.json({
     ok: true,
-    phone_call_id: row.id,
+    phone_call_id: phoneCallId,
     outputs: (data ?? []) as CallOutputRow[],
   });
 }
@@ -91,7 +129,7 @@ export async function POST(req: Request) {
 
   const { data: callRow, error: callErr } = await supabaseAdmin
     .from("phone_calls")
-    .select("id")
+    .select("id, assigned_to_user_id")
     .eq("id", phoneCallId)
     .maybeSingle();
 
@@ -99,21 +137,52 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Call not found" }, { status: 404 });
   }
 
-  const { data: saved, error: upErr } = await supabaseAdmin
+  if (
+    !canStaffAccessPhoneCallRow(staff, {
+      assigned_to_user_id:
+        typeof callRow.assigned_to_user_id === "string" ? callRow.assigned_to_user_id : null,
+    })
+  ) {
+    return NextResponse.json({ error: "Call not found" }, { status: 404 });
+  }
+
+  const { data: existing, error: findErr } = await supabaseAdmin
     .from("call_outputs")
-    .upsert(
-      {
-        phone_call_id: phoneCallId,
-        type,
-        content: content.trim(),
-      },
-      { onConflict: "phone_call_id,type" }
-    )
-    .select("id, phone_call_id, type, content, created_at, updated_at")
+    .select("id")
+    .eq("phone_call_id", phoneCallId)
+    .eq("type", type)
+    .maybeSingle();
+
+  if (findErr) {
+    console.warn("[call-outputs] find_failed", findErr.message);
+    return NextResponse.json({ error: "Could not save" }, { status: 500 });
+  }
+
+  const trimmed = content.trim();
+  const sel = "id, phone_call_id, type, content, created_at, updated_at";
+
+  if (existing?.id) {
+    const { data: saved, error: upErr } = await supabaseAdmin
+      .from("call_outputs")
+      .update({ content: trimmed })
+      .eq("id", existing.id)
+      .select(sel)
+      .single();
+    if (upErr || !saved) {
+      console.warn("[call-outputs] update_failed", upErr?.message);
+      return NextResponse.json({ error: "Could not save" }, { status: 500 });
+    }
+    return NextResponse.json({ ok: true, saved: saved as CallOutputRow });
+  }
+
+  const { data: saved, error: inErr } = await supabaseAdmin
+    .from("call_outputs")
+    .insert({ phone_call_id: phoneCallId, type, content: trimmed })
+    .select(sel)
     .single();
 
-  if (upErr || !saved) {
-    console.warn("[call-outputs] upsert_failed", upErr?.message);
+  if (inErr || !saved) {
+    console.warn("[call-outputs] insert_failed", inErr?.message);
     return NextResponse.json({ error: "Could not save" }, { status: 500 });
   }
 
