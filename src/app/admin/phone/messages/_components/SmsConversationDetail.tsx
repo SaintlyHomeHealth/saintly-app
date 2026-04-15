@@ -762,8 +762,8 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
     if (workspaceDesktopSplit) {
       return (
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">{shell}</div>
-          <aside className="hidden h-full min-h-0 w-[360px] shrink-0 flex-col overflow-hidden border-l border-slate-200 bg-white lg:flex">
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden lg:basis-0 lg:min-w-0">{shell}</div>
+          <aside className="hidden h-full min-h-0 w-[360px] max-w-[360px] shrink-0 grow-0 basis-[360px] flex-col overflow-hidden border-l border-slate-200 bg-white lg:flex">
             <div className="flex h-10 shrink-0 items-center border-b border-slate-200 px-3">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Contact & CRM</p>
             </div>
