@@ -19,6 +19,15 @@ function asMeta(value: unknown): ConversationMetadata {
   return {};
 }
 
+function formatSupabaseErr(err: { message: string; code?: string; details?: string | null; hint?: string | null } | null): string {
+  if (!err?.message) return "unknown error";
+  const parts = [err.message.trim()];
+  if (err.code) parts.push(`code=${err.code}`);
+  if (err.details) parts.push(`details=${String(err.details)}`);
+  if (err.hint) parts.push(`hint=${String(err.hint)}`);
+  return parts.join(" | ");
+}
+
 /**
  * Find or create the SMS thread for a number. Links CRM when matched; flags unknown texters in metadata.
  */
@@ -35,6 +44,10 @@ export async function ensureSmsConversationForPhone(
   const phone =
     normalizeDialInputToE164(trimmed) ?? (isValidE164(trimmed) ? trimmed : "");
   if (!phone || !isValidE164(phone)) {
+    console.error("[ensure-sms-conversation] invalid E.164 after normalize", {
+      trimmed,
+      normalized: phone || null,
+    });
     return { ok: false, error: "invalid main_phone_e164" };
   }
 
@@ -42,8 +55,17 @@ export async function ensureSmsConversationForPhone(
 
   const candidates = phoneLookupCandidates(phone);
   if (candidates.length === 0) {
+    console.error("[ensure-sms-conversation] no lookup candidates", { phone });
     return { ok: false, error: "no phone lookup candidates" };
   }
+
+  console.log("[ensure-sms-conversation] start", {
+    inputTrimmed: trimmed,
+    normalizedE164: phone,
+    candidates,
+    matchedContactId: contactId,
+    leadStatusOnCreate: options?.leadStatusOnCreate ?? "(omit, use DB default)",
+  });
 
   const { data: existingRows, error: findErr } = await supabase
     .from("conversations")
@@ -54,8 +76,17 @@ export async function ensureSmsConversationForPhone(
     .limit(2);
 
   if (findErr) {
-    return { ok: false, error: findErr.message };
+    console.error("[ensure-sms-conversation] select existing failed", {
+      error: formatSupabaseErr(findErr),
+      raw: findErr,
+    });
+    return { ok: false, error: formatSupabaseErr(findErr) };
   }
+
+  console.log("[ensure-sms-conversation] existing lookup", {
+    rowCount: existingRows?.length ?? 0,
+    firstId: existingRows?.[0]?.id ?? null,
+  });
 
   const existing = existingRows && existingRows.length > 0 ? existingRows[0] : null;
   if (existingRows && existingRows.length > 1) {
@@ -71,7 +102,7 @@ export async function ensureSmsConversationForPhone(
       .update({ main_phone_e164: phone, updated_at: new Date().toISOString() })
       .eq("id", String(existing.id));
     if (canonErr) {
-      console.warn("[sms-db] canonicalize main_phone_e164:", canonErr.message);
+      console.warn("[ensure-sms-conversation] canonicalize main_phone_e164:", formatSupabaseErr(canonErr), canonErr);
     }
   }
 
@@ -93,7 +124,7 @@ export async function ensureSmsConversationForPhone(
         .is("primary_contact_id", null);
 
       if (linkErr) {
-        console.warn("[sms-thread] link contact:", linkErr.message);
+        console.warn("[ensure-sms-conversation] link contact:", formatSupabaseErr(linkErr), linkErr);
       }
     }
 
@@ -111,7 +142,7 @@ export async function ensureSmsConversationForPhone(
           .eq("id", conversationId);
 
         if (metaErr) {
-          console.warn("[sms-thread] flag unknown:", metaErr.message);
+          console.warn("[ensure-sms-conversation] flag unknown:", formatSupabaseErr(metaErr), metaErr);
         }
       }
     }
@@ -137,6 +168,15 @@ export async function ensureSmsConversationForPhone(
     insertPayload.lead_status = options.leadStatusOnCreate;
   }
 
+  console.log("[ensure-sms-conversation] inserting conversation", {
+    payloadKeys: Object.keys(insertPayload),
+    channel: insertPayload.channel,
+    main_phone_e164: insertPayload.main_phone_e164,
+    primary_contact_id: insertPayload.primary_contact_id,
+    lead_status: insertPayload.lead_status ?? "(default from DB)",
+    metadataKeys: meta && typeof meta === "object" ? Object.keys(meta as object) : [],
+  });
+
   const { data: inserted, error: insErr } = await supabase
     .from("conversations")
     .insert(insertPayload)
@@ -144,9 +184,15 @@ export async function ensureSmsConversationForPhone(
     .single();
 
   if (insErr || !inserted?.id) {
-    return { ok: false, error: insErr?.message ?? "insert conversation failed" };
+    console.error("[ensure-sms-conversation] insert failed", {
+      formatted: insErr ? formatSupabaseErr(insErr) : "no row",
+      raw: insErr ?? null,
+      insertPayload,
+    });
+    return { ok: false, error: insErr ? formatSupabaseErr(insErr) : "insert conversation failed (no id returned)" };
   }
 
+  console.log("[ensure-sms-conversation] insert ok", { conversationId: String(inserted.id) });
   return { ok: true, conversationId: String(inserted.id) };
 }
 

@@ -164,10 +164,12 @@ export async function sendWorkspaceNewSms(formData: FormData) {
     hasContactId: Boolean(contact?.id),
   });
 
-  /** Conversation row must exist before Twilio + `messages` insert (same as other outbound SMS flows). */
-  const ensured = await ensureSmsConversationForPhone(supabaseAdmin, e164, contact, {
-    leadStatusOnCreate: "unclassified",
-  });
+  /**
+   * Same as inbound SMS (`applyInboundTwilioSms`): omit `leadStatusOnCreate` so `lead_status` uses the
+   * column default (`new_lead`). Do not use `unclassified` here — DBs that have not applied migration
+   * `20260330160000_conversations_lead_status_unclassified.sql` reject that value on insert.
+   */
+  const ensured = await ensureSmsConversationForPhone(supabaseAdmin, e164, contact);
 
   if (!ensured.ok) {
     console.error("[workspace-new-sms] step=ensure_thread FAILED (before Twilio)", {
