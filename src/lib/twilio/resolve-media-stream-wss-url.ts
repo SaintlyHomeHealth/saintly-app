@@ -16,6 +16,9 @@ export function resolveTwilioMediaStreamWssUrl(): string {
  * Appends query params the realtime bridge reads to route transcript rows and avoid
  * mixing legs. `transcript_external_id` is always the workspace `phone_calls.external_call_id`
  * (Client/WebRTC CallSid), even when the Twilio stream is on the PSTN leg.
+ *
+ * Also used for **inbound DID** transcript-only (after answer via REST `Calls/.../Streams`) — same
+ * transcript-only bridge mode as workspace; **never** combine with `appendInboundReceptionistAiStreamParam`.
  */
 export function appendSoftphoneTranscriptStreamParams(
   baseWss: string,

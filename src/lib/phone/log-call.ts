@@ -13,6 +13,7 @@ import {
 import { triggerAutoFollowUp } from "@/lib/phone/auto-followup";
 import { normalizeTwilioRecordingMediaUrl } from "@/lib/phone/twilio-recording-media";
 import { scheduleSaintlyVoicemailProcessing } from "@/lib/phone/voicemail-saintly-process";
+import { maybeStartInboundTranscriptStreamIfEligible } from "@/lib/phone/maybe-start-inbound-transcript-stream";
 import { awaitVoiceAiClassificationForWebhook } from "@/lib/phone/voice-ai-background";
 
 const PHONE_CALL_TRACE_LOGS =
@@ -1146,6 +1147,14 @@ export async function applyTwilioVoiceStatusCallback(
     after_status: asOptionalString(afterRow.status),
     after_ended_at: asOptionalString(afterRow.ended_at),
     final_status_intended: finalStatus,
+  });
+
+  await maybeStartInboundTranscriptStreamIfEligible(supabase, {
+    callId,
+    resolvedExternalCallId,
+    direction,
+    rawCallStatus: (payload.raw?.CallStatus ?? payload.CallStatus ?? "").trim(),
+    rowMetadata: rowMetaBeforeMerge,
   });
 
   const fromE164 = fromVal ?? asOptionalString(row.from_e164);
