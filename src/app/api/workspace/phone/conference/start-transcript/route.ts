@@ -50,6 +50,22 @@ export async function POST(req: Request) {
     );
   }
 
+  console.log(
+    "[twilio_rt]",
+    JSON.stringify({
+      step: "twilio_rt_step_01_start_requested",
+      route: "POST /api/workspace/phone/conference/start-transcript",
+      call_sid: callSid,
+      status_callback_url_host: (() => {
+        try {
+          return new URL(statusCallbackUrl).host;
+        } catch {
+          return null;
+        }
+      })(),
+    })
+  );
+
   if (body.pstnOnly === true) {
     const deferred = await maybeStartDeferredPstnTranscriptStream(supabaseAdmin, callSid, "api_post_pstn_only");
     if (deferred.skipped === "client_transcript_never_started") {
@@ -165,9 +181,36 @@ export async function POST(req: Request) {
       track,
       twilioErrorFull: clientResult.error,
     });
+    console.log(
+      "[twilio_rt]",
+      JSON.stringify({
+        step: "twilio_rt_step_02_start_failed",
+        route: "POST /api/workspace/phone/conference/start-transcript",
+        call_sid: callSid,
+        track,
+        error: clientResult.error.slice(0, 500),
+      })
+    );
     return NextResponse.json({ error: clientResult.error }, { status: 502 });
   }
 
+  console.log(
+    "[twilio_rt]",
+    JSON.stringify({
+      step: "twilio_rt_step_02_start_succeeded",
+      route: "POST /api/workspace/phone/conference/start-transcript",
+      call_sid: callSid,
+      transcription_sid: clientResult.transcriptionSid,
+      track,
+      status_callback_url_host: (() => {
+        try {
+          return new URL(statusCallbackUrl).host;
+        } catch {
+          return null;
+        }
+      })(),
+    })
+  );
   console.log("[start-transcript] client_realtime_transcription_ok", {
     clientCallSid: callSid,
     transcriptionSid: clientResult.transcriptionSid,

@@ -24,6 +24,12 @@ export function getTwilioWebhookSignatureUrl(req: NextRequest): string {
     return `${base}${req.nextUrl.pathname}`;
   }
 
+  /** Must match `resolveTranscriptionStatusCallbackUrl` / `resolveTwilioWebhookBaseUrl` before falling back to legacy. */
+  const publicBase = process.env.TWILIO_PUBLIC_BASE_URL?.trim().replace(/\/$/, "");
+  if (publicBase) {
+    return `${publicBase}${req.nextUrl.pathname}`;
+  }
+
   const legacyFull = process.env.TWILIO_WEBHOOK_SIGNATURE_URL?.trim();
   if (legacyFull) {
     try {

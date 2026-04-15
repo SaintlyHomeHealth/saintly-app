@@ -9,6 +9,7 @@ import { stopRealtimeTranscription } from "@/lib/twilio/realtime-transcription-r
 
 /**
  * Stops Twilio Real-Time Transcription on the client leg (and PSTN leg when present).
+ * Route: POST /api/workspace/phone/conference/stop-transcript
  */
 export async function POST(req: Request) {
   const staff = await getStaffProfile();

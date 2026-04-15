@@ -447,9 +447,13 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
         console.log("[softphone] call-context poll: active CallSid changed", sid.slice(0, 10) + "…");
       }
       try {
-        const res = await fetch(`/api/workspace/phone/call-context?call_sid=${encodeURIComponent(sid)}`, {
-          credentials: "include",
-        });
+        const rtDebug = process.env.NODE_ENV === "development" ? "&rt_debug=1" : "";
+        const res = await fetch(
+          `/api/workspace/phone/call-context?call_sid=${encodeURIComponent(sid)}${rtDebug}`,
+          {
+            credentials: "include",
+          }
+        );
         if (cancelled) return;
         if (!res.ok) {
           if (!cancelled) setCallContextLoadError(true);

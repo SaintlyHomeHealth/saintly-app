@@ -31,12 +31,33 @@ export async function appendLiveTranscriptChunkToPhoneCall(
     .from("phone_calls")
     .select("id, metadata")
     .or(`external_call_id.eq.${externalCallId},metadata->twilio_leg_map->>last_leg_call_sid.eq.${externalCallId}`)
+    .order("started_at", { ascending: false })
     .limit(1)
     .maybeSingle();
 
   if (selErr || !row?.id) {
+    console.warn(
+      "[twilio_rt]",
+      JSON.stringify({
+        step: "twilio_rt_step_04_call_row_resolved",
+        ok: false,
+        external_call_id: `${externalCallId.slice(0, 10)}…`,
+        supabase_error: selErr?.message ?? null,
+        equivalent_to: "bridge_transcript_lookup_failed",
+      })
+    );
     return { ok: false, error: "call_not_found" };
   }
+
+  console.log(
+    "[twilio_rt]",
+    JSON.stringify({
+      step: "twilio_rt_step_04_call_row_resolved",
+      ok: true,
+      phone_call_id: row.id,
+      external_call_id: `${externalCallId.slice(0, 10)}…`,
+    })
+  );
 
   const meta =
     row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata)
@@ -77,8 +98,28 @@ export async function appendLiveTranscriptChunkToPhoneCall(
 
   const { error: upErr } = await supabase.from("phone_calls").update({ metadata: meta }).eq("id", row.id);
   if (upErr) {
+    console.warn(
+      "[twilio_rt]",
+      JSON.stringify({
+        step: "twilio_rt_step_05_chunk_persist_failed",
+        phone_call_id: row.id,
+        error: upErr.message,
+      })
+    );
     return { ok: false, error: upErr.message };
   }
+
+  console.log(
+    "[twilio_rt]",
+    JSON.stringify({
+      step: "twilio_rt_step_05_chunk_persisted",
+      phone_call_id: row.id,
+      seq: entry.seq,
+      speaker,
+      db_path: "phone_calls.metadata.voice_ai.live_transcript_entries",
+      entry_count_after: mergedEntries.length,
+    })
+  );
 
   return { ok: true, phoneCallId: row.id, seq: entry.seq };
 }
