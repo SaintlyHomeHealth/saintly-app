@@ -512,9 +512,9 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
             initialSmsSuggestion && suggestionMeta ? suggestionMeta.for_message_id : null
           }
           composerInitialDraft={composerInitialDraft}
-          belowComposerSlot={
-        <details className="mx-auto mb-2 w-full max-w-[40rem] shrink-0 rounded-2xl border border-slate-200/90 bg-white/95 text-sm shadow-md shadow-slate-900/5 ring-1 ring-slate-100/80">
-          <summary className="cursor-pointer list-none px-4 py-3 font-semibold text-slate-800 [&::-webkit-details-marker]:hidden">
+          threadTopSlot={
+        <details className="w-full rounded-xl border border-slate-200/90 bg-white/95 text-sm shadow-sm shadow-slate-900/5 ring-1 ring-slate-100/80">
+          <summary className="cursor-pointer list-none px-3 py-2.5 font-semibold text-slate-800 [&::-webkit-details-marker]:hidden">
             <span className="text-slate-500">▸</span> Thread details & CRM
           </summary>
           <div className="max-h-[min(42vh,20rem)] overflow-y-auto overscroll-y-contain border-t border-slate-100 px-3 pb-4 pt-2 md:max-h-[min(48vh,24rem)]">

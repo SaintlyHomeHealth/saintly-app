@@ -54,8 +54,8 @@ type Props = {
   initialSuggestion: string | null;
   suggestionForMessageId: string | null;
   composerInitialDraft: string | null;
-  /** CRM / details — rendered below the reply bar (secondary). */
-  belowComposerSlot?: ReactNode;
+  /** CRM / thread tools — above the message list so the composer stays bottom-pinned. */
+  threadTopSlot?: ReactNode;
 };
 
 export function WorkspaceSmsThreadView({
@@ -64,7 +64,7 @@ export function WorkspaceSmsThreadView({
   initialSuggestion,
   suggestionForMessageId,
   composerInitialDraft,
-  belowComposerSlot,
+  threadTopSlot,
 }: Props) {
   const [serverMessages, setServerMessages] = useState<ThreadMessage[]>(() => initialMessages);
   const [optimistic, setOptimistic] = useState<ThreadMessage[]>([]);
@@ -224,15 +224,21 @@ export function WorkspaceSmsThreadView({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      {threadTopSlot ? (
+        <div className="shrink-0 border-b border-sky-100/70 bg-white/90 px-3 py-2 sm:px-4">
+          <div className="mx-auto w-full max-w-[40rem]">{threadTopSlot}</div>
+        </div>
+      ) : null}
+
       <div
         ref={scrollRef}
         onScroll={updateNearBottom}
-        className="relative min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-y-contain px-3 pb-2 pt-3 sm:px-4 sm:pb-3 sm:pt-4"
+        className="relative min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-y-contain"
         style={{ WebkitOverflowScrolling: "touch" }}
       >
-        <div className="mx-auto flex min-h-full w-full max-w-[40rem] flex-col rounded-[1.35rem] border border-slate-200/60 bg-white/92 shadow-[0_1px_0_rgba(255,255,255,0.98)_inset,0_16px_44px_-20px_rgba(15,23,42,0.12)] ring-1 ring-white/70 backdrop-blur-sm">
+        <div className="mx-auto flex min-h-full w-full max-w-[40rem] flex-col px-3 pb-2 pt-2 sm:px-4 sm:pb-3 sm:pt-3">
           {canLoadEarlier ? (
-            <div className="flex justify-center px-2 pb-3 pt-3 sm:px-4">
+            <div className="flex shrink-0 justify-center pb-3 pt-1">
               <button
                 type="button"
                 onClick={loadEarlier}
@@ -243,12 +249,12 @@ export function WorkspaceSmsThreadView({
             </div>
           ) : null}
 
-          <div className="flex flex-1 flex-col justify-end gap-3 px-3.5 pb-3 pt-2 sm:px-6 sm:pb-5">
+          <div className="flex min-h-0 flex-1 flex-col justify-end gap-2.5 pb-1 sm:gap-3">
             {merged.length === 0 ? (
-              <div className="flex flex-1 flex-col items-center justify-center gap-2 px-4 py-16 text-center sm:py-20">
-                <p className="text-base font-medium text-slate-600">No messages yet</p>
-                <p className="max-w-xs text-sm leading-relaxed text-slate-500">
-                  Start the conversation below — your message appears here right away.
+              <div className="flex flex-col items-center justify-end gap-1.5 px-2 pb-6 pt-4 text-center">
+                <p className="text-sm font-medium text-slate-600">No messages yet</p>
+                <p className="max-w-xs text-xs leading-relaxed text-slate-500">
+                  Type below — your message shows up here right away.
                 </p>
               </div>
             ) : (
@@ -262,10 +268,10 @@ export function WorkspaceSmsThreadView({
                     className={`flex w-full flex-col ${inbound ? "items-start" : "items-end"} gap-1`}
                   >
                     <div
-                      className={`max-w-[min(92%,22rem)] rounded-[1.35rem] px-3.5 py-2.5 text-[15px] leading-relaxed tracking-[0.01em] ${
+                      className={`max-w-[min(92%,22rem)] rounded-[1.25rem] px-3.5 py-2.5 text-[15px] leading-relaxed tracking-[0.01em] ${
                         inbound
-                          ? "rounded-bl-md border border-slate-200/90 bg-white text-slate-900 shadow-md shadow-slate-900/[0.08] ring-1 ring-slate-100/90"
-                          : `rounded-br-md bg-gradient-to-br from-sky-500 via-sky-600 to-blue-800 text-white shadow-lg shadow-sky-900/20 ring-1 ring-white/20 ${
+                          ? "rounded-bl-md border border-slate-200/90 bg-white text-slate-900 shadow-sm shadow-slate-900/[0.06] ring-1 ring-slate-100/80"
+                          : `rounded-br-md bg-gradient-to-br from-sky-500 via-sky-600 to-blue-800 text-white shadow-md shadow-sky-900/15 ring-1 ring-white/20 ${
                               isPending ? "opacity-90" : ""
                             }`
                       }`}
@@ -284,31 +290,25 @@ export function WorkspaceSmsThreadView({
                 );
               })
             )}
+            <div ref={bottomRef} className="h-1 w-full shrink-0" aria-hidden />
           </div>
-          <div ref={bottomRef} className="h-2 w-full shrink-0" aria-hidden />
         </div>
       </div>
 
-      <div className="z-20 shrink-0 border-t border-sky-100/80 bg-gradient-to-t from-white via-white to-sky-50/50 pb-[max(0.5rem,env(safe-area-inset-bottom,0px))] shadow-[0_-10px_36px_-10px_rgba(30,58,138,0.14),0_-1px_0_rgba(255,255,255,0.9)] backdrop-blur-md supports-[backdrop-filter]:bg-white/90">
-        <div className="mx-auto w-full max-w-[40rem] px-3 pt-1 sm:px-4">
-        <SmsReplyComposer
-          key={`${conversationId}:${suggestionForMessageId ?? ""}:${composerInitialDraft ?? ""}`}
-          conversationId={conversationId}
-          initialSuggestion={initialSuggestion}
-          suggestionForMessageId={suggestionForMessageId}
-          initialDraft={composerInitialDraft}
-          workspaceThread
-          messagingUX
-          onOutboundOptimistic={handleOptimistic}
-        />
+      <div className="z-20 shrink-0 border-t border-sky-100/80 bg-white/95 pb-[max(0.35rem,env(safe-area-inset-bottom,0px))] pt-1 shadow-[0_-4px_24px_-8px_rgba(30,58,138,0.1)] backdrop-blur-md supports-[backdrop-filter]:bg-white/90">
+        <div className="mx-auto w-full max-w-[40rem] px-3 sm:px-4">
+          <SmsReplyComposer
+            key={`${conversationId}:${suggestionForMessageId ?? ""}:${composerInitialDraft ?? ""}`}
+            conversationId={conversationId}
+            initialSuggestion={initialSuggestion}
+            suggestionForMessageId={suggestionForMessageId}
+            initialDraft={composerInitialDraft}
+            workspaceThread
+            messagingUX
+            onOutboundOptimistic={handleOptimistic}
+          />
         </div>
       </div>
-
-      {belowComposerSlot ? (
-        <div className="shrink-0 border-t border-sky-100/50 bg-gradient-to-b from-sky-50/50 to-slate-50/40">
-          <div className="mx-auto w-full max-w-[40rem] px-3 pb-1 sm:px-4">{belowComposerSlot}</div>
-        </div>
-      ) : null}
     </div>
   );
 }

@@ -53,27 +53,27 @@ export function WorkspaceSmsConversationShell({
   return (
     <WorkspaceSmsContactCtx.Provider value={{ onContactSaved }}>
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-0 pb-0">
-        <header className="sticky top-0 z-20 shrink-0 border-b border-sky-200/50 bg-gradient-to-b from-white via-white to-sky-50/40 px-4 pb-4 pt-3 shadow-[0_8px_28px_-14px_rgba(15,23,42,0.1)] backdrop-blur-xl supports-[backdrop-filter]:bg-white/90 sm:px-5 sm:pb-5">
+        <header className="shrink-0 border-b border-sky-200/50 bg-white px-4 pb-3 pt-2 shadow-sm shadow-slate-900/[0.04] sm:px-5 sm:pb-3.5 sm:pt-2.5">
           <Link
             href={inboxHref}
-            className="inline-flex items-center gap-1 text-[13px] font-semibold tracking-wide text-sky-800/90 transition hover:text-sky-950"
+            className="inline-flex items-center gap-1 text-[12px] font-semibold tracking-wide text-sky-800/90 transition hover:text-sky-950"
           >
             <ChevronLeft className="h-4 w-4 opacity-80" aria-hidden />
             Inbox
           </Link>
-          <div className="mt-4 flex items-start justify-between gap-4">
+          <div className="mt-2.5 flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
-              <h1 className="truncate text-2xl font-semibold leading-tight tracking-tight text-slate-950 sm:text-[1.65rem]">
+              <h1 className="truncate text-xl font-semibold leading-snug tracking-tight text-slate-950 sm:text-[1.35rem]">
                 {displayName}
               </h1>
-              <p className="mt-1.5 font-mono text-[12px] font-normal tabular-nums tracking-tight text-slate-500">
+              <p className="mt-1 font-mono text-[11px] font-normal tabular-nums tracking-tight text-slate-500">
                 {initialPhoneLine}
               </p>
-              <span className="mt-3 inline-flex items-center rounded-full border border-sky-200/80 bg-gradient-to-r from-sky-50 to-cyan-50/90 px-3 py-1 text-[11px] font-bold uppercase tracking-wide text-sky-900 shadow-sm shadow-sky-900/5 ring-1 ring-sky-100/80">
+              <span className="mt-2 inline-flex items-center rounded-full border border-sky-200/80 bg-sky-50/90 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-sky-900 ring-1 ring-sky-100/70">
                 {badge}
               </span>
             </div>
-            <div className="flex shrink-0 flex-col items-end gap-2.5 pt-0.5">
+            <div className="flex shrink-0 flex-col items-end gap-2 pt-0.5">
               {workspaceCallHref ? (
                 <Link
                   href={workspaceCallHref}
@@ -93,7 +93,7 @@ export function WorkspaceSmsConversationShell({
 
         {banners}
 
-        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-gradient-to-b from-slate-100/90 via-sky-50/35 to-[#f4f8fc]">
+        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-slate-100/80">
           {children}
         </div>
       </div>
