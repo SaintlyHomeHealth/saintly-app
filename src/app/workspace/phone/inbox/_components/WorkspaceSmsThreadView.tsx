@@ -56,6 +56,8 @@ type Props = {
   composerInitialDraft: string | null;
   /** CRM / thread tools — above the message list so the composer stays bottom-pinned. */
   threadTopSlot?: ReactNode;
+  /** Desktop inbox 3-pane: full-width thread column, no max-width card feel. */
+  appDesktopSplit?: boolean;
 };
 
 export function WorkspaceSmsThreadView({
@@ -65,6 +67,7 @@ export function WorkspaceSmsThreadView({
   suggestionForMessageId,
   composerInitialDraft,
   threadTopSlot,
+  appDesktopSplit = false,
 }: Props) {
   const [serverMessages, setServerMessages] = useState<ThreadMessage[]>(() => initialMessages);
   const [optimistic, setOptimistic] = useState<ThreadMessage[]>([]);
@@ -226,7 +229,9 @@ export function WorkspaceSmsThreadView({
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       {threadTopSlot ? (
         <div className="shrink-0 border-b border-sky-100/70 bg-white/90 px-3 py-2 sm:px-4">
-          <div className="mx-auto w-full max-w-[40rem]">{threadTopSlot}</div>
+          <div className={`mx-auto w-full ${appDesktopSplit ? "max-w-none" : "max-w-[40rem]"}`}>
+            {threadTopSlot}
+          </div>
         </div>
       ) : null}
 
@@ -236,7 +241,11 @@ export function WorkspaceSmsThreadView({
         className="relative min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-y-contain"
         style={{ WebkitOverflowScrolling: "touch" }}
       >
-        <div className="mx-auto flex min-h-full w-full max-w-[40rem] flex-col px-3 pb-2 pt-2 sm:px-4 sm:pb-3 sm:pt-3">
+        <div
+          className={`mx-auto flex min-h-full w-full flex-col px-3 pb-2 pt-2 sm:px-4 sm:pb-3 sm:pt-3 ${
+            appDesktopSplit ? "max-w-none px-4" : "max-w-[40rem]"
+          }`}
+        >
           {canLoadEarlier ? (
             <div className="flex shrink-0 justify-center pb-3 pt-1">
               <button
@@ -295,8 +304,12 @@ export function WorkspaceSmsThreadView({
         </div>
       </div>
 
-      <div className="z-20 shrink-0 border-t border-sky-100/80 bg-white/95 pb-[max(0.35rem,env(safe-area-inset-bottom,0px))] pt-1 shadow-[0_-4px_24px_-8px_rgba(30,58,138,0.1)] backdrop-blur-md supports-[backdrop-filter]:bg-white/90">
-        <div className="mx-auto w-full max-w-[40rem] px-3 sm:px-4">
+      <div
+        className={`z-20 shrink-0 border-t border-slate-200/90 bg-white pb-[max(0.35rem,env(safe-area-inset-bottom,0px))] pt-1.5 backdrop-blur-md supports-[backdrop-filter]:bg-white/95 ${
+          appDesktopSplit ? "shadow-none" : "border-sky-100/80 shadow-[0_-4px_24px_-8px_rgba(30,58,138,0.1)]"
+        }`}
+      >
+        <div className={`mx-auto w-full px-3 sm:px-4 ${appDesktopSplit ? "max-w-none" : "max-w-[40rem]"}`}>
           <SmsReplyComposer
             key={`${conversationId}:${suggestionForMessageId ?? ""}:${composerInitialDraft ?? ""}`}
             conversationId={conversationId}

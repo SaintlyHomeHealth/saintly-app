@@ -1,6 +1,7 @@
 "use client";
 
 import { CircleDot, WifiOff } from "lucide-react";
+import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import {
@@ -14,6 +15,8 @@ type Props = {
 };
 
 export function WorkspacePhoneTopStatusStrip({ displayName, inboundRingEnabled }: Props) {
+  const pathname = usePathname() ?? "";
+  const inboxCompact = pathname === "/workspace/phone/inbox" || pathname.startsWith("/workspace/phone/inbox/");
   const [ui, setUi] = useState<WorkspaceSoftphoneUiDetail>({ phase: "idle" });
 
   useEffect(() => {
@@ -42,8 +45,16 @@ export function WorkspacePhoneTopStatusStrip({ displayName, inboundRingEnabled }
   }, [inboundRingEnabled, ui.phase]);
 
   return (
-    <div className="mx-auto mt-2 w-full max-w-6xl px-4 sm:px-5">
-      <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-sky-100/80 bg-white/90 px-3 py-2.5 shadow-sm shadow-sky-950/5 backdrop-blur">
+    <div
+      className={`mx-auto mt-2 w-full px-4 sm:px-5 ${inboxCompact ? "max-w-none lg:mt-1 lg:px-3" : "max-w-6xl"}`}
+    >
+      <div
+        className={`flex flex-wrap items-center justify-between gap-2 border border-sky-100/80 bg-white/90 px-3 py-2.5 backdrop-blur ${
+          inboxCompact
+            ? "rounded-xl shadow-none lg:rounded-lg lg:border-slate-200/70 lg:py-2 lg:shadow-none"
+            : "rounded-2xl shadow-sm shadow-sky-950/5"
+        }`}
+      >
         <div className="min-w-0">
           <p className="truncate text-xs font-semibold text-slate-700">Signed in: {displayName}</p>
           {ui.remoteLabel ? <p className="truncate text-[11px] text-slate-500">{ui.remoteLabel}</p> : null}
@@ -54,7 +65,11 @@ export function WorkspacePhoneTopStatusStrip({ displayName, inboundRingEnabled }
             {status.label}
           </span>
           {inboundRingEnabled ? (
-            <p className="max-w-[14rem] text-right text-[10px] leading-snug text-slate-400">
+            <p
+              className={`max-w-[14rem] text-right text-[10px] leading-snug text-slate-400 ${
+                inboxCompact ? "lg:hidden" : ""
+              }`}
+            >
               Browser softphone: keep this app open. Background or locked mobile usually will not ring (no native
               incoming-call push).
             </p>

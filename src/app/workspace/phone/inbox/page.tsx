@@ -216,13 +216,14 @@ export default async function WorkspaceInboxPage(props: PageProps) {
     : "/workspace/phone/inbox";
 
   return (
-    <div className="ws-phone-page-shell flex min-h-0 flex-1 flex-col lg:min-h-0 lg:flex-1 lg:overflow-hidden">
-      <div className="flex min-h-0 flex-1 flex-col lg:flex-row lg:overflow-hidden">
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden border-sky-100/60 pb-28 pt-5 sm:pb-32 lg:w-[min(22rem,32vw)] lg:max-w-sm lg:shrink-0 lg:border-r lg:pb-0 lg:pt-0">
-          <div className="px-4 sm:px-5 lg:px-3 lg:pt-4">
+    <div className="ws-phone-page-shell flex min-h-0 flex-1 flex-col lg:h-full lg:min-h-0 lg:flex-1 lg:overflow-hidden">
+      <div className="flex min-h-0 flex-1 flex-col lg:min-h-0 lg:flex-1 lg:flex-row lg:overflow-hidden">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden border-sky-100/60 pb-28 pt-5 sm:pb-32 lg:w-[320px] lg:shrink-0 lg:border-r lg:border-slate-200/80 lg:bg-white lg:pb-0 lg:pt-2">
+          <div className="px-4 sm:px-5 lg:px-3 lg:pt-1">
             <WorkspacePhonePageHeader
               title="Inbox"
               subtitle="Tap a conversation to open the thread — same flow as Messages."
+              className="lg:mb-2 lg:gap-2 [&_h1]:lg:text-lg [&>div>p]:lg:hidden"
               actions={
                 <div className="flex w-full flex-col gap-2 min-[400px]:flex-row min-[400px]:items-center min-[400px]:justify-end">
                   <Link
@@ -239,7 +240,7 @@ export default async function WorkspaceInboxPage(props: PageProps) {
 
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain lg:min-h-0">
           <InboxScrollRestorer>
-            <section className="mx-4 mt-3 overflow-hidden rounded-2xl border border-sky-100/70 bg-white shadow-md shadow-sky-950/5 sm:mx-5 lg:mx-3">
+            <section className="mx-4 mt-3 overflow-hidden rounded-2xl border border-sky-100/70 bg-white shadow-md shadow-sky-950/5 sm:mx-5 lg:mx-0 lg:mt-2 lg:rounded-none lg:border-0 lg:border-t lg:border-slate-200/80 lg:bg-white lg:shadow-none">
               <ul className="divide-y divide-sky-100/60">
                 {rows.length === 0 ? (
                   <li className="px-4 py-10 text-center">
@@ -338,7 +339,7 @@ export default async function WorkspaceInboxPage(props: PageProps) {
           </div>
         </div>
 
-        <div className="hidden min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-slate-50/50 lg:flex">
+        <div className="hidden min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-white lg:flex">
           {selectedThreadValid ? (
             <SmsConversationDetail
               params={Promise.resolve({ conversationId: threadRaw })}
@@ -349,14 +350,12 @@ export default async function WorkspaceInboxPage(props: PageProps) {
               workspaceDesktopSplit
             />
           ) : (
-            <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-8 py-16 text-center">
-              <div className="rounded-2xl border border-sky-100/80 bg-white p-5 shadow-sm shadow-sky-950/5">
-                <MessageSquare className="mx-auto h-10 w-10 text-sky-400" strokeWidth={1.5} aria-hidden />
-                <p className="mt-3 text-base font-semibold text-slate-800">Select a conversation</p>
-                <p className="mt-1 max-w-sm text-sm leading-relaxed text-slate-500">
-                  Choose a thread from the list to read and reply without leaving Inbox.
-                </p>
-              </div>
+            <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-6 py-12 text-center lg:border-l lg:border-slate-200/80">
+              <MessageSquare className="mx-auto h-9 w-9 text-slate-300" strokeWidth={1.5} aria-hidden />
+              <p className="text-sm font-semibold text-slate-700">Select a conversation</p>
+              <p className="max-w-xs text-xs leading-relaxed text-slate-500">
+                Pick a thread from the list to read and reply here.
+              </p>
             </div>
           )}
         </div>

@@ -5,14 +5,17 @@ type Props = {
   subtitle?: ReactNode;
   /** Right-aligned actions (filters, search trigger, etc.) */
   actions?: ReactNode;
+  className?: string;
 };
 
 /**
  * Shared page chrome for workspace phone routes — keeps titles, spacing, and hierarchy consistent.
  */
-export function WorkspacePhonePageHeader({ title, subtitle, actions }: Props) {
+export function WorkspacePhonePageHeader({ title, subtitle, actions, className = "" }: Props) {
   return (
-    <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+    <div
+      className={`mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between ${className}`.trim()}
+    >
       <div className="min-w-0">
         <h1 className="text-2xl font-semibold tracking-tight text-phone-navy sm:text-[1.65rem]">{title}</h1>
         {subtitle ? (

@@ -27,6 +27,9 @@ export function WorkspacePhoneMainPadClient({ children }: Props) {
   const isSmsConversationThread =
     WORKSPACE_INBOX_CONVERSATION_PATH.test(pathname) || isInboxSplitThread;
 
+  const isInboxRoute = pathname === "/workspace/phone/inbox";
+  const mainWidthClass = isInboxRoute ? "max-w-none w-full" : "max-w-6xl";
+
   const { status } = useWorkspaceSoftphone();
   const pb =
     status === "in_call"
@@ -35,7 +38,9 @@ export function WorkspacePhoneMainPadClient({ children }: Props) {
   const overflowClass = isSmsConversationThread ? "overflow-hidden" : "overflow-y-auto";
 
   return (
-    <main className={`mx-auto flex min-h-0 w-full max-w-6xl flex-1 flex-col ${overflowClass} ${pb}`}>
+    <main
+      className={`mx-auto flex min-h-0 w-full flex-1 flex-col ${mainWidthClass} ${overflowClass} ${pb}`}
+    >
       {children}
     </main>
   );

@@ -26,8 +26,8 @@ export default async function WorkspacePhoneLayout({ children }: { children: Rea
 
     return (
       <div className="ws-phone-page-shell flex h-[100dvh] max-h-[100dvh] min-h-0 flex-col overflow-x-hidden text-slate-900">
-        <header className="sticky top-0 z-30 border-b border-sky-100/70 bg-white/95 px-4 pb-3 pt-[calc(0.75rem+env(safe-area-inset-top,0px))] shadow-[0_4px_24px_-12px_rgba(30,58,138,0.08)] backdrop-blur-md supports-[backdrop-filter]:bg-white/90">
-          <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-3">
+        <header className="sticky top-0 z-30 border-b border-sky-100/70 bg-white/95 px-4 pb-2 pt-[calc(0.65rem+env(safe-area-inset-top,0px))] shadow-[0_4px_24px_-12px_rgba(30,58,138,0.08)] backdrop-blur-md supports-[backdrop-filter]:bg-white/90 lg:pb-2 lg:pt-[calc(0.5rem+env(safe-area-inset-top,0px))]">
+          <div className="mx-auto flex w-full max-w-none items-center justify-between gap-3">
             <div className="min-w-0">
               <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-phone-ink/70">Saintly Phone</p>
               <p className="truncate text-sm font-semibold text-phone-navy">{displayName}</p>

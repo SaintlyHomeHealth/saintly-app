@@ -666,6 +666,7 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
           initialSmsSuggestion && suggestionMeta ? suggestionMeta.for_message_id : null
         }
         composerInitialDraft={composerInitialDraft}
+        appDesktopSplit={workspaceDesktopSplit}
         threadTopSlot={
           workspaceDesktopSplit ? null : (
             <details className="w-full rounded-xl border border-slate-200/90 bg-white/95 text-sm shadow-sm shadow-slate-900/5 ring-1 ring-slate-100/80">
@@ -688,6 +689,7 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
         initialPhoneLine={phoneDisplayFormatted}
         initialBadge={workspaceEntityLabel}
         workspaceCallHref={workspaceCallHref}
+        appDesktopSplit={workspaceDesktopSplit}
         headerAside={
           canOpenLeadInCrm && workspaceLeadId ? (
             <Link
@@ -753,12 +755,12 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
       return (
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
           <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">{shell}</div>
-          <aside className="hidden min-h-0 w-[min(22rem,34vw)] shrink-0 flex-col overflow-hidden border-l border-sky-100/80 bg-white lg:flex">
-            <div className="shrink-0 border-b border-sky-100/70 px-3 py-2.5">
+          <aside className="hidden h-full min-h-0 w-[380px] shrink-0 flex-col overflow-hidden border-l border-slate-200/90 bg-white lg:flex">
+            <div className="flex h-10 shrink-0 items-center border-b border-slate-200/90 px-3">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Contact & CRM</p>
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-3 py-3 pb-6">
-              {workspaceCrmPanelInner}
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-3 py-2.5 pb-4 [&_section]:shadow-sm [&_section]:shadow-slate-900/5">
+              <div className="space-y-2.5">{workspaceCrmPanelInner}</div>
             </div>
           </aside>
         </div>

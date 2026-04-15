@@ -30,6 +30,8 @@ type Props = {
   /** Status messages (intake / SMS errors) rendered under the header. */
   banners?: ReactNode;
   children: ReactNode;
+  /** Desktop 3-pane inbox: flat full-bleed chrome (no card-like shell). */
+  appDesktopSplit?: boolean;
 };
 
 export function WorkspaceSmsConversationShell({
@@ -41,6 +43,7 @@ export function WorkspaceSmsConversationShell({
   headerAside,
   banners,
   children,
+  appDesktopSplit = false,
 }: Props) {
   const [displayName, setDisplayName] = useState(initialDisplayName);
   const [badge, setBadge] = useState(initialBadge);
@@ -53,7 +56,13 @@ export function WorkspaceSmsConversationShell({
   return (
     <WorkspaceSmsContactCtx.Provider value={{ onContactSaved }}>
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-0 pb-0">
-        <header className="shrink-0 border-b border-sky-200/50 bg-white px-4 pb-3 pt-2 shadow-sm shadow-slate-900/[0.04] sm:px-5 sm:pb-3.5 sm:pt-2.5">
+        <header
+          className={`shrink-0 border-b bg-white ${
+            appDesktopSplit
+              ? "border-slate-200/90 px-3 pb-2.5 pt-2 shadow-none"
+              : "border-sky-200/50 px-4 pb-3 pt-2 shadow-sm shadow-slate-900/[0.04] sm:px-5 sm:pb-3.5 sm:pt-2.5"
+          }`}
+        >
           <Link
             href={inboxHref}
             className="inline-flex items-center gap-1 text-[12px] font-semibold tracking-wide text-sky-800/90 transition hover:text-sky-950"
@@ -61,15 +70,23 @@ export function WorkspaceSmsConversationShell({
             <ChevronLeft className="h-4 w-4 opacity-80" aria-hidden />
             Inbox
           </Link>
-          <div className="mt-2.5 flex items-start justify-between gap-3">
+          <div className={`flex items-start justify-between gap-3 ${appDesktopSplit ? "mt-1.5" : "mt-2.5"}`}>
             <div className="min-w-0 flex-1">
-              <h1 className="truncate text-xl font-semibold leading-snug tracking-tight text-slate-950 sm:text-[1.35rem]">
+              <h1
+                className={`truncate font-semibold leading-snug tracking-tight text-slate-950 ${
+                  appDesktopSplit ? "text-lg" : "text-xl sm:text-[1.35rem]"
+                }`}
+              >
                 {displayName}
               </h1>
               <p className="mt-1 font-mono text-[11px] font-normal tabular-nums tracking-tight text-slate-500">
                 {initialPhoneLine}
               </p>
-              <span className="mt-2 inline-flex items-center rounded-full border border-sky-200/80 bg-sky-50/90 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-sky-900 ring-1 ring-sky-100/70">
+              <span
+                className={`inline-flex items-center rounded-full border border-sky-200/80 bg-sky-50/90 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-sky-900 ring-1 ring-sky-100/70 ${
+                  appDesktopSplit ? "mt-1.5" : "mt-2"
+                }`}
+              >
                 {badge}
               </span>
             </div>
@@ -93,7 +110,11 @@ export function WorkspaceSmsConversationShell({
 
         {banners}
 
-        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-slate-100/80">
+        <div
+          className={`relative flex min-h-0 flex-1 flex-col overflow-hidden ${
+            appDesktopSplit ? "bg-white" : "bg-slate-100/80"
+          }`}
+        >
           {children}
         </div>
       </div>
