@@ -8,6 +8,10 @@ import { insertAuditLog } from "@/lib/audit-log";
 import { supabaseAdmin } from "@/lib/admin";
 import { normalizePhone } from "@/lib/phone/us-phone-format";
 import {
+  deleteApplicantRecord,
+  removeApplicantFilesFromStorage,
+} from "@/lib/admin/permanent-delete-staff-user";
+import {
   getStaffProfile,
   isAdminOrHigher,
   isSuperAdmin,
@@ -598,4 +602,93 @@ export async function clearStaffApplicantLink(formData: FormData) {
 
   revalidatePath("/admin/staff");
   redirect("/admin/staff?ok=payroll_link_clear");
+}
+
+/**
+ * Super-admin only: removes Supabase Auth user and linked applicant/onboarding data so the email can be reused.
+ * Keeps separate from {@link removeStaffRecord} (archive/deactivate).
+ */
+export async function permanentlyDeleteStaffUser(formData: FormData) {
+  const actor = await getStaffProfile();
+  if (!actor || !isSuperAdmin(actor)) {
+    redirect("/admin/staff?err=permanent_forbidden");
+  }
+
+  const id = String(formData.get("staffProfileId") ?? "").trim();
+  const confirmed = String(formData.get("confirmed") ?? "") === "1";
+  if (!id || !confirmed) {
+    redirect("/admin/staff?err=invalid");
+  }
+
+  const { data: target, error: loadErr } = await supabaseAdmin
+    .from("staff_profiles")
+    .select("id, user_id, role, applicant_id")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (loadErr || !target) {
+    redirect("/admin/staff?err=load");
+  }
+
+  const userId = typeof target.user_id === "string" ? target.user_id : null;
+  if (!userId) {
+    redirect("/admin/staff?err=permanent_no_login");
+  }
+
+  if (userId === actor.user_id) {
+    redirect("/admin/staff?err=self_remove");
+  }
+
+  if (target.role === "super_admin") {
+    const { count, error: cErr } = await supabaseAdmin
+      .from("staff_profiles")
+      .select("id", { count: "exact", head: true })
+      .eq("role", "super_admin")
+      .eq("is_active", true);
+
+    if (cErr) {
+      redirect("/admin/staff?err=update");
+    }
+    if ((count ?? 0) <= 1) {
+      redirect("/admin/staff?err=last_super");
+    }
+  }
+
+  const applicantId = typeof target.applicant_id === "string" ? target.applicant_id : null;
+  const storageMeta: { paths: number; errors: string[] } = { paths: 0, errors: [] };
+
+  if (applicantId) {
+    const { storagePathsAttempted, storageErrors } = await removeApplicantFilesFromStorage(applicantId);
+    storageMeta.paths = storagePathsAttempted;
+    storageMeta.errors = storageErrors;
+
+    const { ok, error: applicantDelErr } = await deleteApplicantRecord(applicantId);
+    if (!ok) {
+      console.error("[staff] permanentlyDeleteStaffUser applicant delete failed", applicantDelErr);
+      const safe = encodeURIComponent((applicantDelErr || "unknown").slice(0, 400));
+      redirect(`/admin/staff?err=permanent_applicant&detail=${safe}`);
+    }
+  }
+
+  const { error: authErr } = await supabaseAdmin.auth.admin.deleteUser(userId);
+  if (authErr) {
+    console.error("[staff] permanentlyDeleteStaffUser auth delete failed", authErr.message);
+    const safe = encodeURIComponent(authErr.message.slice(0, 400));
+    redirect(`/admin/staff?err=permanent_auth&detail=${safe}`);
+  }
+
+  await insertAuditLog({
+    action: "staff.permanent_delete",
+    entityType: "staff_profiles",
+    entityId: id,
+    metadata: {
+      auth_user_id: userId,
+      applicant_id: applicantId,
+      storage_paths_attempted: storageMeta.paths,
+      storage_cleanup_errors: storageMeta.errors.length ? storageMeta.errors : undefined,
+    },
+  });
+
+  revalidatePath("/admin/staff");
+  redirect("/admin/staff?ok=permanent_deleted");
 }

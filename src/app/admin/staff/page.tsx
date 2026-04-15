@@ -13,6 +13,7 @@ import { CreateLoginDialog } from "./create-login-dialog";
 import { EditStaffDialog } from "./edit-staff-dialog";
 import { PayrollStaffLinkDialog } from "./payroll-staff-link-dialog";
 import { RepairLoginLinkButton } from "./repair-login-link-button";
+import { PermanentDeleteStaffDialog } from "./permanent-delete-staff-dialog";
 import { RemoveStaffDialog } from "./remove-staff-dialog";
 import { ResetPasswordDialog } from "./reset-password-dialog";
 
@@ -170,6 +171,10 @@ function flashForErr(code: string | undefined): string | null {
     duplicate_email: "Another staff row already uses that work email.",
     auth_email: "Supabase Auth rejected the email change (duplicate login email or policy).",
     self_remove: "You cannot remove or deactivate your own staff row here.",
+    permanent_forbidden: "Only a super admin can permanently delete a login.",
+    permanent_no_login: "Permanent delete applies to accounts with a Supabase login. Use Remove for placeholders.",
+    permanent_auth: "Supabase could not delete the Auth user. Details below.",
+    permanent_applicant: "Could not delete the linked employee/applicant record. Details below.",
   };
   return m[code] ?? "Something went wrong.";
 }
@@ -189,6 +194,7 @@ function flashForOk(code: string | undefined): string | null {
     deactivated: "Staff deactivated (login preserved).",
     payroll_link: "Payroll employee link saved.",
     payroll_link_clear: "Payroll employee link cleared.",
+    permanent_deleted: "User permanently deleted from Auth and related records. Email can be reused.",
   };
   return m[code] ?? "Saved.";
 }
@@ -515,6 +521,9 @@ export default async function AdminStaffPage({
                             {hasLogin ? <ResetPasswordDialog staffProfileId={row.id} /> : null}
                             <RepairLoginLinkButton staffProfileId={row.id} />
                             <RemoveStaffDialog staffProfileId={row.id} hasLogin={hasLogin} label={name} />
+                            {canAssignSuperAdmin && hasLogin ? (
+                              <PermanentDeleteStaffDialog staffProfileId={row.id} label={name} />
+                            ) : null}
                           </div>
                         </td>
                       </tr>
