@@ -7,6 +7,8 @@ export type TranscriptBubble = {
   id: string;
   speaker: TranscriptSpeaker;
   text: string;
+  /** ISO 8601 from live entries when available */
+  ts?: string;
 };
 
 const SAINTLY_LABEL = "Saintly Home Health";
@@ -65,7 +67,7 @@ export function buildSoftphoneAssistantDebugEntries(voiceAi: CallContextVoiceAi 
     const speaker = mapLiveSpeaker(e.speaker);
     const text = (e.text ?? "").trim();
     if (!text) continue;
-    out.push({ id, speaker, text });
+    out.push({ id, speaker, text, ts: e.ts });
   }
   return out;
 }
@@ -99,7 +101,7 @@ export function buildTranscriptMessages(
       const speaker = mapLiveSpeaker(e.speaker);
       const text = (e.text ?? "").trim();
       if (!text) continue;
-      out.push({ id, speaker, text });
+      out.push({ id, speaker, text, ts: e.ts });
     }
     return out;
   }
