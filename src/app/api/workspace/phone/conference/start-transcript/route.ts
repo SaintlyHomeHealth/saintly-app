@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { supabaseAdmin } from "@/lib/admin";
 import { mergeSoftphoneConferenceMetadata } from "@/lib/phone/merge-softphone-conference-metadata";
-import { findPhoneCallRowByTwilioCallSid } from "@/lib/phone/phone-call-lookup-by-call-sid";
+import { findPhoneCallRowByTwilioCallSidDetailed } from "@/lib/phone/phone-call-lookup-by-call-sid";
 import {
   maybeStartDeferredPstnTranscriptStream,
   upsertPhoneCallTranscriptStreams,
@@ -192,7 +192,8 @@ export async function POST(req: Request) {
     });
   }
 
-  const row = await findPhoneCallRowByTwilioCallSid(supabaseAdmin, callSid);
+  const lookup = await findPhoneCallRowByTwilioCallSidDetailed(supabaseAdmin, callSid, { logLookup: true });
+  const row = lookup.row;
   if (!row) {
     console.warn(
       "[twilio_rt]",
@@ -202,6 +203,8 @@ export async function POST(req: Request) {
         reason: "phone_call_row_not_found",
         http_status: 404,
         equivalent_to: "bridge_transcript_lookup_failed",
+        phone_call_lookup_path: lookup.lookup_path,
+        phone_call_match: lookup.match,
       })
     );
     console.warn(

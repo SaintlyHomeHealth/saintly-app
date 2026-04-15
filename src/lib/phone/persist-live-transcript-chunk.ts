@@ -6,6 +6,7 @@ import {
   trimEntries,
   type LiveTranscriptSpeaker,
 } from "@/lib/phone/live-transcript-entries";
+import { findPhoneCallRowByTwilioCallSid } from "@/lib/phone/phone-call-lookup-by-call-sid";
 
 /**
  * Append one live transcript line to `phone_calls.metadata.voice_ai` (entries + excerpt + seq).
@@ -27,22 +28,16 @@ export async function appendLiveTranscriptChunkToPhoneCall(
     return { ok: false, error: "missing_fields" };
   }
 
-  const { data: row, error: selErr } = await supabase
-    .from("phone_calls")
-    .select("id, metadata")
-    .or(`external_call_id.eq.${externalCallId},metadata->twilio_leg_map->>last_leg_call_sid.eq.${externalCallId}`)
-    .order("started_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  const row = await findPhoneCallRowByTwilioCallSid(supabase, externalCallId);
 
-  if (selErr || !row?.id) {
+  if (!row?.id) {
     console.warn(
       "[twilio_rt]",
       JSON.stringify({
         step: "twilio_rt_step_04_call_row_resolved",
         ok: false,
         external_call_id: `${externalCallId.slice(0, 10)}…`,
-        supabase_error: selErr?.message ?? null,
+        supabase_error: null,
         equivalent_to: "bridge_transcript_lookup_failed",
       })
     );
