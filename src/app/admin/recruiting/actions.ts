@@ -36,7 +36,7 @@ import {
   RESUME_HARD_ERROR_TOO_LARGE,
 } from "@/lib/recruiting/resume-upload-mime";
 import { supabaseAdmin } from "@/lib/admin";
-import { getAuthenticatedUser } from "@/lib/supabase/server";
+import { createServerSupabaseClient, getAuthenticatedUser } from "@/lib/supabase/server";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 
 function str(formData: FormData, key: string): string {
@@ -92,14 +92,26 @@ function uuidOk(id: string): boolean {
   return /^[0-9a-f-]{36}$/i.test(id);
 }
 
-function logRecruitingSupabaseErr(context: string, err: { message: string; code?: string; details?: string | null; hint?: string | null } | null) {
+function logRecruitingSupabaseErr(
+  context: string,
+  err: { message: string; code?: string; details?: string | null; hint?: string | null } | null,
+  extra?: Record<string, unknown>
+) {
   if (!err) return;
-  console.error(`[recruiting] ${context}`, {
-    message: err.message,
-    code: err.code,
-    details: err.details,
-    hint: err.hint,
-  });
+  console.error(
+    `[recruiting] ${context}`,
+    JSON.stringify(
+      {
+        message: err.message,
+        code: err.code,
+        details: err.details,
+        hint: err.hint,
+        ...extra,
+      },
+      null,
+      2
+    )
+  );
 }
 
 function recruitingNormalizedFields(
@@ -336,8 +348,10 @@ export async function recruitingQuickAction(input: {
   /** ISO string for follow_up_set */
   nextFollowUpAt?: string | null;
 }): Promise<{ ok: true } | { ok: false; message: string }> {
-  await requireManager();
+  const staff = await requireManager();
   const user = await getAuthenticatedUser();
+  /** Session-scoped client (JWT) so RLS policies for `authenticated` staff apply; matches detail page reads when using user context. */
+  const db = await createServerSupabaseClient();
 
   const candidateId = input.candidateId?.trim() ?? "";
   if (!uuidOk(candidateId)) {
@@ -346,14 +360,17 @@ export async function recruitingQuickAction(input: {
 
   const nowIso = new Date().toISOString();
 
-  const { data: before, error: fetchErr } = await supabaseAdmin
+  const { data: before, error: fetchErr } = await db
     .from("recruiting_candidates")
     .select("id, status")
     .eq("id", candidateId)
     .maybeSingle();
 
   if (fetchErr) {
-    logRecruitingSupabaseErr("recruitingQuickAction candidate fetch", fetchErr);
+    logRecruitingSupabaseErr("recruitingQuickAction candidate fetch (recruiting_candidates)", fetchErr, {
+      candidate_id: candidateId,
+      staff_role: staff.role,
+    });
     return { ok: false, message: "Could not load candidate." };
   }
   if (!before?.id) {
@@ -468,26 +485,50 @@ export async function recruitingQuickAction(input: {
     created_by: user?.id ?? null,
   };
 
-  let { error: actErr } = await supabaseAdmin.from("recruiting_candidate_activities").insert(activityRow);
+  console.error(
+    "[recruiting] recruitingQuickAction write attempt",
+    JSON.stringify(
+      {
+        tables: ["recruiting_candidate_activities", "recruiting_candidates"],
+        candidate_id: candidateId,
+        staff_role: staff.role,
+        auth_user_id: user?.id ?? null,
+        activity_payload: activityRow,
+        candidate_patch_keys: Object.keys(patch),
+      },
+      null,
+      2
+    )
+  );
+
+  let { error: actErr } = await db.from("recruiting_candidate_activities").insert(activityRow);
 
   // created_by → auth.users FK can fail in misconfigured envs; retry without attribution so the note still saves.
   if (actErr?.code === "23503" && activityRow.created_by) {
     console.warn("[recruiting] activity insert FK on created_by; retrying without created_by", actErr.message);
-    ({ error: actErr } = await supabaseAdmin.from("recruiting_candidate_activities").insert({
+    ({ error: actErr } = await db.from("recruiting_candidate_activities").insert({
       ...activityRow,
       created_by: null,
     }));
   }
 
   if (actErr) {
-    logRecruitingSupabaseErr("recruitingQuickAction recruiting_candidate_activities insert", actErr);
+    logRecruitingSupabaseErr("recruitingQuickAction INSERT recruiting_candidate_activities FAILED", actErr, {
+      candidate_id: candidateId,
+      table: "recruiting_candidate_activities",
+      payload: activityRow,
+    });
     return { ok: false, message: "Could not save activity." };
   }
 
-  const { error: updErr } = await supabaseAdmin.from("recruiting_candidates").update(patch).eq("id", candidateId);
+  const { error: updErr } = await db.from("recruiting_candidates").update(patch).eq("id", candidateId);
 
   if (updErr) {
-    logRecruitingSupabaseErr("recruitingQuickAction recruiting_candidates update", updErr);
+    logRecruitingSupabaseErr("recruitingQuickAction UPDATE recruiting_candidates FAILED", updErr, {
+      candidate_id: candidateId,
+      table: "recruiting_candidates",
+      patch,
+    });
     return { ok: false, message: "Could not update candidate." };
   }
 
