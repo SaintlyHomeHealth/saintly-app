@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { InboxIcon, MessageSquare } from "lucide-react";
+import { InboxIcon, MessageSquare, SquarePen } from "lucide-react";
 
 import { SmsConversationDetail } from "@/app/admin/phone/messages/_components/SmsConversationDetail";
 
@@ -218,28 +218,44 @@ export default async function WorkspaceInboxPage(props: PageProps) {
   return (
     <div className="ws-phone-page-shell flex min-h-0 flex-1 flex-col lg:h-full lg:min-h-0 lg:flex-1 lg:overflow-hidden">
       <div className="flex min-h-0 flex-1 flex-col lg:min-h-0 lg:flex-1 lg:flex-row lg:overflow-hidden">
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden border-sky-100/60 pb-28 pt-5 sm:pb-32 lg:w-[208px] lg:shrink-0 lg:border-r lg:border-slate-200/70 lg:bg-slate-50 lg:pb-0 lg:pt-0">
-          <div className="shrink-0 px-4 sm:px-5 lg:border-b lg:border-slate-200/60 lg:bg-slate-50 lg:px-3 lg:py-1.5 lg:shadow-[0_1px_0_0_rgba(241,245,249,0.95)]">
-            <WorkspacePhonePageHeader
-              title="Inbox"
-              subtitle="Tap a conversation to open the thread — same flow as Messages."
-              className="mb-4 gap-2 sm:gap-3 lg:mb-0 lg:flex-col lg:items-stretch lg:justify-start lg:gap-1 lg:[&>div:last-child]:w-full lg:[&>div:last-child]:flex-col lg:[&>div:last-child]:items-stretch lg:[&>div:last-child]:gap-1 [&_h1]:lg:text-sm [&_h1]:lg:font-semibold [&_h1]:lg:leading-tight [&>div>p]:lg:hidden"
-              actions={
-                <div className="flex w-full flex-col gap-2 min-[400px]:flex-row min-[400px]:items-center min-[400px]:justify-end lg:gap-1">
-                  <Link
-                    href="/workspace/phone/inbox/new"
-                    className="inline-flex min-h-[2.25rem] shrink-0 items-center justify-center rounded-full bg-gradient-to-r from-blue-950 to-sky-600 px-3.5 py-2 text-center text-xs font-semibold text-white shadow-md shadow-blue-900/20 hover:brightness-105 lg:h-7 lg:min-h-[1.75rem] lg:w-full lg:items-center lg:justify-center lg:rounded-md lg:px-2.5 lg:py-0 lg:text-[11px] lg:leading-none lg:shadow-none"
-                  >
-                    New message
-                  </Link>
-                  <InboxSearchBar
-                    defaultQuery={qRaw}
-                    preserveThreadId={selectedThreadValid ? threadRaw : undefined}
-                    className="lg:w-full"
-                  />
-                </div>
-              }
-            />
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden border-sky-100/60 pb-28 pt-5 sm:pb-32 lg:w-[176px] lg:shrink-0 lg:border-r lg:border-slate-200/60 lg:bg-slate-50 lg:pb-0 lg:pt-0">
+          <div className="shrink-0 px-4 sm:px-5 lg:border-b lg:border-slate-200/50 lg:bg-slate-50 lg:px-2 lg:py-2 lg:shadow-[0_1px_0_0_rgba(241,245,249,0.9)]">
+            <div className="lg:hidden">
+              <WorkspacePhonePageHeader
+                title="Inbox"
+                subtitle="Tap a conversation to open the thread — same flow as Messages."
+                className="mb-4 gap-2 sm:gap-3"
+                actions={
+                  <div className="flex w-full flex-col gap-2 min-[400px]:flex-row min-[400px]:items-center min-[400px]:justify-end">
+                    <Link
+                      href="/workspace/phone/inbox/new"
+                      className="inline-flex min-h-[2.25rem] shrink-0 items-center justify-center rounded-full bg-gradient-to-r from-blue-950 to-sky-600 px-3.5 py-2 text-center text-xs font-semibold text-white shadow-md shadow-blue-900/20 hover:brightness-105"
+                    >
+                      New message
+                    </Link>
+                    <InboxSearchBar defaultQuery={qRaw} preserveThreadId={selectedThreadValid ? threadRaw : undefined} />
+                  </div>
+                }
+              />
+            </div>
+            <div className="hidden lg:block">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Inbox</p>
+              <div className="mt-1.5 flex min-w-0 items-center gap-1.5">
+                <Link
+                  href="/workspace/phone/inbox/new"
+                  className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-slate-200/70 bg-white text-slate-600 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900"
+                  title="New message"
+                  aria-label="New message"
+                >
+                  <SquarePen className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
+                </Link>
+                <InboxSearchBar
+                  variant="rail"
+                  defaultQuery={qRaw}
+                  preserveThreadId={selectedThreadValid ? threadRaw : undefined}
+                />
+              </div>
+            </div>
           </div>
 
           <div className="relative flex min-h-0 flex-1 flex-col lg:min-h-0">
@@ -353,7 +369,7 @@ export default async function WorkspaceInboxPage(props: PageProps) {
                         <Link
                           href={inboxDesktopUrl(id, qRaw)}
                           scroll={false}
-                          className={`hidden cursor-pointer items-center gap-1.5 border-l-4 px-3 py-1.5 text-sm transition-colors active:bg-slate-200/60 lg:flex ${desktopRowChrome} ${desktopLabelClass}`}
+                          className={`hidden cursor-pointer items-center gap-1.5 border-l-4 px-2.5 py-1.5 text-sm transition-colors active:bg-slate-200/50 lg:flex ${desktopRowChrome} ${desktopLabelClass}`}
                         >
                           <span className="min-w-0 flex-1 truncate">{primaryLabel}</span>
                           {hasUnread ? (
