@@ -15,8 +15,10 @@ import {
   RECRUITING_TEXT_TEMPLATES,
 } from "@/lib/recruiting/recruiting-options";
 import { isPhoenixSameCalendarDay, phoenixEndOfTodayIso } from "@/lib/recruiting/phoenix-time";
+import { buildRecruitingTimelineEntries } from "@/lib/recruiting/recruiting-timeline";
 import { staffPrimaryLabel } from "@/lib/crm/crm-leads-table-helpers";
 
+import { RecruitingTimelinePanel } from "@/components/recruiting/RecruitingTimelinePanel";
 import { recruitingQuickAction, type RecruitingQuickActionKind, updateRecruitingCandidate } from "../actions";
 import { recruitingInterestPillClass, recruitingStatusPillClass } from "../recruiting-status-styles";
 import { RecruitingResumeCard } from "./RecruitingResumeCard";
@@ -64,6 +66,7 @@ type ActivityRow = {
   outcome: string | null;
   body: string | null;
   created_at: string;
+  created_by: string | null;
 };
 
 type StaffOpt = {
@@ -114,28 +117,6 @@ function formatWhen(iso: string | null | undefined): string {
   });
 }
 
-function activityTitle(a: ActivityRow): string {
-  const t = a.activity_type;
-  const o = a.outcome ?? "";
-  if (t === "call" && o === "outbound") return "Outgoing call";
-  if (t === "call" && o === "no_answer") return "Call — no answer";
-  if (t === "call" && o === "spoke") return "Call — spoke";
-  if (t === "voicemail" && o === "left_voicemail") return "Voicemail left";
-  if (t === "text" && o === "sent") return "Text sent";
-  if (t === "status_change" && o === "interested") return "Status — interested";
-  if (t === "status_change" && o === "not_interested") return "Status — not interested";
-  if (t === "status_change" && o === "maybe_later") return "Status — maybe later";
-  if (t === "status_change" && o === "follow_up_later") return "Status — follow up later";
-  if (t === "status_change" && o === "no_response") return "Status — no response";
-  if (t === "follow_up_set") return "Follow-up scheduled";
-  if (t === "note") return "Note";
-  if (t === "resume_uploaded") return "Resume uploaded";
-  if (t === "resume_replaced") return "Resume replaced";
-  if (t === "resume_parsed") return "Resume parsed";
-  if (t === "resume_applied") return "Applied resume details";
-  return [t, o].filter(Boolean).join(" · ") || "Activity";
-}
-
 function telHref(phone: string | null | undefined): string | null {
   const raw = (phone ?? "").trim();
   if (!raw) return null;
@@ -157,6 +138,8 @@ type RecruitingCandidateDetailClientProps = {
   staffOptions: StaffOpt[];
   noAnswerCount: number;
   listBackHref: string;
+  viewerUserId: string;
+  actorLabels: Record<string, string>;
 };
 
 export function RecruitingCandidateDetailClient({
@@ -165,6 +148,8 @@ export function RecruitingCandidateDetailClient({
   staffOptions,
   noAnswerCount,
   listBackHref,
+  viewerUserId,
+  actorLabels,
 }: RecruitingCandidateDetailClientProps) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -179,10 +164,7 @@ export function RecruitingCandidateDetailClient({
   const dueToday = Boolean(initial.next_follow_up_at && isPhoenixSameCalendarDay(initial.next_follow_up_at));
   const dueBucket = Boolean(initial.next_follow_up_at && initial.next_follow_up_at <= phoenixEndOfTodayIso());
 
-  const sortedActivities = useMemo(
-    () => [...activities].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at)),
-    [activities]
-  );
+  const timelineEntries = useMemo(() => buildRecruitingTimelineEntries(activities), [activities]);
 
   const disciplineExtra =
     initial.discipline &&
@@ -372,6 +354,13 @@ export function RecruitingCandidateDetailClient({
               </div>
             ) : null}
           </div>
+
+          <RecruitingTimelinePanel
+            candidateId={initial.id}
+            entries={timelineEntries}
+            actorLabels={actorLabels}
+            viewerUserId={viewerUserId}
+          />
 
           <div className="rounded-2xl border border-slate-200/90 bg-gradient-to-b from-white to-slate-50/90 p-4 shadow-sm sm:p-5">
             <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Text templates</div>
@@ -709,8 +698,8 @@ export function RecruitingCandidateDetailClient({
         <aside className="lg:sticky lg:top-24 lg:max-h-[calc(100dvh-7rem)] lg:min-h-[320px] lg:overflow-hidden">
           <div className="flex h-full max-h-[calc(100dvh-7rem)] min-h-0 flex-col rounded-[28px] border border-slate-200 bg-white shadow-sm">
             <div className="border-b border-slate-100 bg-gradient-to-r from-sky-50/80 to-cyan-50/50 px-5 py-4">
-              <h3 className="text-sm font-semibold text-slate-900">Activity</h3>
-              <p className="mt-1 text-xs text-slate-500">Newest first</p>
+              <h3 className="text-sm font-semibold text-slate-900">Contact roll-up</h3>
+              <p className="mt-1 text-xs text-slate-500">Same timestamps as quick actions and profile</p>
               <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-slate-600">
                 <div>
                   <span className="font-medium text-slate-500">Last call</span>
@@ -726,30 +715,7 @@ export function RecruitingCandidateDetailClient({
                 </div>
               </div>
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-              {sortedActivities.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/80 px-4 py-10 text-center text-sm text-slate-600">
-                  No activity yet. Use quick actions to log calls and texts.
-                </div>
-              ) : (
-                <ol className="space-y-3">
-                  {sortedActivities.map((a) => (
-                    <li
-                      key={a.id}
-                      className="rounded-2xl border border-slate-100 bg-slate-50/60 px-4 py-3 shadow-sm shadow-slate-200/40"
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0 text-sm font-semibold text-slate-900">{activityTitle(a)}</div>
-                        <div className="shrink-0 text-[11px] font-medium text-slate-500">{formatWhen(a.created_at)}</div>
-                      </div>
-                      {a.body ? (
-                        <p className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-slate-700">{a.body}</p>
-                      ) : null}
-                    </li>
-                  ))}
-                </ol>
-              )}
-            </div>
+            <div className="min-h-0 flex-1 px-4 py-3" />
           </div>
         </aside>
       </div>

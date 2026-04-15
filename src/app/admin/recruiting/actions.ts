@@ -471,6 +471,34 @@ export async function recruitingQuickAction(input: {
   return { ok: true };
 }
 
+/** Form action for the recruiting detail timeline composer (same data as “Add note” quick action). */
+export async function appendRecruitingTimelineNote(formData: FormData) {
+  await requireManager();
+
+  const candidateId = str(formData, "candidate_id");
+  const note = str(formData, "note");
+
+  if (!uuidOk(candidateId)) {
+    redirect("/admin/recruiting");
+  }
+
+  if (!note) {
+    redirect(`/admin/recruiting/${candidateId}`);
+  }
+
+  const result = await recruitingQuickAction({
+    candidateId,
+    kind: "note",
+    body: note,
+  });
+
+  if (!result.ok) {
+    redirect(`/admin/recruiting/${candidateId}?error=note_failed`);
+  }
+
+  redirect(`/admin/recruiting/${candidateId}`);
+}
+
 function isBlankField(v: unknown): boolean {
   if (v == null) return true;
   return String(v).trim() === "";

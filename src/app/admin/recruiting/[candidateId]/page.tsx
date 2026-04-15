@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation";
 
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { crmPrimaryCtaCls } from "@/components/admin/crm-admin-list-styles";
+import { staffPrimaryLabel } from "@/lib/crm/crm-leads-table-helpers";
 import { supabaseAdmin } from "@/lib/admin";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 
@@ -65,7 +66,7 @@ export default async function AdminRecruitingCandidatePage({
 
   const { data: activityRows, error: aErr } = await supabaseAdmin
     .from("recruiting_candidate_activities")
-    .select("id, activity_type, outcome, body, created_at")
+    .select("id, activity_type, outcome, body, created_at, created_by")
     .eq("candidate_id", candidateId.trim())
     .order("created_at", { ascending: false })
     .limit(500);
@@ -92,6 +93,8 @@ export default async function AdminRecruitingCandidatePage({
     full_name: string | null;
   }[];
 
+  const actorLabels = Object.fromEntries(staffOptions.map((s) => [s.user_id, staffPrimaryLabel(s)]));
+
   const listBackHref = buildListBackHref(sp);
 
   const errRaw = typeof sp.error === "string" ? sp.error : Array.isArray(sp.error) ? sp.error[0] : "";
@@ -100,7 +103,9 @@ export default async function AdminRecruitingCandidatePage({
       ? "Full name is required."
       : errRaw === "save_failed"
         ? "Could not save changes."
-        : null;
+        : errRaw === "note_failed"
+          ? "Could not save that note. Try again."
+          : null;
 
   return (
     <div className="space-y-6 p-6">
@@ -127,6 +132,8 @@ export default async function AdminRecruitingCandidatePage({
         staffOptions={staffOptions}
         noAnswerCount={noAnswerCount ?? 0}
         listBackHref={listBackHref}
+        viewerUserId={staff.user_id}
+        actorLabels={actorLabels}
       />
     </div>
   );
