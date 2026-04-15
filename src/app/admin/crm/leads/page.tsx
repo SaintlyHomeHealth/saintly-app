@@ -110,7 +110,7 @@ export default async function AdminCrmLeadsPage({
     supabaseAdmin
       .from("leads")
       .select(
-        "id, contact_id, source, status, lead_type, owner_user_id, created_at, intake_status, referral_source, payer_name, payer_type, referring_provider_name, next_action, follow_up_date, last_contact_at, last_outcome, service_disciplines, service_type, external_source_metadata, lead_temperature, contacts ( full_name, first_name, last_name, primary_phone, secondary_phone, email )"
+        "id, contact_id, source, status, lead_type, owner_user_id, created_at, intake_status, referral_source, payer_name, payer_type, referring_provider_name, next_action, follow_up_date, last_contact_at, last_outcome, service_disciplines, service_type, external_source_metadata, lead_temperature, waiting_on_doctors_orders, contacts ( full_name, first_name, last_name, primary_phone, secondary_phone, email )"
       )
       .order("created_at", { ascending: false })
       .limit(500)

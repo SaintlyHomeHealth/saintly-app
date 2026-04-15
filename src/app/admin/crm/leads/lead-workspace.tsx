@@ -172,6 +172,8 @@ export type LeadWorkspaceExistingProps = {
   initialActivities: LeadActivityRow[];
   /** Visual triage (`leads.lead_temperature`); empty string = unset. */
   leadTemperature: string;
+  /** `leads.waiting_on_doctors_orders` — patient intake only (not employee applicants). */
+  waitingOnDoctorsOrders?: boolean;
 };
 
 export type LeadWorkspaceNewProps = {
@@ -446,6 +448,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
     medicareNotes,
     initialActivities,
     leadTemperature,
+    waitingOnDoctorsOrders = false,
   } = props;
 
   const tomorrowIso = getCrmCalendarTomorrowIso();
@@ -565,6 +568,8 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
             isConverted={isConverted}
             isDead={isDead}
             patientId={patientId}
+            terminal={terminal}
+            waitingOnDoctorsOrders={waitingOnDoctorsOrders}
           />
 
           {isEmployeeLead && hasAnyIntakeRequestDetail(intakeRequestDefaults) ? (

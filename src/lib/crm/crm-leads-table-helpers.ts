@@ -32,6 +32,8 @@ export type CrmLeadRow = {
   external_source_metadata: unknown | null;
   /** Visual triage: hot | warm | cool | dead — `null` = unset. */
   lead_temperature?: string | null;
+  /** Blocks scheduling until signed physician orders are received. */
+  waiting_on_doctors_orders?: boolean | null;
   contacts: CrmLeadsContactEmb | CrmLeadsContactEmb[] | null;
 };
 

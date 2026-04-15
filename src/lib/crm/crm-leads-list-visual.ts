@@ -143,6 +143,9 @@ export function followUpUrgency(followUpIso: string | null | undefined, todayIso
 export function leadRowCardClass(row: CrmLeadRow, fu: FollowUpUrgency): string {
   const st = (row.status ?? "").trim().toLowerCase();
   const lo = (row.last_outcome ?? "").trim().toLowerCase();
+  if (row.waiting_on_doctors_orders === true && row.lead_type !== "employee") {
+    return "border-l-[4px] border-l-rose-600 bg-rose-50/50 ring-1 ring-rose-200/90 shadow-[inset_4px_0_0_rgba(225,29,72,0.12)]";
+  }
   if (st === "dead_lead") {
     return "border-l-[3px] border-l-slate-400/70 bg-slate-50/35";
   }

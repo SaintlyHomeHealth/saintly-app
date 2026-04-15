@@ -2536,6 +2536,36 @@ function readTrimmedField(formData: FormData, key: string): string {
   return typeof v === "string" ? v.trim() : "";
 }
 
+export async function setLeadWaitingOnDoctorsOrders(formData: FormData) {
+  const staff = await getStaffProfile();
+  if (!staff || !isManagerOrHigher(staff)) {
+    return;
+  }
+  const leadId = readTrimmedField(formData, "leadId");
+  if (!leadId) {
+    return;
+  }
+  const raw = formData.get("value");
+  const enabled = raw === "1" || raw === "true";
+
+  const { error } = await supabaseAdmin
+    .from("leads")
+    .update({ waiting_on_doctors_orders: enabled })
+    .eq("id", leadId)
+    .is("deleted_at", null);
+
+  if (error) {
+    console.warn("[admin/crm] setLeadWaitingOnDoctorsOrders:", error.message);
+    return;
+  }
+
+  revalidatePath("/admin");
+  revalidatePath("/admin/crm/leads");
+  revalidatePath(`/admin/crm/leads/${leadId}`);
+  revalidatePath("/workspace/phone/leads");
+  revalidatePath("/workspace/phone/follow-ups-today");
+}
+
 export type CrmLeadListQuickActionResult =
   | { ok: true }
   | { ok: false; error: "forbidden" | "invalid_lead" | "save_failed" };

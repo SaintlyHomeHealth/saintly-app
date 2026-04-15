@@ -17,6 +17,7 @@ import {
 
 import type { LeadWorkspaceContactProfileDefaults, LeadWorkspaceIntakeDefaults, LeadWorkspaceStaffOption } from "../lead-workspace";
 import { leadTemperatureLabel, normalizeLeadTemperature } from "@/lib/crm/lead-temperature";
+import { setLeadWaitingOnDoctorsOrders } from "@/app/admin/crm/actions";
 import { LeadSnapshotCopyButton, LeadSnapshotMedicareReveal } from "./lead-snapshot-client";
 import { LeadDeleteButton } from "./LeadDeleteButton";
 
@@ -135,6 +136,10 @@ export type LeadSnapshotProps = {
   patientId: string | null;
   /** Raw `leads.lead_temperature` (empty = unset). */
   leadTemperature: string;
+  /** Pipeline terminal (converted / dead) — hides orders toggle. */
+  terminal: boolean;
+  /** `leads.waiting_on_doctors_orders` */
+  waitingOnDoctorsOrders: boolean;
 };
 
 function buildSnapshotPlainText(p: LeadSnapshotProps): string {
@@ -166,6 +171,10 @@ function buildSnapshotPlainText(p: LeadSnapshotProps): string {
   L("Last contact", formatLeadLastContactSummary(p.lastContactAt, p.lastOutcome));
 
   if (!p.isEmployeeLead) {
+    L(
+      "Waiting on doctor's orders",
+      p.waitingOnDoctorsOrders ? "YES — do not schedule/start until signed orders are received" : "No"
+    );
     L("Primary payer", leadDisplayPrimaryPayerName(p.intakeDefaults));
     L("Primary payer type", leadDisplayPrimaryPayerTypeLine(p.intakeDefaults));
     L("Secondary payer", leadDisplaySecondaryPayerName(p.intakeDefaults));
@@ -222,6 +231,8 @@ export function LeadSnapshot(props: LeadSnapshotProps) {
     isDead,
     patientId,
     leadTemperature,
+    terminal,
+    waitingOnDoctorsOrders,
   } = props;
 
   const addrParts = [
@@ -276,6 +287,20 @@ export function LeadSnapshot(props: LeadSnapshotProps) {
       id="section-snapshot"
       className="scroll-mt-28 rounded-[28px] border border-slate-200/90 bg-gradient-to-b from-white via-slate-50/40 to-slate-50/80 p-5 shadow-[0_8px_30px_rgba(15,23,42,0.06)] ring-1 ring-slate-200/60 sm:p-7"
     >
+      {!isEmployeeLead && waitingOnDoctorsOrders ? (
+        <div
+          role="alert"
+          className="mb-5 rounded-xl border-2 border-rose-600 bg-gradient-to-r from-rose-100 via-rose-50 to-amber-50 px-4 py-3 shadow-[0_4px_20px_rgba(190,18,60,0.2)]"
+        >
+          <p className="text-[13px] font-extrabold uppercase tracking-[0.12em] text-rose-950">
+            WAITING ON DOCTOR&apos;S ORDERS
+          </p>
+          <p className="mt-1.5 text-sm font-medium leading-snug text-rose-950/95">
+            Do not schedule/start until signed orders are received.
+          </p>
+        </div>
+      ) : null}
+
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Lead snapshot</p>
@@ -295,6 +320,28 @@ export function LeadSnapshot(props: LeadSnapshotProps) {
           <LeadDeleteButton leadId={leadId} variant="detail" />
         </div>
       </div>
+
+      {!isEmployeeLead && !terminal ? (
+        <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-rose-200/90 bg-rose-50/40 px-4 py-3 ring-1 ring-rose-100/80">
+          <form action={setLeadWaitingOnDoctorsOrders} className="flex flex-wrap items-center gap-3">
+            <input type="hidden" name="leadId" value={leadId} />
+            <input type="hidden" name="value" value={waitingOnDoctorsOrders ? "0" : "1"} />
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-rose-900/90">Orders hold</span>
+            <button
+              type="submit"
+              className={`inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold shadow-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-2 ${
+                waitingOnDoctorsOrders
+                  ? "bg-rose-600 text-white shadow-[0_2px_12px_rgba(190,24,93,0.35)] hover:bg-rose-700"
+                  : "border border-slate-300 bg-white text-slate-900 hover:bg-slate-50"
+              }`}
+              aria-pressed={waitingOnDoctorsOrders}
+            >
+              Waiting on Doctor&apos;s Orders
+            </button>
+            <span className="text-[11px] text-rose-900/80">Turn on when unsigned orders block scheduling.</span>
+          </form>
+        </div>
+      ) : null}
 
       <div className="mt-6 grid gap-4 lg:grid-cols-2">
         <SubCard title="Identity">

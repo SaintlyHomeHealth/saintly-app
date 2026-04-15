@@ -660,6 +660,14 @@ export function CrmLeadsList({ initialList, employeeOnlyView, staffOptions, toda
                             {leadTemperatureLabel(normalizeLeadTemperature(r.lead_temperature ?? null))}
                           </span>
                         ) : null}
+                        {!isEmployee && r.waiting_on_doctors_orders === true ? (
+                          <span
+                            className={`${pillBase} max-w-[min(100%,18rem)] bg-rose-600 px-2 py-1 text-[10px] font-extrabold uppercase tracking-wide text-white shadow-md ring-2 ring-rose-300`}
+                            title="Unsigned physician orders — do not schedule"
+                          >
+                            WAITING ON DOCTOR&apos;S ORDERS
+                          </span>
+                        ) : null}
                       </div>
                       <div className="flex flex-wrap items-center gap-1.5">
                         <LeadTypeBadge leadType={r.lead_type} status={r.status} />
