@@ -92,6 +92,16 @@ function uuidOk(id: string): boolean {
   return /^[0-9a-f-]{36}$/i.test(id);
 }
 
+function logRecruitingSupabaseErr(context: string, err: { message: string; code?: string; details?: string | null; hint?: string | null } | null) {
+  if (!err) return;
+  console.error(`[recruiting] ${context}`, {
+    message: err.message,
+    code: err.code,
+    details: err.details,
+    hint: err.hint,
+  });
+}
+
 function recruitingNormalizedFields(
   email: string | null,
   phone: string | null,
@@ -342,7 +352,11 @@ export async function recruitingQuickAction(input: {
     .eq("id", candidateId)
     .maybeSingle();
 
-  if (fetchErr || !before?.id) {
+  if (fetchErr) {
+    logRecruitingSupabaseErr("recruitingQuickAction candidate fetch", fetchErr);
+    return { ok: false, message: "Could not load candidate." };
+  }
+  if (!before?.id) {
     return { ok: false, message: "Candidate not found." };
   }
 
@@ -446,57 +460,40 @@ export async function recruitingQuickAction(input: {
       return { ok: false, message: "Unknown action." };
   }
 
-  const { error: actErr } = await supabaseAdmin.from("recruiting_candidate_activities").insert({
+  const activityRow = {
     candidate_id: candidateId,
     activity_type,
     outcome,
     body,
     created_by: user?.id ?? null,
-  });
+  };
+
+  let { error: actErr } = await supabaseAdmin.from("recruiting_candidate_activities").insert(activityRow);
+
+  // created_by → auth.users FK can fail in misconfigured envs; retry without attribution so the note still saves.
+  if (actErr?.code === "23503" && activityRow.created_by) {
+    console.warn("[recruiting] activity insert FK on created_by; retrying without created_by", actErr.message);
+    ({ error: actErr } = await supabaseAdmin.from("recruiting_candidate_activities").insert({
+      ...activityRow,
+      created_by: null,
+    }));
+  }
 
   if (actErr) {
-    console.warn("[recruiting] activity insert:", actErr.message);
+    logRecruitingSupabaseErr("recruitingQuickAction recruiting_candidate_activities insert", actErr);
     return { ok: false, message: "Could not save activity." };
   }
 
   const { error: updErr } = await supabaseAdmin.from("recruiting_candidates").update(patch).eq("id", candidateId);
 
   if (updErr) {
-    console.warn("[recruiting] candidate update:", updErr.message);
+    logRecruitingSupabaseErr("recruitingQuickAction recruiting_candidates update", updErr);
     return { ok: false, message: "Could not update candidate." };
   }
 
   revalidatePath("/admin/recruiting");
   revalidatePath(`/admin/recruiting/${candidateId}`);
   return { ok: true };
-}
-
-/** Form action for the recruiting detail timeline composer (same data as “Add note” quick action). */
-export async function appendRecruitingTimelineNote(formData: FormData) {
-  await requireManager();
-
-  const candidateId = str(formData, "candidate_id");
-  const note = str(formData, "note");
-
-  if (!uuidOk(candidateId)) {
-    redirect("/admin/recruiting");
-  }
-
-  if (!note) {
-    redirect(`/admin/recruiting/${candidateId}`);
-  }
-
-  const result = await recruitingQuickAction({
-    candidateId,
-    kind: "note",
-    body: note,
-  });
-
-  if (!result.ok) {
-    redirect(`/admin/recruiting/${candidateId}?error=note_failed`);
-  }
-
-  redirect(`/admin/recruiting/${candidateId}`);
 }
 
 function isBlankField(v: unknown): boolean {

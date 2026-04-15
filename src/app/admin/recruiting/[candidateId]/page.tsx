@@ -103,9 +103,7 @@ export default async function AdminRecruitingCandidatePage({
       ? "Full name is required."
       : errRaw === "save_failed"
         ? "Could not save changes."
-        : errRaw === "note_failed"
-          ? "Could not save that note. Try again."
-          : null;
+        : null;
 
   return (
     <div className="space-y-6 p-6">
