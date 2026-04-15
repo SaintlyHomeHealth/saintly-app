@@ -271,8 +271,13 @@ export function RecruitingCandidateDetailClient({
               ) : (
                 <span className={`${btnPrimary} cursor-not-allowed opacity-50`}>Call</span>
               )}
-              {initial.phone?.trim() && smsHref(initial.phone, RECRUITING_TEXT_TEMPLATES[0]!.body) ? (
-                <a href={smsHref(initial.phone, RECRUITING_TEXT_TEMPLATES[0]!.body)!} className={btnGhost}>
+              {initial.phone?.trim() ? (
+                <a
+                  href={`/workspace/phone/inbox/new?recruitingCandidateId=${encodeURIComponent(initial.id)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={btnGhost}
+                >
                   Text
                 </a>
               ) : (

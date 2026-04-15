@@ -199,7 +199,17 @@ export default async function WorkspaceInboxPage({ searchParams }: PageProps) {
       <WorkspacePhonePageHeader
         title="Inbox"
         subtitle="Tap a conversation to open the thread — same flow as Messages."
-        actions={<InboxSearchBar defaultQuery={qRaw} />}
+        actions={
+          <div className="flex w-full flex-col gap-2 min-[400px]:flex-row min-[400px]:items-center min-[400px]:justify-end">
+            <Link
+              href="/workspace/phone/inbox/new"
+              className="inline-flex min-h-[2.25rem] shrink-0 items-center justify-center rounded-full bg-gradient-to-r from-blue-950 to-sky-600 px-3.5 py-2 text-center text-xs font-semibold text-white shadow-md shadow-blue-900/20 hover:brightness-105"
+            >
+              New message
+            </Link>
+            <InboxSearchBar defaultQuery={qRaw} />
+          </div>
+        }
       />
 
       <InboxScrollRestorer>
