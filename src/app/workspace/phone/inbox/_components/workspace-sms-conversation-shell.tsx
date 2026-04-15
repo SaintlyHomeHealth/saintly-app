@@ -26,6 +26,8 @@ type Props = {
   initialPhoneLine: string;
   initialBadge: string;
   workspaceCallHref: string | null;
+  /** Identifies the thread root for mark-as-read (interaction + visibility). */
+  smsThreadPaneId: string;
   headerAside?: ReactNode;
   /** Status messages (intake / SMS errors) rendered under the header. */
   banners?: ReactNode;
@@ -40,6 +42,7 @@ export function WorkspaceSmsConversationShell({
   initialPhoneLine,
   initialBadge,
   workspaceCallHref,
+  smsThreadPaneId,
   headerAside,
   banners,
   children,
@@ -55,7 +58,10 @@ export function WorkspaceSmsConversationShell({
 
   return (
     <WorkspaceSmsContactCtx.Provider value={{ onContactSaved }}>
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-0 pb-0">
+      <div
+        className="flex min-h-0 flex-1 flex-col overflow-hidden px-0 pb-0"
+        data-sms-thread-pane={smsThreadPaneId}
+      >
         <header
           className={`shrink-0 border-b bg-white ${
             appDesktopSplit

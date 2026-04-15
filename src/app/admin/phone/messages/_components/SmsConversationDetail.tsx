@@ -700,6 +700,7 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
           initialPhoneLine={phoneDisplayFormatted}
           initialBadge={workspaceEntityLabel}
           workspaceCallHref={workspaceCallHref}
+          smsThreadPaneId={conversationId}
           appDesktopSplit={workspaceDesktopSplit}
           headerAside={
           canOpenLeadInCrm && workspaceLeadId ? (
@@ -785,7 +786,10 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
   return (
     <>
       <SmsThreadMarkViewedClient conversationId={conversationId} />
-      <div className="flex min-h-0 flex-1 flex-col gap-4 px-4 py-4 sm:gap-6 sm:p-6">
+      <div
+        className="flex min-h-0 flex-1 flex-col gap-4 px-4 py-4 sm:gap-6 sm:p-6"
+        data-sms-thread-pane={conversationId}
+      >
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <Link href={inboxHref} className="text-sm font-medium text-sky-800 hover:underline">
