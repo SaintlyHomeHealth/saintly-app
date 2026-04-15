@@ -354,6 +354,28 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
         if (cancelled) return;
         if (!cancelled) setCallContextLoadError(false);
         if (j.found) {
+          const inboundTs = j.voice_ai?.inbound_transcript_stream_started_at;
+          const serverInboundStarted =
+            typeof inboundTs === "string" && !j.workspace_softphone_session;
+          if (serverInboundStarted) {
+            const key = `${sid}:${inboundTs}`;
+            if (inboundServerTranscriptUiKeyRef.current !== key) {
+              inboundServerTranscriptUiKeyRef.current = key;
+              setTranscriptEnabled(true);
+              transcriptStreamStartedRef.current = true;
+              console.log(
+                JSON.stringify({
+                  tag: "transcript-e2e",
+                  phase: "ui_auto_transcript_enabled_from_poll",
+                  outcome: "ui_auto_transcript_enabled",
+                  client_leg_call_sid_short: `${sid.slice(0, 10)}…`,
+                  canonical_external_call_id_short:
+                    typeof j.external_call_id === "string" ? `${j.external_call_id.slice(0, 10)}…` : null,
+                  manual_enable_path: false,
+                })
+              );
+            }
+          }
           const entries = j.voice_ai?.live_transcript_entries;
           const entryLen = Array.isArray(entries) ? entries.length : 0;
           const excerpt = j.voice_ai?.live_transcript_excerpt;
@@ -407,7 +429,13 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     };
     void poll();
     const intervalMs =
-      transcriptEnabled && transcriptPanelOpen ? 700 : transcriptEnabled ? 1400 : 2200;
+      status === "in_call" && !transcriptEnabled
+        ? 800
+        : transcriptEnabled && transcriptPanelOpen
+          ? 700
+          : transcriptEnabled
+            ? 1400
+            : 2200;
     const id = window.setInterval(poll, intervalMs);
     return () => {
       cancelled = true;
@@ -460,37 +488,6 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
         pstnTranscriptFollowupBusyRef.current = false;
       });
   }, [status, transcriptEnabled, callContext]);
-
-  /**
-   * Inbound PSTN: server auto-starts transcript-only (`maybeStartInboundTranscriptStreamIfEligible`) — reflect
-   * that in the UI without clicking Enable. Manual Enable still uses
-   * `POST /api/workspace/phone/conference/start-transcript` (staff softphone / opt-in path).
-   */
-  useEffect(() => {
-    if (status !== "in_call") {
-      inboundServerTranscriptUiKeyRef.current = null;
-      return;
-    }
-    const sid = readCallSid(activeCallRef.current);
-    if (!sid) return;
-    const started = callContext?.voice_ai?.inbound_transcript_stream_started_at;
-    if (!started) return;
-    const key = `${sid}:${started}`;
-    if (inboundServerTranscriptUiKeyRef.current === key) return;
-    inboundServerTranscriptUiKeyRef.current = key;
-    setTranscriptEnabled(true);
-    transcriptStreamStartedRef.current = true;
-    console.log(
-      JSON.stringify({
-        tag: "inbound-transcript-diag",
-        outcome: "ui_auto_transcript_enabled",
-        reason: "server_inbound_transcript_stream_started",
-        manual_enable_transcript_is_separate_path: true,
-        manual_enable_transcript_path: "POST /api/workspace/phone/conference/start-transcript",
-        client_call_sid_short: sid.length > 8 ? `${sid.slice(0, 8)}…` : sid,
-      })
-    );
-  }, [status, callContext]);
 
   /**
    * Single teardown path for the browser leg: always returns UI to idle and clears conference/transcript state.

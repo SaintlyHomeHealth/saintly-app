@@ -42,20 +42,34 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "missing_fields" }, { status: 400 });
   }
 
-  console.log("[bridge-transcript] transcript_delta_received", {
-    transcript_external_id: `${externalCallId.slice(0, 10)}…`,
-    speaker_label_before_store: speaker,
-    textLen: text.length,
-  });
+  console.log(
+    "[bridge-transcript] transcript_delta_received",
+    JSON.stringify({
+      tag: "transcript-e2e",
+      phase: "bridge_transcript_delta_received",
+      transcript_external_id_short: `${externalCallId.slice(0, 10)}…`,
+      speaker_label_before_store: speaker,
+      textLen: text.length,
+    })
+  );
 
   const { data: row, error: selErr } = await supabaseAdmin
     .from("phone_calls")
     .select("id, metadata")
-    .eq("external_call_id", externalCallId)
+    .or(`external_call_id.eq.${externalCallId},metadata->twilio_leg_map->>last_leg_call_sid.eq.${externalCallId}`)
+    .limit(1)
     .maybeSingle();
 
   if (selErr || !row?.id) {
-    console.warn("[bridge-transcript] call_not_found", { externalCallId: externalCallId.slice(0, 10) });
+    console.warn(
+      "[bridge-transcript] call_not_found",
+      JSON.stringify({
+        tag: "transcript-e2e",
+        phase: "bridge_transcript_lookup_failed",
+        external_call_id_short: externalCallId.slice(0, 10),
+        reason: "no_row_matching_external_call_id_or_child_leg_map",
+      })
+    );
     return NextResponse.json({ ok: false, error: "call_not_found" }, { status: 404 });
   }
 
@@ -104,12 +118,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: upErr.message }, { status: 500 });
   }
 
-  console.log("[bridge-transcript] transcript_chunk_written", {
-    transcript_external_id: `${externalCallId.slice(0, 10)}…`,
-    seq: entry.seq,
-    speaker_stored: speaker,
-    entriesTotal: mergedEntries.length,
-  });
+  console.log(
+    "[bridge-transcript] transcript_chunk_written",
+    JSON.stringify({
+      tag: "transcript-e2e",
+      phase: "transcript_chunk_persisted_to_phone_calls_metadata",
+      phone_calls_id: row.id,
+      transcript_external_id_short: `${externalCallId.slice(0, 10)}…`,
+      seq: entry.seq,
+      speaker_stored: speaker,
+      entriesTotal: mergedEntries.length,
+    })
+  );
 
   if (speaker === "agent") {
     logTwilioVoiceTrace({

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { supabaseAdmin } from "@/lib/admin";
 import { mergeSoftphoneConferenceMetadata } from "@/lib/phone/merge-softphone-conference-metadata";
+import { findPhoneCallRowByTwilioCallSid } from "@/lib/phone/phone-call-lookup-by-call-sid";
 import {
   maybeStartDeferredPstnTranscriptStream,
   upsertPhoneCallTranscriptStreams,
@@ -83,24 +84,42 @@ export async function POST(req: Request) {
     });
   }
 
-  /** Default `inbound_track`: WebRTC Client leg audio *from the browser toward Twilio* (staff mic). */
-  const track = body.track ?? "inbound_track";
+  const row = await findPhoneCallRowByTwilioCallSid(supabaseAdmin, callSid);
+  if (!row) {
+    console.warn(
+      "[transcript-e2e]",
+      JSON.stringify({
+        phase: "start_transcript_phone_row_not_found",
+        client_leg_call_sid: `${callSid.slice(0, 10)}…`,
+      })
+    );
+    return NextResponse.json(
+      { error: "phone_call not found for this CallSid (parent or child leg)" },
+      { status: 404 }
+    );
+  }
 
-  const clientWss = appendSoftphoneTranscriptStreamParams(baseWss, {
-    transcriptExternalId: callSid,
-    inputRole: "staff",
-  });
-
-  const { data: confRow } = await supabaseAdmin
-    .from("phone_calls")
-    .select("metadata")
-    .eq("external_call_id", callSid)
-    .maybeSingle();
-
-  const meta =
-    confRow?.metadata && typeof confRow.metadata === "object" && !Array.isArray(confRow.metadata)
-      ? (confRow.metadata as Record<string, unknown>)
+  const canonicalExternalId = row.external_call_id;
+  const meta = row.metadata;
+  const rawVoiceAi =
+    meta.voice_ai && typeof meta.voice_ai === "object" && !Array.isArray(meta.voice_ai)
+      ? (meta.voice_ai as Record<string, unknown>)
       : {};
+  const metadataSource = typeof meta.source === "string" ? meta.source.trim() : "";
+
+  if (body.pstnOnly !== true && typeof rawVoiceAi.inbound_transcript_stream_started_at === "string") {
+    console.log(
+      "[transcript-e2e]",
+      JSON.stringify({
+        phase: "start_transcript_skipped_inbound_server_stream_already_started",
+        client_leg_call_sid: `${callSid.slice(0, 10)}…`,
+        canonical_external_call_id: `${canonicalExternalId.slice(0, 10)}…`,
+        manual_enable_path: false,
+      })
+    );
+    return NextResponse.json({ ok: true, skipped: "inbound_transcript_already_started" });
+  }
+
   const sc =
     meta.softphone_conference && typeof meta.softphone_conference === "object" && !Array.isArray(meta.softphone_conference)
       ? (meta.softphone_conference as Record<string, unknown>)
@@ -108,35 +127,67 @@ export async function POST(req: Request) {
   const pstnCallSid =
     typeof sc.pstn_call_sid === "string" && sc.pstn_call_sid.startsWith("CA") ? sc.pstn_call_sid.trim() : null;
 
+  const hasConferencePstn = Boolean(pstnCallSid);
+  /** Conference+PSTN softphone: mic on client + separate PSTN stream. Inbound PSTN→browser (no PSTN leg on row): both sides on Client leg. */
+  const track =
+    body.track ??
+    (hasConferencePstn && metadataSource === "twilio_voice_softphone" ? "inbound_track" : "both_tracks");
+
+  const clientWss = appendSoftphoneTranscriptStreamParams(baseWss, {
+    transcriptExternalId: canonicalExternalId,
+    inputRole: "staff",
+  });
+
   console.log(
     "[enable-transcript-flow]",
     JSON.stringify({
       phase: "api_before_twilio_streams_create",
-      client_call_sid: callSid,
+      client_leg_call_sid: callSid,
+      canonical_external_call_id_for_bridge: canonicalExternalId,
       pstn_call_sid_from_row: pstnCallSid,
       track,
       wss_has_softphone_transcript: clientWss.includes("softphone_transcript=1"),
-      wss_has_transcript_external_id: clientWss.includes("transcript_external_id="),
-      wss_has_input_role_staff: clientWss.includes("input_role=staff") || clientWss.includes("input_role%3Dstaff"),
+      bridge_writeback_uses_canonical_external_call_id: canonicalExternalId,
+    })
+  );
+
+  console.log(
+    "[transcript-e2e]",
+    JSON.stringify({
+      phase: "start_transcript_resolved",
+      client_leg_call_sid: `${callSid.slice(0, 10)}…`,
+      canonical_external_call_id_for_bridge: `${canonicalExternalId.slice(0, 10)}…`,
+      metadata_source: metadataSource || null,
+      track,
+      track_rationale:
+        body.track != null
+          ? "explicit_body"
+          : hasConferencePstn && metadataSource === "twilio_voice_softphone"
+            ? "conference_softphone_pstn_split"
+            : "default_both_tracks_inbound_or_non_conference",
     })
   );
 
   console.log("[start-transcript] media_stream_requested", {
     phase: "client_then_maybe_pstn",
     clientCallSid: callSid,
+    canonicalExternalIdForBridge: canonicalExternalId,
     pstnCallSidFromRow: pstnCallSid,
     track,
     clientWssUrl: clientWss,
     pstnWssUrlIfStarted:
       pstnCallSid && track === "inbound_track"
-        ? appendSoftphoneTranscriptStreamParams(baseWss, { transcriptExternalId: callSid, inputRole: "caller" })
+        ? appendSoftphoneTranscriptStreamParams(baseWss, {
+            transcriptExternalId: canonicalExternalId,
+            inputRole: "caller",
+          })
         : null,
     audioIntent:
       track === "inbound_track"
         ? "client_leg_inbound (browser microphone toward Twilio)"
         : track === "outbound_track"
           ? "client_leg_outbound (audio Twilio plays to the browser earpiece)"
-          : "both_tracks (mixed — not recommended for attribution)",
+          : "both_tracks (caller + staff on this leg)",
     pstnPlan:
       track === "inbound_track"
         ? pstnCallSid

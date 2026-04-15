@@ -7,6 +7,7 @@ import {
   readUnclampedLiveTranscriptExcerpt,
   type LiveTranscriptEntry,
 } from "@/lib/phone/live-transcript-entries";
+import { findPhoneCallRowByTwilioCallSid } from "@/lib/phone/phone-call-lookup-by-call-sid";
 import type { SoftphoneTranscriptStreamsMeta } from "@/lib/phone/softphone-transcript-stream-meta";
 import {
   defaultSoftphoneRecordingMeta,
@@ -58,35 +59,12 @@ export async function buildWorkspaceCallContextPayload(
   supabase: SupabaseClient,
   callSid: string
 ): Promise<{ found: false } | { found: true; payload: WorkspaceCallContextPayload }> {
-  const selectCols = "id, from_e164, external_call_id, metadata, started_at";
-
-  const { data: byExternalId, error: errExt } = await supabase
-    .from("phone_calls")
-    .select(selectCols)
-    .eq("external_call_id", callSid)
-    .order("started_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  let data = byExternalId;
-  let error = errExt;
-
-  if (error || !data) {
-    const { data: byChildLeg, error: errLeg } = await supabase
-      .from("phone_calls")
-      .select(selectCols)
-      .filter("metadata->twilio_leg_map->>last_leg_call_sid", "eq", callSid)
-      .order("started_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    data = byChildLeg;
-    error = errLeg;
-  }
-
-  if (error || !data) {
+  const row = await findPhoneCallRowByTwilioCallSid(supabase, callSid);
+  if (!row) {
     return { found: false };
   }
 
+  const data = row;
   const meta = data.metadata;
   const rawMeta =
     meta && typeof meta === "object" && !Array.isArray(meta) ? (meta as Record<string, unknown>) : null;
@@ -165,16 +143,17 @@ export async function buildWorkspaceCallContextPayload(
   }
 
   const gating = computeConferenceGating({
-    clientCallSid: typeof data.external_call_id === "string" ? data.external_call_id : callSid,
+    /** Active Voice SDK leg (often child) — must match the `call_sid` query param. */
+    clientCallSid: callSid,
     softphoneConference: softphoneConference,
   });
 
   const payload: WorkspaceCallContextPayload = {
-    phone_call_id: data.id as string,
+    phone_call_id: data.id,
     metadata_source: metadataSource,
     workspace_softphone_session: workspaceSoftphoneSession,
-    from_e164: typeof data.from_e164 === "string" ? data.from_e164 : null,
-    external_call_id: typeof data.external_call_id === "string" ? data.external_call_id : callSid,
+    from_e164: data.from_e164,
+    external_call_id: data.external_call_id,
     softphone_conference: conf
       ? {
           conference_sid: typeof conf.conference_sid === "string" ? conf.conference_sid : null,

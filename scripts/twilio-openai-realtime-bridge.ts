@@ -189,12 +189,30 @@ async function postBridgeTranscript(input: {
   if (!res.ok) {
     const t = await res.text();
     console.warn("[realtime-bridge] bridge-transcript POST failed", res.status, t.slice(0, 200));
+    console.log(
+      "[transcript-e2e]",
+      JSON.stringify({
+        phase: "railway_bridge_transcript_post_failed",
+        status: res.status,
+        body_snippet: t.slice(0, 400),
+        external_call_id_short: input.externalCallId.slice(0, 12) + "…",
+      })
+    );
   } else {
     console.log("[realtime-bridge] bridge_transcript_chunk_posted_ok", {
       callSid: input.externalCallId.slice(0, 10) + "…",
       speaker: input.speaker ?? "caller",
       textLen: input.text.length,
     });
+    console.log(
+      "[transcript-e2e]",
+      JSON.stringify({
+        phase: "railway_bridge_transcript_post_ok",
+        external_call_id_short: input.externalCallId.slice(0, 12) + "…",
+        speaker: input.speaker ?? "caller",
+        textLen: input.text.length,
+      })
+    );
   }
 }
 

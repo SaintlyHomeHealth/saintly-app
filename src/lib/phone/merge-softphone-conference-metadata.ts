@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { findPhoneCallRowByTwilioCallSid } from "@/lib/phone/phone-call-lookup-by-call-sid";
 import { maybeStartDeferredPstnTranscriptStream } from "@/lib/phone/softphone-transcript-streams";
 import type { SoftphoneConferenceMeta } from "@/lib/twilio/softphone-conference";
 
@@ -42,13 +43,7 @@ export async function mergeSoftphoneConferenceMetadata(
   const sid = externalCallId.trim();
   if (!sid) return { ok: false, error: "missing external_call_id" };
 
-  const { data: row, error: findErr } = await supabase
-    .from("phone_calls")
-    .select("id, metadata")
-    .eq("external_call_id", sid)
-    .maybeSingle();
-
-  if (findErr) return { ok: false, error: findErr.message };
+  const row = await findPhoneCallRowByTwilioCallSid(supabase, sid);
   if (!row?.id) return { ok: false, error: "phone_call not found" };
 
   const meta = asRecord(row.metadata);

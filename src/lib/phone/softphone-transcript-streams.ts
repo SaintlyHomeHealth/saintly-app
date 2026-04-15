@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { findPhoneCallRowByTwilioCallSid } from "@/lib/phone/phone-call-lookup-by-call-sid";
 import type { SoftphoneTranscriptStreamsMeta } from "@/lib/phone/softphone-transcript-stream-meta";
 import {
   appendSoftphoneTranscriptStreamParams,
@@ -31,19 +32,14 @@ export function mergeSoftphoneTranscriptStreamsIntoVoiceAi(
 
 export async function upsertPhoneCallTranscriptStreams(
   supabase: SupabaseClient,
-  externalCallId: string,
+  twilioCallSid: string,
   patch: Partial<SoftphoneTranscriptStreamsMeta>
 ): Promise<void> {
-  const sid = externalCallId.trim();
+  const sid = twilioCallSid.trim();
   if (!sid.startsWith("CA")) return;
 
-  const { data: row, error: selErr } = await supabase
-    .from("phone_calls")
-    .select("id, metadata")
-    .eq("external_call_id", sid)
-    .maybeSingle();
-
-  if (selErr || !row?.id) return;
+  const row = await findPhoneCallRowByTwilioCallSid(supabase, sid);
+  if (!row?.id) return;
 
   const meta = asRecord(row.metadata);
   const voiceAi = asRecord(meta.voice_ai);
@@ -92,17 +88,13 @@ export async function maybeStartDeferredPstnTranscriptStream(
     return { ok: false, skipped: "media_stream_wss_not_configured" };
   }
 
-  const { data: row, error: selErr } = await supabase
-    .from("phone_calls")
-    .select("id, metadata")
-    .eq("external_call_id", sid)
-    .maybeSingle();
-
-  if (selErr || !row?.id) {
+  const row = await findPhoneCallRowByTwilioCallSid(supabase, sid);
+  if (!row?.id) {
     return { ok: false, skipped: "phone_call_not_found" };
   }
 
-  const meta = asRecord(row.metadata);
+  const canonicalId = row.external_call_id;
+  const meta = row.metadata;
   const streams = readTranscriptStreamsFromMetadata(meta);
   if (!streams?.client_stream_started_at) {
     return { ok: false, skipped: "client_transcript_never_started" };
@@ -119,13 +111,14 @@ export async function maybeStartDeferredPstnTranscriptStream(
   }
 
   const pstnWss = appendSoftphoneTranscriptStreamParams(baseWss, {
-    transcriptExternalId: sid,
+    transcriptExternalId: canonicalId,
     inputRole: "caller",
   });
 
   console.log("[maybe-start-pstn-transcript] twilio_request", {
     reason,
     clientCallSid: sid.slice(0, 12) + "…",
+    canonical_external_call_id_for_bridge: canonicalId.slice(0, 12) + "…",
     pstnCallSid: pstnSid.slice(0, 12) + "…",
     track: "inbound_track",
     wssUrl: pstnWss,
