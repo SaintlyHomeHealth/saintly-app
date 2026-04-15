@@ -10,13 +10,14 @@ import {
 import { fetchOpenAiJsonObject } from "@/lib/phone/phone-call-ai-context";
 import { findPhoneCallRowByTwilioCallSid } from "@/lib/phone/phone-call-lookup-by-call-sid";
 import { buildTranscriptPlainTextFromPhoneMetadata } from "@/lib/phone/post-call-transcript-text";
-import { canAccessWorkspacePhone, getStaffProfile } from "@/lib/staff-profile";
+import { canStaffAccessPhoneCallRow } from "@/lib/phone/staff-call-access";
+import { getStaffProfile, isPhoneWorkspaceUser } from "@/lib/staff-profile";
 
 const TYPES = new Set<string>(["soap", "summary", "intake"]);
 
 export async function POST(req: Request) {
   const staff = await getStaffProfile();
-  if (!staff || !canAccessWorkspacePhone(staff)) {
+  if (!staff || !isPhoneWorkspaceUser(staff)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -40,6 +41,22 @@ export async function POST(req: Request) {
 
   const row = await findPhoneCallRowByTwilioCallSid(supabaseAdmin, callSid);
   if (!row) {
+    return NextResponse.json({ error: "Call not found" }, { status: 404 });
+  }
+
+  const { data: accessRow } = await supabaseAdmin
+    .from("phone_calls")
+    .select("assigned_to_user_id")
+    .eq("id", row.id)
+    .maybeSingle();
+
+  if (
+    !accessRow ||
+    !canStaffAccessPhoneCallRow(staff, {
+      assigned_to_user_id:
+        typeof accessRow.assigned_to_user_id === "string" ? accessRow.assigned_to_user_id : null,
+    })
+  ) {
     return NextResponse.json({ error: "Call not found" }, { status: 404 });
   }
 

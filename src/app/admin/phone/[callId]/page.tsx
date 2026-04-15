@@ -22,7 +22,7 @@ import {
 import { buildTranscriptMessages } from "@/components/softphone/build-transcript-messages";
 import type { CallContextVoiceAi } from "@/components/softphone/WorkspaceSoftphoneProvider";
 import { CallDetailTranscriptThread } from "@/components/phone/CallDetailTranscriptThread";
-import { CallSavedOutputsViewer } from "@/components/phone/CallSavedOutputsViewer";
+import { CallDetailCallOutputsSection } from "../_components/CallDetailCallOutputsSection";
 import {
   parseLiveTranscriptEntriesFromMetadata,
   readUnclampedLiveTranscriptExcerpt,
@@ -303,10 +303,11 @@ export default async function AdminPhoneCallDetailPage({ params, searchParams }:
         <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Artifacts</p>
         <h2 className="mt-1 text-sm font-semibold text-slate-900">Saved outputs</h2>
         <p className="mt-1 text-xs leading-relaxed text-slate-500">
-          SOAP, Call Summary, and Intake Summary from the softphone transcript (read-only).
+          Generate SOAP, call summary, or intake from the stored transcript (manual only), save to this call, or review
+          notes saved from the workspace.
         </p>
         <div className="mt-5">
-          <CallSavedOutputsViewer phoneCallId={c.id} embedded heading="Saved outputs" />
+          <CallDetailCallOutputsSection phoneCallId={c.id} externalCallSid={c.external_call_id} />
         </div>
       </section>
 
