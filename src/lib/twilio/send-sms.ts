@@ -1,3 +1,4 @@
+import { getTwilioSmsOutboundDiagnostics } from "@/lib/twilio/sms-outbound-diagnostics";
 import { resolveTwilioWebhookBaseUrl } from "@/lib/twilio/signature-url";
 
 export type SendSmsParams = {
@@ -29,7 +30,7 @@ function formatTwilioRestError(status: number, rawBody: string): string {
  *
  * `TWILIO_SMS_FROM` may be either:
  * - A Messaging Service SID (`MG…`) → request uses `MessagingServiceSid` (required by Twilio; do not send as `From`).
- * - A phone number in E.164 → request uses `From`.
+ * - A phone number in E.164 → request uses `From` (use any Twilio SMS-capable number, e.g. a temporary DID until porting completes).
  *
  * Returns Twilio MessageSid on success for durable logging (messages.external_message_sid).
  */
@@ -40,9 +41,26 @@ export async function sendSms(params: SendSmsParams): Promise<SendSmsResult> {
   const to = params.to.trim();
   const body = params.body.trim();
 
+  const diag = getTwilioSmsOutboundDiagnostics();
   if (!accountSid || !authToken || !fromOrMsid) {
-    console.warn("[sms-twilio] missing TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_SMS_FROM");
-    return { ok: false, error: "Twilio SMS credentials not configured" };
+    console.warn("[sms-twilio] blocked missing env", {
+      missingEnvVars: diag.missingEnvVars,
+      outboundMode: diag.outboundMode,
+      outboundSenderMasked: diag.outboundSenderMasked,
+    });
+    return {
+      ok: false,
+      error: `Twilio SMS not configured — missing: ${diag.missingEnvVars.join(", ") || "unknown"}`,
+    };
+  }
+
+  const debugSms = process.env.SMS_TWILIO_DEBUG === "1" || process.env.NODE_ENV === "development";
+  if (debugSms) {
+    console.log("[sms-twilio] outbound config snapshot", {
+      outboundMode: diag.outboundMode,
+      outboundSenderMasked: diag.outboundSenderMasked,
+      webhookBaseResolved: diag.webhookBaseResolved,
+    });
   }
   if (!to || !body) {
     return { ok: false, error: "to and body are required" };
@@ -73,11 +91,12 @@ export async function sendSms(params: SendSmsParams): Promise<SendSmsResult> {
   const url = `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(accountSid)}/Messages.json`;
   const auth = Buffer.from(`${accountSid}:${authToken}`).toString("base64");
 
-  console.log("[sms-twilio] REST Messages send", {
+  console.log("[sms-twilio] REST Messages send (pre-POST)", {
     to,
     bodyLen: body.length,
     outboundMode: useMessagingService ? "MessagingServiceSid" : "From",
-    twilioSmsFrom: useMessagingService ? fromOrMsid : fromOrMsid,
+    fromMasked: diag.outboundSenderMasked,
+    accountSidPrefix: accountSid ? `${accountSid.slice(0, 2)}…` : null,
   });
 
   try {
@@ -94,7 +113,13 @@ export async function sendSms(params: SendSmsParams): Promise<SendSmsResult> {
 
     if (!res.ok) {
       const errMsg = formatTwilioRestError(res.status, rawText);
-      console.error("[sms-twilio] REST error", errMsg);
+      console.error("[sms-twilio] REST error (HTTP)", {
+        httpStatus: res.status,
+        errorMessage: errMsg,
+        to,
+        fromMasked: diag.outboundSenderMasked,
+        outboundMode: useMessagingService ? "MessagingServiceSid" : "From",
+      });
       return { ok: false, error: errMsg };
     }
 
@@ -111,10 +136,18 @@ export async function sendSms(params: SendSmsParams): Promise<SendSmsResult> {
       return { ok: false, error: "Twilio response missing Message sid" };
     }
 
-    console.log("[sms-twilio] REST ok", { messageSid, outboundMode: useMessagingService ? "MessagingServiceSid" : "From" });
+    console.log("[sms-twilio] REST ok", {
+      messageSid,
+      outboundMode: useMessagingService ? "MessagingServiceSid" : "From",
+      fromMasked: diag.outboundSenderMasked,
+    });
     return { ok: true, messageSid };
   } catch (e) {
-    console.error("[sms-twilio] REST exception", e);
+    console.error("[sms-twilio] REST exception (network/fetch)", {
+      err: e,
+      fromMasked: diag.outboundSenderMasked,
+      to,
+    });
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
 }

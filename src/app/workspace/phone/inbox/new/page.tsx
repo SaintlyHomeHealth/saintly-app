@@ -14,6 +14,14 @@ function one(sp: Record<string, string | string[] | undefined>, key: string): st
   return typeof v === "string" ? v : Array.isArray(v) ? (v[0] ?? "") : "";
 }
 
+function safeDecodeParam(raw: string): string {
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
 function bannerForErr(code: string): string | null {
   switch (code) {
     case "sms_empty":
@@ -29,7 +37,7 @@ function bannerForErr(code: string): string | null {
     case "sms_contact_create":
       return "Could not create a CRM contact for this number. Try again.";
     case "sms_thread":
-      return "Could not open an SMS thread. Try again.";
+      return "Could not prepare the SMS conversation (before Twilio send).";
     case "sms_resolve":
       return "Could not resolve recipient. Check the number and try again.";
     default:
@@ -50,11 +58,23 @@ export default async function WorkspaceInboxNewSmsPage({ searchParams }: PagePro
   const sp = (await searchParams) ?? {};
   const errRaw = one(sp, "err").trim();
   const smsErrRaw = one(sp, "smsErr").trim();
+  const threadErrRaw = one(sp, "threadErr").trim();
   const recruitArg = one(sp, "recruitingCandidateId").trim();
 
   let initialRecruitingCandidateId: string | null = null;
   let initialPhone: string | null = null;
   let initialNameHint: string | null = null;
+
+  const threadErrDecoded = threadErrRaw ? safeDecodeParam(threadErrRaw) : null;
+
+  const resolveErrorBanner = (): string | null => {
+    if (errRaw === "sms_thread") {
+      return threadErrDecoded
+        ? `Could not prepare the SMS conversation (before Twilio): ${threadErrDecoded}`
+        : "Could not prepare the SMS conversation. See server logs for ensureSmsConversationForPhone.";
+    }
+    return errRaw ? bannerForErr(errRaw) : null;
+  };
 
   if (recruitArg && UUID_RE.test(recruitArg)) {
     initialRecruitingCandidateId = recruitArg;
@@ -89,7 +109,7 @@ export default async function WorkspaceInboxNewSmsPage({ searchParams }: PagePro
           initialRecruitingCandidateId={initialRecruitingCandidateId}
           initialPhone={initialPhone}
           initialNameHint={initialNameHint}
-          errorBanner={errRaw ? bannerForErr(errRaw) : null}
+          errorBanner={resolveErrorBanner()}
           twilioError={
             smsErrRaw
               ? (() => {

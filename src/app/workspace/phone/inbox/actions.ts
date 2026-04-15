@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { mergeTelemetryOnSend } from "@/lib/phone/sms-suggestion-telemetry";
 import { ensureSmsConversationForPhone } from "@/lib/phone/sms-conversation-thread";
 import { resolveContactAndPhoneForWorkspaceNewSms } from "@/lib/phone/workspace-new-sms-resolve";
+import { getTwilioSmsOutboundDiagnostics } from "@/lib/twilio/sms-outbound-diagnostics";
 import { sendSms } from "@/lib/twilio/send-sms";
 import { canAccessWorkspacePhone, getStaffProfile } from "@/lib/staff-profile";
 import { supabaseAdmin } from "@/lib/admin";
@@ -158,22 +159,52 @@ export async function sendWorkspaceNewSms(formData: FormData) {
 
   const { e164, contact } = resolved;
 
+  console.log("[workspace-new-sms] step=resolve ok", {
+    e164,
+    hasContactId: Boolean(contact?.id),
+  });
+
+  /** Conversation row must exist before Twilio + `messages` insert (same as other outbound SMS flows). */
   const ensured = await ensureSmsConversationForPhone(supabaseAdmin, e164, contact, {
     leadStatusOnCreate: "unclassified",
   });
 
   if (!ensured.ok) {
-    console.warn("[workspace-new-sms] ensure thread:", ensured.error);
-    err("sms_thread");
+    console.error("[workspace-new-sms] step=ensure_thread FAILED (before Twilio)", {
+      ensureError: ensured.error,
+      e164,
+    });
+    redirect(
+      `/workspace/phone/inbox/new?err=sms_thread&threadErr=${encodeURIComponent(ensured.error.slice(0, 500))}`
+    );
   }
 
   const conversationId = ensured.conversationId;
 
+  console.log("[workspace-new-sms] step=ensure_thread ok", { conversationId, e164 });
+
+  const smsCfg = getTwilioSmsOutboundDiagnostics();
+  console.log("[workspace-new-sms] step=before_twilio_send", {
+    conversationId,
+    e164,
+    credentialsComplete: smsCfg.credentialsComplete,
+    missingEnvVars: smsCfg.missingEnvVars,
+    outboundSenderMasked: smsCfg.outboundSenderMasked,
+    outboundMode: smsCfg.outboundMode,
+  });
+
   const sent = await sendSms({ to: e164, body });
+
   if (!sent.ok) {
-    const errShort = sent.error.slice(0, 400);
+    console.error("[workspace-new-sms] step=twilio_send FAILED (after conversation row)", {
+      conversationId,
+      error: sent.error,
+    });
+    const errShort = sent.error.slice(0, 600);
     redirect(`/workspace/phone/inbox/new?smsErr=${encodeURIComponent(errShort)}`);
   }
+
+  console.log("[workspace-new-sms] step=twilio_send ok", { conversationId });
 
   const now = new Date().toISOString();
 
