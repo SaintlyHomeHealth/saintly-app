@@ -23,7 +23,7 @@ export function InboxSearchBar({ defaultQuery, preserveThreadId, className = "" 
         name="q"
         defaultValue={defaultQuery}
         placeholder="Search name or number"
-        className="ws-phone-input w-full rounded-full px-3 py-2 text-sm shadow-sm shadow-sky-950/5 ring-offset-0 lg:rounded-md lg:py-1.5 lg:text-[13px] lg:shadow-none"
+        className="ws-phone-input w-full rounded-full px-3 py-2 text-sm shadow-sm shadow-sky-950/5 ring-offset-0 lg:h-7 lg:min-h-[1.75rem] lg:rounded-md lg:border lg:border-slate-200/55 lg:bg-white lg:px-2.5 lg:py-0 lg:text-[12px] lg:leading-none lg:shadow-none lg:placeholder:text-slate-400"
       />
     </form>
   );
