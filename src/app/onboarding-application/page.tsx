@@ -7,6 +7,12 @@ import OnboardingProgressSync from '../../components/OnboardingProgressSync'
 import { supabase } from '../../lib/supabase/client'
 import { syncOnboardingProgressForApplicant } from '../../lib/onboarding/sync-progress'
 import OnboardingApplicantIdentity from '../../components/OnboardingApplicantIdentity'
+import {
+  CPR_BLS_STATUS_LABELS,
+  isCprBlsStatusValue,
+  normalizeCprBlsStatusFromDb,
+  type CprBlsStatusValue,
+} from '../../lib/cpr-bls-status'
 
 type ApplicationFormData = {
   firstName: string
@@ -32,7 +38,8 @@ type ApplicationFormData = {
   licenseCertificationNumber: string
   licenseIssuingState: string
   licenseExpirationDate: string
-  cprBlsStatus: string
+  cprBlsStatus: '' | CprBlsStatusValue
+  cprExpirationDate: string
   otherCertifications: string
   hasConviction: string
   convictionExplanation: string
@@ -99,6 +106,7 @@ type ApplicantRow = {
   license_issuing_state?: string | null
   license_expiration_date?: string | null
   cpr_bls_status?: string | null
+  cpr_expiration_date?: string | null
   other_certifications?: string | null
   has_conviction?: boolean | null
   conviction_explanation?: string | null
@@ -166,6 +174,7 @@ const defaultFormData: ApplicationFormData = {
   licenseIssuingState: '',
   licenseExpirationDate: '',
   cprBlsStatus: '',
+  cprExpirationDate: '',
   otherCertifications: '',
   hasConviction: '',
   convictionExplanation: '',
@@ -233,9 +242,16 @@ function getErrorMessage(error: unknown): string {
   return 'Something went wrong while saving the application.'
 }
 
-function toYesNo(value?: boolean | null) {
+function toYesNo(value: unknown) {
   if (value === true) return 'yes'
   if (value === false) return 'no'
+  if (typeof value === 'string') {
+    const v = value.trim().toLowerCase()
+    if (v === 'true' || v === 't' || v === 'yes' || v === 'y' || v === '1') return 'yes'
+    if (v === 'false' || v === 'f' || v === 'no' || v === 'n' || v === '0') return 'no'
+  }
+  if (value === 1) return 'yes'
+  if (value === 0) return 'no'
   return ''
 }
 
@@ -348,6 +364,7 @@ export default function OnboardingApplicationPage() {
                 license_issuing_state,
                 license_expiration_date,
                 cpr_bls_status,
+                cpr_expiration_date,
                 other_certifications,
                 has_conviction,
                 conviction_explanation,
@@ -442,7 +459,8 @@ export default function OnboardingApplicationPage() {
           licenseCertificationNumber: applicantData.license_certification_number ?? '',
           licenseIssuingState: applicantData.license_issuing_state ?? '',
           licenseExpirationDate: applicantData.license_expiration_date ?? '',
-          cprBlsStatus: applicantData.cpr_bls_status ?? '',
+          cprBlsStatus: normalizeCprBlsStatusFromDb(applicantData.cpr_bls_status),
+          cprExpirationDate: applicantData.cpr_expiration_date ?? '',
           otherCertifications: applicantData.other_certifications ?? '',
           hasConviction: toYesNo(applicantData.has_conviction),
           convictionExplanation: applicantData.conviction_explanation ?? '',
@@ -511,10 +529,27 @@ export default function OnboardingApplicationPage() {
         ? event.target.checked
         : event.target.value
 
-    setFormData((prev) => ({
-      ...prev,
-      [name]: nextValue,
-    }))
+    setFormData((prev) => {
+      const next = {
+        ...prev,
+        [name]: nextValue,
+      }
+
+      if (name === 'hasConviction' && nextValue !== 'yes') {
+        return { ...next, convictionExplanation: '' }
+      }
+      if (name === 'hasLicenseDiscipline' && nextValue !== 'yes') {
+        return { ...next, licenseDisciplineExplanation: '' }
+      }
+      if (name === 'needsAccommodation' && nextValue !== 'yes') {
+        return { ...next, accommodationExplanation: '' }
+      }
+      if (name === 'cprBlsStatus' && nextValue !== 'active') {
+        return { ...next, cprExpirationDate: '' }
+      }
+
+      return next
+    })
   }
 
   const updateWorkHistory = (
@@ -598,7 +633,8 @@ export default function OnboardingApplicationPage() {
         formData.licenseCertificationNumber.trim() &&
         formData.licenseIssuingState.trim() &&
         formData.licenseExpirationDate &&
-        formData.cprBlsStatus.trim() &&
+        isCprBlsStatusValue(formData.cprBlsStatus) &&
+        (formData.cprBlsStatus !== 'active' || Boolean(formData.cprExpirationDate)) &&
         formData.hasConviction &&
         (formData.hasConviction === 'no' || formData.convictionExplanation.trim()) &&
         formData.hasLicenseDiscipline &&
@@ -709,7 +745,8 @@ export default function OnboardingApplicationPage() {
               hasValue(formData.licenseCertificationNumber) &&
               hasValue(formData.licenseIssuingState) &&
               Boolean(formData.licenseExpirationDate) &&
-              hasValue(formData.cprBlsStatus),
+              isCprBlsStatusValue(formData.cprBlsStatus) &&
+              (formData.cprBlsStatus !== 'active' || Boolean(formData.cprExpirationDate)),
           },
           {
             label: 'Education',
@@ -798,14 +835,25 @@ export default function OnboardingApplicationPage() {
         license_certification_number: formData.licenseCertificationNumber.trim() || null,
         license_issuing_state: formData.licenseIssuingState.trim() || null,
         license_expiration_date: formData.licenseExpirationDate || null,
-        cpr_bls_status: formData.cprBlsStatus.trim() || null,
+        cpr_bls_status: isCprBlsStatusValue(formData.cprBlsStatus) ? formData.cprBlsStatus : null,
+        cpr_expiration_date:
+          formData.cprBlsStatus === 'active' && formData.cprExpirationDate
+            ? formData.cprExpirationDate
+            : null,
         other_certifications: formData.otherCertifications.trim() || null,
         has_conviction: fromYesNo(formData.hasConviction),
-        conviction_explanation: formData.convictionExplanation.trim() || null,
+        conviction_explanation:
+          formData.hasConviction === 'yes' ? formData.convictionExplanation.trim() || null : null,
         has_license_discipline: fromYesNo(formData.hasLicenseDiscipline),
-        license_discipline_explanation: formData.licenseDisciplineExplanation.trim() || null,
+        license_discipline_explanation:
+          formData.hasLicenseDiscipline === 'yes'
+            ? formData.licenseDisciplineExplanation.trim() || null
+            : null,
         needs_accommodation: fromYesNo(formData.needsAccommodation),
-        accommodation_explanation: formData.accommodationExplanation.trim() || null,
+        accommodation_explanation:
+          formData.needsAccommodation === 'yes'
+            ? formData.accommodationExplanation.trim() || null
+            : null,
         attestation_full_name: formData.attestationFullName.trim() || null,
         attestation_date: formData.attestationDate || null,
         attestation_acknowledged: formData.attestationAcknowledged,
@@ -1421,8 +1469,35 @@ export default function OnboardingApplicationPage() {
                   <label htmlFor="cprBlsStatus">
                     CPR / BLS Status <span className="shh-required">*</span>
                   </label>
-                  <input id="cprBlsStatus" name="cprBlsStatus" value={formData.cprBlsStatus} onChange={handleChange} />
+                  <select
+                    id="cprBlsStatus"
+                    name="cprBlsStatus"
+                    value={formData.cprBlsStatus}
+                    onChange={handleChange}
+                    required
+                  >
+                    <option value="">Select</option>
+                    <option value="active">{CPR_BLS_STATUS_LABELS.active}</option>
+                    <option value="expired">{CPR_BLS_STATUS_LABELS.expired}</option>
+                    <option value="not_certified">{CPR_BLS_STATUS_LABELS.not_certified}</option>
+                  </select>
                 </div>
+
+                {formData.cprBlsStatus === 'active' ? (
+                  <div className="shh-field">
+                    <label htmlFor="cprExpirationDate">
+                      CPR / BLS Expiration Date <span className="shh-required">*</span>
+                    </label>
+                    <input
+                      id="cprExpirationDate"
+                      name="cprExpirationDate"
+                      type="date"
+                      value={formData.cprExpirationDate}
+                      onChange={handleChange}
+                      required
+                    />
+                  </div>
+                ) : null}
 
                 <div className="shh-field shh-field--full">
                   <label htmlFor="otherCertifications">Other Certifications</label>
@@ -1557,55 +1632,106 @@ export default function OnboardingApplicationPage() {
               <div className="shh-grid">
                 <div className="shh-field">
                   <label htmlFor="hasConviction">
-                    Conviction Question <span className="shh-required">*</span>
+                    Have you ever been convicted of a felony or misdemeanor?{' '}
+                    <span className="shh-required">*</span>
                   </label>
-                  <select id="hasConviction" name="hasConviction" value={formData.hasConviction} onChange={handleChange}>
-                    <option value="">Select</option>
+                  <select
+                    id="hasConviction"
+                    name="hasConviction"
+                    value={formData.hasConviction}
+                    onChange={handleChange}
+                    required
+                    aria-required="true"
+                  >
+                    <option value="">Select Yes or No</option>
                     <option value="yes">Yes</option>
                     <option value="no">No</option>
                   </select>
                 </div>
                 <div className="shh-field">
                   <label htmlFor="hasLicenseDiscipline">
-                    License Discipline Question <span className="shh-required">*</span>
+                    Have you ever had any professional license suspended, revoked, or disciplined?{' '}
+                    <span className="shh-required">*</span>
                   </label>
-                  <select id="hasLicenseDiscipline" name="hasLicenseDiscipline" value={formData.hasLicenseDiscipline} onChange={handleChange}>
-                    <option value="">Select</option>
+                  <select
+                    id="hasLicenseDiscipline"
+                    name="hasLicenseDiscipline"
+                    value={formData.hasLicenseDiscipline}
+                    onChange={handleChange}
+                    required
+                    aria-required="true"
+                  >
+                    <option value="">Select Yes or No</option>
                     <option value="yes">Yes</option>
                     <option value="no">No</option>
                   </select>
                 </div>
                 <div className="shh-field">
                   <label htmlFor="needsAccommodation">
-                    Accommodation Needed <span className="shh-required">*</span>
+                    Do you require any reasonable accommodations to perform job duties?{' '}
+                    <span className="shh-required">*</span>
                   </label>
-                  <select id="needsAccommodation" name="needsAccommodation" value={formData.needsAccommodation} onChange={handleChange}>
-                    <option value="">Select</option>
+                  <select
+                    id="needsAccommodation"
+                    name="needsAccommodation"
+                    value={formData.needsAccommodation}
+                    onChange={handleChange}
+                    required
+                    aria-required="true"
+                  >
+                    <option value="">Select Yes or No</option>
                     <option value="yes">Yes</option>
                     <option value="no">No</option>
                   </select>
                 </div>
-                <div className="shh-field shh-field--full">
-                  <label htmlFor="convictionExplanation">
-                    Conviction Explanation
-                    {formData.hasConviction === 'yes' ? <span className="shh-required">*</span> : null}
-                  </label>
-                  <textarea id="convictionExplanation" name="convictionExplanation" rows={4} value={formData.convictionExplanation} onChange={handleChange} />
-                </div>
-                <div className="shh-field shh-field--full">
-                  <label htmlFor="licenseDisciplineExplanation">
-                    License Discipline Explanation
-                    {formData.hasLicenseDiscipline === 'yes' ? <span className="shh-required">*</span> : null}
-                  </label>
-                  <textarea id="licenseDisciplineExplanation" name="licenseDisciplineExplanation" rows={4} value={formData.licenseDisciplineExplanation} onChange={handleChange} />
-                </div>
-                <div className="shh-field shh-field--full">
-                  <label htmlFor="accommodationExplanation">
-                    Accommodation Explanation
-                    {formData.needsAccommodation === 'yes' ? <span className="shh-required">*</span> : null}
-                  </label>
-                  <textarea id="accommodationExplanation" name="accommodationExplanation" rows={4} value={formData.accommodationExplanation} onChange={handleChange} />
-                </div>
+                {formData.hasConviction === 'yes' ? (
+                  <div className="shh-field shh-field--full">
+                    <label htmlFor="convictionExplanation">
+                      Conviction explanation <span className="shh-required">*</span>
+                    </label>
+                    <textarea
+                      id="convictionExplanation"
+                      name="convictionExplanation"
+                      rows={4}
+                      value={formData.convictionExplanation}
+                      onChange={handleChange}
+                      required
+                      aria-required="true"
+                    />
+                  </div>
+                ) : null}
+                {formData.hasLicenseDiscipline === 'yes' ? (
+                  <div className="shh-field shh-field--full">
+                    <label htmlFor="licenseDisciplineExplanation">
+                      License discipline explanation <span className="shh-required">*</span>
+                    </label>
+                    <textarea
+                      id="licenseDisciplineExplanation"
+                      name="licenseDisciplineExplanation"
+                      rows={4}
+                      value={formData.licenseDisciplineExplanation}
+                      onChange={handleChange}
+                      required
+                      aria-required="true"
+                    />
+                  </div>
+                ) : null}
+                {formData.needsAccommodation === 'yes' ? (
+                  <div className="shh-field shh-field--full">
+                    <label htmlFor="accommodationExplanation">
+                      Accommodation explanation <span className="shh-required">*</span>
+                    </label>
+                    <textarea
+                      id="accommodationExplanation"
+                      name="accommodationExplanation"
+                      rows={4}
+                      value={formData.accommodationExplanation}
+                      onChange={handleChange}
+                      required
+                      aria-required="true"
+                    />
+                  </div>
+                ) : null}
               </div>
             </section>
 
