@@ -218,17 +218,17 @@ export default async function WorkspaceInboxPage(props: PageProps) {
   return (
     <div className="ws-phone-page-shell flex min-h-0 flex-1 flex-col lg:h-full lg:min-h-0 lg:flex-1 lg:overflow-hidden">
       <div className="flex min-h-0 flex-1 flex-col lg:min-h-0 lg:flex-1 lg:flex-row lg:overflow-hidden">
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden border-sky-100/60 pb-28 pt-5 sm:pb-32 lg:w-[320px] lg:shrink-0 lg:border-r lg:border-slate-200/80 lg:bg-white lg:pb-0 lg:pt-2">
-          <div className="px-4 sm:px-5 lg:px-3 lg:pt-1">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden border-sky-100/60 pb-28 pt-5 sm:pb-32 lg:w-[300px] lg:shrink-0 lg:border-r lg:border-slate-200 lg:bg-white lg:pb-0 lg:pt-0">
+          <div className="shrink-0 px-4 sm:px-5 lg:border-b lg:border-slate-200 lg:bg-white lg:px-3 lg:py-2">
             <WorkspacePhonePageHeader
               title="Inbox"
               subtitle="Tap a conversation to open the thread — same flow as Messages."
-              className="lg:mb-2 lg:gap-2 [&_h1]:lg:text-lg [&>div>p]:lg:hidden"
+              className="mb-4 gap-2 sm:gap-3 lg:mb-0 lg:gap-1.5 [&_h1]:lg:text-base [&_h1]:lg:font-semibold [&>div>p]:lg:hidden"
               actions={
-                <div className="flex w-full flex-col gap-2 min-[400px]:flex-row min-[400px]:items-center min-[400px]:justify-end">
+                <div className="flex w-full flex-col gap-2 min-[400px]:flex-row min-[400px]:items-center min-[400px]:justify-end lg:gap-1.5">
                   <Link
                     href="/workspace/phone/inbox/new"
-                    className="inline-flex min-h-[2.25rem] shrink-0 items-center justify-center rounded-full bg-gradient-to-r from-blue-950 to-sky-600 px-3.5 py-2 text-center text-xs font-semibold text-white shadow-md shadow-blue-900/20 hover:brightness-105"
+                    className="inline-flex min-h-[2.25rem] shrink-0 items-center justify-center rounded-full bg-gradient-to-r from-blue-950 to-sky-600 px-3.5 py-2 text-center text-xs font-semibold text-white shadow-md shadow-blue-900/20 hover:brightness-105 lg:min-h-0 lg:rounded-md lg:px-3 lg:py-1.5 lg:text-[11px] lg:shadow-none"
                   >
                     New message
                   </Link>
@@ -240,7 +240,7 @@ export default async function WorkspaceInboxPage(props: PageProps) {
 
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain lg:min-h-0">
           <InboxScrollRestorer>
-            <section className="mx-4 mt-3 overflow-hidden rounded-2xl border border-sky-100/70 bg-white shadow-md shadow-sky-950/5 sm:mx-5 lg:mx-0 lg:mt-2 lg:rounded-none lg:border-0 lg:border-t lg:border-slate-200/80 lg:bg-white lg:shadow-none">
+            <section className="mx-4 mt-3 overflow-hidden rounded-2xl border border-sky-100/70 bg-white shadow-md shadow-sky-950/5 sm:mx-5 lg:mx-0 lg:mt-0 lg:rounded-none lg:border-0 lg:border-t lg:border-slate-200 lg:bg-white lg:shadow-none">
               <ul className="divide-y divide-sky-100/60">
                 {rows.length === 0 ? (
                   <li className="px-4 py-10 text-center">
@@ -285,7 +285,9 @@ export default async function WorkspaceInboxPage(props: PageProps) {
 
                     const rowSelected = selectedThreadValid && threadRaw === id;
                     const baseRow = unreadCount > 0 ? "bg-white hover:bg-sky-50/40" : "hover:bg-phone-powder/50";
-                    const selectedRing = rowSelected ? "bg-sky-50/90 ring-1 ring-inset ring-sky-300/80" : "";
+                    const selectedRing = rowSelected
+                      ? "border-l-4 border-l-sky-600 bg-sky-50"
+                      : "border-l-4 border-l-transparent";
 
                     const rowContent = (
                       <>
@@ -325,7 +327,7 @@ export default async function WorkspaceInboxPage(props: PageProps) {
                         <Link
                           href={inboxDesktopUrl(id, qRaw)}
                           scroll={false}
-                          className={`hidden px-4 py-3.5 transition active:bg-phone-ice/70 lg:block ${baseRow} ${selectedRing}`}
+                          className={`hidden px-4 py-2.5 transition active:bg-phone-ice/70 lg:block ${baseRow} ${selectedRing}`}
                         >
                           {rowContent}
                         </Link>

@@ -1,11 +1,12 @@
-import Link from "next/link";
 import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 
 import { NursePhoneBottomNav } from "./_components/NursePhoneBottomNav";
+import { WorkspacePhoneHeaderActions } from "./_components/WorkspacePhoneHeaderActions";
+import { WorkspacePhoneHeaderBranding } from "./_components/WorkspacePhoneHeaderBranding";
+import { WorkspacePhoneHeaderChrome } from "./_components/WorkspacePhoneHeaderChrome";
 import { WorkspacePhoneMainPad } from "./_components/WorkspacePhoneMainPad";
 import { WorkspacePhoneTopStatusStrip } from "./_components/WorkspacePhoneTopStatusStrip";
-import { SignOutButton } from "@/components/SignOutButton";
 import { routePerfLog, routePerfStart } from "@/lib/perf/route-perf";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 
@@ -26,28 +27,12 @@ export default async function WorkspacePhoneLayout({ children }: { children: Rea
 
     return (
       <div className="ws-phone-page-shell flex h-[100dvh] max-h-[100dvh] min-h-0 flex-col overflow-x-hidden text-slate-900">
-        <header className="sticky top-0 z-30 border-b border-sky-100/70 bg-white/95 px-4 pb-2 pt-[calc(0.65rem+env(safe-area-inset-top,0px))] shadow-[0_4px_24px_-12px_rgba(30,58,138,0.08)] backdrop-blur-md supports-[backdrop-filter]:bg-white/90 lg:pb-2 lg:pt-[calc(0.5rem+env(safe-area-inset-top,0px))]">
-          <div className="mx-auto flex w-full max-w-none items-center justify-between gap-3">
-            <div className="min-w-0">
-              <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-phone-ink/70">Saintly Phone</p>
-              <p className="truncate text-sm font-semibold text-phone-navy">{displayName}</p>
-            </div>
-            <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-              {showAdminLink ? (
-                <Link
-                  href="/admin/phone"
-                  className="rounded-full border border-sky-200/90 bg-white px-3 py-2 text-xs font-semibold text-phone-ink shadow-sm transition hover:bg-phone-ice min-[480px]:px-3.5"
-                >
-                  Admin
-                </Link>
-              ) : null}
-              <SignOutButton
-                label="Log out"
-                className="rounded-full border border-slate-800 bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-md shadow-slate-900/15 transition hover:bg-slate-800 disabled:opacity-50"
-              />
-            </div>
+        <WorkspacePhoneHeaderChrome>
+          <div className="mx-auto flex w-full max-w-none items-center justify-between gap-2 lg:gap-2">
+            <WorkspacePhoneHeaderBranding displayName={displayName} />
+            <WorkspacePhoneHeaderActions showAdminLink={showAdminLink} />
           </div>
-        </header>
+        </WorkspacePhoneHeaderChrome>
 
         <WorkspacePhoneTopStatusStrip
           displayName={displayName}

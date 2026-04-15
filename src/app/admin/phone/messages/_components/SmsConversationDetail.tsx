@@ -447,10 +447,17 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
         }
       : null;
 
+  const crmAsideCard = workspaceDesktopSplit
+    ? "rounded-lg border border-slate-200 bg-white p-3 shadow-none"
+    : "rounded-xl border border-slate-200 bg-white p-4 shadow-sm";
+  const crmAsideAi = workspaceDesktopSplit
+    ? "mb-2 rounded-lg border border-sky-100 bg-sky-50/50 p-2.5"
+    : "mb-4 rounded-xl border border-sky-100 bg-sky-50/50 p-3";
+
   const workspaceCrmPanelInner = (
     <>
       {(aiMini.summary || aiMini.category || aiMini.urgency) && (
-        <section className="mb-4 rounded-xl border border-sky-100 bg-sky-50/50 p-3">
+        <section className={crmAsideAi}>
           <p className="text-[11px] font-semibold uppercase tracking-wide text-sky-800">AI insight</p>
           {aiMini.summary ? (
             <p className="mt-1 text-sm text-slate-700">{aiMini.summary}</p>
@@ -472,9 +479,9 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
         </section>
       )}
 
-      <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        <h2 className="text-sm font-semibold text-slate-900">Assignment</h2>
-        <div className="mt-3 space-y-3 text-sm">
+      <section className={crmAsideCard}>
+        <h2 className={`font-semibold text-slate-900 ${workspaceDesktopSplit ? "text-xs" : "text-sm"}`}>Assignment</h2>
+        <div className={`text-sm ${workspaceDesktopSplit ? "mt-2 space-y-2" : "mt-3 space-y-3"}`}>
           <div>
             <p className="text-xs font-medium text-slate-500">Lead status</p>
             <div className="mt-1 flex flex-wrap items-center gap-2">
@@ -573,9 +580,9 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
         </div>
       </section>
 
-      <section className="mt-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        <h2 className="text-sm font-semibold text-slate-900">Next action</h2>
-        <div className="mt-3 space-y-3 text-sm">
+      <section className={`${workspaceDesktopSplit ? "mt-2" : "mt-4"} ${crmAsideCard}`}>
+        <h2 className={`font-semibold text-slate-900 ${workspaceDesktopSplit ? "text-xs" : "text-sm"}`}>Next action</h2>
+        <div className={`text-sm ${workspaceDesktopSplit ? "mt-2 space-y-2" : "mt-3 space-y-3"}`}>
           {followUpCompletedAt ? (
             <div className="rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-2 text-emerald-900">
               Completed {formatAdminPhoneWhen(followUpCompletedAt)}
@@ -651,6 +658,7 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
         hasPrimaryContact={Boolean(conv.primary_contact_id)}
         unknownTexter={unknownTexter}
         initial={workspaceContactPanelInitial}
+        compactAside={workspaceDesktopSplit}
       />
     </>
   );
@@ -755,12 +763,12 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
       return (
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
           <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">{shell}</div>
-          <aside className="hidden h-full min-h-0 w-[380px] shrink-0 flex-col overflow-hidden border-l border-slate-200/90 bg-white lg:flex">
-            <div className="flex h-10 shrink-0 items-center border-b border-slate-200/90 px-3">
+          <aside className="hidden h-full min-h-0 w-[360px] shrink-0 flex-col overflow-hidden border-l border-slate-200 bg-white lg:flex">
+            <div className="flex h-10 shrink-0 items-center border-b border-slate-200 px-3">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Contact & CRM</p>
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-3 py-2.5 pb-4 [&_section]:shadow-sm [&_section]:shadow-slate-900/5">
-              <div className="space-y-2.5">{workspaceCrmPanelInner}</div>
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-3 py-2 pb-4">
+              <div className={workspaceDesktopSplit ? "space-y-2" : "space-y-2.5"}>{workspaceCrmPanelInner}</div>
             </div>
           </aside>
         </div>

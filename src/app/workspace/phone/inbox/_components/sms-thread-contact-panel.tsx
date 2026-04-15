@@ -26,6 +26,8 @@ type Props = {
     contactType: string;
     notes: string;
   } | null;
+  /** Desktop inbox 3-pane: tighter card chrome. */
+  compactAside?: boolean;
 };
 
 function parseTagsFromNotes(notes: string): { body: string; tags: string } {
@@ -45,6 +47,7 @@ export function SmsThreadContactPanel({
   hasPrimaryContact,
   unknownTexter,
   initial,
+  compactAside = false,
 }: Props) {
   const ctx = useWorkspaceSmsContactSave();
   const [pending, startTransition] = useTransition();
@@ -103,9 +106,15 @@ export function SmsThreadContactPanel({
   );
 
   return (
-    <section className="rounded-xl border border-slate-200/90 bg-white p-4 shadow-sm ring-1 ring-slate-100/80">
-      <h2 className="text-sm font-semibold text-slate-900">Contact</h2>
-      <p className="mt-1 text-xs text-slate-500">
+    <section
+      className={
+        compactAside
+          ? "rounded-lg border border-slate-200 bg-white p-3 shadow-none"
+          : "rounded-xl border border-slate-200/90 bg-white p-4 shadow-sm ring-1 ring-slate-100/80"
+      }
+    >
+      <h2 className={`font-semibold text-slate-900 ${compactAside ? "text-xs" : "text-sm"}`}>Contact</h2>
+      <p className={`text-[11px] text-slate-500 ${compactAside ? "mt-0.5" : "mt-1 text-xs"}`}>
         Linked CRM record for this thread. Saves instantly — no page reload.
       </p>
 
@@ -115,7 +124,7 @@ export function SmsThreadContactPanel({
         </p>
       ) : null}
 
-      <form className="mt-4 space-y-3" onSubmit={onSubmit}>
+      <form className={`${compactAside ? "mt-2 space-y-2" : "mt-4 space-y-3"}`} onSubmit={onSubmit}>
         <input type="hidden" name="conversationId" value={conversationId} />
 
         <div>

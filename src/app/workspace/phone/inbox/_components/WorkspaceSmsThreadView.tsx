@@ -228,7 +228,11 @@ export function WorkspaceSmsThreadView({
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       {threadTopSlot ? (
-        <div className="shrink-0 border-b border-sky-100/70 bg-white/90 px-3 py-2 sm:px-4">
+        <div
+          className={`shrink-0 border-b border-sky-100/70 bg-white/90 px-3 py-2 sm:px-4 ${
+            appDesktopSplit ? "lg:border-slate-200 lg:px-3 lg:py-1.5" : ""
+          }`}
+        >
           <div className={`mx-auto w-full ${appDesktopSplit ? "max-w-none" : "max-w-[40rem]"}`}>
             {threadTopSlot}
           </div>
@@ -243,7 +247,7 @@ export function WorkspaceSmsThreadView({
       >
         <div
           className={`mx-auto flex min-h-full w-full flex-col px-3 pb-2 pt-2 sm:px-4 sm:pb-3 sm:pt-3 ${
-            appDesktopSplit ? "max-w-none px-4" : "max-w-[40rem]"
+            appDesktopSplit ? "max-w-none px-3 pt-1.5 sm:px-3 sm:pb-2 sm:pt-2 lg:px-3 lg:pb-1 lg:pt-1" : "max-w-[40rem]"
           }`}
         >
           {canLoadEarlier ? (
@@ -306,10 +310,14 @@ export function WorkspaceSmsThreadView({
 
       <div
         className={`z-20 shrink-0 border-t border-slate-200/90 bg-white pb-[max(0.35rem,env(safe-area-inset-bottom,0px))] pt-1.5 backdrop-blur-md supports-[backdrop-filter]:bg-white/95 ${
-          appDesktopSplit ? "shadow-none" : "border-sky-100/80 shadow-[0_-4px_24px_-8px_rgba(30,58,138,0.1)]"
+          appDesktopSplit
+            ? "border-slate-200 shadow-none lg:pt-1 lg:pb-[max(0.25rem,env(safe-area-inset-bottom,0px))]"
+            : "border-sky-100/80 shadow-[0_-4px_24px_-8px_rgba(30,58,138,0.1)]"
         }`}
       >
-        <div className={`mx-auto w-full px-3 sm:px-4 ${appDesktopSplit ? "max-w-none" : "max-w-[40rem]"}`}>
+        <div
+          className={`mx-auto w-full px-3 sm:px-4 ${appDesktopSplit ? "max-w-none lg:px-3" : "max-w-[40rem]"}`}
+        >
           <SmsReplyComposer
             key={`${conversationId}:${suggestionForMessageId ?? ""}:${composerInitialDraft ?? ""}`}
             conversationId={conversationId}
