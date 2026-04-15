@@ -19,6 +19,14 @@ import {
   isPhoneWorkspaceUser,
 } from "@/lib/staff-profile";
 
+import { buildTranscriptMessages } from "@/components/softphone/build-transcript-messages";
+import type { CallContextVoiceAi } from "@/components/softphone/WorkspaceSoftphoneProvider";
+import { CallDetailTranscriptThread } from "@/components/phone/CallDetailTranscriptThread";
+import { CallSavedOutputsViewer } from "@/components/phone/CallSavedOutputsViewer";
+import {
+  parseLiveTranscriptEntriesFromMetadata,
+  readUnclampedLiveTranscriptExcerpt,
+} from "@/lib/phone/live-transcript-entries";
 import type { PhoneCallRow } from "../recent-calls-live";
 import {
   formatUrgencyLabel,
@@ -239,6 +247,19 @@ export default async function AdminPhoneCallDetailPage({ params, searchParams }:
   const caller = primaryCallNumber(c);
   const phoneDefault = intakePhoneDefault(c);
 
+  const voiceAiRaw =
+    c.metadata && typeof c.metadata === "object" && !Array.isArray(c.metadata)
+      ? (c.metadata as Record<string, unknown>).voice_ai
+      : undefined;
+  const liveEntries = parseLiveTranscriptEntriesFromMetadata(voiceAiRaw);
+  const liveExcerpt = readUnclampedLiveTranscriptExcerpt(voiceAiRaw);
+  const voiceAiForTranscript = {
+    live_transcript_entries: liveEntries.length > 0 ? liveEntries : null,
+    live_transcript_excerpt: liveExcerpt,
+  } as CallContextVoiceAi;
+  /** Same builder as softphone post-call review: entries first, else excerpt split into lines. */
+  const transcriptBubbles = buildTranscriptMessages(voiceAiForTranscript, { humanSpeechOnly: false });
+
   return (
     <div className="space-y-8 p-6">
       <div>
@@ -262,6 +283,34 @@ export default async function AdminPhoneCallDetailPage({ params, searchParams }:
           {intakeErrMsg}
         </p>
       ) : null}
+
+      <section className="rounded-[28px] border border-slate-200/90 bg-white p-6 shadow-[0_12px_40px_-18px_rgba(15,23,42,0.12)]">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold text-slate-900">Transcript</h2>
+            <p className="mt-1 text-xs text-slate-500">
+              From <code className="rounded bg-slate-100 px-1">metadata.voice_ai</code> — structured lines when
+              available; otherwise a legacy excerpt shown as separate bubbles.
+            </p>
+          </div>
+        </div>
+        <div className="mt-5">
+          <CallDetailTranscriptThread
+            bubbles={transcriptBubbles}
+            callerLabel={caller !== "—" ? caller : "Caller"}
+          />
+        </div>
+      </section>
+
+      <section className="rounded-[28px] border border-sky-100/90 bg-gradient-to-b from-white via-sky-50/25 to-slate-50/20 p-6 shadow-[0_8px_30px_-12px_rgba(30,58,138,0.08)]">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-sky-900/55">Saved outputs</p>
+        <p className="mt-1 text-xs text-slate-600">
+          SOAP, Call Summary, and Intake Summary saved from the softphone transcript. Read-only.
+        </p>
+        <div className="mt-5">
+          <CallSavedOutputsViewer phoneCallId={c.id} heading="SOAP, summaries & intake" />
+        </div>
+      </section>
 
       <section className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
         <h2 className="text-sm font-semibold text-slate-900">Overview</h2>
@@ -335,7 +384,7 @@ export default async function AdminPhoneCallDetailPage({ params, searchParams }:
         <h2 className="text-sm font-semibold text-slate-900">AI call summary</h2>
         <p className="mt-1 text-xs text-slate-500">
           From <code className="rounded bg-white/80 px-1">metadata.voice_ai</code> after the call ends (suggestions
-          only; not saved CRM).
+          only; not saved CRM). Word-for-word transcript is in the Transcript section above; not duplicated here.
         </p>
         {voiceAiSlice ? (
           <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
@@ -373,12 +422,6 @@ export default async function AdminPhoneCallDetailPage({ params, searchParams }:
               <dt className="text-xs font-medium text-slate-500">Recommended next step</dt>
               <dd className="mt-0.5 text-slate-800">{voiceAiSlice.recommended_action ?? "—"}</dd>
             </div>
-            {voiceAiSlice.live_transcript_excerpt ? (
-              <div className="sm:col-span-2">
-                <dt className="text-xs font-medium text-slate-500">Excerpt</dt>
-                <dd className="mt-0.5 whitespace-pre-wrap text-slate-800">{voiceAiSlice.live_transcript_excerpt}</dd>
-              </div>
-            ) : null}
             {voiceAiSlice.source ? (
               <div className="sm:col-span-2">
                 <dt className="text-xs font-medium text-slate-500">Source</dt>
