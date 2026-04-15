@@ -2050,6 +2050,7 @@ export default function OnboardingDocumentsPage() {
                               documentType={doc.documentType}
                               label={doc.label}
                               required={doc.required}
+                              showAcceptedFormatsHint
                               onUploadComplete={() => fetchUploadedDocs(applicantId)}
                               onUploadSuccess={() => fetchUploadedDocs(applicantId)}
                             />
@@ -2113,6 +2114,7 @@ export default function OnboardingDocumentsPage() {
                               documentType={doc.documentType}
                               label={doc.label}
                               required={false}
+                              showAcceptedFormatsHint
                               onUploadComplete={() => fetchUploadedDocs(applicantId)}
                               onUploadSuccess={() => fetchUploadedDocs(applicantId)}
                             />

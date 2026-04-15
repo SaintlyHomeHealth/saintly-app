@@ -1,6 +1,13 @@
 'use client'
 
 import { useRef, useState } from 'react'
+import {
+  getApplicantUploadAcceptedFormatsHint,
+  getEffectiveApplicantUploadMime,
+  isAllowedApplicantUploadDocumentType,
+  normalizeApplicantUploadDocumentType,
+  APPLICANT_FILE_UPLOAD_ACCEPTED_MIME_TYPES,
+} from '@/lib/applicant-file-upload-types'
 
 type Props = {
   applicantId: string
@@ -10,6 +17,19 @@ type Props = {
   completeComplianceEventId?: string
   onUploadComplete?: () => void
   onUploadSuccess?: () => void
+  /** Show accepted formats under the control (onboarding uses this). */
+  showAcceptedFormatsHint?: boolean
+}
+
+type UploadErrorJson = {
+  error?: string
+  code?: string
+  details?: string
+  allowedDocumentTypes?: string[]
+  acceptedMimeTypes?: string[]
+  receivedDocumentType?: string | null
+  receivedMimeType?: string
+  success?: boolean
 }
 
 function getErrorMessage(error: unknown): string {
@@ -48,6 +68,7 @@ export default function ApplicantFileUpload({
   completeComplianceEventId,
   onUploadComplete,
   onUploadSuccess,
+  showAcceptedFormatsHint = false,
 }: Props) {
   const inputRef = useRef<HTMLInputElement | null>(null)
   const [file, setFile] = useState<File | null>(null)
@@ -61,12 +82,48 @@ export default function ApplicantFileUpload({
       return
     }
 
+    const normalizedDocType = normalizeApplicantUploadDocumentType(documentType)
+    if (!isAllowedApplicantUploadDocumentType(documentType)) {
+      const msg =
+        'This upload is misconfigured (unsupported document type). Please contact support with this code: ' +
+        `${normalizedDocType || '(empty)'}.`
+      console.error('[ApplicantFileUpload] Unsupported documentType for upload API', {
+        documentType,
+        normalized: normalizedDocType,
+        label,
+      })
+      setErrorMessage(msg)
+      return
+    }
+
+    const effectiveMime = getEffectiveApplicantUploadMime(file)
+    if (
+      !effectiveMime ||
+      !(APPLICANT_FILE_UPLOAD_ACCEPTED_MIME_TYPES as readonly string[]).includes(effectiveMime)
+    ) {
+      setErrorMessage(
+        `This file type is not accepted (${file.type || 'unknown'}). ${getApplicantUploadAcceptedFormatsHint()}`
+      )
+      return
+    }
+
     let uploadStep = 'init'
 
     try {
       setUploading(true)
       setErrorMessage('')
       setSuccessMessage('')
+
+      if (process.env.NODE_ENV === 'development') {
+        console.debug('[ApplicantFileUpload] upload start', {
+          documentType,
+          normalizedDocumentType: normalizedDocType,
+          label,
+          fileName: file.name,
+          mimeType: file.type,
+        })
+      }
+
       const formData = new FormData()
       formData.append('applicantId', applicantId)
       formData.append('documentType', documentType)
@@ -85,10 +142,10 @@ export default function ApplicantFileUpload({
 
       uploadStep = 'parseResponse'
       const rawText = await response.text()
-      let result: { error?: string; details?: string; success?: boolean } | null = null
+      let result: UploadErrorJson | null = null
       if (rawText) {
         try {
-          result = JSON.parse(rawText) as { error?: string; details?: string; success?: boolean }
+          result = JSON.parse(rawText) as UploadErrorJson
         } catch {
           console.error('[ApplicantFileUpload] Non-JSON response body', {
             step: uploadStep,
@@ -109,6 +166,8 @@ export default function ApplicantFileUpload({
         console.error('[ApplicantFileUpload] Upload request failed', {
           step: uploadStep,
           status: response.status,
+          documentType,
+          normalizedDocumentType: normalizedDocType,
           result,
         })
         throw { message: msg, statusCode: response.status, details: result?.details }
@@ -128,6 +187,7 @@ export default function ApplicantFileUpload({
         step: uploadStep,
         applicantId,
         documentType,
+        normalizedDocumentType: normalizeApplicantUploadDocumentType(documentType),
         error,
       })
       const base = getErrorMessage(error)
@@ -144,7 +204,7 @@ export default function ApplicantFileUpload({
           <input
             ref={inputRef}
             type="file"
-            accept=".pdf,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp"
+            accept=".pdf,.jpg,.jpeg,.png,.webp,.heic,.heif,application/pdf,image/jpeg,image/png,image/webp,image/heic,image/heif"
             className="shh-upload__input"
             onChange={(e) => {
               setFile(e.target.files?.[0] || null)
@@ -187,6 +247,10 @@ export default function ApplicantFileUpload({
       ) : null}
 
       {!file ? <div className="shh-upload__hint">Choose a file to enable upload.</div> : null}
+
+      {showAcceptedFormatsHint ? (
+        <div className="shh-upload__formats">{getApplicantUploadAcceptedFormatsHint()}</div>
+      ) : null}
 
       <style jsx>{`
         .shh-upload {
@@ -298,6 +362,13 @@ export default function ApplicantFileUpload({
           color: #64748b;
           font-size: 12px;
           font-weight: 600;
+        }
+
+        .shh-upload__formats {
+          color: #64748b;
+          font-size: 12px;
+          font-weight: 600;
+          line-height: 1.45;
         }
 
         @media (max-width: 768px) {

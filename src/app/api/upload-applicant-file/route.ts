@@ -1,24 +1,21 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '../../../lib/admin'
+import {
+  APPLICANT_FILE_UPLOAD_ACCEPTED_MIME_TYPES,
+  APPLICANT_FILE_UPLOAD_ALLOWED_DOCUMENT_TYPES,
+  formatMimeTypeForError,
+  getEffectiveApplicantUploadMime,
+  inferApplicantUploadMimeFromFileName,
+  isAllowedApplicantUploadDocumentType,
+  normalizeApplicantUploadDocumentType,
+} from '@/lib/applicant-file-upload-types'
 
-const ALLOWED_TYPES = [
-  'application/pdf',
-  'image/jpeg',
-  'image/png',
-  'image/webp',
-]
+const ALLOWED_TYPES = [...APPLICANT_FILE_UPLOAD_ACCEPTED_MIME_TYPES]
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024
 
 function sanitizeFileName(name: string) {
   return name.replace(/[^a-zA-Z0-9._-]/g, '_')
-}
-
-function normalizeDocumentType(value: string) {
-  return value
-    .toLowerCase()
-    .trim()
-    .replace(/[\s-]+/g, '_')
 }
 
 export async function POST(req: Request) {
@@ -28,20 +25,19 @@ export async function POST(req: Request) {
     const applicantId = formData.get('applicantId')?.toString()
     const documentTypeRaw = formData.get('documentType')?.toString()
     const displayName = formData.get('displayName')?.toString() || ''
-    const documentType = documentTypeRaw ? normalizeDocumentType(documentTypeRaw) : ''
-    const ALLOWED_DOCUMENT_TYPES = [
-      'auto_insurance',
-      'independent_contractor_insurance',
-      'drivers_license',
-      'cpr_card',
-      'fingerprint_clearance_card',
-      'background_check',
-      'oig_check',
-    ]
+    const documentType = documentTypeRaw
+      ? normalizeApplicantUploadDocumentType(documentTypeRaw)
+      : ''
+    const ALLOWED_DOCUMENT_TYPES = [...APPLICANT_FILE_UPLOAD_ALLOWED_DOCUMENT_TYPES]
 
-    if (!ALLOWED_DOCUMENT_TYPES.includes(documentType)) {
+    if (!isAllowedApplicantUploadDocumentType(documentTypeRaw || '')) {
       return NextResponse.json(
-        { error: `Invalid document type: ${documentType}` },
+        {
+          code: 'invalid_document_type',
+          error: `Invalid document type "${documentType || '(empty)'}". Allowed types: ${ALLOWED_DOCUMENT_TYPES.join(', ')}.`,
+          receivedDocumentType: documentTypeRaw?.trim() || documentType || null,
+          allowedDocumentTypes: ALLOWED_DOCUMENT_TYPES,
+        },
         { status: 400 }
       )
     }
@@ -57,9 +53,17 @@ export async function POST(req: Request) {
       )
     }
 
-    if (!ALLOWED_TYPES.includes(file.type)) {
+    const effectiveMime = getEffectiveApplicantUploadMime(file)
+
+    if (!(ALLOWED_TYPES as readonly string[]).includes(effectiveMime)) {
       return NextResponse.json(
-        { error: 'Invalid file type. Only PDF, JPG, PNG, WEBP allowed.' },
+        {
+          code: 'invalid_mime_type',
+          error: `This file type is not accepted (${formatMimeTypeForError(file.type)}). Allowed: PDF, JPEG, PNG, WEBP, HEIC.`,
+          receivedMimeType: file.type,
+          inferredMimeType: inferApplicantUploadMimeFromFileName(file.name),
+          acceptedMimeTypes: [...ALLOWED_TYPES],
+        },
         { status: 400 }
       )
     }
@@ -81,7 +85,7 @@ export async function POST(req: Request) {
     const { error: uploadError } = await supabaseAdmin.storage
       .from('applicant-files')
       .upload(filePath, buffer, {
-        contentType: file.type,
+        contentType: effectiveMime,
         upsert: false,
       })
 
@@ -98,7 +102,7 @@ export async function POST(req: Request) {
         file_name: file.name,
         file_path: filePath,
         storage_path: filePath,
-        file_type: file.type,
+        file_type: effectiveMime,
         file_size: file.size,
         required,
       })
