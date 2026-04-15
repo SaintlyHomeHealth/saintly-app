@@ -219,16 +219,16 @@ export default async function WorkspaceInboxPage(props: PageProps) {
     <div className="ws-phone-page-shell flex min-h-0 flex-1 flex-col lg:h-full lg:min-h-0 lg:flex-1 lg:overflow-hidden">
       <div className="flex min-h-0 flex-1 flex-col lg:min-h-0 lg:flex-1 lg:flex-row lg:overflow-hidden">
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden border-sky-100/60 pb-28 pt-5 sm:pb-32 lg:w-[240px] lg:shrink-0 lg:border-r lg:border-slate-200 lg:bg-white lg:pb-0 lg:pt-0">
-          <div className="shrink-0 px-4 sm:px-5 lg:border-b lg:border-slate-200 lg:bg-white lg:px-2.5 lg:py-1.5">
+          <div className="shrink-0 px-4 sm:px-5 lg:border-b lg:border-slate-200/90 lg:bg-white lg:px-3 lg:py-1 lg:shadow-[0_1px_0_0_rgb(248_250_252)]">
             <WorkspacePhonePageHeader
               title="Inbox"
               subtitle="Tap a conversation to open the thread — same flow as Messages."
-              className="mb-4 gap-2 sm:gap-3 lg:mb-0 lg:gap-1 [&_h1]:lg:text-sm [&_h1]:lg:font-semibold [&>div>p]:lg:hidden"
+              className="mb-4 gap-2 sm:gap-3 lg:mb-0 lg:gap-0.5 [&_h1]:lg:text-sm [&_h1]:lg:font-semibold [&>div>p]:lg:hidden"
               actions={
-                <div className="flex w-full flex-col gap-2 min-[400px]:flex-row min-[400px]:items-center min-[400px]:justify-end lg:gap-1">
+                <div className="flex w-full flex-col gap-2 min-[400px]:flex-row min-[400px]:items-center min-[400px]:justify-end lg:gap-1.5">
                   <Link
                     href="/workspace/phone/inbox/new"
-                    className="inline-flex min-h-[2.25rem] shrink-0 items-center justify-center rounded-full bg-gradient-to-r from-blue-950 to-sky-600 px-3.5 py-2 text-center text-xs font-semibold text-white shadow-md shadow-blue-900/20 hover:brightness-105 lg:min-h-0 lg:w-full lg:rounded-md lg:px-2.5 lg:py-1.5 lg:text-[11px] lg:shadow-none"
+                    className="inline-flex min-h-[2.25rem] shrink-0 items-center justify-center rounded-full bg-gradient-to-r from-blue-950 to-sky-600 px-3.5 py-2 text-center text-xs font-semibold text-white shadow-md shadow-blue-900/20 hover:brightness-105 lg:min-h-0 lg:w-full lg:rounded-md lg:px-3 lg:py-1.5 lg:text-[11px] lg:shadow-none"
                   >
                     New message
                   </Link>
@@ -242,9 +242,18 @@ export default async function WorkspaceInboxPage(props: PageProps) {
             />
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain lg:min-h-0">
-          <InboxScrollRestorer>
-            <section className="mx-4 mt-3 overflow-hidden rounded-2xl border border-sky-100/70 bg-white shadow-md shadow-sky-950/5 sm:mx-5 lg:mx-0 lg:mt-0 lg:rounded-none lg:border-0 lg:border-t lg:border-slate-200 lg:bg-white lg:shadow-none">
+          <div className="relative flex min-h-0 flex-1 flex-col lg:min-h-0">
+            <div
+              className="pointer-events-none absolute inset-x-0 top-0 z-[1] hidden h-5 bg-gradient-to-b from-white from-40% to-transparent lg:block"
+              aria-hidden
+            />
+            <div
+              className="pointer-events-none absolute inset-x-0 bottom-0 z-[1] hidden h-6 bg-gradient-to-t from-white from-35% to-transparent lg:block"
+              aria-hidden
+            />
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain lg:relative lg:z-0">
+              <InboxScrollRestorer>
+            <section className="mx-4 mt-3 overflow-hidden rounded-2xl border border-sky-100/70 bg-white shadow-md shadow-sky-950/5 sm:mx-5 lg:mx-0 lg:mt-0 lg:rounded-none lg:border-0 lg:border-t lg:border-slate-200/80 lg:bg-white lg:shadow-none">
               <ul className="divide-y divide-sky-100/60 lg:divide-slate-100">
                 {rows.length === 0 ? (
                   <li className="px-4 py-10 text-center">
@@ -323,9 +332,17 @@ export default async function WorkspaceInboxPage(props: PageProps) {
                       </>
                     );
 
-                    const desktopRow = rowSelected
-                      ? "border-l-sky-600 bg-sky-100/90 hover:bg-sky-100"
-                      : "border-l-transparent hover:bg-slate-50";
+                    const desktopRowChrome = rowSelected
+                      ? "border-l-sky-500 bg-gradient-to-r from-sky-50/95 via-sky-50/50 to-transparent hover:from-sky-100/85 hover:via-sky-50/70"
+                      : "border-l-transparent hover:bg-slate-50/95";
+
+                    const desktopLabelClass = rowSelected
+                      ? hasUnread
+                        ? "font-bold text-slate-950 text-[15px] leading-tight tracking-tight"
+                        : "font-semibold text-slate-900 text-[15px] leading-tight tracking-tight"
+                      : hasUnread
+                        ? "font-semibold text-slate-900 text-sm leading-snug tracking-tight"
+                        : "font-medium text-slate-600 text-sm leading-snug";
 
                     return (
                       <li key={id}>
@@ -338,14 +355,12 @@ export default async function WorkspaceInboxPage(props: PageProps) {
                         <Link
                           href={inboxDesktopUrl(id, qRaw)}
                           scroll={false}
-                          className={`hidden items-center gap-2 border-l-4 px-2.5 py-1.5 text-sm leading-tight text-slate-900 transition-colors active:bg-slate-100/80 lg:flex ${desktopRow} ${
-                            hasUnread ? "font-semibold" : "font-medium text-slate-700"
-                          }`}
+                          className={`hidden items-center gap-2 border-l-[3px] px-3 py-2 transition-colors active:bg-slate-100/70 lg:flex ${desktopRowChrome} ${desktopLabelClass}`}
                         >
                           <span className="min-w-0 flex-1 truncate">{primaryLabel}</span>
                           {hasUnread ? (
                             <span
-                              className="h-2 w-2 shrink-0 rounded-full bg-sky-600"
+                              className="h-2.5 w-2.5 shrink-0 rounded-full bg-sky-600 shadow-[0_0_0_1px_rgba(255,255,255,0.95)] ring-2 ring-sky-500/35"
                               aria-label={`${unreadCount} unread`}
                             />
                           ) : null}
@@ -356,7 +371,8 @@ export default async function WorkspaceInboxPage(props: PageProps) {
                 )}
               </ul>
             </section>
-          </InboxScrollRestorer>
+              </InboxScrollRestorer>
+            </div>
           </div>
         </div>
 
