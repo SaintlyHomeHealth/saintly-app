@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/admin";
 import { findPhoneCallRowByTwilioCallSid } from "@/lib/phone/phone-call-lookup-by-call-sid";
 import { canStaffAccessPhoneCallRow } from "@/lib/phone/staff-call-access";
-import { canAccessWorkspacePhone, getStaffProfile } from "@/lib/staff-profile";
+import { canAccessWorkspacePhone, getStaffProfile, isPhoneWorkspaceUser } from "@/lib/staff-profile";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -36,10 +36,14 @@ async function loadCallAssignment(phoneCallId: string): Promise<string | null | 
 /**
  * GET saved AI outputs for a call.
  * Query: `callId` (phone_calls.id, preferred for CRM / call detail) or `call_sid` (Twilio CallSid).
+ *
+ * Read gate matches `/admin/phone/[callId]` (isPhoneWorkspaceUser + call row access), not
+ * `canAccessWorkspacePhone` — so managers/admins without `phone_access_enabled` can still
+ * view saved outputs on call detail; POST/save remains workspace-gated.
  */
 export async function GET(req: Request) {
   const staff = await getStaffProfile();
-  if (!staff || !canAccessWorkspacePhone(staff)) {
+  if (!staff || !isPhoneWorkspaceUser(staff)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

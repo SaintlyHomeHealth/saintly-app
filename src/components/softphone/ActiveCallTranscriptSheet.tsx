@@ -184,7 +184,8 @@ export function ActiveCallTranscriptSheet() {
   const externalCallId = effectiveDesk?.external_call_id ?? null;
   const showActionBar = Boolean(externalCallId) && (messages.length >= 1 || isPostCall);
 
-  const phoneCallIdForSave = (effectiveDesk?.phone_call_id ?? outputPanel?.phoneCallId ?? null) as string | null;
+  /** Prefer id from Generate response (same row as generation); desk id can be stale or diverge in edge cases. */
+  const phoneCallIdForSave = (outputPanel?.phoneCallId ?? effectiveDesk?.phone_call_id ?? null) as string | null;
 
   const runGenerate = useCallback(
     async (kind: OutputKind) => {
