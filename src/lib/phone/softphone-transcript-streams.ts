@@ -97,10 +97,6 @@ export async function maybeStartDeferredPstnTranscriptStream(
 
   const callbackUrl = resolveTranscriptionStatusCallbackUrl();
   if (!callbackUrl) {
-    console.log("[maybe-start-pstn-transcript] skipped_no_status_callback_url", {
-      reason,
-      clientCallSid: sid.slice(0, 12) + "…",
-    });
     return { ok: false, skipped: "transcription_status_callback_not_configured" };
   }
 
@@ -109,7 +105,6 @@ export async function maybeStartDeferredPstnTranscriptStream(
     return { ok: false, skipped: "phone_call_not_found" };
   }
 
-  const canonicalId = row.external_call_id;
   const meta = row.metadata;
   const streams = readTranscriptStreamsFromMetadata(asRecord(meta));
   if (!clientTranscriptEverStarted(streams)) {
@@ -126,19 +121,10 @@ export async function maybeStartDeferredPstnTranscriptStream(
 
   const pstnSid = readPstnCallSidFromMetadata(asRecord(meta));
   if (!pstnSid) {
-    console.log("[maybe-start-pstn-transcript] skipped_no_pstn_sid", { reason, clientCallSid: sid.slice(0, 12) + "…" });
     return { ok: true, skipped: "no_pstn_call_sid_on_row" };
   }
 
   const name = `saintly-pstn-rt-${pstnSid.slice(-12)}`;
-
-  console.log("[maybe-start-pstn-transcript] twilio_rt_request", {
-    reason,
-    clientCallSid: sid.slice(0, 12) + "…",
-    canonical_external_call_id: canonicalId.slice(0, 12) + "…",
-    pstnCallSid: pstnSid.slice(0, 12) + "…",
-    track: "inbound_track",
-  });
 
   const pstnResult = await createRealtimeTranscription({
     callSid: pstnSid,
@@ -157,9 +143,9 @@ export async function maybeStartDeferredPstnTranscriptStream(
       pstn_stream_last_error: null,
       pstn_stream_last_attempt_at: now,
     });
-    console.log("[maybe-start-pstn-transcript] twilio_ok", {
-      reason,
-      pstnRealtimeTranscriptionSid: pstnResult.transcriptionSid,
+    console.warn("[transcript] pstn_realtime_transcription_started", {
+      clientCallSid: sid.slice(0, 12) + "…",
+      pstnCallSid: pstnSid.slice(0, 12) + "…",
     });
     return { ok: true, pstnRealtimeTranscriptionSid: pstnResult.transcriptionSid };
   }
@@ -170,7 +156,7 @@ export async function maybeStartDeferredPstnTranscriptStream(
     pstn_stream_last_attempt_at: now,
     pstn_call_sid_at_attempt: pstnSid,
   });
-  console.warn("[maybe-start-pstn-transcript] twilio_error", {
+  console.warn("[transcript] pstn_realtime_transcription_start_failed", {
     reason,
     pstnCallSid: pstnSid.slice(0, 12) + "…",
     error: errFull,

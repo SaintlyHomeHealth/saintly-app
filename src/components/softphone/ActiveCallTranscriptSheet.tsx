@@ -124,7 +124,7 @@ export function ActiveCallTranscriptSheet() {
 
   useEffect(() => {
     if (!transcriptEnabled || messages.length > 0 || callContextLoadError || transcriptStartPending) {
-      setListeningStall(false);
+      queueMicrotask(() => setListeningStall(false));
       return;
     }
     const t = window.setTimeout(() => setListeningStall(true), 15_000);
@@ -183,9 +183,9 @@ export function ActiveCallTranscriptSheet() {
               {transcriptStartError}
             </p>
             <p className="mt-3 text-xs text-slate-500">
-              Check the browser console for <span className="font-mono text-slate-400">[transcript-ui]</span> and Vercel
-              for <span className="font-mono text-slate-400">[twilio_rt]</span> (look for{" "}
-              <span className="font-mono text-slate-400">twilio_rt_step_00</span>).
+              If this keeps happening, check the browser console for{" "}
+              <span className="font-mono text-slate-400">[transcript]</span> warnings and your deployment logs for the
+              same tag.
             </p>
             <button
               type="button"
@@ -214,15 +214,6 @@ export function ActiveCallTranscriptSheet() {
             <button
               type="button"
               onClick={() => {
-                console.log(
-                  "[transcript-ui]",
-                  JSON.stringify({
-                    event: "start_transcript_button_clicked",
-                    source: "ActiveCallTranscriptSheet",
-                    api_path: "/api/workspace/phone/conference/start-transcript",
-                    active_call_sid: callContext?.external_call_id ?? null,
-                  })
-                );
                 void enableTranscriptManual();
               }}
               className="mt-8 rounded-full bg-gradient-to-r from-sky-500 to-blue-600 px-8 py-3 text-sm font-bold text-white shadow-lg shadow-blue-500/25 transition hover:brightness-110 active:scale-[0.98]"

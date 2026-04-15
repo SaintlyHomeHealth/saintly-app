@@ -39,17 +39,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "missing_fields" }, { status: 400 });
   }
 
-  console.log(
-    "[bridge-transcript] transcript_delta_received",
-    JSON.stringify({
-      tag: "transcript-e2e",
-      phase: "bridge_transcript_delta_received",
-      transcript_external_id_short: `${externalCallId.slice(0, 10)}…`,
-      speaker_label_before_store: speaker,
-      textLen: text.length,
-    })
-  );
-
   const result = await appendLiveTranscriptChunkToPhoneCall(supabaseAdmin, {
     externalCallId,
     text,
@@ -58,36 +47,12 @@ export async function POST(req: NextRequest) {
 
   if (!result.ok) {
     if (result.error === "call_not_found") {
-      console.warn(
-        "[bridge-transcript] call_not_found",
-        JSON.stringify({
-          tag: "transcript-e2e",
-          phase: "bridge_transcript_lookup_failed",
-          e2e_step: "e2e_step_07_fail_bridge_lookup",
-          outcome: "fail",
-          external_call_id: externalCallId,
-          reason: "no_row_matching_external_call_id_or_child_leg_map",
-        })
-      );
+      console.warn("[transcript] bridge_transcript_call_not_found", { external_call_id: externalCallId.slice(0, 12) });
       return NextResponse.json({ ok: false, error: "call_not_found" }, { status: 404 });
     }
     console.error("[bridge-transcript] update_failed", result.error);
     return NextResponse.json({ ok: false, error: result.error }, { status: 500 });
   }
-
-  console.log(
-    "[bridge-transcript] transcript_chunk_written",
-    JSON.stringify({
-      tag: "transcript-e2e",
-      phase: "transcript_chunk_persisted_to_phone_calls_metadata",
-      e2e_step: "e2e_step_08_chunk_persisted_phone_calls_metadata",
-      outcome: "success",
-      phone_calls_id: result.phoneCallId,
-      transcript_external_id: externalCallId,
-      seq: result.seq,
-      speaker_stored: speaker,
-    })
-  );
 
   const { data: row } = await supabaseAdmin
     .from("phone_calls")

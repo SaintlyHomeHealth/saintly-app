@@ -292,34 +292,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     if (!c) return { ok: false as const, error: "No active call" };
     const sid = readCallSid(c);
     if (!sid) return { ok: false as const, error: "No CallSid" };
-    console.log(
-      "[transcript-ui]",
-      JSON.stringify({
-        event: "start_transcript_client_request",
-        source: "startLiveTranscriptStream",
-        api_path: "/api/workspace/phone/conference/start-transcript",
-        active_call_sid: sid,
-      })
-    );
     transcriptStartInFlightRef.current = true;
-    console.log(
-      "[transcript-e2e]",
-      JSON.stringify({
-        tag: "transcript-e2e",
-        phase: "e2e_step_02_browser_requests_realtime_transcription",
-        outcome: "attempt",
-        client_leg_call_sid: sid,
-        target: "POST /api/workspace/phone/conference/start-transcript",
-      })
-    );
-    console.log(
-      "[enable-transcript-flow]",
-      JSON.stringify({
-        phase: "browser_fetch_start_transcript",
-        client_call_sid: sid,
-        target: "POST /api/workspace/phone/conference/start-transcript",
-      })
-    );
     try {
       const res = await fetch("/api/workspace/phone/conference/start-transcript", {
         method: "POST",
@@ -329,16 +302,10 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       });
       if (!res.ok) {
         const j = (await res.json().catch(() => ({}))) as { error?: string; code?: string };
-        console.log(
-          "[transcript-e2e]",
-          JSON.stringify({
-            tag: "transcript-e2e",
-            phase: "e2e_step_02_browser_requests_realtime_transcription",
-            outcome: "fail",
-            http_status: res.status,
-            error: j.error ?? null,
-          })
-        );
+        console.warn("[transcript] start_transcript_fetch_failed", {
+          http_status: res.status,
+          error: j.error ?? null,
+        });
         if (j.code === "transcription_callback_not_configured") {
           return {
             ok: false as const,
@@ -348,26 +315,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
         }
         return { ok: false as const, error: j.error ?? `HTTP ${res.status}` };
       }
-      const body = (await res.json().catch(() => ({}))) as {
-        ok?: boolean;
-        skipped?: string;
-        transcriptionSid?: string | null;
-      };
-      console.log(
-        "[transcript-e2e]",
-        JSON.stringify({
-          tag: "transcript-e2e",
-          phase: "e2e_step_03_twilio_realtime_transcription_started",
-          outcome: body.skipped ? "success_skip" : "success",
-          client_leg_call_sid: sid,
-          transcription_sid: body.transcriptionSid ?? null,
-          skipped: body.skipped ?? null,
-        })
-      );
-      console.log("[softphone] realtime_transcription_start_ok", {
-        callSid: `${sid.slice(0, 10)}…`,
-        skipped: body.skipped ?? null,
-      });
+      await res.json().catch(() => ({}));
       transcriptStreamStartedRef.current = true;
       return { ok: true as const };
     } finally {
@@ -481,16 +429,11 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       if (sid !== lastPollCallSidRef.current) {
         lastPollCallSidRef.current = sid;
         prevTranscriptLenRef.current = 0;
-        console.log("[softphone] call-context poll: active CallSid changed", sid.slice(0, 10) + "…");
       }
       try {
-        const rtDebug = process.env.NODE_ENV === "development" ? "&rt_debug=1" : "";
-        const res = await fetch(
-          `/api/workspace/phone/call-context?call_sid=${encodeURIComponent(sid)}${rtDebug}`,
-          {
-            credentials: "include",
-          }
-        );
+        const res = await fetch(`/api/workspace/phone/call-context?call_sid=${encodeURIComponent(sid)}`, {
+          credentials: "include",
+        });
         if (cancelled) return;
         if (!res.ok) {
           if (!cancelled) setCallContextLoadError(true);
@@ -518,17 +461,6 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
             if (inboundServerTranscriptUiKeyRef.current !== key) {
               inboundServerTranscriptUiKeyRef.current = key;
               setTranscriptPanelOpen(true);
-              console.log(
-                JSON.stringify({
-                  tag: "transcript-e2e",
-                  phase: "e2e_step_10_ui_auto_transcript_enabled_from_poll",
-                  outcome: "ui_auto_transcript_panel_opened",
-                  client_leg_call_sid: sid,
-                  canonical_external_call_id:
-                    typeof j.external_call_id === "string" ? j.external_call_id : null,
-                  manual_enable_path: false,
-                })
-              );
               void (async () => {
                 setTranscriptStartError(null);
                 setTranscriptStartPending(true);
@@ -549,30 +481,11 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
           }
           const entries = j.voice_ai?.live_transcript_entries;
           const entryLen = Array.isArray(entries) ? entries.length : 0;
-          if (entryLen > 0) {
-            console.log(
-              "[transcript-e2e]",
-              JSON.stringify({
-                tag: "transcript-e2e",
-                phase: "e2e_step_09_call_context_returned_transcript_entries",
-                outcome: "success",
-                client_leg_call_sid_short: `${sid.slice(0, 10)}…`,
-                entry_count: entryLen,
-              })
-            );
-          }
           const excerpt = j.voice_ai?.live_transcript_excerpt;
           const excerptLen = typeof excerpt === "string" ? excerpt.length : 0;
           const tick = entryLen > 0 ? entryLen * 1_000_000 + excerptLen : excerptLen;
           if (tick !== prevTranscriptLenRef.current) {
             prevTranscriptLenRef.current = tick;
-            if (transcriptEnabled) {
-              console.log("[softphone] ui_transcript_refresh_received", {
-                callSid: `${sid.slice(0, 10)}…`,
-                entryCount: entryLen,
-                excerptLen: excerptLen,
-              });
-            }
           }
           const va = j.voice_ai;
           setCallContext({
@@ -662,10 +575,8 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
           skipped?: string;
           error?: string;
         };
-        if (res.ok && j.ok) {
-          console.log("[softphone] pstn_transcript_deferred_ok", { skipped: j.skipped ?? null });
-        } else {
-          console.warn("[softphone] pstn_transcript_deferred_failed", { status: res.status, body: j });
+        if (!res.ok || !j.ok) {
+          console.warn("[transcript] pstn_transcript_deferred_request_failed", { status: res.status, body: j });
         }
       })
       .finally(() => {
@@ -1216,18 +1127,6 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
   const answerIncoming = useCallback(() => {
     const call = incomingCall;
     if (!call) return;
-    const clientSid = readCallSid(call);
-    const parentSid = readTwilioParam(call, ["ParentCallSid", "parentCallSid"]);
-    console.log(
-      "[transcript-e2e]",
-      JSON.stringify({
-        tag: "transcript-e2e",
-        phase: "e2e_step_01_browser_answered_inbound_call",
-        outcome: "success",
-        client_leg_call_sid: clientSid,
-        parent_inbound_call_sid: parentSid,
-      })
-    );
     call.accept();
     setIncomingCall(null);
     attachActiveCallHandlers(call);

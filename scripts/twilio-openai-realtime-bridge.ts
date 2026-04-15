@@ -189,30 +189,6 @@ async function postBridgeTranscript(input: {
   if (!res.ok) {
     const t = await res.text();
     console.warn("[realtime-bridge] bridge-transcript POST failed", res.status, t.slice(0, 200));
-    console.log(
-      "[transcript-e2e]",
-      JSON.stringify({
-        phase: "railway_bridge_transcript_post_failed",
-        status: res.status,
-        body_snippet: t.slice(0, 400),
-        external_call_id_short: input.externalCallId.slice(0, 12) + "…",
-      })
-    );
-  } else {
-    console.log("[realtime-bridge] bridge_transcript_chunk_posted_ok", {
-      callSid: input.externalCallId.slice(0, 10) + "…",
-      speaker: input.speaker ?? "caller",
-      textLen: input.text.length,
-    });
-    console.log(
-      "[transcript-e2e]",
-      JSON.stringify({
-        phase: "railway_bridge_transcript_post_ok",
-        external_call_id_short: input.externalCallId.slice(0, 12) + "…",
-        speaker: input.speaker ?? "caller",
-        textLen: input.text.length,
-      })
-    );
   }
 }
 
@@ -630,9 +606,9 @@ function parseTranscriptWsQuery(req: http.IncomingMessage): {
   }
 }
 
-/** One JSON line per critical step — grep by `client_call_sid` or `transcript_external_id`. */
-function emitE2eTrace(input: Record<string, unknown>): void {
-  console.log("[transcript-e2e]", JSON.stringify({ ts: new Date().toISOString(), ...input }));
+/** Transcript E2E tracing disabled in production (was `[transcript-e2e]` JSON lines). */
+function emitE2eTrace(_input: Record<string, unknown>): void {
+  void _input;
 }
 
 wss.on("connection", (twilioWs, req) => {
@@ -675,19 +651,6 @@ wss.on("connection", (twilioWs, req) => {
     ai_path_entered: !transcriptOnlyMode,
     softphone_bypass_path_entered: Boolean(inboundAiFlag && !softphoneMarkers),
   });
-  console.log(
-    "[softphone-transcript-trace]",
-    JSON.stringify({
-      phase: "wss_connection",
-      transcriptOnlyMode,
-      transcriptOnlyReason,
-      softphoneTranscriptFlag: softphoneTranscriptMode,
-      hasTranscriptExternalId: Boolean(transcriptExternalIdParam),
-      inputRole: inputTranscriptRoleParam,
-      willSkipResponseCreate: transcriptOnlyMode,
-      willDropAssistantAudioToTwilio: transcriptOnlyMode,
-    })
-  );
 
   let streamSid: string | null = null;
   let callSid: string | null = null;
@@ -708,7 +671,7 @@ wss.on("connection", (twilioWs, req) => {
   /** Accumulates `response.*audio_transcript.delta` until done (assistant side). */
   let agentTranscriptBuffer = "";
   /** Twilio `media.track` sample counts (inbound vs outbound) for diagnosing mixed streams. */
-  let mediaChunksByTrack: Record<string, number> = {};
+  const mediaChunksByTrack: Record<string, number> = {};
   let mediaTrackDiagLogged = false;
 
   const safeClose = () => {

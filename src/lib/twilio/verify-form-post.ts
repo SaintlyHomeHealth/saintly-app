@@ -40,15 +40,10 @@ export async function parseVerifiedTwilioFormBody(
         console.warn("[sms-inbound] signature validation failed", { pathname: req.nextUrl.pathname, url });
       }
       if (req.nextUrl.pathname.includes("transcription-callback")) {
-        console.warn(
-          "[twilio_rt]",
-          JSON.stringify({
-            step: "twilio_rt_step_signature_failed",
-            pathname: req.nextUrl.pathname,
-            signature_url_used: url,
-            has_x_twilio_signature: Boolean(signature),
-          })
-        );
+        console.warn("[transcript] transcription_callback_signature_failed", {
+          pathname: req.nextUrl.pathname,
+          has_x_twilio_signature: Boolean(signature),
+        });
       }
       return { ok: false, response: new NextResponse("Forbidden", { status: 403 }) };
     }
@@ -59,15 +54,10 @@ export async function parseVerifiedTwilioFormBody(
         console.warn("[sms-inbound] signature validation failed", { pathname: req.nextUrl.pathname, url });
       }
       if (req.nextUrl.pathname.includes("transcription-callback")) {
-        console.warn(
-          "[twilio_rt]",
-          JSON.stringify({
-            step: "twilio_rt_step_signature_failed",
-            pathname: req.nextUrl.pathname,
-            signature_url_used: url,
-            has_x_twilio_signature: Boolean(signature),
-          })
-        );
+        console.warn("[transcript] transcription_callback_signature_failed", {
+          pathname: req.nextUrl.pathname,
+          has_x_twilio_signature: Boolean(signature),
+        });
       }
       return { ok: false, response: new NextResponse("Forbidden", { status: 403 }) };
     }

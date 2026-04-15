@@ -10,36 +10,16 @@ import {
 import { canAccessWorkspacePhone, getStaffProfile } from "@/lib/staff-profile";
 import { createRealtimeTranscription } from "@/lib/twilio/realtime-transcription-rest";
 import { resolveTranscriptionStatusCallbackUrl } from "@/lib/twilio/resolve-transcription-callback-url";
-import { getTwilioWebhookSignatureUrlForPathname } from "@/lib/twilio/signature-url";
 import { logTwilioVoiceTrace } from "@/lib/twilio/twilio-voice-trace-log";
-
-const TRANSCRIPTION_CALLBACK_PATH = "/api/twilio/voice/transcription-callback";
 
 /**
  * Starts Twilio **native** Real-Time Transcription on the Client leg (and PSTN when linked).
  * Callback: `POST /api/twilio/voice/transcription-callback` (requires TWILIO_PUBLIC_BASE_URL or TWILIO_WEBHOOK_BASE_URL).
  */
 export async function POST(req: Request) {
-  console.warn(
-    "[twilio_rt]",
-    JSON.stringify({
-      step: "twilio_rt_step_00_route_entered",
-      route: "POST /api/workspace/phone/conference/start-transcript",
-      request_received: true,
-    })
-  );
-
   const staff = await getStaffProfile();
   if (!staff || !canAccessWorkspacePhone(staff)) {
-    console.log(
-      "[twilio_rt]",
-      JSON.stringify({
-        step: "twilio_rt_step_00_route_exit",
-        outcome: "early_exit",
-        reason: "unauthorized",
-        http_status: 401,
-      })
-    );
+    console.warn("[transcript] start_transcript", { outcome: "unauthorized" });
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -51,81 +31,19 @@ export async function POST(req: Request) {
   try {
     body = (await req.json()) as typeof body;
   } catch {
-    console.log(
-      "[twilio_rt]",
-      JSON.stringify({
-        step: "twilio_rt_step_00_route_exit",
-        outcome: "early_exit",
-        reason: "invalid_json_body",
-        http_status: 400,
-      })
-    );
+    console.warn("[transcript] start_transcript", { outcome: "invalid_json" });
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
   const callSid = typeof body.callSid === "string" ? body.callSid.trim() : "";
-  console.log(
-    "[twilio_rt]",
-    JSON.stringify({
-      step: "twilio_rt_step_00b_body_parsed",
-      call_sid_received: callSid.startsWith("CA") ? `${callSid.slice(0, 10)}…` : null,
-      call_sid_valid: callSid.startsWith("CA"),
-      pstn_only: body.pstnOnly === true,
-    })
-  );
-
   if (!callSid.startsWith("CA")) {
-    console.log(
-      "[twilio_rt]",
-      JSON.stringify({
-        step: "twilio_rt_step_00_route_exit",
-        outcome: "early_exit",
-        reason: "callSid_required_or_invalid",
-        http_status: 400,
-      })
-    );
+    console.warn("[transcript] start_transcript", { outcome: "invalid_call_sid" });
     return NextResponse.json({ error: "callSid required" }, { status: 400 });
   }
 
   const statusCallbackUrl = resolveTranscriptionStatusCallbackUrl();
-  const expectedSignatureUrl = getTwilioWebhookSignatureUrlForPathname(TRANSCRIPTION_CALLBACK_PATH);
-  let signatureHostForLogs: string | null = null;
-  try {
-    signatureHostForLogs = expectedSignatureUrl ? new URL(expectedSignatureUrl).host : null;
-  } catch {
-    signatureHostForLogs = null;
-  }
-  let statusCallbackHost: string | null = null;
-  try {
-    statusCallbackHost = statusCallbackUrl ? new URL(statusCallbackUrl).host : null;
-  } catch {
-    statusCallbackHost = null;
-  }
-
-  console.log(
-    "[twilio_rt]",
-    JSON.stringify({
-      step: "twilio_rt_step_00c_callback_and_signature_urls",
-      status_callback_url_exact: statusCallbackUrl,
-      status_callback_host: statusCallbackHost,
-      expected_signature_url_exact_for_transcription_callback: expectedSignatureUrl,
-      signature_validation_host_used_for_env: signatureHostForLogs,
-      urls_match:
-        Boolean(statusCallbackUrl && expectedSignatureUrl) && statusCallbackUrl === expectedSignatureUrl,
-    })
-  );
-
   if (!statusCallbackUrl) {
-    console.log(
-      "[twilio_rt]",
-      JSON.stringify({
-        step: "twilio_rt_step_00_route_exit",
-        outcome: "early_exit",
-        reason: "transcription_callback_url_not_configured",
-        http_status: 503,
-        code: "transcription_callback_not_configured",
-      })
-    );
+    console.warn("[transcript] start_transcript", { outcome: "callback_url_not_configured" });
     return NextResponse.json(
       {
         error:
@@ -139,30 +57,14 @@ export async function POST(req: Request) {
   if (body.pstnOnly === true) {
     const deferred = await maybeStartDeferredPstnTranscriptStream(supabaseAdmin, callSid, "api_post_pstn_only");
     if (deferred.skipped === "client_transcript_never_started") {
-      console.log(
-        "[twilio_rt]",
-        JSON.stringify({
-          step: "twilio_rt_step_00_route_exit",
-          outcome: "early_exit",
-          reason: "pstn_only_client_transcript_not_started_yet",
-          http_status: 400,
-        })
-      );
+      console.warn("[transcript] start_transcript_pstn_only", { outcome: "client_transcript_not_started_yet" });
       return NextResponse.json(
         { ok: false, error: "client_transcript_not_started_yet", pstnOnly: true, deferred },
         { status: 400 }
       );
     }
     if (!deferred.ok && deferred.error) {
-      console.log(
-        "[twilio_rt]",
-        JSON.stringify({
-          step: "twilio_rt_step_00_route_exit",
-          outcome: "early_exit",
-          reason: "pstn_only_deferred_failed",
-          http_status: 502,
-        })
-      );
+      console.warn("[transcript] start_transcript_pstn_only", { outcome: "deferred_failed", error: deferred.error });
       return NextResponse.json({ ok: false, error: deferred.error, pstnOnly: true, deferred }, { status: 502 });
     }
     logTwilioVoiceTrace({
@@ -174,15 +76,6 @@ export async function POST(req: Request) {
       twiml_summary: "realtime_transcription|pstn_only_deferred",
       branch: "pstn_transcript_stream_followup",
     });
-    console.log(
-      "[twilio_rt]",
-      JSON.stringify({
-        step: "twilio_rt_step_00_route_exit",
-        outcome: "success",
-        branch: "pstn_only",
-        http_status: 200,
-      })
-    );
     return NextResponse.json({
       ok: true,
       pstnOnly: true,
@@ -192,28 +85,14 @@ export async function POST(req: Request) {
     });
   }
 
-  const lookup = await findPhoneCallRowByTwilioCallSidDetailed(supabaseAdmin, callSid, { logLookup: true });
+  const lookup = await findPhoneCallRowByTwilioCallSidDetailed(supabaseAdmin, callSid, { logLookup: false });
   const row = lookup.row;
   if (!row) {
-    console.warn(
-      "[twilio_rt]",
-      JSON.stringify({
-        step: "twilio_rt_step_00_route_exit",
-        outcome: "early_exit",
-        reason: "phone_call_row_not_found",
-        http_status: 404,
-        equivalent_to: "bridge_transcript_lookup_failed",
-        phone_call_lookup_path: lookup.lookup_path,
-        phone_call_match: lookup.match,
-      })
-    );
-    console.warn(
-      "[transcript-e2e]",
-      JSON.stringify({
-        phase: "start_transcript_phone_row_not_found",
-        client_leg_call_sid: `${callSid.slice(0, 10)}…`,
-      })
-    );
+    console.warn("[transcript] start_transcript", {
+      outcome: "phone_call_not_found",
+      lookup_path: lookup.lookup_path,
+      call_sid: `${callSid.slice(0, 10)}…`,
+    });
     return NextResponse.json(
       { error: "phone_call not found for this CallSid (parent or child leg)" },
       { status: 404 }
@@ -239,24 +118,6 @@ export async function POST(req: Request) {
     typeof streamsEarly.client_stream_started_at === "string";
 
   if (clientLegTranscriptAlreadyStarted) {
-    console.log(
-      "[twilio_rt]",
-      JSON.stringify({
-        step: "twilio_rt_step_00_route_exit",
-        outcome: "success_skip",
-        reason: "client_transcript_already_started",
-        http_status: 200,
-      })
-    );
-    console.log(
-      "[transcript-e2e]",
-      JSON.stringify({
-        phase: "start_transcript_skipped_client_transcription_already_started",
-        outcome: "success_skip_duplicate",
-        client_leg_call_sid: `${callSid.slice(0, 10)}…`,
-        canonical_external_call_id: `${canonicalExternalId.slice(0, 10)}…`,
-      })
-    );
     return NextResponse.json({ ok: true, skipped: "client_transcript_already_started" });
   }
 
@@ -274,18 +135,6 @@ export async function POST(req: Request) {
 
   const rtName = `saintly-rt-client-${callSid.slice(-12)}`;
 
-  console.log(
-    "[enable-transcript-flow]",
-    JSON.stringify({
-      phase: "api_before_twilio_realtime_transcription_create",
-      client_leg_call_sid: callSid,
-      canonical_external_call_id_for_row: canonicalExternalId,
-      pstn_call_sid_from_row: pstnCallSid,
-      track,
-      status_callback_url: statusCallbackUrl,
-    })
-  );
-
   const clientResult = await createRealtimeTranscription({
     callSid,
     track,
@@ -295,40 +144,13 @@ export async function POST(req: Request) {
   });
 
   if (!clientResult.ok) {
-    console.error("[start-transcript] client_realtime_transcription_error", {
+    console.error("[transcript] twilio_create_transcription_failed", {
       clientCallSid: callSid,
       track,
-      twilioErrorFull: clientResult.error,
+      error: clientResult.error,
     });
-    console.log(
-      "[twilio_rt]",
-      JSON.stringify({
-        step: "twilio_rt_step_00_route_exit",
-        outcome: "twilio_rest_failed",
-        reason: "createRealtimeTranscription_error",
-        http_status: 502,
-      })
-    );
     return NextResponse.json({ error: clientResult.error }, { status: 502 });
   }
-
-  console.log("[start-transcript] client_realtime_transcription_ok", {
-    clientCallSid: callSid,
-    transcriptionSid: clientResult.transcriptionSid,
-    track,
-  });
-  console.log(
-    "[transcript-e2e]",
-    JSON.stringify({
-      tag: "transcript-e2e",
-      phase: "e2e_step_04_twilio_realtime_transcription_started",
-      outcome: "success",
-      client_leg_call_sid: callSid,
-      canonical_transcript_external_id: canonicalExternalId,
-      transcription_sid: clientResult.transcriptionSid,
-      selected_track: track,
-    })
-  );
 
   await upsertPhoneCallTranscriptStreams(supabaseAdmin, callSid, {
     client_realtime_transcription_sid: clientResult.transcriptionSid,
@@ -339,14 +161,6 @@ export async function POST(req: Request) {
     track === "inbound_track"
       ? await maybeStartDeferredPstnTranscriptStream(supabaseAdmin, callSid, "start_transcript_after_client_ok")
       : null;
-
-  console.log("[start-transcript] summary", {
-    clientCallSid: callSid,
-    pstnCallSidFromRow: pstnCallSid,
-    clientRealtimeTranscriptionStarted: true,
-    clientRealtimeTranscriptionSid: clientResult.transcriptionSid,
-    pstnDeferred,
-  });
 
   logTwilioVoiceTrace({
     route: "POST /api/workspace/phone/conference/start-transcript",
@@ -362,16 +176,12 @@ export async function POST(req: Request) {
     last_conference_event: "realtime_transcription_started",
   });
 
-  console.log(
-    "[twilio_rt]",
-    JSON.stringify({
-      step: "twilio_rt_step_00_route_exit",
-      outcome: "success",
-      reason: "realtime_transcription_started",
-      http_status: 200,
-      transcription_sid: clientResult.transcriptionSid,
-    })
-  );
+  console.warn("[transcript] realtime_transcription_started", {
+    call_sid: `${callSid.slice(0, 10)}…`,
+    canonical_external_id: `${canonicalExternalId.slice(0, 10)}…`,
+    transcription_sid: `${clientResult.transcriptionSid.slice(0, 8)}…`,
+    track,
+  });
 
   return NextResponse.json({
     ok: true,
