@@ -59,6 +59,7 @@ export type CallContextVoiceAi = {
   /** Inbound PSTN transcript-only stream started server-side (no Enable click). */
   inbound_transcript_stream_started_at: string | null;
   inbound_transcript_mode: string | null;
+  inbound_transcript_last_error: string | null;
 };
 
 export type SoftphoneConferenceContext = {
@@ -85,6 +86,8 @@ export type CallDeskContext = {
 export type SoftphoneServerCapabilities = {
   conference_outbound_enabled: boolean;
   media_stream_wss_configured: boolean;
+  transcription_callback_configured?: boolean;
+  legacy_bridge_transcript_configured?: boolean;
   transcript_writeback_configured: boolean;
 };
 
@@ -131,6 +134,7 @@ type Ctx = {
   coldTransferTo: (toE164: string) => Promise<{ ok: boolean; error?: string }>;
   addConferenceParticipant: (toE164: string) => Promise<{ ok: boolean; error?: string }>;
   startLiveTranscriptStream: () => Promise<{ ok: boolean; error?: string }>;
+  stopLiveTranscriptStream: () => Promise<{ ok: boolean; error?: string }>;
   /** Manual Dialpad-style: user must opt in before we treat transcript as “on”. */
   transcriptEnabled: boolean;
   setTranscriptEnabled: Dispatch<SetStateAction<boolean>>;
@@ -259,6 +263,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
   const lastPollCallSidRef = useRef<string | null>(null);
   const prevTranscriptLenRef = useRef(0);
   const transcriptStreamStartedRef = useRef(false);
+  const transcriptStartInFlightRef = useRef(false);
   /** Dedupe UI auto-enable when server inbound transcript metadata arrives. */
   const inboundServerTranscriptUiKeyRef = useRef<string | null>(null);
   const pstnTranscriptFollowupBusyRef = useRef(false);
@@ -268,6 +273,112 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
   const [callContextLoadError, setCallContextLoadError] = useState(false);
   const [recordingBusy, setRecordingBusy] = useState(false);
   const [recordingActionError, setRecordingActionError] = useState<string | null>(null);
+
+  const startLiveTranscriptStream = useCallback(async () => {
+    if (transcriptStreamStartedRef.current) return { ok: true as const };
+    if (transcriptStartInFlightRef.current) return { ok: true as const };
+    const c = activeCallRef.current;
+    if (!c) return { ok: false as const, error: "No active call" };
+    const sid = readCallSid(c);
+    if (!sid) return { ok: false as const, error: "No CallSid" };
+    transcriptStartInFlightRef.current = true;
+    console.log(
+      "[transcript-e2e]",
+      JSON.stringify({
+        tag: "transcript-e2e",
+        phase: "e2e_step_02_browser_requests_realtime_transcription",
+        outcome: "attempt",
+        client_leg_call_sid: sid,
+        target: "POST /api/workspace/phone/conference/start-transcript",
+      })
+    );
+    console.log(
+      "[enable-transcript-flow]",
+      JSON.stringify({
+        phase: "browser_fetch_start_transcript",
+        client_call_sid: sid,
+        target: "POST /api/workspace/phone/conference/start-transcript",
+      })
+    );
+    try {
+      const res = await fetch("/api/workspace/phone/conference/start-transcript", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ callSid: sid }),
+      });
+      if (!res.ok) {
+        const j = (await res.json().catch(() => ({}))) as { error?: string; code?: string };
+        console.log(
+          "[transcript-e2e]",
+          JSON.stringify({
+            tag: "transcript-e2e",
+            phase: "e2e_step_02_browser_requests_realtime_transcription",
+            outcome: "fail",
+            http_status: res.status,
+            error: j.error ?? null,
+          })
+        );
+        if (j.code === "transcription_callback_not_configured") {
+          return {
+            ok: false as const,
+            error:
+              "Live transcript is not configured yet. Set TWILIO_WEBHOOK_BASE_URL or TWILIO_PUBLIC_BASE_URL to your public https:// origin so Twilio can POST transcription events.",
+          };
+        }
+        return { ok: false as const, error: j.error ?? `HTTP ${res.status}` };
+      }
+      const body = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        skipped?: string;
+        transcriptionSid?: string | null;
+      };
+      console.log(
+        "[transcript-e2e]",
+        JSON.stringify({
+          tag: "transcript-e2e",
+          phase: "e2e_step_03_twilio_realtime_transcription_started",
+          outcome: body.skipped ? "success_skip" : "success",
+          client_leg_call_sid: sid,
+          transcription_sid: body.transcriptionSid ?? null,
+          skipped: body.skipped ?? null,
+        })
+      );
+      console.log("[softphone] realtime_transcription_start_ok", {
+        callSid: `${sid.slice(0, 10)}…`,
+        skipped: body.skipped ?? null,
+      });
+      transcriptStreamStartedRef.current = true;
+      return { ok: true as const };
+    } finally {
+      transcriptStartInFlightRef.current = false;
+    }
+  }, []);
+
+  const enableTranscriptManual = useCallback(async () => {
+    setTranscriptEnabled(true);
+    if (transcriptStreamStartedRef.current) return;
+    await startLiveTranscriptStream();
+  }, [startLiveTranscriptStream]);
+
+  const stopLiveTranscriptStream = useCallback(async () => {
+    const c = activeCallRef.current;
+    if (!c) return { ok: false as const, error: "No active call" };
+    const sid = readCallSid(c);
+    if (!sid) return { ok: false as const, error: "No CallSid" };
+    const res = await fetch("/api/workspace/phone/conference/stop-transcript", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ callSid: sid }),
+    });
+    const j = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+    if (!res.ok || !j.ok) {
+      return { ok: false as const, error: j.error ?? `HTTP ${res.status}` };
+    }
+    transcriptStreamStartedRef.current = false;
+    return { ok: true as const };
+  }, []);
 
   useEffect(() => {
     statusRef.current = status;
@@ -282,12 +393,16 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
         const j = (await res.json()) as {
           conference_outbound_enabled?: boolean;
           media_stream_wss_configured?: boolean;
+          transcription_callback_configured?: boolean;
+          legacy_bridge_transcript_configured?: boolean;
           transcript_writeback_configured?: boolean;
         };
         if (cancelled) return;
         setSoftphoneCapabilities({
           conference_outbound_enabled: Boolean(j.conference_outbound_enabled),
           media_stream_wss_configured: Boolean(j.media_stream_wss_configured),
+          transcription_callback_configured: Boolean(j.transcription_callback_configured),
+          legacy_bridge_transcript_configured: Boolean(j.legacy_bridge_transcript_configured),
           transcript_writeback_configured: Boolean(j.transcript_writeback_configured),
         });
       } catch {
@@ -355,29 +470,42 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
         if (!cancelled) setCallContextLoadError(false);
         if (j.found) {
           const inboundTs = j.voice_ai?.inbound_transcript_stream_started_at;
-          const serverInboundStarted =
-            typeof inboundTs === "string" && !j.workspace_softphone_session;
+          /** Inbound browser sessions are `twilio_voice_softphone` — still auto-enable when server started PSTN transcript. */
+          const serverInboundStarted = typeof inboundTs === "string";
           if (serverInboundStarted) {
             const key = `${sid}:${inboundTs}`;
             if (inboundServerTranscriptUiKeyRef.current !== key) {
               inboundServerTranscriptUiKeyRef.current = key;
               setTranscriptEnabled(true);
-              transcriptStreamStartedRef.current = true;
+              setTranscriptPanelOpen(true);
               console.log(
                 JSON.stringify({
                   tag: "transcript-e2e",
-                  phase: "ui_auto_transcript_enabled_from_poll",
+                  phase: "e2e_step_10_ui_auto_transcript_enabled_from_poll",
                   outcome: "ui_auto_transcript_enabled",
-                  client_leg_call_sid_short: `${sid.slice(0, 10)}…`,
-                  canonical_external_call_id_short:
-                    typeof j.external_call_id === "string" ? `${j.external_call_id.slice(0, 10)}…` : null,
+                  client_leg_call_sid: sid,
+                  canonical_external_call_id:
+                    typeof j.external_call_id === "string" ? j.external_call_id : null,
                   manual_enable_path: false,
                 })
               );
+              void startLiveTranscriptStream();
             }
           }
           const entries = j.voice_ai?.live_transcript_entries;
           const entryLen = Array.isArray(entries) ? entries.length : 0;
+          if (entryLen > 0) {
+            console.log(
+              "[transcript-e2e]",
+              JSON.stringify({
+                tag: "transcript-e2e",
+                phase: "e2e_step_09_call_context_returned_transcript_entries",
+                outcome: "success",
+                client_leg_call_sid_short: `${sid.slice(0, 10)}…`,
+                entry_count: entryLen,
+              })
+            );
+          }
           const excerpt = j.voice_ai?.live_transcript_excerpt;
           const excerptLen = typeof excerpt === "string" ? excerpt.length : 0;
           const tick = entryLen > 0 ? entryLen * 1_000_000 + excerptLen : excerptLen;
@@ -407,6 +535,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
                   softphone_transcript_streams: va.softphone_transcript_streams ?? null,
                   inbound_transcript_stream_started_at: va.inbound_transcript_stream_started_at ?? null,
                   inbound_transcript_mode: va.inbound_transcript_mode ?? null,
+                  inbound_transcript_last_error: va.inbound_transcript_last_error ?? null,
                 }
               : null,
             conference: j.softphone_conference ?? null,
@@ -441,7 +570,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       cancelled = true;
       window.clearInterval(id);
     };
-  }, [status, transcriptEnabled, transcriptPanelOpen]);
+  }, [status, transcriptEnabled, transcriptPanelOpen, startLiveTranscriptStream]);
 
   /**
    * When PSTN links after live transcript was already started, start the deferred PSTN inbound stream
@@ -518,6 +647,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       setRecordingBusy(false);
       setRecordingActionError(null);
       transcriptStreamStartedRef.current = false;
+      transcriptStartInFlightRef.current = false;
       inboundServerTranscriptUiKeyRef.current = null;
       lastPstnOnlyAttemptRef.current = null;
       pstnTranscriptFollowupBusyRef.current = false;
@@ -582,6 +712,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       setTranscriptPanelOpen(false);
       setCallContextLoadError(false);
       transcriptStreamStartedRef.current = false;
+      transcriptStartInFlightRef.current = false;
       setStatus("in_call");
       setCallStartedAtMs(Date.now());
       call.on("disconnect", (disconnectedArg) => {
@@ -1026,6 +1157,18 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
   const answerIncoming = useCallback(() => {
     const call = incomingCall;
     if (!call) return;
+    const clientSid = readCallSid(call);
+    const parentSid = readTwilioParam(call, ["ParentCallSid", "parentCallSid"]);
+    console.log(
+      "[transcript-e2e]",
+      JSON.stringify({
+        tag: "transcript-e2e",
+        phase: "e2e_step_01_browser_answered_inbound_call",
+        outcome: "success",
+        client_leg_call_sid: clientSid,
+        parent_inbound_call_sid: parentSid,
+      })
+    );
     call.accept();
     setIncomingCall(null);
     attachActiveCallHandlers(call);
@@ -1151,47 +1294,6 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     }
     return { ok: true as const };
   }, []);
-
-  const startLiveTranscriptStream = useCallback(async () => {
-    const c = activeCallRef.current;
-    if (!c) return { ok: false as const, error: "No active call" };
-    const sid = readCallSid(c);
-    if (!sid) return { ok: false as const, error: "No CallSid" };
-    console.log(
-      "[enable-transcript-flow]",
-      JSON.stringify({
-        phase: "browser_fetch_start_transcript",
-        client_call_sid: sid,
-        target: "POST /api/workspace/phone/conference/start-transcript",
-      })
-    );
-    const res = await fetch("/api/workspace/phone/conference/start-transcript", {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ callSid: sid }),
-    });
-    if (!res.ok) {
-      const j = (await res.json().catch(() => ({}))) as { error?: string; code?: string };
-      if (j.code === "media_stream_not_configured") {
-        return {
-          ok: false as const,
-          error:
-            "Live transcript is not configured yet. Set TWILIO_SOFTPHONE_MEDIA_STREAM_WSS_URL or TWILIO_REALTIME_MEDIA_STREAM_WSS_URL to the full wss://host/…/path on the server.",
-        };
-      }
-      return { ok: false as const, error: j.error ?? `HTTP ${res.status}` };
-    }
-    console.log("[softphone] media_stream_start_ok", { callSid: `${sid.slice(0, 10)}…` });
-    transcriptStreamStartedRef.current = true;
-    return { ok: true as const };
-  }, []);
-
-  const enableTranscriptManual = useCallback(async () => {
-    setTranscriptEnabled(true);
-    if (transcriptStreamStartedRef.current) return;
-    await startLiveTranscriptStream();
-  }, [startLiveTranscriptStream]);
 
   const toggleCallRecording = useCallback(async () => {
     const c = activeCallRef.current;
@@ -1413,6 +1515,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       coldTransferTo,
       addConferenceParticipant,
       startLiveTranscriptStream,
+      stopLiveTranscriptStream,
       transcriptEnabled,
       setTranscriptEnabled,
       transcriptPanelOpen,
@@ -1456,6 +1559,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     coldTransferTo,
     addConferenceParticipant,
     startLiveTranscriptStream,
+    stopLiveTranscriptStream,
     transcriptEnabled,
     setTranscriptEnabled,
     transcriptPanelOpen,

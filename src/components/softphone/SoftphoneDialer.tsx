@@ -119,7 +119,8 @@ export function SoftphoneDialer({
   const pstnConferenceReady = Boolean(gating?.can_cold_transfer);
   const mediaStreamOk = Boolean(gating?.media_stream_wss_configured);
   const transcriptWritebackOk = Boolean(gating?.transcript_writeback_configured);
-  const liveStreamButtonEnabled = mediaStreamOk;
+  /** Live transcript can use Twilio native callbacks (preferred) or legacy Railway bridge writeback. */
+  const liveStreamButtonEnabled = transcriptWritebackOk;
 
   useEffect(() => {
     const seed = (initialDigits ?? "").trim();
@@ -385,10 +386,8 @@ export function SoftphoneDialer({
                   disabled={actionBusy !== null || !liveStreamButtonEnabled}
                   title={
                     liveStreamButtonEnabled
-                      ? transcriptWritebackOk
-                        ? "Start Twilio Media Stream (bridge must be running)"
-                        : "Transcript may not persist until REALTIME_BRIDGE_SHARED_SECRET is set"
-                      : "Set media stream WSS URL on the server"
+                      ? "Start Twilio live transcription (persists to this call)"
+                      : "Set TWILIO_WEBHOOK_BASE_URL (or TWILIO_PUBLIC_BASE_URL) for transcription callbacks, or REALTIME_BRIDGE_SHARED_SECRET for legacy bridge"
                   }
                   onClick={() => {
                     void (async () => {
@@ -397,7 +396,7 @@ export function SoftphoneDialer({
                         setSoftphoneNotice({
                           kind: "error",
                           message:
-                            "Live stream URL not configured. Set TWILIO_SOFTPHONE_MEDIA_STREAM_WSS_URL or TWILIO_REALTIME_MEDIA_STREAM_WSS_URL to the full wss://host/…/path, then redeploy.",
+                            "Live transcript is not configured. Set TWILIO_WEBHOOK_BASE_URL or TWILIO_PUBLIC_BASE_URL to your public https:// origin (Twilio transcription callback), or set REALTIME_BRIDGE_SHARED_SECRET if you still use the legacy bridge.",
                         });
                         return;
                       }
@@ -407,16 +406,14 @@ export function SoftphoneDialer({
                         if (!r.ok) {
                           setSoftphoneNotice({
                             kind: "error",
-                            message:
-                              r.error?.includes("TWILIO_SOFTPHONE_MEDIA_STREAM") || r.error?.includes("not set")
-                                ? "Live transcript is not configured yet. Ask your admin to set the media stream WSS URL (full path) on the server."
-                                : r.error ?? "Could not start media stream.",
+                            message: r.error ?? "Could not start live transcription.",
                           });
                           return;
                         }
                         setSoftphoneNotice({
                           kind: "info",
-                          message: "Media stream start requested — audio will flow if your bridge is running.",
+                          message:
+                            "Twilio live transcription start requested — lines should appear in the transcript panel as audio is spoken.",
                         });
                       } finally {
                         setActionBusy(null);
@@ -426,7 +423,7 @@ export function SoftphoneDialer({
                   className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl border border-sky-200/80 bg-white py-2.5 text-xs font-semibold text-slate-800 shadow-sm disabled:opacity-40"
                 >
                   <Sparkles className="h-4 w-4 shrink-0 opacity-90" strokeWidth={2} />
-                  {actionBusy === "tx" ? "…" : "Start media stream"}
+                  {actionBusy === "tx" ? "…" : "Start live transcript"}
                 </button>
                 {softphoneNotice ? (
                   <div
@@ -579,13 +576,14 @@ export function SoftphoneDialer({
                     onChange={(e) => setAddTo(e.target.value)}
                     className="mt-1 w-full rounded-lg border border-slate-200/90 bg-white px-2.5 py-1.5 text-xs text-slate-900 outline-none ring-sky-500/25 focus:ring-2 disabled:bg-slate-50"
                   />
-                  {!mediaStreamOk ? (
-                    <p className="mt-2 text-center text-[10px] leading-snug text-slate-500">
-                      Live stream: set media WSS URL (full path, e.g. …/twilio/realtime-stream).
-                    </p>
-                  ) : !transcriptWritebackOk ? (
+                  {!transcriptWritebackOk ? (
                     <p className="mt-2 text-center text-[10px] leading-snug text-amber-900/90">
-                      Transcript will not persist until <span className="font-mono">REALTIME_BRIDGE_SHARED_SECRET</span> matches on the app and Railway bridge.
+                      Live transcript: set <span className="font-mono">TWILIO_WEBHOOK_BASE_URL</span> (public https) for Twilio callbacks, or{" "}
+                      <span className="font-mono">REALTIME_BRIDGE_SHARED_SECRET</span> for the legacy media-stream bridge.
+                    </p>
+                  ) : !mediaStreamOk ? (
+                    <p className="mt-2 text-center text-[10px] leading-snug text-slate-500">
+                      Legacy bridge media stream (WSS) is optional if you use Twilio native transcription only.
                     </p>
                   ) : null}
                 </details>

@@ -48,6 +48,8 @@ export type WorkspaceCallContextPayload = {
     /** Server auto-started inbound PSTN transcript (see `maybeStartInboundTranscriptStreamIfEligible`). */
     inbound_transcript_stream_started_at: string | null;
     inbound_transcript_mode: string | null;
+    /** Set when Twilio Media Streams REST failed for inbound-only autostart (diagnostic UI). */
+    inbound_transcript_last_error: string | null;
   } | null;
   conference_gating: ConferenceGatingSnapshot;
 };
@@ -97,6 +99,10 @@ export async function buildWorkspaceCallContextPayload(
   const inboundTranscriptMode =
     rawVoiceAi && typeof rawVoiceAi === "object" && !Array.isArray(rawVoiceAi)
       ? (rawVoiceAi as Record<string, unknown>).inbound_transcript_mode
+      : null;
+  const inboundTranscriptLastError =
+    rawVoiceAi && typeof rawVoiceAi === "object" && !Array.isArray(rawVoiceAi)
+      ? (rawVoiceAi as Record<string, unknown>).inbound_transcript_last_error
       : null;
   const softphoneTranscriptStreams: SoftphoneTranscriptStreamsMeta | null =
     transcriptStreamsRaw && typeof transcriptStreamsRaw === "object" && !Array.isArray(transcriptStreamsRaw)
@@ -168,7 +174,8 @@ export async function buildWorkspaceCallContextPayload(
       liveEntries.length > 0 ||
       excerptUnclamped ||
       softphoneTranscriptStreams ||
-      typeof inboundTranscriptStartedAt === "string"
+      typeof inboundTranscriptStartedAt === "string" ||
+      typeof inboundTranscriptLastError === "string"
         ? {
             short_summary: voiceAi?.short_summary || null,
             urgency: voiceAi?.urgency || null,
@@ -182,6 +189,10 @@ export async function buildWorkspaceCallContextPayload(
             inbound_transcript_stream_started_at:
               typeof inboundTranscriptStartedAt === "string" ? inboundTranscriptStartedAt : null,
             inbound_transcript_mode: typeof inboundTranscriptMode === "string" ? inboundTranscriptMode : null,
+            inbound_transcript_last_error:
+              typeof inboundTranscriptLastError === "string" && inboundTranscriptLastError.trim()
+                ? inboundTranscriptLastError.trim().slice(0, 2000)
+                : null,
           }
         : null,
     conference_gating: gating,

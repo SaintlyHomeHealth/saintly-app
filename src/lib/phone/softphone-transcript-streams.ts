@@ -2,11 +2,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { findPhoneCallRowByTwilioCallSid } from "@/lib/phone/phone-call-lookup-by-call-sid";
 import type { SoftphoneTranscriptStreamsMeta } from "@/lib/phone/softphone-transcript-stream-meta";
-import {
-  appendSoftphoneTranscriptStreamParams,
-  resolveTwilioMediaStreamWssUrl,
-} from "@/lib/twilio/resolve-media-stream-wss-url";
-import { startCallMediaStream } from "@/lib/twilio/start-call-media-stream";
+import { createRealtimeTranscription } from "@/lib/twilio/realtime-transcription-rest";
+import { resolveTranscriptionStatusCallbackUrl } from "@/lib/twilio/resolve-transcription-callback-url";
 
 export type { SoftphoneTranscriptStreamsMeta } from "@/lib/phone/softphone-transcript-stream-meta";
 
@@ -66,26 +63,45 @@ function readPstnCallSidFromMetadata(meta: Record<string, unknown>): string | nu
   return typeof p === "string" && p.startsWith("CA") ? p.trim() : null;
 }
 
+function clientTranscriptEverStarted(streams: SoftphoneTranscriptStreamsMeta | null): boolean {
+  if (!streams) return false;
+  if (typeof streams.client_realtime_transcription_started_at === "string") return true;
+  if (typeof streams.client_stream_started_at === "string") return true;
+  return false;
+}
+
+function pstnTranscriptAlreadyStarted(streams: SoftphoneTranscriptStreamsMeta | null): boolean {
+  if (!streams) return false;
+  if (typeof streams.pstn_realtime_transcription_started_at === "string") return true;
+  if (typeof streams.pstn_stream_started_at === "string") return true;
+  return false;
+}
+
 /**
- * Starts the PSTN-leg inbound transcript stream when the Client stream was already started
+ * Starts the PSTN-leg real-time transcription when the client leg transcription was already started
  * but `pstn_call_sid` was not yet on the row (or PSTN start failed earlier).
- * Idempotent when `pstn_stream_started_at` is set.
  */
 export async function maybeStartDeferredPstnTranscriptStream(
   supabase: SupabaseClient,
   clientExternalCallId: string,
   reason: string
-): Promise<{ ok: boolean; skipped?: string; pstnStreamSid?: string | null; error?: string }> {
+): Promise<{
+  ok: boolean;
+  skipped?: string;
+  pstnStreamSid?: string | null;
+  pstnRealtimeTranscriptionSid?: string | null;
+  error?: string;
+}> {
   const sid = clientExternalCallId.trim();
   if (!sid.startsWith("CA")) return { ok: false, skipped: "invalid_client_sid" };
 
-  const baseWss = resolveTwilioMediaStreamWssUrl();
-  if (!baseWss?.startsWith("wss://")) {
-    console.log("[maybe-start-pstn-transcript] skipped_no_wss", {
+  const callbackUrl = resolveTranscriptionStatusCallbackUrl();
+  if (!callbackUrl) {
+    console.log("[maybe-start-pstn-transcript] skipped_no_status_callback_url", {
       reason,
       clientCallSid: sid.slice(0, 12) + "…",
     });
-    return { ok: false, skipped: "media_stream_wss_not_configured" };
+    return { ok: false, skipped: "transcription_status_callback_not_configured" };
   }
 
   const row = await findPhoneCallRowByTwilioCallSid(supabase, sid);
@@ -95,55 +111,57 @@ export async function maybeStartDeferredPstnTranscriptStream(
 
   const canonicalId = row.external_call_id;
   const meta = row.metadata;
-  const streams = readTranscriptStreamsFromMetadata(meta);
-  if (!streams?.client_stream_started_at) {
+  const streams = readTranscriptStreamsFromMetadata(asRecord(meta));
+  if (!clientTranscriptEverStarted(streams)) {
     return { ok: false, skipped: "client_transcript_never_started" };
   }
-  if (streams.pstn_stream_started_at) {
-    return { ok: true, skipped: "pstn_stream_already_started", pstnStreamSid: streams.pstn_stream_sid ?? null };
+  if (pstnTranscriptAlreadyStarted(streams)) {
+    return {
+      ok: true,
+      skipped: "pstn_stream_already_started",
+      pstnStreamSid: streams?.pstn_stream_sid ?? null,
+      pstnRealtimeTranscriptionSid: streams?.pstn_realtime_transcription_sid ?? null,
+    };
   }
 
-  const pstnSid = readPstnCallSidFromMetadata(meta);
+  const pstnSid = readPstnCallSidFromMetadata(asRecord(meta));
   if (!pstnSid) {
     console.log("[maybe-start-pstn-transcript] skipped_no_pstn_sid", { reason, clientCallSid: sid.slice(0, 12) + "…" });
-    /** Not an error — PSTN leg not linked yet; merge hook or client will retry. */
     return { ok: true, skipped: "no_pstn_call_sid_on_row" };
   }
 
-  const pstnWss = appendSoftphoneTranscriptStreamParams(baseWss, {
-    transcriptExternalId: canonicalId,
-    inputRole: "caller",
-  });
+  const name = `saintly-pstn-rt-${pstnSid.slice(-12)}`;
 
-  console.log("[maybe-start-pstn-transcript] twilio_request", {
+  console.log("[maybe-start-pstn-transcript] twilio_rt_request", {
     reason,
     clientCallSid: sid.slice(0, 12) + "…",
-    canonical_external_call_id_for_bridge: canonicalId.slice(0, 12) + "…",
+    canonical_external_call_id: canonicalId.slice(0, 12) + "…",
     pstnCallSid: pstnSid.slice(0, 12) + "…",
     track: "inbound_track",
-    wssUrl: pstnWss,
   });
 
-  const pstnResult = await startCallMediaStream({
+  const pstnResult = await createRealtimeTranscription({
     callSid: pstnSid,
-    wssUrl: pstnWss,
     track: "inbound_track",
+    statusCallbackUrl: callbackUrl,
+    name,
+    partialResults: false,
   });
 
   const now = new Date().toISOString();
   if (pstnResult.ok) {
     await upsertPhoneCallTranscriptStreams(supabase, sid, {
-      pstn_stream_sid: pstnResult.streamSid ?? null,
-      pstn_stream_started_at: now,
+      pstn_realtime_transcription_sid: pstnResult.transcriptionSid,
+      pstn_realtime_transcription_started_at: now,
       pstn_call_sid_at_attempt: pstnSid,
       pstn_stream_last_error: null,
       pstn_stream_last_attempt_at: now,
     });
     console.log("[maybe-start-pstn-transcript] twilio_ok", {
       reason,
-      pstnStreamSid: pstnResult.streamSid ?? null,
+      pstnRealtimeTranscriptionSid: pstnResult.transcriptionSid,
     });
-    return { ok: true, pstnStreamSid: pstnResult.streamSid ?? null };
+    return { ok: true, pstnRealtimeTranscriptionSid: pstnResult.transcriptionSid };
   }
 
   const errFull = pstnResult.error;

@@ -66,7 +66,9 @@ export function ActiveCallTranscriptSheet() {
     transcriptPanelOpen,
     setTranscriptPanelOpen,
     transcriptEnabled,
+    setTranscriptEnabled,
     enableTranscriptManual,
+    stopLiveTranscriptStream,
     callContextLoadError,
   } = useWorkspaceSoftphone();
 
@@ -74,12 +76,15 @@ export function ActiveCallTranscriptSheet() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const uiAssistantLeakTraceLoggedRef = useRef(false);
   const [showAssistantDebugLines, setShowAssistantDebugLines] = useState(false);
+  const [listeningStall, setListeningStall] = useState(false);
 
   const voiceAi = callContext?.voice_ai ?? null;
   /** Staff softphone calls: only You + Caller in the main thread (no AI assistant lines). */
   const softphoneHumanTranscript =
     Boolean(callContext?.workspace_softphone_session) ||
-    Boolean(voiceAi?.softphone_transcript_streams?.client_stream_started_at);
+    Boolean(voiceAi?.softphone_transcript_streams?.client_stream_started_at) ||
+    Boolean(voiceAi?.softphone_transcript_streams?.client_realtime_transcription_started_at) ||
+    Boolean(voiceAi?.inbound_transcript_stream_started_at);
   const messages = buildTranscriptMessages(voiceAi, { humanSpeechOnly: softphoneHumanTranscript });
   const assistantDebugEntries = softphoneHumanTranscript ? buildSoftphoneAssistantDebugEntries(voiceAi) : [];
   const aiNotes = buildTranscriptAiNotes(voiceAi);
@@ -114,6 +119,15 @@ export function ActiveCallTranscriptSheet() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, transcriptPanelOpen, transcriptEnabled]);
 
+  useEffect(() => {
+    if (!transcriptEnabled || messages.length > 0 || callContextLoadError) {
+      setListeningStall(false);
+      return;
+    }
+    const t = window.setTimeout(() => setListeningStall(true), 15_000);
+    return () => window.clearTimeout(t);
+  }, [transcriptEnabled, messages.length, callContextLoadError]);
+
   if (status !== "in_call" || !transcriptPanelOpen) return null;
 
   return (
@@ -129,14 +143,30 @@ export function ActiveCallTranscriptSheet() {
           <p className="text-xs font-bold uppercase tracking-[0.14em] text-sky-300/90">Live transcript</p>
           <p className="mt-0.5 truncate text-sm font-semibold text-white">{headerSubtitle}</p>
         </div>
-        <button
-          type="button"
-          onClick={() => setTranscriptPanelOpen(false)}
-          className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-white/10 text-white transition hover:bg-white/20"
-          aria-label="Close transcript"
-        >
-          <X className="h-5 w-5" strokeWidth={2} />
-        </button>
+        <div className="flex items-center gap-2">
+          {transcriptEnabled && softphoneHumanTranscript ? (
+            <button
+              type="button"
+              onClick={() =>
+                void (async () => {
+                  const r = await stopLiveTranscriptStream();
+                  if (r.ok) setTranscriptEnabled(false);
+                })()
+              }
+              className="rounded-full border border-white/20 bg-white/10 px-3 py-1.5 text-[11px] font-semibold text-sky-100 transition hover:bg-white/15"
+            >
+              Stop transcription
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => setTranscriptPanelOpen(false)}
+            className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-white/10 text-white transition hover:bg-white/20"
+            aria-label="Close transcript"
+          >
+            <X className="h-5 w-5" strokeWidth={2} />
+          </button>
+        </div>
       </header>
 
       <div
@@ -161,12 +191,26 @@ export function ActiveCallTranscriptSheet() {
           <p className="text-center text-sm text-amber-200/90">
             Unable to load transcript right now.
           </p>
+        ) : voiceAi?.inbound_transcript_last_error?.trim() ? (
+          <div className="mx-auto max-w-lg text-center">
+            <p className="text-sm font-semibold text-amber-200/95">Inbound transcript could not start</p>
+            <p className="mt-2 whitespace-pre-wrap break-words text-xs leading-relaxed text-amber-100/85">
+              {voiceAi.inbound_transcript_last_error.trim()}
+            </p>
+            <p className="mt-3 text-xs text-slate-500">
+              Check Vercel logs for <span className="font-mono text-slate-400">[inbound-transcript-diag]</span> and Twilio
+              transcription / Media Stream errors.
+            </p>
+          </div>
         ) : messages.length === 0 ? (
           <div className="mx-auto max-w-lg text-center">
-            <p className="text-sm font-medium text-sky-200/90">Listening…</p>
+            <p className="text-sm font-medium text-sky-200/90">
+              {listeningStall ? "Still waiting for transcript lines…" : "Listening…"}
+            </p>
             <p className="mt-2 text-xs leading-relaxed text-slate-500">
-              Waiting for speech. Lines appear after each utterance is transcribed (usually within a second or two after
-              you stop talking).
+              {listeningStall
+                ? "If nothing appears after speaking, check Vercel logs for twilio-rt-transcription / bridge_transcript_lookup_failed (wrong CallSid) or Twilio transcription errors."
+                : "Waiting for speech. Lines appear after each utterance is transcribed (usually within a second or two after you stop talking)."}
             </p>
             {softphoneHumanTranscript && assistantDebugEntries.length > 0 ? (
               <p className="mt-3 text-xs text-slate-400">
