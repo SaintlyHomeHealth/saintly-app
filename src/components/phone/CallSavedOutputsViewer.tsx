@@ -45,6 +45,8 @@ export type CallSavedOutputsViewerProps = {
   /** Optional heading above the panel */
   heading?: string;
   className?: string;
+  /** When true, parent supplies the section title — hide the duplicate heading row (e.g. call detail). */
+  embedded?: boolean;
 };
 
 /**
@@ -55,6 +57,7 @@ export function CallSavedOutputsViewer({
   phoneCallId,
   heading = "Saved call outputs",
   className = "",
+  embedded = false,
 }: CallSavedOutputsViewerProps) {
   const { outputs, loading, error } = useCallOutputs(phoneCallId);
 
@@ -67,12 +70,16 @@ export function CallSavedOutputsViewer({
 
   return (
     <div className={`space-y-4 ${className}`.trim()}>
-      <div className="flex items-baseline justify-between gap-3">
-        <h2 className="text-sm font-semibold tracking-tight text-slate-900">{heading}</h2>
-        {loading ? (
-          <span className="text-[11px] font-medium uppercase tracking-wide text-slate-400">Loading…</span>
-        ) : null}
-      </div>
+      {!embedded ? (
+        <div className="flex items-baseline justify-between gap-3">
+          <h2 className="text-sm font-semibold tracking-tight text-slate-900">{heading}</h2>
+          {loading ? (
+            <span className="text-[11px] font-medium uppercase tracking-wide text-slate-400">Loading…</span>
+          ) : null}
+        </div>
+      ) : loading ? (
+        <p className="text-[11px] font-medium text-slate-400">Loading saved outputs…</p>
+      ) : null}
 
       {error ? (
         <div
@@ -99,24 +106,43 @@ export function CallSavedOutputsViewer({
       ) : null}
 
       {!idle && hasAny ? (
-        <div className="space-y-5">
+        <div className={embedded ? "space-y-3" : "space-y-5"}>
           {SECTIONS.map(({ type, title }) => {
             const rows = grouped[type];
             if (rows.length === 0) return null;
             return (
-              <section key={type} className="ws-phone-card-soft overflow-hidden p-0">
-                <div className="border-b border-sky-100/80 bg-gradient-to-r from-white to-sky-50/50 px-4 py-2.5">
-                  <h3 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-sky-950/80">
+              <section
+                key={type}
+                className={
+                  embedded
+                    ? "overflow-hidden rounded-2xl border border-slate-200/80 bg-gradient-to-b from-slate-50/40 to-white shadow-inner shadow-slate-900/[0.04]"
+                    : "ws-phone-card-soft overflow-hidden p-0"
+                }
+              >
+                <div
+                  className={
+                    embedded
+                      ? "border-b border-slate-200/70 bg-white/90 px-4 py-2.5 backdrop-blur-sm"
+                      : "border-b border-sky-100/80 bg-gradient-to-r from-white to-sky-50/50 px-4 py-2.5"
+                  }
+                >
+                  <h3
+                    className={
+                      embedded
+                        ? "text-[11px] font-medium uppercase tracking-[0.08em] text-slate-500"
+                        : "text-[11px] font-semibold uppercase tracking-[0.12em] text-sky-950/80"
+                    }
+                  >
                     {title}
                   </h3>
                 </div>
-                <div className="divide-y divide-sky-100/70">
+                <div className={embedded ? "divide-y divide-slate-200/60" : "divide-y divide-sky-100/70"}>
                   {rows.map((row) => (
-                    <article key={row.id} className="px-4 py-3.5">
-                      <p className="text-[11px] font-medium text-slate-500">
+                    <article key={row.id} className="px-4 py-3">
+                      <p className="text-[10px] font-medium uppercase tracking-wide text-slate-500">
                         Saved {formatSavedAt(row.created_at)}
                       </p>
-                      <div className="mt-2 max-h-[min(420px,55vh)] overflow-y-auto rounded-xl border border-slate-200/60 bg-white/90 px-3 py-2.5 text-[13px] leading-relaxed text-slate-800 shadow-inner shadow-slate-900/5">
+                      <div className="mt-2 max-h-[min(420px,55vh)] overflow-y-auto rounded-xl border border-slate-200/60 bg-white px-3 py-2.5 text-[13px] leading-relaxed text-slate-800 shadow-inner shadow-slate-900/[0.04]">
                         <pre className="whitespace-pre-wrap font-sans">{row.content}</pre>
                       </div>
                     </article>

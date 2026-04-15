@@ -285,15 +285,12 @@ export default async function AdminPhoneCallDetailPage({ params, searchParams }:
       ) : null}
 
       <section className="rounded-[28px] border border-slate-200/90 bg-white p-6 shadow-[0_12px_40px_-18px_rgba(15,23,42,0.12)]">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <h2 className="text-sm font-semibold text-slate-900">Transcript</h2>
-            <p className="mt-1 text-xs text-slate-500">
-              From <code className="rounded bg-slate-100 px-1">metadata.voice_ai</code> — structured lines when
-              available; otherwise a legacy excerpt shown as separate bubbles.
-            </p>
-          </div>
-        </div>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Review</p>
+        <h2 className="mt-1 text-sm font-semibold text-slate-900">Transcript</h2>
+        <p className="mt-1 text-xs leading-relaxed text-slate-500">
+          From <code className="rounded-md bg-slate-100/90 px-1 py-0.5 font-mono text-[11px]">metadata.voice_ai</code>{" "}
+          — structured lines when available; otherwise a legacy excerpt as separate bubbles.
+        </p>
         <div className="mt-5">
           <CallDetailTranscriptThread
             bubbles={transcriptBubbles}
@@ -302,13 +299,14 @@ export default async function AdminPhoneCallDetailPage({ params, searchParams }:
         </div>
       </section>
 
-      <section className="rounded-[28px] border border-sky-100/90 bg-gradient-to-b from-white via-sky-50/25 to-slate-50/20 p-6 shadow-[0_8px_30px_-12px_rgba(30,58,138,0.08)]">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-sky-900/55">Saved outputs</p>
-        <p className="mt-1 text-xs text-slate-600">
-          SOAP, Call Summary, and Intake Summary saved from the softphone transcript. Read-only.
+      <section className="rounded-[28px] border border-slate-200/90 bg-white p-6 shadow-[0_12px_40px_-18px_rgba(15,23,42,0.12)]">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Artifacts</p>
+        <h2 className="mt-1 text-sm font-semibold text-slate-900">Saved outputs</h2>
+        <p className="mt-1 text-xs leading-relaxed text-slate-500">
+          SOAP, Call Summary, and Intake Summary from the softphone transcript (read-only).
         </p>
         <div className="mt-5">
-          <CallSavedOutputsViewer phoneCallId={c.id} heading="SOAP, summaries & intake" />
+          <CallSavedOutputsViewer phoneCallId={c.id} embedded heading="Saved outputs" />
         </div>
       </section>
 
