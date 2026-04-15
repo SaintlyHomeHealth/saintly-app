@@ -109,6 +109,17 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: insertError.message }, { status: 500 })
     }
 
+    if (documentType === 'auto_insurance') {
+      const { error: applicantUpdateError } = await supabaseAdmin
+        .from('applicants')
+        .update({ auto_insurance_file: filePath, updated_at: new Date().toISOString() })
+        .eq('id', applicantId)
+
+      if (applicantUpdateError) {
+        return NextResponse.json({ error: applicantUpdateError.message }, { status: 500 })
+      }
+    }
+
     if (completeComplianceEventId) {
       const { error: eventUpdateError } = await supabaseAdmin
         .from('admin_compliance_events')

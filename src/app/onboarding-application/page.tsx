@@ -13,6 +13,9 @@ import {
   normalizeCprBlsStatusFromDb,
   type CprBlsStatusValue,
 } from '../../lib/cpr-bls-status'
+import { US_STATE_OPTIONS } from '../../lib/us-states'
+
+type WorkSettingValue = '' | 'field' | 'office' | 'both'
 
 type ApplicationFormData = {
   firstName: string
@@ -28,12 +31,14 @@ type ApplicationFormData = {
   yearsExperience: string
   preferredHours: string
   availabilityStartDate: string
-  typeOfPosition: string
+  workSetting: WorkSettingValue
   educationalLevel: string
   hasReliableTransportation: string
   canProvideTransportation: string
   driversLicenseState: string
   driversLicenseExpirationDate: string
+  /** Storage path in applicant-files after upload (or hydrated from DB). */
+  autoInsuranceFilePath: string
   primaryDiscipline: string
   licenseCertificationNumber: string
   licenseIssuingState: string
@@ -96,11 +101,13 @@ type ApplicantRow = {
   preferred_hours?: string | null
   availability_start_date?: string | null
   type_of_position?: string | null
+  work_setting?: string | null
   educational_level?: string | null
   has_reliable_transportation?: boolean | null
   can_provide_transportation?: boolean | null
   drivers_license_state?: string | null
   drivers_license_expiration_date?: string | null
+  auto_insurance_file?: string | null
   primary_discipline?: string | null
   license_certification_number?: string | null
   license_issuing_state?: string | null
@@ -163,12 +170,13 @@ const defaultFormData: ApplicationFormData = {
   yearsExperience: '',
   preferredHours: '',
   availabilityStartDate: '',
-  typeOfPosition: '',
+  workSetting: '',
   educationalLevel: '',
   hasReliableTransportation: '',
   canProvideTransportation: '',
   driversLicenseState: '',
   driversLicenseExpirationDate: '',
+  autoInsuranceFilePath: '',
   primaryDiscipline: '',
   licenseCertificationNumber: '',
   licenseIssuingState: '',
@@ -240,6 +248,20 @@ function getErrorMessage(error: unknown): string {
   }
 
   return 'Something went wrong while saving the application.'
+}
+
+function inferWorkSettingFromLegacy(
+  workSetting: string | null | undefined,
+  typeOfPosition: string | null | undefined
+): WorkSettingValue {
+  if (workSetting === 'field' || workSetting === 'office' || workSetting === 'both') {
+    return workSetting
+  }
+  const t = (typeOfPosition ?? '').toLowerCase()
+  if (t.includes('office') || t.includes('administrative') || t.includes('admin')) return 'office'
+  if (t.includes('both')) return 'both'
+  if (t.includes('field') || t.includes('home') || t.includes('visit')) return 'field'
+  return ''
 }
 
 function toYesNo(value: unknown) {
@@ -316,6 +338,18 @@ export default function OnboardingApplicationPage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
   const [successMessage, setSuccessMessage] = useState('')
+  const [pendingInsuranceFile, setPendingInsuranceFile] = useState<File | null>(null)
+
+  const needsFieldTransport = useMemo(
+    () => formData.workSetting === 'field' || formData.workSetting === 'both',
+    [formData.workSetting]
+  )
+
+  useEffect(() => {
+    if (formData.workSetting === 'office') {
+      setPendingInsuranceFile(null)
+    }
+  }, [formData.workSetting])
 
   useEffect(() => {
     const loadApplicant = async () => {
@@ -354,11 +388,13 @@ export default function OnboardingApplicationPage() {
                 preferred_hours,
                 availability_start_date,
                 type_of_position,
+                work_setting,
                 educational_level,
                 has_reliable_transportation,
                 can_provide_transportation,
                 drivers_license_state,
                 drivers_license_expiration_date,
+                auto_insurance_file,
                 primary_discipline,
                 license_certification_number,
                 license_issuing_state,
@@ -449,12 +485,16 @@ export default function OnboardingApplicationPage() {
           yearsExperience: applicantData.years_experience ?? '',
           preferredHours: applicantData.preferred_hours ?? '',
           availabilityStartDate: applicantData.availability_start_date ?? '',
-          typeOfPosition: applicantData.type_of_position ?? '',
+          workSetting: inferWorkSettingFromLegacy(
+            applicantData.work_setting,
+            applicantData.type_of_position
+          ),
           educationalLevel: applicantData.educational_level ?? '',
           hasReliableTransportation: toYesNo(applicantData.has_reliable_transportation),
           canProvideTransportation: toYesNo(applicantData.can_provide_transportation),
           driversLicenseState: applicantData.drivers_license_state ?? '',
           driversLicenseExpirationDate: applicantData.drivers_license_expiration_date ?? '',
+          autoInsuranceFilePath: applicantData.auto_insurance_file ?? '',
           primaryDiscipline: applicantData.primary_discipline ?? '',
           licenseCertificationNumber: applicantData.license_certification_number ?? '',
           licenseIssuingState: applicantData.license_issuing_state ?? '',
@@ -530,6 +570,22 @@ export default function OnboardingApplicationPage() {
         : event.target.value
 
     setFormData((prev) => {
+      if (name === 'workSetting') {
+        const ws = nextValue as WorkSettingValue
+        if (ws === 'office') {
+          return {
+            ...prev,
+            workSetting: ws,
+            hasReliableTransportation: '',
+            canProvideTransportation: '',
+            driversLicenseState: '',
+            driversLicenseExpirationDate: '',
+            autoInsuranceFilePath: '',
+          }
+        }
+        return { ...prev, workSetting: ws }
+      }
+
       const next = {
         ...prev,
         [name]: nextValue,
@@ -613,6 +669,19 @@ export default function OnboardingApplicationPage() {
       .slice(2)
       .every((entry) => isReferenceEntryBlank(entry) || isReferenceEntryComplete(entry))
 
+    const workSettingOk =
+      formData.workSetting === 'field' ||
+      formData.workSetting === 'office' ||
+      formData.workSetting === 'both'
+
+    const fieldTransportOk =
+      !needsFieldTransport ||
+      (formData.hasReliableTransportation &&
+        formData.canProvideTransportation &&
+        formData.driversLicenseState.trim() &&
+        formData.driversLicenseExpirationDate &&
+        (Boolean(formData.autoInsuranceFilePath.trim()) || Boolean(pendingInsuranceFile)))
+
     return Boolean(
       formData.firstName.trim() &&
         formData.lastName.trim() &&
@@ -623,12 +692,9 @@ export default function OnboardingApplicationPage() {
         formData.state.trim() &&
         formData.zip.trim() &&
         formData.position.trim() &&
-        formData.typeOfPosition.trim() &&
+        workSettingOk &&
         formData.educationalLevel.trim() &&
-        formData.hasReliableTransportation &&
-        formData.canProvideTransportation &&
-        formData.driversLicenseState.trim() &&
-        formData.driversLicenseExpirationDate &&
+        fieldTransportOk &&
         formData.primaryDiscipline.trim() &&
         formData.licenseCertificationNumber.trim() &&
         formData.licenseIssuingState.trim() &&
@@ -655,7 +721,7 @@ export default function OnboardingApplicationPage() {
         firstTwoReferencesValid &&
         optionalReferencesValid
     )
-  }, [formData, workHistory, references, emergencyForm])
+  }, [formData, workHistory, references, emergencyForm, needsFieldTransport, pendingInsuranceFile])
 
   const applicationProgressGroups = useMemo(() => {
     const firstTwoWorkHistoryValid =
@@ -717,13 +783,17 @@ export default function OnboardingApplicationPage() {
               hasValue(formData.zip),
           },
           {
-            label: 'Position type and transportation',
+            label: 'Work setting and transportation',
             complete:
-              hasValue(formData.typeOfPosition) &&
-              !!formData.hasReliableTransportation &&
-              !!formData.canProvideTransportation &&
-              hasValue(formData.driversLicenseState) &&
-              Boolean(formData.driversLicenseExpirationDate),
+              (formData.workSetting === 'field' ||
+                formData.workSetting === 'office' ||
+                formData.workSetting === 'both') &&
+              (!needsFieldTransport ||
+                (!!formData.hasReliableTransportation &&
+                  !!formData.canProvideTransportation &&
+                  hasValue(formData.driversLicenseState) &&
+                  Boolean(formData.driversLicenseExpirationDate) &&
+                  (Boolean(formData.autoInsuranceFilePath.trim()) || Boolean(pendingInsuranceFile)))),
           },
           {
             label: 'Availability and screening questions',
@@ -784,7 +854,7 @@ export default function OnboardingApplicationPage() {
         ],
       },
     ]
-  }, [emergencyForm, formData, references, workHistory])
+  }, [emergencyForm, formData, references, workHistory, needsFieldTransport, pendingInsuranceFile])
 
   const totalTrackedCount = applicationProgressGroups.reduce(
     (sum, group) => sum + group.items.length,
@@ -811,6 +881,9 @@ export default function OnboardingApplicationPage() {
     setIsSubmitting(true)
 
     try {
+      const needsTransport =
+        formData.workSetting === 'field' || formData.workSetting === 'both'
+
       const payload = {
         first_name: formData.firstName.trim(),
         last_name: formData.lastName.trim(),
@@ -825,12 +898,14 @@ export default function OnboardingApplicationPage() {
         years_experience: formData.yearsExperience.trim() || null,
         preferred_hours: formData.preferredHours.trim() || null,
         availability_start_date: formData.availabilityStartDate || null,
-        type_of_position: formData.typeOfPosition.trim() || null,
+        work_setting: formData.workSetting || null,
+        type_of_position: null,
         educational_level: formData.educationalLevel.trim() || null,
-        has_reliable_transportation: fromYesNo(formData.hasReliableTransportation),
-        can_provide_transportation: fromYesNo(formData.canProvideTransportation),
-        drivers_license_state: formData.driversLicenseState.trim() || null,
-        drivers_license_expiration_date: formData.driversLicenseExpirationDate || null,
+        has_reliable_transportation: needsTransport ? fromYesNo(formData.hasReliableTransportation) : null,
+        can_provide_transportation: needsTransport ? fromYesNo(formData.canProvideTransportation) : null,
+        drivers_license_state: needsTransport ? formData.driversLicenseState.trim() || null : null,
+        drivers_license_expiration_date: needsTransport ? formData.driversLicenseExpirationDate || null : null,
+        auto_insurance_file: needsTransport ? formData.autoInsuranceFilePath.trim() || null : null,
         primary_discipline: formData.primaryDiscipline.trim() || null,
         license_certification_number: formData.licenseCertificationNumber.trim() || null,
         license_issuing_state: formData.licenseIssuingState.trim() || null,
@@ -883,6 +958,35 @@ export default function OnboardingApplicationPage() {
 
       if (!finalApplicantId) {
         throw new Error('Applicant ID was not returned after save.')
+      }
+
+      if (needsTransport && pendingInsuranceFile) {
+        const uploadFd = new FormData()
+        uploadFd.append('applicantId', finalApplicantId)
+        uploadFd.append('documentType', 'auto_insurance')
+        uploadFd.append('file', pendingInsuranceFile)
+        uploadFd.append('displayName', pendingInsuranceFile.name)
+
+        const uploadRes = await fetch('/api/upload-applicant-file', {
+          method: 'POST',
+          body: uploadFd,
+        })
+        const uploadJson = (await uploadRes.json()) as {
+          success?: boolean
+          error?: string
+          file?: { storage_path?: string | null; file_path?: string | null }
+        }
+
+        if (!uploadRes.ok || !uploadJson.success) {
+          throw new Error(uploadJson.error || 'Auto insurance upload failed.')
+        }
+
+        const path =
+          uploadJson.file?.storage_path?.trim() || uploadJson.file?.file_path?.trim() || ''
+        if (path) {
+          setFormData((prev) => ({ ...prev, autoInsuranceFilePath: path }))
+        }
+        setPendingInsuranceFile(null)
       }
 
       const normalizedWorkHistory = workHistory
@@ -1343,16 +1447,31 @@ export default function OnboardingApplicationPage() {
                 <p className="shh-group-eyebrow">Section 5</p>
                 <h3 className="shh-group-title">Work Eligibility & Transportation</h3>
                 <p className="shh-group-description">
-                  Confirm job type, education, and transportation readiness for field work.
+                  Tell us your work setting and education. If your role includes home visits, we will ask for
+                  transportation and license details to stay compliant.
                 </p>
               </div>
 
               <div className="shh-grid">
                 <div className="shh-field">
-                  <label htmlFor="typeOfPosition">
-                    Type of Position <span className="shh-required">*</span>
+                  <label htmlFor="workSetting">
+                    Work Setting <span className="shh-required">*</span>
                   </label>
-                  <input id="typeOfPosition" name="typeOfPosition" value={formData.typeOfPosition} onChange={handleChange} />
+                  <select
+                    id="workSetting"
+                    name="workSetting"
+                    value={formData.workSetting}
+                    onChange={handleChange}
+                    required
+                  >
+                    <option value="">Select work setting</option>
+                    <option value="field">Field (Home Visits)</option>
+                    <option value="office">Office (Administrative)</option>
+                    <option value="both">Both</option>
+                  </select>
+                  <p className="mt-1 text-xs text-slate-600">
+                    Field roles require reliable transportation, a valid driver license, and proof of auto insurance.
+                  </p>
                 </div>
 
                 <div className="shh-field">
@@ -1361,57 +1480,113 @@ export default function OnboardingApplicationPage() {
                   </label>
                   <input id="educationalLevel" name="educationalLevel" value={formData.educationalLevel} onChange={handleChange} />
                 </div>
+              </div>
 
-                <div className="shh-field">
-                  <label htmlFor="hasReliableTransportation">
-                    Has Reliable Transportation? <span className="shh-required">*</span>
-                  </label>
-                  <select
-                    id="hasReliableTransportation"
-                    name="hasReliableTransportation"
-                    value={formData.hasReliableTransportation}
-                    onChange={handleChange}
-                  >
-                    <option value="">Select</option>
-                    <option value="yes">Yes</option>
-                    <option value="no">No</option>
-                  </select>
-                </div>
+              <div
+                className={`overflow-hidden transition-all duration-300 ease-in-out ${
+                  needsFieldTransport ? 'mt-4 max-h-[3200px] opacity-100' : 'max-h-0 opacity-0'
+                }`}
+                aria-hidden={!needsFieldTransport}
+              >
+                <div className="shh-grid rounded-2xl border border-slate-200/90 bg-slate-50/80 p-4 sm:p-5">
+                  <div className="shh-field sm:col-span-2">
+                    <label htmlFor="hasReliableTransportation">
+                      Has Reliable Transportation? <span className="shh-required">*</span>
+                    </label>
+                    <select
+                      id="hasReliableTransportation"
+                      name="hasReliableTransportation"
+                      value={formData.hasReliableTransportation}
+                      onChange={handleChange}
+                    >
+                      <option value="">Select</option>
+                      <option value="yes">Yes</option>
+                      <option value="no">No</option>
+                    </select>
+                    {formData.hasReliableTransportation === 'no' ? (
+                      <p className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-950">
+                        Home-visit roles require dependable transportation. If you selected &quot;No,&quot; a recruiter may
+                        follow up to discuss options before assignment.
+                      </p>
+                    ) : null}
+                  </div>
 
-                <div className="shh-field">
-                  <label htmlFor="canProvideTransportation">
-                    Can You Provide Transportation if Needed? <span className="shh-required">*</span>
-                  </label>
-                  <select
-                    id="canProvideTransportation"
-                    name="canProvideTransportation"
-                    value={formData.canProvideTransportation}
-                    onChange={handleChange}
-                  >
-                    <option value="">Select</option>
-                    <option value="yes">Yes</option>
-                    <option value="no">No</option>
-                  </select>
-                </div>
+                  <div className="shh-field sm:col-span-2">
+                    <label htmlFor="canProvideTransportation">
+                      Can You Provide Transportation if Needed? <span className="shh-required">*</span>
+                    </label>
+                    <select
+                      id="canProvideTransportation"
+                      name="canProvideTransportation"
+                      value={formData.canProvideTransportation}
+                      onChange={handleChange}
+                    >
+                      <option value="">Select</option>
+                      <option value="yes">Yes</option>
+                      <option value="no">No</option>
+                    </select>
+                  </div>
 
-                <div className="shh-field">
-                  <label htmlFor="driversLicenseState">
-                    Driver&apos;s License State <span className="shh-required">*</span>
-                  </label>
-                  <input id="driversLicenseState" name="driversLicenseState" value={formData.driversLicenseState} onChange={handleChange} />
-                </div>
+                  <div className="shh-field">
+                    <label htmlFor="driversLicenseState">
+                      Driver&apos;s License State <span className="shh-required">*</span>
+                    </label>
+                    <select
+                      id="driversLicenseState"
+                      name="driversLicenseState"
+                      value={formData.driversLicenseState}
+                      onChange={handleChange}
+                    >
+                      {US_STATE_OPTIONS.map((opt) => (
+                        <option key={opt.value || 'blank'} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
 
-                <div className="shh-field">
-                  <label htmlFor="driversLicenseExpirationDate">
-                    DL Expiration Date <span className="shh-required">*</span>
-                  </label>
-                  <input
-                    id="driversLicenseExpirationDate"
-                    name="driversLicenseExpirationDate"
-                    type="date"
-                    value={formData.driversLicenseExpirationDate}
-                    onChange={handleChange}
-                  />
+                  <div className="shh-field">
+                    <label htmlFor="driversLicenseExpirationDate">
+                      DL Expiration Date <span className="shh-required">*</span>
+                    </label>
+                    <input
+                      id="driversLicenseExpirationDate"
+                      name="driversLicenseExpirationDate"
+                      type="date"
+                      value={formData.driversLicenseExpirationDate}
+                      onChange={handleChange}
+                    />
+                  </div>
+
+                  <div className="shh-field sm:col-span-2">
+                    <label htmlFor="autoInsuranceUpload">
+                      Auto Insurance (card or declaration page) <span className="shh-required">*</span>
+                    </label>
+                    <input
+                      id="autoInsuranceUpload"
+                      name="autoInsuranceUpload"
+                      type="file"
+                      accept="application/pdf,image/jpeg,image/png,image/webp"
+                      className="block w-full text-sm text-slate-800 file:mr-3 file:rounded-lg file:border file:border-sky-200 file:bg-sky-50 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-sky-900"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0] ?? null
+                        setPendingInsuranceFile(f)
+                      }}
+                    />
+                    <p className="mt-1 text-xs text-slate-600">
+                      PDF or image, max 10 MB. Required for field or hybrid roles with visits.
+                    </p>
+                    {formData.autoInsuranceFilePath.trim() && !pendingInsuranceFile ? (
+                      <p className="mt-2 text-xs font-medium text-emerald-800">
+                        ✓ Insurance document on file. Choose a new file only if you are replacing it.
+                      </p>
+                    ) : null}
+                    {pendingInsuranceFile ? (
+                      <p className="mt-2 text-xs font-medium text-slate-700">
+                        Selected: {pendingInsuranceFile.name} — will upload when you submit the application.
+                      </p>
+                    ) : null}
+                  </div>
                 </div>
               </div>
             </section>
