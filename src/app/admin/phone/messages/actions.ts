@@ -4,7 +4,9 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { supabaseAdmin } from "@/lib/admin";
+import { labelForContactType, normalizeCrmContactType } from "@/lib/crm/contact-types";
 import { findContactByIncomingPhone } from "@/lib/crm/find-contact-by-incoming-phone";
+import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { UNKNOWN_TEXTER_METADATA_KEY } from "@/lib/phone/sms-conversation-thread";
 import { mergeTelemetryOnSend, mergeTelemetryOnShown } from "@/lib/phone/sms-suggestion-telemetry";
 import {
@@ -30,6 +32,7 @@ const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const INTAKE_NAME_MAX = 500;
+const SMS_THREAD_CONTACT_NOTES_MAX = 8000;
 const SMS_BODY_MAX = 1600;
 
 function parseIntakeContactType(raw: unknown): "patient" | "family" | "referral" | null {
@@ -769,4 +772,171 @@ export async function createContactIntakeFromConversation(formData: FormData) {
     redirect(`/workspace/phone/inbox/${convId}?ok=intake`);
   }
   redirect(`/admin/phone/messages/${convId}?ok=intake`);
+}
+
+export type SaveSmsThreadContactResult =
+  | { ok: true; displayName: string; badgeLabel: string; primaryContactId: string }
+  | { ok: false; error: string };
+
+async function workspaceBadgeLabelForContact(
+  contactId: string,
+  contactTypeFallback: string | null
+): Promise<string> {
+  const { data: patRow } = await supabaseAdmin
+    .from("patients")
+    .select("id")
+    .eq("contact_id", contactId)
+    .maybeSingle();
+  if (patRow && typeof (patRow as { id?: string }).id === "string") {
+    return "Patient";
+  }
+  const { data: leadRow } = await leadRowsActiveOnly(
+    supabaseAdmin.from("leads").select("id").eq("contact_id", contactId).limit(1)
+  ).maybeSingle();
+  if (leadRow && typeof (leadRow as { id?: string }).id === "string") {
+    return "Lead";
+  }
+  const ct = (contactTypeFallback ?? "").trim();
+  if (ct) {
+    const lab = labelForContactType(ct);
+    if (lab !== "—") return lab;
+  }
+  return "Contact";
+}
+
+/**
+ * Create or update the CRM contact for the current SMS thread (workspace quick editor).
+ * Returns JSON so the client can refresh the thread header without a full redirect.
+ */
+export async function saveSmsThreadContact(formData: FormData): Promise<SaveSmsThreadContactResult> {
+  const staff = await getStaffProfile();
+  if (!requirePhoneMessagingStaff(staff)) {
+    return { ok: false, error: "You do not have access." };
+  }
+
+  const conversationId = String(formData.get("conversationId") ?? "").trim();
+  const fullNameRaw = String(formData.get("fullName") ?? "").trim().slice(0, INTAKE_NAME_MAX);
+  const email = String(formData.get("email") ?? "").trim().slice(0, 500);
+  const notes = String(formData.get("notes") ?? "").trim().slice(0, SMS_THREAD_CONTACT_NOTES_MAX);
+  const tags = String(formData.get("tags") ?? "").trim().slice(0, 500);
+  const contactTypeRaw = String(formData.get("contactType") ?? "").trim().toLowerCase();
+  const normalizedType = normalizeCrmContactType(contactTypeRaw) ?? "other";
+
+  if (!conversationId || !UUID_RE.test(conversationId)) {
+    return { ok: false, error: "Invalid conversation." };
+  }
+  if (!fullNameRaw) {
+    return { ok: false, error: "Name is required." };
+  }
+
+  const { row } = await loadConversationForAccess(conversationId);
+  if (!row) {
+    return { ok: false, error: "Conversation not found." };
+  }
+
+  if (
+    !canStaffAccessConversationRow(staff, {
+      assigned_to_user_id: row.assigned_to_user_id,
+    })
+  ) {
+    return { ok: false, error: "You do not have access to this thread." };
+  }
+
+  const phoneE164 =
+    typeof row.main_phone_e164 === "string" && row.main_phone_e164.trim()
+      ? row.main_phone_e164.trim()
+      : "";
+  if (!phoneE164 || !isValidE164(phoneE164)) {
+    return { ok: false, error: "This thread has no valid phone number." };
+  }
+
+  const notesCombined =
+    tags && notes
+      ? `${notes}\n\nTags: ${tags}`
+      : tags
+        ? `Tags: ${tags}`
+        : notes;
+
+  const contactPatch: Record<string, unknown> = {
+    full_name: fullNameRaw,
+    contact_type: normalizedType,
+    primary_phone: phoneE164,
+    updated_at: new Date().toISOString(),
+  };
+  if (email) contactPatch.email = email;
+  contactPatch.notes = notesCombined ? notesCombined : null;
+
+  let contactId: string;
+
+  if (row.primary_contact_id && String(row.primary_contact_id).trim()) {
+    contactId = String(row.primary_contact_id).trim();
+    const { error: upErr } = await supabaseAdmin.from("contacts").update(contactPatch).eq("id", contactId);
+    if (upErr) {
+      console.warn("[messages] saveSmsThreadContact update:", upErr.message);
+      return { ok: false, error: upErr.message || "Could not update contact." };
+    }
+  } else {
+    const byPhone = await findContactByIncomingPhone(supabaseAdmin, phoneE164);
+    if (byPhone?.id) {
+      contactId = byPhone.id;
+      const { error: upErr } = await supabaseAdmin.from("contacts").update(contactPatch).eq("id", contactId);
+      if (upErr) {
+        console.warn("[messages] saveSmsThreadContact upsert by phone:", upErr.message);
+        return { ok: false, error: upErr.message || "Could not save contact." };
+      }
+    } else {
+      const { data: inserted, error: insErr } = await supabaseAdmin
+        .from("contacts")
+        .insert(contactPatch)
+        .select("id")
+        .single();
+      const newId = inserted?.id;
+      if (insErr || !newId) {
+        console.warn("[messages] saveSmsThreadContact insert:", insErr?.message);
+        return { ok: false, error: insErr?.message || "Could not create contact." };
+      }
+      contactId = String(newId);
+    }
+
+    const { data: convMetaRow } = await supabaseAdmin
+      .from("conversations")
+      .select("metadata")
+      .eq("id", conversationId)
+      .maybeSingle();
+
+    const prevMeta =
+      convMetaRow?.metadata &&
+      typeof convMetaRow.metadata === "object" &&
+      !Array.isArray(convMetaRow.metadata)
+        ? ({ ...convMetaRow.metadata } as Record<string, unknown>)
+        : {};
+    delete prevMeta[UNKNOWN_TEXTER_METADATA_KEY];
+    delete prevMeta.auto_intake_at;
+
+    const { error: linkErr } = await supabaseAdmin
+      .from("conversations")
+      .update({
+        primary_contact_id: contactId,
+        main_phone_e164: phoneE164,
+        metadata: prevMeta,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", conversationId);
+
+    if (linkErr) {
+      console.warn("[messages] saveSmsThreadContact link:", linkErr.message);
+      return { ok: false, error: linkErr.message || "Could not link contact to thread." };
+    }
+  }
+
+  const badgeLabel = await workspaceBadgeLabelForContact(contactId, normalizedType);
+
+  revalidateSmsConversationViews(conversationId);
+
+  return {
+    ok: true,
+    displayName: fullNameRaw,
+    badgeLabel,
+    primaryContactId: contactId,
+  };
 }

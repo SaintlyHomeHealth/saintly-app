@@ -25,7 +25,7 @@ export default async function WorkspacePhoneLayout({ children }: { children: Rea
     const showAdminLink = isManagerOrHigher(staff);
 
     return (
-      <div className="ws-phone-page-shell flex min-h-[100dvh] flex-col text-slate-900">
+      <div className="ws-phone-page-shell flex h-[100dvh] max-h-[100dvh] min-h-0 flex-col overflow-hidden text-slate-900">
         <header className="sticky top-0 z-30 border-b border-sky-100/70 bg-white/95 px-4 pb-3 pt-[calc(0.75rem+env(safe-area-inset-top,0px))] shadow-[0_4px_24px_-12px_rgba(30,58,138,0.08)] backdrop-blur-md supports-[backdrop-filter]:bg-white/90">
           <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-3">
             <div className="min-w-0">

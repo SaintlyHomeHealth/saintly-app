@@ -58,7 +58,7 @@ export function SmsReplyComposer({
     const el = inputRef.current;
     if (!el) return;
     el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 132)}px`;
+    el.style.height = `${Math.min(el.scrollHeight, 144)}px`;
   }, [body, messagingUX]);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -100,7 +100,7 @@ export function SmsReplyComposer({
         <div
           className={
             workspaceThread
-              ? "flex items-end gap-2 rounded-[1.35rem] border border-slate-200/70 bg-white/95 p-1.5 pl-2 shadow-[0_2px_12px_-4px_rgba(30,58,138,0.12),inset_0_1px_0_rgba(255,255,255,0.8)] ring-1 ring-sky-100/40 backdrop-blur-sm"
+              ? "flex items-end gap-2.5 rounded-[1.45rem] border border-slate-200/75 bg-white p-2 pl-2.5 shadow-[0_4px_20px_-6px_rgba(30,58,138,0.18),inset_0_1px_0_rgba(255,255,255,0.85)] ring-1 ring-sky-100/45 backdrop-blur-sm"
               : "flex items-end gap-2"
           }
         >
@@ -116,20 +116,20 @@ export function SmsReplyComposer({
             placeholder="Text message"
             className={
               workspaceThread
-                ? "min-h-[2.75rem] max-h-[8.25rem] flex-1 resize-none rounded-2xl border-0 bg-sky-50/40 px-3.5 py-2.5 text-[15px] leading-relaxed text-slate-900 placeholder:text-slate-400 outline-none transition focus:bg-white focus:ring-2 focus:ring-sky-300/50"
+                ? "min-h-[3rem] max-h-[9rem] flex-1 resize-none rounded-[1.15rem] border-0 bg-sky-50/50 px-4 py-3 text-[16px] leading-relaxed text-slate-900 placeholder:text-slate-400 outline-none transition focus:bg-white focus:ring-2 focus:ring-sky-300/55"
                 : "min-h-[2.75rem] flex-1 resize-none rounded-2xl border border-slate-200/90 bg-slate-50/90 px-3.5 py-2.5 text-[15px] leading-snug text-slate-900 shadow-inner shadow-slate-200/40 outline-none ring-sky-300/30 transition focus:border-sky-300/80 focus:bg-white focus:ring-2"
             }
             onInput={(e) => {
               const el = e.currentTarget;
               el.style.height = "auto";
-              el.style.height = `${Math.min(el.scrollHeight, workspaceThread ? 132 : 120)}px`;
+              el.style.height = `${Math.min(el.scrollHeight, workspaceThread ? 144 : 120)}px`;
             }}
           />
           <button
             type="submit"
             className={
               workspaceThread
-                ? "mb-0.5 shrink-0 rounded-full bg-gradient-to-b from-sky-500 to-blue-700 px-[1.125rem] py-2.5 text-sm font-semibold text-white shadow-md shadow-sky-900/20 ring-1 ring-white/25 transition hover:brightness-[1.03] active:scale-[0.98] disabled:pointer-events-none disabled:opacity-35"
+                ? "mb-0.5 shrink-0 rounded-full bg-gradient-to-b from-sky-500 to-blue-800 px-6 py-3 text-sm font-bold tracking-wide text-white shadow-lg shadow-sky-900/25 ring-1 ring-white/30 transition hover:brightness-[1.04] active:scale-[0.98] disabled:pointer-events-none disabled:opacity-35"
                 : "shrink-0 rounded-full bg-gradient-to-r from-blue-950 via-blue-700 to-sky-500 px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-blue-900/25 transition hover:brightness-105 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-40"
             }
             disabled={!body.trim()}

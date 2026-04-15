@@ -7,11 +7,13 @@ type PageProps = {
 
 export default function WorkspaceSmsConversationPage(props: PageProps) {
   return (
-    <SmsConversationDetail
-      {...props}
-      inboxHref="/workspace/phone/inbox"
-      accessDeniedHref="/admin/phone"
-      workspaceShell
-    />
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <SmsConversationDetail
+        {...props}
+        inboxHref="/workspace/phone/inbox"
+        accessDeniedHref="/admin/phone"
+        workspaceShell
+      />
+    </div>
   );
 }

@@ -6,6 +6,7 @@
 export const CRM_CONTACT_TYPE_VALUES = [
   "patient",
   "lead",
+  "recruit",
   "referral",
   "physician",
   "facility",
@@ -18,11 +19,12 @@ export type CrmContactTypeValue = (typeof CRM_CONTACT_TYPE_VALUES)[number];
 export const CRM_CONTACT_TYPE_LABELS: Record<CrmContactTypeValue, string> = {
   patient: "Patient",
   lead: "Lead",
+  recruit: "Recruit",
   referral: "Referral",
   physician: "Physician",
   facility: "Facility",
   payer: "Payer",
-  other: "Other",
+  other: "Contact",
 };
 
 export function isCrmContactTypeValue(v: string): v is CrmContactTypeValue {
@@ -34,6 +36,8 @@ export function normalizeCrmContactType(raw: string | null | undefined): CrmCont
   const t = (raw ?? "").trim().toLowerCase();
   if (!t) return null;
   if (t === "payor") return "payer";
+  /** UI label "Contact" maps to canonical slug `other`. */
+  if (t === "contact") return "other";
   if (isCrmContactTypeValue(t)) return t;
   return null;
 }

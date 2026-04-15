@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { ChevronLeft } from "lucide-react";
 
 import {
   assignConversation,
@@ -13,6 +12,8 @@ import {
   updateConversationFollowUp,
 } from "../actions";
 import { SmsReplyComposer } from "./SmsReplyComposer";
+import { SmsThreadContactPanel } from "@/app/workspace/phone/inbox/_components/sms-thread-contact-panel";
+import { WorkspaceSmsConversationShell } from "@/app/workspace/phone/inbox/_components/workspace-sms-conversation-shell";
 import { WorkspaceSmsThreadView } from "@/app/workspace/phone/inbox/_components/WorkspaceSmsThreadView";
 import { supabaseAdmin } from "@/lib/admin";
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
@@ -165,7 +166,7 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
   const { data: conv, error: convErr } = await supabase
     .from("conversations")
     .select(
-      "id, created_at, updated_at, channel, main_phone_e164, last_message_at, lead_status, next_action, follow_up_due_at, follow_up_completed_at, assigned_to_user_id, assigned_at, primary_contact_id, metadata, contacts ( id, full_name, first_name, last_name, primary_phone, contact_type, email )"
+      "id, created_at, updated_at, channel, main_phone_e164, last_message_at, lead_status, next_action, follow_up_due_at, follow_up_completed_at, assigned_to_user_id, assigned_at, primary_contact_id, metadata, contacts ( id, full_name, first_name, last_name, primary_phone, contact_type, email, notes )"
     )
     .eq("id", conversationId)
     .eq("channel", "sms")
@@ -421,114 +422,102 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
     body: typeof m.body === "string" ? m.body : null,
   }));
 
+  const workspaceHeaderTitle = contactName
+    ? contactName
+    : unknownTexter
+      ? "Unknown"
+      : phoneDisplayFormatted;
+
+  const workspaceContactPanelInitial =
+    conv.primary_contact_id && contact
+      ? {
+          fullName: contactName ?? "",
+          email: typeof contact.email === "string" ? contact.email : "",
+          contactType: typeof contact.contact_type === "string" ? contact.contact_type : "other",
+          notes: typeof contact.notes === "string" ? contact.notes : "",
+        }
+      : null;
+
   if (workspaceShell) {
     return (
-      <div className="flex min-h-[calc(100dvh-8rem)] min-h-0 flex-1 flex-col overflow-hidden px-0 pb-28 sm:pb-32">
-        <header className="sticky top-0 z-20 shrink-0 border-b border-sky-200/40 bg-gradient-to-b from-white via-white to-sky-50/30 px-4 pb-4 pt-3 shadow-[0_8px_32px_-12px_rgba(15,23,42,0.08)] backdrop-blur-xl supports-[backdrop-filter]:bg-white/85 sm:px-5 sm:pb-5">
-          <Link
-            href={inboxHref}
-            className="inline-flex items-center gap-1 text-[13px] font-semibold tracking-wide text-sky-800/90 transition hover:text-sky-950"
-          >
-            <ChevronLeft className="h-4 w-4 opacity-80" aria-hidden />
-            Inbox
-          </Link>
-          <div className="mt-4 flex items-start justify-between gap-4">
-            <div className="min-w-0 flex-1">
-              <h1 className="truncate text-[1.35rem] font-semibold leading-[1.2] tracking-tight text-slate-900 sm:text-[1.5rem]">
-                {contactName ? contactName : unknownTexter ? "Unknown" : phoneDisplayFormatted}
-              </h1>
-              <p className="mt-1 font-mono text-[12px] font-normal tabular-nums tracking-tight text-slate-500">
-                {phoneDisplayFormatted}
-              </p>
-              <span className="mt-3 inline-flex items-center rounded-full border border-sky-200/70 bg-gradient-to-r from-sky-50 to-cyan-50/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-sky-900 shadow-sm shadow-sky-900/5 ring-1 ring-sky-100/80">
-                {workspaceEntityLabel}
-              </span>
-            </div>
-            <div className="flex shrink-0 flex-col items-end gap-2.5">
-              {workspaceCallHref ? (
-                <Link
-                  href={workspaceCallHref}
-                  className="inline-flex min-h-[2.5rem] items-center justify-center rounded-full bg-gradient-to-r from-sky-600 to-blue-700 px-4 text-sm font-semibold text-white shadow-md shadow-sky-900/20 ring-1 ring-white/20 transition hover:brightness-105 active:scale-[0.98]"
-                >
-                  Call
-                </Link>
-              ) : (
-                <span className="inline-flex min-h-[2.5rem] cursor-not-allowed items-center justify-center rounded-full border border-slate-200/90 bg-slate-50 px-4 text-sm font-semibold text-slate-400">
-                  Call
-                </span>
-              )}
-              {canOpenLeadInCrm && workspaceLeadId ? (
-                <Link
-                  href={`/admin/crm/leads/${workspaceLeadId}`}
-                  className="text-[12px] font-semibold text-sky-800 underline-offset-2 hover:text-sky-950 hover:underline"
-                >
-                  View CRM
-                </Link>
-              ) : workspacePatientId && canOpenWorkspacePatientDetail ? (
-                <Link
-                  href={`/workspace/phone/patients/${workspacePatientId}`}
-                  className="text-[12px] font-semibold text-sky-800 underline-offset-2 hover:text-sky-950 hover:underline"
-                >
-                  View patient
-                </Link>
-              ) : workspacePatientId ? (
-                <Link
-                  href="/workspace/phone/patients"
-                  className="text-[12px] font-semibold text-slate-600 underline-offset-2 hover:underline"
-                >
-                  Patients
-                </Link>
-              ) : null}
-            </div>
-          </div>
-        </header>
-
-        {ok === "intake" ? (
-          <div className="mx-4 mt-2 rounded-lg border border-sky-200/90 bg-phone-ice px-3 py-2 text-sm text-phone-ink">
-            Contact saved and linked to this thread.
-          </div>
-        ) : null}
-        {ok === "sms_sent" ? (
-          <div className="mx-4 mt-2 rounded-lg border border-sky-200/90 bg-phone-ice px-3 py-2 text-sm text-phone-ink">
-            Message sent.
-          </div>
-        ) : null}
-        {intakeErr ? (
-          <div className="mx-4 mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">
-            {intakeErr}
-          </div>
-        ) : null}
-        {smsSendErr ? (
-          <div className="mx-4 mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">
-            {smsSendErr}
-          </div>
-        ) : null}
-
-        {leadIdFromUrl && UUID_RE.test(leadIdFromUrl) ? (
-          <div className="mx-4 mt-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-950">
-            Deep-linked lead:{" "}
-            <Link href={`/admin/crm/leads/${leadIdFromUrl}`} className="font-semibold underline">
-              Open in CRM
+      <WorkspaceSmsConversationShell
+        inboxHref={inboxHref}
+        initialDisplayName={workspaceHeaderTitle}
+        initialPhoneLine={phoneDisplayFormatted}
+        initialBadge={workspaceEntityLabel}
+        workspaceCallHref={workspaceCallHref}
+        headerAside={
+          canOpenLeadInCrm && workspaceLeadId ? (
+            <Link
+              href={`/admin/crm/leads/${workspaceLeadId}`}
+              className="text-[12px] font-semibold text-sky-800 underline-offset-2 hover:text-sky-950 hover:underline"
+            >
+              View CRM
             </Link>
-          </div>
-        ) : null}
-
-        <div className="flex min-h-0 flex-1 flex-col bg-gradient-to-b from-slate-100/50 via-sky-50/20 to-white">
-          <WorkspaceSmsThreadView
-            key={`${conversationId}-${threadMessages.length}`}
-            conversationId={conversationId}
-            initialMessages={threadMessages}
-            initialSuggestion={initialSmsSuggestion}
-            suggestionForMessageId={
-              initialSmsSuggestion && suggestionMeta ? suggestionMeta.for_message_id : null
-            }
-            composerInitialDraft={composerInitialDraft}
-            belowComposerSlot={
-        <details className="mx-3 mb-2 shrink-0 rounded-2xl border border-slate-200/90 bg-white/95 text-sm shadow-sm">
+          ) : workspacePatientId && canOpenWorkspacePatientDetail ? (
+            <Link
+              href={`/workspace/phone/patients/${workspacePatientId}`}
+              className="text-[12px] font-semibold text-sky-800 underline-offset-2 hover:text-sky-950 hover:underline"
+            >
+              View patient
+            </Link>
+          ) : workspacePatientId ? (
+            <Link
+              href="/workspace/phone/patients"
+              className="text-[12px] font-semibold text-slate-600 underline-offset-2 hover:underline"
+            >
+              Patients
+            </Link>
+          ) : null
+        }
+        banners={
+          <>
+            {ok === "intake" ? (
+              <div className="mx-4 mt-2 rounded-lg border border-sky-200/90 bg-phone-ice px-3 py-2 text-sm text-phone-ink">
+                Contact saved and linked to this thread.
+              </div>
+            ) : null}
+            {ok === "sms_sent" ? (
+              <div className="mx-4 mt-2 rounded-lg border border-sky-200/90 bg-phone-ice px-3 py-2 text-sm text-phone-ink">
+                Message sent.
+              </div>
+            ) : null}
+            {intakeErr ? (
+              <div className="mx-4 mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">
+                {intakeErr}
+              </div>
+            ) : null}
+            {smsSendErr ? (
+              <div className="mx-4 mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">
+                {smsSendErr}
+              </div>
+            ) : null}
+            {leadIdFromUrl && UUID_RE.test(leadIdFromUrl) ? (
+              <div className="mx-4 mt-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-950">
+                Deep-linked lead:{" "}
+                <Link href={`/admin/crm/leads/${leadIdFromUrl}`} className="font-semibold underline">
+                  Open in CRM
+                </Link>
+              </div>
+            ) : null}
+          </>
+        }
+      >
+        <WorkspaceSmsThreadView
+          key={`${conversationId}-${threadMessages.length}`}
+          conversationId={conversationId}
+          initialMessages={threadMessages}
+          initialSuggestion={initialSmsSuggestion}
+          suggestionForMessageId={
+            initialSmsSuggestion && suggestionMeta ? suggestionMeta.for_message_id : null
+          }
+          composerInitialDraft={composerInitialDraft}
+          belowComposerSlot={
+        <details className="mx-auto mb-2 w-full max-w-[40rem] shrink-0 rounded-2xl border border-slate-200/90 bg-white/95 text-sm shadow-md shadow-slate-900/5 ring-1 ring-slate-100/80">
           <summary className="cursor-pointer list-none px-4 py-3 font-semibold text-slate-800 [&::-webkit-details-marker]:hidden">
             <span className="text-slate-500">▸</span> Thread details & CRM
           </summary>
-          <div className="max-h-[min(50vh,26rem)] overflow-y-auto overscroll-contain border-t border-slate-100 px-3 pb-4 pt-2">
+          <div className="max-h-[min(42vh,20rem)] overflow-y-auto overscroll-y-contain border-t border-slate-100 px-3 pb-4 pt-2 md:max-h-[min(48vh,24rem)]">
             {(aiMini.summary || aiMini.category || aiMini.urgency) && (
               <section className="mb-4 rounded-xl border border-sky-100 bg-sky-50/50 p-3">
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-sky-800">AI insight</p>
@@ -725,177 +714,18 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
               </div>
             </section>
 
-            <section className="mt-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-              <h2 className="text-sm font-semibold text-slate-900">CRM</h2>
-              {contact && conv.primary_contact_id ? (
-                <dl className="mt-3 grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
-                  <div>
-                    <dt className="text-xs text-slate-500">Name</dt>
-                    <dd>{contactName ?? "—"}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs text-slate-500">Type</dt>
-                    <dd>{typeof contact.contact_type === "string" ? contact.contact_type : "—"}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs text-slate-500">Email</dt>
-                    <dd>{typeof contact.email === "string" && contact.email.trim() ? contact.email : "—"}</dd>
-                  </div>
-                </dl>
-              ) : (
-                <div className="mt-3">
-                  {unknownTexter ? (
-                    <p className="rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-sm text-amber-950">
-                      New unknown texter — not in CRM yet (auto-detected from SMS). Add a contact below when
-                      ready.
-                    </p>
-                  ) : (
-                    <p className="text-sm text-slate-600">No linked contact.</p>
-                  )}
-                  <form
-                    action={createContactIntakeFromConversation}
-                    className="mt-3 max-w-md space-y-3 rounded-xl border border-slate-200 bg-slate-50/50 p-3"
-                  >
-                    <input type="hidden" name="conversationId" value={conversationId} />
-                    <input type="hidden" name="returnTo" value="workspace" />
-                    <div className="space-y-2">
-                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                        <div>
-                          <label className="block text-xs font-medium text-slate-600">First name</label>
-                          <input
-                            name="firstName"
-                            className="mt-0.5 w-full rounded border border-slate-200 px-2 py-1.5 text-sm"
-                            placeholder="First name"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-slate-600">Last name</label>
-                          <input
-                            name="lastName"
-                            className="mt-0.5 w-full rounded border border-slate-200 px-2 py-1.5 text-sm"
-                            placeholder="Last name"
-                          />
-                        </div>
-                      </div>
-
-                      <div>
-                        <label className="block text-xs font-medium text-slate-600">
-                          Full name <span className="text-slate-500">(optional if first name provided)</span>
-                        </label>
-                        <input
-                          name="fullName"
-                          className="mt-0.5 w-full rounded border border-slate-200 px-2 py-1.5 text-sm"
-                          placeholder="Full name"
-                        />
-                        <p className="mt-1 text-[11px] text-slate-500">Required: first name OR full name.</p>
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-medium text-slate-600">Phone</label>
-                      <input
-                        name="phone"
-                        required
-                        defaultValue={phoneDisplay !== "—" ? phoneDisplay : ""}
-                        className="mt-0.5 w-full rounded border border-slate-200 px-2 py-1.5 text-sm"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-medium text-slate-600">Type</label>
-                      <select
-                        name="intakeType"
-                        required
-                        className="mt-0.5 w-full rounded border border-slate-200 px-2 py-1.5 text-sm"
-                        defaultValue="patient"
-                      >
-                        <option value="patient">Patient</option>
-                        <option value="family">Family</option>
-                        <option value="referral">Referral</option>
-                      </select>
-                    </div>
-
-                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                      <div>
-                        <label className="block text-xs font-medium text-slate-600">Email</label>
-                        <input
-                          name="email"
-                          className="mt-0.5 w-full rounded border border-slate-200 px-2 py-1.5 text-sm"
-                          placeholder="Email"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-slate-600">Referral source</label>
-                        <input
-                          name="referralSource"
-                          className="mt-0.5 w-full rounded border border-slate-200 px-2 py-1.5 text-sm"
-                          placeholder="Referral source"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="space-y-2">
-                      <div>
-                        <label className="block text-xs font-medium text-slate-600">Address line 1</label>
-                        <input
-                          name="addressLine1"
-                          className="mt-0.5 w-full rounded border border-slate-200 px-2 py-1.5 text-sm"
-                          placeholder="Address line 1"
-                        />
-                      </div>
-                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                        <div>
-                          <label className="block text-xs font-medium text-slate-600">City</label>
-                          <input
-                            name="city"
-                            className="mt-0.5 w-full rounded border border-slate-200 px-2 py-1.5 text-sm"
-                            placeholder="City"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-slate-600">State</label>
-                          <input
-                            name="state"
-                            className="mt-0.5 w-full rounded border border-slate-200 px-2 py-1.5 text-sm"
-                            placeholder="State"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-slate-600">Zip</label>
-                          <input
-                            name="zip"
-                            className="mt-0.5 w-full rounded border border-slate-200 px-2 py-1.5 text-sm"
-                            placeholder="Zip"
-                          />
-                        </div>
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-medium text-slate-600">Notes</label>
-                      <textarea
-                        name="notes"
-                        rows={3}
-                        className="mt-0.5 w-full resize-none rounded border border-slate-200 px-2 py-1.5 text-sm"
-                        placeholder="Notes"
-                      />
-                    </div>
-                    <button
-                      type="submit"
-                      className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-semibold text-white hover:bg-slate-800"
-                    >
-                      Create contact / intake
-                    </button>
-                  </form>
-                </div>
-              )}
-            </section>
+            <SmsThreadContactPanel
+              conversationId={conversationId}
+              phoneDisplayFormatted={phoneDisplayFormatted}
+              hasPrimaryContact={Boolean(conv.primary_contact_id)}
+              unknownTexter={unknownTexter}
+              initial={workspaceContactPanelInitial}
+            />
           </div>
         </details>
             }
           />
-        </div>
-      </div>
+      </WorkspaceSmsConversationShell>
     );
   }
 
