@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
 import { SmsReplyComposer } from "@/app/admin/phone/messages/_components/SmsReplyComposer";
 import { formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
+import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
 
 export type ThreadMessage = {
   id: string;
@@ -14,6 +15,38 @@ export type ThreadMessage = {
 
 const INITIAL_WINDOW = 8;
 const WINDOW_STEP = 8;
+
+/** Fallback when realtime is slow or unavailable; safe overlap with focus + postgres listener. */
+const POLL_INTERVAL_MS = 12_000;
+
+/** If scroll is within this distance of the bottom, treat as “following” the thread (auto-scroll on new inbound). */
+const NEAR_BOTTOM_THRESHOLD_PX = 88;
+
+function parseRealtimeMessage(row: unknown): ThreadMessage | null {
+  if (!row || typeof row !== "object") return null;
+  const r = row as Record<string, unknown>;
+  const id = r.id;
+  if (typeof id !== "string" || !id) return null;
+  return {
+    id,
+    created_at: typeof r.created_at === "string" ? r.created_at : null,
+    direction: typeof r.direction === "string" ? r.direction : "",
+    body: typeof r.body === "string" ? r.body : null,
+  };
+}
+
+function sortThreadMessages(rows: ThreadMessage[]): ThreadMessage[] {
+  return [...rows].sort((a, b) =>
+    String(a.created_at ?? "").localeCompare(String(b.created_at ?? ""))
+  );
+}
+
+function mergeThreadById(prev: ThreadMessage[], incoming: ThreadMessage[]): ThreadMessage[] {
+  const byId = new Map<string, ThreadMessage>();
+  for (const m of prev) byId.set(m.id, m);
+  for (const m of incoming) byId.set(m.id, m);
+  return sortThreadMessages([...byId.values()]);
+}
 
 type Props = {
   conversationId: string;
@@ -33,6 +66,7 @@ export function WorkspaceSmsThreadView({
   composerInitialDraft,
   belowComposerSlot,
 }: Props) {
+  const [serverMessages, setServerMessages] = useState<ThreadMessage[]>(() => initialMessages);
   const [optimistic, setOptimistic] = useState<ThreadMessage[]>([]);
   const [windowStart, setWindowStart] = useState(() =>
     Math.max(0, initialMessages.length - INITIAL_WINDOW)
@@ -40,8 +74,9 @@ export function WorkspaceSmsThreadView({
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const loadEarlierPreserveRef = useRef<{ prevHeight: number } | null>(null);
+  const nearBottomRef = useRef(true);
 
-  const visibleBase = initialMessages.slice(windowStart);
+  const visibleBase = serverMessages.slice(windowStart);
   const merged = [...visibleBase, ...optimistic];
 
   const canLoadEarlier = windowStart > 0;
@@ -63,19 +98,116 @@ export function WorkspaceSmsThreadView({
     loadEarlierPreserveRef.current = null;
   }, [windowStart]);
 
-  useEffect(() => {
-    const id = requestAnimationFrame(() => {
+  const updateNearBottom = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const gap = el.scrollHeight - el.scrollTop - el.clientHeight;
+    nearBottomRef.current = gap <= NEAR_BOTTOM_THRESHOLD_PX;
+  }, []);
+
+  const scrollToBottomIfFollowing = useCallback((behavior: ScrollBehavior) => {
+    if (!nearBottomRef.current) return;
+    requestAnimationFrame(() => {
+      bottomRef.current?.scrollIntoView({ behavior, block: "end" });
+    });
+  }, []);
+
+  const applyIncomingRows = useCallback(
+    (incoming: ThreadMessage[], opts: { scroll: "auto-if-following" | "never" }) => {
+      setServerMessages((prev) => mergeThreadById(prev, incoming));
+      setOptimistic((optPrev) =>
+        optPrev.filter((m) => {
+          if (!m.id.startsWith("optimistic-")) return true;
+          return !incoming.some(
+            (row) =>
+              String(row.direction).toLowerCase() === "outbound" &&
+              String(row.body ?? "").trim() === String(m.body ?? "").trim()
+          );
+        })
+      );
+      if (opts.scroll === "auto-if-following") {
+        scrollToBottomIfFollowing("smooth");
+      }
+    },
+    [scrollToBottomIfFollowing]
+  );
+
+  const fetchLatestMessages = useCallback(async () => {
+    const supabase = createBrowserSupabaseClient();
+    const { data, error } = await supabase
+      .from("messages")
+      .select("id, created_at, direction, body")
+      .eq("conversation_id", conversationId)
+      .order("created_at", { ascending: true });
+    if (error || !data) return;
+    const rows: ThreadMessage[] = data.map((row) => ({
+      id: String(row.id),
+      created_at: typeof row.created_at === "string" ? row.created_at : null,
+      direction: typeof row.direction === "string" ? row.direction : "",
+      body: typeof row.body === "string" ? row.body : null,
+    }));
+    applyIncomingRows(rows, { scroll: "auto-if-following" });
+  }, [applyIncomingRows, conversationId]);
+
+  useLayoutEffect(() => {
+    nearBottomRef.current = true;
+    requestAnimationFrame(() => {
       bottomRef.current?.scrollIntoView({ block: "end" });
     });
-    return () => cancelAnimationFrame(id);
-  }, [conversationId, initialMessages.length]);
+  }, [conversationId]);
 
   useEffect(() => {
     if (optimistic.length === 0) return;
+    nearBottomRef.current = true;
     requestAnimationFrame(() => {
       bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
     });
   }, [optimistic.length]);
+
+  useEffect(() => {
+    const supabase = createBrowserSupabaseClient();
+    const channel = supabase
+      .channel(`workspace_sms_thread:${conversationId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "messages",
+          filter: `conversation_id=eq.${conversationId}`,
+        },
+        (payload) => {
+          const row = parseRealtimeMessage(payload.new);
+          if (!row || !row.id) return;
+          applyIncomingRows([row], { scroll: "auto-if-following" });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [applyIncomingRows, conversationId]);
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      void fetchLatestMessages();
+    }, POLL_INTERVAL_MS);
+    return () => window.clearInterval(id);
+  }, [fetchLatestMessages]);
+
+  useEffect(() => {
+    const onFocusOrVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      void fetchLatestMessages();
+    };
+    window.addEventListener("focus", onFocusOrVisible);
+    document.addEventListener("visibilitychange", onFocusOrVisible);
+    return () => {
+      window.removeEventListener("focus", onFocusOrVisible);
+      document.removeEventListener("visibilitychange", onFocusOrVisible);
+    };
+  }, [fetchLatestMessages]);
 
   const handleOptimistic = (body: string) => {
     const id = `optimistic-${Date.now()}`;
@@ -94,6 +226,7 @@ export function WorkspaceSmsThreadView({
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <div
         ref={scrollRef}
+        onScroll={updateNearBottom}
         className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-3 pt-4 sm:px-5 sm:pb-4 sm:pt-5"
         style={{ WebkitOverflowScrolling: "touch" }}
       >
