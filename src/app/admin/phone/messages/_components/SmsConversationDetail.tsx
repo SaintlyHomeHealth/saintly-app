@@ -47,6 +47,8 @@ export type SmsConversationDetailProps = {
   accessDeniedHref?: string;
   /** Extra bottom padding when rendered inside a fixed bottom nav shell. */
   workspaceShell?: boolean;
+  /** Desktop inbox split: CRM in right column; thread list stays on `/workspace/phone/inbox`. */
+  workspaceDesktopSplit?: boolean;
 };
 
 function intakeErrLabel(code: string | undefined): string | null {
@@ -140,7 +142,14 @@ function isoToDatetimeLocalValue(iso: string | null): string {
 }
 
 export async function SmsConversationDetail(props: SmsConversationDetailProps) {
-  const { params, searchParams, inboxHref, accessDeniedHref = "/admin/phone", workspaceShell } = props;
+  const {
+    params,
+    searchParams,
+    inboxHref,
+    accessDeniedHref = "/admin/phone",
+    workspaceShell,
+    workspaceDesktopSplit = false,
+  } = props;
 
   const staff = await getStaffProfile();
   if (!staff || !canAccessWorkspacePhone(staff)) {
@@ -438,8 +447,241 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
         }
       : null;
 
+  const workspaceCrmPanelInner = (
+    <>
+      {(aiMini.summary || aiMini.category || aiMini.urgency) && (
+        <section className="mb-4 rounded-xl border border-sky-100 bg-sky-50/50 p-3">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-sky-800">AI insight</p>
+          {aiMini.summary ? (
+            <p className="mt-1 text-sm text-slate-700">{aiMini.summary}</p>
+          ) : (
+            <p className="mt-1 text-sm text-slate-500">No AI summary yet for this thread.</p>
+          )}
+          <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
+            {aiMini.category ? (
+              <span className="rounded-full bg-white px-2 py-0.5 font-semibold text-slate-700">
+                {aiMini.category.replace(/_/g, " ")}
+              </span>
+            ) : null}
+            {aiMini.urgency ? (
+              <span className="rounded-full bg-white px-2 py-0.5 font-semibold text-slate-700">
+                {aiMini.urgency}
+              </span>
+            ) : null}
+          </div>
+        </section>
+      )}
+
+      <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <h2 className="text-sm font-semibold text-slate-900">Assignment</h2>
+        <div className="mt-3 space-y-3 text-sm">
+          <div>
+            <p className="text-xs font-medium text-slate-500">Lead status</p>
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              {leadBadge}
+              <form action={updateConversationLeadStatus} className="flex items-center gap-2">
+                <input type="hidden" name="conversationId" value={conversationId} />
+                <label className="sr-only" htmlFor="leadStatusWs">
+                  Lead status
+                </label>
+                <select
+                  id="leadStatusWs"
+                  name="leadStatus"
+                  defaultValue={leadStatus}
+                  required
+                  className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-sm text-slate-900"
+                >
+                  <option value="unclassified">Unclassified</option>
+                  <option value="new_lead">New lead</option>
+                  <option value="contacted">Contacted</option>
+                  <option value="scheduled">Scheduled</option>
+                  <option value="admitted">Admitted</option>
+                  <option value="not_qualified">Not qualified</option>
+                </select>
+                <button
+                  type="submit"
+                  className="rounded-lg bg-sky-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-sky-700"
+                >
+                  Update
+                </button>
+              </form>
+            </div>
+          </div>
+          <div>
+            <p className="text-xs font-medium text-slate-500">Assigned to</p>
+            <p className="mt-1 font-medium text-slate-900">{assigneeLabel ?? "Unassigned"}</p>
+            {conv.assigned_at ? (
+              <p className="mt-0.5 text-xs text-slate-500">
+                Since {formatAdminPhoneWhen(typeof conv.assigned_at === "string" ? conv.assigned_at : null)}
+              </p>
+            ) : null}
+          </div>
+          {canClaim ? (
+            <form action={claimConversation}>
+              <input type="hidden" name="conversationId" value={conversationId} />
+              <button
+                type="submit"
+                className="rounded-lg bg-sky-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-sky-700"
+              >
+                Claim conversation
+              </button>
+            </form>
+          ) : null}
+          {hasFull ? (
+            <form action={assignConversation} className="flex flex-wrap items-center gap-2">
+              <input type="hidden" name="conversationId" value={conversationId} />
+              <label className="text-slate-600">
+                Reassign
+                <select
+                  name="assignToUserId"
+                  defaultValue={assignedTo ?? ""}
+                  required
+                  className="ml-2 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-slate-900"
+                >
+                  <option value="" disabled>
+                    Select staff…
+                  </option>
+                  {assignedTo && !assignableStaff.some((s) => s.user_id === assignedTo) ? (
+                    <option value={assignedTo}>{assigneeLabel ?? `${assignedTo.slice(0, 8)}…`} (current)</option>
+                  ) : null}
+                  {assignableStaff.map((s) => (
+                    <option key={s.user_id} value={s.user_id}>
+                      {s.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="submit"
+                className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-800 hover:bg-slate-50"
+              >
+                Assign
+              </button>
+            </form>
+          ) : null}
+          {isAdminOrHigher(staff) ? (
+            <form action={unassignConversation} className="pt-1">
+              <input type="hidden" name="conversationId" value={conversationId} />
+              <button
+                type="submit"
+                className="text-xs font-medium text-slate-500 underline hover:text-slate-800"
+              >
+                Unassign (admin)
+              </button>
+            </form>
+          ) : null}
+        </div>
+      </section>
+
+      <section className="mt-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <h2 className="text-sm font-semibold text-slate-900">Next action</h2>
+        <div className="mt-3 space-y-3 text-sm">
+          {followUpCompletedAt ? (
+            <div className="rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-2 text-emerald-900">
+              Completed {formatAdminPhoneWhen(followUpCompletedAt)}
+            </div>
+          ) : null}
+
+          <form action={updateConversationFollowUp} className="space-y-3">
+            <input type="hidden" name="conversationId" value={conversationId} />
+
+            <div>
+              <label className="block text-xs font-medium text-slate-600">Next action</label>
+              <input
+                name="nextAction"
+                defaultValue={nextAction}
+                className="mt-0.5 w-full rounded border border-slate-200 bg-white px-2 py-1.5 text-sm"
+                placeholder="e.g. Call back / Schedule assessment"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-600">Due</label>
+              <input
+                type="datetime-local"
+                name="dueAt"
+                defaultValue={isoToDatetimeLocalValue(followUpDueAt)}
+                className="mt-0.5 w-full rounded border border-slate-200 bg-white px-2 py-1.5 text-sm"
+              />
+              {followUpDueAt ? (
+                <p className="mt-1 text-[11px] text-slate-500">
+                  Current: {formatAdminPhoneWhen(followUpDueAt)}
+                </p>
+              ) : (
+                <p className="mt-1 text-[11px] text-slate-500">Optional</p>
+              )}
+            </div>
+
+            <button
+              type="submit"
+              className="rounded-lg bg-sky-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-sky-700"
+            >
+              Save / update
+            </button>
+          </form>
+
+          {!followUpCompletedAt ? (
+            <>
+              <form action={completeConversationFollowUp}>
+                <input type="hidden" name="conversationId" value={conversationId} />
+                <button
+                  type="submit"
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-800 hover:bg-slate-50"
+                >
+                  Mark complete
+                </button>
+              </form>
+              <form action={clearConversationFollowUp}>
+                <input type="hidden" name="conversationId" value={conversationId} />
+                <button
+                  type="submit"
+                  className="w-full text-xs font-medium text-slate-500 underline hover:text-slate-800"
+                >
+                  Clear next action
+                </button>
+              </form>
+            </>
+          ) : null}
+        </div>
+      </section>
+
+      <SmsThreadContactPanel
+        conversationId={conversationId}
+        phoneDisplayFormatted={phoneDisplayFormatted}
+        hasPrimaryContact={Boolean(conv.primary_contact_id)}
+        unknownTexter={unknownTexter}
+        initial={workspaceContactPanelInitial}
+      />
+    </>
+  );
+
   if (workspaceShell) {
-    return (
+    const threadView = (
+      <WorkspaceSmsThreadView
+        key={`${conversationId}-${threadMessages.length}`}
+        conversationId={conversationId}
+        initialMessages={threadMessages}
+        initialSuggestion={initialSmsSuggestion}
+        suggestionForMessageId={
+          initialSmsSuggestion && suggestionMeta ? suggestionMeta.for_message_id : null
+        }
+        composerInitialDraft={composerInitialDraft}
+        threadTopSlot={
+          workspaceDesktopSplit ? null : (
+            <details className="w-full rounded-xl border border-slate-200/90 bg-white/95 text-sm shadow-sm shadow-slate-900/5 ring-1 ring-slate-100/80">
+              <summary className="cursor-pointer list-none px-3 py-2.5 font-semibold text-slate-800 [&::-webkit-details-marker]:hidden">
+                <span className="text-slate-500">▸</span> Thread details & CRM
+              </summary>
+              <div className="max-h-[min(42vh,20rem)] overflow-y-auto overscroll-y-contain border-t border-slate-100 px-3 pb-4 pt-2 md:max-h-[min(48vh,24rem)]">
+                {workspaceCrmPanelInner}
+              </div>
+            </details>
+          )
+        }
+      />
+    );
+
+    const shell = (
       <WorkspaceSmsConversationShell
         inboxHref={inboxHref}
         initialDisplayName={workspaceHeaderTitle}
@@ -503,230 +745,27 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
           </>
         }
       >
-        <WorkspaceSmsThreadView
-          key={`${conversationId}-${threadMessages.length}`}
-          conversationId={conversationId}
-          initialMessages={threadMessages}
-          initialSuggestion={initialSmsSuggestion}
-          suggestionForMessageId={
-            initialSmsSuggestion && suggestionMeta ? suggestionMeta.for_message_id : null
-          }
-          composerInitialDraft={composerInitialDraft}
-          threadTopSlot={
-        <details className="w-full rounded-xl border border-slate-200/90 bg-white/95 text-sm shadow-sm shadow-slate-900/5 ring-1 ring-slate-100/80">
-          <summary className="cursor-pointer list-none px-3 py-2.5 font-semibold text-slate-800 [&::-webkit-details-marker]:hidden">
-            <span className="text-slate-500">▸</span> Thread details & CRM
-          </summary>
-          <div className="max-h-[min(42vh,20rem)] overflow-y-auto overscroll-y-contain border-t border-slate-100 px-3 pb-4 pt-2 md:max-h-[min(48vh,24rem)]">
-            {(aiMini.summary || aiMini.category || aiMini.urgency) && (
-              <section className="mb-4 rounded-xl border border-sky-100 bg-sky-50/50 p-3">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-sky-800">AI insight</p>
-                {aiMini.summary ? (
-                  <p className="mt-1 text-sm text-slate-700">{aiMini.summary}</p>
-                ) : (
-                  <p className="mt-1 text-sm text-slate-500">No AI summary yet for this thread.</p>
-                )}
-                <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
-                  {aiMini.category ? (
-                    <span className="rounded-full bg-white px-2 py-0.5 font-semibold text-slate-700">
-                      {aiMini.category.replace(/_/g, " ")}
-                    </span>
-                  ) : null}
-                  {aiMini.urgency ? (
-                    <span className="rounded-full bg-white px-2 py-0.5 font-semibold text-slate-700">
-                      {aiMini.urgency}
-                    </span>
-                  ) : null}
-                </div>
-              </section>
-            )}
-
-            <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-              <h2 className="text-sm font-semibold text-slate-900">Assignment</h2>
-              <div className="mt-3 space-y-3 text-sm">
-                <div>
-                  <p className="text-xs font-medium text-slate-500">Lead status</p>
-                  <div className="mt-1 flex flex-wrap items-center gap-2">
-                    {leadBadge}
-                    <form action={updateConversationLeadStatus} className="flex items-center gap-2">
-                      <input type="hidden" name="conversationId" value={conversationId} />
-                      <label className="sr-only" htmlFor="leadStatusWs">
-                        Lead status
-                      </label>
-                      <select
-                        id="leadStatusWs"
-                        name="leadStatus"
-                        defaultValue={leadStatus}
-                        required
-                        className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-sm text-slate-900"
-                      >
-                        <option value="unclassified">Unclassified</option>
-                        <option value="new_lead">New lead</option>
-                        <option value="contacted">Contacted</option>
-                        <option value="scheduled">Scheduled</option>
-                        <option value="admitted">Admitted</option>
-                        <option value="not_qualified">Not qualified</option>
-                      </select>
-                      <button
-                        type="submit"
-                        className="rounded-lg bg-sky-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-sky-700"
-                      >
-                        Update
-                      </button>
-                    </form>
-                  </div>
-                </div>
-                <div>
-                  <p className="text-xs font-medium text-slate-500">Assigned to</p>
-                  <p className="mt-1 font-medium text-slate-900">{assigneeLabel ?? "Unassigned"}</p>
-                  {conv.assigned_at ? (
-                    <p className="mt-0.5 text-xs text-slate-500">
-                      Since {formatAdminPhoneWhen(typeof conv.assigned_at === "string" ? conv.assigned_at : null)}
-                    </p>
-                  ) : null}
-                </div>
-                {canClaim ? (
-                  <form action={claimConversation}>
-                    <input type="hidden" name="conversationId" value={conversationId} />
-                    <button
-                      type="submit"
-                      className="rounded-lg bg-sky-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-sky-700"
-                    >
-                      Claim conversation
-                    </button>
-                  </form>
-                ) : null}
-                {hasFull ? (
-                  <form action={assignConversation} className="flex flex-wrap items-center gap-2">
-                    <input type="hidden" name="conversationId" value={conversationId} />
-                    <label className="text-slate-600">
-                      Reassign
-                      <select
-                        name="assignToUserId"
-                        defaultValue={assignedTo ?? ""}
-                        required
-                        className="ml-2 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-slate-900"
-                      >
-                        <option value="" disabled>
-                          Select staff…
-                        </option>
-                        {assignedTo && !assignableStaff.some((s) => s.user_id === assignedTo) ? (
-                          <option value={assignedTo}>{assigneeLabel ?? `${assignedTo.slice(0, 8)}…`} (current)</option>
-                        ) : null}
-                        {assignableStaff.map((s) => (
-                          <option key={s.user_id} value={s.user_id}>
-                            {s.label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <button
-                      type="submit"
-                      className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-800 hover:bg-slate-50"
-                    >
-                      Assign
-                    </button>
-                  </form>
-                ) : null}
-                {isAdminOrHigher(staff) ? (
-                  <form action={unassignConversation} className="pt-1">
-                    <input type="hidden" name="conversationId" value={conversationId} />
-                    <button
-                      type="submit"
-                      className="text-xs font-medium text-slate-500 underline hover:text-slate-800"
-                    >
-                      Unassign (admin)
-                    </button>
-                  </form>
-                ) : null}
-              </div>
-            </section>
-
-            <section className="mt-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-              <h2 className="text-sm font-semibold text-slate-900">Next action</h2>
-              <div className="mt-3 space-y-3 text-sm">
-                {followUpCompletedAt ? (
-                  <div className="rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-2 text-emerald-900">
-                    Completed {formatAdminPhoneWhen(followUpCompletedAt)}
-                  </div>
-                ) : null}
-
-                <form action={updateConversationFollowUp} className="space-y-3">
-                  <input type="hidden" name="conversationId" value={conversationId} />
-
-                  <div>
-                    <label className="block text-xs font-medium text-slate-600">Next action</label>
-                    <input
-                      name="nextAction"
-                      defaultValue={nextAction}
-                      className="mt-0.5 w-full rounded border border-slate-200 bg-white px-2 py-1.5 text-sm"
-                      placeholder="e.g. Call back / Schedule assessment"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-medium text-slate-600">Due</label>
-                    <input
-                      type="datetime-local"
-                      name="dueAt"
-                      defaultValue={isoToDatetimeLocalValue(followUpDueAt)}
-                      className="mt-0.5 w-full rounded border border-slate-200 bg-white px-2 py-1.5 text-sm"
-                    />
-                    {followUpDueAt ? (
-                      <p className="mt-1 text-[11px] text-slate-500">
-                        Current: {formatAdminPhoneWhen(followUpDueAt)}
-                      </p>
-                    ) : (
-                      <p className="mt-1 text-[11px] text-slate-500">Optional</p>
-                    )}
-                  </div>
-
-                  <button
-                    type="submit"
-                    className="rounded-lg bg-sky-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-sky-700"
-                  >
-                    Save / update
-                  </button>
-                </form>
-
-                {!followUpCompletedAt ? (
-                  <>
-                    <form action={completeConversationFollowUp}>
-                      <input type="hidden" name="conversationId" value={conversationId} />
-                      <button
-                        type="submit"
-                        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-800 hover:bg-slate-50"
-                      >
-                        Mark complete
-                      </button>
-                    </form>
-                    <form action={clearConversationFollowUp}>
-                      <input type="hidden" name="conversationId" value={conversationId} />
-                      <button
-                        type="submit"
-                        className="w-full text-xs font-medium text-slate-500 underline hover:text-slate-800"
-                      >
-                        Clear next action
-                      </button>
-                    </form>
-                  </>
-                ) : null}
-              </div>
-            </section>
-
-            <SmsThreadContactPanel
-              conversationId={conversationId}
-              phoneDisplayFormatted={phoneDisplayFormatted}
-              hasPrimaryContact={Boolean(conv.primary_contact_id)}
-              unknownTexter={unknownTexter}
-              initial={workspaceContactPanelInitial}
-            />
-          </div>
-        </details>
-            }
-          />
+        {threadView}
       </WorkspaceSmsConversationShell>
     );
+
+    if (workspaceDesktopSplit) {
+      return (
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">{shell}</div>
+          <aside className="hidden min-h-0 w-[min(22rem,34vw)] shrink-0 flex-col overflow-hidden border-l border-sky-100/80 bg-white lg:flex">
+            <div className="shrink-0 border-b border-sky-100/70 px-3 py-2.5">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Contact & CRM</p>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-3 py-3 pb-6">
+              {workspaceCrmPanelInner}
+            </div>
+          </aside>
+        </div>
+      );
+    }
+
+    return shell;
   }
 
   return (

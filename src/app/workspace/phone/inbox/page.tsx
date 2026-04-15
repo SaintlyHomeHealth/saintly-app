@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { InboxIcon } from "lucide-react";
+import { InboxIcon, MessageSquare } from "lucide-react";
+
+import { SmsConversationDetail } from "@/app/admin/phone/messages/_components/SmsConversationDetail";
 
 import { InboxScrollRestorer } from "./_components/InboxScrollRestorer";
 import { InboxSearchBar } from "./_components/InboxSearchBar";
@@ -16,6 +18,21 @@ import {
   hasFullCallVisibility,
 } from "@/lib/staff-profile";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+
+const INBOX_UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function inboxDesktopUrl(conversationId: string, q: string): string {
+  const p = new URLSearchParams();
+  p.set("thread", conversationId);
+  if (q) p.set("q", q);
+  return `/workspace/phone/inbox?${p.toString()}`;
+}
+
+function inboxMobileUrl(conversationId: string, q: string): string {
+  if (q) return `/workspace/phone/inbox/${conversationId}?${new URLSearchParams({ q }).toString()}`;
+  return `/workspace/phone/inbox/${conversationId}`;
+}
 
 type ContactEmbed = {
   id?: unknown;
@@ -84,7 +101,8 @@ type PageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
-export default async function WorkspaceInboxPage({ searchParams }: PageProps) {
+export default async function WorkspaceInboxPage(props: PageProps) {
+  const { searchParams } = props;
   const perfStart = routePerfStart();
   const staff = await getStaffProfile();
   if (!staff || !canAccessWorkspacePhone(staff)) {
@@ -93,6 +111,8 @@ export default async function WorkspaceInboxPage({ searchParams }: PageProps) {
 
   const sp = (await searchParams) ?? {};
   const qRaw = typeof sp.q === "string" ? sp.q.trim() : "";
+  const threadRaw = typeof sp.thread === "string" ? sp.thread.trim() : "";
+  const selectedThreadValid = INBOX_UUID_RE.test(threadRaw);
 
   const hasFull = hasFullCallVisibility(staff);
   const supabase = await createServerSupabaseClient();
@@ -191,109 +211,156 @@ export default async function WorkspaceInboxPage({ searchParams }: PageProps) {
     routePerfLog("workspace/phone/inbox", perfStart);
   }
 
-  const threadHref = (id: string) =>
-    qRaw ? `/workspace/phone/inbox/${id}?${new URLSearchParams({ q: qRaw }).toString()}` : `/workspace/phone/inbox/${id}`;
+  const inboxListBackHref = qRaw
+    ? `/workspace/phone/inbox?${new URLSearchParams({ q: qRaw }).toString()}`
+    : "/workspace/phone/inbox";
 
   return (
-    <div className="ws-phone-page-shell flex flex-1 flex-col px-4 pb-28 pt-5 sm:px-5 sm:pb-32">
-      <WorkspacePhonePageHeader
-        title="Inbox"
-        subtitle="Tap a conversation to open the thread — same flow as Messages."
-        actions={
-          <div className="flex w-full flex-col gap-2 min-[400px]:flex-row min-[400px]:items-center min-[400px]:justify-end">
-            <Link
-              href="/workspace/phone/inbox/new"
-              className="inline-flex min-h-[2.25rem] shrink-0 items-center justify-center rounded-full bg-gradient-to-r from-blue-950 to-sky-600 px-3.5 py-2 text-center text-xs font-semibold text-white shadow-md shadow-blue-900/20 hover:brightness-105"
-            >
-              New message
-            </Link>
-            <InboxSearchBar defaultQuery={qRaw} />
+    <div className="ws-phone-page-shell flex min-h-0 flex-1 flex-col lg:min-h-0 lg:flex-1 lg:overflow-hidden">
+      <div className="flex min-h-0 flex-1 flex-col lg:flex-row lg:overflow-hidden">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden border-sky-100/60 pb-28 pt-5 sm:pb-32 lg:w-[min(22rem,32vw)] lg:max-w-sm lg:shrink-0 lg:border-r lg:pb-0 lg:pt-0">
+          <div className="px-4 sm:px-5 lg:px-3 lg:pt-4">
+            <WorkspacePhonePageHeader
+              title="Inbox"
+              subtitle="Tap a conversation to open the thread — same flow as Messages."
+              actions={
+                <div className="flex w-full flex-col gap-2 min-[400px]:flex-row min-[400px]:items-center min-[400px]:justify-end">
+                  <Link
+                    href="/workspace/phone/inbox/new"
+                    className="inline-flex min-h-[2.25rem] shrink-0 items-center justify-center rounded-full bg-gradient-to-r from-blue-950 to-sky-600 px-3.5 py-2 text-center text-xs font-semibold text-white shadow-md shadow-blue-900/20 hover:brightness-105"
+                  >
+                    New message
+                  </Link>
+                  <InboxSearchBar defaultQuery={qRaw} preserveThreadId={selectedThreadValid ? threadRaw : undefined} />
+                </div>
+              }
+            />
           </div>
-        }
-      />
 
-      <InboxScrollRestorer>
-        <section className="mt-3 overflow-hidden rounded-2xl border border-sky-100/70 bg-white shadow-md shadow-sky-950/5">
-          <ul className="divide-y divide-sky-100/60">
-            {rows.length === 0 ? (
-              <li className="px-4 py-10 text-center">
-                <InboxIcon className="mx-auto h-5 w-5 text-slate-400" strokeWidth={2} />
-                <p className="mt-2 text-sm text-slate-500">No conversations yet.</p>
-                <Link
-                  href="/workspace/phone/calls"
-                  className="mt-3 inline-flex rounded-full border border-sky-200/90 bg-white px-3 py-1.5 text-xs font-semibold text-phone-ink hover:bg-phone-ice"
-                >
-                  Open calls
-                </Link>
-              </li>
-            ) : (
-              rows.map((r) => {
-                const id = String(r.id);
-                const phone =
-                  typeof r.main_phone_e164 === "string" && r.main_phone_e164.trim()
-                    ? r.main_phone_e164
-                    : "—";
-                const phoneDisplay = phone !== "—" ? formatPhoneForDisplay(phone) : phone;
-                const name = crmDisplayNameFromContactsRaw(r.contacts);
-                const when = formatAdminPhoneWhen(
-                  typeof r.last_message_at === "string" ? r.last_message_at : null
-                );
-                const preview = previewByConvId[id] ?? "";
-                const unreadCount = unreadCountFromMetadata((r as { metadata?: unknown }).metadata);
-                const pc =
-                  (r as { primary_contact_id?: unknown }).primary_contact_id != null &&
-                  String((r as { primary_contact_id?: unknown }).primary_contact_id).trim() !== ""
-                    ? String((r as { primary_contact_id?: unknown }).primary_contact_id)
-                    : null;
-                const c = normalizeContact(r.contacts);
-                const lid = pc && leadByContactId.has(pc) ? leadByContactId.get(pc)!.id : null;
-                const pid = pc && patientByContactId.has(pc) ? patientByContactId.get(pc)! : null;
-                const entity = entityLabel({
-                  metadata: (r as { metadata?: unknown }).metadata,
-                  primaryContactId: pc,
-                  contact: c,
-                  leadId: lid,
-                  patientId: pid,
-                });
-
-                return (
-                  <li key={id}>
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain lg:min-h-0">
+          <InboxScrollRestorer>
+            <section className="mx-4 mt-3 overflow-hidden rounded-2xl border border-sky-100/70 bg-white shadow-md shadow-sky-950/5 sm:mx-5 lg:mx-3">
+              <ul className="divide-y divide-sky-100/60">
+                {rows.length === 0 ? (
+                  <li className="px-4 py-10 text-center">
+                    <InboxIcon className="mx-auto h-5 w-5 text-slate-400" strokeWidth={2} />
+                    <p className="mt-2 text-sm text-slate-500">No conversations yet.</p>
                     <Link
-                      href={threadHref(id)}
-                      className={`block px-4 py-3.5 transition active:bg-phone-ice/70 ${
-                        unreadCount > 0 ? "bg-white hover:bg-sky-50/40" : "hover:bg-phone-powder/50"
-                      }`}
+                      href="/workspace/phone/calls"
+                      className="mt-3 inline-flex rounded-full border border-sky-200/90 bg-white px-3 py-1.5 text-xs font-semibold text-phone-ink hover:bg-phone-ice"
                     >
-                      <div className="flex items-start justify-between gap-2">
-                        <p
-                          className={`truncate font-semibold ${unreadCount > 0 ? "text-phone-navy" : "text-slate-900"}`}
-                        >
-                          {name ?? phoneDisplay}
-                        </p>
-                        <span className="shrink-0 text-[11px] text-slate-500">{when}</span>
-                      </div>
-                      {name ? <p className="truncate text-xs text-slate-500">{phoneDisplay}</p> : null}
-                      {preview ? (
-                        <p className="mt-1.5 line-clamp-2 text-xs leading-snug text-slate-600">{preview}</p>
-                      ) : null}
-                      <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                        {unreadCount > 0 ? (
-                          <span className="inline-flex rounded-full bg-gradient-to-r from-blue-950 to-sky-600 px-2 py-0.5 text-[10px] font-semibold text-white shadow-sm shadow-blue-900/20">
-                            {unreadCount} new
-                          </span>
-                        ) : null}
-                        <span className="inline-flex rounded-full border border-sky-200/80 bg-phone-ice/90 px-2 py-0.5 text-[10px] font-semibold text-phone-ink">
-                          {entity}
-                        </span>
-                      </div>
+                      Open calls
                     </Link>
                   </li>
-                );
-              })
-            )}
-          </ul>
-        </section>
-      </InboxScrollRestorer>
+                ) : (
+                  rows.map((r) => {
+                    const id = String(r.id);
+                    const phone =
+                      typeof r.main_phone_e164 === "string" && r.main_phone_e164.trim()
+                        ? r.main_phone_e164
+                        : "—";
+                    const phoneDisplay = phone !== "—" ? formatPhoneForDisplay(phone) : phone;
+                    const name = crmDisplayNameFromContactsRaw(r.contacts);
+                    const when = formatAdminPhoneWhen(
+                      typeof r.last_message_at === "string" ? r.last_message_at : null
+                    );
+                    const preview = previewByConvId[id] ?? "";
+                    const unreadCount = unreadCountFromMetadata((r as { metadata?: unknown }).metadata);
+                    const pc =
+                      (r as { primary_contact_id?: unknown }).primary_contact_id != null &&
+                      String((r as { primary_contact_id?: unknown }).primary_contact_id).trim() !== ""
+                        ? String((r as { primary_contact_id?: unknown }).primary_contact_id)
+                        : null;
+                    const c = normalizeContact(r.contacts);
+                    const lid = pc && leadByContactId.has(pc) ? leadByContactId.get(pc)!.id : null;
+                    const pid = pc && patientByContactId.has(pc) ? patientByContactId.get(pc)! : null;
+                    const entity = entityLabel({
+                      metadata: (r as { metadata?: unknown }).metadata,
+                      primaryContactId: pc,
+                      contact: c,
+                      leadId: lid,
+                      patientId: pid,
+                    });
+
+                    const rowSelected = selectedThreadValid && threadRaw === id;
+                    const baseRow = unreadCount > 0 ? "bg-white hover:bg-sky-50/40" : "hover:bg-phone-powder/50";
+                    const selectedRing = rowSelected ? "bg-sky-50/90 ring-1 ring-inset ring-sky-300/80" : "";
+
+                    const rowContent = (
+                      <>
+                        <div className="flex items-start justify-between gap-2">
+                          <p
+                            className={`truncate font-semibold ${unreadCount > 0 ? "text-phone-navy" : "text-slate-900"}`}
+                          >
+                            {name ?? phoneDisplay}
+                          </p>
+                          <span className="shrink-0 text-[11px] text-slate-500">{when}</span>
+                        </div>
+                        {name ? <p className="truncate text-xs text-slate-500">{phoneDisplay}</p> : null}
+                        {preview ? (
+                          <p className="mt-1.5 line-clamp-2 text-xs leading-snug text-slate-600">{preview}</p>
+                        ) : null}
+                        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                          {unreadCount > 0 ? (
+                            <span className="inline-flex rounded-full bg-gradient-to-r from-blue-950 to-sky-600 px-2 py-0.5 text-[10px] font-semibold text-white shadow-sm shadow-blue-900/20">
+                              {unreadCount} new
+                            </span>
+                          ) : null}
+                          <span className="inline-flex rounded-full border border-sky-200/80 bg-phone-ice/90 px-2 py-0.5 text-[10px] font-semibold text-phone-ink">
+                            {entity}
+                          </span>
+                        </div>
+                      </>
+                    );
+
+                    return (
+                      <li key={id}>
+                        <Link
+                          href={inboxMobileUrl(id, qRaw)}
+                          className={`block px-4 py-3.5 transition active:bg-phone-ice/70 lg:hidden ${baseRow} ${selectedRing}`}
+                        >
+                          {rowContent}
+                        </Link>
+                        <Link
+                          href={inboxDesktopUrl(id, qRaw)}
+                          scroll={false}
+                          className={`hidden px-4 py-3.5 transition active:bg-phone-ice/70 lg:block ${baseRow} ${selectedRing}`}
+                        >
+                          {rowContent}
+                        </Link>
+                      </li>
+                    );
+                  })
+                )}
+              </ul>
+            </section>
+          </InboxScrollRestorer>
+          </div>
+        </div>
+
+        <div className="hidden min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-slate-50/50 lg:flex">
+          {selectedThreadValid ? (
+            <SmsConversationDetail
+              params={Promise.resolve({ conversationId: threadRaw })}
+              searchParams={searchParams}
+              inboxHref={inboxListBackHref}
+              accessDeniedHref="/admin/phone"
+              workspaceShell
+              workspaceDesktopSplit
+            />
+          ) : (
+            <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-8 py-16 text-center">
+              <div className="rounded-2xl border border-sky-100/80 bg-white p-5 shadow-sm shadow-sky-950/5">
+                <MessageSquare className="mx-auto h-10 w-10 text-sky-400" strokeWidth={1.5} aria-hidden />
+                <p className="mt-3 text-base font-semibold text-slate-800">Select a conversation</p>
+                <p className="mt-1 max-w-sm text-sm leading-relaxed text-slate-500">
+                  Choose a thread from the list to read and reply without leaving Inbox.
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
