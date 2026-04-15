@@ -12,15 +12,31 @@ export type RecruitingActivityRow = {
 };
 
 export type RecruitingTimelineEntry =
-  | { kind: "note"; id: string; body: string; created_at: string; created_by: string | null }
+  | {
+      kind: "note";
+      id: string;
+      activity_type: "note";
+      deletable: boolean;
+      body: string;
+      created_at: string;
+      created_by: string | null;
+    }
   | {
       kind: "event";
       id: string;
+      activity_type: string;
+      deletable: boolean;
       headline: string;
       body: string | null;
       created_at: string;
       created_by: string | null;
     };
+
+/** Resume pipeline audit rows — not removable from the timeline UI. */
+export function isRecruitingActivityDeletable(activityType: string): boolean {
+  const t = activityType.trim();
+  return t !== "resume_parsed" && t !== "resume_applied";
+}
 
 /** Parsing/OCR and field-apply audit rows — keep them out of the conversation thread. */
 export function isRecruitingTimelineNoise(row: { activity_type: string }): boolean {
@@ -72,16 +88,28 @@ export function buildRecruitingTimelineEntries(rows: RecruitingActivityRow[]): R
   for (const r of rows) {
     if (isRecruitingTimelineNoise(r)) continue;
 
+    const deletable = isRecruitingActivityDeletable(r.activity_type);
+
     if (r.activity_type === "note") {
       const body = (r.body ?? "").trim();
       if (!body) continue;
-      out.push({ kind: "note", id: r.id, body, created_at: r.created_at, created_by: r.created_by });
+      out.push({
+        kind: "note",
+        id: r.id,
+        activity_type: "note",
+        deletable,
+        body,
+        created_at: r.created_at,
+        created_by: r.created_by,
+      });
       continue;
     }
 
     out.push({
       kind: "event",
       id: r.id,
+      activity_type: r.activity_type,
+      deletable,
       headline: formatRecruitingActivityHeadline(r),
       body: (r.body ?? "").trim() || null,
       created_at: r.created_at,

@@ -36,6 +36,7 @@ import {
   RESUME_HARD_ERROR_TOO_LARGE,
 } from "@/lib/recruiting/resume-upload-mime";
 import { supabaseAdmin } from "@/lib/admin";
+import { isRecruitingActivityDeletable } from "@/lib/recruiting/recruiting-timeline";
 import { createServerSupabaseClient, getAuthenticatedUser } from "@/lib/supabase/server";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 
@@ -531,6 +532,128 @@ export async function recruitingQuickAction(input: {
     });
     return { ok: false, message: "Could not update candidate." };
   }
+
+  revalidatePath("/admin/recruiting");
+  revalidatePath(`/admin/recruiting/${candidateId}`);
+  return { ok: true };
+}
+
+type RecruitingDb = Awaited<ReturnType<typeof createServerSupabaseClient>>;
+
+/** Recompute denormalized contact timestamps from remaining activities (after delete). */
+async function recomputeRecruitingCandidateContactRollupAfterActivityChange(
+  db: RecruitingDb,
+  candidateId: string
+): Promise<void> {
+  const { data: rows, error } = await db
+    .from("recruiting_candidate_activities")
+    .select("activity_type, created_at")
+    .eq("candidate_id", candidateId);
+
+  if (error) {
+    console.warn("[recruiting] recompute: could not load activities:", error.message);
+    return;
+  }
+
+  const list = (rows ?? []) as { activity_type: string; created_at: string }[];
+  if (list.length === 0) {
+    const { error: updErr } = await db
+      .from("recruiting_candidates")
+      .update({
+        last_contact_at: null,
+        last_call_at: null,
+        last_text_at: null,
+      })
+      .eq("id", candidateId);
+    if (updErr) {
+      logRecruitingSupabaseErr("recompute clear contact rollup", updErr, { candidate_id: candidateId });
+    }
+    return;
+  }
+
+  let last_contact_at: string | null = null;
+  for (const a of list) {
+    const ts = a.created_at;
+    if (!last_contact_at || Date.parse(ts) > Date.parse(last_contact_at)) {
+      last_contact_at = ts;
+    }
+  }
+
+  const byNewest = [...list].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+
+  let last_call_at: string | null = null;
+  let last_text_at: string | null = null;
+  for (const a of byNewest) {
+    const t = (a.activity_type ?? "").trim();
+    if (!last_call_at && (t === "call" || t === "voicemail")) {
+      last_call_at = a.created_at;
+    }
+    if (!last_text_at && t === "text") {
+      last_text_at = a.created_at;
+    }
+  }
+
+  const { error: updErr } = await db
+    .from("recruiting_candidates")
+    .update({
+      last_contact_at,
+      last_call_at,
+      last_text_at,
+    })
+    .eq("id", candidateId);
+
+  if (updErr) {
+    logRecruitingSupabaseErr("recompute update recruiting_candidates contact fields", updErr, {
+      candidate_id: candidateId,
+    });
+  }
+}
+
+export async function deleteRecruitingCandidateActivity(input: {
+  candidateId: string;
+  activityId: string;
+}): Promise<{ ok: true } | { ok: false; message: string }> {
+  await requireManager();
+  const db = await createServerSupabaseClient();
+
+  const candidateId = input.candidateId?.trim() ?? "";
+  const activityId = input.activityId?.trim() ?? "";
+  if (!uuidOk(candidateId) || !uuidOk(activityId)) {
+    return { ok: false, message: "Invalid request." };
+  }
+
+  const { data: row, error: loadErr } = await db
+    .from("recruiting_candidate_activities")
+    .select("id, candidate_id, activity_type")
+    .eq("id", activityId)
+    .eq("candidate_id", candidateId)
+    .maybeSingle();
+
+  if (loadErr) {
+    logRecruitingSupabaseErr("deleteRecruitingCandidateActivity SELECT", loadErr, { candidateId, activityId });
+    return { ok: false, message: "Could not load entry." };
+  }
+  if (!row?.id) {
+    return { ok: false, message: "Entry not found." };
+  }
+
+  const at = typeof row.activity_type === "string" ? row.activity_type : "";
+  if (!isRecruitingActivityDeletable(at)) {
+    return { ok: false, message: "This automated entry cannot be deleted." };
+  }
+
+  const { error: delErr } = await db
+    .from("recruiting_candidate_activities")
+    .delete()
+    .eq("id", activityId)
+    .eq("candidate_id", candidateId);
+
+  if (delErr) {
+    logRecruitingSupabaseErr("deleteRecruitingCandidateActivity DELETE", delErr, { candidateId, activityId });
+    return { ok: false, message: "Could not delete entry." };
+  }
+
+  await recomputeRecruitingCandidateContactRollupAfterActivityChange(db, candidateId);
 
   revalidatePath("/admin/recruiting");
   revalidatePath(`/admin/recruiting/${candidateId}`);
