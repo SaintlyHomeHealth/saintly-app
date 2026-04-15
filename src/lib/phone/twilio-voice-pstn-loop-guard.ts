@@ -1,18 +1,4 @@
-function normalizeDialInputToE164(input?: string | null): string | null {
-  if (!input) return null;
-
-  const cleaned = input.replace(/[^\d+]/g, "");
-
-  if (cleaned.startsWith("+")) return cleaned;
-
-  if (cleaned.length === 10) return `+1${cleaned}`;
-
-  if (cleaned.length === 11 && cleaned.startsWith("1")) {
-    return `+${cleaned}`;
-  }
-
-  return null;
-}
+import { normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
 
 /**
  * Digit-only key for comparing Twilio E.164 / SIP-style values (avoids +1 vs 10-digit mismatches).

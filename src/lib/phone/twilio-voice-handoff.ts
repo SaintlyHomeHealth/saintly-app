@@ -1,11 +1,25 @@
 import { normalizePhone } from "@/lib/phone/us-phone-format";
+import { isPstnHandoffAiLoopRisk, phoneKeyForLoopCompare } from "@/lib/phone/twilio-voice-pstn-loop-guard";
 import {
   resolveBrowserFirstRingTimeoutSeconds,
   resolveInboundBrowserStaffUserIdsAsync,
 } from "@/lib/softphone/inbound-staff-ids";
+import { normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
 import { softphoneTwilioClientIdentity } from "@/lib/softphone/twilio-client-identity";
 
-import { isPstnHandoffAiLoopRisk } from "@/lib/phone/twilio-voice-pstn-loop-guard";
+/**
+ * Raw PSTN ring target from Vercel/Railway (`TWILIO_VOICE_RING_E164`).
+ * If multiple numbers are listed (comma/semicolon), the first non-empty segment is used.
+ */
+export function readTwilioVoiceRingE164FromEnv(): string {
+  const raw = process.env.TWILIO_VOICE_RING_E164?.trim() ?? "";
+  if (!raw) return "";
+  const first = raw
+    .split(/[,;]/)[0]
+    ?.trim()
+    ?.replace(/^["']|["']$/g, "");
+  return first ?? "";
+}
 
 function escapeXml(text: string): string {
   return text
@@ -53,10 +67,13 @@ export async function buildVoiceHandoffTwiml(input: {
   closing: string;
   publicBase: string;
   callerId: string;
+  /** Raw env or UI string; normalized to E.164 before PSTN dial. */
   ringE164: string;
 }): Promise<string | null> {
   const { closing, publicBase, callerId, ringE164 } = input;
   const inboundBrowserStaffIds = await resolveInboundBrowserStaffUserIdsAsync();
+  const pstnRingNormalized =
+    ringE164.trim().length > 0 ? normalizeDialInputToE164(ringE164.trim()) : null;
   const browserFallbackActionUrl = publicBase
     ? `${publicBase}/api/twilio/voice/inbound-browser-fallback`
     : "";
@@ -65,6 +82,26 @@ export async function buildVoiceHandoffTwiml(input: {
   const pstnDialSec = resolvePstnDialTimeoutSeconds();
   const browserRingSec = resolveBrowserFirstRingTimeoutSeconds();
   const numberAmdAttrs = ` machineDetection="Enable"`;
+
+  const loopBlocked =
+    pstnRingNormalized != null ? isPstnHandoffAiLoopRisk(pstnRingNormalized, callerId) : false;
+
+  console.log(
+    JSON.stringify({
+      tag: "inbound-ring-diag",
+      step: "buildVoiceHandoffTwiml",
+      inbound_did_key_tail: phoneKeyForLoopCompare(callerId)?.slice(-4) ?? null,
+      raw_ring_env_nonempty: ringE164.trim().length > 0,
+      pstn_ring_normalized_ok: Boolean(pstnRingNormalized),
+      browser_staff_count: inboundBrowserStaffIds.length,
+      browser_staff_id_tails: inboundBrowserStaffIds.map((id) =>
+        id.length >= 8 ? `${id.slice(0, 4)}…${id.slice(-4)}` : `${id.slice(0, 4)}…`
+      ),
+      will_dial_browser: inboundBrowserStaffIds.length > 0 && Boolean(browserFallbackActionUrl),
+      pstn_loop_guard_blocked: loopBlocked,
+      public_base_ok: Boolean(publicBase?.trim()),
+    })
+  );
 
   const pstnDialAttrs = publicBase
     ? ` answerOnBridge="true" timeout="${pstnDialSec}" callerId="${escapeXml(
@@ -96,6 +133,14 @@ export async function buildVoiceHandoffTwiml(input: {
       .map((id) => clientDialNounXml(softphoneTwilioClientIdentity(id), callerId))
       .join("");
 
+    console.log(
+      JSON.stringify({
+        tag: "inbound-ring-diag",
+        step: "branch_browser_ring",
+        outcome: "twiml_browser",
+      })
+    );
+
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   ${openingSay}
@@ -105,25 +150,54 @@ export async function buildVoiceHandoffTwiml(input: {
 </Response>`.trim();
   }
 
-  if (!ringE164) {
-    console.warn("[buildVoiceHandoffTwiml] branch=pstn UNAVAILABLE: no TWILIO_VOICE_RING_E164 and no browser targets");
+  if (!pstnRingNormalized) {
+    console.warn(
+      JSON.stringify({
+        tag: "inbound-ring-diag",
+        step: "branch_pstn_unavailable",
+        outcome: "voicemail_candidate",
+        reason: "missing_or_unparseable_TWILIO_VOICE_RING_E164",
+        raw_ring_env_nonempty: ringE164.trim().length > 0,
+      })
+    );
+    console.warn(
+      "[buildVoiceHandoffTwiml] branch=pstn UNAVAILABLE: no valid PSTN ring target after normalization and no browser targets"
+    );
     return null;
   }
 
-  if (isPstnHandoffAiLoopRisk(ringE164, callerId)) {
-    console.warn("[buildVoiceHandoffTwiml] branch=pstn BLOCKED: ring number matches inbound To (AI entry) — would re-enter voice webhook", {
-      ringTail: ringE164.replace(/\D/g, "").slice(-4),
+  if (loopBlocked) {
+    console.warn(
+      JSON.stringify({
+        tag: "inbound-ring-diag",
+        step: "branch_pstn_loop_blocked",
+        outcome: "voicemail_candidate",
+        reason: "TWILIO_VOICE_RING_E164_matches_inbound_DID_or_blocklist",
+        ring_key_tail: phoneKeyForLoopCompare(pstnRingNormalized)?.slice(-4) ?? null,
+      })
+    );
+    console.warn("[buildVoiceHandoffTwiml] branch=pstn BLOCKED: ring number matches inbound To — would re-enter voice webhook", {
+      ringTail: pstnRingNormalized.replace(/\D/g, "").slice(-4),
       inboundToTail: callerId.replace(/\D/g, "").slice(-4),
       hint: "Set TWILIO_VOICE_INBOUND_STAFF_USER_IDS or staff_profiles.inbound_ring_enabled, or set TWILIO_VOICE_RING_E164 to a human PSTN line (not your Twilio public number).",
     });
     return null;
   }
 
+  console.log(
+    JSON.stringify({
+      tag: "inbound-ring-diag",
+      step: "branch_pstn_ring",
+      outcome: "twiml_pstn",
+      pstn_ring_key_tail: phoneKeyForLoopCompare(pstnRingNormalized)?.slice(-4) ?? null,
+    })
+  );
+
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   ${openingSay}
   <Dial${pstnDialAttrs}>
-    <Number${numberAmdAttrs}>${escapeXml(ringE164)}</Number>
+    <Number${numberAmdAttrs}>${escapeXml(pstnRingNormalized)}</Number>
   </Dial>
 </Response>`.trim();
 }

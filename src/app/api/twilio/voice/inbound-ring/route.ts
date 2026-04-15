@@ -4,7 +4,12 @@ import { supabaseAdmin } from "@/lib/admin";
 import { ensureIncomingCallAlert } from "@/lib/phone/incoming-call-alerts";
 import { upsertPhoneCallFromWebhook } from "@/lib/phone/log-call";
 import { buildSaintlyVoicemailRecordTwiml } from "@/lib/phone/twilio-voicemail-twiml";
-import { buildTwiMLAppIncomingClientRingTwiml, buildVoiceHandoffTwiml } from "@/lib/phone/twilio-voice-handoff";
+import { phoneKeyForLoopCompare } from "@/lib/phone/twilio-voice-pstn-loop-guard";
+import {
+  buildTwiMLAppIncomingClientRingTwiml,
+  buildVoiceHandoffTwiml,
+  readTwilioVoiceRingE164FromEnv,
+} from "@/lib/phone/twilio-voice-handoff";
 import { isTwilioVoiceJsClientFrom, isTwilioVoiceJsClientTo } from "@/lib/twilio/twilio-voice-client-leg";
 import { logTwilioVoiceTrace, summarizeTwimlResponse } from "@/lib/twilio/twilio-voice-trace-log";
 import { parseVerifiedTwilioFormBody } from "@/lib/twilio/verify-form-post";
@@ -165,17 +170,37 @@ export async function POST(req: NextRequest) {
     return new NextResponse(xml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
   }
 
-  const ringE164 = process.env.TWILIO_VOICE_RING_E164?.trim() ?? "";
+  const ringE164Raw = readTwilioVoiceRingE164FromEnv();
   const callerId = to || from;
+
+  console.log(
+    JSON.stringify({
+      tag: "inbound-ring-diag",
+      step: "inbound_ring_route",
+      inbound_did_key_tail: phoneKeyForLoopCompare(to)?.slice(-4) ?? null,
+      from_key_tail: phoneKeyForLoopCompare(from)?.slice(-4) ?? null,
+      call_sid_short: callSid.length > 8 ? `${callSid.slice(0, 6)}…` : callSid,
+      twilio_voice_ring_e164_env_set: Boolean(process.env.TWILIO_VOICE_RING_E164?.trim()),
+      ring_e164_raw_nonempty: ringE164Raw.length > 0,
+    })
+  );
 
   const twiml = await buildVoiceHandoffTwiml({
     closing: "",
     publicBase,
     callerId,
-    ringE164,
+    ringE164: ringE164Raw,
   });
 
   if (!twiml) {
+    console.warn(
+      JSON.stringify({
+        tag: "inbound-ring-diag",
+        step: "inbound_ring_route",
+        outcome: "voicemail_fallback",
+        reason: "buildVoiceHandoffTwiml_null",
+      })
+    );
     console.warn("[twilio/voice/inbound-ring] buildVoiceHandoffTwiml returned null — voicemail fallback");
     const vm = buildSaintlyVoicemailRecordTwiml(publicBase);
     logTwilioVoiceTrace({
