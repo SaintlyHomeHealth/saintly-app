@@ -1011,14 +1011,16 @@ export async function processBulkResumeFile(formData: FormData): Promise<BulkRes
   }
 
   const extractedName = fields.full_name.trim() || null;
-  const discipline = fields.discipline.trim() || null;
+  const uploadDisciplineOverride = str(formData, "upload_discipline").trim();
+  const parsedDiscipline = fields.discipline.trim() || null;
+  const disciplineForDisplay = uploadDisciplineOverride || parsedDiscipline;
   const phone = fields.phone.trim() || null;
   const email = fields.email.trim() || null;
 
   const baseOut: Omit<BulkResumeProcessResult, "status" | "candidateId" | "existingCandidateId" | "duplicateReasonLabel" | "errorMessage"> = {
     fileName: safeName,
     extractedName,
-    discipline,
+    discipline: disciplineForDisplay,
     phone,
     email,
     candidateId: null,
@@ -1073,7 +1075,11 @@ export async function processBulkResumeFile(formData: FormData): Promise<BulkRes
   if (email) fd.set("email", email);
   if (fields.city.trim()) fd.set("city", fields.city.trim());
   if (fields.state.trim()) fd.set("state", fields.state.trim());
-  if (discipline) fd.set("discipline", discipline);
+  if (uploadDisciplineOverride) {
+    fd.set("discipline", uploadDisciplineOverride);
+  } else if (parsedDiscipline) {
+    fd.set("discipline", parsedDiscipline);
+  }
   if (fields.notes.trim()) fd.set("notes", fields.notes.trim());
   if (fields.specialties.trim()) fd.set("specialties", fields.specialties.trim());
   fd.set("source", "Indeed");

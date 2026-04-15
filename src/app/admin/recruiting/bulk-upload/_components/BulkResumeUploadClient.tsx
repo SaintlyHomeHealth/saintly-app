@@ -5,9 +5,11 @@ import { useCallback, useMemo, useRef, useState } from "react";
 
 import {
   crmActionBtnSky,
+  crmFilterInputCls,
   crmListScrollOuterCls,
   crmPrimaryCtaCls,
 } from "@/components/admin/crm-admin-list-styles";
+import { RECRUITING_BATCH_UPLOAD_DISCIPLINE_OPTIONS } from "@/lib/recruiting/recruiting-options";
 
 import { processBulkResumeFile, type BulkResumeProcessResult } from "../../actions";
 
@@ -91,6 +93,8 @@ export function BulkResumeUploadClient() {
   const [rows, setRows] = useState<Record<string, RowState>>({});
   const [isRunning, setIsRunning] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  /** Applies to every file in `runBatch` — sent as `upload_discipline` (overrides parsed discipline on create). */
+  const [batchDiscipline, setBatchDiscipline] = useState("");
 
   const addFiles = useCallback((list: FileList | File[]) => {
     const arr = Array.from(list);
@@ -133,6 +137,7 @@ export function BulkResumeUploadClient() {
       try {
         const fd = new FormData();
         fd.set("file", item.file);
+        fd.set("upload_discipline", batchDiscipline);
         const result = await processBulkResumeFile(fd);
         setRows((prev) => ({ ...prev, [item.id]: { phase: "done", result } }));
       } catch (e) {
@@ -145,7 +150,7 @@ export function BulkResumeUploadClient() {
               fileName: item.file.name,
               status: "failed",
               extractedName: null,
-              discipline: null,
+              discipline: batchDiscipline.trim() || null,
               phone: null,
               email: null,
               candidateId: null,
@@ -171,6 +176,31 @@ export function BulkResumeUploadClient() {
 
   return (
     <div className="space-y-8">
+      <div className="rounded-[20px] border border-slate-200/90 bg-white px-4 py-4 shadow-sm sm:px-5">
+        <label className="block" htmlFor="bulk-upload-discipline">
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+            Discipline for this upload
+          </span>
+          <select
+            id="bulk-upload-discipline"
+            className={`${crmFilterInputCls} mt-1.5 w-full max-w-md`}
+            value={batchDiscipline}
+            disabled={isRunning}
+            onChange={(e) => setBatchDiscipline(e.target.value)}
+          >
+            {RECRUITING_BATCH_UPLOAD_DISCIPLINE_OPTIONS.map((opt) => (
+              <option key={opt.value === "" ? "_default" : opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <p className="mt-2 max-w-xl text-[11px] leading-relaxed text-slate-500">
+          Optional. One selection applies to every resume in this batch (e.g. Indeed RN). When set, it overrides
+          discipline detected from each file. Name, contact, and other parsed fields are unchanged.
+        </p>
+      </div>
+
       <div
         onDragEnter={(e) => {
           e.preventDefault();

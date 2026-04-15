@@ -64,6 +64,25 @@ export function isValidRecruitingPreferredContact(v: string): v is RecruitingPre
   return (RECRUITING_PREFERRED_CONTACT_OPTIONS as readonly string[]).includes(v);
 }
 
+/**
+ * Bulk resume upload: one selection applies to every file in that run session.
+ * Stored on `recruiting_candidates.discipline` (parsed resume discipline is ignored when set).
+ * Empty value keeps current behavior (parser may fill discipline).
+ */
+export const RECRUITING_BATCH_UPLOAD_DISCIPLINE_OPTIONS: readonly { value: string; label: string }[] = [
+  { value: "", label: "Match resume (no override)" },
+  { value: "RN", label: "RN" },
+  { value: "LVN/LPN", label: "LVN/LPN" },
+  { value: "PT", label: "PT" },
+  { value: "PTA", label: "PTA" },
+  { value: "OT", label: "OT" },
+  { value: "COTA", label: "COTA" },
+  { value: "ST", label: "ST" },
+  { value: "MSW", label: "MSW" },
+  { value: "HHA/CNA", label: "HHA/CNA" },
+  { value: "Other", label: "Other / unspecified" },
+];
+
 /** Default SMS snippets for one-tap compose (Phoenix / Saintly context). */
 export const RECRUITING_TEXT_TEMPLATES: { id: string; label: string; body: string }[] = [
   {
