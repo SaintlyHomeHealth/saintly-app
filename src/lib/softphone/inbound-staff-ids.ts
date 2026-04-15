@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "@/lib/admin";
+import { matchesSoftphoneTokenEligibilityForInboundRing, type StaffProfile } from "@/lib/staff-profile";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -106,29 +107,59 @@ function mergeUniqueOrdered(first: string[], second: string[]): string[] {
 }
 
 /**
- * Env-configured inbound ring IDs plus `staff_profiles` rows with `inbound_ring_enabled`
- * (active, with login, phone access on). Order: env first, then DB.
+ * Env-configured inbound ring IDs plus `staff_profiles` rows eligible for the same identity as
+ * GET `/api/softphone/token` (`matchesSoftphoneTokenEligibilityForInboundRing`). That includes active
+ * nurses without `phone_access_enabled`, matching LIVE keypad / Twilio Device registration.
+ * Order: env first, then DB.
  */
 export async function resolveInboundBrowserStaffUserIdsAsync(): Promise<string[]> {
   const envIdsRaw = resolveInboundBrowserStaffUserIds();
   const envIds = await canonicalizeInboundEnvIdsToAuthUserIds(envIdsRaw);
   const { data, error } = await supabaseAdmin
     .from("staff_profiles")
-    .select("user_id")
-    .eq("inbound_ring_enabled", true)
-    .eq("phone_access_enabled", true)
+    .select("user_id, role, is_active, phone_access_enabled")
     .eq("is_active", true)
     .not("user_id", "is", null);
 
   if (error) {
     console.warn("[inbound-staff-ids] resolveInboundBrowserStaffUserIdsAsync:", error.message);
+    console.log(
+      JSON.stringify({
+        tag: "inbound-ring-diag",
+        step: "resolveInboundBrowserStaffUserIdsAsync",
+        db_error: error.message,
+        env_id_count: envIds.length,
+      })
+    );
     return envIds;
   }
 
-  const dbIds = (data ?? [])
+  const rows = data ?? [];
+  const dbIds = rows
+    .filter((r) => {
+      if (typeof r.role !== "string") return false;
+      return matchesSoftphoneTokenEligibilityForInboundRing({
+        role: r.role as StaffProfile["role"],
+        is_active: r.is_active === true,
+        phone_access_enabled: r.phone_access_enabled === true,
+      });
+    })
     .map((r) => (typeof r.user_id === "string" ? r.user_id : null))
     .filter((id): id is string => Boolean(id && parseStaffUserUuid(id)));
-  return mergeUniqueOrdered(envIds, dbIds);
+
+  const merged = mergeUniqueOrdered(envIds, dbIds);
+  console.log(
+    JSON.stringify({
+      tag: "inbound-ring-diag",
+      step: "resolveInboundBrowserStaffUserIdsAsync",
+      env_id_count: envIds.length,
+      staff_profiles_active_rows: rows.length,
+      after_token_eligibility_gate: dbIds.length,
+      merged_total: merged.length,
+    })
+  );
+
+  return merged;
 }
 
 const DEFAULT_BROWSER_RING_SECONDS = 20;

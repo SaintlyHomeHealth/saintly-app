@@ -91,6 +91,30 @@ export function canAccessWorkspacePhone(profile: StaffProfile | null | undefined
   return profile.phone_access_enabled === true;
 }
 
+/**
+ * Same gate as GET `/api/softphone/token`: if true, Twilio Device may register (LIVE) and must be dialed
+ * as `saintly_<auth_user_uuid>` on inbound. Used to build the inbound &lt;Client&gt; list.
+ */
+export function matchesSoftphoneTokenEligibilityForInboundRing(
+  row: Pick<StaffProfile, "role" | "is_active" | "phone_access_enabled">
+): boolean {
+  if (row.is_active !== true) return false;
+  if (typeof row.role !== "string" || !isStaffRole(row.role)) return false;
+  return canAccessWorkspacePhone({
+    id: "",
+    user_id: "",
+    email: null,
+    role: row.role,
+    created_at: "",
+    updated_at: "",
+    full_name: null,
+    is_active: true,
+    phone_access_enabled: row.phone_access_enabled,
+    inbound_ring_enabled: false,
+    applicant_id: null,
+  } as StaffProfile);
+}
+
 function isStaffRole(value: string): value is StaffRole {
   return (
     value === "super_admin" ||

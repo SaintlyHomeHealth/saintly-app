@@ -37,6 +37,17 @@ export async function GET() {
   const inboundRingStaffIds = await resolveInboundBrowserStaffUserIdsAsync();
   const identityInInboundRingList = inboundRingStaffIds.includes(staff.user_id);
 
+  console.log(
+    JSON.stringify({
+      tag: "inbound-ring-diag",
+      step: "softphone_token",
+      twilio_device_identity_exact: identity,
+      auth_user_id_tail: staff.user_id.length >= 8 ? staff.user_id.slice(-8) : staff.user_id,
+      inbound_resolve_count: inboundRingStaffIds.length,
+      identity_in_inbound_resolve_list: identityInInboundRingList,
+    })
+  );
+
   const token = new AccessToken(accountSid, apiKeySid, apiKeySecret, {
     identity,
     ttl: 3600,

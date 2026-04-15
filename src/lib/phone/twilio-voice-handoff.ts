@@ -61,6 +61,77 @@ export function resolvePstnDialTimeoutSeconds(): number {
 }
 
 /**
+ * Inbound-only PSTN leg (no browser). Used by initial `/inbound-ring` PSTN path and by
+ * `/inbound-browser-fallback` after browser no-answer.
+ */
+export function buildInboundPstnOnlyDialTwiml(input: {
+  publicBase: string;
+  callerId: string;
+  ringE164Raw: string;
+}): string | null {
+  const pstnRingNormalized =
+    input.ringE164Raw.trim().length > 0 ? normalizeDialInputToE164(input.ringE164Raw.trim()) : null;
+  if (!pstnRingNormalized) {
+    console.log(
+      JSON.stringify({
+        tag: "inbound-ring-diag",
+        step: "buildInboundPstnOnlyDialTwiml",
+        outcome: "null",
+        reason: "unparseable_ring",
+      })
+    );
+    return null;
+  }
+  if (isPstnHandoffAiLoopRisk(pstnRingNormalized, input.callerId)) {
+    console.log(
+      JSON.stringify({
+        tag: "inbound-ring-diag",
+        step: "buildInboundPstnOnlyDialTwiml",
+        outcome: "null",
+        reason: "loop_guard",
+      })
+    );
+    return null;
+  }
+  return buildPstnNumberDialOpeningResponseXml({
+    openingSay: "",
+    publicBase: input.publicBase,
+    callerId: input.callerId,
+    pstnRingNormalized,
+  });
+}
+
+function buildPstnNumberDialOpeningResponseXml(input: {
+  openingSay: string;
+  publicBase: string;
+  callerId: string;
+  pstnRingNormalized: string;
+}): string {
+  const { openingSay, publicBase, callerId, pstnRingNormalized } = input;
+  const statusCallbackUrl = publicBase ? `${publicBase}/api/twilio/voice/status` : "";
+  const dialActionUrl = publicBase ? `${publicBase}/api/twilio/voice/dial-result` : "";
+  const pstnDialSec = resolvePstnDialTimeoutSeconds();
+  const numberAmdAttrs = ` machineDetection="Enable"`;
+  const pstnDialAttrs = publicBase
+    ? ` answerOnBridge="true" timeout="${pstnDialSec}" callerId="${escapeXml(
+        callerId
+      )}" action="${escapeXml(
+        dialActionUrl
+      )}" method="POST" statusCallback="${escapeXml(
+        statusCallbackUrl
+      )}" statusCallbackMethod="POST" statusCallbackEvent="initiated ringing answered completed"`
+    : ` answerOnBridge="true" timeout="${pstnDialSec}" callerId="${escapeXml(callerId)}"`;
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  ${openingSay}
+  <Dial${pstnDialAttrs}>
+    <Number${numberAmdAttrs}>${escapeXml(pstnRingNormalized)}</Number>
+  </Dial>
+</Response>`.trim();
+}
+
+/**
  * Browser-first softphone handoff, then PSTN ring number — same behavior as main inbound voice route.
  */
 export async function buildVoiceHandoffTwiml(input: {
@@ -78,10 +149,7 @@ export async function buildVoiceHandoffTwiml(input: {
     ? `${publicBase}/api/twilio/voice/inbound-browser-fallback`
     : "";
   const statusCallbackUrl = publicBase ? `${publicBase}/api/twilio/voice/status` : "";
-  const dialActionUrl = publicBase ? `${publicBase}/api/twilio/voice/dial-result` : "";
-  const pstnDialSec = resolvePstnDialTimeoutSeconds();
   const browserRingSec = resolveBrowserFirstRingTimeoutSeconds();
-  const numberAmdAttrs = ` machineDetection="Enable"`;
 
   const loopBlocked =
     pstnRingNormalized != null ? isPstnHandoffAiLoopRisk(pstnRingNormalized, callerId) : false;
@@ -103,16 +171,6 @@ export async function buildVoiceHandoffTwiml(input: {
     })
   );
 
-  const pstnDialAttrs = publicBase
-    ? ` answerOnBridge="true" timeout="${pstnDialSec}" callerId="${escapeXml(
-        callerId
-      )}" action="${escapeXml(
-        dialActionUrl
-      )}" method="POST" statusCallback="${escapeXml(
-        statusCallbackUrl
-      )}" statusCallbackMethod="POST" statusCallbackEvent="initiated ringing answered completed"`
-    : ` answerOnBridge="true" timeout="${pstnDialSec}" callerId="${escapeXml(callerId)}"`;
-
   const openingSay =
     closing.trim().length > 0
       ? `<Say voice="Polly.Joanna">${escapeXml(closing)}</Say>`
@@ -129,6 +187,7 @@ export async function buildVoiceHandoffTwiml(input: {
         )}" statusCallbackMethod="POST" statusCallbackEvent="initiated ringing answered completed"`
       : ` answerOnBridge="true" timeout="${browserRingSec}" callerId="${escapeXml(callerId)}"`;
 
+    const clientIdentitiesForTwilio = inboundBrowserStaffIds.map((id) => softphoneTwilioClientIdentity(id));
     const clientBodies = inboundBrowserStaffIds
       .map((id) => clientDialNounXml(softphoneTwilioClientIdentity(id), callerId))
       .join("");
@@ -138,6 +197,9 @@ export async function buildVoiceHandoffTwiml(input: {
         tag: "inbound-ring-diag",
         step: "branch_browser_ring",
         outcome: "twiml_browser",
+        client_identities_exact: clientIdentitiesForTwilio,
+        identity_prefix: "saintly_",
+        dial_action: "inbound-browser-fallback_then_pstn_via_TWILIO_VOICE_RING_E164",
       })
     );
 
@@ -193,13 +255,12 @@ export async function buildVoiceHandoffTwiml(input: {
     })
   );
 
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  ${openingSay}
-  <Dial${pstnDialAttrs}>
-    <Number${numberAmdAttrs}>${escapeXml(pstnRingNormalized)}</Number>
-  </Dial>
-</Response>`.trim();
+  return buildPstnNumberDialOpeningResponseXml({
+    openingSay,
+    publicBase,
+    callerId,
+    pstnRingNormalized,
+  });
 }
 
 /**
