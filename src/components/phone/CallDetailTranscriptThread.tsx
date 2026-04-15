@@ -33,36 +33,36 @@ function Bubble({
   const align = isUnknown ? "justify-center" : isYou ? "justify-end" : "justify-start";
 
   const bubbleClass = isUnknown
-    ? "rounded-xl border border-slate-200/90 bg-slate-50 px-3.5 py-2.5 text-slate-800 shadow-sm"
+    ? "rounded-lg border border-slate-200/90 bg-slate-50 px-3 py-2 text-slate-800"
     : isYou
-      ? "rounded-xl rounded-br-sm border border-sky-400/35 bg-gradient-to-br from-sky-600 to-blue-700 px-3.5 py-2.5 text-white shadow-sm shadow-sky-900/10"
+      ? "rounded-lg rounded-br-[4px] border border-sky-400/30 bg-gradient-to-br from-sky-600 to-blue-700 px-3 py-2 text-white"
       : isSaintly
-        ? "rounded-xl rounded-tl-sm border border-indigo-200/70 bg-gradient-to-b from-indigo-50/90 to-white px-3.5 py-2.5 text-indigo-950 shadow-sm"
-        : "rounded-xl rounded-tl-sm border border-slate-200/90 bg-white px-3.5 py-2.5 text-slate-900 shadow-sm";
+        ? "rounded-lg rounded-tl-[4px] border border-indigo-200/60 bg-gradient-to-b from-indigo-50/90 to-white px-3 py-2 text-indigo-950"
+        : "rounded-lg rounded-tl-[4px] border border-slate-200/90 bg-white px-3 py-2 text-slate-900";
 
   const labelClass = isYou
-    ? "text-white/85"
+    ? "text-white/80"
     : isSaintly
-      ? "text-indigo-700/85"
+      ? "text-indigo-700/80"
       : isUnknown
         ? "text-slate-500"
         : "text-slate-500";
 
-  const timeClass = isYou ? "text-sky-100/80" : "text-slate-400";
+  const timeClass = isYou ? "text-sky-100/55" : "text-slate-400/70";
 
   return (
-    <div className={`flex w-full ${align}`}>
-      <div className={`max-w-[min(100%,26rem)] ${bubbleClass}`}>
-        <div className="flex items-baseline justify-between gap-2">
-          <p className={`text-[10px] font-semibold uppercase tracking-[0.14em] ${labelClass}`}>{label}</p>
+    <div className={`flex w-full ${align} px-0.5`}>
+      <div className={`max-w-md ${bubbleClass}`}>
+        <div className="flex items-baseline justify-between gap-1.5">
+          <p className={`text-[9px] font-semibold uppercase tracking-[0.16em] ${labelClass}`}>{label}</p>
           {time ? (
-            <time dateTime={msg.ts} className={`shrink-0 text-[10px] font-medium tabular-nums ${timeClass}`}>
+            <time dateTime={msg.ts} className={`shrink-0 text-[9px] font-medium tabular-nums ${timeClass}`}>
               {time}
             </time>
           ) : null}
         </div>
         <p
-          className={`mt-1.5 whitespace-pre-wrap text-[14px] leading-[1.5] tracking-[-0.01em] ${
+          className={`mt-1 whitespace-pre-wrap text-sm leading-snug tracking-[-0.01em] ${
             isYou ? "text-white" : isSaintly ? "text-indigo-950" : isUnknown ? "text-slate-800" : "text-slate-900"
           }`}
         >
@@ -100,18 +100,28 @@ export function CallDetailTranscriptThread({ bubbles, callerLabel }: CallDetailT
   const count = bubbles.length;
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-gradient-to-b from-slate-50/40 to-white shadow-inner shadow-slate-900/[0.04]">
-      <div className="flex items-center justify-between gap-3 border-b border-slate-200/70 bg-white/95 px-4 py-2.5 backdrop-blur-sm">
-        <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-slate-500">Conversation</span>
-        <span className="rounded-full bg-slate-100/90 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-slate-700">
+    <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-gradient-to-b from-slate-50/40 to-white shadow-inner shadow-slate-900/[0.03]">
+      <div className="flex items-center justify-between gap-2 border-b border-slate-200/70 bg-white/95 px-3 py-2 backdrop-blur-sm">
+        <span className="text-[10px] font-medium uppercase tracking-[0.08em] text-slate-500">Conversation</span>
+        <span className="rounded-md bg-slate-100/80 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-slate-500">
           {count} {count === 1 ? "line" : "lines"}
         </span>
       </div>
-      <div className="max-h-[min(520px,62vh)] overflow-y-auto overscroll-contain px-3.5 py-3.5">
-        <div className="mx-auto flex w-full max-w-2xl flex-col gap-2.5">
-          {bubbles.map((m) => (
-            <Bubble key={m.id} msg={m} callerLabel={callerLabel} />
-          ))}
+      <div className="relative">
+        <div
+          className="pointer-events-none absolute inset-x-0 top-0 z-[1] h-4 bg-gradient-to-b from-slate-50/90 to-transparent"
+          aria-hidden
+        />
+        <div
+          className="pointer-events-none absolute inset-x-0 bottom-0 z-[1] h-4 bg-gradient-to-t from-white/95 to-transparent"
+          aria-hidden
+        />
+        <div className="max-h-[min(420px,48vh)] overflow-y-auto overscroll-contain px-2 py-3">
+          <div className="mx-auto flex w-full max-w-md flex-col gap-2">
+            {bubbles.map((m) => (
+              <Bubble key={m.id} msg={m} callerLabel={callerLabel} />
+            ))}
+          </div>
         </div>
       </div>
     </div>
