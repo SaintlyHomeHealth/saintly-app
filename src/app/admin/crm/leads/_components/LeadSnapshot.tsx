@@ -8,6 +8,12 @@ import { formatLeadSourceLabel } from "@/lib/crm/lead-source-options";
 import type { LeadIntakeRequestDetails } from "@/lib/crm/lead-intake-request";
 import { hasAnyIntakeRequestDetail } from "@/lib/crm/lead-intake-request";
 import { formatPhoneNumber } from "@/lib/phone/us-phone-format";
+import {
+  leadDisplayPrimaryPayerName,
+  leadDisplayPrimaryPayerTypeLine,
+  leadDisplaySecondaryPayerName,
+  leadDisplaySecondaryPayerTypeLine,
+} from "@/lib/crm/lead-payer-structured";
 
 import type { LeadWorkspaceContactProfileDefaults, LeadWorkspaceIntakeDefaults, LeadWorkspaceStaffOption } from "../lead-workspace";
 import { leadTemperatureLabel, normalizeLeadTemperature } from "@/lib/crm/lead-temperature";
@@ -160,8 +166,10 @@ function buildSnapshotPlainText(p: LeadSnapshotProps): string {
   L("Last contact", formatLeadLastContactSummary(p.lastContactAt, p.lastOutcome));
 
   if (!p.isEmployeeLead) {
-    L("Primary payer", p.intakeDefaults.payer_name.trim());
-    L("Payer category", p.intakeDefaults.payer_type.trim());
+    L("Primary payer", leadDisplayPrimaryPayerName(p.intakeDefaults));
+    L("Primary payer type", leadDisplayPrimaryPayerTypeLine(p.intakeDefaults));
+    L("Secondary payer", leadDisplaySecondaryPayerName(p.intakeDefaults));
+    L("Secondary payer type", leadDisplaySecondaryPayerTypeLine(p.intakeDefaults));
     L("Medicare #", p.medicareNumber.trim() ? "(masked in UI)" : "—");
     L("Medicare effective", p.medicareEffectiveDateIso ? fmtIsoDate(p.medicareEffectiveDateIso) : "—");
     L("Medicare notes", p.medicareNotes.trim());
@@ -224,9 +232,11 @@ export function LeadSnapshot(props: LeadSnapshotProps) {
   ].filter(Boolean);
   const addressLine = addrParts.length > 0 ? addrParts.join(" · ") : "";
 
-  const payerName = intakeDefaults.payer_name.trim();
-  const payerType = intakeDefaults.payer_type.trim();
-  const lowerPayer = `${payerName} ${payerType}`.toLowerCase();
+  const primaryPayerName = leadDisplayPrimaryPayerName(intakeDefaults);
+  const primaryPayerTypeLine = leadDisplayPrimaryPayerTypeLine(intakeDefaults);
+  const secondaryPayerName = leadDisplaySecondaryPayerName(intakeDefaults);
+  const secondaryPayerTypeLine = leadDisplaySecondaryPayerTypeLine(intakeDefaults);
+  const lowerPayer = `${primaryPayerName} ${secondaryPayerName} ${primaryPayerTypeLine}`.toLowerCase();
 
   const tempNorm = normalizeLeadTemperature(leadTemperature);
   const tempBadge =
@@ -247,11 +257,13 @@ export function LeadSnapshot(props: LeadSnapshotProps) {
     flags.push({ key: "new", node: <Badge tone="sky">New</Badge> });
   if (rawStatus === "waiting_on_documents") flags.push({ key: "docs", node: <Badge tone="amber">Need docs</Badge> });
   if (rawStatus === "verify_insurance") flags.push({ key: "ver", node: <Badge tone="violet">Verify insurance</Badge> });
-  if (/humana/i.test(payerName)) flags.push({ key: "humana", node: <Badge tone="emerald">Humana</Badge> });
-  if (/advantage|medicare advantage|ma\b/i.test(lowerPayer)) flags.push({ key: "ma", node: <Badge tone="sky">Medicare Advantage</Badge> });
+  if (/humana/i.test(lowerPayer)) flags.push({ key: "humana", node: <Badge tone="emerald">Humana</Badge> });
+  if (intakeDefaults.primary_payer_type.trim() === "medicare_advantage") {
+    flags.push({ key: "ma", node: <Badge tone="sky">Medicare Advantage</Badge> });
+  }
   if (!contact.primaryPhone.trim()) flags.push({ key: "nophone", node: <Badge tone="rose">Missing phone</Badge> });
   if (!contact.email.trim()) flags.push({ key: "noemail", node: <Badge tone="rose">Missing email</Badge> });
-  if (!isEmployeeLead && !payerName) flags.push({ key: "nopayer", node: <Badge tone="rose">Missing payer</Badge> });
+  if (!isEmployeeLead && !primaryPayerName.trim()) flags.push({ key: "nopayer", node: <Badge tone="rose">Missing payer</Badge> });
   if (isConverted) flags.push({ key: "conv", node: <Badge tone="emerald">Converted</Badge> });
   if (isDead) flags.push({ key: "dead", node: <Badge tone="slate">Dead lead</Badge> });
 
@@ -345,11 +357,28 @@ export function LeadSnapshot(props: LeadSnapshotProps) {
           <SubCard title="Insurance">
             <dl className="grid gap-3 sm:grid-cols-2">
               <Field label="Primary payer" emphasis>
-                {textOrMuted(payerName)}
+                {textOrMuted(primaryPayerName)}
               </Field>
-              <Field label="Payer category">{payerType ? payerType : <span className="text-slate-400">Not provided</span>}</Field>
-              <Field label="Secondary payer" className="sm:col-span-2">
-                <span className="text-slate-400">Not provided</span>
+              <Field label="Primary payer type">
+                {primaryPayerTypeLine ? (
+                  <span className="text-slate-800">{primaryPayerTypeLine}</span>
+                ) : (
+                  <span className="text-slate-400">Not provided</span>
+                )}
+              </Field>
+              <Field label="Secondary payer">
+                {secondaryPayerName.trim() ? (
+                  <span className="text-slate-800">{secondaryPayerName.trim()}</span>
+                ) : (
+                  <span className="text-slate-400">Not provided</span>
+                )}
+              </Field>
+              <Field label="Secondary payer type">
+                {secondaryPayerTypeLine ? (
+                  <span className="text-slate-800">{secondaryPayerTypeLine}</span>
+                ) : (
+                  <span className="text-slate-400">Not provided</span>
+                )}
               </Field>
               <Field label="Medicare number" className="sm:col-span-2">
                 <LeadSnapshotMedicareReveal medicareNumber={medicareNumber} />

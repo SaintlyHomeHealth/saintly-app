@@ -48,6 +48,10 @@ import {
   parseLeadIntakeRequestFromMetadata,
   type LeadIntakeRequestDetails,
 } from "@/lib/crm/lead-intake-request";
+import {
+  legacyBroadPayerCategoryFromStructured,
+  legacyPayerNameFromStructured,
+} from "@/lib/crm/lead-payer-structured";
 import { isValidServiceDisciplineCode, parseServiceDisciplinesFromFormData } from "@/lib/crm/service-disciplines";
 import { formatFollowUpDate } from "@/lib/crm/crm-leads-table-helpers";
 import { convertLeadToPatient } from "@/app/admin/phone/actions";
@@ -1024,12 +1028,27 @@ function readIntakeRequestFromForm(formData: FormData): LeadIntakeRequestDetails
   };
 }
 
-/** Digits-only for optional phone/fax fields (empty → null). */
+/**
+ * Optional phone/fax: prefer digits-only. If there are no digits (or normalization fails),
+ * keep the trimmed raw input so we don't drop extensions or odd entries.
+ * When multiple fields share the same name, the last value wins (avoids stale first hidden).
+ */
 function readOptionalNormalizedPhone(formData: FormData, key: string): string | null {
+  const all = formData.getAll(key);
+  const strings = all.filter((x): x is string => typeof x === "string");
+  if (strings.length === 0) return null;
+  const raw = strings[strings.length - 1].trim();
+  if (raw === "") return null;
+  const d = normalizePhone(raw);
+  if (d !== "") return d;
+  return raw;
+}
+
+function readOptionalLeadStructuredPayerType(formData: FormData, key: string): string | null {
   const v = formData.get(key);
   if (typeof v !== "string") return null;
-  const d = normalizePhone(v);
-  return d === "" ? null : d;
+  const t = v.trim();
+  return t === "" ? null : t;
 }
 
 const LEAD_OWNER_UUID_RE =
@@ -1163,7 +1182,7 @@ export async function updateLeadIntake(formData: FormData) {
     supabaseAdmin
       .from("leads")
       .select(
-        "id, status, owner_user_id, next_action, follow_up_date, referring_doctor_name, doctor_office_name, doctor_office_phone, doctor_office_fax, doctor_office_contact_person, referring_provider_name, referring_provider_phone, payer_name, payer_type, referral_source, service_disciplines, service_type, intake_status, notes, external_source_metadata, medicare_number, medicare_effective_date, medicare_notes, lead_temperature"
+        "id, status, owner_user_id, next_action, follow_up_date, referring_doctor_name, doctor_office_name, doctor_office_phone, doctor_office_fax, doctor_office_contact_person, referring_provider_name, referring_provider_phone, payer_name, payer_type, primary_payer_type, primary_payer_name, secondary_payer_type, secondary_payer_name, referral_source, service_disciplines, service_type, intake_status, notes, external_source_metadata, medicare_number, medicare_effective_date, medicare_notes, lead_temperature"
       )
       .eq("id", leadId)
   ).maybeSingle();
@@ -1194,6 +1213,18 @@ export async function updateLeadIntake(formData: FormData) {
 
   const disciplines = parseServiceDisciplinesFromFormData(formData);
   const pipelineStatus = readLeadPipelineStatusFromForm(formData);
+
+  const primary_payer_type = readOptionalLeadStructuredPayerType(formData, "primary_payer_type");
+  const primary_payer_name = readOptionalIntakeText(formData, "primary_payer_name");
+  const secondary_payer_type = readOptionalLeadStructuredPayerType(formData, "secondary_payer_type");
+  const secondary_payer_name = readOptionalIntakeText(formData, "secondary_payer_name");
+
+  const payer_name = legacyPayerNameFromStructured(primary_payer_name, secondary_payer_name);
+  const payer_type =
+    legacyBroadPayerCategoryFromStructured(primary_payer_type) ??
+    legacyBroadPayerCategoryFromStructured(secondary_payer_type) ??
+    null;
+
   const payload = {
     ...(pipelineStatus !== null ? { status: pipelineStatus } : {}),
     owner_user_id: readOptionalOwnerUserId(formData),
@@ -1206,8 +1237,12 @@ export async function updateLeadIntake(formData: FormData) {
     doctor_office_contact_person: readOptionalIntakeText(formData, "doctor_office_contact_person"),
     referring_provider_name: readOptionalIntakeText(formData, "referring_provider_name"),
     referring_provider_phone: readOptionalNormalizedPhone(formData, "referring_provider_phone"),
-    payer_name: readOptionalIntakeText(formData, "payer_name"),
-    payer_type: readOptionalIntakeText(formData, "payer_type"),
+    primary_payer_type,
+    primary_payer_name,
+    secondary_payer_type,
+    secondary_payer_name,
+    payer_name,
+    payer_type,
     referral_source: readOptionalIntakeText(formData, "referral_source"),
     service_disciplines: disciplines,
     service_type: disciplines.length > 0 ? disciplines.join(", ") : null,
@@ -1300,7 +1335,14 @@ export async function updateLeadIntake(formData: FormData) {
     });
   }
 
-  if (normStr(B.payer_name) !== normStr(payload.payer_name) || normStr(B.payer_type) !== normStr(payload.payer_type)) {
+  if (
+    normStr(B.payer_name) !== normStr(payload.payer_name) ||
+    normStr(B.payer_type) !== normStr(payload.payer_type) ||
+    normStr(B.primary_payer_name) !== normStr(payload.primary_payer_name) ||
+    normStr(B.primary_payer_type) !== normStr(payload.primary_payer_type) ||
+    normStr(B.secondary_payer_name) !== normStr(payload.secondary_payer_name) ||
+    normStr(B.secondary_payer_type) !== normStr(payload.secondary_payer_type)
+  ) {
     await insertLeadActivityRow({
       leadId,
       eventType: LEAD_ACTIVITY_EVENT.payer_updated,
@@ -1310,6 +1352,14 @@ export async function updateLeadIntake(formData: FormData) {
         payer_type_after: normStr(payload.payer_type),
         payer_name_before: normStr(B.payer_name),
         payer_name_after: normStr(payload.payer_name),
+        primary_payer_type_before: normStr(B.primary_payer_type),
+        primary_payer_type_after: normStr(payload.primary_payer_type),
+        primary_payer_name_before: normStr(B.primary_payer_name),
+        primary_payer_name_after: normStr(payload.primary_payer_name),
+        secondary_payer_type_before: normStr(B.secondary_payer_type),
+        secondary_payer_type_after: normStr(payload.secondary_payer_type),
+        secondary_payer_name_before: normStr(B.secondary_payer_name),
+        secondary_payer_name_after: normStr(payload.secondary_payer_name),
       },
       createdByUserId: uid,
     });
@@ -2850,6 +2900,17 @@ export async function createLeadManualFromCrm(formData: FormData) {
   const contactId = contactRow.id as string;
   const disciplines = parseServiceDisciplinesFromFormData(formData, "service_disciplines");
 
+  const primary_payer_type = readOptionalLeadStructuredPayerType(formData, "primary_payer_type");
+  const primary_payer_name = readOptionalIntakeText(formData, "primary_payer_name");
+  const secondary_payer_type = readOptionalLeadStructuredPayerType(formData, "secondary_payer_type");
+  const secondary_payer_name = readOptionalIntakeText(formData, "secondary_payer_name");
+
+  const payer_name = legacyPayerNameFromStructured(primary_payer_name, secondary_payer_name);
+  const payer_type =
+    legacyBroadPayerCategoryFromStructured(primary_payer_type) ??
+    legacyBroadPayerCategoryFromStructured(secondary_payer_type) ??
+    null;
+
   const { data: newLead, error: lErr } = await supabaseAdmin
     .from("leads")
     .insert({
@@ -2866,8 +2927,12 @@ export async function createLeadManualFromCrm(formData: FormData) {
       doctor_office_contact_person: readOptionalIntakeText(formData, "doctor_office_contact_person"),
       referring_provider_name: readOptionalIntakeText(formData, "referring_provider_name"),
       referring_provider_phone: readOptionalNormalizedPhone(formData, "referring_provider_phone"),
-      payer_name: readOptionalIntakeText(formData, "payer_name"),
-      payer_type: readOptionalIntakeText(formData, "payer_type"),
+      primary_payer_type,
+      primary_payer_name,
+      secondary_payer_type,
+      secondary_payer_name,
+      payer_name,
+      payer_type,
       referral_source: readOptionalIntakeText(formData, "referral_source"),
       service_disciplines: disciplines,
       service_type: disciplines.length > 0 ? disciplines.join(", ") : null,

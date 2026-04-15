@@ -9,6 +9,8 @@ type Props = {
   defaultValue?: string | null;
   className?: string;
   id?: string;
+  /** Placeholder on the text input (defaults to search hint). */
+  placeholder?: string;
 };
 
 /**
@@ -20,6 +22,7 @@ export function SearchablePayerSelect({
   defaultValue,
   className,
   id = "payer_name",
+  placeholder = "Search or type a payer…",
 }: Props) {
   const listId = `${id.replace(/[^a-zA-Z0-9_-]/g, "")}-payer-datalist`;
   const [value, setValue] = useState((defaultValue ?? "").trim());
@@ -34,7 +37,7 @@ export function SearchablePayerSelect({
         onChange={(e) => setValue(e.target.value)}
         list={listId}
         autoComplete="off"
-        placeholder="Search or type a payer…"
+        placeholder={placeholder}
         className={className}
       />
       <datalist id={listId}>

@@ -2,8 +2,8 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 
 import { FormattedPhoneInput } from "@/components/phone/FormattedPhoneInput";
-import { PayerTypeSelect } from "@/components/crm/PayerTypeSelect";
-import { SearchablePayerSelect } from "@/components/crm/SearchablePayerSelect";
+import { LeadPayerInsuranceFields } from "@/app/admin/crm/leads/_components/LeadPayerInsuranceFields";
+import { leadDisplayPrimaryPayerName } from "@/lib/crm/lead-payer-structured";
 import { ServiceDisciplineCheckboxes } from "@/components/crm/ServiceDisciplineCheckboxes";
 import { LEAD_NEXT_ACTION_OPTIONS } from "@/lib/crm/lead-follow-up-options";
 import {
@@ -115,6 +115,10 @@ export type LeadWorkspaceIntakeDefaults = {
   referring_provider_phone: string;
   payer_name: string;
   payer_type: string;
+  primary_payer_type: string;
+  primary_payer_name: string;
+  secondary_payer_type: string;
+  secondary_payer_name: string;
   referral_source: string;
   intake_status: string;
 };
@@ -325,15 +329,16 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
 
           <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
             <h2 className="text-sm font-semibold text-slate-900">Payer &amp; services</h2>
-            <div className="mt-4 grid max-w-2xl gap-3 sm:grid-cols-2">
-              <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
-                Payer
-                <SearchablePayerSelect name="payer_name" className={inp} id="lead-workspace-new-payer" />
-              </label>
-              <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-                Payer type (category)
-                <PayerTypeSelect name="payer_type" className={inp} id="lead-workspace-new-payer-type" />
-              </label>
+            <div className="mt-4 space-y-4">
+              <LeadPayerInsuranceFields
+                inp={inp}
+                primaryPayerType=""
+                primaryPayerName=""
+                secondaryPayerType=""
+                secondaryPayerName=""
+                idPrefix="lead-workspace-new"
+              />
+              <div className="grid max-w-2xl gap-3 sm:grid-cols-2">
               <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
                 Referral source
                 <input name="referral_source" className={inp} />
@@ -346,6 +351,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
                 Intake status
                 <input name="intake_status" className={inp} />
               </label>
+              </div>
             </div>
           </div>
 
@@ -851,8 +857,10 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
               <input type="hidden" name="doctor_office_contact_person" value={intakeDefaults.doctor_office_contact_person} />
               <input type="hidden" name="referring_provider_name" value={intakeDefaults.referring_provider_name} />
               <input type="hidden" name="referring_provider_phone" value={intakeDefaults.referring_provider_phone} />
-              <input type="hidden" name="payer_name" value={intakeDefaults.payer_name} />
-              <input type="hidden" name="payer_type" value={intakeDefaults.payer_type} />
+              <input type="hidden" name="primary_payer_type" value={intakeDefaults.primary_payer_type} />
+              <input type="hidden" name="primary_payer_name" value={intakeDefaults.primary_payer_name} />
+              <input type="hidden" name="secondary_payer_type" value={intakeDefaults.secondary_payer_type} />
+              <input type="hidden" name="secondary_payer_name" value={intakeDefaults.secondary_payer_name} />
               <input type="hidden" name="referral_source" value={intakeDefaults.referral_source} />
               <input type="hidden" name="intake_status" value={intakeDefaults.intake_status} />
               <input type="hidden" name="intake_zip_code" value={intakeRequestDefaults.zip_code} />
@@ -978,7 +986,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
             <LeadSectionCard
               id="section-insurance"
               title="Insurance information"
-              description="Upload primary and secondary card files, choose the payer (Medicare Advantage, Medicaid, BCBS, etc.), and add typed Medicare (MBI) when you have it — all of these work together; Medicare fields do not replace payer selection."
+              description="Upload card files, set primary and secondary payer type and name (e.g. Original Medicare + supplement), and add typed Medicare (MBI) when you have it — these work together."
             >
               <LeadInsuranceSection
                 leadId={leadId}
@@ -989,26 +997,14 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
               />
               <div className="mt-8 border-t border-slate-200/80 pt-8">
                 <p className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Payer selection</p>
-                <div className="grid max-w-2xl gap-4 sm:grid-cols-2">
-                  <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
-                    Payer
-                    <SearchablePayerSelect
-                      name="payer_name"
-                      defaultValue={intakeDefaults.payer_name}
-                      className={inp}
-                      id="lead-workspace-existing-payer"
-                    />
-                  </label>
-                  <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
-                    Payer type (category)
-                    <PayerTypeSelect
-                      name="payer_type"
-                      className={inp}
-                      defaultValue={intakeDefaults.payer_type}
-                      id="lead-workspace-existing-payer-type"
-                    />
-                  </label>
-                </div>
+                <LeadPayerInsuranceFields
+                  inp={inp}
+                  primaryPayerType={intakeDefaults.primary_payer_type}
+                  primaryPayerName={intakeDefaults.primary_payer_name}
+                  secondaryPayerType={intakeDefaults.secondary_payer_type}
+                  secondaryPayerName={intakeDefaults.secondary_payer_name}
+                  idPrefix={`lead-${leadId}`}
+                />
               </div>
               <div className="mt-8 border-t border-slate-200/80 pt-8">
                 <LeadMedicareFields
@@ -1079,7 +1075,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
           <LeadSectionCard
             id="section-payer"
             title="Services & intake"
-            description="Referral source, disciplines, and intake status. Payer and Medicare are saved in Insurance above."
+            description="Referral source, disciplines, and intake status. Payer details are saved in Insurance above."
           >
             <div className="grid max-w-2xl gap-4 sm:grid-cols-2">
               <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
@@ -1172,7 +1168,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
             </div>
             <div>
               <dt className="text-[10px] font-semibold uppercase text-slate-500">Payer</dt>
-              <dd>{intakeDefaults.payer_name || "—"}</dd>
+              <dd>{leadDisplayPrimaryPayerName(intakeDefaults) || "—"}</dd>
             </div>
             <div>
               <dt className="text-[10px] font-semibold uppercase text-slate-500">Next action</dt>
