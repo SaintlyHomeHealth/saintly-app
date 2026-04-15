@@ -117,13 +117,6 @@ function formatWhen(iso: string | null | undefined): string {
   });
 }
 
-function telHref(phone: string | null | undefined): string | null {
-  const raw = (phone ?? "").trim();
-  if (!raw) return null;
-  const digits = raw.replace(/[^\d+]/g, "");
-  return digits ? `tel:${digits}` : null;
-}
-
 function smsHref(phone: string | null | undefined, body: string): string | null {
   const raw = (phone ?? "").trim();
   if (!raw) return null;
@@ -140,6 +133,8 @@ type RecruitingCandidateDetailClientProps = {
   listBackHref: string;
   viewerUserId: string;
   actorLabels: Record<string, string>;
+  /** Opens workspace keypad in a new tab; null when the recruit has no dialable phone. */
+  keypadCallHref: string | null;
 };
 
 export function RecruitingCandidateDetailClient({
@@ -150,6 +145,7 @@ export function RecruitingCandidateDetailClient({
   listBackHref,
   viewerUserId,
   actorLabels,
+  keypadCallHref,
 }: RecruitingCandidateDetailClientProps) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -263,8 +259,13 @@ export function RecruitingCandidateDetailClient({
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
-              {telHref(initial.phone) ? (
-                <a href={telHref(initial.phone)!} className={btnPrimary}>
+              {keypadCallHref ? (
+                <a
+                  href={keypadCallHref}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={btnPrimary}
+                >
                   Call
                 </a>
               ) : (

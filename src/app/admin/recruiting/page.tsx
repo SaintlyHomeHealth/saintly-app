@@ -418,6 +418,16 @@ export default async function AdminRecruitingListPage({
                     </div>
                   </div>
                   <div className="mt-4 flex flex-wrap gap-2">
+                    {r.phone?.trim() ? (
+                      <a
+                        href={`/admin/recruiting/open-keypad/${r.id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={crmActionBtnSky}
+                      >
+                        Call
+                      </a>
+                    ) : null}
                     <Link href={`/admin/recruiting/${r.id}${filterQs}`} className={crmActionBtnSky}>
                       Open
                     </Link>
@@ -441,7 +451,7 @@ export default async function AdminRecruitingListPage({
                   <th className="px-4 py-3">Interest</th>
                   <th className="px-4 py-3">Last contact</th>
                   <th className="px-4 py-3">Next follow-up</th>
-                  <th className="px-4 py-3"> </th>
+                  <th className="px-4 py-3 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -495,9 +505,21 @@ export default async function AdminRecruitingListPage({
                       <td className="px-4 py-3 text-xs text-slate-600">{formatListDate(r.last_contact_at)}</td>
                       <td className="px-4 py-3 text-xs text-slate-600">{formatListDate(r.next_follow_up_at)}</td>
                       <td className="px-4 py-3 text-right">
-                        <Link href={`/admin/recruiting/${r.id}${filterQs}`} className={crmActionBtnSky}>
-                          Open
-                        </Link>
+                        <div className="flex flex-wrap justify-end gap-2">
+                          {r.phone?.trim() ? (
+                            <a
+                              href={`/admin/recruiting/open-keypad/${r.id}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className={crmActionBtnSky}
+                            >
+                              Call
+                            </a>
+                          ) : null}
+                          <Link href={`/admin/recruiting/${r.id}${filterQs}`} className={crmActionBtnSky}>
+                            Open
+                          </Link>
+                        </div>
                       </td>
                     </tr>
                   );

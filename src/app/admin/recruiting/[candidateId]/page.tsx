@@ -5,6 +5,8 @@ import { crmPrimaryCtaCls } from "@/components/admin/crm-admin-list-styles";
 import { staffPrimaryLabel } from "@/lib/crm/crm-leads-table-helpers";
 import { supabaseAdmin } from "@/lib/admin";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
+import { ensureRecruitingCandidateCrmContact } from "@/lib/recruiting/recruiting-crm-contact-sync";
+import { buildWorkspaceKeypadCallHref } from "@/lib/workspace-phone/launch-urls";
 
 import { RecruitingCandidateDetailClient } from "../_components/RecruitingCandidateDetailClient";
 
@@ -64,6 +66,18 @@ export default async function AdminRecruitingCandidatePage({
     notFound();
   }
 
+  const ensured = await ensureRecruitingCandidateCrmContact(supabaseAdmin, candidateId.trim());
+  const keypadCallHref = ensured.dialE164
+    ? buildWorkspaceKeypadCallHref({
+        dial: ensured.dialE164,
+        contactId: ensured.contactId ?? undefined,
+        contextName: ensured.contextName ?? undefined,
+        candidateId: candidateId.trim(),
+        source: "recruiting",
+        placeCall: false,
+      })
+    : null;
+
   const { data: activityRows, error: aErr } = await supabaseAdmin
     .from("recruiting_candidate_activities")
     .select("id, activity_type, outcome, body, created_at, created_by")
@@ -103,7 +117,9 @@ export default async function AdminRecruitingCandidatePage({
       ? "Full name is required."
       : errRaw === "save_failed"
         ? "Could not save changes."
-        : null;
+        : errRaw === "no_phone"
+          ? "Add a phone number on this candidate to call from the workspace keypad."
+          : null;
 
   return (
     <div className="space-y-6 p-6">
@@ -132,6 +148,7 @@ export default async function AdminRecruitingCandidatePage({
         listBackHref={listBackHref}
         viewerUserId={staff.user_id}
         actorLabels={actorLabels}
+        keypadCallHref={keypadCallHref}
       />
     </div>
   );

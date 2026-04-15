@@ -28,6 +28,10 @@ export type WorkspaceKeypadLaunch = {
   leadId?: string;
   contactId?: string;
   contextName?: string;
+  /** Admin recruiting candidate — deep-links keypad banner back to `/admin/recruiting/:id`. */
+  candidateId?: string;
+  /** Short source tag for keypad UI (e.g. `recruiting`). */
+  source?: string;
 };
 
 /** Twilio softphone keypad (never `tel:`). */
@@ -46,6 +50,13 @@ export function buildWorkspaceKeypadCallHref(opts: WorkspaceKeypadLaunch): strin
   const name = (opts.contextName ?? "").trim();
   if (name) {
     q.set("contextName", name.slice(0, 120));
+  }
+  if (opts.candidateId && UUID_RE.test(opts.candidateId)) {
+    q.set("candidateId", opts.candidateId);
+  }
+  const src = (opts.source ?? "").trim();
+  if (src && /^[a-z][a-z0-9_-]{0,30}$/i.test(src)) {
+    q.set("source", src.slice(0, 32));
   }
   return `/workspace/phone/keypad?${q.toString()}`;
 }

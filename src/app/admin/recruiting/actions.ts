@@ -36,6 +36,7 @@ import {
   RESUME_HARD_ERROR_TOO_LARGE,
 } from "@/lib/recruiting/resume-upload-mime";
 import { supabaseAdmin } from "@/lib/admin";
+import { ensureRecruitingCandidateCrmContact } from "@/lib/recruiting/recruiting-crm-contact-sync";
 import { isRecruitingActivityDeletable } from "@/lib/recruiting/recruiting-timeline";
 import { createServerSupabaseClient, getAuthenticatedUser } from "@/lib/supabase/server";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
@@ -215,6 +216,8 @@ export async function createRecruitingCandidate(formData: FormData): Promise<Cre
     return { ok: false, reason: "save_failed" };
   }
 
+  await ensureRecruitingCandidateCrmContact(supabaseAdmin, data.id as string);
+
   revalidatePath("/admin/recruiting");
   return { ok: true, candidateId: data.id as string };
 }
@@ -321,6 +324,8 @@ export async function updateRecruitingCandidate(formData: FormData) {
     console.warn("[recruiting] updateRecruitingCandidate:", error.message);
     redirect(`/admin/recruiting/${id}?error=save_failed`);
   }
+
+  await ensureRecruitingCandidateCrmContact(supabaseAdmin, id);
 
   revalidatePath("/admin/recruiting");
   revalidatePath(`/admin/recruiting/${id}`);
@@ -1074,6 +1079,8 @@ export async function createRecruitingCandidateFromResume(
     oldPath: null,
     newStoragePath: storagePath,
   });
+
+  await ensureRecruitingCandidateCrmContact(supabaseAdmin, candidateId);
 
   revalidatePath("/admin/recruiting");
   revalidatePath(`/admin/recruiting/${candidateId}`);

@@ -26,19 +26,21 @@ export default async function WorkspaceKeypadPage({
   }
 
   const sp = searchParams ? await searchParams : {};
-  const dial = oneParam(sp, "dial").trim();
+  const dial = (oneParam(sp, "dial") || oneParam(sp, "number")).trim();
   const placeRaw = oneParam(sp, "place").trim().toLowerCase();
   const autoPlaceCall = placeRaw === "1" || placeRaw === "true" || placeRaw === "yes";
   const leadId = oneParam(sp, "leadId").trim();
   const contactId = oneParam(sp, "contactId").trim();
-  const contextName = oneParam(sp, "contextName").trim();
+  const contextName = oneParam(sp, "contextName").trim() || oneParam(sp, "name").trim();
+  const candidateId = oneParam(sp, "candidateId").trim();
+  const source = oneParam(sp, "source").trim().toLowerCase();
 
   const staffDisplayName =
     staff.full_name?.trim() ||
     staff.email?.trim() ||
     `${staff.role.replace(/_/g, " ")} (${staff.user_id.slice(0, 8)}…)`;
 
-  const dialerKey = `kp-${dial}-${autoPlaceCall ? "1" : "0"}`;
+  const dialerKey = `kp-${dial}-${autoPlaceCall ? "1" : "0"}-${candidateId || ""}-${source || ""}`;
 
   if (perfStart) {
     routePerfLog("workspace/phone/keypad", perfStart);
@@ -59,6 +61,21 @@ export default async function WorkspaceKeypadPage({
           {contextName ? <span className="text-sky-800"> · {contextName}</span> : null}
           {contactId && UUID_RE.test(contactId) ? (
             <span className="mt-1 block font-mono text-[10px] text-sky-700/90">Contact {contactId}</span>
+          ) : null}
+        </p>
+      ) : null}
+      {source === "recruiting" && candidateId && UUID_RE.test(candidateId) ? (
+        <p className="mt-2 rounded-2xl border border-violet-200/80 bg-violet-50/90 px-4 py-3 text-sm text-violet-950">
+          Recruiting:{" "}
+          <Link
+            href={`/admin/recruiting/${candidateId}`}
+            className="font-semibold underline-offset-2 hover:underline"
+          >
+            Open recruit record
+          </Link>
+          {contextName ? <span className="text-violet-900"> · {contextName}</span> : null}
+          {contactId && UUID_RE.test(contactId) ? (
+            <span className="mt-1 block font-mono text-[10px] text-violet-800/90">Contact {contactId}</span>
           ) : null}
         </p>
       ) : null}
