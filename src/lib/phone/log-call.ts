@@ -1153,7 +1153,8 @@ export async function applyTwilioVoiceStatusCallback(
     callId,
     resolvedExternalCallId,
     direction,
-    rawCallStatus: (payload.raw?.CallStatus ?? payload.CallStatus ?? "").trim(),
+    rawCallStatus: (payload.raw?.CallStatus ?? "").trim(),
+    derivedCallStatus: (payload.CallStatus ?? "").trim(),
     rowMetadata: rowMetaBeforeMerge,
   });
 

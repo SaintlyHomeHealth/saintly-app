@@ -9,6 +9,7 @@ import {
   buildTwiMLAppIncomingClientRingTwiml,
   buildVoiceHandoffTwiml,
   readTwilioVoiceRingE164FromEnv,
+  resolveInboundCallerIdForClientDial,
 } from "@/lib/phone/twilio-voice-handoff";
 import { isTwilioVoiceJsClientFrom, isTwilioVoiceJsClientTo } from "@/lib/twilio/twilio-voice-client-leg";
 import { logTwilioVoiceTrace, summarizeTwimlResponse } from "@/lib/twilio/twilio-voice-trace-log";
@@ -171,7 +172,7 @@ export async function POST(req: NextRequest) {
   }
 
   const ringE164Raw = readTwilioVoiceRingE164FromEnv();
-  const callerId = to || from;
+  const callerId = resolveInboundCallerIdForClientDial(from, to);
 
   console.log(
     JSON.stringify({

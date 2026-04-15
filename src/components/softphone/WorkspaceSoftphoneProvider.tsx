@@ -56,6 +56,9 @@ export type CallContextVoiceAi = {
   recommended_action: string | null;
   confidence_summary: string | null;
   softphone_transcript_streams: SoftphoneTranscriptStreamsMeta | null;
+  /** Inbound PSTN transcript-only stream started server-side (no Enable click). */
+  inbound_transcript_stream_started_at: string | null;
+  inbound_transcript_mode: string | null;
 };
 
 export type SoftphoneConferenceContext = {
@@ -256,6 +259,8 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
   const lastPollCallSidRef = useRef<string | null>(null);
   const prevTranscriptLenRef = useRef(0);
   const transcriptStreamStartedRef = useRef(false);
+  /** Dedupe UI auto-enable when server inbound transcript metadata arrives. */
+  const inboundServerTranscriptUiKeyRef = useRef<string | null>(null);
   const pstnTranscriptFollowupBusyRef = useRef(false);
   const lastPstnOnlyAttemptRef = useRef<{ sid: string; at: number } | null>(null);
   const [transcriptEnabled, setTranscriptEnabled] = useState(false);
@@ -378,6 +383,8 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
                   recommended_action: va.recommended_action ?? null,
                   confidence_summary: va.confidence_summary ?? null,
                   softphone_transcript_streams: va.softphone_transcript_streams ?? null,
+                  inbound_transcript_stream_started_at: va.inbound_transcript_stream_started_at ?? null,
+                  inbound_transcript_mode: va.inbound_transcript_mode ?? null,
                 }
               : null,
             conference: j.softphone_conference ?? null,
@@ -455,6 +462,37 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
   }, [status, transcriptEnabled, callContext]);
 
   /**
+   * Inbound PSTN: server auto-starts transcript-only (`maybeStartInboundTranscriptStreamIfEligible`) — reflect
+   * that in the UI without clicking Enable. Manual Enable still uses
+   * `POST /api/workspace/phone/conference/start-transcript` (staff softphone / opt-in path).
+   */
+  useEffect(() => {
+    if (status !== "in_call") {
+      inboundServerTranscriptUiKeyRef.current = null;
+      return;
+    }
+    const sid = readCallSid(activeCallRef.current);
+    if (!sid) return;
+    const started = callContext?.voice_ai?.inbound_transcript_stream_started_at;
+    if (!started) return;
+    const key = `${sid}:${started}`;
+    if (inboundServerTranscriptUiKeyRef.current === key) return;
+    inboundServerTranscriptUiKeyRef.current = key;
+    setTranscriptEnabled(true);
+    transcriptStreamStartedRef.current = true;
+    console.log(
+      JSON.stringify({
+        tag: "inbound-transcript-diag",
+        outcome: "ui_auto_transcript_enabled",
+        reason: "server_inbound_transcript_stream_started",
+        manual_enable_transcript_is_separate_path: true,
+        manual_enable_transcript_path: "POST /api/workspace/phone/conference/start-transcript",
+        client_call_sid_short: sid.length > 8 ? `${sid.slice(0, 8)}…` : sid,
+      })
+    );
+  }, [status, callContext]);
+
+  /**
    * Single teardown path for the browser leg: always returns UI to idle and clears conference/transcript state.
    * Safe to call multiple times (e.g. hangup + Twilio disconnect).
    */
@@ -483,6 +521,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       setRecordingBusy(false);
       setRecordingActionError(null);
       transcriptStreamStartedRef.current = false;
+      inboundServerTranscriptUiKeyRef.current = null;
       lastPstnOnlyAttemptRef.current = null;
       pstnTranscriptFollowupBusyRef.current = false;
       if (options?.endedCallSid) {

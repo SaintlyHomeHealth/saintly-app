@@ -44,6 +44,9 @@ export type WorkspaceCallContextPayload = {
     confidence_summary: string | null;
     /** Client + PSTN transcript stream bookkeeping (for deferred PSTN start). */
     softphone_transcript_streams: SoftphoneTranscriptStreamsMeta | null;
+    /** Server auto-started inbound PSTN transcript (see `maybeStartInboundTranscriptStreamIfEligible`). */
+    inbound_transcript_stream_started_at: string | null;
+    inbound_transcript_mode: string | null;
   } | null;
   conference_gating: ConferenceGatingSnapshot;
 };
@@ -55,13 +58,30 @@ export async function buildWorkspaceCallContextPayload(
   supabase: SupabaseClient,
   callSid: string
 ): Promise<{ found: false } | { found: true; payload: WorkspaceCallContextPayload }> {
-  const { data, error } = await supabase
+  const selectCols = "id, from_e164, external_call_id, metadata, started_at";
+
+  const { data: byExternalId, error: errExt } = await supabase
     .from("phone_calls")
-    .select("id, from_e164, external_call_id, metadata, started_at")
+    .select(selectCols)
     .eq("external_call_id", callSid)
     .order("started_at", { ascending: false })
     .limit(1)
     .maybeSingle();
+
+  let data = byExternalId;
+  let error = errExt;
+
+  if (error || !data) {
+    const { data: byChildLeg, error: errLeg } = await supabase
+      .from("phone_calls")
+      .select(selectCols)
+      .filter("metadata->twilio_leg_map->>last_leg_call_sid", "eq", callSid)
+      .order("started_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    data = byChildLeg;
+    error = errLeg;
+  }
 
   if (error || !data) {
     return { found: false };
@@ -91,6 +111,14 @@ export async function buildWorkspaceCallContextPayload(
   const transcriptStreamsRaw =
     rawVoiceAi && typeof rawVoiceAi === "object" && !Array.isArray(rawVoiceAi)
       ? (rawVoiceAi as Record<string, unknown>).softphone_transcript_streams
+      : null;
+  const inboundTranscriptStartedAt =
+    rawVoiceAi && typeof rawVoiceAi === "object" && !Array.isArray(rawVoiceAi)
+      ? (rawVoiceAi as Record<string, unknown>).inbound_transcript_stream_started_at
+      : null;
+  const inboundTranscriptMode =
+    rawVoiceAi && typeof rawVoiceAi === "object" && !Array.isArray(rawVoiceAi)
+      ? (rawVoiceAi as Record<string, unknown>).inbound_transcript_mode
       : null;
   const softphoneTranscriptStreams: SoftphoneTranscriptStreamsMeta | null =
     transcriptStreamsRaw && typeof transcriptStreamsRaw === "object" && !Array.isArray(transcriptStreamsRaw)
@@ -157,7 +185,11 @@ export async function buildWorkspaceCallContextPayload(
       : null,
     softphone_recording: softphoneRecording ?? defaultSoftphoneRecordingMeta(),
     voice_ai:
-      voiceAi || liveEntries.length > 0 || excerptUnclamped || softphoneTranscriptStreams
+      voiceAi ||
+      liveEntries.length > 0 ||
+      excerptUnclamped ||
+      softphoneTranscriptStreams ||
+      typeof inboundTranscriptStartedAt === "string"
         ? {
             short_summary: voiceAi?.short_summary || null,
             urgency: voiceAi?.urgency || null,
@@ -168,6 +200,9 @@ export async function buildWorkspaceCallContextPayload(
             recommended_action: voiceAi?.recommended_action || null,
             confidence_summary: voiceAi?.confidence_summary || null,
             softphone_transcript_streams: softphoneTranscriptStreams,
+            inbound_transcript_stream_started_at:
+              typeof inboundTranscriptStartedAt === "string" ? inboundTranscriptStartedAt : null,
+            inbound_transcript_mode: typeof inboundTranscriptMode === "string" ? inboundTranscriptMode : null,
           }
         : null,
     conference_gating: gating,

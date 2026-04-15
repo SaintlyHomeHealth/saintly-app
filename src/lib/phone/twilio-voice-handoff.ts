@@ -30,6 +30,22 @@ function escapeXml(text: string): string {
 }
 
 /**
+ * PSTN inbound: `From` is the caller, `To` is the Twilio DID. `<Dial callerId>` and `pstn_from`
+ * must use the real PSTN caller — not the DID — so the Voice SDK shows the correct CLI.
+ */
+export function resolveInboundCallerIdForClientDial(from: string, to: string): string {
+  const f = from.trim();
+  const t = to.trim();
+  if (f.toLowerCase().startsWith("client:")) {
+    return f || t;
+  }
+  if (normalizePhone(f).length >= 10) {
+    return f;
+  }
+  return f || t;
+}
+
+/**
  * Twilio requires `<Identity>` inside `<Client>` when using `<Parameter>` (Voice TwiML).
  * `pstn_from` is read by the browser SDK as `call.customParameters` so AI → browser transfers keep PSTN CLI.
  */
