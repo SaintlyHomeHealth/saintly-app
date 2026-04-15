@@ -10,9 +10,9 @@ export function CredentialingNoteComposer({ credentialingId }: { credentialingId
         id={`credentialing-note-${credentialingId}`}
         name="activity_note"
         required
-        rows={5}
-        className="min-h-[120px] w-full resize-y rounded-2xl border border-slate-200 bg-white px-4 py-3 text-[15px] leading-relaxed text-slate-900 shadow-inner placeholder:text-slate-400 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200/80"
-        placeholder="Log a call, email, or note…"
+        rows={3}
+        className="min-h-[88px] w-full resize-y rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-[15px] leading-relaxed text-slate-900 shadow-inner placeholder:text-slate-400 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200/80"
+        placeholder="Add a note…"
         autoComplete="off"
         onKeyDown={(e) => {
           if (e.key === "Enter" && !e.shiftKey) {

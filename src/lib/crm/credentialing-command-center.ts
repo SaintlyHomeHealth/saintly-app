@@ -337,3 +337,17 @@ export function contractingStatusLabel(status: string): string {
   }
   return status;
 }
+
+/** Command Center detail page: five high-level states derived from credentialing + contracting fields. */
+export function commandCenterStatusLabel(
+  credentialingStatus: string,
+  contractingStatus: string
+): "Not Started" | "In Progress" | "Submitted" | "Active" | "Denied" {
+  const cred = credentialingStatus.trim();
+  const cont = contractingStatus.trim();
+  if (cred === "denied") return "Denied";
+  if (cred === "enrolled" && cont === "contracted") return "Active";
+  if (cred === "submitted") return "Submitted";
+  if (cred === "not_started") return "Not Started";
+  return "In Progress";
+}

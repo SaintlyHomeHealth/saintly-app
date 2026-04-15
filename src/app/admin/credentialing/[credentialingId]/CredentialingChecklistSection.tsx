@@ -1,12 +1,11 @@
-import { updatePayerCredentialingDocuments } from "../actions";
+import Link from "next/link";
+
+import { CredentialingAttachmentUploadForm } from "./CredentialingAttachmentUploadForm";
 import {
   PAYER_CREDENTIALING_DOC_LABELS,
-  PAYER_CREDENTIALING_DOC_STATUS_LABELS,
-  PAYER_CREDENTIALING_DOC_STATUS_VALUES,
   PAYER_CREDENTIALING_DOC_TYPES,
   type PayerCredentialingDocType,
 } from "@/lib/crm/credentialing-documents";
-import { formatCredentialingDateTime } from "@/lib/crm/credentialing-datetime";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 const CARD_SHELL =
@@ -16,8 +15,6 @@ type DocRow = {
   id: string;
   doc_type: string;
   status: string;
-  uploaded_at: string | null;
-  notes: string | null;
 };
 
 function sortDocsByCatalog(docs: DocRow[]): DocRow[] {
@@ -29,13 +26,17 @@ function sortDocsByCatalog(docs: DocRow[]): DocRow[] {
   });
 }
 
+function isDocDone(status: string): boolean {
+  return status === "uploaded" || status === "not_applicable";
+}
+
 export async function CredentialingChecklistSection({ credentialingId }: { credentialingId: string }) {
   const supabase = await createServerSupabaseClient();
   const id = credentialingId.trim();
 
   const { data: rawDocs } = await supabase
     .from("payer_credentialing_documents")
-    .select("id, doc_type, status, uploaded_at, notes")
+    .select("id, doc_type, status")
     .eq("credentialing_record_id", id);
 
   const documents = sortDocsByCatalog((rawDocs ?? []) as DocRow[]);
@@ -43,114 +44,64 @@ export async function CredentialingChecklistSection({ credentialingId }: { crede
   if (documents.length === 0) {
     return (
       <div className={`${CARD_SHELL} p-5 text-sm text-slate-600`}>
-        Document checklist will appear after migrations add{" "}
-        <span className="font-mono text-xs">payer_credentialing_documents</span>.
+        Document checklist will appear after{" "}
+        <span className="font-mono text-xs">payer_credentialing_documents</span> is available for this record.
       </div>
     );
   }
 
-  let missing = 0;
-  for (const d of documents) {
-    if (d.status === "missing") missing += 1;
-  }
-
   return (
-    <details
-      id="credentialing-checklist"
-      className={`group scroll-mt-28 ${CARD_SHELL} bg-white`}
-      open={missing > 0}
-    >
-      <summary className="cursor-pointer list-none px-5 py-4 text-sm font-semibold text-slate-900 [&::-webkit-details-marker]:hidden">
-        Document checklist
-        <span className="ml-2 font-normal text-slate-500">
-          ({documents.length} items{missing ? ` · ${missing} missing` : ""})
-        </span>
-      </summary>
-      <div className="border-t border-slate-100 px-5 pb-6 pt-2">
-        <form id="credentialing-checklist-form" action={updatePayerCredentialingDocuments} className="space-y-4">
-          <input type="hidden" name="credentialing_id" value={credentialingId} />
-          <p className="text-xs text-slate-600">
-            Structured enrollment checklist. Files live in{" "}
-            <span className="font-semibold text-slate-800">Additional documents</span> below — use View / Replace to jump
-            there.
-          </p>
-          <div className="overflow-x-auto rounded-2xl border border-slate-100">
-            <table className="w-full min-w-[720px] text-left text-sm">
-              <thead>
-                <tr className="border-b border-slate-100 bg-slate-50 text-xs font-semibold text-slate-600">
-                  <th className="px-3 py-2">Document</th>
-                  <th className="px-3 py-2">Status</th>
-                  <th className="px-3 py-2">Uploaded</th>
-                  <th className="px-3 py-2">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {documents.map((d) => {
-                  const label =
-                    PAYER_CREDENTIALING_DOC_LABELS[d.doc_type as PayerCredentialingDocType] ?? d.doc_type;
-                  const docMissing = d.status === "missing";
-                  const rowTone = docMissing ? "bg-red-50/90" : d.status === "uploaded" ? "bg-emerald-50/35" : "";
-                  return (
-                    <tr key={d.id} className={`border-b border-slate-50 last:border-0 ${rowTone}`}>
-                      <td className="px-3 py-2">
-                        <span className="font-medium text-slate-900">{label}</span>
-                        {docMissing ? (
-                          <span className="ml-2 inline-flex rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-bold text-red-900">
-                            Needed
-                          </span>
-                        ) : null}
-                      </td>
-                      <td className="px-3 py-2">
-                        <select
-                          name={`doc_status_${d.id}`}
-                          className="w-full max-w-[220px] rounded-lg border border-slate-200 px-2 py-1.5 text-xs"
-                          defaultValue={d.status}
-                        >
-                          {PAYER_CREDENTIALING_DOC_STATUS_VALUES.map((v) => (
-                            <option key={v} value={v}>
-                              {PAYER_CREDENTIALING_DOC_STATUS_LABELS[v]}
-                            </option>
-                          ))}
-                        </select>
-                      </td>
-                      <td className="px-3 py-2 text-xs text-slate-600">
-                        {d.uploaded_at ? formatCredentialingDateTime(d.uploaded_at) : "—"}
-                      </td>
-                      <td className="px-3 py-2">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <a
-                            href="#credentialing-additional-docs"
-                            className="inline-flex rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-800 hover:bg-slate-50"
-                          >
-                            View
-                          </a>
-                          <a
-                            href="#credentialing-additional-docs"
-                            className="inline-flex rounded-lg border border-sky-200 bg-sky-50 px-2 py-1 text-[11px] font-semibold text-sky-900 hover:bg-sky-100"
-                          >
-                            Replace
-                          </a>
-                          <label className="inline-flex items-center gap-1 text-[11px] text-slate-600">
-                            <input type="checkbox" name={`doc_uploaded_now_${d.id}`} value="1" className="rounded border-slate-300" />
-                            Stamp now
-                          </label>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          <button
-            type="submit"
-            className="rounded-xl border border-violet-600 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-950 hover:bg-violet-100"
-          >
-            Save document statuses
-          </button>
-        </form>
+    <section className={`${CARD_SHELL} bg-white p-5 sm:p-6`}>
+      <h2 className="text-sm font-semibold text-slate-900">Document check</h2>
+      <p className="mt-1 text-xs text-slate-500">
+        Required items only.{" "}
+        <Link
+          href={`/admin/credentialing/${encodeURIComponent(id)}/edit#documents`}
+          className="font-semibold text-sky-800 underline-offset-2 hover:underline"
+        >
+          Edit statuses
+        </Link>{" "}
+        on the edit page if something should be N/A or uploaded without a file here.
+      </p>
+
+      <ul className="mt-4 space-y-2">
+        {documents.map((d) => {
+          const label =
+            PAYER_CREDENTIALING_DOC_LABELS[d.doc_type as PayerCredentialingDocType] ?? d.doc_type;
+          const done = isDocDone(d.status);
+          return (
+            <li
+              key={d.id}
+              className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50/50 px-3 py-2.5"
+            >
+              <span className="min-w-0 text-sm font-medium text-slate-900">{label}</span>
+              <span className="shrink-0 text-lg" aria-label={done ? "Complete" : "Incomplete"}>
+                {done ? "✅" : "❌"}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        <a
+          href="#credentialing-doc-upload"
+          className="inline-flex items-center rounded-xl border border-slate-800 bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-800"
+        >
+          Upload missing docs
+        </a>
       </div>
-    </details>
+
+      <div id="credentialing-doc-upload" className="scroll-mt-28 mt-6 border-t border-slate-100 pt-5">
+        <p className="text-xs font-semibold text-slate-700">Upload files</p>
+        <p className="mt-1 text-[11px] text-slate-500">
+          Files attach to this payer record (bucket <span className="font-mono text-[10px]">payer-credentialing</span>).
+        </p>
+        <div className="mt-3">
+          <CredentialingAttachmentUploadForm credentialingId={credentialingId} />
+        </div>
+      </div>
+    </section>
   );
 }
 
