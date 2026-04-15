@@ -1,14 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { buildTwiMLAppIncomingClientRingTwiml } from "@/lib/phone/twilio-voice-handoff";
+import { supabaseAdmin } from "@/lib/admin";
+import { ensureIncomingCallAlert } from "@/lib/phone/incoming-call-alerts";
+import { upsertPhoneCallFromWebhook } from "@/lib/phone/log-call";
+import { buildSaintlyVoicemailRecordTwiml } from "@/lib/phone/twilio-voicemail-twiml";
+import { buildTwiMLAppIncomingClientRingTwiml, buildVoiceHandoffTwiml } from "@/lib/phone/twilio-voice-handoff";
 import { isTwilioVoiceJsClientFrom, isTwilioVoiceJsClientTo } from "@/lib/twilio/twilio-voice-client-leg";
 import { logTwilioVoiceTrace, summarizeTwimlResponse } from "@/lib/twilio/twilio-voice-trace-log";
 import { parseVerifiedTwilioFormBody } from "@/lib/twilio/verify-form-post";
-
-/**
- * Legacy URL: Twilio may still POST here. Inbound PSTN is redirected to {@link ../inbound-ring/route.ts}
- * so OpenAI Realtime / Railway Media Streams are never used on the live call path.
- */
 
 function escapeXml(text: string): string {
   return text
@@ -26,6 +25,10 @@ function resolvePublicBase(req: NextRequest): string {
   );
 }
 
+/**
+ * PSTN inbound: ring browser staff first (when configured), then `TWILIO_VOICE_RING_E164`.
+ * No Gather, no OpenAI, no Media Streams — normal phone behavior.
+ */
 export async function POST(req: NextRequest) {
   const parsed = await parseVerifiedTwilioFormBody(req);
   if (!parsed.ok) {
@@ -39,20 +42,20 @@ export async function POST(req: NextRequest) {
   const parentCallSid = typeof params.ParentCallSid === "string" ? params.ParentCallSid.trim() : null;
 
   if (!callSid || !from || !to) {
-    const xml = `<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna">We are sorry, this call could not be connected.</Say></Response>`;
+    const errXml = `<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna">We are sorry, this call could not be connected.</Say></Response>`;
     logTwilioVoiceTrace({
-      route: "POST /api/twilio/voice/realtime",
+      route: "POST /api/twilio/voice/inbound-ring",
       client_call_sid: callSid ?? null,
       pstn_call_sid: null,
       ai_path_entered: false,
       softphone_bypass_path_entered: false,
-      twiml_summary: summarizeTwimlResponse(xml),
+      twiml_summary: summarizeTwimlResponse(errXml),
       branch: "missing_callsid_from_or_to",
       parent_call_sid: parentCallSid,
       from_raw: from,
       to_raw: to,
     });
-    return new NextResponse(xml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
+    return new NextResponse(errXml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
   }
 
   const publicBase = resolvePublicBase(req);
@@ -63,7 +66,7 @@ export async function POST(req: NextRequest) {
         "Our phone system URL is not configured. Please try again later."
       )}</Say></Response>`;
       logTwilioVoiceTrace({
-        route: "POST /api/twilio/voice/realtime",
+        route: "POST /api/twilio/voice/inbound-ring",
         client_call_sid: callSid,
         pstn_call_sid: null,
         ai_path_entered: false,
@@ -81,7 +84,7 @@ export async function POST(req: NextRequest) {
       softphoneUrl
     )}</Redirect></Response>`;
     logTwilioVoiceTrace({
-      route: "POST /api/twilio/voice/realtime",
+      route: "POST /api/twilio/voice/inbound-ring",
       client_call_sid: callSid,
       pstn_call_sid: null,
       ai_path_entered: false,
@@ -99,11 +102,11 @@ export async function POST(req: NextRequest) {
     const twiml = buildTwiMLAppIncomingClientRingTwiml({
       publicBase,
       toClientUri: to,
-      pstnCallerE164: from ?? "",
+      pstnCallerE164: from,
     });
     if (twiml) {
       logTwilioVoiceTrace({
-        route: "POST /api/twilio/voice/realtime",
+        route: "POST /api/twilio/voice/inbound-ring",
         client_call_sid: callSid,
         pstn_call_sid: null,
         ai_path_entered: false,
@@ -118,18 +121,43 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  const logResult = await upsertPhoneCallFromWebhook(supabaseAdmin, {
+    external_call_id: callSid,
+    direction: "inbound",
+    from_e164: from,
+    to_e164: to,
+    status: "initiated",
+    event_type: "call.incoming",
+    started_at: new Date().toISOString(),
+    metadata: { source: "twilio_voice_inbound_ring" },
+  });
+
+  if (!logResult.ok) {
+    console.error("[twilio/voice/inbound-ring] phone log failed:", logResult.error);
+  } else {
+    const alertResult = await ensureIncomingCallAlert(supabaseAdmin, {
+      phone_call_id: logResult.callId,
+      external_call_id: callSid,
+      from_e164: from,
+      to_e164: to,
+    });
+    if (!alertResult.ok) {
+      console.error("[twilio/voice/inbound-ring] incoming_call_alerts:", alertResult.error);
+    }
+  }
+
   if (!publicBase) {
     const xml = `<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna">${escapeXml(
       "Our phone system URL is not configured. Please try again later."
     )}</Say></Response>`;
     logTwilioVoiceTrace({
-      route: "POST /api/twilio/voice/realtime",
+      route: "POST /api/twilio/voice/inbound-ring",
       client_call_sid: callSid,
       pstn_call_sid: null,
       ai_path_entered: false,
       softphone_bypass_path_entered: false,
       twiml_summary: summarizeTwimlResponse(xml),
-      branch: "say_missing_public_base_legacy_realtime",
+      branch: "say_missing_public_base",
       parent_call_sid: parentCallSid,
       from_raw: from,
       to_raw: to,
@@ -137,32 +165,45 @@ export async function POST(req: NextRequest) {
     return new NextResponse(xml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
   }
 
-  const inboundRingUrl = `${publicBase}/api/twilio/voice/inbound-ring`;
-  const xml = `<?xml version="1.0" encoding="UTF-8"?><Response><Redirect method="POST">${escapeXml(
-    inboundRingUrl
-  )}</Redirect></Response>`;
-  console.warn("[twilio/voice/realtime] legacy_url_redirect_to_inbound_ring", {
-    callSid: callSid.length > 12 ? `${callSid.slice(0, 12)}…` : callSid,
+  const ringE164 = process.env.TWILIO_VOICE_RING_E164?.trim() ?? "";
+  const callerId = to || from;
+
+  const twiml = await buildVoiceHandoffTwiml({
+    closing: "",
+    publicBase,
+    callerId,
+    ringE164,
   });
+
+  if (!twiml) {
+    console.warn("[twilio/voice/inbound-ring] buildVoiceHandoffTwiml returned null — voicemail fallback");
+    const vm = buildSaintlyVoicemailRecordTwiml(publicBase);
+    logTwilioVoiceTrace({
+      route: "POST /api/twilio/voice/inbound-ring",
+      client_call_sid: callSid,
+      pstn_call_sid: null,
+      ai_path_entered: false,
+      softphone_bypass_path_entered: false,
+      twiml_summary: summarizeTwimlResponse(vm),
+      branch: "handoff_unavailable_voicemail_fallback",
+      parent_call_sid: parentCallSid,
+      from_raw: from,
+      to_raw: to,
+    });
+    return new NextResponse(vm, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
+  }
+
   logTwilioVoiceTrace({
-    route: "POST /api/twilio/voice/realtime",
+    route: "POST /api/twilio/voice/inbound-ring",
     client_call_sid: callSid,
     pstn_call_sid: null,
     ai_path_entered: false,
     softphone_bypass_path_entered: false,
-    twiml_summary: summarizeTwimlResponse(xml),
-    branch: "legacy_redirect_inbound_ring_no_ai",
+    twiml_summary: summarizeTwimlResponse(twiml),
+    branch: "direct_ring_no_ai",
     parent_call_sid: parentCallSid,
     from_raw: from,
     to_raw: to,
   });
-  return new NextResponse(xml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
-}
-
-/** Unused — kept so a mistaken GET does not 404 noisy crawlers. */
-export function GET() {
-  return new NextResponse("OK", {
-    status: 200,
-    headers: { "Content-Type": "text/plain; charset=utf-8" },
-  });
+  return new NextResponse(twiml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
 }

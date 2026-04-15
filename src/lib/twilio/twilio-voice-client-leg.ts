@@ -1,7 +1,6 @@
 /**
  * Twilio Voice.js / TwiML Application: WebRTC legs use `client:<Identity>` in From and/or To.
- * The AI receptionist entrypoints (`/api/twilio/voice` → `/realtime`, `/ai-answer`) must not run
- * for these — they are staff browser softphone legs, not PSTN callers to the main DID.
+ * Inbound Voice handlers redirect these legs to softphone / client ring TwiML — not PSTN DID flow.
  */
 
 export function isTwilioVoiceJsClientFrom(from: string | undefined | null): boolean {

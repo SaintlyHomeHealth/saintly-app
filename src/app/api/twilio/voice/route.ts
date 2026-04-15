@@ -23,9 +23,8 @@ function resolveVoicePublicBase(req: NextRequest): string {
 
 /**
  * Main Twilio Voice webhook entrypoint.
- * Validates Twilio signature, then redirects to {@link ../realtime/route.ts} on the **same** deployment
- * (env base or request origin). Never hardcode a production URL — that would upsert phone_calls in prod
- * while staff use staging/other DB on the Calls page.
+ * Validates Twilio signature, then redirects PSTN inbound to {@link ../inbound-ring/route.ts}
+ * (normal ring — no OpenAI / Media Streams). Never hardcode a production URL.
  */
 export async function POST(req: NextRequest) {
   const parsed = await parseVerifiedTwilioFormBody(req);
@@ -108,10 +107,10 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const realtimeUrl = `${publicBase}/api/twilio/voice/realtime`;
+  const inboundRingUrl = `${publicBase}/api/twilio/voice/inbound-ring`;
   console.log("[parent-call]", {
     event: "voice_entry_redirect",
-    redirect_to: realtimeUrl,
+    redirect_to: inboundRingUrl,
     public_base_source: process.env.TWILIO_PUBLIC_BASE_URL
       ? "TWILIO_PUBLIC_BASE_URL"
       : process.env.TWILIO_WEBHOOK_BASE_URL
@@ -120,7 +119,7 @@ export async function POST(req: NextRequest) {
   });
 
   const xml = `<?xml version="1.0" encoding="UTF-8"?><Response><Redirect method="POST">${escapeXml(
-    realtimeUrl
+    inboundRingUrl
   )}</Redirect></Response>`;
   logTwilioVoiceTrace({
     route: "POST /api/twilio/voice",
@@ -129,7 +128,7 @@ export async function POST(req: NextRequest) {
     ai_path_entered: false,
     softphone_bypass_path_entered: false,
     twiml_summary: summarizeTwimlResponse(xml),
-    branch: "redirect_realtime_entry",
+    branch: "redirect_inbound_ring_entry",
     parent_call_sid: parentCallSid,
     from_raw: from,
     to_raw: to,

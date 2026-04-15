@@ -1,12 +1,14 @@
 /**
- * Opt-in OpenAI Realtime voice path. Default off unless enabled + allowlisted From numbers.
- * Does not change main /api/twilio/voice unless that route is wired to redirect here.
+ * Opt-in OpenAI Realtime voice path (inbound Media Streams → Railway bridge).
  *
- * Allowlist: comma-separated E.164 numbers, or include `*` alone (or with commas) to allow any
- * caller while TWILIO_VOICE_REALTIME_ENABLED=true — use `*` only for short-lived testing.
+ * **Product default:** inbound live AI is disabled in code (`TWILIO_VOICE_INBOUND_LIVE_AI_ENABLED`).
+ * Env flags alone cannot turn it back on; re-enable only with an intentional code change.
  */
 
 import { resolveTwilioMediaStreamWssUrl } from "@/lib/twilio/resolve-media-stream-wss-url";
+
+/** When false, inbound `<Connect><Stream>` / OpenAI realtime is never selected (fail-safe). */
+export const TWILIO_VOICE_INBOUND_LIVE_AI_ENABLED = false;
 
 export type RealtimeInboundGateSnapshot = {
   streamUrlTrimmed: string;
@@ -72,7 +74,8 @@ export function getRealtimeInboundGateSnapshot(fromE164: string): RealtimeInboun
   const fromInAllowlist =
     allowlistEntries.length > 0 &&
     (allowlistWildcardEnabled || allowlistEntries.includes(fromNormalized));
-  const shouldUseInbound = shouldUseTwilioVoiceRealtimeInbound(fromNormalized);
+  const shouldUseInbound =
+    TWILIO_VOICE_INBOUND_LIVE_AI_ENABLED && shouldUseTwilioVoiceRealtimeInbound(fromNormalized);
   return {
     streamUrlTrimmed,
     streamUrlPresent,
@@ -85,6 +88,6 @@ export function getRealtimeInboundGateSnapshot(fromE164: string): RealtimeInboun
     fromE164: fromNormalized,
     fromInAllowlist,
     shouldUseInbound,
-    useRealtime: streamUrlPresent && shouldUseInbound,
+    useRealtime: TWILIO_VOICE_INBOUND_LIVE_AI_ENABLED && streamUrlPresent && shouldUseInbound,
   };
 }

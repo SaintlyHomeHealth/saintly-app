@@ -76,6 +76,11 @@ export async function buildVoiceHandoffTwiml(input: {
       )}" statusCallbackMethod="POST" statusCallbackEvent="initiated ringing answered completed"`
     : ` answerOnBridge="true" timeout="${pstnDialSec}" callerId="${escapeXml(callerId)}"`;
 
+  const openingSay =
+    closing.trim().length > 0
+      ? `<Say voice="Polly.Joanna">${escapeXml(closing)}</Say>`
+      : "";
+
   if (inboundBrowserStaffIds.length > 0 && browserFallbackActionUrl) {
     const browserDialAttrs = publicBase
       ? ` answerOnBridge="true" timeout="${browserRingSec}" callerId="${escapeXml(
@@ -93,7 +98,7 @@ export async function buildVoiceHandoffTwiml(input: {
 
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="Polly.Joanna">${escapeXml(closing)}</Say>
+  ${openingSay}
   <Dial${browserDialAttrs}>
     ${clientBodies}
   </Dial>
@@ -116,7 +121,7 @@ export async function buildVoiceHandoffTwiml(input: {
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="Polly.Joanna">${escapeXml(closing)}</Say>
+  ${openingSay}
   <Dial${pstnDialAttrs}>
     <Number${numberAmdAttrs}>${escapeXml(ringE164)}</Number>
   </Dial>

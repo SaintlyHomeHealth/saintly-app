@@ -220,13 +220,19 @@ export async function POST(req: NextRequest) {
     return new NextResponse(xml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
   }
 
-  /** Defense-in-depth: gate should match voice route; reject if misconfigured. */
+  const publicBase = resolvePublicBase();
+
+  /** Defense-in-depth: live AI receptionist disabled → normal inbound ring (no stale Gather → AI). */
   if (!shouldUseAiReceptionistInbound(from)) {
+    if (publicBase) {
+      const xml = `<?xml version="1.0" encoding="UTF-8"?><Response><Redirect method="POST">${escapeXml(
+        `${publicBase}/api/twilio/voice/inbound-ring`
+      )}</Redirect></Response>`;
+      return new NextResponse(xml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
+    }
     const xml = `<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna">Please try your call again.</Say></Response>`;
     return new NextResponse(xml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
   }
-
-  const publicBase = resolvePublicBase();
   const gatherActionBase = publicBase ? `${publicBase}/api/twilio/voice/ai-receptionist/step` : "";
   const ringE164 = process.env.TWILIO_VOICE_RING_E164?.trim() ?? "";
   const callerId = to;
