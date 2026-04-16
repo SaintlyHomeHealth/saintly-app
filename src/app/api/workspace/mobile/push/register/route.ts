@@ -1,9 +1,13 @@
+import { randomUUID } from "crypto";
+import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
-import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { createServerSupabaseClient, getAuthenticatedUser } from "@/lib/supabase/server";
 import { canAccessWorkspacePhone, getStaffProfile } from "@/lib/staff-profile";
 
 export const runtime = "nodejs";
+
+const LOG = "[push-register-api]";
 
 type Body = {
   fcmToken?: string;
@@ -16,16 +20,81 @@ type Body = {
  * Called from the in-app WebView via `injectJavaScript` so cookies authenticate the request.
  */
 export async function POST(req: Request) {
+  const reqId = randomUUID();
+
+  console.log(LOG, "request_received", {
+    reqId,
+    url: req.url,
+    method: req.method,
+  });
+
+  let cookieNames: string[] = [];
+  let hasSupabaseCookie = false;
+  try {
+    const cookieStore = await cookies();
+    cookieNames = cookieStore.getAll().map((c) => c.name);
+    hasSupabaseCookie = cookieNames.some(
+      (n) => n.startsWith("sb-") || n.includes("supabase") || n.includes("auth")
+    );
+    console.log(LOG, "cookies", {
+      reqId,
+      count: cookieNames.length,
+      hasSupabaseCookie,
+      names: cookieNames,
+    });
+  } catch (e) {
+    console.warn(LOG, "cookies_read_failed", { reqId, message: String(e) });
+  }
+
+  const user = await getAuthenticatedUser();
+  console.log(LOG, "auth_user", {
+    reqId,
+    hasUser: Boolean(user),
+    userId: user?.id ?? null,
+  });
+
   const staff = await getStaffProfile();
-  if (!staff || !canAccessWorkspacePhone(staff)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const workspaceAllowed = staff ? canAccessWorkspacePhone(staff) : false;
+  console.log(LOG, "staff_profile", {
+    reqId,
+    hasStaffProfile: Boolean(staff),
+    userId: staff?.user_id ?? null,
+    role: staff?.role ?? null,
+    is_active: staff?.is_active ?? null,
+    phone_access_enabled: staff?.phone_access_enabled ?? null,
+    canAccessWorkspacePhone: workspaceAllowed,
+  });
+
+  if (!user) {
+    console.warn(LOG, "reject_401", { reqId, reason: "no_auth_session" });
+    return NextResponse.json(
+      { error: "Unauthorized", reason: "no_auth_session" },
+      { status: 401 }
+    );
+  }
+
+  if (!staff) {
+    console.warn(LOG, "reject_401", { reqId, reason: "no_staff_profile" });
+    return NextResponse.json(
+      { error: "Unauthorized", reason: "no_staff_profile" },
+      { status: 401 }
+    );
+  }
+
+  if (!workspaceAllowed) {
+    console.warn(LOG, "reject_401", { reqId, reason: "workspace_phone_not_allowed" });
+    return NextResponse.json(
+      { error: "Unauthorized", reason: "workspace_phone_not_allowed" },
+      { status: 401 }
+    );
   }
 
   let body: Body;
   try {
     body = (await req.json()) as Body;
   } catch {
-    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+    console.warn(LOG, "reject_400", { reqId, reason: "invalid_json" });
+    return NextResponse.json({ error: "Invalid JSON", reason: "invalid_json" }, { status: 400 });
   }
 
   const fcmToken = typeof body.fcmToken === "string" ? body.fcmToken.trim() : "";
@@ -33,7 +102,16 @@ export async function POST(req: Request) {
   const platform = platformRaw === "ios" || platformRaw === "android" ? platformRaw : null;
 
   if (!fcmToken || !platform) {
-    return NextResponse.json({ error: "fcmToken and platform (ios|android) are required" }, { status: 400 });
+    console.warn(LOG, "reject_400", {
+      reqId,
+      reason: "missing_fcm_or_platform",
+      hasFcmToken: Boolean(fcmToken),
+      platformRaw: platformRaw || null,
+    });
+    return NextResponse.json(
+      { error: "fcmToken and platform (ios|android) are required", reason: "missing_fcm_or_platform" },
+      { status: 400 }
+    );
   }
 
   const deviceInstallId =
@@ -43,6 +121,13 @@ export async function POST(req: Request) {
 
   const supabase = await createServerSupabaseClient();
   const now = new Date().toISOString();
+
+  console.log(LOG, "upsert_start", {
+    reqId,
+    targetUserId: staff.user_id,
+    platform,
+    fcmTokenLength: fcmToken.length,
+  });
 
   const { error } = await supabase.from("user_push_devices").upsert(
     {
@@ -56,9 +141,19 @@ export async function POST(req: Request) {
   );
 
   if (error) {
-    console.warn("[api/workspace/mobile/push/register]", error.message);
-    return NextResponse.json({ error: "Failed to save device" }, { status: 500 });
+    console.warn(LOG, "upsert_failed", {
+      reqId,
+      message: error.message,
+      code: error.code,
+      details: error.details,
+      hint: error.hint,
+    });
+    return NextResponse.json(
+      { error: "Failed to save device", reason: "upsert_failed", code: error.code },
+      { status: 500 }
+    );
   }
 
-  return NextResponse.json({ ok: true });
+  console.log(LOG, "upsert_ok", { reqId, userId: staff.user_id, platform });
+  return NextResponse.json({ ok: true, reqId });
 }

@@ -16,6 +16,7 @@ import {
   DEFAULT_PRODUCTION_API_ORIGIN,
   PUSH_REGISTER_URL_RESOLVED,
   env,
+  logPushRegistrationEnvDiagnostics,
   pushRegisterUrl,
 } from '../config/env';
 import { useNativePushRegistration } from '../hooks/useNativePushRegistration';
@@ -32,11 +33,13 @@ function portalUrl(): string {
 }
 
 /** Injected into the WebView — posts structured logs to RN via `postMessage` (no silent failures). */
-function buildRegisterPushInjectJs(fcmToken: string): string {
+function buildRegisterPushInjectJs(fcmToken: string, attemptReason: string): string {
   const registerUrl = pushRegisterUrl();
   const platform = Platform.OS === 'ios' ? 'ios' : 'android';
   const bodyStr = JSON.stringify({ fcmToken, platform });
+  const reasonJson = JSON.stringify(attemptReason);
   return `(function(){
+  var attemptReason = ${reasonJson};
   var url = ${JSON.stringify(registerUrl)};
   var body = ${JSON.stringify(bodyStr)};
   function post(p) {
@@ -54,6 +57,7 @@ function buildRegisterPushInjectJs(fcmToken: string): string {
       } catch (_e2) {}
     }
   }
+  post({ step: 'inject_begin', attemptReason: attemptReason, url: url });
   post({ step: 'url', url: url, credentials: 'include', bodyLength: body.length });
   post({ step: 'fetch_start', url: url });
   fetch(url, {
@@ -122,30 +126,49 @@ export function HomeScreen(_props: HomeScreenProps) {
 
   fcmTokenRef.current = fcmToken;
 
-  /** Log once at startup so Xcode / Metro shows the exact URL baked into the bundle. */
+  /** Log once at startup — search device logs for SAINTLY-PUSH-REG */
   useEffect(() => {
-    console.log('[push-register] resolved registration URL (module):', PUSH_REGISTER_URL_RESOLVED);
-    console.log('[push-register] resolved api origin (module):', env.apiBaseUrl);
+    logPushRegistrationEnvDiagnostics();
+    console.warn('[SAINTLY-PUSH-REG] resolved_api_base_url', env.apiBaseUrl);
+    console.warn('[SAINTLY-PUSH-REG] resolved_push_register_url', PUSH_REGISTER_URL_RESOLVED);
   }, []);
+
+  useEffect(() => {
+    console.warn('[SAINTLY-PUSH-REG] portalUri', portalUri);
+  }, [portalUri]);
 
   const lastNavUrlRef = useRef<string>('');
 
   const runPushRegistration = useCallback((reason: string) => {
     const token = fcmTokenRef.current;
-    if (!token || Constants.appOwnership === 'expo') return;
+    console.warn('[SAINTLY-PUSH-REG] attempt', {
+      reason,
+      hasFcmToken: Boolean(token),
+      isExpoGo: Constants.appOwnership === 'expo',
+      hasWebViewRef: Boolean(webViewRef.current),
+    });
+    if (Constants.appOwnership === 'expo') {
+      console.warn('[SAINTLY-PUSH-REG] skip', { reason: 'expo_go' });
+      return;
+    }
+    if (!token) {
+      console.warn('[SAINTLY-PUSH-REG] skip', { reason: 'no_fcm_token' });
+      return;
+    }
+    if (!webViewRef.current) {
+      console.warn('[SAINTLY-PUSH-REG] skip', { reason: 'no_webview_ref' });
+      return;
+    }
     const url = pushRegisterUrl();
     if (isNonProductionPushApiUrl(url)) {
-      console.warn(
-        '[push-register] register URL looks non-production — fix EXPO_PUBLIC_APP_ORIGIN or use release build:',
-        url
-      );
+      console.warn('[SAINTLY-PUSH-REG] register_url_non_production', url);
     } else if (url.startsWith(DEFAULT_PRODUCTION_API_ORIGIN)) {
-      console.log('[push-register] register URL (production origin):', url);
+      console.warn('[SAINTLY-PUSH-REG] register_url_ok_production', url);
     } else {
-      console.log('[push-register] register URL (custom origin):', url);
+      console.warn('[SAINTLY-PUSH-REG] register_url_custom', url);
     }
-    console.log('[push-register] fetch start (scheduled):', reason);
-    webViewRef.current?.injectJavaScript(buildRegisterPushInjectJs(token));
+    console.warn('[SAINTLY-PUSH-REG] inject_js', { reason, url });
+    webViewRef.current.injectJavaScript(buildRegisterPushInjectJs(token, reason));
   }, []);
 
   /** After FCM token exists: retry registration — cookies may not exist until post-login navigation. */
@@ -213,11 +236,17 @@ export function HomeScreen(_props: HomeScreenProps) {
         if (msg.type === 'push-register-log') {
           const step = typeof msg.step === 'string' ? msg.step : '';
           if (step === 'response' && typeof msg.status === 'number') {
-            console.log('[push-register] response', { status: msg.status, ok: msg.ok, bodyText: msg.bodyText });
+            console.warn('[SAINTLY-PUSH-REG] fetch_response', {
+              status: msg.status,
+              ok: msg.ok,
+              bodyText: msg.bodyText,
+            });
           } else if (step === 'fetch_error') {
-            console.warn('[push-register] fetch error', msg);
+            console.warn('[SAINTLY-PUSH-REG] fetch_network_error', msg);
+          } else if (step === 'postMessage_failed') {
+            console.warn('[SAINTLY-PUSH-REG] postMessage_failed', msg);
           } else {
-            console.log('[push-register]', step, msg);
+            console.warn('[SAINTLY-PUSH-REG] webview_step', step, msg);
           }
           return;
         }
@@ -226,9 +255,7 @@ export function HomeScreen(_props: HomeScreenProps) {
         }
         if (msg.type === 'saintly-softphone-token' && typeof msg.token === 'string') {
           void registerNativeTwilioWithAccessToken(msg.token);
-          console.log(
-            '[push-register] softphone token received — WebView session is authenticated; registering FCM device'
-          );
+          console.warn('[SAINTLY-PUSH-REG] softphone_token_received');
           const t = fcmTokenRef.current;
           if (t) {
             setTimeout(() => {
@@ -237,8 +264,11 @@ export function HomeScreen(_props: HomeScreenProps) {
             setTimeout(() => {
               runPushRegistration('after_softphone_token_delay_3s');
             }, 3000);
+            setTimeout(() => {
+              runPushRegistration('after_softphone_token_delay_8s');
+            }, 8000);
           } else {
-            console.warn('[push-register] softphone token received but FCM token not ready yet');
+            console.warn('[SAINTLY-PUSH-REG] softphone_token_but_no_fcm');
           }
         }
       } catch {
@@ -286,7 +316,14 @@ export function HomeScreen(_props: HomeScreenProps) {
             lastNavUrlRef.current = url;
             if (!fcmTokenRef.current || Constants.appOwnership === 'expo') return;
             if (url.includes('/workspace/phone')) {
+              console.warn('[SAINTLY-PUSH-REG] nav_to_workspace_phone', url);
               runPushRegistration('navigation_to_workspace_phone');
+              setTimeout(() => {
+                runPushRegistration('navigation_to_workspace_phone_delay_500ms');
+              }, 500);
+              setTimeout(() => {
+                runPushRegistration('navigation_to_workspace_phone_delay_2s');
+              }, 2000);
             }
           }}
           onMessage={onWebViewMessage}

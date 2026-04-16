@@ -68,3 +68,14 @@ export function pushRegisterUrl(): string {
 
 /** Resolved at module load — log in HomeScreen to verify production. */
 export const PUSH_REGISTER_URL_RESOLVED = pushRegisterUrl();
+
+/** One-line diagnostics for Xcode / device console (search: SAINTLY-PUSH-REG). */
+export function logPushRegistrationEnvDiagnostics(): void {
+  console.warn("[SAINTLY-PUSH-REG] env_snapshot", {
+    __DEV__,
+    hasExpoAppOrigin: Boolean(process.env.EXPO_PUBLIC_APP_ORIGIN?.trim()),
+    apiBaseUrl: env.apiBaseUrl,
+    pushRegisterUrl: PUSH_REGISTER_URL_RESOLVED,
+    expectedProductionRegisterUrl: `${DEFAULT_PRODUCTION_API_ORIGIN}/api/workspace/mobile/push/register`,
+  });
+}
