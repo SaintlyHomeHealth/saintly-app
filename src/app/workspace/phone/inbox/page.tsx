@@ -320,13 +320,16 @@ export default async function WorkspaceInboxPage(props: PageProps) {
                     });
 
                     const rowSelected = selectedThreadValid && threadRaw === id;
-                    const baseRow = unreadCount > 0 ? "bg-white hover:bg-sky-50/40" : "hover:bg-phone-powder/50";
-                    const selectedRing = rowSelected
-                      ? "border-l-4 border-l-sky-600 bg-sky-50"
-                      : "border-l-4 border-l-transparent";
+                    const hasUnread = unreadCount > 0;
+
+                    /** One background + border so selected vs unread never fight (Tailwind merge order). */
+                    const mobileRowSurface = rowSelected
+                      ? "border-l-4 border-l-sky-600 bg-sky-50 hover:bg-sky-50"
+                      : hasUnread
+                        ? "border-l-4 border-l-transparent bg-white hover:bg-sky-50/40"
+                        : "border-l-4 border-l-transparent hover:bg-phone-powder/50";
 
                     const primaryLabel = name ?? phoneDisplay;
-                    const hasUnread = unreadCount > 0;
 
                     const rowContentMobile = (
                       <>
@@ -355,33 +358,48 @@ export default async function WorkspaceInboxPage(props: PageProps) {
                       </>
                     );
 
-                    const desktopRowChrome = rowSelected
-                      ? "border-l-sky-500 bg-sky-50 hover:bg-sky-50/95"
-                      : "border-l-transparent hover:bg-slate-100/90";
+                    const desktopRowChrome =
+                      rowSelected && hasUnread
+                        ? "border-l-sky-600 bg-sky-50 shadow-[inset_0_0_0_1px_rgba(14,165,233,0.18)] hover:bg-sky-50"
+                        : rowSelected
+                          ? "border-l-sky-600 bg-sky-50 hover:bg-sky-50/95"
+                          : hasUnread
+                            ? "border-l-transparent bg-white hover:bg-sky-50/50"
+                            : "border-l-transparent hover:bg-slate-100/90";
 
-                    const desktopLabelClass = rowSelected
-                      ? "font-semibold text-slate-900 text-sm leading-snug"
-                      : hasUnread
-                        ? "font-semibold text-slate-900 text-sm leading-snug"
-                        : "font-medium text-slate-600 text-sm leading-snug";
+                    const desktopLabelClass =
+                      hasUnread && rowSelected
+                        ? "font-semibold text-phone-navy"
+                        : hasUnread
+                          ? "font-semibold text-slate-900"
+                          : rowSelected
+                            ? "font-semibold text-slate-900"
+                            : "font-medium text-slate-600";
+
+                    const unreadDotClass =
+                      rowSelected && hasUnread
+                        ? "mb-px h-2 w-2 shrink-0 self-center rounded-full bg-sky-600 shadow-sm ring-2 ring-white/90"
+                        : "mb-px h-2 w-2 shrink-0 self-center rounded-full bg-sky-500 shadow-sm shadow-sky-900/10 ring-1 ring-sky-400/40";
 
                     return (
                       <li key={id}>
                         <Link
                           href={inboxMobileUrl(id, qRaw)}
-                          className={`block px-4 py-3.5 transition active:bg-phone-ice/70 lg:hidden ${baseRow} ${selectedRing}`}
+                          className={`block px-4 py-3.5 transition active:bg-phone-ice/70 lg:hidden ${mobileRowSurface}`}
                         >
                           {rowContentMobile}
                         </Link>
                         <Link
                           href={inboxDesktopUrl(id, qRaw)}
                           scroll={false}
-                          className={`hidden cursor-pointer items-center gap-1.5 border-l-4 px-2.5 py-1.5 text-sm transition-colors active:bg-slate-200/50 lg:flex ${desktopRowChrome} ${desktopLabelClass}`}
+                          className={`hidden cursor-pointer items-center gap-1.5 border-l-4 px-2.5 py-1.5 text-sm leading-snug transition-colors active:bg-slate-200/50 lg:flex ${desktopRowChrome}`}
                         >
-                          <span className="min-w-0 flex-1 truncate">{primaryLabel}</span>
+                          <span className={`min-w-0 flex-1 truncate text-sm ${desktopLabelClass}`}>
+                            {primaryLabel}
+                          </span>
                           {hasUnread ? (
                             <span
-                              className="mb-px h-2 w-2 shrink-0 self-center rounded-full bg-sky-500 shadow-sm shadow-sky-900/10 ring-1 ring-sky-400/40"
+                              className={unreadDotClass}
                               aria-label={`${unreadCount} unread`}
                             />
                           ) : null}
