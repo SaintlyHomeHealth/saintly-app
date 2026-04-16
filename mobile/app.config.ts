@@ -8,7 +8,8 @@ import type { ExpoConfig, ConfigContext } from 'expo/config';
  * - `GoogleService-Info.plist` / `google-services.json` in this directory; `expo prebuild` / EAS copy
  *   them into the native projects via `@react-native-firebase/app`.
  * - Plugins `@react-native-firebase/app` then `@react-native-firebase/messaging` (order matters).
- * - `expo-build-properties` `useFrameworks: 'static'` is required for firebase-ios-sdk + RN Firebase.
+ * - `expo-build-properties`: `useFrameworks: 'static'` + `forceStaticLinking` for RNFB pods (Expo SDK 54
+ *   non-modular React-Core headers; see expo/expo#39607). Twilio Voice pods are unchanged.
  * Bundle id / package must match Firebase: `com.saintlyhomehealth.app`.
  *
  * `expo-dev-client` is omitted for `EAS_BUILD_PROFILE=production` so store / TestFlight builds
@@ -73,8 +74,14 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       'expo-build-properties',
       {
         ios: {
-          /** Required by firebase-ios-sdk with React Native Firebase (Expo; no manual Xcode Firebase install). */
+          /** Required by firebase-ios-sdk + RN Firebase with Expo. */
           useFrameworks: 'static',
+          /**
+           * Link these Firebase pods statically so they do not compile as framework modules that
+           * import non-modular React-Core headers (RCTConvert.h, RCTBridgeModule.h).
+           * Pod names match @react-native-firebase/app (RNFBApp) and messaging (RNFBMessaging).
+           */
+          forceStaticLinking: ['RNFBApp', 'RNFBMessaging'],
         },
       },
     ],
