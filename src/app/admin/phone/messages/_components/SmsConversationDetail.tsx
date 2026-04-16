@@ -12,6 +12,7 @@ import {
   updateConversationFollowUp,
 } from "../actions";
 import { SmsReplyComposer } from "./SmsReplyComposer";
+import { SmsThreadMarkReadOnViewClient } from "./SmsThreadMarkReadOnViewClient";
 import { SmsThreadDebugStrip } from "./SmsThreadDebugStrip";
 import { SmsThreadContactPanel } from "@/app/workspace/phone/inbox/_components/sms-thread-contact-panel";
 import { WorkspaceSmsConversationShell } from "@/app/workspace/phone/inbox/_components/workspace-sms-conversation-shell";
@@ -710,6 +711,7 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
 
     const shell = (
       <>
+        <SmsThreadMarkReadOnViewClient conversationId={conversationId} />
         <WorkspaceSmsConversationShell
           inboxHref={inboxHref}
           initialDisplayName={workspaceHeaderTitle}
@@ -811,6 +813,7 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
 
   return (
     <>
+      <SmsThreadMarkReadOnViewClient conversationId={conversationId} />
       <div
         className="flex min-h-0 flex-1 flex-col gap-4 px-4 py-4 sm:gap-6 sm:p-6"
         data-sms-thread-pane={conversationId}
