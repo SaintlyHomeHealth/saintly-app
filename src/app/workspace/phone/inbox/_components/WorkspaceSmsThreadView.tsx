@@ -325,6 +325,7 @@ export function WorkspaceSmsThreadView({
             suggestionForMessageId={suggestionForMessageId}
             initialDraft={composerInitialDraft}
             workspaceThread
+            workspaceInboxSplit={appDesktopSplit}
             messagingUX
             onOutboundOptimistic={handleOptimistic}
           />

@@ -1079,6 +1079,13 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
               className="mt-3 max-w-md space-y-3 rounded-xl border border-slate-200 bg-slate-50/50 p-3"
             >
               <input type="hidden" name="conversationId" value={conversationId} />
+              {workspaceShell ? (
+                <input
+                  type="hidden"
+                  name="returnTo"
+                  value={workspaceDesktopSplit ? "workspace_inbox" : "workspace"}
+                />
+              ) : null}
               <div className="space-y-2">
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                   <div>

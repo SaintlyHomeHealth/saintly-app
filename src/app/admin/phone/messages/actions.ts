@@ -493,14 +493,32 @@ export async function clearConversationFollowUp(formData: FormData) {
   revalidateSmsConversationViews(conversationId);
 }
 
+/** Parsed from `returnTo` hidden field on SMS / workspace phone forms. */
+type SmsWorkspaceReturnMode = "admin" | "workspace" | "workspace_inbox";
+
+function parseSmsWorkspaceReturnMode(returnTo: string): SmsWorkspaceReturnMode {
+  if (returnTo === "workspace_inbox") return "workspace_inbox";
+  if (returnTo === "workspace") return "workspace";
+  return "admin";
+}
+
 function smsConversationRedirectPath(
   conversationId: string,
-  workspaceReturn: boolean,
+  mode: SmsWorkspaceReturnMode,
   query: Record<string, string>
 ): string {
-  const base = workspaceReturn
-    ? `/workspace/phone/inbox/${conversationId}`
-    : `/admin/phone/messages/${conversationId}`;
+  if (mode === "workspace_inbox") {
+    const q = new URLSearchParams();
+    q.set("thread", conversationId);
+    for (const [k, v] of Object.entries(query)) {
+      if (v) q.set(k, v);
+    }
+    return `/workspace/phone/inbox?${q.toString()}`;
+  }
+  const base =
+    mode === "workspace"
+      ? `/workspace/phone/inbox/${conversationId}`
+      : `/admin/phone/messages/${conversationId}`;
   const q = new URLSearchParams();
   for (const [k, v] of Object.entries(query)) {
     if (v) q.set(k, v);
@@ -511,8 +529,9 @@ function smsConversationRedirectPath(
 
 export async function sendConversationSms(formData: FormData) {
   const staff = await getStaffProfile();
-  const returnTo = String(formData.get("returnTo") ?? "").trim();
-  const workspaceReturn = returnTo === "workspace";
+  const returnToRaw = String(formData.get("returnTo") ?? "").trim();
+  const workspaceMode = parseSmsWorkspaceReturnMode(returnToRaw);
+  const workspaceAny = workspaceMode !== "admin";
 
   const idRaw = formData.get("conversationId");
   const bodyRaw = formData.get("body");
@@ -522,20 +541,20 @@ export async function sendConversationSms(formData: FormData) {
   if (!requirePhoneMessagingStaff(staff)) {
     console.warn("[sms-send] blocked: staff cannot access workspace phone", {
       hasStaff: Boolean(staff),
-      workspaceReturn,
+      workspaceMode,
     });
-    redirect(workspaceReturn ? "/workspace/phone/inbox?err=sms_forbidden" : "/admin/phone?err=sms_forbidden");
+    redirect(workspaceAny ? "/workspace/phone/inbox?err=sms_forbidden" : "/admin/phone?err=sms_forbidden");
   }
 
   console.log("[sms-ui] send submit", {
     conversationId,
     bodyLen: body.length,
-    workspaceReturn,
+    workspaceMode,
   });
 
   if (!conversationId || !UUID_RE.test(conversationId) || !body) {
     console.warn("[sms-send] invalid conversation or empty body");
-    redirect(workspaceReturn ? "/workspace/phone/inbox?err=sms_invalid" : "/admin/phone/messages?err=sms_invalid");
+    redirect(workspaceAny ? "/workspace/phone/inbox?err=sms_invalid" : "/admin/phone/messages?err=sms_invalid");
   }
 
   const { row } = await loadConversationForAccess(conversationId);
@@ -553,7 +572,7 @@ export async function sendConversationSms(formData: FormData) {
 
   if (!row?.main_phone_e164) {
     console.warn("[sms-db] sendConversationSms: missing row or phone", { conversationId });
-    redirect(smsConversationRedirectPath(conversationId, workspaceReturn, { err: "sms_no_phone" }));
+    redirect(smsConversationRedirectPath(conversationId, workspaceMode, { err: "sms_no_phone" }));
   }
 
   if (
@@ -562,12 +581,12 @@ export async function sendConversationSms(formData: FormData) {
     })
   ) {
     console.warn("[sms-send] forbidden: conversation row", { conversationId });
-    redirect(smsConversationRedirectPath(conversationId, workspaceReturn, { err: "sms_forbidden" }));
+    redirect(smsConversationRedirectPath(conversationId, workspaceMode, { err: "sms_forbidden" }));
   }
 
   if (!to || !isValidE164(to)) {
     console.warn("[sms-send] bad E.164 after normalize", { rawRecipient, to });
-    redirect(smsConversationRedirectPath(conversationId, workspaceReturn, { err: "sms_bad_phone" }));
+    redirect(smsConversationRedirectPath(conversationId, workspaceMode, { err: "sms_bad_phone" }));
   }
 
   console.log("[sms-twilio] send start", { conversationId, to, bodyLen: body.length });
@@ -576,7 +595,7 @@ export async function sendConversationSms(formData: FormData) {
     const errShort = sent.error.slice(0, 400);
     console.warn("[sms-twilio] send failed", errShort);
     redirect(
-      smsConversationRedirectPath(conversationId, workspaceReturn, { err: "sms_twilio", smsErr: errShort })
+      smsConversationRedirectPath(conversationId, workspaceMode, { err: "sms_twilio", smsErr: errShort })
     );
   }
   console.log("[sms-twilio] send ok", { conversationId, messageSid: sent.messageSid });
@@ -594,7 +613,7 @@ export async function sendConversationSms(formData: FormData) {
   if (insErr) {
     console.warn("[sms-db] outbound insert failed", insErr.message);
     redirect(
-      smsConversationRedirectPath(conversationId, workspaceReturn, {
+      smsConversationRedirectPath(conversationId, workspaceMode, {
         err: "sms_db",
         smsErr: insErr.message.slice(0, 400),
       })
@@ -629,7 +648,7 @@ export async function sendConversationSms(formData: FormData) {
   }
 
   revalidateSmsConversationViews(conversationId);
-  redirect(smsConversationRedirectPath(conversationId, workspaceReturn, { ok: "sms_sent" }));
+  redirect(smsConversationRedirectPath(conversationId, workspaceMode, { ok: "sms_sent" }));
 }
 
 /** Fire once when the thread UI shows an AI suggestion (idempotent per for_message_id). */
@@ -697,8 +716,11 @@ export async function createContactIntakeFromConversation(formData: FormData) {
   }
 
   const convId = String(formData.get("conversationId") ?? "").trim();
-  const returnTo = String(formData.get("returnTo") ?? "").trim();
-  const workspaceReturn = returnTo === "workspace";
+  const returnToRaw = String(formData.get("returnTo") ?? "").trim();
+  const workspaceMode = parseSmsWorkspaceReturnMode(returnToRaw);
+  const workspaceDedicated = workspaceMode === "workspace";
+  const workspaceInboxSplit = workspaceMode === "workspace_inbox";
+  const workspaceAny = workspaceMode !== "admin";
   const firstName = String(formData.get("firstName") ?? "").trim().slice(0, INTAKE_NAME_MAX);
   const lastName = String(formData.get("lastName") ?? "").trim().slice(0, INTAKE_NAME_MAX);
   const fullNameInput = String(formData.get("fullName") ?? "").trim().slice(0, INTAKE_NAME_MAX);
@@ -714,13 +736,16 @@ export async function createContactIntakeFromConversation(formData: FormData) {
 
   const intakeErr = (code: string) => {
     if (convId && UUID_RE.test(convId)) {
+      if (workspaceInboxSplit) {
+        redirect(`/workspace/phone/inbox?thread=${encodeURIComponent(convId)}&err=${encodeURIComponent(code)}`);
+      }
       redirect(
-        workspaceReturn
+        workspaceDedicated
           ? `/workspace/phone/inbox/${convId}?err=${code}`
           : `/admin/phone/messages/${convId}?err=${code}`
       );
     }
-    redirect(workspaceReturn ? `/workspace/phone/inbox?err=${code}` : `/admin/phone/messages?err=${code}`);
+    redirect(workspaceAny ? `/workspace/phone/inbox?err=${code}` : `/admin/phone/messages?err=${code}`);
   };
 
   if (!convId || !UUID_RE.test(convId)) {
@@ -838,7 +863,10 @@ export async function createContactIntakeFromConversation(formData: FormData) {
   }
 
   revalidateSmsConversationViews(convId);
-  if (workspaceReturn) {
+  if (workspaceInboxSplit) {
+    redirect(`/workspace/phone/inbox?thread=${encodeURIComponent(convId)}&ok=intake`);
+  }
+  if (workspaceDedicated) {
     redirect(`/workspace/phone/inbox/${convId}?ok=intake`);
   }
   redirect(`/admin/phone/messages/${convId}?ok=intake`);

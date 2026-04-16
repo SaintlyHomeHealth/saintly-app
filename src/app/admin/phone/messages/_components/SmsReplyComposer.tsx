@@ -11,8 +11,10 @@ type Props = {
   suggestionForMessageId: string | null;
   /** Deep-link draft (e.g. `?draft=`); ignored when `initialSuggestion` is set. */
   initialDraft?: string | null;
-  /** When true, server action redirects back to `/workspace/phone/inbox/...` with send status. */
+  /** When true, server action redirects back to workspace phone inbox with send status. */
   workspaceThread?: boolean;
+  /** Desktop 3-pane split: redirect to `/workspace/phone/inbox?thread=…` instead of `/workspace/phone/inbox/[id]`. */
+  workspaceInboxSplit?: boolean;
   /** iMessage-style: autofocus, pinned bar styling, client submit with optimistic parent hook. */
   messagingUX?: boolean;
   /** Called with trimmed body immediately before server send (workspace messaging UX). */
@@ -29,6 +31,7 @@ export function SmsReplyComposer({
   suggestionForMessageId,
   initialDraft,
   workspaceThread,
+  workspaceInboxSplit,
   messagingUX,
   onOutboundOptimistic,
 }: Props) {
@@ -86,7 +89,13 @@ export function SmsReplyComposer({
       className={formClass}
     >
       <input type="hidden" name="conversationId" value={conversationId} />
-      {workspaceThread ? <input type="hidden" name="returnTo" value="workspace" /> : null}
+      {workspaceThread ? (
+        <input
+          type="hidden"
+          name="returnTo"
+          value={workspaceInboxSplit ? "workspace_inbox" : "workspace"}
+        />
+      ) : null}
       <label className="sr-only" htmlFor="sms-body">
         Message
       </label>
