@@ -4,6 +4,9 @@ import { Platform } from 'react-native';
 /**
  * FCM registration for SMS / inbound-call alerts (APNs transport on iOS via Firebase).
  *
+ * Firebase App is initialized automatically on iOS from `GoogleService-Info.plist` (bundled by Expo
+ * `ios.googleServicesFile` + `@react-native-firebase/app` — no manual Xcode Firebase SDK setup).
+ *
  * Expo Go cannot load native Firebase messaging — use dynamic import only in native builds.
  */
 

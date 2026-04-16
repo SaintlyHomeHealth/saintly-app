@@ -4,9 +4,12 @@ import type { ExpoConfig, ConfigContext } from 'expo/config';
  * Single source for Expo config + `extra` passed to the app (see `src/config/env.ts`).
  * Set EXPO_PUBLIC_API_BASE_URL in .env for local overrides.
  *
- * Native Firebase: place `GoogleService-Info.plist` and `google-services.json` in this directory
- * (same paths as `ios.googleServicesFile` / `android.googleServicesFile`). Firebase app IDs must
- * use bundle id / package `com.saintlyhomehealth.app` (must match Firebase app registration).
+ * Native Firebase (Expo config plugins only — no manual Xcode CocoaPods Firebase SDK steps):
+ * - `GoogleService-Info.plist` / `google-services.json` in this directory; `expo prebuild` / EAS copy
+ *   them into the native projects via `@react-native-firebase/app`.
+ * - Plugins `@react-native-firebase/app` then `@react-native-firebase/messaging` (order matters).
+ * - `expo-build-properties` `useFrameworks: 'static'` is required for firebase-ios-sdk + RN Firebase.
+ * Bundle id / package must match Firebase: `com.saintlyhomehealth.app`.
  *
  * `expo-dev-client` is omitted for `EAS_BUILD_PROFILE=production` so store / TestFlight builds
  * are not development clients.
@@ -64,12 +67,13 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     ...(Array.isArray(config.plugins) ? config.plugins : []),
     ...(isProductionEASBuild ? [] : (['expo-dev-client'] as const)),
     'expo-location',
+    /** @react-native-firebase/app must run before messaging; expo-build-properties static linking next. */
     '@react-native-firebase/app',
     [
       'expo-build-properties',
       {
         ios: {
-          /** Required by firebase-ios-sdk with React Native Firebase. */
+          /** Required by firebase-ios-sdk with React Native Firebase (Expo; no manual Xcode Firebase install). */
           useFrameworks: 'static',
         },
       },
