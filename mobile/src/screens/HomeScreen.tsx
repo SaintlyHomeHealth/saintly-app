@@ -26,12 +26,54 @@ function portalUrl(): string {
   return `${base}/workspace/phone/keypad`;
 }
 
+/** Injected into the WebView — posts structured logs to RN via `postMessage` (no silent failures). */
 function buildRegisterPushInjectJs(fcmToken: string): string {
-  const url = pushRegisterUrl();
+  const registerUrl = pushRegisterUrl();
   const platform = Platform.OS === 'ios' ? 'ios' : 'android';
-  const bodyJson = JSON.stringify({ fcmToken, platform });
-  return `(function(){try{fetch(${JSON.stringify(url)},{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:${JSON.stringify(bodyJson)}}).catch(function(){});}catch(e){}true;})();`;
+  const bodyStr = JSON.stringify({ fcmToken, platform });
+  return `(function(){
+  var url = ${JSON.stringify(registerUrl)};
+  var body = ${JSON.stringify(bodyStr)};
+  function post(p) {
+    try {
+      if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+        window.ReactNativeWebView.postMessage(JSON.stringify(Object.assign({ type: 'push-register-log' }, p)));
+      }
+    } catch (e) {}
+  }
+  post({ step: 'url', url: url, credentials: 'include', bodyLength: body.length });
+  post({ step: 'fetch_start', url: url });
+  fetch(url, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: body
+  })
+    .then(function (res) {
+      return res.text().then(function (text) {
+        post({
+          step: 'response',
+          status: res.status,
+          ok: res.ok,
+          bodyText: text.length > 2000 ? text.slice(0, 2000) + '…' : text
+        });
+      });
+    })
+    .catch(function (err) {
+      post({ step: 'fetch_error', message: String(err && err.message ? err.message : err) });
+    });
+  true;
+})();`;
 }
+
+function isNonProductionPushApiUrl(url: string): boolean {
+  return /localhost|127\.0\.0\.1|0\.0\.0\.0|10\.0\.2\.2/.test(url);
+}
+
+type WebViewBridgeMessage =
+  | { type: 'open-settings' }
+  | { type: 'saintly-softphone-token'; token: string }
+  | { type: 'push-register-log'; step: string; [key: string]: unknown };
 
 function pushStatusLine(environment: string, fcmOk: boolean): string {
   switch (environment) {
@@ -57,6 +99,7 @@ export function HomeScreen(_props: HomeScreenProps) {
   const fcmToken = pushState.status === 'ready' ? pushState.result.fcmToken : null;
 
   const webViewRef = useRef<WebView>(null);
+  const fcmTokenRef = useRef<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [portalUri, setPortalUri] = useState(portalUrl);
   const [locationNote, setLocationNote] = useState<string | null>(null);
@@ -64,12 +107,36 @@ export function HomeScreen(_props: HomeScreenProps) {
 
   const apiOrigin = env.apiBaseUrl.replace(/\/$/, '') || 'https://appsaintlyhomehealth.com';
 
-  /** Re-inject FCM registration after token + WebView load (session cookies required). */
+  fcmTokenRef.current = fcmToken;
+
+  const runPushRegistration = useCallback((reason: string) => {
+    const token = fcmTokenRef.current;
+    if (!token || Constants.appOwnership === 'expo') return;
+    const url = pushRegisterUrl();
+    if (isNonProductionPushApiUrl(url)) {
+      console.warn('[push-register] register URL looks non-production — check EXPO_PUBLIC_API_BASE_URL / app.config extra:', url);
+    } else {
+      console.log('[push-register] register URL (production check ok):', url);
+    }
+    console.log('[push-register] fetch scheduled:', reason);
+    webViewRef.current?.injectJavaScript(buildRegisterPushInjectJs(token));
+  }, []);
+
+  /** After FCM token exists: retry registration — cookies may not exist until post-login navigation. */
   useEffect(() => {
     if (!fcmToken || loading || Constants.appOwnership === 'expo') return;
-    const js = buildRegisterPushInjectJs(fcmToken);
-    webViewRef.current?.injectJavaScript(js);
-  }, [fcmToken, loading]);
+
+    runPushRegistration('webview_load_end');
+    const delaysMs = [2500, 6000, 12000];
+    const timers = delaysMs.map((ms) =>
+      setTimeout(() => {
+        runPushRegistration(`retry_${ms}ms_after_load`);
+      }, ms)
+    );
+    return () => {
+      timers.forEach(clearTimeout);
+    };
+  }, [fcmToken, loading, runPushRegistration]);
 
   /** Open thread / keypad when user taps a notification (background → foreground). */
   useEffect(() => {
@@ -112,20 +179,38 @@ export function HomeScreen(_props: HomeScreenProps) {
     };
   }, [apiOrigin]);
 
-  const onWebViewMessage = useCallback((event: { nativeEvent: { data: string } }) => {
-    try {
-      const raw = event.nativeEvent.data;
-      const msg = JSON.parse(raw) as { type?: string; token?: string };
-      if (msg.type === 'open-settings') {
-        void Linking.openSettings();
+  const onWebViewMessage = useCallback(
+    (event: { nativeEvent: { data: string } }) => {
+      try {
+        const raw = event.nativeEvent.data;
+        const msg = JSON.parse(raw) as WebViewBridgeMessage;
+        if (msg.type === 'push-register-log') {
+          console.log('[push-register]', msg.step, msg);
+          return;
+        }
+        if (msg.type === 'open-settings') {
+          void Linking.openSettings();
+        }
+        if (msg.type === 'saintly-softphone-token' && typeof msg.token === 'string') {
+          void registerNativeTwilioWithAccessToken(msg.token);
+          console.log(
+            '[push-register] softphone token received — WebView session is authenticated; registering FCM device'
+          );
+          const t = fcmTokenRef.current;
+          if (t) {
+            setTimeout(() => {
+              runPushRegistration('after_softphone_token');
+            }, 0);
+          } else {
+            console.warn('[push-register] softphone token received but FCM token not ready yet');
+          }
+        }
+      } catch {
+        // ignore non-JSON messages
       }
-      if (msg.type === 'saintly-softphone-token' && typeof msg.token === 'string') {
-        void registerNativeTwilioWithAccessToken(msg.token);
-      }
-    } catch {
-      // ignore non-JSON messages
-    }
-  }, []);
+    },
+    [runPushRegistration]
+  );
 
   const onEnableLocation = useCallback(async () => {
     setLocationBusy(true);
