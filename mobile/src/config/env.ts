@@ -10,13 +10,42 @@ function readExtra(): Extra {
   return extra ?? {};
 }
 
+/** Production portal + API origin (WebView + cookie-authenticated fetches must match this host). */
+export const DEFAULT_PRODUCTION_API_ORIGIN = 'https://appsaintlyhomehealth.com';
+
+/**
+ * Single origin for WebView + push registration + softphone token in release builds.
+ *
+ * Release/TestFlight (`__DEV__ === false`): always `DEFAULT_PRODUCTION_API_ORIGIN` unless
+ * `EXPO_PUBLIC_APP_ORIGIN` is set (staging). This avoids a bad EAS `EXPO_PUBLIC_API_BASE_URL`
+ * baking localhost into the app while cookies only exist on production.
+ *
+ * Development: `app.config` extra, then `EXPO_PUBLIC_API_BASE_URL`, then default.
+ */
+function resolveApiBaseUrl(): string {
+  const stagingOrOverride = process.env.EXPO_PUBLIC_APP_ORIGIN?.trim();
+  if (stagingOrOverride) {
+    return stagingOrOverride.replace(/\/$/, '');
+  }
+  if (__DEV__) {
+    return (
+      readExtra().apiBaseUrl ??
+      process.env.EXPO_PUBLIC_API_BASE_URL ??
+      DEFAULT_PRODUCTION_API_ORIGIN
+    ).replace(/\/$/, '');
+  }
+  return DEFAULT_PRODUCTION_API_ORIGIN;
+}
+
+const resolvedApiBaseUrl = resolveApiBaseUrl();
+
 /**
  * Runtime config (see `app.config.ts` `extra` + `EXPO_PUBLIC_*` env at build time).
  * Do not put secrets here — only public URLs and non-sensitive flags.
  */
 export const env = {
-  /** API origin (no trailing slash). Default matches production portal. */
-  apiBaseUrl: readExtra().apiBaseUrl ?? process.env.EXPO_PUBLIC_API_BASE_URL ?? 'https://appsaintlyhomehealth.com',
+  /** API origin (no trailing slash). WebView + API calls use this. */
+  apiBaseUrl: resolvedApiBaseUrl,
 
   /** Path appended to `apiBaseUrl` for Twilio Voice access token (same contract as web). */
   softphoneTokenPath: '/api/softphone/token',
@@ -36,3 +65,6 @@ export function pushRegisterUrl(): string {
   const base = env.apiBaseUrl.replace(/\/$/, '');
   return `${base}/api/workspace/mobile/push/register`;
 }
+
+/** Resolved at module load — log in HomeScreen to verify production. */
+export const PUSH_REGISTER_URL_RESOLVED = pushRegisterUrl();

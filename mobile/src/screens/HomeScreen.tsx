@@ -12,7 +12,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Constants from 'expo-constants';
 import { WebView } from 'react-native-webview';
 
-import { env, pushRegisterUrl } from '../config/env';
+import {
+  DEFAULT_PRODUCTION_API_ORIGIN,
+  PUSH_REGISTER_URL_RESOLVED,
+  env,
+  pushRegisterUrl,
+} from '../config/env';
 import { useNativePushRegistration } from '../hooks/useNativePushRegistration';
 import { requestForegroundLocationWhenNeeded } from '../services/locationPermission';
 import { registerNativeTwilioWithAccessToken } from '../services/nativeTwilioVoiceBridge';
@@ -38,8 +43,16 @@ function buildRegisterPushInjectJs(fcmToken: string): string {
     try {
       if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
         window.ReactNativeWebView.postMessage(JSON.stringify(Object.assign({ type: 'push-register-log' }, p)));
+      } else {
+        throw new Error('ReactNativeWebView.postMessage not available');
       }
-    } catch (e) {}
+    } catch (e) {
+      try {
+        if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'push-register-log', step: 'postMessage_failed', message: String(e) }));
+        }
+      } catch (_e2) {}
+    }
   }
   post({ step: 'url', url: url, credentials: 'include', bodyLength: body.length });
   post({ step: 'fetch_start', url: url });
@@ -105,20 +118,33 @@ export function HomeScreen(_props: HomeScreenProps) {
   const [locationNote, setLocationNote] = useState<string | null>(null);
   const [locationBusy, setLocationBusy] = useState(false);
 
-  const apiOrigin = env.apiBaseUrl.replace(/\/$/, '') || 'https://appsaintlyhomehealth.com';
+  const apiOrigin = env.apiBaseUrl.replace(/\/$/, '') || DEFAULT_PRODUCTION_API_ORIGIN;
 
   fcmTokenRef.current = fcmToken;
+
+  /** Log once at startup so Xcode / Metro shows the exact URL baked into the bundle. */
+  useEffect(() => {
+    console.log('[push-register] resolved registration URL (module):', PUSH_REGISTER_URL_RESOLVED);
+    console.log('[push-register] resolved api origin (module):', env.apiBaseUrl);
+  }, []);
+
+  const lastNavUrlRef = useRef<string>('');
 
   const runPushRegistration = useCallback((reason: string) => {
     const token = fcmTokenRef.current;
     if (!token || Constants.appOwnership === 'expo') return;
     const url = pushRegisterUrl();
     if (isNonProductionPushApiUrl(url)) {
-      console.warn('[push-register] register URL looks non-production — check EXPO_PUBLIC_API_BASE_URL / app.config extra:', url);
+      console.warn(
+        '[push-register] register URL looks non-production — fix EXPO_PUBLIC_APP_ORIGIN or use release build:',
+        url
+      );
+    } else if (url.startsWith(DEFAULT_PRODUCTION_API_ORIGIN)) {
+      console.log('[push-register] register URL (production origin):', url);
     } else {
-      console.log('[push-register] register URL (production check ok):', url);
+      console.log('[push-register] register URL (custom origin):', url);
     }
-    console.log('[push-register] fetch scheduled:', reason);
+    console.log('[push-register] fetch start (scheduled):', reason);
     webViewRef.current?.injectJavaScript(buildRegisterPushInjectJs(token));
   }, []);
 
@@ -127,7 +153,7 @@ export function HomeScreen(_props: HomeScreenProps) {
     if (!fcmToken || loading || Constants.appOwnership === 'expo') return;
 
     runPushRegistration('webview_load_end');
-    const delaysMs = [2500, 6000, 12000];
+    const delaysMs = [2500, 6000, 12000, 20000, 35000];
     const timers = delaysMs.map((ms) =>
       setTimeout(() => {
         runPushRegistration(`retry_${ms}ms_after_load`);
@@ -185,7 +211,14 @@ export function HomeScreen(_props: HomeScreenProps) {
         const raw = event.nativeEvent.data;
         const msg = JSON.parse(raw) as WebViewBridgeMessage;
         if (msg.type === 'push-register-log') {
-          console.log('[push-register]', msg.step, msg);
+          const step = typeof msg.step === 'string' ? msg.step : '';
+          if (step === 'response' && typeof msg.status === 'number') {
+            console.log('[push-register] response', { status: msg.status, ok: msg.ok, bodyText: msg.bodyText });
+          } else if (step === 'fetch_error') {
+            console.warn('[push-register] fetch error', msg);
+          } else {
+            console.log('[push-register]', step, msg);
+          }
           return;
         }
         if (msg.type === 'open-settings') {
@@ -201,6 +234,9 @@ export function HomeScreen(_props: HomeScreenProps) {
             setTimeout(() => {
               runPushRegistration('after_softphone_token');
             }, 0);
+            setTimeout(() => {
+              runPushRegistration('after_softphone_token_delay_3s');
+            }, 3000);
           } else {
             console.warn('[push-register] softphone token received but FCM token not ready yet');
           }
@@ -244,6 +280,15 @@ export function HomeScreen(_props: HomeScreenProps) {
           mediaCapturePermissionGrantType="grant"
           onLoadStart={() => setLoading(true)}
           onLoadEnd={() => setLoading(false)}
+          onNavigationStateChange={(navState) => {
+            const url = navState.url ?? '';
+            if (url === lastNavUrlRef.current) return;
+            lastNavUrlRef.current = url;
+            if (!fcmTokenRef.current || Constants.appOwnership === 'expo') return;
+            if (url.includes('/workspace/phone')) {
+              runPushRegistration('navigation_to_workspace_phone');
+            }
+          }}
           onMessage={onWebViewMessage}
           allowsBackForwardNavigationGestures
         />
