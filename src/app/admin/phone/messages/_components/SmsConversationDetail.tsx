@@ -685,7 +685,7 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
   if (workspaceShell) {
     const threadView = (
       <WorkspaceSmsThreadView
-        key={`${conversationId}-${threadMessages.length}`}
+        key={conversationId}
         conversationId={conversationId}
         initialMessages={threadMessages}
         initialSuggestion={initialSmsSuggestion}

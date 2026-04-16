@@ -6,6 +6,7 @@ import { SmsConversationDetail } from "@/app/admin/phone/messages/_components/Sm
 
 import { InboxScrollRestorer } from "./_components/InboxScrollRestorer";
 import { InboxSearchBar } from "./_components/InboxSearchBar";
+import { WorkspaceInboxLiveClient } from "./_components/WorkspaceInboxLiveClient";
 import { WorkspacePhonePageHeader } from "../_components/WorkspacePhonePageHeader";
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { labelForContactType } from "@/lib/crm/contact-types";
@@ -224,6 +225,7 @@ export default async function WorkspaceInboxPage(props: PageProps) {
 
   return (
     <div className="ws-phone-page-shell flex min-h-0 flex-1 flex-col lg:h-full lg:min-h-0 lg:flex-1 lg:overflow-hidden">
+      <WorkspaceInboxLiveClient />
       <div className="flex min-h-0 flex-1 flex-col lg:min-h-0 lg:flex-1 lg:flex-row lg:overflow-hidden">
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden border-sky-100/60 pb-28 pt-5 sm:pb-32 lg:w-[176px] lg:max-w-[176px] lg:flex-none lg:basis-[176px] lg:grow-0 lg:shrink-0 lg:border-r lg:border-slate-200/60 lg:bg-slate-50 lg:pb-0 lg:pt-0">
           <div className="shrink-0 px-4 sm:px-5 lg:border-b lg:border-slate-200/50 lg:bg-slate-50 lg:px-2 lg:py-2 lg:shadow-[0_1px_0_0_rgba(241,245,249,0.9)]">
