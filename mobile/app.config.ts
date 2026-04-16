@@ -12,10 +12,11 @@ import type { ExpoConfig, ConfigContext } from 'expo/config';
  *   non-modular React-Core headers; see expo/expo#39607). Twilio Voice pods are unchanged.
  * Bundle id / package must match Firebase: `com.saintlyhomehealth.app`.
  *
- * `expo-dev-client` is omitted for `EAS_BUILD_PROFILE=production` so store / TestFlight builds
- * are not development clients.
+ * `expo-dev-client` is only loaded when `EXPO_USE_DEV_CLIENT_PLUGIN=1` (set in eas.json for
+ * development / development-device). Production & TestFlight omit it so the config plugin is never
+ * resolved (avoids MODULE_NOT_FOUND when EAS_BUILD_PROFILE is not available at config eval time).
  */
-const isProductionEASBuild = process.env.EAS_BUILD_PROFILE === 'production';
+const useDevClientPlugin = process.env.EXPO_USE_DEV_CLIENT_PLUGIN === '1';
 
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
@@ -68,7 +69,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   plugins: [
     ...(Array.isArray(config.plugins) ? config.plugins : []),
-    ...(isProductionEASBuild ? [] : (['expo-dev-client'] as const)),
+    ...(useDevClientPlugin ? (['expo-dev-client'] as const) : []),
     'expo-location',
     /** @react-native-firebase/app must run before messaging; expo-build-properties static linking next. */
     '@react-native-firebase/app',

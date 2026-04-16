@@ -7,13 +7,19 @@
     "development": {
       "developmentClient": true,
       "distribution": "internal",
+      "env": {
+        "EXPO_USE_DEV_CLIENT_PLUGIN": "1"
+      },
       "ios": {
         "simulator": true
       }
     },
     "development-device": {
       "developmentClient": true,
-      "distribution": "internal"
+      "distribution": "internal",
+      "env": {
+        "EXPO_USE_DEV_CLIENT_PLUGIN": "1"
+      }
     },
     "preview": {
       "distribution": "internal"

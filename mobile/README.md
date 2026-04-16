@@ -56,10 +56,12 @@ npm run android:run    # Build & run Android locally (after prebuild)
 ```bash
 cd mobile
 npm install
-npm run prebuild:clean
+EXPO_USE_DEV_CLIENT_PLUGIN=1 npm run prebuild:clean
 npm run ios:run
 npm run start:dev
 ```
+
+(`EXPO_USE_DEV_CLIENT_PLUGIN=1` enables the `expo-dev-client` config plugin; production/TestFlight builds omit it — see `app.config.ts` / `eas.json`.)
 
 Then open the **development build** app (not Expo Go) and connect to Metro.
 
