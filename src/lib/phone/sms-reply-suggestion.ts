@@ -1,36 +1,32 @@
 import "server-only";
 
+/**
+ * SMS reply suggestions: runs only from inbound webhook after the message row exists.
+ * Never reads or writes `messages.viewed_at`, never marks read, never touches unread state.
+ * Only updates `conversations.metadata` (suggestion + telemetry).
+ */
+
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { revalidatePath } from "next/cache";
 
 import { fetchOpenAiJsonObject } from "@/lib/phone/phone-call-ai-context";
 import { mergeTelemetryOnGeneration } from "@/lib/phone/sms-suggestion-telemetry";
 
-const SMS_REPLY_SYSTEM = `You are an assistant for Saintly Home Health staff managing SMS text threads with patients, families, caregivers, referrers, and vendors.
+/** Max recent messages sent to the model (newest window). */
+const SMS_AI_CONTEXT_MESSAGE_COUNT = 10;
+/** Per-message body cap in the prompt (keeps token use bounded). */
+const SMS_AI_BODY_MAX_CHARS = 500;
 
-Task: suggest ONE next outbound SMS for staff to review and edit—nothing is sent automatically.
+const SMS_REPLY_SYSTEM = `You help Saintly Home Health staff draft SMS replies. Output is for staff to edit—nothing is sent automatically.
 
-Anchoring:
-- A "Current reply target" block (if present) is the latest inbound message from the contact—prioritize addressing that message first. The full thread below provides broader context; do not lose sight of what they most recently asked or said.
-- Prefer a concise reply unless the situation clearly needs more detail (e.g. multiple distinct points in the latest message).
-- Do not repeat questions or requests that earlier messages in the thread already answered or resolved.
+Rules:
+- Reply in one or two short sentences only (roughly 1–2 sentences). No bullet lists.
+- Stay under ~320 characters. Warm, professional, plain language.
+- Address the latest inbound message first; use the short thread below only for necessary context.
+- Do not invent clinical details, referral IDs, timelines, or PHI. No medical diagnoses or guarantees.
+- If unsafe to guess, return an empty string.
 
-Tone by caller category (use "Caller category" from voice-call context when present; otherwise infer cautiously from the SMS thread):
-- patient_family: warm, reassuring, plain language; clear next steps; avoid sounding rushed or clinical unless the thread already uses that tone.
-- caregiver_applicant: professional, encouraging, recruiting-oriented; clear paths (how to apply, what happens next) without overpromising pay or hiring outcomes.
-- referral_provider: efficient, respectful, coordination-oriented; assume referral/clinical context; minimal small talk. Lead with a direct answer or acknowledgment of what they asked in the latest inbound message; mirror names, facilities, and acronyms exactly as written in the thread. Offer one concrete next step only when the thread supports it (e.g. who will follow up or what you still need)—do not invent referral IDs, timelines, fax numbers, or clinical details. If something is missing, ask briefly for only that gap instead of switching to a generic intake script.
-- vendor_other: brief, businesslike; get to the point.
-- If category is absent, mixed, or unclear: default to warm, professional Saintly voice.
-
-When voice context shows Route referral_team (even if caller category is unclear): apply the same referral-coordination discipline—prioritize the referrer’s stated request over generic reassurance.
-
-Multi-turn behavior:
-- Use the full thread (chronological) for continuity: infer ongoing intent (scheduling, billing, hiring, clinical coordination) and align with prior staff replies.
-- Use voice-call context (urgency, route, summary) together with caller category to calibrate priority. Higher urgency → clearer next steps.
-- When key information is still missing after reading the thread, you may ask one or two concise follow-up questions—only if not already covered above.
-- When fitting, gently guide toward scheduling, callback, or intake—professional, not pushy. No medical diagnoses, guarantees, or unnecessary PHI.
-
-Length: prefer under 320 characters; up to 800 if the conversation clearly requires it.
+Voice-call context (if provided) may hint category/urgency—use lightly; SMS thread is primary.
 
 Return a single JSON object with exactly one key: "suggested_reply" (string). If you cannot suggest safely, return {"suggested_reply":""}.`;
 
@@ -82,14 +78,18 @@ function parseSuggestedReply(raw: unknown): string {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return "";
   const s = (raw as Record<string, unknown>).suggested_reply;
   if (typeof s !== "string") return "";
-  return s.replace(/\s+/g, " ").trim().slice(0, 1600);
+  return s.replace(/\s+/g, " ").trim().slice(0, 420);
+}
+
+function smsAiSuggestionsDisabled(): boolean {
+  return process.env.SMS_AI_SUGGESTIONS_DISABLED === "1";
 }
 
 export async function runSmsReplySuggestionGeneration(
   supabase: SupabaseClient,
   input: { conversationId: string; inboundMessageId: string; mainPhoneE164: string }
 ): Promise<void> {
-  if (process.env.SMS_AI_SUGGESTIONS_ENABLED !== "1") {
+  if (smsAiSuggestionsDisabled()) {
     return;
   }
 
@@ -118,17 +118,19 @@ export async function runSmsReplySuggestionGeneration(
     return;
   }
 
-  const { data: msgRows, error: msgErr } = await supabase
+  const { data: msgRowsDesc, error: msgErr } = await supabase
     .from("messages")
     .select("id, created_at, direction, body")
     .eq("conversation_id", conversationId)
-    .order("created_at", { ascending: true })
-    .limit(80);
+    .order("created_at", { ascending: false })
+    .limit(SMS_AI_CONTEXT_MESSAGE_COUNT);
 
-  if (msgErr || !msgRows?.length) {
+  if (msgErr || !msgRowsDesc?.length) {
     if (msgErr) console.warn("[sms-reply-suggestion] messages:", msgErr.message);
     return;
   }
+
+  const msgRows = [...msgRowsDesc].reverse();
 
   let inboundCount = 0;
   let outboundCount = 0;
@@ -139,7 +141,7 @@ export async function runSmsReplySuggestionGeneration(
     else outboundCount++;
     const dir = isIn ? "Inbound (contact)" : "Outbound (staff)";
     const body = typeof m.body === "string" ? m.body.trim() : "";
-    lines.push(`${dir}: ${body.slice(0, 4000)}`);
+    lines.push(`${dir}: ${body.slice(0, SMS_AI_BODY_MAX_CHARS)}`);
   }
 
   let latestInbound: { id: string; body: string } | null = null;
@@ -156,13 +158,13 @@ export async function runSmsReplySuggestionGeneration(
 
   const latestInboundBlock =
     latestInbound != null
-      ? `Current reply target — latest inbound message from the contact (address this first; full thread below provides full context):\n---\n${latestInbound.body.slice(0, 4000)}\n---`
+      ? `Latest inbound (reply target):\n---\n${latestInbound.body.slice(0, SMS_AI_BODY_MAX_CHARS)}\n---`
       : "";
 
   const userBlock = [
-    `Voice-call AI context for this phone number (may be empty—SMS thread is the live source of truth):\n${voiceCtx}`,
+    `Voice-call context (optional):\n${voiceCtx}`,
     latestInboundBlock,
-    `Full SMS conversation (${msgRows.length} messages: ${inboundCount} from contact, ${outboundCount} from staff), oldest first:\n${lines.join("\n")}`,
+    `Recent SMS only (last ${msgRows.length} messages, oldest first — ${inboundCount} inbound / ${outboundCount} outbound):\n${lines.join("\n")}`,
   ]
     .filter((s) => s.length > 0)
     .join("\n\n");
@@ -219,7 +221,7 @@ export function scheduleSmsReplySuggestionGeneration(
   inboundMessageId: string,
   mainPhoneE164: string
 ): void {
-  if (process.env.SMS_AI_SUGGESTIONS_ENABLED !== "1") {
+  if (smsAiSuggestionsDisabled()) {
     return;
   }
 

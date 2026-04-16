@@ -163,8 +163,8 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
     notFound();
   }
 
-  /** SMS_AI_SUGGESTIONS_ENABLED=1 restores OpenAI reply suggestions + CRM “AI insight” for this thread. */
-  const smsAiSuggestionsEnabled = process.env.SMS_AI_SUGGESTIONS_ENABLED === "1";
+  /** Set SMS_AI_SUGGESTIONS_DISABLED=1 to turn off OpenAI reply suggestions + CRM “AI insight”. Default: on. */
+  const smsAiSuggestionsEnabled = process.env.SMS_AI_SUGGESTIONS_DISABLED !== "1";
   const showSmsThreadDebug =
     process.env.NODE_ENV === "development" || process.env.SMS_THREAD_DEBUG === "1";
 
