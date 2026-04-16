@@ -527,11 +527,18 @@ function smsConversationRedirectPath(
   return s ? `${base}?${s}` : base;
 }
 
-export async function sendConversationSms(formData: FormData) {
+/** Returned when desktop split inbox sends in place (`smsInPlace`); otherwise the action redirects. */
+export type SendConversationSmsResult = { ok: true } | { ok: false; error: string };
+
+export async function sendConversationSms(
+  formData: FormData
+): Promise<SendConversationSmsResult | void> {
   const staff = await getStaffProfile();
   const returnToRaw = String(formData.get("returnTo") ?? "").trim();
   const workspaceMode = parseSmsWorkspaceReturnMode(returnToRaw);
   const workspaceAny = workspaceMode !== "admin";
+  const smsInPlace =
+    workspaceMode === "workspace_inbox" && String(formData.get("smsInPlace") ?? "").trim() === "1";
 
   const idRaw = formData.get("conversationId");
   const bodyRaw = formData.get("body");
@@ -543,6 +550,9 @@ export async function sendConversationSms(formData: FormData) {
       hasStaff: Boolean(staff),
       workspaceMode,
     });
+    if (smsInPlace) {
+      return { ok: false, error: "You do not have access to send messages." };
+    }
     redirect(workspaceAny ? "/workspace/phone/inbox?err=sms_forbidden" : "/admin/phone?err=sms_forbidden");
   }
 
@@ -550,10 +560,14 @@ export async function sendConversationSms(formData: FormData) {
     conversationId,
     bodyLen: body.length,
     workspaceMode,
+    smsInPlace,
   });
 
   if (!conversationId || !UUID_RE.test(conversationId) || !body) {
     console.warn("[sms-send] invalid conversation or empty body");
+    if (smsInPlace) {
+      return { ok: false, error: "Enter a message and try again." };
+    }
     redirect(workspaceAny ? "/workspace/phone/inbox?err=sms_invalid" : "/admin/phone/messages?err=sms_invalid");
   }
 
@@ -572,6 +586,9 @@ export async function sendConversationSms(formData: FormData) {
 
   if (!row?.main_phone_e164) {
     console.warn("[sms-db] sendConversationSms: missing row or phone", { conversationId });
+    if (smsInPlace) {
+      return { ok: false, error: "No phone number on file for this conversation." };
+    }
     redirect(smsConversationRedirectPath(conversationId, workspaceMode, { err: "sms_no_phone" }));
   }
 
@@ -581,11 +598,17 @@ export async function sendConversationSms(formData: FormData) {
     })
   ) {
     console.warn("[sms-send] forbidden: conversation row", { conversationId });
+    if (smsInPlace) {
+      return { ok: false, error: "You do not have access to this conversation." };
+    }
     redirect(smsConversationRedirectPath(conversationId, workspaceMode, { err: "sms_forbidden" }));
   }
 
   if (!to || !isValidE164(to)) {
     console.warn("[sms-send] bad E.164 after normalize", { rawRecipient, to });
+    if (smsInPlace) {
+      return { ok: false, error: "Phone number is invalid or missing." };
+    }
     redirect(smsConversationRedirectPath(conversationId, workspaceMode, { err: "sms_bad_phone" }));
   }
 
@@ -594,6 +617,12 @@ export async function sendConversationSms(formData: FormData) {
   if (!sent.ok) {
     const errShort = sent.error.slice(0, 400);
     console.warn("[sms-twilio] send failed", errShort);
+    if (smsInPlace) {
+      return {
+        ok: false,
+        error: errShort ? `SMS could not be sent: ${errShort}` : "SMS could not be sent. Try again.",
+      };
+    }
     redirect(
       smsConversationRedirectPath(conversationId, workspaceMode, { err: "sms_twilio", smsErr: errShort })
     );
@@ -612,10 +641,17 @@ export async function sendConversationSms(formData: FormData) {
 
   if (insErr) {
     console.warn("[sms-db] outbound insert failed", insErr.message);
+    const dbMsg = insErr.message.slice(0, 400);
+    if (smsInPlace) {
+      return {
+        ok: false,
+        error: dbMsg ? `Message could not be saved: ${dbMsg}` : "Message could not be saved.",
+      };
+    }
     redirect(
       smsConversationRedirectPath(conversationId, workspaceMode, {
         err: "sms_db",
-        smsErr: insErr.message.slice(0, 400),
+        smsErr: dbMsg,
       })
     );
   }
@@ -648,6 +684,9 @@ export async function sendConversationSms(formData: FormData) {
   }
 
   revalidateSmsConversationViews(conversationId);
+  if (smsInPlace) {
+    return { ok: true };
+  }
   redirect(smsConversationRedirectPath(conversationId, workspaceMode, { ok: "sms_sent" }));
 }
 

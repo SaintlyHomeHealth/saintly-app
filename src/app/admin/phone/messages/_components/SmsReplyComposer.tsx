@@ -2,7 +2,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
-import { recordSmsSuggestionShown, sendConversationSms } from "../actions";
+import { recordSmsSuggestionShown, sendConversationSms, type SendConversationSmsResult } from "../actions";
 
 type Props = {
   conversationId: string;
@@ -19,6 +19,12 @@ type Props = {
   messagingUX?: boolean;
   /** Called with trimmed body immediately before server send (workspace messaging UX). */
   onOutboundOptimistic?: (body: string) => void;
+  /** Desktop split only: after successful in-place send (no redirect). */
+  onInPlaceSendComplete?: () => void;
+  /** Desktop split only: remove last optimistic bubble if send failed. */
+  onRemoveLastOptimistic?: () => void;
+  /** Desktop split only: show send error inline. */
+  onInPlaceSendError?: (message: string) => void;
 };
 
 /**
@@ -34,6 +40,9 @@ export function SmsReplyComposer({
   workspaceInboxSplit,
   messagingUX,
   onOutboundOptimistic,
+  onInPlaceSendComplete,
+  onRemoveLastOptimistic,
+  onInPlaceSendError,
 }: Props) {
   const [body, setBody] = useState(
     () => initialSuggestion ?? (typeof initialDraft === "string" ? initialDraft.trim() : "")
@@ -71,7 +80,18 @@ export function SmsReplyComposer({
     if (!trimmed) return;
     onOutboundOptimistic(trimmed);
     const fd = new FormData(e.currentTarget);
-    await sendConversationSms(fd);
+    const result: void | SendConversationSmsResult = await sendConversationSms(fd);
+    if (!workspaceInboxSplit) return;
+    if (result == null || typeof result !== "object" || !("ok" in result)) return;
+    if (result.ok) {
+      setBody("");
+      window.setTimeout(() => inputRef.current?.focus(), 0);
+      onInPlaceSendComplete?.();
+    } else {
+      onRemoveLastOptimistic?.();
+      setBody(trimmed);
+      onInPlaceSendError?.(result.error);
+    }
   };
 
   const formClass =
@@ -95,6 +115,9 @@ export function SmsReplyComposer({
           name="returnTo"
           value={workspaceInboxSplit ? "workspace_inbox" : "workspace"}
         />
+      ) : null}
+      {workspaceInboxSplit && messagingUX && onOutboundOptimistic ? (
+        <input type="hidden" name="smsInPlace" value="1" />
       ) : null}
       <label className="sr-only" htmlFor="sms-body">
         Message

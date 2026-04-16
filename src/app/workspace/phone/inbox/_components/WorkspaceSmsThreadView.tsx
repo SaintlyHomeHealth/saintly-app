@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
 import { SmsReplyComposer } from "@/app/admin/phone/messages/_components/SmsReplyComposer";
@@ -69,6 +70,8 @@ export function WorkspaceSmsThreadView({
   threadTopSlot,
   appDesktopSplit = false,
 }: Props) {
+  const router = useRouter();
+  const [sendError, setSendError] = useState<string | null>(null);
   const [serverMessages, setServerMessages] = useState<ThreadMessage[]>(() => initialMessages);
   const [optimistic, setOptimistic] = useState<ThreadMessage[]>([]);
   const [windowStart, setWindowStart] = useState(() =>
@@ -225,6 +228,27 @@ export function WorkspaceSmsThreadView({
     ]);
   };
 
+  const removeLastOptimistic = useCallback(() => {
+    setOptimistic((prev) => {
+      for (let i = prev.length - 1; i >= 0; i--) {
+        if (prev[i].id.startsWith("optimistic-")) {
+          return [...prev.slice(0, i), ...prev.slice(i + 1)];
+        }
+      }
+      return prev;
+    });
+  }, []);
+
+  const handleInPlaceSendComplete = useCallback(() => {
+    setSendError(null);
+    router.refresh();
+    void fetchLatestMessages();
+  }, [router, fetchLatestMessages]);
+
+  const handleInPlaceSendError = useCallback((msg: string) => {
+    setSendError(msg);
+  }, []);
+
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       {threadTopSlot ? (
@@ -318,6 +342,14 @@ export function WorkspaceSmsThreadView({
         <div
           className={`mx-auto w-full px-3 sm:px-4 ${appDesktopSplit ? "max-w-none lg:px-3" : "max-w-[40rem]"}`}
         >
+          {appDesktopSplit && sendError ? (
+            <div
+              role="alert"
+              className="mb-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-950"
+            >
+              {sendError}
+            </div>
+          ) : null}
           <SmsReplyComposer
             key={`${conversationId}:${suggestionForMessageId ?? ""}:${composerInitialDraft ?? ""}`}
             conversationId={conversationId}
@@ -328,6 +360,9 @@ export function WorkspaceSmsThreadView({
             workspaceInboxSplit={appDesktopSplit}
             messagingUX
             onOutboundOptimistic={handleOptimistic}
+            onInPlaceSendComplete={appDesktopSplit ? handleInPlaceSendComplete : undefined}
+            onRemoveLastOptimistic={appDesktopSplit ? removeLastOptimistic : undefined}
+            onInPlaceSendError={appDesktopSplit ? handleInPlaceSendError : undefined}
           />
         </div>
       </div>
