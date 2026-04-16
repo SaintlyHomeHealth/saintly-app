@@ -27,6 +27,8 @@ export function getFirebaseAdminApp(): App | null {
     cached = initializeApp({
       credential: cert(json as Parameters<typeof cert>[0]),
     });
+    const projectId = typeof json.project_id === "string" ? json.project_id : undefined;
+    console.log("[firebase-admin] initialized", { projectId: projectId ?? "(unknown)" });
     return cached;
   } catch (e) {
     console.warn("[firebase-admin] init failed:", e);

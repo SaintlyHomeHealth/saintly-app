@@ -27,8 +27,15 @@ export async function resolveSmsPushRecipientUserIds(
 
   const assigned = typeof conv?.assigned_to_user_id === "string" ? conv.assigned_to_user_id.trim() : "";
   if (assigned) {
+    console.log("[push] SMS notify recipients: conversation assigned_to_user_id", { conversationId: id, userId: assigned });
     return [assigned];
   }
 
-  return resolveInboundBrowserStaffUserIdsAsync();
+  const audience = await resolveInboundBrowserStaffUserIdsAsync();
+  console.log("[push] SMS notify recipients: inbound ring audience", {
+    conversationId: id,
+    userIdCount: audience.length,
+    userIds: audience,
+  });
+  return audience;
 }

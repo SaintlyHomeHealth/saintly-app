@@ -5,7 +5,15 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { getFirebaseAdminApp } from "@/lib/push/firebase-admin-app";
 
-export type FcmSendResult = { ok: true; sent: number } | { ok: false; error: string };
+export type FcmSendResult =
+  | {
+      ok: true;
+      sent: number;
+      failureCount: number;
+      invalidTokenRemovalCount: number;
+      errors: Array<{ code: string; message?: string }>;
+    }
+  | { ok: false; error: string };
 
 async function deleteInvalidTokens(supabase: SupabaseClient, tokens: string[]): Promise<void> {
   if (tokens.length === 0) return;
@@ -29,11 +37,20 @@ export async function sendFcmDataAndNotificationToUserIds(
 ): Promise<FcmSendResult> {
   const app = getFirebaseAdminApp();
   if (!app) {
+    console.warn("[push] FCM send skipped", { reason: "firebase_admin_not_initialized" });
     return { ok: false, error: "missing FIREBASE_SERVICE_ACCOUNT_JSON" };
   }
   const uniqueUsers = [...new Set(userIds.map((u) => u.trim()).filter(Boolean))];
   if (uniqueUsers.length === 0) {
-    return { ok: true, sent: 0 };
+    const empty: FcmSendResult = {
+      ok: true,
+      sent: 0,
+      failureCount: 0,
+      invalidTokenRemovalCount: 0,
+      errors: [],
+    };
+    console.log("[push] FCM send result", { ...empty, reason: "no_recipient_user_ids" });
+    return empty;
   }
 
   const { data: rows, error } = await supabase
@@ -48,7 +65,19 @@ export async function sendFcmDataAndNotificationToUserIds(
 
   const tokens = [...new Set((rows ?? []).map((r) => r.fcm_token as string).filter(Boolean))];
   if (tokens.length === 0) {
-    return { ok: true, sent: 0 };
+    const empty: FcmSendResult = {
+      ok: true,
+      sent: 0,
+      failureCount: 0,
+      invalidTokenRemovalCount: 0,
+      errors: [],
+    };
+    console.log("[push] FCM send result", {
+      ...empty,
+      reason: "no_device_tokens_for_recipients",
+      recipientUserCount: uniqueUsers.length,
+    });
+    return empty;
   }
 
   const messaging = getMessaging(app);
@@ -56,6 +85,7 @@ export async function sendFcmDataAndNotificationToUserIds(
 
   let sent = 0;
   const invalid: string[] = [];
+  const errors: Array<{ code: string; message?: string }> = [];
 
   const chunkSize = 500;
   for (let i = 0; i < tokens.length; i += chunkSize) {
@@ -94,7 +124,9 @@ export async function sendFcmDataAndNotificationToUserIds(
         ) {
           if (token) invalid.push(token);
         } else {
-          console.warn("[push] FCM send error:", code, r.error?.message);
+          const message = r.error?.message;
+          errors.push({ code: code || "(unknown)", message });
+          console.warn("[push] FCM send error:", code, message);
         }
       }
     });
@@ -104,5 +136,22 @@ export async function sendFcmDataAndNotificationToUserIds(
     await deleteInvalidTokens(supabase, invalid);
   }
 
-  return { ok: true, sent };
+  const failureCount = tokens.length - sent;
+  const result: FcmSendResult = {
+    ok: true,
+    sent,
+    failureCount,
+    invalidTokenRemovalCount: invalid.length,
+    errors,
+  };
+  console.log("[push] FCM send result", {
+    success: true,
+    sent: result.sent,
+    failureCount: result.failureCount,
+    invalidTokenRemovalCount: result.invalidTokenRemovalCount,
+    tokenCount: tokens.length,
+    recipientUserCount: uniqueUsers.length,
+    errors: result.errors,
+  });
+  return result;
 }

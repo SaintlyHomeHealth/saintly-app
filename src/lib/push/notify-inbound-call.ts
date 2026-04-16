@@ -41,9 +41,16 @@ export async function notifyInboundCallStaffPush(
     });
 
     if (!result.ok) {
-      console.warn("[push] inbound call notify:", result.error);
+      console.warn("[push] inbound call notify failed", { error: result.error });
     } else {
-      console.log("[push] inbound call notify sent", { sent: result.sent, recipients: userIds.length });
+      console.log("[push] inbound call notify complete", {
+        success: true,
+        recipientUserCount: userIds.length,
+        sent: result.sent,
+        failureCount: result.failureCount,
+        invalidTokenRemovalCount: result.invalidTokenRemovalCount,
+        errors: result.errors,
+      });
     }
   } catch (e) {
     console.warn("[push] inbound call notify:", e);

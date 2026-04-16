@@ -23,11 +23,16 @@ export async function notifyInboundSmsAfterPersist(
   }
 ): Promise<void> {
   if (process.env.SAINTLY_PUSH_SMS_DISABLED === "1") {
+    console.log("[push] inbound SMS notify skipped", { reason: "SAINTLY_PUSH_SMS_DISABLED" });
     return;
   }
   try {
+    console.log("[push] inbound SMS notify start", {
+      conversationId: input.conversationId.trim(),
+    });
     const userIds = await resolveSmsPushRecipientUserIds(supabase, input.conversationId);
     if (userIds.length === 0) {
+      console.log("[push] inbound SMS notify skipped", { reason: "no_recipient_user_ids", conversationId: input.conversationId.trim() });
       return;
     }
     const from = (input.fromE164 ?? "").trim() || "unknown";
@@ -46,9 +51,17 @@ export async function notifyInboundSmsAfterPersist(
     });
 
     if (!result.ok) {
-      console.warn("[push] inbound SMS notify:", result.error);
+      console.warn("[push] inbound SMS notify failed", { error: result.error, conversationId: input.conversationId.trim() });
     } else {
-      console.log("[push] inbound SMS notify sent", { sent: result.sent, recipients: userIds.length });
+      console.log("[push] inbound SMS notify complete", {
+        success: true,
+        conversationId: input.conversationId.trim(),
+        recipientUserCount: userIds.length,
+        sent: result.sent,
+        failureCount: result.failureCount,
+        invalidTokenRemovalCount: result.invalidTokenRemovalCount,
+        errors: result.errors,
+      });
     }
   } catch (e) {
     console.warn("[push] inbound SMS notify:", e);

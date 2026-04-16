@@ -133,6 +133,7 @@ export async function applyInboundTwilioSms(
     console.warn("[sms-inbound] last_message_at touch:", touchErr.message);
   }
 
+  console.log("[sms-inbound] scheduling push notify", { conversationId, messageId: insertedMsg?.id });
   void notifyInboundSmsAfterPersist(supabase, {
     conversationId,
     bodyPreview: body,
