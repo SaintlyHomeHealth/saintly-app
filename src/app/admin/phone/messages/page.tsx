@@ -59,6 +59,8 @@ type PageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
+export const dynamic = "force-dynamic";
+
 export default async function AdminSmsInboxPage({ searchParams }: PageProps) {
   const staff = await getStaffProfile();
   if (!staff || !isPhoneWorkspaceUser(staff) || !staff.phone_access_enabled) {
@@ -158,6 +160,14 @@ export default async function AdminSmsInboxPage({ searchParams }: PageProps) {
   }
   const ids = rows.map((r) => r.id as string);
   const unreadByConvId = await countUnreadInboundByConversationIds(supabase, ids);
+  if (process.env.SMS_UNREAD_DEBUG === "1") {
+    const withUnread = ids.filter((id) => (unreadByConvId[id] ?? 0) > 0);
+    console.warn("[sms-unread-debug] admin inbox mapping", {
+      rowCount: ids.length,
+      conversationsWithUnread: withUnread.length,
+      sampleIdsWithUnread: withUnread.slice(0, 8),
+    });
+  }
   const assigneeIds = [...new Set(rows.map((r) => r.assigned_to_user_id as string | null).filter(Boolean))] as string[];
 
   const labelByUserId: Record<string, string> = {};

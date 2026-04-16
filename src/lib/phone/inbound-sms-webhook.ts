@@ -94,7 +94,7 @@ export async function applyInboundTwilioSms(
       external_message_sid: messageSid,
       metadata,
     })
-    .select("id")
+    .select("id, conversation_id, direction, viewed_at")
     .maybeSingle();
 
   if (msgErr) {
@@ -108,6 +108,15 @@ export async function applyInboundTwilioSms(
   }
 
   console.log("[sms-inbound] inbound message inserted", { conversationId, messageId: insertedMsg?.id });
+
+  if (process.env.SMS_UNREAD_DEBUG === "1" && insertedMsg) {
+    console.warn("[sms-unread-debug] inbound insert row", {
+      id: insertedMsg.id,
+      conversation_id: (insertedMsg as { conversation_id?: string }).conversation_id,
+      direction: (insertedMsg as { direction?: string }).direction,
+      viewed_at: (insertedMsg as { viewed_at?: string | null }).viewed_at,
+    });
+  }
 
   if (insertedMsg?.id) {
     scheduleSmsReplySuggestionGeneration(supabase, conversationId, String(insertedMsg.id), fromE164);

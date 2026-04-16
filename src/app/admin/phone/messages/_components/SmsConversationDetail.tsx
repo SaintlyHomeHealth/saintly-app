@@ -162,6 +162,9 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
     notFound();
   }
 
+  /** SMS_MARK_INBOUND_VIEWED=0 disables client + server mark-read (debug unread without clearing). */
+  const smsMarkInboundViewedEnabled = process.env.SMS_MARK_INBOUND_VIEWED !== "0";
+
   const sp = (await searchParams) ?? {};
   const ok = typeof sp.ok === "string" ? sp.ok : undefined;
   const errCode = typeof sp.err === "string" ? sp.err : undefined;
@@ -693,7 +696,10 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
 
     const shell = (
       <>
-        <SmsThreadMarkViewedClient conversationId={conversationId} />
+        <SmsThreadMarkViewedClient
+          conversationId={conversationId}
+          markReadEnabled={smsMarkInboundViewedEnabled}
+        />
         <WorkspaceSmsConversationShell
           inboxHref={inboxHref}
           initialDisplayName={workspaceHeaderTitle}
@@ -785,7 +791,10 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
 
   return (
     <>
-      <SmsThreadMarkViewedClient conversationId={conversationId} />
+      <SmsThreadMarkViewedClient
+        conversationId={conversationId}
+        markReadEnabled={smsMarkInboundViewedEnabled}
+      />
       <div
         className="flex min-h-0 flex-1 flex-col gap-4 px-4 py-4 sm:gap-6 sm:p-6"
         data-sms-thread-pane={conversationId}

@@ -281,10 +281,10 @@ export function WorkspaceSmsThreadView({
                     className={`flex w-full flex-col ${inbound ? "items-start" : "items-end"} gap-1`}
                   >
                     <div
-                      className={`max-w-[min(92%,22rem)] rounded-[1.25rem] px-3.5 py-2.5 text-[15px] leading-relaxed tracking-[0.01em] ${
+                      className={`max-w-[min(92%,22rem)] rounded-[1.25rem] text-[15px] leading-[1.45] tracking-[0.01em] ${
                         inbound
-                          ? "rounded-bl-md border border-slate-200/90 bg-white text-slate-900 shadow-sm shadow-slate-900/[0.06] ring-1 ring-slate-100/80"
-                          : `rounded-br-md bg-gradient-to-br from-sky-500 via-sky-600 to-blue-800 text-white shadow-md shadow-sky-900/15 ring-1 ring-white/20 ${
+                          ? "rounded-bl-md border border-slate-200/90 bg-white px-4 pb-3 pt-3.5 text-slate-900 shadow-[0_1px_2px_rgba(15,23,42,0.06)] [overflow-wrap:anywhere] isolate"
+                          : `rounded-br-md bg-gradient-to-br from-sky-500 via-sky-600 to-blue-800 px-3.5 py-2.5 text-white shadow-md shadow-sky-900/15 ring-1 ring-white/20 ${
                               isPending ? "opacity-90" : ""
                             }`
                       }`}

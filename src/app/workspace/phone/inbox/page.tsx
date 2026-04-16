@@ -96,6 +96,9 @@ type PageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
+/** Fresh unread counts and list data on each request (avoid stale RSC cache for SMS inbox). */
+export const dynamic = "force-dynamic";
+
 export default async function WorkspaceInboxPage(props: PageProps) {
   const { searchParams } = props;
   const perfStart = routePerfStart();
@@ -142,6 +145,14 @@ export default async function WorkspaceInboxPage(props: PageProps) {
 
   const ids = rows.map((r) => r.id as string);
   const unreadByConvId = await countUnreadInboundByConversationIds(supabase, ids);
+  if (process.env.SMS_UNREAD_DEBUG === "1") {
+    const withUnread = ids.filter((id) => (unreadByConvId[id] ?? 0) > 0);
+    console.warn("[sms-unread-debug] workspace inbox mapping", {
+      rowCount: ids.length,
+      conversationsWithUnread: withUnread.length,
+      sampleIdsWithUnread: withUnread.slice(0, 8),
+    });
+  }
   const previewByConvId: Record<string, string> = {};
   if (ids.length > 0) {
     const previewRowCap = Math.min(500, Math.max(120, ids.length * 8));

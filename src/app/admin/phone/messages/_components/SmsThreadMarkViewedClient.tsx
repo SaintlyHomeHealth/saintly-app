@@ -21,12 +21,20 @@ function eventTargetInPane(pane: Element, e: Event): boolean {
   return pane.contains(t);
 }
 
-export function SmsThreadMarkViewedClient({ conversationId }: { conversationId: string }) {
+export function SmsThreadMarkViewedClient({
+  conversationId,
+  markReadEnabled = true,
+}: {
+  conversationId: string;
+  /** Set false via SMS_MARK_INBOUND_VIEWED=0 server-side while debugging unread. */
+  markReadEnabled?: boolean;
+}) {
   const firedRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     firedRef.current = false;
+    if (!markReadEnabled) return;
     if (typeof document === "undefined") return;
 
     const clearTimer = () => {
@@ -90,7 +98,7 @@ export function SmsThreadMarkViewedClient({ conversationId }: { conversationId: 
       document.removeEventListener("wheel", onWheel, { capture: true });
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [conversationId]);
+  }, [conversationId, markReadEnabled]);
 
   return null;
 }

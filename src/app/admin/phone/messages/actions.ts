@@ -99,6 +99,10 @@ async function loadConversationForAccess(
 
 /** Marks inbound SMS as read for staff; revalidates inbox when any rows were updated. */
 export async function markSmsThreadInboundViewed(conversationId: string) {
+  if (process.env.SMS_MARK_INBOUND_VIEWED === "0") {
+    return { ok: true as const, marked: 0 };
+  }
+
   const staff = await getStaffProfile();
   if (!requirePhoneMessagingStaff(staff)) return { ok: false as const };
   if (!conversationId || !UUID_RE.test(conversationId)) return { ok: false as const };
