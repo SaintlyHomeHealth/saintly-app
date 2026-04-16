@@ -99,10 +99,6 @@ async function loadConversationForAccess(
 
 /** Marks inbound SMS as read for staff; revalidates inbox when any rows were updated. */
 export async function markSmsThreadInboundViewed(conversationId: string) {
-  if (process.env.SMS_MARK_INBOUND_VIEWED === "0") {
-    return { ok: true as const, marked: 0 };
-  }
-
   const staff = await getStaffProfile();
   if (!requirePhoneMessagingStaff(staff)) return { ok: false as const };
   if (!conversationId || !UUID_RE.test(conversationId)) return { ok: false as const };
@@ -122,6 +118,52 @@ export async function markSmsThreadInboundViewed(conversationId: string) {
     revalidateSmsConversationViews(conversationId);
   }
   return { ok: true as const, marked };
+}
+
+/** Debug: clear viewed_at on the latest inbound message only (service role). */
+export async function markLatestInboundUnreadForDebug(conversationId: string) {
+  const staff = await getStaffProfile();
+  if (!requirePhoneMessagingStaff(staff)) return { ok: false as const };
+  if (!conversationId || !UUID_RE.test(conversationId)) return { ok: false as const };
+
+  const { row } = await loadConversationForAccess(conversationId);
+  if (!row) return { ok: false as const };
+  if (
+    !canStaffAccessConversationRow(staff, {
+      assigned_to_user_id: row.assigned_to_user_id,
+    })
+  ) {
+    return { ok: false as const };
+  }
+
+  const { data: latest, error: selErr } = await supabaseAdmin
+    .from("messages")
+    .select("id")
+    .eq("conversation_id", conversationId)
+    .eq("direction", "inbound")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (selErr) {
+    console.warn("[sms-debug] markLatestInboundUnreadForDebug select:", selErr.message);
+    return { ok: false as const };
+  }
+  if (!latest?.id) return { ok: true as const, marked: 0 };
+
+  const { error: upErr } = await supabaseAdmin
+    .from("messages")
+    .update({ viewed_at: null })
+    .eq("id", latest.id)
+    .eq("direction", "inbound");
+
+  if (upErr) {
+    console.warn("[sms-debug] markLatestInboundUnreadForDebug update:", upErr.message);
+    return { ok: false as const };
+  }
+
+  revalidateSmsConversationViews(conversationId);
+  return { ok: true as const, marked: 1 };
 }
 
 export async function claimConversation(formData: FormData) {

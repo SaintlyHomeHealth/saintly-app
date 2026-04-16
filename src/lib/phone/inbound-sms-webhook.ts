@@ -118,7 +118,7 @@ export async function applyInboundTwilioSms(
     });
   }
 
-  if (insertedMsg?.id) {
+  if (process.env.SMS_AI_SUGGESTIONS_ENABLED === "1" && insertedMsg?.id) {
     scheduleSmsReplySuggestionGeneration(supabase, conversationId, String(insertedMsg.id), fromE164);
   }
 

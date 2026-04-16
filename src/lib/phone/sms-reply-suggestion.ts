@@ -89,6 +89,10 @@ export async function runSmsReplySuggestionGeneration(
   supabase: SupabaseClient,
   input: { conversationId: string; inboundMessageId: string; mainPhoneE164: string }
 ): Promise<void> {
+  if (process.env.SMS_AI_SUGGESTIONS_ENABLED !== "1") {
+    return;
+  }
+
   if (!process.env.OPENAI_API_KEY?.trim()) {
     return;
   }
@@ -215,6 +219,10 @@ export function scheduleSmsReplySuggestionGeneration(
   inboundMessageId: string,
   mainPhoneE164: string
 ): void {
+  if (process.env.SMS_AI_SUGGESTIONS_ENABLED !== "1") {
+    return;
+  }
+
   queueMicrotask(() => {
     void runSmsReplySuggestionGeneration(supabase, {
       conversationId,

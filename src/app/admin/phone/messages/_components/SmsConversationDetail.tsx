@@ -12,7 +12,7 @@ import {
   updateConversationFollowUp,
 } from "../actions";
 import { SmsReplyComposer } from "./SmsReplyComposer";
-import { SmsThreadMarkViewedClient } from "./SmsThreadMarkViewedClient";
+import { SmsThreadDebugStrip } from "./SmsThreadDebugStrip";
 import { SmsThreadContactPanel } from "@/app/workspace/phone/inbox/_components/sms-thread-contact-panel";
 import { WorkspaceSmsConversationShell } from "@/app/workspace/phone/inbox/_components/workspace-sms-conversation-shell";
 import { WorkspaceSmsThreadView } from "@/app/workspace/phone/inbox/_components/WorkspaceSmsThreadView";
@@ -162,8 +162,10 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
     notFound();
   }
 
-  /** SMS_MARK_INBOUND_VIEWED=0 disables client + server mark-read (debug unread without clearing). */
-  const smsMarkInboundViewedEnabled = process.env.SMS_MARK_INBOUND_VIEWED !== "0";
+  /** SMS_AI_SUGGESTIONS_ENABLED=1 restores OpenAI reply suggestions + CRM “AI insight” for this thread. */
+  const smsAiSuggestionsEnabled = process.env.SMS_AI_SUGGESTIONS_ENABLED === "1";
+  const showSmsThreadDebug =
+    process.env.NODE_ENV === "development" || process.env.SMS_THREAD_DEBUG === "1";
 
   const sp = (await searchParams) ?? {};
   const ok = typeof sp.ok === "string" ? sp.ok : undefined;
@@ -246,7 +248,7 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
 
   const { data: msgRows, error: msgErr } = await supabase
     .from("messages")
-    .select("id, created_at, direction, body")
+    .select("id, created_at, direction, body, viewed_at")
     .eq("conversation_id", conversationId)
     .order("created_at", { ascending: true });
 
@@ -262,9 +264,21 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
   const suggestionMeta = parseSmsReplySuggestion(conv.metadata);
   const aiMini = parseVoiceAiMini(conv.metadata);
   const initialSmsSuggestion =
-    suggestionMeta && lastInboundMessageId && suggestionMeta.for_message_id === lastInboundMessageId
+    smsAiSuggestionsEnabled &&
+    suggestionMeta &&
+    lastInboundMessageId &&
+    suggestionMeta.for_message_id === lastInboundMessageId
       ? suggestionMeta.text
       : null;
+
+  const unreadInboundCount = messages.filter(
+    (m) =>
+      String(m.direction).toLowerCase() === "inbound" &&
+      (m.viewed_at == null || (typeof m.viewed_at === "string" && m.viewed_at.trim() === ""))
+  ).length;
+  const lastMessageDirection =
+    lastMsg && typeof lastMsg.direction === "string" ? lastMsg.direction.trim().toLowerCase() : null;
+  const hasUnviewedInbound = unreadInboundCount > 0;
 
   const draftRaw = typeof sp.draft === "string" ? sp.draft : Array.isArray(sp.draft) ? sp.draft[0] : "";
   const composerInitialDraft =
@@ -460,7 +474,7 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
 
   const workspaceCrmPanelInner = (
     <>
-      {(aiMini.summary || aiMini.category || aiMini.urgency) && (
+      {smsAiSuggestionsEnabled && (aiMini.summary || aiMini.category || aiMini.urgency) ? (
         <section className={crmAsideAi}>
           <p className="text-[11px] font-semibold uppercase tracking-wide text-sky-800">AI insight</p>
           {aiMini.summary ? (
@@ -481,7 +495,7 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
             ) : null}
           </div>
         </section>
-      )}
+      ) : null}
 
       <section className={crmAsideCard}>
         <h2 className={`font-semibold text-slate-900 ${workspaceDesktopSplit ? "text-xs" : "text-sm"}`}>Assignment</h2>
@@ -696,10 +710,6 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
 
     const shell = (
       <>
-        <SmsThreadMarkViewedClient
-          conversationId={conversationId}
-          markReadEnabled={smsMarkInboundViewedEnabled}
-        />
         <WorkspaceSmsConversationShell
           inboxHref={inboxHref}
           initialDisplayName={workspaceHeaderTitle}
@@ -734,6 +744,16 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
           }
           banners={
           <>
+            {showSmsThreadDebug ? (
+              <div className="mx-4 mt-2">
+                <SmsThreadDebugStrip
+                  conversationId={conversationId}
+                  unreadInboundCount={unreadInboundCount}
+                  lastMessageDirection={lastMessageDirection}
+                  hasUnviewedInbound={hasUnviewedInbound}
+                />
+              </div>
+            ) : null}
             {ok === "intake" ? (
               <div className="mx-4 mt-2 rounded-lg border border-sky-200/90 bg-phone-ice px-3 py-2 text-sm text-phone-ink">
                 Contact saved and linked to this thread.
@@ -791,10 +811,6 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
 
   return (
     <>
-      <SmsThreadMarkViewedClient
-        conversationId={conversationId}
-        markReadEnabled={smsMarkInboundViewedEnabled}
-      />
       <div
         className="flex min-h-0 flex-1 flex-col gap-4 px-4 py-4 sm:gap-6 sm:p-6"
         data-sms-thread-pane={conversationId}
@@ -844,6 +860,15 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
             Lead record
           </Link>
         </div>
+      ) : null}
+
+      {showSmsThreadDebug ? (
+        <SmsThreadDebugStrip
+          conversationId={conversationId}
+          unreadInboundCount={unreadInboundCount}
+          lastMessageDirection={lastMessageDirection}
+          hasUnviewedInbound={hasUnviewedInbound}
+        />
       ) : null}
 
       <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
