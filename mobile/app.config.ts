@@ -38,6 +38,11 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         'This app requires microphone access to make and receive calls.',
       NSLocationWhenInUseUsageDescription:
         'This app uses location to support call workflows and staff features.',
+      /** FCM alerts + Twilio VoIP incoming call (CallKit). */
+      UIBackgroundModes: ['audio', 'remote-notification', 'voip'],
+      /** Shown when requesting notification permission (SMS / call alerts). */
+      NSUserNotificationsUsageDescription:
+        'Saintly sends SMS and incoming-call alerts while you are away from the app.',
       /** Standard HTTPS / platform crypto only — aligns with App Store export compliance. */
       ITSAppUsesNonExemptEncryption: false,
     },
@@ -69,6 +74,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         },
       },
     ],
+    '@react-native-firebase/messaging',
   ],
   extra: {
     apiBaseUrl:

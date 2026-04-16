@@ -12,6 +12,20 @@ function loadTwilioVoiceSdk() {
   return twilioVoiceModule;
 }
 
+/** Lets the Saintly iOS shell register Twilio Voice native (CallKit) with the same access token as the web Device. */
+function postSoftphoneTokenToNativeBridge(token: string) {
+  if (typeof window === "undefined") return;
+  const bridge = (
+    window as unknown as { ReactNativeWebView?: { postMessage: (data: string) => void } }
+  ).ReactNativeWebView;
+  if (!bridge?.postMessage) return;
+  try {
+    bridge.postMessage(JSON.stringify({ type: "saintly-softphone-token", token }));
+  } catch {
+    // ignore bridge failures
+  }
+}
+
 import { formatPhoneNumber, normalizePhone } from "@/lib/phone/us-phone-format";
 import { isValidE164, normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
 import {
@@ -1132,6 +1146,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
           device.destroy();
           return;
         }
+        postSoftphoneTokenToNativeBridge(body.token);
         deviceRef.current = device;
         setListenState("ready");
       } catch (e) {
@@ -1454,6 +1469,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
           device = new TwilioDevice(tokenJson.token!, { logLevel: "error" });
           bindDeviceLifecycle(device);
           await device.register();
+          postSoftphoneTokenToNativeBridge(tokenJson.token!);
           deviceRef.current = device;
           setListenState("ready");
         } else {

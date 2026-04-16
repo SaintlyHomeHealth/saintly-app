@@ -3,6 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { findContactByIncomingPhone } from "@/lib/crm/find-contact-by-incoming-phone";
+import { notifyInboundSmsAfterPersist } from "@/lib/push/notify-inbound-sms";
 import { ensureSmsConversationForPhone } from "@/lib/phone/sms-conversation-thread";
 import { scheduleSmsReplySuggestionGeneration } from "@/lib/phone/sms-reply-suggestion";
 import { isValidE164, normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
@@ -131,6 +132,12 @@ export async function applyInboundTwilioSms(
   if (touchErr) {
     console.warn("[sms-inbound] last_message_at touch:", touchErr.message);
   }
+
+  void notifyInboundSmsAfterPersist(supabase, {
+    conversationId,
+    bodyPreview: body,
+    fromE164: fromE164,
+  });
 
   return { ok: true };
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { supabaseAdmin } from "@/lib/admin";
+import { notifyInboundCallStaffPush } from "@/lib/push/notify-inbound-call";
 import { ensureIncomingCallAlert } from "@/lib/phone/incoming-call-alerts";
 import { upsertPhoneCallFromWebhook } from "@/lib/phone/log-call";
 import { buildSaintlyVoicemailRecordTwiml } from "@/lib/phone/twilio-voicemail-twiml";
@@ -149,6 +150,12 @@ export async function POST(req: NextRequest) {
     });
     if (!alertResult.ok) {
       console.error("[twilio/voice/inbound-ring] incoming_call_alerts:", alertResult.error);
+    } else {
+      void notifyInboundCallStaffPush(supabaseAdmin, {
+        phoneCallId: logResult.callId,
+        externalCallId: callSid,
+        fromE164: from,
+      });
     }
   }
 

@@ -78,11 +78,18 @@ Install the artifact on the simulator, then `npm run start:dev` and open the dev
 
 For a **physical device**, use profile `development-device` in `eas.json` (set `ios.simulator` false or use a separate profile without `simulator: true`).
 
+## Push + native calls (TestFlight)
+
+**Status:** **SMS push = implemented** (FCM + server fan-out). **Incoming call native ringing (CallKit)** = **partially implemented** in code until Apple / Firebase APNs / **Twilio VoIP Push Credential** are finished in each console (see `docs/mobile-ios-push-testflight.md`). Browser + PSTN inbound ringing is unchanged.
+
+- **FCM:** `src/services/nativePushService.ts` registers the device; `HomeScreen` injects `POST /api/workspace/mobile/push/register` using the WebView session cookie.
+- **Twilio Voice (CallKit):** `src/services/nativeTwilioVoiceBridge.ts` — web softphone posts the same access JWT to React Native after `device.register()` so PushKit + CallKit can work (requires Twilio VoIP Push Credential in Console).
+- **Docs:** see `docs/mobile-ios-push-testflight.md` for Apple capabilities, Firebase service account (`FIREBASE_SERVICE_ACCOUNT_JSON` on the server), and TestFlight steps.
+
 ## Next integration steps
 
-- **Twilio Voice:** implement `src/services/twilioVoiceService.ts` with the RN SDK after native Firebase / FCM are stable.
-- **Access token:** `authTokenService.fetchSoftphoneAccessToken()` — align auth with the web app.
-- **Push:** extend `nativePushService.ts` with `@react-native-firebase/messaging` (or PushKit) in the dev build.
+- **Access token:** `authTokenService.fetchSoftphoneAccessToken()` — optional native-only auth if you stop loading the web keypad.
+- **Facade:** `src/services/twilioVoiceService.ts` remains a stub; real behavior lives in `nativeTwilioVoiceBridge.ts` + web `WorkspaceSoftphoneProvider`.
 
 ## Requirements
 

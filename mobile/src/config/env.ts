@@ -30,3 +30,9 @@ export function softphoneTokenUrl(): string {
   const path = env.softphoneTokenPath.startsWith('/') ? env.softphoneTokenPath : `/${env.softphoneTokenPath}`;
   return `${base}${path}`;
 }
+
+/** Cookie-authenticated FCM device registration (POST from WebView `injectJavaScript`). */
+export function pushRegisterUrl(): string {
+  const base = env.apiBaseUrl.replace(/\/$/, '');
+  return `${base}/api/workspace/mobile/push/register`;
+}

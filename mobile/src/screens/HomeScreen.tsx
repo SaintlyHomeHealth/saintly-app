@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Linking,
@@ -9,11 +9,13 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import Constants from 'expo-constants';
 import { WebView } from 'react-native-webview';
 
-import { env } from '../config/env';
+import { env, pushRegisterUrl } from '../config/env';
 import { useNativePushRegistration } from '../hooks/useNativePushRegistration';
 import { requestForegroundLocationWhenNeeded } from '../services/locationPermission';
+import { registerNativeTwilioWithAccessToken } from '../services/nativeTwilioVoiceBridge';
 import { colors } from '../theme/colors';
 
 import type { HomeScreenProps } from '../navigation/types';
@@ -24,16 +26,27 @@ function portalUrl(): string {
   return `${base}/workspace/phone/keypad`;
 }
 
-function pushStatusLine(environment: string): string {
+function buildRegisterPushInjectJs(fcmToken: string): string {
+  const url = pushRegisterUrl();
+  const platform = Platform.OS === 'ios' ? 'ios' : 'android';
+  const bodyJson = JSON.stringify({ fcmToken, platform });
+  return `(function(){try{fetch(${JSON.stringify(url)},{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:${JSON.stringify(bodyJson)}}).catch(function(){});}catch(e){}true;})();`;
+}
+
+function pushStatusLine(environment: string, fcmOk: boolean): string {
   switch (environment) {
     case 'expo_go':
-      return 'Running in Expo Go — native VoIP push registers in a development build.';
+      return 'Expo Go — use a TestFlight or dev build for real push and CallKit.';
     case 'development_build':
-      return 'Development build — wire APNs / FCM in native push service when ready.';
+      return fcmOk
+        ? 'FCM registered — SMS/call alerts enabled when the portal session is signed in.'
+        : 'Development build — grant notifications and sign in to finish push setup.';
     case 'standalone':
-      return 'Production build — native push hooks apply here.';
+      return fcmOk
+        ? 'Push registered — SMS and inbound-call alerts active when signed in.'
+        : 'Grant notifications and sign in on the keypad to enable push.';
     default:
-      return 'Push environment unknown — verify execution context.';
+      return 'Verifying push environment…';
   }
 }
 
@@ -41,16 +54,73 @@ export function HomeScreen(_props: HomeScreenProps) {
   const pushState = useNativePushRegistration();
   const pushEnv =
     pushState.status === 'ready' ? pushState.result.environment : null;
+  const fcmToken = pushState.status === 'ready' ? pushState.result.fcmToken : null;
+
+  const webViewRef = useRef<WebView>(null);
   const [loading, setLoading] = useState(true);
+  const [portalUri, setPortalUri] = useState(portalUrl);
   const [locationNote, setLocationNote] = useState<string | null>(null);
   const [locationBusy, setLocationBusy] = useState(false);
+
+  const apiOrigin = env.apiBaseUrl.replace(/\/$/, '') || 'https://appsaintlyhomehealth.com';
+
+  /** Re-inject FCM registration after token + WebView load (session cookies required). */
+  useEffect(() => {
+    if (!fcmToken || loading || Constants.appOwnership === 'expo') return;
+    const js = buildRegisterPushInjectJs(fcmToken);
+    webViewRef.current?.injectJavaScript(js);
+  }, [fcmToken, loading]);
+
+  /** Open thread / keypad when user taps a notification (background → foreground). */
+  useEffect(() => {
+    if (Constants.appOwnership === 'expo') return;
+
+    const openFromMessage = (m: { data?: Record<string, unknown> } | null | undefined) => {
+      const raw = m?.data?.open_path;
+      const path = typeof raw === 'string' ? raw : null;
+      if (path && path.startsWith('/')) {
+        setPortalUri(`${apiOrigin}${path}`);
+      }
+    };
+
+    let cancelled = false;
+    let unsubOpen: (() => void) | undefined;
+    let unsubFg: (() => void) | undefined;
+
+    void (async () => {
+      const messaging = (await import('@react-native-firebase/messaging')).default;
+      if (cancelled) return;
+
+      unsubOpen = messaging().onNotificationOpenedApp((remoteMessage) => {
+        openFromMessage(remoteMessage);
+      });
+
+      const initial = await messaging().getInitialNotification();
+      if (!cancelled) {
+        openFromMessage(initial ?? undefined);
+      }
+
+      unsubFg = messaging().onMessage((remoteMessage) => {
+        openFromMessage(remoteMessage);
+      });
+    })();
+
+    return () => {
+      cancelled = true;
+      unsubOpen?.();
+      unsubFg?.();
+    };
+  }, [apiOrigin]);
 
   const onWebViewMessage = useCallback((event: { nativeEvent: { data: string } }) => {
     try {
       const raw = event.nativeEvent.data;
-      const msg = JSON.parse(raw) as { type?: string };
+      const msg = JSON.parse(raw) as { type?: string; token?: string };
       if (msg.type === 'open-settings') {
         void Linking.openSettings();
+      }
+      if (msg.type === 'saintly-softphone-token' && typeof msg.token === 'string') {
+        void registerNativeTwilioWithAccessToken(msg.token);
       }
     } catch {
       // ignore non-JSON messages
@@ -76,7 +146,8 @@ export function HomeScreen(_props: HomeScreenProps) {
     <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.container}>
         <WebView
-          source={{ uri: portalUrl() }}
+          ref={webViewRef}
+          source={{ uri: portalUri }}
           style={styles.webview}
           javaScriptEnabled
           domStorageEnabled
@@ -121,13 +192,15 @@ export function HomeScreen(_props: HomeScreenProps) {
 
         <View style={styles.pushBar} pointerEvents="none">
           {pushEnv ? (
-            <Text style={styles.pushText}>{pushStatusLine(pushEnv)}</Text>
+            <Text style={styles.pushText}>
+              {pushStatusLine(pushEnv, Boolean(fcmToken))}
+            </Text>
           ) : (
             <Text style={styles.pushText}>Preparing call environment…</Text>
           )}
           {Platform.OS === 'ios' ? (
             <Text style={styles.pushTextMuted}>
-              Microphone access is requested when you place or answer a call in the keypad.
+              Microphone access is requested when you place or answer a call in the keypad. Incoming calls use CallKit when Twilio VoIP push is configured.
             </Text>
           ) : null}
         </View>

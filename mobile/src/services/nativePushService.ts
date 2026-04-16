@@ -1,29 +1,22 @@
 import Constants from 'expo-constants';
+import { Platform } from 'react-native';
 
 /**
- * VoIP / high-priority push for incoming calls (APNs on iOS, FCM on Android).
+ * FCM registration for SMS / inbound-call alerts (APNs transport on iOS via Firebase).
  *
- * Expo Go cannot register real VoIP or FCM tokens for your bundle id.
- * Use an EAS **development build** + native modules:
- * - iOS: PushKit / CallKit (often via Twilio or community libs)
- * - Android: FCM data messages + ConnectionService
- *
- * This module intentionally does **not** call `getExpoPushTokenAsync` (Expo projectId / EAS),
- * which is unrelated to Twilio Voice and fails confusingly in Expo Go.
+ * Expo Go cannot load native Firebase messaging — use dynamic import only in native builds.
  */
 
 export type NativePushEnvironment = 'expo_go' | 'development_build' | 'standalone' | 'unknown';
 
 export type NativePushRegistrationResult = {
   environment: NativePushEnvironment;
-  /** FCM device token — TODO: populate in dev build with @react-native-firebase/messaging or equivalent. */
   fcmToken: string | null;
-  /** APNs device token — TODO: populate in dev build (often via native VoIP path). */
+  /** Reserved — Twilio VoIP uses PushKit inside @twilio/voice-react-native-sdk. */
   apnsDeviceToken: string | null;
 };
 
 function detectEnvironment(): NativePushEnvironment {
-  /** In Expo Go, `appOwnership` is `"expo"`; standalone / dev builds use `null`. */
   if (Constants.appOwnership === 'expo') {
     return 'expo_go';
   }
@@ -36,18 +29,13 @@ function detectEnvironment(): NativePushEnvironment {
   return 'unknown';
 }
 
-/**
- * TODO: In a development build, request notification permission only if needed for local alerts,
- * then register for FCM / APNs per your Twilio + Firebase setup.
- * TODO: Send `fcmToken` / VoIP token to your backend so Twilio can reach this device for incoming calls.
- */
 export async function registerNativePushForCalls(): Promise<NativePushRegistrationResult> {
   const environment = detectEnvironment();
 
   if (environment === 'expo_go') {
     if (__DEV__) {
       console.info(
-        '[nativePushService] Expo Go — skipping native VoIP/FCM registration (use a development build for real tokens).'
+        '[nativePushService] Expo Go — skipping FCM (use a development or production native build).'
       );
     }
     return {
@@ -57,10 +45,37 @@ export async function registerNativePushForCalls(): Promise<NativePushRegistrati
     };
   }
 
-  // TODO: Implement when Firebase + native Twilio push hooks are linked.
-  return {
-    environment,
-    fcmToken: null,
-    apnsDeviceToken: null,
-  };
+  try {
+    const mod = await import('@react-native-firebase/messaging');
+    const messaging = mod.default;
+    const AuthorizationStatus = mod.AuthorizationStatus;
+
+    if (Platform.OS === 'ios') {
+      await messaging().registerDeviceForRemoteMessages();
+    }
+
+    const status = await messaging().requestPermission();
+    const ok =
+      status === AuthorizationStatus.AUTHORIZED ||
+      status === AuthorizationStatus.PROVISIONAL ||
+      status === AuthorizationStatus.EPHEMERAL;
+
+    if (!ok && __DEV__) {
+      console.warn('[nativePushService] notification permission status:', status);
+    }
+
+    const fcmToken = await messaging().getToken();
+    return {
+      environment,
+      fcmToken: fcmToken || null,
+      apnsDeviceToken: null,
+    };
+  } catch (e) {
+    console.warn('[nativePushService] FCM registration failed', e);
+    return {
+      environment,
+      fcmToken: null,
+      apnsDeviceToken: null,
+    };
+  }
 }

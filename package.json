@@ -19,6 +19,7 @@
     "@tesseract.js-data/eng": "^1.0.0",
     "@twilio/voice-sdk": "^2.18.1",
     "canvas": "^3.2.3",
+    "firebase-admin": "^12.7.0",
     "jszip": "^3.10.1",
     "lucide-react": "^0.577.0",
     "mammoth": "^1.12.0",
