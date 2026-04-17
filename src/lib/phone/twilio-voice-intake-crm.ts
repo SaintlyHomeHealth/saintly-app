@@ -2,6 +2,7 @@ import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { supabaseAdmin } from "@/lib/admin";
 import { findContactByIncomingPhone } from "@/lib/crm/find-contact-by-incoming-phone";
 import { sendOperationalAlertSms } from "@/lib/ops/operational-alert-sms";
+import { notifyNewLeadCreatedPush } from "@/lib/push/notify-new-lead";
 import type { VoiceAiStoredPayload } from "@/lib/phone/voice-ai-background";
 
 function asMetadata(value: unknown): Record<string, unknown> {
@@ -241,6 +242,8 @@ export async function ensureActiveLeadForContact(contactId: string): Promise<voi
     console.warn("[twilio-voice-intake-crm] insert lead:", insErr?.message);
     return;
   }
+
+  void notifyNewLeadCreatedPush(supabaseAdmin, String(inserted.id));
 
   const { data: cInfo } = await supabaseAdmin
     .from("contacts")

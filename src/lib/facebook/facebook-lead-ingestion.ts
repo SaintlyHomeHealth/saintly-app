@@ -13,6 +13,7 @@ import { buildLeadIntakeRequestFromFieldMap } from "@/lib/crm/lead-intake-reques
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { isKnownPayerBroadCategory } from "@/lib/crm/payer-type-options";
 import { isValidServiceDisciplineCode, type ServiceDisciplineCode } from "@/lib/crm/service-disciplines";
+import { notifyNewLeadCreatedPush } from "@/lib/push/notify-new-lead";
 import { normalizePhone } from "@/lib/phone/us-phone-format";
 
 const GRAPH_VERSION = process.env.FACEBOOK_GRAPH_API_VERSION?.trim() || "v21.0";
@@ -487,6 +488,8 @@ async function completeFacebookLeadInsertFromFieldMap(
   } else {
     console.log("[facebook-lead] insert ok", { lead_id: leadId, contact_id: contactId, leadgen_id: leadgenId });
   }
+
+  void notifyNewLeadCreatedPush(supabase, leadId);
 
   revalidatePath("/admin");
   revalidatePath("/admin/crm/leads");

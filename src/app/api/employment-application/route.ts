@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { supabaseAdmin } from "@/lib/admin";
 import { normalizePhone } from "@/lib/phone/us-phone-format";
+import { notifyNewLeadCreatedPush } from "@/lib/push/notify-new-lead";
 
 const MAX_LEN = 8000;
 
@@ -179,6 +180,8 @@ export async function POST(req: Request) {
     console.warn("[employment-application] lead insert:", lErr?.message);
     return NextResponse.json({ ok: false, error: "server_error" } as const, { status: 500 });
   }
+
+  void notifyNewLeadCreatedPush(supabaseAdmin, String(newLead.id));
 
   return NextResponse.json({ ok: true, leadId: newLead.id as string } as const);
 }

@@ -7,6 +7,7 @@ import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { supabaseAdmin } from "@/lib/admin";
 import { findContactByIncomingPhone } from "@/lib/crm/find-contact-by-incoming-phone";
 import { sendOperationalAlertSms } from "@/lib/ops/operational-alert-sms";
+import { notifyNewLeadCreatedPush } from "@/lib/push/notify-new-lead";
 import {
   getStaffProfile,
   hasFullCallVisibility,
@@ -389,6 +390,8 @@ export async function createLeadFromContact(contactId: string): Promise<CreateLe
     console.warn("[admin/phone] createLeadFromContact insert:", insErr?.message);
     return { ok: false, error: "insert_failed" };
   }
+
+  void notifyNewLeadCreatedPush(supabaseAdmin, String(inserted.id));
 
   const { data: cInfo } = await supabaseAdmin
     .from("contacts")
