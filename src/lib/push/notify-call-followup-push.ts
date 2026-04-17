@@ -26,15 +26,17 @@ export async function notifyMissedCallPush(
     }
     const from = (input.fromE164 ?? "").trim() || "Unknown caller";
     const openPath = "/workspace/phone/calls";
+    const pid = input.phoneCallId.trim();
     const result = await sendFcmDataAndNotificationToUserIds(supabase, userIds, {
       title: "Missed call",
       body: from,
       data: {
         type: "missed_call",
-        phone_call_id: input.phoneCallId.trim(),
+        phone_call_id: pid,
         open_path: openPath,
         from_e164: from,
       },
+      apnsCollapseId: `missed-${pid}`,
     });
     if (!result.ok) {
       console.warn(LOG, "missed notify failed", { error: result.error, phoneCallId: input.phoneCallId.trim() });
@@ -72,18 +74,20 @@ export async function notifyVoicemailPush(
     const durPart =
       typeof dur === "number" && Number.isFinite(dur) && dur > 0 ? ` · ${Math.round(dur)}s` : "";
     const openPath = "/workspace/phone/voicemail";
+    const pid = input.phoneCallId.trim();
     const result = await sendFcmDataAndNotificationToUserIds(supabase, userIds, {
       title: "New voicemail",
       body: `${from}${durPart}`,
       data: {
         type: "voicemail",
-        phone_call_id: input.phoneCallId.trim(),
+        phone_call_id: pid,
         open_path: openPath,
         from_e164: from,
         ...(typeof dur === "number" && Number.isFinite(dur) && dur > 0
           ? { duration_seconds: String(Math.round(dur)) }
           : {}),
       },
+      apnsCollapseId: `vm-${pid}`,
     });
     if (!result.ok) {
       console.warn(LOG, "voicemail notify failed", { error: result.error, phoneCallId: input.phoneCallId.trim() });

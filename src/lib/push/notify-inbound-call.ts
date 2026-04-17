@@ -28,16 +28,18 @@ export async function notifyInboundCallStaffPush(
     const from = (input.fromE164 ?? "").trim() || "unknown";
     const openPath = `/workspace/phone/keypad`;
 
+    const callSid = input.externalCallId.trim();
     const result = await sendFcmDataAndNotificationToUserIds(supabase, userIds, {
       title: "Incoming call",
       body: from,
       data: {
         type: "incoming_call",
         phone_call_id: input.phoneCallId.trim(),
-        call_sid: input.externalCallId.trim(),
+        call_sid: callSid,
         open_path: openPath,
         from_e164: from,
       },
+      apnsCollapseId: `call-${callSid}`,
     });
 
     if (!result.ok) {

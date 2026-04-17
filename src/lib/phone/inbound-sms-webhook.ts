@@ -138,6 +138,7 @@ export async function applyInboundTwilioSms(
     conversationId,
     bodyPreview: body,
     fromE164: fromE164,
+    externalMessageSid: messageSid,
   });
 
   return { ok: true };

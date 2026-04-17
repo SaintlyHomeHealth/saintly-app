@@ -20,6 +20,8 @@ export async function notifyInboundSmsAfterPersist(
     conversationId: string;
     bodyPreview: string;
     fromE164?: string | null;
+    /** Twilio MessageSid — used for APNs collapse id so each SMS is a distinct alert. */
+    externalMessageSid?: string | null;
   }
 ): Promise<void> {
   if (process.env.SAINTLY_PUSH_SMS_DISABLED === "1") {
@@ -38,6 +40,8 @@ export async function notifyInboundSmsAfterPersist(
     const from = (input.fromE164 ?? "").trim() || "unknown";
     const preview = truncate(input.bodyPreview || "(no text)", 120);
     const openPath = `/workspace/phone/inbox/${input.conversationId.trim()}`;
+    const msgSid = (input.externalMessageSid ?? "").trim();
+    const apnsCollapseId = msgSid ? `sms-${msgSid}` : undefined;
 
     const result = await sendFcmDataAndNotificationToUserIds(supabase, userIds, {
       title: "New SMS",
@@ -48,6 +52,7 @@ export async function notifyInboundSmsAfterPersist(
         open_path: openPath,
         from_e164: from,
       },
+      apnsCollapseId,
     });
 
     if (!result.ok) {

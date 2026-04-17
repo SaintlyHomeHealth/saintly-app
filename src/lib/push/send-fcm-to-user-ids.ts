@@ -1,5 +1,7 @@
 import "server-only";
 
+import { randomUUID } from "crypto";
+
 import { getMessaging } from "firebase-admin/messaging";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -26,6 +28,12 @@ async function deleteInvalidTokens(supabase: SupabaseClient, tokens: string[]): 
 /**
  * Sends FCM to all registered devices for the given users (best-effort).
  */
+function resolveApnsCollapseId(raw?: string | null): string {
+  const t = (raw ?? "").trim();
+  const id = t || randomUUID();
+  return id.length > 64 ? id.slice(0, 64) : id;
+}
+
 export async function sendFcmDataAndNotificationToUserIds(
   supabase: SupabaseClient,
   userIds: string[],
@@ -33,6 +41,11 @@ export async function sendFcmDataAndNotificationToUserIds(
     title: string;
     body: string;
     data: Record<string, string>;
+    /**
+     * APNs `apns-collapse-id` (max 64 bytes). Unique per logical notification so rapid
+     * successive alerts are not replaced/coalesced on-device. Omit to use a random id per send.
+     */
+    apnsCollapseId?: string | null;
   }
 ): Promise<FcmSendResult> {
   const app = getFirebaseAdminApp();
@@ -82,6 +95,7 @@ export async function sendFcmDataAndNotificationToUserIds(
 
   const messaging = getMessaging(app);
   const dataPayload: Record<string, string> = { ...input.data };
+  const apnsCollapseId = resolveApnsCollapseId(input.apnsCollapseId);
 
   let sent = 0;
   const invalid: string[] = [];
@@ -103,6 +117,10 @@ export async function sendFcmDataAndNotificationToUserIds(
       apns: {
         headers: {
           "apns-priority": "10",
+          /** Required for alert notifications on APNs HTTP/2; ensures visible banner delivery. */
+          "apns-push-type": "alert",
+          /** Distinct id per logical alert so one message does not replace another on the device. */
+          "apns-collapse-id": apnsCollapseId,
         },
         payload: {
           aps: {
