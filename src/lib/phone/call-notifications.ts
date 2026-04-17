@@ -6,6 +6,7 @@ import {
   isValidCallerIdForPriority,
   resolveMissedPathPriorityReason,
 } from "@/lib/phone/priority-sms-rules";
+import { notifyMissedCallPush, notifyVoicemailPush } from "@/lib/push/notify-call-followup-push";
 import { sendOperationalAlertSms } from "@/lib/ops/operational-alert-sms";
 import { sendSms } from "@/lib/twilio/send-sms";
 
@@ -173,6 +174,8 @@ export async function tryInsertMissedCallNotification(
   const notificationId = inserted.id as string;
   const terminalStatus = (context?.terminalStatus ?? "").trim() || "unknown";
 
+  void notifyMissedCallPush(supabase, { phoneCallId: id, fromE164: context?.fromE164 });
+
   const fromLabel = (context?.fromE164 ?? "").trim() || "unknown caller";
   void sendOperationalAlertSms(
     `Saintly ops: Missed inbound call from ${fromLabel}. Open /admin/phone`
@@ -234,6 +237,12 @@ export async function tryInsertVoicemailNotification(
   }
 
   const notificationId = inserted.id as string;
+
+  void notifyVoicemailPush(supabase, {
+    phoneCallId: id,
+    fromE164: context?.fromE164,
+    durationSeconds: context?.durationSeconds,
+  });
 
   const { error: resolveErr } = await supabase
     .from("phone_call_notifications")
