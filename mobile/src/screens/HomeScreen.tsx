@@ -65,8 +65,7 @@ function buildRegisterPushInjectJs(fcmToken: string, attemptReason: string): str
     step: 'register_meta',
     url: url,
     method: 'POST',
-    fcmTokenLen: ${fcmToken.length},
-    platform: ${JSON.stringify(platform)},
+    payload: body,
     redirect: 'follow',
     credentials: 'include'
   });
@@ -79,13 +78,12 @@ function buildRegisterPushInjectJs(fcmToken: string, attemptReason: string): str
   })
     .then(function (res) {
       return res.text().then(function (text) {
-        var preview = text.length > 800 ? text.slice(0, 800) + '…' : text;
+        var raw = text.length > 6000 ? text.slice(0, 6000) + '…[truncated]' : text;
         post({
           step: 'register_done',
           status: res.status,
           ok: res.ok,
-          responseBodyLen: text.length,
-          responsePreview: preview
+          rawText: raw
         });
       });
     })
@@ -145,8 +143,7 @@ function buildVoiceRegisterInjectJs(input: {
   })
     .then(function (res) {
       return res.text().then(function (text) {
-        var preview = text.length > 800 ? text.slice(0, 800) + '…' : text;
-        post({ step: 'voice_register_done', status: res.status, ok: res.ok, responseBodyLen: text.length, responsePreview: preview });
+        post({ step: 'voice_register_done', status: res.status, ok: res.ok, rawText: text.length > 2000 ? text.slice(0, 2000) + '…' : text });
       });
     })
     .catch(function (err) {
@@ -276,13 +273,6 @@ export function HomeScreen(_props: HomeScreenProps) {
   }, [portalUri]);
 
   const lastNavUrlRef = useRef<string>('');
-  /** Short follow-ups when POST /push/register returns 401 (session cookie not yet committed to WKWebView). */
-  const pushReg401RetryTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
-
-  const clearPush401Retries = useCallback(() => {
-    pushReg401RetryTimersRef.current.forEach(clearTimeout);
-    pushReg401RetryTimersRef.current = [];
-  }, []);
 
   const runPushRegistration = useCallback((reason: string) => {
     const token = fcmTokenRef.current;
@@ -322,17 +312,6 @@ export function HomeScreen(_props: HomeScreenProps) {
     setRegThrowSummary('…');
     webViewRef.current.injectJavaScript(buildRegisterPushInjectJs(token, reason));
   }, []);
-
-  const schedulePush401Retries = useCallback(() => {
-    clearPush401Retries();
-    const delaysMs = [400, 1500, 6000];
-    delaysMs.forEach((ms) => {
-      const id = setTimeout(() => {
-        runPushRegistration(`retry_after_401_${ms}ms`);
-      }, ms);
-      pushReg401RetryTimersRef.current.push(id);
-    });
-  }, [clearPush401Retries, runPushRegistration]);
 
   const injectWorkspaceVoiceRegister = useCallback(async (twilioIdentity: string, reason: string) => {
     const t = fcmTokenRef.current;
@@ -381,7 +360,7 @@ export function HomeScreen(_props: HomeScreenProps) {
     if (!fcmToken || loading || Constants.appOwnership === 'expo') return;
 
     runPushRegistration('webview_load_end');
-    const delaysMs = [400, 1200, 2500, 6000, 12000, 20000, 35000];
+    const delaysMs = [2500, 6000, 12000, 20000, 35000];
     const timers = delaysMs.map((ms) =>
       setTimeout(() => {
         runPushRegistration(`retry_${ms}ms_after_load`);
@@ -391,12 +370,6 @@ export function HomeScreen(_props: HomeScreenProps) {
       timers.forEach(clearTimeout);
     };
   }, [fcmToken, loading, runPushRegistration]);
-
-  useEffect(() => {
-    return () => {
-      clearPush401Retries();
-    };
-  }, [clearPush401Retries]);
 
   /** FCM arrived after WebView posted softphone token — complete `devices` row (incl. voip_token). */
   useEffect(() => {
@@ -456,52 +429,16 @@ export function HomeScreen(_props: HomeScreenProps) {
           const m = msg as Record<string, unknown>;
           if (step === 'register_meta') {
             setRegReqSummary(
-              `url: ${String(m.url ?? '')}\nmethod: ${String(m.method ?? '')}\nfcmTokenLen: ${String(m.fcmTokenLen ?? '')}\nplatform: ${String(m.platform ?? '')}`
+              `url: ${String(m.url ?? '')}\nmethod: ${String(m.method ?? '')}\nredirect: ${String(m.redirect ?? '')}\ncredentials: ${String(m.credentials ?? '')}\npayload: ${String(m.payload ?? '')}`
             );
             setRegThrowSummary('—');
-            console.warn('[SAINTLY-PUSH-REG] register_meta', {
-              url: m.url,
-              fcmTokenLen: m.fcmTokenLen,
-              platform: m.platform,
-            });
+            console.warn('[SAINTLY-PUSH-REG] register_meta', msg);
           } else if (step === 'register_done') {
-            const preview =
-              typeof m.responsePreview === 'string'
-                ? m.responsePreview
-                : typeof m.rawText === 'string'
-                  ? m.rawText
-                  : '';
-            const bodyLen =
-              typeof m.responseBodyLen === 'number'
-                ? m.responseBodyLen
-                : typeof m.rawText === 'string'
-                  ? m.rawText.length
-                  : 0;
-            const statusRaw = m.status;
-            const statusNum =
-              typeof statusRaw === 'number'
-                ? statusRaw
-                : typeof statusRaw === 'string'
-                  ? parseInt(statusRaw, 10)
-                  : NaN;
-            const ok = m.ok === true;
-            if (ok && statusNum >= 200 && statusNum < 300) {
-              clearPush401Retries();
-            }
-            if (statusNum === 401) {
-              console.warn(
-                '[SAINTLY-PUSH-REG] push_register_api_response_401 — WebView fetch had no valid session cookie yet; scheduling fast retries'
-              );
-              schedulePush401Retries();
-            }
+            const raw = typeof m.rawText === 'string' ? m.rawText : '';
             setRegResSummary(
-              `status: ${String(m.status ?? '')}\nok: ${String(m.ok)}\nresponseBodyLen: ${bodyLen}\npreview:\n${preview}`
+              `status: ${String(m.status ?? '')}\nok: ${String(m.ok)}\nraw (text, not assumed JSON):\n${raw}`
             );
-            console.warn('[SAINTLY-PUSH-REG] push_register_api_response', {
-              push_register_status: statusNum,
-              ok: m.ok,
-              responseBodyLen: bodyLen,
-            });
+            console.warn('[SAINTLY-PUSH-REG] register_done', { status: m.status, ok: m.ok, len: raw.length });
           } else if (step === 'register_throw') {
             setRegThrowSummary(
               `name: ${String(m.name ?? '')}\nmessage: ${String(m.message ?? '')}\nstack:\n${String(m.stack ?? '')}`
@@ -579,31 +516,23 @@ export function HomeScreen(_props: HomeScreenProps) {
           })();
         }
         if (msg.type === 'voice-register-log') {
-          const m = msg as Record<string, unknown>;
-          const step = typeof m.step === 'string' ? m.step : '';
-          if (step === 'voice_register_done') {
-            console.warn('[SAINTLY-VOICE-REG] voice_register_api_response', {
-              status: m.status,
-              ok: m.ok,
-              responseBodyLen: m.responseBodyLen,
-            });
-          } else {
-            console.warn('[SAINTLY-VOICE-REG]', msg);
-          }
+          console.warn('[SAINTLY-VOICE-REG]', msg);
         }
       } catch {
         // ignore non-JSON messages
       }
     },
-    [runPushRegistration, injectWorkspaceVoiceRegister, clearPush401Retries, schedulePush401Retries]
+    [runPushRegistration, injectWorkspaceVoiceRegister]
   );
 
   const fcmTokenPreview =
-    fcmToken && fcmToken.length > 0 ? `present (len ${fcmToken.length})` : 'no';
+    fcmToken && fcmToken.length > 0
+      ? `${fcmToken.slice(0, 24)}… (len ${fcmToken.length})`
+      : 'no';
 
   const apnsPreview =
     nativePushDetail?.apnsDeviceToken && nativePushDetail.apnsDeviceToken.length > 0
-      ? `present (len ${nativePushDetail.apnsDeviceToken.length})`
+      ? `${nativePushDetail.apnsDeviceToken.slice(0, 20)}… (len ${nativePushDetail.apnsDeviceToken.length})`
       : 'no';
 
   const runNativePushRefresh = useCallback(async () => {
@@ -649,15 +578,6 @@ export function HomeScreen(_props: HomeScreenProps) {
           onLoadEnd={() => {
             setLoading(false);
             setWebViewRefAttached(true);
-            /** Run before React effect — session cookies often land just after main frame load. */
-            if (Constants.appOwnership !== 'expo' && fcmTokenRef.current && webViewRef.current) {
-              runPushRegistration('onLoadEnd_immediate');
-              [200, 600, 1200, 3000].forEach((ms) => {
-                setTimeout(() => {
-                  runPushRegistration(`onLoadEnd_${ms}ms`);
-                }, ms);
-              });
-            }
           }}
           onNavigationStateChange={(navState) => {
             const url = navState.url ?? '';
@@ -668,11 +588,12 @@ export function HomeScreen(_props: HomeScreenProps) {
             if (url.includes('/workspace/phone')) {
               console.warn('[SAINTLY-PUSH-REG] nav_to_workspace_phone', url);
               runPushRegistration('navigation_to_workspace_phone');
-              [100, 500, 1500, 4000, 10000].forEach((ms) => {
-                setTimeout(() => {
-                  runPushRegistration(`navigation_to_workspace_phone_delay_${ms}ms`);
-                }, ms);
-              });
+              setTimeout(() => {
+                runPushRegistration('navigation_to_workspace_phone_delay_500ms');
+              }, 500);
+              setTimeout(() => {
+                runPushRegistration('navigation_to_workspace_phone_delay_2s');
+              }, 2000);
             }
           }}
           onMessage={onWebViewMessage}

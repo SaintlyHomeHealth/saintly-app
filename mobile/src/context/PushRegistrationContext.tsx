@@ -4,10 +4,6 @@ import {
   registerNativePushForCalls,
   type NativePushRegistrationResult,
 } from '../services/nativePushService';
-import {
-  logFirebaseNativeAppOptions,
-  logPushRegistrationRuntimeDiagnostics,
-} from '../services/pushRegistrationDiagnostics';
 import { twilioVoiceService } from '../services/twilioVoiceService';
 
 export type NativePushHookState =
@@ -30,32 +26,15 @@ export function PushRegistrationProvider({ children }: { children: React.ReactNo
   const [state, setState] = useState<NativePushHookState>({ status: 'idle' });
 
   const refreshRegistration = useCallback(async () => {
-    console.warn('[SAINTLY-PUSH-START] refreshRegistration (user requested)');
     const result = await registerNativePushForCalls();
-    console.warn('[SAINTLY-PUSH-START] refreshRegistration result', {
-      fcmTokenLen: result.fcmToken?.length ?? 0,
-      apnsTokenLen: result.apnsDeviceToken?.length ?? 0,
-      permissionLabel: result.permissionLabel,
-      errorText: result.errorText,
-    });
     setState({ status: 'ready', result });
   }, []);
 
   useEffect(() => {
-    logPushRegistrationRuntimeDiagnostics();
     let cancelled = false;
     void (async () => {
-      console.warn('[SAINTLY-PUSH-START] PushRegistrationProvider mount');
-      await logFirebaseNativeAppOptions();
       void twilioVoiceService.prepareIosPushRegistryEarly();
       const result = await registerNativePushForCalls();
-      console.warn('[SAINTLY-PUSH-START] registerNativePushForCalls result', {
-        environment: result.environment,
-        fcmTokenLen: result.fcmToken?.length ?? 0,
-        apnsTokenLen: result.apnsDeviceToken?.length ?? 0,
-        permissionLabel: result.permissionLabel,
-        errorText: result.errorText,
-      });
       if (!cancelled) {
         setState({ status: 'ready', result });
       }
