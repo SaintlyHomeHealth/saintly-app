@@ -19,10 +19,12 @@ import {
   env,
   logPushRegistrationEnvDiagnostics,
   pushRegisterUrl,
+  voiceRegisterUrl,
 } from '../config/env';
 import { useNativePushRegistration } from '../hooks/useNativePushRegistration';
 import { requestForegroundLocationWhenNeeded } from '../services/locationPermission';
 import { registerNativeTwilioWithAccessToken } from '../services/nativeTwilioVoiceBridge';
+import { twilioVoiceService } from '../services/twilioVoiceService';
 import { colors } from '../theme/colors';
 
 import type { HomeScreenProps } from '../navigation/types';
@@ -98,6 +100,50 @@ function buildRegisterPushInjectJs(fcmToken: string, attemptReason: string): str
 }
 
 /** GET fetch to same host as WebView — avoids cross-subdomain cookie / fetch issues vs www. */
+/** Registers this install in `devices` for ops + Realtime; does not perform Twilio SDK registration. */
+function buildVoiceRegisterInjectJs(input: {
+  fcmToken: string;
+  twilioIdentity: string;
+  platform: string;
+  appVersion: string;
+}): string {
+  const url = voiceRegisterUrl();
+  const bodyStr = JSON.stringify({
+    fcmToken: input.fcmToken,
+    platform: input.platform,
+    twilioIdentity: input.twilioIdentity,
+    appVersion: input.appVersion,
+  });
+  return `(function(){
+  var url = ${JSON.stringify(url)};
+  var body = ${JSON.stringify(bodyStr)};
+  function post(p) {
+    try {
+      if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+        window.ReactNativeWebView.postMessage(JSON.stringify(Object.assign({ type: 'voice-register-log' }, p)));
+      }
+    } catch (e) {}
+  }
+  post({ step: 'voice_register_begin', url: url });
+  fetch(url, {
+    method: 'POST',
+    credentials: 'include',
+    redirect: 'follow',
+    headers: { 'Content-Type': 'application/json' },
+    body: body
+  })
+    .then(function (res) {
+      return res.text().then(function (text) {
+        post({ step: 'voice_register_done', status: res.status, ok: res.ok, rawText: text.length > 2000 ? text.slice(0, 2000) + '…' : text });
+      });
+    })
+    .catch(function (err) {
+      post({ step: 'voice_register_throw', message: String(err && err.message ? err.message : err) });
+    });
+  true;
+})();`;
+}
+
 function buildPingRegisterInjectJs(): string {
   const registerUrl = pushRegisterUrl();
   return `(function(){
@@ -140,8 +186,9 @@ function isNonProductionPushApiUrl(url: string): boolean {
 
 type WebViewBridgeMessage =
   | { type: 'open-settings' }
-  | { type: 'saintly-softphone-token'; token: string }
-  | { type: 'push-register-log'; step: string; [key: string]: unknown };
+  | { type: 'saintly-softphone-token'; token: string; identity?: string }
+  | { type: 'push-register-log'; step: string; [key: string]: unknown }
+  | { type: 'voice-register-log'; step: string; [key: string]: unknown };
 
 function pushStatusLine(environment: string, fcmOk: boolean): string {
   switch (environment) {
@@ -193,6 +240,14 @@ export function HomeScreen(_props: HomeScreenProps) {
   /** Cold launch: always open keypad — do not restore a previous deep link / notification path. */
   useEffect(() => {
     setPortalUri(portalUrl());
+  }, []);
+
+  /** Log native incoming invites (CallKit UI is driven by Twilio SDK). */
+  useEffect(() => {
+    if (Constants.appOwnership === 'expo') return undefined;
+    return twilioVoiceService.onIncomingCall((c) => {
+      console.warn('[SAINTLY-VOICE] callInvite', { id: c.id, from: c.from, to: c.to });
+    });
   }, []);
 
   /** Log once at startup — search device logs for SAINTLY-PUSH-REG */
@@ -375,7 +430,19 @@ export function HomeScreen(_props: HomeScreenProps) {
         if (msg.type === 'saintly-softphone-token' && typeof msg.token === 'string') {
           void registerNativeTwilioWithAccessToken(msg.token);
           console.warn('[SAINTLY-PUSH-REG] softphone_token_received');
+          const identity = typeof msg.identity === 'string' ? msg.identity.trim() : '';
           const t = fcmTokenRef.current;
+          const appVersion = Constants.expoConfig?.version ?? '1.0.0';
+          if (t && identity && webViewRef.current && Constants.appOwnership !== 'expo') {
+            webViewRef.current.injectJavaScript(
+              buildVoiceRegisterInjectJs({
+                fcmToken: t,
+                twilioIdentity: identity,
+                platform: Platform.OS === 'ios' ? 'ios' : 'android',
+                appVersion,
+              })
+            );
+          }
           if (t) {
             setTimeout(() => {
               runPushRegistration('after_softphone_token');
@@ -389,6 +456,9 @@ export function HomeScreen(_props: HomeScreenProps) {
           } else {
             console.warn('[SAINTLY-PUSH-REG] softphone_token_but_no_fcm');
           }
+        }
+        if (msg.type === 'voice-register-log') {
+          console.warn('[SAINTLY-VOICE-REG]', msg);
         }
       } catch {
         // ignore non-JSON messages

@@ -66,6 +66,12 @@ export function pushRegisterUrl(): string {
   return `${base}/api/workspace/mobile/push/register`;
 }
 
+/** Twilio Voice device registry (POST) — separate from SMS `user_push_devices` / `devices` FCM for alerts. */
+export function voiceRegisterUrl(): string {
+  const base = env.apiBaseUrl.replace(/\/$/, '');
+  return `${base}/api/workspace/mobile/voice/register`;
+}
+
 /** Resolved at module load — log in HomeScreen to verify production. */
 export const PUSH_REGISTER_URL_RESOLVED = pushRegisterUrl();
 

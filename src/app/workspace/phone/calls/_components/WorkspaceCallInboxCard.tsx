@@ -100,7 +100,12 @@ export function WorkspaceCallInboxCard({ row, variant, patientId }: Props) {
       {voiceAi?.recommended_action ? (
         <p className="mt-1 text-[10px] font-semibold text-violet-900">Next: {voiceAi.recommended_action}</p>
       ) : null}
-      <WorkspaceCallInboxActions callbackE164={numRaw} contactId={cid || null} patientId={patientId} />
+      <WorkspaceCallInboxActions
+        callbackE164={numRaw}
+        contactId={cid || null}
+        patientId={patientId}
+        phoneCallId={row.id}
+      />
       {missed ? (
         <div className="mt-2">
           <WorkspaceMarkMissedResolvedButton callId={row.id} />

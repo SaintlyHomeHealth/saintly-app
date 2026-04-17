@@ -1,89 +1,177 @@
+import Constants from 'expo-constants';
+import { Platform } from 'react-native';
+
 import type { SoftphoneTokenResponse } from './authTokenService';
 
 /**
- * Twilio Voice (React Native) — production-oriented façade.
+ * Twilio Voice (React Native) — production façade.
  *
- * Wire `@twilio/voice-react-native-sdk` (or Twilio’s current RN package) inside a development build.
- * Do not ship Twilio Account credentials in the app; only short-lived JWTs from `authTokenService`.
+ * iOS: `initializePushRegistry` + `register(token)` wires PushKit → Twilio → CallKit (system incoming UI).
+ * Android: `register` binds FCM with Twilio’s FCM integration when Twilio Console credentials are set.
+ *
+ * Native module is loaded dynamically so Expo Go does not require it at bundle parse time.
  */
-
 export type TwilioVoiceCallInfo = {
-  /** Twilio Call SID or SDK call id when available. */
   id: string;
   from?: string;
   to?: string;
-  /** Raw custom parameters from Twilio when present. */
   customParameters?: Record<string, string>;
 };
 
 export type TwilioVoiceService = {
-  /** Register device with Twilio using JWT from `fetchSoftphoneAccessToken`. */
   initializeWithToken: (response: SoftphoneTokenResponse) => Promise<void>;
-
-  /** Tear down native audio / Twilio device. */
   destroy: () => Promise<void>;
-
-  /**
-   * TODO: Subscribe to incoming PSTN / Client legs after `initializeWithToken`.
-   * Register listeners on the native Twilio Voice SDK (incoming event).
-   */
   onIncomingCall: (handler: (call: TwilioVoiceCallInfo) => void) => () => void;
-
-  /**
-   * TODO: Answer the ringing call (native SDK).
-   */
   answer: (callId: string) => Promise<void>;
-
-  /**
-   * TODO: Reject / decline incoming call.
-   */
   decline: (callId: string) => Promise<void>;
-
-  /**
-   * TODO: Hang up active call.
-   */
   disconnect: (callId: string) => Promise<void>;
 };
 
-const noopUnsub = (): void => {};
-
-const notImplemented = async (): Promise<void> => {
-  if (__DEV__) {
-    console.info('[twilioVoiceService] Native Twilio Voice SDK not linked — no-op.');
-  }
+/** Twilio `CallInvite` / `Call` instances (typed loosely to avoid interface/class merge issues in SDK typings). */
+type TwilioCallInviteNative = {
+  getCallSid: () => string;
+  getFrom: () => string;
+  getTo: () => string;
+  getCustomParameters: () => Record<string, unknown>;
+  accept: (options?: object) => Promise<TwilioCallNative>;
+  reject: () => Promise<void>;
+  on: (event: string, listener: (...args: unknown[]) => void) => void;
 };
 
-/**
- * Placeholder until the native Twilio Voice module is added (dev build).
- * Swap implementation in one place when the SDK is installed.
- */
+type TwilioCallNative = {
+  disconnect: () => Promise<void>;
+  on: (event: string, listener: (...args: unknown[]) => void) => void;
+};
+
+let lastRegisteredToken: string | null = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Voice class from dynamic import
+let voiceSingleton: any = null;
+const inviteByCallSid = new Map<string, TwilioCallInviteNative>();
+const activeCallByCallSid = new Map<string, TwilioCallNative>();
+const incomingHandlers = new Set<(call: TwilioVoiceCallInfo) => void>();
+
+function emitIncoming(info: TwilioVoiceCallInfo): void {
+  incomingHandlers.forEach((fn) => {
+    try {
+      fn(info);
+    } catch (e) {
+      if (__DEV__) {
+        console.warn('[twilioVoiceService] onIncomingCall handler error', e);
+      }
+    }
+  });
+}
+
+async function loadVoiceModule(): Promise<typeof import('@twilio/voice-react-native-sdk')> {
+  return import('@twilio/voice-react-native-sdk');
+}
+
 export const twilioVoiceService: TwilioVoiceService = {
-  initializeWithToken: notImplemented,
-
-  destroy: notImplemented,
-
-  onIncomingCall: () => {
-    if (__DEV__) {
-      console.info('[twilioVoiceService] onIncomingCall — TODO: wire Twilio RN incoming listener.');
+  async initializeWithToken(response: SoftphoneTokenResponse): Promise<void> {
+    if (Constants.appOwnership === 'expo') {
+      if (__DEV__) {
+        console.info('[twilioVoiceService] Expo Go — skip native Twilio Voice.');
+      }
+      return;
     }
-    return noopUnsub;
+
+    const token = response.token.trim();
+    if (!token) return;
+    if (lastRegisteredToken === token && voiceSingleton) {
+      return;
+    }
+
+    const { Voice, CallInvite } = await loadVoiceModule();
+
+    if (!voiceSingleton) {
+      voiceSingleton = new Voice();
+
+      voiceSingleton.on(Voice.Event.CallInvite, (invite: TwilioCallInviteNative) => {
+        const sid = invite.getCallSid();
+        inviteByCallSid.set(sid, invite);
+
+        invite.on(CallInvite.Event.Cancelled, () => {
+          inviteByCallSid.delete(sid);
+          activeCallByCallSid.delete(sid);
+        });
+
+        const custom = invite.getCustomParameters() as Record<string, string>;
+        emitIncoming({
+          id: sid,
+          from: invite.getFrom(),
+          to: invite.getTo(),
+          customParameters: custom,
+        });
+      });
+
+      voiceSingleton.on(Voice.Event.Error, (err: unknown) => {
+        console.warn('[twilioVoiceService] Voice.Event.Error', err);
+      });
+    }
+
+    if (Platform.OS === 'ios') {
+      await voiceSingleton.initializePushRegistry();
+    }
+
+    await voiceSingleton.register(token);
+    lastRegisteredToken = token;
   },
 
-  answer: async (callId: string) => {
-    if (__DEV__) {
-      console.info('[twilioVoiceService] answer — TODO:', callId);
+  async destroy(): Promise<void> {
+    inviteByCallSid.clear();
+    for (const c of activeCallByCallSid.values()) {
+      try {
+        await c.disconnect();
+      } catch {
+        // ignore
+      }
     }
+    activeCallByCallSid.clear();
+
+    if (voiceSingleton && lastRegisteredToken) {
+      try {
+        await voiceSingleton.unregister(lastRegisteredToken);
+      } catch {
+        // ignore
+      }
+    }
+    lastRegisteredToken = null;
+    voiceSingleton?.removeAllListeners?.();
+    voiceSingleton = null;
   },
 
-  decline: async (callId: string) => {
-    if (__DEV__) {
-      console.info('[twilioVoiceService] decline — TODO:', callId);
-    }
+  onIncomingCall(handler: (call: TwilioVoiceCallInfo) => void): () => void {
+    incomingHandlers.add(handler);
+    return (): void => {
+      incomingHandlers.delete(handler);
+    };
   },
 
-  disconnect: async (callId: string) => {
-    if (__DEV__) {
-      console.info('[twilioVoiceService] disconnect — TODO:', callId);
+  async answer(callId: string): Promise<void> {
+    const mod = await loadVoiceModule();
+    const invite = inviteByCallSid.get(callId);
+    if (!invite) {
+      throw new Error(`[twilioVoiceService] No CallInvite for ${callId}`);
     }
+    const call = await invite.accept();
+    inviteByCallSid.delete(callId);
+    activeCallByCallSid.set(callId, call);
+    call.on(mod.Call.Event.Disconnected, () => {
+      activeCallByCallSid.delete(callId);
+    });
+  },
+
+  async decline(callId: string): Promise<void> {
+    const invite = inviteByCallSid.get(callId);
+    if (!invite) return;
+    await invite.reject();
+    inviteByCallSid.delete(callId);
+  },
+
+  async disconnect(callId: string): Promise<void> {
+    const call = activeCallByCallSid.get(callId);
+    if (!call) return;
+    await call.disconnect();
+    activeCallByCallSid.delete(callId);
   },
 };

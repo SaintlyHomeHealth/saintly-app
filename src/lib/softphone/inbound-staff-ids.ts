@@ -112,6 +112,30 @@ function mergeUniqueOrdered(first: string[], second: string[]): string[] {
  * nurses without `phone_access_enabled`, matching LIVE keypad / Twilio Device registration.
  * Order: env first, then DB.
  */
+/**
+ * Backup ring tier: comma/semicolon-separated auth UUIDs (`TWILIO_VOICE_BACKUP_STAFF_USER_IDS`).
+ * Disjoint from primary ring list; second `<Dial>` step after primary times out.
+ */
+export function resolveBackupInboundStaffUserIdsFromEnv(): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const raw = process.env.TWILIO_VOICE_BACKUP_STAFF_USER_IDS?.trim() ?? "";
+  if (!raw) return [];
+  for (const part of raw.split(/[,;\s]+/)) {
+    const id = parseStaffUserUuid(part);
+    if (id && !seen.has(id)) {
+      seen.add(id);
+      out.push(id);
+    }
+  }
+  return out;
+}
+
+export async function resolveBackupInboundStaffUserIdsAsync(): Promise<string[]> {
+  const envIdsRaw = resolveBackupInboundStaffUserIdsFromEnv();
+  return canonicalizeInboundEnvIdsToAuthUserIds(envIdsRaw);
+}
+
 export async function resolveInboundBrowserStaffUserIdsAsync(): Promise<string[]> {
   const envIdsRaw = resolveInboundBrowserStaffUserIds();
   const envIds = await canonicalizeInboundEnvIdsToAuthUserIds(envIdsRaw);

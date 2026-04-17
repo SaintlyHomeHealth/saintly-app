@@ -12,15 +12,16 @@ function loadTwilioVoiceSdk() {
   return twilioVoiceModule;
 }
 
-/** Lets the Saintly iOS shell register Twilio Voice native (CallKit) with the same access token as the web Device. */
-function postSoftphoneTokenToNativeBridge(token: string) {
+/** Lets the Saintly iOS/Android shell register Twilio Voice native (CallKit / ConnectionService) with the same access token as the web Device. */
+function postSoftphoneTokenToNativeBridge(token: string, identity?: string | null) {
   if (typeof window === "undefined") return;
   const bridge = (
     window as unknown as { ReactNativeWebView?: { postMessage: (data: string) => void } }
   ).ReactNativeWebView;
   if (!bridge?.postMessage) return;
   try {
-    bridge.postMessage(JSON.stringify({ type: "saintly-softphone-token", token }));
+    const id = typeof identity === "string" && identity.trim() ? identity.trim() : undefined;
+    bridge.postMessage(JSON.stringify({ type: "saintly-softphone-token", token, ...(id ? { identity: id } : {}) }));
   } catch {
     // ignore bridge failures
   }
@@ -1146,7 +1147,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
           device.destroy();
           return;
         }
-        postSoftphoneTokenToNativeBridge(body.token);
+        postSoftphoneTokenToNativeBridge(body.token, body.identity);
         deviceRef.current = device;
         setListenState("ready");
       } catch (e) {
@@ -1469,7 +1470,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
           device = new TwilioDevice(tokenJson.token!, { logLevel: "error" });
           bindDeviceLifecycle(device);
           await device.register();
-          postSoftphoneTokenToNativeBridge(tokenJson.token!);
+          postSoftphoneTokenToNativeBridge(tokenJson.token!, tokenJson.identity);
           deviceRef.current = device;
           setListenState("ready");
         } else {

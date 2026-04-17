@@ -7,7 +7,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { getFirebaseAdminApp } from "@/lib/push/firebase-admin-app";
 
-export type FcmSendResult =
+export type FcmDevicesSendResult =
   | {
       ok: true;
       sent: number;
@@ -17,86 +17,75 @@ export type FcmSendResult =
     }
   | { ok: false; error: string };
 
-async function deleteInvalidTokens(supabase: SupabaseClient, tokens: string[]): Promise<void> {
+async function deleteInvalidDeviceTokens(supabase: SupabaseClient, tokens: string[]): Promise<void> {
   if (tokens.length === 0) return;
-  const { error } = await supabase.from("user_push_devices").delete().in("fcm_token", tokens);
+  const { error } = await supabase.from("devices").delete().in("fcm_token", tokens);
   if (error) {
-    console.warn("[push] delete invalid FCM tokens:", error.message);
+    console.warn("[push] delete invalid device FCM tokens:", error.message);
   }
 }
 
-/**
- * Sends FCM to all registered devices for the given users (best-effort).
- */
 function resolveApnsCollapseId(raw?: string | null): string {
   const t = (raw ?? "").trim();
   const id = t || randomUUID();
   return id.length > 64 ? id.slice(0, 64) : id;
 }
 
-export async function sendFcmDataAndNotificationToUserIds(
+/**
+ * FCM to `devices` rows (active + non-null fcm_token). Used for mobile ringing + data sync.
+ */
+export async function sendFcmDataAndNotificationToDevicesForUsers(
   supabase: SupabaseClient,
   userIds: string[],
   input: {
     title: string;
     body: string;
     data: Record<string, string>;
-    /**
-     * APNs `apns-collapse-id` (max 64 bytes). Unique per logical notification so rapid
-     * successive alerts are not replaced/coalesced on-device. Omit to use a random id per send.
-     */
     apnsCollapseId?: string | null;
     /**
-     * When set, only send to devices whose `user_push_devices.platform` is in this list.
-     * Used to avoid iOS alert pushes for incoming calls when Twilio VoIP + CallKit handle ringing.
+     * When set, only send to `devices` rows whose platform is listed.
+     * Incoming-call notifications should omit `ios` so Twilio PushKit + CallKit provide ringing.
      */
     recipientPlatforms?: ("ios" | "android")[];
   }
-): Promise<FcmSendResult> {
+): Promise<FcmDevicesSendResult> {
   const app = getFirebaseAdminApp();
   if (!app) {
-    console.warn("[push] FCM send skipped", { reason: "firebase_admin_not_initialized" });
+    console.warn("[push] FCM devices send skipped", { reason: "firebase_admin_not_initialized" });
     return { ok: false, error: "missing FIREBASE_SERVICE_ACCOUNT_JSON" };
   }
+
   const uniqueUsers = [...new Set(userIds.map((u) => u.trim()).filter(Boolean))];
   if (uniqueUsers.length === 0) {
-    const empty: FcmSendResult = {
-      ok: true,
-      sent: 0,
-      failureCount: 0,
-      invalidTokenRemovalCount: 0,
-      errors: [],
-    };
-    console.log("[push] FCM send result", { ...empty, reason: "no_recipient_user_ids" });
-    return empty;
+    return { ok: true, sent: 0, failureCount: 0, invalidTokenRemovalCount: 0, errors: [] };
   }
 
-  let tokenQuery = supabase.from("user_push_devices").select("fcm_token").in("user_id", uniqueUsers);
+  let devQuery = supabase
+    .from("devices")
+    .select("fcm_token")
+    .in("user_id", uniqueUsers)
+    .eq("is_active", true)
+    .not("fcm_token", "is", null);
   if (input.recipientPlatforms?.length) {
-    tokenQuery = tokenQuery.in("platform", input.recipientPlatforms);
+    devQuery = devQuery.in("platform", input.recipientPlatforms);
   }
-  const { data: rows, error } = await tokenQuery;
+  const { data: rows, error } = await devQuery;
 
   if (error) {
-    console.warn("[push] load user_push_devices:", error.message);
+    console.warn("[push] load devices for FCM:", error.message);
     return { ok: false, error: error.message };
   }
 
-  const tokens = [...new Set((rows ?? []).map((r) => r.fcm_token as string).filter(Boolean))];
+  const tokens = [
+    ...new Set(
+      (rows ?? [])
+        .map((r) => r.fcm_token as string | null)
+        .filter((t): t is string => Boolean(t && t.trim()))
+    ),
+  ];
+
   if (tokens.length === 0) {
-    const empty: FcmSendResult = {
-      ok: true,
-      sent: 0,
-      failureCount: 0,
-      invalidTokenRemovalCount: 0,
-      errors: [],
-    };
-    console.log("[push] FCM send result", {
-      ...empty,
-      reason: "no_device_tokens_for_recipients",
-      recipientUserCount: uniqueUsers.length,
-    });
-    return empty;
+    return { ok: true, sent: 0, failureCount: 0, invalidTokenRemovalCount: 0, errors: [] };
   }
 
   const messaging = getMessaging(app);
@@ -123,9 +112,7 @@ export async function sendFcmDataAndNotificationToUserIds(
       apns: {
         headers: {
           "apns-priority": "10",
-          /** Required for alert notifications on APNs HTTP/2; ensures visible banner delivery. */
           "apns-push-type": "alert",
-          /** Distinct id per logical alert so one message does not replace another on the device. */
           "apns-collapse-id": apnsCollapseId,
         },
         payload: {
@@ -150,32 +137,22 @@ export async function sendFcmDataAndNotificationToUserIds(
         } else {
           const message = r.error?.message;
           errors.push({ code: code || "(unknown)", message });
-          console.warn("[push] FCM send error:", code, message);
+          console.warn("[push] FCM device send error:", code, message);
         }
       }
     });
   }
 
   if (invalid.length > 0) {
-    await deleteInvalidTokens(supabase, invalid);
+    await deleteInvalidDeviceTokens(supabase, invalid);
   }
 
   const failureCount = tokens.length - sent;
-  const result: FcmSendResult = {
+  return {
     ok: true,
     sent,
     failureCount,
     invalidTokenRemovalCount: invalid.length,
     errors,
   };
-  console.log("[push] FCM send result", {
-    success: true,
-    sent: result.sent,
-    failureCount: result.failureCount,
-    invalidTokenRemovalCount: result.invalidTokenRemovalCount,
-    tokenCount: tokens.length,
-    recipientUserCount: uniqueUsers.length,
-    errors: result.errors,
-  });
-  return result;
 }

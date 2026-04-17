@@ -29,7 +29,7 @@ export async function notifyMissedCallPush(
     const pid = input.phoneCallId.trim();
     const result = await sendFcmDataAndNotificationToUserIds(supabase, userIds, {
       title: "Missed call",
-      body: from,
+      body: `Missed call from ${from}`,
       data: {
         type: "missed_call",
         phone_call_id: pid,

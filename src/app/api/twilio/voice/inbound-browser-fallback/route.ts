@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { buildInboundPstnOnlyDialTwiml, readTwilioVoiceRingE164FromEnv } from "@/lib/phone/twilio-voice-handoff";
+import { handleInboundDialCascadePost, loadVoiceRoutingJsonV1ByExternalCallId } from "@/lib/phone/twilio-inbound-dial-cascade";
+import {
+  buildInboundPstnOnlyDialTwiml,
+  readTwilioVoiceRingE164FromEnv,
+  resolveInboundPstnFallbackCallerId,
+} from "@/lib/phone/twilio-voice-handoff";
 import { buildSaintlyVoicemailRecordTwiml, resolveTwilioVoicePublicBase } from "@/lib/phone/twilio-voicemail-twiml";
-import { normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
 import { parseVerifiedTwilioFormBody } from "@/lib/twilio/verify-form-post";
 
 function escapeXml(text: string): string {
@@ -11,23 +15,6 @@ function escapeXml(text: string): string {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
-}
-
-/**
- * Caller ID shown on the PSTN fallback leg (should be your Twilio DID, not the external caller).
- */
-function resolveInboundPstnFallbackCallerId(params: Record<string, string | undefined>): string {
-  const fromEnv = normalizeDialInputToE164(process.env.TWILIO_SOFTPHONE_CALLER_ID_E164?.trim() ?? "");
-  if (fromEnv) return fromEnv;
-  const called = (params.Called ?? "").trim();
-  const nCalled = normalizeDialInputToE164(called);
-  if (nCalled) return nCalled;
-  const to = (params.To ?? "").trim();
-  if (to && !to.toLowerCase().startsWith("client:")) {
-    const nTo = normalizeDialInputToE164(to);
-    if (nTo) return nTo;
-  }
-  return called || to || (params.From ?? "").trim() || "";
 }
 
 /**
@@ -66,6 +53,12 @@ export async function POST(req: NextRequest) {
     const xml = `<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna">${escapeXml(
       "Please try your call again later."
     )}</Say></Response>`;
+    return new NextResponse(xml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
+  }
+
+  const parentForRouting = (params.ParentCallSid ?? "").trim() || (params.CallSid ?? "").trim();
+  if (parentForRouting && (await loadVoiceRoutingJsonV1ByExternalCallId(parentForRouting))) {
+    const xml = await handleInboundDialCascadePost({ params, publicBase });
     return new NextResponse(xml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
   }
 

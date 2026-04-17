@@ -4,9 +4,24 @@ import { supabaseAdmin } from "@/lib/admin";
 import { notifyInboundCallStaffPush } from "@/lib/push/notify-inbound-call";
 import { ensureIncomingCallAlert } from "@/lib/phone/incoming-call-alerts";
 import { upsertPhoneCallFromWebhook } from "@/lib/phone/log-call";
+import { upsertVoiceCallSessionRinging } from "@/lib/phone/voice-call-sessions";
+import { buildFirstInboundCascadeTwiml } from "@/lib/phone/twilio-inbound-dial-cascade";
+import {
+  buildCascadeStepsFromPlan,
+  buildVoiceInboundRoutePlan,
+  initialRoutingJsonFromSteps,
+} from "@/lib/phone/voice-route-plan";
+import {
+  isVoiceEscalationPipelineEnabled,
+  isWithinBusinessHoursNow,
+  readAfterHoursPstnE164FromEnv,
+  resolveEscalationPstnRingTimeoutSeconds,
+} from "@/lib/phone/voice-escalation-config";
 import { buildSaintlyVoicemailRecordTwiml } from "@/lib/phone/twilio-voicemail-twiml";
 import { phoneKeyForLoopCompare } from "@/lib/phone/twilio-voice-pstn-loop-guard";
 import {
+  buildEscalationInboundVoiceTwiml,
+  buildInboundPstnOnlyDialTwiml,
   buildTwiMLAppIncomingClientRingTwiml,
   buildVoiceHandoffTwiml,
   readTwilioVoiceRingE164FromEnv,
@@ -128,6 +143,11 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  const useBusinessRouting = process.env.VOICE_BUSINESS_ROUTING_ENABLED?.trim() !== "0";
+  const routePlan = useBusinessRouting ? await buildVoiceInboundRoutePlan() : null;
+  const cascadeSteps = routePlan ? buildCascadeStepsFromPlan(routePlan) : null;
+  const routingJson = routePlan && cascadeSteps ? initialRoutingJsonFromSteps(routePlan, cascadeSteps) : null;
+
   const logResult = await upsertPhoneCallFromWebhook(supabaseAdmin, {
     external_call_id: callSid,
     direction: "inbound",
@@ -136,12 +156,43 @@ export async function POST(req: NextRequest) {
     status: "initiated",
     event_type: "call.incoming",
     started_at: new Date().toISOString(),
-    metadata: { source: "twilio_voice_inbound_ring" },
+    metadata:
+      routePlan && routingJson
+        ? {
+            source: "twilio_voice_inbound_ring",
+            voice_routing: {
+              route_type: routePlan.routeType,
+              after_hours: routePlan.afterHours,
+              primary_ring_group_label: routePlan.primaryRingGroupLabel,
+              business_local_date: routePlan.businessHours.localDate,
+            },
+          }
+        : { source: "twilio_voice_inbound_ring" },
   });
 
   if (!logResult.ok) {
     console.error("[twilio/voice/inbound-ring] phone log failed:", logResult.error);
   } else {
+    void upsertVoiceCallSessionRinging(supabaseAdmin, {
+      externalCallId: callSid,
+      phoneCallId: logResult.callId,
+      fromE164: from,
+      toE164: to,
+      routingJson: routingJson ?? undefined,
+      routeType: routePlan?.routeType ?? undefined,
+      ringGroupId: routePlan ? routePlan.primaryRingGroupLabel.slice(0, 120) : undefined,
+      afterHours: routePlan?.afterHours ?? undefined,
+    });
+    if (routePlan && logResult.ok) {
+      void supabaseAdmin
+        .from("phone_calls")
+        .update({
+          inbound_route_type: routePlan.routeType,
+          inbound_ring_group_id: routePlan.primaryRingGroupLabel.slice(0, 120),
+          after_hours: routePlan.afterHours,
+        })
+        .eq("id", logResult.callId);
+    }
     const alertResult = await ensureIncomingCallAlert(supabaseAdmin, {
       phone_call_id: logResult.callId,
       external_call_id: callSid,
@@ -151,11 +202,17 @@ export async function POST(req: NextRequest) {
     if (!alertResult.ok) {
       console.error("[twilio/voice/inbound-ring] incoming_call_alerts:", alertResult.error);
     } else {
-      void notifyInboundCallStaffPush(supabaseAdmin, {
-        phoneCallId: logResult.callId,
-        externalCallId: callSid,
-        fromE164: from,
-      });
+      const shouldNotifyStaff = routePlan
+        ? routePlan.primaryUserIds.length + routePlan.backupUserIds.length > 0
+        : isWithinBusinessHoursNow();
+      if (shouldNotifyStaff) {
+        void notifyInboundCallStaffPush(supabaseAdmin, {
+          phoneCallId: logResult.callId,
+          externalCallId: callSid,
+          fromE164: from,
+          toE164: to,
+        });
+      }
     }
   }
 
@@ -190,15 +247,107 @@ export async function POST(req: NextRequest) {
       call_sid_short: callSid.length > 8 ? `${callSid.slice(0, 6)}…` : callSid,
       twilio_voice_ring_e164_env_set: Boolean(process.env.TWILIO_VOICE_RING_E164?.trim()),
       ring_e164_raw_nonempty: ringE164Raw.length > 0,
+      business_hours: isWithinBusinessHoursNow(),
+      escalation_pipeline: isVoiceEscalationPipelineEnabled(),
+      business_routing: useBusinessRouting,
+      route_type: routePlan?.routeType ?? null,
     })
   );
 
-  const twiml = await buildVoiceHandoffTwiml({
-    closing: "",
-    publicBase,
-    callerId,
-    ringE164: ringE164Raw,
-  });
+  if (useBusinessRouting && routePlan && routingJson) {
+    const twimlBiz = buildFirstInboundCascadeTwiml({
+      publicBase,
+      from,
+      to,
+      routing: routingJson,
+    });
+    if (!twimlBiz) {
+      const vm = buildSaintlyVoicemailRecordTwiml(publicBase, {
+        greeting: routePlan.afterHours ? "after_hours" : "business_hours",
+      });
+      logTwilioVoiceTrace({
+        route: "POST /api/twilio/voice/inbound-ring",
+        client_call_sid: callSid,
+        pstn_call_sid: null,
+        ai_path_entered: false,
+        softphone_bypass_path_entered: false,
+        twiml_summary: summarizeTwimlResponse(vm),
+        branch: "business_routing_null_twiml_voicemail",
+        parent_call_sid: parentCallSid,
+        from_raw: from,
+        to_raw: to,
+      });
+      return new NextResponse(vm, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
+    }
+    logTwilioVoiceTrace({
+      route: "POST /api/twilio/voice/inbound-ring",
+      client_call_sid: callSid,
+      pstn_call_sid: null,
+      ai_path_entered: false,
+      softphone_bypass_path_entered: false,
+      twiml_summary: summarizeTwimlResponse(twimlBiz),
+      branch: "business_routing_cascade",
+      parent_call_sid: parentCallSid,
+      from_raw: from,
+      to_raw: to,
+    });
+    return new NextResponse(twimlBiz, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
+  }
+
+  if (!isWithinBusinessHoursNow()) {
+    const afterPstn = readAfterHoursPstnE164FromEnv();
+    if (afterPstn.trim()) {
+      const pstnTwiml = buildInboundPstnOnlyDialTwiml({
+        publicBase,
+        callerId,
+        ringE164Raw: afterPstn,
+        dialTimeoutSeconds: resolveEscalationPstnRingTimeoutSeconds(),
+      });
+      if (pstnTwiml) {
+        logTwilioVoiceTrace({
+          route: "POST /api/twilio/voice/inbound-ring",
+          client_call_sid: callSid,
+          pstn_call_sid: null,
+          ai_path_entered: false,
+          softphone_bypass_path_entered: false,
+          twiml_summary: summarizeTwimlResponse(pstnTwiml),
+          branch: "after_hours_pstn",
+          parent_call_sid: parentCallSid,
+          from_raw: from,
+          to_raw: to,
+        });
+        return new NextResponse(pstnTwiml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
+      }
+    }
+    const vm = buildSaintlyVoicemailRecordTwiml(publicBase, { greeting: "after_hours" });
+    logTwilioVoiceTrace({
+      route: "POST /api/twilio/voice/inbound-ring",
+      client_call_sid: callSid,
+      pstn_call_sid: null,
+      ai_path_entered: false,
+      softphone_bypass_path_entered: false,
+      twiml_summary: summarizeTwimlResponse(vm),
+      branch: "after_hours_voicemail",
+      parent_call_sid: parentCallSid,
+      from_raw: from,
+      to_raw: to,
+    });
+    return new NextResponse(vm, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
+  }
+
+  const twiml = isVoiceEscalationPipelineEnabled()
+    ? await buildEscalationInboundVoiceTwiml({
+        closing: "",
+        publicBase,
+        callerId,
+        ringE164: ringE164Raw,
+      })
+    : await buildVoiceHandoffTwiml({
+        closing: "",
+        publicBase,
+        callerId,
+        ringE164: ringE164Raw,
+      });
 
   if (!twiml) {
     console.warn(
@@ -210,7 +359,7 @@ export async function POST(req: NextRequest) {
       })
     );
     console.warn("[twilio/voice/inbound-ring] buildVoiceHandoffTwiml returned null — voicemail fallback");
-    const vm = buildSaintlyVoicemailRecordTwiml(publicBase);
+    const vm = buildSaintlyVoicemailRecordTwiml(publicBase, { greeting: "business_hours" });
     logTwilioVoiceTrace({
       route: "POST /api/twilio/voice/inbound-ring",
       client_call_sid: callSid,

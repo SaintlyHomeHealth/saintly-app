@@ -16,11 +16,24 @@ type Props = {
   callbackE164: string | null;
   contactId: string | null;
   patientId: string | null;
+  /** When set, logs a callback attempt on `voice_call_sessions` (best-effort). */
+  phoneCallId?: string | null;
 };
 
-export function WorkspaceCallInboxActions({ callbackE164, contactId, patientId }: Props) {
+export function WorkspaceCallInboxActions({ callbackE164, contactId, patientId, phoneCallId }: Props) {
   const dial = typeof callbackE164 === "string" ? callbackE164.trim() : "";
   const callHref = dial && pickOutboundE164ForDial(dial) ? buildWorkspaceKeypadCallHref({ dial, placeCall: true }) : null;
+  const pid = typeof phoneCallId === "string" ? phoneCallId.trim() : "";
+
+  const logCallback = () => {
+    if (!pid) return;
+    void fetch("/api/workspace/phone/log-callback-attempt", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phone_call_id: pid }),
+    }).catch(() => {});
+  };
   const smsHref = contactId ? buildWorkspaceSmsToContactHref({ contactId }) : null;
 
   return (
@@ -28,6 +41,7 @@ export function WorkspaceCallInboxActions({ callbackE164, contactId, patientId }
       {callHref ? (
         <Link
           href={callHref}
+          onClick={logCallback}
           className={`${btnBase} border-sky-400/40 bg-gradient-to-r from-blue-950 via-blue-700 to-sky-500 text-white shadow-md shadow-blue-900/25 hover:brightness-105`}
         >
           <Phone className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />

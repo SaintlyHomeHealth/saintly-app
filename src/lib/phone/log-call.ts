@@ -15,6 +15,12 @@ import { normalizeTwilioRecordingMediaUrl } from "@/lib/phone/twilio-recording-m
 import { scheduleSaintlyVoicemailProcessing } from "@/lib/phone/voicemail-saintly-process";
 import { maybeStartInboundTranscriptStreamIfEligible } from "@/lib/phone/maybe-start-inbound-transcript-stream";
 import { awaitVoiceAiClassificationForWebhook } from "@/lib/phone/voice-ai-background";
+import { CALLBACK_PRIORITY_VOICEMAIL, computeCallbackPriority } from "@/lib/phone/callback-priority";
+import {
+  syncVoiceCallSessionFromPhoneStatus,
+  updateVoiceCallSessionCallbackPriority,
+  updateVoiceCallSessionVoicemailFields,
+} from "@/lib/phone/voice-call-sessions";
 
 const PHONE_CALL_TRACE_LOGS =
   process.env.PHONE_CALL_TRACE_LOGS === "1" || process.env.NODE_ENV === "development";
@@ -83,6 +89,18 @@ function asMetadata(value: unknown): Record<string, unknown> {
     return value as Record<string, unknown>;
   }
   return {};
+}
+
+function resolveAfterHoursFromPhoneRow(row: Record<string, unknown>): boolean {
+  const col = row.after_hours;
+  if (col === true) return true;
+  if (col === false) return false;
+  const meta = asMetadata(row.metadata);
+  const vr = meta.voice_routing;
+  if (vr && typeof vr === "object" && "after_hours" in vr) {
+    return Boolean((vr as Record<string, unknown>).after_hours);
+  }
+  return false;
 }
 
 /**
@@ -691,7 +709,7 @@ export type TwilioVoiceStatusPayload = {
 };
 
 const PHONE_CALL_STATUS_ROW_SELECT =
-  "id, metadata, direction, voicemail_recording_sid, duration_seconds, status, assigned_to_user_id, from_e164, contact_id, external_call_id";
+  "id, metadata, direction, voicemail_recording_sid, duration_seconds, status, assigned_to_user_id, from_e164, contact_id, external_call_id, after_hours";
 
 /**
  * phone_calls.external_call_id is the inbound parent CallSid. Some status webhooks only include the child leg
@@ -1081,6 +1099,15 @@ export async function applyTwilioVoiceStatusCallback(
           : "inbound_completed_reclassified"
       : null;
 
+  const callbackPriorityForMissed =
+    direction === "inbound" && finalStatus === "missed"
+      ? computeCallbackPriority({
+          hasVoicemailRecording: Boolean(vmSid),
+          isMissedInbound: true,
+          afterHours: resolveAfterHoursFromPhoneRow(row),
+        })
+      : null;
+
   const updateRow: Record<string, unknown> = {
     status: finalStatus,
     metadata: {
@@ -1116,6 +1143,10 @@ export async function applyTwilioVoiceStatusCallback(
 
   if (isTerminalPhoneStatus(finalStatus)) {
     updateRow.ended_at = new Date().toISOString();
+  }
+
+  if (callbackPriorityForMissed != null) {
+    updateRow.callback_priority = callbackPriorityForMissed;
   }
 
   const { data: updatedRows, error: updateError } = await supabase
@@ -1206,6 +1237,21 @@ export async function applyTwilioVoiceStatusCallback(
   }
 
   await syncIncomingCallAlertFromPhoneStatus(supabase, callId, finalStatus);
+
+  await syncVoiceCallSessionFromPhoneStatus(supabase, {
+    externalCallId: resolvedExternalCallId,
+    phoneCallId: callId,
+    finalStatus,
+    fromE164: fromVal ?? asOptionalString(row.from_e164),
+    toE164: toVal ?? asOptionalString(row.to_e164),
+  });
+
+  if (callbackPriorityForMissed != null) {
+    await updateVoiceCallSessionCallbackPriority(supabase, {
+      externalCallId: resolvedExternalCallId,
+      callbackPriority: callbackPriorityForMissed,
+    });
+  }
 
   /** Inbound-only CRM side effects — outbound softphone "missed" must not page ops or auto-reply to callee. */
   if (direction === "inbound") {
@@ -1412,6 +1458,7 @@ export async function applyTwilioVoicemailRecording(
     const terminalStatus: PhoneCallStatus = answeredConversation ? "completed" : "missed";
     updateRow.status = terminalStatus;
     updateRow.ended_at = new Date().toISOString();
+    updateRow.callback_priority = CALLBACK_PRIORITY_VOICEMAIL;
 
     console.log("[call-reconcile]", {
       event: "voicemail_recording_final",
@@ -1429,6 +1476,21 @@ export async function applyTwilioVoicemailRecording(
   const { error: updateError } = await supabase.from("phone_calls").update(updateRow).eq("id", callId);
   if (updateError) {
     return { ok: false, error: updateError.message };
+  }
+
+  const extForVoice = typeof row.external_call_id === "string" ? row.external_call_id.trim() : "";
+  if (extForVoice && (hasUrl || input.recordingDurationSeconds != null)) {
+    await updateVoiceCallSessionVoicemailFields(supabase, {
+      externalCallId: extForVoice,
+      voicemailUrl: hasUrl && input.recordingUrl ? normalizeTwilioRecordingMediaUrl(input.recordingUrl.trim()) : null,
+      voicemailDurationSeconds: input.recordingDurationSeconds,
+    });
+  }
+  if (isFinalOk && extForVoice) {
+    await updateVoiceCallSessionCallbackPriority(supabase, {
+      externalCallId: extForVoice,
+      callbackPriority: CALLBACK_PRIORITY_VOICEMAIL,
+    });
   }
 
   if (isFinalOk && !alreadyLoggedForSid) {
