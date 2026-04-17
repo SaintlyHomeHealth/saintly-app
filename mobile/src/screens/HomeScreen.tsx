@@ -4,6 +4,7 @@ import {
   Linking,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -83,6 +84,42 @@ function buildRegisterPushInjectJs(fcmToken: string, attemptReason: string): str
 })();`;
 }
 
+/** Minimal POST from WebView to probe /api/workspace/mobile/push/register (session cookies). */
+function buildPingRegisterInjectJs(): string {
+  const registerUrl = pushRegisterUrl();
+  return `(function(){
+  var url = ${JSON.stringify(registerUrl)};
+  function post(p) {
+    try {
+      if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+        window.ReactNativeWebView.postMessage(JSON.stringify(Object.assign({ type: 'push-register-log' }, p)));
+      }
+    } catch (e) {}
+  }
+  post({ step: 'ping_start', url: url });
+  fetch(url, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{}'
+  })
+    .then(function (res) {
+      return res.text().then(function (text) {
+        post({
+          step: 'ping_response',
+          status: res.status,
+          ok: res.ok,
+          bodyText: text.length > 2000 ? text.slice(0, 2000) + '…' : text
+        });
+      });
+    })
+    .catch(function (err) {
+      post({ step: 'ping_error', message: String(err && err.message ? err.message : err) });
+    });
+  true;
+})();`;
+}
+
 function isNonProductionPushApiUrl(url: string): boolean {
   return /localhost|127\.0\.0\.1|0\.0\.0\.0|10\.0\.2\.2/.test(url);
 }
@@ -122,6 +159,17 @@ export function HomeScreen(_props: HomeScreenProps) {
   const [locationNote, setLocationNote] = useState<string | null>(null);
   const [locationBusy, setLocationBusy] = useState(false);
 
+  /** TEMP: on-screen push registration debug (remove after device is verified). */
+  const [lastRegAttemptReason, setLastRegAttemptReason] = useState<string>('—');
+  const [currentWebViewUrl, setCurrentWebViewUrl] = useState<string>('—');
+  const [webViewRefAttached, setWebViewRefAttached] = useState(false);
+  const [regFetchStatus, setRegFetchStatus] = useState<number | null>(null);
+  const [regFetchBody, setRegFetchBody] = useState<string>('—');
+  const [regFetchError, setRegFetchError] = useState<string>('—');
+  const [pingFetchStatus, setPingFetchStatus] = useState<number | null>(null);
+  const [pingFetchBody, setPingFetchBody] = useState<string>('—');
+  const [pingFetchError, setPingFetchError] = useState<string>('—');
+
   const apiOrigin = env.apiBaseUrl.replace(/\/$/, '') || DEFAULT_PRODUCTION_API_ORIGIN;
 
   fcmTokenRef.current = fcmToken;
@@ -141,6 +189,7 @@ export function HomeScreen(_props: HomeScreenProps) {
 
   const runPushRegistration = useCallback((reason: string) => {
     const token = fcmTokenRef.current;
+    setLastRegAttemptReason(reason);
     console.warn('[SAINTLY-PUSH-REG] attempt', {
       reason,
       hasFcmToken: Boolean(token),
@@ -148,14 +197,17 @@ export function HomeScreen(_props: HomeScreenProps) {
       hasWebViewRef: Boolean(webViewRef.current),
     });
     if (Constants.appOwnership === 'expo') {
+      setLastRegAttemptReason(`${reason} → skipped_expo_go`);
       console.warn('[SAINTLY-PUSH-REG] skip', { reason: 'expo_go' });
       return;
     }
     if (!token) {
+      setLastRegAttemptReason(`${reason} → skipped_no_fcm_token`);
       console.warn('[SAINTLY-PUSH-REG] skip', { reason: 'no_fcm_token' });
       return;
     }
     if (!webViewRef.current) {
+      setLastRegAttemptReason(`${reason} → skipped_no_webview_ref`);
       console.warn('[SAINTLY-PUSH-REG] skip', { reason: 'no_webview_ref' });
       return;
     }
@@ -169,6 +221,19 @@ export function HomeScreen(_props: HomeScreenProps) {
     }
     console.warn('[SAINTLY-PUSH-REG] inject_js', { reason, url });
     webViewRef.current.injectJavaScript(buildRegisterPushInjectJs(token, reason));
+  }, []);
+
+  const runPingRegisterApi = useCallback(() => {
+    if (!webViewRef.current) {
+      setPingFetchError('no_webview_ref');
+      setPingFetchStatus(null);
+      setPingFetchBody('—');
+      return;
+    }
+    setPingFetchError('…');
+    setPingFetchBody('…');
+    setPingFetchStatus(null);
+    webViewRef.current.injectJavaScript(buildPingRegisterInjectJs());
   }, []);
 
   /** After FCM token exists: retry registration — cookies may not exist until post-login navigation. */
@@ -236,14 +301,27 @@ export function HomeScreen(_props: HomeScreenProps) {
         if (msg.type === 'push-register-log') {
           const step = typeof msg.step === 'string' ? msg.step : '';
           if (step === 'response' && typeof msg.status === 'number') {
+            setRegFetchStatus(msg.status);
+            setRegFetchBody(typeof msg.bodyText === 'string' ? msg.bodyText : JSON.stringify(msg));
+            setRegFetchError('—');
             console.warn('[SAINTLY-PUSH-REG] fetch_response', {
               status: msg.status,
               ok: msg.ok,
               bodyText: msg.bodyText,
             });
           } else if (step === 'fetch_error') {
+            setRegFetchError(typeof msg.message === 'string' ? msg.message : JSON.stringify(msg));
             console.warn('[SAINTLY-PUSH-REG] fetch_network_error', msg);
+          } else if (step === 'ping_response' && typeof msg.status === 'number') {
+            setPingFetchStatus(msg.status);
+            setPingFetchBody(typeof msg.bodyText === 'string' ? msg.bodyText : JSON.stringify(msg));
+            setPingFetchError('—');
+            console.warn('[SAINTLY-PUSH-REG] ping_response', msg);
+          } else if (step === 'ping_error') {
+            setPingFetchError(typeof msg.message === 'string' ? msg.message : JSON.stringify(msg));
+            console.warn('[SAINTLY-PUSH-REG] ping_error', msg);
           } else if (step === 'postMessage_failed') {
+            setRegFetchError(`postMessage: ${String((msg as { message?: string }).message ?? '')}`);
             console.warn('[SAINTLY-PUSH-REG] postMessage_failed', msg);
           } else {
             console.warn('[SAINTLY-PUSH-REG] webview_step', step, msg);
@@ -278,6 +356,11 @@ export function HomeScreen(_props: HomeScreenProps) {
     [runPushRegistration]
   );
 
+  const fcmTokenPreview =
+    fcmToken && fcmToken.length > 0
+      ? `${fcmToken.slice(0, 24)}… (len ${fcmToken.length})`
+      : 'no';
+
   const onEnableLocation = useCallback(async () => {
     setLocationBusy(true);
     setLocationNote(null);
@@ -309,9 +392,13 @@ export function HomeScreen(_props: HomeScreenProps) {
           /** iOS 15+ — grant WKWebView media capture so Twilio Voice (getUserMedia) can acquire the mic in-app. */
           mediaCapturePermissionGrantType="grant"
           onLoadStart={() => setLoading(true)}
-          onLoadEnd={() => setLoading(false)}
+          onLoadEnd={() => {
+            setLoading(false);
+            setWebViewRefAttached(true);
+          }}
           onNavigationStateChange={(navState) => {
             const url = navState.url ?? '';
+            setCurrentWebViewUrl(url || '(empty)');
             if (url === lastNavUrlRef.current) return;
             lastNavUrlRef.current = url;
             if (!fcmTokenRef.current || Constants.appOwnership === 'expo') return;
@@ -334,6 +421,63 @@ export function HomeScreen(_props: HomeScreenProps) {
             <ActivityIndicator size="large" color={colors.primary} />
           </View>
         ) : null}
+
+        <ScrollView style={styles.debugScroll} keyboardShouldPersistTaps="handled">
+          <Text style={styles.debugTitle}>TEMP push registration debug</Text>
+          <Text style={styles.debugLine} selectable>
+            apiBaseUrl: {env.apiBaseUrl}
+          </Text>
+          <Text style={styles.debugLine} selectable>
+            pushRegisterUrl: {pushRegisterUrl()}
+          </Text>
+          <Text style={styles.debugLine} selectable>
+            portalUri (state): {portalUri}
+          </Text>
+          <Text style={styles.debugLine} selectable>
+            WebView URL (last nav): {currentWebViewUrl}
+          </Text>
+          <Text style={styles.debugLine} selectable>
+            fcmToken: {fcmTokenPreview}
+          </Text>
+          <Text style={styles.debugLine} selectable>
+            webViewRef: {webViewRefAttached ? 'yes (onLoadEnd)' : 'not yet'}
+          </Text>
+          <Text style={styles.debugLine} selectable>
+            last attempt: {lastRegAttemptReason}
+          </Text>
+          <Text style={styles.debugLine} selectable>
+            register fetch status: {regFetchStatus ?? '—'}
+          </Text>
+          <Text style={styles.debugLine} selectable>
+            register body: {regFetchBody}
+          </Text>
+          <Text style={styles.debugLine} selectable>
+            register err: {regFetchError}
+          </Text>
+          <Text style={styles.debugLine} selectable>
+            ping status: {pingFetchStatus ?? '—'}
+          </Text>
+          <Text style={styles.debugLine} selectable>
+            ping body: {pingFetchBody}
+          </Text>
+          <Text style={styles.debugLine} selectable>
+            ping err: {pingFetchError}
+          </Text>
+          <View style={styles.debugRow}>
+            <Pressable
+              style={({ pressed }) => [styles.debugBtn, pressed && styles.debugBtnPressed]}
+              onPress={() => runPushRegistration('manual_debug_button')}
+            >
+              <Text style={styles.debugBtnText}>Run push registration now</Text>
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [styles.debugBtn, pressed && styles.debugBtnPressed]}
+              onPress={runPingRegisterApi}
+            >
+              <Text style={styles.debugBtnText}>Ping register API</Text>
+            </Pressable>
+          </View>
+        </ScrollView>
 
         <View style={styles.footer}>
           <View style={styles.footerRow}>
@@ -387,6 +531,49 @@ const styles = StyleSheet.create({
   },
   webview: {
     flex: 1,
+    minHeight: 0,
+  },
+  debugScroll: {
+    maxHeight: 220,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#f97316',
+    backgroundColor: '#fff7ed',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  debugTitle: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#c2410c',
+    marginBottom: 6,
+  },
+  debugLine: {
+    fontSize: 9,
+    lineHeight: 12,
+    color: '#1e293b',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    marginBottom: 4,
+  },
+  debugRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  debugBtn: {
+    backgroundColor: '#ea580c',
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+  },
+  debugBtnPressed: {
+    opacity: 0.88,
+  },
+  debugBtnText: {
+    color: '#ffffff',
+    fontSize: 11,
+    fontWeight: '600',
   },
   loadingOverlay: {
     ...StyleSheet.absoluteFillObject,
