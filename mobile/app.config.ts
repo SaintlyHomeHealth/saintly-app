@@ -38,7 +38,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     supportsTablet: true,
     bundleIdentifier: 'com.saintlyhomehealth.app',
     /** CFBundleVersion — must increase for each App Store / TestFlight upload. */
-    buildNumber: '2',
+    buildNumber: '6',
     googleServicesFile: './GoogleService-Info.plist',
     infoPlist: {
       NSMicrophoneUsageDescription:

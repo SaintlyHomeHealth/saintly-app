@@ -147,10 +147,11 @@ function pushStatusLine(environment: string, fcmOk: boolean): string {
 }
 
 export function HomeScreen(_props: HomeScreenProps) {
-  const pushState = useNativePushRegistration();
+  const { state: pushState, refreshRegistration } = useNativePushRegistration();
   const pushEnv =
     pushState.status === 'ready' ? pushState.result.environment : null;
   const fcmToken = pushState.status === 'ready' ? pushState.result.fcmToken : null;
+  const nativePushDetail = pushState.status === 'ready' ? pushState.result : null;
 
   const webViewRef = useRef<WebView>(null);
   const fcmTokenRef = useRef<string | null>(null);
@@ -169,10 +170,16 @@ export function HomeScreen(_props: HomeScreenProps) {
   const [pingFetchStatus, setPingFetchStatus] = useState<number | null>(null);
   const [pingFetchBody, setPingFetchBody] = useState<string>('—');
   const [pingFetchError, setPingFetchError] = useState<string>('—');
+  const [pushRefreshBusy, setPushRefreshBusy] = useState(false);
 
   const apiOrigin = env.apiBaseUrl.replace(/\/$/, '') || DEFAULT_PRODUCTION_API_ORIGIN;
 
   fcmTokenRef.current = fcmToken;
+
+  /** Cold launch: always open keypad — do not restore a previous deep link / notification path. */
+  useEffect(() => {
+    setPortalUri(portalUrl());
+  }, []);
 
   /** Log once at startup — search device logs for SAINTLY-PUSH-REG */
   useEffect(() => {
@@ -252,7 +259,10 @@ export function HomeScreen(_props: HomeScreenProps) {
     };
   }, [fcmToken, loading, runPushRegistration]);
 
-  /** Open thread / keypad when user taps a notification (background → foreground). */
+  /**
+   * Foreground / background-open only — navigates WebView when user interacts with a notification.
+   * Intentionally no getInitialNotification: cold launch always stays on keypad (see mount effect).
+   */
   useEffect(() => {
     if (Constants.appOwnership === 'expo') return;
 
@@ -275,11 +285,6 @@ export function HomeScreen(_props: HomeScreenProps) {
       unsubOpen = messaging().onNotificationOpenedApp((remoteMessage) => {
         openFromMessage(remoteMessage);
       });
-
-      const initial = await messaging().getInitialNotification();
-      if (!cancelled) {
-        openFromMessage(initial ?? undefined);
-      }
 
       unsubFg = messaging().onMessage((remoteMessage) => {
         openFromMessage(remoteMessage);
@@ -361,6 +366,20 @@ export function HomeScreen(_props: HomeScreenProps) {
       ? `${fcmToken.slice(0, 24)}… (len ${fcmToken.length})`
       : 'no';
 
+  const apnsPreview =
+    nativePushDetail?.apnsDeviceToken && nativePushDetail.apnsDeviceToken.length > 0
+      ? `${nativePushDetail.apnsDeviceToken.slice(0, 20)}… (len ${nativePushDetail.apnsDeviceToken.length})`
+      : 'no';
+
+  const runNativePushRefresh = useCallback(async () => {
+    setPushRefreshBusy(true);
+    try {
+      await refreshRegistration();
+    } finally {
+      setPushRefreshBusy(false);
+    }
+  }, [refreshRegistration]);
+
   const onEnableLocation = useCallback(async () => {
     setLocationBusy(true);
     setLocationNote(null);
@@ -440,6 +459,22 @@ export function HomeScreen(_props: HomeScreenProps) {
             fcmToken: {fcmTokenPreview}
           </Text>
           <Text style={styles.debugLine} selectable>
+            permission:{' '}
+            {nativePushDetail
+              ? `${nativePushDetail.permissionStatus ?? '—'} ${nativePushDetail.permissionLabel ?? ''}`
+              : '…'}
+          </Text>
+          <Text style={styles.debugLine} selectable>
+            APNs (Firebase): {apnsPreview}
+          </Text>
+          <Text style={styles.debugLine} selectable>
+            native push error: {nativePushDetail?.errorText ?? '—'}
+          </Text>
+          <Text style={styles.debugLine} selectable>
+            env: appOwnership={nativePushDetail?.diagnostics.appOwnership ?? '—'} exec=
+            {nativePushDetail?.diagnostics.executionEnvironment ?? '—'}
+          </Text>
+          <Text style={styles.debugLine} selectable>
             webViewRef: {webViewRefAttached ? 'yes (onLoadEnd)' : 'not yet'}
           </Text>
           <Text style={styles.debugLine} selectable>
@@ -463,6 +498,21 @@ export function HomeScreen(_props: HomeScreenProps) {
           <Text style={styles.debugLine} selectable>
             ping err: {pingFetchError}
           </Text>
+          <View style={styles.debugRow}>
+            <Pressable
+              style={({ pressed }) => [
+                styles.debugBtn,
+                pressed && styles.debugBtnPressed,
+                pushRefreshBusy && styles.debugBtnDisabled,
+              ]}
+              disabled={pushRefreshBusy}
+              onPress={() => void runNativePushRefresh()}
+            >
+              <Text style={styles.debugBtnText}>
+                {pushRefreshBusy ? 'Refreshing FCM…' : 'Request perm + refresh FCM'}
+              </Text>
+            </Pressable>
+          </View>
           <View style={styles.debugRow}>
             <Pressable
               style={({ pressed }) => [styles.debugBtn, pressed && styles.debugBtnPressed]}
@@ -534,7 +584,7 @@ const styles = StyleSheet.create({
     minHeight: 0,
   },
   debugScroll: {
-    maxHeight: 220,
+    maxHeight: 300,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: '#f97316',
     backgroundColor: '#fff7ed',
@@ -569,6 +619,9 @@ const styles = StyleSheet.create({
   },
   debugBtnPressed: {
     opacity: 0.88,
+  },
+  debugBtnDisabled: {
+    opacity: 0.55,
   },
   debugBtnText: {
     color: '#ffffff',

@@ -10,14 +10,46 @@ import { Platform } from 'react-native';
  * Expo Go cannot load native Firebase messaging — use dynamic import only in native builds.
  */
 
-export type NativePushEnvironment = 'expo_go' | 'development_build' | 'standalone' | 'unknown';
+export type NativePushEnvironment = 'expo_go' | 'development_build' | 'standalone' | 'storeClient' | 'unknown';
+
+export type NativePushDiagnostics = {
+  appOwnership: string;
+  executionEnvironment: string;
+  platform: string;
+};
 
 export type NativePushRegistrationResult = {
   environment: NativePushEnvironment;
   fcmToken: string | null;
-  /** Reserved — Twilio VoIP uses PushKit inside @twilio/voice-react-native-sdk. */
+  /** APNs device token (iOS) when Firebase exposes it. */
   apnsDeviceToken: string | null;
+  /** Raw numeric status from `requestPermission()` (Firebase AuthorizationStatus on both platforms). */
+  permissionStatus: number | null;
+  /** Human-readable permission result. */
+  permissionLabel: string | null;
+  /** Set when registration throws or getToken returns empty unexpectedly. */
+  errorText: string | null;
+  diagnostics: NativePushDiagnostics;
 };
+
+function labelForAuthStatus(
+  AuthorizationStatus: {
+    NOT_DETERMINED: number;
+    DENIED: number;
+    AUTHORIZED: number;
+    PROVISIONAL: number;
+    EPHEMERAL: number;
+  },
+  status: number
+): string {
+  const A = AuthorizationStatus;
+  if (status === A.NOT_DETERMINED) return 'NOT_DETERMINED';
+  if (status === A.DENIED) return 'DENIED';
+  if (status === A.AUTHORIZED) return 'AUTHORIZED';
+  if (status === A.PROVISIONAL) return 'PROVISIONAL';
+  if (status === A.EPHEMERAL) return 'EPHEMERAL';
+  return `UNKNOWN(${status})`;
+}
 
 function detectEnvironment(): NativePushEnvironment {
   if (Constants.appOwnership === 'expo') {
@@ -29,56 +61,105 @@ function detectEnvironment(): NativePushEnvironment {
   if (Constants.executionEnvironment === 'standalone') {
     return 'standalone';
   }
+  /** TestFlight / App Store builds (Expo SDK 50+). */
+  if (Constants.executionEnvironment === 'storeClient') {
+    return 'storeClient';
+  }
   return 'unknown';
 }
 
+function buildDiagnostics(): NativePushDiagnostics {
+  return {
+    appOwnership: String(Constants.appOwnership ?? ''),
+    executionEnvironment: String(Constants.executionEnvironment ?? ''),
+    platform: Platform.OS,
+  };
+}
+
+/**
+ * Requests notification permission, registers for remote messages (iOS), then resolves FCM token.
+ * Call on launch and from debug "refresh" when testing.
+ */
 export async function registerNativePushForCalls(): Promise<NativePushRegistrationResult> {
   const environment = detectEnvironment();
+  const diagnostics = buildDiagnostics();
+
+  const empty = (overrides: Partial<NativePushRegistrationResult>): NativePushRegistrationResult => ({
+    environment,
+    fcmToken: null,
+    apnsDeviceToken: null,
+    permissionStatus: null,
+    permissionLabel: null,
+    errorText: null,
+    diagnostics,
+    ...overrides,
+  });
 
   if (environment === 'expo_go') {
-    if (__DEV__) {
-      console.info(
-        '[nativePushService] Expo Go — skipping FCM (use a development or production native build).'
-      );
-    }
-    return {
-      environment,
-      fcmToken: null,
-      apnsDeviceToken: null,
-    };
+    console.warn('[nativePushService] skip (Expo Go)', diagnostics);
+    return empty({ errorText: 'Expo Go — use a dev or release native build.' });
   }
+
+  console.warn('[nativePushService] start', diagnostics);
 
   try {
     const mod = await import('@react-native-firebase/messaging');
     const messaging = mod.default;
     const AuthorizationStatus = mod.AuthorizationStatus;
 
+    /** 1) Permission first (prompts on iOS when undecided). */
+    const permissionStatus = await messaging().requestPermission();
+    const permissionLabel = labelForAuthStatus(AuthorizationStatus, permissionStatus);
+    console.warn('[nativePushService] requestPermission', { permissionStatus, permissionLabel });
+
     if (Platform.OS === 'ios') {
+      /** 2) Register with APNs before FCM token on iOS. */
       await messaging().registerDeviceForRemoteMessages();
+      console.warn('[nativePushService] registerDeviceForRemoteMessages OK');
     }
 
-    const status = await messaging().requestPermission();
-    const ok =
-      status === AuthorizationStatus.AUTHORIZED ||
-      status === AuthorizationStatus.PROVISIONAL ||
-      status === AuthorizationStatus.EPHEMERAL;
-
-    if (!ok && __DEV__) {
-      console.warn('[nativePushService] notification permission status:', status);
+    /** 3) APNs token (iOS) — may be null briefly; still log. */
+    let apnsDeviceToken: string | null = null;
+    if (Platform.OS === 'ios') {
+      try {
+        apnsDeviceToken = await messaging().getAPNSToken();
+        console.warn(
+          '[nativePushService] getAPNSToken',
+          apnsDeviceToken ? `${apnsDeviceToken.slice(0, 16)}… (len ${apnsDeviceToken.length})` : null
+        );
+      } catch (apnsErr) {
+        const msg = apnsErr instanceof Error ? apnsErr.message : String(apnsErr);
+        console.warn('[nativePushService] getAPNSToken error', msg);
+      }
     }
 
+    /** 4) FCM registration token. */
     const fcmToken = await messaging().getToken();
+    console.warn(
+      '[nativePushService] getToken',
+      fcmToken ? `${fcmToken.slice(0, 24)}… (len ${fcmToken.length})` : 'empty/null'
+    );
+
+    const denied = permissionStatus === AuthorizationStatus.DENIED;
+    let errorText: string | null = null;
+    if (!fcmToken) {
+      errorText = denied
+        ? 'No FCM token — notification permission DENIED.'
+        : 'getToken returned empty — check Firebase / network / APNs registration.';
+    }
+
     return {
       environment,
       fcmToken: fcmToken || null,
-      apnsDeviceToken: null,
+      apnsDeviceToken,
+      permissionStatus,
+      permissionLabel,
+      errorText,
+      diagnostics,
     };
   } catch (e) {
-    console.warn('[nativePushService] FCM registration failed', e);
-    return {
-      environment,
-      fcmToken: null,
-      apnsDeviceToken: null,
-    };
+    const errorText = e instanceof Error ? e.message : String(e);
+    console.warn('[nativePushService] registerNativePushForCalls failed', errorText, e);
+    return empty({ errorText });
   }
 }

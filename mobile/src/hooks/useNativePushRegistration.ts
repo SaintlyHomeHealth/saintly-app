@@ -4,4 +4,5 @@
 export {
   useNativePushRegistration,
   type NativePushHookState,
+  type PushRegistrationContextValue,
 } from '../context/PushRegistrationContext';
