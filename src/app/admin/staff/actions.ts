@@ -17,6 +17,7 @@ import {
   isSuperAdmin,
   type StaffRole,
 } from "@/lib/staff-profile";
+import { isInboundRingGroupKey, type InboundRingGroupKey } from "@/lib/phone/ring-groups";
 
 function isStaffRole(value: string): value is StaffRole {
   return (
@@ -115,48 +116,104 @@ export async function setPhoneAccess(formData: FormData) {
   redirect("/admin/staff?ok=phone");
 }
 
-export async function setInboundRing(formData: FormData) {
+/**
+ * Sets inbound ring group memberships (DB) and syncs `inbound_ring_enabled` + optional primary group key.
+ * Env-based ring lists remain fallback when a group has no DB members.
+ */
+export async function updateInboundRingGroups(formData: FormData) {
   const actor = await getStaffProfile();
   if (!actor || !isAdminOrHigher(actor)) {
     redirect("/admin");
   }
 
-  const idRaw = formData.get("staffProfileId");
-  const id = typeof idRaw === "string" ? idRaw.trim() : "";
-  const enabled = String(formData.get("enabled") ?? "") === "1";
+  const id = String(formData.get("staffProfileId") ?? "").trim();
   if (!id) {
     redirect("/admin/staff?err=invalid");
   }
 
-  const { data: target } = await supabaseAdmin
+  const rawGroups = formData.getAll("groups");
+  const groups: InboundRingGroupKey[] = [];
+  const seen = new Set<string>();
+  for (const g of rawGroups) {
+    const s = typeof g === "string" ? g.trim() : "";
+    if (!s || seen.has(s) || !isInboundRingGroupKey(s)) continue;
+    seen.add(s);
+    groups.push(s);
+  }
+
+  const primaryRaw = String(formData.get("primaryGroup") ?? "").trim();
+  let primary: InboundRingGroupKey | null = null;
+  if (primaryRaw && isInboundRingGroupKey(primaryRaw) && groups.includes(primaryRaw)) {
+    primary = primaryRaw;
+  }
+
+  const { data: target, error: loadErr } = await supabaseAdmin
     .from("staff_profiles")
     .select("user_id")
     .eq("id", id)
     .maybeSingle();
 
-  if (!enabled && target?.user_id === actor.user_id) {
+  if (loadErr || !target) {
+    redirect("/admin/staff?err=load");
+  }
+
+  const userId = typeof target.user_id === "string" ? target.user_id : null;
+  if (!userId) {
+    redirect("/admin/staff?err=invalid");
+  }
+
+  if (groups.length === 0 && userId === actor.user_id) {
     redirect("/admin/staff?err=self_ring");
   }
 
-  const { error } = await supabaseAdmin
+  const { error: delErr } = await supabaseAdmin.from("inbound_ring_group_memberships").delete().eq("user_id", userId);
+
+  if (delErr) {
+    console.warn("[staff] updateInboundRingGroups delete memberships:", delErr.message);
+    redirect("/admin/staff?err=update");
+  }
+
+  if (groups.length > 0) {
+    const rows = groups.map((ring_group_key) => ({
+      user_id: userId,
+      ring_group_key,
+      is_enabled: true,
+    }));
+    const { error: insErr } = await supabaseAdmin.from("inbound_ring_group_memberships").insert(rows);
+    if (insErr) {
+      console.warn("[staff] updateInboundRingGroups insert:", insErr.message);
+      redirect("/admin/staff?err=update");
+    }
+  }
+
+  const enabled = groups.length > 0;
+  const { error: upErr } = await supabaseAdmin
     .from("staff_profiles")
-    .update({ inbound_ring_enabled: enabled, updated_at: new Date().toISOString() })
+    .update({
+      inbound_ring_enabled: enabled,
+      inbound_ring_primary_group_key: primary,
+      updated_at: new Date().toISOString(),
+    })
     .eq("id", id);
 
-  if (error) {
-    console.warn("[staff] setInboundRing:", error.message);
+  if (upErr) {
+    console.warn("[staff] updateInboundRingGroups staff_profiles:", upErr.message);
     redirect("/admin/staff?err=update");
   }
 
   await insertAuditLog({
-    action: enabled ? "staff.inbound_ring_add" : "staff.inbound_ring_remove",
+    action: "staff.inbound_ring_groups_update",
     entityType: "staff_profiles",
     entityId: id,
-    metadata: {},
+    metadata: {
+      groups,
+      primary: primary ?? null,
+      inbound_ring_enabled: enabled,
+    },
   });
 
   revalidatePath("/admin/staff");
-  redirect("/admin/staff?ok=ring");
+  redirect("/admin/staff?ok=ring_groups");
 }
 
 export async function setStaffActive(formData: FormData) {

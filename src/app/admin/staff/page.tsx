@@ -19,9 +19,9 @@ import { ResetPasswordDialog } from "./reset-password-dialog";
 
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 
+import { InboundRingGroupsCell } from "./inbound-ring-groups-cell";
 import {
   addStaffProfile,
-  setInboundRing,
   setPhoneAccess,
   setStaffActive,
   updateStaffRole,
@@ -37,6 +37,7 @@ type StaffRow = {
   user_id: string | null;
   phone_access_enabled: boolean;
   inbound_ring_enabled: boolean;
+  inbound_ring_primary_group_key: string | null;
   sms_notify_phone: string | null;
   applicant_id: string | null;
 };
@@ -186,6 +187,7 @@ function flashForOk(code: string | undefined): string | null {
     login: "Login created and linked.",
     phone: "Phone access updated.",
     ring: "Inbound ring updated.",
+    ring_groups: "Inbound ring groups saved.",
     active: "Active status updated.",
     role: "Role updated.",
     sms: "Dispatch SMS number saved.",
@@ -212,7 +214,7 @@ export default async function AdminStaffPage({
   const { data: rows, error } = await supabaseAdmin
     .from("staff_profiles")
     .select(
-      "id, full_name, email, role, is_active, user_id, phone_access_enabled, inbound_ring_enabled, sms_notify_phone, applicant_id"
+      "id, full_name, email, role, is_active, user_id, phone_access_enabled, inbound_ring_enabled, inbound_ring_primary_group_key, sms_notify_phone, applicant_id"
     )
     .order("full_name", { ascending: true });
 
@@ -227,6 +229,24 @@ export default async function AdminStaffPage({
   }) as StaffRow[];
 
   const payrollCtx = await loadPayrollContext(list);
+
+  const linkedAuthIds = [...new Set(list.map((r) => r.user_id).filter(Boolean))] as string[];
+  const membershipsByUserId = new Map<string, string[]>();
+  if (linkedAuthIds.length > 0) {
+    const { data: memRows } = await supabaseAdmin
+      .from("inbound_ring_group_memberships")
+      .select("user_id, ring_group_key")
+      .in("user_id", linkedAuthIds)
+      .eq("is_enabled", true);
+    for (const m of memRows ?? []) {
+      const uid = typeof m.user_id === "string" ? m.user_id : null;
+      const gk = typeof m.ring_group_key === "string" ? m.ring_group_key : null;
+      if (!uid || !gk) continue;
+      const arr = membershipsByUserId.get(uid) ?? [];
+      arr.push(gk);
+      membershipsByUserId.set(uid, arr);
+    }
+  }
 
   const sp = (await searchParams) ?? {};
   const errRaw = sp.err;
@@ -331,7 +351,7 @@ export default async function AdminStaffPage({
           </div>
 
           <div className="mt-6 overflow-x-auto rounded-[24px] border border-slate-200/90 bg-white shadow-sm">
-            <table className="w-full min-w-[1600px] text-left text-xs">
+            <table className="w-full min-w-[1780px] text-left text-xs">
               <thead>
                 <tr className="border-b border-indigo-100/80 bg-slate-50/90 text-slate-600">
                   <th className="whitespace-nowrap px-4 py-3 font-semibold">Name</th>
@@ -458,25 +478,13 @@ export default async function AdminStaffPage({
                             <span className="text-slate-400">—</span>
                           )}
                         </td>
-                        <td className="px-4 py-3 text-slate-700">
-                          {hasLogin ? (
-                            <form action={setInboundRing} className="inline">
-                              <input type="hidden" name="staffProfileId" value={row.id} />
-                              <input type="hidden" name="enabled" value={row.inbound_ring_enabled ? "0" : "1"} />
-                              <button
-                                type="submit"
-                                className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${
-                                  row.inbound_ring_enabled
-                                    ? "bg-violet-100 text-violet-900 hover:bg-violet-200"
-                                    : "bg-slate-200 text-slate-700 hover:bg-slate-300"
-                                }`}
-                              >
-                                {row.inbound_ring_enabled ? "In group" : "Not in group"}
-                              </button>
-                            </form>
-                          ) : (
-                            <span className="text-slate-400">—</span>
-                          )}
+                        <td className="align-top px-4 py-3 text-slate-700">
+                          <InboundRingGroupsCell
+                            staffProfileId={row.id}
+                            userId={row.user_id}
+                            selectedGroups={row.user_id ? membershipsByUserId.get(row.user_id) ?? [] : []}
+                            primaryGroup={row.inbound_ring_primary_group_key}
+                          />
                         </td>
                         <td className="max-w-[200px] px-4 py-3 text-slate-700">
                           <form action={updateStaffSmsNotifyPhone} className="flex flex-col gap-1">

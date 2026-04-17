@@ -1,10 +1,13 @@
 /**
- * Ring groups: deterministic mapping from group id → user ids (env + hardcoded placeholders).
- * Future: load from DB; keep the same exported ids for a smooth migration.
+ * Ring groups: DB-backed membership (primary) with env fallback when a group has no eligible DB members.
  */
 
 import { supabaseAdmin } from "@/lib/admin";
+import { matchesSoftphoneTokenEligibilityForInboundRing, type StaffProfile } from "@/lib/staff-profile";
 import { canonicalizeInboundEnvIdsToAuthUserIds } from "@/lib/softphone/inbound-staff-ids";
+
+export const INBOUND_RING_GROUP_KEYS = ["intake", "admin", "billing", "on_call"] as const;
+export type InboundRingGroupKey = (typeof INBOUND_RING_GROUP_KEYS)[number];
 
 export type RingGroupId = "intake" | "admin" | "on_call" | "billing";
 
@@ -17,15 +20,13 @@ export type RingGroupDefinition = {
   escalationOrder: number;
   ringMode: RingMode;
   /**
-   * Env var holding comma-separated auth UUIDs (same format as TWILIO_VOICE_INBOUND_STAFF_USER_IDS).
-   * Empty / unset = no members from env.
+   * Env var holding comma-separated auth UUIDs (fallback when DB returns no eligible members for this group).
    */
   userIdsEnvVar: string | null;
 };
 
 /**
- * Hardcoded structure; membership from env per group.
- * Example: `SAINTLY_RING_GROUP_INTAKE_USER_IDS=uuid1,uuid2`
+ * Hardcoded structure; membership from DB first, then env per group.
  */
 export const RING_GROUP_DEFINITIONS: readonly RingGroupDefinition[] = [
   { id: "intake", label: "Intake", escalationOrder: 10, ringMode: "simultaneous", userIdsEnvVar: "SAINTLY_RING_GROUP_INTAKE_USER_IDS" },
@@ -33,6 +34,15 @@ export const RING_GROUP_DEFINITIONS: readonly RingGroupDefinition[] = [
   { id: "billing", label: "Billing", escalationOrder: 30, ringMode: "simultaneous", userIdsEnvVar: "SAINTLY_RING_GROUP_BILLING_USER_IDS" },
   { id: "on_call", label: "On-call", escalationOrder: 5, ringMode: "simultaneous", userIdsEnvVar: "SAINTLY_RING_GROUP_ON_CALL_USER_IDS" },
 ];
+
+export function isInboundRingGroupKey(value: string): value is InboundRingGroupKey {
+  return (INBOUND_RING_GROUP_KEYS as readonly string[]).includes(value);
+}
+
+export function ringGroupKeyLabel(key: string): string {
+  const def = RING_GROUP_DEFINITIONS.find((d) => d.id === key);
+  return def?.label ?? key;
+}
 
 function parseUuidListFromEnv(raw: string | undefined): string[] {
   const s = raw?.trim() ?? "";
@@ -48,15 +58,85 @@ function parseUuidListFromEnv(raw: string | undefined): string[] {
   return out;
 }
 
-/**
- * Resolve user ids for a ring group (canonical auth UUIDs).
- */
-export async function resolveRingGroupUserIds(groupId: RingGroupId): Promise<string[]> {
+async function resolveRingGroupUserIdsFromEnv(groupId: RingGroupId): Promise<string[]> {
   const def = RING_GROUP_DEFINITIONS.find((g) => g.id === groupId);
   if (!def?.userIdsEnvVar) return [];
   const raw = process.env[def.userIdsEnvVar]?.trim();
   const parsed = parseUuidListFromEnv(raw);
   return canonicalizeInboundEnvIdsToAuthUserIds(parsed);
+}
+
+/**
+ * Eligible users from DB for one ring group (active staff, inbound ring on, softphone eligibility gate).
+ */
+export async function resolveRingGroupUserIdsFromDb(groupId: RingGroupId): Promise<string[]> {
+  const { data: rows, error } = await supabaseAdmin
+    .from("inbound_ring_group_memberships")
+    .select("user_id, created_at")
+    .eq("ring_group_key", groupId)
+    .eq("is_enabled", true)
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    console.warn("[ring-groups] resolveRingGroupUserIdsFromDb:", error.message);
+    return [];
+  }
+  if (!rows?.length) return [];
+
+  const userIds = [
+    ...new Set(rows.map((r) => (typeof r.user_id === "string" ? r.user_id : null)).filter(Boolean)),
+  ] as string[];
+
+  const { data: profiles, error: pErr } = await supabaseAdmin
+    .from("staff_profiles")
+    .select("user_id, role, is_active, phone_access_enabled, inbound_ring_enabled")
+    .in("user_id", userIds);
+
+  if (pErr) {
+    console.warn("[ring-groups] staff_profiles for ring groups:", pErr.message);
+    return [];
+  }
+
+  const profileByUserId = new Map(
+    (profiles ?? [])
+      .filter((p): p is typeof p & { user_id: string } => typeof p.user_id === "string" && Boolean(p.user_id))
+      .map((p) => [p.user_id, p] as const)
+  );
+
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const r of rows) {
+    const uid = typeof r.user_id === "string" ? r.user_id : null;
+    if (!uid) continue;
+    const k = uid.toLowerCase();
+    if (seen.has(k)) continue;
+    const sp = profileByUserId.get(uid);
+    if (!sp || sp.is_active !== true || sp.inbound_ring_enabled !== true) continue;
+    if (
+      !matchesSoftphoneTokenEligibilityForInboundRing({
+        role: sp.role as StaffProfile["role"],
+        is_active: sp.is_active === true,
+        phone_access_enabled: sp.phone_access_enabled === true,
+      })
+    ) {
+      continue;
+    }
+    seen.add(k);
+    out.push(uid);
+  }
+
+  return out;
+}
+
+/**
+ * Resolve user ids for a ring group: **DB first**; if no eligible members, **env fallback**.
+ */
+export async function resolveRingGroupUserIds(groupId: RingGroupId): Promise<string[]> {
+  const fromDb = await resolveRingGroupUserIdsFromDb(groupId);
+  if (fromDb.length > 0) {
+    return fromDb;
+  }
+  return resolveRingGroupUserIdsFromEnv(groupId);
 }
 
 /**
