@@ -58,6 +58,12 @@ export async function sendFcmDataAndNotificationToUserIds(
     console.warn("[push] FCM send skipped", { reason: "firebase_admin_not_initialized" });
     return { ok: false, error: "missing FIREBASE_SERVICE_ACCOUNT_JSON" };
   }
+  const timing = process.env.SMS_PUSH_TIMING === "1";
+  const pushTiming = (phase: string, detail?: Record<string, unknown>) => {
+    if (!timing) return;
+    console.log("[PUSH]", phase, Date.now(), detail ?? {});
+  };
+
   const uniqueUsers = [...new Set(userIds.map((u) => u.trim()).filter(Boolean))];
   if (uniqueUsers.length === 0) {
     const empty: FcmSendResult = {
@@ -71,11 +77,13 @@ export async function sendFcmDataAndNotificationToUserIds(
     return empty;
   }
 
+  pushTiming("fcm_before_load_tokens", { recipientUserCount: uniqueUsers.length, title: input.title });
   let tokenQuery = supabase.from("user_push_devices").select("fcm_token").in("user_id", uniqueUsers);
   if (input.recipientPlatforms?.length) {
     tokenQuery = tokenQuery.in("platform", input.recipientPlatforms);
   }
   const { data: rows, error } = await tokenQuery;
+  pushTiming("fcm_after_load_tokens", { rowCount: (rows ?? []).length });
 
   if (error) {
     console.warn("[push] load user_push_devices:", error.message);
@@ -110,6 +118,7 @@ export async function sendFcmDataAndNotificationToUserIds(
   const chunkSize = 500;
   for (let i = 0; i < tokens.length; i += chunkSize) {
     const chunk = tokens.slice(i, i + chunkSize);
+    pushTiming("fcm_before_firebase_send", { tokenCount: chunk.length, chunkIndex: i / chunkSize });
     const res = await messaging.sendEachForMulticast({
       tokens: chunk,
       notification: {
@@ -134,6 +143,11 @@ export async function sendFcmDataAndNotificationToUserIds(
           },
         },
       },
+    });
+    pushTiming("fcm_after_firebase_send", {
+      successCount: res.successCount,
+      failureCount: res.failureCount,
+      chunkIndex: i / chunkSize,
     });
 
     sent += res.successCount;

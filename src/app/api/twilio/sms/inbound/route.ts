@@ -15,6 +15,17 @@ export async function POST(req: NextRequest) {
     return parsed.response;
   }
 
+  if (process.env.SMS_PUSH_TIMING === "1") {
+    const p = parsed.params;
+    const messageSid = (p.MessageSid ?? p.SmsSid ?? "").trim();
+    console.log("[SMS] webhook_received", Date.now(), {
+      route: "/api/twilio/sms/inbound",
+      from: p.From,
+      to: p.To,
+      messageSid: messageSid || "(missing)",
+    });
+  }
+
   const result = await applyInboundTwilioSms(supabaseAdmin, parsed.params);
   if (!result.ok) {
     console.warn("[api/twilio/sms/inbound]", result.error);

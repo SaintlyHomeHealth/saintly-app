@@ -10,6 +10,11 @@ import { isValidE164, normalizeDialInputToE164 } from "@/lib/softphone/phone-num
 
 export type InboundTwilioSmsParams = Record<string, string>;
 
+function smsTiming(phase: string, detail?: Record<string, unknown>): void {
+  if (process.env.SMS_PUSH_TIMING !== "1") return;
+  console.log("[SMS]", phase, Date.now(), detail ?? {});
+}
+
 /**
  * Persist inbound SMS from Twilio Messaging webhook (verified before calling).
  * Idempotent on MessageSid via unique index on messages.external_message_sid.
@@ -22,6 +27,13 @@ export async function applyInboundTwilioSms(
   const fromRaw = (params.From ?? "").trim();
   const toRaw = (params.To ?? "").trim();
   const body = typeof params.Body === "string" ? params.Body : "";
+
+  smsTiming("handler_start", {
+    messageSid: messageSid || "(missing)",
+    fromRaw,
+    toRaw,
+    bodyLen: body.length,
+  });
 
   console.log("[sms-inbound] webhook persist start", {
     messageSid: messageSid || "(missing)",
@@ -70,14 +82,18 @@ export async function applyInboundTwilioSms(
 
   console.log("[sms-inbound] normalized", { fromE164, toE164 });
 
+  smsTiming("before_contact_lookup");
   const contact = await findContactByIncomingPhone(supabase, fromE164);
+  smsTiming("after_contact_lookup", { matchedContact: Boolean(contact?.id) });
 
+  smsTiming("before_ensure_conversation");
   const ensured = await ensureSmsConversationForPhone(supabase, fromE164, contact);
   if (!ensured.ok) {
     console.warn("[sms-inbound] ensure conversation failed", ensured.error);
     return { ok: false, error: ensured.error };
   }
   const conversationId = ensured.conversationId;
+  smsTiming("after_ensure_conversation", { conversationId });
   console.log("[sms-inbound] conversation", { conversationId, matchedContact: Boolean(contact?.id) });
 
   const metadata = {
@@ -86,6 +102,7 @@ export async function applyInboundTwilioSms(
     num_media: params.NumMedia ?? null,
   };
 
+  smsTiming("before_message_insert");
   const { data: insertedMsg, error: msgErr } = await supabase
     .from("messages")
     .insert({
@@ -101,6 +118,7 @@ export async function applyInboundTwilioSms(
   if (msgErr) {
     const code = msgErr.code != null ? String(msgErr.code) : "";
     if (code === "23505") {
+      smsTiming("duplicate_message_sid_skip", { messageSid });
       console.log("[sms-inbound] duplicate MessageSid (idempotent ok)", { messageSid });
       return { ok: true };
     }
@@ -109,6 +127,7 @@ export async function applyInboundTwilioSms(
   }
 
   console.log("[sms-inbound] inbound message inserted", { conversationId, messageId: insertedMsg?.id });
+  smsTiming("after_message_insert", { conversationId, messageId: insertedMsg?.id });
 
   if (process.env.SMS_UNREAD_DEBUG === "1" && insertedMsg) {
     console.warn("[sms-unread-debug] inbound insert row", {
@@ -120,6 +139,7 @@ export async function applyInboundTwilioSms(
   }
 
   // Fast path: start push as soon as the inbound row exists — do not block on AI or conversation touch.
+  smsTiming("before_push_scheduled", { conversationId });
   console.log("[sms-inbound] scheduling push notify", { conversationId, messageId: insertedMsg?.id });
   void notifyInboundSmsAfterPersist(supabase, {
     conversationId,
@@ -127,11 +147,13 @@ export async function applyInboundTwilioSms(
     fromE164: fromE164,
     externalMessageSid: messageSid,
   });
+  smsTiming("after_push_scheduled_fire_and_forget", { conversationId });
 
   if (process.env.SMS_AI_SUGGESTIONS_DISABLED !== "1" && insertedMsg?.id) {
     scheduleSmsReplySuggestionGeneration(supabase, conversationId, String(insertedMsg.id), fromE164);
   }
 
+  smsTiming("before_conversation_touch");
   const now = new Date().toISOString();
   const { error: touchErr } = await supabase
     .from("conversations")
@@ -141,6 +163,8 @@ export async function applyInboundTwilioSms(
   if (touchErr) {
     console.warn("[sms-inbound] last_message_at touch:", touchErr.message);
   }
+  smsTiming("after_conversation_touch");
 
+  smsTiming("handler_done");
   return { ok: true };
 }
