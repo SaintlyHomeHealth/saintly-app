@@ -4,6 +4,7 @@ import {
   registerNativePushForCalls,
   type NativePushRegistrationResult,
 } from '../services/nativePushService';
+import { twilioVoiceService } from '../services/twilioVoiceService';
 
 export type NativePushHookState =
   | { status: 'idle' }
@@ -32,6 +33,7 @@ export function PushRegistrationProvider({ children }: { children: React.ReactNo
   useEffect(() => {
     let cancelled = false;
     void (async () => {
+      void twilioVoiceService.prepareIosPushRegistryEarly();
       const result = await registerNativePushForCalls();
       if (!cancelled) {
         setState({ status: 'ready', result });

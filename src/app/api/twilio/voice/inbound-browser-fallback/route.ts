@@ -6,6 +6,7 @@ import {
   readTwilioVoiceRingE164FromEnv,
   resolveInboundPstnFallbackCallerId,
 } from "@/lib/phone/twilio-voice-handoff";
+import { inferTwilioDialAnswerPath, logInboundVoiceDebug } from "@/lib/phone/twilio-voice-debug";
 import { buildSaintlyVoicemailRecordTwiml, resolveTwilioVoicePublicBase } from "@/lib/phone/twilio-voicemail-twiml";
 import { parseVerifiedTwilioFormBody } from "@/lib/twilio/verify-form-post";
 
@@ -44,6 +45,15 @@ export async function POST(req: NextRequest) {
   );
 
   if (dialStatus === "completed") {
+    const to = (params.To ?? "").trim();
+    logInboundVoiceDebug("dial_leg_completed", {
+      handler: "inbound-browser-fallback",
+      answered_via: inferTwilioDialAnswerPath(to),
+      dial_call_sid: params.DialCallSid ?? null,
+      to_param_tail: to.toLowerCase().startsWith("client:")
+        ? `client:…${to.slice(-10)}`
+        : `…${to.replace(/\D/g, "").slice(-4)}`,
+    });
     const xml = `<?xml version="1.0" encoding="UTF-8"?><Response></Response>`;
     return new NextResponse(xml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
   }
@@ -64,6 +74,13 @@ export async function POST(req: NextRequest) {
 
   const callerId = resolveInboundPstnFallbackCallerId(params);
   const ringRaw = readTwilioVoiceRingE164FromEnv();
+
+  logInboundVoiceDebug("pstn_fallback_start", {
+    handler: "inbound-browser-fallback",
+    dial_call_status: dialStatus,
+    prior_dial_leg: "browser_clients_timed_out_or_failed",
+    ring_e164_configured: ringRaw.length > 0,
+  });
 
   const pstnTwiml = buildInboundPstnOnlyDialTwiml({
     publicBase,

@@ -19,7 +19,11 @@ export type TwilioVoiceCallInfo = {
 };
 
 export type TwilioVoiceService = {
+  /** iOS: Twilio docs — call `initializePushRegistry()` at app launch, before `register(token)`. */
+  prepareIosPushRegistryEarly: () => Promise<void>;
   initializeWithToken: (response: SoftphoneTokenResponse) => Promise<void>;
+  /** iOS PushKit / device token from the native Voice layer (after register). */
+  getNativeDeviceToken: () => Promise<string | null>;
   destroy: () => Promise<void>;
   onIncomingCall: (handler: (call: TwilioVoiceCallInfo) => void) => () => void;
   answer: (callId: string) => Promise<void>;
@@ -44,6 +48,8 @@ type TwilioCallNative = {
 };
 
 let lastRegisteredToken: string | null = null;
+let iosPushRegistryInitialized = false;
+let iosPushRegistryInitInFlight: Promise<void> | null = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Voice class from dynamic import
 let voiceSingleton: any = null;
 const inviteByCallSid = new Map<string, TwilioCallInviteNative>();
@@ -66,7 +72,95 @@ async function loadVoiceModule(): Promise<typeof import('@twilio/voice-react-nat
   return import('@twilio/voice-react-native-sdk');
 }
 
+function logJwtIdentityForDiagnostics(accessToken: string, label: string): void {
+  try {
+    const parts = accessToken.split('.');
+    if (parts.length < 2) return;
+    const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const padded = b64 + '='.repeat((4 - (b64.length % 4)) % 4);
+    const json = JSON.parse(atob(padded)) as { sub?: string; iss?: string };
+    const sub = typeof json.sub === 'string' ? json.sub : null;
+    console.warn(`[SAINTLY-VOICE] ${label}`, {
+      jwt_sub_identity: sub,
+      jwt_iss_tail: typeof json.iss === 'string' ? json.iss.slice(-12) : null,
+    });
+  } catch {
+    // ignore parse errors
+  }
+}
+
+async function ensureVoiceSingletonWithListeners(): Promise<void> {
+  if (voiceSingleton) return;
+  const { Voice, CallInvite } = await loadVoiceModule();
+  voiceSingleton = new Voice();
+
+  voiceSingleton.on(Voice.Event.CallInvite, (invite: TwilioCallInviteNative) => {
+    const sid = invite.getCallSid();
+    inviteByCallSid.set(sid, invite);
+
+    invite.on(CallInvite.Event.Cancelled, () => {
+      inviteByCallSid.delete(sid);
+      activeCallByCallSid.delete(sid);
+    });
+
+    const custom = invite.getCustomParameters() as Record<string, string>;
+    console.warn('[SAINTLY-VOICE] CallInvite received', {
+      callSid: sid.slice(0, 12),
+      from: invite.getFrom(),
+      to: invite.getTo(),
+    });
+    emitIncoming({
+      id: sid,
+      from: invite.getFrom(),
+      to: invite.getTo(),
+      customParameters: custom,
+    });
+  });
+
+  voiceSingleton.on(Voice.Event.Error, (err: unknown) => {
+    console.warn('[SAINTLY-VOICE] Voice.Event.Error', err);
+  });
+
+  voiceSingleton.on(Voice.Event.Registered, () => {
+    console.warn('[SAINTLY-VOICE] Voice.Event.Registered (Twilio incoming-call registration OK)');
+  });
+
+  voiceSingleton.on(Voice.Event.Unregistered, () => {
+    console.warn('[SAINTLY-VOICE] Voice.Event.Unregistered');
+  });
+}
+
+async function runInitializePushRegistryOnce(): Promise<void> {
+  if (iosPushRegistryInitialized || !voiceSingleton) return;
+  if (iosPushRegistryInitInFlight) {
+    await iosPushRegistryInitInFlight;
+    return;
+  }
+  iosPushRegistryInitInFlight = (async () => {
+    try {
+      await voiceSingleton.initializePushRegistry();
+      iosPushRegistryInitialized = true;
+      console.warn('[SAINTLY-VOICE] iOS initializePushRegistry() completed (PushKit)');
+    } finally {
+      iosPushRegistryInitInFlight = null;
+    }
+  })();
+  await iosPushRegistryInitInFlight;
+}
+
 export const twilioVoiceService: TwilioVoiceService = {
+  async prepareIosPushRegistryEarly(): Promise<void> {
+    if (Constants.appOwnership === 'expo' || Platform.OS !== 'ios') {
+      return;
+    }
+    try {
+      await ensureVoiceSingletonWithListeners();
+      await runInitializePushRegistryOnce();
+    } catch (e) {
+      console.warn('[SAINTLY-VOICE] prepareIosPushRegistryEarly failed', e);
+    }
+  },
+
   async initializeWithToken(response: SoftphoneTokenResponse): Promise<void> {
     if (Constants.appOwnership === 'expo') {
       if (__DEV__) {
@@ -77,44 +171,55 @@ export const twilioVoiceService: TwilioVoiceService = {
 
     const token = response.token.trim();
     if (!token) return;
+
+    const identityFromApi = typeof response.identity === 'string' ? response.identity.trim() : '';
+    console.warn('[SAINTLY-VOICE] initializeWithToken', {
+      hasToken: true,
+      twilio_identity_from_api: identityFromApi || '(empty)',
+    });
+    logJwtIdentityForDiagnostics(token, 'access_token_jwt_claims');
+
     if (lastRegisteredToken === token && voiceSingleton) {
+      console.warn('[SAINTLY-VOICE] skip — same access token already registered with native Voice');
       return;
     }
 
-    const { Voice, CallInvite } = await loadVoiceModule();
-
-    if (!voiceSingleton) {
-      voiceSingleton = new Voice();
-
-      voiceSingleton.on(Voice.Event.CallInvite, (invite: TwilioCallInviteNative) => {
-        const sid = invite.getCallSid();
-        inviteByCallSid.set(sid, invite);
-
-        invite.on(CallInvite.Event.Cancelled, () => {
-          inviteByCallSid.delete(sid);
-          activeCallByCallSid.delete(sid);
-        });
-
-        const custom = invite.getCustomParameters() as Record<string, string>;
-        emitIncoming({
-          id: sid,
-          from: invite.getFrom(),
-          to: invite.getTo(),
-          customParameters: custom,
-        });
-      });
-
-      voiceSingleton.on(Voice.Event.Error, (err: unknown) => {
-        console.warn('[twilioVoiceService] Voice.Event.Error', err);
-      });
-    }
+    await ensureVoiceSingletonWithListeners();
 
     if (Platform.OS === 'ios') {
-      await voiceSingleton.initializePushRegistry();
+      await runInitializePushRegistryOnce();
     }
 
+    console.warn('[SAINTLY-VOICE] calling Voice.register(accessToken)…');
     await voiceSingleton.register(token);
     lastRegisteredToken = token;
+    console.warn('[SAINTLY-VOICE] Voice.register() promise resolved');
+
+    if (Platform.OS === 'ios') {
+      try {
+        const dt = await voiceSingleton.getDeviceToken();
+        const preview =
+          typeof dt === 'string' && dt.length > 0
+            ? `${dt.slice(0, 16)}… (len ${dt.length})`
+            : String(dt);
+        console.warn('[SAINTLY-VOICE] PushKit / native device token after register', preview);
+      } catch (e) {
+        console.warn('[SAINTLY-VOICE] getDeviceToken() after register failed', e);
+      }
+    }
+  },
+
+  async getNativeDeviceToken(): Promise<string | null> {
+    if (Constants.appOwnership === 'expo' || Platform.OS !== 'ios' || !voiceSingleton) {
+      return null;
+    }
+    try {
+      const t = await voiceSingleton.getDeviceToken();
+      return typeof t === 'string' && t.trim() ? t.trim() : null;
+    } catch (e) {
+      console.warn('[SAINTLY-VOICE] getNativeDeviceToken failed', e);
+      return null;
+    }
   },
 
   async destroy(): Promise<void> {
@@ -136,6 +241,8 @@ export const twilioVoiceService: TwilioVoiceService = {
       }
     }
     lastRegisteredToken = null;
+    iosPushRegistryInitialized = false;
+    iosPushRegistryInitInFlight = null;
     voiceSingleton?.removeAllListeners?.();
     voiceSingleton = null;
   },

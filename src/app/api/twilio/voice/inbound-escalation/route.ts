@@ -14,6 +14,7 @@ import {
   resolveEscalationBackupRingTimeoutSeconds,
   resolveEscalationPstnRingTimeoutSeconds,
 } from "@/lib/phone/voice-escalation-config";
+import { inferTwilioDialAnswerPath, logInboundVoiceDebug } from "@/lib/phone/twilio-voice-debug";
 import { buildSaintlyVoicemailRecordTwiml, resolveTwilioVoicePublicBase } from "@/lib/phone/twilio-voicemail-twiml";
 import { updateVoiceCallSessionEscalation } from "@/lib/phone/voice-call-sessions";
 import { normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
@@ -52,6 +53,14 @@ export async function POST(req: NextRequest) {
   const publicBase = resolveTwilioVoicePublicBase();
 
   if (dialStatus === "completed") {
+    const to = (params.To ?? "").trim();
+    logInboundVoiceDebug("dial_leg_completed", {
+      handler: "inbound-escalation",
+      answered_via: inferTwilioDialAnswerPath(to),
+      to_param_tail: to.toLowerCase().startsWith("client:")
+        ? `client:…${to.slice(-10)}`
+        : `…${to.replace(/\D/g, "").slice(-4)}`,
+    });
     const xml = `<?xml version="1.0" encoding="UTF-8"?><Response></Response>`;
     logTwilioVoiceTrace({
       route: "POST /api/twilio/voice/inbound-escalation",

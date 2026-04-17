@@ -88,6 +88,14 @@ export async function POST(req: Request) {
     row.voip_token = voipPushToken;
   }
 
+  console.log(LOG, "request", {
+    reqId,
+    platform,
+    fcmTokenLen: fcmToken.length,
+    voipPushTokenLen: voipPushToken.length,
+    twilioIdentityTail: twilioIdentity.length >= 12 ? twilioIdentity.slice(-12) : twilioIdentity,
+  });
+
   const { error } = await supabase.from("devices").upsert(row, {
     onConflict: "user_id,fcm_token",
   });

@@ -15,6 +15,11 @@ import {
 } from "@/lib/softphone/inbound-staff-ids";
 import { normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
 import { softphoneTwilioClientIdentity } from "@/lib/softphone/twilio-client-identity";
+import {
+  isTwilioVoiceDebugPstnFallbackDisabled,
+  logInboundVoiceDebug,
+  uuidTail,
+} from "@/lib/phone/twilio-voice-debug";
 
 /**
  * Raw PSTN ring target from Vercel/Railway (`TWILIO_VOICE_RING_E164`).
@@ -113,6 +118,13 @@ export function buildInboundPstnOnlyDialTwiml(input: {
   dialTimeoutSeconds?: number;
   dialActionUrlOverride?: string;
 }): string | null {
+  if (isTwilioVoiceDebugPstnFallbackDisabled()) {
+    logInboundVoiceDebug("pstn_fallback_suppressed", {
+      reason: "TWILIO_VOICE_DEBUG_DISABLE_PSTN_FALLBACK",
+      step: "buildInboundPstnOnlyDialTwiml",
+    });
+    return null;
+  }
   const pstnRingNormalized =
     input.ringE164Raw.trim().length > 0 ? normalizeDialInputToE164(input.ringE164Raw.trim()) : null;
   if (!pstnRingNormalized) {
@@ -156,6 +168,14 @@ export function buildInboundPstnCascadeDialTwiml(input: {
   pstnRingNormalized: string;
   dialTimeoutSeconds?: number;
 }): string | null {
+  if (isTwilioVoiceDebugPstnFallbackDisabled()) {
+    logInboundVoiceDebug("pstn_fallback_suppressed", {
+      reason: "TWILIO_VOICE_DEBUG_DISABLE_PSTN_FALLBACK",
+      step: "buildInboundPstnCascadeDialTwiml",
+      pstn_ring_key_tail: phoneKeyForLoopCompare(input.pstnRingNormalized)?.slice(-4) ?? null,
+    });
+    return null;
+  }
   if (isPstnHandoffAiLoopRisk(input.pstnRingNormalized, input.callerId)) {
     return null;
   }
@@ -278,6 +298,14 @@ export async function buildVoiceHandoffTwiml(input: {
         dial_action: "inbound-browser-fallback_then_pstn_via_TWILIO_VOICE_RING_E164",
       })
     );
+    logInboundVoiceDebug("primary_client_dial_targets", {
+      path: "legacy_buildVoiceHandoffTwiml",
+      identities: clientIdentitiesForTwilio,
+      user_id_tails: inboundBrowserStaffIds.map((id) => uuidTail(id)),
+      ring_timeout_sec: browserRingSec,
+      dial_action_url: browserFallbackActionUrl,
+      pstn_fallback_after_timeout: !isTwilioVoiceDebugPstnFallbackDisabled(),
+    });
 
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
@@ -331,6 +359,14 @@ export async function buildVoiceHandoffTwiml(input: {
     })
   );
 
+  if (isTwilioVoiceDebugPstnFallbackDisabled()) {
+    logInboundVoiceDebug("pstn_only_leg_suppressed", {
+      path: "buildVoiceHandoffTwiml_branch_pstn_only",
+      reason: "TWILIO_VOICE_DEBUG_DISABLE_PSTN_FALLBACK",
+    });
+    return null;
+  }
+
   return buildPstnNumberDialOpeningResponseXml({
     openingSay,
     publicBase,
@@ -379,6 +415,13 @@ export async function buildEscalationInboundVoiceTwiml(input: {
       primary_ring_sec: primaryRingSec,
     })
   );
+  logInboundVoiceDebug("escalation_client_targets", {
+    primary_identities: primaryIds.map((id) => softphoneTwilioClientIdentity(id)),
+    backup_identities: backupIds.map((id) => softphoneTwilioClientIdentity(id)),
+    primary_user_id_tails: primaryIds.map((id) => uuidTail(id)),
+    backup_user_id_tails: backupIds.map((id) => uuidTail(id)),
+    pstn_fallback_after_timeout: !isTwilioVoiceDebugPstnFallbackDisabled(),
+  });
 
   const openingSay =
     closing.trim().length > 0
@@ -422,6 +465,14 @@ export async function buildEscalationInboundVoiceTwiml(input: {
   }
 
   if (loopBlocked) {
+    return null;
+  }
+
+  if (isTwilioVoiceDebugPstnFallbackDisabled()) {
+    logInboundVoiceDebug("pstn_only_leg_suppressed", {
+      path: "buildEscalationInboundVoiceTwiml_pstn_only",
+      reason: "TWILIO_VOICE_DEBUG_DISABLE_PSTN_FALLBACK",
+    });
     return null;
   }
 

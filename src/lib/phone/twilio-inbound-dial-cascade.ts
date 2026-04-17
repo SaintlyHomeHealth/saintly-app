@@ -21,6 +21,11 @@ import {
 import type { CascadeStep, VoiceRoutingJsonV1 } from "@/lib/phone/voice-route-plan";
 import { softphoneTwilioClientIdentity } from "@/lib/softphone/twilio-client-identity";
 import { updateVoiceCallSessionEscalation, updateVoiceCallSessionRoutingJson } from "@/lib/phone/voice-call-sessions";
+import {
+  inferTwilioDialAnswerPath,
+  logInboundVoiceDebug,
+  uuidTail,
+} from "@/lib/phone/twilio-voice-debug";
 
 function escapeXml(text: string): string {
   return text
@@ -101,6 +106,12 @@ export function buildTwimlForCascadeStep(input: {
     if (step.userIds.length === 0) {
       return null;
     }
+    logInboundVoiceDebug("cascade_browser_dial_targets", {
+      cascade_step_label: step.label,
+      identities: step.userIds.map((id) => softphoneTwilioClientIdentity(id)),
+      user_id_tails: step.userIds.map((id) => uuidTail(id)),
+      ring_timeout_sec: browserRingSecondsForStep(step),
+    });
     const browserRingSec = browserRingSecondsForStep(step);
     const browserDialAttrs = publicBase
       ? ` answerOnBridge="true" timeout="${browserRingSec}" callerId="${escapeXml(
@@ -126,6 +137,10 @@ export function buildTwimlForCascadeStep(input: {
   }
 
   if (step.kind === "pstn") {
+    logInboundVoiceDebug("cascade_pstn_dial_start", {
+      label: step.label,
+      pstn_key_tail: step.e164.replace(/\D/g, "").slice(-4),
+    });
     return buildInboundPstnCascadeDialTwiml({
       publicBase,
       callerId: callerIdForPstnDial,
@@ -181,6 +196,12 @@ export async function handleInboundDialCascadePost(input: {
   const externalCallId = parentCallSid || callSid;
 
   if (dialStatus === "completed") {
+    const to = (params.To ?? "").trim();
+    logInboundVoiceDebug("dial_leg_completed", {
+      handler: "inbound-dial-cascade",
+      answered_via: inferTwilioDialAnswerPath(to),
+      to_param_tail: to.toLowerCase().startsWith("client:") ? `client:…${to.slice(-8)}` : `…${to.replace(/\D/g, "").slice(-4)}`,
+    });
     return `<?xml version="1.0" encoding="UTF-8"?><Response></Response>`;
   }
 

@@ -21,6 +21,7 @@ import {
   resolveBackupInboundStaffUserIdsAsync,
   resolveInboundBrowserStaffUserIdsAsync,
 } from "@/lib/softphone/inbound-staff-ids";
+import { logInboundVoiceDebug, uuidTail } from "@/lib/phone/twilio-voice-debug";
 import { normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
 
 export type InboundRouteType =
@@ -139,6 +140,17 @@ export async function buildVoiceInboundRoutePlan(now: Date = new Date()): Promis
 
   primaryUserIds = await filterUserIdsWithActiveVoiceDevices(primaryUserIds);
   backupUserIds = await filterUserIdsWithActiveVoiceDevices(backupUserIds);
+
+  logInboundVoiceDebug("business_route_plan", {
+    route_type: routeType,
+    after_hours: afterHours,
+    primary_ring_group_label: primaryLabel,
+    primary_user_id_tails: primaryUserIds.map((id) => uuidTail(id)),
+    backup_user_id_tails: backupUserIds.map((id) => uuidTail(id)),
+    primary_count: primaryUserIds.length,
+    backup_count: backupUserIds.length,
+    note: "Twilio identities are saintly_<uuid>; mobile VoIP requires matching Voice.register(token) and devices.is_active.",
+  });
 
   const voicemailVariant: VoicemailVariant = afterHours ? "after_hours" : "business_hours";
 

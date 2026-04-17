@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { inferTwilioDialAnswerPath, logInboundVoiceDebug } from "@/lib/phone/twilio-voice-debug";
 import { buildSaintlyVoicemailRecordTwiml, resolveTwilioVoicePublicBase } from "@/lib/phone/twilio-voicemail-twiml";
 import { parseVerifiedTwilioFormBody } from "@/lib/twilio/verify-form-post";
 
@@ -23,6 +24,15 @@ export async function POST(req: NextRequest) {
 
   const params = parsed.params;
   const dialStatus = (params.DialCallStatus || "").trim().toLowerCase();
+  const to = (params.To ?? "").trim();
+  logInboundVoiceDebug("dial_result_callback", {
+    dial_call_status: dialStatus,
+    answered_via: dialStatus === "completed" ? inferTwilioDialAnswerPath(to) : "n_a",
+    handler: "dial-result",
+    to_param_tail: to.toLowerCase().startsWith("client:")
+      ? `client:…${to.slice(-10)}`
+      : `…${to.replace(/\D/g, "").slice(-4)}`,
+  });
 
   const publicBase = resolveTwilioVoicePublicBase();
   if (!publicBase) {

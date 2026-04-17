@@ -106,14 +106,22 @@ function buildVoiceRegisterInjectJs(input: {
   twilioIdentity: string;
   platform: string;
   appVersion: string;
+  voipPushToken?: string | null;
 }): string {
   const url = voiceRegisterUrl();
-  const bodyStr = JSON.stringify({
+  const bodyObj: Record<string, string> = {
     fcmToken: input.fcmToken,
     platform: input.platform,
     twilioIdentity: input.twilioIdentity,
     appVersion: input.appVersion,
-  });
+  };
+  const voip = typeof input.voipPushToken === 'string' ? input.voipPushToken.trim() : '';
+  if (voip) {
+    bodyObj.voipPushToken = voip;
+  }
+  const bodyStr = JSON.stringify(bodyObj);
+  const bodyLen = bodyStr.length;
+  const voipLen = voip.length;
   return `(function(){
   var url = ${JSON.stringify(url)};
   var body = ${JSON.stringify(bodyStr)};
@@ -124,7 +132,8 @@ function buildVoiceRegisterInjectJs(input: {
       }
     } catch (e) {}
   }
-  post({ step: 'voice_register_begin', url: url });
+  post({ step: 'voice_register_begin', url: url, bodyCharLen: ${bodyLen} });
+  post({ step: 'voice_register_payload', url: url, twilioIdentity: ${JSON.stringify(input.twilioIdentity)}, platform: ${JSON.stringify(input.platform)}, appVersion: ${JSON.stringify(input.appVersion)}, fcmTokenLen: ${input.fcmToken.length}, voipPushTokenLen: ${voipLen} });
   fetch(url, {
     method: 'POST',
     credentials: 'include',
@@ -216,6 +225,8 @@ export function HomeScreen(_props: HomeScreenProps) {
 
   const webViewRef = useRef<WebView>(null);
   const fcmTokenRef = useRef<string | null>(null);
+  /** When `/api/softphone/token` posts before FCM is ready — flush POST `/voice/register` once FCM exists. */
+  const pendingVoiceRegisterRef = useRef<{ twilioIdentity: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [portalUri, setPortalUri] = useState(portalUrl);
   const [locationNote, setLocationNote] = useState<string | null>(null);
@@ -302,6 +313,35 @@ export function HomeScreen(_props: HomeScreenProps) {
     webViewRef.current.injectJavaScript(buildRegisterPushInjectJs(token, reason));
   }, []);
 
+  const injectWorkspaceVoiceRegister = useCallback(async (twilioIdentity: string, reason: string) => {
+    const t = fcmTokenRef.current;
+    if (!t || !twilioIdentity || !webViewRef.current || Constants.appOwnership === 'expo') {
+      console.warn('[SAINTLY-VOICE-REG] skip voice_register inject', {
+        reason,
+        hasFcm: Boolean(t),
+        hasIdentity: Boolean(twilioIdentity),
+      });
+      return;
+    }
+    const voip =
+      Platform.OS === 'ios' ? await twilioVoiceService.getNativeDeviceToken() : null;
+    console.warn('[SAINTLY-VOICE-REG] voice_register inject', {
+      reason,
+      twilioIdentity,
+      voipPushTokenLen: voip?.length ?? 0,
+    });
+    const appVersion = Constants.expoConfig?.version ?? '1.0.0';
+    webViewRef.current.injectJavaScript(
+      buildVoiceRegisterInjectJs({
+        fcmToken: t,
+        twilioIdentity,
+        platform: Platform.OS === 'ios' ? 'ios' : 'android',
+        appVersion,
+        voipPushToken: voip,
+      })
+    );
+  }, []);
+
   const runPingRegisterApi = useCallback(() => {
     if (!webViewRef.current) {
       setPingReqSummary('—');
@@ -330,6 +370,15 @@ export function HomeScreen(_props: HomeScreenProps) {
       timers.forEach(clearTimeout);
     };
   }, [fcmToken, loading, runPushRegistration]);
+
+  /** FCM arrived after WebView posted softphone token — complete `devices` row (incl. voip_token). */
+  useEffect(() => {
+    if (!fcmToken || loading || Constants.appOwnership === 'expo') return;
+    const pending = pendingVoiceRegisterRef.current;
+    if (!pending?.twilioIdentity || !webViewRef.current) return;
+    pendingVoiceRegisterRef.current = null;
+    void injectWorkspaceVoiceRegister(pending.twilioIdentity, 'fcm_ready_after_softphone_bridge');
+  }, [fcmToken, loading, injectWorkspaceVoiceRegister]);
 
   /**
    * Foreground / background-open only — navigates WebView when user interacts with a notification.
@@ -428,34 +477,43 @@ export function HomeScreen(_props: HomeScreenProps) {
           void Linking.openSettings();
         }
         if (msg.type === 'saintly-softphone-token' && typeof msg.token === 'string') {
-          void registerNativeTwilioWithAccessToken(msg.token);
-          console.warn('[SAINTLY-PUSH-REG] softphone_token_received');
           const identity = typeof msg.identity === 'string' ? msg.identity.trim() : '';
-          const t = fcmTokenRef.current;
-          const appVersion = Constants.expoConfig?.version ?? '1.0.0';
-          if (t && identity && webViewRef.current && Constants.appOwnership !== 'expo') {
-            webViewRef.current.injectJavaScript(
-              buildVoiceRegisterInjectJs({
-                fcmToken: t,
-                twilioIdentity: identity,
-                platform: Platform.OS === 'ios' ? 'ios' : 'android',
-                appVersion,
-              })
-            );
-          }
-          if (t) {
-            setTimeout(() => {
-              runPushRegistration('after_softphone_token');
-            }, 0);
-            setTimeout(() => {
-              runPushRegistration('after_softphone_token_delay_3s');
-            }, 3000);
-            setTimeout(() => {
-              runPushRegistration('after_softphone_token_delay_8s');
-            }, 8000);
-          } else {
-            console.warn('[SAINTLY-PUSH-REG] softphone_token_but_no_fcm');
-          }
+          void (async () => {
+            try {
+              console.warn('[SAINTLY-VOICE] WebView saintly-softphone-token', {
+                hasIdentity: Boolean(identity),
+              });
+              await registerNativeTwilioWithAccessToken(msg.token, identity);
+            } catch (e) {
+              console.warn('[SAINTLY-VOICE] registerNativeTwilioWithAccessToken failed', e);
+            }
+            const t = fcmTokenRef.current;
+            if (identity && t && webViewRef.current && Constants.appOwnership !== 'expo') {
+              pendingVoiceRegisterRef.current = null;
+              await injectWorkspaceVoiceRegister(identity, 'after_softphone_token');
+            } else if (identity && !t) {
+              pendingVoiceRegisterRef.current = { twilioIdentity: identity };
+              console.warn('[SAINTLY-VOICE-REG] deferring voice_register until FCM token exists');
+            } else if (!identity) {
+              console.warn(
+                '[SAINTLY-VOICE-REG] skip voice_register — missing identity in bridge message (expect /api/softphone/token `identity`)'
+              );
+            }
+            const tAfter = fcmTokenRef.current;
+            if (tAfter) {
+              setTimeout(() => {
+                runPushRegistration('after_softphone_token');
+              }, 0);
+              setTimeout(() => {
+                runPushRegistration('after_softphone_token_delay_3s');
+              }, 3000);
+              setTimeout(() => {
+                runPushRegistration('after_softphone_token_delay_8s');
+              }, 8000);
+            } else {
+              console.warn('[SAINTLY-PUSH-REG] softphone_token_but_no_fcm');
+            }
+          })();
         }
         if (msg.type === 'voice-register-log') {
           console.warn('[SAINTLY-VOICE-REG]', msg);
@@ -464,7 +522,7 @@ export function HomeScreen(_props: HomeScreenProps) {
         // ignore non-JSON messages
       }
     },
-    [runPushRegistration]
+    [runPushRegistration, injectWorkspaceVoiceRegister]
   );
 
   const fcmTokenPreview =
