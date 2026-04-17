@@ -96,11 +96,11 @@ export async function registerNativePushForCalls(): Promise<NativePushRegistrati
   });
 
   if (environment === 'expo_go') {
-    console.warn('[nativePushService] skip (Expo Go)', diagnostics);
+    console.warn('[SAINTLY-PUSH-START] nativePushService skip_expo_go', diagnostics);
     return empty({ errorText: 'Expo Go — use a dev or release native build.' });
   }
 
-  console.warn('[nativePushService] start', diagnostics);
+  console.warn('[SAINTLY-PUSH-START] nativePushService begin', diagnostics);
 
   try {
     const mod = await import('@react-native-firebase/messaging');
@@ -110,12 +110,12 @@ export async function registerNativePushForCalls(): Promise<NativePushRegistrati
     /** 1) Permission first (prompts on iOS when undecided). */
     const permissionStatus = await messaging().requestPermission();
     const permissionLabel = labelForAuthStatus(AuthorizationStatus, permissionStatus);
-    console.warn('[nativePushService] requestPermission', { permissionStatus, permissionLabel });
+    console.warn('[SAINTLY-PUSH-START] requestPermission', { permissionStatus, permissionLabel });
 
     if (Platform.OS === 'ios') {
       /** 2) Register with APNs before FCM token on iOS. */
       await messaging().registerDeviceForRemoteMessages();
-      console.warn('[nativePushService] registerDeviceForRemoteMessages OK');
+      console.warn('[SAINTLY-PUSH-START] registerDeviceForRemoteMessages OK');
     }
 
     /** 3) APNs token (iOS) — may be null briefly; still log. */
@@ -123,22 +123,18 @@ export async function registerNativePushForCalls(): Promise<NativePushRegistrati
     if (Platform.OS === 'ios') {
       try {
         apnsDeviceToken = await messaging().getAPNSToken();
-        console.warn(
-          '[nativePushService] getAPNSToken',
-          apnsDeviceToken ? `${apnsDeviceToken.slice(0, 16)}… (len ${apnsDeviceToken.length})` : null
-        );
+        console.warn('[SAINTLY-PUSH-START] getAPNSToken', {
+          apnsTokenLen: apnsDeviceToken ? apnsDeviceToken.length : 0,
+        });
       } catch (apnsErr) {
         const msg = apnsErr instanceof Error ? apnsErr.message : String(apnsErr);
-        console.warn('[nativePushService] getAPNSToken error', msg);
+        console.warn('[SAINTLY-PUSH-START] getAPNSToken error', msg);
       }
     }
 
     /** 4) FCM registration token. */
     const fcmToken = await messaging().getToken();
-    console.warn(
-      '[nativePushService] getToken',
-      fcmToken ? `${fcmToken.slice(0, 24)}… (len ${fcmToken.length})` : 'empty/null'
-    );
+    console.warn('[SAINTLY-PUSH-START] getToken', { fcmTokenLen: fcmToken ? fcmToken.length : 0 });
 
     const denied = permissionStatus === AuthorizationStatus.DENIED;
     let errorText: string | null = null;
@@ -159,7 +155,7 @@ export async function registerNativePushForCalls(): Promise<NativePushRegistrati
     };
   } catch (e) {
     const errorText = e instanceof Error ? e.message : String(e);
-    console.warn('[nativePushService] registerNativePushForCalls failed', errorText, e);
+    console.warn('[SAINTLY-PUSH-START] registerNativePushForCalls failed', errorText, e);
     return empty({ errorText });
   }
 }

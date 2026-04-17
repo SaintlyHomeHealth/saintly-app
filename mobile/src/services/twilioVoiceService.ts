@@ -198,11 +198,8 @@ export const twilioVoiceService: TwilioVoiceService = {
     if (Platform.OS === 'ios') {
       try {
         const dt = await voiceSingleton.getDeviceToken();
-        const preview =
-          typeof dt === 'string' && dt.length > 0
-            ? `${dt.slice(0, 16)}… (len ${dt.length})`
-            : String(dt);
-        console.warn('[SAINTLY-VOICE] PushKit / native device token after register', preview);
+        const voipLen = typeof dt === 'string' ? dt.length : 0;
+        console.warn('[SAINTLY-VOICE] native Twilio device token (PushKit) after register', { voipDeviceTokenLen: voipLen });
       } catch (e) {
         console.warn('[SAINTLY-VOICE] getDeviceToken() after register failed', e);
       }
