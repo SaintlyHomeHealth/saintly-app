@@ -13,6 +13,7 @@ function truncate(s: string, max: number): string {
 
 /**
  * Fire-and-forget SMS push after a Twilio inbound SMS is persisted (idempotent path skips).
+ * Called from the webhook immediately after insert so push is not blocked by conversation touch or AI.
  */
 export async function notifyInboundSmsAfterPersist(
   supabase: SupabaseClient,

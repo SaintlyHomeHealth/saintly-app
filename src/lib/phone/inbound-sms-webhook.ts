@@ -119,6 +119,15 @@ export async function applyInboundTwilioSms(
     });
   }
 
+  // Fast path: start push as soon as the inbound row exists — do not block on AI or conversation touch.
+  console.log("[sms-inbound] scheduling push notify", { conversationId, messageId: insertedMsg?.id });
+  void notifyInboundSmsAfterPersist(supabase, {
+    conversationId,
+    bodyPreview: body,
+    fromE164: fromE164,
+    externalMessageSid: messageSid,
+  });
+
   if (process.env.SMS_AI_SUGGESTIONS_DISABLED !== "1" && insertedMsg?.id) {
     scheduleSmsReplySuggestionGeneration(supabase, conversationId, String(insertedMsg.id), fromE164);
   }
@@ -132,14 +141,6 @@ export async function applyInboundTwilioSms(
   if (touchErr) {
     console.warn("[sms-inbound] last_message_at touch:", touchErr.message);
   }
-
-  console.log("[sms-inbound] scheduling push notify", { conversationId, messageId: insertedMsg?.id });
-  void notifyInboundSmsAfterPersist(supabase, {
-    conversationId,
-    bodyPreview: body,
-    fromE164: fromE164,
-    externalMessageSid: messageSid,
-  });
 
   return { ok: true };
 }
