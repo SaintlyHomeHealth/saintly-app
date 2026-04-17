@@ -42,7 +42,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       'aps-environment': 'production',
     },
     /** CFBundleVersion — must increase for each App Store / TestFlight upload. */
-    buildNumber: '8',
+    buildNumber: '10',
     googleServicesFile: './GoogleService-Info.plist',
     infoPlist: {
       NSMicrophoneUsageDescription:
