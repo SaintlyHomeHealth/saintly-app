@@ -37,6 +37,10 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ios: {
     supportsTablet: true,
     bundleIdentifier: 'com.saintlyhomehealth.app',
+    /** Push: TestFlight / App Store use production APNs; dev builds may override via profile if needed. */
+    entitlements: {
+      'aps-environment': 'production',
+    },
     /** CFBundleVersion — must increase for each App Store / TestFlight upload. */
     buildNumber: '7',
     googleServicesFile: './GoogleService-Info.plist',
