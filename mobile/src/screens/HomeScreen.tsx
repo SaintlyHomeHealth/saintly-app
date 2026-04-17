@@ -29,7 +29,7 @@ import type { HomeScreenProps } from '../navigation/types';
 
 /** Workspace phone keypad; base from `env` (see `app.config.ts` / `EXPO_PUBLIC_API_BASE_URL`). */
 function portalUrl(): string {
-  const base = env.apiBaseUrl.replace(/\/$/, '') || 'https://appsaintlyhomehealth.com';
+  const base = env.apiBaseUrl.replace(/\/$/, '') || DEFAULT_PRODUCTION_API_ORIGIN;
   return `${base}/workspace/phone/keypad`;
 }
 
@@ -59,32 +59,45 @@ function buildRegisterPushInjectJs(fcmToken: string, attemptReason: string): str
     }
   }
   post({ step: 'inject_begin', attemptReason: attemptReason, url: url });
-  post({ step: 'url', url: url, credentials: 'include', bodyLength: body.length });
-  post({ step: 'fetch_start', url: url });
+  post({
+    step: 'register_meta',
+    url: url,
+    method: 'POST',
+    payload: body,
+    redirect: 'follow',
+    credentials: 'include'
+  });
   fetch(url, {
     method: 'POST',
     credentials: 'include',
+    redirect: 'follow',
     headers: { 'Content-Type': 'application/json' },
     body: body
   })
     .then(function (res) {
       return res.text().then(function (text) {
+        var raw = text.length > 6000 ? text.slice(0, 6000) + '…[truncated]' : text;
         post({
-          step: 'response',
+          step: 'register_done',
           status: res.status,
           ok: res.ok,
-          bodyText: text.length > 2000 ? text.slice(0, 2000) + '…' : text
+          rawText: raw
         });
       });
     })
     .catch(function (err) {
-      post({ step: 'fetch_error', message: String(err && err.message ? err.message : err) });
+      post({
+        step: 'register_throw',
+        name: err && err.name ? String(err.name) : 'Error',
+        message: err && err.message ? String(err.message) : String(err),
+        stack: err && err.stack ? String(err.stack) : ''
+      });
     });
   true;
 })();`;
 }
 
-/** Minimal POST from WebView to probe /api/workspace/mobile/push/register (session cookies). */
+/** GET fetch to same host as WebView — avoids cross-subdomain cookie / fetch issues vs www. */
 function buildPingRegisterInjectJs(): string {
   const registerUrl = pushRegisterUrl();
   return `(function(){
@@ -96,25 +109,26 @@ function buildPingRegisterInjectJs(): string {
       }
     } catch (e) {}
   }
-  post({ step: 'ping_start', url: url });
-  fetch(url, {
-    method: 'POST',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    body: '{}'
-  })
+  post({ step: 'ping_meta', url: url, method: 'GET', redirect: 'follow', credentials: 'include' });
+  fetch(url, { method: 'GET', credentials: 'include', redirect: 'follow' })
     .then(function (res) {
       return res.text().then(function (text) {
+        var raw = text.length > 6000 ? text.slice(0, 6000) + '…[truncated]' : text;
         post({
-          step: 'ping_response',
+          step: 'ping_done',
           status: res.status,
           ok: res.ok,
-          bodyText: text.length > 2000 ? text.slice(0, 2000) + '…' : text
+          rawText: raw
         });
       });
     })
     .catch(function (err) {
-      post({ step: 'ping_error', message: String(err && err.message ? err.message : err) });
+      post({
+        step: 'ping_throw',
+        name: err && err.name ? String(err.name) : 'Error',
+        message: err && err.message ? String(err.message) : String(err),
+        stack: err && err.stack ? String(err.stack) : ''
+      });
     });
   true;
 })();`;
@@ -164,12 +178,12 @@ export function HomeScreen(_props: HomeScreenProps) {
   const [lastRegAttemptReason, setLastRegAttemptReason] = useState<string>('—');
   const [currentWebViewUrl, setCurrentWebViewUrl] = useState<string>('—');
   const [webViewRefAttached, setWebViewRefAttached] = useState(false);
-  const [regFetchStatus, setRegFetchStatus] = useState<number | null>(null);
-  const [regFetchBody, setRegFetchBody] = useState<string>('—');
-  const [regFetchError, setRegFetchError] = useState<string>('—');
-  const [pingFetchStatus, setPingFetchStatus] = useState<number | null>(null);
-  const [pingFetchBody, setPingFetchBody] = useState<string>('—');
-  const [pingFetchError, setPingFetchError] = useState<string>('—');
+  const [regReqSummary, setRegReqSummary] = useState<string>('—');
+  const [regResSummary, setRegResSummary] = useState<string>('—');
+  const [regThrowSummary, setRegThrowSummary] = useState<string>('—');
+  const [pingReqSummary, setPingReqSummary] = useState<string>('—');
+  const [pingResSummary, setPingResSummary] = useState<string>('—');
+  const [pingThrowSummary, setPingThrowSummary] = useState<string>('—');
   const [pushRefreshBusy, setPushRefreshBusy] = useState(false);
 
   const apiOrigin = env.apiBaseUrl.replace(/\/$/, '') || DEFAULT_PRODUCTION_API_ORIGIN;
@@ -227,19 +241,22 @@ export function HomeScreen(_props: HomeScreenProps) {
       console.warn('[SAINTLY-PUSH-REG] register_url_custom', url);
     }
     console.warn('[SAINTLY-PUSH-REG] inject_js', { reason, url });
+    setRegReqSummary('…');
+    setRegResSummary('…');
+    setRegThrowSummary('…');
     webViewRef.current.injectJavaScript(buildRegisterPushInjectJs(token, reason));
   }, []);
 
   const runPingRegisterApi = useCallback(() => {
     if (!webViewRef.current) {
-      setPingFetchError('no_webview_ref');
-      setPingFetchStatus(null);
-      setPingFetchBody('—');
+      setPingReqSummary('—');
+      setPingResSummary('—');
+      setPingThrowSummary('no_webview_ref');
       return;
     }
-    setPingFetchError('…');
-    setPingFetchBody('…');
-    setPingFetchStatus(null);
+    setPingReqSummary('…');
+    setPingResSummary('…');
+    setPingThrowSummary('…');
     webViewRef.current.injectJavaScript(buildPingRegisterInjectJs());
   }, []);
 
@@ -305,28 +322,47 @@ export function HomeScreen(_props: HomeScreenProps) {
         const msg = JSON.parse(raw) as WebViewBridgeMessage;
         if (msg.type === 'push-register-log') {
           const step = typeof msg.step === 'string' ? msg.step : '';
-          if (step === 'response' && typeof msg.status === 'number') {
-            setRegFetchStatus(msg.status);
-            setRegFetchBody(typeof msg.bodyText === 'string' ? msg.bodyText : JSON.stringify(msg));
-            setRegFetchError('—');
-            console.warn('[SAINTLY-PUSH-REG] fetch_response', {
-              status: msg.status,
-              ok: msg.ok,
-              bodyText: msg.bodyText,
-            });
-          } else if (step === 'fetch_error') {
-            setRegFetchError(typeof msg.message === 'string' ? msg.message : JSON.stringify(msg));
-            console.warn('[SAINTLY-PUSH-REG] fetch_network_error', msg);
-          } else if (step === 'ping_response' && typeof msg.status === 'number') {
-            setPingFetchStatus(msg.status);
-            setPingFetchBody(typeof msg.bodyText === 'string' ? msg.bodyText : JSON.stringify(msg));
-            setPingFetchError('—');
-            console.warn('[SAINTLY-PUSH-REG] ping_response', msg);
-          } else if (step === 'ping_error') {
-            setPingFetchError(typeof msg.message === 'string' ? msg.message : JSON.stringify(msg));
-            console.warn('[SAINTLY-PUSH-REG] ping_error', msg);
+          const m = msg as Record<string, unknown>;
+          if (step === 'register_meta') {
+            setRegReqSummary(
+              `url: ${String(m.url ?? '')}\nmethod: ${String(m.method ?? '')}\nredirect: ${String(m.redirect ?? '')}\ncredentials: ${String(m.credentials ?? '')}\npayload: ${String(m.payload ?? '')}`
+            );
+            setRegThrowSummary('—');
+            console.warn('[SAINTLY-PUSH-REG] register_meta', msg);
+          } else if (step === 'register_done') {
+            const raw = typeof m.rawText === 'string' ? m.rawText : '';
+            setRegResSummary(
+              `status: ${String(m.status ?? '')}\nok: ${String(m.ok)}\nraw (text, not assumed JSON):\n${raw}`
+            );
+            console.warn('[SAINTLY-PUSH-REG] register_done', { status: m.status, ok: m.ok, len: raw.length });
+          } else if (step === 'register_throw') {
+            setRegThrowSummary(
+              `name: ${String(m.name ?? '')}\nmessage: ${String(m.message ?? '')}\nstack:\n${String(m.stack ?? '')}`
+            );
+            setRegResSummary('—');
+            console.warn('[SAINTLY-PUSH-REG] register_throw', msg);
+          } else if (step === 'ping_meta') {
+            setPingReqSummary(
+              `url: ${String(m.url ?? '')}\nmethod: ${String(m.method ?? '')}\nredirect: ${String(m.redirect ?? '')}\ncredentials: ${String(m.credentials ?? '')}`
+            );
+            setPingThrowSummary('—');
+            console.warn('[SAINTLY-PUSH-REG] ping_meta', msg);
+          } else if (step === 'ping_done') {
+            const raw = typeof m.rawText === 'string' ? m.rawText : '';
+            setPingResSummary(
+              `status: ${String(m.status ?? '')}\nok: ${String(m.ok)}\nraw (text):\n${raw}`
+            );
+            console.warn('[SAINTLY-PUSH-REG] ping_done', msg);
+          } else if (step === 'ping_throw') {
+            setPingThrowSummary(
+              `name: ${String(m.name ?? '')}\nmessage: ${String(m.message ?? '')}\nstack:\n${String(m.stack ?? '')}`
+            );
+            setPingResSummary('—');
+            console.warn('[SAINTLY-PUSH-REG] ping_throw', msg);
           } else if (step === 'postMessage_failed') {
-            setRegFetchError(`postMessage: ${String((msg as { message?: string }).message ?? '')}`);
+            setRegThrowSummary(
+              `postMessage failed: ${String((msg as { message?: string }).message ?? '')}`
+            );
             console.warn('[SAINTLY-PUSH-REG] postMessage_failed', msg);
           } else {
             console.warn('[SAINTLY-PUSH-REG] webview_step', step, msg);
@@ -480,23 +516,29 @@ export function HomeScreen(_props: HomeScreenProps) {
           <Text style={styles.debugLine} selectable>
             last attempt: {lastRegAttemptReason}
           </Text>
+          <Text style={styles.debugSectionLabel}>POST register (WebView)</Text>
           <Text style={styles.debugLine} selectable>
-            register fetch status: {regFetchStatus ?? '—'}
+            {regReqSummary}
           </Text>
+          <Text style={styles.debugSectionLabel}>register response</Text>
           <Text style={styles.debugLine} selectable>
-            register body: {regFetchBody}
+            {regResSummary}
           </Text>
+          <Text style={styles.debugSectionLabel}>register throw</Text>
           <Text style={styles.debugLine} selectable>
-            register err: {regFetchError}
+            {regThrowSummary}
           </Text>
+          <Text style={styles.debugSectionLabel}>GET ping (WebView)</Text>
           <Text style={styles.debugLine} selectable>
-            ping status: {pingFetchStatus ?? '—'}
+            {pingReqSummary}
           </Text>
+          <Text style={styles.debugSectionLabel}>ping response</Text>
           <Text style={styles.debugLine} selectable>
-            ping body: {pingFetchBody}
+            {pingResSummary}
           </Text>
+          <Text style={styles.debugSectionLabel}>ping throw</Text>
           <Text style={styles.debugLine} selectable>
-            ping err: {pingFetchError}
+            {pingThrowSummary}
           </Text>
           <View style={styles.debugRow}>
             <Pressable
@@ -584,7 +626,7 @@ const styles = StyleSheet.create({
     minHeight: 0,
   },
   debugScroll: {
-    maxHeight: 300,
+    maxHeight: 360,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: '#f97316',
     backgroundColor: '#fff7ed',
@@ -596,6 +638,13 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#c2410c',
     marginBottom: 6,
+  },
+  debugSectionLabel: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#9a3412',
+    marginTop: 6,
+    marginBottom: 2,
   },
   debugLine: {
     fontSize: 9,

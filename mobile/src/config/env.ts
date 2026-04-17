@@ -11,7 +11,7 @@ function readExtra(): Extra {
 }
 
 /** Production portal + API origin (WebView + cookie-authenticated fetches must match this host). */
-export const DEFAULT_PRODUCTION_API_ORIGIN = 'https://appsaintlyhomehealth.com';
+export const DEFAULT_PRODUCTION_API_ORIGIN = 'https://www.appsaintlyhomehealth.com';
 
 /**
  * Single origin for WebView + push registration + softphone token in release builds.
