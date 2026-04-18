@@ -44,6 +44,7 @@ import {
   LEAD_INSURANCE_MAX_BYTES,
   sanitizeLeadInsuranceFileName,
 } from "@/lib/crm/lead-insurance-storage";
+import { sendAdmittedPatientToMeta } from "@/lib/integrations/meta/send-admitted-patient-to-meta";
 import { normalizeFbclid } from "@/lib/crm/fbclid";
 import { isValidLeadSource } from "@/lib/crm/lead-source-options";
 import {
@@ -1185,7 +1186,7 @@ export async function updateLeadIntake(formData: FormData) {
     supabaseAdmin
       .from("leads")
       .select(
-        "id, status, owner_user_id, next_action, follow_up_date, referring_doctor_name, doctor_office_name, doctor_office_phone, doctor_office_fax, doctor_office_contact_person, referring_provider_name, referring_provider_phone, payer_name, payer_type, primary_payer_type, primary_payer_name, secondary_payer_type, secondary_payer_name, referral_source, service_disciplines, service_type, intake_status, notes, external_source_metadata, medicare_number, medicare_effective_date, medicare_notes, lead_temperature"
+        "id, status, fbclid, owner_user_id, next_action, follow_up_date, referring_doctor_name, doctor_office_name, doctor_office_phone, doctor_office_fax, doctor_office_contact_person, referring_provider_name, referring_provider_phone, payer_name, payer_type, primary_payer_type, primary_payer_name, secondary_payer_type, secondary_payer_name, referral_source, service_disciplines, service_type, intake_status, notes, external_source_metadata, medicare_number, medicare_effective_date, medicare_notes, lead_temperature"
       )
       .eq("id", leadId)
   ).maybeSingle();
@@ -1265,6 +1266,19 @@ export async function updateLeadIntake(formData: FormData) {
   if (error) {
     console.warn("[admin/crm] updateLeadIntake:", error.message);
     return;
+  }
+
+  if (
+    pipelineStatus !== null &&
+    (normStr(pipelineStatus) ?? "").toLowerCase() === "admitted" &&
+    (normStr(B.status) ?? "").toLowerCase() !== "admitted"
+  ) {
+    const fbRaw = typeof (B as Record<string, unknown>).fbclid === "string" ? (B as Record<string, unknown>).fbclid : null;
+    await sendAdmittedPatientToMeta({
+      id: leadId,
+      fbclid: fbRaw,
+      lead_status: "admitted",
+    });
   }
 
   const beforeIr = parseLeadIntakeRequestFromMetadata(B.external_source_metadata);

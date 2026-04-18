@@ -12,6 +12,7 @@ export const LEAD_PIPELINE_STATUS_OPTIONS = [
   { value: "verify_insurance", label: "Verify insurance" },
   { value: "waiting_on_referral", label: "Pending doctor / referral" },
   { value: "ready_to_convert", label: "Scheduled / ready to admit" },
+  { value: "admitted", label: "Admitted" },
   { value: "converted", label: "Converted" },
   { value: "dead_lead", label: "Dead / not qualified" },
 ] as const;
