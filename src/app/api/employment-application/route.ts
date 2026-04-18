@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { normalizeFbclid } from "@/lib/crm/fbclid";
 import { supabaseAdmin } from "@/lib/admin";
 import { normalizePhone } from "@/lib/phone/us-phone-format";
 import { notifyNewLeadCreatedPush } from "@/lib/push/notify-new-lead";
@@ -24,6 +25,8 @@ type Body = {
   available_start_date?: string;
   experience_message?: string;
   resume_url?: string;
+  /** Facebook click id from landing URL. */
+  fbclid?: string;
 };
 
 function trimStr(v: unknown, max: number): string {
@@ -70,6 +73,7 @@ export async function POST(req: Request) {
   const available_start_date = trimStr(body.available_start_date, 80);
   const experience_message = trimStr(body.experience_message, MAX_LEN);
   const resume_url = trimStr(body.resume_url, 2000);
+  const fbclid = normalizeFbclid(body.fbclid);
 
   const full_name = [first_name, last_name].filter(Boolean).join(" ").trim() || null;
 
@@ -172,6 +176,7 @@ export async function POST(req: Request) {
       referral_source: "Saintly employment website",
       notes,
       external_source_metadata,
+      ...(fbclid ? { fbclid } : {}),
     })
     .select("id")
     .single();

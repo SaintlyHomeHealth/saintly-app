@@ -44,6 +44,7 @@ import {
   LEAD_INSURANCE_MAX_BYTES,
   sanitizeLeadInsuranceFileName,
 } from "@/lib/crm/lead-insurance-storage";
+import { normalizeFbclid } from "@/lib/crm/fbclid";
 import { isValidLeadSource } from "@/lib/crm/lead-source-options";
 import {
   hasAnyIntakeRequestDetail,
@@ -2915,6 +2916,7 @@ export async function createLeadManualFromCrm(formData: FormData) {
 
   const intake = readIntakeRequestFromForm(formData);
   const extMeta = hasAnyIntakeRequestDetail(intake) ? { intake_request: intake } : null;
+  const fbclid = normalizeFbclid(readTrimmedField(formData, "fbclid"));
 
   const { data: contactRow, error: cErr } = await supabaseAdmin
     .from("contacts")
@@ -2955,6 +2957,7 @@ export async function createLeadManualFromCrm(formData: FormData) {
       contact_id: contactId,
       source: sourceRaw,
       status: "new",
+      ...(fbclid ? { fbclid } : {}),
       owner_user_id: readOptionalOwnerUserId(formData),
       next_action: readLeadNextActionFromForm(formData),
       follow_up_date: readOptionalFollowUpDateIso(formData),

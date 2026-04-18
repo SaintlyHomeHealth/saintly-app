@@ -18,6 +18,7 @@ import { LeadFollowUpContextPanel } from "@/app/admin/crm/leads/_components/Lead
 import { LeadInsuranceSection } from "@/app/admin/crm/leads/_components/LeadInsuranceSection";
 import { LeadMedicareFields } from "@/app/admin/crm/leads/_components/LeadMedicareFields";
 import type { LeadActivityRow } from "@/lib/crm/lead-activities-timeline";
+import { LeadQualityControls } from "@/app/admin/crm/leads/_components/LeadQualityControls";
 import { LeadSectionCard } from "@/app/admin/crm/leads/_components/LeadSectionCard";
 import { LeadSnapshot } from "@/app/admin/crm/leads/_components/LeadSnapshot";
 import { MapboxUsAddressFields } from "@/components/address/MapboxUsAddressFields";
@@ -174,12 +175,16 @@ export type LeadWorkspaceExistingProps = {
   leadTemperature: string;
   /** `leads.waiting_on_doctors_orders` — patient intake only (not employee applicants). */
   waitingOnDoctorsOrders?: boolean;
+  /** `leads.lead_quality` — Meta conversion qualification. */
+  initialLeadQuality?: string | null;
 };
 
 export type LeadWorkspaceNewProps = {
   mode: "new";
   createErrorCode: string;
   staffOptions: LeadWorkspaceStaffOption[];
+  /** `fbclid` from landing URL (e.g. `?fbclid=…`) — stored on the new lead. */
+  initialFbclid?: string;
 };
 
 export type LeadWorkspaceProps = LeadWorkspaceExistingProps | LeadWorkspaceNewProps;
@@ -188,7 +193,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
   const inp = leadWorkspaceInputCls;
 
   if (props.mode === "new") {
-    const { createErrorCode, staffOptions } = props;
+    const { createErrorCode, staffOptions, initialFbclid = "" } = props;
     const errMsg = createErrorCode ? createLeadErrorMessage(createErrorCode) : null;
 
     return (
@@ -227,6 +232,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
         </div>
 
         <form action={createLeadManualFromCrm} className="space-y-6">
+          <input type="hidden" name="fbclid" value={initialFbclid} />
           <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
             <h2 className="text-sm font-semibold text-slate-900">Pipeline &amp; ownership</h2>
             <p className="mt-1 text-xs text-slate-500">
@@ -449,6 +455,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
     initialActivities,
     leadTemperature,
     waitingOnDoctorsOrders = false,
+    initialLeadQuality = null,
   } = props;
 
   const tomorrowIso = getCrmCalendarTomorrowIso();
@@ -478,6 +485,10 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
           <ArrowLeft className="h-4 w-4 shrink-0 text-slate-600" aria-hidden />
           Back to leads
         </Link>
+      </div>
+
+      <div className="mb-6">
+        <LeadQualityControls leadId={leadId} initialLeadQuality={initialLeadQuality} />
       </div>
 
       <nav

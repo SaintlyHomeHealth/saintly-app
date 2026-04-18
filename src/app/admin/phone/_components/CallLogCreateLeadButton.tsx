@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 type Props = {
   phoneCallId: string;
@@ -10,6 +10,16 @@ type Props = {
 export function CallLogCreateLeadButton({ phoneCallId, disabled }: Props) {
   const [pending, setPending] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [fbclid, setFbclid] = useState("");
+
+  useEffect(() => {
+    try {
+      const v = new URLSearchParams(window.location.search).get("fbclid");
+      if (v) setFbclid(v);
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   async function handleCreateLead() {
     setErr(null);
@@ -18,7 +28,11 @@ export function CallLogCreateLeadButton({ phoneCallId, disabled }: Props) {
       const res = await fetch("/api/leads/create-from-call", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phoneCallId, source: "phone" }),
+        body: JSON.stringify({
+          phoneCallId,
+          source: "phone",
+          ...(fbclid.trim() ? { fbclid: fbclid.trim() } : {}),
+        }),
       });
       const data = (await res.json()) as { ok?: boolean; error?: string };
       if (!res.ok || !data.ok) {

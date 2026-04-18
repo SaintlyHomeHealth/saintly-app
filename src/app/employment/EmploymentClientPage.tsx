@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { MarketingFinalCtaStrip } from "@/components/marketing/MarketingFinalCtaStrip";
 import { MarketingSiteFooter } from "@/components/marketing/MarketingSiteFooter";
@@ -66,6 +66,16 @@ export function EmploymentClientPage() {
   const [message, setMessage] = useState("");
 
   const [smsConsent, setSmsConsent] = useState(false);
+  const [fbclid, setFbclid] = useState("");
+
+  useEffect(() => {
+    try {
+      const v = new URLSearchParams(window.location.search).get("fbclid");
+      if (v) setFbclid(v);
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   const [form, setForm] = useState({
     first_name: "",
@@ -141,6 +151,7 @@ export function EmploymentClientPage() {
           available_start_date: form.available_start_date,
           experience_message: form.experience_message,
           resume_url: form.resume_url,
+          ...(fbclid.trim() ? { fbclid: fbclid.trim() } : {}),
         }),
       });
       const data = (await res.json()) as { ok?: boolean; error?: string };

@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
+import { normalizeFbclid } from "@/lib/crm/fbclid";
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { supabaseAdmin } from "@/lib/admin";
 import { findContactByIncomingPhone } from "@/lib/crm/find-contact-by-incoming-phone";
@@ -333,7 +334,10 @@ function leadStatusIsActive(status: unknown): boolean {
 
 export type CreateLeadFromContactResult = { ok: true; leadId: string } | { ok: false; error: string };
 
-export async function createLeadFromContact(contactId: string): Promise<CreateLeadFromContactResult> {
+export async function createLeadFromContact(
+  contactId: string,
+  options?: { fbclid?: string | null }
+): Promise<CreateLeadFromContactResult> {
   const staff = await getStaffProfile();
   if (!staff || !isPhoneWorkspaceUser(staff)) {
     return { ok: false, error: "forbidden" };
@@ -380,9 +384,15 @@ export async function createLeadFromContact(contactId: string): Promise<CreateLe
     return { ok: false, error: "active_lead_exists" };
   }
 
+  const fbclid = normalizeFbclid(options?.fbclid ?? null);
   const { data: inserted, error: insErr } = await supabaseAdmin
     .from("leads")
-    .insert({ contact_id: id, source: "phone", status: "new" })
+    .insert({
+      contact_id: id,
+      source: "phone",
+      status: "new",
+      ...(fbclid ? { fbclid } : {}),
+    })
     .select("id")
     .single();
 
@@ -419,14 +429,15 @@ export type CreateLeadFromPhoneCallIdResult =
  * Used by the admin call log and POST /api/leads/create-from-call.
  */
 export async function createLeadFromPhoneCallId(
-  phoneCallId: string
+  phoneCallId: string,
+  options?: { fbclid?: string | null }
 ): Promise<CreateLeadFromPhoneCallIdResult> {
   const contactRes = await createContactFromPhoneCall(phoneCallId);
   if (!contactRes.ok) {
     return { ok: false, error: contactRes.error };
   }
 
-  const leadRes = await createLeadFromContact(contactRes.contactId);
+  const leadRes = await createLeadFromContact(contactRes.contactId, options);
   if (leadRes.ok) {
     revalidatePath("/admin/crm/leads");
     revalidatePath(`/admin/crm/leads/${leadRes.leadId}`);
