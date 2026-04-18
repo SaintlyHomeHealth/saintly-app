@@ -18,13 +18,21 @@ export async function tryRegisterNativeTwilioFromPortalApi(
     return null;
   }
 
-  const bearerFromStore = await getStoredSupabaseAccessToken();
-  if (bearerFromStore) {
+  console.warn('[SAINTLY-TRACE] starting native bearer registration');
+
+  const token = await getStoredSupabaseAccessToken();
+  console.warn('[SAINTLY-TRACE] stored Supabase token after read', {
+    hasToken: Boolean(token),
+    tokenLength: token?.length ?? 0,
+  });
+
+  if (token) {
     const r = await fetchSoftphoneAccessToken({
-      getAccessToken: async () => bearerFromStore,
+      getAccessToken: async () => token,
     });
     if (r.token) {
       const identity = typeof r.identity === 'string' ? r.identity.trim() : '';
+      console.warn('[SAINTLY-TRACE] initializeWithToken invoking', { path: 'native_api_bearer', reason });
       console.warn('[SAINTLY-NATIVE-AUTH] initializeWithToken_call', {
         path: 'bearer',
         reason,
@@ -39,6 +47,7 @@ export async function tryRegisterNativeTwilioFromPortalApi(
   const rCookie = await fetchSoftphoneAccessToken({ credentialsInclude: true });
   if (rCookie.token) {
     const identity = typeof rCookie.identity === 'string' ? rCookie.identity.trim() : '';
+    console.warn('[SAINTLY-TRACE] initializeWithToken invoking', { path: 'native_api_cookie_fallback', reason });
     console.warn('[SAINTLY-NATIVE-AUTH] initializeWithToken_call', {
       path: 'cookie_fallback',
       reason,
@@ -51,8 +60,8 @@ export async function tryRegisterNativeTwilioFromPortalApi(
 
   console.warn('[SAINTLY-VOICE] native API register skipped', {
     reason,
-    bearerLen: bearerFromStore?.length ?? 0,
-    errBearer: bearerFromStore ? 'bearer_failed' : 'no_bearer',
+    bearerLen: token?.length ?? 0,
+    errBearer: token ? 'bearer_failed' : 'no_bearer',
     errCookie: rCookie.error ?? 'no_token',
   });
   return null;

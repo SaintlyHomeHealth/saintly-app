@@ -252,6 +252,10 @@ export function HomeScreen(_props: HomeScreenProps) {
 
   fcmTokenRef.current = fcmToken;
 
+  useEffect(() => {
+    console.warn('[SAINTLY-TRACE] HomeScreen mounted');
+  }, []);
+
   /** Cold launch: always open keypad — do not restore a previous deep link / notification path. */
   useEffect(() => {
     setPortalUri(portalUrl());
@@ -377,6 +381,7 @@ export function HomeScreen(_props: HomeScreenProps) {
     let cancelled = false;
 
     const run = (reason: string): void => {
+      console.warn('[SAINTLY-TRACE] native bearer registration scheduled run', { reason });
       void (async () => {
         if (cancelled) return;
         await runNativeSoftphoneRegistration(reason);
@@ -398,7 +403,10 @@ export function HomeScreen(_props: HomeScreenProps) {
     schedule(20000, 'retry_20s');
 
     const sub = AppState.addEventListener('change', (next) => {
-      if (next === 'active') run('appstate_active');
+      if (next === 'active') {
+        console.warn('[SAINTLY-TRACE] AppState active');
+        run('appstate_active');
+      }
     });
 
     return () => {
@@ -546,6 +554,10 @@ export function HomeScreen(_props: HomeScreenProps) {
           void (async () => {
             const raw = (msg as { access_token?: string | null }).access_token;
             const tok = typeof raw === 'string' && raw.trim() ? raw.trim() : null;
+            console.warn('[SAINTLY-TRACE] received saintly-supabase-access-token', {
+              hasToken: Boolean(tok),
+              tokenLength: tok?.length ?? 0,
+            });
             await setStoredSupabaseAccessToken(tok);
             console.warn('[SAINTLY-NATIVE-AUTH] rn_received_supabase_session_bridge', {
               hasToken: Boolean(tok),
@@ -557,12 +569,22 @@ export function HomeScreen(_props: HomeScreenProps) {
         if (msg.type === 'saintly-softphone-token' && typeof msg.token === 'string') {
           const identity = typeof msg.identity === 'string' ? msg.identity.trim() : '';
           void (async () => {
+            console.warn('[SAINTLY-TRACE] received saintly-softphone-token', {
+              hasTwilioJwt: true,
+              twilioJwtLength: msg.token.length,
+              identityLen: identity.length,
+            });
             try {
+              console.warn('[SAINTLY-TRACE] webview softphone token bridge retry start');
               console.warn('[SAINTLY-VOICE] WebView saintly-softphone-token', {
                 hasIdentity: Boolean(identity),
               });
               await registerNativeTwilioWithAccessToken(msg.token, identity);
+              console.warn('[SAINTLY-TRACE] webview softphone token bridge retry success');
             } catch (e) {
+              console.warn('[SAINTLY-TRACE] webview softphone token bridge retry fail', {
+                message: e instanceof Error ? e.message : String(e),
+              });
               console.warn('[SAINTLY-VOICE] registerNativeTwilioWithAccessToken failed', e);
             }
             const t = fcmTokenRef.current;
@@ -652,8 +674,12 @@ export function HomeScreen(_props: HomeScreenProps) {
           mediaPlaybackRequiresUserAction={false}
           /** iOS 15+ — grant WKWebView media capture so Twilio Voice (getUserMedia) can acquire the mic in-app. */
           mediaCapturePermissionGrantType="grant"
-          onLoadStart={() => setLoading(true)}
+          onLoadStart={() => {
+            console.warn('[SAINTLY-TRACE] WebView loading started');
+            setLoading(true);
+          }}
           onLoadEnd={() => {
+            console.warn('[SAINTLY-TRACE] WebView loading finished');
             setLoading(false);
             setWebViewRefAttached(true);
           }}

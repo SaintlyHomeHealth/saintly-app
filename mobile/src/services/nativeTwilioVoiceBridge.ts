@@ -11,6 +11,10 @@ import { twilioVoiceService } from './twilioVoiceService';
  */
 export async function registerNativeTwilioWithAccessToken(accessToken: string, identity?: string): Promise<void> {
   const id = typeof identity === 'string' ? identity.trim() : '';
+  console.warn('[SAINTLY-TRACE] calling native registration from webview token', {
+    twilioJwtLength: accessToken.length,
+    identityLength: id.length,
+  });
   console.warn('[SAINTLY-NATIVE-AUTH] initializeWithToken_call', {
     path: 'webview_softphone_token_bridge',
     identityTail: id.slice(-12),

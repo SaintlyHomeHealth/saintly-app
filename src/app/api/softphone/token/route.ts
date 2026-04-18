@@ -16,7 +16,18 @@ const VoiceGrant = AccessToken.VoiceGrant;
  * Outbound PSTN caller ID is set only via `TWILIO_SOFTPHONE_CALLER_ID_E164` on that route (not `TWILIO_VOICE_RING_E164`).
  */
 export async function GET(request: NextRequest) {
+  console.warn(
+    "[SAINTLY-TRACE]",
+    JSON.stringify({ route: "GET /api/softphone/token", step: "request_received" })
+  );
+
   const auth = request.headers.get("authorization");
+  const authPath = auth?.startsWith("Bearer ") ? "bearer" : "cookie";
+  console.warn(
+    "[SAINTLY-TRACE]",
+    JSON.stringify({ route: "GET /api/softphone/token", step: "auth_path", authPath })
+  );
+
   let staff = null;
   if (auth?.startsWith("Bearer ")) {
     const jwt = auth.slice(7).trim();
@@ -27,7 +38,17 @@ export async function GET(request: NextRequest) {
     staff = await getStaffProfile();
   }
 
+  const staffResolved = Boolean(staff && canAccessWorkspacePhone(staff));
+  console.warn(
+    "[SAINTLY-TRACE]",
+    JSON.stringify({ route: "GET /api/softphone/token", step: "staff_gate", staffResolved })
+  );
+
   if (!staff || !canAccessWorkspacePhone(staff)) {
+    console.warn(
+      "[SAINTLY-TRACE]",
+      JSON.stringify({ route: "GET /api/softphone/token", step: "response", tokenMinted: false, status: 401 })
+    );
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -37,6 +58,10 @@ export async function GET(request: NextRequest) {
   const twimlAppSid = process.env.TWILIO_SOFTPHONE_TWIML_APP_SID?.trim();
 
   if (!accountSid || !apiKeySid || !apiKeySecret || !twimlAppSid) {
+    console.warn(
+      "[SAINTLY-TRACE]",
+      JSON.stringify({ route: "GET /api/softphone/token", step: "response", tokenMinted: false, status: 503 })
+    );
     return NextResponse.json(
       { error: "Softphone is not configured (Twilio API key / TwiML app)." },
       { status: 503 }
@@ -71,6 +96,17 @@ export async function GET(request: NextRequest) {
   token.addGrant(voiceGrant);
 
   const jwt = token.toJwt();
+
+  console.warn(
+    "[SAINTLY-TRACE]",
+    JSON.stringify({
+      route: "GET /api/softphone/token",
+      step: "response",
+      tokenMinted: true,
+      status: 200,
+      twilioJwtLength: jwt.length,
+    })
+  );
 
   return NextResponse.json({
     token: jwt,

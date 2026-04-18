@@ -52,6 +52,7 @@ export async function fetchSoftphoneAccessToken(
       ? 'cookie'
       : 'omit';
 
+  console.warn('[SAINTLY-TRACE] /api/softphone/token request start', { authMode });
   console.warn('[SAINTLY-NATIVE-AUTH] softphone_token_request_start', {
     authMode,
     url,
@@ -64,6 +65,8 @@ export async function fetchSoftphoneAccessToken(
     signal: options.signal,
     credentials,
   });
+
+  console.warn('[SAINTLY-TRACE] /api/softphone/token response', { status: res.status, ok: res.ok });
 
   const body = (await res.json().catch(() => ({}))) as SoftphoneTokenResponse;
 
