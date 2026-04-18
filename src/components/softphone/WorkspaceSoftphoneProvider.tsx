@@ -279,13 +279,45 @@ function formatDialpadDisplay(raw: string): string {
   return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6, 10)}${d.length > 10 ? ` ${d.slice(10)}` : ""}`;
 }
 
+/** Avoid showing UUIDs / opaque tokens as a “phone number” (Twilio custom params can carry junk). */
+function looksLikeUuidOrOpaqueToken(s: string): boolean {
+  const t = s.trim();
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(t)) return true;
+  const compact = t.replace(/-/g, "");
+  return /^[0-9a-f]{32}$/i.test(compact);
+}
+
+function safeCallerDisplayName(name: string | null | undefined): string | null {
+  const n = name?.trim();
+  if (!n) return null;
+  if (looksLikeUuidOrOpaqueToken(n)) return null;
+  return n;
+}
+
+function safeCallerSubtitle(sub: string | null | undefined): string | null {
+  const s = (sub ?? "").trim();
+  if (!s) return null;
+  if (looksLikeUuidOrOpaqueToken(s)) return null;
+  if (/^[0-9a-f]{8,}$/i.test(s.replace(/\s/g, ""))) return null;
+  return s;
+}
+
+/** Never pass junk CLI into NANP formatting (would look like a fake phone number). */
+function safeFormattedPhoneForUi(raw: string): string {
+  if (raw.toLowerCase().startsWith("client:")) return "Internal / browser call";
+  const t = raw.trim();
+  if (!t) return "Unknown caller";
+  if (looksLikeUuidOrOpaqueToken(t)) return "Caller ID unavailable";
+  return formatInboundCallerFromRaw(raw);
+}
+
 function formatIncomingCallerLine(
   name: string | null | undefined,
   subtitle: string | null | undefined,
   formattedNumber: string
 ): string {
-  const n = name?.trim();
-  const s = subtitle?.trim();
+  const n = safeCallerDisplayName(name);
+  const s = safeCallerSubtitle(subtitle);
   if (n && s) return `${n} · ${s} · ${formattedNumber}`;
   if (n) return `${n} · ${formattedNumber}`;
   return formattedNumber;
@@ -683,13 +715,13 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
           now
         );
         if (normalizePhone(pstnRaw).length >= 10) {
-          remoteLabel = formatInboundCallerFromRaw(pstnRaw);
+          remoteLabel = safeFormattedPhoneForUi(pstnRaw);
         } else {
           const tf = readTwilioParam(call, ["To", "From"]);
           if (tf?.toLowerCase().startsWith("client:")) {
             remoteLabel = "Internal / browser call";
           } else if (tf) {
-            remoteLabel = formatInboundCallerFromRaw(tf);
+            remoteLabel = safeFormattedPhoneForUi(tf);
           }
         }
       }
@@ -871,7 +903,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     const seededContactName = snapMatches && snap ? snap.contactName : null;
     const seededSubtitle = snapMatches && snap ? snap.subtitle : null;
 
-    const formattedNumber = formatInboundCallerFromRaw(raw);
+    const formattedNumber = safeFormattedPhoneForUi(raw);
     setIncomingCallerUi({
       rawFrom: raw,
       formattedNumber,
@@ -890,9 +922,11 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     void fetch(`/api/workspace/phone/incoming-caller-lookup?from=${q}`, { credentials: "include" })
       .then((r) => (r.ok ? r.json() : null))
       .then((j: { contactName?: unknown; subtitle?: unknown } | null) => {
-        const name = j && typeof j.contactName === "string" ? j.contactName.trim() : "";
-        const subtitle =
-          j && typeof j.subtitle === "string" && j.subtitle.trim() ? j.subtitle.trim() : null;
+        const rawName = j && typeof j.contactName === "string" ? j.contactName.trim() : "";
+        const name = safeCallerDisplayName(rawName);
+        const subtitle = safeCallerSubtitle(
+          j && typeof j.subtitle === "string" && j.subtitle.trim() ? j.subtitle.trim() : null
+        );
         if (cancelled || !name) return;
         setIncomingCallerUi((prev) =>
           prev && prev.rawFrom === raw ? { ...prev, contactName: name, subtitle } : prev
@@ -924,7 +958,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     const seededContactName = snapMatches && snap ? snap.contactName : null;
     const seededSubtitle = snapMatches && snap ? snap.subtitle : null;
 
-    const formattedNumber = formatInboundCallerFromRaw(raw);
+    const formattedNumber = safeFormattedPhoneForUi(raw);
     setCallWaitingCallerUi({
       rawFrom: raw,
       formattedNumber,
@@ -943,9 +977,11 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     void fetch(`/api/workspace/phone/incoming-caller-lookup?from=${q}`, { credentials: "include" })
       .then((r) => (r.ok ? r.json() : null))
       .then((j: { contactName?: unknown; subtitle?: unknown } | null) => {
-        const name = j && typeof j.contactName === "string" ? j.contactName.trim() : "";
-        const subtitle =
-          j && typeof j.subtitle === "string" && j.subtitle.trim() ? j.subtitle.trim() : null;
+        const rawName = j && typeof j.contactName === "string" ? j.contactName.trim() : "";
+        const name = safeCallerDisplayName(rawName);
+        const subtitle = safeCallerSubtitle(
+          j && typeof j.subtitle === "string" && j.subtitle.trim() ? j.subtitle.trim() : null
+        );
         if (cancelled || !name) return;
         setCallWaitingCallerUi((prev) =>
           prev && prev.rawFrom === raw ? { ...prev, contactName: name, subtitle } : prev
@@ -967,9 +1003,11 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     void fetch(`/api/workspace/phone/incoming-caller-lookup?from=${q}`, { credentials: "include" })
       .then((r) => (r.ok ? r.json() : null))
       .then((j: { contactName?: unknown; subtitle?: unknown } | null) => {
-        const name = j && typeof j.contactName === "string" ? j.contactName.trim() : "";
-        const subtitle =
-          j && typeof j.subtitle === "string" && j.subtitle.trim() ? j.subtitle.trim() : null;
+        const rawName = j && typeof j.contactName === "string" ? j.contactName.trim() : "";
+        const name = safeCallerDisplayName(rawName);
+        const subtitle = safeCallerSubtitle(
+          j && typeof j.subtitle === "string" && j.subtitle.trim() ? j.subtitle.trim() : null
+        );
         if (cancelled || !name) return;
         setInboundAiAssist((prev) =>
           prev && prev.rawFrom === raw ? { ...prev, contactName: name, subtitle } : prev
@@ -991,7 +1029,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       const formatted =
         uiMatches && incomingCallerUi?.formattedNumber
           ? incomingCallerUi.formattedNumber
-          : formatInboundCallerFromRaw(raw);
+          : safeFormattedPhoneForUi(raw);
       const name = uiMatches ? (incomingCallerUi?.contactName ?? null) : null;
       const sub = uiMatches ? (incomingCallerUi?.subtitle ?? null) : null;
       const remoteLabel = formatIncomingCallerLine(name, sub, formatted);
@@ -1008,13 +1046,13 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
           Date.now()
         );
         if (normalizePhone(pstnRaw).length >= 10) {
-          remote = formatInboundCallerFromRaw(pstnRaw);
+          remote = safeFormattedPhoneForUi(pstnRaw);
         } else {
           const tf = readTwilioParam(active, ["To", "From"]);
           if (tf?.toLowerCase().startsWith("client:")) {
             remote = "Internal / browser call";
           } else if (tf) {
-            remote = formatInboundCallerFromRaw(tf);
+            remote = safeFormattedPhoneForUi(tf);
           }
         }
       }
@@ -1034,7 +1072,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       const d = normalizePhone(r);
       const fmt =
         inboundAiAssist.formattedNumber ||
-        (d.length >= 10 ? formatPhoneNumber(r) : formatInboundCallerFromRaw(r));
+        (d.length >= 10 ? formatPhoneNumber(r) : safeFormattedPhoneForUi(r));
       const remote =
         inboundAiAssist.contactName && d.length >= 10
           ? formatIncomingCallerLine(inboundAiAssist.contactName, inboundAiAssist.subtitle, fmt)
@@ -1576,13 +1614,13 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
           now
         );
         if (normalizePhone(pstnRaw).length >= 10) {
-          activeRemoteLabel = formatInboundCallerFromRaw(pstnRaw);
+          activeRemoteLabel = safeFormattedPhoneForUi(pstnRaw);
         } else {
           const tf = readTwilioParam(active, ["To", "From"]);
           if (tf?.toLowerCase().startsWith("client:")) {
             activeRemoteLabel = "Internal / browser call";
           } else if (tf) {
-            activeRemoteLabel = formatInboundCallerFromRaw(tf);
+            activeRemoteLabel = safeFormattedPhoneForUi(tf);
           }
         }
       }

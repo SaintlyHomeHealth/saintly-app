@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { supabaseAdmin } from "@/lib/admin";
-import { normalizeInboundTwilioFromToE164, resolveInboundCallerInternal } from "@/lib/phone/inbound-caller-identity";
+import { resolveInboundCallerInternal } from "@/lib/phone/inbound-caller-identity";
 import { formatPhoneNumber, normalizePhone } from "@/lib/phone/us-phone-format";
 import { canAccessWorkspacePhone, getStaffProfile } from "@/lib/staff-profile";
 
@@ -45,19 +45,6 @@ export async function GET(req: NextRequest) {
     digitsKey.length >= 10 ? formatPhoneNumber(fromParam) : fromParam || "Unknown caller";
 
   if (digitsKey.length < 10) {
-    return NextResponse.json({
-      rawFrom: fromParam,
-      formattedNumber,
-      contactName: null as string | null,
-      display_name: null as string | null,
-      entity_type: "unknown" as const,
-      entity_id: null as string | null,
-      subtitle: null as string | null,
-    });
-  }
-
-  const e164Key = normalizeInboundTwilioFromToE164(fromParam);
-  if (!e164Key) {
     return NextResponse.json({
       rawFrom: fromParam,
       formattedNumber,

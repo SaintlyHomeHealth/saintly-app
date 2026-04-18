@@ -9,7 +9,7 @@ import {
   type InboundCallerIdentityUnified,
 } from "@/lib/phone/inbound-caller-identity-resolve";
 import type { InboundCallerDisplayJson, VoiceRoutingJsonV1 } from "@/lib/phone/voice-route-plan";
-import { formatPhoneNumber } from "@/lib/phone/us-phone-format";
+import { formatPhoneNumber, normalizePhone } from "@/lib/phone/us-phone-format";
 import { isValidE164, normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
 
 export { resolveInboundCallerIdentityUnified };
@@ -58,6 +58,18 @@ export function normalizeInboundTwilioFromToE164(raw: string | null | undefined)
 }
 
 /**
+ * Last-resort NANP E.164 for CRM lookup when strict normalization fails but digits look US-local.
+ */
+function inboundCallerE164KeyForLookup(raw: string): string | null {
+  const strict = normalizeInboundTwilioFromToE164(raw);
+  if (strict) return strict;
+  const d = normalizePhone(raw);
+  if (d.length === 10) return `+1${d}`;
+  if (d.length === 11 && d.startsWith("1")) return `+${d}`;
+  return null;
+}
+
+/**
  * Best-effort internal CRM + ops directory match (no external APIs). Safe to await alongside phone logging.
  */
 export async function resolveInboundCallerInternal(
@@ -84,7 +96,7 @@ export async function resolveInboundCallerInternal(
     };
   }
 
-  const e164Key = normalizeInboundTwilioFromToE164(raw);
+  const e164Key = inboundCallerE164KeyForLookup(raw);
   if (!e164Key) {
     return {
       e164,
