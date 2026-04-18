@@ -25,8 +25,30 @@ export type SendQualifiedLeadToMetaResult = {
 };
 
 const GRAPH_VERSION = "v23.0";
-const TIMEOUT_MS = 8000;
+const TIMEOUT_MS = 20000;
+const CONNECTIVITY_PROBE_TIMEOUT_MS = 10_000;
 const EVENT_SOURCE_URL = "https://www.appsaintlyhomehealth.com";
+
+/** Temporary: confirm Vercel can reach graph.facebook.com before the CAPI POST. */
+async function probeMetaConnectivity(): Promise<void> {
+  const start = Date.now();
+  const startIso = new Date(start).toISOString();
+  console.log("[meta-debug] connectivity probe start", { iso: startIso });
+  try {
+    const res = await fetch("https://graph.facebook.com/favicon.ico", {
+      method: "GET",
+      signal: AbortSignal.timeout(CONNECTIVITY_PROBE_TIMEOUT_MS),
+    });
+    const duration_ms = Date.now() - start;
+    console.log("[meta-debug] connectivity probe success", {
+      duration_ms,
+      httpStatus: res.status,
+    });
+  } catch (e) {
+    const duration_ms = Date.now() - start;
+    console.log("[meta-debug] connectivity probe failed", { duration_ms, error: e });
+  }
+}
 
 export async function sendQualifiedLeadToMeta(
   input: SendQualifiedLeadToMetaInput
@@ -126,14 +148,35 @@ export async function sendQualifiedLeadToMeta(
       access_token: "[REDACTED]",
     });
 
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(TIMEOUT_MS),
+    await probeMetaConnectivity();
+
+    const fetchStart = Date.now();
+    const fetchStartIso = new Date(fetchStart).toISOString();
+    console.log("[meta-debug] Meta CAPI fetch start", {
+      iso: fetchStartIso,
+      timestamp_ms: fetchStart,
     });
 
-    const text = await res.text().catch(() => "");
+    let res: Response;
+    let text = "";
+    try {
+      res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      });
+      text = await res.text().catch(() => "");
+    } finally {
+      const fetchEnd = Date.now();
+      const fetchEndIso = new Date(fetchEnd).toISOString();
+      const duration_ms = fetchEnd - fetchStart;
+      console.log("[meta-debug] Meta CAPI fetch end", {
+        iso: fetchEndIso,
+        timestamp_ms: fetchEnd,
+        duration_ms,
+      });
+    }
 
     console.log("[meta-debug] Meta CAPI response", {
       leadId,
