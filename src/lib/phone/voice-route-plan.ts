@@ -178,6 +178,12 @@ const VOICE_ROUTING_JSON_VERSION = 1 as const;
 export type InboundCallerDisplayJson = {
   caller_name: string | null;
   caller_name_source: "internal" | "lookup" | "number_only";
+  /** Same source as `caller_name` today; used for TwiML `caller_name` fallback ordering. */
+  display_name?: string | null;
+  /** NANP-style line; TwiML label fallback when no resolved name. */
+  formatted_number?: string | null;
+  /** E.164 for last-resort formatted CLI label (never sent as raw id). */
+  e164?: string | null;
   lead_id?: string | null;
   contact_id?: string | null;
   conversation_id?: string | null;

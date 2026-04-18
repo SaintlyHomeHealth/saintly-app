@@ -157,6 +157,9 @@ export async function resolveInboundCallerInternal(
 export function toRoutingInboundCallerDisplay(r: InboundCallerResolved): InboundCallerDisplayJson {
   return {
     caller_name: r.caller_name,
+    display_name: r.display_name,
+    formatted_number: r.formatted_number,
+    e164: r.e164,
     caller_name_source: r.caller_name_source,
     lead_id: r.lead_id,
     contact_id: r.contact_id,
@@ -167,11 +170,57 @@ export function toRoutingInboundCallerDisplay(r: InboundCallerResolved): Inbound
   };
 }
 
+/**
+ * Value for TwiML `<Parameter name="caller_name">` / mobile CallKit customParameters.
+ * Prefers CRM/lookup display; never entity UUIDs. Omits only when no human-readable label exists.
+ */
+function twimlCallerNameParameterFromParts(input: {
+  display_name: string | null | undefined;
+  caller_name: string | null | undefined;
+  formatted_number: string | null | undefined;
+  e164: string | null | undefined;
+}): string | null {
+  const a = sanitizeInboundDisplayText(input.display_name);
+  if (a) return a;
+  const b = sanitizeInboundDisplayText(input.caller_name);
+  if (b) return b;
+  const fmtRaw = (input.formatted_number ?? "").trim();
+  if (fmtRaw) {
+    const fmt = sanitizeInboundDisplayText(fmtRaw);
+    if (fmt) return fmt;
+  }
+  const raw = (input.e164 ?? "").trim();
+  if (!raw) return null;
+  const digits = normalizePhone(raw);
+  if (digits.length >= 10 && digits.length <= 15) {
+    return formatPhoneNumber(raw) || raw;
+  }
+  return null;
+}
+
+export function twimlCallerNameParameterFromResolved(r: InboundCallerResolved): string | null {
+  return twimlCallerNameParameterFromParts({
+    display_name: r.display_name,
+    caller_name: r.caller_name,
+    formatted_number: r.formatted_number,
+    e164: r.e164,
+  });
+}
+
+function twimlCallerNameParameterFromInboundCallerDisplay(d: InboundCallerDisplayJson): string | null {
+  return twimlCallerNameParameterFromParts({
+    display_name: d.display_name,
+    caller_name: d.caller_name,
+    formatted_number: d.formatted_number,
+    e164: d.e164,
+  });
+}
+
 export function clientDialExtrasFromRouting(r: VoiceRoutingJsonV1): InboundCallerClientDialExtras | null {
   const d = r.inbound_caller_display;
   if (!d) return null;
   return {
-    caller_name: d.caller_name,
+    caller_name: twimlCallerNameParameterFromInboundCallerDisplay(d),
     caller_name_source: d.caller_name_source,
     lead_id: d.lead_id ?? null,
     contact_id: d.contact_id ?? null,
@@ -182,7 +231,7 @@ export function clientDialExtrasFromRouting(r: VoiceRoutingJsonV1): InboundCalle
 export function toClientDialExtras(r: InboundCallerResolved | null | undefined): InboundCallerClientDialExtras | null {
   if (!r) return null;
   return {
-    caller_name: r.caller_name,
+    caller_name: twimlCallerNameParameterFromResolved(r),
     caller_name_source: r.caller_name_source,
     lead_id: r.lead_id,
     contact_id: r.contact_id,
