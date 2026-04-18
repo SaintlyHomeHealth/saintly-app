@@ -4,6 +4,11 @@ import twilio from "twilio";
 import { supabaseAdmin } from "@/lib/admin";
 import { mergeSoftphoneConferenceMetadata } from "@/lib/phone/merge-softphone-conference-metadata";
 import { upsertPhoneCallFromWebhook } from "@/lib/phone/log-call";
+import {
+  buildSoftphoneOutboundAllowlist,
+  loadSoftphoneOutboundCallerConfigFromEnv,
+  resolveSoftphoneOutboundFromE164,
+} from "@/lib/softphone/outbound-caller-ids";
 import { isValidE164 } from "@/lib/softphone/phone-number";
 import { parseStaffUserIdFromTwilioClientFrom } from "@/lib/softphone/twilio-client-identity";
 import { escapeXml, softphoneConferenceRoomName } from "@/lib/twilio/softphone-conference";
@@ -113,9 +118,16 @@ export async function POST(req: NextRequest) {
     return new NextResponse(xml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
   }
 
-  // Outbound PSTN caller ID: Saintly Twilio DID only (`TWILIO_SOFTPHONE_CALLER_ID_E164`). Do not reuse
-  // `TWILIO_VOICE_RING_E164` (inbound ring-to number); that is often a staff cell and was wrongly used as fallback.
-  const callerId = process.env.TWILIO_SOFTPHONE_CALLER_ID_E164?.trim() || "";
+  // Outbound PSTN caller ID: default `TWILIO_SOFTPHONE_CALLER_ID_E164`; optional per-call override from
+  // Twilio Client `OutboundCli` (browser dialer), validated against env allowlist (see `outbound-caller-ids.ts`).
+  const envPrimary = process.env.TWILIO_SOFTPHONE_CALLER_ID_E164?.trim() || "";
+  const outboundCfg = loadSoftphoneOutboundCallerConfigFromEnv();
+  const allowlist = outboundCfg ? buildSoftphoneOutboundAllowlist(outboundCfg) : new Set<string>();
+  const outboundCliRaw = params.OutboundCli?.trim();
+  const resolvedFrom = outboundCfg
+    ? resolveSoftphoneOutboundFromE164({ config: outboundCfg, outboundCliRaw, allowlist })
+    : { e164: envPrimary, requestedPresentation: "default" as const };
+  const callerId = resolvedFrom.e164;
 
   if (!callerId || !isValidE164(callerId)) {
     const xml = `<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna">${escapeXml(
@@ -173,6 +185,12 @@ export async function POST(req: NextRequest) {
       source: "twilio_voice_softphone",
       twilio_client_from: fromRaw,
       ...(staffUserId ? { staff_user_id: staffUserId } : {}),
+      ...(outboundCliRaw
+        ? {
+            softphone_outbound_cli_request: outboundCliRaw,
+            softphone_outbound_cli_presentation: resolvedFrom.requestedPresentation,
+          }
+        : {}),
       ...(conferenceMode
         ? {
             softphone_conference: {

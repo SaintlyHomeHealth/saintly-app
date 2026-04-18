@@ -1,9 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { Delete, MessageSquareText, Phone, Sparkles } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Check, ChevronDown, Delete, MessageSquareText, Phone, Sparkles, X } from "lucide-react";
 
-import { useWorkspaceSoftphone } from "@/components/softphone/WorkspaceSoftphoneProvider";
+import {
+  useWorkspaceSoftphone,
+  type OutboundCliSelection,
+  type SoftphoneServerCapabilities,
+} from "@/components/softphone/WorkspaceSoftphoneProvider";
+import { formatPhoneNumber } from "@/lib/phone/us-phone-format";
 import { isValidE164, normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
 import { isPlausiblePstnCallerRawForSubline } from "@/lib/softphone/twilio-incoming-caller-display";
 import { openSoftphoneAppSettings } from "@/lib/softphone/open-app-settings";
@@ -57,6 +62,41 @@ function formatDialpadDisplay(raw: string): string {
   return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6, 10)}${d.length > 10 ? ` ${d.slice(10)}` : ""}`;
 }
 
+function buildCallAsSummary(input: {
+  cap: SoftphoneServerCapabilities | null;
+  sel: OutboundCliSelection | null;
+}): { org: string; lineLabel: string; numberDisplay: string; showSheetTrigger: boolean } {
+  const org = input.cap?.org_label?.trim() || "Saintly Home Health";
+  const lines = input.cap?.outbound_lines ?? [];
+  const block = Boolean(input.cap?.outbound_block_available);
+  if (!lines.length) {
+    return { org, lineLabel: "", numberDisplay: "—", showSheetTrigger: false };
+  }
+  const showSheetTrigger = lines.length > 1 || block;
+  if (input.sel?.kind === "block") {
+    return {
+      org,
+      lineLabel: "Block caller ID",
+      numberDisplay: "Restricted",
+      showSheetTrigger: true,
+    };
+  }
+  const e164 =
+    input.sel?.kind === "line"
+      ? input.sel.e164
+      : (lines.find((l) => l.is_default)?.e164 ??
+        input.cap?.outbound_default_e164 ??
+        lines[0]?.e164 ??
+        "");
+  const line = lines.find((l) => l.e164 === e164);
+  return {
+    org,
+    lineLabel: line?.label ?? "Line",
+    numberDisplay: e164 ? formatPhoneNumber(e164) : "—",
+    showSheetTrigger,
+  };
+}
+
 export type SoftphoneDialerProps = {
   staffDisplayName: string;
   /** Workspace keypad: premium dialpad UI; default keeps the full softphone panel (admin / calls). */
@@ -99,6 +139,9 @@ export function SoftphoneDialer({
     startLiveTranscriptStream,
     clearCallError,
     startCall,
+    softphoneCapabilities,
+    outboundCliSelection,
+    setOutboundCliSelection,
     hangUp,
     answerIncoming,
     rejectIncoming,
@@ -140,12 +183,44 @@ export function SoftphoneDialer({
     });
   }, [autoPlaceCall, initialDigits, listenState, status, incoming, startCall]);
 
+  const [callerPickerOpen, setCallerPickerOpen] = useState(false);
+  const outboundLines = softphoneCapabilities?.outbound_lines ?? [];
+  const callAs = useMemo(
+    () => buildCallAsSummary({ cap: softphoneCapabilities, sel: outboundCliSelection }),
+    [softphoneCapabilities, outboundCliSelection]
+  );
+
   const dialInputLocked = (busy && status !== "in_call") || Boolean(incoming);
   const showCallButton = !busy;
   const keypadDisabled = dialInputLocked;
 
   const defaultPanel = (
     <>
+      {outboundLines.length > 0 ? (
+        <div className="mb-3 rounded-xl border border-emerald-200/70 bg-white/95 px-3 py-2.5 shadow-sm">
+          <button
+            type="button"
+            disabled={!callAs.showSheetTrigger}
+            onClick={() => callAs.showSheetTrigger && setCallerPickerOpen(true)}
+            className={`flex w-full items-start justify-between gap-2 text-left ${
+              callAs.showSheetTrigger ? "cursor-pointer" : "cursor-default"
+            }`}
+          >
+            <div className="min-w-0">
+              <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-emerald-900/80">Call as</p>
+              <p className="mt-0.5 text-sm font-semibold text-slate-900">{callAs.org}</p>
+              <p className="mt-0.5 text-xs text-slate-600">
+                <span className="font-medium">{callAs.lineLabel}</span>
+                {callAs.lineLabel ? <span className="text-slate-400"> · </span> : null}
+                <span className="tabular-nums">{callAs.numberDisplay}</span>
+              </p>
+            </div>
+            {callAs.showSheetTrigger ? (
+              <ChevronDown className="mt-0.5 h-5 w-5 shrink-0 text-emerald-800/70" aria-hidden strokeWidth={2} />
+            ) : null}
+          </button>
+        </div>
+      ) : null}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">Softphone</p>
@@ -236,38 +311,65 @@ export function SoftphoneDialer({
   const keypadPanel = (
     <div className="flex w-full flex-col items-center gap-5">
       <div className="w-full rounded-2xl border border-sky-100/70 bg-gradient-to-br from-white via-white to-sky-50/40 px-4 py-4 shadow-[0_6px_28px_-8px_rgba(30,58,138,0.08),0_2px_8px_-4px_rgba(15,23,42,0.05)] sm:px-5 sm:py-4">
-        <div className="flex items-start gap-3">
-          <div
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-sky-100/95 to-blue-50/90 ring-1 ring-sky-200/60"
-            aria-hidden
+        {outboundLines.length > 0 ? (
+          <button
+            type="button"
+            disabled={!callAs.showSheetTrigger}
+            onClick={() => callAs.showSheetTrigger && setCallerPickerOpen(true)}
+            className={`flex w-full items-start gap-3 rounded-xl text-left transition hover:bg-sky-50/50 ${
+              callAs.showSheetTrigger ? "" : "cursor-default"
+            }`}
           >
-            <Phone className="h-5 w-5 text-blue-800" strokeWidth={2} />
-          </div>
-          <div className="min-w-0 flex-1 text-left">
-            <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">Call as</p>
-            <p className="mt-1 text-[15px] font-semibold leading-snug text-slate-900">{staffDisplayName}</p>
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              <p className="text-[11px] leading-snug text-slate-500">
-                {listenState === "ready"
-                  ? "Ready for calls"
-                  : listenState === "loading"
-                    ? "Connecting…"
-                    : "Inbound listen limited; outbound still available"}
-              </p>
-              <span
-                className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
-                  listenState === "ready"
-                    ? "bg-sky-100 text-sky-950 ring-1 ring-sky-200/60"
+            <div
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-sky-100/95 to-blue-50/90 ring-1 ring-sky-200/60"
+              aria-hidden
+            >
+              <Phone className="h-5 w-5 text-blue-800" strokeWidth={2} />
+            </div>
+            <div className="min-w-0 flex-1 text-left">
+              <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">Call as</p>
+              <p className="mt-0.5 text-[15px] font-semibold leading-snug text-slate-900">{callAs.org}</p>
+              <p className="mt-1 text-[13px] font-medium tabular-nums text-slate-800">{callAs.numberDisplay}</p>
+              <p className="mt-0.5 text-[11px] font-medium text-slate-500">{callAs.lineLabel}</p>
+            </div>
+            {callAs.showSheetTrigger ? (
+              <ChevronDown className="mt-1 h-5 w-5 shrink-0 text-slate-400" strokeWidth={2} aria-hidden />
+            ) : null}
+          </button>
+        ) : (
+          <div className="flex items-start gap-3">
+            <div
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-sky-100/95 to-blue-50/90 ring-1 ring-sky-200/60"
+              aria-hidden
+            >
+              <Phone className="h-5 w-5 text-blue-800" strokeWidth={2} />
+            </div>
+            <div className="min-w-0 flex-1 text-left">
+              <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">Softphone</p>
+              <p className="mt-1 text-[15px] font-semibold leading-snug text-slate-900">{staffDisplayName}</p>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <p className="text-[11px] leading-snug text-slate-500">
+                  {listenState === "ready"
+                    ? "Ready for calls"
                     : listenState === "loading"
-                      ? "bg-slate-100 text-slate-600"
-                      : "bg-amber-100 text-amber-900"
-                }`}
-              >
-                {listenState === "ready" ? "Live" : listenState === "loading" ? "…" : "Limited"}
-              </span>
+                      ? "Connecting…"
+                      : "Inbound listen limited; outbound still available"}
+                </p>
+                <span
+                  className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                    listenState === "ready"
+                      ? "bg-sky-100 text-sky-950 ring-1 ring-sky-200/60"
+                      : listenState === "loading"
+                        ? "bg-slate-100 text-slate-600"
+                        : "bg-amber-100 text-amber-900"
+                  }`}
+                >
+                  {listenState === "ready" ? "Live" : listenState === "loading" ? "…" : "Limited"}
+                </span>
+              </div>
             </div>
           </div>
-        </div>
+        )}
         {!ringtoneUnlocked ? (
           <p className="mt-3 border-t border-slate-100 pt-3 text-[11px] leading-relaxed text-amber-900/90">
             Tap the keypad or <span className="font-semibold">Test ringtone</span> once to hear incoming rings on this
@@ -710,6 +812,98 @@ export function SoftphoneDialer({
                 Try again
               </button>
             ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      {callerPickerOpen && outboundLines.length > 0 ? (
+        <div
+          className="fixed inset-0 z-[200] flex items-end justify-center sm:items-center"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="call-as-picker-title"
+        >
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/40 backdrop-blur-[1px]"
+            aria-label="Close caller ID picker"
+            onClick={() => setCallerPickerOpen(false)}
+          />
+          <div className="relative z-10 mb-0 max-h-[min(85vh,560px)] w-full max-w-lg overflow-hidden rounded-t-2xl border border-slate-200/90 bg-white shadow-2xl sm:mb-0 sm:rounded-2xl">
+            <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+              <h2 id="call-as-picker-title" className="text-base font-semibold text-slate-900">
+                Call as
+              </h2>
+              <button
+                type="button"
+                className="rounded-full p-1.5 text-slate-500 hover:bg-slate-100"
+                onClick={() => setCallerPickerOpen(false)}
+                aria-label="Close"
+              >
+                <X className="h-5 w-5" strokeWidth={2} />
+              </button>
+            </div>
+            <div className="max-h-[min(70vh,480px)] overflow-y-auto px-2 py-2">
+              <p className="px-2 pb-2 text-xs text-slate-500">{callAs.org}</p>
+              {outboundLines.map((line) => {
+                const selected =
+                  outboundCliSelection?.kind === "block"
+                    ? false
+                    : outboundCliSelection?.kind === "line"
+                      ? outboundCliSelection.e164 === line.e164
+                      : line.is_default;
+                return (
+                  <button
+                    key={line.e164}
+                    type="button"
+                    onClick={() => {
+                      setOutboundCliSelection({ kind: "line", e164: line.e164 });
+                      setCallerPickerOpen(false);
+                    }}
+                    className={`flex w-full items-center justify-between gap-3 rounded-xl px-3 py-3 text-left transition hover:bg-slate-50 active:bg-slate-100/80 ${
+                      selected ? "bg-sky-50/90 ring-1 ring-sky-200/80" : ""
+                    }`}
+                  >
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-semibold text-slate-900">{line.label}</span>
+                        {line.is_default ? (
+                          <span className="rounded-full bg-slate-200/90 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-700">
+                            Default
+                          </span>
+                        ) : null}
+                      </div>
+                      <p className="mt-0.5 font-mono text-sm tabular-nums text-slate-600">
+                        {formatPhoneNumber(line.e164)}
+                      </p>
+                    </div>
+                    {selected ? <Check className="h-5 w-5 shrink-0 text-sky-700" strokeWidth={2.5} aria-hidden /> : null}
+                  </button>
+                );
+              })}
+              {softphoneCapabilities?.outbound_block_available ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOutboundCliSelection({ kind: "block" });
+                    setCallerPickerOpen(false);
+                  }}
+                  className={`mt-1 flex w-full items-start justify-between gap-3 rounded-xl px-3 py-3 text-left transition hover:bg-slate-50 active:bg-slate-100/80 ${
+                    outboundCliSelection?.kind === "block" ? "bg-sky-50/90 ring-1 ring-sky-200/80" : ""
+                  }`}
+                >
+                  <div>
+                    <span className="font-semibold text-slate-900">Block caller ID</span>
+                    <p className="mt-0.5 text-xs leading-snug text-slate-500">
+                      Uses your organization&apos;s private / withheld line when configured by administrators.
+                    </p>
+                  </div>
+                  {outboundCliSelection?.kind === "block" ? (
+                    <Check className="mt-0.5 h-5 w-5 shrink-0 text-sky-700" strokeWidth={2.5} aria-hidden />
+                  ) : null}
+                </button>
+              ) : null}
+            </div>
           </div>
         </div>
       ) : null}

@@ -126,6 +126,8 @@ export type PostCallTranscriptSnapshot = {
   remoteLabel: string | null;
 };
 
+export type OutboundLineInfo = { e164: string; label: string; is_default: boolean };
+
 /** Server flags from `/api/workspace/phone/softphone-capabilities` (no secrets). */
 export type SoftphoneServerCapabilities = {
   conference_outbound_enabled: boolean;
@@ -133,7 +135,15 @@ export type SoftphoneServerCapabilities = {
   transcription_callback_configured?: boolean;
   legacy_bridge_transcript_configured?: boolean;
   transcript_writeback_configured: boolean;
+  org_label?: string | null;
+  staff_user_id?: string | null;
+  outbound_lines?: OutboundLineInfo[];
+  outbound_default_e164?: string | null;
+  outbound_block_available?: boolean;
 };
+
+/** Persisted "Call as" selection for outbound PSTN From (validated server-side). */
+export type OutboundCliSelection = { kind: "line"; e164: string } | { kind: "block" };
 
 type Ctx = {
   digits: string;
@@ -203,6 +213,9 @@ type Ctx = {
   callContextLoadError: boolean;
   clearCallError: () => void;
   startCall: (toOverride?: string) => Promise<void>;
+  /** Outbound "Call as" (caller ID); `null` before capabilities hydrate. */
+  outboundCliSelection: OutboundCliSelection | null;
+  setOutboundCliSelection: Dispatch<SetStateAction<OutboundCliSelection | null>>;
   hangUp: () => void;
   answerIncoming: () => void;
   rejectIncoming: () => void;
@@ -357,6 +370,9 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
   const micMutedBeforeHoldRef = useRef(false);
   const [callContext, setCallContext] = useState<CallDeskContext | null>(null);
   const [softphoneCapabilities, setSoftphoneCapabilities] = useState<SoftphoneServerCapabilities | null>(null);
+  const [outboundCliSelection, setOutboundCliSelection] = useState<OutboundCliSelection | null>(null);
+  const outboundCliSelectionRef = useRef<OutboundCliSelection | null>(null);
+  const outboundCliHydratedForStaffRef = useRef<string | null>(null);
   const [tokenIdentity, setTokenIdentity] = useState<string | null>(null);
   const [ringtoneUnlocked, setRingtoneUnlocked] = useState(false);
   const [durationSec, setDurationSec] = useState(0);
@@ -508,6 +524,11 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
           transcription_callback_configured?: boolean;
           legacy_bridge_transcript_configured?: boolean;
           transcript_writeback_configured?: boolean;
+          org_label?: string | null;
+          staff_user_id?: string | null;
+          outbound_lines?: OutboundLineInfo[];
+          outbound_default_e164?: string | null;
+          outbound_block_available?: boolean;
         };
         if (cancelled) return;
         setSoftphoneCapabilities({
@@ -516,6 +537,14 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
           transcription_callback_configured: Boolean(j.transcription_callback_configured),
           legacy_bridge_transcript_configured: Boolean(j.legacy_bridge_transcript_configured),
           transcript_writeback_configured: Boolean(j.transcript_writeback_configured),
+          org_label: typeof j.org_label === "string" || j.org_label === null ? j.org_label : undefined,
+          staff_user_id: typeof j.staff_user_id === "string" ? j.staff_user_id : undefined,
+          outbound_lines: Array.isArray(j.outbound_lines) ? j.outbound_lines : undefined,
+          outbound_default_e164:
+            typeof j.outbound_default_e164 === "string" || j.outbound_default_e164 === null
+              ? j.outbound_default_e164
+              : undefined,
+          outbound_block_available: Boolean(j.outbound_block_available),
         });
       } catch {
         /* ignore */
@@ -525,6 +554,56 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    outboundCliSelectionRef.current = outboundCliSelection;
+  }, [outboundCliSelection]);
+
+  useEffect(() => {
+    const cap = softphoneCapabilities;
+    const sid = cap?.staff_user_id;
+    if (!sid || cap.outbound_default_e164 == null || !cap.outbound_default_e164) return;
+    if (outboundCliHydratedForStaffRef.current === sid) return;
+    outboundCliHydratedForStaffRef.current = sid;
+    const key = `saintly-softphone-outbound-cli:${sid}`;
+    try {
+      const raw = localStorage.getItem(key);
+      if (raw) {
+        const parsed = JSON.parse(raw) as { kind?: string; e164?: string };
+        if (parsed?.kind === "block" && cap.outbound_block_available) {
+          setOutboundCliSelection({ kind: "block" });
+          return;
+        }
+        if (parsed?.kind === "line" && typeof parsed.e164 === "string") {
+          const ok = cap.outbound_lines?.some((l) => l.e164 === parsed.e164);
+          if (ok) {
+            setOutboundCliSelection({ kind: "line", e164: parsed.e164 });
+            return;
+          }
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+    const defE164 = cap.outbound_lines?.find((l) => l.is_default)?.e164 ?? cap.outbound_default_e164;
+    if (defE164) setOutboundCliSelection({ kind: "line", e164: defE164 });
+  }, [softphoneCapabilities]);
+
+  useEffect(() => {
+    const sid = softphoneCapabilities?.staff_user_id;
+    const sel = outboundCliSelection;
+    if (!sid || !sel) return;
+    const key = `saintly-softphone-outbound-cli:${sid}`;
+    try {
+      if (sel.kind === "block") {
+        localStorage.setItem(key, JSON.stringify({ v: 1, kind: "block" }));
+      } else {
+        localStorage.setItem(key, JSON.stringify({ v: 1, kind: "line", e164: sel.e164 }));
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [outboundCliSelection, softphoneCapabilities?.staff_user_id]);
 
   useEffect(() => {
     if (!callStartedAtMs) {
@@ -1617,7 +1696,14 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
           postSoftphoneTokenToNativeBridge(tokenJson.token!, tokenJson.identity);
         }
         setStatus("connecting");
-        const call = await device.connect({ params: { To: e164 } });
+        const cliSel = outboundCliSelectionRef.current;
+        const dialParams: Record<string, string> = { To: e164 };
+        if (cliSel?.kind === "block") {
+          dialParams.OutboundCli = "block";
+        } else if (cliSel?.kind === "line" && cliSel.e164) {
+          dialParams.OutboundCli = cliSel.e164;
+        }
+        const call = await device.connect({ params: dialParams });
         attachActiveCallHandlers(call);
       } catch (e) {
         console.error("[softphone] startCall failed", e);
@@ -1727,6 +1813,8 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       callContextLoadError,
       clearCallError,
       startCall,
+      outboundCliSelection,
+      setOutboundCliSelection,
       hangUp,
       answerIncoming,
       rejectIncoming,
@@ -1779,6 +1867,8 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     softphoneCapabilities,
     clearCallError,
     startCall,
+    outboundCliSelection,
+    setOutboundCliSelection,
     hangUp,
     answerIncoming,
     rejectIncoming,
