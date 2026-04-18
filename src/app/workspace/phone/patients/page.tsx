@@ -113,7 +113,9 @@ export default async function WorkspacePatientsPage() {
       .select(
         "id, patient_status, contact_id, contacts ( id, full_name, first_name, last_name, primary_phone, secondary_phone, address_line_1, address_line_2, city, state, zip )"
       )
-      .in("id", patientIds);
+      .in("id", patientIds)
+      .is("archived_at", null)
+      .eq("is_test", false);
 
     if (pErr) {
       console.warn("[workspace/phone/patients] patients:", pErr.message);

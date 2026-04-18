@@ -139,7 +139,9 @@ export default async function WorkspaceTodayPage() {
       .select(
         "id, contact_id, contacts ( id, full_name, first_name, last_name, primary_phone, address_line_1, address_line_2, city, state, zip )"
       )
-      .in("id", patientIds);
+      .in("id", patientIds)
+      .is("archived_at", null)
+      .eq("is_test", false);
     for (const raw of pRows ?? []) {
       const id = String(raw.id);
       const contactId = typeof raw.contact_id === "string" ? raw.contact_id : "";

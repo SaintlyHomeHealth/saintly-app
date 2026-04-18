@@ -47,7 +47,9 @@ export async function loadAssignablePatientsForNurse(userId: string): Promise<As
   const { data: pRows } = await supabaseAdmin
     .from("patients")
     .select("id, contacts ( full_name, first_name, last_name )")
-    .in("id", patientIds);
+    .in("id", patientIds)
+    .is("archived_at", null)
+    .eq("is_test", false);
 
   const out: AssignablePatientOption[] = [];
   for (const row of pRows ?? []) {

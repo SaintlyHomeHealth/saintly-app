@@ -505,6 +505,8 @@ export default async function DispatchPage({
   const { data: patientPickRows } = await supabaseAdmin
     .from("patients")
     .select("id, contacts ( full_name, first_name, last_name )")
+    .is("archived_at", null)
+    .eq("is_test", false)
     .order("created_at", { ascending: false })
     .limit(400);
 

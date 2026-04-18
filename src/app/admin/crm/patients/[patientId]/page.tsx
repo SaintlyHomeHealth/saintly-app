@@ -6,7 +6,13 @@ import { PayerTypeSelect } from "@/components/crm/PayerTypeSelect";
 import { SearchablePayerSelect } from "@/components/crm/SearchablePayerSelect";
 import { ServiceDisciplineCheckboxes } from "@/components/crm/ServiceDisciplineCheckboxes";
 import { PatientAssignmentsSection } from "./_components/PatientAssignmentsSection";
-import { updateCrmPatientCoreProfile, updatePatientIntake } from "../../actions";
+import {
+  deleteCrmPatientIfAllowed,
+  setCrmPatientArchive,
+  setCrmPatientIsTest,
+  updateCrmPatientCoreProfile,
+  updatePatientIntake,
+} from "../../actions";
 import { readCrmMetadata, formatCrmTypeLabel, formatCrmOutcomeLabel } from "@/app/admin/phone/_lib/crm-metadata";
 import { readVoiceAiMetadata } from "@/app/admin/phone/_lib/voice-ai-metadata";
 import type { PhoneCallRow } from "@/app/admin/phone/recent-calls-live";
@@ -109,6 +115,14 @@ export default async function PatientIntakePage({
   const smsFlash = typeof sp.sms === "string" ? sp.sms : Array.isArray(sp.sms) ? sp.sms[0] : undefined;
   const smsErrRaw =
     typeof sp.smsErr === "string" ? sp.smsErr : Array.isArray(sp.smsErr) ? sp.smsErr[0] : undefined;
+  const patientDeleteErrorRaw =
+    typeof sp.patientDeleteError === "string"
+      ? sp.patientDeleteError
+      : Array.isArray(sp.patientDeleteError)
+        ? sp.patientDeleteError[0]
+        : undefined;
+  const patientDeleteError =
+    typeof patientDeleteErrorRaw === "string" ? decodeURIComponent(patientDeleteErrorRaw.trim()) : "";
 
   const { patientId } = await params;
   if (!patientId?.trim()) {
@@ -123,6 +137,8 @@ export default async function PatientIntakePage({
       `
       id,
       contact_id,
+      archived_at,
+      is_test,
       notes,
       patient_status,
       physician_name,
@@ -333,6 +349,10 @@ export default async function PatientIntakePage({
 
   const returnToPatient = `/admin/crm/patients/${pid}`;
 
+  const archivedAt = typeof P.archived_at === "string" ? P.archived_at.trim() : null;
+  const isArchived = Boolean(archivedAt);
+  const isTestPatient = P.is_test === true;
+
   const caregiverSummary = buildCaregiverAlternateSummary({
     secondaryPhone: (c?.secondary_phone as string | null | undefined) ?? null,
     relationshipMetadata: c?.relationship_metadata,
@@ -367,6 +387,73 @@ export default async function PatientIntakePage({
               : "Visit moved to En route; SMS was not sent (unchecked or skipped)."}
         </div>
       ) : null}
+
+      {patientDeleteError ? (
+        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
+          {patientDeleteError}
+        </div>
+      ) : null}
+
+      <section className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
+        <h2 className="text-sm font-semibold text-slate-900">Record management</h2>
+        <p className="mt-1 max-w-3xl text-xs leading-relaxed text-slate-600">
+          <strong>Archive</strong> soft-hides the patient from default CRM/workspace lists; visits, SMS, and calls stay
+          linked. Use <strong>Test / sandbox</strong> to tag charts that should stay out of normal production views.{" "}
+          <strong>Delete permanently</strong> is only offered when there are zero dispatch visits, assignments, and
+          payroll visit rows — otherwise archive instead.
+        </p>
+        <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-end">
+          <form action={setCrmPatientArchive} className="flex flex-wrap items-center gap-2">
+            <input type="hidden" name="patientId" value={pid} />
+            <input type="hidden" name="afterAction" value="stay" />
+            <input type="hidden" name="archiveAction" value={isArchived ? "unarchive" : "archive"} />
+            <span className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Archive</span>
+            <button
+              type="submit"
+              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 shadow-sm hover:bg-slate-50"
+            >
+              {isArchived ? "Restore to active lists" : "Archive patient"}
+            </button>
+            {isArchived ? (
+              <span className="text-xs text-amber-800">This chart is archived (hidden from default lists).</span>
+            ) : null}
+          </form>
+          <form action={setCrmPatientIsTest} className="flex flex-wrap items-center gap-2">
+            <input type="hidden" name="patientId" value={pid} />
+            <input type="hidden" name="afterAction" value="stay" />
+            <label className="flex items-center gap-2 text-[11px] font-medium text-slate-600">
+              Record type
+              <select
+                name="is_test"
+                defaultValue={isTestPatient ? "1" : "0"}
+                className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800"
+              >
+                <option value="0">Production</option>
+                <option value="1">Test / sandbox</option>
+              </select>
+            </label>
+            <button
+              type="submit"
+              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 shadow-sm hover:bg-slate-50"
+            >
+              Save
+            </button>
+          </form>
+          <form action={deleteCrmPatientIfAllowed} className="border-t border-slate-200 pt-3 sm:border-l sm:border-t-0 sm:pl-4 sm:pt-0">
+            <input type="hidden" name="patientId" value={pid} />
+            <button
+              type="submit"
+              className="rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-xs font-semibold text-rose-900 shadow-sm hover:bg-rose-50"
+            >
+              Delete patient permanently…
+            </button>
+            <p className="mt-2 max-w-md text-[11px] text-slate-500">
+              Allowed only when there are no patient visits, assignments, or payroll visit rows. You will see an error
+              here if anything still references this chart.
+            </p>
+          </form>
+        </div>
+      </section>
 
       <AdminPageHeader
         eyebrow="Patients"

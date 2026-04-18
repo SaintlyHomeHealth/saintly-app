@@ -60,6 +60,8 @@ type PatientRow = {
   service_type: string | null;
   service_disciplines: string[] | null;
   created_at: string;
+  archived_at: string | null;
+  is_test: boolean;
   contacts: ContactEmb | ContactEmb[] | null;
   patient_assignments: AssignmentRow[] | null;
 };
@@ -119,6 +121,8 @@ function buildFilterQueryString(sp: {
   payerType?: string;
   primaryNurse?: string;
   q?: string;
+  presence?: string;
+  cohort?: string;
 }): string {
   const u = new URLSearchParams();
   if (sp.status) u.set("status", sp.status);
@@ -127,6 +131,8 @@ function buildFilterQueryString(sp: {
   if (sp.payerType) u.set("payerType", sp.payerType);
   if (sp.primaryNurse) u.set("primaryNurse", sp.primaryNurse);
   if (sp.q) u.set("q", sp.q);
+  if (sp.presence) u.set("presence", sp.presence);
+  if (sp.cohort) u.set("cohort", sp.cohort);
   return u.toString();
 }
 
@@ -173,6 +179,9 @@ export default async function AdminCrmPatientsPage({
     return typeof v === "string" ? v : Array.isArray(v) ? v[0] : "";
   };
 
+  const presenceRaw = one("presence").trim().toLowerCase();
+  const cohortRaw = one("cohort").trim().toLowerCase();
+
   const f = {
     status: one("status").trim(),
     assignedTo: one("assignedTo").trim(),
@@ -180,6 +189,10 @@ export default async function AdminCrmPatientsPage({
     payerType: one("payerType").trim(),
     primaryNurse: one("primaryNurse").trim(),
     q: one("q").trim(),
+    presence:
+      presenceRaw === "archived" || presenceRaw === "all" || presenceRaw === "active" ? presenceRaw : "active",
+    cohort:
+      cohortRaw === "test" || cohortRaw === "all" || cohortRaw === "prod" ? cohortRaw : "prod",
   };
 
   const returnTo = buildFilterQueryString(f);
@@ -227,8 +240,20 @@ export default async function AdminCrmPatientsPage({
 
   const supabase = await createServerSupabaseClient();
   let query = supabase.from("patients").select(
-    "id, contact_id, patient_status, start_of_care, payer_name, payer_type, physician_name, referring_provider_name, intake_status, referral_source, service_type, service_disciplines, created_at, contacts ( full_name, first_name, last_name, primary_phone ), patient_assignments ( id, assigned_user_id, role, is_active, discipline, is_primary )"
+    "id, contact_id, patient_status, start_of_care, payer_name, payer_type, physician_name, referring_provider_name, intake_status, referral_source, service_type, service_disciplines, created_at, archived_at, is_test, contacts ( full_name, first_name, last_name, primary_phone ), patient_assignments ( id, assigned_user_id, role, is_active, discipline, is_primary )"
   );
+
+  if (f.presence === "active") {
+    query = query.is("archived_at", null);
+  } else if (f.presence === "archived") {
+    query = query.not("archived_at", "is", null);
+  }
+
+  if (f.cohort === "prod") {
+    query = query.eq("is_test", false);
+  } else if (f.cohort === "test") {
+    query = query.eq("is_test", true);
+  }
 
   if (f.status && ["active", "inactive", "discharged", "pending"].includes(f.status)) {
     query = query.eq("patient_status", f.status);
@@ -248,7 +273,14 @@ export default async function AdminCrmPatientsPage({
 
   const { data: rows, error } = await query.order("created_at", { ascending: false }).limit(500);
 
-  let list = (rows ?? []) as PatientRow[];
+  let list = (rows ?? []).map((raw) => {
+    const r = raw as PatientRow;
+    return {
+      ...r,
+      archived_at: r.archived_at ?? null,
+      is_test: Boolean(r.is_test),
+    };
+  });
 
   if (f.assignedTo === "unassigned") {
     const { data: asn } = await supabaseAdmin
@@ -313,7 +345,8 @@ export default async function AdminCrmPatientsPage({
         title="Patients"
         description={
           <>
-            Active charts (up to 100 rows after filters). Use filters to narrow; open a patient to manage assignments.
+            Production charts by default (active, non-test). Use <strong>Presence</strong> / <strong>Record type</strong> to
+            include archived or test patients.
             {error ? <span className="mt-2 block text-sm text-red-700">{error.message}</span> : null}
           </>
         }
@@ -325,6 +358,22 @@ export default async function AdminCrmPatientsPage({
       />
 
       <form method="get" action="/admin/crm/patients" className={crmFilterBarCls}>
+        <label className="flex min-w-[8rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+          Presence
+          <select name="presence" defaultValue={f.presence} className={crmFilterInputCls}>
+            <option value="active">Active (not archived)</option>
+            <option value="archived">Archived</option>
+            <option value="all">All</option>
+          </select>
+        </label>
+        <label className="flex min-w-[9rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+          Record type
+          <select name="cohort" defaultValue={f.cohort} className={crmFilterInputCls}>
+            <option value="prod">Production</option>
+            <option value="test">Test / sandbox only</option>
+            <option value="all">All</option>
+          </select>
+        </label>
         <label className="flex min-w-[8rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
           Status
           <select name="status" defaultValue={f.status} className={crmFilterInputCls}>
@@ -440,6 +489,16 @@ export default async function AdminCrmPatientsPage({
                     </Link>
                     <div className="flex flex-wrap items-center gap-2">
                       <PatientStatusBadge status={r.patient_status} />
+                      {r.archived_at ? (
+                        <span className="inline-flex w-fit rounded-full bg-slate-200 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-slate-800 ring-1 ring-slate-300/70">
+                          Archived
+                        </span>
+                      ) : null}
+                      {r.is_test ? (
+                        <span className="inline-flex w-fit rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-semibold text-violet-900 ring-1 ring-violet-200/80">
+                          Test
+                        </span>
+                      ) : null}
                     </div>
                     <p className="text-xs leading-snug text-slate-600" title={displayServiceLines(r)}>
                       <span className="font-medium text-slate-500">Services</span> · {displayServiceLines(r)}

@@ -3030,3 +3030,128 @@ export async function updateCrmPatientStatus(formData: FormData) {
 
   redirect(returnTo ? `/admin/crm/patients?${returnTo}` : "/admin/crm/patients");
 }
+
+export async function setCrmPatientArchive(formData: FormData) {
+  const staff = await getStaffProfile();
+  if (!staff || !isManagerOrHigher(staff)) {
+    return;
+  }
+
+  const patientId = readTrimmedField(formData, "patientId");
+  const action = readTrimmedField(formData, "archiveAction");
+  const returnTo = readTrimmedField(formData, "returnTo");
+  const afterAction = readTrimmedField(formData, "afterAction");
+
+  if (!patientId || (action !== "archive" && action !== "unarchive")) {
+    return;
+  }
+
+  const payload = action === "archive" ? { archived_at: new Date().toISOString() } : { archived_at: null };
+  const { error } = await supabaseAdmin.from("patients").update(payload).eq("id", patientId);
+
+  if (error) {
+    console.warn("[admin/crm] setCrmPatientArchive:", error.message);
+    return;
+  }
+
+  revalidatePath("/admin/crm/patients");
+  revalidatePath(`/admin/crm/patients/${patientId}`);
+  revalidatePath("/admin/crm/dispatch");
+  revalidatePath("/workspace/phone/patients");
+  revalidatePath(`/workspace/phone/patients/${patientId}`);
+  revalidatePath("/workspace/phone/today");
+
+  if (afterAction === "stay") {
+    redirect(`/admin/crm/patients/${patientId}`);
+  }
+  const dest = returnTo ? `/admin/crm/patients?${returnTo}` : "/admin/crm/patients";
+  redirect(dest);
+}
+
+export async function setCrmPatientIsTest(formData: FormData) {
+  const staff = await getStaffProfile();
+  if (!staff || !isManagerOrHigher(staff)) {
+    return;
+  }
+
+  const patientId = readTrimmedField(formData, "patientId");
+  const raw = readTrimmedField(formData, "is_test");
+  const returnTo = readTrimmedField(formData, "returnTo");
+  const afterAction = readTrimmedField(formData, "afterAction");
+
+  if (!patientId) {
+    return;
+  }
+
+  const isTest = raw === "1" || raw === "true";
+  const { error } = await supabaseAdmin.from("patients").update({ is_test: isTest }).eq("id", patientId);
+
+  if (error) {
+    console.warn("[admin/crm] setCrmPatientIsTest:", error.message);
+    return;
+  }
+
+  revalidatePath("/admin/crm/patients");
+  revalidatePath(`/admin/crm/patients/${patientId}`);
+
+  if (afterAction === "stay") {
+    redirect(`/admin/crm/patients/${patientId}`);
+  }
+  redirect(returnTo ? `/admin/crm/patients?${returnTo}` : `/admin/crm/patients/${patientId}`);
+}
+
+export async function deleteCrmPatientIfAllowed(formData: FormData) {
+  const staff = await getStaffProfile();
+  if (!staff || !isManagerOrHigher(staff)) {
+    return;
+  }
+
+  const patientId = readTrimmedField(formData, "patientId");
+  const returnTo = readTrimmedField(formData, "returnTo");
+  if (!patientId) {
+    return;
+  }
+
+  const [{ count: visitRows }, { count: assignRows }, { count: payrollVisitRows }] = await Promise.all([
+    supabaseAdmin
+      .from("patient_visits")
+      .select("id", { count: "exact", head: true })
+      .eq("patient_id", patientId),
+    supabaseAdmin
+      .from("patient_assignments")
+      .select("id", { count: "exact", head: true })
+      .eq("patient_id", patientId),
+    supabaseAdmin.from("visits").select("id", { count: "exact", head: true }).eq("patient_id", patientId),
+  ]);
+
+  const v = visitRows ?? 0;
+  const a = assignRows ?? 0;
+  const p = payrollVisitRows ?? 0;
+
+  if (v > 0 || a > 0 || p > 0) {
+    const parts: string[] = [];
+    if (v > 0) parts.push(`${v} dispatch / nurse visit row${v === 1 ? "" : "s"}`);
+    if (a > 0) parts.push(`${a} assignment row${a === 1 ? "" : "s"}`);
+    if (p > 0) parts.push(`${p} payroll visit row${p === 1 ? "" : "s"}`);
+    const msg = `Cannot delete: remove dependent data first (${parts.join("; ")}). Archive the patient instead.`;
+    redirect(
+      `/admin/crm/patients/${patientId}?patientDeleteError=${encodeURIComponent(msg)}${returnTo ? `&returnTo=${encodeURIComponent(returnTo)}` : ""}`
+    );
+  }
+
+  const { error } = await supabaseAdmin.from("patients").delete().eq("id", patientId);
+
+  if (error) {
+    console.warn("[admin/crm] deleteCrmPatientIfAllowed:", error.message);
+    redirect(
+      `/admin/crm/patients/${patientId}?patientDeleteError=${encodeURIComponent(error.message)}${returnTo ? `&returnTo=${encodeURIComponent(returnTo)}` : ""}`
+    );
+  }
+
+  revalidatePath("/admin/crm/patients");
+  revalidatePath("/admin/crm/dispatch");
+  revalidatePath("/workspace/phone/patients");
+  revalidatePath("/workspace/phone/today");
+
+  redirect(returnTo ? `/admin/crm/patients?${returnTo}` : "/admin/crm/patients");
+}
