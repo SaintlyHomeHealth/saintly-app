@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { sendQualifiedLeadToZapier } from "@/lib/integrations/zapier/send-qualified-lead-to-zapier";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 import { supabaseAdmin } from "@/lib/admin";
 
@@ -36,7 +37,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     .update({ lead_quality })
     .eq("id", leadId)
     .is("deleted_at", null)
-    .select("id, lead_quality, updated_at")
+    .select("id, lead_quality, updated_at, fbclid")
     .maybeSingle();
 
   if (error) {
@@ -46,6 +47,12 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   if (!data?.id) {
     return NextResponse.json({ ok: false, error: "not_found" as const }, { status: 404 });
   }
+
+  sendQualifiedLeadToZapier({
+    id: data.id as string,
+    fbclid: data.fbclid as string | null | undefined,
+    lead_quality: data.lead_quality as string | null | undefined,
+  });
 
   return NextResponse.json({
     ok: true as const,
