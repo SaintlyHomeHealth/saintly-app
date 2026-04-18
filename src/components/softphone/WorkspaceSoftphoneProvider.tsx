@@ -145,6 +145,27 @@ export type SoftphoneServerCapabilities = {
 /** Persisted "Call as" selection for outbound PSTN From (validated server-side). */
 export type OutboundCliSelection = { kind: "line"; e164: string } | { kind: "block" };
 
+/**
+ * Client-side normalize for GET /api/workspace/phone/softphone-capabilities:
+ * accept `outbound_lines` or `outboundLines`, and per-row `is_default` or `default`.
+ * If parsing had relied only on `j.outbound_lines`, camelCase payloads produced no lines and the dialer hid "Call as".
+ */
+function parseOutboundLinesFromCapabilitiesPayload(j: Record<string, unknown>): OutboundLineInfo[] | undefined {
+  const raw = j.outbound_lines ?? j.outboundLines;
+  if (!Array.isArray(raw)) return undefined;
+  const out: OutboundLineInfo[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const o = item as Record<string, unknown>;
+    const e164 = typeof o.e164 === "string" ? o.e164.trim() : "";
+    if (!e164) continue;
+    const label = typeof o.label === "string" && o.label.trim() ? o.label.trim() : "Line";
+    const is_default = Boolean(o.is_default ?? o.default);
+    out.push({ e164, label, is_default });
+  }
+  return out.length ? out : undefined;
+}
+
 type Ctx = {
   digits: string;
   setDigits: Dispatch<SetStateAction<string>>;
@@ -515,39 +536,38 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      try {
-        const res = await fetch("/api/workspace/phone/softphone-capabilities", { credentials: "include" });
-        if (!res.ok) return;
-        const j = (await res.json()) as {
-          conference_outbound_enabled?: boolean;
-          media_stream_wss_configured?: boolean;
-          transcription_callback_configured?: boolean;
-          legacy_bridge_transcript_configured?: boolean;
-          transcript_writeback_configured?: boolean;
-          org_label?: string | null;
-          staff_user_id?: string | null;
-          outbound_lines?: OutboundLineInfo[];
-          outbound_default_e164?: string | null;
-          outbound_block_available?: boolean;
-        };
+      for (let attempt = 0; attempt < 2; attempt++) {
         if (cancelled) return;
-        setSoftphoneCapabilities({
-          conference_outbound_enabled: Boolean(j.conference_outbound_enabled),
-          media_stream_wss_configured: Boolean(j.media_stream_wss_configured),
-          transcription_callback_configured: Boolean(j.transcription_callback_configured),
-          legacy_bridge_transcript_configured: Boolean(j.legacy_bridge_transcript_configured),
-          transcript_writeback_configured: Boolean(j.transcript_writeback_configured),
-          org_label: typeof j.org_label === "string" || j.org_label === null ? j.org_label : undefined,
-          staff_user_id: typeof j.staff_user_id === "string" ? j.staff_user_id : undefined,
-          outbound_lines: Array.isArray(j.outbound_lines) ? j.outbound_lines : undefined,
-          outbound_default_e164:
-            typeof j.outbound_default_e164 === "string" || j.outbound_default_e164 === null
-              ? j.outbound_default_e164
-              : undefined,
-          outbound_block_available: Boolean(j.outbound_block_available),
-        });
-      } catch {
-        /* ignore */
+        if (attempt === 1) {
+          await new Promise((r) => setTimeout(r, 500));
+          if (cancelled) return;
+        }
+        try {
+          const res = await fetch("/api/workspace/phone/softphone-capabilities", { credentials: "include" });
+          if (!res.ok) continue;
+          const j = (await res.json()) as Record<string, unknown>;
+          if (cancelled) return;
+          const orgRaw = j.org_label ?? j.orgLabel;
+          const staffRaw = j.staff_user_id ?? j.staffUserId;
+          const defRaw = j.outbound_default_e164 ?? j.outboundDefaultE164;
+          const blockRaw = j.outbound_block_available ?? j.outboundBlockAvailable;
+          setSoftphoneCapabilities({
+            conference_outbound_enabled: Boolean(j.conference_outbound_enabled),
+            media_stream_wss_configured: Boolean(j.media_stream_wss_configured),
+            transcription_callback_configured: Boolean(j.transcription_callback_configured),
+            legacy_bridge_transcript_configured: Boolean(j.legacy_bridge_transcript_configured),
+            transcript_writeback_configured: Boolean(j.transcript_writeback_configured),
+            org_label: typeof orgRaw === "string" || orgRaw === null ? orgRaw : undefined,
+            staff_user_id: typeof staffRaw === "string" ? staffRaw : undefined,
+            outbound_lines: parseOutboundLinesFromCapabilitiesPayload(j),
+            outbound_default_e164:
+              typeof defRaw === "string" || defRaw === null ? (defRaw as string | null) : undefined,
+            outbound_block_available: Boolean(blockRaw),
+          });
+          return;
+        } catch {
+          /* try again on second attempt */
+        }
       }
     })();
     return () => {
