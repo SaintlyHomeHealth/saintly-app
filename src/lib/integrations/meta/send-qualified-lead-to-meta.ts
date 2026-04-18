@@ -6,6 +6,8 @@
  * Requires `fbclid` for attribution; without it we skip the API call.
  *
  * Network/API failures are logged only; the CRM PATCH must still succeed.
+ *
+ * TODO(meta-debug): Remove or gate `[meta-debug]` console logs once Meta Test Events works.
  */
 
 export type SendQualifiedLeadToMetaInput = {
@@ -19,26 +21,52 @@ const TIMEOUT_MS = 12_000;
 const EVENT_SOURCE_URL = "https://www.appsaintlyhomehealth.com";
 
 export function sendQualifiedLeadToMeta(input: SendQualifiedLeadToMetaInput): void {
+  console.log("[meta-debug] helper called", {
+    leadId: input.id,
+    lead_quality: input.lead_quality,
+    fbclid: input.fbclid,
+  });
+
   const lead_quality = input.lead_quality;
   const fbRaw = typeof input.fbclid === "string" ? input.fbclid.trim() : "";
 
-  if (lead_quality !== "qualified" || !fbRaw) {
+  const envMetaDatasetId = !!process.env.META_DATASET_ID?.trim();
+  const envMetaAccessToken = !!process.env.META_CONVERSIONS_ACCESS_TOKEN?.trim();
+  const envMetaTestEventCode = process.env.META_TEST_EVENT_CODE?.trim();
+
+  console.log("[meta-debug] env presence", {
+    META_DATASET_ID: envMetaDatasetId,
+    META_CONVERSIONS_ACCESS_TOKEN: envMetaAccessToken,
+    META_TEST_EVENT_CODE_set: !!envMetaTestEventCode,
+    META_TEST_EVENT_CODE_value: envMetaTestEventCode ?? null,
+  });
+
+  if (lead_quality !== "qualified") {
+    console.log("[meta-debug] early return: not qualified", { lead_quality });
+    return;
+  }
+
+  if (!fbRaw) {
+    console.log("[meta-debug] early return: missing or empty fbclid after trim");
     return;
   }
 
   const datasetId = process.env.META_DATASET_ID?.trim();
   const accessToken = process.env.META_CONVERSIONS_ACCESS_TOKEN?.trim();
 
-  if (!datasetId || !accessToken) {
-    console.warn(
-      "[meta-capi] META_DATASET_ID or META_CONVERSIONS_ACCESS_TOKEN missing; skipping QualifiedLead event",
-      { leadId: input.id }
-    );
+  if (!datasetId) {
+    console.log("[meta-debug] early return: missing META_DATASET_ID");
+    return;
+  }
+
+  if (!accessToken) {
+    console.log("[meta-debug] early return: missing META_CONVERSIONS_ACCESS_TOKEN");
     return;
   }
 
   const leadId = typeof input.id === "string" ? input.id.trim() : "";
   if (!leadId) {
+    console.log("[meta-debug] early return: empty lead id");
     return;
   }
 
@@ -71,6 +99,24 @@ export function sendQualifiedLeadToMeta(input: SendQualifiedLeadToMetaInput): vo
         body.test_event_code = testEventCode;
       }
 
+      const firstEvent = (body.data as unknown[])[0] as Record<string, unknown>;
+      const userData = firstEvent.user_data as Record<string, unknown>;
+      const customData = firstEvent.custom_data as Record<string, unknown>;
+
+      console.log("[meta-debug] Meta CAPI request", {
+        url,
+        event_name: firstEvent.event_name,
+        event_time: firstEvent.event_time,
+        action_source: firstEvent.action_source,
+        event_source_url: firstEvent.event_source_url,
+        "user_data.fbclid": userData?.fbclid,
+        "custom_data.lead_id": customData?.lead_id,
+        "custom_data.lead_quality": customData?.lead_quality,
+        test_event_code_present: !!body.test_event_code,
+        test_event_code: body.test_event_code ?? null,
+        access_token: "[REDACTED]",
+      });
+
       const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -79,6 +125,12 @@ export function sendQualifiedLeadToMeta(input: SendQualifiedLeadToMetaInput): vo
       });
 
       const text = await res.text().catch(() => "");
+
+      console.log("[meta-debug] Meta CAPI response", {
+        leadId,
+        status: res.status,
+        responseText: text,
+      });
 
       if (res.ok) {
         console.log("[meta-capi] QualifiedLead sent", { leadId, httpStatus: res.status, bodyPreview: text.slice(0, 500) });
@@ -90,6 +142,12 @@ export function sendQualifiedLeadToMeta(input: SendQualifiedLeadToMetaInput): vo
         });
       }
     } catch (e) {
+      console.warn("[meta-debug] Meta CAPI catch", {
+        leadId,
+        error: e,
+        message: e instanceof Error ? e.message : undefined,
+        stack: e instanceof Error ? e.stack : undefined,
+      });
       console.warn("[meta-capi] QualifiedLead error", { leadId, error: e });
     }
   })();
