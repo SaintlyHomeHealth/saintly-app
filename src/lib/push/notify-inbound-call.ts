@@ -3,9 +3,23 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { createRingingCallSessions } from "@/lib/phone/call-sessions";
+import {
+  enrichInboundCallerForPush,
+  resolveInboundCallerInternal,
+  type InboundCallerResolved,
+} from "@/lib/phone/inbound-caller-identity";
 import { sendFcmDataAndNotificationToDevicesForUsers } from "@/lib/push/send-fcm-to-devices";
 import { sendFcmDataAndNotificationToUserIds } from "@/lib/push/send-fcm-to-user-ids";
 import { resolveBackupInboundStaffUserIdsAsync, resolveInboundBrowserStaffUserIdsAsync } from "@/lib/softphone/inbound-staff-ids";
+
+async function resolveEnrichedForInboundPush(
+  supabase: SupabaseClient,
+  fromE164: string | null | undefined,
+  hint: InboundCallerResolved | null | undefined
+): Promise<InboundCallerResolved> {
+  const base = hint ?? (await resolveInboundCallerInternal(supabase, fromE164 ?? ""));
+  return enrichInboundCallerForPush(base);
+}
 
 /**
  * Escalation tier 2: same FCM + `call_sessions` pattern as primary, different title/data type.
@@ -17,6 +31,7 @@ export async function notifyInboundBackupCallStaffPush(
     externalCallId: string;
     fromE164?: string | null;
     toE164?: string | null;
+    callerIdentityHint?: InboundCallerResolved | null;
   }
 ): Promise<void> {
   if (process.env.SAINTLY_PUSH_CALL_DISABLED === "1") {
@@ -31,6 +46,16 @@ export async function notifyInboundBackupCallStaffPush(
     const from = (input.fromE164 ?? "").trim() || "unknown";
     const openPath = `/workspace/phone/keypad`;
     const callSid = input.externalCallId.trim();
+
+    let enriched: InboundCallerResolved;
+    try {
+      enriched = await resolveEnrichedForInboundPush(supabase, input.fromE164, input.callerIdentityHint);
+    } catch {
+      enriched = await resolveInboundCallerInternal(supabase, input.fromE164 ?? "");
+    }
+
+    const bodyLine =
+      enriched.caller_name?.trim() ? enriched.caller_name.trim() : enriched.formatted_number || from;
 
     const created = await createRingingCallSessions(supabase, {
       callSid,
@@ -73,7 +98,7 @@ export async function notifyInboundBackupCallStaffPush(
 
       const payload = {
         title: "Incoming call (backup)",
-        body: from,
+        body: bodyLine,
         data: {
           type: "incoming_call_backup",
           phone_call_id: input.phoneCallId.trim(),
@@ -81,6 +106,12 @@ export async function notifyInboundBackupCallStaffPush(
           call_session_id: sessionId,
           open_path: openPath,
           from_e164: from,
+          caller_name: (enriched.caller_name ?? "").trim(),
+          caller_name_source: enriched.caller_name_source,
+          formatted_from: enriched.formatted_number || from,
+          lead_id: (enriched.lead_id ?? "").trim(),
+          contact_id: (enriched.contact_id ?? "").trim(),
+          conversation_id: (enriched.conversation_id ?? "").trim(),
         },
         apnsCollapseId: `call-backup-${callSid}`,
       };
@@ -115,6 +146,7 @@ export async function notifyInboundCallStaffPush(
     externalCallId: string;
     fromE164?: string | null;
     toE164?: string | null;
+    callerIdentityHint?: InboundCallerResolved | null;
   }
 ): Promise<void> {
   if (process.env.SAINTLY_PUSH_CALL_DISABLED === "1") {
@@ -129,6 +161,16 @@ export async function notifyInboundCallStaffPush(
     const from = (input.fromE164 ?? "").trim() || "unknown";
     const openPath = `/workspace/phone/keypad`;
     const callSid = input.externalCallId.trim();
+
+    let enriched: InboundCallerResolved;
+    try {
+      enriched = await resolveEnrichedForInboundPush(supabase, input.fromE164, input.callerIdentityHint);
+    } catch {
+      enriched = await resolveInboundCallerInternal(supabase, input.fromE164 ?? "");
+    }
+
+    const bodyLine =
+      enriched.caller_name?.trim() ? enriched.caller_name.trim() : enriched.formatted_number || from;
 
     const created = await createRingingCallSessions(supabase, {
       callSid,
@@ -176,7 +218,7 @@ export async function notifyInboundCallStaffPush(
 
       const payload = {
         title: "Incoming call",
-        body: from,
+        body: bodyLine,
         data: {
           type: "incoming_call",
           phone_call_id: input.phoneCallId.trim(),
@@ -184,6 +226,12 @@ export async function notifyInboundCallStaffPush(
           call_session_id: sessionId,
           open_path: openPath,
           from_e164: from,
+          caller_name: (enriched.caller_name ?? "").trim(),
+          caller_name_source: enriched.caller_name_source,
+          formatted_from: enriched.formatted_number || from,
+          lead_id: (enriched.lead_id ?? "").trim(),
+          contact_id: (enriched.contact_id ?? "").trim(),
+          conversation_id: (enriched.conversation_id ?? "").trim(),
         },
         apnsCollapseId: `call-${callSid}`,
       };
@@ -192,22 +240,11 @@ export async function notifyInboundCallStaffPush(
         const result = await sendFcmDataAndNotificationToDevicesForUsers(supabase, [uid], payload);
         if (!result.ok) {
           console.warn("[push] inbound call devices notify failed", { error: result.error });
-        } else {
-          console.log("[push] inbound call devices notify", {
-            userId: uid,
-            sent: result.sent,
-            failureCount: result.failureCount,
-          });
         }
       } else {
         const legacy = await sendFcmDataAndNotificationToUserIds(supabase, [uid], payload);
         if (!legacy.ok) {
           console.warn("[push] inbound call legacy notify failed", { error: legacy.error });
-        } else {
-          console.log("[push] inbound call user_push_devices (no devices row)", {
-            userId: uid,
-            sent: legacy.sent,
-          });
         }
       }
     }

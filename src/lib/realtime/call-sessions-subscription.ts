@@ -48,4 +48,10 @@ export type IncomingCallPushData = {
   call_session_id: string;
   open_path: string;
   from_e164: string;
+  caller_name?: string;
+  caller_name_source?: "internal" | "lookup" | "number_only";
+  formatted_from?: string;
+  lead_id?: string;
+  contact_id?: string;
+  conversation_id?: string;
 };

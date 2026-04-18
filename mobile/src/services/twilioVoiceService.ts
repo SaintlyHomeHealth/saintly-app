@@ -1,7 +1,6 @@
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
-import { voiceRegistrationDeviceLog } from '../debug/voiceRegistrationDeviceDebug';
 import type { SoftphoneTokenResponse } from './authTokenService';
 
 /**
@@ -58,10 +57,6 @@ const activeCallByCallSid = new Map<string, TwilioCallNative>();
 const incomingHandlers = new Set<(call: TwilioVoiceCallInfo) => void>();
 
 function emitIncoming(info: TwilioVoiceCallInfo): void {
-  console.warn('[SAINTLY-TRACE] presenting incoming call UI', {
-    callSidLen: typeof info.id === 'string' ? info.id.length : 0,
-  });
-  voiceRegistrationDeviceLog('presenting incoming call UI');
   incomingHandlers.forEach((fn) => {
     try {
       fn(info);
@@ -78,6 +73,7 @@ async function loadVoiceModule(): Promise<typeof import('@twilio/voice-react-nat
 }
 
 function logJwtIdentityForDiagnostics(accessToken: string, label: string): void {
+  if (!__DEV__) return;
   try {
     const parts = accessToken.split('.');
     if (parts.length < 2) return;
@@ -85,7 +81,7 @@ function logJwtIdentityForDiagnostics(accessToken: string, label: string): void 
     const padded = b64 + '='.repeat((4 - (b64.length % 4)) % 4);
     const json = JSON.parse(atob(padded)) as { sub?: string; iss?: string };
     const sub = typeof json.sub === 'string' ? json.sub : null;
-    console.warn(`[SAINTLY-VOICE] ${label}`, {
+    console.info(`[twilioVoiceService] ${label}`, {
       jwt_sub_identity: sub,
       jwt_iss_tail: typeof json.iss === 'string' ? json.iss.slice(-12) : null,
     });
@@ -104,19 +100,11 @@ async function ensureVoiceSingletonWithListeners(): Promise<void> {
     inviteByCallSid.set(sid, invite);
 
     invite.on(CallInvite.Event.Cancelled, () => {
-      console.warn('[SAINTLY-TRACE] invite canceled', { callSidLen: sid.length });
       inviteByCallSid.delete(sid);
       activeCallByCallSid.delete(sid);
     });
 
     const custom = invite.getCustomParameters() as Record<string, string>;
-    console.warn('[SAINTLY-TRACE] incoming call event received', { callSidLen: sid.length });
-    voiceRegistrationDeviceLog('incoming call event received');
-    console.warn('[SAINTLY-VOICE] CallInvite received', {
-      callSid: sid.slice(0, 12),
-      from: invite.getFrom(),
-      to: invite.getTo(),
-    });
     emitIncoming({
       id: sid,
       from: invite.getFrom(),
@@ -126,24 +114,12 @@ async function ensureVoiceSingletonWithListeners(): Promise<void> {
   });
 
   voiceSingleton.on(Voice.Event.Error, (err: unknown) => {
-    const msg = err instanceof Error ? err.message : String(err);
-    const short = msg.length > 80 ? `${msg.slice(0, 80)}…` : msg;
-    console.warn('[SAINTLY-TRACE] Voice.Event.Error', {
-      message: err instanceof Error ? err.message : String(err),
-    });
-    voiceRegistrationDeviceLog(`Voice.Event.Error ${short}`);
-    console.warn('[SAINTLY-VOICE] Voice.Event.Error', err);
+    console.warn('[twilioVoiceService] Voice.Event.Error', err instanceof Error ? err.message : String(err));
   });
 
-  voiceSingleton.on(Voice.Event.Registered, () => {
-    voiceRegistrationDeviceLog('Voice.Event.Registered');
-    console.warn('[SAINTLY-TRACE] Voice.Event.Registered');
-    console.warn('[SAINTLY-VOICE] Voice.Event.Registered (Twilio incoming-call registration OK)');
-  });
+  voiceSingleton.on(Voice.Event.Registered, () => {});
 
-  voiceSingleton.on(Voice.Event.Unregistered, () => {
-    console.warn('[SAINTLY-VOICE] Voice.Event.Unregistered');
-  });
+  voiceSingleton.on(Voice.Event.Unregistered, () => {});
 }
 
 async function runInitializePushRegistryOnce(): Promise<void> {
@@ -156,7 +132,6 @@ async function runInitializePushRegistryOnce(): Promise<void> {
     try {
       await voiceSingleton.initializePushRegistry();
       iosPushRegistryInitialized = true;
-      console.warn('[SAINTLY-VOICE] iOS initializePushRegistry() completed (PushKit)');
     } finally {
       iosPushRegistryInitInFlight = null;
     }
@@ -189,20 +164,9 @@ export const twilioVoiceService: TwilioVoiceService = {
     if (!token) return;
 
     const identityFromApi = typeof response.identity === 'string' ? response.identity.trim() : '';
-    console.warn('[SAINTLY-TRACE] initializeWithToken entered', {
-      twilioJwtLength: token.length,
-      identityLength: identityFromApi.length,
-    });
-    voiceRegistrationDeviceLog(`initializeWithToken entered jwtLen=${token.length}`);
-    console.warn('[SAINTLY-VOICE] initializeWithToken', {
-      hasToken: true,
-      twilio_identity_from_api: identityFromApi || '(empty)',
-    });
     logJwtIdentityForDiagnostics(token, 'access_token_jwt_claims');
 
     if (lastRegisteredToken === token && voiceSingleton) {
-      console.warn('[SAINTLY-TRACE] duplicate Twilio access token skipped (Voice already registered)');
-      console.warn('[SAINTLY-VOICE] skip — same access token already registered with native Voice');
       return;
     }
 
@@ -212,22 +176,14 @@ export const twilioVoiceService: TwilioVoiceService = {
       await runInitializePushRegistryOnce();
     }
 
-    console.warn('[SAINTLY-TRACE] calling Voice.register', { twilioJwtLength: token.length });
-    voiceRegistrationDeviceLog(`calling Voice.register jwtLen=${token.length}`);
-    console.warn('[SAINTLY-VOICE] calling Voice.register(accessToken)…');
     await voiceSingleton.register(token);
     lastRegisteredToken = token;
-    console.warn('[SAINTLY-TRACE] Voice.register resolved');
-    voiceRegistrationDeviceLog('Voice.register resolved');
-    console.warn('[SAINTLY-VOICE] Voice.register() promise resolved');
 
     if (Platform.OS === 'ios') {
       try {
-        const dt = await voiceSingleton.getDeviceToken();
-        const voipLen = typeof dt === 'string' ? dt.length : 0;
-        console.warn('[SAINTLY-VOICE] native Twilio device token (PushKit) after register', { voipDeviceTokenLen: voipLen });
+        await voiceSingleton.getDeviceToken();
       } catch (e) {
-        console.warn('[SAINTLY-VOICE] getDeviceToken() after register failed', e);
+        console.warn('[twilioVoiceService] getDeviceToken after register failed', e);
       }
     }
   },
@@ -284,7 +240,6 @@ export const twilioVoiceService: TwilioVoiceService = {
       throw new Error(`[twilioVoiceService] No CallInvite for ${callId}`);
     }
     const call = await invite.accept();
-    console.warn('[SAINTLY-TRACE] invite accepted', { callSidLen: callId.length });
     inviteByCallSid.delete(callId);
     activeCallByCallSid.set(callId, call);
     call.on(mod.Call.Event.Disconnected, () => {
@@ -296,7 +251,6 @@ export const twilioVoiceService: TwilioVoiceService = {
     const invite = inviteByCallSid.get(callId);
     if (!invite) return;
     await invite.reject();
-    console.warn('[SAINTLY-TRACE] invite rejected', { callSidLen: callId.length });
     inviteByCallSid.delete(callId);
   },
 

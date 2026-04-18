@@ -7,6 +7,7 @@ export type CrmContactMatch = {
   first_name: string | null;
   last_name: string | null;
   full_name: string | null;
+  organization_name: string | null;
   primary_phone: string | null;
   secondary_phone: string | null;
   email: string | null;
@@ -29,7 +30,9 @@ export async function findContactByIncomingPhone(
 
   const { data, error } = await supabase
     .from("contacts")
-    .select("id, first_name, last_name, full_name, primary_phone, secondary_phone, email, contact_type, status")
+    .select(
+      "id, first_name, last_name, full_name, organization_name, primary_phone, secondary_phone, email, contact_type, status"
+    )
     .or(ors.join(","))
     .limit(1)
     .maybeSingle();

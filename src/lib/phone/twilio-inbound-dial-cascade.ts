@@ -4,6 +4,7 @@
  */
 
 import { supabaseAdmin } from "@/lib/admin";
+import { clientDialExtrasFromRouting } from "@/lib/phone/inbound-caller-identity";
 import { notifyInboundBackupCallStaffPush } from "@/lib/push/notify-inbound-call";
 import type { VoicemailGreetingKind } from "@/lib/phone/twilio-voicemail-twiml";
 import { buildSaintlyVoicemailRecordTwiml } from "@/lib/phone/twilio-voicemail-twiml";
@@ -123,8 +124,9 @@ export function buildTwimlForCascadeStep(input: {
         )}" statusCallbackMethod="POST" statusCallbackEvent="initiated ringing answered completed"`
       : ` answerOnBridge="true" timeout="${browserRingSec}" callerId="${escapeXml(callerIdForBrowserDial)}"`;
 
+    const dialExtras = clientDialExtrasFromRouting(routing);
     const clientBodies = step.userIds
-      .map((id) => clientDialNounXml(softphoneTwilioClientIdentity(id), callerIdForBrowserDial))
+      .map((id) => clientDialNounXml(softphoneTwilioClientIdentity(id), callerIdForBrowserDial, dialExtras))
       .join("");
 
     return `<?xml version="1.0" encoding="UTF-8"?>

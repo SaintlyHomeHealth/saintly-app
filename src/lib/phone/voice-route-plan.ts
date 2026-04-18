@@ -175,6 +175,14 @@ export type CascadeStep =
 
 const VOICE_ROUTING_JSON_VERSION = 1 as const;
 
+export type InboundCallerDisplayJson = {
+  caller_name: string | null;
+  caller_name_source: "internal" | "lookup" | "number_only";
+  lead_id?: string | null;
+  contact_id?: string | null;
+  conversation_id?: string | null;
+};
+
 export type VoiceRoutingJsonV1 = {
   v: typeof VOICE_ROUTING_JSON_VERSION;
   route_type: string;
@@ -183,6 +191,8 @@ export type VoiceRoutingJsonV1 = {
   voicemail_variant: VoicemailVariant;
   steps: CascadeStep[];
   active_step_index: number;
+  /** Set on first `/inbound-ring` for cascade steps + mobile CallKit custom parameters. */
+  inbound_caller_display?: InboundCallerDisplayJson | null;
 };
 
 export function buildCascadeStepsFromPlan(plan: VoiceInboundRoutePlan): CascadeStep[] {

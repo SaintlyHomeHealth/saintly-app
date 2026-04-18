@@ -5,7 +5,6 @@ import {
   Linking,
   Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -14,22 +13,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Constants from 'expo-constants';
 import { WebView } from 'react-native-webview';
 
-import {
-  DEFAULT_PRODUCTION_API_ORIGIN,
-  PUSH_REGISTER_URL_RESOLVED,
-  env,
-  logPushRegistrationEnvDiagnostics,
-  pushRegisterUrl,
-  voiceRegisterUrl,
-} from '../config/env';
+import { DEFAULT_PRODUCTION_API_ORIGIN, env, pushRegisterUrl, voiceRegisterUrl } from '../config/env';
 import { useNativePushRegistration } from '../hooks/useNativePushRegistration';
 import { requestForegroundLocationWhenNeeded } from '../services/locationPermission';
 import { tryRegisterNativeTwilioFromPortalApi } from '../services/nativeSoftphoneApiRegistration';
 import { registerNativeTwilioWithAccessToken } from '../services/nativeTwilioVoiceBridge';
 import { setStoredSupabaseAccessToken } from '../services/supabaseAccessTokenStore';
 import { twilioVoiceService } from '../services/twilioVoiceService';
-import { VoiceRegistrationDeviceDebugPanel } from '../debug/VoiceRegistrationDeviceDebugPanel';
-import { voiceRegistrationDeviceLog } from '../debug/voiceRegistrationDeviceDebug';
 import { colors } from '../theme/colors';
 
 import type { HomeScreenProps } from '../navigation/types';
@@ -40,7 +30,7 @@ function portalUrl(): string {
   return `${base}/workspace/phone/keypad`;
 }
 
-/** Injected into the WebView — posts structured logs to RN via `postMessage` (no silent failures). */
+/** Injected into the WebView — POST FCM to portal `devices` registration (cookie session). */
 function buildRegisterPushInjectJs(fcmToken: string, attemptReason: string): string {
   const registerUrl = pushRegisterUrl();
   const platform = Platform.OS === 'ios' ? 'ios' : 'android';
@@ -50,61 +40,17 @@ function buildRegisterPushInjectJs(fcmToken: string, attemptReason: string): str
   var attemptReason = ${reasonJson};
   var url = ${JSON.stringify(registerUrl)};
   var body = ${JSON.stringify(bodyStr)};
-  function post(p) {
-    try {
-      if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
-        window.ReactNativeWebView.postMessage(JSON.stringify(Object.assign({ type: 'push-register-log' }, p)));
-      } else {
-        throw new Error('ReactNativeWebView.postMessage not available');
-      }
-    } catch (e) {
-      try {
-        if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
-          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'push-register-log', step: 'postMessage_failed', message: String(e) }));
-        }
-      } catch (_e2) {}
-    }
-  }
-  post({ step: 'inject_begin', attemptReason: attemptReason, url: url });
-  post({
-    step: 'register_meta',
-    url: url,
-    method: 'POST',
-    payload: body,
-    redirect: 'follow',
-    credentials: 'include'
-  });
   fetch(url, {
     method: 'POST',
     credentials: 'include',
     redirect: 'follow',
     headers: { 'Content-Type': 'application/json' },
     body: body
-  })
-    .then(function (res) {
-      return res.text().then(function (text) {
-        var raw = text.length > 6000 ? text.slice(0, 6000) + '…[truncated]' : text;
-        post({
-          step: 'register_done',
-          status: res.status,
-          ok: res.ok,
-          rawText: raw
-        });
-      });
-    })
-    .catch(function (err) {
-      post({
-        step: 'register_throw',
-        name: err && err.name ? String(err.name) : 'Error',
-        message: err && err.message ? String(err.message) : String(err),
-        stack: err && err.stack ? String(err.stack) : ''
-      });
-    });
+  }).catch(function () {});
   true;
 })();`;
 }
 
-/** GET fetch to same host as WebView — avoids cross-subdomain cookie / fetch issues vs www. */
 /** Registers this install in `devices` for ops + Realtime; does not perform Twilio SDK registration. */
 function buildVoiceRegisterInjectJs(input: {
   fcmToken: string;
@@ -125,77 +71,18 @@ function buildVoiceRegisterInjectJs(input: {
     bodyObj.voipPushToken = voip;
   }
   const bodyStr = JSON.stringify(bodyObj);
-  const bodyLen = bodyStr.length;
-  const voipLen = voip.length;
   return `(function(){
   var url = ${JSON.stringify(url)};
   var body = ${JSON.stringify(bodyStr)};
-  function post(p) {
-    try {
-      if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
-        window.ReactNativeWebView.postMessage(JSON.stringify(Object.assign({ type: 'voice-register-log' }, p)));
-      }
-    } catch (e) {}
-  }
-  post({ step: 'voice_register_begin', url: url, bodyCharLen: ${bodyLen} });
-  post({ step: 'voice_register_payload', url: url, twilioIdentity: ${JSON.stringify(input.twilioIdentity)}, platform: ${JSON.stringify(input.platform)}, appVersion: ${JSON.stringify(input.appVersion)}, fcmTokenLen: ${input.fcmToken.length}, voipPushTokenLen: ${voipLen} });
   fetch(url, {
     method: 'POST',
     credentials: 'include',
     redirect: 'follow',
     headers: { 'Content-Type': 'application/json' },
     body: body
-  })
-    .then(function (res) {
-      return res.text().then(function (text) {
-        post({ step: 'voice_register_done', status: res.status, ok: res.ok, rawText: text.length > 2000 ? text.slice(0, 2000) + '…' : text });
-      });
-    })
-    .catch(function (err) {
-      post({ step: 'voice_register_throw', message: String(err && err.message ? err.message : err) });
-    });
+  }).catch(function () {});
   true;
 })();`;
-}
-
-function buildPingRegisterInjectJs(): string {
-  const registerUrl = pushRegisterUrl();
-  return `(function(){
-  var url = ${JSON.stringify(registerUrl)};
-  function post(p) {
-    try {
-      if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
-        window.ReactNativeWebView.postMessage(JSON.stringify(Object.assign({ type: 'push-register-log' }, p)));
-      }
-    } catch (e) {}
-  }
-  post({ step: 'ping_meta', url: url, method: 'GET', redirect: 'follow', credentials: 'include' });
-  fetch(url, { method: 'GET', credentials: 'include', redirect: 'follow' })
-    .then(function (res) {
-      return res.text().then(function (text) {
-        var raw = text.length > 6000 ? text.slice(0, 6000) + '…[truncated]' : text;
-        post({
-          step: 'ping_done',
-          status: res.status,
-          ok: res.ok,
-          rawText: raw
-        });
-      });
-    })
-    .catch(function (err) {
-      post({
-        step: 'ping_throw',
-        name: err && err.name ? String(err.name) : 'Error',
-        message: err && err.message ? String(err.message) : String(err),
-        stack: err && err.stack ? String(err.stack) : ''
-      });
-    });
-  true;
-})();`;
-}
-
-function isNonProductionPushApiUrl(url: string): boolean {
-  return /localhost|127\.0\.0\.1|0\.0\.0\.0|10\.0\.2\.2/.test(url);
 }
 
 type WebViewBridgeMessage =
@@ -223,11 +110,9 @@ function pushStatusLine(environment: string, fcmOk: boolean): string {
 }
 
 export function HomeScreen(_props: HomeScreenProps) {
-  const { state: pushState, refreshRegistration } = useNativePushRegistration();
-  const pushEnv =
-    pushState.status === 'ready' ? pushState.result.environment : null;
+  const { state: pushState } = useNativePushRegistration();
+  const pushEnv = pushState.status === 'ready' ? pushState.result.environment : null;
   const fcmToken = pushState.status === 'ready' ? pushState.result.fcmToken : null;
-  const nativePushDetail = pushState.status === 'ready' ? pushState.result : null;
 
   const webViewRef = useRef<WebView>(null);
   const fcmTokenRef = useRef<string | null>(null);
@@ -238,109 +123,42 @@ export function HomeScreen(_props: HomeScreenProps) {
   const [locationNote, setLocationNote] = useState<string | null>(null);
   const [locationBusy, setLocationBusy] = useState(false);
 
-  /** TEMP: on-screen push registration debug (remove after device is verified). */
-  const [lastRegAttemptReason, setLastRegAttemptReason] = useState<string>('—');
-  const [currentWebViewUrl, setCurrentWebViewUrl] = useState<string>('—');
-  const [webViewRefAttached, setWebViewRefAttached] = useState(false);
-  const [regReqSummary, setRegReqSummary] = useState<string>('—');
-  const [regResSummary, setRegResSummary] = useState<string>('—');
-  const [regThrowSummary, setRegThrowSummary] = useState<string>('—');
-  const [pingReqSummary, setPingReqSummary] = useState<string>('—');
-  const [pingResSummary, setPingResSummary] = useState<string>('—');
-  const [pingThrowSummary, setPingThrowSummary] = useState<string>('—');
-  const [pushRefreshBusy, setPushRefreshBusy] = useState(false);
-
   const apiOrigin = env.apiBaseUrl.replace(/\/$/, '') || DEFAULT_PRODUCTION_API_ORIGIN;
 
   fcmTokenRef.current = fcmToken;
-
-  useEffect(() => {
-    console.warn('[SAINTLY-TRACE] HomeScreen mounted');
-    voiceRegistrationDeviceLog('HomeScreen mounted');
-  }, []);
 
   /** Cold launch: always open keypad — do not restore a previous deep link / notification path. */
   useEffect(() => {
     setPortalUri(portalUrl());
   }, []);
 
-  /** Log native incoming invites (CallKit UI is driven by Twilio SDK). */
+  /** Surface Twilio customParameters (e.g. caller_name from server) when present. */
   useEffect(() => {
     if (Constants.appOwnership === 'expo') return undefined;
     return twilioVoiceService.onIncomingCall((c) => {
-      console.warn('[SAINTLY-VOICE] callInvite', { id: c.id, from: c.from, to: c.to });
+      const name = c.customParameters?.caller_name?.trim();
+      if (__DEV__ && name) {
+        console.info('[twilioVoice] incoming', { callSidLen: c.id?.length ?? 0, caller_name: name });
+      }
     });
   }, []);
-
-  /** Log once at startup — search device logs for SAINTLY-PUSH-REG */
-  useEffect(() => {
-    logPushRegistrationEnvDiagnostics();
-    console.warn('[SAINTLY-PUSH-REG] resolved_api_base_url', env.apiBaseUrl);
-    console.warn('[SAINTLY-PUSH-REG] resolved_push_register_url', PUSH_REGISTER_URL_RESOLVED);
-  }, []);
-
-  useEffect(() => {
-    console.warn('[SAINTLY-PUSH-REG] portalUri', portalUri);
-  }, [portalUri]);
 
   const lastNavUrlRef = useRef<string>('');
 
   const runPushRegistration = useCallback((reason: string) => {
     const token = fcmTokenRef.current;
-    setLastRegAttemptReason(reason);
-    console.warn('[SAINTLY-PUSH-REG] attempt', {
-      reason,
-      hasFcmToken: Boolean(token),
-      isExpoGo: Constants.appOwnership === 'expo',
-      hasWebViewRef: Boolean(webViewRef.current),
-    });
-    if (Constants.appOwnership === 'expo') {
-      setLastRegAttemptReason(`${reason} → skipped_expo_go`);
-      console.warn('[SAINTLY-PUSH-REG] skip', { reason: 'expo_go' });
+    if (Constants.appOwnership === 'expo' || !token || !webViewRef.current) {
       return;
     }
-    if (!token) {
-      setLastRegAttemptReason(`${reason} → skipped_no_fcm_token`);
-      console.warn('[SAINTLY-PUSH-REG] skip', { reason: 'no_fcm_token' });
-      return;
-    }
-    if (!webViewRef.current) {
-      setLastRegAttemptReason(`${reason} → skipped_no_webview_ref`);
-      console.warn('[SAINTLY-PUSH-REG] skip', { reason: 'no_webview_ref' });
-      return;
-    }
-    const url = pushRegisterUrl();
-    if (isNonProductionPushApiUrl(url)) {
-      console.warn('[SAINTLY-PUSH-REG] register_url_non_production', url);
-    } else if (url.startsWith(DEFAULT_PRODUCTION_API_ORIGIN)) {
-      console.warn('[SAINTLY-PUSH-REG] register_url_ok_production', url);
-    } else {
-      console.warn('[SAINTLY-PUSH-REG] register_url_custom', url);
-    }
-    console.warn('[SAINTLY-PUSH-REG] inject_js', { reason, url });
-    setRegReqSummary('…');
-    setRegResSummary('…');
-    setRegThrowSummary('…');
     webViewRef.current.injectJavaScript(buildRegisterPushInjectJs(token, reason));
   }, []);
 
   const injectWorkspaceVoiceRegister = useCallback(async (twilioIdentity: string, reason: string) => {
     const t = fcmTokenRef.current;
     if (!t || !twilioIdentity || !webViewRef.current || Constants.appOwnership === 'expo') {
-      console.warn('[SAINTLY-VOICE-REG] skip voice_register inject', {
-        reason,
-        hasFcm: Boolean(t),
-        hasIdentity: Boolean(twilioIdentity),
-      });
       return;
     }
-    const voip =
-      Platform.OS === 'ios' ? await twilioVoiceService.getNativeDeviceToken() : null;
-    console.warn('[SAINTLY-VOICE-REG] voice_register inject', {
-      reason,
-      twilioIdentity,
-      voipPushTokenLen: voip?.length ?? 0,
-    });
+    const voip = Platform.OS === 'ios' ? await twilioVoiceService.getNativeDeviceToken() : null;
     const appVersion = Constants.expoConfig?.version ?? '1.0.0';
     webViewRef.current.injectJavaScript(
       buildVoiceRegisterInjectJs({
@@ -355,8 +173,7 @@ export function HomeScreen(_props: HomeScreenProps) {
 
   /**
    * GET `/api/softphone/token` from native (Supabase bearer in SecureStore from workspace bridge, else cookie fallback),
-   * then `Voice.register` + POST `/voice/register` when FCM + WebView exist. WebView `saintly-softphone-token`
-   * remains a backup; `initializeWithToken` skips duplicate Twilio JWTs (`lastRegisteredToken`).
+   * then `Voice.register` + POST `/voice/register` when FCM + WebView exist.
    */
   const runNativeSoftphoneRegistration = useCallback(
     async (reason: string): Promise<void> => {
@@ -371,7 +188,6 @@ export function HomeScreen(_props: HomeScreenProps) {
         await injectWorkspaceVoiceRegister(id, `native_api_${reason}`);
       } else if (!t) {
         pendingVoiceRegisterRef.current = { twilioIdentity: id };
-        console.warn('[SAINTLY-VOICE-REG] deferring voice_register until FCM (native API path)');
       }
     },
     [injectWorkspaceVoiceRegister]
@@ -384,7 +200,6 @@ export function HomeScreen(_props: HomeScreenProps) {
     let cancelled = false;
 
     const run = (reason: string): void => {
-      console.warn('[SAINTLY-TRACE] native bearer registration scheduled run', { reason });
       void (async () => {
         if (cancelled) return;
         await runNativeSoftphoneRegistration(reason);
@@ -407,8 +222,6 @@ export function HomeScreen(_props: HomeScreenProps) {
 
     const sub = AppState.addEventListener('change', (next) => {
       if (next === 'active') {
-        console.warn('[SAINTLY-TRACE] AppState active');
-        voiceRegistrationDeviceLog('AppState active');
         run('appstate_active');
       }
     });
@@ -419,19 +232,6 @@ export function HomeScreen(_props: HomeScreenProps) {
       sub.remove();
     };
   }, [loading, runNativeSoftphoneRegistration]);
-
-  const runPingRegisterApi = useCallback(() => {
-    if (!webViewRef.current) {
-      setPingReqSummary('—');
-      setPingResSummary('—');
-      setPingThrowSummary('no_webview_ref');
-      return;
-    }
-    setPingReqSummary('…');
-    setPingResSummary('…');
-    setPingThrowSummary('…');
-    webViewRef.current.injectJavaScript(buildPingRegisterInjectJs());
-  }, []);
 
   /** After FCM token exists: retry registration — cookies may not exist until post-login navigation. */
   useEffect(() => {
@@ -460,7 +260,6 @@ export function HomeScreen(_props: HomeScreenProps) {
 
   /**
    * Foreground / background-open only — navigates WebView when user interacts with a notification.
-   * Intentionally no getInitialNotification: cold launch always stays on keypad (see mount effect).
    */
   useEffect(() => {
     if (Constants.appOwnership === 'expo') return;
@@ -502,53 +301,7 @@ export function HomeScreen(_props: HomeScreenProps) {
       try {
         const raw = event.nativeEvent.data;
         const msg = JSON.parse(raw) as WebViewBridgeMessage;
-        if (msg.type === 'push-register-log') {
-          const step = typeof msg.step === 'string' ? msg.step : '';
-          const m = msg as Record<string, unknown>;
-          if (step === 'register_meta') {
-            setRegReqSummary(
-              `url: ${String(m.url ?? '')}\nmethod: ${String(m.method ?? '')}\nredirect: ${String(m.redirect ?? '')}\ncredentials: ${String(m.credentials ?? '')}\npayload: ${String(m.payload ?? '')}`
-            );
-            setRegThrowSummary('—');
-            console.warn('[SAINTLY-PUSH-REG] register_meta', msg);
-          } else if (step === 'register_done') {
-            const raw = typeof m.rawText === 'string' ? m.rawText : '';
-            setRegResSummary(
-              `status: ${String(m.status ?? '')}\nok: ${String(m.ok)}\nraw (text, not assumed JSON):\n${raw}`
-            );
-            console.warn('[SAINTLY-PUSH-REG] register_done', { status: m.status, ok: m.ok, len: raw.length });
-          } else if (step === 'register_throw') {
-            setRegThrowSummary(
-              `name: ${String(m.name ?? '')}\nmessage: ${String(m.message ?? '')}\nstack:\n${String(m.stack ?? '')}`
-            );
-            setRegResSummary('—');
-            console.warn('[SAINTLY-PUSH-REG] register_throw', msg);
-          } else if (step === 'ping_meta') {
-            setPingReqSummary(
-              `url: ${String(m.url ?? '')}\nmethod: ${String(m.method ?? '')}\nredirect: ${String(m.redirect ?? '')}\ncredentials: ${String(m.credentials ?? '')}`
-            );
-            setPingThrowSummary('—');
-            console.warn('[SAINTLY-PUSH-REG] ping_meta', msg);
-          } else if (step === 'ping_done') {
-            const raw = typeof m.rawText === 'string' ? m.rawText : '';
-            setPingResSummary(
-              `status: ${String(m.status ?? '')}\nok: ${String(m.ok)}\nraw (text):\n${raw}`
-            );
-            console.warn('[SAINTLY-PUSH-REG] ping_done', msg);
-          } else if (step === 'ping_throw') {
-            setPingThrowSummary(
-              `name: ${String(m.name ?? '')}\nmessage: ${String(m.message ?? '')}\nstack:\n${String(m.stack ?? '')}`
-            );
-            setPingResSummary('—');
-            console.warn('[SAINTLY-PUSH-REG] ping_throw', msg);
-          } else if (step === 'postMessage_failed') {
-            setRegThrowSummary(
-              `postMessage failed: ${String((msg as { message?: string }).message ?? '')}`
-            );
-            console.warn('[SAINTLY-PUSH-REG] postMessage_failed', msg);
-          } else {
-            console.warn('[SAINTLY-PUSH-REG] webview_step', step, msg);
-          }
+        if (msg.type === 'push-register-log' || msg.type === 'voice-register-log') {
           return;
         }
         if (msg.type === 'open-settings') {
@@ -556,42 +309,21 @@ export function HomeScreen(_props: HomeScreenProps) {
         }
         if (msg.type === 'saintly-supabase-access-token') {
           void (async () => {
-            const raw = (msg as { access_token?: string | null }).access_token;
-            const tok = typeof raw === 'string' && raw.trim() ? raw.trim() : null;
-            console.warn('[SAINTLY-TRACE] received saintly-supabase-access-token', {
-              hasToken: Boolean(tok),
-              tokenLength: tok?.length ?? 0,
-            });
-            voiceRegistrationDeviceLog(`received saintly-supabase-access-token hasToken=${Boolean(tok)}`);
+            const tokRaw = (msg as { access_token?: string | null }).access_token;
+            const tok = typeof tokRaw === 'string' && tokRaw.trim() ? tokRaw.trim() : null;
             await setStoredSupabaseAccessToken(tok);
-            console.warn('[SAINTLY-NATIVE-AUTH] rn_received_supabase_session_bridge', {
-              hasToken: Boolean(tok),
-              tokenLen: tok?.length ?? 0,
-            });
             await runNativeSoftphoneRegistration('supabase_access_token_bridge');
           })();
         }
         if (msg.type === 'saintly-softphone-token' && typeof msg.token === 'string') {
           const identity = typeof msg.identity === 'string' ? msg.identity.trim() : '';
           void (async () => {
-            console.warn('[SAINTLY-TRACE] received saintly-softphone-token', {
-              hasTwilioJwt: true,
-              twilioJwtLength: msg.token.length,
-              identityLen: identity.length,
-            });
-            voiceRegistrationDeviceLog('received saintly-softphone-token');
             try {
-              console.warn('[SAINTLY-TRACE] webview softphone token bridge retry start');
-              console.warn('[SAINTLY-VOICE] WebView saintly-softphone-token', {
-                hasIdentity: Boolean(identity),
-              });
               await registerNativeTwilioWithAccessToken(msg.token, identity);
-              console.warn('[SAINTLY-TRACE] webview softphone token bridge retry success');
             } catch (e) {
-              console.warn('[SAINTLY-TRACE] webview softphone token bridge retry fail', {
-                message: e instanceof Error ? e.message : String(e),
-              });
-              console.warn('[SAINTLY-VOICE] registerNativeTwilioWithAccessToken failed', e);
+              if (__DEV__) {
+                console.warn('[HomeScreen] registerNativeTwilioWithAccessToken', e);
+              }
             }
             const t = fcmTokenRef.current;
             if (identity && t && webViewRef.current && Constants.appOwnership !== 'expo') {
@@ -599,11 +331,6 @@ export function HomeScreen(_props: HomeScreenProps) {
               await injectWorkspaceVoiceRegister(identity, 'after_softphone_token');
             } else if (identity && !t) {
               pendingVoiceRegisterRef.current = { twilioIdentity: identity };
-              console.warn('[SAINTLY-VOICE-REG] deferring voice_register until FCM token exists');
-            } else if (!identity) {
-              console.warn(
-                '[SAINTLY-VOICE-REG] skip voice_register — missing identity in bridge message (expect /api/softphone/token `identity`)'
-              );
             }
             const tAfter = fcmTokenRef.current;
             if (tAfter) {
@@ -616,13 +343,8 @@ export function HomeScreen(_props: HomeScreenProps) {
               setTimeout(() => {
                 runPushRegistration('after_softphone_token_delay_8s');
               }, 8000);
-            } else {
-              console.warn('[SAINTLY-PUSH-REG] softphone_token_but_no_fcm');
             }
           })();
-        }
-        if (msg.type === 'voice-register-log') {
-          console.warn('[SAINTLY-VOICE-REG]', msg);
         }
       } catch {
         // ignore non-JSON messages
@@ -630,25 +352,6 @@ export function HomeScreen(_props: HomeScreenProps) {
     },
     [runPushRegistration, injectWorkspaceVoiceRegister, runNativeSoftphoneRegistration]
   );
-
-  const fcmTokenPreview =
-    fcmToken && fcmToken.length > 0
-      ? `${fcmToken.slice(0, 24)}… (len ${fcmToken.length})`
-      : 'no';
-
-  const apnsPreview =
-    nativePushDetail?.apnsDeviceToken && nativePushDetail.apnsDeviceToken.length > 0
-      ? `${nativePushDetail.apnsDeviceToken.slice(0, 20)}… (len ${nativePushDetail.apnsDeviceToken.length})`
-      : 'no';
-
-  const runNativePushRefresh = useCallback(async () => {
-    setPushRefreshBusy(true);
-    try {
-      await refreshRegistration();
-    } finally {
-      setPushRefreshBusy(false);
-    }
-  }, [refreshRegistration]);
 
   const onEnableLocation = useCallback(async () => {
     setLocationBusy(true);
@@ -668,7 +371,6 @@ export function HomeScreen(_props: HomeScreenProps) {
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.container}>
-        <VoiceRegistrationDeviceDebugPanel />
         <WebView
           ref={webViewRef}
           source={{ uri: portalUri }}
@@ -679,32 +381,20 @@ export function HomeScreen(_props: HomeScreenProps) {
           sharedCookiesEnabled
           allowsInlineMediaPlayback
           mediaPlaybackRequiresUserAction={false}
-          /** iOS 15+ — grant WKWebView media capture so Twilio Voice (getUserMedia) can acquire the mic in-app. */
           mediaCapturePermissionGrantType="grant"
           onLoadStart={() => {
-            console.warn('[SAINTLY-TRACE] WebView loading started');
             setLoading(true);
           }}
           onLoadEnd={() => {
-            console.warn('[SAINTLY-TRACE] WebView loading finished');
             setLoading(false);
-            setWebViewRefAttached(true);
           }}
           onNavigationStateChange={(navState) => {
             const url = navState.url ?? '';
-            setCurrentWebViewUrl(url || '(empty)');
             if (url === lastNavUrlRef.current) return;
             lastNavUrlRef.current = url;
             if (!fcmTokenRef.current || Constants.appOwnership === 'expo') return;
             if (url.includes('/workspace/phone')) {
-              console.warn('[SAINTLY-PUSH-REG] nav_to_workspace_phone', url);
               runPushRegistration('navigation_to_workspace_phone');
-              setTimeout(() => {
-                runPushRegistration('navigation_to_workspace_phone_delay_500ms');
-              }, 500);
-              setTimeout(() => {
-                runPushRegistration('navigation_to_workspace_phone_delay_2s');
-              }, 2000);
             }
           }}
           onMessage={onWebViewMessage}
@@ -715,100 +405,6 @@ export function HomeScreen(_props: HomeScreenProps) {
             <ActivityIndicator size="large" color={colors.primary} />
           </View>
         ) : null}
-
-        <ScrollView style={styles.debugScroll} keyboardShouldPersistTaps="handled">
-          <Text style={styles.debugTitle}>TEMP push registration debug</Text>
-          <Text style={styles.debugLine} selectable>
-            apiBaseUrl: {env.apiBaseUrl}
-          </Text>
-          <Text style={styles.debugLine} selectable>
-            pushRegisterUrl: {pushRegisterUrl()}
-          </Text>
-          <Text style={styles.debugLine} selectable>
-            portalUri (state): {portalUri}
-          </Text>
-          <Text style={styles.debugLine} selectable>
-            WebView URL (last nav): {currentWebViewUrl}
-          </Text>
-          <Text style={styles.debugLine} selectable>
-            fcmToken: {fcmTokenPreview}
-          </Text>
-          <Text style={styles.debugLine} selectable>
-            permission:{' '}
-            {nativePushDetail
-              ? `${nativePushDetail.permissionStatus ?? '—'} ${nativePushDetail.permissionLabel ?? ''}`
-              : '…'}
-          </Text>
-          <Text style={styles.debugLine} selectable>
-            APNs (Firebase): {apnsPreview}
-          </Text>
-          <Text style={styles.debugLine} selectable>
-            native push error: {nativePushDetail?.errorText ?? '—'}
-          </Text>
-          <Text style={styles.debugLine} selectable>
-            env: appOwnership={nativePushDetail?.diagnostics.appOwnership ?? '—'} exec=
-            {nativePushDetail?.diagnostics.executionEnvironment ?? '—'}
-          </Text>
-          <Text style={styles.debugLine} selectable>
-            webViewRef: {webViewRefAttached ? 'yes (onLoadEnd)' : 'not yet'}
-          </Text>
-          <Text style={styles.debugLine} selectable>
-            last attempt: {lastRegAttemptReason}
-          </Text>
-          <Text style={styles.debugSectionLabel}>POST register (WebView)</Text>
-          <Text style={styles.debugLine} selectable>
-            {regReqSummary}
-          </Text>
-          <Text style={styles.debugSectionLabel}>register response</Text>
-          <Text style={styles.debugLine} selectable>
-            {regResSummary}
-          </Text>
-          <Text style={styles.debugSectionLabel}>register throw</Text>
-          <Text style={styles.debugLine} selectable>
-            {regThrowSummary}
-          </Text>
-          <Text style={styles.debugSectionLabel}>GET ping (WebView)</Text>
-          <Text style={styles.debugLine} selectable>
-            {pingReqSummary}
-          </Text>
-          <Text style={styles.debugSectionLabel}>ping response</Text>
-          <Text style={styles.debugLine} selectable>
-            {pingResSummary}
-          </Text>
-          <Text style={styles.debugSectionLabel}>ping throw</Text>
-          <Text style={styles.debugLine} selectable>
-            {pingThrowSummary}
-          </Text>
-          <View style={styles.debugRow}>
-            <Pressable
-              style={({ pressed }) => [
-                styles.debugBtn,
-                pressed && styles.debugBtnPressed,
-                pushRefreshBusy && styles.debugBtnDisabled,
-              ]}
-              disabled={pushRefreshBusy}
-              onPress={() => void runNativePushRefresh()}
-            >
-              <Text style={styles.debugBtnText}>
-                {pushRefreshBusy ? 'Refreshing FCM…' : 'Request perm + refresh FCM'}
-              </Text>
-            </Pressable>
-          </View>
-          <View style={styles.debugRow}>
-            <Pressable
-              style={({ pressed }) => [styles.debugBtn, pressed && styles.debugBtnPressed]}
-              onPress={() => runPushRegistration('manual_debug_button')}
-            >
-              <Text style={styles.debugBtnText}>Run push registration now</Text>
-            </Pressable>
-            <Pressable
-              style={({ pressed }) => [styles.debugBtn, pressed && styles.debugBtnPressed]}
-              onPress={runPingRegisterApi}
-            >
-              <Text style={styles.debugBtnText}>Ping register API</Text>
-            </Pressable>
-          </View>
-        </ScrollView>
 
         <View style={styles.footer}>
           <View style={styles.footerRow}>
@@ -834,15 +430,14 @@ export function HomeScreen(_props: HomeScreenProps) {
 
         <View style={styles.pushBar} pointerEvents="none">
           {pushEnv ? (
-            <Text style={styles.pushText}>
-              {pushStatusLine(pushEnv, Boolean(fcmToken))}
-            </Text>
+            <Text style={styles.pushText}>{pushStatusLine(pushEnv, Boolean(fcmToken))}</Text>
           ) : (
             <Text style={styles.pushText}>Preparing call environment…</Text>
           )}
           {Platform.OS === 'ios' ? (
             <Text style={styles.pushTextMuted}>
-              Microphone access is requested when you place or answer a call in the keypad. Incoming calls use CallKit when Twilio VoIP push is configured.
+              Microphone access is requested when you place or answer a call in the keypad. Incoming calls use CallKit
+              when Twilio VoIP push is configured.
             </Text>
           ) : null}
         </View>
@@ -863,58 +458,6 @@ const styles = StyleSheet.create({
   webview: {
     flex: 1,
     minHeight: 0,
-  },
-  debugScroll: {
-    maxHeight: 360,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: '#f97316',
-    backgroundColor: '#fff7ed',
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-  },
-  debugTitle: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#c2410c',
-    marginBottom: 6,
-  },
-  debugSectionLabel: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: '#9a3412',
-    marginTop: 6,
-    marginBottom: 2,
-  },
-  debugLine: {
-    fontSize: 9,
-    lineHeight: 12,
-    color: '#1e293b',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    marginBottom: 4,
-  },
-  debugRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginTop: 8,
-    marginBottom: 4,
-  },
-  debugBtn: {
-    backgroundColor: '#ea580c',
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    borderRadius: 8,
-  },
-  debugBtnPressed: {
-    opacity: 0.88,
-  },
-  debugBtnDisabled: {
-    opacity: 0.55,
-  },
-  debugBtnText: {
-    color: '#ffffff',
-    fontSize: 11,
-    fontWeight: '600',
   },
   loadingOverlay: {
     ...StyleSheet.absoluteFillObject,

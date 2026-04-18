@@ -13,7 +13,7 @@ const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const CONTACT_SELECT =
-  "id, first_name, last_name, full_name, primary_phone, secondary_phone, email, contact_type, status" as const;
+  "id, first_name, last_name, full_name, organization_name, primary_phone, secondary_phone, email, contact_type, status" as const;
 
 function rowToMatch(row: Record<string, unknown>): CrmContactMatch {
   return {
@@ -21,6 +21,7 @@ function rowToMatch(row: Record<string, unknown>): CrmContactMatch {
     first_name: typeof row.first_name === "string" ? row.first_name : null,
     last_name: typeof row.last_name === "string" ? row.last_name : null,
     full_name: typeof row.full_name === "string" ? row.full_name : null,
+    organization_name: typeof row.organization_name === "string" ? row.organization_name : null,
     primary_phone: typeof row.primary_phone === "string" ? row.primary_phone : null,
     secondary_phone: typeof row.secondary_phone === "string" ? row.secondary_phone : null,
     email: typeof row.email === "string" ? row.email : null,

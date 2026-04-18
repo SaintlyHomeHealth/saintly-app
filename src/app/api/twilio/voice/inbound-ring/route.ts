@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { supabaseAdmin } from "@/lib/admin";
+import {
+  resolveInboundCallerInternal,
+  toClientDialExtras,
+  toRoutingInboundCallerDisplay,
+} from "@/lib/phone/inbound-caller-identity";
 import { notifyInboundCallStaffPush } from "@/lib/push/notify-inbound-call";
 import { ensureIncomingCallAlert } from "@/lib/phone/incoming-call-alerts";
 import { upsertPhoneCallFromWebhook } from "@/lib/phone/log-call";
@@ -120,11 +125,15 @@ export async function POST(req: NextRequest) {
     return new NextResponse(xml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
   }
 
+  const identityPromise = resolveInboundCallerInternal(supabaseAdmin, from);
+
   if (isTwilioVoiceJsClientTo(to) && publicBase) {
+    const inboundResolved = await identityPromise;
     const twiml = buildTwiMLAppIncomingClientRingTwiml({
       publicBase,
       toClientUri: to,
       pstnCallerE164: from,
+      clientDialExtras: toClientDialExtras(inboundResolved),
     });
     if (twiml) {
       logTwilioVoiceTrace({
@@ -170,6 +179,11 @@ export async function POST(req: NextRequest) {
         : { source: "twilio_voice_inbound_ring" },
   });
 
+  const inboundResolved = await identityPromise;
+  const routingJsonWithCaller = routingJson
+    ? { ...routingJson, inbound_caller_display: toRoutingInboundCallerDisplay(inboundResolved) }
+    : routingJson;
+
   if (!logResult.ok) {
     console.error("[twilio/voice/inbound-ring] phone log failed:", logResult.error);
   } else {
@@ -178,7 +192,7 @@ export async function POST(req: NextRequest) {
       phoneCallId: logResult.callId,
       fromE164: from,
       toE164: to,
-      routingJson: routingJson ?? undefined,
+      routingJson: routingJsonWithCaller ?? undefined,
       routeType: routePlan?.routeType ?? undefined,
       ringGroupId: routePlan ? routePlan.primaryRingGroupLabel.slice(0, 120) : undefined,
       afterHours: routePlan?.afterHours ?? undefined,
@@ -211,6 +225,7 @@ export async function POST(req: NextRequest) {
           externalCallId: callSid,
           fromE164: from,
           toE164: to,
+          callerIdentityHint: inboundResolved,
         });
       }
     }
@@ -259,7 +274,7 @@ export async function POST(req: NextRequest) {
       publicBase,
       from,
       to,
-      routing: routingJson,
+      routing: routingJsonWithCaller ?? routingJson,
     });
     if (!twimlBiz) {
       const vm = buildSaintlyVoicemailRecordTwiml(publicBase, {
@@ -341,12 +356,14 @@ export async function POST(req: NextRequest) {
         publicBase,
         callerId,
         ringE164: ringE164Raw,
+        clientDialExtras: toClientDialExtras(inboundResolved),
       })
     : await buildVoiceHandoffTwiml({
         closing: "",
         publicBase,
         callerId,
         ringE164: ringE164Raw,
+        clientDialExtras: toClientDialExtras(inboundResolved),
       });
 
   if (!twiml) {

@@ -15,6 +15,7 @@ import {
 } from "@/lib/softphone/inbound-staff-ids";
 import { normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
 import { softphoneTwilioClientIdentity } from "@/lib/softphone/twilio-client-identity";
+import type { InboundCallerClientDialExtras } from "@/lib/phone/inbound-caller-identity";
 import {
   isTwilioVoiceDebugPstnFallbackDisabled,
   logInboundVoiceDebug,
@@ -76,18 +77,40 @@ export function resolveInboundPstnFallbackCallerId(params: Record<string, string
   return called || to || (params.From ?? "").trim() || "";
 }
 
+function clientDialExtraParamsXml(extras: InboundCallerClientDialExtras | null | undefined): string {
+  if (!extras) return "";
+  const add = (k: string, v: string | null | undefined): string => {
+    const t = (v ?? "").trim();
+    if (!t) return "";
+    const cap = t.length > 200 ? `${t.slice(0, 200)}…` : t;
+    return `<Parameter name="${escapeXml(k)}" value="${escapeXml(cap)}" />`;
+  };
+  return [
+    add("caller_name", extras.caller_name),
+    add("caller_name_source", extras.caller_name_source),
+    add("lead_id", extras.lead_id),
+    add("contact_id", extras.contact_id),
+    add("conversation_id", extras.conversation_id),
+  ].join("");
+}
+
 /**
  * Twilio requires `<Identity>` inside `<Client>` when using `<Parameter>` (Voice TwiML).
  * `pstn_from` is read by the browser SDK as `call.customParameters` so AI → browser transfers keep PSTN CLI.
  */
-export function clientDialNounXml(identity: string, pstnCallerIdForDial: string): string {
+export function clientDialNounXml(
+  identity: string,
+  pstnCallerIdForDial: string,
+  extras?: InboundCallerClientDialExtras | null
+): string {
   const idEsc = escapeXml(identity);
   const pstn = pstnCallerIdForDial.trim();
   const param =
     pstn && normalizePhone(pstn).length >= 10
       ? `<Parameter name="pstn_from" value="${escapeXml(pstn)}" />`
       : "";
-  return `<Client><Identity>${idEsc}</Identity>${param}</Client>`;
+  const extra = clientDialExtraParamsXml(extras);
+  return `<Client><Identity>${idEsc}</Identity>${param}${extra}</Client>`;
 }
 
 const DEFAULT_TWILIO_VOICE_RING_TIMEOUT_SECONDS = 22;
@@ -236,8 +259,9 @@ export async function buildVoiceHandoffTwiml(input: {
   callerId: string;
   /** Raw env or UI string; normalized to E.164 before PSTN dial. */
   ringE164: string;
+  clientDialExtras?: InboundCallerClientDialExtras | null;
 }): Promise<string | null> {
-  const { closing, publicBase, callerId, ringE164 } = input;
+  const { closing, publicBase, callerId, ringE164, clientDialExtras } = input;
   const inboundBrowserStaffIds = await resolveInboundBrowserStaffUserIdsAsync();
   const pstnRingNormalized =
     ringE164.trim().length > 0 ? normalizeDialInputToE164(ringE164.trim()) : null;
@@ -285,7 +309,7 @@ export async function buildVoiceHandoffTwiml(input: {
 
     const clientIdentitiesForTwilio = inboundBrowserStaffIds.map((id) => softphoneTwilioClientIdentity(id));
     const clientBodies = inboundBrowserStaffIds
-      .map((id) => clientDialNounXml(softphoneTwilioClientIdentity(id), callerId))
+      .map((id) => clientDialNounXml(softphoneTwilioClientIdentity(id), callerId, clientDialExtras))
       .join("");
 
     console.log(
@@ -384,8 +408,9 @@ export async function buildEscalationInboundVoiceTwiml(input: {
   publicBase: string;
   callerId: string;
   ringE164: string;
+  clientDialExtras?: InboundCallerClientDialExtras | null;
 }): Promise<string | null> {
-  const { closing, publicBase, callerId, ringE164 } = input;
+  const { closing, publicBase, callerId, ringE164, clientDialExtras } = input;
   const primaryIds = await resolveInboundBrowserStaffUserIdsAsync();
   const backupIds = await resolveBackupInboundStaffUserIdsAsync();
   const pstnFallbackRaw = readEscalationPstnFallbackE164FromEnv() || ringE164;
@@ -440,7 +465,7 @@ export async function buildEscalationInboundVoiceTwiml(input: {
       : ` answerOnBridge="true" timeout="${primaryRingSec}" callerId="${escapeXml(callerId)}"`;
 
     const clientBodies = primaryIds
-      .map((id) => clientDialNounXml(softphoneTwilioClientIdentity(id), callerId))
+      .map((id) => clientDialNounXml(softphoneTwilioClientIdentity(id), callerId, clientDialExtras))
       .join("");
 
     return `<?xml version="1.0" encoding="UTF-8"?>
@@ -495,6 +520,7 @@ export function buildTwiMLAppIncomingClientRingTwiml(input: {
   toClientUri: string;
   /** Twilio `From` — PSTN caller E.164 when present. */
   pstnCallerE164: string;
+  clientDialExtras?: InboundCallerClientDialExtras | null;
 }): string | null {
   const base = input.publicBase.trim().replace(/\/$/, "");
   const to = input.toClientUri.trim();
@@ -522,7 +548,7 @@ export function buildTwiMLAppIncomingClientRingTwiml(input: {
     statusCallbackUrl
   )}" statusCallbackMethod="POST" statusCallbackEvent="initiated ringing answered completed"`;
 
-  const clientBody = clientDialNounXml(identity, pstn);
+  const clientBody = clientDialNounXml(identity, pstn, input.clientDialExtras);
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
