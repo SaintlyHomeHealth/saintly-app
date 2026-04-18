@@ -56,6 +56,8 @@ export async function GET(request: NextRequest) {
   const apiKeySid = process.env.TWILIO_VOICE_API_KEY_SID?.trim();
   const apiKeySecret = process.env.TWILIO_VOICE_API_KEY_SECRET?.trim();
   const twimlAppSid = process.env.TWILIO_SOFTPHONE_TWIML_APP_SID?.trim();
+  /** iOS VoIP (PushKit): Twilio Console → Voice → Push Credentials (VoIP). Required for native incoming when app is backgrounded. */
+  const pushCredentialSid = process.env.TWILIO_SOFTPHONE_IOS_PUSH_CREDENTIAL_SID?.trim();
 
   if (!accountSid || !apiKeySid || !apiKeySecret || !twimlAppSid) {
     console.warn(
@@ -92,6 +94,7 @@ export async function GET(request: NextRequest) {
   const voiceGrant = new VoiceGrant({
     outgoingApplicationSid: twimlAppSid,
     incomingAllow: true,
+    ...(pushCredentialSid ? { pushCredentialSid } : {}),
   });
   token.addGrant(voiceGrant);
 
