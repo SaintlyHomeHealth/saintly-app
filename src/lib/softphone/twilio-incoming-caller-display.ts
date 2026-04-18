@@ -23,6 +23,9 @@ const CUSTOM_CLI_KEYS = [
   "OriginalCaller",
 ] as const;
 
+/** E.164 allows at most 15 digits (excluding country-code formatting). */
+const MAX_PSTN_CLI_DIGITS = 15;
+
 function paramValue(p: Record<string, string> | undefined, key: string): string | null {
   if (!p) return null;
   const direct = p[key];
@@ -30,6 +33,32 @@ function paramValue(p: Record<string, string> | undefined, key: string): string 
   const lower = p[key.toLowerCase()];
   if (typeof lower === "string" && lower.trim()) return lower.trim();
   return null;
+}
+
+/**
+ * UUID / 32-hex tokens must never be treated as PSTN (digits-only length can beat real +1… and win "best").
+ */
+export function looksLikeUuidOrHexOpaqueCli(raw: string): boolean {
+  const t = raw.trim();
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(t)) return true;
+  if (/^[0-9a-f]{32}$/i.test(t.replace(/-/g, ""))) return true;
+  return false;
+}
+
+function isPlausiblePstnDigitLength(digitCount: number): boolean {
+  return digitCount >= 10 && digitCount <= MAX_PSTN_CLI_DIGITS;
+}
+
+/**
+ * True when `raw` is suitable as a display/lookup PSTN CLI (not client:, not opaque id).
+ */
+function isUsablePstnCliRaw(raw: string | null | undefined): boolean {
+  if (!raw?.trim()) return false;
+  const v = raw.trim();
+  if (v.toLowerCase().startsWith("client:")) return false;
+  if (looksLikeUuidOrHexOpaqueCli(v)) return false;
+  const d = normalizePhone(v);
+  return isPlausiblePstnDigitLength(d.length);
 }
 
 /**
@@ -44,26 +73,26 @@ export function collectPstnCallerCandidatesFromCall(call: {
   const p = call.parameters;
   for (const k of PSTN_CLI_PARAMETER_KEYS) {
     const v = paramValue(p, k);
-    if (v) out.push(v);
+    if (v && isUsablePstnCliRaw(v)) out.push(v);
   }
   const custom = call.customParameters;
   if (custom) {
     for (const k of CUSTOM_CLI_KEYS) {
       const v = custom.get(k) ?? custom.get(k.toLowerCase());
-      if (v?.trim()) out.push(v.trim());
+      if (v?.trim() && isUsablePstnCliRaw(v)) out.push(v.trim());
     }
-    /** Any custom value that looks like full PSTN (handles SDK key casing differences). */
+    /** Custom map may include duplicate keys; only values that look like real phone IDs. */
     for (const v of custom.values()) {
       const t = (v ?? "").trim();
-      if (t && normalizePhone(t).length >= 10) out.push(t);
+      if (t && isUsablePstnCliRaw(t)) out.push(t);
     }
   }
   return out;
 }
 
 /**
- * Prefer the candidate whose normalized digit string is longest and has at least 10 digits (NANP / E.164).
- * Ignores `client:*` identities. Returns "" if nothing plausible (avoids showing partial junk like "3766").
+ * Prefer the candidate whose normalized digit string is longest among plausible PSTN values.
+ * Ignores `client:*` and UUID-like tokens (never pick hex/UUID over real +1…).
  */
 export function pickBestPstnCallerRaw(candidates: string[]): string {
   type Row = { raw: string; digits: string; len: number };
@@ -71,8 +100,9 @@ export function pickBestPstnCallerRaw(candidates: string[]): string {
   for (const raw of candidates) {
     const lower = raw.toLowerCase();
     if (lower.startsWith("client:")) continue;
+    if (looksLikeUuidOrHexOpaqueCli(raw)) continue;
     const digits = normalizePhone(raw);
-    if (!digits.length) continue;
+    if (!isPlausiblePstnDigitLength(digits.length)) continue;
     rows.push({ raw, digits, len: digits.length });
   }
   const good = rows.filter((r) => r.len >= 10);
@@ -81,24 +111,21 @@ export function pickBestPstnCallerRaw(candidates: string[]): string {
   return good[0]!.raw;
 }
 
-/** Optional `To` when it is a PSTN number (not `client:`) — last-resort CLI on some legs. */
-export function pstnToFallbackRaw(call: { parameters?: Record<string, string> }): string {
-  const p = call.parameters;
-  const toVal = paramValue(p, "To");
-  if (!toVal || toVal.toLowerCase().startsWith("client:")) return "";
-  const d = normalizePhone(toVal);
-  return d.length >= 10 ? toVal : "";
-}
-
 /**
  * Single best-effort PSTN / CLI string for workspace incoming UI + CRM lookup.
+ * Prefer Twilio `parameters.From` (same PSTN identity native SDK uses) before customParameters.
+ * Does not fall back to `To` (that is typically our DID on inbound PSTN, not the caller).
  */
 export function readIncomingCallerRawFromCall(call: Call): string {
+  const p = call.parameters;
+  for (const k of PSTN_CLI_PARAMETER_KEYS) {
+    const v = paramValue(p, k);
+    if (v && isUsablePstnCliRaw(v)) return v.trim();
+  }
+
   const fromCandidates = collectPstnCallerCandidatesFromCall(call);
   const best = pickBestPstnCallerRaw(fromCandidates);
-  if (best) return best;
-  const toFallback = pstnToFallbackRaw(call);
-  return toFallback;
+  return best ?? "";
 }
 
 export function formatInboundCallerFromRaw(raw: string): string {
@@ -114,9 +141,11 @@ export function formatInboundCallerFromRaw(raw: string): string {
   return "Caller ID unavailable";
 }
 
-/** Whether `raw` is safe to show as a secondary line (never partial digit junk). */
+/** Whether `raw` is safe to show as a secondary line (never partial digit junk / UUID). */
 export function isPlausiblePstnCallerRawForSubline(raw: string | null | undefined): boolean {
   if (!raw || !raw.trim()) return false;
   if (raw.toLowerCase().startsWith("client:")) return false;
-  return normalizePhone(raw).length >= 10;
+  if (looksLikeUuidOrHexOpaqueCli(raw)) return false;
+  const d = normalizePhone(raw);
+  return isPlausiblePstnDigitLength(d.length);
 }

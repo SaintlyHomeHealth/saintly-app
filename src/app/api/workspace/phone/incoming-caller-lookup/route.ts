@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { supabaseAdmin } from "@/lib/admin";
-import { resolveInboundCallerInternal } from "@/lib/phone/inbound-caller-identity";
+import {
+  resolveInboundCallerInternal,
+  sanitizeInboundDisplayText,
+  sanitizeInboundFormattedLine,
+} from "@/lib/phone/inbound-caller-identity";
 import { formatPhoneNumber, normalizePhone } from "@/lib/phone/us-phone-format";
 import { canAccessWorkspacePhone, getStaffProfile } from "@/lib/staff-profile";
 
@@ -58,15 +62,17 @@ export async function GET(req: NextRequest) {
 
   try {
     const r = await resolveInboundCallerInternal(supabaseAdmin, fromParam);
-    const name = r.caller_name?.trim() || null;
+    const name = sanitizeInboundDisplayText(r.caller_name?.trim() || null);
+    const subtitle = sanitizeInboundDisplayText(r.subtitle);
+    const formattedOut = sanitizeInboundFormattedLine(fromParam, r.formatted_number || formattedNumber);
     return NextResponse.json({
       rawFrom: fromParam,
-      formattedNumber: r.formatted_number || formattedNumber,
+      formattedNumber: formattedOut,
       contactName: name,
       display_name: name,
       entity_type: r.entity_type,
       entity_id: r.entity_id,
-      subtitle: r.subtitle,
+      subtitle,
     });
   } catch (e) {
     console.warn("[workspace/phone/incoming-caller-lookup]", e instanceof Error ? e.message : e);

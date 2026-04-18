@@ -58,6 +58,26 @@ export function normalizeInboundTwilioFromToE164(raw: string | null | undefined)
 }
 
 /**
+ * Strip UUID-like / 32-hex opaque tokens from human display fields (browser/API must not surface these as names).
+ */
+export function sanitizeInboundDisplayText(s: string | null | undefined): string | null {
+  const t = (s ?? "").trim();
+  if (!t) return null;
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(t)) return null;
+  if (/^[0-9a-f]{32}$/i.test(t.replace(/-/g, ""))) return null;
+  return t;
+}
+
+/** Avoid surfacing fake NANP formatting when raw From is a UUID/opaque token (Twilio custom CLI). */
+export function sanitizeInboundFormattedLine(rawFrom: string, formatted: string): string {
+  const t = rawFrom.trim();
+  if (t.toLowerCase().startsWith("client:")) return "Internal / browser call";
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(t)) return "Caller ID unavailable";
+  if (/^[0-9a-f]{32}$/i.test(t.replace(/-/g, ""))) return "Caller ID unavailable";
+  return formatted;
+}
+
+/**
  * Last-resort NANP E.164 for CRM lookup when strict normalization fails but digits look US-local.
  */
 function inboundCallerE164KeyForLookup(raw: string): string | null {
@@ -115,16 +135,20 @@ export async function resolveInboundCallerInternal(
 
   const u = await resolveInboundCallerIdentityUnified(supabase, e164Key);
 
+  const display = sanitizeInboundDisplayText(u.display_name);
+  const sub = sanitizeInboundDisplayText(u.subtitle);
+  const formatted = sanitizeInboundFormattedLine(raw, u.formatted_number);
+
   return {
     e164: u.e164,
-    caller_name: u.display_name,
-    display_name: u.display_name,
+    caller_name: display,
+    display_name: display,
     caller_name_source: u.caller_name_source,
     lead_id: u.lead_id,
     contact_id: u.contact_id,
     conversation_id: u.conversation_id,
-    formatted_number: u.formatted_number,
-    subtitle: u.subtitle,
+    formatted_number: formatted,
+    subtitle: sub,
     entity_type: u.entity_type,
     entity_id: u.entity_id,
   };
@@ -223,11 +247,12 @@ export async function enrichInboundCallerForPush(
   if (!e164) return hint;
 
   const looked = await maybeLookupCallerNameTwilio(e164, lookupTimeoutMs);
-  if (looked?.trim()) {
+  const fromLookup = looked?.trim() ? sanitizeInboundDisplayText(looked.trim()) : null;
+  if (fromLookup) {
     return {
       ...hint,
-      caller_name: looked.trim(),
-      display_name: looked.trim(),
+      caller_name: fromLookup,
+      display_name: fromLookup,
       caller_name_source: "lookup",
     };
   }

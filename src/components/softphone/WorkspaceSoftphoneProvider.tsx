@@ -48,6 +48,7 @@ import { formatPhoneNumber, normalizePhone } from "@/lib/phone/us-phone-format";
 import { isValidE164, normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
 import {
   formatInboundCallerFromRaw,
+  looksLikeUuidOrHexOpaqueCli,
   readIncomingCallerRawFromCall,
 } from "@/lib/softphone/twilio-incoming-caller-display";
 import { createRingtoneObjectUrl } from "@/lib/softphone/ringtone-wav";
@@ -279,25 +280,22 @@ function formatDialpadDisplay(raw: string): string {
   return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6, 10)}${d.length > 10 ? ` ${d.slice(10)}` : ""}`;
 }
 
-/** Avoid showing UUIDs / opaque tokens as a “phone number” (Twilio custom params can carry junk). */
-function looksLikeUuidOrOpaqueToken(s: string): boolean {
-  const t = s.trim();
-  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(t)) return true;
-  const compact = t.replace(/-/g, "");
-  return /^[0-9a-f]{32}$/i.test(compact);
-}
-
+/**
+ * Client-side guards for Twilio CLI / API fields. Server also sanitizes via
+ * `sanitizeInboundDisplayText` / `sanitizeInboundFormattedLine` in `inbound-caller-identity.ts`
+ * (lookup route + resolver). Ringing / Device behavior is unchanged.
+ */
 function safeCallerDisplayName(name: string | null | undefined): string | null {
   const n = name?.trim();
   if (!n) return null;
-  if (looksLikeUuidOrOpaqueToken(n)) return null;
+  if (looksLikeUuidOrHexOpaqueCli(n)) return null;
   return n;
 }
 
 function safeCallerSubtitle(sub: string | null | undefined): string | null {
   const s = (sub ?? "").trim();
   if (!s) return null;
-  if (looksLikeUuidOrOpaqueToken(s)) return null;
+  if (looksLikeUuidOrHexOpaqueCli(s)) return null;
   if (/^[0-9a-f]{8,}$/i.test(s.replace(/\s/g, ""))) return null;
   return s;
 }
@@ -307,7 +305,7 @@ function safeFormattedPhoneForUi(raw: string): string {
   if (raw.toLowerCase().startsWith("client:")) return "Internal / browser call";
   const t = raw.trim();
   if (!t) return "Unknown caller";
-  if (looksLikeUuidOrOpaqueToken(t)) return "Caller ID unavailable";
+  if (looksLikeUuidOrHexOpaqueCli(t)) return "Caller ID unavailable";
   return formatInboundCallerFromRaw(raw);
 }
 
