@@ -149,3 +149,35 @@ export function isPlausiblePstnCallerRawForSubline(raw: string | null | undefine
   const d = normalizePhone(raw);
   return isPlausiblePstnDigitLength(d.length);
 }
+
+const SAINTLY_INBOUND_DEBUG_PREFIX = "[SAINTLY-INBOUND-DEBUG]";
+
+/**
+ * Temporary browser-only diagnostics for inbound PSTN selection (remove after debugging).
+ * Does not change behavior.
+ */
+export function debugLogSaintlyInboundBrowserPstn(call: Call): void {
+  if (typeof window === "undefined") return;
+  try {
+    const p = call.parameters ?? {};
+    console.log(SAINTLY_INBOUND_DEBUG_PREFIX, "call.parameters", { ...p });
+
+    const cm = call.customParameters;
+    const customPlain = cm ? Object.fromEntries(cm.entries()) : null;
+    console.log(SAINTLY_INBOUND_DEBUG_PREFIX, "call.customParameters", customPlain);
+
+    const standardByKey: Record<string, string | null> = {};
+    for (const k of PSTN_CLI_PARAMETER_KEYS) {
+      standardByKey[k] = paramValue(call.parameters, k);
+    }
+    console.log(SAINTLY_INBOUND_DEBUG_PREFIX, "standardPstnParameterValuesByKey", standardByKey);
+
+    const filteredCandidates = collectPstnCallerCandidatesFromCall(call);
+    console.log(SAINTLY_INBOUND_DEBUG_PREFIX, "pstnCandidatesPassingIsUsablePstnCliRaw", filteredCandidates);
+
+    const chosen = readIncomingCallerRawFromCall(call);
+    console.log(SAINTLY_INBOUND_DEBUG_PREFIX, "readIncomingCallerRawFromCall()", chosen);
+  } catch (e) {
+    console.warn(SAINTLY_INBOUND_DEBUG_PREFIX, "debugLogSaintlyInboundBrowserPstn error", e);
+  }
+}

@@ -47,6 +47,7 @@ function postSoftphoneTokenToNativeBridge(token: string, identity?: string | nul
 import { formatPhoneNumber, normalizePhone } from "@/lib/phone/us-phone-format";
 import { isValidE164, normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
 import {
+  debugLogSaintlyInboundBrowserPstn,
   formatInboundCallerFromRaw,
   looksLikeUuidOrHexOpaqueCli,
   readIncomingCallerRawFromCall,
@@ -210,6 +211,24 @@ type Ctx = {
 };
 
 const WorkspaceSoftphoneContext = createContext<Ctx | null>(null);
+
+const SAINTLY_INBOUND_DEBUG_PREFIX = "[SAINTLY-INBOUND-DEBUG]";
+
+/** Temporary: log incoming-caller-lookup JSON (browser only). Remove after debugging. */
+function debugLogSaintlyIncomingLookupResponse(context: string, j: unknown): void {
+  if (typeof window === "undefined") return;
+  if (j === null) {
+    console.log(SAINTLY_INBOUND_DEBUG_PREFIX, context, { error: "response_null_or_fetch_failed" });
+    return;
+  }
+  const o = typeof j === "object" && j !== null ? (j as Record<string, unknown>) : null;
+  console.log(SAINTLY_INBOUND_DEBUG_PREFIX, context, {
+    contactName: o?.contactName ?? null,
+    display_name: o?.display_name ?? null,
+    subtitle: o?.subtitle ?? null,
+    formattedNumber: o?.formattedNumber ?? null,
+  });
+}
 
 /** Reuse AI-assist PSTN/name if the Twilio Client transfer leg drops CLI (until TwiML params apply). */
 const ASSIST_HANDOFF_SNAPSHOT_TTL_MS = 120_000;
@@ -886,11 +905,15 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       return;
     }
     const now = Date.now();
+    debugLogSaintlyInboundBrowserPstn(incomingCall);
     const raw = mergeRawWithAssistSnapshot(
       readIncomingCallerRawFromCall(incomingCall),
       assistHandoffSnapshotRef.current,
       now
     );
+    if (typeof window !== "undefined") {
+      console.log(SAINTLY_INBOUND_DEBUG_PREFIX, "mergeRawWithAssistSnapshotResult incoming", raw);
+    }
     const snap = assistHandoffSnapshotRef.current;
     const snapMatches =
       snap != null &&
@@ -917,9 +940,15 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
 
     let cancelled = false;
     const q = encodeURIComponent(raw);
-    void fetch(`/api/workspace/phone/incoming-caller-lookup?from=${q}`, { credentials: "include" })
+    const lookupUrl = `/api/workspace/phone/incoming-caller-lookup?from=${q}`;
+    if (typeof window !== "undefined") {
+      console.log(SAINTLY_INBOUND_DEBUG_PREFIX, "incomingCallerLookupUrl", lookupUrl);
+      console.log(SAINTLY_INBOUND_DEBUG_PREFIX, "incomingCallerLookupFromQueryDecoded", raw);
+    }
+    void fetch(lookupUrl, { credentials: "include" })
       .then((r) => (r.ok ? r.json() : null))
       .then((j: { contactName?: unknown; subtitle?: unknown } | null) => {
+        debugLogSaintlyIncomingLookupResponse("incomingCallerLookupResponse", j);
         const rawName = j && typeof j.contactName === "string" ? j.contactName.trim() : "";
         const name = safeCallerDisplayName(rawName);
         const subtitle = safeCallerSubtitle(
@@ -941,11 +970,15 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       return;
     }
     const now = Date.now();
+    debugLogSaintlyInboundBrowserPstn(callWaitingCall);
     const raw = mergeRawWithAssistSnapshot(
       readIncomingCallerRawFromCall(callWaitingCall),
       assistHandoffSnapshotRef.current,
       now
     );
+    if (typeof window !== "undefined") {
+      console.log(SAINTLY_INBOUND_DEBUG_PREFIX, "mergeRawWithAssistSnapshotResult callWaiting", raw);
+    }
     const snap = assistHandoffSnapshotRef.current;
     const snapMatches =
       snap != null &&
@@ -972,9 +1005,15 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
 
     let cancelled = false;
     const q = encodeURIComponent(raw);
-    void fetch(`/api/workspace/phone/incoming-caller-lookup?from=${q}`, { credentials: "include" })
+    const lookupUrlCw = `/api/workspace/phone/incoming-caller-lookup?from=${q}`;
+    if (typeof window !== "undefined") {
+      console.log(SAINTLY_INBOUND_DEBUG_PREFIX, "callWaitingCallerLookupUrl", lookupUrlCw);
+      console.log(SAINTLY_INBOUND_DEBUG_PREFIX, "callWaitingCallerLookupFromQueryDecoded", raw);
+    }
+    void fetch(lookupUrlCw, { credentials: "include" })
       .then((r) => (r.ok ? r.json() : null))
       .then((j: { contactName?: unknown; subtitle?: unknown } | null) => {
+        debugLogSaintlyIncomingLookupResponse("callWaitingCallerLookupResponse", j);
         const rawName = j && typeof j.contactName === "string" ? j.contactName.trim() : "";
         const name = safeCallerDisplayName(rawName);
         const subtitle = safeCallerSubtitle(
@@ -998,9 +1037,15 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
 
     let cancelled = false;
     const q = encodeURIComponent(raw);
-    void fetch(`/api/workspace/phone/incoming-caller-lookup?from=${q}`, { credentials: "include" })
+    const lookupUrlAi = `/api/workspace/phone/incoming-caller-lookup?from=${q}`;
+    if (typeof window !== "undefined") {
+      console.log(SAINTLY_INBOUND_DEBUG_PREFIX, "inboundAiAssistLookupUrl (no Twilio Call object here)", lookupUrlAi);
+      console.log(SAINTLY_INBOUND_DEBUG_PREFIX, "inboundAiAssistLookupFromQueryDecoded", raw);
+    }
+    void fetch(lookupUrlAi, { credentials: "include" })
       .then((r) => (r.ok ? r.json() : null))
       .then((j: { contactName?: unknown; subtitle?: unknown } | null) => {
+        debugLogSaintlyIncomingLookupResponse("inboundAiAssistLookupResponse", j);
         const rawName = j && typeof j.contactName === "string" ? j.contactName.trim() : "";
         const name = safeCallerDisplayName(rawName);
         const subtitle = safeCallerSubtitle(
