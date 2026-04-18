@@ -9,6 +9,9 @@ import { supabaseAdmin } from "@/lib/admin";
 type LeadQuality = "qualified" | "unqualified";
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  console.log("[meta-debug-v2] PATCH route live check", {
+    ts: new Date().toISOString(),
+  });
   console.log("[meta-debug] PATCH /api/leads/[id] hit");
 
   const staff = await getStaffProfile();
