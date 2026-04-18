@@ -1,5 +1,6 @@
 import Constants from 'expo-constants';
 
+import { voiceRegistrationDeviceLog } from '../debug/voiceRegistrationDeviceDebug';
 import type { SoftphoneTokenResponse } from './authTokenService';
 import { fetchSoftphoneAccessToken } from './authTokenService';
 import { getStoredSupabaseAccessToken } from './supabaseAccessTokenStore';
@@ -19,6 +20,7 @@ export async function tryRegisterNativeTwilioFromPortalApi(
   }
 
   console.warn('[SAINTLY-TRACE] starting native bearer registration');
+  voiceRegistrationDeviceLog('starting native bearer registration');
 
   const token = await getStoredSupabaseAccessToken();
   console.warn('[SAINTLY-TRACE] stored Supabase token after read', {

@@ -28,6 +28,8 @@ import { tryRegisterNativeTwilioFromPortalApi } from '../services/nativeSoftphon
 import { registerNativeTwilioWithAccessToken } from '../services/nativeTwilioVoiceBridge';
 import { setStoredSupabaseAccessToken } from '../services/supabaseAccessTokenStore';
 import { twilioVoiceService } from '../services/twilioVoiceService';
+import { VoiceRegistrationDeviceDebugPanel } from '../debug/VoiceRegistrationDeviceDebugPanel';
+import { voiceRegistrationDeviceLog } from '../debug/voiceRegistrationDeviceDebug';
 import { colors } from '../theme/colors';
 
 import type { HomeScreenProps } from '../navigation/types';
@@ -254,6 +256,7 @@ export function HomeScreen(_props: HomeScreenProps) {
 
   useEffect(() => {
     console.warn('[SAINTLY-TRACE] HomeScreen mounted');
+    voiceRegistrationDeviceLog('HomeScreen mounted');
   }, []);
 
   /** Cold launch: always open keypad — do not restore a previous deep link / notification path. */
@@ -405,6 +408,7 @@ export function HomeScreen(_props: HomeScreenProps) {
     const sub = AppState.addEventListener('change', (next) => {
       if (next === 'active') {
         console.warn('[SAINTLY-TRACE] AppState active');
+        voiceRegistrationDeviceLog('AppState active');
         run('appstate_active');
       }
     });
@@ -558,6 +562,7 @@ export function HomeScreen(_props: HomeScreenProps) {
               hasToken: Boolean(tok),
               tokenLength: tok?.length ?? 0,
             });
+            voiceRegistrationDeviceLog(`received saintly-supabase-access-token hasToken=${Boolean(tok)}`);
             await setStoredSupabaseAccessToken(tok);
             console.warn('[SAINTLY-NATIVE-AUTH] rn_received_supabase_session_bridge', {
               hasToken: Boolean(tok),
@@ -574,6 +579,7 @@ export function HomeScreen(_props: HomeScreenProps) {
               twilioJwtLength: msg.token.length,
               identityLen: identity.length,
             });
+            voiceRegistrationDeviceLog('received saintly-softphone-token');
             try {
               console.warn('[SAINTLY-TRACE] webview softphone token bridge retry start');
               console.warn('[SAINTLY-VOICE] WebView saintly-softphone-token', {
@@ -662,6 +668,7 @@ export function HomeScreen(_props: HomeScreenProps) {
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.container}>
+        <VoiceRegistrationDeviceDebugPanel />
         <WebView
           ref={webViewRef}
           source={{ uri: portalUri }}

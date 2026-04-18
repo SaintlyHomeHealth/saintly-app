@@ -1,5 +1,7 @@
 import * as SecureStore from 'expo-secure-store';
 
+import { voiceRegistrationDeviceLog } from '../debug/voiceRegistrationDeviceDebug';
+
 const KEY = 'saintly_supabase_access_token';
 
 export async function getStoredSupabaseAccessToken(): Promise<string | null> {
@@ -10,6 +12,9 @@ export async function getStoredSupabaseAccessToken(): Promise<string | null> {
       hasToken: Boolean(out),
       tokenLength: out?.length ?? 0,
     });
+    voiceRegistrationDeviceLog(
+      `reading token from SecureStore hasToken=${Boolean(out)}`
+    );
     console.warn('[SAINTLY-NATIVE-AUTH] secure_store_read', {
       hasToken: Boolean(out),
       tokenLen: out?.length ?? 0,
@@ -29,6 +34,7 @@ export async function setStoredSupabaseAccessToken(token: string | null): Promis
         hasToken: false,
         tokenLength: 0,
       });
+      voiceRegistrationDeviceLog('writing token to SecureStore (cleared)');
       console.warn('[SAINTLY-NATIVE-AUTH] secure_store_cleared');
       return;
     }
@@ -38,6 +44,7 @@ export async function setStoredSupabaseAccessToken(token: string | null): Promis
       hasToken: true,
       tokenLength: trimmed.length,
     });
+    voiceRegistrationDeviceLog(`writing token to SecureStore len=${trimmed.length}`);
     console.warn('[SAINTLY-NATIVE-AUTH] secure_store_written', { tokenLen: trimmed.length });
   } catch (e) {
     console.warn('[SAINTLY-NATIVE-AUTH] secure_store_write_error', e);
