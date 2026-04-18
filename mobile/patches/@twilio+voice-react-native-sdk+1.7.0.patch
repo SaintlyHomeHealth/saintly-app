@@ -1,0 +1,39 @@
+diff --git a/node_modules/@twilio/voice-react-native-sdk/ios/TwilioVoiceReactNative+CallKit.m b/node_modules/@twilio/voice-react-native-sdk/ios/TwilioVoiceReactNative+CallKit.m
+index adcd790..3ad4715 100644
+--- a/node_modules/@twilio/voice-react-native-sdk/ios/TwilioVoiceReactNative+CallKit.m
++++ b/node_modules/@twilio/voice-react-native-sdk/ios/TwilioVoiceReactNative+CallKit.m
+@@ -83,12 +83,28 @@ - (void)reportNewIncomingCall:(TVOCallInvite *)callInvite {
+         handleName = @"Unknown Caller";
+     }
+ 
+-    NSUserDefaults *preferences = [NSUserDefaults standardUserDefaults];
+-    NSString *preferenceKey = @"incomingCallContactHandleTemplate";
+-    if ([preferences objectForKey:preferenceKey] != nil) {
+-        const NSString *preferenceVal = [preferences stringForKey:preferenceKey];
+-        if ([preferenceVal length] > 0) {
+-            handleName = [self getDisplayName:preferenceVal customParameters:[callInvite customParameters]];
++    NSDictionary *customParameters = [callInvite customParameters];
++    NSString *resolvedCallerName = nil;
++    if (customParameters != nil) {
++        id rawCallerName = customParameters[@"caller_name"];
++        if ([rawCallerName isKindOfClass:[NSString class]]) {
++            NSString *trimmed = [((NSString *)rawCallerName) stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
++            if ([trimmed length] > 0) {
++                resolvedCallerName = trimmed;
++            }
++        }
++    }
++
++    if (resolvedCallerName != nil) {
++        handleName = resolvedCallerName;
++    } else {
++        NSUserDefaults *preferences = [NSUserDefaults standardUserDefaults];
++        NSString *preferenceKey = @"incomingCallContactHandleTemplate";
++        if ([preferences objectForKey:preferenceKey] != nil) {
++            const NSString *preferenceVal = [preferences stringForKey:preferenceKey];
++            if ([preferenceVal length] > 0) {
++                handleName = [self getDisplayName:preferenceVal customParameters:customParameters];
++            }
+         }
+     }
+ 
