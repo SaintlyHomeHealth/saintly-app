@@ -1,7 +1,5 @@
 import { NextResponse } from "next/server";
 
-// TODO(meta-debug): Remove `[meta-debug]` logs once Meta Test Events is verified.
-
 import { sendQualifiedLeadToMeta } from "@/lib/integrations/meta/send-qualified-lead-to-meta";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 import { supabaseAdmin } from "@/lib/admin";
@@ -9,11 +7,6 @@ import { supabaseAdmin } from "@/lib/admin";
 type LeadQuality = "qualified" | "unqualified";
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
-  console.log("[meta-debug-v2] PATCH route live check", {
-    ts: new Date().toISOString(),
-  });
-  console.log("[meta-debug] PATCH /api/leads/[id] hit");
-
   const staff = await getStaffProfile();
   if (!staff || !isManagerOrHigher(staff)) {
     return NextResponse.json({ ok: false, error: "forbidden" as const }, { status: 403 });
@@ -39,11 +32,6 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
 
   const lead_quality = q as LeadQuality;
 
-  console.log("[meta-debug] PATCH body parsed", {
-    leadId,
-    requested_lead_quality: lead_quality,
-  });
-
   const { data, error } = await supabaseAdmin
     .from("leads")
     .update({ lead_quality })
@@ -60,18 +48,11 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     return NextResponse.json({ ok: false, error: "not_found" as const }, { status: 404 });
   }
 
-  console.log("[meta-debug] PATCH DB update ok", {
-    updatedRowId: data.id,
-    updated_lead_quality: data.lead_quality,
-    updated_fbclid: data.fbclid,
-  });
-
-  const metaResult = await sendQualifiedLeadToMeta({
+  await sendQualifiedLeadToMeta({
     id: data.id as string,
     fbclid: data.fbclid as string | null | undefined,
     lead_quality: data.lead_quality as string | null | undefined,
   });
-  console.log("[meta-debug] Meta helper result", metaResult);
 
   return NextResponse.json({
     ok: true as const,
