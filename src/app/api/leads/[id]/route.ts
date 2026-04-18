@@ -63,11 +63,12 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     updated_fbclid: data.fbclid,
   });
 
-  sendQualifiedLeadToMeta({
+  const metaResult = await sendQualifiedLeadToMeta({
     id: data.id as string,
     fbclid: data.fbclid as string | null | undefined,
     lead_quality: data.lead_quality as string | null | undefined,
   });
+  console.log("[meta-debug] Meta helper result", metaResult);
 
   return NextResponse.json({
     ok: true as const,
