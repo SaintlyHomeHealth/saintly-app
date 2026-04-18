@@ -29,6 +29,15 @@ const TIMEOUT_MS = 20000;
 const CONNECTIVITY_PROBE_TIMEOUT_MS = 10_000;
 const EVENT_SOURCE_URL = "https://www.appsaintlyhomehealth.com";
 
+/**
+ * Meta CAPI expects `user_data.fbc`, not `fbclid`. Format:
+ * `fb.1.<unix_timestamp_ms>.<fbclid>` (click id from the lead row).
+ */
+export function buildFbcFromStoredFbclid(fbclid: string): string {
+  const unixTimestampMs = Date.now();
+  return `fb.1.${unixTimestampMs}.${fbclid}`;
+}
+
 /** Temporary: confirm Vercel can reach graph.facebook.com before the CAPI POST. */
 async function probeMetaConnectivity(): Promise<void> {
   const start = Date.now();
@@ -106,6 +115,7 @@ export async function sendQualifiedLeadToMeta(
   const testEventCode = process.env.META_TEST_EVENT_CODE?.trim();
 
   try {
+    const fbc = buildFbcFromStoredFbclid(fbRaw);
     const event_time = Math.floor(Date.now() / 1000);
     const body: Record<string, unknown> = {
       data: [
@@ -115,7 +125,7 @@ export async function sendQualifiedLeadToMeta(
           action_source: "website",
           event_source_url: EVENT_SOURCE_URL,
           user_data: {
-            fbclid: fbRaw,
+            fbc,
           },
           custom_data: {
             lead_id: leadId,
@@ -140,7 +150,7 @@ export async function sendQualifiedLeadToMeta(
       event_time: firstEvent.event_time,
       action_source: firstEvent.action_source,
       event_source_url: firstEvent.event_source_url,
-      "user_data.fbclid": userData?.fbclid,
+      "user_data.fbc": userData?.fbc,
       "custom_data.lead_id": customData?.lead_id,
       "custom_data.lead_quality": customData?.lead_quality,
       test_event_code_present: !!body.test_event_code,
