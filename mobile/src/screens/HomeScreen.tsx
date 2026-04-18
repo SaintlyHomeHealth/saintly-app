@@ -547,7 +547,10 @@ export function HomeScreen(_props: HomeScreenProps) {
             const raw = (msg as { access_token?: string | null }).access_token;
             const tok = typeof raw === 'string' && raw.trim() ? raw.trim() : null;
             await setStoredSupabaseAccessToken(tok);
-            console.warn('[SAINTLY-VOICE] supabase access token bridge', { hasToken: Boolean(tok) });
+            console.warn('[SAINTLY-NATIVE-AUTH] rn_received_supabase_session_bridge', {
+              hasToken: Boolean(tok),
+              tokenLen: tok?.length ?? 0,
+            });
             await runNativeSoftphoneRegistration('supabase_access_token_bridge');
           })();
         }

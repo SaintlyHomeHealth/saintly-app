@@ -46,6 +46,18 @@ export async function fetchSoftphoneAccessToken(
   const credentials: RequestCredentials =
     bearer || !options.credentialsInclude ? 'omit' : 'include';
 
+  const authMode: 'bearer' | 'cookie' | 'omit' = bearer
+    ? 'bearer'
+    : options.credentialsInclude
+      ? 'cookie'
+      : 'omit';
+
+  console.warn('[SAINTLY-NATIVE-AUTH] softphone_token_request_start', {
+    authMode,
+    url,
+    bearerLen: bearer?.length ?? 0,
+  });
+
   const res = await fetch(url, {
     method: 'GET',
     headers,
@@ -54,6 +66,13 @@ export async function fetchSoftphoneAccessToken(
   });
 
   const body = (await res.json().catch(() => ({}))) as SoftphoneTokenResponse;
+
+  console.warn('[SAINTLY-NATIVE-AUTH] softphone_token_response', {
+    authMode,
+    status: res.status,
+    ok: res.ok,
+    hasTwilioJwt: typeof body.token === 'string' && body.token.length > 0,
+  });
 
   if (!res.ok) {
     return {

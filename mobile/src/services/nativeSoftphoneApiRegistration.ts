@@ -25,6 +25,11 @@ export async function tryRegisterNativeTwilioFromPortalApi(
     });
     if (r.token) {
       const identity = typeof r.identity === 'string' ? r.identity.trim() : '';
+      console.warn('[SAINTLY-NATIVE-AUTH] initializeWithToken_call', {
+        path: 'bearer',
+        reason,
+        identityTail: identity.slice(-12),
+      });
       console.warn('[SAINTLY-VOICE] native API register (bearer)', { reason, identityTail: identity.slice(-12) });
       await twilioVoiceService.initializeWithToken({ token: r.token, identity });
       return r;
@@ -34,6 +39,11 @@ export async function tryRegisterNativeTwilioFromPortalApi(
   const rCookie = await fetchSoftphoneAccessToken({ credentialsInclude: true });
   if (rCookie.token) {
     const identity = typeof rCookie.identity === 'string' ? rCookie.identity.trim() : '';
+    console.warn('[SAINTLY-NATIVE-AUTH] initializeWithToken_call', {
+      path: 'cookie_fallback',
+      reason,
+      identityTail: identity.slice(-12),
+    });
     console.warn('[SAINTLY-VOICE] native API register (credentials)', { reason, identityTail: identity.slice(-12) });
     await twilioVoiceService.initializeWithToken({ token: rCookie.token, identity });
     return rCookie;

@@ -1,5 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+
+import { MobileSupabaseSessionBridge } from "@/app/workspace/MobileSupabaseSessionBridge";
+
 import "./globals.css";
 
 const geistSans = Geist({
@@ -58,6 +61,11 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col" suppressHydrationWarning>
+        {/**
+         * Posts Supabase JWT to the Saintly native shell on any route (login, admin, workspace) so RN can
+         * call GET /api/softphone/token with Authorization: Bearer without waiting for /workspace/* to mount.
+         */}
+        <MobileSupabaseSessionBridge />
         {children}
       </body>
     </html>
