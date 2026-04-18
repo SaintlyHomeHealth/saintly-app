@@ -15,16 +15,33 @@ function loadTwilioVoiceSdk() {
 /** Lets the Saintly iOS/Android shell register Twilio Voice native (CallKit / ConnectionService) with the same access token as the web Device. */
 function postSoftphoneTokenToNativeBridge(token: string, identity?: string | null) {
   if (typeof window === "undefined") return;
-  const bridge = (
-    window as unknown as { ReactNativeWebView?: { postMessage: (data: string) => void } }
-  ).ReactNativeWebView;
-  if (!bridge?.postMessage) return;
-  try {
-    const id = typeof identity === "string" && identity.trim() ? identity.trim() : undefined;
-    bridge.postMessage(JSON.stringify({ type: "saintly-softphone-token", token, ...(id ? { identity: id } : {}) }));
-  } catch {
-    // ignore bridge failures
-  }
+  const id = typeof identity === "string" && identity.trim() ? identity.trim() : undefined;
+  const payload = JSON.stringify({ type: "saintly-softphone-token", token, ...(id ? { identity: id } : {}) });
+
+  const retryDelaysMs = [25, 75, 150, 300, 600, 1200, 2000];
+
+  const tryPost = (attempt: number) => {
+    const bridge = (
+      window as unknown as { ReactNativeWebView?: { postMessage: (data: string) => void } }
+    ).ReactNativeWebView;
+    if (bridge?.postMessage) {
+      try {
+        bridge.postMessage(payload);
+        return;
+      } catch {
+        // fall through to retry
+      }
+    }
+    if (attempt >= retryDelaysMs.length) {
+      console.warn(
+        "[SAINTLY-NATIVE-BRIDGE] ReactNativeWebView.postMessage unavailable after retries — native CallKit / VoIP registration will not run"
+      );
+      return;
+    }
+    setTimeout(() => tryPost(attempt + 1), retryDelaysMs[attempt]);
+  };
+
+  tryPost(0);
 }
 
 import { formatPhoneNumber, normalizePhone } from "@/lib/phone/us-phone-format";
@@ -1475,6 +1492,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
           setListenState("ready");
         } else {
           device.updateToken(tokenJson.token!);
+          postSoftphoneTokenToNativeBridge(tokenJson.token!, tokenJson.identity);
         }
         setStatus("connecting");
         const call = await device.connect({ params: { To: e164 } });
