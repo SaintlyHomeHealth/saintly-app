@@ -2,6 +2,7 @@
 
 import { ActiveCallTranscriptSheet } from "@/components/softphone/ActiveCallTranscriptSheet";
 
+import { MobileSupabaseSessionBridge } from "./MobileSupabaseSessionBridge";
 import { ActiveCallBar } from "./phone/_components/ActiveCallBar";
 import { CallWaitingBanner } from "./phone/_components/CallWaitingBanner";
 import { IncomingCallBanner } from "./phone/_components/IncomingCallBanner";
@@ -14,6 +15,7 @@ import { WorkspaceSoftphoneProvider } from "@/components/softphone/WorkspaceSoft
 export function WorkspaceGlobalSoftphoneShell({ children }: { children: React.ReactNode }) {
   return (
     <WorkspaceSoftphoneProvider>
+      <MobileSupabaseSessionBridge />
       <IncomingCallBanner />
       <CallWaitingBanner />
       <WorkspacePhoneCallDock />

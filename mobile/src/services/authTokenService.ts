@@ -18,18 +18,18 @@ export type FetchSoftphoneTokenOptions = {
   /** Abort long-running token fetch (e.g. screen unmount). */
   signal?: AbortSignal;
   /**
-   * TODO: Pass Supabase session JWT or session cookie transport once mobile auth is wired.
-   * Web uses HTTP-only cookies; RN typically uses `Authorization: Bearer <access_token>`.
+   * Supabase user JWT (`session.access_token`) — server accepts `Authorization: Bearer` on
+   * `GET /api/softphone/token` (see `getStaffProfileUsingSupabaseUserJwt`).
    */
   getAccessToken?: () => Promise<string | null>;
+  /**
+   * Send cookies (iOS: may share WKWebView cookie store when `sharedCookiesEnabled` on WebView).
+   * Fallback when no bearer is stored; often insufficient for RN vs WebView — prefer bearer.
+   */
+  credentialsInclude?: boolean;
 };
 
-/**
- * Fetches a Twilio Voice access JWT from the existing Saintly backend.
- *
- * TODO: Replace `getAccessToken` wiring with your Supabase `session.access_token` (or equivalent).
- * TODO: Handle 401 by refreshing session and retrying once.
- */
+/** Fetches a Twilio Voice access JWT from the Saintly backend (`GET /api/softphone/token`). */
 export async function fetchSoftphoneAccessToken(
   options: FetchSoftphoneTokenOptions = {}
 ): Promise<SoftphoneTokenResponse> {
@@ -43,10 +43,14 @@ export async function fetchSoftphoneAccessToken(
     headers.Authorization = `Bearer ${bearer}`;
   }
 
+  const credentials: RequestCredentials =
+    bearer || !options.credentialsInclude ? 'omit' : 'include';
+
   const res = await fetch(url, {
     method: 'GET',
     headers,
     signal: options.signal,
+    credentials,
   });
 
   const body = (await res.json().catch(() => ({}))) as SoftphoneTokenResponse;

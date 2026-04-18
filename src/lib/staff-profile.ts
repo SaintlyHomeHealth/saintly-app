@@ -1,4 +1,5 @@
 import { cache } from "react";
+import { createClient } from "@supabase/supabase-js";
 
 import { createServerSupabaseClient, getAuthenticatedUser } from "@/lib/supabase/server";
 
@@ -170,3 +171,59 @@ async function loadStaffProfile(): Promise<StaffProfile | null> {
 
 /** One `staff_profiles` fetch per request (layouts + page share the same result). */
 export const getStaffProfile = cache(loadStaffProfile);
+
+/**
+ * Staff profile for `Authorization: Bearer <Supabase access JWT>` (e.g. React Native `fetch` without cookies).
+ * Same row rules as {@link loadStaffProfile}; RLS applies when using the anon key + user JWT.
+ */
+export async function getStaffProfileUsingSupabaseUserJwt(accessToken: string): Promise<StaffProfile | null> {
+  const token = accessToken.trim();
+  if (!token) {
+    return null;
+  }
+
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    { global: { headers: { Authorization: `Bearer ${token}` } } }
+  );
+
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+  if (userError || !user) {
+    return null;
+  }
+
+  const { data, error } = await supabase
+    .from("staff_profiles")
+    .select(
+      "id, user_id, email, role, created_at, updated_at, full_name, is_active, phone_access_enabled, inbound_ring_enabled, applicant_id"
+    )
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (error || !data) {
+    return null;
+  }
+
+  const role = data.role;
+  if (typeof role !== "string" || !isStaffRole(role)) {
+    return null;
+  }
+
+  return {
+    id: data.id,
+    user_id: data.user_id,
+    email: data.email ?? null,
+    role,
+    created_at: data.created_at,
+    updated_at: data.updated_at,
+    full_name: typeof data.full_name === "string" ? data.full_name : null,
+    is_active: data.is_active !== false,
+    phone_access_enabled: data.phone_access_enabled === true,
+    inbound_ring_enabled: data.inbound_ring_enabled === true,
+    applicant_id: typeof data.applicant_id === "string" ? data.applicant_id : null,
+  };
+}

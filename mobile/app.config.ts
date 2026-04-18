@@ -42,7 +42,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       'aps-environment': 'production',
     },
     /** CFBundleVersion — must increase for each App Store / TestFlight upload. */
-    buildNumber: '13',
+    buildNumber: '14',
     googleServicesFile: './GoogleService-Info.plist',
     infoPlist: {
       NSMicrophoneUsageDescription:
@@ -75,6 +75,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     ...(Array.isArray(config.plugins) ? config.plugins : []),
     ...(useDevClientPlugin ? (['expo-dev-client'] as const) : []),
     'expo-location',
+    'expo-secure-store',
     /** @react-native-firebase/app must run before messaging; expo-build-properties static linking next. */
     '@react-native-firebase/app',
     [

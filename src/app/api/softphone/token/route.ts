@@ -1,7 +1,8 @@
+import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import twilio from "twilio";
 
-import { canAccessWorkspacePhone, getStaffProfile } from "@/lib/staff-profile";
+import { canAccessWorkspacePhone, getStaffProfile, getStaffProfileUsingSupabaseUserJwt } from "@/lib/staff-profile";
 import { resolveInboundBrowserStaffUserIdsAsync } from "@/lib/softphone/inbound-staff-ids";
 import { softphoneTwilioClientIdentity } from "@/lib/softphone/twilio-client-identity";
 
@@ -14,8 +15,18 @@ const VoiceGrant = AccessToken.VoiceGrant;
  * POST {TWILIO_PUBLIC_BASE_URL}/api/twilio/voice/softphone
  * Outbound PSTN caller ID is set only via `TWILIO_SOFTPHONE_CALLER_ID_E164` on that route (not `TWILIO_VOICE_RING_E164`).
  */
-export async function GET() {
-  const staff = await getStaffProfile();
+export async function GET(request: NextRequest) {
+  const auth = request.headers.get("authorization");
+  let staff = null;
+  if (auth?.startsWith("Bearer ")) {
+    const jwt = auth.slice(7).trim();
+    if (jwt) {
+      staff = await getStaffProfileUsingSupabaseUserJwt(jwt);
+    }
+  } else {
+    staff = await getStaffProfile();
+  }
+
   if (!staff || !canAccessWorkspacePhone(staff)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

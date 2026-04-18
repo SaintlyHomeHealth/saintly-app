@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  AppState,
   Linking,
   Platform,
   Pressable,
@@ -23,7 +24,9 @@ import {
 } from '../config/env';
 import { useNativePushRegistration } from '../hooks/useNativePushRegistration';
 import { requestForegroundLocationWhenNeeded } from '../services/locationPermission';
+import { tryRegisterNativeTwilioFromPortalApi } from '../services/nativeSoftphoneApiRegistration';
 import { registerNativeTwilioWithAccessToken } from '../services/nativeTwilioVoiceBridge';
+import { setStoredSupabaseAccessToken } from '../services/supabaseAccessTokenStore';
 import { twilioVoiceService } from '../services/twilioVoiceService';
 import { colors } from '../theme/colors';
 
@@ -195,6 +198,7 @@ function isNonProductionPushApiUrl(url: string): boolean {
 
 type WebViewBridgeMessage =
   | { type: 'open-settings' }
+  | { type: 'saintly-supabase-access-token'; access_token?: string | null }
   | { type: 'saintly-softphone-token'; token: string; identity?: string }
   | { type: 'push-register-log'; step: string; [key: string]: unknown }
   | { type: 'voice-register-log'; step: string; [key: string]: unknown };
@@ -342,6 +346,68 @@ export function HomeScreen(_props: HomeScreenProps) {
     );
   }, []);
 
+  /**
+   * GET `/api/softphone/token` from native (Supabase bearer in SecureStore from workspace bridge, else cookie fallback),
+   * then `Voice.register` + POST `/voice/register` when FCM + WebView exist. WebView `saintly-softphone-token`
+   * remains a backup; `initializeWithToken` skips duplicate Twilio JWTs (`lastRegisteredToken`).
+   */
+  const runNativeSoftphoneRegistration = useCallback(
+    async (reason: string): Promise<void> => {
+      const res = await tryRegisterNativeTwilioFromPortalApi(reason);
+      if (!res?.token?.trim()) return;
+
+      const id = typeof res.identity === 'string' ? res.identity.trim() : '';
+      const t = fcmTokenRef.current;
+      if (!id) return;
+      if (t && webViewRef.current) {
+        pendingVoiceRegisterRef.current = null;
+        await injectWorkspaceVoiceRegister(id, `native_api_${reason}`);
+      } else if (!t) {
+        pendingVoiceRegisterRef.current = { twilioIdentity: id };
+        console.warn('[SAINTLY-VOICE-REG] deferring voice_register until FCM (native API path)');
+      }
+    },
+    [injectWorkspaceVoiceRegister]
+  );
+
+  useEffect(() => {
+    if (Constants.appOwnership === 'expo') {
+      return undefined;
+    }
+    let cancelled = false;
+
+    const run = (reason: string): void => {
+      void (async () => {
+        if (cancelled) return;
+        await runNativeSoftphoneRegistration(reason);
+      })();
+    };
+
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    const schedule = (delayMs: number, reason: string) => {
+      timers.push(
+        setTimeout(() => {
+          run(reason);
+        }, delayMs)
+      );
+    };
+
+    run('mount');
+    schedule(2000, 'retry_2s');
+    schedule(8000, 'retry_8s');
+    schedule(20000, 'retry_20s');
+
+    const sub = AppState.addEventListener('change', (next) => {
+      if (next === 'active') run('appstate_active');
+    });
+
+    return () => {
+      cancelled = true;
+      timers.forEach(clearTimeout);
+      sub.remove();
+    };
+  }, [loading, runNativeSoftphoneRegistration]);
+
   const runPingRegisterApi = useCallback(() => {
     if (!webViewRef.current) {
       setPingReqSummary('—');
@@ -476,6 +542,15 @@ export function HomeScreen(_props: HomeScreenProps) {
         if (msg.type === 'open-settings') {
           void Linking.openSettings();
         }
+        if (msg.type === 'saintly-supabase-access-token') {
+          void (async () => {
+            const raw = (msg as { access_token?: string | null }).access_token;
+            const tok = typeof raw === 'string' && raw.trim() ? raw.trim() : null;
+            await setStoredSupabaseAccessToken(tok);
+            console.warn('[SAINTLY-VOICE] supabase access token bridge', { hasToken: Boolean(tok) });
+            await runNativeSoftphoneRegistration('supabase_access_token_bridge');
+          })();
+        }
         if (msg.type === 'saintly-softphone-token' && typeof msg.token === 'string') {
           const identity = typeof msg.identity === 'string' ? msg.identity.trim() : '';
           void (async () => {
@@ -522,7 +597,7 @@ export function HomeScreen(_props: HomeScreenProps) {
         // ignore non-JSON messages
       }
     },
-    [runPushRegistration, injectWorkspaceVoiceRegister]
+    [runPushRegistration, injectWorkspaceVoiceRegister, runNativeSoftphoneRegistration]
   );
 
   const fcmTokenPreview =
