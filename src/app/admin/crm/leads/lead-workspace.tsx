@@ -488,7 +488,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
       </div>
 
       <div className="mb-6">
-        <LeadQualityControls leadId={leadId} initialLeadQuality={initialLeadQuality} />
+        <LeadQualityControls leadId={leadId} initialLeadQuality={initialLeadQuality} pipelineStatus={rawStatus} />
       </div>
 
       <nav
