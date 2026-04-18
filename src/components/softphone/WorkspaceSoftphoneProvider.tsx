@@ -68,6 +68,7 @@ type IncomingCallerUi = {
   rawFrom: string;
   formattedNumber: string;
   contactName: string | null;
+  subtitle: string | null;
 };
 
 type InboundAiAssistState = {
@@ -75,6 +76,7 @@ type InboundAiAssistState = {
   rawFrom: string | null;
   formattedNumber: string | null;
   contactName: string | null;
+  subtitle: string | null;
 };
 
 export type CallContextVoiceAi = {
@@ -211,7 +213,7 @@ const WorkspaceSoftphoneContext = createContext<Ctx | null>(null);
 /** Reuse AI-assist PSTN/name if the Twilio Client transfer leg drops CLI (until TwiML params apply). */
 const ASSIST_HANDOFF_SNAPSHOT_TTL_MS = 120_000;
 
-type AssistHandoffSnapshot = { raw: string; contactName: string | null; savedAt: number };
+type AssistHandoffSnapshot = { raw: string; contactName: string | null; subtitle: string | null; savedAt: number };
 
 function mergeRawWithAssistSnapshot(
   rawFromCall: string,
@@ -275,6 +277,18 @@ function formatDialpadDisplay(raw: string): string {
   if (d.length <= 6) return `(${d.slice(0, 3)}) ${d.slice(3)}`;
   if (d.length <= 10) return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
   return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6, 10)}${d.length > 10 ? ` ${d.slice(10)}` : ""}`;
+}
+
+function formatIncomingCallerLine(
+  name: string | null | undefined,
+  subtitle: string | null | undefined,
+  formattedNumber: string
+): string {
+  const n = name?.trim();
+  const s = subtitle?.trim();
+  if (n && s) return `${n} · ${s} · ${formattedNumber}`;
+  if (n) return `${n} · ${formattedNumber}`;
+  return formattedNumber;
 }
 
 export function WorkspaceSoftphoneProvider({ children }: { children: React.ReactNode }) {
@@ -831,6 +845,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     assistHandoffSnapshotRef.current = {
       raw: inboundAiAssist.rawFrom,
       contactName: inboundAiAssist.contactName ?? null,
+      subtitle: inboundAiAssist.subtitle ?? null,
       savedAt: Date.now(),
     };
   }, [inboundAiAssist]);
@@ -854,9 +869,15 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       normalizePhone(snap.raw) === normalizePhone(raw) &&
       normalizePhone(raw).length >= 10;
     const seededContactName = snapMatches && snap ? snap.contactName : null;
+    const seededSubtitle = snapMatches && snap ? snap.subtitle : null;
 
     const formattedNumber = formatInboundCallerFromRaw(raw);
-    setIncomingCallerUi({ rawFrom: raw, formattedNumber, contactName: seededContactName });
+    setIncomingCallerUi({
+      rawFrom: raw,
+      formattedNumber,
+      contactName: seededContactName,
+      subtitle: seededSubtitle,
+    });
 
     const lower = raw.toLowerCase();
     const digits = normalizePhone(raw);
@@ -868,10 +889,14 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     const q = encodeURIComponent(raw);
     void fetch(`/api/workspace/phone/incoming-caller-lookup?from=${q}`, { credentials: "include" })
       .then((r) => (r.ok ? r.json() : null))
-      .then((j: { contactName?: unknown } | null) => {
+      .then((j: { contactName?: unknown; subtitle?: unknown } | null) => {
         const name = j && typeof j.contactName === "string" ? j.contactName.trim() : "";
+        const subtitle =
+          j && typeof j.subtitle === "string" && j.subtitle.trim() ? j.subtitle.trim() : null;
         if (cancelled || !name) return;
-        setIncomingCallerUi((prev) => (prev && prev.rawFrom === raw ? { ...prev, contactName: name } : prev));
+        setIncomingCallerUi((prev) =>
+          prev && prev.rawFrom === raw ? { ...prev, contactName: name, subtitle } : prev
+        );
       });
     return () => {
       cancelled = true;
@@ -897,9 +922,15 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       normalizePhone(snap.raw) === normalizePhone(raw) &&
       normalizePhone(raw).length >= 10;
     const seededContactName = snapMatches && snap ? snap.contactName : null;
+    const seededSubtitle = snapMatches && snap ? snap.subtitle : null;
 
     const formattedNumber = formatInboundCallerFromRaw(raw);
-    setCallWaitingCallerUi({ rawFrom: raw, formattedNumber, contactName: seededContactName });
+    setCallWaitingCallerUi({
+      rawFrom: raw,
+      formattedNumber,
+      contactName: seededContactName,
+      subtitle: seededSubtitle,
+    });
 
     const lower = raw.toLowerCase();
     const digits = normalizePhone(raw);
@@ -911,10 +942,14 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     const q = encodeURIComponent(raw);
     void fetch(`/api/workspace/phone/incoming-caller-lookup?from=${q}`, { credentials: "include" })
       .then((r) => (r.ok ? r.json() : null))
-      .then((j: { contactName?: unknown } | null) => {
+      .then((j: { contactName?: unknown; subtitle?: unknown } | null) => {
         const name = j && typeof j.contactName === "string" ? j.contactName.trim() : "";
+        const subtitle =
+          j && typeof j.subtitle === "string" && j.subtitle.trim() ? j.subtitle.trim() : null;
         if (cancelled || !name) return;
-        setCallWaitingCallerUi((prev) => (prev && prev.rawFrom === raw ? { ...prev, contactName: name } : prev));
+        setCallWaitingCallerUi((prev) =>
+          prev && prev.rawFrom === raw ? { ...prev, contactName: name, subtitle } : prev
+        );
       });
     return () => {
       cancelled = true;
@@ -931,10 +966,14 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     const q = encodeURIComponent(raw);
     void fetch(`/api/workspace/phone/incoming-caller-lookup?from=${q}`, { credentials: "include" })
       .then((r) => (r.ok ? r.json() : null))
-      .then((j: { contactName?: unknown } | null) => {
+      .then((j: { contactName?: unknown; subtitle?: unknown } | null) => {
         const name = j && typeof j.contactName === "string" ? j.contactName.trim() : "";
+        const subtitle =
+          j && typeof j.subtitle === "string" && j.subtitle.trim() ? j.subtitle.trim() : null;
         if (cancelled || !name) return;
-        setInboundAiAssist((prev) => (prev && prev.rawFrom === raw ? { ...prev, contactName: name } : prev));
+        setInboundAiAssist((prev) =>
+          prev && prev.rawFrom === raw ? { ...prev, contactName: name, subtitle } : prev
+        );
       });
     return () => {
       cancelled = true;
@@ -954,7 +993,8 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
           ? incomingCallerUi.formattedNumber
           : formatInboundCallerFromRaw(raw);
       const name = uiMatches ? (incomingCallerUi?.contactName ?? null) : null;
-      const remoteLabel = name ? `${name} · ${formatted}` : formatted;
+      const sub = uiMatches ? (incomingCallerUi?.subtitle ?? null) : null;
+      const remoteLabel = formatIncomingCallerLine(name, sub, formatted);
       dispatchWorkspaceSoftphoneUi({ phase: "incoming", remoteLabel });
       return;
     }
@@ -997,7 +1037,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
         (d.length >= 10 ? formatPhoneNumber(r) : formatInboundCallerFromRaw(r));
       const remote =
         inboundAiAssist.contactName && d.length >= 10
-          ? `${inboundAiAssist.contactName} · ${fmt}`
+          ? formatIncomingCallerLine(inboundAiAssist.contactName, inboundAiAssist.subtitle, fmt)
           : fmt;
       dispatchWorkspaceSoftphoneUi({
         phase: "inbound_ai_assist",
@@ -1051,6 +1091,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
               rawFrom: e164,
               formattedNumber: formatted,
               contactName: sameCall ? (prev?.contactName ?? null) : null,
+              subtitle: sameCall ? (prev?.subtitle ?? null) : null,
             };
           });
         } else {

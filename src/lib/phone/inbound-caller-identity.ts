@@ -3,13 +3,17 @@ import "server-only";
 import twilio from "twilio";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { buildIncomingContactDisplayName, type IncomingCallerContactRow } from "@/lib/crm/incoming-caller-lookup";
-import { findContactByIncomingPhone, type CrmContactMatch } from "@/lib/crm/find-contact-by-incoming-phone";
-import { phoneLookupCandidates } from "@/lib/crm/phone-lookup-candidates";
-import { formatPhoneNumber } from "@/lib/phone/us-phone-format";
+import {
+  resolveInboundCallerIdentityUnified,
+  type InboundCallerEntityType,
+  type InboundCallerIdentityUnified,
+} from "@/lib/phone/inbound-caller-identity-resolve";
 import type { InboundCallerDisplayJson, VoiceRoutingJsonV1 } from "@/lib/phone/voice-route-plan";
-import { normalizeRecruitingPhoneForStorage } from "@/lib/recruiting/recruiting-contact-normalize";
+import { formatPhoneNumber } from "@/lib/phone/us-phone-format";
 import { isValidE164, normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
+
+export { resolveInboundCallerIdentityUnified };
+export type { InboundCallerEntityType, InboundCallerIdentityUnified };
 
 /** Twilio `<Client><Parameter>` extras for Voice SDK + CallKit (best-effort). */
 export type InboundCallerClientDialExtras = {
@@ -30,6 +34,11 @@ export type InboundCallerResolved = {
   contact_id: string | null;
   conversation_id: string | null;
   formatted_number: string;
+  /** Same as caller_name when present; kept for unified identity consumers. */
+  display_name: string | null;
+  subtitle: string | null;
+  entity_type: InboundCallerEntityType;
+  entity_id: string | null;
 };
 
 const LOOKUP_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
@@ -48,38 +57,6 @@ export function normalizeInboundTwilioFromToE164(raw: string | null | undefined)
   return null;
 }
 
-function contactToIncomingRow(contact: CrmContactMatch): IncomingCallerContactRow {
-  return {
-    full_name: contact.full_name,
-    first_name: contact.first_name,
-    last_name: contact.last_name,
-    organization_name: contact.organization_name ?? null,
-    primary_phone: contact.primary_phone,
-    secondary_phone: contact.secondary_phone,
-  };
-}
-
-function facilityContactDisplayName(row: {
-  full_name: string | null;
-  first_name: string | null;
-  last_name: string | null;
-  title: string | null;
-}): string | null {
-  const fn = (row.full_name ?? "").trim();
-  if (fn) return fn;
-  const first = (row.first_name ?? "").trim();
-  const last = (row.last_name ?? "").trim();
-  const combined = `${first} ${last}`.trim();
-  if (combined) return combined;
-  const t = (row.title ?? "").trim();
-  return t || null;
-}
-
-function trimPruneName(s: string | null | undefined): string | null {
-  const t = (s ?? "").trim();
-  return t ? t : null;
-}
-
 /**
  * Best-effort internal CRM + ops directory match (no external APIs). Safe to await alongside phone logging.
  */
@@ -89,17 +66,21 @@ export async function resolveInboundCallerInternal(
 ): Promise<InboundCallerResolved> {
   const raw = typeof fromRaw === "string" ? fromRaw.trim() : "";
   const e164 = normalizeInboundTwilioFromToE164(raw) ?? raw;
-  const formatted = formatPhoneNumber(e164 || raw) || raw || "Unknown";
+  const formattedFallback = formatPhoneNumber(e164 || raw) || raw || "Unknown";
 
   if (!raw || raw.toLowerCase().startsWith("client:")) {
     return {
       e164,
       caller_name: null,
+      display_name: null,
       caller_name_source: "number_only",
       lead_id: null,
       contact_id: null,
       conversation_id: null,
-      formatted_number: raw.toLowerCase().startsWith("client:") ? "Internal / browser call" : formatted,
+      formatted_number: raw.toLowerCase().startsWith("client:") ? "Internal / browser call" : formattedFallback,
+      subtitle: null,
+      entity_type: "unknown",
+      entity_id: null,
     };
   }
 
@@ -108,113 +89,32 @@ export async function resolveInboundCallerInternal(
     return {
       e164,
       caller_name: null,
+      display_name: null,
       caller_name_source: "number_only",
       lead_id: null,
       contact_id: null,
       conversation_id: null,
-      formatted_number: formatted,
+      formatted_number: formattedFallback,
+      subtitle: null,
+      entity_type: "unknown",
+      entity_id: null,
     };
   }
 
-  const contact = await findContactByIncomingPhone(supabase, e164Key);
-
-  if (contact) {
-    const name = buildIncomingContactDisplayName(contactToIncomingRow(contact));
-    const candidates = phoneLookupCandidates(e164Key);
-
-    const { data: leadRow } = await supabase
-      .from("leads")
-      .select("id")
-      .eq("contact_id", contact.id)
-      .is("deleted_at", null)
-      .order("updated_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    const leadId = leadRow && typeof leadRow.id === "string" ? leadRow.id : null;
-
-    let conversationId: string | null = null;
-    if (candidates.length > 0) {
-      const { data: convRow } = await supabase
-        .from("conversations")
-        .select("id")
-        .eq("channel", "sms")
-        .in("main_phone_e164", candidates)
-        .limit(1)
-        .maybeSingle();
-      conversationId = convRow && typeof convRow.id === "string" ? convRow.id : null;
-    }
-
-    return {
-      e164: e164Key,
-      caller_name: name,
-      caller_name_source: name ? "internal" : "number_only",
-      lead_id: leadId,
-      contact_id: contact.id,
-      conversation_id: conversationId,
-      formatted_number: formatPhoneNumber(e164Key),
-    };
-  }
-
-  const candidates = phoneLookupCandidates(e164Key);
-  if (candidates.length > 0) {
-    const ors = candidates.flatMap((c) => [`direct_phone.eq.${c}`, `mobile_phone.eq.${c}`]);
-    const { data: match, error: facErr } = await supabase
-      .from("facility_contacts")
-      .select("id, full_name, first_name, last_name, title, direct_phone, mobile_phone")
-      .or(ors.join(","))
-      .limit(1)
-      .maybeSingle();
-
-    if (!facErr && match && typeof match.id === "string") {
-      const disp = facilityContactDisplayName({
-        full_name: typeof match.full_name === "string" ? match.full_name : null,
-        first_name: typeof match.first_name === "string" ? match.first_name : null,
-        last_name: typeof match.last_name === "string" ? match.last_name : null,
-        title: typeof match.title === "string" ? match.title : null,
-      });
-      return {
-        e164: e164Key,
-        caller_name: disp,
-        caller_name_source: disp ? "internal" : "number_only",
-        lead_id: null,
-        contact_id: null,
-        conversation_id: null,
-        formatted_number: formatPhoneNumber(e164Key),
-      };
-    }
-  }
-
-  const np = normalizeRecruitingPhoneForStorage(e164Key);
-  if (np) {
-    const { data: rc } = await supabase
-      .from("recruiting_candidates")
-      .select("id, full_name")
-      .eq("normalized_phone", np)
-      .limit(1)
-      .maybeSingle();
-    if (rc && typeof rc.id === "string") {
-      const nm = trimPruneName(typeof rc.full_name === "string" ? rc.full_name : null);
-      return {
-        e164: e164Key,
-        caller_name: nm,
-        caller_name_source: nm ? "internal" : "number_only",
-        lead_id: null,
-        contact_id: null,
-        conversation_id: null,
-        formatted_number: formatPhoneNumber(e164Key),
-      };
-    }
-  }
+  const u = await resolveInboundCallerIdentityUnified(supabase, e164Key);
 
   return {
-    e164: e164Key,
-    caller_name: null,
-    caller_name_source: "number_only",
-    lead_id: null,
-    contact_id: null,
-    conversation_id: null,
-    formatted_number: formatPhoneNumber(e164Key),
+    e164: u.e164,
+    caller_name: u.display_name,
+    display_name: u.display_name,
+    caller_name_source: u.caller_name_source,
+    lead_id: u.lead_id,
+    contact_id: u.contact_id,
+    conversation_id: u.conversation_id,
+    formatted_number: u.formatted_number,
+    subtitle: u.subtitle,
+    entity_type: u.entity_type,
+    entity_id: u.entity_id,
   };
 }
 
@@ -225,6 +125,9 @@ export function toRoutingInboundCallerDisplay(r: InboundCallerResolved): Inbound
     lead_id: r.lead_id,
     contact_id: r.contact_id,
     conversation_id: r.conversation_id,
+    subtitle: r.subtitle,
+    entity_type: r.entity_type,
+    entity_id: r.entity_id,
   };
 }
 
@@ -312,6 +215,7 @@ export async function enrichInboundCallerForPush(
     return {
       ...hint,
       caller_name: looked.trim(),
+      display_name: looked.trim(),
       caller_name_source: "lookup",
     };
   }

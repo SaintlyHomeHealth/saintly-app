@@ -181,6 +181,9 @@ export type InboundCallerDisplayJson = {
   lead_id?: string | null;
   contact_id?: string | null;
   conversation_id?: string | null;
+  subtitle?: string | null;
+  entity_type?: string | null;
+  entity_id?: string | null;
 };
 
 export type VoiceRoutingJsonV1 = {
