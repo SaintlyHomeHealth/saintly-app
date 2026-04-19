@@ -31,6 +31,16 @@ export type NativeCallToWebDetail =
     }
   | { kind: 'call_connected'; callId: string; direction: 'inbound' | 'outbound' }
   | { kind: 'call_disconnected'; callId: string }
+  | { kind: 'invite_canceled'; callId: string }
+  | { kind: 'outbound_connect_failed'; message?: string; code?: string }
+  | { kind: 'answer_failed'; callId: string; message?: string }
+  | {
+      kind: 'call_disconnected_early';
+      callId?: string;
+      reason: 'before_connected' | 'connect_failure' | 'unknown';
+      message?: string;
+    }
+  | { kind: 'native_voice_error'; scope: 'voice' | 'call'; message?: string; code?: string; callId?: string }
   | { kind: 'mute_changed'; muted: boolean }
   | { kind: 'speaker_changed'; enabled: boolean };
 
@@ -144,6 +154,30 @@ function readCallSid(call: Pick<TwilioCallNative, 'getSid'>): string {
   return typeof s === 'string' && s.startsWith('CA') ? s : '';
 }
 
+function formatTwilioError(err: unknown): string | undefined {
+  if (err == null) return undefined;
+  if (typeof err === 'string') return err;
+  if (err instanceof Error) return err.message;
+  if (typeof err === 'object' && err !== null && 'message' in err && typeof (err as { message: unknown }).message === 'string') {
+    return (err as { message: string }).message;
+  }
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return String(err);
+  }
+}
+
+function readErrorCode(err: unknown): string | undefined {
+  if (err && typeof err === 'object' && 'code' in err && typeof (err as { code: unknown }).code === 'string') {
+    return (err as { code: string }).code;
+  }
+  if (err && typeof err === 'object' && 'code' in err && typeof (err as { code: unknown }).code === 'number') {
+    return String((err as { code: number }).code);
+  }
+  return undefined;
+}
+
 /**
  * Track primary Client leg CallSid (invite id often matches until reconnect — we key by resolved getSid() when present).
  */
@@ -155,7 +189,49 @@ async function wireActiveCall(call: TwilioCallNative, direction: 'inbound' | 'ou
   const mod = await loadVoiceModule();
   const { Call } = mod;
 
+  let webConnectedEmitted = false;
+  let connectFailureEmitted = false;
+
+  call.on(Call.Event.ConnectFailure, (err: unknown) => {
+    connectFailureEmitted = true;
+    const msg = formatTwilioError(err);
+    const code = readErrorCode(err);
+    if (direction === 'outbound') {
+      emitToWeb({ kind: 'outbound_connect_failed', message: msg, code });
+    } else {
+      emitToWeb({
+        kind: 'native_voice_error',
+        scope: 'call',
+        message: msg,
+        code,
+        callId: inviteSid,
+      });
+    }
+    emitToWeb({
+      kind: 'call_disconnected_early',
+      callId: readCallSid(call) || inviteSid,
+      reason: 'connect_failure',
+      message: msg,
+    });
+  });
+
   call.on(Call.Event.Disconnected, () => {
+    if (connectFailureEmitted) {
+      let removedSid: string | null = null;
+      for (const [k, v] of activeCallByCallSid.entries()) {
+        if (v === call) {
+          removedSid = k;
+          activeCallByCallSid.delete(k);
+          break;
+        }
+      }
+      const dsid = removedSid || readCallSid(call) || inviteSid || '';
+      if (dsid.startsWith('CA') && primaryActiveCallSid === dsid) {
+        setPrimaryActiveSid(null);
+      }
+      return;
+    }
+
     let removedSid: string | null = null;
     for (const [k, v] of activeCallByCallSid.entries()) {
       if (v === call) {
@@ -168,6 +244,15 @@ async function wireActiveCall(call: TwilioCallNative, direction: 'inbound' | 'ou
     if (dsid.startsWith('CA') && primaryActiveCallSid === dsid) {
       setPrimaryActiveSid(null);
     }
+
+    if (!webConnectedEmitted) {
+      emitToWeb({
+        kind: 'call_disconnected_early',
+        callId: dsid.startsWith('CA') ? dsid : undefined,
+        reason: 'before_connected',
+      });
+      return;
+    }
     if (dsid.startsWith('CA')) {
       emitToWeb({ kind: 'call_disconnected', callId: dsid });
     }
@@ -179,6 +264,7 @@ async function wireActiveCall(call: TwilioCallNative, direction: 'inbound' | 'ou
   }
 
   const attachBySid = (finalSid: string): void => {
+    webConnectedEmitted = true;
     activeCallByCallSid.set(finalSid, call);
     setPrimaryActiveSid(finalSid);
     emitToWeb({ kind: 'call_connected', callId: finalSid, direction });
@@ -213,6 +299,7 @@ async function ensureVoiceSingletonWithListeners(): Promise<void> {
     invite.on(CallInvite.Event.Cancelled, () => {
       inviteByCallSid.delete(sid);
       activeCallByCallSid.delete(sid);
+      emitToWeb({ kind: 'invite_canceled', callId: sid });
     });
 
     const custom = invite.getCustomParameters() as Record<string, string>;
@@ -233,7 +320,10 @@ async function ensureVoiceSingletonWithListeners(): Promise<void> {
   });
 
   voiceSingleton.on(Voice.Event.Error, (err: unknown) => {
-    console.warn('[twilioVoiceService] Voice.Event.Error', err instanceof Error ? err.message : String(err));
+    const msg = formatTwilioError(err);
+    const code = readErrorCode(err);
+    console.warn('[twilioVoiceService] Voice.Event.Error', msg ?? err);
+    emitToWeb({ kind: 'native_voice_error', scope: 'voice', message: msg, code });
   });
 
   voiceSingleton.on(Voice.Event.Registered, () => {});
@@ -361,14 +451,29 @@ export const twilioVoiceService: TwilioVoiceService = {
   },
 
   async answer(callId: string): Promise<void> {
-    const mod = await loadVoiceModule();
     const invite = inviteByCallSid.get(callId);
     if (!invite) {
-      throw new Error(`[twilioVoiceService] No CallInvite for ${callId}`);
+      const msg = `[twilioVoiceService] No CallInvite for ${callId}`;
+      emitToWeb({ kind: 'answer_failed', callId, message: msg });
+      emitToWeb({ kind: 'call_disconnected_early', callId, reason: 'unknown', message: msg });
+      throw new Error(msg);
     }
-    const call = (await invite.accept()) as TwilioCallNative;
-    inviteByCallSid.delete(callId);
-    await wireActiveCall(call, 'inbound', callId);
+    try {
+      const call = (await invite.accept()) as TwilioCallNative;
+      inviteByCallSid.delete(callId);
+      await wireActiveCall(call, 'inbound', callId);
+    } catch (e) {
+      inviteByCallSid.delete(callId);
+      const msg = formatTwilioError(e);
+      emitToWeb({ kind: 'answer_failed', callId, message: msg });
+      emitToWeb({
+        kind: 'call_disconnected_early',
+        callId,
+        reason: 'unknown',
+        message: msg,
+      });
+      throw e;
+    }
   },
 
   async decline(callId: string): Promise<void> {
@@ -455,8 +560,20 @@ export const twilioVoiceService: TwilioVoiceService = {
     } else if (typeof cli === 'string' && cli.trim().startsWith('+')) {
       params.OutboundCli = cli.trim();
     }
-    const call = (await voiceSingleton.connect(token, { params })) as TwilioCallNative;
-    await wireActiveCall(call, 'outbound');
+    try {
+      const call = (await voiceSingleton.connect(token, { params })) as TwilioCallNative;
+      await wireActiveCall(call, 'outbound');
+    } catch (e) {
+      const msg = formatTwilioError(e);
+      const code = readErrorCode(e);
+      emitToWeb({ kind: 'outbound_connect_failed', message: msg, code });
+      emitToWeb({
+        kind: 'call_disconnected_early',
+        reason: 'unknown',
+        message: msg,
+      });
+      throw e;
+    }
   },
 
   async setCallMuted(muted: boolean): Promise<void> {

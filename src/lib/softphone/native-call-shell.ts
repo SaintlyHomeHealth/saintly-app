@@ -15,6 +15,24 @@ export type NativeCallToWebDetail =
     }
   | { kind: "call_connected"; callId: string; direction: "inbound" | "outbound" }
   | { kind: "call_disconnected"; callId: string }
+  /** Inbound invite removed by caller / Twilio before answer (not the same as user Decline). */
+  | { kind: "invite_canceled"; callId: string }
+  /** Outbound: connect() rejected or {@link Call.Event.ConnectFailure} on the outbound leg. */
+  | { kind: "outbound_connect_failed"; message?: string; code?: string }
+  /** Inbound: {@link CallInvite.accept} threw or failed before an active call was established. */
+  | { kind: "answer_failed"; callId: string; message?: string }
+  /**
+   * Leg ended before `call_connected` (e.g. hung up while ringing, or disconnect with no stable `CA` yet).
+   * Use with `invite_canceled` / `outbound_connect_failed` as needed; web should always return to idle.
+   */
+  | {
+      kind: "call_disconnected_early";
+      callId?: string;
+      reason: "before_connected" | "connect_failure" | "unknown";
+      message?: string;
+    }
+  /** {@link Voice.Event.Error} or non-fatal call-level error worth surfacing in UI. */
+  | { kind: "native_voice_error"; scope: "voice" | "call"; message?: string; code?: string; callId?: string }
   | { kind: "mute_changed"; muted: boolean }
   | { kind: "speaker_changed"; enabled: boolean };
 

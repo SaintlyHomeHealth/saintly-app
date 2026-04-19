@@ -392,6 +392,8 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
   const nativeVoiceCallShell = isNativeVoiceCallShell();
   const [nativeShellIncomingCallId, setNativeShellIncomingCallId] = useState<string | null>(null);
   const nativeShellActiveSidRef = useRef<string | null>(null);
+  /** Mirrors `nativeShellIncomingCallId` for handlers that must not rely on stale render state (e.g. Voice.Error). */
+  const nativeShellInvitePendingRef = useRef<string | null>(null);
 
   const [digits, setDigits] = useState("");
   const [listenState, setListenState] = useState<"loading" | "ready" | "error">("loading");
@@ -914,6 +916,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       dispatchWorkspaceSoftphoneUi({ phase: "idle" });
       setNativeShellIncomingCallId(null);
       nativeShellActiveSidRef.current = null;
+      nativeShellInvitePendingRef.current = null;
     },
     [digits]
   );
@@ -925,6 +928,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     const unsub = subscribeNativeCallToWeb((d: NativeCallToWebDetail) => {
       if (d.kind === "incoming_ring") {
         setNativeShellIncomingCallId(d.callId);
+        nativeShellInvitePendingRef.current = d.callId;
         const raw = (d.from ?? "").trim();
         if (raw) {
           const formattedNumber = safeFormattedPhoneForUi(raw);
@@ -962,6 +966,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       }
       if (d.kind === "call_connected") {
         setNativeShellIncomingCallId(null);
+        nativeShellInvitePendingRef.current = null;
         nativeShellActiveSidRef.current = d.callId;
         activeCallRef.current = { parameters: { CallSid: d.callId } } as unknown as CallHandle;
         setStatus("in_call");
@@ -975,6 +980,74 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
         nativeShellActiveSidRef.current = null;
         setNativeShellIncomingCallId(null);
         finalizeCallCleanup("native:call_disconnected", { endedCallSid: d.callId });
+        return;
+      }
+      if (d.kind === "invite_canceled") {
+        nativeShellActiveSidRef.current = null;
+        setNativeShellIncomingCallId(null);
+        setIncomingCallerUi(null);
+        activeCallRef.current = null;
+        finalizeCallCleanup("native:invite_canceled", { endedCallSid: d.callId });
+        setHint("Incoming call ended before it could be answered.");
+        return;
+      }
+      if (d.kind === "outbound_connect_failed") {
+        nativeShellActiveSidRef.current = null;
+        activeCallRef.current = null;
+        finalizeCallCleanup("native:outbound_connect_failed");
+        setHint(
+          d.message?.trim()
+            ? `Could not connect: ${d.message.trim()}`
+            : "Could not place the call. Check signal and try again."
+        );
+        setHintMeta({ suggestSettings: true, canRetry: true });
+        return;
+      }
+      if (d.kind === "answer_failed") {
+        nativeShellActiveSidRef.current = null;
+        setNativeShellIncomingCallId(null);
+        setIncomingCallerUi(null);
+        activeCallRef.current = null;
+        finalizeCallCleanup("native:answer_failed", { endedCallSid: d.callId });
+        setHint(
+          d.message?.trim()
+            ? `Could not answer: ${d.message.trim()}`
+            : "Could not answer the call. Try again."
+        );
+        setHintMeta({ suggestSettings: true, canRetry: true });
+        return;
+      }
+      if (d.kind === "call_disconnected_early") {
+        nativeShellActiveSidRef.current = null;
+        setNativeShellIncomingCallId(null);
+        setIncomingCallerUi(null);
+        activeCallRef.current = null;
+        finalizeCallCleanup("native:call_disconnected_early", {
+          endedCallSid: typeof d.callId === "string" && d.callId.startsWith("CA") ? d.callId : null,
+        });
+        if (d.reason === "connect_failure" && d.message?.trim()) {
+          setHint(`Call failed: ${d.message.trim()}`);
+          setHintMeta({ suggestSettings: true, canRetry: true });
+        }
+        return;
+      }
+      if (d.kind === "native_voice_error") {
+        const needsReset =
+          statusRef.current !== "idle" ||
+          nativeShellActiveSidRef.current != null ||
+          nativeShellInvitePendingRef.current != null;
+        if (needsReset) {
+          nativeShellActiveSidRef.current = null;
+          nativeShellInvitePendingRef.current = null;
+          setNativeShellIncomingCallId(null);
+          setIncomingCallerUi(null);
+          activeCallRef.current = null;
+          finalizeCallCleanup("native_voice_error");
+        }
+        if (d.message?.trim()) {
+          setHint(`Phone: ${d.message.trim()}`);
+          setHintMeta({ suggestSettings: true, canRetry: true });
+        }
         return;
       }
       if (d.kind === "mute_changed") {
@@ -1596,11 +1669,14 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
   const answerIncoming = useCallback(() => {
     if (nativeVoiceCallShell) {
       if (!nativeShellIncomingCallId) return;
+      const inviteId = nativeShellIncomingCallId;
       postNativeCallControlToReactNative({
         action: "answer_call",
-        callId: nativeShellIncomingCallId,
+        callId: inviteId,
       });
       setNativeShellIncomingCallId(null);
+      /** Until `call_connected` / failure — used so Voice.Error clears UI while status is `connecting`. */
+      nativeShellInvitePendingRef.current = inviteId;
       setStatus("connecting");
       setIncomingCallerUi(null);
       return;
@@ -1621,6 +1697,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
         });
       }
       setNativeShellIncomingCallId(null);
+      nativeShellInvitePendingRef.current = null;
       setIncomingCallerUi(null);
       return;
     }
