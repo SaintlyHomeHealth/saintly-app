@@ -1076,6 +1076,12 @@ function readOptionalFollowUpDateIso(formData: FormData): string | null {
   return t;
 }
 
+/** When `follow_up_date` is omitted from the form, do not change the column (intake save without that control). */
+function readFollowUpDateForIntakeUpdate(formData: FormData): string | null | undefined {
+  if (!formData.has("follow_up_date")) return undefined;
+  return readOptionalFollowUpDateIso(formData);
+}
+
 /** `YYYY-MM-DD` for `leads.dob`, or null when cleared / invalid. */
 function readOptionalDobIso(formData: FormData): string | null {
   const v = formData.get("dob");
@@ -1229,11 +1235,13 @@ export async function updateLeadIntake(formData: FormData) {
     legacyBroadPayerCategoryFromStructured(secondary_payer_type) ??
     null;
 
+  const followUpDateUpdate = readFollowUpDateForIntakeUpdate(formData);
+
   const payload = {
     ...(pipelineStatus !== null ? { status: pipelineStatus } : {}),
     owner_user_id: readOptionalOwnerUserId(formData),
     next_action: readLeadNextActionFromForm(formData),
-    follow_up_date: readOptionalFollowUpDateIso(formData),
+    ...(followUpDateUpdate !== undefined ? { follow_up_date: followUpDateUpdate } : {}),
     referring_doctor_name: readOptionalIntakeText(formData, "referring_doctor_name"),
     doctor_office_name: readOptionalIntakeText(formData, "doctor_office_name"),
     doctor_office_phone: readOptionalNormalizedPhone(formData, "doctor_office_phone"),
@@ -1327,17 +1335,18 @@ export async function updateLeadIntake(formData: FormData) {
     });
   }
 
-  const oldFu = normStr(B.follow_up_date);
-  const newFu = readOptionalFollowUpDateIso(formData);
-  const newFuNorm = newFu == null ? null : newFu;
-  if (oldFu !== newFuNorm) {
-    await insertLeadActivityRow({
-      leadId,
-      eventType: LEAD_ACTIVITY_EVENT.follow_up_changed,
-      body: `Follow-up changed from ${formatFollowUpDate(oldFu)} to ${formatFollowUpDate(newFuNorm)}`,
-      metadata: { before: oldFu, after: newFuNorm },
-      createdByUserId: uid,
-    });
+  if (followUpDateUpdate !== undefined) {
+    const oldFu = normStr(B.follow_up_date);
+    const newFuNorm = followUpDateUpdate == null ? null : followUpDateUpdate;
+    if (oldFu !== newFuNorm) {
+      await insertLeadActivityRow({
+        leadId,
+        eventType: LEAD_ACTIVITY_EVENT.follow_up_changed,
+        body: `Follow-up changed from ${formatFollowUpDate(oldFu)} to ${formatFollowUpDate(newFuNorm)}`,
+        metadata: { before: oldFu, after: newFuNorm },
+        createdByUserId: uid,
+      });
+    }
   }
 
   const oldDisc = normDisciplinesList(B.service_disciplines);

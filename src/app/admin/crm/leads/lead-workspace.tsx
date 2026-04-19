@@ -295,8 +295,11 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
                 </select>
               </label>
               <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-                Follow-up date
+                Next follow-up date
                 <input name="follow_up_date" type="date" className={inp} />
+                <span className="text-[10px] font-normal text-slate-500">
+                  CRM next touch; you can also set this after the lead is created from Contact outcome.
+                </span>
               </label>
             </div>
           </div>
@@ -839,8 +842,9 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
           title="Contact outcome"
           description={
             <>
-              Log each attempt. <strong>No answer</strong> sets follow-up to tomorrow; <strong>Left voicemail</strong>{" "}
-              suggests two days out (edit before save if you prefer).
+              Log each attempt. This section sets the <strong>lead next follow-up</strong> (date and time)—the single CRM
+              callback that drives lists and reminders. <strong>No answer</strong> presets follow-up to tomorrow;{" "}
+              <strong>Left voicemail</strong> suggests two days out (edit before save if you prefer).
             </>
           }
           className="border-amber-200/80 bg-amber-50/20 ring-amber-100/50"
@@ -895,7 +899,12 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
           <LeadSectionCard
             id="section-pipeline"
             title="Pipeline & ownership"
-            description="Status, owner, and next touch. Use disposition when the referral is won or lost."
+            description={
+              <>
+                Status, owner, and pipeline next step. The <strong>lead next follow-up date and time</strong> live in{" "}
+                <strong>Contact outcome</strong> above (not here). Use disposition when the referral is won or lost.
+              </>
+            }
             className="border-indigo-100/90 bg-indigo-50/20 ring-indigo-100/40"
           >
             <div className="grid max-w-2xl gap-4 sm:grid-cols-2">
@@ -927,7 +936,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
                   ))}
                 </select>
               </label>
-              <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+              <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
                 Next action
                 <select name="next_action" className={inp} defaultValue={nextActionVal}>
                   <option value="">—</option>
@@ -937,10 +946,10 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
                     </option>
                   ))}
                 </select>
-              </label>
-              <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-                Follow-up date
-                <input type="date" name="follow_up_date" className={inp} defaultValue={followUpIso} />
+                <span className="text-[10px] font-normal text-slate-500">
+                  You can also set this when logging <strong>Contact outcome</strong>. Follow-up <strong>date and time</strong>{" "}
+                  for the lead are only set there.
+                </span>
               </label>
               <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
                 Lead priority (visual triage)

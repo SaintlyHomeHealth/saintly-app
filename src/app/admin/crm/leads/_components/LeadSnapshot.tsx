@@ -166,7 +166,7 @@ function buildSnapshotPlainText(p: LeadSnapshotProps): string {
   L("Pipeline status", formatLeadPipelineStatusLabel(p.rawStatus));
   L("Owner", staffLabel(p.staffOptions, p.ownerUid) || "—");
   L("Next action", formatLeadNextActionLabel(p.nextActionVal));
-  L("Follow-up date", p.followUpIso ? fmtIsoDate(p.followUpIso) : "—");
+  L("Lead next follow-up", p.followUpIso ? fmtIsoDate(p.followUpIso) : "—");
   L("Lead priority", leadTemperatureLabel(normalizeLeadTemperature(p.leadTemperature)));
   L("Last contact", formatLeadLastContactSummary(p.lastContactAt, p.lastOutcome));
 
@@ -377,7 +377,7 @@ export function LeadSnapshot(props: LeadSnapshotProps) {
             <Field label="Next action" emphasis>
               {formatLeadNextActionLabel(nextActionVal)}
             </Field>
-            <Field label="Follow-up date" emphasis>
+            <Field label="Lead next follow-up" emphasis>
               {followUpIso ? (
                 <span>
                   {fmtIsoDate(followUpIso)}

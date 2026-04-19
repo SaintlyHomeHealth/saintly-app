@@ -72,9 +72,9 @@ export function LeadFollowUpContextPanel(props: {
     followUpDateForBadge < today;
 
   const followUpLine = props.followUpAtIso
-    ? `Follow-up set for ${formatFollowUpDateTime(props.followUpAtIso)}${overdue ? " · Overdue" : ""}`
+    ? `Lead next follow-up: ${formatFollowUpDateTime(props.followUpAtIso)}${overdue ? " · Overdue" : ""}`
     : props.followUpIso && /^\d{4}-\d{2}-\d{2}/.test(props.followUpIso)
-      ? `Follow-up set for ${formatFollowUpDate(props.followUpIso)}${overdue ? " · Overdue" : ""}`
+      ? `Lead next follow-up: ${formatFollowUpDate(props.followUpIso)}${overdue ? " · Overdue" : ""}`
       : null;
 
   const nextActionLine = props.nextActionVal?.trim()

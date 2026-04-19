@@ -79,7 +79,7 @@ function helperForOutcome(outcome: string): string | null {
     case "spoke_scheduled":
       return "Capture the next step before saving.";
     case "left_voicemail":
-      return "Set a follow-up date and time so this lead does not get lost.";
+      return "Set the lead next follow-up date and time so this lead does not get lost.";
     default:
       return null;
   }
@@ -361,16 +361,28 @@ export function LeadContactOutcomeForm({
                 </option>
               ))}
             </select>
+            <span className="text-[10px] font-normal text-slate-500">
+              Same list as Pipeline — this stays in sync when you save an outcome.
+            </span>
           </label>
 
-          <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-            Follow-up date
-            <input type="date" className={inputCls} value={followDate} onChange={(e) => setFollowDate(e.target.value)} />
-          </label>
-          <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-            Follow-up time
-            <input type="time" className={inputCls} value={followTime} onChange={(e) => setFollowTime(e.target.value)} />
-          </label>
+          <div className="sm:col-span-2 rounded-lg border border-amber-200/70 bg-amber-50/40 px-3 py-3 ring-1 ring-amber-100/60">
+            <p className="text-[11px] font-semibold text-slate-800">Lead next follow-up (CRM)</p>
+            <p className="mt-1 text-[10px] leading-snug text-slate-600">
+              Overall next touch for this lead—lists, reminders, and workflow. This is not an insurance or payer
+              verification deadline; track payer work in notes or your usual process.
+            </p>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+                Date
+                <input type="date" className={inputCls} value={followDate} onChange={(e) => setFollowDate(e.target.value)} />
+              </label>
+              <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+                Time <span className="font-normal text-slate-400">(Central)</span>
+                <input type="time" className={inputCls} value={followTime} onChange={(e) => setFollowTime(e.target.value)} />
+              </label>
+            </div>
+          </div>
 
           <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
             Outcome note
