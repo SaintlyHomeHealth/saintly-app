@@ -1,6 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+
+import {
+  isReactNativeWebViewShell,
+  postNativeSpeakerQueryToShell,
+  postNativeSpeakerSetToShell,
+  subscribeNativeSpeakerStateFromShell,
+} from "@/lib/softphone/native-speaker-bridge";
 import {
   Bug,
   ChevronDown,
@@ -126,6 +133,8 @@ export function ActiveCallBar() {
   const [actionBusy, setActionBusy] = useState<"xfer" | "add" | null>(null);
   const [notice, setNotice] = useState<{ kind: "error" | "info"; message: string } | null>(null);
   const [recTick, setRecTick] = useState(0);
+  /** Expo / RN shell: earpiece vs speakerphone (native Twilio audio device). */
+  const [nativeSpeakerOn, setNativeSpeakerOn] = useState(false);
 
   const showCallDebug = process.env.NODE_ENV === "development";
 
@@ -146,6 +155,20 @@ export function ActiveCallBar() {
   useEffect(() => {
     setRecTick((n) => n + 1);
   }, [softphoneRecording?.started_at]);
+
+  useEffect(() => {
+    if (status !== "in_call") {
+      setNativeSpeakerOn(false);
+      return;
+    }
+    if (!isReactNativeWebViewShell()) return;
+    postNativeSpeakerQueryToShell();
+  }, [status]);
+
+  useEffect(() => {
+    if (!isReactNativeWebViewShell()) return undefined;
+    return subscribeNativeSpeakerStateFromShell(setNativeSpeakerOn);
+  }, []);
 
   const recordingElapsed = useMemo(() => {
     void recTick;
@@ -351,8 +374,10 @@ export function ActiveCallBar() {
           <p className="mt-2 text-center text-[11px] text-red-200/95 sm:mt-1.5">{recordingActionError}</p>
         ) : null}
 
-        {/* Mobile controls */}
-        <div className="mt-5 grid grid-cols-3 gap-2.5 sm:hidden">
+        {/* Mobile controls (RN shell: Speaker uses Twilio native AudioDevice → platform earpiece/speaker routing) */}
+        <div
+          className={`mt-5 grid gap-2 sm:hidden ${isReactNativeWebViewShell() ? "grid-cols-4" : "grid-cols-3"}`}
+        >
           <ControlBtn
             label="Transfer"
             icon={<PhoneForwarded className="h-5 w-5" strokeWidth={2} />}
@@ -381,6 +406,14 @@ export function ActiveCallBar() {
             disabled={isClientHold || holdBusy}
             active={micMuted}
           />
+          {isReactNativeWebViewShell() ? (
+            <ControlBtn
+              label="Speaker"
+              icon={<Volume2 className="h-5 w-5" strokeWidth={2} />}
+              onClick={() => postNativeSpeakerSetToShell(!nativeSpeakerOn)}
+              active={nativeSpeakerOn}
+            />
+          ) : null}
           <ControlBtn
             label="Add"
             icon={<Users className="h-5 w-5" strokeWidth={2} />}

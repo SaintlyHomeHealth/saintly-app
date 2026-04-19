@@ -29,6 +29,13 @@ export type TwilioVoiceService = {
   answer: (callId: string) => Promise<void>;
   decline: (callId: string) => Promise<void>;
   disconnect: (callId: string) => Promise<void>;
+  /**
+   * Routes call audio: speaker vs earpiece via Twilio native `AudioDevice` selection.
+   * Applies during active WebView softphone calls (shared audio session / AudioManager).
+   */
+  setOutputSpeaker: (enabled: boolean) => Promise<void>;
+  /** `true` = speaker selected; `false` = earpiece (or non-speaker); `null` if unknown / Expo Go. */
+  getOutputSpeaker: () => Promise<boolean | null>;
 };
 
 /** Twilio `CallInvite` / `Call` instances (typed loosely to avoid interface/class merge issues in SDK typings). */
@@ -71,6 +78,12 @@ function emitIncoming(info: TwilioVoiceCallInfo): void {
 async function loadVoiceModule(): Promise<typeof import('@twilio/voice-react-native-sdk')> {
   return import('@twilio/voice-react-native-sdk');
 }
+
+/** Twilio `AudioDevice.Type` string values (see SDK `AudioDevice.d.ts`). */
+const TWILIO_AUDIO: { readonly speaker: 'speaker'; readonly earpiece: 'earpiece' } = {
+  speaker: 'speaker',
+  earpiece: 'earpiece',
+};
 
 function logJwtIdentityForDiagnostics(accessToken: string, label: string): void {
   if (!__DEV__) return;
@@ -259,5 +272,41 @@ export const twilioVoiceService: TwilioVoiceService = {
     if (!call) return;
     await call.disconnect();
     activeCallByCallSid.delete(callId);
+  },
+
+  async setOutputSpeaker(enabled: boolean): Promise<void> {
+    if (Constants.appOwnership === 'expo' || !voiceSingleton) {
+      return;
+    }
+    try {
+      const target = enabled ? TWILIO_AUDIO.speaker : TWILIO_AUDIO.earpiece;
+      const { audioDevices } = await voiceSingleton.getAudioDevices();
+      const match = audioDevices.find((d: { type: string }) => d.type === target);
+      if (!match) {
+        if (__DEV__) {
+          console.warn('[twilioVoiceService] setOutputSpeaker: no device for', target, {
+            available: audioDevices.map((d: { type: string }) => d.type),
+          });
+        }
+        return;
+      }
+      await match.select();
+    } catch (e) {
+      console.warn('[twilioVoiceService] setOutputSpeaker failed', e);
+    }
+  },
+
+  async getOutputSpeaker(): Promise<boolean | null> {
+    if (Constants.appOwnership === 'expo' || !voiceSingleton) {
+      return null;
+    }
+    try {
+      const { selectedDevice } = await voiceSingleton.getAudioDevices();
+      if (!selectedDevice) return false;
+      return selectedDevice.type === TWILIO_AUDIO.speaker;
+    } catch (e) {
+      console.warn('[twilioVoiceService] getOutputSpeaker failed', e);
+      return null;
+    }
   },
 };

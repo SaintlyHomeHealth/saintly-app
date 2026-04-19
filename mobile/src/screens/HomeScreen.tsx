@@ -88,7 +88,19 @@ type WebViewBridgeMessage =
   | { type: 'saintly-supabase-access-token'; access_token?: string | null }
   | { type: 'saintly-softphone-token'; token: string; identity?: string }
   | { type: 'push-register-log'; step: string; [key: string]: unknown }
-  | { type: 'voice-register-log'; step: string; [key: string]: unknown };
+  | { type: 'voice-register-log'; step: string; [key: string]: unknown }
+  | { type: 'saintly-native-speaker-query' }
+  | { type: 'saintly-native-speaker-set'; enabled: boolean };
+
+/** Injected into the WebView so `native-speaker-bridge` can update React state (no page reload). */
+function buildInjectSpeakerStateJs(enabled: boolean): string {
+  return `(function(){
+    try {
+      window.dispatchEvent(new CustomEvent('saintly-native-speaker-state', { detail: { enabled: ${enabled ? 'true' : 'false'} } }));
+    } catch (e) {}
+    true;
+  })();`;
+}
 
 function pushStatusLine(environment: string, fcmOk: boolean): string {
   switch (environment) {
@@ -311,6 +323,25 @@ export function HomeScreen(_props: HomeScreenProps) {
             await setStoredSupabaseAccessToken(tok);
             await runNativeSoftphoneRegistration('supabase_access_token_bridge');
           })();
+        }
+        if (msg.type === 'saintly-native-speaker-query') {
+          void (async () => {
+            const on = await twilioVoiceService.getOutputSpeaker();
+            if (typeof on === 'boolean' && webViewRef.current) {
+              webViewRef.current.injectJavaScript(buildInjectSpeakerStateJs(on));
+            }
+          })();
+          return;
+        }
+        if (msg.type === 'saintly-native-speaker-set' && typeof msg.enabled === 'boolean') {
+          void (async () => {
+            await twilioVoiceService.setOutputSpeaker(msg.enabled);
+            const on = await twilioVoiceService.getOutputSpeaker();
+            if (typeof on === 'boolean' && webViewRef.current) {
+              webViewRef.current.injectJavaScript(buildInjectSpeakerStateJs(on));
+            }
+          })();
+          return;
         }
         if (msg.type === 'saintly-softphone-token' && typeof msg.token === 'string') {
           const identity = typeof msg.identity === 'string' ? msg.identity.trim() : '';
