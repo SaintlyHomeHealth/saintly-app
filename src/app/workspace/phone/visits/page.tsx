@@ -6,10 +6,9 @@ import { WorkspacePhonePageHeader } from "../_components/WorkspacePhonePageHeade
 import { WorkspacePhoneQuickActions } from "../_components/WorkspacePhoneQuickActions";
 import { WorkspaceVisitCard } from "../_components/WorkspaceVisitCard";
 import { allowedNextVisitStatuses, formatVisitStatusLabel } from "@/lib/crm/patient-visit-status";
-import { visitNeedsAttentionOperational } from "@/lib/crm/dispatch-needs-attention";
 import {
   isStaleMissedOrRescheduledNurseVisit,
-  visitNeedsNurseTriageBoard,
+  visitNeedsNurseAttentionStrict,
 } from "@/lib/crm/nurse-visits-board";
 import { formatDispatchScheduleLine } from "@/lib/crm/dispatch-visit";
 import { formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
@@ -226,6 +225,9 @@ export default async function WorkspaceVisitsPage() {
       .filter((x): x is VisitItem => Boolean(x));
   }
 
+  /** Defense in depth: list must only include rows assigned to this nurse (no patient-caseload bleed). */
+  visits = visits.filter((v) => v.assigned_user_id === uid);
+
   const now = new Date();
   const nowMs = now.getTime();
   const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
@@ -233,17 +235,17 @@ export default async function WorkspaceVisitsPage() {
 
   visits = visits.filter((v) => !isStaleMissedOrRescheduledNurseVisit(v, nowMs));
 
-  const needsAttention = visits.filter((v) => visitNeedsNurseTriageBoard(v, nowMs));
+  const needsAttention = visits.filter((v) => visitNeedsNurseAttentionStrict(v, nowMs));
 
   const today = visits.filter((v) => {
     if (!calmPreVisitStatus(v.status)) return false;
-    if (visitNeedsAttentionOperational(v, nowMs)) return false;
+    if (visitNeedsNurseAttentionStrict(v, nowMs)) return false;
     return v.whenTs >= dayStart && v.whenTs < dayEnd;
   });
 
   const upcoming = visits.filter((v) => {
     if (!calmPreVisitStatus(v.status)) return false;
-    if (visitNeedsAttentionOperational(v, nowMs)) return false;
+    if (visitNeedsNurseAttentionStrict(v, nowMs)) return false;
     return v.whenTs >= dayEnd;
   });
 
@@ -406,7 +408,7 @@ export default async function WorkspaceVisitsPage() {
       <div className="mt-8 space-y-10">
         {renderSection(
           "Needs attention",
-          "In progress (en route / arrived), overdue or unscheduled open visits, or recent missed / rescheduled items that still need a decision.",
+          "En route or arrived, overdue or unscheduled visits, or missed/rescheduled within the last 48 hours—nothing else.",
           needsAttention,
           { href: "/workspace/phone/patients", label: "Open patients" }
         )}
