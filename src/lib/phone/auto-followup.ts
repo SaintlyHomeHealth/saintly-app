@@ -31,12 +31,39 @@ function asMetadata(value: unknown): Record<string, unknown> {
 type PhoneCallForLeadQualification = {
   primary_tag?: string | null;
   metadata: unknown;
+  /**
+   * When set, inbound calls that ended without a live conversation never auto-create CRM leads
+   * (missed/auto-followup path, metadata misfires, etc.).
+   */
+  direction?: string | null;
+  status?: string | null;
 };
 
 /**
+ * Inbound calls whose Twilio row ended without a successful live conversation.
+ * Staff can still create/link leads manually; automation must not junk the CRM from ring-no-answer.
+ */
+export function isInboundCallWithoutLiveConversation(input: {
+  direction?: string | null;
+  status?: string | null;
+}): boolean {
+  const dir = (input.direction ?? "").trim().toLowerCase();
+  if (dir !== "inbound") return false;
+  const s = (input.status ?? "").trim().toLowerCase();
+  return (
+    s === "missed" || s === "abandoned" || s === "failed" || s === "cancelled"
+  );
+}
+
+/**
  * Leads only when classification clearly indicates intake/referral/caregiver — keeps CRM clean for generic missed calls.
+ * Never true for inbound missed/abandoned/etc. (even if voice_ai metadata suggests patient/referral on a ring-only call).
  */
 export function shouldCreateLeadFromCall(phoneCall: PhoneCallForLeadQualification): boolean {
+  if (isInboundCallWithoutLiveConversation(phoneCall)) {
+    return false;
+  }
+
   const meta = asMetadata(phoneCall.metadata);
   const voiceAiRaw = meta.voice_ai;
   const voiceAi =
@@ -302,7 +329,15 @@ export async function triggerAutoFollowUp(
   }
 
   const contactId = await ensureContactLinkedToCall(callId);
-  if (contactId && shouldCreateLeadFromCall(row)) {
+  if (
+    contactId &&
+    shouldCreateLeadFromCall({
+      primary_tag: row.primary_tag,
+      metadata: row.metadata,
+      direction: row.direction,
+      status: row.status,
+    })
+  ) {
     await ensureActiveLeadForContact(contactId);
     console.log("[auto-followup] lead ensured", { callId, contactId });
   }

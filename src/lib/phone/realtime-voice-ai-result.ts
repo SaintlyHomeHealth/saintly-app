@@ -227,7 +227,7 @@ export async function persistRealtimeSessionToCrm(
   if (contactId) {
     const { data: leadRow } = await supabase
       .from("phone_calls")
-      .select("primary_tag, metadata")
+      .select("primary_tag, metadata, direction, status")
       .eq("id", callId)
       .maybeSingle();
 
@@ -236,6 +236,8 @@ export async function persistRealtimeSessionToCrm(
       shouldCreateLeadFromCall({
         primary_tag: leadRow.primary_tag as string | null,
         metadata: leadRow.metadata,
+        direction: leadRow.direction as string | null,
+        status: leadRow.status as string | null,
       })
     ) {
       await ensureActiveLeadForContact(contactId);
