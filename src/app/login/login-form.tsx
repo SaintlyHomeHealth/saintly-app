@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
@@ -38,11 +39,19 @@ function authLoginDebug(label: string, payload: Record<string, unknown>) {
   }
 }
 
-/** Text wordmark only — avoids PNG white box and generic icon; matches brand preference. */
-function BrandWordmark() {
+/** Official Saintly Home Health app icon — full-bleed asset, scaled for login; no substitute graphics. */
+function SaintlyLogoMark() {
   return (
-    <div className="text-center">
-      <p className="text-[1.0625rem] font-bold tracking-[-0.03em] text-slate-900">Saintly</p>
+    <div className="relative shrink-0">
+      <Image
+        src="/brand/saintly-home-health-app-icon.png"
+        alt="Saintly Home Health"
+        width={1024}
+        height={1024}
+        priority
+        draggable={false}
+        className="h-[8rem] w-[8rem] select-none object-contain [image-rendering:-webkit-optimize-contrast] drop-shadow-[0_1px_2px_rgba(255,255,255,0.45),0_4px_14px_rgba(15,23,42,0.08)]"
+      />
     </div>
   );
 }
@@ -92,33 +101,33 @@ export function LoginForm() {
   }
 
   const inputClass =
-    "mt-1.5 w-full rounded-xl border border-slate-200/90 bg-white px-3.5 py-2.5 text-[15px] leading-snug text-slate-900 shadow-[inset_0_1px_0_rgba(255,255,255,0.85),inset_0_1px_2px_rgba(15,23,42,0.04)] outline-none transition placeholder:text-slate-400/90 focus:border-sky-500/55 focus:shadow-[inset_0_1px_2px_rgba(15,23,42,0.05),0_0_0_3px_rgba(14,165,233,0.12)]";
+    "mt-1 w-full rounded-xl border border-slate-200/90 bg-white px-3 py-2 text-[15px] leading-snug text-slate-900 shadow-[inset_0_1px_0_rgba(255,255,255,0.85),inset_0_1px_2px_rgba(15,23,42,0.04)] outline-none transition placeholder:text-slate-400/90 focus:border-sky-500/55 focus:shadow-[inset_0_1px_2px_rgba(15,23,42,0.05),0_0_0_3px_rgba(14,165,233,0.12)]";
 
   return (
-    <div className="flex w-full flex-1 flex-col px-5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-[max(0.5rem,env(safe-area-inset-top))] sm:px-6">
-      <div className="mx-auto flex w-full max-w-[min(100%,19.5rem)] flex-1 flex-col">
-        <div className="flex flex-col items-center pt-4 sm:pt-5">
-          <BrandWordmark />
+    <div className="flex min-h-dvh w-full flex-col justify-start px-5 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-[max(0.75rem,env(safe-area-inset-top))] sm:px-6">
+      <div className="mx-auto w-full max-w-[min(100%,19.5rem)] shrink-0">
+        <div className="flex flex-col items-center pt-1 sm:pt-2">
+          <SaintlyLogoMark />
 
-          <div className="mt-4 w-full rounded-3xl border border-slate-200/65 bg-white p-5 shadow-[0_16px_40px_-20px_rgba(30,58,138,0.2),0_0_0_1px_rgba(255,255,255,0.85)_inset] sm:p-[1.35rem]">
+          <div className="mt-2.5 w-full rounded-3xl border border-slate-200/65 bg-white p-4 shadow-[0_12px_32px_-18px_rgba(30,58,138,0.22),0_0_0_1px_rgba(255,255,255,0.85)_inset] sm:p-[1.125rem]">
             <h1 className="text-center text-xl font-bold leading-tight tracking-[-0.025em] text-slate-900">
               Welcome to Saintly
             </h1>
-            <p className="mt-1 text-center text-[11.5px] leading-relaxed text-slate-400">
+            <p className="mt-0.5 text-center text-[11px] leading-snug text-slate-400">
               Sign in to access your dashboard
             </p>
 
             {urlError === "auth" ? (
-              <p className="mt-4 rounded-xl border border-red-200/90 bg-red-50 px-3 py-2 text-sm text-red-800">
+              <p className="mt-3 rounded-xl border border-red-200/90 bg-red-50 px-3 py-2 text-sm text-red-800">
                 Could not complete sign-in. Try again or contact an administrator.
               </p>
             ) : null}
 
             <form
-              className={`flex flex-col ${urlError === "auth" ? "mt-4" : "mt-5"}`}
+              className={`flex flex-col ${urlError === "auth" ? "mt-3" : "mt-4"}`}
               onSubmit={handleSubmit}
             >
-              <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-2.5">
                 <div>
                   <label
                     htmlFor="email"
@@ -158,7 +167,7 @@ export function LoginForm() {
               </div>
 
               {error ? (
-                <p className="mt-3 rounded-xl border border-red-200/90 bg-red-50 px-3 py-2 text-sm text-red-800">
+                <p className="mt-2.5 rounded-xl border border-red-200/90 bg-red-50 px-3 py-2 text-sm text-red-800">
                   {error}
                 </p>
               ) : null}
@@ -166,15 +175,13 @@ export function LoginForm() {
               <button
                 type="submit"
                 disabled={loading}
-                className="mt-5 flex w-full items-center justify-center rounded-xl bg-gradient-to-b from-sky-500 to-blue-800 py-3 text-[15px] font-semibold tracking-wide text-white shadow-[0_3px_12px_-2px_rgba(37,99,235,0.38),0_1px_2px_rgba(15,23,42,0.06)] transition hover:brightness-[1.025] active:brightness-[0.98] disabled:opacity-55"
+                className="mt-4 flex w-full items-center justify-center rounded-xl bg-gradient-to-b from-sky-500 to-blue-800 py-2.5 text-[15px] font-semibold tracking-wide text-white shadow-[0_2px_10px_-3px_rgba(37,99,235,0.32),0_1px_2px_rgba(15,23,42,0.05)] transition hover:brightness-[1.025] active:brightness-[0.98] disabled:opacity-55"
               >
                 {loading ? "Signing in…" : "Sign in"}
               </button>
             </form>
           </div>
         </div>
-
-        <div className="min-h-2 flex-1" aria-hidden />
       </div>
     </div>
   );

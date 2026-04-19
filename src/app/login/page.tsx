@@ -18,7 +18,7 @@ export default function LoginPage() {
       <div className="relative flex min-h-dvh flex-col bg-gradient-to-b from-[#c7e0f5] via-[#eef6fc] to-[#fffdfb]">
         <Suspense
           fallback={
-            <div className="flex min-h-dvh flex-1 items-center justify-center text-sm text-slate-500">
+            <div className="flex min-h-dvh flex-col justify-start px-5 pt-[max(0.75rem,env(safe-area-inset-top))] text-sm text-slate-500 sm:px-6">
               Loading…
             </div>
           }
