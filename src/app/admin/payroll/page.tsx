@@ -9,56 +9,107 @@ import { payrollComplianceFlags } from "@/lib/payroll/compliance";
 import { supabaseAdmin } from "@/lib/admin";
 import { getStaffProfile, isManagerOrHigher, isPayrollApprover } from "@/lib/staff-profile";
 
+import { billingLineLabel } from "@/app/workspace/pay/self-billing-types";
+
 import {
   createPayrollVisitAction,
   holdPayrollVisitAction,
-  markNurseWeeklyBillingPaidAction,
   markPayrollBatchPaidAction,
   resolvePayrollExceptionAction,
   setBatchExportStubAction,
 } from "./actions";
+import { NurseSelfBillingReview, type NurseBillingAdminCardVM, type NurseBillingAdminLineVM } from "./NurseSelfBillingReview";
 import { PayrollCompleteVisitForm } from "./PayrollCompleteVisitForm";
 
 function money(n: number) {
   return n.toLocaleString(undefined, { style: "currency", currency: "USD" });
 }
 
-export default async function AdminPayrollPage() {
+export default async function AdminPayrollPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ week?: string }>;
+}) {
   const staff = await getStaffProfile();
   if (!staff || !isManagerOrHigher(staff)) {
     redirect("/admin");
   }
 
   const approver = isPayrollApprover(staff);
-  const period = getPayPeriodForDate(new Date());
+  const now = new Date();
+  const defaultPeriod = getPayPeriodForDate(now);
+  const sp = await searchParams;
+  const weekRaw = typeof sp?.week === "string" ? sp.week.trim() : "";
+  let selectedPeriod = defaultPeriod;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(weekRaw)) {
+    const parsed = new Date(`${weekRaw}T12:00:00`);
+    if (!Number.isNaN(parsed.getTime())) {
+      selectedPeriod = getPayPeriodForDate(parsed);
+    }
+  }
 
-  const [{ data: visits }, { data: applicants }, { data: batches }, { data: items }, { data: nurseBillings }] =
-    await Promise.all([
-      supabaseAdmin.from("visits").select("*").order("service_date", { ascending: false }).limit(400),
-      supabaseAdmin
-        .from("applicants")
-        .select("id, first_name, last_name")
-        .order("last_name", { ascending: true })
-        .limit(500),
-      supabaseAdmin.from("payroll_batches").select("*").order("pay_period_start", { ascending: false }).limit(24),
-      supabaseAdmin.from("payroll_visit_items").select("*").limit(2000),
-      supabaseAdmin
-        .from("nurse_weekly_billings")
-        .select(
-          `
+  const [
+    { data: visits },
+    { data: applicants },
+    { data: batches },
+    { data: items },
+    { data: nurseBillingsFull },
+    { data: nurseBillingPeriodRows },
+  ] = await Promise.all([
+    supabaseAdmin.from("visits").select("*").order("service_date", { ascending: false }).limit(400),
+    supabaseAdmin
+      .from("applicants")
+      .select("id, first_name, last_name")
+      .order("last_name", { ascending: true })
+      .limit(500),
+    supabaseAdmin.from("payroll_batches").select("*").order("pay_period_start", { ascending: false }).limit(24),
+    supabaseAdmin.from("payroll_visit_items").select("*").limit(2000),
+    supabaseAdmin
+      .from("nurse_weekly_billings")
+      .select(
+        `
         id,
         status,
         employee_id,
-        nurse_weekly_billing_lines ( amount )
-      `
+        pay_period_start,
+        pay_period_end,
+        submitted_at,
+        paid_at,
+        nurse_weekly_billing_lines (
+          id,
+          patient_id,
+          service_date,
+          line_type,
+          amount,
+          notes
         )
-        .eq("pay_period_start", period.payPeriodStart),
-    ]);
+      `
+      )
+      .eq("pay_period_start", selectedPeriod.payPeriodStart)
+      .order("updated_at", { ascending: false }),
+    supabaseAdmin
+      .from("nurse_weekly_billings")
+      .select("pay_period_start, pay_period_end")
+      .order("pay_period_start", { ascending: false })
+      .limit(400),
+  ]);
 
   const visitList = visits ?? [];
   const itemByVisit = new Map((items ?? []).map((i) => [i.visit_id, i]));
 
-  const patientIds = [...new Set(visitList.map((v) => v.patient_id).filter(Boolean))] as string[];
+  const nurseLinePatientIds = new Set<string>();
+  for (const nb of nurseBillingsFull ?? []) {
+    const raw = nb.nurse_weekly_billing_lines;
+    const arr = Array.isArray(raw) ? raw : raw ? [raw] : [];
+    for (const L of arr) {
+      const pid = (L as { patient_id?: string | null }).patient_id;
+      if (typeof pid === "string" && pid.trim()) nurseLinePatientIds.add(pid);
+    }
+  }
+
+  const patientIds = [
+    ...new Set([...visitList.map((v) => v.patient_id).filter(Boolean), ...nurseLinePatientIds]),
+  ] as string[];
   const patientLabel = new Map<string, string>();
   if (patientIds.length > 0) {
     const { data: patientRows } = await supabaseAdmin
@@ -79,6 +130,8 @@ export default async function AdminPayrollPage() {
     }
   }
 
+  const nursePatientLabel = patientLabel;
+
   const previewByVisitId = new Map<string, number>();
   await Promise.all(
     visitList.map(async (v) => {
@@ -95,8 +148,76 @@ export default async function AdminPayrollPage() {
   );
 
   const applicantMap = new Map((applicants ?? []).map((a) => [a.id, a] as const));
+
+  const nurseBillingCards: NurseBillingAdminCardVM[] = (nurseBillingsFull ?? []).map((nb) => {
+    const raw = nb.nurse_weekly_billing_lines;
+    const arr = Array.isArray(raw) ? raw : raw ? [raw] : [];
+    let total = 0;
+    const lines: NurseBillingAdminLineVM[] = arr.map((L) => {
+      const amt = Number((L as { amount?: unknown }).amount ?? 0);
+      total += amt;
+      const pid = String((L as { patient_id?: string | null }).patient_id ?? "");
+      const id = String((L as { id?: string }).id ?? "");
+      const notesRaw = (L as { notes?: string | null }).notes;
+      return {
+        id,
+        patientName: nursePatientLabel.get(pid) ?? "Patient",
+        serviceDate: typeof (L as { service_date?: string }).service_date === "string"
+          ? (L as { service_date: string }).service_date
+          : "",
+        lineTypeLabel: billingLineLabel(
+          typeof (L as { line_type?: string }).line_type === "string" ? (L as { line_type: string }).line_type : "visit"
+        ),
+        amount: amt,
+        notes: typeof notesRaw === "string" && notesRaw.trim() ? notesRaw : null,
+      };
+    });
+    const emp = applicantMap.get(nb.employee_id);
+    const nurseName = emp ? [emp.first_name, emp.last_name].filter(Boolean).join(" ") : String(nb.employee_id);
+    const st = String(nb.status ?? "draft");
+    const status: NurseBillingAdminCardVM["status"] =
+      st === "submitted" || st === "paid" || st === "draft" ? st : "draft";
+    return {
+      id: String(nb.id),
+      nurseName,
+      status,
+      payPeriodStart: String(nb.pay_period_start ?? ""),
+      payPeriodEnd: String(nb.pay_period_end ?? ""),
+      submittedAt: typeof nb.submitted_at === "string" ? nb.submitted_at : null,
+      paidAt: typeof nb.paid_at === "string" ? nb.paid_at : null,
+      lineCount: lines.length,
+      total,
+      lines,
+    };
+  });
+
+  const seenPeriodStarts = new Set<string>();
+  const periodOptions: { start: string; end: string; label: string }[] = [];
+  for (const row of nurseBillingPeriodRows ?? []) {
+    const s = row.pay_period_start;
+    const e = row.pay_period_end;
+    if (typeof s !== "string" || seenPeriodStarts.has(s)) continue;
+    seenPeriodStarts.add(s);
+    const end = typeof e === "string" ? e : s;
+    periodOptions.push({
+      start: s,
+      end,
+      label: `${s} – ${end}`,
+    });
+  }
+  if (!periodOptions.some((o) => o.start === selectedPeriod.payPeriodStart)) {
+    periodOptions.unshift({
+      start: selectedPeriod.payPeriodStart,
+      end: selectedPeriod.payPeriodEnd,
+      label: `${selectedPeriod.payPeriodStart} – ${selectedPeriod.payPeriodEnd}`,
+    });
+  }
+  periodOptions.sort((a, b) => b.start.localeCompare(a.start));
+
+  /** Calendar “this week” for legacy synced batches (not the optional nurse-billing week filter). */
+  const calendarPeriod = getPayPeriodForDate(new Date());
   const currentBatch = (batches ?? []).find(
-    (b) => b.pay_period_start === period.payPeriodStart && b.pay_period_end === period.payPeriodEnd
+    (b) => b.pay_period_start === calendarPeriod.payPeriodStart && b.pay_period_end === calendarPeriod.payPeriodEnd
   );
 
   const batchItems = currentBatch
@@ -109,8 +230,6 @@ export default async function AdminPayrollPage() {
 
   const exceptions = visitList.filter((v) => v.requires_review || v.status === "held");
 
-  const nurseBillingsThisPeriod = nurseBillings ?? [];
-
   return (
     <>
       <div className="mx-auto max-w-[1600px] px-4 py-8 sm:px-6">
@@ -118,17 +237,35 @@ export default async function AdminPayrollPage() {
           accent="indigo"
           eyebrow="Payroll center"
           title="Weekly payroll"
-          description="Monday–Sunday pay periods; employees submit on Tuesday; pay Wednesday. Review exceptions only — normal visits flow in automatically."
+          description="Review nurse-submitted weekly invoices first. Below that, legacy tools cover synced visits, exceptions, and export batches."
         />
+
+        <div className="mt-8">
+          <NurseSelfBillingReview
+            selectedWeekStart={selectedPeriod.payPeriodStart}
+            periodOptions={periodOptions}
+            cards={nurseBillingCards}
+            canMarkPaid={approver}
+          />
+        </div>
+
+        <div className="mt-14 border-t border-slate-200/80 pt-10">
+          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">Legacy payroll</p>
+          <h2 className="mt-2 text-lg font-semibold text-slate-900">Synced visits &amp; batch export</h2>
+          <p className="mt-1 max-w-3xl text-sm leading-relaxed text-slate-600">
+            Automatic visit lines, exception review, and weekly batch tooling. Nurse self-billing above is separate from this
+            pipeline.
+          </p>
+        </div>
 
         <section className="mt-8 grid gap-4 lg:grid-cols-2">
           <div className="rounded-2xl border border-sky-200/90 bg-gradient-to-br from-sky-50/90 to-white p-5 shadow-sm">
             <p className="text-[10px] font-bold uppercase tracking-wide text-sky-800">Current pay period</p>
             <p className="mt-2 text-lg font-bold text-slate-900">
-              {period.payPeriodStart} → {period.payPeriodEnd}
+              {calendarPeriod.payPeriodStart} → {calendarPeriod.payPeriodEnd}
             </p>
             <p className="mt-1 text-xs text-slate-600">
-              Submit by {new Date(period.submissionDeadline).toLocaleString()} · Pay {period.payDate}
+              Submit by {new Date(calendarPeriod.submissionDeadline).toLocaleString()} · Pay {calendarPeriod.payDate}
             </p>
             {currentBatch ? (
               <p className="mt-3 text-sm font-semibold text-slate-800">
@@ -178,53 +315,6 @@ export default async function AdminPayrollPage() {
                 </form>
               </div>
             ) : null}
-          </div>
-        </section>
-
-        <section className="mt-10">
-          {/* TODO(future): allow payroll approvers to return a submitted nurse self-billing to draft (undo submit). */}
-          <h2 className="text-sm font-bold uppercase tracking-wide text-slate-700">Nurse self-billing (this period)</h2>
-          <p className="mt-1 text-xs text-slate-600">
-            Workspace Pay tab: nurses submit manual weekly lines. Mark paid after you reconcile payment.
-          </p>
-          <div className="mt-3 space-y-2">
-            {nurseBillingsThisPeriod.length === 0 ? (
-              <p className="rounded-2xl border border-dashed border-slate-200 bg-white px-4 py-6 text-center text-sm text-slate-500">
-                No self-billing for this pay week yet.
-              </p>
-            ) : (
-              nurseBillingsThisPeriod.map((nb) => {
-                const emp = applicantMap.get(nb.employee_id);
-                const name = emp ? [emp.first_name, emp.last_name].filter(Boolean).join(" ") : nb.employee_id;
-                const lineList = nb.nurse_weekly_billing_lines;
-                const rawLines = Array.isArray(lineList) ? lineList : lineList ? [lineList] : [];
-                const total = rawLines.reduce((s, x) => s + Number((x as { amount?: unknown }).amount ?? 0), 0);
-                return (
-                  <div
-                    key={nb.id}
-                    className="flex flex-col gap-3 rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between"
-                  >
-                    <div>
-                      <p className="text-sm font-semibold text-slate-900">{name}</p>
-                      <p className="mt-0.5 text-xs capitalize text-slate-600">
-                        {nb.status} · {money(total)}
-                      </p>
-                    </div>
-                    {approver && nb.status === "submitted" ? (
-                      <form action={markNurseWeeklyBillingPaidAction}>
-                        <input type="hidden" name="billingId" value={nb.id} />
-                        <button
-                          type="submit"
-                          className="rounded-xl bg-emerald-600 px-3 py-2 text-xs font-semibold text-white shadow-sm hover:bg-emerald-500"
-                        >
-                          Mark self-billing paid
-                        </button>
-                      </form>
-                    ) : null}
-                  </div>
-                );
-              })
-            )}
           </div>
         </section>
 
