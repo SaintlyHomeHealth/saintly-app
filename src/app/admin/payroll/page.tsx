@@ -5,7 +5,11 @@ import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { loadContractForServiceDate } from "@/lib/payroll/contract-for-date";
 import { computeVisitGrossPay } from "@/lib/payroll/compute-payable";
 import { fetchYtdPaidTotalsByEmployee } from "@/lib/payroll/nurse-billing-ytd";
-import { getPayPeriodForDate } from "@/lib/payroll/pay-period";
+import {
+  buildAdminPayrollWeekPickerOptions,
+  ensureAdminPayrollWeekInPickerOptions,
+  getPayPeriodForDate,
+} from "@/lib/payroll/pay-period";
 import { payrollComplianceFlags } from "@/lib/payroll/compliance";
 import { supabaseAdmin } from "@/lib/admin";
 import { getStaffProfile, isManagerOrHigher, isPayrollApprover } from "@/lib/staff-profile";
@@ -173,28 +177,10 @@ export default async function AdminPayrollPage({
     };
   });
 
-  const seenPeriodStarts = new Set<string>();
-  const periodOptions: { start: string; end: string; label: string }[] = [];
-  for (const row of nurseBillingPeriodRows ?? []) {
-    const s = row.pay_period_start;
-    const e = row.pay_period_end;
-    if (typeof s !== "string" || seenPeriodStarts.has(s)) continue;
-    seenPeriodStarts.add(s);
-    const end = typeof e === "string" ? e : s;
-    periodOptions.push({
-      start: s,
-      end,
-      label: `${s} – ${end}`,
-    });
-  }
-  if (!periodOptions.some((o) => o.start === selectedPeriod.payPeriodStart)) {
-    periodOptions.unshift({
-      start: selectedPeriod.payPeriodStart,
-      end: selectedPeriod.payPeriodEnd,
-      label: `${selectedPeriod.payPeriodStart} – ${selectedPeriod.payPeriodEnd}`,
-    });
-  }
-  periodOptions.sort((a, b) => b.start.localeCompare(a.start));
+  const periodOptions = ensureAdminPayrollWeekInPickerOptions(
+    buildAdminPayrollWeekPickerOptions(now, nurseBillingPeriodRows ?? []),
+    selectedPeriod
+  );
 
   /** Calendar “this week” for legacy synced batches (not the optional nurse-billing week filter). */
   const calendarPeriod = getPayPeriodForDate(new Date());

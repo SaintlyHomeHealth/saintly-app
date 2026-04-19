@@ -74,8 +74,10 @@ export function NursePayrollInbox({ selectedWeekStart, periodOptions, rows }: Pr
       <div className="mt-8 space-y-3">
         {rows.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-sky-200/80 bg-white/90 px-6 py-14 text-center">
-            <p className="text-sm font-medium text-slate-800">No invoices for this week</p>
-            <p className="mt-2 text-sm text-slate-500">When nurses create payroll in Workspace → Pay, they will appear here.</p>
+            <p className="text-sm font-medium text-slate-800">No nurse invoices for this pay week</p>
+            <p className="mt-2 text-sm text-slate-500">
+              When nurses submit weekly payroll in Workspace → Pay, invoices for this week will appear here.
+            </p>
           </div>
         ) : (
           rows.map((row) => (

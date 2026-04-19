@@ -72,3 +72,66 @@ export function addDays(isoDate: string, days: number): string {
     `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`;
   return iso(dt);
 }
+
+/** Consecutive pay weeks (Mon–Sun) always listed in admin /admin/payroll week dropdown (plus DB weeks). */
+export const ADMIN_PAYROLL_WEEK_PICKER_FALLBACK_COUNT = 12;
+
+export type AdminPayrollWeekOption = { start: string; end: string; label: string };
+
+/**
+ * Build pay week dropdown options: last N weeks ending at now, plus any distinct periods from
+ * `nurse_weekly_billings` rows. Deduped, sorted newest first (ISO Monday strings).
+ */
+export function buildAdminPayrollWeekPickerOptions(
+  now: Date,
+  dbPeriodRows: { pay_period_start?: unknown; pay_period_end?: unknown }[]
+): AdminPayrollWeekOption[] {
+  const seen = new Set<string>();
+  const out: AdminPayrollWeekOption[] = [];
+
+  const push = (start: string, end: string) => {
+    const s = start.trim();
+    if (!s || seen.has(s)) return;
+    seen.add(s);
+    const e = end.trim() || s;
+    out.push({ start: s, end: e, label: `${s} – ${e}` });
+  };
+
+  const anchorMonday = getWeekMondayLocal(now);
+  for (let i = 0; i < ADMIN_PAYROLL_WEEK_PICKER_FALLBACK_COUNT; i++) {
+    const d = new Date(anchorMonday);
+    d.setDate(anchorMonday.getDate() - i * 7);
+    const b = getPayPeriodForDate(d);
+    push(b.payPeriodStart, b.payPeriodEnd);
+  }
+
+  for (const row of dbPeriodRows) {
+    const s = typeof row.pay_period_start === "string" ? row.pay_period_start.trim() : "";
+    if (!s) continue;
+    const e = typeof row.pay_period_end === "string" ? row.pay_period_end.trim() : s;
+    push(s, e);
+  }
+
+  out.sort((a, b) => b.start.localeCompare(a.start));
+  return out;
+}
+
+/** Ensures the URL-selected week appears in the picker (e.g. deep link to an older week). */
+export function ensureAdminPayrollWeekInPickerOptions(
+  options: AdminPayrollWeekOption[],
+  selected: PayPeriodBounds
+): AdminPayrollWeekOption[] {
+  if (options.some((o) => o.start === selected.payPeriodStart)) {
+    return options;
+  }
+  const merged = [
+    ...options,
+    {
+      start: selected.payPeriodStart,
+      end: selected.payPeriodEnd,
+      label: `${selected.payPeriodStart} – ${selected.payPeriodEnd}`,
+    },
+  ];
+  merged.sort((a, b) => b.start.localeCompare(a.start));
+  return merged;
+}
