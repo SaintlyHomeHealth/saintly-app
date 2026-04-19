@@ -49,4 +49,23 @@ export function recordVoiceRegisterSuccess(input: {
   lastVoiceOk = { key: voiceKey(input), at: Date.now() };
 }
 
+/** After a failed ack (401, invalid JSON, or body ok !== true), allow immediate retry (not blocked by cooldown). */
+export function clearPushRegisterCooldown(): void {
+  lastPushOk = null;
+}
+
+export function clearVoiceRegisterCooldown(): void {
+  lastVoiceOk = null;
+}
+
+export function getPushCooldownDebug(): { key: string | null; ageMs: number | null } {
+  if (!lastPushOk) return { key: null, ageMs: null };
+  return { key: lastPushOk.key.slice(0, 24) + '…', ageMs: Date.now() - lastPushOk.at };
+}
+
+export function getVoiceCooldownDebug(): { key: string | null; ageMs: number | null } {
+  if (!lastVoiceOk) return { key: null, ageMs: null };
+  return { key: lastVoiceOk.key.slice(0, 48) + '…', ageMs: Date.now() - lastVoiceOk.at };
+}
+
 /** When FCM token rotates, prior success keys no longer match — no explicit reset needed. */

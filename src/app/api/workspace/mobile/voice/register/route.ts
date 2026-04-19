@@ -123,6 +123,7 @@ export async function POST(req: Request) {
     console.warn(LOG, "user_push_devices_upsert_failed", { reqId, message: pushDevErr.message });
   }
 
-  console.log(LOG, "ok", { reqId, userId: staff.user_id, platform });
-  return NextResponse.json({ ok: true, reqId, twilioIdentity: expectedIdentity });
+  const userPushMirrorOk = !pushDevErr;
+  console.log(LOG, "ok", { reqId, userId: staff.user_id, platform, userPushMirrorOk });
+  return NextResponse.json({ ok: true, reqId, twilioIdentity: expectedIdentity, userPushMirrorOk });
 }

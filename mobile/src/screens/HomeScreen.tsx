@@ -12,7 +12,14 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Constants from 'expo-constants';
 import { WebView } from 'react-native-webview';
 
-import { DEFAULT_PRODUCTION_API_ORIGIN, env, mobileDiagnosticsEnabled, pushRegisterUrl, voiceRegisterUrl } from '../config/env';
+import {
+  DEFAULT_PRODUCTION_API_ORIGIN,
+  env,
+  mobileDiagnosticsEnabled,
+  mobileRegistrationDebugEnabled,
+  pushRegisterUrl,
+  voiceRegisterUrl,
+} from '../config/env';
 import { useNativePushRegistration } from '../hooks/useNativePushRegistration';
 import { tryRegisterNativeTwilioFromPortalApi } from '../services/nativeSoftphoneApiRegistration';
 import { registerNativeTwilioWithAccessToken } from '../services/nativeTwilioVoiceBridge';
@@ -20,11 +27,16 @@ import { setStoredSupabaseAccessToken } from '../services/supabaseAccessTokenSto
 import { twilioVoiceService } from '../services/twilioVoiceService';
 import { colors } from '../theme/colors';
 import {
+  clearPushRegisterCooldown,
+  clearVoiceRegisterCooldown,
+  getPushCooldownDebug,
+  getVoiceCooldownDebug,
   recordPushRegisterSuccess,
   recordVoiceRegisterSuccess,
   shouldSkipPushRegister,
   shouldSkipVoiceRegister,
 } from '../services/mobileRegistrationGuard';
+import { logRegistrationDebug, registrationStats } from '../services/mobileRegistrationDiagnostics';
 
 import type { HomeScreenProps } from '../navigation/types';
 
@@ -65,17 +77,25 @@ function buildRegisterPushInjectJs(fcmToken: string, attemptReason: string, diag
     headers: { 'Content-Type': 'application/json' },
     body: body
   }).then(function (res) {
-    try {
-      if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
-        window.ReactNativeWebView.postMessage(JSON.stringify({
-          type: 'saintly-register-ack',
-          kind: 'push',
-          ok: res.ok,
-          status: res.status
-        }));
-      }
-    } catch (e) {}
     return res.text().then(function (text) {
+      var bodyOk = false;
+      try {
+        var j = JSON.parse(text);
+        bodyOk = Boolean(j && j.ok === true);
+      } catch (e2) {}
+      var ok = res.ok && bodyOk;
+      try {
+        if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+          window.ReactNativeWebView.postMessage(JSON.stringify({
+            type: 'saintly-register-ack',
+            kind: 'push',
+            ok: ok,
+            status: res.status,
+            httpOk: res.ok,
+            bodyOk: bodyOk
+          }));
+        }
+      } catch (e) {}
       var sample = (text || '').slice(0, 800);
       post({
         type: 'push-register-log',
@@ -84,6 +104,7 @@ function buildRegisterPushInjectJs(fcmToken: string, attemptReason: string, diag
         attemptReason: attemptReason,
         status: res.status,
         ok: res.ok,
+        bodyOk: bodyOk,
         bodySample: sample
       });
     });
@@ -130,16 +151,29 @@ function buildVoiceRegisterInjectJs(input: {
     headers: { 'Content-Type': 'application/json' },
     body: body
   }).then(function (res) {
-    try {
-      if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
-        window.ReactNativeWebView.postMessage(JSON.stringify({
-          type: 'saintly-register-ack',
-          kind: 'voice',
-          ok: res.ok,
-          status: res.status
-        }));
-      }
-    } catch (e) {}
+    return res.text().then(function (text) {
+      var bodyOk = false;
+      var userPushMirrorOk = true;
+      try {
+        var j = JSON.parse(text);
+        bodyOk = Boolean(j && j.ok === true);
+        if (j && j.userPushMirrorOk === false) userPushMirrorOk = false;
+      } catch (e2) {}
+      var ok = res.ok && bodyOk && userPushMirrorOk;
+      try {
+        if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+          window.ReactNativeWebView.postMessage(JSON.stringify({
+            type: 'saintly-register-ack',
+            kind: 'voice',
+            ok: ok,
+            status: res.status,
+            httpOk: res.ok,
+            bodyOk: bodyOk,
+            userPushMirrorOk: userPushMirrorOk
+          }));
+        }
+      } catch (e) {}
+    });
   }).catch(function () {});
   true;
 })();`;
@@ -149,7 +183,15 @@ type WebViewBridgeMessage =
   | { type: 'open-settings' }
   | { type: 'saintly-supabase-access-token'; access_token?: string | null }
   | { type: 'saintly-softphone-token'; token: string; identity?: string }
-  | { type: 'saintly-register-ack'; kind: 'push' | 'voice'; ok: boolean; status?: number }
+  | {
+      type: 'saintly-register-ack';
+      kind: 'push' | 'voice';
+      ok: boolean;
+      status?: number;
+      httpOk?: boolean;
+      bodyOk?: boolean;
+      userPushMirrorOk?: boolean;
+    }
   | { type: 'push-register-log'; step: string; [key: string]: unknown }
   | { type: 'voice-register-log'; step: string; [key: string]: unknown }
   | { type: 'saintly-native-speaker-query' }
@@ -206,7 +248,7 @@ export function HomeScreen(_props: HomeScreenProps) {
     twilioIdentity: string;
     voipPushToken: string | null;
   } | null>(null);
-  /** Push/voice WebView POST delayed retries — cleared after successful register-ack. */
+  /** Push/voice WebView POST delayed retries (FCM load / softphone-token follow-ups). */
   const registrationTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const lastNavUrlRef = useRef<string>('');
   const lastNativeCallToWebJsonRef = useRef<string>('');
@@ -218,11 +260,6 @@ export function HomeScreen(_props: HomeScreenProps) {
   const apiOrigin = env.apiBaseUrl.replace(/\/$/, '') || DEFAULT_PRODUCTION_API_ORIGIN;
 
   fcmTokenRef.current = fcmToken;
-
-  const clearRegistrationTimers = useCallback(() => {
-    registrationTimersRef.current.forEach(clearTimeout);
-    registrationTimersRef.current = [];
-  }, []);
 
   const scheduleRegistrationTimer = useCallback((fn: () => void, delayMs: number) => {
     const id = setTimeout(() => {
@@ -274,8 +311,18 @@ export function HomeScreen(_props: HomeScreenProps) {
     if (Constants.appOwnership === 'expo' || !token || !webViewRef.current) {
       return;
     }
+    registrationStats.pushInjectAttempted += 1;
     if (shouldSkipPushRegister(token)) {
+      registrationStats.pushSkippedByGuard += 1;
+      logRegistrationDebug('skip POST /push/register (cooldown)', {
+        reason,
+        fcmKeyTail: `${token.slice(0, 12)}…`,
+        cooldown: getPushCooldownDebug(),
+      });
       return;
+    }
+    if (mobileRegistrationDebugEnabled) {
+      logRegistrationDebug('inject POST /push/register', { reason, fcmKeyTail: `${token.slice(0, 12)}…` });
     }
     webViewRef.current.injectJavaScript(buildRegisterPushInjectJs(token, reason, mobileDiagnosticsEnabled));
   }, []);
@@ -287,8 +334,18 @@ export function HomeScreen(_props: HomeScreenProps) {
         return;
       }
       const voip = Platform.OS === 'ios' ? await twilioVoiceService.getNativeDeviceToken() : null;
+      registrationStats.voiceInjectAttempted += 1;
       if (shouldSkipVoiceRegister({ fcmToken: t, twilioIdentity, voipPushToken: voip })) {
+        registrationStats.voiceSkippedByGuard += 1;
+        logRegistrationDebug('skip POST /voice/register (cooldown)', {
+          reason,
+          identityTail: twilioIdentity.slice(-12),
+          cooldown: getVoiceCooldownDebug(),
+        });
         return;
+      }
+      if (mobileRegistrationDebugEnabled) {
+        logRegistrationDebug('inject POST /voice/register', { reason, identityTail: twilioIdentity.slice(-12) });
       }
       lastVoicePayloadRef.current = { fcmToken: t, twilioIdentity, voipPushToken: voip };
       const appVersion = Constants.expoConfig?.version ?? '1.0.0';
@@ -448,16 +505,45 @@ export function HomeScreen(_props: HomeScreenProps) {
         const raw = event.nativeEvent.data;
         const msg = JSON.parse(raw) as WebViewBridgeMessage;
         if (msg.type === 'saintly-register-ack') {
-          const ack = msg as { kind: 'push' | 'voice'; ok?: boolean };
+          const ack = msg as WebViewBridgeMessage & {
+            type: 'saintly-register-ack';
+            kind: 'push' | 'voice';
+            ok?: boolean;
+            status?: number;
+            httpOk?: boolean;
+            bodyOk?: boolean;
+            userPushMirrorOk?: boolean;
+          };
           if (ack.ok) {
             const tok = fcmTokenRef.current;
             if (ack.kind === 'push' && tok) {
               recordPushRegisterSuccess(tok);
+              registrationStats.pushAckSuccess += 1;
             }
             if (ack.kind === 'voice' && lastVoicePayloadRef.current) {
               recordVoiceRegisterSuccess(lastVoicePayloadRef.current);
+              registrationStats.voiceAckSuccess += 1;
             }
-            clearRegistrationTimers();
+            logRegistrationDebug('register-ack success (cooldown armed)', {
+              kind: ack.kind,
+              status: ack.status,
+              stats: { ...registrationStats },
+            });
+          } else {
+            if (ack.kind === 'push') {
+              clearPushRegisterCooldown();
+              registrationStats.pushAckFailure += 1;
+            } else {
+              clearVoiceRegisterCooldown();
+              registrationStats.voiceAckFailure += 1;
+            }
+            logRegistrationDebug('register-ack failure (cooldown cleared for retry)', {
+              kind: ack.kind,
+              status: ack.status,
+              httpOk: ack.httpOk,
+              bodyOk: ack.bodyOk,
+              userPushMirrorOk: ack.userPushMirrorOk,
+            });
           }
           return;
         }
@@ -569,13 +655,7 @@ export function HomeScreen(_props: HomeScreenProps) {
         // ignore non-JSON messages
       }
     },
-    [
-      runPushRegistration,
-      injectWorkspaceVoiceRegister,
-      runNativeSoftphoneRegistration,
-      scheduleRegistrationTimer,
-      clearRegistrationTimers,
-    ]
+    [runPushRegistration, injectWorkspaceVoiceRegister, runNativeSoftphoneRegistration, scheduleRegistrationTimer]
   );
 
   return (

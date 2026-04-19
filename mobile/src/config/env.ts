@@ -50,6 +50,11 @@ const resolvedApiBaseUrl = resolveApiBaseUrl();
 export const mobileDiagnosticsEnabled =
   (typeof __DEV__ !== 'undefined' && __DEV__) || process.env.EXPO_PUBLIC_MOBILE_DIAGNOSTICS === '1';
 
+/** Verbose push/voice registration guard + ack logging (cold open / login / resume). */
+export const mobileRegistrationDebugEnabled =
+  (typeof __DEV__ !== 'undefined' && __DEV__) ||
+  process.env.EXPO_PUBLIC_MOBILE_REGISTRATION_DEBUG === '1';
+
 export const env = {
   /** API origin (no trailing slash). WebView + API calls use this. */
   apiBaseUrl: resolvedApiBaseUrl,
