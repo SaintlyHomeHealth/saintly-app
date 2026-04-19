@@ -34,17 +34,47 @@ function buildRegisterPushInjectJs(fcmToken: string, attemptReason: string): str
   const platform = Platform.OS === 'ios' ? 'ios' : 'android';
   const bodyStr = JSON.stringify({ fcmToken, platform });
   const reasonJson = JSON.stringify(attemptReason);
+  const tokenHint = `${fcmToken.slice(0, 24)}… (len ${fcmToken.length})`;
+  const tokenHintJson = JSON.stringify(tokenHint);
   return `(function(){
   var attemptReason = ${reasonJson};
+  var tokenHint = ${tokenHintJson};
   var url = ${JSON.stringify(registerUrl)};
   var body = ${JSON.stringify(bodyStr)};
+  function post(log) {
+    try {
+      if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+        window.ReactNativeWebView.postMessage(JSON.stringify(log));
+      }
+    } catch (e) {}
+  }
+  post({ type: 'push-register-log', step: 'fetch_start', attemptReason: attemptReason, tokenHint: tokenHint, url: url });
   fetch(url, {
     method: 'POST',
     credentials: 'include',
     redirect: 'follow',
     headers: { 'Content-Type': 'application/json' },
     body: body
-  }).catch(function () {});
+  }).then(function (res) {
+    return res.text().then(function (text) {
+      var sample = (text || '').slice(0, 800);
+      post({
+        type: 'push-register-log',
+        step: 'fetch_done',
+        attemptReason: attemptReason,
+        status: res.status,
+        ok: res.ok,
+        bodySample: sample
+      });
+    });
+  }).catch(function (err) {
+    post({
+      type: 'push-register-log',
+      step: 'fetch_error',
+      attemptReason: attemptReason,
+      message: String(err && err.message ? err.message : err)
+    });
+  });
   true;
 })();`;
 }
@@ -333,7 +363,11 @@ export function HomeScreen(_props: HomeScreenProps) {
       try {
         const raw = event.nativeEvent.data;
         const msg = JSON.parse(raw) as WebViewBridgeMessage;
-        if (msg.type === 'push-register-log' || msg.type === 'voice-register-log') {
+        if (msg.type === 'push-register-log') {
+          console.warn('[push-register]', msg.step, msg);
+          return;
+        }
+        if (msg.type === 'voice-register-log') {
           return;
         }
         if (msg.type === 'open-settings') {

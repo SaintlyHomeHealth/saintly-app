@@ -1,5 +1,5 @@
 import Constants from 'expo-constants';
-import { Platform } from 'react-native';
+import { PermissionsAndroid, Platform } from 'react-native';
 
 /**
  * FCM registration for SMS / inbound-call alerts (APNs transport on iOS via Firebase).
@@ -106,6 +106,22 @@ export async function registerNativePushForCalls(): Promise<NativePushRegistrati
     const mod = await import('@react-native-firebase/messaging');
     const messaging = mod.default;
     const AuthorizationStatus = mod.AuthorizationStatus;
+
+    /**
+     * Android 13+ (API 33): POST_NOTIFICATIONS is required for FCM notification display.
+     * RN Firebase docs: `requestPermission()` alone is not sufficient on API 33+.
+     */
+    if (Platform.OS === 'android' && Platform.Version >= 33) {
+      try {
+        const post = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS
+        );
+        console.warn('[nativePushService] POST_NOTIFICATIONS', post);
+      } catch (permErr) {
+        const msg = permErr instanceof Error ? permErr.message : String(permErr);
+        console.warn('[nativePushService] POST_NOTIFICATIONS request failed', msg);
+      }
+    }
 
     /** 1) Permission first (prompts on iOS when undecided). */
     const permissionStatus = await messaging().requestPermission();
