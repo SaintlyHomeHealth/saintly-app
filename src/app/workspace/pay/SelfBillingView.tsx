@@ -37,6 +37,8 @@ type Props = {
   deadlineIso: string;
   /** Compared at request time on the server (see page.tsx). */
   deadlinePassed: boolean;
+  /** Draft lines are only editable for the current pay week from Workspace Pay. */
+  allowNurseEdit: boolean;
   lines: SelfBillingLineVM[];
   patients: { id: string; label: string }[];
 };
@@ -46,6 +48,7 @@ export function SelfBillingView({
   status,
   deadlineIso,
   deadlinePassed,
+  allowNurseEdit,
   lines,
   patients,
 }: Props) {
@@ -79,7 +82,7 @@ export function SelfBillingView({
     return patients.filter((p) => p.label.toLowerCase().includes(q)).slice(0, 40);
   }, [patients, patientQuery]);
 
-  const canEdit = status === "draft";
+  const canEdit = allowNurseEdit;
   const running = lines.reduce((s, l) => s + l.amount, 0);
 
   const dateHelperText = serviceBounds.isMondayWindow

@@ -8,6 +8,8 @@ import { recomputeEmployeeEarningsForYear } from "@/lib/payroll/recompute-earnin
 import { syncPayrollVisitItem } from "@/lib/payroll/sync-visit-item";
 import { getStaffProfile, isManagerOrHigher, isPayrollApprover } from "@/lib/staff-profile";
 
+import { adminApproveAndMarkPaidAction } from "./nurse-billing-actions";
+
 function readId(formData: FormData, key: string): string | null {
   const v = formData.get(key);
   return typeof v === "string" && v.trim() ? v.trim() : null;
@@ -281,39 +283,9 @@ export async function setBatchExportStubAction(formData: FormData) {
 }
 
 export async function markNurseWeeklyBillingPaidAction(formData: FormData) {
-  const staff = await getStaffProfile();
-  if (!staff || !isPayrollApprover(staff)) {
-    return { ok: false as const, error: "Only payroll approvers can mark self-billing paid." };
-  }
-
   const billingId = readId(formData, "billingId");
   if (!billingId) return { ok: false as const, error: "Missing billing." };
-
-  const { data: row, error: qErr } = await supabaseAdmin
-    .from("nurse_weekly_billings")
-    .select("id, status")
-    .eq("id", billingId)
-    .maybeSingle();
-
-  if (qErr || !row) return { ok: false as const, error: "Self-billing not found." };
-  if (row.status !== "submitted") {
-    return { ok: false as const, error: "Only submitted self-billing can be marked paid." };
-  }
-
-  const now = new Date().toISOString();
-  const { error: uErr } = await supabaseAdmin
-    .from("nurse_weekly_billings")
-    .update({
-      status: "paid",
-      paid_at: now,
-      updated_at: now,
-    })
-    .eq("id", billingId)
-    .eq("status", "submitted");
-
-  if (uErr) return { ok: false as const, error: uErr.message };
-
-  revalidatePath("/admin/payroll");
-  revalidatePath("/workspace/pay");
+  const r = await adminApproveAndMarkPaidAction(billingId);
+  if (!r.ok) return { ok: false as const, error: r.error };
   return { ok: true as const };
 }

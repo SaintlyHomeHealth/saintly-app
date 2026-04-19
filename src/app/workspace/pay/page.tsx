@@ -1,13 +1,14 @@
 import { redirect } from "next/navigation";
 
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
-import { ensureNurseWeeklyBilling } from "@/lib/payroll/nurse-weekly-billing";
+import { ensureNurseWeeklyBilling, fetchNurseWeeklyBillingByPeriodOptional } from "@/lib/payroll/nurse-weekly-billing";
 import { loadAssignablePatientsForNurse } from "@/lib/payroll/nurse-assignable-patients";
 import { getPayPeriodForDate } from "@/lib/payroll/pay-period";
 import { supabaseAdmin } from "@/lib/admin";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { canAccessWorkspacePhone, getStaffProfile } from "@/lib/staff-profile";
 
+import { PayWeekPicker } from "./PayWeekPicker";
 import { SelfBillingView, type SelfBillingLineVM } from "./SelfBillingView";
 
 function displayPatientName(raw: unknown): string | null {
@@ -22,7 +23,11 @@ function displayPatientName(raw: unknown): string | null {
   return joined || null;
 }
 
-export default async function WorkspacePayPage() {
+export default async function WorkspacePayPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ week?: string }>;
+}) {
   const staff = await getStaffProfile();
   if (!staff || !canAccessWorkspacePhone(staff)) {
     redirect("/admin/phone");
@@ -44,12 +49,59 @@ export default async function WorkspacePayPage() {
   }
 
   const supabase = await createServerSupabaseClient();
-  const bounds = getPayPeriodForDate(new Date());
+  const defaultBounds = getPayPeriodForDate(new Date());
+  const sp = await searchParams;
+  const weekRaw = typeof sp?.week === "string" ? sp.week.trim() : "";
+  const viewingBounds =
+    /^\d{4}-\d{2}-\d{2}$/.test(weekRaw) && !Number.isNaN(Date.parse(`${weekRaw}T12:00:00`))
+      ? getPayPeriodForDate(new Date(`${weekRaw}T12:00:00`))
+      : defaultBounds;
+  const isCurrentPayWeek =
+    viewingBounds.payPeriodStart === defaultBounds.payPeriodStart &&
+    viewingBounds.payPeriodEnd === defaultBounds.payPeriodEnd;
 
-  const [assignablePatients, billing] = await Promise.all([
+  const [assignablePatients, billingResolved, historyWeeksResult] = await Promise.all([
     loadAssignablePatientsForNurse(staff.user_id),
-    ensureNurseWeeklyBilling(applicantId, bounds),
+    isCurrentPayWeek
+      ? ensureNurseWeeklyBilling(applicantId, viewingBounds)
+      : fetchNurseWeeklyBillingByPeriodOptional(applicantId, viewingBounds),
+    supabaseAdmin
+      .from("nurse_weekly_billings")
+      .select("pay_period_start, pay_period_end")
+      .eq("employee_id", applicantId)
+      .order("pay_period_start", { ascending: false })
+      .limit(52),
   ]);
+
+  const weekOptions = (historyWeeksResult.data ?? []).map((r) => ({
+    start: String(r.pay_period_start ?? ""),
+    end: String(r.pay_period_end ?? ""),
+  }));
+
+  const billing = billingResolved;
+  if (!billing) {
+    return (
+      <>
+        <AdminPageHeader
+          accent="sky"
+          eyebrow="Workspace"
+          title="Pay"
+          metaLine={`Week ${viewingBounds.payPeriodStart} – ${viewingBounds.payPeriodEnd}`}
+          description="No saved invoice for this week yet. Choose another week from your history, or return to the current period."
+          footer={
+            <div className="space-y-4 px-5 py-5 sm:px-8">
+              <PayWeekPicker
+                selectedWeekStart={viewingBounds.payPeriodStart}
+                currentPeriodWeekStart={defaultBounds.payPeriodStart}
+                currentPeriodWeekEnd={defaultBounds.payPeriodEnd}
+                weeks={weekOptions}
+              />
+            </div>
+          }
+        />
+      </>
+    );
+  }
 
   const { data: lineRows } = await supabase
     .from("nurse_weekly_billing_lines")
@@ -93,10 +145,19 @@ export default async function WorkspacePayPage() {
 
   const status = billing.status as "draft" | "submitted" | "paid";
 
-  const deadlineMs = Date.parse(bounds.submissionDeadline);
+  const deadlineMs = Date.parse(viewingBounds.submissionDeadline);
   // Evaluated per-request for weekly submission cutoff (workspace Pay).
   // eslint-disable-next-line react-hooks/purity -- intentional wall-clock comparison for this request
   const deadlinePassed = Date.now() > deadlineMs;
+
+  const allowNurseEdit = isCurrentPayWeek && status === "draft";
+
+  const headerDescription =
+    isCurrentPayWeek && allowNurseEdit
+      ? "Add visits and commission lines for this week, review the total, then submit your invoice."
+      : isCurrentPayWeek
+        ? "This week is submitted or paid—your entries are saved here for reference."
+        : "View-only history for this pay week. Switch back to the current period to edit an open draft.";
 
   return (
     <>
@@ -104,11 +165,17 @@ export default async function WorkspacePayPage() {
         accent="sky"
         eyebrow="Workspace"
         title="Pay"
-        metaLine={`Week of ${bounds.payPeriodStart} – ${bounds.payPeriodEnd}`}
-        description="Add visits and commission lines for this week, review the total, then submit your invoice."
+        metaLine={`Week of ${viewingBounds.payPeriodStart} – ${viewingBounds.payPeriodEnd}`}
+        description={headerDescription}
         footer={
           <div className="space-y-6 px-5 py-5 sm:px-8">
-            {assignablePatients.length === 0 ? (
+            <PayWeekPicker
+              selectedWeekStart={viewingBounds.payPeriodStart}
+              currentPeriodWeekStart={defaultBounds.payPeriodStart}
+              currentPeriodWeekEnd={defaultBounds.payPeriodEnd}
+              weeks={weekOptions}
+            />
+            {assignablePatients.length === 0 && allowNurseEdit ? (
               <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
                 You do not have any active patient assignments yet. When you are assigned patients, they will appear in the
                 patient search so you can add lines.
@@ -117,8 +184,9 @@ export default async function WorkspacePayPage() {
             <SelfBillingView
               billingId={billing.id}
               status={status}
-              deadlineIso={bounds.submissionDeadline}
+              deadlineIso={viewingBounds.submissionDeadline}
               deadlinePassed={deadlinePassed}
+              allowNurseEdit={allowNurseEdit}
               lines={lines}
               patients={assignablePatients}
             />

@@ -4,12 +4,11 @@ import { redirect } from "next/navigation";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { loadContractForServiceDate } from "@/lib/payroll/contract-for-date";
 import { computeVisitGrossPay } from "@/lib/payroll/compute-payable";
+import { fetchYtdPaidTotalsByEmployee } from "@/lib/payroll/nurse-billing-ytd";
 import { getPayPeriodForDate } from "@/lib/payroll/pay-period";
 import { payrollComplianceFlags } from "@/lib/payroll/compliance";
 import { supabaseAdmin } from "@/lib/admin";
 import { getStaffProfile, isManagerOrHigher, isPayrollApprover } from "@/lib/staff-profile";
-
-import { billingLineLabel } from "@/app/workspace/pay/self-billing-types";
 
 import {
   createPayrollVisitAction,
@@ -18,7 +17,7 @@ import {
   resolvePayrollExceptionAction,
   setBatchExportStubAction,
 } from "./actions";
-import { NurseSelfBillingReview, type NurseBillingAdminCardVM, type NurseBillingAdminLineVM } from "./NurseSelfBillingReview";
+import { NursePayrollInbox } from "./NursePayrollInbox";
 import { PayrollCompleteVisitForm } from "./PayrollCompleteVisitForm";
 
 function money(n: number) {
@@ -130,8 +129,6 @@ export default async function AdminPayrollPage({
     }
   }
 
-  const nursePatientLabel = patientLabel;
-
   const previewByVisitId = new Map<string, number>();
   await Promise.all(
     visitList.map(async (v) => {
@@ -149,45 +146,30 @@ export default async function AdminPayrollPage({
 
   const applicantMap = new Map((applicants ?? []).map((a) => [a.id, a] as const));
 
-  const nurseBillingCards: NurseBillingAdminCardVM[] = (nurseBillingsFull ?? []).map((nb) => {
+  const ytdByEmployee = await fetchYtdPaidTotalsByEmployee(new Date().getFullYear());
+
+  const nursePayrollInboxRows = (nurseBillingsFull ?? []).map((nb) => {
     const raw = nb.nurse_weekly_billing_lines;
     const arr = Array.isArray(raw) ? raw : raw ? [raw] : [];
-    let total = 0;
-    const lines: NurseBillingAdminLineVM[] = arr.map((L) => {
-      const amt = Number((L as { amount?: unknown }).amount ?? 0);
-      total += amt;
-      const pid = String((L as { patient_id?: string | null }).patient_id ?? "");
-      const id = String((L as { id?: string }).id ?? "");
-      const notesRaw = (L as { notes?: string | null }).notes;
-      return {
-        id,
-        patientName: nursePatientLabel.get(pid) ?? "Patient",
-        serviceDate: typeof (L as { service_date?: string }).service_date === "string"
-          ? (L as { service_date: string }).service_date
-          : "",
-        lineTypeLabel: billingLineLabel(
-          typeof (L as { line_type?: string }).line_type === "string" ? (L as { line_type: string }).line_type : "visit"
-        ),
-        amount: amt,
-        notes: typeof notesRaw === "string" && notesRaw.trim() ? notesRaw : null,
-      };
-    });
+    let weeklyTotal = 0;
+    for (const L of arr) {
+      weeklyTotal += Number((L as { amount?: unknown }).amount ?? 0);
+    }
     const emp = applicantMap.get(nb.employee_id);
-    const nurseName = emp ? [emp.first_name, emp.last_name].filter(Boolean).join(" ") : String(nb.employee_id);
+    const employeeName = emp ? [emp.first_name, emp.last_name].filter(Boolean).join(" ") : String(nb.employee_id);
     const st = String(nb.status ?? "draft");
-    const status: NurseBillingAdminCardVM["status"] =
+    const status: "draft" | "submitted" | "paid" =
       st === "submitted" || st === "paid" || st === "draft" ? st : "draft";
     return {
-      id: String(nb.id),
-      nurseName,
+      billingId: String(nb.id),
+      employeeName,
+      weekStart: String(nb.pay_period_start ?? ""),
+      weekEnd: String(nb.pay_period_end ?? ""),
       status,
-      payPeriodStart: String(nb.pay_period_start ?? ""),
-      payPeriodEnd: String(nb.pay_period_end ?? ""),
+      weeklyTotal,
+      ytdPaid: ytdByEmployee.get(String(nb.employee_id)) ?? 0,
       submittedAt: typeof nb.submitted_at === "string" ? nb.submitted_at : null,
       paidAt: typeof nb.paid_at === "string" ? nb.paid_at : null,
-      lineCount: lines.length,
-      total,
-      lines,
     };
   });
 
@@ -237,28 +219,30 @@ export default async function AdminPayrollPage({
           accent="indigo"
           eyebrow="Payroll center"
           title="Weekly payroll"
-          description="Review nurse-submitted weekly invoices first. Below that, legacy tools cover synced visits, exceptions, and export batches."
+          description="Approve nurse weekly invoices at the top. Expand legacy tools below only when you need synced visits, exceptions, or batch export."
         />
 
         <div className="mt-8">
-          <NurseSelfBillingReview
+          <NursePayrollInbox
             selectedWeekStart={selectedPeriod.payPeriodStart}
-            periodOptions={periodOptions}
-            cards={nurseBillingCards}
-            canMarkPaid={approver}
+            periodOptions={periodOptions.map((o) => ({ start: o.start, label: o.label }))}
+            rows={nursePayrollInboxRows}
           />
         </div>
 
-        <div className="mt-14 border-t border-slate-200/80 pt-10">
-          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">Legacy payroll</p>
-          <h2 className="mt-2 text-lg font-semibold text-slate-900">Synced visits &amp; batch export</h2>
-          <p className="mt-1 max-w-3xl text-sm leading-relaxed text-slate-600">
-            Automatic visit lines, exception review, and weekly batch tooling. Nurse self-billing above is separate from this
-            pipeline.
-          </p>
-        </div>
+        <details className="mt-14 rounded-2xl border border-slate-200/80 bg-slate-50/50 p-5 open:bg-white sm:p-6">
+          <summary className="cursor-pointer list-none rounded-xl outline-none ring-sky-400/30 focus-visible:ring-2 [&::-webkit-details-marker]:hidden">
+            <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">Legacy payroll</p>
+            <h2 className="mt-2 text-lg font-semibold text-slate-900">Synced visits &amp; batch export</h2>
+            <p className="mt-1 max-w-3xl text-sm leading-relaxed text-slate-600">
+              Automatic visit lines, exception review, and weekly batch tooling. This is separate from nurse invoice approval
+              above.
+            </p>
+            <p className="mt-3 text-xs font-semibold text-sky-800">Click to expand</p>
+          </summary>
 
-        <section className="mt-8 grid gap-4 lg:grid-cols-2">
+        <div className="mt-8 space-y-10 border-t border-slate-200/80 pt-10">
+        <section className="grid gap-4 lg:grid-cols-2">
           <div className="rounded-2xl border border-sky-200/90 bg-gradient-to-br from-sky-50/90 to-white p-5 shadow-sm">
             <p className="text-[10px] font-bold uppercase tracking-wide text-sky-800">Current pay period</p>
             <p className="mt-2 text-lg font-bold text-slate-900">
@@ -582,6 +566,8 @@ export default async function AdminPayrollPage({
             )}
           </div>
         </section>
+        </div>
+        </details>
       </div>
     </>
   );
