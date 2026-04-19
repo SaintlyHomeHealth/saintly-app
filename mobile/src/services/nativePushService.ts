@@ -1,6 +1,9 @@
 import Constants from 'expo-constants';
 import { PermissionsAndroid, Platform } from 'react-native';
 
+import { mobileDiagnosticsEnabled } from '../config/env';
+import { diagWarn } from '../utils/mobileDiagnostics';
+
 /**
  * FCM registration for SMS / inbound-call alerts (APNs transport on iOS via Firebase).
  *
@@ -96,12 +99,12 @@ export async function registerNativePushForCalls(): Promise<NativePushRegistrati
   });
 
   if (environment === 'expo_go') {
-    console.warn('[nativePushService] skip (Expo Go)', diagnostics);
+    diagWarn('[nativePushService] skip (Expo Go)', diagnostics);
     return empty({ errorText: 'Expo Go — use a dev or release native build.' });
   }
 
   const wallTs = () => Date.now();
-  console.warn('[nativePushService] start', { ts: wallTs(), ...diagnostics });
+  diagWarn('[nativePushService] start', { ts: wallTs(), ...diagnostics });
 
   try {
     const mod = await import('@react-native-firebase/messaging');
@@ -117,17 +120,17 @@ export async function registerNativePushForCalls(): Promise<NativePushRegistrati
         const post = await PermissionsAndroid.request(
           PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS
         );
-        console.warn('[nativePushService] POST_NOTIFICATIONS', post);
+        diagWarn('[nativePushService] POST_NOTIFICATIONS', post);
       } catch (permErr) {
         const msg = permErr instanceof Error ? permErr.message : String(permErr);
-        console.warn('[nativePushService] POST_NOTIFICATIONS request failed', msg);
+        diagWarn('[nativePushService] POST_NOTIFICATIONS request failed', msg);
       }
     }
 
     /** 1) Permission first (prompts on iOS when undecided). */
     const permissionStatus = await messaging().requestPermission();
     const permissionLabel = labelForAuthStatus(AuthorizationStatus, permissionStatus);
-    console.warn('[nativePushService] requestPermission', {
+    diagWarn('[nativePushService] requestPermission', {
       ts: wallTs(),
       permissionStatus,
       permissionLabel,
@@ -137,7 +140,7 @@ export async function registerNativePushForCalls(): Promise<NativePushRegistrati
       /** 2) Register with APNs before FCM token on iOS. */
       const regStart = wallTs();
       await messaging().registerDeviceForRemoteMessages();
-      console.warn('[nativePushService] registerDeviceForRemoteMessages OK', {
+      diagWarn('[nativePushService] registerDeviceForRemoteMessages OK', {
         ts: wallTs(),
         ms: wallTs() - regStart,
       });
@@ -150,20 +153,22 @@ export async function registerNativePushForCalls(): Promise<NativePushRegistrati
     let apnsDeviceToken: string | null = null;
     if (Platform.OS === 'ios') {
       const apnsWaitStart = wallTs();
-      const timeoutMs = 15_000;
-      const intervalMs = 150;
+      const timeoutMs = 12_000;
+      const intervalMs = 280;
       try {
         while (wallTs() - apnsWaitStart < timeoutMs) {
           try {
             apnsDeviceToken = await messaging().getAPNSToken();
           } catch (apnsErr) {
-            const msg = apnsErr instanceof Error ? apnsErr.message : String(apnsErr);
-            console.warn('[nativePushService] getAPNSToken error (poll)', msg);
+            if (mobileDiagnosticsEnabled) {
+              const msg = apnsErr instanceof Error ? apnsErr.message : String(apnsErr);
+              diagWarn('[nativePushService] getAPNSToken error (poll)', msg);
+            }
           }
           if (apnsDeviceToken) break;
           await new Promise((r) => setTimeout(r, intervalMs));
         }
-        console.warn('[nativePushService] getAPNSToken', {
+        diagWarn('[nativePushService] getAPNSToken', {
           ts: wallTs(),
           waitMs: wallTs() - apnsWaitStart,
           hasToken: Boolean(apnsDeviceToken),
@@ -178,7 +183,7 @@ export async function registerNativePushForCalls(): Promise<NativePushRegistrati
     /** 4) FCM registration token. */
     const tokenStart = wallTs();
     const fcmToken = await messaging().getToken();
-    console.warn('[nativePushService] getToken', {
+    diagWarn('[nativePushService] getToken', {
       ts: wallTs(),
       getTokenMs: wallTs() - tokenStart,
       token: fcmToken ? `${fcmToken.slice(0, 24)}… (len ${fcmToken.length})` : 'empty/null',

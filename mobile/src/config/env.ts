@@ -43,6 +43,13 @@ const resolvedApiBaseUrl = resolveApiBaseUrl();
  * Runtime config (see `app.config.ts` `extra` + `EXPO_PUBLIC_*` env at build time).
  * Do not put secrets here — only public URLs and non-sensitive flags.
  */
+/**
+ * Verbose native push/voice/WebView diagnostics. Release default is off; set
+ * EXPO_PUBLIC_MOBILE_DIAGNOSTICS=1 for field troubleshooting without a dev client.
+ */
+export const mobileDiagnosticsEnabled =
+  (typeof __DEV__ !== 'undefined' && __DEV__) || process.env.EXPO_PUBLIC_MOBILE_DIAGNOSTICS === '1';
+
 export const env = {
   /** API origin (no trailing slash). WebView + API calls use this. */
   apiBaseUrl: resolvedApiBaseUrl,

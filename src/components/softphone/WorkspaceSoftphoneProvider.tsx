@@ -12,38 +12,6 @@ function loadTwilioVoiceSdk() {
   return twilioVoiceModule;
 }
 
-/** Lets the Saintly iOS/Android shell register Twilio Voice native (CallKit / ConnectionService) with the same access token as the web Device. */
-function postSoftphoneTokenToNativeBridge(token: string, identity?: string | null) {
-  if (typeof window === "undefined") return;
-  const id = typeof identity === "string" && identity.trim() ? identity.trim() : undefined;
-  const payload = JSON.stringify({ type: "saintly-softphone-token", token, ...(id ? { identity: id } : {}) });
-
-  const retryDelaysMs = [25, 75, 150, 300, 600, 1200, 2000];
-
-  const tryPost = (attempt: number) => {
-    const bridge = (
-      window as unknown as { ReactNativeWebView?: { postMessage: (data: string) => void } }
-    ).ReactNativeWebView;
-    if (bridge?.postMessage) {
-      try {
-        bridge.postMessage(payload);
-        return;
-      } catch {
-        // fall through to retry
-      }
-    }
-    if (attempt >= retryDelaysMs.length) {
-      console.warn(
-        "[SAINTLY-NATIVE-BRIDGE] ReactNativeWebView.postMessage unavailable after retries — native CallKit / VoIP registration will not run"
-      );
-      return;
-    }
-    setTimeout(() => tryPost(attempt + 1), retryDelaysMs[attempt]);
-  };
-
-  tryPost(0);
-}
-
 import { formatPhoneNumber, normalizePhone } from "@/lib/phone/us-phone-format";
 import { isValidE164, normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
 import {
@@ -64,11 +32,59 @@ import {
   type NativeCallToWebDetail,
 } from "@/lib/softphone/native-call-shell";
 import { isReactNativeWebViewShell } from "@/lib/softphone/native-speaker-bridge";
+import { softphoneDevLog, softphoneDevWarn } from "@/lib/softphone/softphone-client-debug";
 import { twilioErrorToFriendly } from "@/lib/softphone/twilio-user-friendly-errors";
 import type { ConferenceGatingSnapshot } from "@/lib/phone/conference-gating";
 import type { LiveTranscriptEntry } from "@/lib/phone/live-transcript-entries";
 import type { SoftphoneTranscriptStreamsMeta } from "@/lib/phone/softphone-transcript-stream-meta";
 import type { SoftphoneRecordingMeta } from "@/lib/twilio/softphone-recording-types";
+
+let lastSuccessfulNativeSoftphonePayload: string | null = null;
+let lastSuccessfulNativeSoftphoneAt = 0;
+const NATIVE_SOFTPHONE_BRIDGE_DEDUPE_MS = 60_000;
+
+/** Lets the Saintly iOS/Android shell register Twilio Voice native (CallKit / ConnectionService) with the same access token as the web Device. */
+function postSoftphoneTokenToNativeBridge(token: string, identity?: string | null) {
+  if (typeof window === "undefined") return;
+  const id = typeof identity === "string" && identity.trim() ? identity.trim() : undefined;
+  const payload = JSON.stringify({ type: "saintly-softphone-token", token, ...(id ? { identity: id } : {}) });
+  const now = Date.now();
+  if (
+    payload === lastSuccessfulNativeSoftphonePayload &&
+    now - lastSuccessfulNativeSoftphoneAt < NATIVE_SOFTPHONE_BRIDGE_DEDUPE_MS
+  ) {
+    return;
+  }
+
+  const retryDelaysMs = [25, 75, 150, 300, 600, 1200, 2000];
+
+  const tryPost = (attempt: number) => {
+    const bridge = (
+      window as unknown as { ReactNativeWebView?: { postMessage: (data: string) => void } }
+    ).ReactNativeWebView;
+    if (bridge?.postMessage) {
+      try {
+        bridge.postMessage(payload);
+        lastSuccessfulNativeSoftphonePayload = payload;
+        lastSuccessfulNativeSoftphoneAt = Date.now();
+        return;
+      } catch {
+        // fall through to retry
+      }
+    }
+    if (attempt >= retryDelaysMs.length) {
+      if (isReactNativeWebViewShell()) {
+        softphoneDevWarn(
+          "[SAINTLY-NATIVE-BRIDGE] ReactNativeWebView.postMessage unavailable after retries — native CallKit / VoIP registration will not run"
+        );
+      }
+      return;
+    }
+    setTimeout(() => tryPost(attempt + 1), retryDelaysMs[attempt]);
+  };
+
+  tryPost(0);
+}
 
 type CallHandle = Awaited<ReturnType<Device["connect"]>>;
 
@@ -254,15 +270,15 @@ const WorkspaceSoftphoneContext = createContext<Ctx | null>(null);
 
 const SAINTLY_INBOUND_DEBUG_PREFIX = "[SAINTLY-INBOUND-DEBUG]";
 
-/** Temporary: log incoming-caller-lookup JSON (browser only). Remove after debugging. */
+/** Incoming-caller-lookup JSON (browser only) — gated by NEXT_PUBLIC_SOFTPHONE_DEBUG. */
 function debugLogSaintlyIncomingLookupResponse(context: string, j: unknown): void {
   if (typeof window === "undefined") return;
   if (j === null) {
-    console.log(SAINTLY_INBOUND_DEBUG_PREFIX, context, { error: "response_null_or_fetch_failed" });
+    softphoneDevLog(SAINTLY_INBOUND_DEBUG_PREFIX, context, { error: "response_null_or_fetch_failed" });
     return;
   }
   const o = typeof j === "object" && j !== null ? (j as Record<string, unknown>) : null;
-  console.log(SAINTLY_INBOUND_DEBUG_PREFIX, context, {
+  softphoneDevLog(SAINTLY_INBOUND_DEBUG_PREFIX, context, {
     contactName: o?.contactName ?? null,
     display_name: o?.display_name ?? null,
     subtitle: o?.subtitle ?? null,
@@ -494,7 +510,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       });
       if (!res.ok) {
         const j = (await res.json().catch(() => ({}))) as { error?: string; code?: string };
-        console.warn("[transcript] start_transcript_fetch_failed", {
+        softphoneDevWarn("[transcript] start_transcript_fetch_failed", {
           http_status: res.status,
           error: j.error ?? null,
         });
@@ -836,7 +852,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
           error?: string;
         };
         if (!res.ok || !j.ok) {
-          console.warn("[transcript] pstn_transcript_deferred_request_failed", { status: res.status, body: j });
+          softphoneDevWarn("[transcript] pstn_transcript_deferred_request_failed", { status: res.status, body: j });
         }
       })
       .finally(() => {
@@ -850,7 +866,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
    */
   const finalizeCallCleanup = useCallback(
     (reason: string, options?: { endedCallSid?: string | null; clearHint?: boolean }) => {
-      console.log("[softphone] finalizeCallCleanup", reason);
+      softphoneDevLog("[softphone] finalizeCallCleanup", reason);
 
       const call = activeCallRef.current;
       const prevDesk = callContextRef.current;
@@ -1083,12 +1099,12 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
         if (activeCallRef.current) {
           setCallWaitingCall(call);
           call.on("disconnect", () => {
-            console.log("[softphone] Twilio disconnect (call waiting leg)");
+            softphoneDevLog("[softphone] Twilio disconnect (call waiting leg)");
             setCallWaitingCall((c) => (c === call ? null : c));
             setCallWaitingCallerUi(null);
           });
           call.on("cancel", () => {
-            console.log("[softphone] Twilio cancel (call waiting leg)");
+            softphoneDevLog("[softphone] Twilio cancel (call waiting leg)");
             setCallWaitingCall((c) => (c === call ? null : c));
             setCallWaitingCallerUi(null);
           });
@@ -1096,17 +1112,17 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
           setIncomingCall(call);
           call.on("disconnect", (disconnectedArg: Call | undefined) => {
             const disconnected = disconnectedArg ?? call;
-            console.log("[softphone] Twilio disconnect (incoming ring)", readCallSid(disconnected));
+            softphoneDevLog("[softphone] Twilio disconnect (incoming ring)", readCallSid(disconnected));
             setIncomingCall((c) => (c === call ? null : c));
             setHint(null);
             setHintMeta(null);
           });
           call.on("cancel", () => {
-            console.log("[softphone] Twilio cancel (incoming ring)");
+            softphoneDevLog("[softphone] Twilio cancel (incoming ring)");
             setIncomingCall((c) => (c === call ? null : c));
           });
           call.on("reject", () => {
-            console.log("[softphone] Twilio reject (incoming ring)");
+            softphoneDevLog("[softphone] Twilio reject (incoming ring)");
             setIncomingCall((c) => (c === call ? null : c));
           });
         }
@@ -1118,7 +1134,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
   const attachActiveCallHandlers = useCallback(
     (call: Call | CallHandle) => {
       const sidAtStart = readCallSid(call);
-      console.log("[softphone] active call created", sidAtStart ? `${sidAtStart.slice(0, 10)}…` : "(no CallSid yet)");
+      softphoneDevLog("[softphone] active call created", sidAtStart ? `${sidAtStart.slice(0, 10)}…` : "(no CallSid yet)");
       activeCallRef.current = call;
       setTranscriptEnabled(false);
       setTranscriptStartPending(false);
@@ -1133,15 +1149,15 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       call.on("disconnect", (disconnectedArg) => {
         const disconnected = disconnectedArg ?? call;
         const sid = readCallSid(disconnected);
-        console.log("[softphone] Twilio disconnect event", sid ? `${sid.slice(0, 10)}…` : "(unknown)");
+        softphoneDevLog("[softphone] Twilio disconnect event", sid ? `${sid.slice(0, 10)}…` : "(unknown)");
         finalizeCallCleanup("twilio:call.disconnect", { endedCallSid: sid });
       });
       call.on("cancel", () => {
-        console.log("[softphone] Twilio cancel (active leg)");
+        softphoneDevLog("[softphone] Twilio cancel (active leg)");
         finalizeCallCleanup("twilio:call.cancel", { endedCallSid: readCallSid(call) });
       });
       call.on("reject", () => {
-        console.log("[softphone] Twilio reject (active leg)");
+        softphoneDevLog("[softphone] Twilio reject (active leg)");
         finalizeCallCleanup("twilio:call.reject", { endedCallSid: readCallSid(call) });
       });
       call.on("error", (err) => {
@@ -1183,9 +1199,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       assistHandoffSnapshotRef.current,
       now
     );
-    if (typeof window !== "undefined") {
-      console.log(SAINTLY_INBOUND_DEBUG_PREFIX, "mergeRawWithAssistSnapshotResult incoming", raw);
-    }
+    softphoneDevLog(SAINTLY_INBOUND_DEBUG_PREFIX, "mergeRawWithAssistSnapshotResult incoming", raw);
     const snap = assistHandoffSnapshotRef.current;
     const snapMatches =
       snap != null &&
@@ -1213,10 +1227,8 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     let cancelled = false;
     const q = encodeURIComponent(raw);
     const lookupUrl = `/api/workspace/phone/incoming-caller-lookup?from=${q}`;
-    if (typeof window !== "undefined") {
-      console.log(SAINTLY_INBOUND_DEBUG_PREFIX, "incomingCallerLookupUrl", lookupUrl);
-      console.log(SAINTLY_INBOUND_DEBUG_PREFIX, "incomingCallerLookupFromQueryDecoded", raw);
-    }
+    softphoneDevLog(SAINTLY_INBOUND_DEBUG_PREFIX, "incomingCallerLookupUrl", lookupUrl);
+    softphoneDevLog(SAINTLY_INBOUND_DEBUG_PREFIX, "incomingCallerLookupFromQueryDecoded", raw);
     void fetch(lookupUrl, { credentials: "include" })
       .then((r) => (r.ok ? r.json() : null))
       .then((j: { contactName?: unknown; subtitle?: unknown } | null) => {
@@ -1248,9 +1260,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       assistHandoffSnapshotRef.current,
       now
     );
-    if (typeof window !== "undefined") {
-      console.log(SAINTLY_INBOUND_DEBUG_PREFIX, "mergeRawWithAssistSnapshotResult callWaiting", raw);
-    }
+    softphoneDevLog(SAINTLY_INBOUND_DEBUG_PREFIX, "mergeRawWithAssistSnapshotResult callWaiting", raw);
     const snap = assistHandoffSnapshotRef.current;
     const snapMatches =
       snap != null &&
@@ -1278,10 +1288,8 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     let cancelled = false;
     const q = encodeURIComponent(raw);
     const lookupUrlCw = `/api/workspace/phone/incoming-caller-lookup?from=${q}`;
-    if (typeof window !== "undefined") {
-      console.log(SAINTLY_INBOUND_DEBUG_PREFIX, "callWaitingCallerLookupUrl", lookupUrlCw);
-      console.log(SAINTLY_INBOUND_DEBUG_PREFIX, "callWaitingCallerLookupFromQueryDecoded", raw);
-    }
+    softphoneDevLog(SAINTLY_INBOUND_DEBUG_PREFIX, "callWaitingCallerLookupUrl", lookupUrlCw);
+    softphoneDevLog(SAINTLY_INBOUND_DEBUG_PREFIX, "callWaitingCallerLookupFromQueryDecoded", raw);
     void fetch(lookupUrlCw, { credentials: "include" })
       .then((r) => (r.ok ? r.json() : null))
       .then((j: { contactName?: unknown; subtitle?: unknown } | null) => {
@@ -1310,10 +1318,8 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     let cancelled = false;
     const q = encodeURIComponent(raw);
     const lookupUrlAi = `/api/workspace/phone/incoming-caller-lookup?from=${q}`;
-    if (typeof window !== "undefined") {
-      console.log(SAINTLY_INBOUND_DEBUG_PREFIX, "inboundAiAssistLookupUrl (no Twilio Call object here)", lookupUrlAi);
-      console.log(SAINTLY_INBOUND_DEBUG_PREFIX, "inboundAiAssistLookupFromQueryDecoded", raw);
-    }
+    softphoneDevLog(SAINTLY_INBOUND_DEBUG_PREFIX, "inboundAiAssistLookupUrl (no Twilio Call object here)", lookupUrlAi);
+    softphoneDevLog(SAINTLY_INBOUND_DEBUG_PREFIX, "inboundAiAssistLookupFromQueryDecoded", raw);
     void fetch(lookupUrlAi, { credentials: "include" })
       .then((r) => (r.ok ? r.json() : null))
       .then((j: { contactName?: unknown; subtitle?: unknown } | null) => {
@@ -1615,7 +1621,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
         typeof ce.detail?.reason === "string" && ce.detail.reason.trim()
           ? ce.detail.reason.trim()
           : "workspace:softphoneForceClear";
-      console.log("[softphone] workspace force clear", reason);
+      softphoneDevLog("[softphone] workspace force clear", reason);
       finalizeCallCleanup(`workspace:force_clear:${reason}`);
     };
     window.addEventListener(WORKSPACE_SOFTPHONE_FORCE_CLEAR_EVENT, onForce);
@@ -1624,7 +1630,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
 
   const hangUp = useCallback(() => {
     void (async () => {
-      console.log("[softphone] hangup pressed");
+      softphoneDevLog("[softphone] hangup pressed");
       if (nativeVoiceCallShell) {
         const sid =
           readCallSid(activeCallRef.current) ||
@@ -1640,7 +1646,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
             });
             await res.json().catch(() => ({}));
           } catch (e) {
-            console.warn("[softphone] end-call server request failed", e);
+            softphoneDevWarn("[softphone] end-call server request failed", e);
           }
         }
         if (sid) {
@@ -1655,7 +1661,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       const sid = c ? readCallSid(c) : null;
       if (sid) {
         try {
-          console.log("[softphone] server end-call request", { callSid: `${sid.slice(0, 10)}…` });
+          softphoneDevLog("[softphone] server end-call request", { callSid: `${sid.slice(0, 10)}…` });
           const res = await fetch("/api/workspace/phone/conference/end-call", {
             method: "POST",
             credentials: "include",
@@ -1663,18 +1669,18 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
             body: JSON.stringify({ callSid: sid }),
           });
           const j = (await res.json().catch(() => ({}))) as { ok?: boolean; steps?: string[]; error?: string };
-          console.log("[softphone] server end-call response", res.status, j);
+          softphoneDevLog("[softphone] server end-call response", res.status, j);
         } catch (e) {
-          console.warn("[softphone] end-call server request failed", e);
+          softphoneDevWarn("[softphone] end-call server request failed", e);
         }
       } else {
-        console.warn("[softphone] hangup with no activeCallRef — forcing idle UI");
+        softphoneDevWarn("[softphone] hangup with no activeCallRef — forcing idle UI");
       }
       if (c) {
         try {
           c.disconnect();
         } catch (e) {
-          console.warn("[softphone] hangup disconnect threw", e);
+          softphoneDevWarn("[softphone] hangup disconnect threw", e);
         }
       }
       finalizeCallCleanup("hangup", { endedCallSid: sid });
@@ -1807,7 +1813,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     if (!c) return { ok: false as const, error: "No active call" };
     const sid = readCallSid(c);
     if (!sid) return { ok: false as const, error: "No CallSid" };
-    console.log("[softphone] transfer started", { toE164, callSid: `${sid.slice(0, 10)}…` });
+    softphoneDevLog("[softphone] transfer started", { toE164, callSid: `${sid.slice(0, 10)}…` });
     const res = await fetch("/api/workspace/phone/conference/cold-transfer", {
       method: "POST",
       credentials: "include",
@@ -1818,7 +1824,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       const j = (await res.json().catch(() => ({}))) as { error?: string };
       return { ok: false as const, error: j.error ?? `HTTP ${res.status}` };
     }
-    console.log("[softphone] transfer completed (server accepted cold-transfer)", { toE164 });
+    softphoneDevLog("[softphone] transfer completed (server accepted cold-transfer)", { toE164 });
     return { ok: true as const };
   }, []);
 
@@ -1890,7 +1896,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       try {
         c.sendDigits(s);
       } catch (e) {
-        console.warn("[softphone] sendDigits failed", e);
+        softphoneDevWarn("[softphone] sendDigits failed", e);
       }
     },
     [nativeVoiceCallShell]

@@ -12,7 +12,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Constants from 'expo-constants';
 import { WebView } from 'react-native-webview';
 
-import { DEFAULT_PRODUCTION_API_ORIGIN, env, pushRegisterUrl, voiceRegisterUrl } from '../config/env';
+import { DEFAULT_PRODUCTION_API_ORIGIN, env, mobileDiagnosticsEnabled, pushRegisterUrl, voiceRegisterUrl } from '../config/env';
 import { useNativePushRegistration } from '../hooks/useNativePushRegistration';
 import { tryRegisterNativeTwilioFromPortalApi } from '../services/nativeSoftphoneApiRegistration';
 import { registerNativeTwilioWithAccessToken } from '../services/nativeTwilioVoiceBridge';
@@ -29,19 +29,22 @@ function portalUrl(): string {
 }
 
 /** Injected into the WebView — POST FCM to portal `devices` registration (cookie session). */
-function buildRegisterPushInjectJs(fcmToken: string, attemptReason: string): string {
+function buildRegisterPushInjectJs(fcmToken: string, attemptReason: string, diagnostics: boolean): string {
   const registerUrl = pushRegisterUrl();
   const platform = Platform.OS === 'ios' ? 'ios' : 'android';
   const bodyStr = JSON.stringify({ fcmToken, platform });
   const reasonJson = JSON.stringify(attemptReason);
   const tokenHint = `${fcmToken.slice(0, 24)}… (len ${fcmToken.length})`;
   const tokenHintJson = JSON.stringify(tokenHint);
+  const diag = diagnostics ? 'true' : 'false';
   return `(function(){
   var attemptReason = ${reasonJson};
   var tokenHint = ${tokenHintJson};
   var url = ${JSON.stringify(registerUrl)};
   var body = ${JSON.stringify(bodyStr)};
+  var diagnostics = ${diag};
   function post(log) {
+    if (!diagnostics) return;
     try {
       if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
         window.ReactNativeWebView.postMessage(JSON.stringify(log));
@@ -198,7 +201,14 @@ export function HomeScreen(_props: HomeScreenProps) {
     twilioVoiceService.setNativeCallBridgeListener((detail) => {
       const wv = webViewRef.current;
       if (!wv) return;
-      const js = `(function(){ try { window.dispatchEvent(new CustomEvent('saintly-native-call-to-web', { detail: ${JSON.stringify(detail)} })); } catch (e) {} true; })();`;
+      const json = JSON.stringify(detail);
+      const now = Date.now();
+      if (json === lastNativeCallToWebJsonRef.current && now - lastNativeCallToWebAtRef.current < 80) {
+        return;
+      }
+      lastNativeCallToWebJsonRef.current = json;
+      lastNativeCallToWebAtRef.current = now;
+      const js = `(function(){ try { window.dispatchEvent(new CustomEvent('saintly-native-call-to-web', { detail: ${json} })); } catch (e) {} true; })();`;
       wv.injectJavaScript(js);
     });
     return () => {
@@ -207,13 +217,15 @@ export function HomeScreen(_props: HomeScreenProps) {
   }, []);
 
   const lastNavUrlRef = useRef<string>('');
+  const lastNativeCallToWebJsonRef = useRef<string>('');
+  const lastNativeCallToWebAtRef = useRef(0);
 
   const runPushRegistration = useCallback((reason: string) => {
     const token = fcmTokenRef.current;
     if (Constants.appOwnership === 'expo' || !token || !webViewRef.current) {
       return;
     }
-    webViewRef.current.injectJavaScript(buildRegisterPushInjectJs(token, reason));
+    webViewRef.current.injectJavaScript(buildRegisterPushInjectJs(token, reason, mobileDiagnosticsEnabled));
   }, []);
 
   const injectWorkspaceVoiceRegister = useCallback(
@@ -235,7 +247,6 @@ export function HomeScreen(_props: HomeScreenProps) {
       );
       /** Voice POST runs with a valid session; flush SMS `user_push_devices` via `/push/register` too. */
       runPushRegistration(`after_voice_inject_${reason}`);
-      setTimeout(() => runPushRegistration(`after_voice_inject_${reason}_400ms`), 400);
       setTimeout(() => runPushRegistration(`after_voice_inject_${reason}_2s`), 2000);
     },
     [runPushRegistration]
@@ -286,9 +297,8 @@ export function HomeScreen(_props: HomeScreenProps) {
     };
 
     run('mount');
-    schedule(2000, 'retry_2s');
-    schedule(8000, 'retry_8s');
-    schedule(20000, 'retry_20s');
+    schedule(4000, 'retry_4s');
+    schedule(15000, 'retry_15s');
 
     const sub = AppState.addEventListener('change', (next) => {
       if (next === 'active') {
@@ -302,14 +312,14 @@ export function HomeScreen(_props: HomeScreenProps) {
       timers.forEach(clearTimeout);
       sub.remove();
     };
-  }, [loading, runNativeSoftphoneRegistration, runPushRegistration]);
+  }, [runNativeSoftphoneRegistration, runPushRegistration]);
 
   /** After FCM token exists: retry registration — cookies may not exist until post-login navigation. */
   useEffect(() => {
     if (!fcmToken || loading || Constants.appOwnership === 'expo') return;
 
     runPushRegistration('webview_load_end');
-    const delaysMs = [2500, 6000, 12000, 20000, 35000];
+    const delaysMs = [4000, 15000];
     const timers = delaysMs.map((ms) =>
       setTimeout(() => {
         runPushRegistration(`retry_${ms}ms_after_load`);
@@ -374,7 +384,9 @@ export function HomeScreen(_props: HomeScreenProps) {
         const raw = event.nativeEvent.data;
         const msg = JSON.parse(raw) as WebViewBridgeMessage;
         if (msg.type === 'push-register-log') {
-          console.warn('[push-register]', msg.step, msg);
+          if (mobileDiagnosticsEnabled) {
+            console.warn('[push-register]', msg.step, msg);
+          }
           return;
         }
         if (msg.type === 'voice-register-log') {
@@ -470,11 +482,8 @@ export function HomeScreen(_props: HomeScreenProps) {
                 runPushRegistration('after_softphone_token');
               }, 0);
               setTimeout(() => {
-                runPushRegistration('after_softphone_token_delay_3s');
-              }, 3000);
-              setTimeout(() => {
-                runPushRegistration('after_softphone_token_delay_8s');
-              }, 8000);
+                runPushRegistration('after_softphone_token_delay_2s');
+              }, 2000);
             }
           })();
         }

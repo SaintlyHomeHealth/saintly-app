@@ -2,6 +2,7 @@ import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
 import type { SoftphoneTokenResponse } from './authTokenService';
+import { diagWarn } from '../utils/mobileDiagnostics';
 
 /**
  * Twilio Voice (React Native) — production façade.
@@ -282,7 +283,7 @@ async function wireActiveCall(call: TwilioCallNative, direction: 'inbound' | 'ou
     } else if (inviteSid?.startsWith('CA')) {
       attachBySid(inviteSid);
     } else {
-      console.warn('[twilioVoiceService] Connected but no CallSid');
+      diagWarn('[twilioVoiceService] Connected but no CallSid');
     }
   });
 }
@@ -367,7 +368,7 @@ export const twilioVoiceService: TwilioVoiceService = {
       await ensureVoiceSingletonWithListeners();
       await runInitializePushRegistryOnce();
     } catch (e) {
-      console.warn('[SAINTLY-VOICE] prepareIosPushRegistryEarly failed', e);
+      diagWarn('[SAINTLY-VOICE] prepareIosPushRegistryEarly failed', e);
     }
   },
 
@@ -409,7 +410,7 @@ export const twilioVoiceService: TwilioVoiceService = {
       try {
         await voiceSingleton.getDeviceToken();
       } catch (e) {
-        console.warn('[twilioVoiceService] getDeviceToken after register failed', e);
+        diagWarn('[twilioVoiceService] getDeviceToken after register failed', e);
       }
     }
   },
@@ -422,7 +423,7 @@ export const twilioVoiceService: TwilioVoiceService = {
       const t = await voiceSingleton.getDeviceToken();
       return typeof t === 'string' && t.trim() ? t.trim() : null;
     } catch (e) {
-      console.warn('[SAINTLY-VOICE] getNativeDeviceToken failed', e);
+      diagWarn('[SAINTLY-VOICE] getNativeDeviceToken failed', e);
       return null;
     }
   },
@@ -594,7 +595,7 @@ export const twilioVoiceService: TwilioVoiceService = {
       await call.mute(muted);
       emitToWeb({ kind: 'mute_changed', muted });
     } catch (e) {
-      console.warn('[twilioVoiceService] setCallMuted', e);
+      diagWarn('[twilioVoiceService] setCallMuted', e);
     }
   },
 
@@ -608,7 +609,7 @@ export const twilioVoiceService: TwilioVoiceService = {
     try {
       await call.sendDigits(s);
     } catch (e) {
-      console.warn('[twilioVoiceService] sendDigits', e);
+      diagWarn('[twilioVoiceService] sendDigits', e);
     }
   },
 
@@ -631,7 +632,7 @@ export const twilioVoiceService: TwilioVoiceService = {
       await match.select();
       emitToWeb({ kind: 'speaker_changed', enabled });
     } catch (e) {
-      console.warn('[twilioVoiceService] setOutputSpeaker failed', e);
+      diagWarn('[twilioVoiceService] setOutputSpeaker failed', e);
     }
   },
 
@@ -644,7 +645,7 @@ export const twilioVoiceService: TwilioVoiceService = {
       if (!selectedDevice) return false;
       return selectedDevice.type === TWILIO_AUDIO.speaker;
     } catch (e) {
-      console.warn('[twilioVoiceService] getOutputSpeaker failed', e);
+      diagWarn('[twilioVoiceService] getOutputSpeaker failed', e);
       return null;
     }
   },

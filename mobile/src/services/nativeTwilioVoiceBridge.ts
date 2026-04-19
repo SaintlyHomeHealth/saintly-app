@@ -4,6 +4,7 @@
  */
 
 import { twilioVoiceService } from './twilioVoiceService';
+import { diagWarn } from '../utils/mobileDiagnostics';
 
 /**
  * Register PushKit (iOS) + Twilio Voice with the same access JWT as the in-webview Device.
@@ -11,11 +12,11 @@ import { twilioVoiceService } from './twilioVoiceService';
  */
 export async function registerNativeTwilioWithAccessToken(accessToken: string, identity?: string): Promise<void> {
   const id = typeof identity === 'string' ? identity.trim() : '';
-  console.warn('[SAINTLY-TRACE] calling native registration from webview token', {
+  diagWarn('[SAINTLY-TRACE] calling native registration from webview token', {
     twilioJwtLength: accessToken.length,
     identityLength: id.length,
   });
-  console.warn('[SAINTLY-NATIVE-AUTH] initializeWithToken_call', {
+  diagWarn('[SAINTLY-NATIVE-AUTH] initializeWithToken_call', {
     path: 'webview_softphone_token_bridge',
     identityTail: id.slice(-12),
   });

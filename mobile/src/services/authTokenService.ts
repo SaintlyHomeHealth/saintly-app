@@ -1,5 +1,6 @@
 import { voiceRegistrationDeviceLog } from '../debug/voiceRegistrationDeviceDebug';
 import { softphoneTokenUrl } from '../config/env';
+import { diagWarn } from '../utils/mobileDiagnostics';
 
 /**
  * Response shape from GET https://appsaintlyhomehealth.com/api/softphone/token
@@ -53,9 +54,9 @@ export async function fetchSoftphoneAccessToken(
       ? 'cookie'
       : 'omit';
 
-  console.warn('[SAINTLY-TRACE] /api/softphone/token request start', { authMode });
+  diagWarn('[SAINTLY-TRACE] /api/softphone/token request start', { authMode });
   voiceRegistrationDeviceLog(`/api/softphone/token request start authMode=${authMode}`);
-  console.warn('[SAINTLY-NATIVE-AUTH] softphone_token_request_start', {
+  diagWarn('[SAINTLY-NATIVE-AUTH] softphone_token_request_start', {
     authMode,
     url,
     bearerLen: bearer?.length ?? 0,
@@ -68,12 +69,12 @@ export async function fetchSoftphoneAccessToken(
     credentials,
   });
 
-  console.warn('[SAINTLY-TRACE] /api/softphone/token response', { status: res.status, ok: res.ok });
+  diagWarn('[SAINTLY-TRACE] /api/softphone/token response', { status: res.status, ok: res.ok });
   voiceRegistrationDeviceLog(`/api/softphone/token response status=${res.status} ok=${res.ok}`);
 
   const body = (await res.json().catch(() => ({}))) as SoftphoneTokenResponse;
 
-  console.warn('[SAINTLY-NATIVE-AUTH] softphone_token_response', {
+  diagWarn('[SAINTLY-NATIVE-AUTH] softphone_token_response', {
     authMode,
     status: res.status,
     ok: res.ok,

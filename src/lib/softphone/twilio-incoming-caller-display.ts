@@ -1,6 +1,7 @@
 import type { Call } from "@twilio/voice-sdk";
 
 import { formatPhoneNumber, normalizePhone } from "@/lib/phone/us-phone-format";
+import { softphoneClientDebugEnabled, softphoneDevLog, softphoneDevWarn } from "@/lib/softphone/softphone-client-debug";
 
 /** Keys Twilio may send on a Client incoming leg (incl. after transfer). Order does not matter; we score by digit length. */
 const PSTN_CLI_PARAMETER_KEYS = [
@@ -157,27 +158,27 @@ const SAINTLY_INBOUND_DEBUG_PREFIX = "[SAINTLY-INBOUND-DEBUG]";
  * Does not change behavior.
  */
 export function debugLogSaintlyInboundBrowserPstn(call: Call): void {
-  if (typeof window === "undefined") return;
+  if (typeof window === "undefined" || !softphoneClientDebugEnabled()) return;
   try {
     const p = call.parameters ?? {};
-    console.log(SAINTLY_INBOUND_DEBUG_PREFIX, "call.parameters", { ...p });
+    softphoneDevLog(SAINTLY_INBOUND_DEBUG_PREFIX, "call.parameters", { ...p });
 
     const cm = call.customParameters;
     const customPlain = cm ? Object.fromEntries(cm.entries()) : null;
-    console.log(SAINTLY_INBOUND_DEBUG_PREFIX, "call.customParameters", customPlain);
+    softphoneDevLog(SAINTLY_INBOUND_DEBUG_PREFIX, "call.customParameters", customPlain);
 
     const standardByKey: Record<string, string | null> = {};
     for (const k of PSTN_CLI_PARAMETER_KEYS) {
       standardByKey[k] = paramValue(call.parameters, k);
     }
-    console.log(SAINTLY_INBOUND_DEBUG_PREFIX, "standardPstnParameterValuesByKey", standardByKey);
+    softphoneDevLog(SAINTLY_INBOUND_DEBUG_PREFIX, "standardPstnParameterValuesByKey", standardByKey);
 
     const filteredCandidates = collectPstnCallerCandidatesFromCall(call);
-    console.log(SAINTLY_INBOUND_DEBUG_PREFIX, "pstnCandidatesPassingIsUsablePstnCliRaw", filteredCandidates);
+    softphoneDevLog(SAINTLY_INBOUND_DEBUG_PREFIX, "pstnCandidatesPassingIsUsablePstnCliRaw", filteredCandidates);
 
     const chosen = readIncomingCallerRawFromCall(call);
-    console.log(SAINTLY_INBOUND_DEBUG_PREFIX, "readIncomingCallerRawFromCall()", chosen);
+    softphoneDevLog(SAINTLY_INBOUND_DEBUG_PREFIX, "readIncomingCallerRawFromCall()", chosen);
   } catch (e) {
-    console.warn(SAINTLY_INBOUND_DEBUG_PREFIX, "debugLogSaintlyInboundBrowserPstn error", e);
+    softphoneDevWarn(SAINTLY_INBOUND_DEBUG_PREFIX, "debugLogSaintlyInboundBrowserPstn error", e);
   }
 }
