@@ -81,7 +81,7 @@ export async function sendFcmDataAndNotificationToUserIds(
   }
 
   pushTiming("fcm_before_load_tokens", { recipientUserCount: uniqueUsers.length, title: input.title });
-  let tokenQuery = supabase.from("user_push_devices").select("fcm_token").in("user_id", uniqueUsers);
+  let tokenQuery = supabase.from("user_push_devices").select("fcm_token, platform").in("user_id", uniqueUsers);
   if (input.recipientPlatforms?.length) {
     tokenQuery = tokenQuery.in("platform", input.recipientPlatforms);
   }
@@ -93,8 +93,22 @@ export async function sendFcmDataAndNotificationToUserIds(
     return { ok: false, error: error.message };
   }
 
-  const tokens = [...new Set((rows ?? []).map((r) => r.fcm_token as string).filter(Boolean))];
-  if (tokens.length === 0) {
+  const androidTokens: string[] = [];
+  const iosTokens: string[] = [];
+  for (const r of rows ?? []) {
+    const t = typeof r.fcm_token === "string" ? r.fcm_token.trim() : "";
+    if (!t) continue;
+    const p = typeof (r as { platform?: string | null }).platform === "string"
+      ? (r as { platform: string }).platform.trim().toLowerCase()
+      : "";
+    if (p === "ios") iosTokens.push(t);
+    else androidTokens.push(t);
+  }
+  const androidUnique = [...new Set(androidTokens)];
+  const iosUnique = [...new Set(iosTokens)];
+  const totalTargets = androidUnique.length + iosUnique.length;
+
+  if (totalTargets === 0) {
     const empty: FcmSendResult = {
       ok: true,
       sent: 0,
@@ -119,10 +133,18 @@ export async function sendFcmDataAndNotificationToUserIds(
     apnsCollapseId,
   });
 
-  const multicastTemplate = {
+  /**
+   * iOS: send `data` + explicit APNs alert only. Combining top-level `notification` with a custom
+   * `apns.payload.aps` has led to FCM/APNs rejecting or dropping messages (push “dead” on device).
+   * Android: classic notification + data + high priority.
+   */
+  const androidMessage = {
     notification: { title: input.title, body: input.body },
     data: dataPayload,
     android: { priority: "high" as const },
+  };
+  const iosMessage = {
+    data: dataPayload,
     apns,
   };
 
@@ -130,39 +152,26 @@ export async function sendFcmDataAndNotificationToUserIds(
   const invalid: string[] = [];
   const errors: Array<{ code: string; message?: string }> = [];
 
-  const chunkSize = 500;
-  for (let i = 0; i < tokens.length; i += chunkSize) {
-    const chunk = tokens.slice(i, i + chunkSize);
-    pushTiming("fcm_before_firebase_send", { tokenCount: chunk.length, chunkIndex: i / chunkSize });
-    if (logFcmPayload) {
-      console.log("[push] fcm_multicast_template", {
-        chunkIndex: i / chunkSize,
-        tokenCount: chunk.length,
-        apnsHeaders: apns.headers,
-        apnsPayloadAps: apns.payload?.aps,
-        notification: multicastTemplate.notification,
-        dataKeys: Object.keys(dataPayload),
-      });
-    }
-    const res = await messaging.sendEachForMulticast({
-      tokens: chunk,
-      ...multicastTemplate,
-    });
-    pushTiming("fcm_after_firebase_send", {
-      successCount: res.successCount,
-      failureCount: res.failureCount,
-      chunkIndex: i / chunkSize,
-    });
-
-    sent += res.successCount;
-
+  const handleResponses = (
+    res: {
+      responses: Array<{
+        success: boolean;
+        messageId?: string;
+        error?: { code?: string; message?: string };
+      }>;
+    },
+    chunk: string[],
+    platformLabel: "android" | "ios",
+    chunkIndex: number
+  ): void => {
     res.responses.forEach((r, idx) => {
       const token = chunk[idx];
       const tokenTail = token && token.length > 12 ? token.slice(-12) : token;
       if (r.success) {
         if (logFcmPayload) {
           console.log("[push] FCM token_accepted", {
-            chunkIndex: i / chunkSize,
+            platform: platformLabel,
+            chunkIndex,
             idx,
             tokenTail,
             messageId: r.messageId,
@@ -179,16 +188,73 @@ export async function sendFcmDataAndNotificationToUserIds(
       } else {
         const message = r.error?.message;
         errors.push({ code: code || "(unknown)", message });
-        console.warn("[push] FCM send error:", code, message, { tokenTail });
+        console.warn("[push] FCM send error:", code, message, { tokenTail, platform: platformLabel });
       }
     });
+  };
+
+  const chunkSize = 500;
+  let chunkIdx = 0;
+  for (let i = 0; i < androidUnique.length; i += chunkSize) {
+    const chunk = androidUnique.slice(i, i + chunkSize);
+    pushTiming("fcm_before_firebase_send", { tokenCount: chunk.length, chunkIndex: chunkIdx, platform: "android" });
+    if (logFcmPayload) {
+      console.log("[push] fcm_multicast_template", {
+        platform: "android",
+        chunkIndex: chunkIdx,
+        tokenCount: chunk.length,
+        notification: androidMessage.notification,
+        dataKeys: Object.keys(dataPayload),
+        android: androidMessage.android,
+      });
+    }
+    const resA = await messaging.sendEachForMulticast({
+      tokens: chunk,
+      ...androidMessage,
+    });
+    pushTiming("fcm_after_firebase_send", {
+      successCount: resA.successCount,
+      failureCount: resA.failureCount,
+      chunkIndex: chunkIdx,
+      platform: "android",
+    });
+    sent += resA.successCount;
+    handleResponses(resA, chunk, "android", chunkIdx);
+    chunkIdx += 1;
+  }
+  for (let i = 0; i < iosUnique.length; i += chunkSize) {
+    const chunk = iosUnique.slice(i, i + chunkSize);
+    pushTiming("fcm_before_firebase_send", { tokenCount: chunk.length, chunkIndex: chunkIdx, platform: "ios" });
+    if (logFcmPayload) {
+      console.log("[push] fcm_multicast_template", {
+        platform: "ios",
+        chunkIndex: chunkIdx,
+        tokenCount: chunk.length,
+        dataKeys: Object.keys(dataPayload),
+        apnsHeaders: apns.headers,
+        apnsPayloadAps: apns.payload?.aps,
+      });
+    }
+    const resI = await messaging.sendEachForMulticast({
+      tokens: chunk,
+      ...iosMessage,
+    });
+    pushTiming("fcm_after_firebase_send", {
+      successCount: resI.successCount,
+      failureCount: resI.failureCount,
+      chunkIndex: chunkIdx,
+      platform: "ios",
+    });
+    sent += resI.successCount;
+    handleResponses(resI, chunk, "ios", chunkIdx);
+    chunkIdx += 1;
   }
 
   if (invalid.length > 0) {
     await deleteInvalidTokens(supabase, invalid);
   }
 
-  const failureCount = tokens.length - sent;
+  const failureCount = totalTargets - sent;
   const result: FcmSendResult = {
     ok: true,
     sent,
@@ -201,7 +267,9 @@ export async function sendFcmDataAndNotificationToUserIds(
     sent: result.sent,
     failureCount: result.failureCount,
     invalidTokenRemovalCount: result.invalidTokenRemovalCount,
-    tokenCount: tokens.length,
+    tokenCount: totalTargets,
+    androidTokenCount: androidUnique.length,
+    iosTokenCount: iosUnique.length,
     recipientUserCount: uniqueUsers.length,
     errors: result.errors,
   });

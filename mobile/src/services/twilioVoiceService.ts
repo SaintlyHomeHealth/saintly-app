@@ -296,6 +296,16 @@ async function ensureVoiceSingletonWithListeners(): Promise<void> {
     const sid = invite.getCallSid();
     inviteByCallSid.set(sid, invite);
 
+    /**
+     * CallKit / lock-screen answer accepts via the native layer without `twilioVoiceService.answer()`.
+     * `CallInvite.Event.Accepted` fires for both native and in-app accept; wire the Call once here.
+     */
+    invite.on(CallInvite.Event.Accepted, (...args: unknown[]) => {
+      const call = args[0] as TwilioCallNative;
+      inviteByCallSid.delete(sid);
+      void wireActiveCall(call, 'inbound', sid);
+    });
+
     invite.on(CallInvite.Event.Cancelled, () => {
       inviteByCallSid.delete(sid);
       activeCallByCallSid.delete(sid);
@@ -459,9 +469,8 @@ export const twilioVoiceService: TwilioVoiceService = {
       throw new Error(msg);
     }
     try {
-      const call = (await invite.accept()) as TwilioCallNative;
-      inviteByCallSid.delete(callId);
-      await wireActiveCall(call, 'inbound', callId);
+      await invite.accept();
+      /** `CallInvite.Event.Accepted` → `wireActiveCall` (covers CallKit + in-app answer). */
     } catch (e) {
       inviteByCallSid.delete(callId);
       const msg = formatTwilioError(e);

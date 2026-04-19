@@ -423,6 +423,12 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
   const [inboundAiAssist, setInboundAiAssist] = useState<InboundAiAssistState | null>(null);
   const statusRef = useRef(status);
   const ringtoneUnlockedRef = useRef(false);
+  /** RN shell uses native CallKit audio — no browser ringtone gesture required. */
+  useEffect(() => {
+    if (!nativeVoiceCallShell) return;
+    ringtoneUnlockedRef.current = true;
+    setRingtoneUnlocked(true);
+  }, [nativeVoiceCallShell]);
   const deviceRef = useRef<Device | null>(null);
   const activeCallRef = useRef<CallHandle | null>(null);
   const ringtoneAudioRef = useRef<HTMLAudioElement | null>(null);

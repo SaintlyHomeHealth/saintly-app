@@ -63,7 +63,7 @@ export async function sendFcmDataAndNotificationToDevicesForUsers(
 
   let devQuery = supabase
     .from("devices")
-    .select("fcm_token")
+    .select("fcm_token, platform")
     .in("user_id", uniqueUsers)
     .eq("is_active", true)
     .not("fcm_token", "is", null);
@@ -77,15 +77,22 @@ export async function sendFcmDataAndNotificationToDevicesForUsers(
     return { ok: false, error: error.message };
   }
 
-  const tokens = [
-    ...new Set(
-      (rows ?? [])
-        .map((r) => r.fcm_token as string | null)
-        .filter((t): t is string => Boolean(t && t.trim()))
-    ),
-  ];
+  const androidTokens: string[] = [];
+  const iosTokens: string[] = [];
+  for (const r of rows ?? []) {
+    const t = typeof r.fcm_token === "string" ? r.fcm_token.trim() : "";
+    if (!t) continue;
+    const p = typeof (r as { platform?: string | null }).platform === "string"
+      ? (r as { platform: string }).platform.trim().toLowerCase()
+      : "";
+    if (p === "ios") iosTokens.push(t);
+    else androidTokens.push(t);
+  }
+  const androidUnique = [...new Set(androidTokens)];
+  const iosUnique = [...new Set(iosTokens)];
+  const totalTargets = androidUnique.length + iosUnique.length;
 
-  if (tokens.length === 0) {
+  if (totalTargets === 0) {
     return { ok: true, sent: 0, failureCount: 0, invalidTokenRemovalCount: 0, errors: [] };
   }
 
@@ -98,28 +105,52 @@ export async function sendFcmDataAndNotificationToDevicesForUsers(
     apnsCollapseId,
   });
 
+  const androidMessage = {
+    notification: { title: input.title, body: input.body },
+    data: dataPayload,
+    android: { priority: "high" as const },
+  };
+  const iosMessage = {
+    data: dataPayload,
+    apns,
+  };
+
   let sent = 0;
   const invalid: string[] = [];
   const errors: Array<{ code: string; message?: string }> = [];
 
   const chunkSize = 500;
-  for (let i = 0; i < tokens.length; i += chunkSize) {
-    const chunk = tokens.slice(i, i + chunkSize);
+  for (let i = 0; i < androidUnique.length; i += chunkSize) {
+    const chunk = androidUnique.slice(i, i + chunkSize);
     const res = await messaging.sendEachForMulticast({
       tokens: chunk,
-      notification: {
-        title: input.title,
-        body: input.body,
-      },
-      data: dataPayload,
-      android: {
-        priority: "high",
-      },
-      apns,
+      ...androidMessage,
     });
-
     sent += res.successCount;
-
+    res.responses.forEach((r, idx) => {
+      if (!r.success) {
+        const code = r.error?.code ?? "";
+        const token = chunk[idx];
+        if (
+          code === "messaging/registration-token-not-registered" ||
+          code === "messaging/invalid-registration-token"
+        ) {
+          if (token) invalid.push(token);
+        } else {
+          const message = r.error?.message;
+          errors.push({ code: code || "(unknown)", message });
+          console.warn("[push] FCM device send error:", code, message);
+        }
+      }
+    });
+  }
+  for (let i = 0; i < iosUnique.length; i += chunkSize) {
+    const chunk = iosUnique.slice(i, i + chunkSize);
+    const res = await messaging.sendEachForMulticast({
+      tokens: chunk,
+      ...iosMessage,
+    });
+    sent += res.successCount;
     res.responses.forEach((r, idx) => {
       if (!r.success) {
         const code = r.error?.code ?? "";
@@ -142,7 +173,7 @@ export async function sendFcmDataAndNotificationToDevicesForUsers(
     await deleteInvalidDeviceTokens(supabase, invalid);
   }
 
-  const failureCount = tokens.length - sent;
+  const failureCount = totalTargets - sent;
   return {
     ok: true,
     sent,

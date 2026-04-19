@@ -12,6 +12,7 @@ import { formatPhoneNumber } from "@/lib/phone/us-phone-format";
 import { isValidE164, normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
 import { isPlausiblePstnCallerRawForSubline } from "@/lib/softphone/twilio-incoming-caller-display";
 import { openSoftphoneAppSettings } from "@/lib/softphone/open-app-settings";
+import { isReactNativeWebViewShell } from "@/lib/softphone/native-speaker-bridge";
 
 const DIALPAD_ROWS: ReadonlyArray<ReadonlyArray<{ digit: string; sub?: string }>> = [
   [
@@ -236,7 +237,7 @@ export function SoftphoneDialer({
                 ? "Connecting to phone service…"
                 : "Inbound listen unavailable; outbound may still work after you place a call."}
           </p>
-          {!ringtoneUnlocked ? (
+          {!isReactNativeWebViewShell() && !ringtoneUnlocked ? (
             <p className="mt-1 max-w-xl text-xs text-amber-800">
               Tap this panel once to unlock incoming ring sound on this device (mobile browsers require a gesture).
             </p>
@@ -445,7 +446,7 @@ export function SoftphoneDialer({
             </div>
           </div>
         ) : null}
-        {!ringtoneUnlocked ? (
+        {!isReactNativeWebViewShell() && !ringtoneUnlocked ? (
           <p className="mt-2 border-t border-amber-200/15 pt-1.5 text-[8px] leading-snug text-amber-800/45 sm:text-[9px]">
             Tap the dial pad once so incoming calls can ring on this device.
           </p>
