@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { WorkspacePhonePageHeader } from "../../_components/WorkspacePhonePageHeader";
 import { NewWorkspaceSmsComposeClient } from "../_components/NewWorkspaceSmsComposeClient";
+import { pickOutboundE164ForDial } from "@/lib/workspace-phone/launch-urls";
 import { canAccessWorkspacePhone, getStaffProfile } from "@/lib/staff-profile";
 import { supabaseAdmin } from "@/lib/admin";
 
@@ -60,9 +61,13 @@ export default async function WorkspaceInboxNewSmsPage({ searchParams }: PagePro
   const smsErrRaw = one(sp, "smsErr").trim();
   const threadErrRaw = one(sp, "threadErr").trim();
   const recruitArg = one(sp, "recruitingCandidateId").trim();
+  const phoneArg = one(sp, "phone").trim();
+  const contactArg = one(sp, "contactId").trim();
+  const nameArg = one(sp, "name").trim();
 
   let initialRecruitingCandidateId: string | null = null;
   let initialPhone: string | null = null;
+  let initialContactId: string | null = null;
   let initialNameHint: string | null = null;
 
   const threadErrDecoded = threadErrRaw ? safeDecodeParam(threadErrRaw) : null;
@@ -87,6 +92,47 @@ export default async function WorkspaceInboxNewSmsPage({ searchParams }: PagePro
       initialPhone = typeof cand.phone === "string" ? cand.phone : null;
       initialNameHint = typeof cand.full_name === "string" ? cand.full_name : null;
     }
+  } else if (contactArg && UUID_RE.test(contactArg)) {
+    const { data: existingConv } = await supabaseAdmin
+      .from("conversations")
+      .select("id")
+      .eq("channel", "sms")
+      .eq("primary_contact_id", contactArg)
+      .order("last_message_at", { ascending: false, nullsFirst: false })
+      .limit(1)
+      .maybeSingle();
+    if (existingConv?.id && typeof existingConv.id === "string") {
+      redirect(`/workspace/phone/inbox/${existingConv.id}`);
+    }
+    initialContactId = contactArg;
+    const normalizedPhone = phoneArg ? pickOutboundE164ForDial(phoneArg) : null;
+    if (normalizedPhone) {
+      initialPhone = normalizedPhone;
+    } else {
+      const { data: cRow } = await supabaseAdmin
+        .from("contacts")
+        .select("primary_phone")
+        .eq("id", contactArg)
+        .maybeSingle();
+      const raw = typeof cRow?.primary_phone === "string" ? cRow.primary_phone : null;
+      initialPhone = raw ? pickOutboundE164ForDial(raw) : null;
+    }
+    if (nameArg) {
+      try {
+        initialNameHint = decodeURIComponent(nameArg).trim() || null;
+      } catch {
+        initialNameHint = nameArg.trim() || null;
+      }
+    }
+  } else if (phoneArg) {
+    initialPhone = pickOutboundE164ForDial(phoneArg);
+    if (nameArg) {
+      try {
+        initialNameHint = decodeURIComponent(nameArg).trim() || null;
+      } catch {
+        initialNameHint = nameArg.trim() || null;
+      }
+    }
   }
 
   return (
@@ -108,6 +154,7 @@ export default async function WorkspaceInboxNewSmsPage({ searchParams }: PagePro
         <NewWorkspaceSmsComposeClient
           initialRecruitingCandidateId={initialRecruitingCandidateId}
           initialPhone={initialPhone}
+          initialContactId={initialContactId}
           initialNameHint={initialNameHint}
           errorBanner={resolveErrorBanner()}
           twilioError={

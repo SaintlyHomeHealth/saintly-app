@@ -1,15 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { Phone } from "lucide-react";
+import { MessageSquare, Phone } from "lucide-react";
 
 import { WorkspaceMarkMissedResolvedButton } from "./WorkspaceMarkMissedResolvedButton";
 import { formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import {
+  buildWorkspaceInboxNewSmsHref,
   buildWorkspaceKeypadCallHref,
   pickOutboundE164ForDial,
-  buildWorkspaceSmsToContactHref,
 } from "@/lib/workspace-phone/launch-urls";
 
 type ContactNameEmbed = { full_name?: unknown; first_name?: unknown; last_name?: unknown };
@@ -69,25 +69,12 @@ function initialsForRow(displayTitle: string, numberFallback: string): string {
   return "?";
 }
 
-function detailHref(opts: {
-  patientId: string | null;
-  contactId: string;
-  dial: string | null;
-}): string {
-  if (opts.patientId) return `/workspace/phone/patients/${opts.patientId}`;
-  if (opts.contactId) return buildWorkspaceSmsToContactHref({ contactId: opts.contactId });
-  if (opts.dial && pickOutboundE164ForDial(opts.dial))
-    return buildWorkspaceKeypadCallHref({ dial: opts.dial, placeCall: false });
-  return "/workspace/phone/keypad";
-}
-
 type Props = {
   row: CallInboxRow;
   variant: "missed" | "recent";
-  patientId: string | null;
 };
 
-export function WorkspaceCallInboxCard({ row, variant, patientId }: Props) {
+export function WorkspaceCallInboxCard({ row, variant }: Props) {
   const label = crmDisplayNameFromContactsRaw(row.contacts);
   const activityIsoForDisplay =
     variant === "recent"
@@ -106,9 +93,16 @@ export function WorkspaceCallInboxCard({ row, variant, patientId }: Props) {
   const title = label ?? numberDisplay;
   const missed = variant === "missed";
   const initials = initialsForRow(title, numberDisplay);
-  const rowTo = detailHref({ patientId, contactId: cid, dial: numRaw });
-  const canDial = Boolean(numRaw && pickOutboundE164ForDial(numRaw));
-  const callHref = canDial && numRaw ? buildWorkspaceKeypadCallHref({ dial: numRaw, placeCall: true }) : null;
+  const e164 = numRaw ? pickOutboundE164ForDial(numRaw) : null;
+  const canDial = Boolean(e164);
+  const callHref = canDial && e164 ? buildWorkspaceKeypadCallHref({ dial: e164, placeCall: false }) : null;
+  const textHref = canDial
+    ? buildWorkspaceInboxNewSmsHref({
+        phone: e164 ?? undefined,
+        contactId: cid || null,
+        name: label ?? undefined,
+      })
+    : null;
   const pid = typeof row.id === "string" ? row.id.trim() : "";
 
   const logCallback = () => {
@@ -125,13 +119,15 @@ export function WorkspaceCallInboxCard({ row, variant, patientId }: Props) {
     ? "truncate text-[15px] font-semibold text-rose-700"
     : "truncate text-[15px] font-semibold text-phone-navy";
 
+  const callBtnCls =
+    "inline-flex h-10 min-w-[2.75rem] flex-1 items-center justify-center gap-1.5 rounded-full bg-gradient-to-r from-blue-950 via-blue-700 to-sky-500 px-3 text-xs font-bold text-white shadow-md shadow-blue-900/20 transition hover:brightness-105 active:scale-[0.97] sm:flex-initial sm:px-4";
+  const textBtnCls =
+    "inline-flex h-10 min-w-[2.75rem] flex-1 items-center justify-center gap-1.5 rounded-full border border-sky-200/90 bg-white px-3 text-xs font-semibold text-sky-950 shadow-sm transition hover:bg-sky-50 active:scale-[0.97] sm:flex-initial sm:px-4";
+
   return (
     <li className="border-b border-slate-200/80 last:border-b-0">
-      <div className="flex h-16 max-h-16 min-h-16 items-stretch gap-2 pr-1">
-        <Link
-          href={rowTo}
-          className="flex min-w-0 flex-1 items-center gap-3 py-2 pl-0 pr-1 transition active:bg-slate-50/80"
-        >
+      <div className="flex min-h-16 items-stretch gap-2 py-1 pr-1">
+        <div className="flex min-w-0 flex-1 items-center gap-3 py-2 pl-0 pr-1">
           <span
             className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[12px] font-bold tabular-nums ${
               missed
@@ -147,21 +143,32 @@ export function WorkspaceCallInboxCard({ row, variant, patientId }: Props) {
             <p className="truncate font-mono text-[13px] tabular-nums text-slate-500">{numberDisplay}</p>
             <p className="text-[11px] font-medium text-slate-400">{when}</p>
           </div>
-        </Link>
-        <div className="flex shrink-0 items-center gap-1">
+        </div>
+        <div className="flex max-w-[11rem] shrink-0 flex-col items-stretch justify-center gap-1.5 sm:max-w-none sm:flex-row sm:items-center sm:gap-2">
           {missed ? <WorkspaceMarkMissedResolvedButton callId={row.id} variant="compact" /> : null}
           {callHref ? (
             <Link
               href={callHref}
-              onClick={(e) => {
-                e.stopPropagation();
+              onClick={() => {
                 logCallback();
               }}
               title="Call"
               aria-label={`Call ${numberDisplay}`}
-              className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200/90 bg-white text-sky-800 shadow-sm transition hover:border-sky-300 hover:bg-sky-50 active:scale-[0.97]"
+              className={callBtnCls}
             >
-              <Phone className="h-[18px] w-[18px]" strokeWidth={2} aria-hidden />
+              <Phone className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
+              <span className="hidden sm:inline">Call</span>
+            </Link>
+          ) : null}
+          {textHref ? (
+            <Link
+              href={textHref}
+              title="Text"
+              aria-label={`Text ${numberDisplay}`}
+              className={textBtnCls}
+            >
+              <MessageSquare className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
+              <span className="hidden sm:inline">Text</span>
             </Link>
           ) : null}
         </div>

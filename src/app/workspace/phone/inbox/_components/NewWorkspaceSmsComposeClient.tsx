@@ -17,6 +17,8 @@ type Props = {
   /** Prefill from `/workspace/phone/inbox/new?recruitingCandidateId=` */
   initialRecruitingCandidateId?: string | null;
   initialPhone?: string | null;
+  /** Prefill from `/workspace/phone/inbox/new?contactId=` (CRM contact UUID) */
+  initialContactId?: string | null;
   initialNameHint?: string | null;
   errorBanner?: string | null;
   twilioError?: string | null;
@@ -25,12 +27,13 @@ type Props = {
 export function NewWorkspaceSmsComposeClient({
   initialRecruitingCandidateId,
   initialPhone,
+  initialContactId,
   initialNameHint,
   errorBanner,
   twilioError,
 }: Props) {
   const [phone, setPhone] = useState(initialPhone ?? "");
-  const [contactId, setContactId] = useState("");
+  const [contactId, setContactId] = useState((initialContactId ?? "").trim());
   const [recruitingCandidateId, setRecruitingCandidateId] = useState(initialRecruitingCandidateId ?? "");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [hits, setHits] = useState<{ contacts: SmsComposeSearchRow[]; recruits: SmsComposeSearchRow[] }>({

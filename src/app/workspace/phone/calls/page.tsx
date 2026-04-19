@@ -98,38 +98,6 @@ export default async function WorkspaceCallsPage() {
     (recentResolvedMissedData ?? []) as CallInboxRow[]
   );
 
-  const allContacts = [...missed, ...recent]
-    .map((r) => (typeof r.contact_id === "string" ? r.contact_id : ""))
-    .filter(Boolean);
-  const contactIds = [...new Set(allContacts)];
-
-  const patientByContact = new Map<string, string>();
-  if (contactIds.length > 0) {
-    if (hasFull) {
-      const { data: prows } = await supabase.from("patients").select("id, contact_id").in("contact_id", contactIds);
-      for (const p of prows ?? []) {
-        const cid = typeof p.contact_id === "string" ? p.contact_id : "";
-        const pid = typeof p.id === "string" ? p.id : "";
-        if (cid && pid && !patientByContact.has(cid)) patientByContact.set(cid, pid);
-      }
-    } else {
-      const { data: asnRows } = await supabase
-        .from("patient_assignments")
-        .select("patient_id, patients ( id, contact_id )")
-        .eq("assigned_user_id", staff.user_id)
-        .eq("is_active", true);
-      for (const a of asnRows ?? []) {
-        const pRaw = (a as { patients?: unknown }).patients;
-        const p = pRaw && typeof pRaw === "object" && !Array.isArray(pRaw) ? (pRaw as { id?: unknown; contact_id?: unknown }) : null;
-        const pid = p && typeof p.id === "string" ? p.id : "";
-        const cid = p && typeof p.contact_id === "string" ? p.contact_id : "";
-        if (pid && cid && contactIds.includes(cid) && !patientByContact.has(cid)) {
-          patientByContact.set(cid, pid);
-        }
-      }
-    }
-  }
-
   return (
     <div className="ws-phone-page-shell flex flex-1 flex-col px-4 pb-6 pt-5 sm:px-5">
       <WorkspacePhonePageHeader
@@ -156,14 +124,7 @@ export default async function WorkspaceCallsPage() {
           </div>
           <ul className="overflow-hidden rounded-xl border border-slate-200/80 bg-white">
             {missed.map((row) => (
-              <WorkspaceCallInboxCard
-                key={row.id}
-                row={row}
-                variant="missed"
-                patientId={
-                  typeof row.contact_id === "string" ? patientByContact.get(row.contact_id) ?? null : null
-                }
-              />
+              <WorkspaceCallInboxCard key={row.id} row={row} variant="missed" />
             ))}
           </ul>
         </section>
@@ -184,14 +145,7 @@ export default async function WorkspaceCallsPage() {
           ) : (
             <ul className="overflow-hidden rounded-xl border border-slate-200/80 bg-white">
               {recent.map((row) => (
-                <WorkspaceCallInboxCard
-                  key={row.id}
-                  row={row}
-                  variant="recent"
-                  patientId={
-                    typeof row.contact_id === "string" ? patientByContact.get(row.contact_id) ?? null : null
-                  }
-                />
+                <WorkspaceCallInboxCard key={row.id} row={row} variant="recent" />
               ))}
             </ul>
           )}

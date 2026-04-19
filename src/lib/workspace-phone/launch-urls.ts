@@ -92,3 +92,25 @@ export function buildWorkspaceSmsToContactHref(opts: WorkspaceSmsLaunch): string
   }
   return `/workspace/phone/sms-to-contact?${q.toString()}`;
 }
+
+/**
+ * Workspace “new SMS” compose — supported query keys: `phone`, `contactId`, `name` (display hint).
+ * Server page may redirect to an existing `/workspace/phone/inbox/[conversationId]` when a thread exists.
+ */
+export function buildWorkspaceInboxNewSmsHref(opts: {
+  /** E.164 or normalizable dial string for the To field */
+  phone?: string | null;
+  contactId?: string | null;
+  /** Short display name hint (e.g. contact name) */
+  name?: string | null;
+}): string {
+  const q = new URLSearchParams();
+  const phone = (opts.phone ?? "").trim();
+  if (phone) q.set("phone", phone);
+  const cid = (opts.contactId ?? "").trim();
+  if (cid && UUID_RE.test(cid)) q.set("contactId", cid);
+  const name = (opts.name ?? "").trim();
+  if (name) q.set("name", name.slice(0, 120));
+  const qs = q.toString();
+  return qs ? `/workspace/phone/inbox/new?${qs}` : "/workspace/phone/inbox/new";
+}
