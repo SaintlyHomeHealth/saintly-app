@@ -20,8 +20,8 @@ const useDevClientPlugin = process.env.EXPO_USE_DEV_CLIENT_PLUGIN === '1';
 
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
-  /** Shown under the icon and in system UI — production-facing Saintly Home Health branding. */
-  name: 'Saintly Home Health',
+  /** Shown under the icon and in system UI (softphone / “Saintly Phone” product name). */
+  name: 'Saintly Phone',
   slug: 'saintly-phone',
   version: '1.0.0',
   orientation: 'portrait',
@@ -30,9 +30,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   newArchEnabled: true,
   scheme: 'saintly-softphone',
   splash: {
-    image: './assets/splash-icon.png',
+    image: './assets/splash.png',
     resizeMode: 'contain',
-    backgroundColor: '#f4f7fb',
+    backgroundColor: '#f8fbff',
   },
   ios: {
     supportsTablet: true,
@@ -61,7 +61,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   android: {
     adaptiveIcon: {
       foregroundImage: './assets/adaptive-icon.png',
-      backgroundColor: '#f4f7fb',
+      backgroundColor: '#ffffff',
     },
     package: 'com.saintlyhomehealth.app',
     googleServicesFile: './google-services.json',
