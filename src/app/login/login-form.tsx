@@ -87,30 +87,30 @@ export function LoginForm() {
   return (
     <div className="flex w-full flex-1 flex-col items-center justify-center px-6 py-12 sm:py-16">
       <div className="flex w-full max-w-md flex-col items-center">
-        <div className="mb-10 flex w-full flex-col items-center">
+        <div className="mb-7 flex w-full flex-col items-center">
           {!logoFailed ? (
             <Image
               src="/saintly-logo.png"
               alt="Saintly Home Health"
-              width={260}
-              height={80}
-              className="h-16 w-auto max-w-[min(100%,280px)] object-contain"
+              width={338}
+              height={104}
+              className="h-20 w-auto max-w-[min(100%,340px)] object-contain opacity-[0.97] drop-shadow-[0_2px_14px_rgba(15,23,42,0.08)]"
               priority
-              sizes="280px"
+              sizes="340px"
               onError={() => setLogoFailed(true)}
             />
           ) : (
-            <p className="text-center text-2xl font-semibold tracking-tight text-sky-950">
+            <p className="text-center text-3xl font-semibold tracking-tight text-sky-950 drop-shadow-[0_2px_10px_rgba(15,23,42,0.06)]">
               Saintly Home Health
             </p>
           )}
         </div>
 
-        <div className="w-full rounded-[32px] border border-slate-200/80 bg-white/95 p-9 shadow-lg backdrop-blur-[2px]">
-          <h1 className="text-center text-2xl font-semibold tracking-tight text-slate-900">
+        <div className="w-full rounded-3xl border border-gray-100 bg-white/98 p-9 shadow-[0_12px_40px_-12px_rgba(15,23,42,0.12)] backdrop-blur-[2px]">
+          <h1 className="text-center text-2xl font-bold tracking-tighter text-slate-900">
             Welcome to Saintly
           </h1>
-          <p className="mt-2 text-center text-sm text-slate-600">
+          <p className="mt-2 text-center text-xs text-gray-500">
             Sign in to access your dashboard
           </p>
 
@@ -121,48 +121,50 @@ export function LoginForm() {
           ) : null}
 
           <form
-            className={`space-y-5 ${urlError === "auth" ? "mt-6" : "mt-8"}`}
+            className={`flex flex-col ${urlError === "auth" ? "mt-6" : "mt-8"}`}
             onSubmit={handleSubmit}
           >
-            <div>
-              <label
-                htmlFor="email"
-                className="block text-xs font-semibold uppercase tracking-wider text-slate-500"
-              >
-                Email
-              </label>
-              <input
-                id="email"
-                name="email"
-                type="email"
-                autoComplete="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="mt-2 min-h-[48px] w-full rounded-2xl border border-slate-200/90 bg-white px-4 py-3.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-sky-400 focus:ring-2 focus:ring-sky-200/90"
-              />
-            </div>
-            <div>
-              <label
-                htmlFor="password"
-                className="block text-xs font-semibold uppercase tracking-wider text-slate-500"
-              >
-                Password
-              </label>
-              <input
-                id="password"
-                name="password"
-                type="password"
-                autoComplete="current-password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="mt-2 min-h-[48px] w-full rounded-2xl border border-slate-200/90 bg-white px-4 py-3.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-sky-400 focus:ring-2 focus:ring-sky-200/90"
-              />
+            <div className="flex flex-col gap-5">
+              <div>
+                <label
+                  htmlFor="email"
+                  className="block text-xs font-semibold uppercase tracking-wider text-slate-500"
+                >
+                  Email
+                </label>
+                <input
+                  id="email"
+                  name="email"
+                  type="email"
+                  autoComplete="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="mt-2 w-full rounded-xl border border-gray-200 bg-white px-5 py-4 text-sm text-slate-900 shadow-sm outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-300"
+                />
+              </div>
+              <div>
+                <label
+                  htmlFor="password"
+                  className="block text-xs font-semibold uppercase tracking-wider text-slate-500"
+                >
+                  Password
+                </label>
+                <input
+                  id="password"
+                  name="password"
+                  type="password"
+                  autoComplete="current-password"
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="mt-2 w-full rounded-xl border border-gray-200 bg-white px-5 py-4 text-sm text-slate-900 shadow-sm outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-300"
+                />
+              </div>
             </div>
 
             {error ? (
-              <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-800">
+              <p className="mt-5 rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-800">
                 {error}
               </p>
             ) : null}
@@ -170,7 +172,7 @@ export function LoginForm() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full rounded-2xl bg-gradient-to-r from-sky-600 to-blue-700 py-3.5 text-sm font-semibold text-white shadow-md shadow-sky-900/15 transition hover:from-sky-700 hover:to-blue-800 disabled:opacity-60"
+              className="mt-8 w-full rounded-xl bg-gradient-to-r from-blue-500 to-blue-700 py-4 text-sm font-semibold text-white shadow-md shadow-blue-900/20 transition hover:opacity-95 active:opacity-90 disabled:opacity-60"
             >
               {loading ? "Signing in…" : "Sign in"}
             </button>

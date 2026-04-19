@@ -9,7 +9,7 @@ export const metadata: Metadata = {
 
 export default function LoginPage() {
   return (
-    <div className="flex min-h-screen flex-col bg-gradient-to-b from-sky-100/80 via-white to-white">
+    <div className="flex min-h-screen flex-col bg-gradient-to-b from-[#e6f0f7] via-[#fafcfd] to-white">
       <Suspense
         fallback={
           <div className="flex min-h-screen flex-1 items-center justify-center text-sm text-slate-500">
