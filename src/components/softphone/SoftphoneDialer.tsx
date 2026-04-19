@@ -313,14 +313,14 @@ export function SoftphoneDialer({
 
   const keypadPanel = (
     <div className="flex w-full flex-col">
-      <div className="w-full border-b border-slate-100/80 pb-2">
+      <div className="w-full border-b border-slate-100/80 pb-2 lg:pb-1.5">
         <div className="w-full px-0 py-0">
         {outboundLines.length > 0 ? (
           <button
             type="button"
             disabled={!callAs.showSheetTrigger}
             onClick={() => callAs.showSheetTrigger && setCallAsKeypadExpanded((v) => !v)}
-            className={`flex w-full items-center gap-2.5 rounded-lg py-1.5 pl-0 pr-0 text-left transition duration-150 hover:bg-sky-50/50 sm:py-2 ${
+            className={`flex w-full items-center gap-2.5 rounded-lg py-1.5 pl-0 pr-0 text-left transition duration-150 hover:bg-sky-50/50 sm:py-2 lg:py-1 ${
               callAs.showSheetTrigger ? "" : "cursor-default"
             }`}
           >
@@ -454,13 +454,13 @@ export function SoftphoneDialer({
       </div>
 
       <div
-        className="mt-[12px] flex min-h-[56px] w-full items-center border-b border-slate-200/80 bg-transparent px-1"
+        className="mt-[12px] flex min-h-[56px] w-full items-center border-b border-slate-200/80 bg-transparent px-1 lg:mt-2 lg:min-h-[48px]"
         aria-live="polite"
         aria-label="Number entered"
       >
         <p
           title={digits.trim() ? formatDialpadDisplay(digits) : undefined}
-          className={`w-full min-w-0 text-center text-[34px] font-semibold leading-none tracking-tight tabular-nums sm:text-[34px] ${
+          className={`w-full min-w-0 text-center text-[34px] font-semibold leading-none tracking-tight tabular-nums sm:text-[34px] lg:text-[30px] ${
             digits.trim() ? "truncate font-bold text-slate-950" : "font-medium text-slate-400"
           }`}
         >
@@ -469,8 +469,8 @@ export function SoftphoneDialer({
       </div>
 
       {incoming ? (
-        <div className="mt-[14px] w-full">
-        <div className="flex w-full flex-col gap-4 rounded-2xl border border-sky-100/70 bg-white px-4 py-4 shadow-sm">
+        <div className="mt-[14px] w-full lg:mt-[10px]">
+        <div className="flex w-full flex-col gap-4 rounded-2xl border border-sky-100/70 bg-white px-4 py-4 shadow-sm lg:gap-3 lg:px-3.5 lg:py-3.5">
           <div className="text-center">
             <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-800">Incoming call</p>
             {incomingCallerContactName ? (
@@ -513,7 +513,7 @@ export function SoftphoneDialer({
       ) : (
         <>
           <div
-            className="mx-auto mt-[14px] grid w-full max-w-[276px] grid-cols-3 gap-3 sm:max-w-[320px] lg:max-w-[360px]"
+            className="mx-auto mt-[14px] grid w-full max-w-[276px] grid-cols-3 gap-3 sm:max-w-[320px] lg:mt-[10px] lg:max-w-[328px] lg:gap-2.5"
             role="group"
             aria-label="Dialpad"
           >
@@ -527,9 +527,9 @@ export function SoftphoneDialer({
                     void unlockRingtoneFromGesture();
                     setDigits((d) => d + digit);
                   }}
-                  className="flex h-[84px] w-full touch-manipulation select-none flex-col items-center justify-center rounded-3xl border border-slate-200/85 bg-white text-slate-900 shadow-[0_1px_3px_-1px_rgba(15,23,42,0.08),0_2px_8px_-3px_rgba(15,23,42,0.05)] transition-[transform,box-shadow,background-color] duration-150 ease-out sm:h-[80px] hover:bg-slate-50 active:scale-[0.97] active:border-sky-200/80 active:bg-sky-50/80 disabled:pointer-events-none disabled:opacity-40"
+                  className="flex h-[84px] w-full touch-manipulation select-none flex-col items-center justify-center rounded-3xl border border-slate-200/85 bg-white text-slate-900 shadow-[0_1px_3px_-1px_rgba(15,23,42,0.08),0_2px_8px_-3px_rgba(15,23,42,0.05)] transition-[transform,box-shadow,background-color] duration-150 ease-out sm:h-[80px] lg:h-[68px] hover:bg-slate-50 active:scale-[0.97] active:border-sky-200/80 active:bg-sky-50/80 disabled:pointer-events-none disabled:opacity-40"
                 >
-                  <span className="text-[1.6rem] font-bold leading-none tabular-nums tracking-tight sm:text-[1.65rem]">{digit}</span>
+                  <span className="text-[1.6rem] font-bold leading-none tabular-nums tracking-tight sm:text-[1.65rem] lg:text-[1.45rem]">{digit}</span>
                   {sub ? (
                     <span className="mt-0.5 text-[0.5rem] font-medium uppercase tracking-[0.12em] text-slate-400">
                       {sub}
@@ -542,12 +542,12 @@ export function SoftphoneDialer({
             )}
           </div>
 
-          <div className="mt-[14px] flex w-full items-center gap-4 px-0">
+          <div className="mt-[14px] flex w-full items-center gap-4 px-0 lg:mt-[10px] lg:gap-3">
             <button
               type="button"
               disabled={keypadDisabled || !digits.length}
               onClick={() => setDigits((d) => d.slice(0, -1))}
-              className="flex h-14 w-14 shrink-0 touch-manipulation select-none items-center rounded-full border border-slate-200/85 bg-white text-slate-600 shadow-[0_1px_3px_-1px_rgba(15,23,42,0.08)] transition-[transform,box-shadow] duration-150 ease-out hover:bg-slate-50 active:scale-[0.97] active:bg-sky-50/80 disabled:pointer-events-none disabled:opacity-25"
+              className="flex h-14 w-14 shrink-0 touch-manipulation select-none items-center rounded-full border border-slate-200/85 bg-white text-slate-600 shadow-[0_1px_3px_-1px_rgba(15,23,42,0.08)] transition-[transform,box-shadow] duration-150 ease-out hover:bg-slate-50 active:scale-[0.97] active:bg-sky-50/80 disabled:pointer-events-none disabled:opacity-25 lg:h-12 lg:w-12"
               aria-label="Backspace"
             >
               <Delete className="m-auto h-6 w-6" strokeWidth={1.75} />
@@ -558,7 +558,7 @@ export function SoftphoneDialer({
                   type="button"
                   onClick={() => void startCall()}
                   disabled={!digits.trim() || !canDial}
-                  className="group flex h-[72px] w-full touch-manipulation select-none items-center justify-center gap-2 rounded-full px-5 text-base font-bold transition-[transform,box-shadow,filter] duration-150 ease-out enabled:bg-gradient-to-r enabled:from-slate-950 enabled:via-blue-800 enabled:to-sky-500 enabled:text-white enabled:shadow-[0_6px_22px_-4px_rgba(15,23,42,0.55),0_4px_14px_-4px_rgba(2,132,199,0.45)] enabled:ring-1 enabled:ring-white/35 enabled:hover:brightness-[1.05] enabled:active:scale-[0.97] disabled:pointer-events-none disabled:bg-gradient-to-r disabled:from-slate-400/35 disabled:via-slate-300/25 disabled:to-sky-100/90 disabled:text-slate-600 disabled:shadow-sm disabled:ring-slate-300/40 sm:text-lg"
+                  className="group flex h-[72px] w-full touch-manipulation select-none items-center justify-center gap-2 rounded-full px-5 text-base font-bold transition-[transform,box-shadow,filter] duration-150 ease-out enabled:bg-gradient-to-r enabled:from-slate-950 enabled:via-blue-800 enabled:to-sky-500 enabled:text-white enabled:shadow-[0_6px_22px_-4px_rgba(15,23,42,0.55),0_4px_14px_-4px_rgba(2,132,199,0.45)] enabled:ring-1 enabled:ring-white/35 enabled:hover:brightness-[1.05] enabled:active:scale-[0.97] disabled:pointer-events-none disabled:bg-gradient-to-r disabled:from-slate-400/35 disabled:via-slate-300/25 disabled:to-sky-100/90 disabled:text-slate-600 disabled:shadow-sm disabled:ring-slate-300/40 sm:text-lg lg:h-[60px] lg:text-[15px]"
                 >
                   <Phone className="h-6 w-6 shrink-0 text-current group-disabled:opacity-90" strokeWidth={2.25} aria-hidden />
                   Call
@@ -568,7 +568,7 @@ export function SoftphoneDialer({
                 <button
                   type="button"
                   onClick={hangUp}
-                  className="flex h-[72px] w-full touch-manipulation select-none items-center justify-center rounded-full border-2 border-red-400/90 bg-white px-6 text-base font-bold text-red-900 shadow-sm transition-[transform,background-color] duration-150 ease-out hover:bg-red-50 active:scale-[0.97] sm:text-lg"
+                  className="flex h-[72px] w-full touch-manipulation select-none items-center justify-center rounded-full border-2 border-red-400/90 bg-white px-6 text-base font-bold text-red-900 shadow-sm transition-[transform,background-color] duration-150 ease-out hover:bg-red-50 active:scale-[0.97] sm:text-lg lg:h-[60px] lg:text-[15px]"
                 >
                   Hang up
                 </button>
@@ -576,7 +576,7 @@ export function SoftphoneDialer({
             </div>
           </div>
           {status === "in_call" ? (
-            <div className="mt-4 w-full max-w-full sm:max-w-[520px]">
+            <div className="mt-4 w-full max-w-full sm:max-w-[520px] lg:mt-3">
             <div className="flex w-full flex-col gap-3">
               <div className="rounded-2xl border border-sky-100/70 bg-white px-3 py-3 shadow-sm">
                 <p className="text-center text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">
