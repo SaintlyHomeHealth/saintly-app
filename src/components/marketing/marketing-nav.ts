@@ -92,6 +92,7 @@ export const MARKETING_NAV_LEGAL_PAGE = [
   { href: "/#how-it-works", label: "How it works" },
   { href: "/#coverage", label: "Service area" },
   { href: "/contact", label: "Contact" },
+  { href: "/support", label: "Support" },
 ] as const;
 
 export type MarketingNavLink = { href: string; label: string };

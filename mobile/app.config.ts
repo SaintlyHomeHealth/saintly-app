@@ -98,7 +98,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   extra: {
     apiBaseUrl:
       process.env.EXPO_PUBLIC_API_BASE_URL?.trim() || 'https://www.appsaintlyhomehealth.com',
-    /** TODO: Twilio Voice React Native — set when wiring native SDK (optional for display/debug only). */
+    /** Twilio Voice React Native SDK log level (`error` in production; override via EXPO_PUBLIC_TWILIO_LOG_LEVEL). */
     twilioLogLevel: process.env.EXPO_PUBLIC_TWILIO_LOG_LEVEL?.trim() || 'error',
     eas: {
       projectId: '227fd4b7-157e-4885-aa96-b3ff1130cfdc',

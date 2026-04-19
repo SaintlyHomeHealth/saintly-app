@@ -163,6 +163,7 @@ export async function notifyNewLeadCreatedPush(supabase: SupabaseClient, leadId:
       });
     };
 
+    /** Managers+ → admin lead detail. Others → workspace leads list (middleware blocks `/admin/*` for nurse/workspace-only roles). */
     const [mgrResult, otherResult] = await Promise.all([
       sendOne(managerUserIds, `/admin/crm/leads/${id}`),
       sendOne(nonManagerUserIds, OPEN_PATH_WORKSPACE_LEADS_LIST),

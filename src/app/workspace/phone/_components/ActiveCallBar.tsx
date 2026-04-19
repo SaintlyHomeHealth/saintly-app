@@ -127,6 +127,8 @@ export function ActiveCallBar() {
   const [notice, setNotice] = useState<{ kind: "error" | "info"; message: string } | null>(null);
   const [recTick, setRecTick] = useState(0);
 
+  const showCallDebug = process.env.NODE_ENV === "development";
+
   const { title, subtitle } = splitRemoteLabel(activeRemoteLabel);
   const initials = initialsFromTitle(title);
   const gating = callContext?.conference_gating ?? null;
@@ -324,14 +326,16 @@ export function ActiveCallBar() {
               Context
               {ctxOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
             </button>
-            <button
-              type="button"
-              onClick={() => setDebugOpen((o) => !o)}
-              className="inline-flex h-10 items-center gap-1 rounded-full border border-white/10 px-2.5 text-[10px] font-semibold uppercase tracking-wide text-indigo-200/80"
-            >
-              <Bug className="h-3.5 w-3.5" />
-              Debug
-            </button>
+            {showCallDebug ? (
+              <button
+                type="button"
+                onClick={() => setDebugOpen((o) => !o)}
+                className="inline-flex h-10 items-center gap-1 rounded-full border border-white/10 px-2.5 text-[10px] font-semibold uppercase tracking-wide text-indigo-200/80"
+              >
+                <Bug className="h-3.5 w-3.5" />
+                Debug
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={hangUp}

@@ -17,13 +17,13 @@ type SmsOutboundInfo = {
 function modeHint(mode: SmsOutboundInfo["outboundMode"]): string {
   switch (mode) {
     case "messaging_service":
-      return "Twilio may choose the sending number from your messaging service. SMS send still uses server configuration.";
+      return "Outbound texts use your organization's messaging configuration.";
     case "from_e164":
-      return "Outbound SMS uses this identity from server configuration. Selection here is for your reference until send supports it.";
+      return "The sending number is set by your administrator. Your line selection here is for display.";
     case "from_raw":
-      return "Outbound sender is configured on the server.";
+      return "Outbound sender is set by your administrator.";
     default:
-      return "SMS outbound may not be fully configured (check Twilio env on the server).";
+      return "SMS may not be fully configured. Contact support if messages fail to send.";
   }
 }
 

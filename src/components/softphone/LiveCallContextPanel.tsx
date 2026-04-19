@@ -8,6 +8,8 @@ import { formatVoiceAiCallerCategoryLabel, formatVoiceAiRouteTargetLabel } from 
 import type { CallContextVoiceAi, SoftphoneConferenceContext } from "@/components/softphone/WorkspaceSoftphoneProvider";
 import type { ConferenceGatingSnapshot } from "@/lib/phone/conference-gating";
 
+const SHOW_TECHNICAL_DETAILS = process.env.NODE_ENV === "development";
+
 type Props = {
   voiceAi: CallContextVoiceAi | null;
   conference: SoftphoneConferenceContext | null;
@@ -89,74 +91,76 @@ export function LiveCallContextPanel({
         </div>
       )}
 
-      <div className="mt-3">
-        <button
-          type="button"
-          onClick={toggleDebug}
-          className="flex w-full items-center justify-between rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-left text-[11px] font-semibold text-indigo-100/90"
-        >
-          <span>Technical details</span>
-          {debug ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-        </button>
-        {debug ? (
-          <div className="mt-2 space-y-2 rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-[10px] leading-snug text-slate-300">
-            {conference?.mode === "conference" ? (
-              <p>
-                Conference
-                {conference.conference_sid ? (
-                  <span className="ml-1 font-mono text-[10px] text-slate-400">
-                    {conference.conference_sid.slice(0, 10)}…
-                  </span>
-                ) : (
-                  <span className="text-amber-200"> — linking…</span>
-                )}
-                {conference.pstn_call_sid ? (
-                  <span className="ml-1 font-mono text-[10px] text-emerald-300">· PSTN</span>
-                ) : (
-                  <span className="text-amber-200"> · PSTN not linked</span>
-                )}
-              </p>
-            ) : null}
-            {conferenceGating ? (
-              <>
+      {SHOW_TECHNICAL_DETAILS ? (
+        <div className="mt-3">
+          <button
+            type="button"
+            onClick={toggleDebug}
+            className="flex w-full items-center justify-between rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-left text-[11px] font-semibold text-indigo-100/90"
+          >
+            <span>Technical details</span>
+            {debug ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          </button>
+          {debug ? (
+            <div className="mt-2 space-y-2 rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-[10px] leading-snug text-slate-300">
+              {conference?.mode === "conference" ? (
                 <p>
-                  <span className="text-slate-500">Client leg:</span>{" "}
-                  <span className="font-mono text-[10px] text-slate-100">
-                    {conferenceGating.client_leg_call_sid ? `${conferenceGating.client_leg_call_sid.slice(0, 10)}…` : "—"}
-                  </span>
+                  Conference
+                  {conference.conference_sid ? (
+                    <span className="ml-1 font-mono text-[10px] text-slate-400">
+                      {conference.conference_sid.slice(0, 10)}…
+                    </span>
+                  ) : (
+                    <span className="text-amber-200"> — linking…</span>
+                  )}
+                  {conference.pstn_call_sid ? (
+                    <span className="ml-1 font-mono text-[10px] text-emerald-300">· PSTN</span>
+                  ) : (
+                    <span className="text-amber-200"> · PSTN not linked</span>
+                  )}
                 </p>
-                <p>
-                  <span className="text-slate-500">Conference SID:</span>{" "}
-                  <span className="font-mono text-[10px] text-slate-100">
-                    {conferenceGating.conference_sid ? `${conferenceGating.conference_sid.slice(0, 10)}…` : "missing"}
-                  </span>
-                </p>
-                <p>
-                  <span className="text-slate-500">PSTN leg:</span>{" "}
-                  <span className="font-mono text-[10px] text-slate-100">
-                    {conferenceGating.pstn_call_sid ? `${conferenceGating.pstn_call_sid.slice(0, 10)}…` : "missing"}
-                  </span>
-                </p>
-                <p>
-                  <span className="text-slate-500">Media stream (masked):</span>{" "}
-                  <span className="font-mono text-[10px] text-slate-100">
-                    {conferenceGating.media_stream_wss_target_masked ?? "not resolved"}
-                  </span>
-                </p>
-                {conferenceGating.blockers.length > 1 ? (
-                  <ul className="list-disc space-y-0.5 pl-4 text-amber-100/90">
-                    {conferenceGating.blockers.slice(1).map((b) => (
-                      <li key={b}>{b}</li>
-                    ))}
-                  </ul>
-                ) : null}
-              </>
-            ) : (
-              <p className="text-slate-500">Loading diagnostics…</p>
-            )}
-          </div>
-        ) : null}
-      </div>
+              ) : null}
+              {conferenceGating ? (
+                <>
+                  <p>
+                    <span className="text-slate-500">Client leg:</span>{" "}
+                    <span className="font-mono text-[10px] text-slate-100">
+                      {conferenceGating.client_leg_call_sid ? `${conferenceGating.client_leg_call_sid.slice(0, 10)}…` : "—"}
+                    </span>
+                  </p>
+                  <p>
+                    <span className="text-slate-500">Conference SID:</span>{" "}
+                    <span className="font-mono text-[10px] text-slate-100">
+                      {conferenceGating.conference_sid ? `${conferenceGating.conference_sid.slice(0, 10)}…` : "missing"}
+                    </span>
+                  </p>
+                  <p>
+                    <span className="text-slate-500">PSTN leg:</span>{" "}
+                    <span className="font-mono text-[10px] text-slate-100">
+                      {conferenceGating.pstn_call_sid ? `${conferenceGating.pstn_call_sid.slice(0, 10)}…` : "missing"}
+                    </span>
+                  </p>
+                  <p>
+                    <span className="text-slate-500">Media stream (masked):</span>{" "}
+                    <span className="font-mono text-[10px] text-slate-100">
+                      {conferenceGating.media_stream_wss_target_masked ?? "not resolved"}
+                    </span>
+                  </p>
+                  {conferenceGating.blockers.length > 1 ? (
+                    <ul className="list-disc space-y-0.5 pl-4 text-amber-100/90">
+                      {conferenceGating.blockers.slice(1).map((b) => (
+                        <li key={b}>{b}</li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </>
+              ) : (
+                <p className="text-slate-500">Loading diagnostics…</p>
+              )}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="mt-3 rounded-xl border border-white/10 bg-black/25 p-3">
         <p className="text-xs font-semibold text-white">Transcript excerpt</p>

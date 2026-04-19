@@ -388,19 +388,21 @@ export function HomeScreen(_props: HomeScreenProps) {
           </View>
         ) : null}
 
-        <View style={styles.pushBar} pointerEvents="none">
-          {pushEnv ? (
-            <Text style={styles.pushText}>{pushStatusLine(pushEnv, Boolean(fcmToken))}</Text>
-          ) : (
-            <Text style={styles.pushText}>Preparing call environment…</Text>
-          )}
-          {Platform.OS === 'ios' ? (
-            <Text style={styles.pushTextMuted}>
-              Microphone access is requested when you place or answer a call in the keypad. Incoming calls use CallKit
-              when Twilio VoIP push is configured.
-            </Text>
-          ) : null}
-        </View>
+        {__DEV__ ? (
+          <View style={styles.pushBar} pointerEvents="none">
+            {pushEnv ? (
+              <Text style={styles.pushText}>{pushStatusLine(pushEnv, Boolean(fcmToken))}</Text>
+            ) : (
+              <Text style={styles.pushText}>Preparing call environment…</Text>
+            )}
+            {Platform.OS === 'ios' ? (
+              <Text style={styles.pushTextMuted}>
+                Microphone access is requested when you place or answer a call in the keypad. Incoming calls use CallKit
+                when Twilio VoIP push is configured.
+              </Text>
+            ) : null}
+          </View>
+        ) : null}
       </View>
     </SafeAreaView>
   );

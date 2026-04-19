@@ -13,6 +13,8 @@ const primaryLinks = [
 const legalLinks = [
   { href: "/privacy", label: "Privacy Policy" },
   { href: "/terms", label: "Terms of Service" },
+  { href: "/support", label: "Support" },
+  { href: "/security", label: "Security" },
 ] as const;
 
 const linkClass = "font-medium text-slate-600 underline-offset-2 hover:text-slate-900";

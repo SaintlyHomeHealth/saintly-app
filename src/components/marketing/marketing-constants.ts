@@ -11,4 +11,4 @@ export const ADDRESS_LINE_CITY = "Tempe, AZ 85282";
 export const ADDRESS_FULL = `${ADDRESS_LINE_STREET}, ${ADDRESS_LINE_CITY}`;
 
 /** Display on Privacy Policy and Terms of Service (update when legal text changes). */
-export const LEGAL_EFFECTIVE_DATE_DISPLAY = "April 5, 2026";
+export const LEGAL_EFFECTIVE_DATE_DISPLAY = "April 18, 2026";

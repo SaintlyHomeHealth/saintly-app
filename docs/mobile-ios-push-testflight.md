@@ -66,7 +66,7 @@ Existing Twilio env vars unchanged (`TWILIO_*`, `TWILIO_VOICE_INBOUND_STAFF_USER
 
 | Scenario | SMS (FCM) | Call (FCM alert + CallKit) |
 |----------|-----------|----------------------------|
-| App foreground | `onMessage` navigates WebView to `open_path` | Alert + CallKit if VoIP + native registered |
+| App foreground | Data-only handling does not navigate; user stays on current screen (see `HomeScreen` — navigation uses notification **tap** handlers only) | CallKit if VoIP + native registered; FCM alert may still appear per OS |
 | Background | Notification banner; tap opens app + deep link | Same |
 | Locked | Same | CallKit full-screen |
 | Process killed | **Notification** via FCM; tap opens URL | **CallKit** requires VoIP push + Twilio native registration; FCM alert is fallback when Twilio VoIP not configured |
