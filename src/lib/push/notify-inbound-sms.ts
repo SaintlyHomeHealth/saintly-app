@@ -2,6 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { fcmSmsPushDeployFingerprint } from "@/lib/push/fcm-sms-push-diagnostics";
 import { sendFcmDataAndNotificationToUserIds } from "@/lib/push/send-fcm-to-user-ids";
 import { resolveSmsPushRecipientUserIds } from "@/lib/push/resolve-sms-push-recipients";
 
@@ -38,6 +39,7 @@ export async function notifyInboundSmsAfterPersist(
     pushTiming("notify_start", { conversationId: input.conversationId.trim() });
     console.log("[push] inbound SMS notify start", {
       conversationId: input.conversationId.trim(),
+      deploy: fcmSmsPushDeployFingerprint(),
     });
     pushTiming("before_resolve_recipients");
     const userIds = await resolveSmsPushRecipientUserIds(supabase, input.conversationId);
@@ -68,11 +70,16 @@ export async function notifyInboundSmsAfterPersist(
     pushTiming("after_send_fcm_helper", { ok: result.ok, sent: result.ok ? result.sent : undefined });
 
     if (!result.ok) {
-      console.warn("[push] inbound SMS notify failed", { error: result.error, conversationId: input.conversationId.trim() });
+      console.warn("[push] inbound SMS notify failed", {
+        error: result.error,
+        conversationId: input.conversationId.trim(),
+        deploy: fcmSmsPushDeployFingerprint(),
+      });
     } else {
       console.log("[push] inbound SMS notify complete", {
         success: true,
         conversationId: input.conversationId.trim(),
+        deploy: fcmSmsPushDeployFingerprint(),
         recipientUserCount: userIds.length,
         sent: result.sent,
         failureCount: result.failureCount,
