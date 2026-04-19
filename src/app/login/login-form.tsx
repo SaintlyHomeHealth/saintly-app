@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
@@ -45,6 +46,7 @@ export function LoginForm() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [logoFailed, setLogoFailed] = useState(false);
 
   const urlError = searchParams.get("error");
 
@@ -83,73 +85,97 @@ export function LoginForm() {
   }
 
   return (
-    <div className="mx-auto flex min-h-[70vh] w-full max-w-md flex-col justify-center px-6 py-12">
-      <div className="rounded-[28px] border border-slate-200 bg-white p-8 shadow-sm">
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
-          Staff sign in
-        </h1>
-        <p className="mt-2 text-sm text-slate-600">
-          Sign in to access the Saintly admin dashboard.
-        </p>
+    <div className="flex w-full flex-1 flex-col items-center justify-center px-6 py-12 sm:py-16">
+      <div className="flex w-full max-w-md flex-col items-center">
+        <div className="mb-10 flex w-full flex-col items-center">
+          {!logoFailed ? (
+            <Image
+              src="/saintly-logo.png"
+              alt="Saintly Home Health"
+              width={260}
+              height={80}
+              className="h-16 w-auto max-w-[min(100%,280px)] object-contain"
+              priority
+              sizes="280px"
+              onError={() => setLogoFailed(true)}
+            />
+          ) : (
+            <p className="text-center text-2xl font-semibold tracking-tight text-sky-950">
+              Saintly Home Health
+            </p>
+          )}
+        </div>
 
-        {urlError === "auth" ? (
-          <p className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
-            Could not complete sign-in. Try again or contact an administrator.
+        <div className="w-full rounded-[32px] border border-slate-200/80 bg-white/95 p-9 shadow-lg backdrop-blur-[2px]">
+          <h1 className="text-center text-2xl font-semibold tracking-tight text-slate-900">
+            Welcome to Saintly
+          </h1>
+          <p className="mt-2 text-center text-sm text-slate-600">
+            Sign in to access your dashboard
           </p>
-        ) : null}
 
-        <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
-          <div>
-            <label
-              htmlFor="email"
-              className="block text-xs font-semibold uppercase tracking-wider text-slate-500"
-            >
-              Email
-            </label>
-            <input
-              id="email"
-              name="email"
-              type="email"
-              autoComplete="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-900 outline-none ring-sky-500 focus:border-sky-300 focus:ring-2"
-            />
-          </div>
-          <div>
-            <label
-              htmlFor="password"
-              className="block text-xs font-semibold uppercase tracking-wider text-slate-500"
-            >
-              Password
-            </label>
-            <input
-              id="password"
-              name="password"
-              type="password"
-              autoComplete="current-password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-900 outline-none ring-sky-500 focus:border-sky-300 focus:ring-2"
-            />
-          </div>
-
-          {error ? (
-            <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
-              {error}
+          {urlError === "auth" ? (
+            <p className="mt-6 rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-800">
+              Could not complete sign-in. Try again or contact an administrator.
             </p>
           ) : null}
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full rounded-xl bg-slate-900 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-60"
+          <form
+            className={`space-y-5 ${urlError === "auth" ? "mt-6" : "mt-8"}`}
+            onSubmit={handleSubmit}
           >
-            {loading ? "Signing in…" : "Sign in"}
-          </button>
-        </form>
+            <div>
+              <label
+                htmlFor="email"
+                className="block text-xs font-semibold uppercase tracking-wider text-slate-500"
+              >
+                Email
+              </label>
+              <input
+                id="email"
+                name="email"
+                type="email"
+                autoComplete="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="mt-2 min-h-[48px] w-full rounded-2xl border border-slate-200/90 bg-white px-4 py-3.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-sky-400 focus:ring-2 focus:ring-sky-200/90"
+              />
+            </div>
+            <div>
+              <label
+                htmlFor="password"
+                className="block text-xs font-semibold uppercase tracking-wider text-slate-500"
+              >
+                Password
+              </label>
+              <input
+                id="password"
+                name="password"
+                type="password"
+                autoComplete="current-password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="mt-2 min-h-[48px] w-full rounded-2xl border border-slate-200/90 bg-white px-4 py-3.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-sky-400 focus:ring-2 focus:ring-sky-200/90"
+              />
+            </div>
+
+            {error ? (
+              <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-800">
+                {error}
+              </p>
+            ) : null}
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full rounded-2xl bg-gradient-to-r from-sky-600 to-blue-700 py-3.5 text-sm font-semibold text-white shadow-md shadow-sky-900/15 transition hover:from-sky-700 hover:to-blue-800 disabled:opacity-60"
+            >
+              {loading ? "Signing in…" : "Sign in"}
+            </button>
+          </form>
+        </div>
       </div>
     </div>
   );
