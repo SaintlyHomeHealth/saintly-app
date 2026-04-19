@@ -312,30 +312,30 @@ export function SoftphoneDialer({
   );
 
   const keypadPanel = (
-    <div className="flex min-h-0 w-full flex-1 flex-col gap-2 sm:gap-3">
-      <div className="shrink-0 space-y-2">
-      <div className="w-full px-0 py-0 sm:rounded-xl sm:border sm:border-sky-100/60 sm:bg-white sm:px-3 sm:py-2.5">
+    <div className="flex min-h-0 w-full flex-1 flex-col gap-1.5 sm:gap-2">
+      <div className="shrink-0 space-y-1.5 sm:space-y-2">
+      <div className="w-full px-0 py-0 sm:rounded-lg sm:border sm:border-sky-100/60 sm:bg-white sm:px-2.5 sm:py-1.5">
         {outboundLines.length > 0 ? (
           <button
             type="button"
             disabled={!callAs.showSheetTrigger}
             onClick={() => callAs.showSheetTrigger && setCallAsKeypadExpanded((v) => !v)}
-            className={`flex w-full items-center gap-2 rounded-lg text-left transition duration-150 hover:bg-sky-50/40 sm:items-start sm:gap-3 sm:rounded-xl ${
+            className={`flex w-full items-center gap-2 rounded-lg text-left transition duration-150 hover:bg-sky-50/40 sm:items-start sm:gap-2.5 sm:rounded-lg ${
               callAs.showSheetTrigger ? "" : "cursor-default"
             }`}
           >
             <div
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-sky-50/90 ring-1 ring-sky-200/50 sm:h-10 sm:w-10 sm:rounded-xl"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-sky-50/90 ring-1 ring-sky-200/50 sm:h-9 sm:w-9 sm:rounded-lg"
               aria-hidden
             >
-              <Phone className="h-3.5 w-3.5 text-blue-800 sm:h-5 sm:w-5" strokeWidth={2} />
+              <Phone className="h-3.5 w-3.5 text-blue-800 sm:h-[18px] sm:w-[18px]" strokeWidth={2} />
             </div>
             <div className="min-w-0 flex-1 text-left">
               <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-slate-400 sm:text-[10px] sm:tracking-[0.14em]">
                 Call as
               </p>
-              <p className="mt-0.5 text-[13px] font-semibold leading-snug text-slate-900 sm:text-[15px]">{callAs.org}</p>
-              <p className="mt-0.5 text-[11px] font-semibold tabular-nums text-slate-800 sm:mt-1 sm:text-[13px] sm:font-medium">
+              <p className="mt-0.5 text-[13px] font-semibold leading-tight text-slate-900 sm:text-[14px]">{callAs.org}</p>
+              <p className="mt-0.5 text-[11px] font-semibold tabular-nums leading-tight text-slate-800 sm:text-[12px] sm:font-medium">
                 {callAs.numberDisplay}
                 {callAs.lineLabel ? (
                   <span className="font-medium text-slate-500">
@@ -347,24 +347,24 @@ export function SoftphoneDialer({
             </div>
             {callAs.showSheetTrigger ? (
               <ChevronDown
-                className={`h-5 w-5 shrink-0 self-center text-slate-400 transition duration-150 sm:mt-1 ${callAsKeypadExpanded ? "rotate-180" : ""}`}
+                className={`h-4 w-4 shrink-0 self-center text-slate-400 transition duration-150 sm:mt-0.5 sm:h-[18px] sm:w-[18px] ${callAsKeypadExpanded ? "rotate-180" : ""}`}
                 strokeWidth={2}
                 aria-hidden
               />
             ) : null}
           </button>
         ) : (
-          <div className="flex items-start gap-3">
+          <div className="flex items-start gap-2.5 sm:gap-3">
             <div
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-sky-200/80 bg-sky-50/90 ring-1 ring-sky-100/60"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-sky-200/80 bg-sky-50/90 ring-1 ring-sky-100/60 sm:h-10 sm:w-10"
               aria-hidden
             >
-              <Phone className="h-5 w-5 text-blue-800" strokeWidth={2} />
+              <Phone className="h-[18px] w-[18px] text-blue-800 sm:h-5 sm:w-5" strokeWidth={2} />
             </div>
             <div className="min-w-0 flex-1 text-left">
               <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">Softphone</p>
-              <p className="mt-1 text-[15px] font-semibold leading-snug text-slate-900">{staffDisplayName}</p>
-              <div className="mt-2 flex flex-wrap items-center gap-2">
+              <p className="mt-0.5 text-[14px] font-semibold leading-tight text-slate-900 sm:text-[15px]">{staffDisplayName}</p>
+              <div className="mt-1.5 flex flex-wrap items-center gap-2 sm:mt-2">
                 <p className="text-[11px] leading-snug text-slate-500">
                   {listenState === "ready"
                     ? "Ready for calls"
@@ -446,23 +446,22 @@ export function SoftphoneDialer({
           </div>
         ) : null}
         {!ringtoneUnlocked ? (
-          <p className="mt-1.5 border-t border-slate-100/80 pt-1.5 text-[10px] leading-snug text-amber-900/90 sm:mt-2 sm:pt-2 sm:text-[11px]">
-            Tap a number on the pad once so incoming calls can play a ring sound on this device.
+          <p className="mt-1 border-t border-amber-200/20 pt-1 text-[9px] leading-snug text-amber-900/50 sm:mt-1.5 sm:pt-1 sm:text-[10px]">
+            Tap the dial pad once so incoming calls can ring on this device.
           </p>
         ) : null}
       </div>
 
       <div
-        className="flex min-h-[2.75rem] w-full max-w-sm items-center justify-center px-2 py-0.5 sm:min-h-[3.75rem] sm:rounded-lg sm:border sm:border-sky-100/70 sm:bg-white sm:px-4 sm:py-2 sm:shadow-inner sm:shadow-sky-950/5 sm:ring-1 sm:ring-sky-100/30"
+        className="flex min-h-[3.5rem] w-full max-w-sm shrink-0 flex-col justify-center rounded-lg border border-sky-100/70 bg-white px-3 py-2.5 shadow-inner shadow-sky-950/[0.03] ring-1 ring-sky-100/40 sm:min-h-[4.5rem] sm:px-4 sm:py-3"
         aria-live="polite"
         aria-label="Number entered"
       >
-        <p className="max-w-full break-all text-center text-[1.65rem] font-semibold leading-tight tracking-tight tabular-nums transition-[color,transform] duration-200 ease-out motion-safe:will-change-transform sm:text-[2.1rem]">
-          {digits.trim() ? (
-            <span className="inline-block font-semibold text-slate-950">{formatDialpadDisplay(digits)}</span>
-          ) : (
-            <span className="font-normal text-slate-400">Enter number</span>
-          )}
+        <p
+          title={digits.trim() ? formatDialpadDisplay(digits) : undefined}
+          className={`min-h-[1.5em] w-full min-w-0 text-center font-semibold tabular-nums leading-tight transition-colors duration-200 ease-out text-[clamp(1.125rem,5vw,1.85rem)] sm:text-[1.85rem] sm:leading-none md:text-[2rem] ${digits.trim() ? "truncate text-slate-950" : "text-slate-400"}`}
+        >
+          {digits.trim() ? formatDialpadDisplay(digits) : <span className="font-normal text-slate-400">Enter number</span>}
         </p>
       </div>
       </div>
@@ -511,9 +510,9 @@ export function SoftphoneDialer({
         </div>
       ) : (
         <>
-          <div className="flex min-h-0 w-full flex-1 flex-col justify-center gap-3 py-1">
+          <div className="mt-1 flex w-full flex-col gap-1.5 sm:mt-1.5 sm:gap-2">
           <div
-            className="grid w-full max-w-[min(100%,20rem)] grid-cols-3 gap-x-2.5 gap-y-1.5 self-center px-0.5 sm:gap-x-4 sm:gap-y-2.5"
+            className="grid w-full max-w-[min(100%,20rem)] grid-cols-3 gap-x-2.5 gap-y-1 self-center px-0.5 sm:gap-x-3.5 sm:gap-y-1.5"
             role="group"
             aria-label="Dialpad"
           >
@@ -771,7 +770,7 @@ export function SoftphoneDialer({
           ) : null}
           </div>
 
-          <div className="flex w-full max-w-sm shrink-0 items-center justify-center gap-2 self-center px-1 pt-1 sm:gap-4 sm:pt-2">
+          <div className="mt-1.5 flex w-full max-w-sm shrink-0 items-center justify-center gap-2 self-center px-1 sm:mt-2 sm:gap-3">
             <button
               type="button"
               disabled={keypadDisabled || !digits.length}

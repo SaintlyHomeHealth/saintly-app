@@ -76,8 +76,8 @@ export default async function WorkspaceKeypadPage({
           ) : null}
         </p>
       ) : null}
-      <div className="mt-1 flex min-h-0 flex-1 flex-col gap-3 sm:mt-3 lg:flex-row lg:items-stretch lg:justify-center lg:gap-8">
-        <div className="flex min-h-0 w-full max-w-md flex-1 flex-col p-0 sm:rounded-2xl sm:border sm:border-sky-100/60 sm:bg-white sm:p-5 sm:shadow-sm lg:max-w-lg">
+      <div className="mt-1 flex min-h-0 flex-1 flex-col gap-3 sm:mt-3 lg:flex-row lg:items-start lg:justify-center lg:gap-8">
+        <div className="flex min-h-0 min-w-0 w-full max-w-md flex-1 flex-col p-0 sm:rounded-2xl sm:border sm:border-sky-100/60 sm:bg-white sm:p-5 sm:shadow-sm lg:max-w-lg">
           <KeypadDialerLazy
             key={dialerKey}
             staffDisplayName={staffDisplayName}
@@ -86,7 +86,7 @@ export default async function WorkspaceKeypadPage({
             autoPlaceCall={autoPlaceCall && Boolean(dial)}
           />
         </div>
-        <aside className="hidden max-w-sm flex-1 rounded-2xl border border-sky-100/70 bg-gradient-to-b from-white to-sky-50/35 p-5 text-sm text-slate-600 shadow-sm shadow-sky-100/40 lg:block">
+        <aside className="hidden w-full max-w-sm shrink-0 rounded-2xl border border-sky-100/70 bg-gradient-to-b from-white to-sky-50/35 p-5 text-sm text-slate-600 shadow-sm shadow-sky-100/40 lg:block lg:w-[min(100%,22rem)]">
           <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Tips</p>
           <ul className="mt-3 list-inside list-disc space-y-2 leading-relaxed">
             <li>Tap a number on the pad once to unlock ringtone audio on mobile browsers.</li>
