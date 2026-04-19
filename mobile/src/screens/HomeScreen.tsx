@@ -19,6 +19,12 @@ import { registerNativeTwilioWithAccessToken } from '../services/nativeTwilioVoi
 import { setStoredSupabaseAccessToken } from '../services/supabaseAccessTokenStore';
 import { twilioVoiceService } from '../services/twilioVoiceService';
 import { colors } from '../theme/colors';
+import {
+  recordPushRegisterSuccess,
+  recordVoiceRegisterSuccess,
+  shouldSkipPushRegister,
+  shouldSkipVoiceRegister,
+} from '../services/mobileRegistrationGuard';
 
 import type { HomeScreenProps } from '../navigation/types';
 
@@ -59,6 +65,16 @@ function buildRegisterPushInjectJs(fcmToken: string, attemptReason: string, diag
     headers: { 'Content-Type': 'application/json' },
     body: body
   }).then(function (res) {
+    try {
+      if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+        window.ReactNativeWebView.postMessage(JSON.stringify({
+          type: 'saintly-register-ack',
+          kind: 'push',
+          ok: res.ok,
+          status: res.status
+        }));
+      }
+    } catch (e) {}
     return res.text().then(function (text) {
       var sample = (text || '').slice(0, 800);
       post({
@@ -113,6 +129,17 @@ function buildVoiceRegisterInjectJs(input: {
     redirect: 'follow',
     headers: { 'Content-Type': 'application/json' },
     body: body
+  }).then(function (res) {
+    try {
+      if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+        window.ReactNativeWebView.postMessage(JSON.stringify({
+          type: 'saintly-register-ack',
+          kind: 'voice',
+          ok: res.ok,
+          status: res.status
+        }));
+      }
+    } catch (e) {}
   }).catch(function () {});
   true;
 })();`;
@@ -122,6 +149,7 @@ type WebViewBridgeMessage =
   | { type: 'open-settings' }
   | { type: 'saintly-supabase-access-token'; access_token?: string | null }
   | { type: 'saintly-softphone-token'; token: string; identity?: string }
+  | { type: 'saintly-register-ack'; kind: 'push' | 'voice'; ok: boolean; status?: number }
   | { type: 'push-register-log'; step: string; [key: string]: unknown }
   | { type: 'voice-register-log'; step: string; [key: string]: unknown }
   | { type: 'saintly-native-speaker-query' }
@@ -172,12 +200,37 @@ export function HomeScreen(_props: HomeScreenProps) {
   const fcmTokenRef = useRef<string | null>(null);
   /** When `/api/softphone/token` posts before FCM is ready — flush POST `/voice/register` once FCM exists. */
   const pendingVoiceRegisterRef = useRef<{ twilioIdentity: string } | null>(null);
+  /** Last payload used for POST /voice/register (for ack + cooldown). */
+  const lastVoicePayloadRef = useRef<{
+    fcmToken: string;
+    twilioIdentity: string;
+    voipPushToken: string | null;
+  } | null>(null);
+  /** Push/voice WebView POST delayed retries — cleared after successful register-ack. */
+  const registrationTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const lastNavUrlRef = useRef<string>('');
+  const lastNativeCallToWebJsonRef = useRef<string>('');
+  const lastNativeCallToWebAtRef = useRef(0);
+
   const [loading, setLoading] = useState(true);
   const [portalUri, setPortalUri] = useState(portalUrl);
 
   const apiOrigin = env.apiBaseUrl.replace(/\/$/, '') || DEFAULT_PRODUCTION_API_ORIGIN;
 
   fcmTokenRef.current = fcmToken;
+
+  const clearRegistrationTimers = useCallback(() => {
+    registrationTimersRef.current.forEach(clearTimeout);
+    registrationTimersRef.current = [];
+  }, []);
+
+  const scheduleRegistrationTimer = useCallback((fn: () => void, delayMs: number) => {
+    const id = setTimeout(() => {
+      registrationTimersRef.current = registrationTimersRef.current.filter((t) => t !== id);
+      fn();
+    }, delayMs);
+    registrationTimersRef.current.push(id);
+  }, []);
 
   /** Cold launch: always open keypad — do not restore a previous deep link / notification path. */
   useEffect(() => {
@@ -203,7 +256,7 @@ export function HomeScreen(_props: HomeScreenProps) {
       if (!wv) return;
       const json = JSON.stringify(detail);
       const now = Date.now();
-      if (json === lastNativeCallToWebJsonRef.current && now - lastNativeCallToWebAtRef.current < 80) {
+      if (json === lastNativeCallToWebJsonRef.current && now - lastNativeCallToWebAtRef.current < 120) {
         return;
       }
       lastNativeCallToWebJsonRef.current = json;
@@ -216,13 +269,12 @@ export function HomeScreen(_props: HomeScreenProps) {
     };
   }, []);
 
-  const lastNavUrlRef = useRef<string>('');
-  const lastNativeCallToWebJsonRef = useRef<string>('');
-  const lastNativeCallToWebAtRef = useRef(0);
-
   const runPushRegistration = useCallback((reason: string) => {
     const token = fcmTokenRef.current;
     if (Constants.appOwnership === 'expo' || !token || !webViewRef.current) {
+      return;
+    }
+    if (shouldSkipPushRegister(token)) {
       return;
     }
     webViewRef.current.injectJavaScript(buildRegisterPushInjectJs(token, reason, mobileDiagnosticsEnabled));
@@ -235,6 +287,10 @@ export function HomeScreen(_props: HomeScreenProps) {
         return;
       }
       const voip = Platform.OS === 'ios' ? await twilioVoiceService.getNativeDeviceToken() : null;
+      if (shouldSkipVoiceRegister({ fcmToken: t, twilioIdentity, voipPushToken: voip })) {
+        return;
+      }
+      lastVoicePayloadRef.current = { fcmToken: t, twilioIdentity, voipPushToken: voip };
       const appVersion = Constants.expoConfig?.version ?? '1.0.0';
       webViewRef.current.injectJavaScript(
         buildVoiceRegisterInjectJs({
@@ -247,9 +303,11 @@ export function HomeScreen(_props: HomeScreenProps) {
       );
       /** Voice POST runs with a valid session; flush SMS `user_push_devices` via `/push/register` too. */
       runPushRegistration(`after_voice_inject_${reason}`);
-      setTimeout(() => runPushRegistration(`after_voice_inject_${reason}_2s`), 2000);
+      scheduleRegistrationTimer(() => {
+        runPushRegistration(`after_voice_inject_${reason}_2s`);
+      }, 2000);
     },
-    [runPushRegistration]
+    [runPushRegistration, scheduleRegistrationTimer]
   );
 
   /**
@@ -287,18 +345,17 @@ export function HomeScreen(_props: HomeScreenProps) {
       })();
     };
 
-    const timers: ReturnType<typeof setTimeout>[] = [];
-    const schedule = (delayMs: number, reason: string) => {
-      timers.push(
-        setTimeout(() => {
-          run(reason);
-        }, delayMs)
-      );
+    const nativeRetryTimers: ReturnType<typeof setTimeout>[] = [];
+    const scheduleNativeRetry = (delayMs: number, reason: string) => {
+      const id = setTimeout(() => {
+        run(reason);
+      }, delayMs);
+      nativeRetryTimers.push(id);
     };
 
     run('mount');
-    schedule(4000, 'retry_4s');
-    schedule(15000, 'retry_15s');
+    scheduleNativeRetry(4000, 'retry_4s');
+    scheduleNativeRetry(15000, 'retry_15s');
 
     const sub = AppState.addEventListener('change', (next) => {
       if (next === 'active') {
@@ -309,7 +366,7 @@ export function HomeScreen(_props: HomeScreenProps) {
 
     return () => {
       cancelled = true;
-      timers.forEach(clearTimeout);
+      nativeRetryTimers.forEach(clearTimeout);
       sub.remove();
     };
   }, [runNativeSoftphoneRegistration, runPushRegistration]);
@@ -320,13 +377,20 @@ export function HomeScreen(_props: HomeScreenProps) {
 
     runPushRegistration('webview_load_end');
     const delaysMs = [4000, 15000];
-    const timers = delaysMs.map((ms) =>
-      setTimeout(() => {
+    const ids: ReturnType<typeof setTimeout>[] = [];
+    delaysMs.forEach((ms) => {
+      const id = setTimeout(() => {
+        registrationTimersRef.current = registrationTimersRef.current.filter((t) => t !== id);
         runPushRegistration(`retry_${ms}ms_after_load`);
-      }, ms)
-    );
+      }, ms);
+      ids.push(id);
+      registrationTimersRef.current.push(id);
+    });
     return () => {
-      timers.forEach(clearTimeout);
+      ids.forEach((id) => {
+        clearTimeout(id);
+        registrationTimersRef.current = registrationTimersRef.current.filter((t) => t !== id);
+      });
     };
   }, [fcmToken, loading, runPushRegistration]);
 
@@ -383,6 +447,20 @@ export function HomeScreen(_props: HomeScreenProps) {
       try {
         const raw = event.nativeEvent.data;
         const msg = JSON.parse(raw) as WebViewBridgeMessage;
+        if (msg.type === 'saintly-register-ack') {
+          const ack = msg as { kind: 'push' | 'voice'; ok?: boolean };
+          if (ack.ok) {
+            const tok = fcmTokenRef.current;
+            if (ack.kind === 'push' && tok) {
+              recordPushRegisterSuccess(tok);
+            }
+            if (ack.kind === 'voice' && lastVoicePayloadRef.current) {
+              recordVoiceRegisterSuccess(lastVoicePayloadRef.current);
+            }
+            clearRegistrationTimers();
+          }
+          return;
+        }
         if (msg.type === 'push-register-log') {
           if (mobileDiagnosticsEnabled) {
             console.warn('[push-register]', msg.step, msg);
@@ -478,10 +556,10 @@ export function HomeScreen(_props: HomeScreenProps) {
             }
             const tAfter = fcmTokenRef.current;
             if (tAfter) {
-              setTimeout(() => {
+              scheduleRegistrationTimer(() => {
                 runPushRegistration('after_softphone_token');
               }, 0);
-              setTimeout(() => {
+              scheduleRegistrationTimer(() => {
                 runPushRegistration('after_softphone_token_delay_2s');
               }, 2000);
             }
@@ -491,7 +569,13 @@ export function HomeScreen(_props: HomeScreenProps) {
         // ignore non-JSON messages
       }
     },
-    [runPushRegistration, injectWorkspaceVoiceRegister, runNativeSoftphoneRegistration]
+    [
+      runPushRegistration,
+      injectWorkspaceVoiceRegister,
+      runNativeSoftphoneRegistration,
+      scheduleRegistrationTimer,
+      clearRegistrationTimers,
+    ]
   );
 
   return (

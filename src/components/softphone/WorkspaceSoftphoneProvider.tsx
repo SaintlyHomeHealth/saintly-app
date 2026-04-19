@@ -577,9 +577,8 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     statusRef.current = status;
   }, [status]);
 
-  useEffect(() => {
-    digitsRef.current = digits;
-  }, [digits]);
+  /** Keep ref aligned before child useMemo / startCall (effect alone is one frame late). */
+  digitsRef.current = digits;
 
   useEffect(() => {
     let cancelled = false;
@@ -1937,7 +1936,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     async (toOverride?: string) => {
       setHint(null);
       setHintMeta(null);
-      const raw = typeof toOverride === "string" ? toOverride : digits;
+      const raw = typeof toOverride === "string" ? toOverride : digitsRef.current;
       const trimmed = raw.trim();
       const e164 = isValidE164(trimmed) ? trimmed : normalizeDialInputToE164(trimmed);
       if (!e164 || !isValidE164(e164)) {
@@ -2019,7 +2018,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
         setHintMeta({ suggestSettings: friendly.suggestOpenSettings, canRetry: friendly.canRetry });
       }
     },
-    [digits, attachActiveCallHandlers, bindDeviceLifecycle, nativeVoiceCallShell]
+    [attachActiveCallHandlers, bindDeviceLifecycle, nativeVoiceCallShell]
   );
 
   const busy = status === "fetching_token" || status === "connecting" || status === "in_call";
