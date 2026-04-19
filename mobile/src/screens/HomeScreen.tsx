@@ -37,6 +37,7 @@ import {
   shouldSkipVoiceRegister,
 } from '../services/mobileRegistrationGuard';
 import { logRegistrationDebug, registrationStats } from '../services/mobileRegistrationDiagnostics';
+import { getOrCreateDeviceInstallId } from '../services/deviceInstallId';
 
 import type { HomeScreenProps } from '../navigation/types';
 
@@ -46,11 +47,17 @@ function portalUrl(): string {
   return `${base}/workspace/phone/keypad`;
 }
 
-/** Injected into the WebView — POST FCM to portal `devices` registration (cookie session). */
-function buildRegisterPushInjectJs(fcmToken: string, attemptReason: string, diagnostics: boolean): string {
+/** Injected into the WebView — POST FCM to portal `user_push_devices` (cookie session). */
+function buildRegisterPushInjectJs(
+  fcmToken: string,
+  deviceInstallId: string,
+  attemptReason: string,
+  diagnostics: boolean
+): string {
   const registerUrl = pushRegisterUrl();
+  /** SMS FCM on iOS uses APNs; server persists lowercase `ios` | `android`. */
   const platform = Platform.OS === 'ios' ? 'ios' : 'android';
-  const bodyStr = JSON.stringify({ fcmToken, platform });
+  const bodyStr = JSON.stringify({ fcmToken, platform, deviceInstallId });
   const reasonJson = JSON.stringify(attemptReason);
   const tokenHint = `${fcmToken.slice(0, 24)}… (len ${fcmToken.length})`;
   const tokenHintJson = JSON.stringify(tokenHint);
@@ -127,6 +134,7 @@ function buildVoiceRegisterInjectJs(input: {
   twilioIdentity: string;
   platform: string;
   appVersion: string;
+  deviceInstallId: string;
   voipPushToken?: string | null;
 }): string {
   const url = voiceRegisterUrl();
@@ -135,6 +143,7 @@ function buildVoiceRegisterInjectJs(input: {
     platform: input.platform,
     twilioIdentity: input.twilioIdentity,
     appVersion: input.appVersion,
+    deviceInstallId: input.deviceInstallId,
   };
   const voip = typeof input.voipPushToken === 'string' ? input.voipPushToken.trim() : '';
   if (voip) {
@@ -247,7 +256,10 @@ export function HomeScreen(_props: HomeScreenProps) {
     fcmToken: string;
     twilioIdentity: string;
     voipPushToken: string | null;
+    deviceInstallId: string;
   } | null>(null);
+  const deviceInstallIdRef = useRef<string | null>(null);
+  const [deviceInstallIdReady, setDeviceInstallIdReady] = useState(false);
   /** Push/voice WebView POST delayed retries (FCM load / softphone-token follow-ups). */
   const registrationTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const lastNavUrlRef = useRef<string>('');
@@ -272,6 +284,24 @@ export function HomeScreen(_props: HomeScreenProps) {
   /** Cold launch: always open keypad — do not restore a previous deep link / notification path. */
   useEffect(() => {
     setPortalUri(portalUrl());
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const id = await getOrCreateDeviceInstallId();
+        if (!cancelled && id.trim()) {
+          deviceInstallIdRef.current = id.trim();
+          setDeviceInstallIdReady(true);
+        }
+      } catch (e) {
+        console.warn('[HomeScreen] getOrCreateDeviceInstallId failed', e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   /** Surface Twilio customParameters (e.g. caller_name from server) when present. */
@@ -308,11 +338,12 @@ export function HomeScreen(_props: HomeScreenProps) {
 
   const runPushRegistration = useCallback((reason: string) => {
     const token = fcmTokenRef.current;
-    if (Constants.appOwnership === 'expo' || !token || !webViewRef.current) {
+    const installId = deviceInstallIdRef.current?.trim() ?? '';
+    if (Constants.appOwnership === 'expo' || !token || !installId || !webViewRef.current) {
       return;
     }
     registrationStats.pushInjectAttempted += 1;
-    if (shouldSkipPushRegister(token)) {
+    if (shouldSkipPushRegister(token, installId)) {
       registrationStats.pushSkippedByGuard += 1;
       logRegistrationDebug('skip POST /push/register (cooldown)', {
         reason,
@@ -324,18 +355,28 @@ export function HomeScreen(_props: HomeScreenProps) {
     if (mobileRegistrationDebugEnabled) {
       logRegistrationDebug('inject POST /push/register', { reason, fcmKeyTail: `${token.slice(0, 12)}…` });
     }
-    webViewRef.current.injectJavaScript(buildRegisterPushInjectJs(token, reason, mobileDiagnosticsEnabled));
+    webViewRef.current.injectJavaScript(
+      buildRegisterPushInjectJs(token, installId, reason, mobileDiagnosticsEnabled)
+    );
   }, []);
 
   const injectWorkspaceVoiceRegister = useCallback(
     async (twilioIdentity: string, reason: string) => {
       const t = fcmTokenRef.current;
-      if (!t || !twilioIdentity || !webViewRef.current || Constants.appOwnership === 'expo') {
+      const installId = deviceInstallIdRef.current?.trim() ?? '';
+      if (!t || !installId || !twilioIdentity || !webViewRef.current || Constants.appOwnership === 'expo') {
         return;
       }
       const voip = Platform.OS === 'ios' ? await twilioVoiceService.getNativeDeviceToken() : null;
       registrationStats.voiceInjectAttempted += 1;
-      if (shouldSkipVoiceRegister({ fcmToken: t, twilioIdentity, voipPushToken: voip })) {
+      if (
+        shouldSkipVoiceRegister({
+          fcmToken: t,
+          twilioIdentity,
+          voipPushToken: voip,
+          deviceInstallId: installId,
+        })
+      ) {
         registrationStats.voiceSkippedByGuard += 1;
         logRegistrationDebug('skip POST /voice/register (cooldown)', {
           reason,
@@ -347,7 +388,7 @@ export function HomeScreen(_props: HomeScreenProps) {
       if (mobileRegistrationDebugEnabled) {
         logRegistrationDebug('inject POST /voice/register', { reason, identityTail: twilioIdentity.slice(-12) });
       }
-      lastVoicePayloadRef.current = { fcmToken: t, twilioIdentity, voipPushToken: voip };
+      lastVoicePayloadRef.current = { fcmToken: t, twilioIdentity, voipPushToken: voip, deviceInstallId: installId };
       const appVersion = Constants.expoConfig?.version ?? '1.0.0';
       webViewRef.current.injectJavaScript(
         buildVoiceRegisterInjectJs({
@@ -355,6 +396,7 @@ export function HomeScreen(_props: HomeScreenProps) {
           twilioIdentity,
           platform: Platform.OS === 'ios' ? 'ios' : 'android',
           appVersion,
+          deviceInstallId: installId,
           voipPushToken: voip,
         })
       );
@@ -449,7 +491,7 @@ export function HomeScreen(_props: HomeScreenProps) {
         registrationTimersRef.current = registrationTimersRef.current.filter((t) => t !== id);
       });
     };
-  }, [fcmToken, loading, runPushRegistration]);
+  }, [fcmToken, loading, deviceInstallIdReady, runPushRegistration]);
 
   /** FCM arrived after WebView posted softphone token — complete `devices` row (incl. voip_token). */
   useEffect(() => {
@@ -458,7 +500,7 @@ export function HomeScreen(_props: HomeScreenProps) {
     if (!pending?.twilioIdentity || !webViewRef.current) return;
     pendingVoiceRegisterRef.current = null;
     void injectWorkspaceVoiceRegister(pending.twilioIdentity, 'fcm_ready_after_softphone_bridge');
-  }, [fcmToken, loading, injectWorkspaceVoiceRegister]);
+  }, [fcmToken, loading, deviceInstallIdReady, injectWorkspaceVoiceRegister]);
 
   /**
    * Notification open: cold start (`getInitialNotification`), background (`onNotificationOpenedApp`).
@@ -517,7 +559,10 @@ export function HomeScreen(_props: HomeScreenProps) {
           if (ack.ok) {
             const tok = fcmTokenRef.current;
             if (ack.kind === 'push' && tok) {
-              recordPushRegisterSuccess(tok);
+              const install = deviceInstallIdRef.current?.trim() ?? '';
+              if (install) {
+                recordPushRegisterSuccess(tok, install);
+              }
               registrationStats.pushAckSuccess += 1;
             }
             if (ack.kind === 'voice' && lastVoicePayloadRef.current) {

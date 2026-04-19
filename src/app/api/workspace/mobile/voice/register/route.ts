@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 
+import { upsertUserPushDeviceByInstallId } from "@/lib/push/upsert-user-push-device";
 import { createServerSupabaseClient, getAuthenticatedUser } from "@/lib/supabase/server";
 import { canAccessWorkspacePhone, getStaffProfile } from "@/lib/staff-profile";
 import { softphoneTwilioClientIdentity } from "@/lib/softphone/twilio-client-identity";
@@ -46,10 +47,8 @@ export async function POST(req: Request) {
   const fcmToken = typeof body.fcmToken === "string" ? body.fcmToken.trim() : "";
   const voipPushToken = typeof body.voipPushToken === "string" ? body.voipPushToken.trim() : "";
   const twilioIdentityRaw = typeof body.twilioIdentity === "string" ? body.twilioIdentity.trim() : "";
-  const deviceInstallId =
-    typeof body.deviceInstallId === "string" && body.deviceInstallId.trim()
-      ? body.deviceInstallId.trim()
-      : null;
+  const deviceInstallIdRaw =
+    typeof body.deviceInstallId === "string" ? body.deviceInstallId.trim() : "";
   const appVersion = typeof body.appVersion === "string" && body.appVersion.trim() ? body.appVersion.trim() : null;
 
   if (!platform) {
@@ -70,6 +69,13 @@ export async function POST(req: Request) {
     );
   }
 
+  if (!deviceInstallIdRaw) {
+    return NextResponse.json(
+      { error: "deviceInstallId is required (stable id per app install; must match /push/register)" },
+      { status: 400 }
+    );
+  }
+
   const supabase = await createServerSupabaseClient();
   const now = new Date().toISOString();
 
@@ -78,7 +84,7 @@ export async function POST(req: Request) {
     platform,
     fcm_token: fcmToken,
     twilio_identity: twilioIdentity,
-    device_install_id: deviceInstallId,
+    device_install_id: deviceInstallIdRaw,
     app_version: appVersion,
     last_seen_at: now,
     updated_at: now,
@@ -109,16 +115,14 @@ export async function POST(req: Request) {
    * `/push/register` can race before the WebView session is ready; mirroring the token here when
    * voice registration succeeds ensures inbound SMS push targets the current device immediately.
    */
-  const { error: pushDevErr } = await supabase.from("user_push_devices").upsert(
-    {
-      user_id: staff.user_id,
-      platform,
-      fcm_token: fcmToken,
-      device_install_id: deviceInstallId,
-      updated_at: now,
-    },
-    { onConflict: "user_id,fcm_token" }
-  );
+  const userPushPlatform = platform === "android" ? "android" : "ios";
+  const { error: pushDevErr } = await upsertUserPushDeviceByInstallId(supabase, {
+    userId: staff.user_id,
+    fcmToken,
+    deviceInstallId: deviceInstallIdRaw,
+    platform: userPushPlatform,
+    updatedAtIso: now,
+  });
   if (pushDevErr) {
     console.warn(LOG, "user_push_devices_upsert_failed", { reqId, message: pushDevErr.message });
   }

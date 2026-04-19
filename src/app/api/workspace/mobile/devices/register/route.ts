@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 
+import { upsertUserPushDeviceByInstallId } from "@/lib/push/upsert-user-push-device";
 import { createServerSupabaseClient, getAuthenticatedUser } from "@/lib/supabase/server";
 import { softphoneTwilioClientIdentity } from "@/lib/softphone/twilio-client-identity";
 import { canAccessWorkspacePhone, getStaffProfile } from "@/lib/staff-profile";
@@ -61,6 +62,13 @@ export async function POST(req: Request) {
     typeof body.deviceInstallId === "string" && body.deviceInstallId.trim()
       ? body.deviceInstallId.trim()
       : null;
+
+  if (fcmToken && !deviceInstallId) {
+    return NextResponse.json(
+      { error: "deviceInstallId is required when fcmToken is set", reason: "missing_device_install_id" },
+      { status: 400 }
+    );
+  }
   const appVersion =
     typeof body.appVersion === "string" && body.appVersion.trim() ? body.appVersion.trim() : null;
 
@@ -118,17 +126,19 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Failed to update device" }, { status: 500 });
     }
 
-    if (fcmToken) {
-      await supabase.from("user_push_devices").upsert(
-        {
-          user_id: staff.user_id,
-          platform,
-          fcm_token: fcmToken,
-          device_install_id: deviceInstallId,
-          updated_at: now,
-        },
-        { onConflict: "user_id,fcm_token" }
-      );
+    if (fcmToken && deviceInstallId) {
+      const userPushPlatform = platform === "android" ? "android" : "ios";
+      const { error: upPushErr } = await upsertUserPushDeviceByInstallId(supabase, {
+        userId: staff.user_id,
+        fcmToken,
+        deviceInstallId,
+        platform: userPushPlatform,
+        updatedAtIso: now,
+      });
+      if (upPushErr) {
+        console.warn(LOG, "user_push_devices_upsert_failed", { reqId, message: upPushErr.message });
+        return NextResponse.json({ error: "Failed to save push device" }, { status: 500 });
+      }
     }
 
     console.log(LOG, "updated", { reqId, deviceId });
@@ -178,17 +188,19 @@ export async function POST(req: Request) {
           })
           .eq("id", dupe.id);
 
-        if (!up2 && fcmToken) {
-          await supabase.from("user_push_devices").upsert(
-            {
-              user_id: staff.user_id,
-              platform,
-              fcm_token: fcmToken,
-              device_install_id: deviceInstallId,
-              updated_at: now,
-            },
-            { onConflict: "user_id,fcm_token" }
-          );
+        if (!up2 && fcmToken && deviceInstallId) {
+          const userPushPlatform = platform === "android" ? "android" : "ios";
+          const { error: upPushErr } = await upsertUserPushDeviceByInstallId(supabase, {
+            userId: staff.user_id,
+            fcmToken,
+            deviceInstallId,
+            platform: userPushPlatform,
+            updatedAtIso: now,
+          });
+          if (upPushErr) {
+            console.warn(LOG, "user_push_devices_upsert_failed", { reqId, message: upPushErr.message });
+            return NextResponse.json({ error: "Failed to save push device" }, { status: 500 });
+          }
         }
         if (up2) {
           console.warn(LOG, "dedupe_update_failed", { reqId, message: up2.message });
@@ -204,17 +216,19 @@ export async function POST(req: Request) {
 
   const newId = inserted?.id as string;
 
-  if (fcmToken) {
-    await supabase.from("user_push_devices").upsert(
-      {
-        user_id: staff.user_id,
-        platform,
-        fcm_token: fcmToken,
-        device_install_id: deviceInstallId,
-        updated_at: now,
-      },
-      { onConflict: "user_id,fcm_token" }
-    );
+  if (fcmToken && deviceInstallId) {
+    const userPushPlatform = platform === "android" ? "android" : "ios";
+    const { error: upPushErr } = await upsertUserPushDeviceByInstallId(supabase, {
+      userId: staff.user_id,
+      fcmToken,
+      deviceInstallId,
+      platform: userPushPlatform,
+      updatedAtIso: now,
+    });
+    if (upPushErr) {
+      console.warn(LOG, "user_push_devices_upsert_failed", { reqId, message: upPushErr.message });
+      return NextResponse.json({ error: "Failed to save push device" }, { status: 500 });
+    }
   }
 
   console.log(LOG, "inserted", { reqId, deviceId: newId });

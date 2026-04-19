@@ -15,6 +15,7 @@
     "android:run": "expo run:android"
   },
   "dependencies": {
+    "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-firebase/app": "^24.0.0",
     "@react-native-firebase/messaging": "^24.0.0",
     "@react-navigation/native": "^7.2.2",

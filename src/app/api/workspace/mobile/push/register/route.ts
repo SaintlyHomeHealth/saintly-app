@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
+import { upsertUserPushDeviceByInstallId } from "@/lib/push/upsert-user-push-device";
 import { createServerSupabaseClient, getAuthenticatedUser } from "@/lib/supabase/server";
 import { canAccessWorkspacePhone, getStaffProfile } from "@/lib/staff-profile";
 
@@ -114,31 +115,37 @@ export async function POST(req: Request) {
     );
   }
 
-  const deviceInstallId =
-    typeof body.deviceInstallId === "string" && body.deviceInstallId.trim()
-      ? body.deviceInstallId.trim()
-      : null;
+  const deviceInstallIdRaw =
+    typeof body.deviceInstallId === "string" ? body.deviceInstallId.trim() : "";
+  if (!deviceInstallIdRaw) {
+    console.warn(LOG, "reject_400", { reqId, reason: "missing_device_install_id" });
+    return NextResponse.json(
+      { error: "deviceInstallId is required (stable id per app install)", reason: "missing_device_install_id" },
+      { status: 400 }
+    );
+  }
 
   const supabase = await createServerSupabaseClient();
   const now = new Date().toISOString();
 
+  /** SMS FCM on iOS uses APNs; keep `ios` explicit for routing (see sendFcmDataAndNotificationToUserIds). */
+  const userPushPlatform = platform === "android" ? "android" : "ios";
+
   console.log(LOG, "upsert_start", {
     reqId,
     targetUserId: staff.user_id,
-    platform,
+    platform: userPushPlatform,
     fcmTokenLength: fcmToken.length,
+    hasDeviceInstallId: true,
   });
 
-  const { error } = await supabase.from("user_push_devices").upsert(
-    {
-      user_id: staff.user_id,
-      platform,
-      fcm_token: fcmToken,
-      device_install_id: deviceInstallId,
-      updated_at: now,
-    },
-    { onConflict: "user_id,fcm_token" }
-  );
+  const { error } = await upsertUserPushDeviceByInstallId(supabase, {
+    userId: staff.user_id,
+    fcmToken,
+    deviceInstallId: deviceInstallIdRaw,
+    platform: userPushPlatform,
+    updatedAtIso: now,
+  });
 
   if (error) {
     console.warn(LOG, "upsert_failed", {
@@ -154,6 +161,6 @@ export async function POST(req: Request) {
     );
   }
 
-  console.log(LOG, "upsert_ok", { reqId, userId: staff.user_id, platform });
+  console.log(LOG, "upsert_ok", { reqId, userId: staff.user_id, platform: userPushPlatform });
   return NextResponse.json({ ok: true, reqId });
 }
