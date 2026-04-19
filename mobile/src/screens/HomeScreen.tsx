@@ -48,7 +48,7 @@ function buildRegisterPushInjectJs(fcmToken: string, attemptReason: string): str
       }
     } catch (e) {}
   }
-  post({ type: 'push-register-log', step: 'fetch_start', attemptReason: attemptReason, tokenHint: tokenHint, url: url });
+  post({ type: 'push-register-log', step: 'fetch_start', ts: Date.now(), attemptReason: attemptReason, tokenHint: tokenHint, url: url });
   fetch(url, {
     method: 'POST',
     credentials: 'include',
@@ -61,6 +61,7 @@ function buildRegisterPushInjectJs(fcmToken: string, attemptReason: string): str
       post({
         type: 'push-register-log',
         step: 'fetch_done',
+        ts: Date.now(),
         attemptReason: attemptReason,
         status: res.status,
         ok: res.ok,
@@ -71,6 +72,7 @@ function buildRegisterPushInjectJs(fcmToken: string, attemptReason: string): str
     post({
       type: 'push-register-log',
       step: 'fetch_error',
+      ts: Date.now(),
       attemptReason: attemptReason,
       message: String(err && err.message ? err.message : err)
     });
@@ -214,23 +216,30 @@ export function HomeScreen(_props: HomeScreenProps) {
     webViewRef.current.injectJavaScript(buildRegisterPushInjectJs(token, reason));
   }, []);
 
-  const injectWorkspaceVoiceRegister = useCallback(async (twilioIdentity: string, reason: string) => {
-    const t = fcmTokenRef.current;
-    if (!t || !twilioIdentity || !webViewRef.current || Constants.appOwnership === 'expo') {
-      return;
-    }
-    const voip = Platform.OS === 'ios' ? await twilioVoiceService.getNativeDeviceToken() : null;
-    const appVersion = Constants.expoConfig?.version ?? '1.0.0';
-    webViewRef.current.injectJavaScript(
-      buildVoiceRegisterInjectJs({
-        fcmToken: t,
-        twilioIdentity,
-        platform: Platform.OS === 'ios' ? 'ios' : 'android',
-        appVersion,
-        voipPushToken: voip,
-      })
-    );
-  }, []);
+  const injectWorkspaceVoiceRegister = useCallback(
+    async (twilioIdentity: string, reason: string) => {
+      const t = fcmTokenRef.current;
+      if (!t || !twilioIdentity || !webViewRef.current || Constants.appOwnership === 'expo') {
+        return;
+      }
+      const voip = Platform.OS === 'ios' ? await twilioVoiceService.getNativeDeviceToken() : null;
+      const appVersion = Constants.expoConfig?.version ?? '1.0.0';
+      webViewRef.current.injectJavaScript(
+        buildVoiceRegisterInjectJs({
+          fcmToken: t,
+          twilioIdentity,
+          platform: Platform.OS === 'ios' ? 'ios' : 'android',
+          appVersion,
+          voipPushToken: voip,
+        })
+      );
+      /** Voice POST runs with a valid session; flush SMS `user_push_devices` via `/push/register` too. */
+      runPushRegistration(`after_voice_inject_${reason}`);
+      setTimeout(() => runPushRegistration(`after_voice_inject_${reason}_400ms`), 400);
+      setTimeout(() => runPushRegistration(`after_voice_inject_${reason}_2s`), 2000);
+    },
+    [runPushRegistration]
+  );
 
   /**
    * GET `/api/softphone/token` from native (Supabase bearer in SecureStore from workspace bridge, else cookie fallback),
@@ -284,6 +293,7 @@ export function HomeScreen(_props: HomeScreenProps) {
     const sub = AppState.addEventListener('change', (next) => {
       if (next === 'active') {
         run('appstate_active');
+        runPushRegistration('appstate_active');
       }
     });
 
@@ -292,7 +302,7 @@ export function HomeScreen(_props: HomeScreenProps) {
       timers.forEach(clearTimeout);
       sub.remove();
     };
-  }, [loading, runNativeSoftphoneRegistration]);
+  }, [loading, runNativeSoftphoneRegistration, runPushRegistration]);
 
   /** After FCM token exists: retry registration — cookies may not exist until post-login navigation. */
   useEffect(() => {

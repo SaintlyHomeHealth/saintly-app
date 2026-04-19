@@ -100,7 +100,8 @@ export async function registerNativePushForCalls(): Promise<NativePushRegistrati
     return empty({ errorText: 'Expo Go — use a dev or release native build.' });
   }
 
-  console.warn('[nativePushService] start', diagnostics);
+  const wallTs = () => Date.now();
+  console.warn('[nativePushService] start', { ts: wallTs(), ...diagnostics });
 
   try {
     const mod = await import('@react-native-firebase/messaging');
@@ -126,35 +127,62 @@ export async function registerNativePushForCalls(): Promise<NativePushRegistrati
     /** 1) Permission first (prompts on iOS when undecided). */
     const permissionStatus = await messaging().requestPermission();
     const permissionLabel = labelForAuthStatus(AuthorizationStatus, permissionStatus);
-    console.warn('[nativePushService] requestPermission', { permissionStatus, permissionLabel });
+    console.warn('[nativePushService] requestPermission', {
+      ts: wallTs(),
+      permissionStatus,
+      permissionLabel,
+    });
 
     if (Platform.OS === 'ios') {
       /** 2) Register with APNs before FCM token on iOS. */
+      const regStart = wallTs();
       await messaging().registerDeviceForRemoteMessages();
-      console.warn('[nativePushService] registerDeviceForRemoteMessages OK');
+      console.warn('[nativePushService] registerDeviceForRemoteMessages OK', {
+        ts: wallTs(),
+        ms: wallTs() - regStart,
+      });
     }
 
-    /** 3) APNs token (iOS) — may be null briefly; still log. */
+    /**
+     * 3) APNs device token (iOS) — often null for a short window after step 2. Alert FCM may not
+     * deliver reliably until APNs is linked; poll briefly before `getToken` + server registration.
+     */
     let apnsDeviceToken: string | null = null;
     if (Platform.OS === 'ios') {
+      const apnsWaitStart = wallTs();
+      const timeoutMs = 15_000;
+      const intervalMs = 150;
       try {
-        apnsDeviceToken = await messaging().getAPNSToken();
-        console.warn(
-          '[nativePushService] getAPNSToken',
-          apnsDeviceToken ? `${apnsDeviceToken.slice(0, 16)}… (len ${apnsDeviceToken.length})` : null
-        );
+        while (wallTs() - apnsWaitStart < timeoutMs) {
+          try {
+            apnsDeviceToken = await messaging().getAPNSToken();
+          } catch (apnsErr) {
+            const msg = apnsErr instanceof Error ? apnsErr.message : String(apnsErr);
+            console.warn('[nativePushService] getAPNSToken error (poll)', msg);
+          }
+          if (apnsDeviceToken) break;
+          await new Promise((r) => setTimeout(r, intervalMs));
+        }
+        console.warn('[nativePushService] getAPNSToken', {
+          ts: wallTs(),
+          waitMs: wallTs() - apnsWaitStart,
+          hasToken: Boolean(apnsDeviceToken),
+          preview: apnsDeviceToken ? `${apnsDeviceToken.slice(0, 16)}… (len ${apnsDeviceToken.length})` : null,
+        });
       } catch (apnsErr) {
         const msg = apnsErr instanceof Error ? apnsErr.message : String(apnsErr);
-        console.warn('[nativePushService] getAPNSToken error', msg);
+        console.warn('[nativePushService] getAPNSToken fatal', msg);
       }
     }
 
     /** 4) FCM registration token. */
+    const tokenStart = wallTs();
     const fcmToken = await messaging().getToken();
-    console.warn(
-      '[nativePushService] getToken',
-      fcmToken ? `${fcmToken.slice(0, 24)}… (len ${fcmToken.length})` : 'empty/null'
-    );
+    console.warn('[nativePushService] getToken', {
+      ts: wallTs(),
+      getTokenMs: wallTs() - tokenStart,
+      token: fcmToken ? `${fcmToken.slice(0, 24)}… (len ${fcmToken.length})` : 'empty/null',
+    });
 
     const denied = permissionStatus === AuthorizationStatus.DENIED;
     let errorText: string | null = null;

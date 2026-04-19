@@ -104,6 +104,25 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Failed to save voice device" }, { status: 500 });
   }
 
+  /**
+   * SMS / generic FCM uses `user_push_devices` (see `sendFcmDataAndNotificationToUserIds`).
+   * `/push/register` can race before the WebView session is ready; mirroring the token here when
+   * voice registration succeeds ensures inbound SMS push targets the current device immediately.
+   */
+  const { error: pushDevErr } = await supabase.from("user_push_devices").upsert(
+    {
+      user_id: staff.user_id,
+      platform,
+      fcm_token: fcmToken,
+      device_install_id: deviceInstallId,
+      updated_at: now,
+    },
+    { onConflict: "user_id,fcm_token" }
+  );
+  if (pushDevErr) {
+    console.warn(LOG, "user_push_devices_upsert_failed", { reqId, message: pushDevErr.message });
+  }
+
   console.log(LOG, "ok", { reqId, userId: staff.user_id, platform });
   return NextResponse.json({ ok: true, reqId, twilioIdentity: expectedIdentity });
 }
