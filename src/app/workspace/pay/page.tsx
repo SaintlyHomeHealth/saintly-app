@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
-import { ensureNurseWeeklyBilling, fetchNurseWeeklyBillingByPeriodOptional } from "@/lib/payroll/nurse-weekly-billing";
+import { ensureNurseWeeklyBilling } from "@/lib/payroll/nurse-weekly-billing";
 import { loadAssignablePatientsForNurse } from "@/lib/payroll/nurse-assignable-patients";
 import { getPayPeriodForDate } from "@/lib/payroll/pay-period";
 import { isPayWeekInAllowedNurseBillingWindow, selfBillingCalendarTimeZone } from "@/lib/payroll/self-billing-dates";
@@ -11,6 +11,27 @@ import { canAccessWorkspacePhone, getStaffProfile } from "@/lib/staff-profile";
 
 import { PayWeekPicker } from "./PayWeekPicker";
 import { SelfBillingView, type SelfBillingLineVM } from "./SelfBillingView";
+
+function mergeWeekOptionsForPicker(
+  defaultBounds: { payPeriodStart: string; payPeriodEnd: string },
+  viewingBounds: { payPeriodStart: string; payPeriodEnd: string },
+  historyRows: { pay_period_start: unknown; pay_period_end: unknown }[]
+): { start: string; end: string }[] {
+  const seen = new Set<string>();
+  const out: { start: string; end: string }[] = [];
+  const push = (start: string, end: string) => {
+    if (!start || seen.has(start)) return;
+    seen.add(start);
+    out.push({ start, end: end.length ? end : start });
+  };
+  for (const r of historyRows) {
+    push(String(r.pay_period_start ?? ""), String(r.pay_period_end ?? ""));
+  }
+  push(defaultBounds.payPeriodStart, defaultBounds.payPeriodEnd);
+  push(viewingBounds.payPeriodStart, viewingBounds.payPeriodEnd);
+  out.sort((a, b) => b.start.localeCompare(a.start));
+  return out;
+}
 
 function displayPatientName(raw: unknown): string | null {
   if (!raw || typeof raw !== "object") return null;
@@ -61,11 +82,47 @@ export default async function WorkspacePayPage({
     viewingBounds.payPeriodStart === defaultBounds.payPeriodStart &&
     viewingBounds.payPeriodEnd === defaultBounds.payPeriodEnd;
 
-  const [assignablePatients, billingResolved, historyWeeksResult] = await Promise.all([
+  /** Do not materialize rows for a future pay period (e.g. manipulated ?week=). */
+  const isFuturePayWeek = viewingBounds.payPeriodStart > defaultBounds.payPeriodStart;
+
+  if (isFuturePayWeek) {
+    const { data: historyOnly } = await supabaseAdmin
+      .from("nurse_weekly_billings")
+      .select("pay_period_start, pay_period_end")
+      .eq("employee_id", applicantId)
+      .order("pay_period_start", { ascending: false })
+      .limit(52);
+    const weekOptionsEarly = mergeWeekOptionsForPicker(
+      defaultBounds,
+      viewingBounds,
+      historyOnly ?? []
+    );
+    return (
+      <>
+        <AdminPageHeader
+          accent="sky"
+          eyebrow="Workspace"
+          title="Pay"
+          metaLine={`Week ${viewingBounds.payPeriodStart} – ${viewingBounds.payPeriodEnd}`}
+          description="That date is in a future pay period. Pay uses one invoice per week—choose the current week or a past week below."
+          footer={
+            <div className="space-y-4 px-5 py-5 sm:px-8">
+              <PayWeekPicker
+                selectedWeekStart={defaultBounds.payPeriodStart}
+                currentPeriodWeekStart={defaultBounds.payPeriodStart}
+                currentPeriodWeekEnd={defaultBounds.payPeriodEnd}
+                weeks={weekOptionsEarly}
+              />
+            </div>
+          }
+        />
+      </>
+    );
+  }
+
+  const [assignablePatients, billing, historyWeeksResult] = await Promise.all([
     loadAssignablePatientsForNurse(staff.user_id),
-    isCurrentPayWeek
-      ? ensureNurseWeeklyBilling(applicantId, viewingBounds)
-      : fetchNurseWeeklyBillingByPeriodOptional(applicantId, viewingBounds),
+    ensureNurseWeeklyBilling(applicantId, viewingBounds),
     supabaseAdmin
       .from("nurse_weekly_billings")
       .select("pay_period_start, pay_period_end")
@@ -74,35 +131,11 @@ export default async function WorkspacePayPage({
       .limit(52),
   ]);
 
-  const weekOptions = (historyWeeksResult.data ?? []).map((r) => ({
-    start: String(r.pay_period_start ?? ""),
-    end: String(r.pay_period_end ?? ""),
-  }));
-
-  const billing = billingResolved;
-  if (!billing) {
-    return (
-      <>
-        <AdminPageHeader
-          accent="sky"
-          eyebrow="Workspace"
-          title="Pay"
-          metaLine={`Week ${viewingBounds.payPeriodStart} – ${viewingBounds.payPeriodEnd}`}
-          description="No saved invoice for this week yet. Choose another week from your history, or return to the current period."
-          footer={
-            <div className="space-y-4 px-5 py-5 sm:px-8">
-              <PayWeekPicker
-                selectedWeekStart={viewingBounds.payPeriodStart}
-                currentPeriodWeekStart={defaultBounds.payPeriodStart}
-                currentPeriodWeekEnd={defaultBounds.payPeriodEnd}
-                weeks={weekOptions}
-              />
-            </div>
-          }
-        />
-      </>
-    );
-  }
+  const weekOptions = mergeWeekOptionsForPicker(
+    defaultBounds,
+    viewingBounds,
+    historyWeeksResult.data ?? []
+  );
 
   const { data: lineRows } = await supabase
     .from("nurse_weekly_billing_lines")
@@ -174,14 +207,26 @@ export default async function WorkspacePayPage({
             ? "This pay week is outside your billing window (you can work on the current week anytime; last week is available on Mondays only)."
             : "Your entries are saved here for reference.";
 
+  const metaLine = isCurrentPayWeek
+    ? `Week of ${viewingBounds.payPeriodStart} – ${viewingBounds.payPeriodEnd} · Current`
+    : `Week of ${viewingBounds.payPeriodStart} – ${viewingBounds.payPeriodEnd} · Past week`;
+
   return (
     <>
       <AdminPageHeader
         accent="sky"
         eyebrow="Workspace"
         title="Pay"
-        metaLine={`Week of ${viewingBounds.payPeriodStart} – ${viewingBounds.payPeriodEnd}`}
-        description={headerDescription}
+        metaLine={metaLine}
+        description={
+          <>
+            <span className="block text-slate-700">
+              Each pay week has its own saved invoice—switching weeks only changes which one you are viewing; older lines are
+              not erased.
+            </span>
+            <span className="mt-2 block">{headerDescription}</span>
+          </>
+        }
         footer={
           <div className="space-y-6 px-5 py-5 sm:px-8">
             <PayWeekPicker
@@ -190,6 +235,11 @@ export default async function WorkspacePayPage({
               currentPeriodWeekEnd={defaultBounds.payPeriodEnd}
               weeks={weekOptions}
             />
+            <p className="text-xs leading-relaxed text-slate-500">
+              {isCurrentPayWeek
+                ? "When the calendar rolls to a new pay week, this page opens that week’s invoice automatically (blank until you add lines). Use Pay week to open any earlier invoice."
+                : "You are reviewing a different week’s invoice. Pick another week anytime; each week stays stored separately."}
+            </p>
             {assignablePatients.length === 0 && allowNurseEdit ? (
               <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
                 You do not have any active patient assignments yet. When you are assigned patients, they will appear in the
