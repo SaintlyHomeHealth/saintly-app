@@ -5,8 +5,14 @@
 
 import { type VisitNeedsAttentionInput } from "@/lib/crm/dispatch-needs-attention";
 
-/** Max age for missed/rescheduled rows on the active board (outer bound of 24–48h). */
+/** Max age for missed/rescheduled rows on the active board. */
 export const NURSE_STALE_MISSED_RESCHEDULED_MS = 48 * 60 * 60 * 1000;
+
+/**
+ * Overdue scheduled/confirmed visits only stay in Needs attention if the overdue moment
+ * (window end or point start) is within this rolling window—stops Apr 1-style stragglers.
+ */
+export const NURSE_OVERDUE_ATTENTION_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 export type NurseVisitBoardInput = VisitNeedsAttentionInput & {
   created_at?: string | null;
@@ -35,11 +41,13 @@ export function isStaleMissedOrRescheduledNurseVisit(
 
 /**
  * Strict nurse "Needs attention" bucket only:
- * - in progress: en_route, arrived
- * - overdue scheduled/confirmed (window ended, or point-in-time start in the past), or missing schedule time
- * - missed / rescheduled still within {@link NURSE_STALE_MISSED_RESCHEDULED_MS} (stale rows should be removed before calling)
  *
- * Excludes: completed/canceled (not on this query), due-soon-but-not-yet-late hype, and old missed/rescheduled (drop via stale filter first).
+ * 1. In progress: `en_route`, `arrived` (always).
+ * 2. Overdue `scheduled` / `confirmed`: only if overdue anchor is within {@link NURSE_OVERDUE_ATTENTION_MAX_AGE_MS}.
+ * 3. Unscheduled `scheduled` / `confirmed`: only if `created_at` is within that same window (avoids stale rows).
+ * 4. `missed` / `rescheduled`: within {@link NURSE_STALE_MISSED_RESCHEDULED_MS} (stale filtered off the board first).
+ *
+ * Excludes: completed/canceled, any overdue scheduled/confirmed older than 24h past due, and due-soon-not-late.
  */
 export function visitNeedsNurseAttentionStrict(v: NurseVisitBoardInput, nowMs: number): boolean {
   const st = v.status;
@@ -58,7 +66,13 @@ export function visitNeedsNurseAttentionStrict(v: NurseVisitBoardInput, nowMs: n
   if (!PRE_ENROUTE_VISIT.has(st)) return false;
 
   const sf = (v.scheduled_for ?? "").trim();
-  if (!sf) return true;
+  if (!sf) {
+    const ca = (v.created_at ?? "").trim();
+    if (!ca) return false;
+    const cMs = new Date(ca).getTime();
+    if (!Number.isFinite(cMs)) return false;
+    return nowMs - cMs <= NURSE_OVERDUE_ATTENTION_MAX_AGE_MS;
+  }
 
   const startMs = new Date(sf).getTime();
   if (!Number.isFinite(startMs)) return false;
@@ -67,8 +81,40 @@ export function visitNeedsNurseAttentionStrict(v: NurseVisitBoardInput, nowMs: n
   const effectiveEnd = Number.isFinite(rawEnd) ? rawEnd : startMs;
   const isTimeWindow = effectiveEnd - startMs >= WINDOW_MIN_SPAN_MS;
 
-  if (isTimeWindow) {
-    return effectiveEnd < nowMs;
+  const overdue = isTimeWindow ? effectiveEnd < nowMs : startMs < nowMs;
+  if (!overdue) return false;
+
+  const overdueAnchorMs = isTimeWindow ? effectiveEnd : startMs;
+  return overdueAnchorMs >= nowMs - NURSE_OVERDUE_ATTENTION_MAX_AGE_MS;
+}
+
+/**
+ * True when a scheduled/confirmed row should be removed from the nurse board entirely
+ * (ancient overdue or stale unscheduled)—so it does not appear in any section or the hero.
+ */
+export function excludeAncientOverdueScheduledFromBoard(v: NurseVisitBoardInput, nowMs: number): boolean {
+  const st = v.status;
+  if (st !== "scheduled" && st !== "confirmed") return false;
+
+  const sf = (v.scheduled_for ?? "").trim();
+  if (!sf) {
+    const ca = (v.created_at ?? "").trim();
+    if (!ca) return true;
+    const cMs = new Date(ca).getTime();
+    if (!Number.isFinite(cMs)) return true;
+    return nowMs - cMs > NURSE_OVERDUE_ATTENTION_MAX_AGE_MS;
   }
-  return startMs < nowMs;
+
+  const startMs = new Date(sf).getTime();
+  if (!Number.isFinite(startMs)) return true;
+
+  const rawEnd = v.scheduled_end_at ? new Date(v.scheduled_end_at).getTime() : startMs;
+  const effectiveEnd = Number.isFinite(rawEnd) ? rawEnd : startMs;
+  const isTimeWindow = effectiveEnd - startMs >= WINDOW_MIN_SPAN_MS;
+
+  const overdue = isTimeWindow ? effectiveEnd < nowMs : startMs < nowMs;
+  if (!overdue) return false;
+
+  const overdueAnchorMs = isTimeWindow ? effectiveEnd : startMs;
+  return overdueAnchorMs < nowMs - NURSE_OVERDUE_ATTENTION_MAX_AGE_MS;
 }

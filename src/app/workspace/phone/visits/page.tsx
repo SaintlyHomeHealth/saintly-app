@@ -7,6 +7,7 @@ import { WorkspacePhoneQuickActions } from "../_components/WorkspacePhoneQuickAc
 import { WorkspaceVisitCard } from "../_components/WorkspaceVisitCard";
 import { allowedNextVisitStatuses, formatVisitStatusLabel } from "@/lib/crm/patient-visit-status";
 import {
+  excludeAncientOverdueScheduledFromBoard,
   isStaleMissedOrRescheduledNurseVisit,
   visitNeedsNurseAttentionStrict,
 } from "@/lib/crm/nurse-visits-board";
@@ -234,6 +235,8 @@ export default async function WorkspaceVisitsPage() {
   const dayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime();
 
   visits = visits.filter((v) => !isStaleMissedOrRescheduledNurseVisit(v, nowMs));
+
+  visits = visits.filter((v) => !excludeAncientOverdueScheduledFromBoard(v, nowMs));
 
   const needsAttention = visits.filter((v) => visitNeedsNurseAttentionStrict(v, nowMs));
 
