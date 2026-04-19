@@ -12,6 +12,7 @@ import { getStaffProfile, isManagerOrHigher, isPayrollApprover } from "@/lib/sta
 import {
   createPayrollVisitAction,
   holdPayrollVisitAction,
+  markNurseWeeklyBillingPaidAction,
   markPayrollBatchPaidAction,
   resolvePayrollExceptionAction,
   setBatchExportStubAction,
@@ -31,16 +32,28 @@ export default async function AdminPayrollPage() {
   const approver = isPayrollApprover(staff);
   const period = getPayPeriodForDate(new Date());
 
-  const [{ data: visits }, { data: applicants }, { data: batches }, { data: items }] = await Promise.all([
-    supabaseAdmin.from("visits").select("*").order("service_date", { ascending: false }).limit(400),
-    supabaseAdmin
-      .from("applicants")
-      .select("id, first_name, last_name")
-      .order("last_name", { ascending: true })
-      .limit(500),
-    supabaseAdmin.from("payroll_batches").select("*").order("pay_period_start", { ascending: false }).limit(24),
-    supabaseAdmin.from("payroll_visit_items").select("*").limit(2000),
-  ]);
+  const [{ data: visits }, { data: applicants }, { data: batches }, { data: items }, { data: nurseBillings }] =
+    await Promise.all([
+      supabaseAdmin.from("visits").select("*").order("service_date", { ascending: false }).limit(400),
+      supabaseAdmin
+        .from("applicants")
+        .select("id, first_name, last_name")
+        .order("last_name", { ascending: true })
+        .limit(500),
+      supabaseAdmin.from("payroll_batches").select("*").order("pay_period_start", { ascending: false }).limit(24),
+      supabaseAdmin.from("payroll_visit_items").select("*").limit(2000),
+      supabaseAdmin
+        .from("nurse_weekly_billings")
+        .select(
+          `
+        id,
+        status,
+        employee_id,
+        nurse_weekly_billing_lines ( amount )
+      `
+        )
+        .eq("pay_period_start", period.payPeriodStart),
+    ]);
 
   const visitList = visits ?? [];
   const itemByVisit = new Map((items ?? []).map((i) => [i.visit_id, i]));
@@ -95,6 +108,8 @@ export default async function AdminPayrollPage() {
     .reduce((s, i) => s + Number(i.gross_amount ?? 0), 0);
 
   const exceptions = visitList.filter((v) => v.requires_review || v.status === "held");
+
+  const nurseBillingsThisPeriod = nurseBillings ?? [];
 
   return (
     <>
@@ -163,6 +178,52 @@ export default async function AdminPayrollPage() {
                 </form>
               </div>
             ) : null}
+          </div>
+        </section>
+
+        <section className="mt-10">
+          <h2 className="text-sm font-bold uppercase tracking-wide text-slate-700">Nurse self-billing (this period)</h2>
+          <p className="mt-1 text-xs text-slate-600">
+            Workspace Pay tab: nurses submit manual weekly lines. Mark paid after you reconcile payment.
+          </p>
+          <div className="mt-3 space-y-2">
+            {nurseBillingsThisPeriod.length === 0 ? (
+              <p className="rounded-2xl border border-dashed border-slate-200 bg-white px-4 py-6 text-center text-sm text-slate-500">
+                No self-billing for this pay week yet.
+              </p>
+            ) : (
+              nurseBillingsThisPeriod.map((nb) => {
+                const emp = applicantMap.get(nb.employee_id);
+                const name = emp ? [emp.first_name, emp.last_name].filter(Boolean).join(" ") : nb.employee_id;
+                const lineList = nb.nurse_weekly_billing_lines;
+                const rawLines = Array.isArray(lineList) ? lineList : lineList ? [lineList] : [];
+                const total = rawLines.reduce((s, x) => s + Number((x as { amount?: unknown }).amount ?? 0), 0);
+                return (
+                  <div
+                    key={nb.id}
+                    className="flex flex-col gap-3 rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <div>
+                      <p className="text-sm font-semibold text-slate-900">{name}</p>
+                      <p className="mt-0.5 text-xs capitalize text-slate-600">
+                        {nb.status} · {money(total)}
+                      </p>
+                    </div>
+                    {approver && nb.status === "submitted" ? (
+                      <form action={markNurseWeeklyBillingPaidAction}>
+                        <input type="hidden" name="billingId" value={nb.id} />
+                        <button
+                          type="submit"
+                          className="rounded-xl bg-emerald-600 px-3 py-2 text-xs font-semibold text-white shadow-sm hover:bg-emerald-500"
+                        >
+                          Mark self-billing paid
+                        </button>
+                      </form>
+                    ) : null}
+                  </div>
+                );
+              })
+            )}
           </div>
         </section>
 

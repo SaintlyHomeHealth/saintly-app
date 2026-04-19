@@ -279,3 +279,41 @@ export async function setBatchExportStubAction(formData: FormData) {
   revalidatePath("/admin/payroll");
   return { ok: true as const };
 }
+
+export async function markNurseWeeklyBillingPaidAction(formData: FormData) {
+  const staff = await getStaffProfile();
+  if (!staff || !isPayrollApprover(staff)) {
+    return { ok: false as const, error: "Only payroll approvers can mark self-billing paid." };
+  }
+
+  const billingId = readId(formData, "billingId");
+  if (!billingId) return { ok: false as const, error: "Missing billing." };
+
+  const { data: row, error: qErr } = await supabaseAdmin
+    .from("nurse_weekly_billings")
+    .select("id, status")
+    .eq("id", billingId)
+    .maybeSingle();
+
+  if (qErr || !row) return { ok: false as const, error: "Self-billing not found." };
+  if (row.status !== "submitted") {
+    return { ok: false as const, error: "Only submitted self-billing can be marked paid." };
+  }
+
+  const now = new Date().toISOString();
+  const { error: uErr } = await supabaseAdmin
+    .from("nurse_weekly_billings")
+    .update({
+      status: "paid",
+      paid_at: now,
+      updated_at: now,
+    })
+    .eq("id", billingId)
+    .eq("status", "submitted");
+
+  if (uErr) return { ok: false as const, error: uErr.message };
+
+  revalidatePath("/admin/payroll");
+  revalidatePath("/workspace/pay");
+  return { ok: true as const };
+}
