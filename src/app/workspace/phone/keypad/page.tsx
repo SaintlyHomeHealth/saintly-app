@@ -47,7 +47,7 @@ export default async function WorkspaceKeypadPage({
   }
 
   return (
-    <div className="ws-phone-page-shell flex min-h-0 flex-1 flex-col px-3 pb-3 pt-2 sm:px-5 sm:pb-4 sm:pt-4 lg:px-8">
+    <div className="ws-phone-page-shell flex min-h-0 shrink-0 flex-col px-3 pb-3 pt-2 sm:px-5 sm:pb-4 sm:pt-4 lg:px-8">
       <WorkspacePhonePageHeader title="Keypad" />
       {leadId && UUID_RE.test(leadId) ? (
         <p className="mt-2 rounded-2xl border border-sky-200/80 bg-sky-50/90 px-4 py-3 text-sm text-sky-950">
@@ -76,8 +76,8 @@ export default async function WorkspaceKeypadPage({
           ) : null}
         </p>
       ) : null}
-      <div className="mt-1 flex min-h-0 flex-1 flex-col gap-3 sm:mt-3 lg:flex-row lg:items-start lg:justify-center lg:gap-8">
-        <div className="flex min-h-0 min-w-0 w-full max-w-md flex-1 flex-col p-0 sm:rounded-2xl sm:border sm:border-sky-100/60 sm:bg-white sm:p-5 sm:shadow-sm lg:max-w-lg">
+      <div className="mt-1 flex min-h-0 shrink-0 flex-col gap-3 sm:mt-3 lg:flex-row lg:items-start lg:justify-center lg:gap-8">
+        <div className="flex min-h-0 min-w-0 w-full max-w-md shrink-0 flex-col p-0 sm:rounded-2xl sm:border sm:border-sky-100/60 sm:bg-white sm:p-5 sm:shadow-sm lg:max-w-lg">
           <KeypadDialerLazy
             key={dialerKey}
             staffDisplayName={staffDisplayName}

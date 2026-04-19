@@ -19,6 +19,7 @@ type Props = { children: ReactNode };
  */
 export function WorkspacePhoneMainPadClient({ children }: Props) {
   const pathname = usePathname() ?? "";
+  const isKeypadRoute = pathname === "/workspace/phone/keypad";
   const searchParams = useSearchParams();
   const threadQ = searchParams?.get("thread")?.trim() ?? "";
   const isInboxSplitThread =
@@ -36,7 +37,10 @@ export function WorkspacePhoneMainPadClient({ children }: Props) {
   const pb =
     status === "in_call"
       ? "pb-[max(6.5rem,env(safe-area-inset-bottom,0px))]"
-      : "pb-32";
+      : isKeypadRoute
+        ? // Keypad: reserve space for fixed bottom nav + safe area (inbox-style) so the Call row never sits under nav
+          "pb-[max(8rem,calc(5.75rem+env(safe-area-inset-bottom,0px)))]"
+        : "pb-32";
   const overflowClass = isSmsConversationThread
     ? "overflow-hidden"
     : isInboxListOnly

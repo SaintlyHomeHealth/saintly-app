@@ -312,8 +312,8 @@ export function SoftphoneDialer({
   );
 
   const keypadPanel = (
-    <div className="flex min-h-0 w-full flex-1 flex-col gap-1.5 sm:gap-2">
-      <div className="shrink-0 space-y-1.5 sm:space-y-2">
+    <div className="flex w-full shrink-0 flex-col gap-1 sm:gap-1.5">
+      <div className="shrink-0 space-y-1 sm:space-y-1.5 md:space-y-2">
       <div className="w-full px-0 py-0 sm:rounded-lg sm:border sm:border-sky-100/60 sm:bg-white sm:px-2.5 sm:py-1.5">
         {outboundLines.length > 0 ? (
           <button
@@ -446,22 +446,22 @@ export function SoftphoneDialer({
           </div>
         ) : null}
         {!ringtoneUnlocked ? (
-          <p className="mt-1 border-t border-amber-200/20 pt-1 text-[9px] leading-snug text-amber-900/50 sm:mt-1.5 sm:pt-1 sm:text-[10px]">
+          <p className="mt-1 border-t border-amber-200/15 pt-1 text-[8px] leading-snug text-amber-800/45 sm:mt-1.5 sm:pt-1 sm:text-[9px]">
             Tap the dial pad once so incoming calls can ring on this device.
           </p>
         ) : null}
       </div>
 
       <div
-        className="flex min-h-[3.5rem] w-full max-w-sm shrink-0 flex-col justify-center rounded-lg border border-sky-100/70 bg-white px-3 py-2.5 shadow-inner shadow-sky-950/[0.03] ring-1 ring-sky-100/40 sm:min-h-[4.5rem] sm:px-4 sm:py-3"
+        className="flex min-h-[2.75rem] w-full max-w-sm shrink-0 flex-col justify-center border-b border-slate-200/60 bg-transparent px-1 pb-2.5 pt-0.5 sm:min-h-[3rem] sm:px-2 sm:pb-3 sm:pt-1"
         aria-live="polite"
         aria-label="Number entered"
       >
         <p
           title={digits.trim() ? formatDialpadDisplay(digits) : undefined}
-          className={`min-h-[1.5em] w-full min-w-0 text-center font-semibold tabular-nums leading-tight transition-colors duration-200 ease-out text-[clamp(1.125rem,5vw,1.85rem)] sm:text-[1.85rem] sm:leading-none md:text-[2rem] ${digits.trim() ? "truncate text-slate-950" : "text-slate-400"}`}
+          className={`w-full min-w-0 text-center tabular-nums leading-none tracking-tight text-[clamp(1.25rem,5.2vw,1.95rem)] sm:text-[1.95rem] md:text-[2.05rem] ${digits.trim() ? "truncate font-bold text-slate-950" : "font-medium text-slate-400"}`}
         >
-          {digits.trim() ? formatDialpadDisplay(digits) : <span className="font-normal text-slate-400">Enter number</span>}
+          {digits.trim() ? formatDialpadDisplay(digits) : <span className="font-medium text-slate-400">Enter number</span>}
         </p>
       </div>
       </div>
@@ -510,7 +510,7 @@ export function SoftphoneDialer({
         </div>
       ) : (
         <>
-          <div className="mt-1 flex w-full flex-col gap-1.5 sm:mt-1.5 sm:gap-2">
+          <div className="mt-0.5 flex w-full flex-col gap-1 sm:mt-1 sm:gap-1.5">
           <div
             className="grid w-full max-w-[min(100%,20rem)] grid-cols-3 gap-x-2.5 gap-y-1 self-center px-0.5 sm:gap-x-3.5 sm:gap-y-1.5"
             role="group"
@@ -770,7 +770,7 @@ export function SoftphoneDialer({
           ) : null}
           </div>
 
-          <div className="mt-1.5 flex w-full max-w-sm shrink-0 items-center justify-center gap-2 self-center px-1 sm:mt-2 sm:gap-3">
+          <div className="mt-1 flex w-full max-w-sm shrink-0 items-center justify-center gap-2 self-center px-1 sm:mt-1.5 sm:gap-3">
             <button
               type="button"
               disabled={keypadDisabled || !digits.length}
@@ -817,7 +817,7 @@ export function SoftphoneDialer({
     <section
       className={
         variant === "keypad"
-          ? "flex min-h-0 w-full flex-1 flex-col"
+          ? "flex w-full flex-col"
           : "rounded-2xl border border-emerald-200/80 bg-gradient-to-br from-emerald-50/90 to-white p-4 shadow-sm"
       }
       aria-label="Internal softphone"
@@ -833,7 +833,7 @@ export function SoftphoneDialer({
         <p
           className={
             variant === "keypad"
-              ? "mt-2 text-center text-xs font-medium text-slate-800"
+              ? "mt-1.5 text-center text-[11px] font-medium text-slate-700"
               : "mt-3 text-xs font-medium text-emerald-900"
           }
         >
@@ -848,12 +848,12 @@ export function SoftphoneDialer({
         <div
           className={
             variant === "keypad"
-              ? "mt-2 rounded-xl border border-amber-200/90 bg-amber-50/95 px-3 py-2.5 text-left shadow-sm"
+              ? "mt-2 rounded-xl border border-amber-200/90 bg-amber-50/95 px-3 py-2 text-left shadow-sm"
               : "mt-2 rounded-xl border border-amber-200/90 bg-amber-50/95 px-3 py-2 text-left"
           }
           role="alert"
         >
-          <p className={variant === "keypad" ? "text-sm font-medium text-amber-950" : "text-xs font-medium text-amber-950"}>
+          <p className={variant === "keypad" ? "text-xs font-medium text-amber-950 sm:text-sm" : "text-xs font-medium text-amber-950"}>
             {hint}
           </p>
           <div className="mt-2 flex flex-wrap gap-2">
