@@ -9,6 +9,7 @@ import {
   crmPrimaryCtaCls,
 } from "@/components/admin/crm-admin-list-styles";
 import {
+  RECRUITING_BATCH_UPLOAD_DISCIPLINE_OPTIONS,
   RECRUITING_DISCIPLINE_OPTIONS,
   RECRUITING_INTEREST_LEVEL_OPTIONS,
   RECRUITING_PREFERRED_CONTACT_OPTIONS,
@@ -154,15 +155,27 @@ export function NewFromResumeClient({ initialError }: NewFromResumeClientProps) 
   const [parse, setParse] = useState<ParsePayload | null>(null);
   const [dupes, setDupes] = useState<RecruitingDuplicateRow[] | null>(null);
   const [reviewForm, setReviewForm] = useState<ReviewFormFields>(EMPTY_REVIEW_FORM);
+  /** Same as bulk upload: when set, seeds review discipline and wins over parsed heuristics for create. */
+  const [uploadDiscipline, setUploadDiscipline] = useState("");
 
   /** Sync controlled fields when parse result arrives (defaultValue would not update). */
   useLayoutEffect(() => {
+    const ov = uploadDiscipline.trim();
     if (parse?.suggestions) {
-      setReviewForm(buildReviewFormFromSuggestions(parse.suggestions));
+      const base = buildReviewFormFromSuggestions(parse.suggestions);
+      if (ov) {
+        base.discipline = ov;
+      }
+      setReviewForm(base);
+    } else if (parse) {
+      setReviewForm({
+        ...EMPTY_REVIEW_FORM,
+        ...(ov ? { discipline: ov } : {}),
+      });
     } else {
       setReviewForm(EMPTY_REVIEW_FORM);
     }
-  }, [parse]);
+  }, [parse, uploadDiscipline]);
 
   const disciplineExtra = useMemo(() => {
     const d = reviewForm.discipline.trim();
@@ -296,22 +309,49 @@ export function NewFromResumeClient({ initialError }: NewFromResumeClientProps) 
       ) : null}
 
       {step === "pick" ? (
-        <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-          <h2 className="text-base font-semibold text-slate-900">1. Upload resume</h2>
-          <p className="mt-1 text-sm text-slate-600">
-            We extract text and suggest name, contact, and discipline. You review before creating the candidate.
-          </p>
-          <label className="mt-6 block">
-            <span className="sr-only">Resume file</span>
-            <input
-              type="file"
-              accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-              className={`${crmFilterInputCls} cursor-pointer`}
-              disabled={pending}
-              onChange={onFileChange}
-            />
-          </label>
-          {pending ? <p className="mt-3 text-sm text-slate-600">Reading file…</p> : null}
+        <div className="space-y-6">
+          <div className="rounded-[20px] border border-slate-200/90 bg-white px-4 py-4 shadow-sm sm:px-5">
+            <label className="block" htmlFor="single-upload-discipline">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                Discipline for this upload
+              </span>
+              <select
+                id="single-upload-discipline"
+                className={`${crmFilterInputCls} mt-1.5 w-full max-w-md`}
+                value={uploadDiscipline}
+                disabled={pending}
+                onChange={(e) => setUploadDiscipline(e.target.value)}
+              >
+                {RECRUITING_BATCH_UPLOAD_DISCIPLINE_OPTIONS.map((opt) => (
+                  <option key={opt.value === "" ? "_default" : opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <p className="mt-2 max-w-xl text-[11px] leading-relaxed text-slate-500">
+              Optional. When set, it overrides discipline detected from this resume. Name, contact, and other parsed
+              fields are unchanged.
+            </p>
+          </div>
+
+          <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+            <h2 className="text-base font-semibold text-slate-900">1. Upload resume</h2>
+            <p className="mt-1 text-sm text-slate-600">
+              We extract text and suggest name, contact, and discipline. You review before creating the candidate.
+            </p>
+            <label className="mt-6 block">
+              <span className="sr-only">Resume file</span>
+              <input
+                type="file"
+                accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                className={`${crmFilterInputCls} cursor-pointer`}
+                disabled={pending}
+                onChange={onFileChange}
+              />
+            </label>
+            {pending ? <p className="mt-3 text-sm text-slate-600">Reading file…</p> : null}
+          </div>
         </div>
       ) : null}
 
@@ -361,6 +401,7 @@ export function NewFromResumeClient({ initialError }: NewFromResumeClientProps) 
                   setStep("pick");
                   setFile(null);
                   setParse(null);
+                  setUploadDiscipline("");
                   setReviewForm(EMPTY_REVIEW_FORM);
                 }}
               >
