@@ -677,7 +677,7 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
         hasPrimaryContact={Boolean(conv.primary_contact_id)}
         unknownTexter={unknownTexter}
         initial={workspaceContactPanelInitial}
-        compactAside={workspaceDesktopSplit}
+        compactAside
       />
     </>
   );
@@ -696,11 +696,11 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
         appDesktopSplit={workspaceDesktopSplit}
         threadTopSlot={
           workspaceDesktopSplit ? null : (
-            <details className="w-full rounded-lg border border-slate-200/80 bg-white/95 text-sm ring-1 ring-slate-100/60 sm:rounded-xl">
-              <summary className="cursor-pointer list-none px-2 py-1.5 text-[12px] font-semibold text-slate-800 sm:px-3 sm:py-2 sm:text-sm [&::-webkit-details-marker]:hidden">
-                <span className="mr-1 text-slate-400">▸</span> Details & CRM
+            <details className="w-full border-b border-slate-200/50 bg-transparent text-sm sm:rounded-lg sm:border sm:border-slate-200/60 sm:bg-white/80">
+              <summary className="cursor-pointer list-none px-1 py-1 text-[12px] font-semibold text-slate-800 sm:px-2 sm:py-1.5 [&::-webkit-details-marker]:hidden">
+                <span className="mr-0.5 text-slate-400">▸</span> Details
               </summary>
-              <div className="max-h-[min(32vh,14rem)] overflow-y-auto overscroll-y-contain border-t border-slate-100 px-2 pb-2 pt-1 sm:max-h-[min(38vh,18rem)] sm:px-3 sm:pb-3 sm:pt-1.5 md:max-h-[min(44vh,22rem)]">
+              <div className="max-h-[min(32vh,14rem)] overflow-y-auto overscroll-y-contain px-1 pb-2 pt-0.5 sm:max-h-[min(38vh,18rem)] sm:border-t sm:border-slate-100 sm:px-2 sm:pb-2 sm:pt-1.5 md:max-h-[min(44vh,22rem)]">
                 {workspaceCrmPanelInner}
               </div>
             </details>

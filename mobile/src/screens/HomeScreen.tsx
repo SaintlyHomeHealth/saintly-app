@@ -4,7 +4,6 @@ import {
   AppState,
   Linking,
   Platform,
-  Pressable,
   StyleSheet,
   Text,
   View,
@@ -15,7 +14,6 @@ import { WebView } from 'react-native-webview';
 
 import { DEFAULT_PRODUCTION_API_ORIGIN, env, pushRegisterUrl, voiceRegisterUrl } from '../config/env';
 import { useNativePushRegistration } from '../hooks/useNativePushRegistration';
-import { requestForegroundLocationWhenNeeded } from '../services/locationPermission';
 import { tryRegisterNativeTwilioFromPortalApi } from '../services/nativeSoftphoneApiRegistration';
 import { registerNativeTwilioWithAccessToken } from '../services/nativeTwilioVoiceBridge';
 import { setStoredSupabaseAccessToken } from '../services/supabaseAccessTokenStore';
@@ -120,8 +118,6 @@ export function HomeScreen(_props: HomeScreenProps) {
   const pendingVoiceRegisterRef = useRef<{ twilioIdentity: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [portalUri, setPortalUri] = useState(portalUrl);
-  const [locationNote, setLocationNote] = useState<string | null>(null);
-  const [locationBusy, setLocationBusy] = useState(false);
 
   const apiOrigin = env.apiBaseUrl.replace(/\/$/, '') || DEFAULT_PRODUCTION_API_ORIGIN;
 
@@ -353,21 +349,6 @@ export function HomeScreen(_props: HomeScreenProps) {
     [runPushRegistration, injectWorkspaceVoiceRegister, runNativeSoftphoneRegistration]
   );
 
-  const onEnableLocation = useCallback(async () => {
-    setLocationBusy(true);
-    setLocationNote(null);
-    try {
-      const r = await requestForegroundLocationWhenNeeded();
-      if (!r.granted && r.deniedMessage) {
-        setLocationNote(r.deniedMessage);
-      } else if (r.granted) {
-        setLocationNote('Location enabled for this app. Future visit and call features can use it when needed.');
-      }
-    } finally {
-      setLocationBusy(false);
-    }
-  }, []);
-
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.container}>
@@ -406,28 +387,6 @@ export function HomeScreen(_props: HomeScreenProps) {
           </View>
         ) : null}
 
-        <View style={styles.footer}>
-          <View style={styles.footerRow}>
-            <Text style={styles.footerLabel}>Location</Text>
-            <Pressable
-              style={({ pressed }) => [styles.primaryBtn, pressed && styles.primaryBtnPressed]}
-              onPress={onEnableLocation}
-              disabled={locationBusy}
-            >
-              <Text style={styles.primaryBtnText}>{locationBusy ? '…' : 'Enable'}</Text>
-            </Pressable>
-          </View>
-          {locationNote ? <Text style={styles.cardHint}>{locationNote}</Text> : null}
-          {locationNote && !locationNote.includes('enabled for this app') ? (
-            <Pressable
-              style={({ pressed }) => [styles.secondaryBtn, pressed && styles.secondaryBtnPressed]}
-              onPress={() => void Linking.openSettings()}
-            >
-              <Text style={styles.secondaryBtnText}>Open Settings</Text>
-            </Pressable>
-          ) : null}
-        </View>
-
         <View style={styles.pushBar} pointerEvents="none">
           {pushEnv ? (
             <Text style={styles.pushText}>{pushStatusLine(pushEnv, Boolean(fcmToken))}</Text>
@@ -464,63 +423,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: 'rgba(255, 255, 255, 0.9)',
-  },
-  footer: {
-    paddingHorizontal: 14,
-    paddingTop: 10,
-    paddingBottom: 6,
-    backgroundColor: '#ffffff',
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: '#e2e8f0',
-  },
-  footerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
-  },
-  footerLabel: {
-    flex: 1,
-    fontSize: 13,
-    fontWeight: '500',
-    color: colors.textPrimary,
-  },
-  cardHint: {
-    marginTop: 8,
-    fontSize: 11,
-    lineHeight: 15,
-    color: colors.textMuted,
-  },
-  primaryBtn: {
-    backgroundColor: colors.primary,
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    borderRadius: 10,
-  },
-  primaryBtnPressed: {
-    opacity: 0.88,
-  },
-  primaryBtnText: {
-    color: '#ffffff',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  secondaryBtn: {
-    marginTop: 10,
-    alignSelf: 'flex-start',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  secondaryBtnPressed: {
-    opacity: 0.85,
-  },
-  secondaryBtnText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: colors.textPrimary,
   },
   pushBar: {
     paddingHorizontal: 12,

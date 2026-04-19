@@ -253,7 +253,7 @@ export function WorkspaceSmsThreadView({
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       {threadTopSlot ? (
         <div
-          className={`shrink-0 border-b border-sky-100/70 bg-white/90 px-2 py-1.5 sm:px-4 sm:py-2 ${
+          className={`shrink-0 border-b border-slate-200/60 bg-white px-2 py-1 sm:px-3 sm:py-1.5 ${
             appDesktopSplit ? "lg:border-slate-200 lg:px-3 lg:py-1.5" : ""
           }`}
         >
@@ -270,8 +270,8 @@ export function WorkspaceSmsThreadView({
         style={{ WebkitOverflowScrolling: "touch" }}
       >
         <div
-          className={`mx-auto flex min-h-full w-full flex-col px-3 pb-2 pt-2 sm:px-4 sm:pb-3 sm:pt-3 ${
-            appDesktopSplit ? "max-w-none px-3 pt-1.5 sm:px-3 sm:pb-2 sm:pt-2 lg:px-3 lg:pb-1 lg:pt-1" : "max-w-[40rem]"
+          className={`mx-auto flex min-h-full w-full flex-col px-3 pb-1.5 pt-1.5 sm:px-4 sm:pb-3 sm:pt-3 ${
+            appDesktopSplit ? "max-w-none px-3 pt-1 sm:px-3 sm:pb-2 sm:pt-2 lg:px-3 lg:pb-1 lg:pt-1" : "max-w-[40rem]"
           }`}
         >
           {canLoadEarlier ? (
@@ -286,7 +286,7 @@ export function WorkspaceSmsThreadView({
             </div>
           ) : null}
 
-          <div className="flex min-h-0 flex-1 flex-col justify-end gap-1.5 pb-1 sm:gap-2.5">
+          <div className="flex min-h-0 flex-1 flex-col justify-end gap-1 pb-0.5 sm:gap-2 sm:pb-1">
             {merged.length === 0 ? (
               <div className="flex flex-col items-center justify-end gap-1.5 px-2 pb-6 pt-4 text-center">
                 <p className="text-sm font-medium text-slate-600">No messages yet</p>
@@ -302,13 +302,13 @@ export function WorkspaceSmsThreadView({
                 return (
                   <div
                     key={m.id}
-                    className={`flex w-full flex-col ${inbound ? "items-start" : "items-end"} gap-1`}
+                    className={`flex w-full flex-col ${inbound ? "items-start" : "items-end"} gap-0.5 sm:gap-1`}
                   >
                     <div
-                      className={`max-w-[min(92%,22rem)] rounded-[1.15rem] text-[15px] leading-[1.45] tracking-[0.01em] sm:rounded-[1.25rem] ${
+                      className={`max-w-[min(92%,22rem)] rounded-[1.05rem] text-[15px] leading-[1.42] tracking-[0.01em] sm:rounded-[1.25rem] ${
                         inbound
-                          ? "rounded-bl-md border border-slate-200/90 bg-white px-3 pb-2.5 pt-3 text-slate-900 shadow-[0_1px_2px_rgba(15,23,42,0.06)] [overflow-wrap:anywhere] isolate sm:px-4 sm:pb-3 sm:pt-3.5"
-                          : `rounded-br-md bg-gradient-to-br from-sky-500 via-sky-600 to-blue-800 px-3 py-2 text-white shadow-md shadow-sky-900/15 ring-1 ring-white/20 sm:px-3.5 sm:py-2.5 ${
+                          ? "rounded-bl-md border border-slate-200/70 bg-white px-3 pb-2 pt-2.5 text-slate-900 [overflow-wrap:anywhere] isolate sm:shadow-[0_1px_2px_rgba(15,23,42,0.05)] sm:px-4 sm:pb-2.5 sm:pt-3"
+                          : `rounded-br-md bg-gradient-to-br from-sky-500 via-sky-600 to-blue-800 px-3 py-1.5 text-white shadow-sm shadow-sky-900/12 ring-1 ring-white/15 sm:px-3.5 sm:py-2.5 sm:shadow-md ${
                               isPending ? "opacity-90" : ""
                             }`
                       }`}
@@ -333,14 +333,14 @@ export function WorkspaceSmsThreadView({
       </div>
 
       <div
-        className={`z-20 shrink-0 border-t border-slate-200/90 bg-white pb-[max(0.35rem,env(safe-area-inset-bottom,0px))] pt-1.5 backdrop-blur-md supports-[backdrop-filter]:bg-white/95 ${
+        className={`z-20 shrink-0 border-t border-slate-200/80 bg-white pb-[max(0.25rem,env(safe-area-inset-bottom,0px))] pt-1 backdrop-blur-md supports-[backdrop-filter]:bg-white/95 ${
           appDesktopSplit
             ? "border-slate-200 shadow-none lg:pt-1 lg:pb-[max(0.25rem,env(safe-area-inset-bottom,0px))]"
-            : "border-sky-100/80 shadow-[0_-4px_24px_-8px_rgba(30,58,138,0.1)]"
+            : ""
         }`}
       >
         <div
-          className={`mx-auto w-full px-3 sm:px-4 ${appDesktopSplit ? "max-w-none lg:px-3" : "max-w-[40rem]"}`}
+          className={`mx-auto w-full px-2.5 sm:px-4 ${appDesktopSplit ? "max-w-none lg:px-3" : "max-w-[40rem]"}`}
         >
           {appDesktopSplit && sendError ? (
             <div

@@ -66,7 +66,7 @@ export function WorkspaceSmsConversationShell({
           className={`shrink-0 border-b bg-white ${
             appDesktopSplit
               ? "border-slate-200 px-3 pb-2.5 pt-2 shadow-none lg:flex lg:h-10 lg:min-h-0 lg:items-center lg:gap-3 lg:px-3 lg:py-0"
-              : "border-sky-200/50 px-3 pb-2 pt-1.5 shadow-sm shadow-slate-900/[0.04] sm:px-5 sm:pb-3.5 sm:pt-2.5"
+              : "border-slate-200/60 px-3 pb-1.5 pt-1 sm:px-5 sm:pb-3 sm:pt-2.5 sm:shadow-sm sm:shadow-slate-900/[0.03]"
           }`}
         >
           <Link
@@ -144,7 +144,7 @@ export function WorkspaceSmsConversationShell({
 
         <div
           className={`relative flex min-h-0 flex-1 flex-col overflow-hidden ${
-            appDesktopSplit ? "bg-white" : "bg-slate-100/80"
+            appDesktopSplit ? "bg-white" : "bg-slate-50/90"
           }`}
         >
           {children}

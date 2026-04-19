@@ -47,11 +47,11 @@ export function WorkspacePhoneTopStatusStrip({ displayName, inboundRingEnabled }
   }, [inboundRingEnabled, ui.phase]);
 
   const innerCardClass = inboxListDesktop
-    ? "flex flex-wrap items-center justify-between gap-1.5 rounded-lg border border-sky-100/70 bg-white/90 px-2 py-1 backdrop-blur lg:rounded-md lg:border-slate-200/80 lg:px-2.5 lg:py-1.5 lg:shadow-none"
-    : `flex flex-wrap items-center justify-between gap-1.5 border border-sky-100/70 bg-white/90 px-2 py-1 backdrop-blur sm:gap-2 sm:px-3 sm:py-1.5 ${
+    ? "flex flex-wrap items-center justify-between gap-1.5 rounded-lg border-0 bg-transparent px-0 py-0.5 shadow-none md:border md:border-sky-100/70 md:bg-white/90 md:px-2 md:py-1 md:backdrop-blur lg:rounded-md lg:border-slate-200/80 lg:px-2.5 lg:py-1.5 lg:shadow-none"
+    : `flex flex-wrap items-center justify-between gap-1.5 border-0 bg-transparent px-0 py-0.5 shadow-none backdrop-blur-0 sm:gap-2 md:border md:border-sky-100/70 md:bg-white/90 md:px-2 md:py-1 md:backdrop-blur sm:px-3 sm:py-1.5 ${
         inboxCompact
-          ? "rounded-lg shadow-none lg:rounded-lg lg:border-slate-200/70 lg:py-2 lg:shadow-none"
-          : "rounded-lg shadow-sm shadow-sky-950/5 sm:rounded-xl"
+          ? "md:rounded-lg lg:rounded-lg lg:border-slate-200/70 lg:py-2 lg:shadow-none"
+          : "md:rounded-lg md:shadow-sm md:shadow-sky-950/5 sm:rounded-xl"
       }`;
 
   const mobileHint =
@@ -64,10 +64,11 @@ export function WorkspacePhoneTopStatusStrip({ displayName, inboundRingEnabled }
       }`}
     >
       <div className={innerCardClass}>
-        <div className={`flex min-w-0 flex-1 items-center gap-2 ${inboxListDesktop ? "lg:hidden" : ""}`}>
+        <div
+          className={`hidden min-w-0 flex-1 items-center gap-2 md:flex ${inboxListDesktop ? "lg:hidden" : ""}`}
+        >
           <div className="min-w-0 flex-1">
-            <p className="truncate text-[11px] font-semibold leading-tight text-slate-800 md:hidden">{displayName}</p>
-            <p className="hidden truncate text-[11px] font-semibold leading-tight text-slate-700 md:block sm:text-xs">
+            <p className="truncate text-[11px] font-semibold leading-tight text-slate-700 sm:text-xs">
               <span className="font-normal text-slate-500">Signed in</span> · {displayName}
             </p>
             {ui.remoteLabel ? (

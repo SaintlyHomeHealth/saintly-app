@@ -295,8 +295,8 @@ export default async function WorkspaceInboxPage(props: PageProps) {
             />
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain lg:relative lg:z-0">
               <InboxScrollRestorer>
-            <section className="mx-2 mt-1 min-h-full overflow-hidden rounded-lg border border-slate-200/80 bg-white sm:mx-5 sm:mt-2 sm:rounded-xl lg:mx-0 lg:mt-0 lg:min-h-0 lg:rounded-none lg:border-0 lg:border-t lg:border-slate-200/55 lg:bg-slate-50">
-              <ul className="divide-y divide-sky-100/60 lg:divide-slate-100/70">
+            <section className="mx-0 mt-0 min-h-full overflow-hidden border-0 bg-white sm:mx-5 sm:mt-2 sm:rounded-xl sm:border sm:border-slate-200/80 lg:mx-0 lg:mt-0 lg:min-h-0 lg:rounded-none lg:border-0 lg:border-t lg:border-slate-200/55 lg:bg-slate-50">
+              <ul className="divide-y divide-slate-200/55 sm:divide-sky-100/60 lg:divide-slate-100/70">
                 {rows.length === 0 ? (
                   <li className="px-4 py-10 text-center">
                     <InboxIcon className="mx-auto h-5 w-5 text-slate-400" strokeWidth={2} />

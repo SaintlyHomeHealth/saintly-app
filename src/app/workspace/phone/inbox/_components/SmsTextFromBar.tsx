@@ -88,26 +88,26 @@ export const SmsTextFromBar = memo(function SmsTextFromBar({ className = "" }: {
   }, [lines, activeE164, maskedFallback]);
 
   return (
-    <div className={`rounded-lg border border-slate-200/70 bg-slate-50/80 text-[11px] text-slate-700 ${className}`.trim()}>
+    <div className={`flex w-full min-w-0 flex-col gap-0.5 text-[11px] text-slate-700 ${className}`.trim()}>
       <button
         type="button"
         onClick={toggle}
-        className="flex w-full items-center gap-2 px-2 py-1.5 text-left transition duration-150 hover:bg-slate-100/80"
+        className="inline-flex w-full max-w-full items-center gap-1.5 rounded-full border border-slate-200/45 bg-white/90 px-2.5 py-1 text-left transition duration-150 hover:bg-slate-50/90"
       >
-        <MessageSquare className="h-3.5 w-3.5 shrink-0 text-slate-500" strokeWidth={2} aria-hidden />
-        <div className="min-w-0 flex-1 leading-snug">
-          <span className="font-semibold text-slate-800">{label}</span>
-          <span className="text-slate-400"> · </span>
+        <MessageSquare className="h-3 w-3 shrink-0 text-slate-400" strokeWidth={2} aria-hidden />
+        <span className="min-w-0 flex-1 truncate tabular-nums">
+          <span className="font-medium text-slate-700">{label}</span>
+          <span className="text-slate-300"> · </span>
           <span className="text-slate-600">{displayLine}</span>
-        </div>
+        </span>
         <ChevronDown
-          className={`h-4 w-4 shrink-0 text-slate-400 transition duration-150 ${expanded ? "rotate-180" : ""}`}
+          className={`h-3.5 w-3.5 shrink-0 text-slate-400 transition duration-150 ${expanded ? "rotate-180" : ""}`}
           strokeWidth={2}
           aria-hidden
         />
       </button>
       {expanded ? (
-        <div className="border-t border-slate-200/60 px-2 pb-2 pt-1">
+        <div className="mt-0.5 rounded-lg border border-slate-200/40 bg-white px-2 pb-2 pt-1.5 shadow-sm">
           {lines.length > 0 ? (
             <div className="max-h-[min(36vh,240px)] space-y-0.5 overflow-y-auto overscroll-y-contain">
               {lines.map((line) => {

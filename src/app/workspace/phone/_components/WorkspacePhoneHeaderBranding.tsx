@@ -12,14 +12,14 @@ export function WorkspacePhoneHeaderBranding({ displayName }: Props) {
   return (
     <div className="min-w-0">
       <p
-        className={`text-[9px] font-bold uppercase tracking-[0.16em] text-phone-ink/65 sm:text-[10px] sm:tracking-[0.2em] ${
+        className={`hidden text-[9px] font-bold uppercase tracking-[0.16em] text-phone-ink/65 md:block sm:text-[10px] sm:tracking-[0.2em] ${
           compact ? "lg:text-[9px] lg:tracking-[0.14em]" : ""
         }`}
       >
         Saintly Phone
       </p>
       <p
-        className={`truncate text-[13px] font-semibold leading-tight text-phone-navy sm:text-sm ${compact ? "lg:text-xs" : ""}`}
+        className={`truncate text-[15px] font-semibold leading-tight text-phone-navy sm:text-sm ${compact ? "lg:text-xs" : ""}`}
       >
         {displayName}
       </p>
