@@ -1,3 +1,5 @@
+import { unstable_cache } from "next/cache";
+
 import { supabaseAdmin } from "@/lib/admin";
 import { matchesSoftphoneTokenEligibilityForInboundRing, type StaffProfile } from "@/lib/staff-profile";
 
@@ -45,11 +47,63 @@ export function resolveInboundBrowserStaffUserIds(): string[] {
   return out;
 }
 
+function mapRowsToCanonicalAuthUserIds(
+  envIds: string[],
+  rows: { id: string; user_id: string | null }[] | null
+): string[] {
+  const matchedAsAuthUserId = new Set(
+    (rows ?? [])
+      .map((r) => r.user_id)
+      .filter((id): id is string => typeof id === "string" && envIds.includes(id))
+  );
+  const profilePkToUserId = new Map(
+    (rows ?? [])
+      .filter((r): r is { id: string; user_id: string } => typeof r.user_id === "string" && Boolean(r.id))
+      .map((r) => [r.id, r.user_id] as const)
+  );
+
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const e of envIds) {
+    let canonical: string;
+    if (matchedAsAuthUserId.has(e)) {
+      canonical = e;
+    } else {
+      const fromPk = profilePkToUserId.get(e);
+      canonical = fromPk ?? e;
+    }
+    const u = parseStaffUserUuid(canonical);
+    if (u && !seen.has(u)) {
+      seen.add(u);
+      out.push(u);
+    }
+  }
+  return out;
+}
+
 /**
  * Maps env list entries to `staff_profiles.user_id` (auth UUID). Accepts either `user_id` or `staff_profiles.id`.
+ * Uses one round trip when possible (user_id OR id match); falls back to two queries if PostgREST rejects the filter.
  */
 export async function canonicalizeInboundEnvIdsToAuthUserIds(envIds: string[]): Promise<string[]> {
   if (envIds.length === 0) return [];
+
+  const inList = envIds.join(",");
+  const { data: mergedRows, error: mergedError } = await supabaseAdmin
+    .from("staff_profiles")
+    .select("id, user_id")
+    .or(`user_id.in.(${inList}),id.in.(${inList})`);
+
+  if (!mergedError && mergedRows) {
+    return mapRowsToCanonicalAuthUserIds(envIds, mergedRows);
+  }
+
+  if (mergedError) {
+    console.warn(
+      "[inbound-staff-ids] canonicalizeInboundEnvIdsToAuthUserIds merged query:",
+      mergedError.message
+    );
+  }
 
   const { data: byUserColumn } = await supabaseAdmin
     .from("staff_profiles")
@@ -91,6 +145,17 @@ export async function canonicalizeInboundEnvIdsToAuthUserIds(envIds: string[]): 
     }
   }
   return out;
+}
+
+/**
+ * Whether this staff member would appear on the inbound browser ring list (env IDs + DB-eligible staff),
+ * without scanning all `staff_profiles` rows. Used by GET `/api/softphone/token` for `identity_in_inbound_ring_list`.
+ */
+export async function computeIdentityInInboundRingListForStaff(staff: StaffProfile): Promise<boolean> {
+  const envIdsRaw = resolveInboundBrowserStaffUserIds();
+  const envIds = await canonicalizeInboundEnvIdsToAuthUserIds(envIdsRaw);
+  if (envIds.includes(staff.user_id)) return true;
+  return matchesSoftphoneTokenEligibilityForInboundRing(staff);
 }
 
 function mergeUniqueOrdered(first: string[], second: string[]): string[] {
@@ -136,7 +201,7 @@ export async function resolveBackupInboundStaffUserIdsAsync(): Promise<string[]>
   return canonicalizeInboundEnvIdsToAuthUserIds(envIdsRaw);
 }
 
-export async function resolveInboundBrowserStaffUserIdsAsync(): Promise<string[]> {
+async function resolveInboundBrowserStaffUserIdsAsyncImpl(): Promise<string[]> {
   const envIdsRaw = resolveInboundBrowserStaffUserIds();
   const envIds = await canonicalizeInboundEnvIdsToAuthUserIds(envIdsRaw);
   const { data, error } = await supabaseAdmin
@@ -184,6 +249,20 @@ export async function resolveInboundBrowserStaffUserIdsAsync(): Promise<string[]
   );
 
   return merged;
+}
+
+/**
+ * Full inbound browser ring list (env + all DB-eligible staff). Expensive: scans active `staff_profiles`.
+ * Cached ~60s so Twilio/inbound handlers do not repeat the full scan every call.
+ */
+const resolveInboundBrowserStaffUserIdsAsyncCached = unstable_cache(
+  resolveInboundBrowserStaffUserIdsAsyncImpl,
+  ["resolve-inbound-browser-staff-user-ids"],
+  { revalidate: 60 }
+);
+
+export async function resolveInboundBrowserStaffUserIdsAsync(): Promise<string[]> {
+  return resolveInboundBrowserStaffUserIdsAsyncCached();
 }
 
 const DEFAULT_BROWSER_RING_SECONDS = 20;

@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import twilio from "twilio";
 
 import { canAccessWorkspacePhone, getStaffProfile, getStaffProfileUsingSupabaseUserJwt } from "@/lib/staff-profile";
-import { resolveInboundBrowserStaffUserIdsAsync } from "@/lib/softphone/inbound-staff-ids";
+import { computeIdentityInInboundRingListForStaff } from "@/lib/softphone/inbound-staff-ids";
 import { softphoneTwilioClientIdentity } from "@/lib/softphone/twilio-client-identity";
 
 const AccessToken = twilio.jwt.AccessToken;
@@ -72,8 +72,8 @@ export async function GET(request: NextRequest) {
 
   /** Same string TwiML &lt;Client&gt; must dial for this browser to ring (see softphoneTwilioClientIdentity). */
   const identity = softphoneTwilioClientIdentity(staff.user_id);
-  const inboundRingStaffIds = await resolveInboundBrowserStaffUserIdsAsync();
-  const identityInInboundRingList = inboundRingStaffIds.includes(staff.user_id);
+  /** Avoid full-table `staff_profiles` scan here (was 5–12s in prod); list is available via cached `resolveInboundBrowserStaffUserIdsAsync` elsewhere. */
+  const identityInInboundRingList = await computeIdentityInInboundRingListForStaff(staff);
 
   console.log(
     JSON.stringify({
@@ -81,8 +81,8 @@ export async function GET(request: NextRequest) {
       step: "softphone_token",
       twilio_device_identity_exact: identity,
       auth_user_id_tail: staff.user_id.length >= 8 ? staff.user_id.slice(-8) : staff.user_id,
-      inbound_resolve_count: inboundRingStaffIds.length,
       identity_in_inbound_resolve_list: identityInInboundRingList,
+      inbound_ring_list: "computed_per_staff_no_full_scan",
     })
   );
 
@@ -115,7 +115,6 @@ export async function GET(request: NextRequest) {
     token: jwt,
     identity,
     staff_user_id: staff.user_id,
-    inbound_ring_staff_user_ids: inboundRingStaffIds,
     identity_in_inbound_ring_list: identityInInboundRingList,
     expiresInSeconds: 3600,
   });
