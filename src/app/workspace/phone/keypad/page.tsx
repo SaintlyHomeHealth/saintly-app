@@ -47,15 +47,8 @@ export default async function WorkspaceKeypadPage({
   }
 
   return (
-    <div className="ws-phone-page-shell flex flex-1 flex-col px-3 pb-3 pt-2 sm:px-5 sm:pb-4 sm:pt-6 lg:px-8">
-      <WorkspacePhonePageHeader
-        title="Keypad"
-        subtitle={
-          <span className="hidden text-xs leading-snug text-slate-600 sm:inline">
-            Saintly Home Health — use your assigned line for outbound calls.
-          </span>
-        }
-      />
+    <div className="ws-phone-page-shell flex min-h-0 flex-1 flex-col px-3 pb-3 pt-2 sm:px-5 sm:pb-4 sm:pt-4 lg:px-8">
+      <WorkspacePhonePageHeader title="Keypad" />
       {leadId && UUID_RE.test(leadId) ? (
         <p className="mt-2 rounded-2xl border border-sky-200/80 bg-sky-50/90 px-4 py-3 text-sm text-sky-950">
           CRM lead:{" "}
@@ -83,8 +76,8 @@ export default async function WorkspaceKeypadPage({
           ) : null}
         </p>
       ) : null}
-      <div className="mt-2 flex flex-1 flex-col items-stretch gap-3 sm:mt-6 sm:gap-6 lg:mt-8 lg:flex-row lg:items-start lg:justify-center lg:gap-10">
-        <div className="w-full max-w-md shrink-0 p-0 sm:rounded-[32px] sm:border sm:border-sky-100/60 sm:bg-gradient-to-b sm:from-white sm:via-white sm:to-sky-50/40 sm:p-7 sm:shadow-[0_12px_40px_-12px_rgba(30,58,138,0.1),0_4px_16px_-8px_rgba(15,23,42,0.06)] lg:max-w-lg">
+      <div className="mt-1 flex min-h-0 flex-1 flex-col gap-3 sm:mt-3 lg:flex-row lg:items-stretch lg:justify-center lg:gap-8">
+        <div className="flex min-h-0 w-full max-w-md flex-1 flex-col p-0 sm:rounded-2xl sm:border sm:border-sky-100/60 sm:bg-white sm:p-5 sm:shadow-sm lg:max-w-lg">
           <KeypadDialerLazy
             key={dialerKey}
             staffDisplayName={staffDisplayName}

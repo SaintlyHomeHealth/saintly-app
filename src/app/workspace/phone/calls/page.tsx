@@ -134,30 +134,27 @@ export default async function WorkspaceCallsPage() {
     <div className="ws-phone-page-shell flex flex-1 flex-col px-4 pb-6 pt-5 sm:px-5">
       <WorkspacePhonePageHeader
         title="Calls"
-        subtitle="Your call history and timeline. Missed calls stay at the top until you handle them. To dial out, use Keypad."
+        actions={
+          <span className="text-sm font-medium text-emerald-700" role="status">
+            ● Ready
+          </span>
+        }
       />
 
-      <p className="mt-2 text-sm text-slate-600" role="status">
-        🟢 Ready for calls
-      </p>
-
       {missed.length > 0 ? (
-        <section className="mt-6" aria-labelledby="workspace-calls-missed-heading">
-          <div className="mb-4 rounded-2xl border border-rose-200/70 bg-gradient-to-b from-rose-50/90 to-white px-4 py-3 sm:px-5">
-            <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <div>
-                <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-rose-800">Needs attention</p>
-                <h2 id="workspace-calls-missed-heading" className="mt-1 text-sm font-semibold text-phone-navy">
-                  Missed calls
-                </h2>
-                <p className="mt-0.5 text-xs text-slate-600">Return or follow up on these when you can.</p>
-              </div>
-              <span className="rounded-full bg-rose-600 px-2.5 py-0.5 text-[11px] font-bold text-white tabular-nums">
-                {missed.length}
-              </span>
+        <section className="mt-5" aria-labelledby="workspace-calls-missed-heading">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-rose-200/50 pb-2">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-rose-800">Needs attention</p>
+              <h2 id="workspace-calls-missed-heading" className="text-sm font-semibold text-phone-navy">
+                Missed calls
+              </h2>
             </div>
+            <span className="rounded-full bg-rose-600 px-2.5 py-0.5 text-[11px] font-bold text-white tabular-nums">
+              {missed.length}
+            </span>
           </div>
-          <ul className="flex flex-col gap-3">
+          <ul className="overflow-hidden rounded-xl border border-slate-200/80 bg-white">
             {missed.map((row) => (
               <WorkspaceCallInboxCard
                 key={row.id}
@@ -173,27 +170,19 @@ export default async function WorkspaceCallsPage() {
       ) : null}
 
       <section
-        className={missed.length > 0 ? "mt-10" : "mt-8"}
+        className={missed.length > 0 ? "mt-8" : "mt-5"}
         aria-labelledby="workspace-calls-recent-heading"
       >
-        <div className="mb-4">
-          <h2
-            id="workspace-calls-recent-heading"
-            className="text-xs font-bold uppercase tracking-[0.18em] text-phone-ink"
-          >
-            RECENT CALLS
+        <div className="mb-3">
+          <h2 id="workspace-calls-recent-heading" className="text-xs font-bold uppercase tracking-[0.18em] text-phone-ink">
+            Recent calls
           </h2>
-          <p className="mt-1.5 text-sm text-slate-600">
-            Latest activity first — answered calls, outbound, and other updates in one list.
-          </p>
         </div>
-        <div className="rounded-[28px] border border-sky-100/80 bg-phone-powder/40 p-4 shadow-sm shadow-sky-950/5 sm:p-5">
+        <div>
           {recent.length === 0 ? (
-            <p className="ws-phone-empty px-4 py-8">
-              No recent calls yet. Activity will show here after you place or receive calls.
-            </p>
+            <p className="ws-phone-empty px-4 py-8">No recent calls yet.</p>
           ) : (
-            <ul className="flex flex-col gap-3">
+            <ul className="overflow-hidden rounded-xl border border-slate-200/80 bg-white">
               {recent.map((row) => (
                 <WorkspaceCallInboxCard
                   key={row.id}
