@@ -255,7 +255,8 @@ export function HomeScreen(_props: HomeScreenProps) {
   }, [fcmToken, loading, injectWorkspaceVoiceRegister]);
 
   /**
-   * Foreground / background-open only — navigates WebView when user interacts with a notification.
+   * Notification open: cold start (`getInitialNotification`), background (`onNotificationOpenedApp`).
+   * Navigates WebView to `data.open_path` (portal path). Foreground message receipt does not navigate.
    */
   useEffect(() => {
     if (Constants.appOwnership === 'expo') return;
@@ -270,17 +271,18 @@ export function HomeScreen(_props: HomeScreenProps) {
 
     let cancelled = false;
     let unsubOpen: (() => void) | undefined;
-    let unsubFg: (() => void) | undefined;
 
     void (async () => {
       const messaging = (await import('@react-native-firebase/messaging')).default;
       if (cancelled) return;
 
-      unsubOpen = messaging().onNotificationOpenedApp((remoteMessage) => {
-        openFromMessage(remoteMessage);
-      });
+      const m = messaging();
+      const initial = await m.getInitialNotification();
+      if (initial) {
+        openFromMessage(initial);
+      }
 
-      unsubFg = messaging().onMessage((remoteMessage) => {
+      unsubOpen = m.onNotificationOpenedApp((remoteMessage) => {
         openFromMessage(remoteMessage);
       });
     })();
@@ -288,7 +290,6 @@ export function HomeScreen(_props: HomeScreenProps) {
     return () => {
       cancelled = true;
       unsubOpen?.();
-      unsubFg?.();
     };
   }, [apiOrigin]);
 

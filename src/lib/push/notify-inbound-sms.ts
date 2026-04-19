@@ -48,7 +48,8 @@ export async function notifyInboundSmsAfterPersist(
     }
     const from = (input.fromE164 ?? "").trim() || "unknown";
     const preview = truncate(input.bodyPreview || "(no text)", 120);
-    const openPath = `/workspace/phone/inbox/${input.conversationId.trim()}`;
+    const cid = input.conversationId.trim();
+    const openPath = `/workspace/phone/inbox?${new URLSearchParams({ thread: cid }).toString()}`;
     const msgSid = (input.externalMessageSid ?? "").trim();
     const apnsCollapseId = msgSid ? `sms-${msgSid}` : undefined;
 

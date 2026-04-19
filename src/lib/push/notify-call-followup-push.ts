@@ -25,7 +25,7 @@ export async function notifyMissedCallPush(
       return;
     }
     const from = (input.fromE164 ?? "").trim() || "Unknown caller";
-    const openPath = "/workspace/phone/calls";
+    const openPath = "/workspace/phone/calls#workspace-calls-missed-heading";
     const pid = input.phoneCallId.trim();
     const result = await sendFcmDataAndNotificationToUserIds(supabase, userIds, {
       title: "Missed call",

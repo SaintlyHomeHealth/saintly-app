@@ -4,10 +4,27 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { sendFcmDataAndNotificationToUserIds } from "@/lib/push/send-fcm-to-user-ids";
 import { resolveInboundBrowserStaffUserIdsAsync } from "@/lib/softphone/inbound-staff-ids";
+import { isManagerOrHigher, type StaffProfile } from "@/lib/staff-profile";
 
 const LOG = "[push] new-lead";
 
-const OPEN_PATH = "/workspace/phone/leads";
+const OPEN_PATH_WORKSPACE_LEADS_LIST = "/workspace/phone/leads";
+
+function staffProfileStubForRole(role: string): StaffProfile {
+  return {
+    id: "",
+    user_id: "",
+    email: null,
+    role: role as StaffProfile["role"],
+    created_at: "",
+    updated_at: "",
+    full_name: null,
+    is_active: true,
+    phone_access_enabled: false,
+    inbound_ring_enabled: false,
+    applicant_id: null,
+  };
+}
 
 function normalizeContactEmb(
   raw: unknown
@@ -105,28 +122,73 @@ export async function notifyNewLeadCreatedPush(supabase: SupabaseClient, leadId:
       return;
     }
 
-    const result = await sendFcmDataAndNotificationToUserIds(supabase, userIds, {
-      title: "New lead",
-      body,
-      data: {
+    const { data: roleRows } = await supabase
+      .from("staff_profiles")
+      .select("user_id, role")
+      .in("user_id", userIds);
+
+    const roleByUserId = new Map<string, string>();
+    for (const r of roleRows ?? []) {
+      const uid = typeof r.user_id === "string" ? r.user_id : "";
+      const role = typeof r.role === "string" ? r.role : "";
+      if (uid && role) roleByUserId.set(uid, role);
+    }
+
+    const managerUserIds: string[] = [];
+    const nonManagerUserIds: string[] = [];
+    for (const uid of userIds) {
+      const role = roleByUserId.get(uid);
+      if (role && isManagerOrHigher(staffProfileStubForRole(role))) {
+        managerUserIds.push(uid);
+      } else {
+        nonManagerUserIds.push(uid);
+      }
+    }
+
+    const baseData = (openPath: string) =>
+      ({
         type: "new_lead",
         lead_id: id,
-        open_path: OPEN_PATH,
+        open_path: openPath,
         ...(source ? { source } : {}),
-      },
-      apnsCollapseId: `lead-${id}`,
-    });
+      }) as Record<string, string>;
 
-    if (!result.ok) {
-      console.warn(LOG, "notify failed", { leadId: id, error: result.error });
+    const sendOne = async (recipients: string[], openPath: string) => {
+      if (recipients.length === 0) return null;
+      return sendFcmDataAndNotificationToUserIds(supabase, recipients, {
+        title: "New lead",
+        body,
+        data: baseData(openPath),
+        apnsCollapseId: `lead-${id}`,
+      });
+    };
+
+    const [mgrResult, otherResult] = await Promise.all([
+      sendOne(managerUserIds, `/admin/crm/leads/${id}`),
+      sendOne(nonManagerUserIds, OPEN_PATH_WORKSPACE_LEADS_LIST),
+    ]);
+
+    const mergedOk =
+      (mgrResult === null || mgrResult.ok) && (otherResult === null || otherResult.ok);
+    if (!mergedOk) {
+      console.warn(LOG, "notify failed", {
+        leadId: id,
+        managerError: mgrResult && !mgrResult.ok ? mgrResult.error : undefined,
+        otherError: otherResult && !otherResult.ok ? otherResult.error : undefined,
+      });
     } else {
+      const sent = (mgrResult?.sent ?? 0) + (otherResult?.sent ?? 0);
+      const failureCount = (mgrResult?.failureCount ?? 0) + (otherResult?.failureCount ?? 0);
+      const invalidTokenRemovalCount =
+        (mgrResult?.invalidTokenRemovalCount ?? 0) + (otherResult?.invalidTokenRemovalCount ?? 0);
       console.log(LOG, "notify complete", {
         leadId: id,
         recipientUserCount: userIds.length,
-        sent: result.sent,
-        failureCount: result.failureCount,
-        invalidTokenRemovalCount: result.invalidTokenRemovalCount,
-        errors: result.errors,
+        managerRecipientCount: managerUserIds.length,
+        nonManagerRecipientCount: nonManagerUserIds.length,
+        sent,
+        failureCount,
+        invalidTokenRemovalCount,
       });
     }
   } catch (e) {
