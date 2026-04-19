@@ -100,7 +100,7 @@ export async function POST(req: Request) {
     onConflict: "user_id,fcm_token",
   });
   if (error) {
-    console.warn(LOG, "upsert_failed", { reqId, message: error.message });
+    console.warn(LOG, "upsert_failed", { reqId, table: "devices", message: error.message });
     return NextResponse.json({ error: "Failed to save voice device" }, { status: 500 });
   }
 
