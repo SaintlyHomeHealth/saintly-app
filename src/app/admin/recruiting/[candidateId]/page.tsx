@@ -22,6 +22,7 @@ function buildListBackHref(sp: Record<string, string | string[] | undefined>): s
     "area",
     "city",
     "coverage",
+    "name",
     "source",
     "followUp",
     "interest",

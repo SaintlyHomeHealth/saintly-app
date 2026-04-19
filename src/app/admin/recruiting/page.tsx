@@ -17,6 +17,7 @@ import {
   RECRUITING_SOURCE_OPTIONS,
   RECRUITING_STATUS_OPTIONS,
 } from "@/lib/recruiting/recruiting-options";
+import { escapeForIlike } from "@/lib/crm/crm-leads-search";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import { supabaseAdmin } from "@/lib/admin";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
@@ -59,6 +60,7 @@ function buildFilterQs(sp: {
   area?: string;
   city?: string;
   coverage?: string;
+  name?: string;
   source?: string;
   followUp?: string;
   interest?: string;
@@ -72,6 +74,7 @@ function buildFilterQs(sp: {
   if (sp.area) u.set("area", sp.area);
   if (sp.city) u.set("city", sp.city);
   if (sp.coverage) u.set("coverage", sp.coverage);
+  if (sp.name) u.set("name", sp.name);
   if (sp.source) u.set("source", sp.source);
   if (sp.followUp) u.set("followUp", sp.followUp);
   if (sp.interest) u.set("interest", sp.interest);
@@ -104,6 +107,7 @@ export default async function AdminRecruitingListPage({
     area: one("area").trim(),
     city: one("city").trim(),
     coverage: one("coverage").trim(),
+    name: one("name").trim(),
     source: one("source").trim(),
     followUp: one("followUp").trim(),
     interest: one("interest").trim(),
@@ -119,6 +123,11 @@ export default async function AdminRecruitingListPage({
   }
   if (f.discipline) {
     query = query.eq("discipline", f.discipline);
+  }
+  if (f.name) {
+    const esc = escapeForIlike(f.name);
+    const pattern = `%${esc}%`;
+    query = query.or(`first_name.ilike.${pattern},last_name.ilike.${pattern}`);
   }
   if (f.source) {
     query = query.eq("source", f.source);
@@ -248,6 +257,16 @@ export default async function AdminRecruitingListPage({
               </option>
             ))}
           </select>
+        </label>
+        <label className="flex min-w-[8rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+          Candidate name
+          <input
+            name="name"
+            defaultValue={f.name}
+            placeholder="Search by name..."
+            className={`${crmFilterInputCls} min-w-[9rem]`}
+            autoComplete="off"
+          />
         </label>
         <label className="flex min-w-[8rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
           City
