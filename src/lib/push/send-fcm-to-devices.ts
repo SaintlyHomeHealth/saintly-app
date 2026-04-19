@@ -5,6 +5,7 @@ import { randomUUID } from "crypto";
 import { getMessaging } from "firebase-admin/messaging";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { buildApnsAlertConfig } from "@/lib/push/fcm-apns-alert";
 import { getFirebaseAdminApp } from "@/lib/push/firebase-admin-app";
 
 export type FcmDevicesSendResult =
@@ -91,6 +92,11 @@ export async function sendFcmDataAndNotificationToDevicesForUsers(
   const messaging = getMessaging(app);
   const dataPayload: Record<string, string> = { ...input.data };
   const apnsCollapseId = resolveApnsCollapseId(input.apnsCollapseId);
+  const apns = buildApnsAlertConfig({
+    title: input.title,
+    body: input.body,
+    apnsCollapseId,
+  });
 
   let sent = 0;
   const invalid: string[] = [];
@@ -109,18 +115,7 @@ export async function sendFcmDataAndNotificationToDevicesForUsers(
       android: {
         priority: "high",
       },
-      apns: {
-        headers: {
-          "apns-priority": "10",
-          "apns-push-type": "alert",
-          "apns-collapse-id": apnsCollapseId,
-        },
-        payload: {
-          aps: {
-            sound: "default",
-          },
-        },
-      },
+      apns,
     });
 
     sent += res.successCount;

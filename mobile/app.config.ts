@@ -42,7 +42,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       'aps-environment': 'production',
     },
     /** CFBundleVersion — must increase for each App Store / TestFlight upload. */
-    buildNumber: '25',
+    buildNumber: '26',
     googleServicesFile: './GoogleService-Info.plist',
     infoPlist: {
       NSMicrophoneUsageDescription:
@@ -65,7 +65,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     },
     package: 'com.saintlyhomehealth.app',
     /** Must increase for each Play Store upload (keep in sync with iOS buildNumber when practical). */
-    versionCode: 25,
+    versionCode: 26,
     googleServicesFile: './google-services.json',
     edgeToEdgeEnabled: true,
     predictiveBackGestureEnabled: false,

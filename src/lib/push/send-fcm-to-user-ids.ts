@@ -5,6 +5,7 @@ import { randomUUID } from "crypto";
 import { getMessaging } from "firebase-admin/messaging";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { buildApnsAlertConfig } from "@/lib/push/fcm-apns-alert";
 import { getFirebaseAdminApp } from "@/lib/push/firebase-admin-app";
 
 export type FcmSendResult =
@@ -59,6 +60,8 @@ export async function sendFcmDataAndNotificationToUserIds(
     return { ok: false, error: "missing FIREBASE_SERVICE_ACCOUNT_JSON" };
   }
   const timing = process.env.SMS_PUSH_TIMING === "1";
+  const logFcmPayload =
+    process.env.SAINTLY_LOG_FCM_PAYLOAD === "1" || process.env.SMS_PUSH_TIMING === "1";
   const pushTiming = (phase: string, detail?: Record<string, unknown>) => {
     if (!timing) return;
     console.log("[PUSH]", phase, Date.now(), detail ?? {});
@@ -110,6 +113,18 @@ export async function sendFcmDataAndNotificationToUserIds(
   const messaging = getMessaging(app);
   const dataPayload: Record<string, string> = { ...input.data };
   const apnsCollapseId = resolveApnsCollapseId(input.apnsCollapseId);
+  const apns = buildApnsAlertConfig({
+    title: input.title,
+    body: input.body,
+    apnsCollapseId,
+  });
+
+  const multicastTemplate = {
+    notification: { title: input.title, body: input.body },
+    data: dataPayload,
+    android: { priority: "high" as const },
+    apns,
+  };
 
   let sent = 0;
   const invalid: string[] = [];
@@ -119,30 +134,19 @@ export async function sendFcmDataAndNotificationToUserIds(
   for (let i = 0; i < tokens.length; i += chunkSize) {
     const chunk = tokens.slice(i, i + chunkSize);
     pushTiming("fcm_before_firebase_send", { tokenCount: chunk.length, chunkIndex: i / chunkSize });
+    if (logFcmPayload) {
+      console.log("[push] fcm_multicast_template", {
+        chunkIndex: i / chunkSize,
+        tokenCount: chunk.length,
+        apnsHeaders: apns.headers,
+        apnsPayloadAps: apns.payload?.aps,
+        notification: multicastTemplate.notification,
+        dataKeys: Object.keys(dataPayload),
+      });
+    }
     const res = await messaging.sendEachForMulticast({
       tokens: chunk,
-      notification: {
-        title: input.title,
-        body: input.body,
-      },
-      data: dataPayload,
-      android: {
-        priority: "high",
-      },
-      apns: {
-        headers: {
-          "apns-priority": "10",
-          /** Required for alert notifications on APNs HTTP/2; ensures visible banner delivery. */
-          "apns-push-type": "alert",
-          /** Distinct id per logical alert so one message does not replace another on the device. */
-          "apns-collapse-id": apnsCollapseId,
-        },
-        payload: {
-          aps: {
-            sound: "default",
-          },
-        },
-      },
+      ...multicastTemplate,
     });
     pushTiming("fcm_after_firebase_send", {
       successCount: res.successCount,
@@ -153,19 +157,29 @@ export async function sendFcmDataAndNotificationToUserIds(
     sent += res.successCount;
 
     res.responses.forEach((r, idx) => {
-      if (!r.success) {
-        const code = r.error?.code ?? "";
-        const token = chunk[idx];
-        if (
-          code === "messaging/registration-token-not-registered" ||
-          code === "messaging/invalid-registration-token"
-        ) {
-          if (token) invalid.push(token);
-        } else {
-          const message = r.error?.message;
-          errors.push({ code: code || "(unknown)", message });
-          console.warn("[push] FCM send error:", code, message);
+      const token = chunk[idx];
+      const tokenTail = token && token.length > 12 ? token.slice(-12) : token;
+      if (r.success) {
+        if (logFcmPayload) {
+          console.log("[push] FCM token_accepted", {
+            chunkIndex: i / chunkSize,
+            idx,
+            tokenTail,
+            messageId: r.messageId,
+          });
         }
+        return;
+      }
+      const code = r.error?.code ?? "";
+      if (
+        code === "messaging/registration-token-not-registered" ||
+        code === "messaging/invalid-registration-token"
+      ) {
+        if (token) invalid.push(token);
+      } else {
+        const message = r.error?.message;
+        errors.push({ code: code || "(unknown)", message });
+        console.warn("[push] FCM send error:", code, message, { tokenTail });
       }
     });
   }
