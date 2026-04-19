@@ -270,7 +270,7 @@ export function WorkspaceSmsThreadView({
         style={{ WebkitOverflowScrolling: "touch" }}
       >
         <div
-          className={`mx-auto flex min-h-full w-full flex-col px-3 pb-1.5 pt-1.5 sm:px-4 sm:pb-3 sm:pt-3 ${
+          className={`mx-auto flex min-h-full w-full flex-col px-3 pb-0.5 pt-1.5 sm:px-4 sm:pb-3 sm:pt-3 ${
             appDesktopSplit ? "max-w-none px-3 pt-1 sm:px-3 sm:pb-2 sm:pt-2 lg:px-3 lg:pb-1 lg:pt-1" : "max-w-[40rem]"
           }`}
         >
@@ -327,13 +327,13 @@ export function WorkspaceSmsThreadView({
                 );
               })
             )}
-            <div ref={bottomRef} className="h-1 w-full shrink-0" aria-hidden />
+            <div ref={bottomRef} className="h-px w-full shrink-0" aria-hidden />
           </div>
         </div>
       </div>
 
       <div
-        className={`z-20 shrink-0 border-t border-slate-200/80 bg-white pb-[max(0.25rem,env(safe-area-inset-bottom,0px))] pt-1 backdrop-blur-md supports-[backdrop-filter]:bg-white/95 ${
+        className={`z-20 shrink-0 border-t border-slate-200/80 bg-white pb-[max(0.25rem,env(safe-area-inset-bottom,0px))] pt-0.5 backdrop-blur-md supports-[backdrop-filter]:bg-white/95 ${
           appDesktopSplit
             ? "border-slate-200 shadow-none lg:pt-1 lg:pb-[max(0.25rem,env(safe-area-inset-bottom,0px))]"
             : ""

@@ -51,12 +51,9 @@ export default async function WorkspaceKeypadPage({
       <WorkspacePhonePageHeader
         title="Keypad"
         subtitle={
-          <>
-            <span className="sm:hidden">Stay on this screen for inbound calls.</span>
-            <span className="hidden sm:inline">
-              Saintly Home Health · Dial with the Saintly line. Stay on this screen for inbound calls on this device.
-            </span>
-          </>
+          <span className="hidden text-xs leading-snug text-slate-600 sm:inline">
+            Saintly Home Health — use your assigned line for outbound calls.
+          </span>
         }
       />
       {leadId && UUID_RE.test(leadId) ? (

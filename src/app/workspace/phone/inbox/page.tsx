@@ -374,7 +374,7 @@ export default async function WorkspaceInboxPage(props: PageProps) {
                           </div>
                           {name ? <p className="truncate font-mono text-[11px] text-slate-500">{phoneDisplay}</p> : null}
                           {preview ? (
-                            <p className="mt-0.5 line-clamp-2 text-[12px] leading-snug text-slate-600">{preview}</p>
+                            <p className="mt-0.5 line-clamp-2 text-[12px] leading-snug text-slate-700">{preview}</p>
                           ) : null}
                           <div className="mt-1 flex flex-wrap items-center gap-1">
                             {hasUnread ? (
