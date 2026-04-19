@@ -182,6 +182,7 @@ export default async function AdminPayrollPage() {
         </section>
 
         <section className="mt-10">
+          {/* TODO(future): allow payroll approvers to return a submitted nurse self-billing to draft (undo submit). */}
           <h2 className="text-sm font-bold uppercase tracking-wide text-slate-700">Nurse self-billing (this period)</h2>
           <p className="mt-1 text-xs text-slate-600">
             Workspace Pay tab: nurses submit manual weekly lines. Mark paid after you reconcile payment.

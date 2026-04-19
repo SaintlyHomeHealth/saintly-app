@@ -117,8 +117,6 @@ export default async function WorkspacePayPage() {
             <SelfBillingView
               billingId={billing.id}
               status={status}
-              payPeriodStart={bounds.payPeriodStart}
-              payPeriodEnd={bounds.payPeriodEnd}
               deadlineIso={bounds.submissionDeadline}
               deadlinePassed={deadlinePassed}
               lines={lines}

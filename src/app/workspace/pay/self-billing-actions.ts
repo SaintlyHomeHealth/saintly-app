@@ -5,7 +5,12 @@ import { revalidatePath } from "next/cache";
 import { supabaseAdmin } from "@/lib/admin";
 import { nurseMayUsePatient } from "@/lib/payroll/nurse-assignable-patients";
 import { ensureNurseWeeklyBilling } from "@/lib/payroll/nurse-weekly-billing";
-import { getPayPeriodForDate, serviceDateInPeriod } from "@/lib/payroll/pay-period";
+import { getPayPeriodForDate } from "@/lib/payroll/pay-period";
+import {
+  getSelectableServiceDateBoundsInTimeZone,
+  isIsoDateInInclusiveRange,
+  selfBillingCalendarTimeZone,
+} from "@/lib/payroll/self-billing-dates";
 import { getStaffProfile } from "@/lib/staff-profile";
 
 import type { BillingLineType } from "./self-billing-types";
@@ -53,8 +58,9 @@ export async function addSelfBillingLineAction(input: {
   if (!okPatient) return { ok: false, error: "That patient is not available for your assignments." };
 
   const sd = input.serviceDate.trim();
-  if (!sd || !serviceDateInPeriod(sd, bounds.payPeriodStart, bounds.payPeriodEnd)) {
-    return { ok: false, error: "Service date must fall within this pay week." };
+  const svcBounds = getSelectableServiceDateBoundsInTimeZone(new Date(), selfBillingCalendarTimeZone());
+  if (!sd || !isIsoDateInInclusiveRange(sd, svcBounds.min, svcBounds.max)) {
+    return { ok: false, error: "Service date is not in the allowed billing range for this period." };
   }
 
   const amount = parseAmount(input.amount);
@@ -110,8 +116,9 @@ export async function updateSelfBillingLineAction(input: {
   if (!okPatient) return { ok: false, error: "That patient is not available for your assignments." };
 
   const sd = input.serviceDate.trim();
-  if (!sd || !serviceDateInPeriod(sd, row.pay_period_start, row.pay_period_end)) {
-    return { ok: false, error: "Service date must fall within this pay week." };
+  const svcBounds = getSelectableServiceDateBoundsInTimeZone(new Date(), selfBillingCalendarTimeZone());
+  if (!sd || !isIsoDateInInclusiveRange(sd, svcBounds.min, svcBounds.max)) {
+    return { ok: false, error: "Service date is not in the allowed billing range for this period." };
   }
 
   const amount = parseAmount(input.amount);
