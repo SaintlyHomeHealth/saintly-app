@@ -14,7 +14,7 @@ export default function WorkspacePayLayout({ children }: { children: ReactNode }
             <p className="truncate text-sm font-semibold text-slate-900">Pay &amp; visits</p>
           </div>
           <Link
-            href="/workspace/phone/today"
+            href="/workspace/phone/visits"
             className="shrink-0 rounded-full border border-sky-200/90 bg-white px-3 py-2 text-xs font-semibold text-sky-900 shadow-sm transition hover:bg-sky-50"
           >
             Back to phone

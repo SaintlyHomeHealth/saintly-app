@@ -2,7 +2,7 @@
   "name": "Saintly",
   "short_name": "Saintly",
   "description": "Premium Home Health Care",
-  "start_url": "/workspace/phone/today",
+  "start_url": "/workspace/phone/visits",
   "scope": "/workspace/phone",
   "display": "standalone",
   "orientation": "portrait",

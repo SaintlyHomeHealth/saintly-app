@@ -84,7 +84,7 @@ export default async function WorkspacePhoneLeadsPage({
   }
 
   if (isWorkspaceEmployeeRole(staff.role)) {
-    redirect("/workspace/phone/today");
+    redirect("/workspace/phone/visits");
   }
 
   const sp = searchParams ? await searchParams : {};

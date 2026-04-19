@@ -122,7 +122,7 @@ function revalidateDispatchAndPatientVisits(patientId: string) {
   revalidatePath("/admin/crm/patients");
   revalidatePath(`/workspace/phone/patients/${patientId}`);
   revalidatePath("/workspace/phone/patients");
-  revalidatePath("/workspace/phone/today");
+  revalidatePath("/workspace/phone/visits");
 }
 
 function readNotifyCheckbox(formData: FormData, name: string): boolean {
@@ -3085,7 +3085,7 @@ export async function setCrmPatientArchive(formData: FormData) {
   revalidatePath("/admin/crm/dispatch");
   revalidatePath("/workspace/phone/patients");
   revalidatePath(`/workspace/phone/patients/${patientId}`);
-  revalidatePath("/workspace/phone/today");
+  revalidatePath("/workspace/phone/visits");
 
   if (afterAction === "stay") {
     redirect(`/admin/crm/patients/${patientId}`);
@@ -3177,7 +3177,7 @@ export async function deleteCrmPatientIfAllowed(formData: FormData) {
   revalidatePath("/admin/crm/patients");
   revalidatePath("/admin/crm/dispatch");
   revalidatePath("/workspace/phone/patients");
-  revalidatePath("/workspace/phone/today");
+  revalidatePath("/workspace/phone/visits");
 
   redirect(returnTo ? `/admin/crm/patients?${returnTo}` : "/admin/crm/patients");
 }

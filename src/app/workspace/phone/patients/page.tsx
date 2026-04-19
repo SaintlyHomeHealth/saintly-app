@@ -320,10 +320,10 @@ export default async function WorkspacePatientsPage() {
         subtitle="Assigned to you — call, text, and follow up without opening the CRM."
         actions={
           <Link
-            href="/workspace/phone/today"
+            href="/workspace/phone/visits"
             className="inline-flex items-center rounded-full bg-gradient-to-r from-sky-600 to-cyan-500 px-4 py-2 text-xs font-semibold text-white shadow-sm shadow-sky-200/70 transition hover:-translate-y-px hover:shadow-md hover:shadow-sky-200/90"
           >
-            Today
+            Visits
           </Link>
         }
       />

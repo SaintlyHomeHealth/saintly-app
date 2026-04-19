@@ -147,7 +147,7 @@ export async function scheduleWorkspacePatientVisit(formData: FormData): Promise
 
   revalidatePath(`/workspace/phone/patients/${patientId}`);
   revalidatePath("/workspace/phone/patients");
-  revalidatePath("/workspace/phone/today");
+  revalidatePath("/workspace/phone/visits");
   revalidatePath("/admin/crm/dispatch");
   return { ok: true };
 }
@@ -391,7 +391,7 @@ export async function setWorkspaceVisitStatus(
     return { ok: false, error: "Could not update visit status." };
   }
 
-  revalidatePath("/workspace/phone/today");
+  revalidatePath("/workspace/phone/visits");
   revalidatePath(`/workspace/phone/patients/${visit.patient_id}`);
   revalidatePath("/workspace/phone/patients");
   revalidatePath("/admin/crm/dispatch");
@@ -452,7 +452,7 @@ export async function rescheduleWorkspaceVisit(
     return { ok: false, error: "Could not reschedule visit." };
   }
 
-  revalidatePath("/workspace/phone/today");
+  revalidatePath("/workspace/phone/visits");
   revalidatePath(`/workspace/phone/patients/${visit.patient_id}`);
   revalidatePath("/workspace/phone/patients");
   revalidatePath("/admin/crm/dispatch");

@@ -73,7 +73,7 @@ function readCurrentPositionOrNull(): Promise<{ lat: number; lng: number; accura
   });
 }
 
-export function TodayVisitCard(props: Props) {
+export function WorkspaceVisitCard(props: Props) {
   const [isPending, startTransition] = useTransition();
   const [showReschedule, setShowReschedule] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);

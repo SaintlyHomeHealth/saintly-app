@@ -40,15 +40,15 @@ const leadsTab: Tab = {
 
 const tabsBase: Tab[] = [
   {
-    href: "/workspace/phone/today",
-    label: "Today",
-    match: /^\/workspace\/phone\/today$|^\/workspace\/phone$/,
+    href: "/workspace/phone/visits",
+    label: "Visits",
+    match: /^\/workspace\/phone\/visits$|^\/workspace\/phone$/,
     icon: (
       <span className={iconWrap}>
         <CalendarDays className="h-4 w-4" strokeWidth={2} aria-hidden />
       </span>
     ),
-    iconTitle: "Today",
+    iconTitle: "Visits",
   },
   {
     href: "/workspace/phone/follow-ups-today",

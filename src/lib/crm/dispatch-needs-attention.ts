@@ -1,5 +1,5 @@
 /**
- * Shared "needs attention" rules for dispatch / workspace Today (operational triage).
+ * Shared "needs attention" rules for dispatch / workspace Visits (operational triage).
  * Keep logic minimal and aligned with admin dispatch buckets.
  */
 

@@ -64,6 +64,6 @@ export async function markWorkspaceMissedCallResolved(
   }
 
   revalidatePath("/workspace/phone/calls");
-  revalidatePath("/workspace/phone/today");
+  revalidatePath("/workspace/phone/visits");
   return { ok: true };
 }
