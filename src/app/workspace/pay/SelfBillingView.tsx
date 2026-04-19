@@ -12,6 +12,7 @@ import {
 import {
   addSelfBillingLineAction,
   deleteSelfBillingLineAction,
+  reopenSelfBillingWeekAction,
   submitSelfBillingWeekAction,
   updateSelfBillingLineAction,
 } from "./self-billing-actions";
@@ -35,10 +36,12 @@ type Props = {
   billingId: string;
   status: "draft" | "submitted" | "paid";
   deadlineIso: string;
-  /** Compared at request time on the server (see page.tsx). */
-  deadlinePassed: boolean;
+  /** Blocks submit when the period deadline has passed unless the invoice was reopened / returned to draft. */
+  submissionBlockedByDeadline: boolean;
   /** Draft lines are only editable for the current pay week from Workspace Pay. */
   allowNurseEdit: boolean;
+  /** Current-week submitted (not paid): show Reopen invoice. */
+  canReopenSubmitted: boolean;
   lines: SelfBillingLineVM[];
   patients: { id: string; label: string }[];
 };
@@ -47,8 +50,9 @@ export function SelfBillingView({
   billingId,
   status,
   deadlineIso,
-  deadlinePassed,
+  submissionBlockedByDeadline,
   allowNurseEdit,
+  canReopenSubmitted,
   lines,
   patients,
 }: Props) {
@@ -58,6 +62,7 @@ export function SelfBillingView({
   const [addLineSuccess, setAddLineSuccess] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
+  const [showReopenConfirm, setShowReopenConfirm] = useState(false);
 
   const serviceBounds = useMemo(() => getSelectableServiceDateBoundsLocal(new Date()), []);
 
@@ -100,6 +105,7 @@ export function SelfBillingView({
     setError(null);
     startTransition(async () => {
       const r = await addSelfBillingLineAction({
+        billingId,
         patientId: addPatientId,
         serviceDate: addDate,
         lineType: addType,
@@ -431,7 +437,9 @@ export function SelfBillingView({
               {status === "draft"
                 ? "Draft means you can still add, edit, or remove lines. Submit when the week is complete."
                 : status === "submitted"
-                  ? "Submitted to payroll for this week. You cannot change lines from here."
+                  ? canReopenSubmitted
+                    ? "Submitted to payroll. Reopen if you need to fix a line or add a late visit—then submit again."
+                    : "Submitted to payroll for this week. You cannot change lines from here."
                   : "Marked paid. Contact payroll if something looks wrong."}
             </p>
             <p className="mt-3 text-xs text-slate-600">
@@ -441,16 +449,30 @@ export function SelfBillingView({
               </span>
             </p>
           </div>
-          <button
-            type="button"
-            disabled={!canEdit || lines.length === 0 || deadlinePassed || pending}
-            onClick={() => setShowSubmitConfirm(true)}
-            className="shrink-0 rounded-xl bg-slate-900 px-6 py-3.5 text-sm font-semibold text-white shadow-lg shadow-slate-900/20 transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            Submit this week
-          </button>
+          <div className="flex shrink-0 flex-col gap-2 sm:flex-row sm:items-center">
+            {canEdit ? (
+              <button
+                type="button"
+                disabled={lines.length === 0 || submissionBlockedByDeadline || pending}
+                onClick={() => setShowSubmitConfirm(true)}
+                className="rounded-xl bg-slate-900 px-6 py-3.5 text-sm font-semibold text-white shadow-lg shadow-slate-900/20 transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Submit this week
+              </button>
+            ) : null}
+            {canReopenSubmitted ? (
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() => setShowReopenConfirm(true)}
+                className="rounded-xl border border-sky-300 bg-white px-6 py-3.5 text-sm font-semibold text-sky-900 shadow-sm transition hover:bg-sky-50 disabled:opacity-50"
+              >
+                Reopen invoice
+              </button>
+            ) : null}
+          </div>
         </div>
-        {deadlinePassed && status === "draft" ? (
+        {submissionBlockedByDeadline && status === "draft" ? (
           <p className="mt-4 rounded-xl border border-amber-200/80 bg-amber-50 px-3 py-2 text-sm text-amber-950">
             Submission deadline has passed for this period. Contact payroll if you need help.
           </p>
@@ -471,7 +493,8 @@ export function SelfBillingView({
             <p className="mt-2 text-sm leading-relaxed text-slate-600">
               You are about to submit <span className="font-semibold text-slate-900">{money(running)}</span> for{" "}
               <span className="font-semibold text-slate-900">{lines.length}</span> line{lines.length === 1 ? "" : "s"}.
-              After submitting, you will not be able to edit or add lines from this page.
+              Until payroll marks this week paid, you can use <span className="font-semibold text-slate-800">Reopen invoice</span>{" "}
+              to make changes and submit again.
             </p>
             <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
               <button
@@ -496,6 +519,50 @@ export function SelfBillingView({
                 }}
               >
                 {pending ? "Submitting…" : "Yes, submit"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {showReopenConfirm ? (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/50 p-4 pb-8 backdrop-blur-[2px] sm:items-center sm:pb-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="reopen-confirm-title"
+        >
+          <div className="w-full max-w-md rounded-2xl border border-slate-200/90 bg-white p-6 shadow-2xl">
+            <h3 id="reopen-confirm-title" className="text-lg font-semibold text-slate-900">
+              Reopen this invoice?
+            </h3>
+            <p className="mt-2 text-sm leading-relaxed text-slate-600">
+              The invoice will move back to <span className="font-semibold text-slate-900">Draft</span>. You can add, edit, or
+              delete lines, then submit again. Payroll has not marked this week paid yet.
+            </p>
+            <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-50"
+                onClick={() => setShowReopenConfirm(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={pending}
+                className="rounded-xl bg-sky-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-sky-600 disabled:opacity-60"
+                onClick={() => {
+                  setError(null);
+                  setShowReopenConfirm(false);
+                  startTransition(async () => {
+                    const r = await reopenSelfBillingWeekAction(billingId);
+                    if (r.ok) router.refresh();
+                    else setError(r.error);
+                  });
+                }}
+              >
+                {pending ? "Reopening…" : "Yes, reopen"}
               </button>
             </div>
           </div>

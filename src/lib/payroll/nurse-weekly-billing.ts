@@ -12,6 +12,7 @@ export type NurseWeeklyBillingRow = {
   status: "draft" | "submitted" | "paid";
   submitted_at: string | null;
   paid_at: string | null;
+  returned_to_draft_at: string | null;
 };
 
 /**
@@ -23,7 +24,7 @@ export async function ensureNurseWeeklyBilling(
 ): Promise<NurseWeeklyBillingRow> {
   const { data: existing, error: qErr } = await supabaseAdmin
     .from("nurse_weekly_billings")
-    .select("id, employee_id, pay_period_start, pay_period_end, status, submitted_at, paid_at")
+    .select("id, employee_id, pay_period_start, pay_period_end, status, submitted_at, paid_at, returned_to_draft_at")
     .eq("employee_id", applicantId)
     .eq("pay_period_start", bounds.payPeriodStart)
     .maybeSingle();
@@ -42,7 +43,7 @@ export async function ensureNurseWeeklyBilling(
       pay_period_end: bounds.payPeriodEnd,
       status: "draft",
     })
-    .select("id, employee_id, pay_period_start, pay_period_end, status, submitted_at, paid_at")
+    .select("id, employee_id, pay_period_start, pay_period_end, status, submitted_at, paid_at, returned_to_draft_at")
     .single();
 
   if (insErr || !created) throw new Error(insErr?.message ?? "Could not create weekly billing.");
@@ -59,7 +60,7 @@ export async function fetchNurseWeeklyBillingByPeriodOptional(
 ): Promise<NurseWeeklyBillingRow | null> {
   const { data: existing, error: qErr } = await supabaseAdmin
     .from("nurse_weekly_billings")
-    .select("id, employee_id, pay_period_start, pay_period_end, status, submitted_at, paid_at")
+    .select("id, employee_id, pay_period_start, pay_period_end, status, submitted_at, paid_at, returned_to_draft_at")
     .eq("employee_id", applicantId)
     .eq("pay_period_start", bounds.payPeriodStart)
     .maybeSingle();

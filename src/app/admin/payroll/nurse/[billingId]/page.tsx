@@ -49,6 +49,7 @@ export default async function NurseBillingDetailPage({
         pay_period_end,
         submitted_at,
         paid_at,
+        returned_to_draft_at,
         nurse_weekly_billing_lines (
           id,
           patient_id,
@@ -142,9 +143,14 @@ export default async function NurseBillingDetailPage({
 
   const submittedAt = typeof billing.submitted_at === "string" ? billing.submitted_at : null;
   const paidAt = typeof billing.paid_at === "string" ? billing.paid_at : null;
+  const returnedToDraftAt =
+    typeof (billing as { returned_to_draft_at?: string | null }).returned_to_draft_at === "string"
+      ? (billing as { returned_to_draft_at: string }).returned_to_draft_at
+      : null;
 
   const canEditLines = status !== "paid";
   const canApprove = approver && status === "submitted";
+  const canReturnToDraft = status === "submitted";
 
   return (
     <>
@@ -172,12 +178,14 @@ export default async function NurseBillingDetailPage({
             status={status}
             submittedAt={submittedAt}
             paidAt={paidAt}
+            returnedToDraftAt={returnedToDraftAt}
             weeklyTotal={weeklyTotal}
             ytdPaid={ytdPaid}
             lines={lines}
             patientOptions={patientOptions}
             canEditLines={canEditLines}
             canApprove={canApprove}
+            canReturnToDraft={canReturnToDraft}
           />
         </div>
       </div>

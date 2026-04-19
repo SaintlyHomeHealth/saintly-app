@@ -139,3 +139,33 @@ export function clampIsoDateToRange(iso: string, min: string, max: string): stri
 export function selfBillingCalendarTimeZone(): string {
   return process.env.SELF_BILLING_CALENDAR_TZ?.trim() || "America/Phoenix";
 }
+
+/**
+ * Whether a nurse may open, edit, reopen (from submitted), or submit an invoice for the pay week
+ * that starts on `invoicePayPeriodStart` (Monday yyyy-mm-dd in the billing calendar).
+ * - Current pay week (Mon–Sun containing "today" in `timeZone`): always.
+ * - Immediately previous pay week: only when "today" is Monday in `timeZone` (same window as service-date rules).
+ */
+export function isPayWeekInAllowedNurseBillingWindow(
+  invoicePayPeriodStart: string,
+  instant: Date,
+  timeZone: string
+): boolean {
+  const { y, m, d } = getYMDInTimeZone(instant, timeZone);
+  const thisMonday = mondayOfWeekContainingYMD(y, m, d);
+  const currentPayPeriodStart = ymdToIso(thisMonday.y, thisMonday.m, thisMonday.d);
+
+  if (invoicePayPeriodStart === currentPayPeriodStart) {
+    return true;
+  }
+
+  const prevMonday = addDaysYMD(thisMonday.y, thisMonday.m, thisMonday.d, -7);
+  const previousPayPeriodStart = ymdToIso(prevMonday.y, prevMonday.m, prevMonday.d);
+
+  if (invoicePayPeriodStart !== previousPayPeriodStart) {
+    return false;
+  }
+
+  const dow = utcCalendarDow(y, m, d);
+  return dow === 1;
+}

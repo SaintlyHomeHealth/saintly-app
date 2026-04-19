@@ -10,6 +10,7 @@ import {
   adminAddNurseBillingLineAction,
   adminApproveAndMarkPaidAction,
   adminDeleteNurseBillingLineAction,
+  adminReturnNurseBillingToDraftAction,
   adminUpdateNurseBillingLineAction,
 } from "@/app/admin/payroll/nurse-billing-actions";
 import { BILLING_LINE_TYPES, billingLineLabel, type BillingLineType } from "@/app/workspace/pay/self-billing-types";
@@ -36,12 +37,14 @@ type Props = {
   status: "draft" | "submitted" | "paid";
   submittedAt: string | null;
   paidAt: string | null;
+  returnedToDraftAt: string | null;
   weeklyTotal: number;
   ytdPaid: number;
   lines: NurseBillingDetailLineVM[];
   patientOptions: { id: string; label: string }[];
   canEditLines: boolean;
   canApprove: boolean;
+  canReturnToDraft: boolean;
 };
 
 function StatusBadge({ status }: { status: Props["status"] }) {
@@ -62,18 +65,21 @@ export function NurseBillingDetail({
   status,
   submittedAt,
   paidAt,
+  returnedToDraftAt,
   weeklyTotal,
   ytdPaid,
   lines,
   patientOptions,
   canEditLines,
   canApprove,
+  canReturnToDraft,
 }: Props) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [approveMsg, setApproveMsg] = useState<string | null>(null);
+  const [returnMsg, setReturnMsg] = useState<string | null>(null);
 
   const [addPatientId, setAddPatientId] = useState("");
   const [addDate, setAddDate] = useState(payPeriodStart);
@@ -90,10 +96,27 @@ export function NurseBillingDetail({
   function onApprove() {
     setError(null);
     setApproveMsg(null);
+    setReturnMsg(null);
     startTransition(async () => {
       const r = await adminApproveAndMarkPaidAction(billingId);
       if (r.ok) {
         setApproveMsg("Marked paid. This week is now locked.");
+        router.refresh();
+      } else setError(r.error);
+    });
+  }
+
+  function onReturnToDraft() {
+    if (!window.confirm("Return this invoice to draft? The nurse can edit lines again; you can still adjust lines while it is not paid.")) {
+      return;
+    }
+    setError(null);
+    setApproveMsg(null);
+    setReturnMsg(null);
+    startTransition(async () => {
+      const r = await adminReturnNurseBillingToDraftAction(billingId);
+      if (r.ok) {
+        setReturnMsg("Returned to draft.");
         router.refresh();
       } else setError(r.error);
     });
@@ -117,6 +140,11 @@ export function NurseBillingDetail({
       {approveMsg ? (
         <div className="rounded-2xl border border-emerald-200/90 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-950">
           {approveMsg}
+        </div>
+      ) : null}
+      {returnMsg ? (
+        <div className="rounded-2xl border border-sky-200/90 bg-sky-50 px-4 py-3 text-sm font-medium text-sky-950">
+          {returnMsg}
         </div>
       ) : null}
 
@@ -149,7 +177,7 @@ export function NurseBillingDetail({
           </div>
         </div>
 
-        <dl className="mt-8 grid gap-4 border-t border-slate-100 pt-8 text-sm sm:grid-cols-2">
+        <dl className="mt-8 grid gap-4 border-t border-slate-100 pt-8 text-sm sm:grid-cols-2 lg:grid-cols-3">
           <div>
             <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Submitted</dt>
             <dd className="mt-1 font-medium text-slate-800">
@@ -159,6 +187,12 @@ export function NurseBillingDetail({
           <div>
             <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Paid</dt>
             <dd className="mt-1 font-medium text-slate-800">{paidAt ? new Date(paidAt).toLocaleString() : "—"}</dd>
+          </div>
+          <div>
+            <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Returned to draft</dt>
+            <dd className="mt-1 font-medium text-slate-800">
+              {returnedToDraftAt ? new Date(returnedToDraftAt).toLocaleString() : "—"}
+            </dd>
           </div>
         </dl>
       </section>
@@ -170,16 +204,28 @@ export function NurseBillingDetail({
             <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Billed lines</p>
             <h2 className="text-lg font-semibold tracking-tight text-slate-900">Details</h2>
           </div>
-          {canApprove && status === "submitted" ? (
-            <button
-              type="button"
-              disabled={pending}
-              onClick={onApprove}
-              className="rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-500 disabled:opacity-50"
-            >
-              {pending ? "Saving…" : "Approve and mark paid"}
-            </button>
-          ) : null}
+          <div className="flex flex-wrap items-center gap-2">
+            {canReturnToDraft && status === "submitted" ? (
+              <button
+                type="button"
+                disabled={pending}
+                onClick={onReturnToDraft}
+                className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50 disabled:opacity-50"
+              >
+                Return to draft
+              </button>
+            ) : null}
+            {canApprove && status === "submitted" ? (
+              <button
+                type="button"
+                disabled={pending}
+                onClick={onApprove}
+                className="rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-500 disabled:opacity-50"
+              >
+                {pending ? "Saving…" : "Approve and mark paid"}
+              </button>
+            ) : null}
+          </div>
         </div>
 
         <div className="overflow-hidden rounded-[22px] border border-slate-200/80 bg-white shadow-[0_12px_40px_-16px_rgba(15,23,42,0.16)]">

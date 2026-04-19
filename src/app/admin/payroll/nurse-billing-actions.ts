@@ -212,3 +212,36 @@ export async function adminApproveAndMarkPaidFormAction(formData: FormData): Pro
   if (!billingId) return;
   await adminApproveAndMarkPaidAction(billingId);
 }
+
+/** Return a submitted (unpaid) invoice to draft so the nurse can fix lines or so admin can adjust workflow. */
+export async function adminReturnNurseBillingToDraftAction(
+  billingId: string
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const gate = await assertManager();
+  if (!gate.ok) return { ok: false, error: gate.error };
+
+  const head = await loadBillingHead(billingId);
+  if (!head) return { ok: false, error: "Invoice not found." };
+  if (head.status !== "submitted") {
+    return { ok: false, error: "Only a submitted invoice can be returned to draft." };
+  }
+
+  const now = new Date().toISOString();
+  const { error } = await supabaseAdmin
+    .from("nurse_weekly_billings")
+    .update({
+      status: "draft",
+      submitted_at: null,
+      returned_to_draft_at: now,
+      updated_at: now,
+    })
+    .eq("id", billingId)
+    .eq("status", "submitted");
+
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath("/admin/payroll");
+  revalidatePath(`/admin/payroll/nurse/${billingId}`);
+  revalidatePath("/workspace/pay");
+  return { ok: true };
+}

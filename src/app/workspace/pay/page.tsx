@@ -4,6 +4,7 @@ import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { ensureNurseWeeklyBilling, fetchNurseWeeklyBillingByPeriodOptional } from "@/lib/payroll/nurse-weekly-billing";
 import { loadAssignablePatientsForNurse } from "@/lib/payroll/nurse-assignable-patients";
 import { getPayPeriodForDate } from "@/lib/payroll/pay-period";
+import { isPayWeekInAllowedNurseBillingWindow, selfBillingCalendarTimeZone } from "@/lib/payroll/self-billing-dates";
 import { supabaseAdmin } from "@/lib/admin";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { canAccessWorkspacePhone, getStaffProfile } from "@/lib/staff-profile";
@@ -150,14 +151,28 @@ export default async function WorkspacePayPage({
   // eslint-disable-next-line react-hooks/purity -- intentional wall-clock comparison for this request
   const deadlinePassed = Date.now() > deadlineMs;
 
-  const allowNurseEdit = isCurrentPayWeek && status === "draft";
+  const returnedToDraftAt = billing.returned_to_draft_at;
+  const submissionBlockedByDeadline = deadlinePassed && !returnedToDraftAt;
+
+  const inNurseBillingWindow = isPayWeekInAllowedNurseBillingWindow(
+    viewingBounds.payPeriodStart,
+    new Date(),
+    selfBillingCalendarTimeZone()
+  );
+
+  const allowNurseEdit = status === "draft" && inNurseBillingWindow;
+  const canReopenSubmitted = status === "submitted" && inNurseBillingWindow;
 
   const headerDescription =
-    isCurrentPayWeek && allowNurseEdit
+    inNurseBillingWindow && status === "draft"
       ? "Add visits and commission lines for this week, review the total, then submit your invoice."
-      : isCurrentPayWeek
-        ? "This week is submitted or paid—your entries are saved here for reference."
-        : "View-only history for this pay week. Switch back to the current period to edit an open draft.";
+      : inNurseBillingWindow && status === "submitted"
+        ? "Submitted to payroll. Reopen the invoice if you need to fix a line or add a late visit—then submit again."
+        : inNurseBillingWindow && status === "paid"
+          ? "Marked paid. Your entries are saved here for reference."
+          : !inNurseBillingWindow
+            ? "This pay week is outside your billing window (you can work on the current week anytime; last week is available on Mondays only)."
+            : "Your entries are saved here for reference.";
 
   return (
     <>
@@ -185,8 +200,9 @@ export default async function WorkspacePayPage({
               billingId={billing.id}
               status={status}
               deadlineIso={viewingBounds.submissionDeadline}
-              deadlinePassed={deadlinePassed}
+              submissionBlockedByDeadline={submissionBlockedByDeadline}
               allowNurseEdit={allowNurseEdit}
+              canReopenSubmitted={canReopenSubmitted}
               lines={lines}
               patients={assignablePatients}
             />
