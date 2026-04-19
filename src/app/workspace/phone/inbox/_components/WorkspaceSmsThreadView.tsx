@@ -253,7 +253,7 @@ export function WorkspaceSmsThreadView({
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       {threadTopSlot ? (
         <div
-          className={`shrink-0 border-b border-sky-100/70 bg-white/90 px-3 py-2 sm:px-4 ${
+          className={`shrink-0 border-b border-sky-100/70 bg-white/90 px-2 py-1.5 sm:px-4 sm:py-2 ${
             appDesktopSplit ? "lg:border-slate-200 lg:px-3 lg:py-1.5" : ""
           }`}
         >
@@ -286,7 +286,7 @@ export function WorkspaceSmsThreadView({
             </div>
           ) : null}
 
-          <div className="flex min-h-0 flex-1 flex-col justify-end gap-2.5 pb-1 sm:gap-3">
+          <div className="flex min-h-0 flex-1 flex-col justify-end gap-2 pb-1 sm:gap-3">
             {merged.length === 0 ? (
               <div className="flex flex-col items-center justify-end gap-1.5 px-2 pb-6 pt-4 text-center">
                 <p className="text-sm font-medium text-slate-600">No messages yet</p>
@@ -305,10 +305,10 @@ export function WorkspaceSmsThreadView({
                     className={`flex w-full flex-col ${inbound ? "items-start" : "items-end"} gap-1`}
                   >
                     <div
-                      className={`max-w-[min(92%,22rem)] rounded-[1.25rem] text-[15px] leading-[1.45] tracking-[0.01em] ${
+                      className={`max-w-[min(92%,22rem)] rounded-[1.15rem] text-[15px] leading-[1.45] tracking-[0.01em] sm:rounded-[1.25rem] ${
                         inbound
-                          ? "rounded-bl-md border border-slate-200/90 bg-white px-4 pb-3 pt-3.5 text-slate-900 shadow-[0_1px_2px_rgba(15,23,42,0.06)] [overflow-wrap:anywhere] isolate"
-                          : `rounded-br-md bg-gradient-to-br from-sky-500 via-sky-600 to-blue-800 px-3.5 py-2.5 text-white shadow-md shadow-sky-900/15 ring-1 ring-white/20 ${
+                          ? "rounded-bl-md border border-slate-200/90 bg-white px-3 pb-2.5 pt-3 text-slate-900 shadow-[0_1px_2px_rgba(15,23,42,0.06)] [overflow-wrap:anywhere] isolate sm:px-4 sm:pb-3 sm:pt-3.5"
+                          : `rounded-br-md bg-gradient-to-br from-sky-500 via-sky-600 to-blue-800 px-3 py-2 text-white shadow-md shadow-sky-900/15 ring-1 ring-white/20 sm:px-3.5 sm:py-2.5 ${
                               isPending ? "opacity-90" : ""
                             }`
                       }`}

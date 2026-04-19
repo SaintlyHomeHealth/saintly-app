@@ -2,6 +2,8 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
+import { SmsTextFromBar } from "@/app/workspace/phone/inbox/_components/SmsTextFromBar";
+
 import { recordSmsSuggestionShown, sendConversationSms, type SendConversationSmsResult } from "../actions";
 
 type Props = {
@@ -96,7 +98,7 @@ export function SmsReplyComposer({
 
   const formClass =
     messagingUX && workspaceThread
-      ? "px-3 pb-2 pt-2.5 sm:px-4"
+      ? "space-y-1.5 px-2.5 pb-2 pt-1.5 sm:space-y-2 sm:px-4 sm:pb-2 sm:pt-2.5"
       : messagingUX
         ? "border-t border-sky-100/80 bg-white/98 px-3 py-2.5 pb-[max(0.6rem,env(safe-area-inset-bottom,0px))] shadow-[0_-4px_24px_-8px_rgba(30,58,138,0.08)] backdrop-blur-sm"
         : "border-t border-slate-200 bg-white p-3";
@@ -123,16 +125,18 @@ export function SmsReplyComposer({
         Message
       </label>
       {initialSuggestion ? (
-        <p className="mb-1.5 text-[11px] text-slate-500">
-          AI suggestion based on conversation — edit before sending.
+        <p className="text-[10px] text-slate-500 sm:mb-0 sm:text-[11px]">
+          AI suggestion — edit before sending.
         </p>
       ) : null}
+
+      {workspaceThread && messagingUX ? <SmsTextFromBar className="shadow-none" /> : null}
 
       {messagingUX ? (
         <div
           className={
             workspaceThread
-              ? "flex items-end gap-2.5 rounded-[1.45rem] border border-slate-200/75 bg-white p-2 pl-2.5 shadow-[0_4px_20px_-6px_rgba(30,58,138,0.18),inset_0_1px_0_rgba(255,255,255,0.85)] ring-1 ring-sky-100/45 backdrop-blur-sm"
+              ? "flex items-end gap-2 rounded-[1.25rem] border border-slate-200/70 bg-white p-1.5 pl-2 shadow-[0_3px_16px_-6px_rgba(30,58,138,0.14)] ring-1 ring-sky-100/40 sm:gap-2.5 sm:rounded-[1.45rem] sm:p-2 sm:pl-2.5 sm:shadow-[0_4px_20px_-6px_rgba(30,58,138,0.18),inset_0_1px_0_rgba(255,255,255,0.85)] sm:ring-sky-100/45"
               : "flex items-end gap-2"
           }
         >
@@ -148,7 +152,7 @@ export function SmsReplyComposer({
             placeholder="Text message"
             className={
               workspaceThread
-                ? "min-h-[3rem] max-h-[9rem] flex-1 resize-none rounded-[1.15rem] border-0 bg-sky-50/50 px-4 py-3 text-[16px] leading-relaxed text-slate-900 placeholder:text-slate-400 outline-none transition focus:bg-white focus:ring-2 focus:ring-sky-300/55"
+                ? "min-h-[2.75rem] max-h-[9rem] flex-1 resize-none rounded-[1.05rem] border-0 bg-slate-50/80 px-3 py-2.5 text-[16px] leading-snug text-slate-900 placeholder:text-slate-400 outline-none transition focus:bg-white focus:ring-2 focus:ring-sky-300/50 sm:min-h-[3rem] sm:rounded-[1.15rem] sm:px-4 sm:py-3 sm:leading-relaxed"
                 : "min-h-[2.75rem] flex-1 resize-none rounded-2xl border border-slate-200/90 bg-slate-50/90 px-3.5 py-2.5 text-[15px] leading-snug text-slate-900 shadow-inner shadow-slate-200/40 outline-none ring-sky-300/30 transition focus:border-sky-300/80 focus:bg-white focus:ring-2"
             }
             onInput={(e) => {
@@ -161,7 +165,7 @@ export function SmsReplyComposer({
             type="submit"
             className={
               workspaceThread
-                ? "mb-0.5 shrink-0 rounded-full bg-gradient-to-b from-sky-500 to-blue-800 px-6 py-3 text-sm font-bold tracking-wide text-white shadow-lg shadow-sky-900/25 ring-1 ring-white/30 transition hover:brightness-[1.04] active:scale-[0.98] disabled:pointer-events-none disabled:opacity-35"
+                ? "mb-px shrink-0 rounded-full bg-gradient-to-b from-sky-500 to-blue-800 px-4 py-2.5 text-xs font-bold tracking-wide text-white shadow-md shadow-sky-900/20 ring-1 ring-white/25 transition hover:brightness-[1.04] active:scale-[0.98] disabled:pointer-events-none disabled:opacity-35 sm:mb-0.5 sm:px-6 sm:py-3 sm:text-sm sm:shadow-lg"
                 : "shrink-0 rounded-full bg-gradient-to-r from-blue-950 via-blue-700 to-sky-500 px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-blue-900/25 transition hover:brightness-105 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-40"
             }
             disabled={!body.trim()}

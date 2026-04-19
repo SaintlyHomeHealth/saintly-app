@@ -309,31 +309,40 @@ export function SoftphoneDialer({
   );
 
   const keypadPanel = (
-    <div className="flex w-full flex-col items-center gap-5">
-      <div className="w-full rounded-2xl border border-sky-100/70 bg-gradient-to-br from-white via-white to-sky-50/40 px-4 py-4 shadow-[0_6px_28px_-8px_rgba(30,58,138,0.08),0_2px_8px_-4px_rgba(15,23,42,0.05)] sm:px-5 sm:py-4">
+    <div className="flex w-full flex-col items-center gap-3.5 sm:gap-5">
+      <div className="w-full rounded-xl border border-sky-100/70 bg-gradient-to-br from-white via-white to-sky-50/40 px-3 py-3 shadow-[0_6px_28px_-8px_rgba(30,58,138,0.08),0_2px_8px_-4px_rgba(15,23,42,0.05)] sm:rounded-2xl sm:px-5 sm:py-4">
         {outboundLines.length > 0 ? (
           <button
             type="button"
             disabled={!callAs.showSheetTrigger}
             onClick={() => callAs.showSheetTrigger && setCallerPickerOpen(true)}
-            className={`flex w-full items-start gap-3 rounded-xl text-left transition hover:bg-sky-50/50 ${
+            className={`flex w-full items-center gap-2.5 rounded-lg text-left transition hover:bg-sky-50/50 sm:items-start sm:gap-3 sm:rounded-xl ${
               callAs.showSheetTrigger ? "" : "cursor-default"
             }`}
           >
             <div
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-sky-100/95 to-blue-50/90 ring-1 ring-sky-200/60"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-sky-100/95 to-blue-50/90 ring-1 ring-sky-200/60 sm:h-11 sm:w-11 sm:rounded-2xl"
               aria-hidden
             >
-              <Phone className="h-5 w-5 text-blue-800" strokeWidth={2} />
+              <Phone className="h-4 w-4 text-blue-800 sm:h-5 sm:w-5" strokeWidth={2} />
             </div>
             <div className="min-w-0 flex-1 text-left">
-              <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">Call as</p>
-              <p className="mt-0.5 text-[15px] font-semibold leading-snug text-slate-900">{callAs.org}</p>
-              <p className="mt-1 text-[13px] font-medium tabular-nums text-slate-800">{callAs.numberDisplay}</p>
-              <p className="mt-0.5 text-[11px] font-medium text-slate-500">{callAs.lineLabel}</p>
+              <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-slate-400 sm:text-[10px] sm:tracking-[0.14em]">
+                Call as
+              </p>
+              <p className="mt-0.5 text-sm font-semibold leading-snug text-slate-900 sm:text-[15px]">{callAs.org}</p>
+              <p className="mt-0.5 text-[12px] font-semibold tabular-nums text-slate-800 sm:mt-1 sm:text-[13px] sm:font-medium">
+                {callAs.numberDisplay}
+                {callAs.lineLabel ? (
+                  <span className="font-medium text-slate-500">
+                    {" "}
+                    · <span className="text-[11px]">{callAs.lineLabel}</span>
+                  </span>
+                ) : null}
+              </p>
             </div>
             {callAs.showSheetTrigger ? (
-              <ChevronDown className="mt-1 h-5 w-5 shrink-0 text-slate-400" strokeWidth={2} aria-hidden />
+              <ChevronDown className="h-5 w-5 shrink-0 self-center text-slate-400 sm:mt-1" strokeWidth={2} aria-hidden />
             ) : null}
           </button>
         ) : (
@@ -371,7 +380,7 @@ export function SoftphoneDialer({
           </div>
         )}
         {!ringtoneUnlocked ? (
-          <p className="mt-3 border-t border-slate-100 pt-3 text-[11px] leading-relaxed text-amber-900/90">
+          <p className="mt-2 border-t border-slate-100 pt-2 text-[10px] leading-snug text-amber-900/90 sm:mt-3 sm:pt-3 sm:text-[11px] sm:leading-relaxed">
             Tap the keypad or <span className="font-semibold">Test ringtone</span> once to hear incoming rings on this
             device.
           </p>
@@ -379,11 +388,11 @@ export function SoftphoneDialer({
       </div>
 
       <div
-        className="flex min-h-[5.5rem] w-full max-w-sm items-center justify-center rounded-2xl border border-sky-100/80 bg-white px-4 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.95),0_4px_20px_-6px_rgba(30,58,138,0.08)] ring-1 ring-sky-100/40 transition-shadow duration-200 sm:min-h-[5.75rem] sm:px-5"
+        className="flex min-h-[4.75rem] w-full max-w-sm items-center justify-center rounded-xl border border-sky-100/80 bg-white px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.95),0_4px_20px_-6px_rgba(30,58,138,0.08)] ring-1 ring-sky-100/40 transition-shadow duration-200 sm:min-h-[5.75rem] sm:rounded-2xl sm:px-5 sm:py-4"
         aria-live="polite"
         aria-label="Number entered"
       >
-        <p className="max-w-full break-all text-center text-[2.1rem] font-semibold leading-tight tracking-tight text-slate-900 tabular-nums transition-[color,transform] duration-200 ease-out motion-safe:will-change-transform sm:text-[2.35rem]">
+        <p className="max-w-full break-all text-center text-[1.85rem] font-semibold leading-tight tracking-tight text-slate-900 tabular-nums transition-[color,transform] duration-200 ease-out motion-safe:will-change-transform sm:text-[2.35rem]">
           {digits.trim() ? (
             <span className="inline-block font-semibold">{formatDialpadDisplay(digits)}</span>
           ) : (
@@ -391,7 +400,7 @@ export function SoftphoneDialer({
           )}
         </p>
       </div>
-      <p className="text-center text-[11px] text-slate-500">Use 10 digits or +1 format. Tap Call to place outbound.</p>
+      <p className="px-1 text-center text-[10px] text-slate-500 sm:text-[11px]">10 digits or +1. Tap Call to dial.</p>
 
       {incoming ? (
         <div className="flex w-full max-w-sm flex-col gap-4 rounded-2xl border border-sky-100/70 bg-gradient-to-b from-white to-sky-50/35 px-4 py-4 shadow-[0_6px_24px_-10px_rgba(30,58,138,0.1)]">
@@ -436,7 +445,7 @@ export function SoftphoneDialer({
       ) : (
         <>
           <div
-            className="grid w-full max-w-[min(100%,20rem)] grid-cols-3 gap-x-4 gap-y-3 px-0.5"
+            className="grid w-full max-w-[min(100%,20rem)] grid-cols-3 gap-x-3 gap-y-2.5 px-0.5 sm:gap-x-4 sm:gap-y-3"
             role="group"
             aria-label="Dialpad"
           >
@@ -450,9 +459,9 @@ export function SoftphoneDialer({
                     void unlockRingtoneFromGesture();
                     setDigits((d) => d + digit);
                   }}
-                  className="flex aspect-square max-h-[4.35rem] w-full min-h-[3.55rem] touch-manipulation select-none flex-col items-center justify-center rounded-full border border-white/90 bg-gradient-to-b from-white to-slate-100/90 text-slate-900 shadow-[0_5px_14px_-3px_rgba(15,23,42,0.12),0_2px_4px_-2px_rgba(15,23,42,0.08)] ring-1 ring-slate-200/50 transition-[transform,box-shadow,background-color] duration-150 ease-out hover:to-slate-50 active:scale-[0.97] active:bg-sky-50/90 active:shadow-[0_3px_12px_-2px_rgba(37,99,235,0.18),inset_0_1px_2px_rgba(30,58,138,0.06)] active:ring-sky-200/70 disabled:pointer-events-none disabled:opacity-40"
+                  className="flex aspect-square max-h-[4rem] w-full min-h-[3.35rem] touch-manipulation select-none flex-col items-center justify-center rounded-full border border-white/90 bg-gradient-to-b from-white to-slate-100/90 text-slate-900 shadow-[0_5px_14px_-3px_rgba(15,23,42,0.12),0_2px_4px_-2px_rgba(15,23,42,0.08)] ring-1 ring-slate-200/50 transition-[transform,box-shadow,background-color] duration-150 ease-out hover:to-slate-50 active:scale-[0.97] active:bg-sky-50/90 active:shadow-[0_3px_12px_-2px_rgba(37,99,235,0.18),inset_0_1px_2px_rgba(30,58,138,0.06)] active:ring-sky-200/70 disabled:pointer-events-none disabled:opacity-40 sm:max-h-[4.35rem] sm:min-h-[3.55rem]"
                 >
-                  <span className="text-[1.75rem] font-bold leading-none tabular-nums tracking-tight">{digit}</span>
+                  <span className="text-[1.6rem] font-bold leading-none tabular-nums tracking-tight sm:text-[1.75rem]">{digit}</span>
                   {sub ? (
                     <span className="mt-0.5 text-[0.5rem] font-medium uppercase tracking-[0.12em] text-slate-400">
                       {sub}

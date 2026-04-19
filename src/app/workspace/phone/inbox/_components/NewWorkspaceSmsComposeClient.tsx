@@ -5,6 +5,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { searchWorkspaceSmsComposeTargets, sendWorkspaceNewSms, type SmsComposeSearchRow } from "../actions";
 
+import { SmsTextFromBar } from "./SmsTextFromBar";
+
 const inputCls =
   "ws-phone-input w-full rounded-2xl border border-sky-200/80 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm shadow-sky-950/5 placeholder:text-slate-400 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200/80";
 
@@ -193,6 +195,8 @@ export function NewWorkspaceSmsComposeClient({
             </div>
           ) : null}
         </div>
+
+        <SmsTextFromBar />
 
         <div className="space-y-1.5">
           <label htmlFor="ws-sms-body" className="text-xs font-semibold uppercase tracking-wide text-slate-500">

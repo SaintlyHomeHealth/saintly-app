@@ -348,15 +348,15 @@ export default async function WorkspaceTodayPage() {
   }
 
   return (
-    <div className="ws-phone-page-shell px-4 pb-8 pt-5 sm:px-5 lg:mx-auto lg:max-w-4xl lg:px-6">
+    <div className="ws-phone-page-shell px-3 pb-8 pt-3 sm:px-5 sm:pt-5 lg:mx-auto lg:max-w-4xl lg:px-6">
       <WorkspacePhonePageHeader
         title="Today"
-        subtitle="Your next visits and anything that needs a decision before you go."
+        subtitle="Next visits and items that need a decision."
       />
-      <div className="mt-2">
+      <div className="mt-1 sm:mt-2">
         <WorkspacePhoneQuickActions />
       </div>
-      <section className="ws-phone-card mt-5 p-4">
+      <section className="ws-phone-card mt-3 p-3 sm:mt-5 sm:p-4">
         <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-phone-ink/70">Next up</p>
         {nextVisit ? (
           <div className="mt-2">

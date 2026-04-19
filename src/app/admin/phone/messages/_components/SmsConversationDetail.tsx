@@ -696,11 +696,11 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
         appDesktopSplit={workspaceDesktopSplit}
         threadTopSlot={
           workspaceDesktopSplit ? null : (
-            <details className="w-full rounded-xl border border-slate-200/90 bg-white/95 text-sm shadow-sm shadow-slate-900/5 ring-1 ring-slate-100/80">
-              <summary className="cursor-pointer list-none px-3 py-2.5 font-semibold text-slate-800 [&::-webkit-details-marker]:hidden">
-                <span className="text-slate-500">▸</span> Thread details & CRM
+            <details className="w-full rounded-lg border border-slate-200/85 bg-white/95 text-sm shadow-sm shadow-slate-900/5 ring-1 ring-slate-100/70 sm:rounded-xl">
+              <summary className="cursor-pointer list-none px-2.5 py-2 text-[13px] font-semibold text-slate-800 sm:px-3 sm:py-2.5 sm:text-sm [&::-webkit-details-marker]:hidden">
+                <span className="mr-1 text-slate-400">▸</span> Details & CRM
               </summary>
-              <div className="max-h-[min(42vh,20rem)] overflow-y-auto overscroll-y-contain border-t border-slate-100 px-3 pb-4 pt-2 md:max-h-[min(48vh,24rem)]">
+              <div className="max-h-[min(38vh,18rem)] overflow-y-auto overscroll-y-contain border-t border-slate-100 px-2.5 pb-3 pt-1.5 sm:max-h-[min(42vh,20rem)] sm:px-3 sm:pb-4 sm:pt-2 md:max-h-[min(48vh,24rem)]">
                 {workspaceCrmPanelInner}
               </div>
             </details>

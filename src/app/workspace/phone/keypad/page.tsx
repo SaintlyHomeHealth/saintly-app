@@ -47,10 +47,17 @@ export default async function WorkspaceKeypadPage({
   }
 
   return (
-    <div className="ws-phone-page-shell flex flex-1 flex-col px-4 pb-4 pt-5 sm:px-5 sm:pt-6 lg:px-8">
+    <div className="ws-phone-page-shell flex flex-1 flex-col px-3 pb-4 pt-3 sm:px-5 sm:pt-6 lg:px-8">
       <WorkspacePhonePageHeader
         title="Keypad"
-        subtitle="Saintly Home Health · Dial with the Saintly line. Stay on this screen for inbound calls on this device."
+        subtitle={
+          <>
+            <span className="sm:hidden">Stay here for inbound calls on this device.</span>
+            <span className="hidden sm:inline">
+              Saintly Home Health · Dial with the Saintly line. Stay on this screen for inbound calls on this device.
+            </span>
+          </>
+        }
       />
       {leadId && UUID_RE.test(leadId) ? (
         <p className="mt-2 rounded-2xl border border-sky-200/80 bg-sky-50/90 px-4 py-3 text-sm text-sky-950">
@@ -79,8 +86,8 @@ export default async function WorkspaceKeypadPage({
           ) : null}
         </p>
       ) : null}
-      <div className="mt-6 flex flex-1 flex-col items-stretch gap-6 lg:mt-8 lg:flex-row lg:items-start lg:justify-center lg:gap-10">
-        <div className="w-full max-w-md shrink-0 rounded-[32px] border border-sky-100/60 bg-gradient-to-b from-white via-white to-sky-50/40 p-5 shadow-[0_12px_40px_-12px_rgba(30,58,138,0.1),0_4px_16px_-8px_rgba(15,23,42,0.06)] sm:p-7 lg:max-w-lg">
+      <div className="mt-4 flex flex-1 flex-col items-stretch gap-4 sm:mt-6 sm:gap-6 lg:mt-8 lg:flex-row lg:items-start lg:justify-center lg:gap-10">
+        <div className="w-full max-w-md shrink-0 rounded-[24px] border border-sky-100/60 bg-gradient-to-b from-white via-white to-sky-50/40 p-3 shadow-[0_12px_40px_-12px_rgba(30,58,138,0.1),0_4px_16px_-8px_rgba(15,23,42,0.06)] sm:rounded-[32px] sm:p-7 lg:max-w-lg">
           <KeypadDialerLazy
             key={dialerKey}
             staffDisplayName={staffDisplayName}

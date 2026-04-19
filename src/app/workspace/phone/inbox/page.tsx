@@ -7,7 +7,6 @@ import { SmsConversationDetail } from "@/app/admin/phone/messages/_components/Sm
 import { InboxScrollRestorer } from "./_components/InboxScrollRestorer";
 import { InboxSearchBar } from "./_components/InboxSearchBar";
 import { WorkspaceInboxLiveClient } from "./_components/WorkspaceInboxLiveClient";
-import { WorkspacePhonePageHeader } from "../_components/WorkspacePhonePageHeader";
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { labelForContactType } from "@/lib/crm/contact-types";
 import { formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
@@ -91,6 +90,21 @@ function entityLabel(input: {
     if (lab !== "—") return lab;
   }
   return input.primaryContactId ? "Contact" : "Unknown";
+}
+
+function rowInitials(name: string | null, phoneDisplay: string): string {
+  const n = (name ?? "").trim();
+  if (n) {
+    const parts = n.split(/\s+/).filter(Boolean);
+    if (parts.length >= 2) {
+      const a = parts[0]?.[0];
+      const b = parts[parts.length - 1]?.[0];
+      if (a && b) return `${a}${b}`.toUpperCase();
+    }
+    return n.slice(0, 2).toUpperCase();
+  }
+  const d = phoneDisplay.replace(/\D/g, "");
+  return d.slice(-2) || "?";
 }
 
 type PageProps = {
@@ -227,25 +241,28 @@ export default async function WorkspaceInboxPage(props: PageProps) {
     <div className="ws-phone-page-shell flex min-h-0 flex-1 flex-col lg:h-full lg:min-h-0 lg:flex-1 lg:overflow-hidden">
       <WorkspaceInboxLiveClient />
       <div className="flex min-h-0 flex-1 flex-col lg:min-h-0 lg:flex-1 lg:flex-row lg:overflow-hidden">
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden border-sky-100/60 pb-28 pt-5 sm:pb-32 lg:w-[176px] lg:max-w-[176px] lg:flex-none lg:basis-[176px] lg:grow-0 lg:shrink-0 lg:border-r lg:border-slate-200/60 lg:bg-slate-50 lg:pb-0 lg:pt-0">
-          <div className="shrink-0 px-4 sm:px-5 lg:border-b lg:border-slate-200/50 lg:bg-slate-50 lg:px-2 lg:py-2 lg:shadow-[0_1px_0_0_rgba(241,245,249,0.9)]">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden border-sky-100/60 pb-24 pt-2 sm:pb-32 sm:pt-5 lg:w-[176px] lg:max-w-[176px] lg:flex-none lg:basis-[176px] lg:grow-0 lg:shrink-0 lg:border-r lg:border-slate-200/60 lg:bg-slate-50 lg:pb-0 lg:pt-0">
+          <div className="shrink-0 px-3 sm:px-5 lg:border-b lg:border-slate-200/50 lg:bg-slate-50 lg:px-2 lg:py-2 lg:shadow-[0_1px_0_0_rgba(241,245,249,0.9)]">
             <div className="lg:hidden">
-              <WorkspacePhonePageHeader
-                title="Inbox"
-                subtitle="Tap a conversation to open the thread — same flow as Messages."
-                className="mb-4 gap-2 sm:gap-3"
-                actions={
-                  <div className="flex w-full flex-col gap-2 min-[400px]:flex-row min-[400px]:items-center min-[400px]:justify-end">
-                    <Link
-                      href="/workspace/phone/inbox/new"
-                      className="inline-flex min-h-[2.25rem] shrink-0 items-center justify-center rounded-full bg-gradient-to-r from-blue-950 to-sky-600 px-3.5 py-2 text-center text-xs font-semibold text-white shadow-md shadow-blue-900/20 hover:brightness-105"
-                    >
-                      New message
-                    </Link>
-                    <InboxSearchBar defaultQuery={qRaw} preserveThreadId={selectedThreadValid ? threadRaw : undefined} />
+              <div className="sticky top-0 z-10 -mx-3 border-b border-sky-100/70 bg-white/95 px-3 pb-2 pt-1 shadow-[0_4px_12px_-8px_rgba(30,58,138,0.06)] backdrop-blur-md supports-[backdrop-filter]:bg-white/92">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 pt-0.5">
+                    <h1 className="text-lg font-semibold tracking-tight text-phone-navy">Inbox</h1>
+                    <p className="text-[11px] text-slate-500">Tap a thread to open</p>
                   </div>
-                }
-              />
+                  <Link
+                    href="/workspace/phone/inbox/new"
+                    className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-950 to-sky-600 text-white shadow-md shadow-blue-900/25 transition hover:brightness-105"
+                    title="New message"
+                    aria-label="New message"
+                  >
+                    <SquarePen className="h-4 w-4" strokeWidth={2} aria-hidden />
+                  </Link>
+                </div>
+                <div className="mt-2">
+                  <InboxSearchBar defaultQuery={qRaw} preserveThreadId={selectedThreadValid ? threadRaw : undefined} />
+                </div>
+              </div>
             </div>
             <div className="hidden lg:block">
               <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Inbox</p>
@@ -278,7 +295,7 @@ export default async function WorkspaceInboxPage(props: PageProps) {
             />
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain lg:relative lg:z-0">
               <InboxScrollRestorer>
-            <section className="mx-4 mt-3 overflow-hidden rounded-2xl border border-sky-100/70 bg-white shadow-md shadow-sky-950/5 sm:mx-5 lg:mx-0 lg:mt-0 lg:rounded-none lg:border-0 lg:border-t lg:border-slate-200/55 lg:bg-slate-50 lg:shadow-none">
+            <section className="mx-3 mt-2 overflow-hidden rounded-xl border border-sky-100/70 bg-white shadow-sm shadow-sky-950/5 sm:mx-5 sm:mt-3 sm:rounded-2xl sm:shadow-md lg:mx-0 lg:mt-0 lg:rounded-none lg:border-0 lg:border-t lg:border-slate-200/55 lg:bg-slate-50 lg:shadow-none">
               <ul className="divide-y divide-sky-100/60 lg:divide-slate-100/70">
                 {rows.length === 0 ? (
                   <li className="px-4 py-10 text-center">
@@ -332,32 +349,45 @@ export default async function WorkspaceInboxPage(props: PageProps) {
                         : "border-l-4 border-l-transparent hover:bg-phone-powder/50";
 
                     const primaryLabel = name ?? phoneDisplay;
+                    const initials = rowInitials(name, phoneDisplay);
 
                     const rowContentMobile = (
-                      <>
-                        <div className="flex items-start justify-between gap-2">
-                          <p
-                            className={`truncate font-semibold ${hasUnread ? "text-phone-navy" : "text-slate-900"}`}
-                          >
-                            {primaryLabel}
-                          </p>
-                          <span className="shrink-0 text-[11px] text-slate-500">{when}</span>
+                      <div className="flex gap-2.5">
+                        <div
+                          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[11px] font-bold tabular-nums ${
+                            hasUnread
+                              ? "bg-sky-600 text-white ring-2 ring-sky-200/80"
+                              : "bg-sky-100/90 text-sky-950 ring-1 ring-sky-200/50"
+                          }`}
+                          aria-hidden
+                        >
+                          {initials}
                         </div>
-                        {name ? <p className="truncate text-xs text-slate-500">{phoneDisplay}</p> : null}
-                        {preview ? (
-                          <p className="mt-1.5 line-clamp-2 text-xs leading-snug text-slate-600">{preview}</p>
-                        ) : null}
-                        <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                          {hasUnread ? (
-                            <span className="inline-flex rounded-full bg-gradient-to-r from-blue-950 to-sky-600 px-2 py-0.5 text-[10px] font-semibold text-white shadow-sm shadow-blue-900/20">
-                              {unreadCount} new
-                            </span>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-start justify-between gap-2">
+                            <p
+                              className={`min-w-0 truncate font-semibold leading-snug ${hasUnread ? "text-phone-navy" : "text-slate-900"}`}
+                            >
+                              {primaryLabel}
+                            </p>
+                            <span className="shrink-0 pt-0.5 text-[10px] tabular-nums text-slate-400">{when}</span>
+                          </div>
+                          {name ? <p className="truncate font-mono text-[11px] text-slate-500">{phoneDisplay}</p> : null}
+                          {preview ? (
+                            <p className="mt-0.5 line-clamp-2 text-[12px] leading-snug text-slate-600">{preview}</p>
                           ) : null}
-                          <span className="inline-flex rounded-full border border-sky-200/80 bg-phone-ice/90 px-2 py-0.5 text-[10px] font-semibold text-phone-ink">
-                            {entity}
-                          </span>
+                          <div className="mt-1 flex flex-wrap items-center gap-1">
+                            {hasUnread ? (
+                              <span className="inline-flex min-w-0 rounded-full bg-sky-600 px-1.5 py-px text-[9px] font-bold uppercase tracking-wide text-white">
+                                {unreadCount}
+                              </span>
+                            ) : null}
+                            <span className="inline-flex max-w-full rounded-full border border-slate-200/90 bg-white/80 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-slate-600">
+                              {entity}
+                            </span>
+                          </div>
                         </div>
-                      </>
+                      </div>
                     );
 
                     const desktopRowChrome =
@@ -387,7 +417,7 @@ export default async function WorkspaceInboxPage(props: PageProps) {
                       <li key={id}>
                         <Link
                           href={inboxMobileUrl(id, qRaw)}
-                          className={`block px-4 py-3.5 transition active:bg-phone-ice/70 lg:hidden ${mobileRowSurface}`}
+                          className={`block px-3 py-2.5 transition active:bg-phone-ice/70 sm:px-4 sm:py-3 lg:hidden ${mobileRowSurface}`}
                         >
                           {rowContentMobile}
                         </Link>
