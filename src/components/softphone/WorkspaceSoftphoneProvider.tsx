@@ -396,6 +396,8 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
   const nativeShellInvitePendingRef = useRef<string | null>(null);
 
   const [digits, setDigits] = useState("");
+  /** Latest dialpad value for {@link finalizeCallCleanup} without putting `digits` in that callback's deps (avoids tearing down Device / nuking in-call UI when digits change or shell effect re-runs). */
+  const digitsRef = useRef("");
   const [listenState, setListenState] = useState<"loading" | "ready" | "error">("loading");
   const [status, setStatus] = useState<"idle" | "fetching_token" | "connecting" | "in_call" | "error">("idle");
   const [hint, setHint] = useState<string | null>(null);
@@ -552,6 +554,10 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
   useEffect(() => {
     statusRef.current = status;
   }, [status]);
+
+  useEffect(() => {
+    digitsRef.current = digits;
+  }, [digits]);
 
   useEffect(() => {
     let cancelled = false;
@@ -861,8 +867,9 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
           }
         }
       }
-      if (!remoteLabel && digits.trim()) {
-        remoteLabel = formatDialpadDisplay(digits);
+      const digitsNow = digitsRef.current;
+      if (!remoteLabel && digitsNow.trim()) {
+        remoteLabel = formatDialpadDisplay(digitsNow);
       }
 
       const va = prevDesk?.voice_ai;
@@ -918,7 +925,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       nativeShellActiveSidRef.current = null;
       nativeShellInvitePendingRef.current = null;
     },
-    [digits]
+    []
   );
 
   /** Native RN shell: events from Twilio Voice native SDK (injected by the app shell). */
@@ -1537,7 +1544,9 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       })();
       return () => {
         cancelled = true;
-        finalizeCallCleanup("provider:native_shell_cleanup");
+        // Do not call finalizeCallCleanup here: native Twilio owns media; this effect re-ran whenever
+        // finalizeCallCleanup identity changed (now stable). Cleanup also runs on React Strict Mode
+        // remount — clearing state would hide in-call UI while the call is still active.
       };
     }
 

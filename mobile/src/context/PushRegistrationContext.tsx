@@ -33,10 +33,12 @@ export function PushRegistrationProvider({ children }: { children: React.ReactNo
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      void twilioVoiceService.prepareIosPushRegistryEarly();
+      // Register FCM/APNs for SMS + generic alerts before Twilio touches PushKit (iOS). Ordering
+      // avoids edge cases where native Voice init runs first and complicates Firebase token readiness.
       const result = await registerNativePushForCalls();
       if (!cancelled) {
         setState({ status: 'ready', result });
+        void twilioVoiceService.prepareIosPushRegistryEarly();
       }
     })();
     return () => {
