@@ -238,10 +238,10 @@ export default async function WorkspaceInboxPage(props: PageProps) {
     : "/workspace/phone/inbox";
 
   return (
-    <div className="ws-phone-page-shell flex min-h-0 flex-1 flex-col lg:h-full lg:min-h-0 lg:flex-1 lg:overflow-hidden">
+    <div className="ws-phone-page-shell flex h-full min-h-0 flex-1 flex-col lg:h-full lg:min-h-0 lg:flex-1 lg:overflow-hidden">
       <WorkspaceInboxLiveClient />
       <div className="flex min-h-0 flex-1 flex-col lg:min-h-0 lg:flex-1 lg:flex-row lg:overflow-hidden">
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden border-sky-100/60 pb-24 pt-2 sm:pb-32 sm:pt-5 lg:w-[176px] lg:max-w-[176px] lg:flex-none lg:basis-[176px] lg:grow-0 lg:shrink-0 lg:border-r lg:border-slate-200/60 lg:bg-slate-50 lg:pb-0 lg:pt-0">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden border-sky-100/60 pb-[calc(5.5rem+env(safe-area-inset-bottom,0px))] pt-2 sm:pb-32 sm:pt-5 lg:w-[176px] lg:max-w-[176px] lg:flex-none lg:basis-[176px] lg:grow-0 lg:shrink-0 lg:border-r lg:border-slate-200/60 lg:bg-slate-50 lg:pb-0 lg:pt-0">
           <div className="shrink-0 px-3 sm:px-5 lg:border-b lg:border-slate-200/50 lg:bg-slate-50 lg:px-2 lg:py-2 lg:shadow-[0_1px_0_0_rgba(241,245,249,0.9)]">
             <div className="lg:hidden">
               <div className="sticky top-0 z-10 -mx-3 border-b border-sky-100/70 bg-white/95 px-3 pb-2 pt-1 shadow-[0_4px_12px_-8px_rgba(30,58,138,0.06)] backdrop-blur-md supports-[backdrop-filter]:bg-white/92">
@@ -295,7 +295,7 @@ export default async function WorkspaceInboxPage(props: PageProps) {
             />
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain lg:relative lg:z-0">
               <InboxScrollRestorer>
-            <section className="mx-3 mt-2 overflow-hidden rounded-xl border border-sky-100/70 bg-white shadow-sm shadow-sky-950/5 sm:mx-5 sm:mt-3 sm:rounded-2xl sm:shadow-md lg:mx-0 lg:mt-0 lg:rounded-none lg:border-0 lg:border-t lg:border-slate-200/55 lg:bg-slate-50 lg:shadow-none">
+            <section className="mx-2 mt-1 min-h-full overflow-hidden rounded-lg border border-slate-200/80 bg-white sm:mx-5 sm:mt-2 sm:rounded-xl lg:mx-0 lg:mt-0 lg:min-h-0 lg:rounded-none lg:border-0 lg:border-t lg:border-slate-200/55 lg:bg-slate-50">
               <ul className="divide-y divide-sky-100/60 lg:divide-slate-100/70">
                 {rows.length === 0 ? (
                   <li className="px-4 py-10 text-center">
@@ -417,7 +417,7 @@ export default async function WorkspaceInboxPage(props: PageProps) {
                       <li key={id}>
                         <Link
                           href={inboxMobileUrl(id, qRaw)}
-                          className={`block px-3 py-2.5 transition active:bg-phone-ice/70 sm:px-4 sm:py-3 lg:hidden ${mobileRowSurface}`}
+                          className={`block px-3 py-2 transition active:bg-phone-ice/70 sm:px-4 sm:py-2.5 lg:hidden ${mobileRowSurface}`}
                         >
                           {rowContentMobile}
                         </Link>

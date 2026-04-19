@@ -47,11 +47,11 @@ export function WorkspacePhoneTopStatusStrip({ displayName, inboundRingEnabled }
   }, [inboundRingEnabled, ui.phase]);
 
   const innerCardClass = inboxListDesktop
-    ? "flex flex-wrap items-center justify-between gap-1.5 rounded-lg border border-sky-100/80 bg-white/90 px-2.5 py-1.5 backdrop-blur lg:rounded-md lg:border-slate-200/80 lg:px-2.5 lg:py-1.5 lg:shadow-none"
-    : `flex flex-wrap items-center justify-between gap-1.5 border border-sky-100/80 bg-white/90 px-2.5 py-1.5 backdrop-blur sm:gap-2 sm:px-3 sm:py-2 ${
+    ? "flex flex-wrap items-center justify-between gap-1.5 rounded-lg border border-sky-100/70 bg-white/90 px-2 py-1 backdrop-blur lg:rounded-md lg:border-slate-200/80 lg:px-2.5 lg:py-1.5 lg:shadow-none"
+    : `flex flex-wrap items-center justify-between gap-1.5 border border-sky-100/70 bg-white/90 px-2 py-1 backdrop-blur sm:gap-2 sm:px-3 sm:py-1.5 ${
         inboxCompact
           ? "rounded-lg shadow-none lg:rounded-lg lg:border-slate-200/70 lg:py-2 lg:shadow-none"
-          : "rounded-xl shadow-sm shadow-sky-950/5 sm:rounded-2xl"
+          : "rounded-lg shadow-sm shadow-sky-950/5 sm:rounded-xl"
       }`;
 
   const mobileHint =
@@ -66,11 +66,12 @@ export function WorkspacePhoneTopStatusStrip({ displayName, inboundRingEnabled }
       <div className={innerCardClass}>
         <div className={`flex min-w-0 flex-1 items-center gap-2 ${inboxListDesktop ? "lg:hidden" : ""}`}>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-[11px] font-semibold leading-tight text-slate-700 sm:text-xs">
-              <span className="text-slate-500">Signed in</span> · {displayName}
+            <p className="truncate text-[11px] font-semibold leading-tight text-slate-800 md:hidden">{displayName}</p>
+            <p className="hidden truncate text-[11px] font-semibold leading-tight text-slate-700 md:block sm:text-xs">
+              <span className="font-normal text-slate-500">Signed in</span> · {displayName}
             </p>
             {ui.remoteLabel ? (
-              <p className="truncate text-[10px] text-slate-500 sm:text-[11px]">{ui.remoteLabel}</p>
+              <p className="hidden truncate text-[10px] text-slate-500 lg:block">{ui.remoteLabel}</p>
             ) : null}
           </div>
         </div>

@@ -98,7 +98,7 @@ export function SmsReplyComposer({
 
   const formClass =
     messagingUX && workspaceThread
-      ? "space-y-1.5 px-2.5 pb-2 pt-1.5 sm:space-y-2 sm:px-4 sm:pb-2 sm:pt-2.5"
+      ? "space-y-1 px-2 pb-1.5 pt-1 sm:space-y-1.5 sm:px-3 sm:pb-2 sm:pt-2"
       : messagingUX
         ? "border-t border-sky-100/80 bg-white/98 px-3 py-2.5 pb-[max(0.6rem,env(safe-area-inset-bottom,0px))] shadow-[0_-4px_24px_-8px_rgba(30,58,138,0.08)] backdrop-blur-sm"
         : "border-t border-slate-200 bg-white p-3";

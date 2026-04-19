@@ -1,7 +1,10 @@
 "use client";
 
-import { Info, MessageSquare } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Check, ChevronDown, MessageSquare } from "lucide-react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
+
+import { useWorkspaceSoftphone } from "@/components/softphone/WorkspaceSoftphoneProvider";
+import { formatPhoneNumber } from "@/lib/phone/us-phone-format";
 
 type SmsOutboundInfo = {
   credentialsComplete: boolean;
@@ -14,23 +17,31 @@ type SmsOutboundInfo = {
 function modeHint(mode: SmsOutboundInfo["outboundMode"]): string {
   switch (mode) {
     case "messaging_service":
-      return "Twilio may choose the sending number from your messaging service.";
+      return "Twilio may choose the sending number from your messaging service. SMS send still uses server configuration.";
     case "from_e164":
-      return "Outbound texts use this caller ID from server configuration.";
+      return "Outbound SMS uses this identity from server configuration. Selection here is for your reference until send supports it.";
     case "from_raw":
       return "Outbound sender is configured on the server.";
     default:
-      return "SMS outbound is not fully configured (check Twilio env on the server).";
+      return "SMS outbound may not be fully configured (check Twilio env on the server).";
   }
 }
 
 /**
- * Read-only “text from” line for compose/reply — matches actual `sendSms` / TWILIO_SMS_FROM behavior.
- * When `selectable` becomes true server-side, replace with a real picker wired to send actions.
+ * “Text from” row — mirrors Call-as interaction (expand / pick line). Selection is local UI state only until SMS send is wired.
  */
-export function SmsTextFromBar({ className = "" }: { className?: string }) {
-  const [info, setInfo] = useState<SmsOutboundInfo | null>(null);
+export const SmsTextFromBar = memo(function SmsTextFromBar({ className = "" }: { className?: string }) {
+  const { softphoneCapabilities } = useWorkspaceSoftphone();
+  const lines = useMemo(
+    () => softphoneCapabilities?.outbound_lines ?? [],
+    [softphoneCapabilities]
+  );
+
+  const [smsInfo, setSmsInfo] = useState<SmsOutboundInfo | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(false);
+  /** Local-only; does not change Twilio SMS send yet. */
+  const [pickedE164, setPickedE164] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -41,7 +52,7 @@ export function SmsTextFromBar({ className = "" }: { className?: string }) {
           return;
         }
         const j = (await r.json()) as SmsOutboundInfo;
-        if (!cancelled) setInfo(j);
+        if (!cancelled) setSmsInfo(j);
       })
       .catch(() => {
         if (!cancelled) setErr("Could not load SMS sender info.");
@@ -51,35 +62,81 @@ export function SmsTextFromBar({ className = "" }: { className?: string }) {
     };
   }, []);
 
+  const defaultE164 = useMemo(
+    () => lines.find((l) => l.is_default)?.e164 ?? lines[0]?.e164 ?? null,
+    [lines]
+  );
+
+  const activeE164 = pickedE164 ?? defaultE164;
+
+  const toggle = useCallback(() => setExpanded((v) => !v), []);
+
   const label =
-    info?.outboundMode === "messaging_service"
+    smsInfo?.outboundMode === "messaging_service"
       ? "Messaging service"
-      : info?.outboundMode === "missing" || !info?.credentialsComplete
+      : smsInfo?.outboundMode === "missing" || !smsInfo?.credentialsComplete
         ? "SMS not configured"
         : "Text from";
 
-  const value = err ? "—" : (info?.outboundSenderMasked ?? "…");
+  const maskedFallback = err ? "—" : (smsInfo?.outboundSenderMasked ?? "…");
+
+  const displayLine = useMemo(() => {
+    if (lines.length === 0) return maskedFallback;
+    if (!activeE164) return maskedFallback;
+    const line = lines.find((l) => l.e164 === activeE164);
+    return line ? `${line.label} · ${formatPhoneNumber(activeE164)}` : formatPhoneNumber(activeE164);
+  }, [lines, activeE164, maskedFallback]);
 
   return (
-    <div
-      className={`flex items-center gap-2 rounded-xl border border-slate-200/80 bg-slate-50/90 px-2.5 py-1.5 text-[11px] text-slate-700 ${className}`.trim()}
-    >
-      <MessageSquare className="h-3.5 w-3.5 shrink-0 text-slate-500" strokeWidth={2} aria-hidden />
-      <div className="min-w-0 flex-1 leading-snug">
-        <span className="font-semibold text-slate-800">{label}</span>
-        <span className="text-slate-400"> · </span>
-        <span className="font-mono tabular-nums text-slate-600">{value}</span>
-      </div>
-      <span className="relative inline-flex shrink-0">
-        <button
-          type="button"
-          className="rounded-full p-1 text-slate-500 hover:bg-slate-200/80 hover:text-slate-800"
-          aria-label="About SMS sender"
-          title={modeHint(info?.outboundMode ?? "missing")}
-        >
-          <Info className="h-4 w-4" strokeWidth={2} />
-        </button>
-      </span>
+    <div className={`rounded-lg border border-slate-200/70 bg-slate-50/80 text-[11px] text-slate-700 ${className}`.trim()}>
+      <button
+        type="button"
+        onClick={toggle}
+        className="flex w-full items-center gap-2 px-2 py-1.5 text-left transition duration-150 hover:bg-slate-100/80"
+      >
+        <MessageSquare className="h-3.5 w-3.5 shrink-0 text-slate-500" strokeWidth={2} aria-hidden />
+        <div className="min-w-0 flex-1 leading-snug">
+          <span className="font-semibold text-slate-800">{label}</span>
+          <span className="text-slate-400"> · </span>
+          <span className="text-slate-600">{displayLine}</span>
+        </div>
+        <ChevronDown
+          className={`h-4 w-4 shrink-0 text-slate-400 transition duration-150 ${expanded ? "rotate-180" : ""}`}
+          strokeWidth={2}
+          aria-hidden
+        />
+      </button>
+      {expanded ? (
+        <div className="border-t border-slate-200/60 px-2 pb-2 pt-1">
+          {lines.length > 0 ? (
+            <div className="max-h-[min(36vh,240px)] space-y-0.5 overflow-y-auto overscroll-y-contain">
+              {lines.map((line) => {
+                const selected = activeE164 === line.e164;
+                return (
+                  <button
+                    key={line.e164}
+                    type="button"
+                    onClick={() => {
+                      setPickedE164(line.e164);
+                      setExpanded(false);
+                    }}
+                    className={`flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-[12px] transition duration-150 hover:bg-white ${
+                      selected ? "bg-white ring-1 ring-sky-200/70" : ""
+                    }`}
+                  >
+                    <span className="min-w-0">
+                      <span className="font-semibold text-slate-900">{line.label}</span>
+                      <span className="mt-0.5 block font-mono text-[10px] text-slate-600">{formatPhoneNumber(line.e164)}</span>
+                    </span>
+                    {selected ? <Check className="h-4 w-4 shrink-0 text-sky-700" strokeWidth={2.5} /> : null}
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
+          <p className="mt-1.5 text-[10px] leading-snug text-slate-500">{modeHint(smsInfo?.outboundMode ?? "missing")}</p>
+        </div>
+      ) : null}
     </div>
   );
-}
+});

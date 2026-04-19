@@ -286,7 +286,7 @@ export function WorkspaceSmsThreadView({
             </div>
           ) : null}
 
-          <div className="flex min-h-0 flex-1 flex-col justify-end gap-2 pb-1 sm:gap-3">
+          <div className="flex min-h-0 flex-1 flex-col justify-end gap-1.5 pb-1 sm:gap-2.5">
             {merged.length === 0 ? (
               <div className="flex flex-col items-center justify-end gap-1.5 px-2 pb-6 pt-4 text-center">
                 <p className="text-sm font-medium text-slate-600">No messages yet</p>

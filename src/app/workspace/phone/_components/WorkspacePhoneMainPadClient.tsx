@@ -28,6 +28,8 @@ export function WorkspacePhoneMainPadClient({ children }: Props) {
     WORKSPACE_INBOX_CONVERSATION_PATH.test(pathname) || isInboxSplitThread;
 
   const isInboxRoute = pathname === "/workspace/phone/inbox";
+  /** Inbox list: keep scroll inside the list column only — outer <main> must not scroll (avoids grey dead space). */
+  const isInboxListOnly = isInboxRoute;
   const mainWidthClass = isInboxRoute ? "max-w-none w-full" : "max-w-6xl";
 
   const { status } = useWorkspaceSoftphone();
@@ -35,7 +37,11 @@ export function WorkspacePhoneMainPadClient({ children }: Props) {
     status === "in_call"
       ? "pb-[max(6.5rem,env(safe-area-inset-bottom,0px))]"
       : "pb-32";
-  const overflowClass = isSmsConversationThread ? "overflow-hidden" : "overflow-y-auto";
+  const overflowClass = isSmsConversationThread
+    ? "overflow-hidden"
+    : isInboxListOnly
+      ? "overflow-hidden"
+      : "overflow-y-auto";
 
   return (
     <main

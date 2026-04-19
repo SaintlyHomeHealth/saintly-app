@@ -184,6 +184,8 @@ export function SoftphoneDialer({
   }, [autoPlaceCall, initialDigits, listenState, status, incoming, startCall]);
 
   const [callerPickerOpen, setCallerPickerOpen] = useState(false);
+  /** Keypad variant: inline expandable list (no full-screen modal). */
+  const [callAsKeypadExpanded, setCallAsKeypadExpanded] = useState(false);
   const outboundLines = softphoneCapabilities?.outbound_lines ?? [];
   const callAs = useMemo(
     () => buildCallAsSummary({ cap: softphoneCapabilities, sel: outboundCliSelection }),
@@ -315,8 +317,8 @@ export function SoftphoneDialer({
           <button
             type="button"
             disabled={!callAs.showSheetTrigger}
-            onClick={() => callAs.showSheetTrigger && setCallerPickerOpen(true)}
-            className={`flex w-full items-center gap-2.5 rounded-lg text-left transition hover:bg-sky-50/50 sm:items-start sm:gap-3 sm:rounded-xl ${
+            onClick={() => callAs.showSheetTrigger && setCallAsKeypadExpanded((v) => !v)}
+            className={`flex w-full items-center gap-2.5 rounded-lg text-left transition duration-150 hover:bg-sky-50/50 sm:items-start sm:gap-3 sm:rounded-xl ${
               callAs.showSheetTrigger ? "" : "cursor-default"
             }`}
           >
@@ -342,7 +344,11 @@ export function SoftphoneDialer({
               </p>
             </div>
             {callAs.showSheetTrigger ? (
-              <ChevronDown className="h-5 w-5 shrink-0 self-center text-slate-400 sm:mt-1" strokeWidth={2} aria-hidden />
+              <ChevronDown
+                className={`h-5 w-5 shrink-0 self-center text-slate-400 transition duration-150 sm:mt-1 ${callAsKeypadExpanded ? "rotate-180" : ""}`}
+                strokeWidth={2}
+                aria-hidden
+              />
             ) : null}
           </button>
         ) : (
@@ -379,6 +385,64 @@ export function SoftphoneDialer({
             </div>
           </div>
         )}
+        {callAsKeypadExpanded && outboundLines.length > 0 ? (
+          <div className="mt-2 max-h-[min(42vh,280px)] overflow-y-auto overscroll-y-contain border-t border-slate-100 pt-2">
+            <p className="px-1 pb-1.5 text-[10px] font-medium text-slate-500">{callAs.org}</p>
+            <div className="space-y-0.5">
+              {outboundLines.map((line) => {
+                const selected =
+                  outboundCliSelection?.kind === "block"
+                    ? false
+                    : outboundCliSelection?.kind === "line"
+                      ? outboundCliSelection.e164 === line.e164
+                      : line.is_default;
+                return (
+                  <button
+                    key={line.e164}
+                    type="button"
+                    onClick={() => {
+                      setOutboundCliSelection({ kind: "line", e164: line.e164 });
+                      setCallAsKeypadExpanded(false);
+                    }}
+                    className={`flex w-full items-center justify-between gap-2 rounded-lg px-2 py-2 text-left text-[13px] transition duration-150 hover:bg-sky-50/90 active:bg-sky-100/80 ${
+                      selected ? "bg-sky-50 ring-1 ring-sky-200/70" : ""
+                    }`}
+                  >
+                    <div className="min-w-0">
+                      <span className="font-semibold text-slate-900">{line.label}</span>
+                      <span className="mt-0.5 block font-mono text-[11px] tabular-nums text-slate-600">
+                        {formatPhoneNumber(line.e164)}
+                      </span>
+                    </div>
+                    {selected ? <Check className="h-4 w-4 shrink-0 text-sky-700" strokeWidth={2.5} aria-hidden /> : null}
+                  </button>
+                );
+              })}
+              {softphoneCapabilities?.outbound_block_available ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOutboundCliSelection({ kind: "block" });
+                    setCallAsKeypadExpanded(false);
+                  }}
+                  className={`flex w-full items-start justify-between gap-2 rounded-lg px-2 py-2 text-left text-[13px] transition duration-150 hover:bg-slate-50 ${
+                    outboundCliSelection?.kind === "block" ? "bg-sky-50 ring-1 ring-sky-200/70" : ""
+                  }`}
+                >
+                  <div>
+                    <span className="font-semibold text-slate-900">Block caller ID</span>
+                    <span className="mt-0.5 block text-[10px] leading-snug text-slate-500">
+                      Withheld line when configured.
+                    </span>
+                  </div>
+                  {outboundCliSelection?.kind === "block" ? (
+                    <Check className="mt-0.5 h-4 w-4 shrink-0 text-sky-700" strokeWidth={2.5} aria-hidden />
+                  ) : null}
+                </button>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
         {!ringtoneUnlocked ? (
           <p className="mt-2 border-t border-slate-100 pt-2 text-[10px] leading-snug text-amber-900/90 sm:mt-3 sm:pt-3 sm:text-[11px] sm:leading-relaxed">
             Tap the keypad or <span className="font-semibold">Test ringtone</span> once to hear incoming rings on this
@@ -718,7 +782,7 @@ export function SoftphoneDialer({
                   type="button"
                   onClick={() => void startCall()}
                   disabled={!digits.trim() || !canDial}
-                  className="group flex h-[4.25rem] min-w-[min(100%,15rem)] touch-manipulation select-none items-center justify-center gap-2.5 rounded-full px-8 text-lg font-bold transition-[transform,box-shadow,filter] duration-300 ease-out enabled:bg-gradient-to-r enabled:from-blue-950 enabled:via-blue-700 enabled:to-sky-500 enabled:text-white enabled:shadow-[0_10px_32px_-6px_rgba(29,78,216,0.5),0_4px_12px_-4px_rgba(56,189,248,0.3)] enabled:ring-1 enabled:ring-white/30 enabled:hover:brightness-[1.03] enabled:active:scale-[0.97] disabled:pointer-events-none disabled:bg-gradient-to-r disabled:from-blue-950/45 disabled:via-blue-800/35 disabled:to-sky-100/95 disabled:text-sky-950/60 disabled:shadow-[0_8px_26px_-10px_rgba(30,58,138,0.11),0_2px_12px_-4px_rgba(56,189,248,0.14)] disabled:ring-1 disabled:ring-sky-400/40 sm:h-[4.5rem] sm:min-w-[min(100%,16rem)] sm:px-10"
+                  className="group flex h-[4.25rem] min-w-[min(100%,15rem)] touch-manipulation select-none items-center justify-center gap-2.5 rounded-full px-8 text-lg font-bold transition-[transform,box-shadow,filter] duration-150 ease-out enabled:bg-gradient-to-r enabled:from-blue-950 enabled:via-blue-700 enabled:to-sky-500 enabled:text-white enabled:shadow-[0_10px_32px_-6px_rgba(29,78,216,0.5),0_4px_12px_-4px_rgba(56,189,248,0.3)] enabled:ring-1 enabled:ring-white/30 enabled:hover:brightness-[1.03] enabled:active:scale-[0.97] disabled:pointer-events-none disabled:bg-gradient-to-r disabled:from-blue-950/45 disabled:via-blue-800/35 disabled:to-sky-100/95 disabled:text-sky-950/60 disabled:shadow-[0_8px_26px_-10px_rgba(30,58,138,0.11),0_2px_12px_-4px_rgba(56,189,248,0.14)] disabled:ring-1 disabled:ring-sky-400/40 sm:h-[4.5rem] sm:min-w-[min(100%,16rem)] sm:px-10"
                 >
                   <Phone
                     className="h-6 w-6 shrink-0 text-current group-disabled:opacity-90 sm:h-6 sm:w-6"
@@ -825,7 +889,7 @@ export function SoftphoneDialer({
         </div>
       ) : null}
 
-      {callerPickerOpen && outboundLines.length > 0 ? (
+      {callerPickerOpen && outboundLines.length > 0 && variant !== "keypad" ? (
         <div
           className="fixed inset-0 z-[200] flex items-end justify-center sm:items-center"
           role="dialog"
@@ -834,13 +898,13 @@ export function SoftphoneDialer({
         >
           <button
             type="button"
-            className="absolute inset-0 bg-black/40 backdrop-blur-[1px]"
+            className="absolute inset-0 bg-black/25 transition duration-150"
             aria-label="Close caller ID picker"
             onClick={() => setCallerPickerOpen(false)}
           />
-          <div className="relative z-10 mb-0 max-h-[min(85vh,560px)] w-full max-w-lg overflow-hidden rounded-t-2xl border border-slate-200/90 bg-white shadow-2xl sm:mb-0 sm:rounded-2xl">
-            <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-              <h2 id="call-as-picker-title" className="text-base font-semibold text-slate-900">
+          <div className="relative z-10 mb-0 max-h-[min(50vh,420px)] w-full max-w-lg overflow-hidden rounded-t-2xl border border-slate-200/90 bg-white shadow-lg sm:mb-0 sm:max-h-[min(70vh,520px)] sm:rounded-2xl">
+            <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2.5">
+              <h2 id="call-as-picker-title" className="text-sm font-semibold text-slate-900">
                 Call as
               </h2>
               <button
@@ -852,7 +916,7 @@ export function SoftphoneDialer({
                 <X className="h-5 w-5" strokeWidth={2} />
               </button>
             </div>
-            <div className="max-h-[min(70vh,480px)] overflow-y-auto px-2 py-2">
+            <div className="max-h-[min(45vh,360px)] overflow-y-auto px-2 py-2 sm:max-h-[min(60vh,480px)]">
               <p className="px-2 pb-2 text-xs text-slate-500">{callAs.org}</p>
               {outboundLines.map((line) => {
                 const selected =
