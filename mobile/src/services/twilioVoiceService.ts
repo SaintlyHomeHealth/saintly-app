@@ -9,6 +9,8 @@ import type { SoftphoneTokenResponse } from './authTokenService';
  * iOS: `initializePushRegistry` + `register(token)` wires PushKit → Twilio → CallKit (system incoming UI).
  * Android: `register` binds FCM with Twilio’s FCM integration when Twilio Console credentials are set.
  *
+ * The WebView must not use @twilio/voice-sdk when this shell owns calls — all control goes through here.
+ *
  * Native module is loaded dynamically so Expo Go does not require it at bundle parse time.
  */
 export type TwilioVoiceCallInfo = {
@@ -18,24 +20,42 @@ export type TwilioVoiceCallInfo = {
   customParameters?: Record<string, string>;
 };
 
+/** Payloads native code sends to WebView via injected `saintly-native-call-to-web` (see web `native-call-shell.ts`). */
+export type NativeCallToWebDetail =
+  | {
+      kind: 'incoming_ring';
+      callId: string;
+      from?: string;
+      to?: string;
+      customParameters?: Record<string, string>;
+    }
+  | { kind: 'call_connected'; callId: string; direction: 'inbound' | 'outbound' }
+  | { kind: 'call_disconnected'; callId: string }
+  | { kind: 'mute_changed'; muted: boolean }
+  | { kind: 'speaker_changed'; enabled: boolean };
+
 export type TwilioVoiceService = {
-  /** iOS: Twilio docs — call `initializePushRegistry()` at app launch, before `register(token)`. */
   prepareIosPushRegistryEarly: () => Promise<void>;
   initializeWithToken: (response: SoftphoneTokenResponse) => Promise<void>;
-  /** iOS PushKit / device token from the native Voice layer (after register). */
   getNativeDeviceToken: () => Promise<string | null>;
   destroy: () => Promise<void>;
   onIncomingCall: (handler: (call: TwilioVoiceCallInfo) => void) => () => void;
+  /** Current Twilio Client leg CallSid for workspace API calls (hold, transfer, end-call). */
+  getActiveCallSid: () => string | null;
   answer: (callId: string) => Promise<void>;
   decline: (callId: string) => Promise<void>;
   disconnect: (callId: string) => Promise<void>;
-  /**
-   * Routes call audio: speaker vs earpiece via Twilio native `AudioDevice` selection.
-   * Applies during active WebView softphone calls (shared audio session / AudioManager).
-   */
+  /** End active call, or reject ringing invite, or no-op (e.g. stuck "connecting" UI). */
+  disconnectAny: () => Promise<void>;
+  connectOutbound: (input: {
+    toE164: string;
+    outboundCli?: 'block' | string;
+  }) => Promise<void>;
+  setCallMuted: (muted: boolean) => Promise<void>;
+  sendDigits: (digits: string) => Promise<void>;
   setOutputSpeaker: (enabled: boolean) => Promise<void>;
-  /** `true` = speaker selected; `false` = earpiece (or non-speaker); `null` if unknown / Expo Go. */
   getOutputSpeaker: () => Promise<boolean | null>;
+  setNativeCallBridgeListener: (handler: ((detail: NativeCallToWebDetail) => void) | null) => void;
 };
 
 /** Twilio `CallInvite` / `Call` instances (typed loosely to avoid interface/class merge issues in SDK typings). */
@@ -49,8 +69,12 @@ type TwilioCallInviteNative = {
   on: (event: string, listener: (...args: unknown[]) => void) => void;
 };
 
+/** Resolved {@link Call} from `@twilio/voice-react-native-sdk` (avoid importing type at top for Expo Go). */
 type TwilioCallNative = {
   disconnect: () => Promise<void>;
+  mute: (muted: boolean) => Promise<boolean>;
+  sendDigits: (digits: string) => Promise<void>;
+  getSid: () => string | undefined;
   on: (event: string, listener: (...args: unknown[]) => void) => void;
 };
 
@@ -62,6 +86,18 @@ let voiceSingleton: any = null;
 const inviteByCallSid = new Map<string, TwilioCallInviteNative>();
 const activeCallByCallSid = new Map<string, TwilioCallNative>();
 const incomingHandlers = new Set<(call: TwilioVoiceCallInfo) => void>();
+let primaryActiveCallSid: string | null = null;
+let nativeCallBridgeListener: ((detail: NativeCallToWebDetail) => void) | null = null;
+
+function emitToWeb(detail: NativeCallToWebDetail): void {
+  try {
+    nativeCallBridgeListener?.(detail);
+  } catch (e) {
+    if (__DEV__) {
+      console.warn('[twilioVoiceService] native bridge listener', e);
+    }
+  }
+}
 
 function emitIncoming(info: TwilioVoiceCallInfo): void {
   incomingHandlers.forEach((fn) => {
@@ -103,6 +139,68 @@ function logJwtIdentityForDiagnostics(accessToken: string, label: string): void 
   }
 }
 
+function readCallSid(call: Pick<TwilioCallNative, 'getSid'>): string {
+  const s = call.getSid();
+  return typeof s === 'string' && s.startsWith('CA') ? s : '';
+}
+
+/**
+ * Track primary Client leg CallSid (invite id often matches until reconnect — we key by resolved getSid() when present).
+ */
+function setPrimaryActiveSid(sid: string | null): void {
+  primaryActiveCallSid = sid && sid.startsWith('CA') ? sid : null;
+}
+
+async function wireActiveCall(call: TwilioCallNative, direction: 'inbound' | 'outbound', inviteSid?: string): Promise<void> {
+  const mod = await loadVoiceModule();
+  const { Call } = mod;
+
+  call.on(Call.Event.Disconnected, () => {
+    let removedSid: string | null = null;
+    for (const [k, v] of activeCallByCallSid.entries()) {
+      if (v === call) {
+        removedSid = k;
+        activeCallByCallSid.delete(k);
+        break;
+      }
+    }
+    const dsid = removedSid || readCallSid(call) || inviteSid || '';
+    if (dsid.startsWith('CA') && primaryActiveCallSid === dsid) {
+      setPrimaryActiveSid(null);
+    }
+    if (dsid.startsWith('CA')) {
+      emitToWeb({ kind: 'call_disconnected', callId: dsid });
+    }
+  });
+
+  let sid = readCallSid(call);
+  if (!sid && inviteSid?.startsWith('CA')) {
+    sid = inviteSid;
+  }
+
+  const attachBySid = (finalSid: string): void => {
+    activeCallByCallSid.set(finalSid, call);
+    setPrimaryActiveSid(finalSid);
+    emitToWeb({ kind: 'call_connected', callId: finalSid, direction });
+  };
+
+  if (sid.startsWith('CA')) {
+    attachBySid(sid);
+    return;
+  }
+
+  call.on(Call.Event.Connected, () => {
+    const after = readCallSid(call);
+    if (after.startsWith('CA')) {
+      attachBySid(after);
+    } else if (inviteSid?.startsWith('CA')) {
+      attachBySid(inviteSid);
+    } else {
+      console.warn('[twilioVoiceService] Connected but no CallSid');
+    }
+  });
+}
+
 async function ensureVoiceSingletonWithListeners(): Promise<void> {
   if (voiceSingleton) return;
   const { Voice, CallInvite } = await loadVoiceModule();
@@ -118,10 +216,18 @@ async function ensureVoiceSingletonWithListeners(): Promise<void> {
     });
 
     const custom = invite.getCustomParameters() as Record<string, string>;
-    emitIncoming({
+    const info: TwilioVoiceCallInfo = {
       id: sid,
       from: invite.getFrom(),
       to: invite.getTo(),
+      customParameters: custom,
+    };
+    emitIncoming(info);
+    emitToWeb({
+      kind: 'incoming_ring',
+      callId: sid,
+      from: info.from,
+      to: info.to,
       customParameters: custom,
     });
   });
@@ -165,6 +271,14 @@ export const twilioVoiceService: TwilioVoiceService = {
     }
   },
 
+  setNativeCallBridgeListener(handler: ((detail: NativeCallToWebDetail) => void) | null): void {
+    nativeCallBridgeListener = handler;
+  },
+
+  getActiveCallSid(): string | null {
+    return primaryActiveCallSid;
+  },
+
   async initializeWithToken(response: SoftphoneTokenResponse): Promise<void> {
     if (Constants.appOwnership === 'expo') {
       if (__DEV__) {
@@ -176,7 +290,6 @@ export const twilioVoiceService: TwilioVoiceService = {
     const token = response.token.trim();
     if (!token) return;
 
-    const identityFromApi = typeof response.identity === 'string' ? response.identity.trim() : '';
     logJwtIdentityForDiagnostics(token, 'access_token_jwt_claims');
 
     if (lastRegisteredToken === token && voiceSingleton) {
@@ -224,6 +337,7 @@ export const twilioVoiceService: TwilioVoiceService = {
       }
     }
     activeCallByCallSid.clear();
+    setPrimaryActiveSid(null);
 
     if (voiceSingleton && lastRegisteredToken) {
       try {
@@ -252,12 +366,9 @@ export const twilioVoiceService: TwilioVoiceService = {
     if (!invite) {
       throw new Error(`[twilioVoiceService] No CallInvite for ${callId}`);
     }
-    const call = await invite.accept();
+    const call = (await invite.accept()) as TwilioCallNative;
     inviteByCallSid.delete(callId);
-    activeCallByCallSid.set(callId, call);
-    call.on(mod.Call.Event.Disconnected, () => {
-      activeCallByCallSid.delete(callId);
-    });
+    await wireActiveCall(call, 'inbound', callId);
   },
 
   async decline(callId: string): Promise<void> {
@@ -265,13 +376,114 @@ export const twilioVoiceService: TwilioVoiceService = {
     if (!invite) return;
     await invite.reject();
     inviteByCallSid.delete(callId);
+    emitToWeb({ kind: 'call_disconnected', callId });
   },
 
   async disconnect(callId: string): Promise<void> {
     const call = activeCallByCallSid.get(callId);
-    if (!call) return;
-    await call.disconnect();
+    if (!call) {
+      const inv = inviteByCallSid.get(callId);
+      if (inv) {
+        await inv.reject().catch(() => {});
+        inviteByCallSid.delete(callId);
+      }
+      return;
+    }
+    try {
+      await call.disconnect();
+    } catch {
+      /* ignore */
+    }
     activeCallByCallSid.delete(callId);
+    if (primaryActiveCallSid === callId) {
+      setPrimaryActiveSid(null);
+    }
+  },
+
+  async disconnectAny(): Promise<void> {
+    const prim = primaryActiveCallSid;
+    if (prim) {
+      const call = activeCallByCallSid.get(prim);
+      if (call) {
+        try {
+          await call.disconnect();
+        } catch {
+          /* ignore */
+        }
+        activeCallByCallSid.delete(prim);
+      }
+      setPrimaryActiveSid(null);
+      return;
+    }
+    for (const id of [...inviteByCallSid.keys()]) {
+      const inv = inviteByCallSid.get(id);
+      if (inv) {
+        await inv.reject().catch(() => {});
+        inviteByCallSid.delete(id);
+      }
+    }
+    for (const id of [...activeCallByCallSid.keys()]) {
+      const call = activeCallByCallSid.get(id);
+      if (call) {
+        try {
+          await call.disconnect();
+        } catch {
+          /* ignore */
+        }
+        activeCallByCallSid.delete(id);
+      }
+    }
+    setPrimaryActiveSid(null);
+  },
+
+  async connectOutbound(input: { toE164: string; outboundCli?: 'block' | string }): Promise<void> {
+    if (Constants.appOwnership === 'expo' || !voiceSingleton) {
+      throw new Error('[twilioVoiceService] Voice not ready');
+    }
+    const token = lastRegisteredToken;
+    if (!token?.trim()) {
+      throw new Error('[twilioVoiceService] Not registered — no token');
+    }
+    const to = input.toE164.trim();
+    if (!to) {
+      throw new Error('[twilioVoiceService] Missing destination');
+    }
+    const params: Record<string, string> = { To: to };
+    const cli = input.outboundCli;
+    if (cli === 'block') {
+      params.OutboundCli = 'block';
+    } else if (typeof cli === 'string' && cli.trim().startsWith('+')) {
+      params.OutboundCli = cli.trim();
+    }
+    const call = (await voiceSingleton.connect(token, { params })) as TwilioCallNative;
+    await wireActiveCall(call, 'outbound');
+  },
+
+  async setCallMuted(muted: boolean): Promise<void> {
+    const sid = primaryActiveCallSid;
+    if (!sid) return;
+    const call = activeCallByCallSid.get(sid);
+    if (!call) return;
+    try {
+      await call.mute(muted);
+      emitToWeb({ kind: 'mute_changed', muted });
+    } catch (e) {
+      console.warn('[twilioVoiceService] setCallMuted', e);
+    }
+  },
+
+  async sendDigits(digits: string): Promise<void> {
+    const sid = primaryActiveCallSid;
+    if (!sid) return;
+    const call = activeCallByCallSid.get(sid);
+    if (!call) return;
+    const s = digits.replace(/[^0-9*#]/g, '');
+    if (!s) return;
+    try {
+      await call.sendDigits(s);
+    } catch (e) {
+      console.warn('[twilioVoiceService] sendDigits', e);
+    }
   },
 
   async setOutputSpeaker(enabled: boolean): Promise<void> {
@@ -291,6 +503,7 @@ export const twilioVoiceService: TwilioVoiceService = {
         return;
       }
       await match.select();
+      emitToWeb({ kind: 'speaker_changed', enabled });
     } catch (e) {
       console.warn('[twilioVoiceService] setOutputSpeaker failed', e);
     }

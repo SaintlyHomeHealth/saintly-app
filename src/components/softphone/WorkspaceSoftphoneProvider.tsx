@@ -58,6 +58,12 @@ import {
   dispatchWorkspaceSoftphoneUi,
   type WorkspaceSoftphoneForceClearDetail,
 } from "@/lib/softphone/workspace-ui-events";
+import {
+  postNativeCallControlToReactNative,
+  subscribeNativeCallToWeb,
+  type NativeCallToWebDetail,
+} from "@/lib/softphone/native-call-shell";
+import { isReactNativeWebViewShell } from "@/lib/softphone/native-speaker-bridge";
 import { twilioErrorToFriendly } from "@/lib/softphone/twilio-user-friendly-errors";
 import type { ConferenceGatingSnapshot } from "@/lib/phone/conference-gating";
 import type { LiveTranscriptEntry } from "@/lib/phone/live-transcript-entries";
@@ -374,7 +380,19 @@ function formatIncomingCallerLine(
   return formattedNumber;
 }
 
+/**
+ * True when embedded in the Saintly RN app WebView: Twilio `@twilio/voice-sdk` must not place or
+ * accept calls (native `@twilio/voice-react-native-sdk` owns audio + CallKit).
+ */
+function isNativeVoiceCallShell(): boolean {
+  return typeof window !== "undefined" && isReactNativeWebViewShell();
+}
+
 export function WorkspaceSoftphoneProvider({ children }: { children: React.ReactNode }) {
+  const nativeVoiceCallShell = isNativeVoiceCallShell();
+  const [nativeShellIncomingCallId, setNativeShellIncomingCallId] = useState<string | null>(null);
+  const nativeShellActiveSidRef = useRef<string | null>(null);
+
   const [digits, setDigits] = useState("");
   const [listenState, setListenState] = useState<"loading" | "ready" | "error">("loading");
   const [status, setStatus] = useState<"idle" | "fetching_token" | "connecting" | "in_call" | "error">("idle");
@@ -894,9 +912,78 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
         pollSuppressedSidRef.current = options.endedCallSid;
       }
       dispatchWorkspaceSoftphoneUi({ phase: "idle" });
+      setNativeShellIncomingCallId(null);
+      nativeShellActiveSidRef.current = null;
     },
     [digits]
   );
+
+  /** Native RN shell: events from Twilio Voice native SDK (injected by the app shell). */
+  useEffect(() => {
+    if (!nativeVoiceCallShell) return;
+
+    const unsub = subscribeNativeCallToWeb((d: NativeCallToWebDetail) => {
+      if (d.kind === "incoming_ring") {
+        setNativeShellIncomingCallId(d.callId);
+        const raw = (d.from ?? "").trim();
+        if (raw) {
+          const formattedNumber = safeFormattedPhoneForUi(raw);
+          setIncomingCallerUi({
+            rawFrom: raw,
+            formattedNumber,
+            contactName: typeof d.customParameters?.caller_name === "string" ? d.customParameters.caller_name : null,
+            subtitle: null,
+          });
+          const lower = raw.toLowerCase();
+          const ph = normalizePhone(raw);
+          if (!lower.startsWith("client:") && ph.length >= 10 && raw.trim()) {
+            void fetch(`/api/workspace/phone/incoming-caller-lookup?from=${encodeURIComponent(raw)}`, {
+              credentials: "include",
+            })
+              .then((r) => (r.ok ? r.json() : null))
+              .then((j: { contactName?: unknown; subtitle?: unknown } | null) => {
+                const rawName = j && typeof j.contactName === "string" ? j.contactName.trim() : "";
+                const name = safeCallerDisplayName(rawName);
+                const subtitle = safeCallerSubtitle(
+                  j && typeof j.subtitle === "string" && j.subtitle.trim() ? j.subtitle.trim() : null
+                );
+                if (!name) return;
+                setIncomingCallerUi((prev) =>
+                  prev && prev.rawFrom === raw ? { ...prev, contactName: name, subtitle } : prev
+                );
+              });
+          }
+        }
+        dispatchWorkspaceSoftphoneUi({
+          phase: "incoming",
+          remoteLabel: raw ? safeFormattedPhoneForUi(raw) : null,
+        });
+        return;
+      }
+      if (d.kind === "call_connected") {
+        setNativeShellIncomingCallId(null);
+        nativeShellActiveSidRef.current = d.callId;
+        activeCallRef.current = { parameters: { CallSid: d.callId } } as unknown as CallHandle;
+        setStatus("in_call");
+        setCallStartedAtMs(Date.now());
+        setHint(null);
+        setHintMeta(null);
+        dispatchWorkspaceSoftphoneUi({ phase: "active", remoteLabel: null });
+        return;
+      }
+      if (d.kind === "call_disconnected") {
+        nativeShellActiveSidRef.current = null;
+        setNativeShellIncomingCallId(null);
+        finalizeCallCleanup("native:call_disconnected", { endedCallSid: d.callId });
+        return;
+      }
+      if (d.kind === "mute_changed") {
+        setMicMuted(d.muted);
+      }
+    });
+
+    return unsub;
+  }, [nativeVoiceCallShell, finalizeCallCleanup]);
 
   const bindDeviceLifecycle = useCallback(
     (device: Device) => {
@@ -1323,6 +1410,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
   }, []);
 
   useEffect(() => {
+    if (nativeVoiceCallShell) return;
     const a = ringtoneAudioRef.current;
     if (!incomingCall || !ringtoneUnlocked || !a) return;
     a.loop = true;
@@ -1333,7 +1421,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       a.currentTime = 0;
       a.loop = false;
     };
-  }, [incomingCall, ringtoneUnlocked]);
+  }, [incomingCall, ringtoneUnlocked, nativeVoiceCallShell]);
 
   const testRingtone = useCallback(async () => {
     await unlockRingtoneFromGesture();
@@ -1356,6 +1444,29 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
 
   useEffect(() => {
     let cancelled = false;
+
+    /** RN WebView: browser Twilio `Device` must not register — native Voice handles calls. */
+    if (nativeVoiceCallShell) {
+      void (async () => {
+        try {
+          const res = await fetch("/api/softphone/token", { method: "GET", credentials: "include" });
+          const body = (await res.json()) as { identity?: string; error?: string };
+          if (cancelled) return;
+          if (res.ok && typeof body.identity === "string") {
+            setTokenIdentity(body.identity);
+          }
+        } catch {
+          /* optional */
+        }
+        if (!cancelled) {
+          setListenState("ready");
+        }
+      })();
+      return () => {
+        cancelled = true;
+        finalizeCallCleanup("provider:native_shell_cleanup");
+      };
+    }
 
     const run = async () => {
       try {
@@ -1407,7 +1518,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       deviceRef.current?.destroy();
       deviceRef.current = null;
     };
-  }, [bindDeviceLifecycle, finalizeCallCleanup]);
+  }, [bindDeviceLifecycle, finalizeCallCleanup, nativeVoiceCallShell]);
 
   useEffect(() => {
     const onForce = (ev: Event) => {
@@ -1426,6 +1537,32 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
   const hangUp = useCallback(() => {
     void (async () => {
       console.log("[softphone] hangup pressed");
+      if (nativeVoiceCallShell) {
+        const sid =
+          readCallSid(activeCallRef.current) ||
+          nativeShellActiveSidRef.current ||
+          nativeShellIncomingCallId;
+        if (statusRef.current === "in_call" && sid?.startsWith("CA")) {
+          try {
+            const res = await fetch("/api/workspace/phone/conference/end-call", {
+              method: "POST",
+              credentials: "include",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ callSid: sid }),
+            });
+            await res.json().catch(() => ({}));
+          } catch (e) {
+            console.warn("[softphone] end-call server request failed", e);
+          }
+        }
+        if (sid) {
+          postNativeCallControlToReactNative({ action: "hangup", callId: sid });
+        } else {
+          postNativeCallControlToReactNative({ action: "hangup" });
+        }
+        return;
+      }
+
       const c = activeCallRef.current;
       const sid = c ? readCallSid(c) : null;
       if (sid) {
@@ -1454,20 +1591,42 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       }
       finalizeCallCleanup("hangup", { endedCallSid: sid });
     })();
-  }, [finalizeCallCleanup]);
+  }, [finalizeCallCleanup, nativeVoiceCallShell, nativeShellIncomingCallId]);
 
   const answerIncoming = useCallback(() => {
+    if (nativeVoiceCallShell) {
+      if (!nativeShellIncomingCallId) return;
+      postNativeCallControlToReactNative({
+        action: "answer_call",
+        callId: nativeShellIncomingCallId,
+      });
+      setNativeShellIncomingCallId(null);
+      setStatus("connecting");
+      setIncomingCallerUi(null);
+      return;
+    }
     const call = incomingCall;
     if (!call) return;
     call.accept();
     setIncomingCall(null);
     attachActiveCallHandlers(call);
-  }, [incomingCall, attachActiveCallHandlers]);
+  }, [incomingCall, attachActiveCallHandlers, nativeVoiceCallShell, nativeShellIncomingCallId]);
 
   const rejectIncoming = useCallback(() => {
+    if (nativeVoiceCallShell) {
+      if (nativeShellIncomingCallId) {
+        postNativeCallControlToReactNative({
+          action: "decline_call",
+          callId: nativeShellIncomingCallId,
+        });
+      }
+      setNativeShellIncomingCallId(null);
+      setIncomingCallerUi(null);
+      return;
+    }
     incomingCall?.reject();
     setIncomingCall(null);
-  }, [incomingCall]);
+  }, [incomingCall, nativeVoiceCallShell, nativeShellIncomingCallId]);
 
   const clearCallError = useCallback(() => {
     setHint(null);
@@ -1475,10 +1634,14 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
   }, []);
 
   const toggleMute = useCallback(() => {
+    if (nativeVoiceCallShell) {
+      postNativeCallControlToReactNative({ action: "mute", muted: !micMuted });
+      return;
+    }
     const c = activeCallRef.current;
     if (!c || isClientHold) return;
     c.mute(!c.isMuted());
-  }, [isClientHold]);
+  }, [isClientHold, nativeVoiceCallShell, micMuted]);
 
   const toggleHold = useCallback(async () => {
     const c = activeCallRef.current;
@@ -1621,17 +1784,25 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     }
   }, [callContext, recordingBusy]);
 
-  const sendDtmfDigits = useCallback((digits: string) => {
-    const c = activeCallRef.current;
-    if (!c || statusRef.current !== "in_call") return;
-    const s = digits.replace(/[^0-9*#]/g, "");
-    if (!s) return;
-    try {
-      c.sendDigits(s);
-    } catch (e) {
-      console.warn("[softphone] sendDigits failed", e);
-    }
-  }, []);
+  const sendDtmfDigits = useCallback(
+    (digits: string) => {
+      const s = digits.replace(/[^0-9*#]/g, "");
+      if (!s) return;
+      if (nativeVoiceCallShell) {
+        if (statusRef.current !== "in_call") return;
+        postNativeCallControlToReactNative({ action: "dtmf", digits: s });
+        return;
+      }
+      const c = activeCallRef.current;
+      if (!c || statusRef.current !== "in_call") return;
+      try {
+        c.sendDigits(s);
+      } catch (e) {
+        console.warn("[softphone] sendDigits failed", e);
+      }
+    },
+    [nativeVoiceCallShell]
+  );
 
   const declineCallWaiting = useCallback(() => {
     callWaitingCall?.reject();
@@ -1701,6 +1872,23 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
         return;
       }
 
+      if (nativeVoiceCallShell) {
+        setStatus("connecting");
+        const cliSel = outboundCliSelectionRef.current;
+        let outboundCli: "block" | string | undefined;
+        if (cliSel?.kind === "block") {
+          outboundCli = "block";
+        } else if (cliSel?.kind === "line" && cliSel.e164) {
+          outboundCli = cliSel.e164;
+        }
+        postNativeCallControlToReactNative({
+          action: "start_call",
+          toE164: e164,
+          ...(outboundCli ? { outboundCli } : {}),
+        });
+        return;
+      }
+
       try {
         let device = deviceRef.current;
         if (!device) {
@@ -1733,11 +1921,12 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
         setHintMeta({ suggestSettings: friendly.suggestOpenSettings, canRetry: friendly.canRetry });
       }
     },
-    [digits, attachActiveCallHandlers, bindDeviceLifecycle]
+    [digits, attachActiveCallHandlers, bindDeviceLifecycle, nativeVoiceCallShell]
   );
 
   const busy = status === "fetching_token" || status === "connecting" || status === "in_call";
-  const canDial = listenState !== "loading" && !incomingCall && !callWaitingCall;
+  const canDial =
+    listenState !== "loading" && !incomingCall && !callWaitingCall && !nativeShellIncomingCallId;
 
   useEffect(() => {
     const handler = (ev: Event) => {
@@ -1795,7 +1984,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       ringtoneUnlocked,
       busy,
       canDial,
-      incoming: Boolean(incomingCall),
+      incoming: Boolean(incomingCall) || Boolean(nativeShellIncomingCallId),
       durationSec,
       micMuted,
       isClientHold,
@@ -1853,6 +2042,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     busy,
     canDial,
     incomingCall,
+    nativeShellIncomingCallId,
     callWaitingCall,
     callWaitingCallerUi,
     durationSec,

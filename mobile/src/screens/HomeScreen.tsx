@@ -90,7 +90,16 @@ type WebViewBridgeMessage =
   | { type: 'push-register-log'; step: string; [key: string]: unknown }
   | { type: 'voice-register-log'; step: string; [key: string]: unknown }
   | { type: 'saintly-native-speaker-query' }
-  | { type: 'saintly-native-speaker-set'; enabled: boolean };
+  | { type: 'saintly-native-speaker-set'; enabled: boolean }
+  | {
+      type: 'saintly-native-call';
+      action: 'start_call' | 'answer_call' | 'decline_call' | 'hangup' | 'mute' | 'dtmf';
+      toE164?: string;
+      outboundCli?: string;
+      callId?: string;
+      muted?: boolean;
+      digits?: string;
+    };
 
 /** Injected into the WebView so `native-speaker-bridge` can update React state (no page reload). */
 function buildInjectSpeakerStateJs(enabled: boolean): string {
@@ -149,6 +158,20 @@ export function HomeScreen(_props: HomeScreenProps) {
         console.info('[twilioVoice] incoming', { callSidLen: c.id?.length ?? 0, caller_name: name });
       }
     });
+  }, []);
+
+  /** Forward native Twilio Voice events into the WebView (workspace softphone UI-only mode). */
+  useEffect(() => {
+    if (Constants.appOwnership === 'expo') return undefined;
+    twilioVoiceService.setNativeCallBridgeListener((detail) => {
+      const wv = webViewRef.current;
+      if (!wv) return;
+      const js = `(function(){ try { window.dispatchEvent(new CustomEvent('saintly-native-call-to-web', { detail: ${JSON.stringify(detail)} })); } catch (e) {} true; })();`;
+      wv.injectJavaScript(js);
+    });
+    return () => {
+      twilioVoiceService.setNativeCallBridgeListener(null);
+    };
   }, []);
 
   const lastNavUrlRef = useRef<string>('');
@@ -339,6 +362,43 @@ export function HomeScreen(_props: HomeScreenProps) {
             const on = await twilioVoiceService.getOutputSpeaker();
             if (typeof on === 'boolean' && webViewRef.current) {
               webViewRef.current.injectJavaScript(buildInjectSpeakerStateJs(on));
+            }
+          })();
+          return;
+        }
+        if (msg.type === 'saintly-native-call') {
+          void (async () => {
+            const m = msg as WebViewBridgeMessage & { type: 'saintly-native-call' };
+            try {
+              if (m.action === 'start_call' && typeof m.toE164 === 'string') {
+                const cli = m.outboundCli;
+                await twilioVoiceService.connectOutbound({
+                  toE164: m.toE164.trim(),
+                  outboundCli:
+                    cli === 'block'
+                      ? 'block'
+                      : typeof cli === 'string' && cli.trim().startsWith('+')
+                        ? cli.trim()
+                        : undefined,
+                });
+              } else if (m.action === 'answer_call' && typeof m.callId === 'string') {
+                await twilioVoiceService.answer(m.callId);
+              } else if (m.action === 'decline_call' && typeof m.callId === 'string') {
+                await twilioVoiceService.decline(m.callId);
+              } else if (m.action === 'hangup') {
+                const id = typeof m.callId === 'string' ? m.callId.trim() : '';
+                if (id) {
+                  await twilioVoiceService.disconnect(id);
+                } else {
+                  await twilioVoiceService.disconnectAny();
+                }
+              } else if (m.action === 'mute' && typeof m.muted === 'boolean') {
+                await twilioVoiceService.setCallMuted(m.muted);
+              } else if (m.action === 'dtmf' && typeof m.digits === 'string') {
+                await twilioVoiceService.sendDigits(m.digits);
+              }
+            } catch (e) {
+              console.warn('[HomeScreen] saintly-native-call', m.action, e);
             }
           })();
           return;
