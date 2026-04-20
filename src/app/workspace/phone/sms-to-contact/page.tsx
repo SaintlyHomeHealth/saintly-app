@@ -45,10 +45,11 @@ export default async function WorkspaceSmsToContactPage({
     revalidatePath(`/workspace/phone/inbox/${res.conversationId}`);
   }
 
+  /** Desktop inbox uses split view on `/workspace/phone/inbox?thread=…` (see `inbox/page.tsx`). */
   const dest = new URLSearchParams();
+  dest.set("thread", res.conversationId);
   if (leadId && UUID_RE.test(leadId)) {
     dest.set("leadId", leadId);
   }
-  const qs = dest.toString();
-  redirect(qs ? `/workspace/phone/inbox/${res.conversationId}?${qs}` : `/workspace/phone/inbox/${res.conversationId}`);
+  redirect(`/workspace/phone/inbox?${dest.toString()}`);
 }
