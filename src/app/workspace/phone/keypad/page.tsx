@@ -4,7 +4,8 @@ import { redirect } from "next/navigation";
 import { KeypadDialerLazy } from "./KeypadDialerLazy";
 import { WorkspacePhonePageHeader } from "../_components/WorkspacePhonePageHeader";
 import { routePerfLog, routePerfStart } from "@/lib/perf/route-perf";
-import { canAccessWorkspacePhone, getStaffProfile } from "@/lib/staff-profile";
+import { fallbackPathAfterKeypadDenied, resolveEffectivePageAccess } from "@/lib/staff-page-access";
+import { canAccessWorkspaceShell, getStaffProfile } from "@/lib/staff-profile";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -21,8 +22,15 @@ export default async function WorkspaceKeypadPage({
 }) {
   const perfStart = routePerfStart();
   const staff = await getStaffProfile();
-  if (!staff || !canAccessWorkspacePhone(staff)) {
-    redirect("/admin/phone");
+  if (!staff) {
+    redirect("/login");
+  }
+  if (!canAccessWorkspaceShell(staff)) {
+    redirect("/unauthorized?reason=forbidden");
+  }
+  const access = resolveEffectivePageAccess(staff);
+  if (!access.workspace_keypad) {
+    redirect(fallbackPathAfterKeypadDenied(access));
   }
 
   const sp = searchParams ? await searchParams : {};

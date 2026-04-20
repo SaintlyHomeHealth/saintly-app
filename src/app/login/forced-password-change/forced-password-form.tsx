@@ -3,15 +3,9 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 
+import { safeInternalPath } from "@/lib/auth/post-login-redirect";
 import { STAFF_TEMP_PASSWORD_MAX, STAFF_TEMP_PASSWORD_MIN } from "@/lib/admin/staff-auth-shared";
 import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
-
-function safeInternalPath(next: string | null): string {
-  if (!next || !next.startsWith("/") || next.startsWith("//")) {
-    return "/admin";
-  }
-  return next;
-}
 
 export function ForcedPasswordForm() {
   const router = useRouter();

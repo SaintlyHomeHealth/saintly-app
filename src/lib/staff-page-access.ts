@@ -324,6 +324,19 @@ export function allowedWorkspaceTabHrefs(access: Record<StaffPageKey, boolean>):
   return allowed;
 }
 
+/** When keypad is disallowed by page permissions, avoid sending users to the admin call log. */
+export function fallbackPathAfterKeypadDenied(access: Record<StaffPageKey, boolean>): string {
+  for (const { key, href } of WORKSPACE_TAB_HREFS) {
+    if (key !== "workspace_keypad" && access[key] === true) {
+      return href;
+    }
+  }
+  if (access.command_center === true) {
+    return "/admin";
+  }
+  return "/unauthorized?reason=forbidden";
+}
+
 export function userCanReachAdminBackend(staff: StaffForPageAccess, access: Record<StaffPageKey, boolean>): boolean {
   if (!isManagerOrHigher({ role: staff.role } as StaffProfile) && staff.role !== "nurse") {
     return true;

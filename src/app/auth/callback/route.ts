@@ -2,12 +2,7 @@ import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
-function safeInternalPath(next: string | null): string {
-  if (!next || !next.startsWith("/") || next.startsWith("//")) {
-    return "/admin";
-  }
-  return next;
-}
+import { safeInternalPath } from "@/lib/auth/post-login-redirect";
 
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);

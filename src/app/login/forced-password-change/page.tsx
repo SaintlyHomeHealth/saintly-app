@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
+import { DEFAULT_POST_LOGIN_PATH } from "@/lib/auth/post-login-redirect";
 import { getStaffProfile } from "@/lib/staff-profile";
 
 import { ForcedPasswordForm } from "./forced-password-form";
@@ -16,7 +17,7 @@ export default async function ForcedPasswordChangePage({
     redirect("/login");
   }
   if (!staff.require_password_change) {
-    redirect("/admin");
+    redirect(DEFAULT_POST_LOGIN_PATH);
   }
 
   const sp = (await searchParams) ?? {};

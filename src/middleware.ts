@@ -2,12 +2,7 @@ import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { NextResponse, type NextRequest } from "next/server";
 
-function safeInternalPath(next: string | null): string {
-  if (!next || !next.startsWith("/") || next.startsWith("//")) {
-    return "/admin";
-  }
-  return next;
-}
+import { DEFAULT_POST_LOGIN_PATH, safeInternalPath } from "@/lib/auth/post-login-redirect";
 
 export type StaffDenyReason = "no_staff_profile" | "inactive" | "role_not_allowed";
 
@@ -208,10 +203,7 @@ export async function middleware(request: NextRequest) {
         const next = safeInternalPath(nextParam);
         return NextResponse.redirect(new URL(next, request.url));
       }
-      if (gate.role === "nurse") {
-        return NextResponse.redirect(new URL("/workspace/phone/keypad", request.url));
-      }
-      return NextResponse.redirect(new URL("/admin", request.url));
+      return NextResponse.redirect(new URL(DEFAULT_POST_LOGIN_PATH, request.url));
     }
   }
 

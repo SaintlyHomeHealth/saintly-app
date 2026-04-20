@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
+import { safeInternalPath } from "@/lib/auth/post-login-redirect";
 import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
 
 function describeSignInError(err: { message: string; code?: string; status?: number }): string {
@@ -24,13 +25,6 @@ function describeSignInError(err: { message: string; code?: string; status?: num
     return "Invalid email or password. Check spelling, caps lock, and that you are using the current password.";
   }
   return err.message || "Could not sign in.";
-}
-
-function safeInternalPath(next: string | null): string {
-  if (!next || !next.startsWith("/") || next.startsWith("//")) {
-    return "/admin";
-  }
-  return next;
 }
 
 function authLoginDebug(label: string, payload: Record<string, unknown>) {

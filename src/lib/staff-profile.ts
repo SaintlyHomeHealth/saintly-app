@@ -122,6 +122,16 @@ export function isPhoneWorkspaceUser(profile: StaffProfile | null | undefined): 
   return staffMayUsePhoneWorkspaceRole(profile.role);
 }
 
+/**
+ * `/workspace/*` UI shell: any active app role (including read_only). Narrower than
+ * `canAccessWorkspacePhone` — ops roles still need `phone_access_enabled` for tokens/APIs,
+ * but everyone lands in the workspace shell after login.
+ */
+export function canAccessWorkspaceShell(profile: StaffProfile | null | undefined): boolean {
+  if (!profile || profile.is_active === false) return false;
+  return isStaffRole(profile.role);
+}
+
 /** See full org call list (not nurse-scoped). */
 export function hasFullCallVisibility(profile: StaffProfile | null | undefined): boolean {
   if (!profile) return false;

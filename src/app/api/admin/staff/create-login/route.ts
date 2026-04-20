@@ -15,6 +15,7 @@ import {
 import { sendSms } from "@/lib/twilio/send-sms";
 import { normalizePhone } from "@/lib/phone/us-phone-format";
 import { insertAuditLog } from "@/lib/audit-log";
+import { DEFAULT_POST_LOGIN_PATH } from "@/lib/auth/post-login-redirect";
 import { supabaseAdmin } from "@/lib/admin";
 import { getStaffProfile, isAdminOrHigher } from "@/lib/staff-profile";
 
@@ -161,7 +162,7 @@ export async function POST(req: Request) {
   const metaName = typeof (rowRaw as { full_name?: string }).full_name === "string"
     ? (rowRaw as { full_name: string }).full_name
     : "";
-  const redirectTo = `${appOrigin()}/auth/callback?next=${encodeURIComponent("/admin")}`;
+  const redirectTo = `${appOrigin()}/auth/callback?next=${encodeURIComponent(DEFAULT_POST_LOGIN_PATH)}`;
 
   if (mode === "temporary_password") {
     const autoGen = body.autoGeneratePassword === true;
