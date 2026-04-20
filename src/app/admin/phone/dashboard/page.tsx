@@ -74,7 +74,8 @@ export default async function AdminPhoneDashboardPage() {
     return supabase
       .from("conversations")
       .select("*", { count: "exact", head: true })
-      .eq("channel", "sms");
+      .eq("channel", "sms")
+      .is("deleted_at", null);
   }
 
   type ScopedConversationsCountQuery = ReturnType<typeof createScopedConversationsCountQueryBase>;
@@ -111,6 +112,7 @@ export default async function AdminPhoneDashboardPage() {
       .from("conversations")
       .select("follow_up_due_at, follow_up_completed_at")
       .eq("channel", "sms")
+      .is("deleted_at", null)
       .not("follow_up_due_at", "is", null)
       .is("follow_up_completed_at", null);
 
@@ -151,6 +153,7 @@ export default async function AdminPhoneDashboardPage() {
       .from("conversations")
       .select("*", { count: "exact", head: true })
       .eq("channel", "sms")
+      .is("deleted_at", null)
       .eq("assigned_to_user_id", staff.user_id);
 
     if (!hasFull) {
@@ -168,6 +171,7 @@ export default async function AdminPhoneDashboardPage() {
       .from("conversations")
       .select("*", { count: "exact", head: true })
       .eq("channel", "sms")
+      .is("deleted_at", null)
       .is("assigned_to_user_id", null);
 
     if (!hasFull) {
@@ -183,7 +187,8 @@ export default async function AdminPhoneDashboardPage() {
     let q = supabase
       .from("conversations")
       .select("*", { count: "exact", head: true })
-      .eq("channel", "sms");
+      .eq("channel", "sms")
+      .is("deleted_at", null);
 
     if (!hasFull) {
       q = q.or(scopeFilter);
@@ -201,6 +206,7 @@ export default async function AdminPhoneDashboardPage() {
         .from("messages")
         .select("id, conversation_id, body, direction, created_at")
         .eq("direction", "inbound")
+        .is("deleted_at", null)
         .order("created_at", { ascending: false })
         .limit(8);
       if (error) console.warn("[admin/phone/dashboard] inbound messages:", error.message);
@@ -219,6 +225,7 @@ export default async function AdminPhoneDashboardPage() {
           "id, updated_at, lead_status, assigned_to_user_id, main_phone_e164, contacts ( full_name, first_name, last_name )"
         )
         .eq("channel", "sms")
+        .is("deleted_at", null)
         .order("updated_at", { ascending: false })
         .limit(6);
 
@@ -242,6 +249,7 @@ export default async function AdminPhoneDashboardPage() {
           "id, updated_at, lead_status, assigned_to_user_id, main_phone_e164, primary_contact_id, contacts ( full_name, first_name, last_name )"
         )
         .eq("channel", "sms")
+        .is("deleted_at", null)
         .not("primary_contact_id", "is", null)
         .order("updated_at", { ascending: false })
         .limit(4);

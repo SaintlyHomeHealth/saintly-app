@@ -122,6 +122,7 @@ export async function runSmsReplySuggestionGeneration(
     .from("messages")
     .select("id, created_at, direction, body")
     .eq("conversation_id", conversationId)
+    .is("deleted_at", null)
     .order("created_at", { ascending: false })
     .limit(SMS_AI_CONTEXT_MESSAGE_COUNT);
 

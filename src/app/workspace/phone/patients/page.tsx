@@ -217,6 +217,7 @@ export default async function WorkspacePatientsPage() {
       .from("conversations")
       .select("id, primary_contact_id, last_message_at, lead_status")
       .eq("channel", "sms")
+      .is("deleted_at", null)
       .in("primary_contact_id", contactIds);
 
     for (const cv of convs ?? []) {
@@ -267,6 +268,7 @@ export default async function WorkspacePatientsPage() {
     .from("conversations")
     .select("id, last_message_at, lead_status, primary_contact_id")
     .eq("channel", "sms")
+    .is("deleted_at", null)
     .eq("assigned_to_user_id", viewerId)
     .not("primary_contact_id", "is", null)
     .order("last_message_at", { ascending: false, nullsFirst: false })

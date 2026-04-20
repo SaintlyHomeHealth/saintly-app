@@ -252,6 +252,7 @@ export default async function WorkspacePatientDetailPage(props: { params: Promis
     .select("id, last_message_at, metadata, lead_status")
     .eq("channel", "sms")
     .eq("primary_contact_id", contactId)
+    .is("deleted_at", null)
     .maybeSingle();
 
   const conversationId = conv?.id ? String(conv.id) : null;
@@ -262,6 +263,7 @@ export default async function WorkspacePatientDetailPage(props: { params: Promis
         .from("messages")
         .select("created_at, direction, body")
         .eq("conversation_id", conversationId)
+        .is("deleted_at", null)
         .order("created_at", { ascending: false })
         .limit(40)
     : { data: null };

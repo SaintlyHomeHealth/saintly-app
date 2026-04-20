@@ -98,6 +98,7 @@ export default async function WorkspaceInboxNewSmsPage({ searchParams }: PagePro
       .select("id")
       .eq("channel", "sms")
       .eq("primary_contact_id", contactArg)
+      .is("deleted_at", null)
       .order("last_message_at", { ascending: false, nullsFirst: false })
       .limit(1)
       .maybeSingle();

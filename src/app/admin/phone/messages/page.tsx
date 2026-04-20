@@ -96,6 +96,7 @@ export default async function AdminSmsInboxPage({ searchParams }: PageProps) {
       "id, main_phone_e164, last_message_at, lead_status, follow_up_due_at, follow_up_completed_at, assigned_to_user_id, assigned_at, primary_contact_id, metadata, contacts ( full_name, first_name, last_name )"
     )
     .eq("channel", "sms")
+    .is("deleted_at", null)
     .order("last_message_at", { ascending: false, nullsFirst: false })
     .limit(limit);
 
@@ -191,6 +192,7 @@ export default async function AdminSmsInboxPage({ searchParams }: PageProps) {
       .from("messages")
       .select("conversation_id, body, created_at")
       .in("conversation_id", ids)
+      .is("deleted_at", null)
       .order("created_at", { ascending: false });
 
     const seen = new Set<string>();

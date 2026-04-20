@@ -136,6 +136,7 @@ export default async function WorkspaceInboxPage(props: PageProps) {
       "id, main_phone_e164, last_message_at, lead_status, assigned_to_user_id, primary_contact_id, metadata, next_action, follow_up_due_at, follow_up_completed_at, contacts ( id, full_name, first_name, last_name, primary_phone, contact_type, email )"
     )
     .eq("channel", "sms")
+    .is("deleted_at", null)
     .order("last_message_at", { ascending: false, nullsFirst: false })
     .limit(80);
 
@@ -175,6 +176,7 @@ export default async function WorkspaceInboxPage(props: PageProps) {
       .from("messages")
       .select("conversation_id, body, created_at")
       .in("conversation_id", ids)
+      .is("deleted_at", null)
       .order("created_at", { ascending: false })
       .limit(previewRowCap);
 

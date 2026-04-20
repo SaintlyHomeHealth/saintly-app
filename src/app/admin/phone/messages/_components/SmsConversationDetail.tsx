@@ -16,6 +16,7 @@ import { SmsThreadMarkReadOnViewClient } from "./SmsThreadMarkReadOnViewClient";
 import { SmsThreadDebugStrip } from "./SmsThreadDebugStrip";
 import { SmsThreadContactPanel } from "@/app/workspace/phone/inbox/_components/sms-thread-contact-panel";
 import { WorkspaceSmsConversationShell } from "@/app/workspace/phone/inbox/_components/workspace-sms-conversation-shell";
+import { WorkspaceSmsDeleteConversationButton } from "@/app/workspace/phone/inbox/_components/WorkspaceSmsDeleteConversationButton";
 import { WorkspaceSmsThreadView } from "@/app/workspace/phone/inbox/_components/WorkspaceSmsThreadView";
 import { supabaseAdmin } from "@/lib/admin";
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
@@ -182,7 +183,7 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
   const { data: conv, error: convErr } = await supabase
     .from("conversations")
     .select(
-      "id, created_at, updated_at, channel, main_phone_e164, last_message_at, lead_status, next_action, follow_up_due_at, follow_up_completed_at, assigned_to_user_id, assigned_at, primary_contact_id, metadata, contacts ( id, full_name, first_name, last_name, primary_phone, contact_type, email, notes )"
+      "id, created_at, updated_at, channel, main_phone_e164, last_message_at, lead_status, next_action, follow_up_due_at, follow_up_completed_at, assigned_to_user_id, assigned_at, primary_contact_id, metadata, deleted_at, contacts ( id, full_name, first_name, last_name, primary_phone, contact_type, email, notes )"
     )
     .eq("id", conversationId)
     .eq("channel", "sms")
@@ -190,6 +191,12 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
 
   if (convErr || !conv?.id) {
     console.warn("[admin/phone/messages/detail] load:", convErr?.message);
+    notFound();
+  }
+
+  const convDeletedAt =
+    conv.deleted_at != null && String(conv.deleted_at).trim() !== "" ? String(conv.deleted_at) : null;
+  if (convDeletedAt) {
     notFound();
   }
 
@@ -251,6 +258,7 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
     .from("messages")
     .select("id, created_at, direction, body, viewed_at")
     .eq("conversation_id", conversationId)
+    .is("deleted_at", null)
     .order("created_at", { ascending: true });
 
   if (msgErr) {
@@ -720,6 +728,13 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
           workspaceCallHref={workspaceCallHref}
           smsThreadPaneId={conversationId}
           appDesktopSplit={workspaceDesktopSplit}
+          threadActions={
+            <WorkspaceSmsDeleteConversationButton
+              conversationId={conversationId}
+              afterDeleteHref={inboxHref}
+              compact={workspaceDesktopSplit}
+            />
+          }
           headerAside={
           canOpenLeadInCrm && workspaceLeadId ? (
             <Link
@@ -830,6 +845,10 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
             <p className="mt-0.5 text-sm text-slate-600">{phoneDisplay}</p>
           ) : null}
         </div>
+        <WorkspaceSmsDeleteConversationButton
+          conversationId={conversationId}
+          afterDeleteHref={inboxHref}
+        />
       </div>
 
       {ok === "intake" ? (

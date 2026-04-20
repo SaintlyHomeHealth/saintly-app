@@ -118,6 +118,7 @@ export default async function WorkspaceVoicemailPage() {
       .from("conversations")
       .select("id, primary_contact_id, last_message_at")
       .eq("channel", "sms")
+      .is("deleted_at", null)
       .in("primary_contact_id", contactIds)
       .order("last_message_at", { ascending: false, nullsFirst: false });
     for (const c of convs ?? []) {

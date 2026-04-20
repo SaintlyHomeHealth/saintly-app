@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { mergeTelemetryOnSend } from "@/lib/phone/sms-suggestion-telemetry";
+import { softDeleteSmsConversation, softDeleteSmsMessage } from "@/lib/phone/sms-soft-delete";
 import { ensureSmsConversationForPhone } from "@/lib/phone/sms-conversation-thread";
 import { resolveContactAndPhoneForWorkspaceNewSms } from "@/lib/phone/workspace-new-sms-resolve";
 import { getTwilioSmsOutboundDiagnostics } from "@/lib/twilio/sms-outbound-diagnostics";
@@ -27,6 +28,41 @@ function revalidateSmsViews(conversationId: string) {
   revalidatePath("/workspace/phone/inbox");
   revalidatePath("/workspace/phone/inbox/new");
   revalidatePath(`/workspace/phone/inbox/${conversationId}`);
+}
+
+/**
+ * Soft-delete one inbound/outbound message (service role + staff access check).
+ */
+export async function deleteWorkspaceSmsMessage(
+  conversationId: string,
+  messageId: string
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const staff = await getStaffProfile();
+  if (!staff || !canAccessWorkspacePhone(staff)) {
+    return { ok: false, error: "forbidden" };
+  }
+  const result = await softDeleteSmsMessage(supabaseAdmin, staff, { conversationId, messageId });
+  if (result.ok) {
+    revalidateSmsViews(conversationId);
+  }
+  return result;
+}
+
+/**
+ * Soft-delete the whole SMS thread for this inbox (conversation + all messages).
+ */
+export async function deleteWorkspaceSmsConversation(
+  conversationId: string
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const staff = await getStaffProfile();
+  if (!staff || !canAccessWorkspacePhone(staff)) {
+    return { ok: false, error: "forbidden" };
+  }
+  const result = await softDeleteSmsConversation(supabaseAdmin, staff, { conversationId });
+  if (result.ok) {
+    revalidateSmsViews(conversationId);
+  }
+  return result;
 }
 
 export type SmsComposeSearchRow = {

@@ -165,6 +165,7 @@ export default async function WorkspaceVisitsPage() {
       .from("conversations")
       .select("id, primary_contact_id, last_message_at")
       .eq("channel", "sms")
+      .is("deleted_at", null)
       .in("primary_contact_id", contactIds)
       .order("last_message_at", { ascending: false, nullsFirst: false });
     for (const r of convRows ?? []) {
@@ -263,7 +264,8 @@ export default async function WorkspaceVisitsPage() {
   let convoCountQ = supabase
     .from("conversations")
     .select("id", { count: "exact", head: true })
-    .eq("channel", "sms");
+    .eq("channel", "sms")
+    .is("deleted_at", null);
   if (!hasFull) {
     const scope = `assigned_to_user_id.eq.${uid},assigned_to_user_id.is.null`;
     missedCallsQ = missedCallsQ.or(scope);

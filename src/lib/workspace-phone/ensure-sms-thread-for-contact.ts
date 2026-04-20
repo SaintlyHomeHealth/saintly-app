@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "@/lib/admin";
+import { refreshConversationLastMessageAt } from "@/lib/phone/sms-soft-delete";
 
 import { pickOutboundE164ForDial } from "@/lib/workspace-phone/launch-urls";
 
@@ -36,7 +37,7 @@ export async function ensureSmsConversationForContact(contactId: string): Promis
 
   const { data: existing, error: findErr } = await supabaseAdmin
     .from("conversations")
-    .select("id")
+    .select("id, deleted_at")
     .eq("channel", "sms")
     .eq("primary_contact_id", cid)
     .order("last_message_at", { ascending: false, nullsFirst: false })
@@ -48,7 +49,25 @@ export async function ensureSmsConversationForContact(contactId: string): Promis
   }
 
   if (existing?.id) {
-    return { ok: true, conversationId: String(existing.id), created: false };
+    const convId = String(existing.id);
+    const wasDeleted =
+      existing.deleted_at != null && String(existing.deleted_at).trim() !== "";
+    if (wasDeleted) {
+      const { error: reviveErr } = await supabaseAdmin
+        .from("conversations")
+        .update({
+          deleted_at: null,
+          deleted_by_user_id: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", convId);
+      if (reviveErr) {
+        console.warn("[ensureSmsConversationForContact] revive:", reviveErr.message);
+      } else {
+        await refreshConversationLastMessageAt(supabaseAdmin, convId);
+      }
+    }
+    return { ok: true, conversationId: convId, created: false };
   }
 
   const { data: inserted, error: insErr } = await supabaseAdmin

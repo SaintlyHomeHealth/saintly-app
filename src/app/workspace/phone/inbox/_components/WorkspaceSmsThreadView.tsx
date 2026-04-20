@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
 import { SmsReplyComposer } from "@/app/admin/phone/messages/_components/SmsReplyComposer";
+import { WorkspaceSmsDeleteMessageButton } from "@/app/workspace/phone/inbox/_components/WorkspaceSmsDeleteMessageButton";
 import { formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
 import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
 
@@ -144,6 +145,7 @@ export function WorkspaceSmsThreadView({
       .from("messages")
       .select("id, created_at, direction, body")
       .eq("conversation_id", conversationId)
+      .is("deleted_at", null)
       .order("created_at", { ascending: true });
     if (error || !data) return;
     const rows: ThreadMessage[] = data.map((row) => ({
@@ -186,6 +188,28 @@ export function WorkspaceSmsThreadView({
           const row = parseRealtimeMessage(payload.new);
           if (!row || !row.id) return;
           applyIncomingRows([row], { scroll: "auto-if-following" });
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "messages",
+          filter: `conversation_id=eq.${conversationId}`,
+        },
+        (payload) => {
+          const raw = payload.new as Record<string, unknown> | null;
+          const id = raw && typeof raw.id === "string" ? raw.id : "";
+          if (!id) return;
+          const del = raw?.deleted_at;
+          if (del != null && String(del).trim() !== "") {
+            setServerMessages((prev) => prev.filter((m) => m.id !== id));
+            return;
+          }
+          const row = parseRealtimeMessage(payload.new);
+          if (!row) return;
+          applyIncomingRows([row], { scroll: "never" });
         }
       )
       .subscribe();
@@ -315,14 +339,27 @@ export function WorkspaceSmsThreadView({
                     >
                       <p className="whitespace-pre-wrap break-words">{String(m.body ?? "")}</p>
                     </div>
-                    <p
-                      className={`max-w-[min(92%,24rem)] px-1 text-[10px] font-medium tabular-nums tracking-wide ${
-                        inbound ? "text-left text-slate-400" : "text-right text-slate-400"
+                    <div
+                      className={`flex max-w-[min(92%,24rem)] items-center gap-2 px-1 ${
+                        inbound ? "justify-start" : "justify-end"
                       }`}
                     >
-                      {when}
-                      {isPending ? " · Sending…" : ""}
-                    </p>
+                      <p
+                        className={`text-[10px] font-medium tabular-nums tracking-wide ${
+                          inbound ? "text-left text-slate-400" : "text-right text-slate-400"
+                        }`}
+                      >
+                        {when}
+                        {isPending ? " · Sending…" : ""}
+                      </p>
+                      {!isPending ? (
+                        <WorkspaceSmsDeleteMessageButton
+                          conversationId={conversationId}
+                          messageId={m.id}
+                          allowDelete
+                        />
+                      ) : null}
+                    </div>
                   </div>
                 );
               })

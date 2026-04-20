@@ -170,7 +170,13 @@ export default async function AdminCrmContactDetailPage({
       .eq("contact_id", contactId)
       .order("started_at", { ascending: false, nullsFirst: false })
       .limit(12),
-    supabase.from("conversations").select("id").eq("channel", "sms").eq("primary_contact_id", contactId).limit(20),
+    supabase
+      .from("conversations")
+      .select("id")
+      .eq("channel", "sms")
+      .eq("primary_contact_id", contactId)
+      .is("deleted_at", null)
+      .limit(20),
   ]);
 
   const patientRow = prow as { id: string; patient_status: string; created_at?: string } | null;
@@ -192,6 +198,7 @@ export default async function AdminCrmContactDetailPage({
           .from("messages")
           .select("created_at, direction, body, conversation_id")
           .in("conversation_id", convIds)
+          .is("deleted_at", null)
           .order("created_at", { ascending: false })
           .limit(15)
       : { data: [] };

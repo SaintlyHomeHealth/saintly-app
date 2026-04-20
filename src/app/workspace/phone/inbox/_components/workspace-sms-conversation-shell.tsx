@@ -34,6 +34,8 @@ type Props = {
   children: ReactNode;
   /** Desktop 3-pane inbox: flat full-bleed chrome (no card-like shell). */
   appDesktopSplit?: boolean;
+  /** Optional row under the title strip (e.g. delete thread). */
+  threadActions?: ReactNode;
 };
 
 export function WorkspaceSmsConversationShell({
@@ -47,6 +49,7 @@ export function WorkspaceSmsConversationShell({
   banners,
   children,
   appDesktopSplit = false,
+  threadActions,
 }: Props) {
   const [displayName, setDisplayName] = useState(initialDisplayName);
   const [badge, setBadge] = useState(initialBadge);
@@ -138,6 +141,15 @@ export function WorkspaceSmsConversationShell({
               ) : null}
             </div>
           </div>
+          {threadActions ? (
+            <div
+              className={`flex flex-wrap items-center gap-2 border-t border-slate-100/90 px-3 py-1.5 sm:px-5 ${
+                appDesktopSplit ? "lg:px-3" : ""
+              }`}
+            >
+              {threadActions}
+            </div>
+          ) : null}
         </header>
 
         {banners}

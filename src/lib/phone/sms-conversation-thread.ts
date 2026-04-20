@@ -5,6 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { CrmContactMatch } from "@/lib/crm/find-contact-by-incoming-phone";
 import { findContactByIncomingPhone } from "@/lib/crm/find-contact-by-incoming-phone";
 import { phoneLookupCandidates } from "@/lib/crm/phone-lookup-candidates";
+import { refreshConversationLastMessageAt } from "@/lib/phone/sms-soft-delete";
 import { isValidE164, normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
 
 /** Set on conversations.metadata when no CRM contact is linked (inbound or system SMS). */
@@ -72,7 +73,7 @@ export async function ensureSmsConversationForPhone(
 
   const { data: existingRows, error: findErr } = await supabase
     .from("conversations")
-    .select("id, primary_contact_id, metadata, main_phone_e164")
+    .select("id, primary_contact_id, metadata, main_phone_e164, deleted_at")
     .eq("channel", "sms")
     .in("main_phone_e164", candidates)
     .order("created_at", { ascending: true })
@@ -111,6 +112,23 @@ export async function ensureSmsConversationForPhone(
 
   if (existing?.id) {
     const conversationId = String(existing.id);
+    const wasDeleted =
+      existing.deleted_at != null && String(existing.deleted_at).trim() !== "";
+    if (wasDeleted) {
+      const { error: reviveErr } = await supabase
+        .from("conversations")
+        .update({
+          deleted_at: null,
+          deleted_by_user_id: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", conversationId);
+      if (reviveErr) {
+        console.warn("[ensure-sms-conversation] revive deleted thread:", formatSupabaseErr(reviveErr), reviveErr);
+      } else {
+        await refreshConversationLastMessageAt(supabase, conversationId);
+      }
+    }
     const prevPc =
       existing.primary_contact_id != null && String(existing.primary_contact_id).trim() !== ""
         ? String(existing.primary_contact_id)
@@ -247,6 +265,7 @@ export async function hasRecentMissedCallAutoReplyToPhone(
     .select("id, metadata")
     .eq("conversation_id", String(conv.id))
     .eq("direction", "outbound")
+    .is("deleted_at", null)
     .gte("created_at", cutoff)
     .limit(25);
 

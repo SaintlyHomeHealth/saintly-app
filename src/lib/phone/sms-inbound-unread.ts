@@ -31,6 +31,7 @@ export async function countUnreadInboundByConversationIds(
       .in("conversation_id", conversationIds)
       .eq("direction", "inbound")
       .is("viewed_at", null)
+      .is("deleted_at", null)
       .order("id", { ascending: true })
       .range(from, from + UNREAD_COUNT_PAGE_SIZE - 1);
 
@@ -72,6 +73,7 @@ export async function markInboundMessagesViewedForConversation(conversationId: s
     .eq("conversation_id", conversationId)
     .eq("direction", "inbound")
     .is("viewed_at", null)
+    .is("deleted_at", null)
     .select("id");
 
   if (error) {
