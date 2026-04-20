@@ -17,6 +17,7 @@ export const LEAD_ACTIVITY_EVENT = {
   converted: "converted",
   marked_dead: "marked_dead",
   lead_temperature_updated: "lead_temperature_updated",
+  inbound_email: "inbound_email",
 } as const;
 
 export type LeadActivityEventType = (typeof LEAD_ACTIVITY_EVENT)[keyof typeof LEAD_ACTIVITY_EVENT];
@@ -58,6 +59,8 @@ export function leadActivityEventLabel(eventType: string): string {
       return "Closed";
     case LEAD_ACTIVITY_EVENT.lead_temperature_updated:
       return "Priority";
+    case LEAD_ACTIVITY_EVENT.inbound_email:
+      return "Inbound email";
     default:
       return eventType.replace(/_/g, " ");
   }
@@ -138,6 +141,13 @@ export function leadActivityThreadClasses(eventType: string): { rail: string; bu
       rail: "bg-orange-300/90",
       bubble: "border-orange-200/85 bg-orange-50/50 text-slate-900",
       label: "text-orange-900",
+    };
+  }
+  if (t === LEAD_ACTIVITY_EVENT.inbound_email) {
+    return {
+      rail: "bg-blue-400/85",
+      bubble: "border-blue-200/90 bg-blue-50/70 text-slate-900",
+      label: "text-blue-900",
     };
   }
   return {

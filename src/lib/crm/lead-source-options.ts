@@ -4,6 +4,8 @@ export const LEAD_SOURCE_OPTIONS = [
   { value: "manual", label: "Manual" },
   { value: "walk_in", label: "Walk-in" },
   { value: "referral", label: "Referral" },
+  { value: "email_referral", label: "Email — referral" },
+  { value: "email_inquiry", label: "Email — inquiry" },
   { value: "hospital", label: "Hospital" },
   { value: "facebook", label: "Facebook" },
   { value: "google", label: "Google" },
