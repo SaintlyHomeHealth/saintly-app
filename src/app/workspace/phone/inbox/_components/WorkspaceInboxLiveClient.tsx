@@ -24,6 +24,9 @@ export function WorkspaceInboxLiveClient() {
   const lastRefreshAtRef = useRef(0);
 
   const scheduleRefresh = useCallback(() => {
+    if (typeof document !== "undefined" && document.visibilityState !== "visible") {
+      return;
+    }
     if (debounceRef.current) clearTimeout(debounceRef.current);
     if (trailingRef.current) {
       clearTimeout(trailingRef.current);
@@ -31,7 +34,13 @@ export function WorkspaceInboxLiveClient() {
     }
     debounceRef.current = setTimeout(() => {
       debounceRef.current = null;
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") {
+        return;
+      }
       const fire = () => {
+        if (typeof document !== "undefined" && document.visibilityState !== "visible") {
+          return;
+        }
         lastRefreshAtRef.current = Date.now();
         startTransition(() => {
           router.refresh();
@@ -44,11 +53,24 @@ export function WorkspaceInboxLiveClient() {
       } else {
         trailingRef.current = setTimeout(() => {
           trailingRef.current = null;
+          if (typeof document !== "undefined" && document.visibilityState !== "visible") {
+            return;
+          }
           fire();
         }, MIN_REFRESH_GAP_MS - elapsed);
       }
     }, DEBOUNCE_MS);
   }, [router]);
+
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        scheduleRefresh();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, [scheduleRefresh]);
 
   useEffect(() => {
     const supabase = createBrowserSupabaseClient();

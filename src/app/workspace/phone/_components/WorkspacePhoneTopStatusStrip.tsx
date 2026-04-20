@@ -2,7 +2,7 @@
 
 import { CircleDot, Info, WifiOff } from "lucide-react";
 import { usePathname } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 
 import {
   WORKSPACE_SOFTPHONE_UI_EVENT,
@@ -14,7 +14,7 @@ type Props = {
   inboundRingEnabled: boolean;
 };
 
-export function WorkspacePhoneTopStatusStrip({ displayName, inboundRingEnabled }: Props) {
+function WorkspacePhoneTopStatusStripInner({ displayName, inboundRingEnabled }: Props) {
   const pathname = usePathname() ?? "";
   /** Desktop 3-pane inbox list only — hardest compact strip (not `/inbox/[id]` drill-in). */
   const inboxListDesktop = pathname === "/workspace/phone/inbox";
@@ -124,3 +124,5 @@ export function WorkspacePhoneTopStatusStrip({ displayName, inboundRingEnabled }
     </div>
   );
 }
+
+export const WorkspacePhoneTopStatusStrip = memo(WorkspacePhoneTopStatusStripInner);

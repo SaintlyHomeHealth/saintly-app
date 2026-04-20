@@ -186,6 +186,9 @@ export function WorkspaceSmsThreadView({
   );
 
   const fetchLatestMessages = useCallback(async () => {
+    if (typeof document !== "undefined" && document.visibilityState !== "visible") {
+      return;
+    }
     if (!supabaseRef.current) supabaseRef.current = createBrowserSupabaseClient();
     const supabase = supabaseRef.current;
     const { data, error } = await supabase
