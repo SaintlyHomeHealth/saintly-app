@@ -39,7 +39,10 @@ export async function ensureSmsConversationForPhone(
     /** For system/outbound SMS threads (e.g. missed-call auto-reply). */
     leadStatusOnCreate?: string;
   }
-): Promise<{ ok: true; conversationId: string } | { ok: false; error: string }> {
+): Promise<
+  | { ok: true; conversationId: string; primaryContactId: string | null }
+  | { ok: false; error: string }
+> {
   const trimmed = mainPhoneE164.trim();
   const phone =
     normalizeDialInputToE164(trimmed) ?? (isValidE164(trimmed) ? trimmed : "");
@@ -147,7 +150,9 @@ export async function ensureSmsConversationForPhone(
       }
     }
 
-    return { ok: true, conversationId };
+    const primaryContactId = prevPc ?? (contactId ?? null);
+
+    return { ok: true, conversationId, primaryContactId };
   }
 
   const now = new Date().toISOString();
@@ -193,7 +198,11 @@ export async function ensureSmsConversationForPhone(
   }
 
   console.log("[ensure-sms-conversation] insert ok", { conversationId: String(inserted.id) });
-  return { ok: true, conversationId: String(inserted.id) };
+  return {
+    ok: true,
+    conversationId: String(inserted.id),
+    primaryContactId: contactId ?? null,
+  };
 }
 
 /**
@@ -202,7 +211,10 @@ export async function ensureSmsConversationForPhone(
 export async function ensureSmsConversationForOutboundSystem(
   supabase: SupabaseClient,
   mainPhoneE164: string
-): Promise<{ ok: true; conversationId: string } | { ok: false; error: string }> {
+): Promise<
+  | { ok: true; conversationId: string; primaryContactId: string | null }
+  | { ok: false; error: string }
+> {
   const contact = await findContactByIncomingPhone(supabase, mainPhoneE164);
   return ensureSmsConversationForPhone(supabase, mainPhoneE164, contact, {
     leadStatusOnCreate: "unclassified",

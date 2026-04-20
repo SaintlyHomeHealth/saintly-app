@@ -146,6 +146,8 @@ export async function applyInboundTwilioSms(
       conversationId,
       bodyPreview: body,
       fromE164: fromE164,
+      matchedContact: contact,
+      primaryContactId: ensured.primaryContactId,
       externalMessageSid: messageSid,
     });
     console.log("[sms-inbound] sms_push_await_finished", { conversationId, messageId: insertedMsg?.id });
