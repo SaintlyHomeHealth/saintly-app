@@ -13,6 +13,7 @@ import { buildLeadIntakeRequestFromFieldMap } from "@/lib/crm/lead-intake-reques
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { isKnownPayerBroadCategory } from "@/lib/crm/payer-type-options";
 import { isValidServiceDisciplineCode, type ServiceDisciplineCode } from "@/lib/crm/service-disciplines";
+import { runFacebookLeadIntroSmsAfterInsert } from "@/lib/facebook/facebook-lead-intro-sms";
 import { notifyNewLeadCreatedPush } from "@/lib/push/notify-new-lead";
 import { normalizePhone } from "@/lib/phone/us-phone-format";
 
@@ -490,6 +491,14 @@ async function completeFacebookLeadInsertFromFieldMap(
   }
 
   void notifyNewLeadCreatedPush(supabase, leadId);
+
+  void runFacebookLeadIntroSmsAfterInsert(supabase, {
+    leadId,
+    fieldMap,
+    nameParts,
+    primaryPhoneStored: primary_phone,
+    ingestionChannel,
+  });
 
   revalidatePath("/admin");
   revalidatePath("/admin/crm/leads");

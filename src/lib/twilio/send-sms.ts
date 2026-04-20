@@ -4,10 +4,22 @@ import { resolveTwilioWebhookBaseUrl } from "@/lib/twilio/signature-url";
 export type SendSmsParams = {
   to: string;
   body: string;
+  /**
+   * When set, used instead of `TWILIO_SMS_FROM` for this send only (E.164 `From` or `MG…` Messaging Service SID).
+   * Keeps global inbox/Twilio defaults unchanged while allowing targeted outbound (e.g. Facebook lead intro).
+   */
+  fromOverride?: string;
 };
 
 export type SendSmsResult =
-  | { ok: true; messageSid: string }
+  | {
+      ok: true;
+      messageSid: string;
+      /** Twilio Message `status` from the REST 201 response (e.g. queued, sending). */
+      twilioStatus?: string | null;
+      /** Twilio `account_sid` from the REST response. */
+      twilioAccountSid?: string | null;
+    }
   | { ok: false; error: string };
 
 function formatTwilioRestError(status: number, rawBody: string): string {
@@ -37,7 +49,9 @@ function formatTwilioRestError(status: number, rawBody: string): string {
 export async function sendSms(params: SendSmsParams): Promise<SendSmsResult> {
   const accountSid = process.env.TWILIO_ACCOUNT_SID?.trim();
   const authToken = process.env.TWILIO_AUTH_TOKEN?.trim();
-  const fromOrMsid = process.env.TWILIO_SMS_FROM?.trim();
+  const fromOrMsid =
+    (typeof params.fromOverride === "string" ? params.fromOverride.trim() : "") ||
+    process.env.TWILIO_SMS_FROM?.trim();
   const to = params.to.trim();
   const body = params.body.trim();
 
@@ -123,9 +137,9 @@ export async function sendSms(params: SendSmsParams): Promise<SendSmsResult> {
       return { ok: false, error: errMsg };
     }
 
-    let json: { sid?: string };
+    let json: { sid?: string; status?: string; account_sid?: string };
     try {
-      json = JSON.parse(rawText) as { sid?: string };
+      json = JSON.parse(rawText) as { sid?: string; status?: string; account_sid?: string };
     } catch {
       console.error("[sms-twilio] success response not JSON", rawText.slice(0, 400));
       return { ok: false, error: "Twilio response was not valid JSON" };
@@ -136,12 +150,18 @@ export async function sendSms(params: SendSmsParams): Promise<SendSmsResult> {
       return { ok: false, error: "Twilio response missing Message sid" };
     }
 
+    const twilioStatus =
+      typeof json.status === "string" && json.status.trim() !== "" ? json.status.trim().toLowerCase() : null;
+    const twilioAccountSid =
+      typeof json.account_sid === "string" && json.account_sid.trim() !== "" ? json.account_sid.trim() : null;
+
     console.log("[sms-twilio] REST ok", {
       messageSid,
+      twilioStatus: twilioStatus ?? undefined,
       outboundMode: useMessagingService ? "MessagingServiceSid" : "From",
       fromMasked: diag.outboundSenderMasked,
     });
-    return { ok: true, messageSid };
+    return { ok: true, messageSid, twilioStatus, twilioAccountSid };
   } catch (e) {
     console.error("[sms-twilio] REST exception (network/fetch)", {
       err: e,
