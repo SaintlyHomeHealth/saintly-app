@@ -8,6 +8,7 @@ import { WorkspacePhoneHeaderChrome } from "./_components/WorkspacePhoneHeaderCh
 import { WorkspacePhoneMainPad } from "./_components/WorkspacePhoneMainPad";
 import { WorkspacePhoneTopStatusStrip } from "./_components/WorkspacePhoneTopStatusStrip";
 import { routePerfLog, routePerfStart } from "@/lib/perf/route-perf";
+import { allowedWorkspaceTabHrefs, resolveEffectivePageAccess } from "@/lib/staff-page-access";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 
 export default async function WorkspacePhoneLayout({ children }: { children: ReactNode }) {
@@ -23,7 +24,10 @@ export default async function WorkspacePhoneLayout({ children }: { children: Rea
       (typeof staff.email === "string" && staff.email.trim()) ||
       "Staff";
 
-    const showAdminLink = isManagerOrHigher(staff);
+    const showAdminLink =
+      isManagerOrHigher(staff) || (staff.role === "nurse" && staff.admin_shell_access === true);
+    const access = resolveEffectivePageAccess(staff);
+    const allowedTabs = allowedWorkspaceTabHrefs(access);
 
     return (
       <div className="ws-phone-page-shell flex h-[100dvh] max-h-[100dvh] min-h-0 flex-col overflow-x-hidden text-slate-900">
@@ -41,7 +45,7 @@ export default async function WorkspacePhoneLayout({ children }: { children: Rea
 
         <WorkspacePhoneMainPad>{children}</WorkspacePhoneMainPad>
 
-        <NursePhoneBottomNav showLeadsNav={showAdminLink} />
+        <NursePhoneBottomNav showLeadsNav={showAdminLink} allowedTabHrefs={allowedTabs} />
       </div>
     );
   } finally {

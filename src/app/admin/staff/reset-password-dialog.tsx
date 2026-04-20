@@ -51,6 +51,8 @@ export function ResetPasswordDialog({ staffProfileId }: Props) {
   const [success, setSuccess] = useState<string | null>(null);
   const [password, setPassword] = useState("");
   const [passwordConfirm, setPasswordConfirm] = useState("");
+  const [autoGenerate, setAutoGenerate] = useState(false);
+  const [revealedTempPassword, setRevealedTempPassword] = useState<string | null>(null);
 
   const close = useCallback(() => {
     setOpen(false);
@@ -59,6 +61,8 @@ export function ResetPasswordDialog({ staffProfileId }: Props) {
     setPassword("");
     setPasswordConfirm("");
     setLoading(false);
+    setAutoGenerate(false);
+    setRevealedTempPassword(null);
   }, []);
 
   useEffect(() => {
@@ -80,13 +84,19 @@ export function ResetPasswordDialog({ staffProfileId }: Props) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ staffProfileId, password, passwordConfirm }),
+        body: JSON.stringify({
+          staffProfileId,
+          password: autoGenerate ? undefined : password,
+          passwordConfirm: autoGenerate ? undefined : passwordConfirm,
+          autoGenerate,
+        }),
       });
       const data = (await res.json().catch(() => ({}))) as {
         ok?: boolean;
         error?: string;
         detail?: string;
         outcome?: string;
+        temporaryPassword?: string;
       };
 
       if (!res.ok || !data.ok) {
@@ -97,11 +107,19 @@ export function ResetPasswordDialog({ staffProfileId }: Props) {
         return;
       }
 
-      setSuccess("Password reset successful. Share the new temporary password securely.");
+      const temp = typeof data.temporaryPassword === "string" ? data.temporaryPassword : null;
+      if (temp) {
+        setRevealedTempPassword(temp);
+        setSuccess("Password reset. Copy the new temporary password below — it cannot be retrieved later.");
+      } else {
+        setSuccess("Password reset successful. Share the new temporary password securely.");
+      }
       setPassword("");
       setPasswordConfirm("");
       router.refresh();
-      setTimeout(() => close(), 1600);
+      if (!temp) {
+        setTimeout(() => close(), 1600);
+      }
     } catch {
       setError("Network error. Try again.");
     } finally {
@@ -157,6 +175,44 @@ export function ResetPasswordDialog({ staffProfileId }: Props) {
                   {success}
                 </p>
               ) : null}
+              {revealedTempPassword ? (
+                <div className="rounded-[12px] border border-amber-200 bg-amber-50/90 px-3 py-2">
+                  <p className="text-[11px] font-semibold text-amber-950">New temporary password</p>
+                  <div className="mt-2 flex gap-2">
+                    <input
+                      readOnly
+                      className="w-full rounded-[10px] border border-amber-200 bg-white px-2 py-1.5 font-mono text-xs"
+                      value={revealedTempPassword}
+                    />
+                    <button
+                      type="button"
+                      className="shrink-0 rounded-full bg-slate-900 px-3 py-1.5 text-[11px] font-semibold text-white"
+                      onClick={() => navigator.clipboard.writeText(revealedTempPassword)}
+                    >
+                      Copy
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    className="mt-2 text-[11px] font-semibold text-amber-950 underline"
+                    onClick={close}
+                  >
+                    Done
+                  </button>
+                </div>
+              ) : null}
+              <label className="flex items-start gap-2 text-xs text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={autoGenerate}
+                  onChange={(e) => {
+                    setAutoGenerate(e.target.checked);
+                    setError(null);
+                  }}
+                  className="mt-0.5 rounded border-slate-300"
+                />
+                Generate on server (shown once)
+              </label>
               <div>
                 <label className="block text-[11px] font-semibold text-slate-700">New temporary password</label>
                 <input
@@ -164,11 +220,12 @@ export function ResetPasswordDialog({ staffProfileId }: Props) {
                   autoComplete="new-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="mt-1 w-full rounded-[14px] border border-slate-200 px-3 py-2 text-sm text-slate-900"
+                  disabled={autoGenerate}
+                  className="mt-1 w-full rounded-[14px] border border-slate-200 px-3 py-2 text-sm text-slate-900 disabled:bg-slate-100"
                   placeholder={`${STAFF_TEMP_PASSWORD_MIN}–${STAFF_TEMP_PASSWORD_MAX} characters (digits OK)`}
                   minLength={STAFF_TEMP_PASSWORD_MIN}
                   maxLength={STAFF_TEMP_PASSWORD_MAX}
-                  required
+                  required={!autoGenerate}
                 />
               </div>
               <div>
@@ -178,14 +235,16 @@ export function ResetPasswordDialog({ staffProfileId }: Props) {
                   autoComplete="new-password"
                   value={passwordConfirm}
                   onChange={(e) => setPasswordConfirm(e.target.value)}
-                  className="mt-1 w-full rounded-[14px] border border-slate-200 px-3 py-2 text-sm text-slate-900"
-                  required
+                  disabled={autoGenerate}
+                  className="mt-1 w-full rounded-[14px] border border-slate-200 px-3 py-2 text-sm text-slate-900 disabled:bg-slate-100"
+                  required={!autoGenerate}
                 />
               </div>
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
-                  className="rounded-full border border-slate-200 px-3 py-1.5 text-[11px] font-semibold text-slate-800 hover:bg-slate-50"
+                  disabled={autoGenerate}
+                  className="rounded-full border border-slate-200 px-3 py-1.5 text-[11px] font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
                   onClick={() => {
                     const g = generateNumericSix();
                     setPassword(g);
@@ -197,7 +256,8 @@ export function ResetPasswordDialog({ staffProfileId }: Props) {
                 </button>
                 <button
                   type="button"
-                  className="rounded-full border border-slate-200 px-3 py-1.5 text-[11px] font-semibold text-slate-800 hover:bg-slate-50"
+                  disabled={autoGenerate}
+                  className="rounded-full border border-slate-200 px-3 py-1.5 text-[11px] font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
                   onClick={() => {
                     const g = generateMixedTemp();
                     setPassword(g);
@@ -211,7 +271,7 @@ export function ResetPasswordDialog({ staffProfileId }: Props) {
               <div className="flex flex-wrap gap-2 pt-1">
                 <button
                   type="submit"
-                  disabled={loading || !!success}
+                  disabled={loading || !!success || !!revealedTempPassword}
                   className="rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
                 >
                   {loading ? "Saving…" : "Save password"}

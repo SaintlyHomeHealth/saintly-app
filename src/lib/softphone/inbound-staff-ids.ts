@@ -152,9 +152,7 @@ export async function canonicalizeInboundEnvIdsToAuthUserIds(envIds: string[]): 
  * without scanning all `staff_profiles` rows. Used by GET `/api/softphone/token` for `identity_in_inbound_ring_list`.
  */
 export async function computeIdentityInInboundRingListForStaff(staff: StaffProfile): Promise<boolean> {
-  const envIdsRaw = resolveInboundBrowserStaffUserIds();
-  const envIds = await canonicalizeInboundEnvIdsToAuthUserIds(envIdsRaw);
-  if (envIds.includes(staff.user_id)) return true;
+  /** Env allowlists are evaluated when building TwiML ring targets; token minting reflects per-staff policy only. */
   return matchesSoftphoneTokenEligibilityForInboundRing(staff);
 }
 
@@ -206,7 +204,7 @@ async function resolveInboundBrowserStaffUserIdsAsyncImpl(): Promise<string[]> {
   const envIds = await canonicalizeInboundEnvIdsToAuthUserIds(envIdsRaw);
   const { data, error } = await supabaseAdmin
     .from("staff_profiles")
-    .select("user_id, role, is_active, phone_access_enabled")
+    .select("user_id, role, is_active, phone_access_enabled, phone_calling_profile")
     .eq("is_active", true)
     .not("user_id", "is", null);
 
@@ -227,10 +225,16 @@ async function resolveInboundBrowserStaffUserIdsAsyncImpl(): Promise<string[]> {
   const dbIds = rows
     .filter((r) => {
       if (typeof r.role !== "string") return false;
+      const pcp = (r as { phone_calling_profile?: string }).phone_calling_profile;
+      const phone_calling_profile: StaffProfile["phone_calling_profile"] =
+        pcp === "outbound_only" || pcp === "inbound_disabled" || pcp === "inbound_outbound"
+          ? pcp
+          : "inbound_outbound";
       return matchesSoftphoneTokenEligibilityForInboundRing({
         role: r.role as StaffProfile["role"],
         is_active: r.is_active === true,
         phone_access_enabled: r.phone_access_enabled === true,
+        phone_calling_profile,
       });
     })
     .map((r) => (typeof r.user_id === "string" ? r.user_id : null))

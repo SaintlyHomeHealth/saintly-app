@@ -12,7 +12,13 @@ function safeInternalPath(next: string | null): string {
 export type StaffDenyReason = "no_staff_profile" | "inactive" | "role_not_allowed";
 
 type StaffGateResult =
-  | { ok: true; role: string; isActive: boolean }
+  | {
+      ok: true;
+      role: string;
+      isActive: boolean;
+      admin_shell_access: boolean;
+      require_password_change: boolean;
+    }
   | { ok: false; reason: StaffDenyReason };
 
 function authDebug(label: string, payload: Record<string, unknown>) {
@@ -31,7 +37,7 @@ async function resolveStaffGate(
 ): Promise<StaffGateResult> {
   const { data, error } = await supabase
     .from("staff_profiles")
-    .select("id, is_active, role")
+    .select("id, is_active, role, admin_shell_access, require_password_change")
     .eq("user_id", userId)
     .maybeSingle();
 
@@ -49,12 +55,26 @@ async function resolveStaffGate(
   }
 
   const role = typeof data.role === "string" ? data.role : "";
-  const allowedRoles = new Set(["super_admin", "admin", "manager", "nurse", "don"]);
+  const allowedRoles = new Set([
+    "super_admin",
+    "admin",
+    "manager",
+    "nurse",
+    "don",
+    "recruiter",
+    "billing",
+    "dispatch",
+    "credentialing",
+    "read_only",
+  ]);
   if (!allowedRoles.has(role)) {
     return { ok: false, reason: "role_not_allowed" };
   }
 
-  return { ok: true, role, isActive: data.is_active !== false };
+  const admin_shell_access = data.admin_shell_access !== false;
+  const require_password_change = data.require_password_change === true;
+
+  return { ok: true, role, isActive: data.is_active !== false, admin_shell_access, require_password_change };
 }
 
 export async function middleware(request: NextRequest) {
@@ -88,6 +108,29 @@ export async function middleware(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   const pathname = request.nextUrl.pathname;
+
+  if (user) {
+    const skipForcedPwd =
+      pathname.startsWith("/login/forced-password-change") ||
+      pathname.startsWith("/api/") ||
+      pathname.startsWith("/_next");
+    if (!skipForcedPwd) {
+      const { data: pwdRow } = await supabase
+        .from("staff_profiles")
+        .select("require_password_change")
+        .eq("user_id", user.id)
+        .maybeSingle();
+      if (pwdRow?.require_password_change === true) {
+        const url = request.nextUrl.clone();
+        url.pathname = "/login/forced-password-change";
+        url.searchParams.set(
+          "next",
+          `${request.nextUrl.pathname}${request.nextUrl.search}`
+        );
+        return NextResponse.redirect(url);
+      }
+    }
+  }
 
   if (pathname.startsWith("/admin") && !user) {
     if (shouldLogAdminPath(pathname)) {
@@ -130,11 +173,11 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(url);
     }
 
-    // Clinical / workspace-only roles must not use the admin app (nurse, or employee/staff if added later).
+    // Workspace-first roles cannot open /admin until Staff Access enables admin shell (default off for nurses).
     const role = gate.role.trim().toLowerCase();
-    const workspaceOnly =
+    const workspaceFirst =
       role === "nurse" || role === "employee" || role === "staff";
-    if (workspaceOnly) {
+    if (workspaceFirst && !gate.admin_shell_access) {
       const url = request.nextUrl.clone();
       url.pathname = "/workspace/phone/keypad";
       url.search = "";

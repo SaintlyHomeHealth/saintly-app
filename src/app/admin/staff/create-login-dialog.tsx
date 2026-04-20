@@ -64,6 +64,10 @@ export function CreateLoginDialog({ staffProfileId }: Props) {
   const [success, setSuccess] = useState<string | null>(null);
   const [password, setPassword] = useState("");
   const [passwordConfirm, setPasswordConfirm] = useState("");
+  const [inviteWelcomeSms, setInviteWelcomeSms] = useState(false);
+  const [passwordWelcomeSms, setPasswordWelcomeSms] = useState(false);
+  const [autoGeneratePassword, setAutoGeneratePassword] = useState(false);
+  const [revealedTempPassword, setRevealedTempPassword] = useState<string | null>(null);
 
   const resetFeedback = useCallback(() => {
     setError(null);
@@ -77,6 +81,10 @@ export function CreateLoginDialog({ staffProfileId }: Props) {
     setPassword("");
     setPasswordConfirm("");
     setLoading(false);
+    setInviteWelcomeSms(false);
+    setPasswordWelcomeSms(false);
+    setAutoGeneratePassword(false);
+    setRevealedTempPassword(null);
   }, [resetFeedback]);
 
   useEffect(() => {
@@ -102,7 +110,11 @@ export function CreateLoginDialog({ staffProfileId }: Props) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ staffProfileId, mode: "invite" }),
+        body: JSON.stringify({
+          staffProfileId,
+          mode: "invite",
+          sendWelcomeSms: inviteWelcomeSms,
+        }),
       });
       const data = (await res.json().catch(() => ({}))) as {
         ok?: boolean;
@@ -143,8 +155,10 @@ export function CreateLoginDialog({ staffProfileId }: Props) {
         body: JSON.stringify({
           staffProfileId,
           mode: "temporary_password",
-          password,
-          passwordConfirm,
+          password: autoGeneratePassword ? undefined : password,
+          passwordConfirm: autoGeneratePassword ? undefined : passwordConfirm,
+          autoGeneratePassword,
+          sendWelcomeSms: passwordWelcomeSms,
         }),
       });
       const data = (await res.json().catch(() => ({}))) as {
@@ -152,6 +166,7 @@ export function CreateLoginDialog({ staffProfileId }: Props) {
         error?: string;
         detail?: string;
         outcome?: string;
+        temporaryPassword?: string;
       };
 
       if (!res.ok || !data.ok) {
@@ -161,22 +176,30 @@ export function CreateLoginDialog({ staffProfileId }: Props) {
       }
 
       const outcome = data.outcome;
+      const temp = typeof data.temporaryPassword === "string" ? data.temporaryPassword : null;
+      if (temp) {
+        setRevealedTempPassword(temp);
+      }
       if (outcome === "login_relinked_existing_auth") {
         setSuccess(
           "Auth user already existed for this email — password updated, staff row relinked, and email synced from Auth."
         );
       } else {
         setSuccess(
-          "Login created and linked. Staff email synced from Auth — share the temporary password securely."
+          temp
+            ? "Login created. Copy the temporary password below now — it cannot be retrieved later."
+            : "Login created and linked. Staff email synced from Auth."
         );
       }
 
       setPassword("");
       setPasswordConfirm("");
       router.refresh();
-      setTimeout(() => {
-        close();
-      }, 1600);
+      if (!temp) {
+        setTimeout(() => {
+          close();
+        }, 1600);
+      }
     } catch {
       setError("Network error. Try again.");
     } finally {
@@ -281,6 +304,15 @@ export function CreateLoginDialog({ staffProfileId }: Props) {
                     {success}
                   </p>
                 ) : null}
+                <label className="mt-3 flex items-start gap-2 text-xs text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={inviteWelcomeSms}
+                    onChange={(e) => setInviteWelcomeSms(e.target.checked)}
+                    className="mt-0.5 rounded border-slate-300"
+                  />
+                  Also send welcome SMS with login link (uses Dispatch / welcome # on this staff row)
+                </label>
                 <div className="mt-4 flex flex-wrap gap-2">
                   <button
                     type="button"
@@ -322,6 +354,53 @@ export function CreateLoginDialog({ staffProfileId }: Props) {
                       {success}
                     </p>
                   ) : null}
+                  {revealedTempPassword ? (
+                    <div className="rounded-[12px] border border-amber-200 bg-amber-50/90 px-3 py-2">
+                      <p className="text-[11px] font-semibold text-amber-950">Temporary password (copy now)</p>
+                      <div className="mt-2 flex gap-2">
+                        <input
+                          readOnly
+                          className="w-full rounded-[10px] border border-amber-200 bg-white px-2 py-1.5 font-mono text-xs text-slate-900"
+                          value={revealedTempPassword}
+                        />
+                        <button
+                          type="button"
+                          className="shrink-0 rounded-full bg-slate-900 px-3 py-1.5 text-[11px] font-semibold text-white"
+                          onClick={() => navigator.clipboard.writeText(revealedTempPassword)}
+                        >
+                          Copy
+                        </button>
+                      </div>
+                      <button
+                        type="button"
+                        className="mt-2 text-[11px] font-semibold text-amber-950 underline"
+                        onClick={close}
+                      >
+                        Done
+                      </button>
+                    </div>
+                  ) : null}
+                  <label className="flex items-start gap-2 text-xs text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={autoGeneratePassword}
+                      onChange={(e) => {
+                        setAutoGeneratePassword(e.target.checked);
+                        resetFeedback();
+                      }}
+                      className="mt-0.5 rounded border-slate-300"
+                    />
+                    Generate secure password on server (recommended — shown once after save)
+                  </label>
+                  <label className="flex items-start gap-2 text-xs text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={passwordWelcomeSms}
+                      onChange={(e) => setPasswordWelcomeSms(e.target.checked)}
+                      className="mt-0.5 rounded border-slate-300"
+                    />
+                    Send welcome SMS with login link after creating login
+                  </label>
                   <div>
                     <label className="block text-[11px] font-semibold text-slate-700">Temporary password</label>
                     <input
@@ -329,11 +408,12 @@ export function CreateLoginDialog({ staffProfileId }: Props) {
                       autoComplete="new-password"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
-                      className="mt-1 w-full rounded-[14px] border border-slate-200 px-3 py-2 text-sm text-slate-900"
+                      disabled={autoGeneratePassword}
+                      className="mt-1 w-full rounded-[14px] border border-slate-200 px-3 py-2 text-sm text-slate-900 disabled:bg-slate-100"
                       placeholder={`${STAFF_TEMP_PASSWORD_MIN}–${STAFF_TEMP_PASSWORD_MAX} chars; digits OK`}
                       minLength={STAFF_TEMP_PASSWORD_MIN}
                       maxLength={STAFF_TEMP_PASSWORD_MAX}
-                      required
+                      required={!autoGeneratePassword}
                     />
                   </div>
                   <div>
@@ -343,14 +423,16 @@ export function CreateLoginDialog({ staffProfileId }: Props) {
                       autoComplete="new-password"
                       value={passwordConfirm}
                       onChange={(e) => setPasswordConfirm(e.target.value)}
-                      className="mt-1 w-full rounded-[14px] border border-slate-200 px-3 py-2 text-sm text-slate-900"
-                      required
+                      disabled={autoGeneratePassword}
+                      className="mt-1 w-full rounded-[14px] border border-slate-200 px-3 py-2 text-sm text-slate-900 disabled:bg-slate-100"
+                      required={!autoGeneratePassword}
                     />
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
-                      className="rounded-full border border-slate-200 px-3 py-1.5 text-[11px] font-semibold text-slate-800 hover:bg-slate-50"
+                      disabled={autoGeneratePassword}
+                      className="rounded-full border border-slate-200 px-3 py-1.5 text-[11px] font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
                       onClick={() => {
                         const g = generateNumericSix();
                         setPassword(g);
@@ -362,7 +444,8 @@ export function CreateLoginDialog({ staffProfileId }: Props) {
                     </button>
                     <button
                       type="button"
-                      className="rounded-full border border-slate-200 px-3 py-1.5 text-[11px] font-semibold text-slate-800 hover:bg-slate-50"
+                      disabled={autoGeneratePassword}
+                      className="rounded-full border border-slate-200 px-3 py-1.5 text-[11px] font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
                       onClick={() => {
                         const g = generateMixedTemp();
                         setPassword(g);
@@ -388,7 +471,7 @@ export function CreateLoginDialog({ staffProfileId }: Props) {
                     </button>
                     <button
                       type="submit"
-                      disabled={loading || !!success}
+                      disabled={loading || !!success || !!revealedTempPassword}
                       className="rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
                     >
                       {loading ? "Creating…" : "Create login"}

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { normalizeStaffLookupEmail } from "@/lib/admin/staff-auth-shared";
@@ -5,28 +6,19 @@ import { supabaseAdmin } from "@/lib/admin";
 import {
   getStaffProfile,
   isAdminOrHigher,
+  isStaffRole,
   isSuperAdmin,
   type StaffRole,
 } from "@/lib/staff-profile";
 
 import { CreateLoginDialog } from "./create-login-dialog";
 import { EditStaffDialog } from "./edit-staff-dialog";
-import { PayrollStaffLinkDialog } from "./payroll-staff-link-dialog";
-import { RepairLoginLinkButton } from "./repair-login-link-button";
-import { PermanentDeleteStaffDialog } from "./permanent-delete-staff-dialog";
 import { RemoveStaffDialog } from "./remove-staff-dialog";
 import { ResetPasswordDialog } from "./reset-password-dialog";
 
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 
-import { InboundRingGroupsCell } from "./inbound-ring-groups-cell";
-import {
-  addStaffProfile,
-  setPhoneAccess,
-  setStaffActive,
-  updateStaffRole,
-  updateStaffSmsNotifyPhone,
-} from "./actions";
+import { addStaffProfile, setStaffActive, updateStaffRole } from "./actions";
 
 type StaffRow = {
   id: string;
@@ -41,55 +33,6 @@ type StaffRow = {
   sms_notify_phone: string | null;
   applicant_id: string | null;
 };
-
-type ApplicantLite = {
-  id: string;
-  first_name: string | null;
-  last_name: string | null;
-  email: string | null;
-};
-
-async function loadPayrollContext(list: StaffRow[]) {
-  const linkedIds = [...new Set(list.map((r) => r.applicant_id).filter(Boolean))] as string[];
-  const applicantById = new Map<string, ApplicantLite>();
-  const contractApplicantIds = new Set<string>();
-  const suggestionByStaffId = new Map<string, ApplicantLite>();
-
-  if (linkedIds.length > 0) {
-    const { data: applicants } = await supabaseAdmin
-      .from("applicants")
-      .select("id, first_name, last_name, email")
-      .in("id", linkedIds);
-    for (const a of applicants ?? []) {
-      applicantById.set(a.id, a as ApplicantLite);
-    }
-    const { data: contracts } = await supabaseAdmin
-      .from("employee_contracts")
-      .select("applicant_id")
-      .in("applicant_id", linkedIds);
-    for (const c of contracts ?? []) {
-      if (typeof c.applicant_id === "string") contractApplicantIds.add(c.applicant_id);
-    }
-  }
-
-  const needsSuggestion = list.some((r) => !r.applicant_id && Boolean(r.email?.trim()));
-  if (needsSuggestion) {
-    const { data: pool } = await supabaseAdmin
-      .from("applicants")
-      .select("id, first_name, last_name, email")
-      .order("created_at", { ascending: false })
-      .limit(4000);
-    for (const row of list) {
-      if (row.applicant_id) continue;
-      const em = normalizeStaffLookupEmail(row.email);
-      if (!em) continue;
-      const hit = pool?.find((a) => normalizeStaffLookupEmail(a.email ?? "") === em);
-      if (hit) suggestionByStaffId.set(row.id, hit as ApplicantLite);
-    }
-  }
-
-  return { applicantById, contractApplicantIds, suggestionByStaffId };
-}
 
 type StaffAuthDiagnostics = {
   authUserExists: boolean;
@@ -133,22 +76,17 @@ async function loadStaffAuthDiagnostics(rows: StaffRow[]): Promise<Map<string, S
   return map;
 }
 
-function isStaffRole(value: string): value is StaffRole {
-  return (
-    value === "super_admin" ||
-    value === "admin" ||
-    value === "manager" ||
-    value === "nurse" ||
-    value === "don"
-  );
-}
-
 function roleLabel(role: StaffRole): string {
   if (role === "super_admin") return "Super admin";
   if (role === "admin") return "Admin";
   if (role === "manager") return "Manager";
   if (role === "nurse") return "Nurse";
   if (role === "don") return "DON";
+  if (role === "recruiter") return "Recruiter";
+  if (role === "billing") return "Billing";
+  if (role === "dispatch") return "Dispatch";
+  if (role === "credentialing") return "Credentialing";
+  if (role === "read_only") return "Read-only";
   return role;
 }
 
@@ -227,26 +165,6 @@ export default async function AdminStaffPage({
     const role = o.role;
     return typeof role === "string" && isStaffRole(role);
   }) as StaffRow[];
-
-  const payrollCtx = await loadPayrollContext(list);
-
-  const linkedAuthIds = [...new Set(list.map((r) => r.user_id).filter(Boolean))] as string[];
-  const membershipsByUserId = new Map<string, string[]>();
-  if (linkedAuthIds.length > 0) {
-    const { data: memRows } = await supabaseAdmin
-      .from("inbound_ring_group_memberships")
-      .select("user_id, ring_group_key")
-      .in("user_id", linkedAuthIds)
-      .eq("is_enabled", true);
-    for (const m of memRows ?? []) {
-      const uid = typeof m.user_id === "string" ? m.user_id : null;
-      const gk = typeof m.ring_group_key === "string" ? m.ring_group_key : null;
-      if (!uid || !gk) continue;
-      const arr = membershipsByUserId.get(uid) ?? [];
-      arr.push(gk);
-      membershipsByUserId.set(uid, arr);
-    }
-  }
 
   const sp = (await searchParams) ?? {};
   const errRaw = sp.err;
@@ -336,6 +254,11 @@ export default async function AdminStaffPage({
                   <option value="manager">Manager</option>
                   <option value="don">DON</option>
                   <option value="nurse">Nurse</option>
+                  <option value="recruiter">Recruiter</option>
+                  <option value="billing">Billing</option>
+                  <option value="dispatch">Dispatch</option>
+                  <option value="credentialing">Credentialing</option>
+                  <option value="read_only">Read-only</option>
                   {canAssignSuperAdmin ? <option value="super_admin">Super admin</option> : null}
                 </select>
               </label>
@@ -350,8 +273,13 @@ export default async function AdminStaffPage({
             </form>
           </div>
 
-          <div className="mt-6 overflow-x-auto rounded-[24px] border border-slate-200/90 bg-white shadow-sm">
-            <table className="w-full min-w-[1780px] text-left text-xs">
+          <p className="mt-4 text-xs text-slate-600">
+            Open a staff member for payroll linking, ring groups, page permissions, and full phone policy. This table
+            stays lightweight for daily scanning.
+          </p>
+
+          <div className="mt-4 overflow-x-auto rounded-[24px] border border-slate-200/90 bg-white shadow-sm">
+            <table className="w-full min-w-[720px] text-left text-xs">
               <thead>
                 <tr className="border-b border-indigo-100/80 bg-slate-50/90 text-slate-600">
                   <th className="whitespace-nowrap px-4 py-3 font-semibold">Name</th>
@@ -359,20 +287,14 @@ export default async function AdminStaffPage({
                   <th className="whitespace-nowrap px-4 py-3 font-semibold">Role</th>
                   <th className="whitespace-nowrap px-4 py-3 font-semibold">Active</th>
                   <th className="whitespace-nowrap px-4 py-3 font-semibold">Login</th>
-                  <th className="whitespace-nowrap px-4 py-3 font-semibold">Auth user</th>
-                  <th className="whitespace-nowrap px-4 py-3 font-semibold">Email OK</th>
-                  <th className="whitespace-nowrap px-4 py-3 font-semibold">Link OK</th>
                   <th className="whitespace-nowrap px-4 py-3 font-semibold">Phone</th>
-                  <th className="whitespace-nowrap px-4 py-3 font-semibold">Inbound ring</th>
-                  <th className="whitespace-nowrap px-4 py-3 font-semibold">Dispatch SMS #</th>
-                  <th className="min-w-[200px] whitespace-nowrap px-4 py-3 font-semibold">Payroll</th>
-                  <th className="whitespace-nowrap px-4 py-3 font-semibold">Actions</th>
+                  <th className="whitespace-nowrap px-4 py-3 font-semibold">Quick actions</th>
                 </tr>
               </thead>
               <tbody>
                 {list.length === 0 ? (
                   <tr>
-                    <td colSpan={13} className="px-4 py-6 text-center text-sm text-slate-500">
+                    <td colSpan={7} className="px-4 py-6 text-center text-sm text-slate-500">
                       No staff rows yet.
                     </td>
                   </tr>
@@ -384,25 +306,18 @@ export default async function AdminStaffPage({
                       (row.full_name ?? "").trim() ||
                       (row.email ?? "").split("@")[0] ||
                       "—";
-                    const linkedApplicant = row.applicant_id
-                      ? payrollCtx.applicantById.get(row.applicant_id)
-                      : undefined;
-                    const linkedName =
-                      linkedApplicant != null
-                        ? `${linkedApplicant.first_name ?? ""} ${linkedApplicant.last_name ?? ""}`.trim() || null
-                        : null;
-                    const linkedEmail = linkedApplicant?.email ?? null;
-                    const hasContract =
-                      Boolean(row.applicant_id) && payrollCtx.contractApplicantIds.has(row.applicant_id!);
-                    const payrollReady = Boolean(row.applicant_id) && hasContract;
-                    const sugg = payrollCtx.suggestionByStaffId.get(row.id);
-                    const suggestedName =
-                      sugg != null
-                        ? `${sugg.first_name ?? ""} ${sugg.last_name ?? ""}`.trim() || null
-                        : null;
+                    const phoneOk = hasLogin && row.phone_access_enabled;
+                    const linkIssue = hasLogin && diag && (!diag.authUserExists || !diag.staffLinkOk || !diag.emailConfirmed);
                     return (
                       <tr key={row.id} className="border-b border-slate-100 last:border-0">
-                        <td className="px-4 py-3 font-medium text-slate-900">{name}</td>
+                        <td className="px-4 py-3 font-medium text-slate-900">
+                          <Link
+                            href={`/admin/staff/${row.id}`}
+                            className="text-indigo-800 underline decoration-indigo-200 underline-offset-2 hover:text-indigo-950"
+                          >
+                            {name}
+                          </Link>
+                        </td>
                         <td className="max-w-[200px] truncate px-4 py-3 text-slate-700">{row.email ?? "—"}</td>
                         <td className="px-4 py-3">
                           {!canAssignSuperAdmin && row.role === "super_admin" ? (
@@ -413,19 +328,24 @@ export default async function AdminStaffPage({
                               <select
                                 name="role"
                                 defaultValue={row.role}
-                                className="max-w-[140px] rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-800"
+                                className="max-w-[130px] rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-800"
                               >
                                 <option value="admin">Admin</option>
                                 <option value="manager">Manager</option>
                                 <option value="don">DON</option>
                                 <option value="nurse">Nurse</option>
+                                <option value="recruiter">Recruiter</option>
+                                <option value="billing">Billing</option>
+                                <option value="dispatch">Dispatch</option>
+                                <option value="credentialing">Credentialing</option>
+                                <option value="read_only">Read-only</option>
                                 {canAssignSuperAdmin ? <option value="super_admin">Super admin</option> : null}
                               </select>
                               <button
                                 type="submit"
                                 className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-800 hover:bg-slate-100"
                               >
-                                Save role
+                                Save
                               </button>
                             </form>
                           )}
@@ -447,91 +367,33 @@ export default async function AdminStaffPage({
                           </form>
                         </td>
                         <td className="whitespace-nowrap px-4 py-3 text-slate-700">
-                          {hasLogin ? "Yes" : "No"}
-                        </td>
-                        <td className="whitespace-nowrap px-4 py-3 text-slate-700">
-                          {!hasLogin ? "—" : diag?.authUserExists ? "Yes" : "No"}
-                        </td>
-                        <td className="whitespace-nowrap px-4 py-3 text-slate-700">
-                          {!hasLogin ? "—" : diag?.authUserExists ? (diag.emailConfirmed ? "Yes" : "No") : "—"}
-                        </td>
-                        <td className="whitespace-nowrap px-4 py-3 text-slate-700">
-                          {!hasLogin ? "No" : diag?.staffLinkOk ? "Yes" : "No"}
-                        </td>
-                        <td className="px-4 py-3 text-slate-700">
                           {hasLogin ? (
-                            <form action={setPhoneAccess} className="inline">
-                              <input type="hidden" name="staffProfileId" value={row.id} />
-                              <input type="hidden" name="enabled" value={row.phone_access_enabled ? "0" : "1"} />
-                              <button
-                                type="submit"
-                                className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${
-                                  row.phone_access_enabled
-                                    ? "bg-sky-100 text-sky-900 hover:bg-sky-200"
-                                    : "bg-slate-200 text-slate-700 hover:bg-slate-300"
-                                }`}
-                              >
-                                {row.phone_access_enabled ? "Enabled" : "Disabled"}
-                              </button>
-                            </form>
+                            <span className={linkIssue ? "font-semibold text-amber-800" : ""}>
+                              Linked{linkIssue ? " · check" : ""}
+                            </span>
                           ) : (
-                            <span className="text-slate-400">—</span>
+                            "No"
                           )}
                         </td>
-                        <td className="align-top px-4 py-3 text-slate-700">
-                          <InboundRingGroupsCell
-                            staffProfileId={row.id}
-                            userId={row.user_id}
-                            selectedGroups={row.user_id ? membershipsByUserId.get(row.user_id) ?? [] : []}
-                            primaryGroup={row.inbound_ring_primary_group_key}
-                          />
-                        </td>
-                        <td className="max-w-[200px] px-4 py-3 text-slate-700">
-                          <form action={updateStaffSmsNotifyPhone} className="flex flex-col gap-1">
-                            <input type="hidden" name="staffProfileId" value={row.id} />
-                            <input
-                              name="smsNotifyPhone"
-                              type="tel"
-                              defaultValue={row.sms_notify_phone ?? ""}
-                              placeholder="Mobile for dispatch SMS"
-                              className="w-full min-w-[140px] rounded-[12px] border border-slate-200 px-2 py-1 text-[11px] text-slate-900"
-                            />
-                            <button
-                              type="submit"
-                              className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] font-semibold text-slate-800 hover:bg-slate-100"
-                            >
-                              Save #
-                            </button>
-                          </form>
-                        </td>
-                        <td className="align-top px-4 py-3 text-slate-700">
-                          <PayrollStaffLinkDialog
-                            staffProfileId={row.id}
-                            staffEmail={(row.email ?? "").trim()}
-                            applicantId={row.applicant_id}
-                            linkedName={linkedName}
-                            linkedEmail={linkedEmail}
-                            hasContract={hasContract}
-                            payrollReady={payrollReady}
-                            suggestedApplicantId={sugg?.id ?? null}
-                            suggestedName={suggestedName}
-                            suggestedEmail={sugg?.email ?? null}
-                          />
+                        <td className="whitespace-nowrap px-4 py-3 text-slate-700">
+                          {!hasLogin ? "—" : phoneOk ? "On" : "Off"}
                         </td>
                         <td className="px-4 py-3">
-                          <div className="flex flex-col gap-2">
+                          <div className="flex flex-wrap gap-1.5">
+                            <Link
+                              href={`/admin/staff/${row.id}`}
+                              className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-800 hover:bg-slate-50"
+                            >
+                              Open
+                            </Link>
+                            {!hasLogin ? <CreateLoginDialog staffProfileId={row.id} /> : null}
+                            {hasLogin ? <ResetPasswordDialog staffProfileId={row.id} /> : null}
                             <EditStaffDialog
                               staffProfileId={row.id}
                               initialFullName={(row.full_name ?? "").trim()}
                               initialEmail={(row.email ?? "").trim()}
                             />
-                            {!hasLogin ? <CreateLoginDialog staffProfileId={row.id} /> : null}
-                            {hasLogin ? <ResetPasswordDialog staffProfileId={row.id} /> : null}
-                            <RepairLoginLinkButton staffProfileId={row.id} />
                             <RemoveStaffDialog staffProfileId={row.id} hasLogin={hasLogin} label={name} />
-                            {canAssignSuperAdmin && hasLogin ? (
-                              <PermanentDeleteStaffDialog staffProfileId={row.id} label={name} />
-                            ) : null}
                           </div>
                         </td>
                       </tr>

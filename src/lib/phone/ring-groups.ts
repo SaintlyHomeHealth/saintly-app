@@ -89,7 +89,7 @@ export async function resolveRingGroupUserIdsFromDb(groupId: RingGroupId): Promi
 
   const { data: profiles, error: pErr } = await supabaseAdmin
     .from("staff_profiles")
-    .select("user_id, role, is_active, phone_access_enabled, inbound_ring_enabled")
+    .select("user_id, role, is_active, phone_access_enabled, inbound_ring_enabled, phone_calling_profile")
     .in("user_id", userIds);
 
   if (pErr) {
@@ -117,6 +117,11 @@ export async function resolveRingGroupUserIdsFromDb(groupId: RingGroupId): Promi
         role: sp.role as StaffProfile["role"],
         is_active: sp.is_active === true,
         phone_access_enabled: sp.phone_access_enabled === true,
+        phone_calling_profile:
+          typeof (sp as { phone_calling_profile?: string }).phone_calling_profile === "string"
+            ? ((sp as { phone_calling_profile: StaffProfile["phone_calling_profile"] }).phone_calling_profile ??
+              "inbound_outbound")
+            : "inbound_outbound",
       })
     ) {
       continue;

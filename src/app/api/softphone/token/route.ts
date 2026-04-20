@@ -2,7 +2,12 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import twilio from "twilio";
 
-import { canAccessWorkspacePhone, getStaffProfile, getStaffProfileUsingSupabaseUserJwt } from "@/lib/staff-profile";
+import {
+  canAccessWorkspacePhone,
+  getStaffProfile,
+  getStaffProfileUsingSupabaseUserJwt,
+  staffAllowsInboundSoftphone,
+} from "@/lib/staff-profile";
 import { computeIdentityInInboundRingListForStaff } from "@/lib/softphone/inbound-staff-ids";
 import { softphoneTwilioClientIdentity } from "@/lib/softphone/twilio-client-identity";
 
@@ -52,6 +57,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  if (staff.softphone_web_enabled === false) {
+    return NextResponse.json({ error: "Web softphone is disabled for this staff member." }, { status: 403 });
+  }
+
   const accountSid = process.env.TWILIO_ACCOUNT_SID?.trim();
   const apiKeySid = process.env.TWILIO_VOICE_API_KEY_SID?.trim();
   const apiKeySecret = process.env.TWILIO_VOICE_API_KEY_SECRET?.trim();
@@ -91,10 +100,11 @@ export async function GET(request: NextRequest) {
     ttl: 3600,
   });
 
+  const allowIncoming = staffAllowsInboundSoftphone(staff);
   const voiceGrant = new VoiceGrant({
     outgoingApplicationSid: twimlAppSid,
-    incomingAllow: true,
-    ...(pushCredentialSid ? { pushCredentialSid } : {}),
+    incomingAllow: allowIncoming,
+    ...(pushCredentialSid && allowIncoming ? { pushCredentialSid } : {}),
   });
   token.addGrant(voiceGrant);
 

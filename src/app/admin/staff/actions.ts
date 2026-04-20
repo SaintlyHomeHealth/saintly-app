@@ -15,19 +15,13 @@ import {
   getStaffProfile,
   isAdminOrHigher,
   isSuperAdmin,
+  isStaffRole,
+  type PhoneAssignmentMode,
+  type PhoneCallingProfile,
   type StaffRole,
 } from "@/lib/staff-profile";
 import { isInboundRingGroupKey, type InboundRingGroupKey } from "@/lib/phone/ring-groups";
-
-function isStaffRole(value: string): value is StaffRole {
-  return (
-    value === "super_admin" ||
-    value === "admin" ||
-    value === "manager" ||
-    value === "nurse" ||
-    value === "don"
-  );
-}
+import { defaultPagesForPreset, isStaffPagePreset, STAFF_PAGE_KEYS } from "@/lib/staff-page-access";
 
 export async function addStaffProfile(formData: FormData) {
   const actor = await getStaffProfile();
@@ -113,7 +107,8 @@ export async function setPhoneAccess(formData: FormData) {
   });
 
   revalidatePath("/admin/staff");
-  redirect("/admin/staff?ok=phone");
+  revalidatePath(`/admin/staff/${id}`);
+  redirect(`/admin/staff/${id}?ok=phone`);
 }
 
 /**
@@ -213,7 +208,8 @@ export async function updateInboundRingGroups(formData: FormData) {
   });
 
   revalidatePath("/admin/staff");
-  redirect("/admin/staff?ok=ring_groups");
+  revalidatePath(`/admin/staff/${id}`);
+  redirect(`/admin/staff/${id}?ok=ring_groups`);
 }
 
 export async function setStaffActive(formData: FormData) {
@@ -373,7 +369,8 @@ export async function updateStaffSmsNotifyPhone(formData: FormData) {
   });
 
   revalidatePath("/admin/staff");
-  redirect("/admin/staff?ok=sms");
+  revalidatePath(`/admin/staff/${id}`);
+  redirect(`/admin/staff/${id}?ok=sms`);
 }
 
 function looksLikeWorkEmail(value: string): boolean {
@@ -473,7 +470,8 @@ export async function updateStaffProfileIdentity(formData: FormData) {
   });
 
   revalidatePath("/admin/staff");
-  redirect("/admin/staff?ok=profile");
+  revalidatePath(`/admin/staff/${id}`);
+  redirect(`/admin/staff/${id}?ok=profile`);
 }
 
 /**
@@ -626,7 +624,8 @@ export async function setStaffApplicantLink(formData: FormData) {
   });
 
   revalidatePath("/admin/staff");
-  redirect("/admin/staff?ok=payroll_link");
+  revalidatePath(`/admin/staff/${staffProfileId}`);
+  redirect(`/admin/staff/${staffProfileId}?ok=payroll_link`);
 }
 
 export async function clearStaffApplicantLink(formData: FormData) {
@@ -658,7 +657,8 @@ export async function clearStaffApplicantLink(formData: FormData) {
   });
 
   revalidatePath("/admin/staff");
-  redirect("/admin/staff?ok=payroll_link_clear");
+  revalidatePath(`/admin/staff/${staffProfileId}`);
+  redirect(`/admin/staff/${staffProfileId}?ok=payroll_link_clear`);
 }
 
 /**
@@ -748,4 +748,182 @@ export async function permanentlyDeleteStaffUser(formData: FormData) {
 
   revalidatePath("/admin/staff");
   redirect("/admin/staff?ok=permanent_deleted");
+}
+
+function revalidateStaffViews(staffProfileId: string) {
+  revalidatePath("/admin/staff");
+  revalidatePath(`/admin/staff/${staffProfileId}`);
+}
+
+export async function updateStaffAccessToggles(formData: FormData) {
+  const actor = await getStaffProfile();
+  if (!actor || !isAdminOrHigher(actor)) {
+    redirect("/admin");
+  }
+
+  const id = String(formData.get("staffProfileId") ?? "").trim();
+  if (!id) redirect("/admin/staff?err=invalid");
+
+  const requirePwd = formData.has("requirePasswordChange");
+
+  const { data: cur } = await supabaseAdmin
+    .from("staff_profiles")
+    .select("role, admin_shell_access")
+    .eq("id", id)
+    .maybeSingle();
+
+  let adminShell = cur?.admin_shell_access !== false;
+  if (cur?.role === "nurse") {
+    adminShell = formData.has("adminShellAccess");
+  }
+
+  const { error } = await supabaseAdmin
+    .from("staff_profiles")
+    .update({
+      admin_shell_access: adminShell,
+      require_password_change: requirePwd,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", id);
+
+  if (error) {
+    console.warn("[staff] updateStaffAccessToggles:", error.message);
+    redirect(`/admin/staff/${id}?err=update`);
+  }
+
+  await insertAuditLog({
+    action: "staff.access_toggles_update",
+    entityType: "staff_profiles",
+    entityId: id,
+    metadata: { admin_shell_access: adminShell, require_password_change: requirePwd },
+  });
+
+  revalidateStaffViews(id);
+  redirect(`/admin/staff/${id}?ok=access`);
+}
+
+export async function updateStaffPageAccess(formData: FormData) {
+  const actor = await getStaffProfile();
+  if (!actor || !isAdminOrHigher(actor)) {
+    redirect("/admin");
+  }
+
+  const id = String(formData.get("staffProfileId") ?? "").trim();
+  const presetRaw = String(formData.get("pageAccessPreset") ?? "").trim();
+  if (!id || !presetRaw) redirect("/admin/staff?err=invalid");
+
+  const preset = isStaffPagePreset(presetRaw) ? presetRaw : "custom";
+
+  let page_permissions: Record<string, boolean> = {};
+  if (preset === "custom") {
+    for (const key of STAFF_PAGE_KEYS) {
+      page_permissions[key] = formData.has(`access_${key}`);
+    }
+  } else {
+    const base = defaultPagesForPreset(preset);
+    for (const key of STAFF_PAGE_KEYS) {
+      const on = formData.has(`access_${key}`);
+      if (on !== base[key]) {
+        page_permissions[key] = on;
+      }
+    }
+  }
+
+  const { error } = await supabaseAdmin
+    .from("staff_profiles")
+    .update({
+      page_access_preset: preset,
+      page_permissions,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", id);
+
+  if (error) {
+    console.warn("[staff] updateStaffPageAccess:", error.message);
+    redirect(`/admin/staff/${id}?err=update`);
+  }
+
+  await insertAuditLog({
+    action: "staff.page_access_update",
+    entityType: "staff_profiles",
+    entityId: id,
+    metadata: { preset, override_count: Object.keys(page_permissions).length },
+  });
+
+  revalidateStaffViews(id);
+  redirect(`/admin/staff/${id}?ok=pages`);
+}
+
+export async function updateStaffPhonePolicy(formData: FormData) {
+  const actor = await getStaffProfile();
+  if (!actor || !isAdminOrHigher(actor)) {
+    redirect("/admin");
+  }
+
+  const id = String(formData.get("staffProfileId") ?? "").trim();
+  if (!id) redirect("/admin/staff?err=invalid");
+
+  const modeRaw = String(formData.get("phoneAssignmentMode") ?? "").trim();
+  const phone_assignment_mode: PhoneAssignmentMode =
+    modeRaw === "dedicated" || modeRaw === "shared" || modeRaw === "organization_default"
+      ? modeRaw
+      : "organization_default";
+
+  const dedicatedRaw = String(formData.get("dedicatedOutboundE164") ?? "").trim();
+  const sharedRaw = String(formData.get("sharedLineE164") ?? "").trim();
+
+  const callRaw = String(formData.get("phoneCallingProfile") ?? "").trim();
+  const phone_calling_profile: PhoneCallingProfile =
+    callRaw === "outbound_only" || callRaw === "inbound_disabled" || callRaw === "inbound_outbound"
+      ? callRaw
+      : "inbound_outbound";
+
+  const sms_messaging_enabled = formData.has("smsMessagingEnabled");
+  const voicemail_access_enabled = formData.has("voicemailAccessEnabled");
+  const softphone_mobile_enabled = formData.has("softphoneMobileEnabled");
+  const softphone_web_enabled = formData.has("softphoneWebEnabled");
+  const push_notifications_enabled = formData.has("pushNotificationsEnabled");
+  const call_recording_enabled = formData.has("callRecordingEnabled");
+
+  const shared_line_permissions: Record<string, boolean> = {
+    full_access: formData.has("shared_full_access"),
+    outbound_only: formData.has("shared_outbound_only"),
+    receive_voice: formData.has("shared_receive_voice"),
+    sms: formData.has("shared_sms"),
+    voicemail: formData.has("shared_voicemail"),
+    call_history: formData.has("shared_call_history"),
+  };
+
+  const { error } = await supabaseAdmin
+    .from("staff_profiles")
+    .update({
+      phone_assignment_mode,
+      dedicated_outbound_e164: dedicatedRaw.length > 0 ? dedicatedRaw : null,
+      shared_line_e164: sharedRaw.length > 0 ? sharedRaw : null,
+      phone_calling_profile,
+      sms_messaging_enabled,
+      voicemail_access_enabled,
+      shared_line_permissions,
+      softphone_mobile_enabled,
+      softphone_web_enabled,
+      push_notifications_enabled,
+      call_recording_enabled,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", id);
+
+  if (error) {
+    console.warn("[staff] updateStaffPhonePolicy:", error.message);
+    redirect(`/admin/staff/${id}?err=update`);
+  }
+
+  await insertAuditLog({
+    action: "staff.phone_policy_update",
+    entityType: "staff_profiles",
+    entityId: id,
+    metadata: { phone_assignment_mode, phone_calling_profile },
+  });
+
+  revalidateStaffViews(id);
+  redirect(`/admin/staff/${id}?ok=phone`);
 }

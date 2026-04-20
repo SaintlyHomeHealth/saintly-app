@@ -7,7 +7,13 @@ import {
   syncStaffProfileWithAuthUser,
   type StaffRowForAuthSync,
 } from "@/lib/admin/staff-auth-link";
-import { STAFF_TEMP_PASSWORD_MAX, STAFF_TEMP_PASSWORD_MIN } from "@/lib/admin/staff-auth-shared";
+import {
+  generateServerTemporaryPassword,
+  STAFF_TEMP_PASSWORD_MAX,
+  STAFF_TEMP_PASSWORD_MIN,
+} from "@/lib/admin/staff-auth-shared";
+import { sendSms } from "@/lib/twilio/send-sms";
+import { normalizePhone } from "@/lib/phone/us-phone-format";
 import { insertAuditLog } from "@/lib/audit-log";
 import { supabaseAdmin } from "@/lib/admin";
 import { getStaffProfile, isAdminOrHigher } from "@/lib/staff-profile";
@@ -108,6 +114,8 @@ export async function POST(req: Request) {
     mode?: unknown;
     password?: unknown;
     passwordConfirm?: unknown;
+    autoGeneratePassword?: unknown;
+    sendWelcomeSms?: unknown;
   };
   try {
     body = await req.json();
@@ -127,7 +135,7 @@ export async function POST(req: Request) {
   const { data: rowRaw, error: loadErr } = await supabaseAdmin
     .from("staff_profiles")
     .select(
-      "id, user_id, email, full_name, role, is_active, phone_access_enabled, inbound_ring_enabled"
+      "id, user_id, email, full_name, role, is_active, phone_access_enabled, inbound_ring_enabled, sms_notify_phone"
     )
     .eq("id", staffProfileId)
     .maybeSingle();
@@ -156,8 +164,14 @@ export async function POST(req: Request) {
   const redirectTo = `${appOrigin()}/auth/callback?next=${encodeURIComponent("/admin")}`;
 
   if (mode === "temporary_password") {
-    const password = typeof body.password === "string" ? body.password : "";
-    const passwordConfirm = typeof body.passwordConfirm === "string" ? body.passwordConfirm : "";
+    const autoGen = body.autoGeneratePassword === true;
+    let password = typeof body.password === "string" ? body.password : "";
+    let passwordConfirm = typeof body.passwordConfirm === "string" ? body.passwordConfirm : "";
+
+    if (autoGen || password.trim() === "") {
+      password = generateServerTemporaryPassword();
+      passwordConfirm = password;
+    }
 
     if (password.length < STAFF_TEMP_PASSWORD_MIN || password.length > STAFF_TEMP_PASSWORD_MAX) {
       return NextResponse.json(
@@ -234,6 +248,11 @@ export async function POST(req: Request) {
       );
     }
 
+    await supabaseAdmin
+      .from("staff_profiles")
+      .update({ require_password_change: true, updated_at: new Date().toISOString() })
+      .eq("id", staffProfileId);
+
     await insertAuditLog({
       action: "staff.create_login",
       entityType: "staff_profiles",
@@ -241,8 +260,29 @@ export async function POST(req: Request) {
       metadata: { email: sync.authEmail, method: "temporary_password", outcome },
     });
 
+    const welcomeSms = body.sendWelcomeSms === true;
+    if (welcomeSms) {
+      const rawPhone = (rowRaw as { sms_notify_phone?: string | null }).sms_notify_phone;
+      const digits = typeof rawPhone === "string" ? normalizePhone(rawPhone) : "";
+      const loginUrl = `${appOrigin()}/login`;
+      if (digits.length >= 10) {
+        const toE164 = digits.length === 10 ? `+1${digits}` : `+${digits}`;
+        const bodyText = `Saintly Home Health: your login is ready. Sign in: ${loginUrl}`;
+        const sent = await sendSms({ to: toE164, body: bodyText });
+        if (!sent.ok) {
+          console.warn("[create-login] welcome sms:", sent.error);
+        }
+      }
+    }
+
     revalidatePath("/admin/staff");
-    return NextResponse.json({ ok: true, mode: "temporary_password", outcome });
+    revalidatePath(`/admin/staff/${staffProfileId}`);
+    return NextResponse.json({
+      ok: true,
+      mode: "temporary_password",
+      outcome,
+      temporaryPassword: password,
+    });
   }
 
   const resolved = await resolveInviteUserId(email, metaName, redirectTo);
@@ -268,7 +308,23 @@ export async function POST(req: Request) {
     metadata: { email: sync.authEmail, method: "invite", outcome: "invite_linked" },
   });
 
+  const welcomeSmsInvite = body.sendWelcomeSms === true;
+  if (welcomeSmsInvite) {
+    const rawPhone = (rowRaw as { sms_notify_phone?: string | null }).sms_notify_phone;
+    const digits = typeof rawPhone === "string" ? normalizePhone(rawPhone) : "";
+    const loginUrl = `${appOrigin()}/login`;
+    if (digits.length >= 10) {
+      const toE164 = digits.length === 10 ? `+1${digits}` : `+${digits}`;
+      const bodyText = `Saintly Home Health: check your email for an invite link. You can also sign in here: ${loginUrl}`;
+      const sent = await sendSms({ to: toE164, body: bodyText });
+      if (!sent.ok) {
+        console.warn("[create-login] welcome sms (invite):", sent.error);
+      }
+    }
+  }
+
   revalidatePath("/admin/staff");
+  revalidatePath(`/admin/staff/${staffProfileId}`);
   return NextResponse.json({
     ok: true,
     mode: "invite",

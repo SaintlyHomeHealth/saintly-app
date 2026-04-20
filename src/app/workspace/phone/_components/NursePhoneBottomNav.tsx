@@ -142,12 +142,18 @@ function isActive(pathname: string, match: RegExp): boolean {
 type NavProps = {
   /** Managers/admins: show Leads. Hidden for nurses / workspace-only staff. */
   showLeadsNav?: boolean;
+  /** When set, only these workspace paths appear in the bottom bar (Staff Access page permissions). */
+  allowedTabHrefs?: string[] | null;
 };
 
-export function NursePhoneBottomNav({ showLeadsNav = true }: NavProps) {
+export function NursePhoneBottomNav({ showLeadsNav = true, allowedTabHrefs = null }: NavProps) {
   const pathname = usePathname() ?? "";
   const { status } = useWorkspaceSoftphone();
-  const tabs = showLeadsNav ? [...tabsBase.slice(0, 6), leadsTab, ...tabsBase.slice(6)] : tabsBase;
+  let tabs = showLeadsNav ? [...tabsBase.slice(0, 6), leadsTab, ...tabsBase.slice(6)] : tabsBase;
+  if (allowedTabHrefs && allowedTabHrefs.length > 0) {
+    const allow = new Set(allowedTabHrefs);
+    tabs = tabs.filter((t) => allow.has(t.href));
+  }
 
   /** ActiveCallBar is fixed above the nav; hiding nav during a call avoids double-stack + wrong safe-area math on iPhone. */
   if (status === "in_call") {

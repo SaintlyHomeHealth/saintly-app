@@ -1,7 +1,11 @@
 import { revalidatePath } from "next/cache";
 import { NextResponse } from "next/server";
 
-import { STAFF_TEMP_PASSWORD_MAX, STAFF_TEMP_PASSWORD_MIN } from "@/lib/admin/staff-auth-shared";
+import {
+  generateServerTemporaryPassword,
+  STAFF_TEMP_PASSWORD_MAX,
+  STAFF_TEMP_PASSWORD_MIN,
+} from "@/lib/admin/staff-auth-shared";
 import { insertAuditLog } from "@/lib/audit-log";
 import { supabaseAdmin } from "@/lib/admin";
 import { getStaffProfile, isAdminOrHigher } from "@/lib/staff-profile";
@@ -16,6 +20,7 @@ export async function POST(req: Request) {
     staffProfileId?: unknown;
     password?: unknown;
     passwordConfirm?: unknown;
+    autoGenerate?: unknown;
   };
   try {
     body = await req.json();
@@ -29,8 +34,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "missing_staff_profile_id" }, { status: 400 });
   }
 
-  const password = typeof body.password === "string" ? body.password : "";
-  const passwordConfirm = typeof body.passwordConfirm === "string" ? body.passwordConfirm : "";
+  const autoGenerate = body.autoGenerate === true;
+  let password = typeof body.password === "string" ? body.password : "";
+  let passwordConfirm = typeof body.passwordConfirm === "string" ? body.passwordConfirm : "";
+
+  if (autoGenerate || password.trim() === "") {
+    password = generateServerTemporaryPassword();
+    passwordConfirm = password;
+  }
 
   if (password.length < STAFF_TEMP_PASSWORD_MIN || password.length > STAFF_TEMP_PASSWORD_MAX) {
     return NextResponse.json({ ok: false, error: "password_requirements" }, { status: 400 });
@@ -67,13 +78,23 @@ export async function POST(req: Request) {
     );
   }
 
+  await supabaseAdmin
+    .from("staff_profiles")
+    .update({ require_password_change: true, updated_at: new Date().toISOString() })
+    .eq("id", staffProfileId);
+
   await insertAuditLog({
     action: "staff.reset_password",
     entityType: "staff_profiles",
     entityId: staffProfileId,
-    metadata: {},
+    metadata: { auto_generated: autoGenerate },
   });
 
   revalidatePath("/admin/staff");
-  return NextResponse.json({ ok: true, outcome: "password_reset_success" });
+  revalidatePath(`/admin/staff/${staffProfileId}`);
+  return NextResponse.json({
+    ok: true,
+    outcome: "password_reset_success",
+    temporaryPassword: password,
+  });
 }

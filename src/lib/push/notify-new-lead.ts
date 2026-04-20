@@ -23,6 +23,22 @@ function staffProfileStubForRole(role: string): StaffProfile {
     phone_access_enabled: false,
     inbound_ring_enabled: false,
     applicant_id: null,
+    sms_notify_phone: null,
+    admin_shell_access: true,
+    page_access_preset: null,
+    page_permissions: {},
+    require_password_change: false,
+    phone_assignment_mode: "organization_default",
+    dedicated_outbound_e164: null,
+    shared_line_e164: null,
+    phone_calling_profile: "inbound_outbound",
+    sms_messaging_enabled: true,
+    voicemail_access_enabled: true,
+    shared_line_permissions: {},
+    softphone_mobile_enabled: true,
+    softphone_web_enabled: true,
+    push_notifications_enabled: true,
+    call_recording_enabled: false,
   };
 }
 

@@ -1,8 +1,8 @@
+import { adminNavIdToPageKey, resolveEffectivePageAccess } from "@/lib/staff-page-access";
 import type { StaffProfile } from "@/lib/staff-profile";
 import {
   canAccessWorkspacePhone,
   isAdminOrHigher,
-  isManagerOrHigher,
   isPhoneWorkspaceUser,
 } from "@/lib/staff-profile";
 
@@ -48,13 +48,28 @@ export type AdminNavItemResolved = {
   disabledReason?: string;
 };
 
+function gatePage(
+  staff: StaffProfile,
+  id: AdminNavItemId,
+  access: ReturnType<typeof resolveEffectivePageAccess>,
+  baseDisabled: boolean,
+  baseReason: string
+): { disabled: boolean; disabledReason?: string } {
+  const key = adminNavIdToPageKey(id);
+  if (key && access[key] !== true) {
+    return { disabled: true, disabledReason: "Not enabled for this staff member in Staff Access" };
+  }
+  if (baseDisabled) return { disabled: true, disabledReason: baseReason };
+  return { disabled: false };
+}
+
 /**
  * Builds the top admin nav for the signed-in staff member. Disabled items are shown muted with a title tooltip.
  */
 export function buildAdminNavItems(staff: StaffProfile | null): AdminNavItemResolved[] {
   if (!staff) return [];
 
-  const mgr = isManagerOrHigher(staff);
+  const access = resolveEffectivePageAccess(staff);
   const admin = isAdminOrHigher(staff);
   const phone = isPhoneWorkspaceUser(staff);
   const workspacePhone = canAccessWorkspacePhone(staff);
@@ -63,87 +78,94 @@ export function buildAdminNavItems(staff: StaffProfile | null): AdminNavItemReso
   const patientsHref = nurse ? "/workspace/phone/patients" : "/admin/crm/patients";
   const callLogHref = nurse ? "/workspace/phone" : "/admin/phone";
 
-  const managerOnly = !mgr;
-  const patientsDisabled = managerOnly && !nurse;
+  const g = (id: AdminNavItemId, base: boolean, reason: string) => gatePage(staff, id, access, base, reason);
 
   return [
-    { id: "command_center", label: ADMIN_NAV_LABELS.commandCenter, href: "/admin", disabled: false },
+    {
+      id: "command_center",
+      label: ADMIN_NAV_LABELS.commandCenter,
+      href: "/admin",
+      ...g("command_center", false, ""),
+    },
     {
       id: "contacts",
       label: ADMIN_NAV_LABELS.contacts,
       href: "/admin/crm/contacts",
-      disabled: managerOnly,
-      disabledReason: "Manager access required",
+      ...g("contacts", false, ""),
     },
     {
       id: "leads",
       label: ADMIN_NAV_LABELS.leads,
       href: "/admin/crm/leads",
-      disabled: managerOnly,
-      disabledReason: "Manager access required",
+      ...g("leads", false, ""),
     },
     {
       id: "recruiting",
       label: ADMIN_NAV_LABELS.recruiting,
       href: "/admin/recruiting",
-      disabled: managerOnly,
-      disabledReason: "Manager access required",
+      ...g("recruiting", false, ""),
     },
     {
       id: "facilities",
       label: ADMIN_NAV_LABELS.facilities,
       href: "/admin/facilities",
-      disabled: managerOnly,
-      disabledReason: "Manager access required",
+      ...g("facilities", false, ""),
     },
     {
       id: "patients",
       label: ADMIN_NAV_LABELS.patients,
       href: patientsHref,
-      disabled: patientsDisabled,
-      disabledReason: "Manager access required",
+      ...(nurse
+        ? {
+            disabled: !workspacePhone || access.workspace_patients !== true,
+            disabledReason: !workspacePhone
+              ? "Workspace phone access required"
+              : "Not enabled in Staff Access",
+          }
+        : g("patients", false, "")),
     },
     {
       id: "credentialing",
       label: ADMIN_NAV_LABELS.credentialing,
       href: "/admin/credentialing",
-      disabled: managerOnly,
-      disabledReason: "Manager access required",
+      ...g("credentialing", false, ""),
     },
     {
       id: "call_log",
       label: ADMIN_NAV_LABELS.callLog,
       href: callLogHref,
-      disabled: !phone,
-      disabledReason: "Phone workspace access required",
+      ...(nurse
+        ? {
+            disabled: !phone || access.workspace_calls !== true,
+            disabledReason: !phone
+              ? "Phone workspace access required"
+              : "Not enabled in Staff Access",
+          }
+        : g("call_log", !phone, "Phone workspace access required")),
     },
     {
       id: "workspace_keypad",
       label: ADMIN_NAV_LABELS.workspaceKeypad,
       href: "/workspace/phone/keypad",
-      disabled: !workspacePhone,
-      disabledReason: "Workspace phone access required",
+      ...g("workspace_keypad", !workspacePhone, "Workspace phone access required"),
     },
     {
       id: "dispatch",
       label: ADMIN_NAV_LABELS.dispatch,
       href: "/admin/crm/dispatch",
-      disabled: managerOnly,
-      disabledReason: "Manager access required",
+      ...g("dispatch", false, ""),
     },
     {
       id: "employees",
       label: ADMIN_NAV_LABELS.employees,
       href: "/admin/employees",
-      disabled: managerOnly,
-      disabledReason: "Manager access required",
+      ...g("employees", false, ""),
     },
     {
       id: "payroll",
       label: ADMIN_NAV_LABELS.payroll,
       href: "/admin/payroll",
-      disabled: managerOnly,
-      disabledReason: "Manager access required",
+      ...g("payroll", false, ""),
     },
     ...(admin
       ? [
@@ -151,7 +173,7 @@ export function buildAdminNavItems(staff: StaffProfile | null): AdminNavItemReso
             id: "staff_access" as const,
             label: ADMIN_NAV_LABELS.staffAccess,
             href: "/admin/staff",
-            disabled: false,
+            ...g("staff_access", false, ""),
           },
         ]
       : []),
