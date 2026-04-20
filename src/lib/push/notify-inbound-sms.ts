@@ -18,8 +18,8 @@ function pushTiming(phase: string, detail?: Record<string, unknown>): void {
 }
 
 /**
- * Fire-and-forget SMS push after a Twilio inbound SMS is persisted (idempotent path skips).
- * Called from the webhook immediately after insert so push is not blocked by conversation touch or AI.
+ * SMS push after a Twilio inbound SMS is persisted (idempotent duplicate MessageSid path skips notify).
+ * The inbound webhook awaits this so serverless runtimes complete FCM before the request ends.
  */
 export async function notifyInboundSmsAfterPersist(
   supabase: SupabaseClient,
@@ -89,5 +89,6 @@ export async function notifyInboundSmsAfterPersist(
     }
   } catch (e) {
     console.warn("[push] inbound SMS notify:", e);
+    throw e;
   }
 }

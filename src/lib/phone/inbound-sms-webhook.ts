@@ -138,16 +138,25 @@ export async function applyInboundTwilioSms(
     });
   }
 
-  // Fast path: start push as soon as the inbound row exists — do not block on AI or conversation touch.
-  smsTiming("before_push_scheduled", { conversationId });
-  console.log("[sms-inbound] scheduling push notify", { conversationId, messageId: insertedMsg?.id });
-  void notifyInboundSmsAfterPersist(supabase, {
-    conversationId,
-    bodyPreview: body,
-    fromE164: fromE164,
-    externalMessageSid: messageSid,
-  });
-  smsTiming("after_push_scheduled_fire_and_forget", { conversationId });
+  // Await push so serverless requests do not freeze the isolate before FCM completes (Vercel).
+  smsTiming("before_sms_push_await", { conversationId });
+  console.log("[sms-inbound] about_to_await_sms_push", { conversationId, messageId: insertedMsg?.id });
+  try {
+    await notifyInboundSmsAfterPersist(supabase, {
+      conversationId,
+      bodyPreview: body,
+      fromE164: fromE164,
+      externalMessageSid: messageSid,
+    });
+    console.log("[sms-inbound] sms_push_await_finished", { conversationId, messageId: insertedMsg?.id });
+  } catch (e) {
+    console.warn("[sms-inbound] sms_push_await_failed", {
+      conversationId,
+      messageId: insertedMsg?.id,
+      error: e instanceof Error ? e.message : String(e),
+    });
+  }
+  smsTiming("after_sms_push_await", { conversationId });
 
   if (process.env.SMS_AI_SUGGESTIONS_DISABLED !== "1" && insertedMsg?.id) {
     scheduleSmsReplySuggestionGeneration(supabase, conversationId, String(insertedMsg.id), fromE164);
