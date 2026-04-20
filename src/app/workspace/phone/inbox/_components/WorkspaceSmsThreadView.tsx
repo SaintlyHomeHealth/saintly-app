@@ -1,10 +1,18 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import {
+  memo,
+  startTransition,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 
 import { SmsReplyComposer } from "@/app/admin/phone/messages/_components/SmsReplyComposer";
-import { WorkspaceSmsDeleteMessageButton } from "@/app/workspace/phone/inbox/_components/WorkspaceSmsDeleteMessageButton";
 import { formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
 import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
 
@@ -18,8 +26,8 @@ export type ThreadMessage = {
 const INITIAL_WINDOW = 8;
 const WINDOW_STEP = 8;
 
-/** Fallback when realtime is slow or unavailable; safe overlap with focus + postgres listener. */
-const POLL_INTERVAL_MS = 12_000;
+/** Fallback when realtime is slow or unavailable (realtime + focus refetch are primary). */
+const POLL_INTERVAL_MS = 25_000;
 
 /** If scroll is within this distance of the bottom, treat as “following” the thread (auto-scroll on new inbound). */
 const NEAR_BOTTOM_THRESHOLD_PX = 88;
@@ -49,6 +57,38 @@ function mergeThreadById(prev: ThreadMessage[], incoming: ThreadMessage[]): Thre
   for (const m of incoming) byId.set(m.id, m);
   return sortThreadMessages([...byId.values()]);
 }
+
+const ThreadMessageRow = memo(function ThreadMessageRow({ message: m }: { message: ThreadMessage }) {
+  const inbound = String(m.direction).toLowerCase() === "inbound";
+  const isPending = m.id.startsWith("optimistic-");
+  const when = formatAdminPhoneWhen(typeof m.created_at === "string" ? m.created_at : null);
+
+  return (
+    <div
+      className={`flex w-full flex-col ${inbound ? "items-start" : "items-end"} gap-0.5 sm:gap-1`}
+    >
+      <div
+        className={`max-w-[min(92%,22rem)] rounded-[1.05rem] text-[15px] leading-[1.42] tracking-[0.01em] sm:rounded-[1.25rem] ${
+          inbound
+            ? "rounded-bl-md border border-slate-200/70 bg-white px-3 pb-2 pt-2.5 text-slate-900 [overflow-wrap:anywhere] isolate sm:shadow-[0_1px_2px_rgba(15,23,42,0.05)] sm:px-4 sm:pb-2.5 sm:pt-3"
+            : `rounded-br-md bg-gradient-to-br from-sky-500 via-sky-600 to-blue-800 px-3 py-1.5 text-white shadow-sm shadow-sky-900/12 ring-1 ring-white/15 sm:px-3.5 sm:py-2.5 sm:shadow-md ${
+                isPending ? "opacity-90" : ""
+              }`
+        }`}
+      >
+        <p className="whitespace-pre-wrap break-words">{String(m.body ?? "")}</p>
+      </div>
+      <p
+        className={`px-1 text-[10px] font-medium tabular-nums tracking-wide ${
+          inbound ? "text-left text-slate-400" : "text-right text-slate-400"
+        }`}
+      >
+        {when}
+        {isPending ? " · Sending…" : ""}
+      </p>
+    </div>
+  );
+});
 
 type Props = {
   conversationId: string;
@@ -265,7 +305,9 @@ export function WorkspaceSmsThreadView({
 
   const handleInPlaceSendComplete = useCallback(() => {
     setSendError(null);
-    router.refresh();
+    startTransition(() => {
+      router.refresh();
+    });
     void fetchLatestMessages();
   }, [router, fetchLatestMessages]);
 
@@ -319,50 +361,7 @@ export function WorkspaceSmsThreadView({
                 </p>
               </div>
             ) : (
-              merged.map((m) => {
-                const inbound = String(m.direction).toLowerCase() === "inbound";
-                const isPending = m.id.startsWith("optimistic-");
-                const when = formatAdminPhoneWhen(typeof m.created_at === "string" ? m.created_at : null);
-                return (
-                  <div
-                    key={m.id}
-                    className={`flex w-full flex-col ${inbound ? "items-start" : "items-end"} gap-0.5 sm:gap-1`}
-                  >
-                    <div
-                      className={`max-w-[min(92%,22rem)] rounded-[1.05rem] text-[15px] leading-[1.42] tracking-[0.01em] sm:rounded-[1.25rem] ${
-                        inbound
-                          ? "rounded-bl-md border border-slate-200/70 bg-white px-3 pb-2 pt-2.5 text-slate-900 [overflow-wrap:anywhere] isolate sm:shadow-[0_1px_2px_rgba(15,23,42,0.05)] sm:px-4 sm:pb-2.5 sm:pt-3"
-                          : `rounded-br-md bg-gradient-to-br from-sky-500 via-sky-600 to-blue-800 px-3 py-1.5 text-white shadow-sm shadow-sky-900/12 ring-1 ring-white/15 sm:px-3.5 sm:py-2.5 sm:shadow-md ${
-                              isPending ? "opacity-90" : ""
-                            }`
-                      }`}
-                    >
-                      <p className="whitespace-pre-wrap break-words">{String(m.body ?? "")}</p>
-                    </div>
-                    <div
-                      className={`flex max-w-[min(92%,24rem)] items-center gap-2 px-1 ${
-                        inbound ? "justify-start" : "justify-end"
-                      }`}
-                    >
-                      <p
-                        className={`text-[10px] font-medium tabular-nums tracking-wide ${
-                          inbound ? "text-left text-slate-400" : "text-right text-slate-400"
-                        }`}
-                      >
-                        {when}
-                        {isPending ? " · Sending…" : ""}
-                      </p>
-                      {!isPending ? (
-                        <WorkspaceSmsDeleteMessageButton
-                          conversationId={conversationId}
-                          messageId={m.id}
-                          allowDelete
-                        />
-                      ) : null}
-                    </div>
-                  </div>
-                );
-              })
+              merged.map((m) => <ThreadMessageRow key={m.id} message={m} />)
             )}
             <div ref={bottomRef} className="h-px w-full shrink-0" aria-hidden />
           </div>

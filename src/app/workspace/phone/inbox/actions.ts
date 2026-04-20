@@ -7,7 +7,6 @@ import { mergeTelemetryOnSend } from "@/lib/phone/sms-suggestion-telemetry";
 import { softDeleteSmsConversation, softDeleteSmsMessage } from "@/lib/phone/sms-soft-delete";
 import { ensureSmsConversationForPhone } from "@/lib/phone/sms-conversation-thread";
 import { resolveContactAndPhoneForWorkspaceNewSms } from "@/lib/phone/workspace-new-sms-resolve";
-import { getTwilioSmsOutboundDiagnostics } from "@/lib/twilio/sms-outbound-diagnostics";
 import { sendSms } from "@/lib/twilio/send-sms";
 import { canAccessWorkspacePhone, getStaffProfile } from "@/lib/staff-profile";
 import { supabaseAdmin } from "@/lib/admin";
@@ -195,11 +194,6 @@ export async function sendWorkspaceNewSms(formData: FormData) {
 
   const { e164, contact } = resolved;
 
-  console.log("[workspace-new-sms] step=resolve ok", {
-    e164,
-    hasContactId: Boolean(contact?.id),
-  });
-
   /**
    * Same as inbound SMS (`applyInboundTwilioSms`): omit `leadStatusOnCreate` so `lead_status` uses the
    * column default (`new_lead`). Do not use `unclassified` here — DBs that have not applied migration
@@ -219,18 +213,6 @@ export async function sendWorkspaceNewSms(formData: FormData) {
 
   const conversationId = ensured.conversationId;
 
-  console.log("[workspace-new-sms] step=ensure_thread ok", { conversationId, e164 });
-
-  const smsCfg = getTwilioSmsOutboundDiagnostics();
-  console.log("[workspace-new-sms] step=before_twilio_send", {
-    conversationId,
-    e164,
-    credentialsComplete: smsCfg.credentialsComplete,
-    missingEnvVars: smsCfg.missingEnvVars,
-    outboundSenderMasked: smsCfg.outboundSenderMasked,
-    outboundMode: smsCfg.outboundMode,
-  });
-
   const sent = await sendSms({ to: e164, body });
 
   if (!sent.ok) {
@@ -241,8 +223,6 @@ export async function sendWorkspaceNewSms(formData: FormData) {
     const errShort = sent.error.slice(0, 600);
     redirect(`/workspace/phone/inbox/new?smsErr=${encodeURIComponent(errShort)}`);
   }
-
-  console.log("[workspace-new-sms] step=twilio_send ok", { conversationId });
 
   const now = new Date().toISOString();
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { startTransition, useEffect } from "react";
 import { useRouter } from "next/navigation";
 
 import { markSmsThreadInboundViewed } from "../actions";
@@ -15,7 +15,9 @@ export function SmsThreadMarkReadOnViewClient({ conversationId }: { conversation
   useEffect(() => {
     void (async () => {
       await markSmsThreadInboundViewed(conversationId);
-      router.refresh();
+      startTransition(() => {
+        router.refresh();
+      });
     })();
   }, [conversationId, router]);
 

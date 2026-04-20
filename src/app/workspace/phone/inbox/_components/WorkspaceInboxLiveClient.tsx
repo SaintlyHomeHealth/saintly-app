@@ -6,8 +6,8 @@ import { useRouter } from "next/navigation";
 import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
 
 const DEBOUNCE_MS = 450;
-/** Fallback if Realtime misses or is delayed; only while tab is visible. */
-const POLL_MS = 5000;
+/** Fallback if Realtime misses; keep conservative — realtime + debounced INSERT/UPDATE handlers are primary. */
+const POLL_MS = 28_000;
 
 /**
  * Scoped to the workspace inbox page: refreshes server components so the rail (order, preview,
