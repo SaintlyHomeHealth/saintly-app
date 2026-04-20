@@ -186,7 +186,14 @@ export async function middleware(request: NextRequest) {
   }
 
   // Staff skip the login screen; non-staff stay here so they can sign out and use another account.
-  if (pathname.startsWith("/login") && user) {
+  // Do NOT treat `/login/forced-password-change` like `/login`: authenticated users must stay on that
+  // page until `require_password_change` is cleared, otherwise we redirect to `next` and bounce forever
+  // against the forced-password redirect above (NSURLError -1007 in embedded webviews).
+  if (
+    pathname.startsWith("/login") &&
+    user &&
+    !pathname.startsWith("/login/forced-password-change")
+  ) {
     const gate = await resolveStaffGate(supabase, user.id);
     authDebug("login:already_signed_in", {
       pathname,
