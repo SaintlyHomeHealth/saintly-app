@@ -7,6 +7,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -26,8 +27,10 @@ export type ThreadMessage = {
 const INITIAL_WINDOW = 8;
 const WINDOW_STEP = 8;
 
-/** Fallback when realtime is slow or unavailable (realtime + focus refetch are primary). */
-const POLL_INTERVAL_MS = 25_000;
+/** Fallback when realtime is slow or unavailable (realtime + visibility debounce are primary). */
+const POLL_INTERVAL_MS = 50_000;
+
+const VISIBILITY_REFETCH_DEBOUNCE_MS = 450;
 
 /** If scroll is within this distance of the bottom, treat as “following” the thread (auto-scroll on new inbound). */
 const NEAR_BOTTOM_THRESHOLD_PX = 88;
@@ -122,9 +125,12 @@ export function WorkspaceSmsThreadView({
   const scrollRef = useRef<HTMLDivElement>(null);
   const loadEarlierPreserveRef = useRef<{ prevHeight: number } | null>(null);
   const nearBottomRef = useRef(true);
+  /** Reuse one browser client for thread fetch + realtime (avoids repeated client setup per poll). */
+  const supabaseRef = useRef<ReturnType<typeof createBrowserSupabaseClient> | null>(null);
+  const visibilityFetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const visibleBase = serverMessages.slice(windowStart);
-  const merged = [...visibleBase, ...optimistic];
+  const visibleBase = useMemo(() => serverMessages.slice(windowStart), [serverMessages, windowStart]);
+  const merged = useMemo(() => [...visibleBase, ...optimistic], [visibleBase, optimistic]);
 
   const canLoadEarlier = windowStart > 0;
 
@@ -180,7 +186,8 @@ export function WorkspaceSmsThreadView({
   );
 
   const fetchLatestMessages = useCallback(async () => {
-    const supabase = createBrowserSupabaseClient();
+    if (!supabaseRef.current) supabaseRef.current = createBrowserSupabaseClient();
+    const supabase = supabaseRef.current;
     const { data, error } = await supabase
       .from("messages")
       .select("id, created_at, direction, body")
@@ -213,7 +220,8 @@ export function WorkspaceSmsThreadView({
   }, [optimistic.length]);
 
   useEffect(() => {
-    const supabase = createBrowserSupabaseClient();
+    if (!supabaseRef.current) supabaseRef.current = createBrowserSupabaseClient();
+    const supabase = supabaseRef.current;
     const channel = supabase
       .channel(`workspace_sms_thread:${conversationId}`)
       .on(
@@ -261,21 +269,27 @@ export function WorkspaceSmsThreadView({
 
   useEffect(() => {
     const id = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
       void fetchLatestMessages();
     }, POLL_INTERVAL_MS);
     return () => window.clearInterval(id);
   }, [fetchLatestMessages]);
 
   useEffect(() => {
-    const onFocusOrVisible = () => {
+    const scheduleRefetch = () => {
       if (document.visibilityState !== "visible") return;
-      void fetchLatestMessages();
+      if (visibilityFetchTimerRef.current) clearTimeout(visibilityFetchTimerRef.current);
+      visibilityFetchTimerRef.current = setTimeout(() => {
+        visibilityFetchTimerRef.current = null;
+        void fetchLatestMessages();
+      }, VISIBILITY_REFETCH_DEBOUNCE_MS);
     };
-    window.addEventListener("focus", onFocusOrVisible);
-    document.addEventListener("visibilitychange", onFocusOrVisible);
+    window.addEventListener("focus", scheduleRefetch);
+    document.addEventListener("visibilitychange", scheduleRefetch);
     return () => {
-      window.removeEventListener("focus", onFocusOrVisible);
-      document.removeEventListener("visibilitychange", onFocusOrVisible);
+      window.removeEventListener("focus", scheduleRefetch);
+      document.removeEventListener("visibilitychange", scheduleRefetch);
+      if (visibilityFetchTimerRef.current) clearTimeout(visibilityFetchTimerRef.current);
     };
   }, [fetchLatestMessages]);
 
@@ -387,7 +401,7 @@ export function WorkspaceSmsThreadView({
             </div>
           ) : null}
           <SmsReplyComposer
-            key={`${conversationId}:${suggestionForMessageId ?? ""}:${composerInitialDraft ?? ""}`}
+            key={`${conversationId}:${suggestionForMessageId ?? "none"}`}
             conversationId={conversationId}
             initialSuggestion={initialSuggestion}
             suggestionForMessageId={suggestionForMessageId}

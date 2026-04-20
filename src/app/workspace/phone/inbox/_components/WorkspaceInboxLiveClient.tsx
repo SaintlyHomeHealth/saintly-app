@@ -5,9 +5,13 @@ import { useRouter } from "next/navigation";
 
 import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
 
-const DEBOUNCE_MS = 450;
-/** Fallback if Realtime misses; keep conservative — realtime + debounced INSERT/UPDATE handlers are primary. */
-const POLL_MS = 28_000;
+/** Batch rapid postgres events before scheduling RSC work. */
+const DEBOUNCE_MS = 550;
+/**
+ * Cap full `router.refresh()` churn: the client subscribes to ALL org `messages` rows, so busy SMS
+ * traffic can otherwise schedule back-to-back RSC reloads. Trailing refresh preserves eventual consistency.
+ */
+const MIN_REFRESH_GAP_MS = 2800;
 
 /**
  * Scoped to the workspace inbox page: refreshes server components so the rail (order, preview,
@@ -16,14 +20,33 @@ const POLL_MS = 28_000;
 export function WorkspaceInboxLiveClient() {
   const router = useRouter();
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const trailingRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastRefreshAtRef = useRef(0);
 
   const scheduleRefresh = useCallback(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (trailingRef.current) {
+      clearTimeout(trailingRef.current);
+      trailingRef.current = null;
+    }
     debounceRef.current = setTimeout(() => {
       debounceRef.current = null;
-      startTransition(() => {
-        router.refresh();
-      });
+      const fire = () => {
+        lastRefreshAtRef.current = Date.now();
+        startTransition(() => {
+          router.refresh();
+        });
+      };
+      const now = Date.now();
+      const elapsed = now - lastRefreshAtRef.current;
+      if (lastRefreshAtRef.current === 0 || elapsed >= MIN_REFRESH_GAP_MS) {
+        fire();
+      } else {
+        trailingRef.current = setTimeout(() => {
+          trailingRef.current = null;
+          fire();
+        }, MIN_REFRESH_GAP_MS - elapsed);
+      }
     }, DEBOUNCE_MS);
   }, [router]);
 
@@ -50,19 +73,10 @@ export function WorkspaceInboxLiveClient() {
 
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
+      if (trailingRef.current) clearTimeout(trailingRef.current);
       void supabase.removeChannel(channel);
     };
   }, [scheduleRefresh]);
-
-  useEffect(() => {
-    const id = window.setInterval(() => {
-      if (document.visibilityState !== "visible") return;
-      startTransition(() => {
-        router.refresh();
-      });
-    }, POLL_MS);
-    return () => window.clearInterval(id);
-  }, [router]);
 
   return null;
 }

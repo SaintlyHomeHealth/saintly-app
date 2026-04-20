@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import type { ReactNode } from "react";
+import { memo, useMemo, type ReactNode } from "react";
 
 type Tab = {
   href: string;
@@ -146,14 +146,18 @@ type NavProps = {
   allowedTabHrefs?: string[] | null;
 };
 
-export function NursePhoneBottomNav({ showLeadsNav = true, allowedTabHrefs = null }: NavProps) {
+function NursePhoneBottomNavInner({ showLeadsNav = true, allowedTabHrefs = null }: NavProps) {
   const pathname = usePathname() ?? "";
   const { status } = useWorkspaceSoftphone();
-  let tabs = showLeadsNav ? [...tabsBase.slice(0, 6), leadsTab, ...tabsBase.slice(6)] : tabsBase;
-  if (allowedTabHrefs && allowedTabHrefs.length > 0) {
-    const allow = new Set(allowedTabHrefs);
-    tabs = tabs.filter((t) => allow.has(t.href));
-  }
+  const tabsHrefKey = allowedTabHrefs?.length ? [...allowedTabHrefs].sort().join("|") : "";
+  const tabs = useMemo(() => {
+    let t = showLeadsNav ? [...tabsBase.slice(0, 6), leadsTab, ...tabsBase.slice(6)] : tabsBase;
+    if (tabsHrefKey && allowedTabHrefs && allowedTabHrefs.length > 0) {
+      const allow = new Set(allowedTabHrefs);
+      t = t.filter((row) => allow.has(row.href));
+    }
+    return t;
+  }, [showLeadsNav, tabsHrefKey, allowedTabHrefs]);
 
   /** ActiveCallBar is fixed above the nav; hiding nav during a call avoids double-stack + wrong safe-area math on iPhone. */
   if (status === "in_call") {
@@ -193,3 +197,5 @@ export function NursePhoneBottomNav({ showLeadsNav = true, allowedTabHrefs = nul
     </nav>
   );
 }
+
+export const NursePhoneBottomNav = memo(NursePhoneBottomNavInner);

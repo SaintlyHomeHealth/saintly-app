@@ -25,9 +25,11 @@ export function MobileSupabaseSessionBridge() {
       ).ReactNativeWebView;
       if (!bridge?.postMessage) return;
       try {
-        console.warn("[SAINTLY-NATIVE-AUTH] webview_bridge_post_session", {
-          hasToken: Boolean(access_token),
-        });
+        if (process.env.NODE_ENV === "development") {
+          console.warn("[SAINTLY-NATIVE-AUTH] webview_bridge_post_session", {
+            hasToken: Boolean(access_token),
+          });
+        }
         bridge.postMessage(JSON.stringify({ type: "saintly-supabase-access-token", access_token }));
       } catch {
         // ignore
