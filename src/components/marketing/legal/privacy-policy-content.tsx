@@ -80,6 +80,18 @@ export function PrivacyPolicyContent() {
         <li>Provide support, troubleshoot issues, and improve reliability</li>
         <li>Meet legal, regulatory, and contractual obligations</li>
       </ul>
+      <p>
+        Overall, collected information is used for app and service functionality, communication with you as needed for
+        those services, day-to-day operations, support, security, and legal and compliance requirements—not for the
+        advertising or tracking practices described under <strong>Tracking and advertising</strong> below.
+      </p>
+
+      <h2>Tracking and advertising</h2>
+      <p>
+        Saintly does not use personal data for cross-app tracking, targeted advertising, or sharing with data brokers.
+        Information collected through the app is used for app functionality, communication, operational purposes, security,
+        support, and legal and compliance obligations, as described in this Policy.
+      </p>
 
       <h2>Linking to identity</h2>
       <p>
@@ -92,7 +104,8 @@ export function PrivacyPolicyContent() {
       <p>
         We use vendors for hosting, authentication, telephony and messaging (including cloud communications providers),
         push notifications, and other functions required to run the app. Those providers process data on our behalf
-        according to contractual terms and only as needed to deliver the services we configure.
+        according to contractual terms and only as needed to deliver the services we configure. We do not permit
+        service providers to use personal data for their own advertising or marketing purposes.
       </p>
 
       <h2>SMS and messaging</h2>
@@ -105,10 +118,12 @@ export function PrivacyPolicyContent() {
         parties for their own marketing.
       </p>
 
-      <h2>Cookies &amp; website usage</h2>
+      <h2>Analytics, diagnostics, and cookies</h2>
       <p>
-        Our website may use cookies or similar technologies for basic operation and to understand usage. Analytics, if
-        used, is configured to support site improvement and security.
+        Our website and apps may use cookies or similar technologies for basic operation and to understand usage in
+        responsible ways. We may collect limited usage and diagnostic data—such as app interactions, crash reports,
+        performance metrics, and security-related logs—to support reliability, performance, security, and service
+        improvement. This data is not used for advertising or cross-app tracking.
       </p>
 
       <h2>Data security</h2>
