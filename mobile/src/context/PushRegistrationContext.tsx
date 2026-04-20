@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import Constants from 'expo-constants';
-import { Platform, ToastAndroid } from 'react-native';
+import { InteractionManager, Platform, ToastAndroid } from 'react-native';
 
 import {
   registerNativePushForCalls,
@@ -34,17 +34,25 @@ export function PushRegistrationProvider({ children }: { children: React.ReactNo
 
   useEffect(() => {
     let cancelled = false;
-    void (async () => {
-      // Register FCM/APNs for SMS + generic alerts before Twilio touches PushKit (iOS). Ordering
-      // avoids edge cases where native Voice init runs first and complicates Firebase token readiness.
-      const result = await registerNativePushForCalls();
-      if (!cancelled) {
+    /**
+     * Defer FCM/APNs until after first layout so Home + WebView can paint (startup JS thread contention).
+     * PushKit init is staggered a few hundred ms after FCM to avoid stacking heavy native work.
+     */
+    const task = InteractionManager.runAfterInteractions(() => {
+      void (async () => {
+        const result = await registerNativePushForCalls();
+        if (cancelled) return;
         setState({ status: 'ready', result });
-        void twilioVoiceService.prepareIosPushRegistryEarly();
-      }
-    })();
+        setTimeout(() => {
+          if (!cancelled) {
+            void twilioVoiceService.prepareIosPushRegistryEarly();
+          }
+        }, 450);
+      })();
+    });
     return () => {
       cancelled = true;
+      task.cancel();
     };
   }, []);
 

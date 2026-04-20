@@ -41,6 +41,13 @@ import { getOrCreateDeviceInstallId } from '../services/deviceInstallId';
 
 import type { HomeScreenProps } from '../navigation/types';
 
+/**
+ * Stagger heavy native/API startup so WebView first paint stays responsive (~first 20s).
+ * Does not remove retries — only delays the initial burst that overlapped keypad load + FCM.
+ */
+const STARTUP_SOFTPHONE_FIRST_RUN_MS = 900;
+const STARTUP_PUSH_AFTER_LOAD_MS = 450;
+
 /** Workspace phone keypad; base from `env` (see `app.config.ts` / `EXPO_PUBLIC_API_BASE_URL`). */
 function portalUrl(): string {
   const base = env.apiBaseUrl.replace(/\/$/, '') || DEFAULT_PRODUCTION_API_ORIGIN;
@@ -452,9 +459,13 @@ export function HomeScreen(_props: HomeScreenProps) {
       nativeRetryTimers.push(id);
     };
 
-    run('mount');
     scheduleNativeRetry(4000, 'retry_4s');
     scheduleNativeRetry(15000, 'retry_15s');
+
+    /** Replaces immediate `run('mount')` — defer GET /api/softphone/token + Twilio init (see STARTUP_SOFTPHONE_FIRST_RUN_MS). */
+    const mountTimer = setTimeout(() => {
+      if (!cancelled) run('mount');
+    }, STARTUP_SOFTPHONE_FIRST_RUN_MS);
 
     const sub = AppState.addEventListener('change', (next) => {
       if (next === 'active') {
@@ -465,6 +476,7 @@ export function HomeScreen(_props: HomeScreenProps) {
 
     return () => {
       cancelled = true;
+      clearTimeout(mountTimer);
       nativeRetryTimers.forEach(clearTimeout);
       sub.remove();
     };
@@ -472,11 +484,17 @@ export function HomeScreen(_props: HomeScreenProps) {
 
   /** After FCM token exists: retry registration — cookies may not exist until post-login navigation. */
   useEffect(() => {
-    if (!fcmToken || loading || Constants.appOwnership === 'expo') return;
+    if (!fcmToken || loading || !deviceInstallIdReady || Constants.appOwnership === 'expo') return;
 
-    runPushRegistration('webview_load_end');
-    const delaysMs = [4000, 15000];
     const ids: ReturnType<typeof setTimeout>[] = [];
+    const first = setTimeout(() => {
+      registrationTimersRef.current = registrationTimersRef.current.filter((t) => t !== first);
+      runPushRegistration('webview_load_end');
+    }, STARTUP_PUSH_AFTER_LOAD_MS);
+    ids.push(first);
+    registrationTimersRef.current.push(first);
+
+    const delaysMs = [4000, 15000];
     delaysMs.forEach((ms) => {
       const id = setTimeout(() => {
         registrationTimersRef.current = registrationTimersRef.current.filter((t) => t !== id);
