@@ -60,6 +60,7 @@ export async function sendFcmDataAndNotificationToUserIds(
 ): Promise<FcmSendResult> {
   const app = getFirebaseAdminApp();
   if (!app) {
+    console.log("[push-debug] abort before token load: firebase admin not initialized");
     console.warn("[push] FCM send skipped", { reason: "firebase_admin_not_initialized" });
     return { ok: false, error: "missing FIREBASE_SERVICE_ACCOUNT_JSON" };
   }
@@ -73,6 +74,7 @@ export async function sendFcmDataAndNotificationToUserIds(
 
   const uniqueUsers = [...new Set(userIds.map((u) => u.trim()).filter(Boolean))];
   if (uniqueUsers.length === 0) {
+    console.log("[push-debug] skipping send: no recipient user ids");
     const empty: FcmSendResult = {
       ok: true,
       sent: 0,
@@ -94,8 +96,13 @@ export async function sendFcmDataAndNotificationToUserIds(
   }
   const { data: rows, error } = await tokenQuery;
   pushTiming("fcm_after_load_tokens", { rowCount: (rows ?? []).length });
+  console.log("[push-debug] user_push_devices rows", (rows ?? []).length);
+  if (input.recipientPlatforms?.length) {
+    console.log("[push-debug] recipientPlatforms filter active", input.recipientPlatforms);
+  }
 
   if (error) {
+    console.log("[push-debug] user_push_devices query failed", error.message);
     console.warn("[push] load user_push_devices:", error.message);
     return { ok: false, error: error.message };
   }
@@ -156,8 +163,16 @@ export async function sendFcmDataAndNotificationToUserIds(
   const androidUnique = [...new Set(androidTokens)];
   const iosUnique = [...new Set(iosTokens)];
   const totalTargets = androidUnique.length + iosUnique.length;
+  console.log("[push-debug] tokens after filter", totalTargets);
+  if ((rows ?? []).length > 0 && totalTargets === 0) {
+    console.log("[push-debug] rows present but zero tokens (check platform / empty fcm_token)", {
+      rawRowCount: (rows ?? []).length,
+      rowsMissingPlatform,
+    });
+  }
 
   if (totalTargets === 0) {
+    console.log("[push-debug] NO TOKENS → skipping send");
     const empty: FcmSendResult = {
       ok: true,
       sent: 0,
@@ -172,6 +187,8 @@ export async function sendFcmDataAndNotificationToUserIds(
     });
     return empty;
   }
+
+  console.log("[push-debug] proceeding to FCM send");
 
   const messaging = getMessaging(app);
   const dataPayload: Record<string, string> = { ...input.data };
