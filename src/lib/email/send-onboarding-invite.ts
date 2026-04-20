@@ -41,27 +41,32 @@ export type SendOnboardingInviteEmailInput = {
 
 export type SendOnboardingInviteEmailResult = { ok: true } | { ok: false; error: string };
 
+/** Shared with onboarding invite flow (Add Employee, resend). */
+export const ONBOARDING_EMAIL_NOT_CONFIGURED_ERROR =
+  "Email is not configured. Set RESEND_API_KEY and RESEND_FROM (verified sender) to enable onboarding emails.";
+
+export function isOnboardingEmailConfigured(): boolean {
+  return Boolean(process.env.RESEND_API_KEY?.trim() && process.env.RESEND_FROM?.trim());
+}
+
 /**
  * Optional Resend integration. Set RESEND_API_KEY and RESEND_FROM (e.g. "Onboarding <onboarding@yourdomain.com>").
  */
 export async function sendOnboardingInviteEmail(
   input: SendOnboardingInviteEmailInput
 ): Promise<SendOnboardingInviteEmailResult> {
-  const apiKey = process.env.RESEND_API_KEY?.trim();
-  const from = process.env.RESEND_FROM?.trim();
   const to = input.to.trim().toLowerCase();
 
   if (!to || !to.includes("@")) {
     return { ok: false, error: "Invalid email address." };
   }
 
-  if (!apiKey || !from) {
-    return {
-      ok: false,
-      error:
-        "Email is not configured. Set RESEND_API_KEY and RESEND_FROM (verified sender) to enable onboarding emails.",
-    };
+  if (!isOnboardingEmailConfigured()) {
+    return { ok: false, error: ONBOARDING_EMAIL_NOT_CONFIGURED_ERROR };
   }
+
+  const apiKey = process.env.RESEND_API_KEY!.trim();
+  const from = process.env.RESEND_FROM!.trim();
 
   try {
     const res = await fetch("https://api.resend.com/emails", {

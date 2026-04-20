@@ -3,7 +3,11 @@ import "server-only";
 import { revalidatePath } from "next/cache";
 
 import { insertAuditLogTrusted } from "@/lib/audit-log";
-import { sendOnboardingInviteEmail } from "@/lib/email/send-onboarding-invite";
+import {
+  isOnboardingEmailConfigured,
+  ONBOARDING_EMAIL_NOT_CONFIGURED_ERROR,
+  sendOnboardingInviteEmail,
+} from "@/lib/email/send-onboarding-invite";
 import { appendOutboundSmsToConversation, ensureSmsConversationForOutboundSystem } from "@/lib/phone/sms-conversation-thread";
 import { isValidE164, normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
 import { sendSms } from "@/lib/twilio/send-sms";
@@ -143,7 +147,15 @@ export type SendOnboardingInviteInput = {
 };
 
 export type SendOnboardingInviteResult =
-  | { ok: true; applicantId: string; link: string; smsSent: boolean; emailSent: boolean }
+  | {
+      ok: true;
+      applicantId: string;
+      link: string;
+      smsSent: boolean;
+      emailSent: boolean;
+      /** When channel includes email and SMS already sent but Resend/API failed. */
+      emailFailureReason?: string;
+    }
   | { ok: false; error: string };
 
 /**
@@ -177,8 +189,19 @@ export async function sendOnboardingInvite(
     }
   }
 
+  if ((channel === "email" || channel === "both") && !isOnboardingEmailConfigured()) {
+    return {
+      ok: false,
+      error:
+        channel === "both"
+          ? `${ONBOARDING_EMAIL_NOT_CONFIGURED_ERROR} Or choose Text only.`
+          : ONBOARDING_EMAIL_NOT_CONFIGURED_ERROR,
+    };
+  }
+
   let smsSent = false;
   let emailSent = false;
+  let emailFailureReason: string | undefined;
   let twilioSid: string | null = null;
 
   const e164 = normalizeDialInputToE164(input.phone);
@@ -222,6 +245,7 @@ export async function sendOnboardingInvite(
     });
     if (!emailResult.ok) {
       if (smsSent) {
+        emailFailureReason = emailResult.error;
         console.warn("[onboarding-invite] email failed after SMS:", emailResult.error);
       } else {
         return { ok: false, error: emailResult.error };
@@ -264,7 +288,14 @@ export async function sendOnboardingInvite(
   revalidatePath("/admin/employees");
   revalidatePath(`/admin/employees/${applicantId}`);
 
-  return { ok: true, applicantId, link, smsSent, emailSent };
+  return {
+    ok: true,
+    applicantId,
+    link,
+    smsSent,
+    emailSent,
+    ...(emailFailureReason ? { emailFailureReason } : {}),
+  };
 }
 
 export type ResendOnboardingInviteInput = {

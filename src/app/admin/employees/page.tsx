@@ -165,6 +165,7 @@ export default async function AdminEmployeesDirectoryPage({
   const bulkScanned = one("bulkScanned").trim();
   const inviteErr = one("inviteErr").trim();
   const inviteOk = one("inviteOk").trim();
+  const inviteEmailWarn = one("inviteEmailWarn").trim();
   const inviteApplicantId = one("inviteApplicantId").trim();
   const toastParam = one("toast").trim();
 
@@ -230,6 +231,15 @@ export default async function AdminEmployeesDirectoryPage({
               </Link>
             </>
           ) : null}
+        </div>
+      ) : null}
+
+      {inviteEmailWarn ? (
+        <div
+          role="alert"
+          className="rounded-[20px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950 shadow-sm"
+        >
+          <span className="font-semibold">Text was sent, but email did not send.</span> {inviteEmailWarn}
         </div>
       ) : null}
 

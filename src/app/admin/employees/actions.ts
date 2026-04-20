@@ -271,6 +271,9 @@ export async function submitAddEmployeeInviteAction(formData: FormData) {
       {
         inviteOk: "1",
         inviteApplicantId: result.applicantId,
+        ...(result.emailFailureReason
+          ? { inviteEmailWarn: result.emailFailureReason.slice(0, 400) }
+          : {}),
       },
       ctx
     );
