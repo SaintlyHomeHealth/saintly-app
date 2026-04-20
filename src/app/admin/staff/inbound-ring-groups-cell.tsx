@@ -20,7 +20,12 @@ function sortKeysForDisplay(keys: string[]): string[] {
 
 export function InboundRingGroupsCell({ staffProfileId, userId, selectedGroups, primaryGroup }: Props) {
   if (!userId) {
-    return <span className="text-slate-400">—</span>;
+    return (
+      <p className="max-w-md text-xs leading-snug text-slate-600">
+        <span className="font-semibold text-slate-800">Inbound ring groups</span> need a linked login (user id) in
+        Supabase. Create a login for this person first, then return here to add them to groups.
+      </p>
+    );
   }
 
   const selected = new Set(selectedGroups);

@@ -31,6 +31,7 @@ import {
   updateStaffSmsNotifyPhone,
 } from "../actions";
 import { CreateLoginDialog } from "../create-login-dialog";
+import { ResendInviteButton } from "../resend-invite-button";
 import { EditStaffDialog } from "../edit-staff-dialog";
 import { InboundRingGroupsCell } from "../inbound-ring-groups-cell";
 import { PayrollStaffLinkDialog } from "../payroll-staff-link-dialog";
@@ -63,6 +64,65 @@ function Card({ title, children }: { title: string; children: ReactNode }) {
       <div className="mt-4 space-y-3">{children}</div>
     </section>
   );
+}
+
+function StatusBadge({
+  label,
+  value,
+  variant,
+}: {
+  label: string;
+  value: string;
+  variant: "ok" | "warn" | "neutral";
+}) {
+  const ring =
+    variant === "ok"
+      ? "border-emerald-200 bg-emerald-50/90 text-emerald-950"
+      : variant === "warn"
+        ? "border-amber-200 bg-amber-50/90 text-amber-950"
+        : "border-slate-200 bg-slate-50/90 text-slate-900";
+  return (
+    <div className={`rounded-[16px] border px-3 py-2.5 ${ring}`}>
+      <p className="text-[10px] font-bold uppercase tracking-wide text-slate-600/90">{label}</p>
+      <p className="mt-0.5 text-sm font-semibold leading-snug">{value}</p>
+    </div>
+  );
+}
+
+function accessSummaryLabel(profile: { role: StaffRole; page_access_preset: string | null }): string {
+  if (profile.page_access_preset === "custom") return "Custom";
+  if (profile.role === "nurse") return "Nurse";
+  return "Admin";
+}
+
+function phoneAssignmentSummary(profile: {
+  phone_assignment_mode: string;
+  dedicated_outbound_e164: string | null;
+  shared_line_e164: string | null;
+}): { headline: string; detail: string } {
+  const hasDedicated =
+    profile.phone_assignment_mode === "dedicated" &&
+    typeof profile.dedicated_outbound_e164 === "string" &&
+    profile.dedicated_outbound_e164.trim() !== "";
+  const hasShared =
+    profile.phone_assignment_mode === "shared" &&
+    typeof profile.shared_line_e164 === "string" &&
+    profile.shared_line_e164.trim() !== "";
+  if (hasDedicated) {
+    return { headline: "Assigned", detail: `Dedicated ${profile.dedicated_outbound_e164}` };
+  }
+  if (hasShared) {
+    return { headline: "Assigned", detail: `Shared ${profile.shared_line_e164}` };
+  }
+  return { headline: "Not assigned", detail: "Using organization default line until you set a dedicated or shared number." };
+}
+
+function callingProfileShort(profile: { phone_calling_profile: string }): string {
+  const p = profile.phone_calling_profile;
+  if (p === "inbound_outbound") return "Inbound + outbound";
+  if (p === "outbound_only") return "Outbound only";
+  if (p === "inbound_disabled") return "Inbound disabled";
+  return p.replace(/_/g, " ");
 }
 
 export default async function StaffAccessDetailPage({
@@ -172,6 +232,9 @@ export default async function StaffAccessDetailPage({
   const loginUrl =
     (process.env.NEXT_PUBLIC_APP_URL?.trim().replace(/\/$/, "") || "") + "/login";
 
+  const phoneAssign = phoneAssignmentSummary(profile);
+  const passwordIsTemporary = profile.require_password_change === true;
+
   return (
     <div className="space-y-6 bg-gradient-to-b from-slate-50/60 via-white to-slate-50/40 p-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -197,38 +260,51 @@ export default async function StaffAccessDetailPage({
       ) : null}
 
       <section className="rounded-[24px] border border-indigo-100/90 bg-gradient-to-br from-indigo-50/50 via-white to-sky-50/30 p-5 shadow-sm">
-        <h2 className="text-xs font-bold uppercase tracking-wide text-indigo-900/80">Effective access</h2>
-        <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
+        <h2 className="text-xs font-bold uppercase tracking-wide text-indigo-900/80">Status</h2>
+        <p className="mt-1 text-[11px] leading-relaxed text-slate-600">
+          Snapshot of login, password, phone line, and app access. Open sections below to change anything.
+        </p>
+        <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+          <StatusBadge
+            label="Login"
+            value={hasLogin ? "Created" : "Not created"}
+            variant={hasLogin ? "ok" : "warn"}
+          />
+          <StatusBadge
+            label="Password"
+            value={!hasLogin ? "—" : passwordIsTemporary ? "Temporary" : "User set"}
+            variant={!hasLogin ? "neutral" : passwordIsTemporary ? "warn" : "ok"}
+          />
+          <StatusBadge
+            label="Phone"
+            value={phoneAssign.headline}
+            variant={phoneAssign.headline === "Assigned" ? "ok" : "neutral"}
+          />
+          <StatusBadge
+            label="Access"
+            value={accessSummaryLabel(profile)}
+            variant="neutral"
+          />
+        </div>
+        <dl className="mt-4 grid gap-2 text-xs text-slate-700 sm:grid-cols-2 lg:grid-cols-3">
           <div>
-            <dt className="text-xs font-semibold text-slate-500">Role</dt>
+            <dt className="font-semibold text-slate-500">Role</dt>
             <dd className="font-medium text-slate-900">{roleLabel(profile.role)}</dd>
           </div>
           <div>
-            <dt className="text-xs font-semibold text-slate-500">Login</dt>
-            <dd className="font-medium text-slate-900">{hasLogin ? "Linked" : "Not linked"}</dd>
+            <dt className="font-semibold text-slate-500">Phone line detail</dt>
+            <dd className="font-medium text-slate-900 [overflow-wrap:anywhere]">{phoneAssign.detail}</dd>
           </div>
           <div>
-            <dt className="text-xs font-semibold text-slate-500">Phone access</dt>
-            <dd className="font-medium text-slate-900">
-              {hasLogin ? (profile.phone_access_enabled ? "Enabled" : "Disabled") : "— (needs login)"}
-            </dd>
+            <dt className="font-semibold text-slate-500">Calling</dt>
+            <dd className="font-medium text-slate-900">{callingProfileShort(profile)}</dd>
           </div>
           <div>
-            <dt className="text-xs font-semibold text-slate-500">Inbound policy</dt>
-            <dd className="font-medium text-slate-900">{profile.phone_calling_profile.replace(/_/g, " ")}</dd>
+            <dt className="font-semibold text-slate-500">Phone system access</dt>
+            <dd className="font-medium text-slate-900">{profile.phone_access_enabled ? "On" : "Off"}</dd>
           </div>
           <div>
-            <dt className="text-xs font-semibold text-slate-500">Numbers</dt>
-            <dd className="font-medium text-slate-900">
-              {profile.phone_assignment_mode === "dedicated" && profile.dedicated_outbound_e164
-                ? profile.dedicated_outbound_e164
-                : profile.phone_assignment_mode === "shared" && profile.shared_line_e164
-                  ? `Shared ${profile.shared_line_e164}`
-                  : "Organization default"}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-xs font-semibold text-slate-500">Admin shell</dt>
+            <dt className="font-semibold text-slate-500">Admin shell (nurses)</dt>
             <dd className="font-medium text-slate-900">
               {profile.role === "nurse" ? (profile.admin_shell_access ? "On" : "Off") : "—"}
             </dd>
@@ -285,12 +361,28 @@ export default async function StaffAccessDetailPage({
       </Card>
 
       <Card title="Login access">
+        <p className="text-xs text-slate-600">
+          Create a login first, then use reset or regenerate to issue a new temporary password. Each generated password
+          is shown once — copy it or send by SMS/email from the confirmation step.
+        </p>
         <div className="flex flex-wrap gap-2">
-          {!hasLogin ? <CreateLoginDialog staffProfileId={profile.id} /> : null}
-          {hasLogin ? <ResetPasswordDialog staffProfileId={profile.id} /> : null}
+          <CreateLoginDialog staffProfileId={profile.id} disabled={hasLogin} />
+          <ResetPasswordDialog staffProfileId={profile.id} disabled={!hasLogin} />
+          <ResetPasswordDialog
+            staffProfileId={profile.id}
+            disabled={!hasLogin}
+            defaultAutoGenerate
+            triggerLabel="Regenerate temporary password"
+            dialogTitle="Regenerate temporary password"
+          />
+          <ResendInviteButton
+            staffProfileId={profile.id}
+            disabled={!hasLogin}
+            disabledReason="Create a login first to resend the invite email."
+          />
           <RepairLoginLinkButton staffProfileId={profile.id} />
         </div>
-        <StaffCommunicationBar staffProfileId={profile.id} loginUrl={loginUrl} hasLogin={hasLogin} />
+        <StaffCommunicationBar staffProfileId={profile.id} loginUrl={loginUrl} />
         <div className="text-xs text-slate-600">
           <p>
             Auth linkage:{" "}
@@ -394,34 +486,32 @@ export default async function StaffAccessDetailPage({
       </Card>
 
       <Card title="Phone permissions">
-        {hasLogin ? (
-          <form action={setPhoneAccess} className="inline">
-            <input type="hidden" name="staffProfileId" value={profile.id} />
-            <input type="hidden" name="enabled" value={profile.phone_access_enabled ? "0" : "1"} />
-            <button
-              type="submit"
-              className={`rounded-full px-3 py-1.5 text-xs font-semibold ${
-                profile.phone_access_enabled
-                  ? "bg-sky-100 text-sky-900 hover:bg-sky-200"
-                  : "bg-slate-200 text-slate-700 hover:bg-slate-300"
-              }`}
-            >
-              Phone access: {profile.phone_access_enabled ? "On" : "Off"}
-            </button>
-          </form>
-        ) : (
-          <p className="text-sm text-slate-500">Link a login before phone features apply.</p>
-        )}
-        {hasLogin ? (
-          <div className="max-w-lg">
-            <InboundRingGroupsCell
-              staffProfileId={profile.id}
-              userId={profile.user_id}
-              selectedGroups={memberships}
-              primaryGroup={raw.inbound_ring_primary_group_key as string | null}
-            />
-          </div>
-        ) : null}
+        <p className="text-xs text-slate-600">
+          You can assign numbers and calling rules before a login exists. Inbound ring groups still require a linked
+          login (see below).
+        </p>
+        <form action={setPhoneAccess} className="inline">
+          <input type="hidden" name="staffProfileId" value={profile.id} />
+          <input type="hidden" name="enabled" value={profile.phone_access_enabled ? "0" : "1"} />
+          <button
+            type="submit"
+            className={`rounded-full px-3 py-1.5 text-xs font-semibold ${
+              profile.phone_access_enabled
+                ? "bg-sky-100 text-sky-900 hover:bg-sky-200"
+                : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+            }`}
+          >
+            Phone access: {profile.phone_access_enabled ? "On" : "Off"}
+          </button>
+        </form>
+        <div className="max-w-lg">
+          <InboundRingGroupsCell
+            staffProfileId={profile.id}
+            userId={profile.user_id}
+            selectedGroups={memberships}
+            primaryGroup={raw.inbound_ring_primary_group_key as string | null}
+          />
+        </div>
         <form action={updateStaffSmsNotifyPhone} className="flex max-w-md flex-col gap-2">
           <input type="hidden" name="staffProfileId" value={profile.id} />
           <label className="text-xs font-semibold text-slate-700">

@@ -4,8 +4,19 @@ import { STAFF_TEMP_PASSWORD_MAX, STAFF_TEMP_PASSWORD_MIN } from "@/lib/admin/st
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useId, useState } from "react";
 
+import { TemporaryPasswordReveal } from "./temporary-password-reveal";
+
 type Props = {
   staffProfileId: string;
+  disabled?: boolean;
+  disabledReason?: string;
+  compact?: boolean;
+  /** Opens with “generate on server” checked (Regenerate temporary password). */
+  defaultAutoGenerate?: boolean;
+  triggerLabel?: string;
+  dialogTitle?: string;
+  /** Full override for the trigger button classes (e.g. overflow menu row). */
+  triggerClassName?: string;
 };
 
 const ERROR_LABELS: Record<string, string> = {
@@ -42,7 +53,16 @@ function generateMixedTemp(): string {
   return out.join("");
 }
 
-export function ResetPasswordDialog({ staffProfileId }: Props) {
+export function ResetPasswordDialog({
+  staffProfileId,
+  disabled = false,
+  disabledReason = "Create a login for this person first.",
+  compact = false,
+  defaultAutoGenerate = false,
+  triggerLabel = "Reset password",
+  dialogTitle,
+  triggerClassName,
+}: Props) {
   const router = useRouter();
   const titleId = useId();
   const [open, setOpen] = useState(false);
@@ -51,7 +71,7 @@ export function ResetPasswordDialog({ staffProfileId }: Props) {
   const [success, setSuccess] = useState<string | null>(null);
   const [password, setPassword] = useState("");
   const [passwordConfirm, setPasswordConfirm] = useState("");
-  const [autoGenerate, setAutoGenerate] = useState(false);
+  const [autoGenerate, setAutoGenerate] = useState(defaultAutoGenerate);
   const [revealedTempPassword, setRevealedTempPassword] = useState<string | null>(null);
 
   const close = useCallback(() => {
@@ -61,9 +81,9 @@ export function ResetPasswordDialog({ staffProfileId }: Props) {
     setPassword("");
     setPasswordConfirm("");
     setLoading(false);
-    setAutoGenerate(false);
+    setAutoGenerate(defaultAutoGenerate);
     setRevealedTempPassword(null);
-  }, []);
+  }, [defaultAutoGenerate]);
 
   useEffect(() => {
     if (!open) return;
@@ -127,20 +147,31 @@ export function ResetPasswordDialog({ staffProfileId }: Props) {
     }
   }
 
+  const heading = dialogTitle ?? (defaultAutoGenerate ? "Regenerate temporary password" : "Reset password");
+  const triggerClass =
+    triggerClassName ??
+    (compact
+      ? "inline-flex min-w-0 items-center justify-center rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-semibold text-slate-800 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-45"
+      : "inline-flex min-w-[7rem] items-center justify-center rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-800 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-45");
+
   return (
     <div className="flex flex-col gap-1">
       <button
         type="button"
+        disabled={disabled}
+        title={disabled ? disabledReason : undefined}
         onClick={() => {
+          if (disabled) return;
           setOpen(true);
           setError(null);
           setSuccess(null);
           setPassword("");
           setPasswordConfirm("");
+          setAutoGenerate(defaultAutoGenerate);
         }}
-        className="inline-flex min-w-[7rem] items-center justify-center rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-800 hover:bg-slate-50"
+        className={triggerClass}
       >
-        Reset password
+        {triggerLabel}
       </button>
 
       {open ? (
@@ -159,10 +190,12 @@ export function ResetPasswordDialog({ staffProfileId }: Props) {
             onMouseDown={(e) => e.stopPropagation()}
           >
             <h2 id={titleId} className="text-base font-bold text-slate-900">
-              Reset password
+              {heading}
             </h2>
             <p className="mt-1 text-xs text-slate-600">
-              Sets a new password on the linked Supabase Auth user. No user IDs are shown.
+              {defaultAutoGenerate
+                ? "A new temporary password will be generated on the server and shown once. The staff member may be asked to change it at next sign-in."
+                : "Sets a new password on the linked Supabase Auth user. If you generate a password on the server, it is shown only once in this window."}
             </p>
             <form onSubmit={onSubmit} className="mt-4 space-y-3">
               {error ? (
@@ -176,30 +209,11 @@ export function ResetPasswordDialog({ staffProfileId }: Props) {
                 </p>
               ) : null}
               {revealedTempPassword ? (
-                <div className="rounded-[12px] border border-amber-200 bg-amber-50/90 px-3 py-2">
-                  <p className="text-[11px] font-semibold text-amber-950">New temporary password</p>
-                  <div className="mt-2 flex gap-2">
-                    <input
-                      readOnly
-                      className="w-full rounded-[10px] border border-amber-200 bg-white px-2 py-1.5 font-mono text-xs"
-                      value={revealedTempPassword}
-                    />
-                    <button
-                      type="button"
-                      className="shrink-0 rounded-full bg-slate-900 px-3 py-1.5 text-[11px] font-semibold text-white"
-                      onClick={() => navigator.clipboard.writeText(revealedTempPassword)}
-                    >
-                      Copy
-                    </button>
-                  </div>
-                  <button
-                    type="button"
-                    className="mt-2 text-[11px] font-semibold text-amber-950 underline"
-                    onClick={close}
-                  >
-                    Done
-                  </button>
-                </div>
+                <TemporaryPasswordReveal
+                  staffProfileId={staffProfileId}
+                  password={revealedTempPassword}
+                  onDone={close}
+                />
               ) : null}
               <label className="flex items-start gap-2 text-xs text-slate-700">
                 <input

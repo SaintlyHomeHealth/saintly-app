@@ -8,9 +8,11 @@ type Props = {
   staffProfileId: string;
   hasLogin: boolean;
   label: string;
+  /** Overrides the default “Deactivate” / “Remove” trigger label. */
+  triggerLabel?: string;
 };
 
-export function RemoveStaffDialog({ staffProfileId, hasLogin, label }: Props) {
+export function RemoveStaffDialog({ staffProfileId, hasLogin, label, triggerLabel }: Props) {
   const titleId = useId();
   const [open, setOpen] = useState(false);
   const [ack, setAck] = useState(false);
@@ -31,6 +33,8 @@ export function RemoveStaffDialog({ staffProfileId, hasLogin, label }: Props) {
 
   const title = hasLogin ? "Deactivate staff" : "Remove staff row";
   const verb = hasLogin ? "Deactivate" : "Remove";
+  const triggerText =
+    triggerLabel ?? (hasLogin ? "Deactivate" : "Remove");
 
   return (
     <div className="flex flex-col gap-1">
@@ -40,9 +44,9 @@ export function RemoveStaffDialog({ staffProfileId, hasLogin, label }: Props) {
           setOpen(true);
           setAck(false);
         }}
-        className="inline-flex min-w-[7rem] items-center justify-center rounded-full border border-red-200 bg-red-50/80 px-3 py-1.5 text-[11px] font-semibold text-red-900 hover:bg-red-100"
+        className="inline-flex min-w-0 items-center justify-center rounded-full border border-red-200 bg-red-50/80 px-3 py-1.5 text-[11px] font-semibold text-red-900 hover:bg-red-100"
       >
-        {hasLogin ? "Deactivate" : "Remove"}
+        {triggerText}
       </button>
 
       {open ? (

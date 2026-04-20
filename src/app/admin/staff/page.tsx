@@ -11,10 +11,7 @@ import {
   type StaffRole,
 } from "@/lib/staff-profile";
 
-import { CreateLoginDialog } from "./create-login-dialog";
-import { EditStaffDialog } from "./edit-staff-dialog";
-import { RemoveStaffDialog } from "./remove-staff-dialog";
-import { ResetPasswordDialog } from "./reset-password-dialog";
+import { StaffDirectoryRowActions } from "./staff-directory-row-actions";
 
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 
@@ -32,6 +29,10 @@ type StaffRow = {
   inbound_ring_primary_group_key: string | null;
   sms_notify_phone: string | null;
   applicant_id: string | null;
+  phone_assignment_mode: string | null;
+  dedicated_outbound_e164: string | null;
+  shared_line_e164: string | null;
+  phone_calling_profile: string | null;
 };
 
 type StaffAuthDiagnostics = {
@@ -74,6 +75,20 @@ async function loadStaffAuthDiagnostics(rows: StaffRow[]): Promise<Map<string, S
     })
   );
   return map;
+}
+
+function phoneSummary(row: StaffRow): string {
+  const prof = row.phone_calling_profile ?? "";
+  const short =
+    prof === "inbound_outbound" ? "In+Out" : prof === "outbound_only" ? "Out only" : prof ? "In off" : "—";
+  let line = "Default";
+  if (row.phone_assignment_mode === "dedicated" && row.dedicated_outbound_e164) {
+    line = row.dedicated_outbound_e164;
+  } else if (row.phone_assignment_mode === "shared" && row.shared_line_e164) {
+    line = `Shared ${row.shared_line_e164}`;
+  }
+  const tail = line.length > 14 ? `…${line.slice(-10)}` : line;
+  return `${short} · ${tail}`;
 }
 
 function roleLabel(role: StaffRole): string {
@@ -152,7 +167,7 @@ export default async function AdminStaffPage({
   const { data: rows, error } = await supabaseAdmin
     .from("staff_profiles")
     .select(
-      "id, full_name, email, role, is_active, user_id, phone_access_enabled, inbound_ring_enabled, inbound_ring_primary_group_key, sms_notify_phone, applicant_id"
+      "id, full_name, email, role, is_active, user_id, phone_access_enabled, inbound_ring_enabled, inbound_ring_primary_group_key, sms_notify_phone, applicant_id, phone_assignment_mode, dedicated_outbound_e164, shared_line_e164, phone_calling_profile"
     )
     .order("full_name", { ascending: true });
 
@@ -279,16 +294,18 @@ export default async function AdminStaffPage({
           </p>
 
           <div className="mt-4 overflow-x-auto rounded-[24px] border border-slate-200/90 bg-white shadow-sm">
-            <table className="w-full min-w-[720px] text-left text-xs">
+            <table className="w-full max-w-full border-collapse text-left text-xs">
               <thead>
                 <tr className="border-b border-indigo-100/80 bg-slate-50/90 text-slate-600">
-                  <th className="whitespace-nowrap px-4 py-3 font-semibold">Name</th>
-                  <th className="whitespace-nowrap px-4 py-3 font-semibold">Email</th>
-                  <th className="whitespace-nowrap px-4 py-3 font-semibold">Role</th>
-                  <th className="whitespace-nowrap px-4 py-3 font-semibold">Active</th>
-                  <th className="whitespace-nowrap px-4 py-3 font-semibold">Login</th>
-                  <th className="whitespace-nowrap px-4 py-3 font-semibold">Phone</th>
-                  <th className="whitespace-nowrap px-4 py-3 font-semibold">Quick actions</th>
+                  <th className="whitespace-nowrap px-3 py-3 font-semibold">Name</th>
+                  <th className="hidden md:table-cell whitespace-nowrap px-3 py-3 font-semibold">Email</th>
+                  <th className="whitespace-nowrap px-3 py-3 font-semibold">Role</th>
+                  <th className="whitespace-nowrap px-3 py-3 font-semibold">Active</th>
+                  <th className="whitespace-nowrap px-3 py-3 font-semibold">Login</th>
+                  <th className="hidden lg:table-cell whitespace-nowrap px-3 py-3 font-semibold">Phone</th>
+                  <th className="sticky right-0 z-20 whitespace-nowrap border-l border-slate-200/80 bg-slate-50/95 px-3 py-3 pl-3 font-semibold shadow-[-6px_0_8px_-6px_rgba(15,23,42,0.12)] backdrop-blur-sm">
+                    Actions
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -306,20 +323,26 @@ export default async function AdminStaffPage({
                       (row.full_name ?? "").trim() ||
                       (row.email ?? "").split("@")[0] ||
                       "—";
-                    const phoneOk = hasLogin && row.phone_access_enabled;
+                    const phoneOk = row.phone_access_enabled;
                     const linkIssue = hasLogin && diag && (!diag.authUserExists || !diag.staffLinkOk || !diag.emailConfirmed);
                     return (
                       <tr key={row.id} className="border-b border-slate-100 last:border-0">
-                        <td className="px-4 py-3 font-medium text-slate-900">
+                        <td className="max-w-[9rem] px-3 py-3 font-medium text-slate-900 sm:max-w-[11rem]">
                           <Link
                             href={`/admin/staff/${row.id}`}
-                            className="text-indigo-800 underline decoration-indigo-200 underline-offset-2 hover:text-indigo-950"
+                            className="block truncate text-indigo-800 underline decoration-indigo-200 underline-offset-2 hover:text-indigo-950"
+                            title={name}
                           >
                             {name}
                           </Link>
+                          <p className="mt-0.5 truncate text-[10px] text-slate-500 md:hidden" title={row.email ?? ""}>
+                            {row.email ?? "—"}
+                          </p>
                         </td>
-                        <td className="max-w-[200px] truncate px-4 py-3 text-slate-700">{row.email ?? "—"}</td>
-                        <td className="px-4 py-3">
+                        <td className="hidden max-w-[10rem] truncate px-3 py-3 text-slate-700 md:table-cell">
+                          {row.email ?? "—"}
+                        </td>
+                        <td className="px-3 py-3">
                           {!canAssignSuperAdmin && row.role === "super_admin" ? (
                             <span className="text-xs font-semibold text-slate-800">{roleLabel(row.role)}</span>
                           ) : (
@@ -350,7 +373,7 @@ export default async function AdminStaffPage({
                             </form>
                           )}
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="px-3 py-3">
                           <form action={setStaffActive} className="inline">
                             <input type="hidden" name="staffProfileId" value={row.id} />
                             <input type="hidden" name="active" value={row.is_active ? "0" : "1"} />
@@ -366,35 +389,34 @@ export default async function AdminStaffPage({
                             </button>
                           </form>
                         </td>
-                        <td className="whitespace-nowrap px-4 py-3 text-slate-700">
+                        <td className="whitespace-nowrap px-3 py-3 text-slate-700">
                           {hasLogin ? (
                             <span className={linkIssue ? "font-semibold text-amber-800" : ""}>
-                              Linked{linkIssue ? " · check" : ""}
+                              Yes{linkIssue ? " · check" : ""}
                             </span>
                           ) : (
                             "No"
                           )}
                         </td>
-                        <td className="whitespace-nowrap px-4 py-3 text-slate-700">
-                          {!hasLogin ? "—" : phoneOk ? "On" : "Off"}
+                        <td
+                          className="hidden whitespace-nowrap px-3 py-3 text-slate-700 lg:table-cell"
+                          title={phoneSummary(row)}
+                        >
+                          <span className="block max-w-[8.5rem] truncate text-[10px] font-medium leading-tight">
+                            {phoneSummary(row)}
+                          </span>
+                          <span className="mt-0.5 block text-[9px] text-slate-500">
+                            {phoneOk ? "Access on" : "Access off"}
+                          </span>
                         </td>
-                        <td className="px-4 py-3">
-                          <div className="flex flex-wrap gap-1.5">
-                            <Link
-                              href={`/admin/staff/${row.id}`}
-                              className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-800 hover:bg-slate-50"
-                            >
-                              Open
-                            </Link>
-                            {!hasLogin ? <CreateLoginDialog staffProfileId={row.id} /> : null}
-                            {hasLogin ? <ResetPasswordDialog staffProfileId={row.id} /> : null}
-                            <EditStaffDialog
-                              staffProfileId={row.id}
-                              initialFullName={(row.full_name ?? "").trim()}
-                              initialEmail={(row.email ?? "").trim()}
-                            />
-                            <RemoveStaffDialog staffProfileId={row.id} hasLogin={hasLogin} label={name} />
-                          </div>
+                        <td className="sticky right-0 z-10 border-l border-slate-200/80 bg-white/95 px-2 py-2 align-middle shadow-[-6px_0_8px_-6px_rgba(15,23,42,0.08)] backdrop-blur-sm">
+                          <StaffDirectoryRowActions
+                            staffProfileId={row.id}
+                            hasLogin={hasLogin}
+                            label={name}
+                            initialFullName={(row.full_name ?? "").trim()}
+                            initialEmail={(row.email ?? "").trim()}
+                          />
                         </td>
                       </tr>
                     );

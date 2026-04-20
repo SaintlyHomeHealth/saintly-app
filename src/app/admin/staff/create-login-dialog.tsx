@@ -7,8 +7,15 @@ import {
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useId, useState } from "react";
 
+import { TemporaryPasswordReveal } from "./temporary-password-reveal";
+
 type Props = {
   staffProfileId: string;
+  /** When true, button is visible but non-interactive (login already exists). */
+  disabled?: boolean;
+  disabledReason?: string;
+  /** Smaller trigger for dense tables. */
+  compact?: boolean;
 };
 
 type Panel = "menu" | "invite" | "password";
@@ -54,7 +61,12 @@ function generateMixedTemp(): string {
   return out.join("");
 }
 
-export function CreateLoginDialog({ staffProfileId }: Props) {
+export function CreateLoginDialog({
+  staffProfileId,
+  disabled = false,
+  disabledReason = "This person already has a login. Use Reset password to change it.",
+  compact = false,
+}: Props) {
   const router = useRouter();
   const titleId = useId();
   const [open, setOpen] = useState(false);
@@ -207,18 +219,25 @@ export function CreateLoginDialog({ staffProfileId }: Props) {
     }
   }
 
+  const triggerClass = compact
+    ? "inline-flex min-w-0 items-center justify-center rounded-full bg-slate-900 px-2.5 py-1 text-[10px] font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-45"
+    : "inline-flex min-w-[7rem] items-center justify-center rounded-full bg-slate-900 px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-45";
+
   return (
     <div className="flex flex-col gap-1">
       <button
         type="button"
+        disabled={disabled}
+        title={disabled ? disabledReason : undefined}
         onClick={() => {
+          if (disabled) return;
           setOpen(true);
           setPanel("menu");
           resetFeedback();
           setPassword("");
           setPasswordConfirm("");
         }}
-        className="inline-flex min-w-[7rem] items-center justify-center rounded-full bg-slate-900 px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-slate-800"
+        className={triggerClass}
       >
         Create login
       </button>
@@ -355,30 +374,11 @@ export function CreateLoginDialog({ staffProfileId }: Props) {
                     </p>
                   ) : null}
                   {revealedTempPassword ? (
-                    <div className="rounded-[12px] border border-amber-200 bg-amber-50/90 px-3 py-2">
-                      <p className="text-[11px] font-semibold text-amber-950">Temporary password (copy now)</p>
-                      <div className="mt-2 flex gap-2">
-                        <input
-                          readOnly
-                          className="w-full rounded-[10px] border border-amber-200 bg-white px-2 py-1.5 font-mono text-xs text-slate-900"
-                          value={revealedTempPassword}
-                        />
-                        <button
-                          type="button"
-                          className="shrink-0 rounded-full bg-slate-900 px-3 py-1.5 text-[11px] font-semibold text-white"
-                          onClick={() => navigator.clipboard.writeText(revealedTempPassword)}
-                        >
-                          Copy
-                        </button>
-                      </div>
-                      <button
-                        type="button"
-                        className="mt-2 text-[11px] font-semibold text-amber-950 underline"
-                        onClick={close}
-                      >
-                        Done
-                      </button>
-                    </div>
+                    <TemporaryPasswordReveal
+                      staffProfileId={staffProfileId}
+                      password={revealedTempPassword}
+                      onDone={close}
+                    />
                   ) : null}
                   <label className="flex items-start gap-2 text-xs text-slate-700">
                     <input

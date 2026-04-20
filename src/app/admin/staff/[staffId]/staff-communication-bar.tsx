@@ -5,10 +5,9 @@ import { useCallback, useState } from "react";
 type Props = {
   staffProfileId: string;
   loginUrl: string;
-  hasLogin: boolean;
 };
 
-export function StaffCommunicationBar({ staffProfileId, loginUrl, hasLogin }: Props) {
+export function StaffCommunicationBar({ staffProfileId, loginUrl }: Props) {
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState<string | null>(null);
@@ -51,6 +50,10 @@ export function StaffCommunicationBar({ staffProfileId, loginUrl, hasLogin }: Pr
   return (
     <div className="rounded-[16px] border border-slate-100 bg-slate-50/50 p-3">
       <p className="text-xs font-semibold text-slate-700">Communication</p>
+      <p className="mt-1 text-[10px] leading-snug text-slate-500">
+        To resend the Supabase invite email, use <span className="font-semibold text-slate-700">Resend invite</span> in
+        Login access above.
+      </p>
       <div className="mt-2 flex flex-wrap gap-2">
         <button
           type="button"
@@ -59,28 +62,14 @@ export function StaffCommunicationBar({ staffProfileId, loginUrl, hasLogin }: Pr
         >
           Copy login URL
         </button>
-        {hasLogin ? (
-          <button
-            type="button"
-            disabled={loading !== null}
-            onClick={() => postJson("/api/admin/staff/resend-invite", { staffProfileId })}
-            className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
-          >
-            {loading === "/api/admin/staff/resend-invite" ? "Sending…" : "Resend invite email"}
-          </button>
-        ) : null}
-        {hasLogin ? (
-          <button
-            type="button"
-            disabled={loading !== null}
-            onClick={() =>
-              postJson("/api/admin/staff/send-access-sms", { staffProfileId, variant: "welcome" })
-            }
-            className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
-          >
-            {loading === "/api/admin/staff/send-access-sms" ? "Sending…" : "Send welcome SMS"}
-          </button>
-        ) : null}
+        <button
+          type="button"
+          disabled={loading !== null}
+          onClick={() => postJson("/api/admin/staff/send-access-sms", { staffProfileId, variant: "welcome" })}
+          className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+        >
+          {loading === "/api/admin/staff/send-access-sms" ? "Sending…" : "Send welcome SMS"}
+        </button>
       </div>
       {msg ? <p className="mt-2 text-xs text-emerald-800">{msg}</p> : null}
       {err ? <p className="mt-2 text-xs text-red-800">{err}</p> : null}

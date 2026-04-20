@@ -8,9 +8,16 @@ type Props = {
   staffProfileId: string;
   initialFullName: string;
   initialEmail: string;
+  /** Replaces default trigger button classes (e.g. menu row). */
+  buttonClassName?: string;
 };
 
-export function EditStaffDialog({ staffProfileId, initialFullName, initialEmail }: Props) {
+export function EditStaffDialog({
+  staffProfileId,
+  initialFullName,
+  initialEmail,
+  buttonClassName,
+}: Props) {
   const titleId = useId();
   const [open, setOpen] = useState(false);
 
@@ -32,7 +39,10 @@ export function EditStaffDialog({ staffProfileId, initialFullName, initialEmail 
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="inline-flex min-w-[7rem] items-center justify-center rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-800 hover:bg-slate-50"
+        className={
+          buttonClassName ??
+          "inline-flex min-w-[7rem] items-center justify-center rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-800 hover:bg-slate-50"
+        }
       >
         Edit
       </button>
