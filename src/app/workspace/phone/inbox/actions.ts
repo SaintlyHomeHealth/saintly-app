@@ -7,6 +7,7 @@ import { mergeTelemetryOnSend } from "@/lib/phone/sms-suggestion-telemetry";
 import { softDeleteSmsConversation, softDeleteSmsMessage } from "@/lib/phone/sms-soft-delete";
 import { ensureSmsConversationForPhone } from "@/lib/phone/sms-conversation-thread";
 import { resolveContactAndPhoneForWorkspaceNewSms } from "@/lib/phone/workspace-new-sms-resolve";
+import { resolveManualInboxSmsFromOverride } from "@/lib/twilio/manual-inbox-sms-from";
 import { sendSms } from "@/lib/twilio/send-sms";
 import { canAccessWorkspacePhone, getStaffProfile } from "@/lib/staff-profile";
 import { supabaseAdmin } from "@/lib/admin";
@@ -213,7 +214,25 @@ export async function sendWorkspaceNewSms(formData: FormData) {
 
   const conversationId = ensured.conversationId;
 
-  const sent = await sendSms({ to: e164, body });
+  const manualFromRaw = String(formData.get("smsManualFromE164") ?? "").trim();
+  console.log("[sms-send] backend_received_from", {
+    smsManualFromE164: manualFromRaw || null,
+    path: "workspace_new_sms",
+  });
+  const manualFrom = resolveManualInboxSmsFromOverride(manualFromRaw);
+  if (manualFromRaw && manualFrom.source !== "explicit") {
+    console.warn("[sms-send] manual_from_rejected", {
+      smsManualFromE164: manualFromRaw,
+      reason: manualFrom.source,
+    });
+  }
+
+  const sent = await sendSms({
+    to: e164,
+    body,
+    ...(manualFrom.fromOverride ? { fromOverride: manualFrom.fromOverride } : {}),
+    logManualInboxSend: true,
+  });
 
   if (!sent.ok) {
     console.error("[workspace-new-sms] step=twilio_send FAILED (after conversation row)", {

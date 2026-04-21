@@ -20,6 +20,7 @@ import {
 import { parseLeadStatus } from "@/lib/phone/lead-status";
 import { isValidE164, normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
 import { markInboundMessagesViewedForConversation } from "@/lib/phone/sms-inbound-unread";
+import { resolveManualInboxSmsFromOverride } from "@/lib/twilio/manual-inbox-sms-from";
 import { sendSms } from "@/lib/twilio/send-sms";
 import {
   canAccessWorkspacePhone,
@@ -612,8 +613,26 @@ export async function sendConversationSms(
     redirect(smsConversationRedirectPath(conversationId, workspaceMode, { err: "sms_bad_phone" }));
   }
 
+  const manualFromRaw = String(formData.get("smsManualFromE164") ?? "").trim();
+  console.log("[sms-send] backend_received_from", {
+    smsManualFromE164: manualFromRaw || null,
+    workspaceMode,
+  });
+  const manualFrom = resolveManualInboxSmsFromOverride(manualFromRaw);
+  if (manualFromRaw && manualFrom.source !== "explicit") {
+    console.warn("[sms-send] manual_from_rejected", {
+      smsManualFromE164: manualFromRaw,
+      reason: manualFrom.source,
+    });
+  }
+
   console.log("[sms-twilio] send start", { conversationId, to, bodyLen: body.length });
-  const sent = await sendSms({ to, body });
+  const sent = await sendSms({
+    to,
+    body,
+    ...(manualFrom.fromOverride ? { fromOverride: manualFrom.fromOverride } : {}),
+    logManualInboxSend: workspaceAny,
+  });
   if (!sent.ok) {
     const errShort = sent.error.slice(0, 400);
     console.warn("[sms-twilio] send failed", errShort);

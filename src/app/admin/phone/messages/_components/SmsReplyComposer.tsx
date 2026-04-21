@@ -82,6 +82,8 @@ export function SmsReplyComposer({
     if (!trimmed) return;
     onOutboundOptimistic(trimmed);
     const fd = new FormData(e.currentTarget);
+    const uiFrom = String(fd.get("smsManualFromE164") ?? "").trim();
+    console.log("[sms-send] ui_selected_from", { smsManualFromE164: uiFrom || null });
     const result: void | SendConversationSmsResult = await sendConversationSms(fd);
     if (!workspaceInboxSplit) return;
     if (result == null || typeof result !== "object" || !("ok" in result)) return;

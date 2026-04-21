@@ -28,7 +28,8 @@ function modeHint(mode: SmsOutboundInfo["outboundMode"]): string {
 }
 
 /**
- * “Text from” row — mirrors Call-as interaction (expand / pick line). Selection is local UI state only until SMS send is wired.
+ * “Text from” row — mirrors Call-as interaction (expand / pick line).
+ * Selected E.164 is submitted as `smsManualFromE164` for manual workspace SMS sends.
  */
 export const SmsTextFromBar = memo(function SmsTextFromBar({ className = "" }: { className?: string }) {
   const { softphoneCapabilities } = useWorkspaceSoftphone();
@@ -40,7 +41,6 @@ export const SmsTextFromBar = memo(function SmsTextFromBar({ className = "" }: {
   const [smsInfo, setSmsInfo] = useState<SmsOutboundInfo | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
-  /** Local-only; does not change Twilio SMS send yet. */
   const [pickedE164, setPickedE164] = useState<string | null>(null);
 
   useEffect(() => {
@@ -89,6 +89,7 @@ export const SmsTextFromBar = memo(function SmsTextFromBar({ className = "" }: {
 
   return (
     <div className={`flex w-full min-w-0 flex-col gap-0.5 text-[11px] text-slate-700 ${className}`.trim()}>
+      <input type="hidden" name="smsManualFromE164" value={activeE164 ?? ""} aria-hidden />
       <button
         type="button"
         onClick={toggle}

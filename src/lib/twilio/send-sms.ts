@@ -9,6 +9,10 @@ export type SendSmsParams = {
    * Keeps global inbox/Twilio defaults unchanged while allowing targeted outbound (e.g. Facebook lead intro).
    */
   fromOverride?: string;
+  /**
+   * When true, logs `[sms-send] twilio_send_params` (masked) for manual inbox debugging — remove after verification.
+   */
+  logManualInboxSend?: boolean;
 };
 
 export type SendSmsResult =
@@ -88,6 +92,16 @@ export async function sendSms(params: SendSmsParams): Promise<SendSmsResult> {
     form.set("MessagingServiceSid", fromOrMsid);
   } else {
     form.set("From", fromOrMsid);
+  }
+
+  if (params.logManualInboxSend) {
+    console.log("[sms-send] twilio_send_params", {
+      twilioFieldUsed: useMessagingService ? "MessagingServiceSid" : "From",
+      messagingServiceSidPrefix: useMessagingService ? `${fromOrMsid.slice(0, 6)}…` : null,
+      fromE164Last4: !useMessagingService && fromOrMsid.length >= 4 ? fromOrMsid.slice(-4) : null,
+      toLast4: to.length >= 4 ? to.slice(-4) : to,
+      bodyLen: body.length,
+    });
   }
 
   const webhookBase = resolveTwilioWebhookBaseUrl();

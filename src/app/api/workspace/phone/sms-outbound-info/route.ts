@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { loadSoftphoneOutboundCallerConfigFromEnv } from "@/lib/softphone/outbound-caller-ids";
 import { getTwilioSmsOutboundDiagnostics } from "@/lib/twilio/sms-outbound-diagnostics";
 import { canAccessWorkspacePhone, getStaffProfile } from "@/lib/staff-profile";
 
@@ -14,12 +15,14 @@ export async function GET() {
   }
 
   const d = getTwilioSmsOutboundDiagnostics();
+  const outboundCfg = loadSoftphoneOutboundCallerConfigFromEnv();
+  const lineCount = outboundCfg?.lines.length ?? 0;
   return NextResponse.json({
     credentialsComplete: d.credentialsComplete,
     missingEnvVars: d.missingEnvVars,
     outboundMode: d.outboundMode,
     outboundSenderMasked: d.outboundSenderMasked,
-    /** True when multiple SMS send identities could be chosen — not supported by send path yet. */
-    selectable: false,
+    /** True when multiple org lines exist — manual inbox send uses `smsManualFromE164`. */
+    selectable: lineCount > 1,
   });
 }
