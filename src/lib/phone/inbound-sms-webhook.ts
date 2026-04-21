@@ -10,6 +10,39 @@ import { isValidE164, normalizeDialInputToE164 } from "@/lib/softphone/phone-num
 
 export type InboundTwilioSmsParams = Record<string, string>;
 
+/**
+ * Inbound `To` must be one of our Twilio long codes (or any number on the Messaging Service when
+ * `TWILIO_SMS_FROM` is `MG…`). Builds the E.164 allowlist for the non-MG case:
+ * - normalized `TWILIO_SMS_FROM` when it is E.164
+ * - optional `TWILIO_INBOUND_ALLOWED_TO_NUMBERS` (comma-separated E.164)
+ * - Saintly shared Messaging Service numbers (+14803600008, +14805712062) so inbound works when
+ *   `TWILIO_SMS_FROM` points at only one of them.
+ *
+ * Outbound SMS is unchanged: `sendSms` still uses `TWILIO_SMS_FROM` / `fromOverride` only.
+ */
+function buildInboundAllowedToE164Set(): Set<string> {
+  const set = new Set<string>();
+  const fromEnv = process.env.TWILIO_SMS_FROM?.trim();
+  if (fromEnv && !fromEnv.startsWith("MG")) {
+    const n = normalizeDialInputToE164(fromEnv);
+    if (n && isValidE164(n)) set.add(n);
+  }
+  const csv = process.env.TWILIO_INBOUND_ALLOWED_TO_NUMBERS?.trim();
+  if (csv) {
+    for (const part of csv.split(",")) {
+      const p = part.trim();
+      if (!p) continue;
+      const n = normalizeDialInputToE164(p);
+      if (n && isValidE164(n)) set.add(n);
+    }
+  }
+  for (const def of ["+14803600008", "+14805712062"] as const) {
+    const n = normalizeDialInputToE164(def);
+    if (n && isValidE164(n)) set.add(n);
+  }
+  return set;
+}
+
 function smsTiming(phase: string, detail?: Record<string, unknown>): void {
   if (process.env.SMS_PUSH_TIMING !== "1") return;
   console.log("[SMS]", phase, Date.now(), detail ?? {});
@@ -67,20 +100,38 @@ export async function applyInboundTwilioSms(
     return { ok: false, error: "missing TWILIO_SMS_FROM or invalid To" };
   }
 
-  if (!usesMessagingServiceSid) {
-    const ourNorm = normalizeDialInputToE164(ourNumber) ?? ourNumber;
-    if (ourNorm !== toE164) {
-      console.warn("[sms-inbound] To does not match TWILIO_SMS_FROM (normalized)", {
-        toE164,
-        ourNorm,
-      });
-      return { ok: false, error: "To does not match TWILIO_SMS_FROM" };
-    }
+  let inboundToAllowed = false;
+  if (usesMessagingServiceSid) {
+    /** Twilio routes inbound to any long code on the service; do not tie to a single env number. */
+    inboundToAllowed = true;
+    console.log("[sms-inbound] inbound_to_validation", {
+      fromE164,
+      toE164,
+      mode: "messaging_service_sid",
+      inboundToAllowed: true,
+      twilioSmsFromKind: "MG",
+    });
   } else {
-    console.log("[sms-inbound] TWILIO_SMS_FROM is Messaging Service SID; skipping To==FROM check");
+    const allowedTo = buildInboundAllowedToE164Set();
+    inboundToAllowed = allowedTo.has(toE164);
+    console.log("[sms-inbound] inbound_to_validation", {
+      fromE164,
+      toE164,
+      mode: "e164_allowlist",
+      inboundToAllowed,
+      allowlistSize: allowedTo.size,
+      twilioSmsFromKind: "e164",
+    });
+    if (!inboundToAllowed) {
+      console.warn("[sms-inbound] To not in inbound allowlist (TWILIO_SMS_FROM + optional TWILIO_INBOUND_ALLOWED_TO_NUMBERS + defaults)", {
+        toE164,
+        allowedSample: [...allowedTo].sort(),
+      });
+      return { ok: false, error: "To not in allowed inbound numbers" };
+    }
   }
 
-  console.log("[sms-inbound] normalized", { fromE164, toE164 });
+  console.log("[sms-inbound] normalized", { fromE164, toE164, inboundToAllowed });
 
   smsTiming("before_contact_lookup");
   const contact = await findContactByIncomingPhone(supabase, fromE164);
@@ -120,6 +171,12 @@ export async function applyInboundTwilioSms(
     if (code === "23505") {
       smsTiming("duplicate_message_sid_skip", { messageSid });
       console.log("[sms-inbound] duplicate MessageSid (idempotent ok)", { messageSid });
+      console.log("[sms-inbound] persist_pipeline_result", {
+        ok: true,
+        duplicateMessageSid: true,
+        messageSid,
+        inboundToAllowed,
+      });
       return { ok: true };
     }
     console.warn("[sms-inbound] message insert failed", msgErr.message);
@@ -177,5 +234,12 @@ export async function applyInboundTwilioSms(
   smsTiming("after_conversation_touch");
 
   smsTiming("handler_done");
+  console.log("[sms-inbound] persist_pipeline_result", {
+    ok: true,
+    conversationId,
+    messageId: insertedMsg?.id ?? null,
+    inboundToAllowed,
+    messageSid,
+  });
   return { ok: true };
 }
