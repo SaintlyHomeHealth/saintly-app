@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown, Delete, MessageSquareText, Phone, Sparkles, X } from "lucide-react";
 
 import {
@@ -13,6 +13,11 @@ import { isValidE164, normalizeDialInputToE164 } from "@/lib/softphone/phone-num
 import { isPlausiblePstnCallerRawForSubline } from "@/lib/softphone/twilio-incoming-caller-display";
 import { openSoftphoneAppSettings } from "@/lib/softphone/open-app-settings";
 import { isReactNativeWebViewShell } from "@/lib/softphone/native-speaker-bridge";
+
+/** After initial delete, wait this long before rapid repeat (keypad backspace hold). */
+const KEYPAD_BACKSPACE_REPEAT_DELAY_MS = 420;
+/** Interval between deletes while backspace is held. */
+const KEYPAD_BACKSPACE_REPEAT_EVERY_MS = 68;
 
 const DIALPAD_ROWS: ReadonlyArray<ReadonlyArray<{ digit: string; sub?: string }>> = [
   [
@@ -197,6 +202,33 @@ export function SoftphoneDialer({
   const dialInputLocked = (busy && status !== "in_call") || Boolean(incoming);
   const showCallButton = !busy;
   const keypadDisabled = dialInputLocked;
+
+  /** Press-and-hold backspace: one delete on press, then repeat after a short delay until release. */
+  const backspaceHoldTimeoutRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
+  const backspaceRepeatIntervalRef = useRef<ReturnType<typeof window.setInterval> | null>(null);
+
+  const clearBackspaceRepeat = useCallback(() => {
+    if (backspaceHoldTimeoutRef.current != null) {
+      window.clearTimeout(backspaceHoldTimeoutRef.current);
+      backspaceHoldTimeoutRef.current = null;
+    }
+    if (backspaceRepeatIntervalRef.current != null) {
+      window.clearInterval(backspaceRepeatIntervalRef.current);
+      backspaceRepeatIntervalRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      clearBackspaceRepeat();
+    };
+  }, [clearBackspaceRepeat]);
+
+  useEffect(() => {
+    const onWinBlur = () => clearBackspaceRepeat();
+    window.addEventListener("blur", onWinBlur);
+    return () => window.removeEventListener("blur", onWinBlur);
+  }, [clearBackspaceRepeat]);
 
   const defaultPanel = (
     <>
@@ -552,9 +584,32 @@ export function SoftphoneDialer({
             <button
               type="button"
               disabled={keypadDisabled || !digits.length}
-              onClick={() => setDigits((d) => d.slice(0, -1))}
               className="flex h-14 w-14 shrink-0 touch-manipulation select-none items-center rounded-full border border-slate-200/85 bg-white text-slate-600 shadow-[0_1px_3px_-1px_rgba(15,23,42,0.08)] transition-[transform,box-shadow] duration-150 ease-out hover:bg-slate-50 active:scale-[0.97] active:bg-sky-50/80 disabled:pointer-events-none disabled:opacity-25 lg:h-12 lg:w-12"
               aria-label="Backspace"
+              onPointerDown={(e) => {
+                if (keypadDisabled || !digits.length) return;
+                if (e.button !== 0) return;
+                e.preventDefault();
+                const remainingAfterDelete = digits.length - 1;
+                setDigits((d) => d.slice(0, -1));
+                clearBackspaceRepeat();
+                if (remainingAfterDelete <= 0) return;
+                backspaceHoldTimeoutRef.current = window.setTimeout(() => {
+                  backspaceHoldTimeoutRef.current = null;
+                  backspaceRepeatIntervalRef.current = window.setInterval(() => {
+                    setDigits((d) => {
+                      if (!d.length) {
+                        clearBackspaceRepeat();
+                        return d;
+                      }
+                      return d.slice(0, -1);
+                    });
+                  }, KEYPAD_BACKSPACE_REPEAT_EVERY_MS);
+                }, KEYPAD_BACKSPACE_REPEAT_DELAY_MS);
+              }}
+              onPointerUp={clearBackspaceRepeat}
+              onPointerCancel={clearBackspaceRepeat}
+              onPointerLeave={clearBackspaceRepeat}
             >
               <Delete className="m-auto h-6 w-6" strokeWidth={1.75} />
             </button>
