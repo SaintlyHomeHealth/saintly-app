@@ -60,32 +60,40 @@ export function PushRegistrationProvider({ children }: { children: React.ReactNo
    * Foreground FCM: iOS banners are enabled via `mobile/firebase.json` presentation options.
    * Android still does not show heads-up for notification payloads while foregrounded — use a short
    * toast for non-call types so SMS / test alerts are visible without touching Twilio VoIP.
+   * Deferred until after first interactions so it doesn't compete with WebView + push token work.
    */
   useEffect(() => {
     if (Constants.appOwnership === 'expo') return undefined;
 
+    let cancelled = false;
     let unsubscribe: (() => void) | undefined;
-    void (async () => {
-      try {
-        const messaging = (await import('@react-native-firebase/messaging')).default;
-        unsubscribe = messaging().onMessage(async (remoteMessage) => {
-          if (Platform.OS !== 'android') return;
-          const dataType =
-            typeof remoteMessage.data?.type === 'string' ? remoteMessage.data.type : '';
-          if (dataType === 'incoming_call' || dataType === 'incoming_call_backup') {
-            return;
-          }
-          const title = remoteMessage.notification?.title?.trim() || 'Saintly';
-          const body = remoteMessage.notification?.body?.trim() || '';
-          const line = body ? `${title} — ${body}` : title;
-          ToastAndroid.show(line.slice(0, 250), ToastAndroid.LONG);
-        });
-      } catch {
-        /* ignore */
-      }
-    })();
+    const task = InteractionManager.runAfterInteractions(() => {
+      void (async () => {
+        if (cancelled) return;
+        try {
+          const messaging = (await import('@react-native-firebase/messaging')).default;
+          if (cancelled) return;
+          unsubscribe = messaging().onMessage(async (remoteMessage) => {
+            if (Platform.OS !== 'android') return;
+            const dataType =
+              typeof remoteMessage.data?.type === 'string' ? remoteMessage.data.type : '';
+            if (dataType === 'incoming_call' || dataType === 'incoming_call_backup') {
+              return;
+            }
+            const title = remoteMessage.notification?.title?.trim() || 'Saintly';
+            const body = remoteMessage.notification?.body?.trim() || '';
+            const line = body ? `${title} — ${body}` : title;
+            ToastAndroid.show(line.slice(0, 250), ToastAndroid.LONG);
+          });
+        } catch {
+          /* ignore */
+        }
+      })();
+    });
 
     return () => {
+      cancelled = true;
+      task.cancel();
       unsubscribe?.();
     };
   }, []);

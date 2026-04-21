@@ -147,47 +147,72 @@ export async function registerNativePushForCalls(): Promise<NativePushRegistrati
     }
 
     /**
-     * 3) APNs device token (iOS) — often null for a short window after step 2. Alert FCM may not
-     * deliver reliably until APNs is linked; poll briefly before `getToken` + server registration.
+     * 3) FCM registration token (+ iOS APNs snapshot for diagnostics).
+     *
+     * Important for perceived startup time: do **not** block `getToken()` on a long `getAPNSToken()`
+     * poll. RN Firebase often links APNs asynchronously; the old flow waited up to 12s before FCM,
+     * delaying WebView registration and Twilio follow-ups. FCM still needs successful APNs + network,
+     * so we retry `getToken()` with a bounded backoff instead.
      */
+    let fcmToken: string | null = null;
     let apnsDeviceToken: string | null = null;
+
     if (Platform.OS === 'ios') {
-      const apnsWaitStart = wallTs();
-      const timeoutMs = 12_000;
-      const intervalMs = 280;
-      try {
-        while (wallTs() - apnsWaitStart < timeoutMs) {
-          try {
-            apnsDeviceToken = await messaging().getAPNSToken();
-          } catch (apnsErr) {
-            if (mobileDiagnosticsEnabled) {
-              const msg = apnsErr instanceof Error ? apnsErr.message : String(apnsErr);
-              diagWarn('[nativePushService] getAPNSToken error (poll)', msg);
-            }
+      const tokenStart = wallTs();
+      const deadline = wallTs() + 9000;
+      while (!fcmToken && wallTs() < deadline) {
+        try {
+          const t = await messaging().getToken();
+          if (t) {
+            fcmToken = t;
+            break;
           }
-          if (apnsDeviceToken) break;
-          await new Promise((r) => setTimeout(r, intervalMs));
+        } catch (tokErr) {
+          if (mobileDiagnosticsEnabled) {
+            const msg = tokErr instanceof Error ? tokErr.message : String(tokErr);
+            diagWarn('[nativePushService] getToken error (retry)', msg);
+          }
         }
-        diagWarn('[nativePushService] getAPNSToken', {
-          ts: wallTs(),
-          waitMs: wallTs() - apnsWaitStart,
-          hasToken: Boolean(apnsDeviceToken),
-          preview: apnsDeviceToken ? `${apnsDeviceToken.slice(0, 16)}… (len ${apnsDeviceToken.length})` : null,
-        });
+        await new Promise((r) => setTimeout(r, 200));
+      }
+      diagWarn('[nativePushService] getToken', {
+        ts: wallTs(),
+        getTokenMs: wallTs() - tokenStart,
+        attemptsMs: wallTs() - tokenStart,
+        token: fcmToken ? `${fcmToken.slice(0, 24)}… (len ${fcmToken.length})` : 'empty/null',
+      });
+
+      /** Best-effort APNs device token for diagnostics only — do not add multi-second waits after FCM. */
+      try {
+        apnsDeviceToken = await messaging().getAPNSToken();
       } catch (apnsErr) {
         const msg = apnsErr instanceof Error ? apnsErr.message : String(apnsErr);
-        console.warn('[nativePushService] getAPNSToken fatal', msg);
+        if (mobileDiagnosticsEnabled) {
+          diagWarn('[nativePushService] getAPNSToken error (first try)', msg);
+        }
       }
+      if (!apnsDeviceToken) {
+        await new Promise((r) => setTimeout(r, 120));
+        try {
+          apnsDeviceToken = await messaging().getAPNSToken();
+        } catch {
+          /* ignore */
+        }
+      }
+      diagWarn('[nativePushService] getAPNSToken', {
+        ts: wallTs(),
+        hasToken: Boolean(apnsDeviceToken),
+        preview: apnsDeviceToken ? `${apnsDeviceToken.slice(0, 16)}… (len ${apnsDeviceToken.length})` : null,
+      });
+    } else {
+      const tokenStart = wallTs();
+      fcmToken = await messaging().getToken();
+      diagWarn('[nativePushService] getToken', {
+        ts: wallTs(),
+        getTokenMs: wallTs() - tokenStart,
+        token: fcmToken ? `${fcmToken.slice(0, 24)}… (len ${fcmToken.length})` : 'empty/null',
+      });
     }
-
-    /** 4) FCM registration token. */
-    const tokenStart = wallTs();
-    const fcmToken = await messaging().getToken();
-    diagWarn('[nativePushService] getToken', {
-      ts: wallTs(),
-      getTokenMs: wallTs() - tokenStart,
-      token: fcmToken ? `${fcmToken.slice(0, 24)}… (len ${fcmToken.length})` : 'empty/null',
-    });
 
     const denied = permissionStatus === AuthorizationStatus.DENIED;
     let errorText: string | null = null;

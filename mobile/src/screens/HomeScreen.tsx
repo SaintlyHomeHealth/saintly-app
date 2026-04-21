@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   AppState,
@@ -249,7 +249,7 @@ function pushStatusLine(environment: string, fcmOk: boolean): string {
   }
 }
 
-export function HomeScreen(_props: HomeScreenProps) {
+function HomeScreenInner(_props: HomeScreenProps) {
   const { state: pushState } = useNativePushRegistration();
   const pushEnv = pushState.status === 'ready' ? pushState.result.environment : null;
   const fcmToken = pushState.status === 'ready' ? pushState.result.fcmToken : null;
@@ -270,6 +270,10 @@ export function HomeScreen(_props: HomeScreenProps) {
   /** Push/voice WebView POST delayed retries (FCM load / softphone-token follow-ups). */
   const registrationTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const lastNavUrlRef = useRef<string>('');
+  /** Limits duplicate POST /push/register when SPA or WebView fires many URL updates during one transition. */
+  const lastNavPushRegAtRef = useRef(0);
+  /** After first successful load, avoid full-screen spinner on in-WebView navigations (smoother demo). */
+  const hasCompletedFirstWebLoadRef = useRef(false);
   const lastNativeCallToWebJsonRef = useRef<string>('');
   const lastNativeCallToWebAtRef = useRef(0);
 
@@ -277,6 +281,8 @@ export function HomeScreen(_props: HomeScreenProps) {
   const [portalUri, setPortalUri] = useState(portalUrl);
 
   const apiOrigin = env.apiBaseUrl.replace(/\/$/, '') || DEFAULT_PRODUCTION_API_ORIGIN;
+
+  const webSource = useMemo(() => ({ uri: portalUri }), [portalUri]);
 
   fcmTokenRef.current = fcmToken;
 
@@ -726,7 +732,7 @@ export function HomeScreen(_props: HomeScreenProps) {
       <View style={styles.container}>
         <WebView
           ref={webViewRef}
-          source={{ uri: portalUri }}
+          source={webSource}
           style={styles.webview}
           javaScriptEnabled
           domStorageEnabled
@@ -736,10 +742,13 @@ export function HomeScreen(_props: HomeScreenProps) {
           mediaPlaybackRequiresUserAction={false}
           mediaCapturePermissionGrantType="grant"
           onLoadStart={() => {
-            setLoading(true);
+            if (!hasCompletedFirstWebLoadRef.current) {
+              setLoading(true);
+            }
           }}
           onLoadEnd={() => {
             setLoading(false);
+            hasCompletedFirstWebLoadRef.current = true;
           }}
           onNavigationStateChange={(navState) => {
             const url = navState.url ?? '';
@@ -747,6 +756,9 @@ export function HomeScreen(_props: HomeScreenProps) {
             lastNavUrlRef.current = url;
             if (!fcmTokenRef.current || Constants.appOwnership === 'expo') return;
             if (url.includes('/workspace/phone')) {
+              const now = Date.now();
+              if (now - lastNavPushRegAtRef.current < 1400) return;
+              lastNavPushRegAtRef.current = now;
               runPushRegistration('navigation_to_workspace_phone');
             }
           }}
@@ -778,6 +790,10 @@ export function HomeScreen(_props: HomeScreenProps) {
     </SafeAreaView>
   );
 }
+
+HomeScreenInner.displayName = 'HomeScreen';
+
+export const HomeScreen = memo(HomeScreenInner);
 
 const styles = StyleSheet.create({
   safe: {
