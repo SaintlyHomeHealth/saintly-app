@@ -52,8 +52,25 @@ type LeadRow = {
   next_action: string | null;
   last_contact_at: string | null;
   last_outcome: string | null;
+  created_at: string | null;
   contacts: ContactEmb | ContactEmb[] | null;
 };
+
+type ConvActivityRow = {
+  last_message_at: string | null;
+  updated_at: string | null;
+  created_at: string | null;
+};
+
+function rowActivityMs(r: ConvActivityRow): number {
+  let best = 0;
+  for (const iso of [r.last_message_at, r.updated_at, r.created_at]) {
+    if (!iso) continue;
+    const t = new Date(iso).getTime();
+    if (Number.isFinite(t) && t > best) best = t;
+  }
+  return best;
+}
 
 function one(sp: Record<string, string | string[] | undefined>, key: string): string {
   const v = sp[key];
@@ -96,7 +113,7 @@ export default async function WorkspacePhoneLeadsPage({
     supabaseAdmin
       .from("leads")
       .select(
-        "id, contact_id, status, follow_up_date, next_action, last_contact_at, last_outcome, contacts ( id, full_name, first_name, last_name, primary_phone )"
+        "id, contact_id, status, follow_up_date, next_action, last_contact_at, last_outcome, created_at, contacts ( id, full_name, first_name, last_name, primary_phone )"
       )
       .limit(400)
   );
@@ -110,18 +127,70 @@ export default async function WorkspacePhoneLeadsPage({
     return !isLeadPipelineTerminal(s);
   }) as LeadRow[];
 
-  function followUpSortKey(iso: string | null | undefined): string {
-    if (!iso || typeof iso !== "string") return "9999-12-31";
-    const d = iso.slice(0, 10);
-    return /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : "9999-12-31";
+  const contactIds = [
+    ...new Set(
+      openLeads
+        .map((r) => (typeof r.contact_id === "string" ? r.contact_id.trim() : ""))
+        .filter(Boolean)
+    ),
+  ];
+
+  const convByContact = new Map<string, ConvActivityRow>();
+
+  if (contactIds.length > 0) {
+    const { data: convRows, error: convErr } = await supabaseAdmin
+      .from("conversations")
+      .select("primary_contact_id, last_message_at, updated_at, created_at")
+      .eq("channel", "sms")
+      .is("deleted_at", null)
+      .in("primary_contact_id", contactIds);
+
+    if (convErr) {
+      console.warn("[workspace/phone/leads] conversations:", convErr.message);
+    }
+
+    for (const row of convRows ?? []) {
+      const pc = typeof row.primary_contact_id === "string" ? row.primary_contact_id.trim() : "";
+      if (!pc) continue;
+      const next: ConvActivityRow = {
+        last_message_at: typeof row.last_message_at === "string" ? row.last_message_at : null,
+        updated_at: typeof row.updated_at === "string" ? row.updated_at : null,
+        created_at: typeof row.created_at === "string" ? row.created_at : null,
+      };
+      const prev = convByContact.get(pc);
+      if (!prev || rowActivityMs(next) > rowActivityMs(prev)) {
+        convByContact.set(pc, next);
+      }
+    }
+  }
+
+  function leadWorkspaceActivityMs(lead: LeadRow): number {
+    const cid = typeof lead.contact_id === "string" ? lead.contact_id.trim() : "";
+    const empty: ConvActivityRow = { last_message_at: null, updated_at: null, created_at: null };
+    const fromConv = cid ? rowActivityMs(convByContact.get(cid) ?? empty) : 0;
+    let lc = 0;
+    if (lead.last_contact_at) {
+      const t = new Date(lead.last_contact_at).getTime();
+      if (Number.isFinite(t)) lc = t;
+    }
+    let cr = 0;
+    if (lead.created_at) {
+      const t = new Date(lead.created_at).getTime();
+      if (Number.isFinite(t)) cr = t;
+    }
+    return Math.max(fromConv, lc, cr);
   }
 
   openLeads.sort((a, b) => {
-    const fd = followUpSortKey(a.follow_up_date).localeCompare(followUpSortKey(b.follow_up_date));
-    if (fd !== 0) return fd;
-    const ca = normalizeContact(a.contacts as ContactEmb | ContactEmb[] | null);
-    const cb = normalizeContact(b.contacts as ContactEmb | ContactEmb[] | null);
-    return displayNameFromContact(ca).localeCompare(displayNameFromContact(cb), undefined, {
+    const ma = leadWorkspaceActivityMs(a);
+    const mb = leadWorkspaceActivityMs(b);
+    if (mb !== ma) return mb - ma;
+    const ca = a.created_at ? new Date(a.created_at).getTime() : 0;
+    const cb = b.created_at ? new Date(b.created_at).getTime() : 0;
+    if (cb !== ca) return cb - ca;
+    const na = normalizeContact(a.contacts as ContactEmb | ContactEmb[] | null);
+    const nb = normalizeContact(b.contacts as ContactEmb | ContactEmb[] | null);
+    return displayNameFromContact(na).localeCompare(displayNameFromContact(nb), undefined, {
       sensitivity: "base",
     });
   });

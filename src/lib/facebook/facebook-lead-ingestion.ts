@@ -11,10 +11,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { buildLeadIntakeRequestFromFieldMap } from "@/lib/crm/lead-intake-request";
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
+import { runPostCreateLeadStaffNotifications } from "@/lib/crm/post-create-lead-workflow";
 import { isKnownPayerBroadCategory } from "@/lib/crm/payer-type-options";
 import { isValidServiceDisciplineCode, type ServiceDisciplineCode } from "@/lib/crm/service-disciplines";
 import { runFacebookLeadIntroSmsAfterInsert } from "@/lib/facebook/facebook-lead-intro-sms";
-import { notifyNewLeadCreatedPush } from "@/lib/push/notify-new-lead";
 import { normalizePhone } from "@/lib/phone/us-phone-format";
 
 const GRAPH_VERSION = process.env.FACEBOOK_GRAPH_API_VERSION?.trim() || "v21.0";
@@ -490,10 +490,22 @@ async function completeFacebookLeadInsertFromFieldMap(
     console.log("[facebook-lead] insert ok", { lead_id: leadId, contact_id: contactId, leadgen_id: leadgenId });
   }
 
-  void notifyNewLeadCreatedPush(supabase, leadId);
+  console.log("[lead-intake] facebook_row_ready", {
+    lead_id: leadId,
+    contact_id_prefix: contactId.slice(0, 8),
+    leadgen_id: leadgenId,
+    channel: ingestionChannel ?? "meta_graph",
+  });
+
+  runPostCreateLeadStaffNotifications(supabase, {
+    leadId,
+    contactId,
+    intakeChannel: "facebook",
+  });
 
   void runFacebookLeadIntroSmsAfterInsert(supabase, {
     leadId,
+    contactId,
     fieldMap,
     nameParts,
     primaryPhoneStored: primary_phone,
@@ -505,6 +517,8 @@ async function completeFacebookLeadInsertFromFieldMap(
   revalidatePath(`/admin/crm/leads/${leadId}`);
   revalidatePath("/admin/crm/contacts");
   revalidatePath(`/admin/crm/contacts/${contactId}`);
+  revalidatePath("/workspace/phone/inbox");
+  revalidatePath("/workspace/phone/leads");
 
   return { ok: true, duplicateSkipped: false, leadId, contactId, leadgenId };
 }

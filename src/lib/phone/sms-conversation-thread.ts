@@ -225,17 +225,26 @@ export async function ensureSmsConversationForPhone(
 
 /**
  * Resolve CRM + ensure thread for outbound system SMS (e.g. missed-call auto-reply).
+ * When `knownContactMatch` is set (e.g. new Facebook lead), skips phone lookup so the thread
+ * links immediately to the contact that was just inserted.
  */
 export async function ensureSmsConversationForOutboundSystem(
   supabase: SupabaseClient,
-  mainPhoneE164: string
+  mainPhoneE164: string,
+  options?: {
+    leadStatusOnCreate?: string;
+    /** When set (including null to force re-lookup), skips default lookup only if a non-null match is provided. */
+    knownContactMatch?: CrmContactMatch | null;
+  }
 ): Promise<
   | { ok: true; conversationId: string; primaryContactId: string | null }
   | { ok: false; error: string }
 > {
-  const contact = await findContactByIncomingPhone(supabase, mainPhoneE164);
+  const contact =
+    options?.knownContactMatch ??
+    (await findContactByIncomingPhone(supabase, mainPhoneE164));
   return ensureSmsConversationForPhone(supabase, mainPhoneE164, contact, {
-    leadStatusOnCreate: "unclassified",
+    leadStatusOnCreate: options?.leadStatusOnCreate ?? "unclassified",
   });
 }
 

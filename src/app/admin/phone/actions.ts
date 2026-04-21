@@ -7,8 +7,7 @@ import { normalizeFbclid } from "@/lib/crm/fbclid";
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { supabaseAdmin } from "@/lib/admin";
 import { findContactByIncomingPhone } from "@/lib/crm/find-contact-by-incoming-phone";
-import { sendOperationalAlertSms } from "@/lib/ops/operational-alert-sms";
-import { notifyNewLeadCreatedPush } from "@/lib/push/notify-new-lead";
+import { runPostCreateLeadStaffNotifications } from "@/lib/crm/post-create-lead-workflow";
 import {
   getStaffProfile,
   hasFullCallVisibility,
@@ -401,20 +400,11 @@ export async function createLeadFromContact(
     return { ok: false, error: "insert_failed" };
   }
 
-  void notifyNewLeadCreatedPush(supabaseAdmin, String(inserted.id));
-
-  const { data: cInfo } = await supabaseAdmin
-    .from("contacts")
-    .select("full_name, first_name, last_name, primary_phone")
-    .eq("id", id)
-    .maybeSingle();
-  const nm =
-    (cInfo?.full_name ?? "").trim() ||
-    [cInfo?.first_name, cInfo?.last_name].filter(Boolean).join(" ").trim() ||
-    "Contact";
-  void sendOperationalAlertSms(
-    `Saintly ops: New CRM lead (${nm}). Leads /admin/crm/leads · contact ${id.slice(0, 8)}…`
-  );
+  runPostCreateLeadStaffNotifications(supabaseAdmin, {
+    leadId: String(inserted.id),
+    contactId: id,
+    intakeChannel: "phone_workspace",
+  });
 
   revalidatePath("/admin/phone");
   return { ok: true, leadId: String(inserted.id) };

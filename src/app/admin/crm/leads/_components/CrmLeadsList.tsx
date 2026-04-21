@@ -139,6 +139,53 @@ function LeadActionButtonRow({
   );
 }
 
+/** Same targets as `LeadActionButtonRow`, visible on small screens where the wide table is scrolled off-screen. */
+function LeadRowMobileDialRow({
+  keypadHref,
+  smsHref,
+  phone,
+}: {
+  keypadHref: string | null;
+  smsHref: string | null;
+  phone: string;
+}) {
+  const primary =
+    "inline-flex min-h-[32px] flex-1 items-center justify-center rounded-md border px-2 py-1 text-[10px] font-semibold shadow-sm transition hover:shadow";
+  const disabled =
+    "inline-flex min-h-[32px] flex-1 cursor-not-allowed items-center justify-center rounded-md border border-slate-100 bg-slate-50 px-2 py-1 text-[10px] font-semibold text-slate-400 opacity-60 shadow-none";
+
+  return (
+    <div className="flex w-full min-w-0 gap-1.5 pt-1 md:hidden">
+      {keypadHref ? (
+        <Link
+          href={keypadHref}
+          prefetch={false}
+          className={`${primary} border-emerald-200 bg-emerald-50/80 text-emerald-900 hover:border-emerald-300 hover:bg-emerald-50`}
+        >
+          Call
+        </Link>
+      ) : (
+        <span className={disabled} title={phone ? undefined : "No dialable phone"}>
+          Call
+        </span>
+      )}
+      {smsHref ? (
+        <Link
+          href={smsHref}
+          prefetch={false}
+          className={`${primary} border-sky-200 bg-sky-50/80 text-sky-900 hover:border-sky-300 hover:bg-sky-50`}
+        >
+          Text
+        </Link>
+      ) : (
+        <span className={disabled} title={phone ? undefined : "No SMS"}>
+          Text
+        </span>
+      )}
+    </div>
+  );
+}
+
 const checkboxCls = "h-4 w-4 shrink-0 rounded border-slate-300 text-sky-600 focus:ring-sky-500/30";
 
 type StaffOpt = {
@@ -513,6 +560,7 @@ export function CrmLeadsList({ initialList, employeeOnlyView, staffOptions, toda
                           ) : null}
                         </span>
                       </div>
+                      <LeadRowMobileDialRow keypadHref={keypadHref} smsHref={smsHref} phone={phone} />
                     </div>
                     <div className="min-w-0 space-y-1 text-[11px] leading-snug text-slate-600">
                       <p className="text-[13px] leading-snug text-slate-900">
@@ -679,6 +727,7 @@ export function CrmLeadsList({ initialList, employeeOnlyView, staffOptions, toda
                           ) : null}
                         </span>
                       </div>
+                      <LeadRowMobileDialRow keypadHref={keypadHref} smsHref={smsHref} phone={phone} />
                     </div>
                     <div className="min-w-0 space-y-1 text-[11px] leading-snug text-slate-600">
                       <p className="text-[13px] leading-snug text-slate-900">

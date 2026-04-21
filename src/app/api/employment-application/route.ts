@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { normalizeFbclid } from "@/lib/crm/fbclid";
 import { supabaseAdmin } from "@/lib/admin";
 import { normalizePhone } from "@/lib/phone/us-phone-format";
-import { notifyNewLeadCreatedPush } from "@/lib/push/notify-new-lead";
+import { runPostCreateLeadStaffNotifications } from "@/lib/crm/post-create-lead-workflow";
 
 const MAX_LEN = 8000;
 
@@ -186,7 +186,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "server_error" } as const, { status: 500 });
   }
 
-  void notifyNewLeadCreatedPush(supabaseAdmin, String(newLead.id));
+  runPostCreateLeadStaffNotifications(supabaseAdmin, {
+    leadId: String(newLead.id),
+    contactId,
+    intakeChannel: "employment_web",
+  });
 
   return NextResponse.json({ ok: true, leadId: newLead.id as string } as const);
 }

@@ -18,6 +18,30 @@ export type CrmContactMatch = {
   status: string | null;
 };
 
+/** Loads CRM shape by primary key (for outbound SMS when the contact row is already known). */
+export async function fetchCrmContactMatchById(
+  supabase: SupabaseClient,
+  contactId: string
+): Promise<CrmContactMatch | null> {
+  const id = typeof contactId === "string" ? contactId.trim() : "";
+  if (!id) return null;
+
+  const { data, error } = await supabase
+    .from("contacts")
+    .select(
+      "id, first_name, last_name, full_name, organization_name, primary_phone, secondary_phone, email, contact_type, status"
+    )
+    .eq("id", id)
+    .maybeSingle();
+
+  if (error) {
+    console.warn("[crm] fetchCrmContactMatchById:", error.message);
+    return null;
+  }
+  if (!data?.id) return null;
+  return data as CrmContactMatch;
+}
+
 /**
  * Resolve a CRM contact from an inbound caller ID (Twilio-style E.164 or raw digits).
  * Safe to call from server code with a Supabase client that passes RLS (staff session) or service role.

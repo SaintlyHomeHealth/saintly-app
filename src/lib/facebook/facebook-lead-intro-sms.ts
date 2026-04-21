@@ -6,6 +6,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { fetchCrmContactMatchById } from "@/lib/crm/find-contact-by-incoming-phone";
 import { appendOutboundSmsToConversation, ensureSmsConversationForOutboundSystem } from "@/lib/phone/sms-conversation-thread";
 import { normalizeDialInputToE164, isValidE164 } from "@/lib/softphone/phone-number";
 import { sendSms } from "@/lib/twilio/send-sms";
@@ -78,19 +79,20 @@ export async function runFacebookLeadIntroSmsAfterInsert(
   supabase: SupabaseClient,
   params: {
     leadId: string;
+    contactId: string;
     fieldMap: Map<string, string>;
     nameParts: { first_name: string; last_name: string };
     primaryPhoneStored: string | null;
     ingestionChannel?: "automation" | "csv";
   }
 ): Promise<void> {
-  const { leadId, fieldMap, nameParts, primaryPhoneStored, ingestionChannel } = params;
+  const { leadId, contactId, fieldMap, nameParts, primaryPhoneStored, ingestionChannel } = params;
 
   if (ingestionChannel === "csv") {
     return;
   }
 
-  console.log("[facebook-lead-intro-sms] lead created", { lead_id: leadId });
+  console.log("[lead-intake] facebook_intro_sms_begin", { lead_id: leadId, contact_id_prefix: contactId.slice(0, 8) });
 
   try {
     const e164 = storedPhoneToE164(primaryPhoneStored);
@@ -134,7 +136,11 @@ export async function runFacebookLeadIntroSmsAfterInsert(
     const body = buildFacebookLeadIntroBody(firstName);
     const fromOverride = resolveIntroFromE164();
 
-    const conv = await ensureSmsConversationForOutboundSystem(supabase, e164);
+    const knownContact = await fetchCrmContactMatchById(supabase, contactId);
+    const conv = await ensureSmsConversationForOutboundSystem(supabase, e164, {
+      leadStatusOnCreate: "new_lead",
+      knownContactMatch: knownContact,
+    });
     if (!conv.ok) {
       const errText = `conversation_ensure_failed:${conv.error}`;
       await supabase
@@ -202,7 +208,7 @@ export async function runFacebookLeadIntroSmsAfterInsert(
       })
       .eq("id", leadId);
 
-    console.log("[facebook-lead-intro-sms] sent", { lead_id: leadId, message_sid: sms.messageSid });
+    console.log("[lead-intake] facebook_intro_sms_sent", { lead_id: leadId, message_sid: sms.messageSid });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.warn("[facebook-lead-intro-sms] unhandled", { lead_id: leadId, error: msg.slice(0, 500) });

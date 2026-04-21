@@ -7,7 +7,7 @@ import { insertAuditLog, insertAuditLogTrusted } from "@/lib/audit-log";
 import { contactFieldsFromLeadContactJoin, notifyZapierLeadStatus } from "@/lib/integrations/zapier-lead-status-webhook";
 import { diffNumber, diffString, truncateChanges, type FieldChange } from "@/lib/crm/patient-profile-diff";
 import { notifyOperationalVisitStatus } from "@/lib/ops/visit-operational-alert";
-import { notifyNewLeadCreatedPush } from "@/lib/push/notify-new-lead";
+import { runPostCreateLeadStaffNotifications } from "@/lib/crm/post-create-lead-workflow";
 import { NURSE_ON_THE_WAY_MESSAGE, nurseLabelFromStaffEmail } from "@/lib/crm/patient-sms";
 import { sendOutboundSmsForContact, sendOutboundSmsForPatient } from "@/lib/crm/outbound-patient-sms";
 import { supabaseAdmin } from "@/lib/admin";
@@ -3015,7 +3015,11 @@ export async function createLeadManualFromCrm(formData: FormData) {
 
   const leadId = newLead.id as string;
 
-  void notifyNewLeadCreatedPush(supabaseAdmin, leadId);
+  runPostCreateLeadStaffNotifications(supabaseAdmin, {
+    leadId,
+    contactId,
+    intakeChannel: "manual_crm",
+  });
 
   revalidatePath("/admin");
   revalidatePath("/admin/crm/leads");

@@ -1,8 +1,7 @@
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { supabaseAdmin } from "@/lib/admin";
 import { findContactByIncomingPhone } from "@/lib/crm/find-contact-by-incoming-phone";
-import { sendOperationalAlertSms } from "@/lib/ops/operational-alert-sms";
-import { notifyNewLeadCreatedPush } from "@/lib/push/notify-new-lead";
+import { runPostCreateLeadStaffNotifications } from "@/lib/crm/post-create-lead-workflow";
 import type { VoiceAiStoredPayload } from "@/lib/phone/voice-ai-background";
 
 function asMetadata(value: unknown): Record<string, unknown> {
@@ -243,20 +242,11 @@ export async function ensureActiveLeadForContact(contactId: string): Promise<voi
     return;
   }
 
-  void notifyNewLeadCreatedPush(supabaseAdmin, String(inserted.id));
-
-  const { data: cInfo } = await supabaseAdmin
-    .from("contacts")
-    .select("full_name, first_name, last_name, primary_phone")
-    .eq("id", contactId)
-    .maybeSingle();
-  const nm =
-    (cInfo?.full_name ?? "").trim() ||
-    [cInfo?.first_name, cInfo?.last_name].filter(Boolean).join(" ").trim() ||
-    "Contact";
-  void sendOperationalAlertSms(
-    `Saintly ops: New CRM lead (${nm}). Leads /admin/crm/leads · contact ${contactId.slice(0, 8)}…`
-  );
+  runPostCreateLeadStaffNotifications(supabaseAdmin, {
+    leadId: String(inserted.id),
+    contactId,
+    intakeChannel: "voice_intake",
+  });
 }
 
 /**
