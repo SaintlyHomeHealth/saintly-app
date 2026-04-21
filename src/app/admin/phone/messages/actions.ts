@@ -20,7 +20,10 @@ import {
 import { parseLeadStatus } from "@/lib/phone/lead-status";
 import { isValidE164, normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
 import { markInboundMessagesViewedForConversation } from "@/lib/phone/sms-inbound-unread";
-import { resolveManualInboxSmsFromOverride } from "@/lib/twilio/manual-inbox-sms-from";
+import {
+  allowlistedOutboundE164OrUndefined,
+  resolveManualInboxSmsFromOverride,
+} from "@/lib/twilio/manual-inbox-sms-from";
 import { logSmsDebug } from "@/lib/twilio/sms-debug";
 import { sendSms } from "@/lib/twilio/send-sms";
 import {
@@ -66,6 +69,7 @@ type ConversationAccessRow = {
   primary_contact_id: string | null;
   main_phone_e164: string | null;
   lead_status: string | null;
+  preferred_from_e164: string | null;
 };
 
 async function loadConversationForAccess(
@@ -73,7 +77,7 @@ async function loadConversationForAccess(
 ): Promise<{ row: ConversationAccessRow | null }> {
   const { data, error } = await supabaseAdmin
     .from("conversations")
-    .select("id, assigned_to_user_id, primary_contact_id, main_phone_e164, lead_status")
+    .select("id, assigned_to_user_id, primary_contact_id, main_phone_e164, lead_status, preferred_from_e164")
     .eq("id", conversationId)
     .eq("channel", "sms")
     .maybeSingle();
@@ -95,6 +99,10 @@ async function loadConversationForAccess(
           : null,
       main_phone_e164: typeof data.main_phone_e164 === "string" ? data.main_phone_e164 : null,
       lead_status: typeof data.lead_status === "string" ? data.lead_status : null,
+      preferred_from_e164:
+        data.preferred_from_e164 != null && String(data.preferred_from_e164).trim() !== ""
+          ? String(data.preferred_from_e164).trim()
+          : null,
     },
   };
 }
@@ -619,19 +627,38 @@ export async function sendConversationSms(
     smsManualFromE164: manualFromRaw || null,
     workspaceMode,
   });
-  const manualFrom = resolveManualInboxSmsFromOverride(manualFromRaw);
-  if (manualFromRaw && manualFrom.source !== "explicit") {
+  const manualResolved = resolveManualInboxSmsFromOverride(manualFromRaw);
+  if (manualFromRaw && manualResolved.source !== "explicit") {
     logSmsDebug("[sms-send] manual_from_rejected", {
       smsManualFromE164: manualFromRaw,
-      reason: manualFrom.source,
+      reason: manualResolved.source,
     });
+  }
+
+  let fromOverride: string | undefined;
+  /** When set, persist to `conversations.preferred_from_e164` after a successful send. */
+  let persistPreferredE164: string | undefined;
+
+  if (manualResolved.source === "explicit") {
+    fromOverride = manualResolved.fromOverride;
+    persistPreferredE164 = manualResolved.fromOverride;
+  } else {
+    const pref = allowlistedOutboundE164OrUndefined(row.preferred_from_e164);
+    if (row.preferred_from_e164 && !pref) {
+      logSmsDebug("[sms-send] preferred_from_ignored", {
+        preferred_from_e164: row.preferred_from_e164,
+      });
+    }
+    if (pref) {
+      fromOverride = pref;
+    }
   }
 
   logSmsDebug("[sms-twilio] send start", { conversationId, to, bodyLen: body.length });
   const sent = await sendSms({
     to,
     body,
-    ...(manualFrom.fromOverride ? { fromOverride: manualFrom.fromOverride } : {}),
+    ...(fromOverride ? { fromOverride } : {}),
     logManualInboxSend: workspaceAny,
   });
   if (!sent.ok) {
@@ -696,7 +723,12 @@ export async function sendConversationSms(
 
   const { error: touchErr } = await supabaseAdmin
     .from("conversations")
-    .update({ last_message_at: now, updated_at: now, metadata: nextMeta })
+    .update({
+      last_message_at: now,
+      updated_at: now,
+      metadata: nextMeta,
+      ...(persistPreferredE164 ? { preferred_from_e164: persistPreferredE164 } : {}),
+    })
     .eq("id", conversationId);
 
   if (touchErr) {

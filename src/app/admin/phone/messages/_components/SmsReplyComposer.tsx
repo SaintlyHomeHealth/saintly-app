@@ -13,6 +13,10 @@ type Props = {
   suggestionForMessageId: string | null;
   /** Deep-link draft (e.g. `?draft=`); ignored when `initialSuggestion` is set. */
   initialDraft?: string | null;
+  /** Thread-locked outbound line (workspace inbox). */
+  smsPreferredFromE164?: string | null;
+  /** Latest inbound Twilio `To` for Text-from seed. */
+  smsInboundToE164?: string | null;
   /** When true, server action redirects back to workspace phone inbox with send status. */
   workspaceThread?: boolean;
   /** Desktop 3-pane split: redirect to `/workspace/phone/inbox?thread=…` instead of `/workspace/phone/inbox/[id]`. */
@@ -38,6 +42,8 @@ export function SmsReplyComposer({
   initialSuggestion,
   suggestionForMessageId,
   initialDraft,
+  smsPreferredFromE164,
+  smsInboundToE164,
   workspaceThread,
   workspaceInboxSplit,
   messagingUX,
@@ -130,7 +136,14 @@ export function SmsReplyComposer({
         </p>
       ) : null}
 
-      {workspaceThread && messagingUX ? <SmsTextFromBar className="shadow-none" /> : null}
+      {workspaceThread && messagingUX ? (
+        <SmsTextFromBar
+          className="shadow-none"
+          lockScopeKey={conversationId}
+          preferredFromE164={smsPreferredFromE164}
+          inboundToE164={smsInboundToE164}
+        />
+      ) : null}
 
       {messagingUX ? (
         <div

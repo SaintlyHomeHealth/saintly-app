@@ -183,7 +183,7 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
   const { data: conv, error: convErr } = await supabase
     .from("conversations")
     .select(
-      "id, created_at, updated_at, channel, main_phone_e164, last_message_at, lead_status, next_action, follow_up_due_at, follow_up_completed_at, assigned_to_user_id, assigned_at, primary_contact_id, metadata, deleted_at, contacts ( id, full_name, first_name, last_name, primary_phone, contact_type, email, notes )"
+      "id, created_at, updated_at, channel, main_phone_e164, preferred_from_e164, last_message_at, lead_status, next_action, follow_up_due_at, follow_up_completed_at, assigned_to_user_id, assigned_at, primary_contact_id, metadata, deleted_at, contacts ( id, full_name, first_name, last_name, primary_phone, contact_type, email, notes )"
     )
     .eq("id", conversationId)
     .eq("channel", "sms")
@@ -256,7 +256,7 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
 
   const { data: msgRows, error: msgErr } = await supabase
     .from("messages")
-    .select("id, created_at, direction, body, viewed_at")
+    .select("id, created_at, direction, body, viewed_at, metadata")
     .eq("conversation_id", conversationId)
     .is("deleted_at", null)
     .order("created_at", { ascending: true });
@@ -266,6 +266,26 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
   }
 
   const messages = msgRows ?? [];
+
+  /** Latest inbound message: Twilio `To` (business line), for Text-from seed when `preferred_from_e164` is unset. */
+  const lastInboundBusinessLineE164 = (() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (String(m.direction).toLowerCase() !== "inbound") continue;
+      const meta = m.metadata;
+      if (meta && typeof meta === "object" && !Array.isArray(meta)) {
+        const to = (meta as Record<string, unknown>).inbound_to_e164;
+        if (typeof to === "string" && to.trim()) return to.trim();
+      }
+      return null;
+    }
+    return null;
+  })();
+
+  const workspacePreferredFromE164 =
+    conv.preferred_from_e164 != null && String(conv.preferred_from_e164).trim() !== ""
+      ? String(conv.preferred_from_e164).trim()
+      : null;
 
   const lastMsg = messages.length > 0 ? messages[messages.length - 1] : null;
   const lastInboundMessageId =
@@ -701,6 +721,8 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
           initialSmsSuggestion && suggestionMeta ? suggestionMeta.for_message_id : null
         }
         composerInitialDraft={composerInitialDraft}
+        smsPreferredFromE164={workspacePreferredFromE164}
+        smsInboundToE164={lastInboundBusinessLineE164}
         appDesktopSplit={workspaceDesktopSplit}
         threadTopSlot={
           workspaceDesktopSplit ? null : (

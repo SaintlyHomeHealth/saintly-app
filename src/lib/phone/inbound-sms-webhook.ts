@@ -7,6 +7,7 @@ import { notifyInboundSmsAfterPersist } from "@/lib/push/notify-inbound-sms";
 import { ensureSmsConversationForPhone } from "@/lib/phone/sms-conversation-thread";
 import { scheduleSmsReplySuggestionGeneration } from "@/lib/phone/sms-reply-suggestion";
 import { isValidE164, normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
+import { allowlistedOutboundE164OrUndefined } from "@/lib/twilio/manual-inbox-sms-from";
 
 export type InboundTwilioSmsParams = Record<string, string>;
 
@@ -151,6 +152,8 @@ export async function applyInboundTwilioSms(
     twilio_account_sid: params.AccountSid ?? null,
     twilio_api_version: params.ApiVersion ?? null,
     num_media: params.NumMedia ?? null,
+    /** Business line that received this SMS (workspace “Text from” lock / UI seed). */
+    inbound_to_e164: toE164,
   };
 
   smsTiming("before_message_insert");
@@ -223,9 +226,32 @@ export async function applyInboundTwilioSms(
 
   smsTiming("before_conversation_touch");
   const now = new Date().toISOString();
+
+  const lockFrom = allowlistedOutboundE164OrUndefined(toE164);
+  const { data: convPrefRow, error: convPrefErr } = await supabase
+    .from("conversations")
+    .select("preferred_from_e164")
+    .eq("id", conversationId)
+    .maybeSingle();
+
+  if (convPrefErr) {
+    console.warn("[sms-inbound] preferred_from_e164 read:", convPrefErr.message);
+  }
+
+  const prefExisting =
+    convPrefRow?.preferred_from_e164 != null && String(convPrefRow.preferred_from_e164).trim() !== ""
+      ? String(convPrefRow.preferred_from_e164).trim()
+      : null;
+
+  const setPreferredFromInbound = !prefExisting && Boolean(lockFrom);
+
   const { error: touchErr } = await supabase
     .from("conversations")
-    .update({ last_message_at: now, updated_at: now })
+    .update({
+      last_message_at: now,
+      updated_at: now,
+      ...(setPreferredFromInbound && lockFrom ? { preferred_from_e164: lockFrom } : {}),
+    })
     .eq("id", conversationId);
 
   if (touchErr) {

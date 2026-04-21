@@ -220,18 +220,21 @@ export async function sendWorkspaceNewSms(formData: FormData) {
     smsManualFromE164: manualFromRaw || null,
     path: "workspace_new_sms",
   });
-  const manualFrom = resolveManualInboxSmsFromOverride(manualFromRaw);
-  if (manualFromRaw && manualFrom.source !== "explicit") {
+  const manualResolved = resolveManualInboxSmsFromOverride(manualFromRaw);
+  if (manualFromRaw && manualResolved.source !== "explicit") {
     logSmsDebug("[sms-send] manual_from_rejected", {
       smsManualFromE164: manualFromRaw,
-      reason: manualFrom.source,
+      reason: manualResolved.source,
     });
   }
+
+  const fromOverride = manualResolved.source === "explicit" ? manualResolved.fromOverride : undefined;
+  const persistPreferredE164 = manualResolved.source === "explicit" ? manualResolved.fromOverride : undefined;
 
   const sent = await sendSms({
     to: e164,
     body,
-    ...(manualFrom.fromOverride ? { fromOverride: manualFrom.fromOverride } : {}),
+    ...(fromOverride ? { fromOverride } : {}),
     logManualInboxSend: true,
   });
 
@@ -280,7 +283,12 @@ export async function sendWorkspaceNewSms(formData: FormData) {
 
   const { error: touchErr } = await supabaseAdmin
     .from("conversations")
-    .update({ last_message_at: now, updated_at: now, metadata: nextMeta })
+    .update({
+      last_message_at: now,
+      updated_at: now,
+      metadata: nextMeta,
+      ...(persistPreferredE164 ? { preferred_from_e164: persistPreferredE164 } : {}),
+    })
     .eq("id", conversationId);
 
   if (touchErr) {

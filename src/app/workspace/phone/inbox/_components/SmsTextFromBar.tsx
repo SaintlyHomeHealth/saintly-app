@@ -27,11 +27,27 @@ function modeHint(mode: SmsOutboundInfo["outboundMode"]): string {
   }
 }
 
+export type SmsTextFromBarProps = {
+  className?: string;
+  /** Resets local line pick when switching threads. */
+  lockScopeKey?: string;
+  /** Persisted thread lock (`conversations.preferred_from_e164`). */
+  preferredFromE164?: string | null;
+  /** Latest inbound business line (message metadata) when preferred is unset. */
+  inboundToE164?: string | null;
+};
+
 /**
  * “Text from” row — mirrors Call-as interaction (expand / pick line).
  * Selected E.164 is submitted as `smsManualFromE164` for manual workspace SMS sends.
+ * Seed order: preferred → latest inbound To → org default line.
  */
-export const SmsTextFromBar = memo(function SmsTextFromBar({ className = "" }: { className?: string }) {
+export const SmsTextFromBar = memo(function SmsTextFromBar({
+  className = "",
+  lockScopeKey,
+  preferredFromE164,
+  inboundToE164,
+}: SmsTextFromBarProps) {
   const { softphoneCapabilities } = useWorkspaceSoftphone();
   const lines = useMemo(
     () => softphoneCapabilities?.outbound_lines ?? [],
@@ -42,6 +58,10 @@ export const SmsTextFromBar = memo(function SmsTextFromBar({ className = "" }: {
   const [err, setErr] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [pickedE164, setPickedE164] = useState<string | null>(null);
+
+  useEffect(() => {
+    setPickedE164(null);
+  }, [lockScopeKey]);
 
   useEffect(() => {
     let cancelled = false;
@@ -62,12 +82,15 @@ export const SmsTextFromBar = memo(function SmsTextFromBar({ className = "" }: {
     };
   }, []);
 
-  const defaultE164 = useMemo(
-    () => lines.find((l) => l.is_default)?.e164 ?? lines[0]?.e164 ?? null,
-    [lines]
-  );
+  const seedE164 = useMemo(() => {
+    const pref = preferredFromE164?.trim();
+    if (pref) return pref;
+    const inbound = inboundToE164?.trim();
+    if (inbound) return inbound;
+    return lines.find((l) => l.is_default)?.e164 ?? lines[0]?.e164 ?? null;
+  }, [lines, preferredFromE164, inboundToE164]);
 
-  const activeE164 = pickedE164 ?? defaultE164;
+  const activeE164 = pickedE164 ?? seedE164;
 
   const toggle = useCallback(() => setExpanded((v) => !v), []);
 

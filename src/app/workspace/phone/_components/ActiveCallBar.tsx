@@ -29,6 +29,7 @@ import {
 import { useWorkspaceSoftphone } from "@/components/softphone/WorkspaceSoftphoneProvider";
 
 import { LiveCallContextPanel } from "@/components/softphone/LiveCallContextPanel";
+import { softphoneDevLog } from "@/lib/softphone/softphone-client-debug";
 import { isValidE164, normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
 
 function formatDuration(totalSec: number): string {
@@ -128,6 +129,8 @@ export function ActiveCallBar() {
   const [xferOpen, setXferOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [keypadOpen, setKeypadOpen] = useState(false);
+  /** Brief highlight on the in-call keypad modal (DTMF feedback). */
+  const [dtmfPressedKey, setDtmfPressedKey] = useState<string | null>(null);
   const [xferTo, setXferTo] = useState("");
   const [addTo, setAddTo] = useState("");
   const [actionBusy, setActionBusy] = useState<"xfer" | "add" | null>(null);
@@ -169,6 +172,19 @@ export function ActiveCallBar() {
     if (!isReactNativeWebViewShell()) return undefined;
     return subscribeNativeSpeakerStateFromShell(setNativeSpeakerOn);
   }, []);
+
+  useEffect(() => {
+    if (!keypadOpen) return;
+    softphoneDevLog("[softphone] in-call keypad opened");
+  }, [keypadOpen]);
+
+  const onInCallKeypadDigit = (d: string) => {
+    sendDtmfDigits(d);
+    setDtmfPressedKey(d);
+    window.setTimeout(() => {
+      setDtmfPressedKey((cur) => (cur === d ? null : cur));
+    }, 140);
+  };
 
   const recordingElapsed = useMemo(() => {
     void recTick;
@@ -340,6 +356,15 @@ export function ActiveCallBar() {
             >
               <MessageSquareText className="h-4 w-4" strokeWidth={2} />
               Transcript
+            </button>
+            <button
+              type="button"
+              onClick={() => setKeypadOpen(true)}
+              title="Send DTMF tones"
+              className="inline-flex h-10 items-center gap-1 rounded-full border border-white/15 px-3 text-xs font-semibold text-indigo-50"
+            >
+              <Grid3x3 className="h-4 w-4" strokeWidth={2} />
+              Keypad
             </button>
             <button
               type="button"
@@ -619,8 +644,12 @@ export function ActiveCallBar() {
                   <button
                     key={`${ri}-${d}`}
                     type="button"
-                    onClick={() => sendDtmfDigits(d)}
-                    className="flex aspect-square flex-col items-center justify-center rounded-2xl border border-white/10 bg-slate-950/80 text-lg font-bold text-white active:scale-95"
+                    onClick={() => onInCallKeypadDigit(d)}
+                    className={`flex aspect-square flex-col items-center justify-center rounded-2xl border text-lg font-bold text-white transition-[transform,box-shadow,background-color] duration-100 active:scale-95 ${
+                      dtmfPressedKey === d
+                        ? "border-indigo-400/50 bg-indigo-600/35 shadow-[0_0_0_1px_rgba(129,140,248,0.35)]"
+                        : "border-white/10 bg-slate-950/80"
+                    }`}
                   >
                     <span>{d}</span>
                     {sub ? <span className="text-[9px] font-medium uppercase text-slate-500">{sub}</span> : null}

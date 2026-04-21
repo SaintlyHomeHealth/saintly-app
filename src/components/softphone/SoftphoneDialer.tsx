@@ -149,6 +149,7 @@ export function SoftphoneDialer({
     testRingtone,
     unlockRingtoneFromGesture,
     setTranscriptPanelOpen,
+    sendDtmfDigits,
   } = useWorkspaceSoftphone();
   const autoPlaceStartedRef = useRef(false);
   const [actionBusy, setActionBusy] = useState<"xfer" | "add" | "tx" | null>(null);
@@ -526,6 +527,10 @@ export function SoftphoneDialer({
                   disabled={keypadDisabled}
                   onClick={() => {
                     void unlockRingtoneFromGesture();
+                    if (status === "in_call") {
+                      sendDtmfDigits(digit);
+                      return;
+                    }
                     setDigits((d) => d + digit);
                   }}
                   className="flex h-[84px] w-full touch-manipulation select-none flex-col items-center justify-center rounded-3xl border border-slate-200/85 bg-white text-slate-900 shadow-[0_1px_3px_-1px_rgba(15,23,42,0.08),0_2px_8px_-3px_rgba(15,23,42,0.05)] transition-[transform,box-shadow,background-color] duration-150 ease-out sm:h-[80px] lg:h-[68px] hover:bg-slate-50 active:scale-[0.97] active:border-sky-200/80 active:bg-sky-50/80 disabled:pointer-events-none disabled:opacity-40"
@@ -585,7 +590,8 @@ export function SoftphoneDialer({
                 </p>
                 <p className="mt-2 text-center text-[11px] leading-relaxed text-slate-600">
                   Use the <span className="font-semibold text-slate-800">call bar</span> for mute, hold, transfer, record,
-                  and keypad. Open Transcript when you are ready to enable live captions.
+                  and the in-call keypad. Taps on the dial pad below send DTMF to the live call (they do not change the
+                  number field). Open Transcript when you are ready to enable live captions.
                 </p>
                 <button
                   type="button"

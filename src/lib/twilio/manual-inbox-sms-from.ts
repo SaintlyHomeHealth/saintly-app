@@ -38,3 +38,12 @@ export function resolveManualInboxSmsFromOverride(raw: string | null | undefined
 
   return { fromOverride: trimmed, source: "explicit" };
 }
+
+/**
+ * Returns the E.164 if it is on the outbound allowlist; otherwise `undefined`.
+ * Use for `conversations.preferred_from_e164` and inbound "To" before persisting.
+ */
+export function allowlistedOutboundE164OrUndefined(raw: string | null | undefined): string | undefined {
+  const r = resolveManualInboxSmsFromOverride(typeof raw === "string" ? raw : "");
+  return r.source === "explicit" ? r.fromOverride : undefined;
+}

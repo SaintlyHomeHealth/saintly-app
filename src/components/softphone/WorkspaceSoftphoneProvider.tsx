@@ -1885,13 +1885,20 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     (digits: string) => {
       const s = digits.replace(/[^0-9*#]/g, "");
       if (!s) return;
+      softphoneDevLog("[softphone] dtmf request", { digits: s });
       if (nativeVoiceCallShell) {
-        if (statusRef.current !== "in_call") return;
+        if (statusRef.current !== "in_call") {
+          softphoneDevWarn("[softphone] dtmf skipped (native shell, not in_call)");
+          return;
+        }
         postNativeCallControlToReactNative({ action: "dtmf", digits: s });
         return;
       }
       const c = activeCallRef.current;
-      if (!c || statusRef.current !== "in_call") return;
+      if (!c || statusRef.current !== "in_call") {
+        softphoneDevWarn("[softphone] dtmf skipped (no active Twilio call or not in_call)");
+        return;
+      }
       try {
         c.sendDigits(s);
       } catch (e) {
