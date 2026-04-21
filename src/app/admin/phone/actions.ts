@@ -7,7 +7,7 @@ import { normalizeFbclid } from "@/lib/crm/fbclid";
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { supabaseAdmin } from "@/lib/admin";
 import { findContactByIncomingPhone } from "@/lib/crm/find-contact-by-incoming-phone";
-import { runPostCreateLeadStaffNotifications } from "@/lib/crm/post-create-lead-workflow";
+import { handleNewLeadCreated } from "@/lib/crm/post-create-lead-workflow";
 import {
   getStaffProfile,
   hasFullCallVisibility,
@@ -400,7 +400,7 @@ export async function createLeadFromContact(
     return { ok: false, error: "insert_failed" };
   }
 
-  runPostCreateLeadStaffNotifications(supabaseAdmin, {
+  await handleNewLeadCreated(supabaseAdmin, {
     leadId: String(inserted.id),
     contactId: id,
     intakeChannel: "phone_workspace",

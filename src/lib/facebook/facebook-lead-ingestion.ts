@@ -11,7 +11,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { buildLeadIntakeRequestFromFieldMap } from "@/lib/crm/lead-intake-request";
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
-import { runPostCreateLeadStaffNotifications } from "@/lib/crm/post-create-lead-workflow";
+import { handleNewLeadCreated } from "@/lib/crm/post-create-lead-workflow";
 import { isKnownPayerBroadCategory } from "@/lib/crm/payer-type-options";
 import { isValidServiceDisciplineCode, type ServiceDisciplineCode } from "@/lib/crm/service-disciplines";
 import { LEAD_ACTIVITY_EVENT } from "@/lib/crm/lead-activity-types";
@@ -499,13 +499,13 @@ async function completeFacebookLeadInsertFromFieldMap(
     channel: ingestionChannel ?? "meta_graph",
   });
 
-  runPostCreateLeadStaffNotifications(supabase, {
+  await handleNewLeadCreated(supabase, {
     leadId,
     contactId,
     intakeChannel: "facebook",
   });
 
-  void runFacebookLeadIntroSmsAfterInsert(supabase, {
+  await runFacebookLeadIntroSmsAfterInsert(supabase, {
     leadId,
     contactId,
     fieldMap,
@@ -929,13 +929,13 @@ export async function ingestFacebookPartnerStandardLead(
     contact_id_prefix: contactId.slice(0, 8),
   });
 
-  runPostCreateLeadStaffNotifications(supabase, {
+  await handleNewLeadCreated(supabase, {
     leadId,
     contactId,
     intakeChannel: "facebook_ads",
   });
 
-  void runFacebookLeadIntroSmsAfterInsert(supabase, {
+  await runFacebookLeadIntroSmsAfterInsert(supabase, {
     leadId,
     contactId,
     fieldMap,

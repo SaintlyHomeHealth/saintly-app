@@ -6,7 +6,7 @@ import { supabaseAdmin } from "@/lib/admin";
 import { canonicalAliasEmail } from "@/lib/inbound-email/constants";
 import { LEAD_ACTIVITY_EVENT } from "@/lib/crm/lead-activity-types";
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
-import { runPostCreateLeadStaffNotifications } from "@/lib/crm/post-create-lead-workflow";
+import { handleNewLeadCreated } from "@/lib/crm/post-create-lead-workflow";
 import { normalizePhone } from "@/lib/phone/us-phone-format";
 import { findRecruitingDuplicateCandidates } from "@/lib/recruiting/recruiting-duplicates";
 import {
@@ -304,7 +304,7 @@ async function upsertCrmLeadFromEmail(input: {
     ],
   });
 
-  runPostCreateLeadStaffNotifications(supabaseAdmin, {
+  await handleNewLeadCreated(supabaseAdmin, {
     leadId,
     contactId,
     intakeChannel: leadSource,

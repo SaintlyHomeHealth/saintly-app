@@ -19,12 +19,26 @@ export type LeadIntakeNotifyChannel =
   | "voice_intake"
   | "employment_web"
   | "email_inquiry"
+  | "email_referral"
   | "other";
 
+function asMetaRecord(v: unknown): Record<string, unknown> {
+  if (v && typeof v === "object" && !Array.isArray(v)) {
+    return { ...(v as Record<string, unknown>) };
+  }
+  return {};
+}
+
 /**
- * Fire-and-forget push; operational SMS is best-effort with structured logs (no PII).
+ * After insert: operational SMS + in-app/push to staff.
+ *
+ * **Await** this from route handlers and server actions. Fire-and-forget patterns often lose work on
+ * serverless right after the HTTP response is sent.
+ *
+ * Idempotent: sets `staff_intake_notified_at` on `leads.external_source_metadata` (merged shallow)
+ * so accidental duplicate calls skip a second send.
  */
-export function runPostCreateLeadStaffNotifications(
+export async function handleNewLeadCreated(
   supabase: SupabaseClient,
   input: {
     leadId: string;
@@ -33,7 +47,7 @@ export function runPostCreateLeadStaffNotifications(
     /** Default true. Set false only when the caller sends operational SMS separately (legacy — avoid duplicates). */
     sendOperationalSms?: boolean;
   }
-): void {
+): Promise<void> {
   const leadId = input.leadId.trim();
   const contactId = input.contactId.trim();
   const channel = String(input.intakeChannel || "unknown").trim() || "unknown";
@@ -44,6 +58,27 @@ export function runPostCreateLeadStaffNotifications(
     return;
   }
 
+  const { data: leadRow, error: loadErr } = await supabase
+    .from("leads")
+    .select("id, external_source_metadata")
+    .eq("id", leadId)
+    .maybeSingle();
+
+  if (loadErr) {
+    console.warn(LOG, "staff_notify_skipped", { reason: "load_failed", channel, error: loadErr.message });
+    return;
+  }
+  if (!leadRow?.id) {
+    console.warn(LOG, "staff_notify_skipped", { reason: "lead_not_found", lead_id: leadId, channel });
+    return;
+  }
+
+  const meta = asMetaRecord(leadRow.external_source_metadata);
+  if (meta.staff_intake_notified_at) {
+    console.log(LOG, "staff_notify_skip_duplicate", { lead_id: leadId, channel });
+    return;
+  }
+
   console.log(LOG, "staff_notify_start", {
     lead_id: leadId,
     contact_id_prefix: contactId.slice(0, 8),
@@ -51,38 +86,46 @@ export function runPostCreateLeadStaffNotifications(
     operational_sms: sendOps,
   });
 
-  void (async () => {
-    try {
-      await notifyNewLeadCreatedPush(supabase, leadId);
-      console.log(LOG, "push_complete", { lead_id: leadId, channel });
-    } catch (e) {
+  const tasks: Promise<unknown>[] = [
+    notifyNewLeadCreatedPush(supabase, leadId).catch((e) => {
       const msg = e instanceof Error ? e.message : String(e);
       console.warn(LOG, "push_exception", { lead_id: leadId, channel, error: msg.slice(0, 200) });
-    }
-  })();
+    }),
+  ];
 
-  if (!sendOps) {
-    return;
+  if (sendOps) {
+    tasks.push(
+      (async () => {
+        const { data: cInfo } = await supabase
+          .from("contacts")
+          .select("full_name, first_name, last_name")
+          .eq("id", contactId)
+          .maybeSingle();
+
+        const nm =
+          (cInfo?.full_name ?? "").trim() ||
+          [cInfo?.first_name, cInfo?.last_name].filter(Boolean).join(" ").trim() ||
+          "Contact";
+
+        const body = `Saintly ops: New CRM lead (${nm}). Leads /admin/crm/leads · contact ${contactId.slice(0, 8)}…`;
+        const r = await sendOperationalAlertSms(body);
+        if (!r.ok) {
+          console.warn(LOG, "operational_sms_failed", { lead_id: leadId, channel, error: r.error });
+        } else {
+          console.log(LOG, "operational_sms_sent", { lead_id: leadId, channel });
+        }
+      })()
+    );
   }
 
-  void (async () => {
-    const { data: cInfo } = await supabase
-      .from("contacts")
-      .select("full_name, first_name, last_name")
-      .eq("id", contactId)
-      .maybeSingle();
+  await Promise.all(tasks);
 
-    const nm =
-      (cInfo?.full_name ?? "").trim() ||
-      [cInfo?.first_name, cInfo?.last_name].filter(Boolean).join(" ").trim() ||
-      "Contact";
+  console.log(LOG, "staff_notify_complete", { lead_id: leadId, channel });
 
-    const body = `Saintly ops: New CRM lead (${nm}). Leads /admin/crm/leads · contact ${contactId.slice(0, 8)}…`;
-    const r = await sendOperationalAlertSms(body);
-    if (!r.ok) {
-      console.warn(LOG, "operational_sms_failed", { lead_id: leadId, channel, error: r.error });
-    } else {
-      console.log(LOG, "operational_sms_sent", { lead_id: leadId, channel });
-    }
-  })();
+  const nextMeta = { ...meta, staff_intake_notified_at: new Date().toISOString() };
+  const { error: upErr } = await supabase.from("leads").update({ external_source_metadata: nextMeta }).eq("id", leadId);
+
+  if (upErr) {
+    console.warn(LOG, "staff_notify_metadata_mark_failed", { lead_id: leadId, error: upErr.message });
+  }
 }

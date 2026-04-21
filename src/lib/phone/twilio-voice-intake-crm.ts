@@ -1,7 +1,7 @@
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { supabaseAdmin } from "@/lib/admin";
 import { findContactByIncomingPhone } from "@/lib/crm/find-contact-by-incoming-phone";
-import { runPostCreateLeadStaffNotifications } from "@/lib/crm/post-create-lead-workflow";
+import { handleNewLeadCreated } from "@/lib/crm/post-create-lead-workflow";
 import type { VoiceAiStoredPayload } from "@/lib/phone/voice-ai-background";
 
 function asMetadata(value: unknown): Record<string, unknown> {
@@ -242,7 +242,7 @@ export async function ensureActiveLeadForContact(contactId: string): Promise<voi
     return;
   }
 
-  runPostCreateLeadStaffNotifications(supabaseAdmin, {
+  await handleNewLeadCreated(supabaseAdmin, {
     leadId: String(inserted.id),
     contactId,
     intakeChannel: "voice_intake",
