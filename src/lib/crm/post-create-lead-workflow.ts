@@ -14,6 +14,7 @@ const LOG = "[lead-intake]";
 export type LeadIntakeNotifyChannel =
   | "manual_crm"
   | "facebook"
+  | "facebook_ads"
   | "phone_workspace"
   | "voice_intake"
   | "employment_web"

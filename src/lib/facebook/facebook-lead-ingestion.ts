@@ -14,8 +14,10 @@ import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { runPostCreateLeadStaffNotifications } from "@/lib/crm/post-create-lead-workflow";
 import { isKnownPayerBroadCategory } from "@/lib/crm/payer-type-options";
 import { isValidServiceDisciplineCode, type ServiceDisciplineCode } from "@/lib/crm/service-disciplines";
+import { LEAD_ACTIVITY_EVENT } from "@/lib/crm/lead-activity-types";
 import { runFacebookLeadIntroSmsAfterInsert } from "@/lib/facebook/facebook-lead-intro-sms";
 import { normalizePhone } from "@/lib/phone/us-phone-format";
+import { isValidE164, normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
 
 const GRAPH_VERSION = process.env.FACEBOOK_GRAPH_API_VERSION?.trim() || "v21.0";
 
@@ -728,4 +730,227 @@ export async function ingestFacebookLeadFromWebhookPayload(
     out.push(r);
   }
   return out;
+}
+
+/** Public POST body for `/api/leads/facebook` (partner JSON integration). */
+export type FacebookPartnerStandardPayload = {
+  name?: unknown;
+  phone?: unknown;
+  email?: unknown;
+  zip?: unknown;
+  notes?: unknown;
+  medicare?: unknown;
+  service?: unknown;
+  source?: unknown;
+  campaign?: unknown;
+};
+
+function asNonEmptyTrimmedString(v: unknown): string {
+  if (typeof v !== "string") return "";
+  return v.trim();
+}
+
+function buildPartnerStandardFieldMap(payload: FacebookPartnerStandardPayload): Map<string, string> {
+  const m = new Map<string, string>();
+  const add = (k: string, v: unknown) => {
+    if (v === null || v === undefined) return;
+    const s =
+      typeof v === "string"
+        ? v.trim()
+        : typeof v === "number" || typeof v === "boolean"
+          ? String(v)
+          : "";
+    if (s) m.set(k, s);
+  };
+  const name = asNonEmptyTrimmedString(payload.name);
+  if (name) {
+    add("name", name);
+    add("full_name", name);
+  }
+  add("email", payload.email);
+  add("zip", payload.zip);
+  add("zip_code", payload.zip);
+  add("notes", payload.notes);
+  add("service_needed", payload.service);
+  add("service", payload.service);
+  if (payload.medicare !== null && payload.medicare !== undefined && String(payload.medicare).trim() !== "") {
+    add(
+      "medicare",
+      typeof payload.medicare === "boolean" ? (payload.medicare ? "yes" : "no") : String(payload.medicare)
+    );
+  }
+  add("referral_source", payload.source);
+  add("source_tag", payload.source);
+  add("campaign", payload.campaign);
+  add("how_did_you_hear", payload.source);
+  normalizeAutomationFlatFieldMap(m);
+  return m;
+}
+
+/**
+ * CRM insert for standardized Facebook partner JSON (landing page / server-to-server).
+ * - `leads.source` = `facebook_ads`
+ * - Phone stored as E.164 on `contacts.primary_phone`
+ * - Same staff notifications + intro SMS path as other Facebook lead ingestion
+ */
+export async function ingestFacebookPartnerStandardLead(
+  supabase: SupabaseClient,
+  params: { payload: FacebookPartnerStandardPayload; rawBodyText: string }
+): Promise<{ ok: true; leadId: string; contactId: string } | { ok: false; error: string }> {
+  const { payload, rawBodyText } = params;
+  const rawPhone = asNonEmptyTrimmedString(payload.phone);
+  const nameRaw = asNonEmptyTrimmedString(payload.name);
+  if (!nameRaw) {
+    return { ok: false, error: "missing_name" };
+  }
+  if (!rawPhone) {
+    return { ok: false, error: "missing_phone" };
+  }
+
+  const phoneE164 = normalizeDialInputToE164(rawPhone);
+  if (!phoneE164 || !isValidE164(phoneE164)) {
+    return { ok: false, error: "invalid_phone" };
+  }
+
+  const fieldMap = buildPartnerStandardFieldMap(payload);
+  const nameParts = parseNameParts(fieldMap);
+
+  const emailRaw = asNonEmptyTrimmedString(payload.email);
+  const email = emailRaw && emailRaw.includes("@") ? emailRaw.slice(0, 320) : null;
+
+  const zip = asNonEmptyTrimmedString(payload.zip) || null;
+
+  const payer_name = guessPayerName(fieldMap);
+  const payer_type = guessPayerType(fieldMap);
+  const disciplines = resolveFacebookLeadDisciplines(fieldMap);
+  const referral_from_field = asNonEmptyTrimmedString(payload.source);
+  const referral_source = referral_from_field || null;
+
+  const campaign = asNonEmptyTrimmedString(payload.campaign);
+  const userNotes = asNonEmptyTrimmedString(payload.notes);
+  const serviceLine = asNonEmptyTrimmedString(payload.service);
+  const medicareLine =
+    payload.medicare !== null && payload.medicare !== undefined && String(payload.medicare).trim() !== ""
+      ? typeof payload.medicare === "boolean"
+        ? payload.medicare
+          ? "Yes"
+          : "No"
+        : String(payload.medicare).trim()
+      : "";
+
+  const leadNotesParts = [
+    "Facebook partner API lead.",
+    userNotes ? `Notes: ${userNotes}` : null,
+    serviceLine ? `Service: ${serviceLine}` : null,
+    campaign ? `Campaign: ${campaign}` : null,
+    referral_from_field ? `Attribution source: ${referral_from_field}` : null,
+    medicareLine ? `Medicare: ${medicareLine}` : null,
+  ].filter(Boolean);
+
+  const leadNotes = leadNotesParts.join("\n\n").slice(0, 8000) || null;
+
+  const ingestionReceivedAt = new Date().toISOString();
+  const contactIntro = `Submitted via Facebook partner API (${ingestionReceivedAt}).`;
+  const contactNotes = [contactIntro, leadNotes].filter(Boolean).join("\n\n").slice(0, 8000);
+
+  const { data: contactRow, error: cErr } = await supabase
+    .from("contacts")
+    .insert({
+      first_name: nameParts.first_name,
+      last_name: nameParts.last_name,
+      full_name: nameParts.full_name,
+      primary_phone: phoneE164,
+      email,
+      zip,
+      notes: contactNotes || null,
+    })
+    .select("id")
+    .single();
+
+  if (cErr || !contactRow?.id) {
+    console.warn("[facebook-partner-api] contact insert failed", { error: cErr?.message });
+    return { ok: false, error: `contact_insert_failed:${cErr?.message ?? "unknown"}` };
+  }
+
+  const contactId = String(contactRow.id);
+
+  const externalMeta = {
+    source: "facebook_ads" as const,
+    ingestion_channel: "partner_api" as const,
+    partner_source: referral_from_field || null,
+    partner_campaign: campaign || null,
+    raw_body_preview: rawBodyText.slice(0, 100_000),
+    intake_request: buildLeadIntakeRequestFromFieldMap(fieldMap),
+    ingestion_received_at: ingestionReceivedAt,
+    ingestion_completed_at: new Date().toISOString(),
+  };
+
+  const { data: newLead, error: lErr } = await supabase
+    .from("leads")
+    .insert({
+      contact_id: contactId,
+      source: "facebook_ads",
+      status: "new",
+      owner_user_id: null,
+      external_source_id: null,
+      external_source_metadata: externalMeta,
+      payer_name,
+      payer_type,
+      referral_source,
+      service_disciplines: disciplines,
+      service_type: disciplines.length > 0 ? disciplines.join(", ") : null,
+      notes: leadNotes,
+    })
+    .select("id")
+    .single();
+
+  if (lErr || !newLead?.id) {
+    console.warn("[facebook-partner-api] lead insert failed", { error: lErr?.message });
+    await supabase.from("contacts").delete().eq("id", contactId);
+    return { ok: false, error: `lead_insert_failed:${lErr?.message ?? "unknown"}` };
+  }
+
+  const leadId = String(newLead.id);
+
+  const { error: actErr } = await supabase.from("lead_activities").insert({
+    lead_id: leadId,
+    event_type: LEAD_ACTIVITY_EVENT.facebook_lead_submitted,
+    body: "Facebook Lead Submitted",
+    metadata: { channel: "facebook_ads_partner_api" },
+    created_by_user_id: null,
+    deletable: false,
+  });
+  if (actErr) {
+    console.warn("[facebook-partner-api] lead_activities insert failed", actErr.message);
+  }
+
+  console.log("[lead-intake] facebook_partner_api_row_ready", {
+    lead_id: leadId,
+    contact_id_prefix: contactId.slice(0, 8),
+  });
+
+  runPostCreateLeadStaffNotifications(supabase, {
+    leadId,
+    contactId,
+    intakeChannel: "facebook_ads",
+  });
+
+  void runFacebookLeadIntroSmsAfterInsert(supabase, {
+    leadId,
+    contactId,
+    fieldMap,
+    nameParts,
+    primaryPhoneStored: phoneE164,
+    ingestionChannel: undefined,
+  });
+
+  revalidatePath("/admin");
+  revalidatePath("/admin/crm/leads");
+  revalidatePath(`/admin/crm/leads/${leadId}`);
+  revalidatePath("/admin/crm/contacts");
+  revalidatePath(`/admin/crm/contacts/${contactId}`);
+  revalidatePath("/workspace/phone/inbox");
+  revalidatePath("/workspace/phone/leads");
+
+  return { ok: true, leadId, contactId };
 }

@@ -8,6 +8,7 @@ export const LEAD_SOURCE_OPTIONS = [
   { value: "email_inquiry", label: "Email — inquiry" },
   { value: "hospital", label: "Hospital" },
   { value: "facebook", label: "Facebook" },
+  { value: "facebook_ads", label: "Facebook ads (API)" },
   { value: "google", label: "Google" },
   { value: "other", label: "Other" },
 ] as const;
