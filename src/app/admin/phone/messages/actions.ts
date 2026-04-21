@@ -21,6 +21,7 @@ import { parseLeadStatus } from "@/lib/phone/lead-status";
 import { isValidE164, normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
 import { markInboundMessagesViewedForConversation } from "@/lib/phone/sms-inbound-unread";
 import { resolveManualInboxSmsFromOverride } from "@/lib/twilio/manual-inbox-sms-from";
+import { logSmsDebug } from "@/lib/twilio/sms-debug";
 import { sendSms } from "@/lib/twilio/send-sms";
 import {
   canAccessWorkspacePhone,
@@ -557,7 +558,7 @@ export async function sendConversationSms(
     redirect(workspaceAny ? "/workspace/phone/inbox?err=sms_forbidden" : "/admin/phone?err=sms_forbidden");
   }
 
-  console.log("[sms-ui] send submit", {
+  logSmsDebug("[sms-ui] send submit", {
     conversationId,
     bodyLen: body.length,
     workspaceMode,
@@ -578,7 +579,7 @@ export async function sendConversationSms(
     normalizeDialInputToE164(rawRecipient) ?? (isValidE164(rawRecipient) ? rawRecipient : "");
   const to = normalizedRecipient;
 
-  console.log("[sms-send] resolved recipient", {
+  logSmsDebug("[sms-send] resolved recipient", {
     conversationId,
     rawRecipient,
     normalizedRecipient: to,
@@ -614,19 +615,19 @@ export async function sendConversationSms(
   }
 
   const manualFromRaw = String(formData.get("smsManualFromE164") ?? "").trim();
-  console.log("[sms-send] backend_received_from", {
+  logSmsDebug("[sms-send] backend_received_from", {
     smsManualFromE164: manualFromRaw || null,
     workspaceMode,
   });
   const manualFrom = resolveManualInboxSmsFromOverride(manualFromRaw);
   if (manualFromRaw && manualFrom.source !== "explicit") {
-    console.warn("[sms-send] manual_from_rejected", {
+    logSmsDebug("[sms-send] manual_from_rejected", {
       smsManualFromE164: manualFromRaw,
       reason: manualFrom.source,
     });
   }
 
-  console.log("[sms-twilio] send start", { conversationId, to, bodyLen: body.length });
+  logSmsDebug("[sms-twilio] send start", { conversationId, to, bodyLen: body.length });
   const sent = await sendSms({
     to,
     body,
@@ -646,7 +647,7 @@ export async function sendConversationSms(
       smsConversationRedirectPath(conversationId, workspaceMode, { err: "sms_twilio", smsErr: errShort })
     );
   }
-  console.log("[sms-twilio] send ok", { conversationId, messageSid: sent.messageSid });
+  logSmsDebug("[sms-twilio] send ok", { conversationId, messageSid: sent.messageSid });
 
   const now = new Date().toISOString();
 

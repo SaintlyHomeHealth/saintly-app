@@ -8,6 +8,7 @@ import { softDeleteSmsConversation, softDeleteSmsMessage } from "@/lib/phone/sms
 import { ensureSmsConversationForPhone } from "@/lib/phone/sms-conversation-thread";
 import { resolveContactAndPhoneForWorkspaceNewSms } from "@/lib/phone/workspace-new-sms-resolve";
 import { resolveManualInboxSmsFromOverride } from "@/lib/twilio/manual-inbox-sms-from";
+import { logSmsDebug } from "@/lib/twilio/sms-debug";
 import { sendSms } from "@/lib/twilio/send-sms";
 import { canAccessWorkspacePhone, getStaffProfile } from "@/lib/staff-profile";
 import { supabaseAdmin } from "@/lib/admin";
@@ -215,13 +216,13 @@ export async function sendWorkspaceNewSms(formData: FormData) {
   const conversationId = ensured.conversationId;
 
   const manualFromRaw = String(formData.get("smsManualFromE164") ?? "").trim();
-  console.log("[sms-send] backend_received_from", {
+  logSmsDebug("[sms-send] backend_received_from", {
     smsManualFromE164: manualFromRaw || null,
     path: "workspace_new_sms",
   });
   const manualFrom = resolveManualInboxSmsFromOverride(manualFromRaw);
   if (manualFromRaw && manualFrom.source !== "explicit") {
-    console.warn("[sms-send] manual_from_rejected", {
+    logSmsDebug("[sms-send] manual_from_rejected", {
       smsManualFromE164: manualFromRaw,
       reason: manualFrom.source,
     });

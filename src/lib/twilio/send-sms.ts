@@ -1,5 +1,6 @@
 import { getTwilioSmsOutboundDiagnostics } from "@/lib/twilio/sms-outbound-diagnostics";
 import { resolveTwilioWebhookBaseUrl } from "@/lib/twilio/signature-url";
+import { isSmsDebugEnabled, logSmsDebug } from "@/lib/twilio/sms-debug";
 
 export type SendSmsParams = {
   to: string;
@@ -10,7 +11,7 @@ export type SendSmsParams = {
    */
   fromOverride?: string;
   /**
-   * When true, logs `[sms-send] twilio_send_params` (masked) for manual inbox debugging — remove after verification.
+   * When set with `SMS_DEBUG=true`, logs `[sms-send] twilio_send_params` (masked) for manual inbox sends.
    */
   logManualInboxSend?: boolean;
 };
@@ -95,7 +96,7 @@ export async function sendSms(params: SendSmsParams): Promise<SendSmsResult> {
   }
 
   if (params.logManualInboxSend) {
-    console.log("[sms-send] twilio_send_params", {
+    logSmsDebug("[sms-send] twilio_send_params", {
       twilioFieldUsed: useMessagingService ? "MessagingServiceSid" : "From",
       messagingServiceSidPrefix: useMessagingService ? `${fromOrMsid.slice(0, 6)}…` : null,
       fromE164Last4: !useMessagingService && fromOrMsid.length >= 4 ? fromOrMsid.slice(-4) : null,
@@ -109,7 +110,9 @@ export async function sendSms(params: SendSmsParams): Promise<SendSmsResult> {
     const statusUrl = `${webhookBase}/api/twilio/sms/status`;
     form.set("StatusCallback", statusUrl);
     form.set("StatusCallbackMethod", "POST");
-    console.log("[sms-twilio] StatusCallback", { statusUrl });
+    if (isSmsDebugEnabled()) {
+      console.log("[sms-twilio] StatusCallback", { statusUrl });
+    }
   } else {
     console.warn(
       "[sms-twilio] StatusCallback skipped — set TWILIO_WEBHOOK_BASE_URL or TWILIO_PUBLIC_BASE_URL to receive delivery webhooks"
@@ -119,13 +122,15 @@ export async function sendSms(params: SendSmsParams): Promise<SendSmsResult> {
   const url = `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(accountSid)}/Messages.json`;
   const auth = Buffer.from(`${accountSid}:${authToken}`).toString("base64");
 
-  console.log("[sms-twilio] REST Messages send (pre-POST)", {
-    to,
-    bodyLen: body.length,
-    outboundMode: useMessagingService ? "MessagingServiceSid" : "From",
-    fromMasked: diag.outboundSenderMasked,
-    accountSidPrefix: accountSid ? `${accountSid.slice(0, 2)}…` : null,
-  });
+  if (isSmsDebugEnabled()) {
+    console.log("[sms-twilio] REST Messages send (pre-POST)", {
+      to,
+      bodyLen: body.length,
+      outboundMode: useMessagingService ? "MessagingServiceSid" : "From",
+      fromMasked: diag.outboundSenderMasked,
+      accountSidPrefix: accountSid ? `${accountSid.slice(0, 2)}…` : null,
+    });
+  }
 
   try {
     const res = await fetch(url, {
@@ -169,12 +174,14 @@ export async function sendSms(params: SendSmsParams): Promise<SendSmsResult> {
     const twilioAccountSid =
       typeof json.account_sid === "string" && json.account_sid.trim() !== "" ? json.account_sid.trim() : null;
 
-    console.log("[sms-twilio] REST ok", {
-      messageSid,
-      twilioStatus: twilioStatus ?? undefined,
-      outboundMode: useMessagingService ? "MessagingServiceSid" : "From",
-      fromMasked: diag.outboundSenderMasked,
-    });
+    if (isSmsDebugEnabled()) {
+      console.log("[sms-twilio] REST ok", {
+        messageSid,
+        twilioStatus: twilioStatus ?? undefined,
+        outboundMode: useMessagingService ? "MessagingServiceSid" : "From",
+        fromMasked: diag.outboundSenderMasked,
+      });
+    }
     return { ok: true, messageSid, twilioStatus, twilioAccountSid };
   } catch (e) {
     console.error("[sms-twilio] REST exception (network/fetch)", {

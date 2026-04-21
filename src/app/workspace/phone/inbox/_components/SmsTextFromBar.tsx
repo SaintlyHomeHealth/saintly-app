@@ -19,7 +19,7 @@ function modeHint(mode: SmsOutboundInfo["outboundMode"]): string {
     case "messaging_service":
       return "Outbound texts use your organization's messaging configuration.";
     case "from_e164":
-      return "The sending number is set by your administrator. Your line selection here is for display.";
+      return "The default sending number is set by your administrator. When multiple lines appear, your pick is used for outbound SMS.";
     case "from_raw":
       return "Outbound sender is set by your administrator.";
     default:
