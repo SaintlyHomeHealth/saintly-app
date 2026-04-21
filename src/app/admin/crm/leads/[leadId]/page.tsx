@@ -11,6 +11,7 @@ import { isMissingSchemaObjectError } from "@/lib/crm/supabase-migration-fallbac
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { LEAD_INSURANCE_BUCKET } from "@/lib/crm/lead-insurance-storage";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { findLatestSmsConversationIdForContact } from "@/lib/workspace-phone/ensure-sms-thread-for-contact";
 
 type ContactEmb = {
   full_name?: string | null;
@@ -321,11 +322,14 @@ export default async function LeadIntakePage({
       ? leadQualityRaw
       : null;
 
+  const workspaceSmsConversationId = contactId ? await findLatestSmsConversationIdForContact(contactId) : null;
+
   return (
     <LeadWorkspace
       mode="existing"
       leadId={String(L.id)}
       contactId={contactId}
+      workspaceSmsConversationId={workspaceSmsConversationId}
       displayName={contactDisplayName(c ?? null)}
       sourceRaw={str(L.source)}
       rawStatus={rawStatus}

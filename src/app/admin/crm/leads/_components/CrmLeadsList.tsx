@@ -40,6 +40,7 @@ import {
 import { leadInsuranceDisplayLinesFromRow } from "@/lib/crm/lead-payer-structured";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import {
+  buildWorkspaceInboxLeadSmsHref,
   buildWorkspaceKeypadCallHref,
   buildWorkspaceSmsToContactHref,
   pickOutboundE164ForDial,
@@ -201,6 +202,8 @@ type Props = {
   staffOptions: StaffOpt[];
   /** Central CRM calendar YYYY-MM-DD for urgency + last-contact copy */
   todayIso: string;
+  /** Latest SMS thread id per CRM contact for "Text" deep-links (navigation only). */
+  smsConversationIdByContactId?: Record<string, string>;
 };
 
 const quickBtnCls =
@@ -338,7 +341,13 @@ function followUpValueClass(fu: ReturnType<typeof followUpUrgency>): string {
   return "text-slate-700";
 }
 
-export function CrmLeadsList({ initialList, employeeOnlyView, staffOptions, todayIso }: Props) {
+export function CrmLeadsList({
+  initialList,
+  employeeOnlyView,
+  staffOptions,
+  todayIso,
+  smsConversationIdByContactId = {},
+}: Props) {
   const router = useRouter();
   const [rows, setRows] = useState(initialList);
 
@@ -500,9 +509,12 @@ export function CrmLeadsList({ initialList, employeeOnlyView, staffOptions, toda
                       contextName: displayName,
                     })
                   : null;
+                const existingConv = cid ? smsConversationIdByContactId[cid] : undefined;
                 const smsHref =
                   cid && pickOutboundE164ForDial(phone)
-                    ? buildWorkspaceSmsToContactHref({ contactId: cid, leadId: r.id })
+                    ? existingConv
+                      ? buildWorkspaceInboxLeadSmsHref({ conversationId: existingConv, leadId: r.id })
+                      : buildWorkspaceSmsToContactHref({ contactId: cid, leadId: r.id })
                     : null;
                 const emp = parseEmploymentApplicationMeta(r.external_source_metadata);
                 const role = (emp?.position ?? "").trim() || "—";
@@ -658,9 +670,12 @@ export function CrmLeadsList({ initialList, employeeOnlyView, staffOptions, toda
                       contextName: displayName,
                     })
                   : null;
+                const existingConv = cid ? smsConversationIdByContactId[cid] : undefined;
                 const smsHref =
                   cid && pickOutboundE164ForDial(phone)
-                    ? buildWorkspaceSmsToContactHref({ contactId: cid, leadId: r.id })
+                    ? existingConv
+                      ? buildWorkspaceInboxLeadSmsHref({ conversationId: existingConv, leadId: r.id })
+                      : buildWorkspaceSmsToContactHref({ contactId: cid, leadId: r.id })
                     : null;
                 const isEmployee = r.lead_type === "employee";
                 const emp = parseEmploymentApplicationMeta(r.external_source_metadata);

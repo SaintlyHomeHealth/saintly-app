@@ -11,6 +11,42 @@ export type EnsureSmsThreadResult =
   | { ok: false; error: "bad_contact" | "no_phone" | "persist_failed" };
 
 /**
+ * Latest non-deleted SMS thread for a CRM contact (by `last_message_at`), or null.
+ * Mirrors the lookup phase of `ensureSmsConversationForContact` without creating a row.
+ */
+export async function findLatestSmsConversationIdForContact(contactId: string): Promise<string | null> {
+  const cid = contactId.trim();
+  if (!cid || !UUID_RE.test(cid)) {
+    return null;
+  }
+
+  const { data: existing, error: findErr } = await supabaseAdmin
+    .from("conversations")
+    .select("id, deleted_at")
+    .eq("channel", "sms")
+    .eq("primary_contact_id", cid)
+    .order("last_message_at", { ascending: false, nullsFirst: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (findErr) {
+    console.warn("[findLatestSmsConversationIdForContact] find:", findErr.message);
+    return null;
+  }
+
+  if (!existing?.id) {
+    return null;
+  }
+
+  const wasDeleted = existing.deleted_at != null && String(existing.deleted_at).trim() !== "";
+  if (wasDeleted) {
+    return null;
+  }
+
+  return String(existing.id);
+}
+
+/**
  * Finds or creates a workspace SMS conversation row for a CRM contact so inbox + Twilio send path can run.
  */
 export async function ensureSmsConversationForContact(contactId: string): Promise<EnsureSmsThreadResult> {

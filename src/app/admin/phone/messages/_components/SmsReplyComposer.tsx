@@ -57,6 +57,8 @@ export function SmsReplyComposer({
   );
   const shownRecordedRef = useRef(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const sendInFlightRef = useRef(false);
+  const [sendInFlight, setSendInFlight] = useState(false);
 
   useEffect(() => {
     if (!initialSuggestion || !suggestionForMessageId) return;
@@ -86,19 +88,26 @@ export function SmsReplyComposer({
     e.preventDefault();
     const trimmed = body.trim();
     if (!trimmed) return;
+    if (sendInFlightRef.current) return;
+    sendInFlightRef.current = true;
+    setSendInFlight(true);
     onOutboundOptimistic(trimmed);
     const fd = new FormData(e.currentTarget);
-    const result: void | SendConversationSmsResult = await sendConversationSms(fd);
-    if (!workspaceInboxSplit) return;
-    if (result == null || typeof result !== "object" || !("ok" in result)) return;
-    if (result.ok) {
-      setBody("");
-      window.setTimeout(() => inputRef.current?.focus(), 0);
-      onInPlaceSendComplete?.();
-    } else {
-      onRemoveLastOptimistic?.();
-      setBody(trimmed);
-      onInPlaceSendError?.(result.error);
+    try {
+      const result: void | SendConversationSmsResult = await sendConversationSms(fd);
+      if (result == null || typeof result !== "object" || !("ok" in result)) return;
+      if (result.ok) {
+        setBody("");
+        window.setTimeout(() => inputRef.current?.focus(), 0);
+        onInPlaceSendComplete?.();
+      } else {
+        onRemoveLastOptimistic?.();
+        setBody(trimmed);
+        onInPlaceSendError?.(result.error);
+      }
+    } finally {
+      sendInFlightRef.current = false;
+      setSendInFlight(false);
     }
   };
 
@@ -112,7 +121,13 @@ export function SmsReplyComposer({
   return (
     <form
       id="sms-reply"
-      action={messagingUX && onOutboundOptimistic ? undefined : sendConversationSms}
+      action={
+        messagingUX && onOutboundOptimistic
+          ? undefined
+          : async (fd: FormData) => {
+              await sendConversationSms(fd);
+            }
+      }
       onSubmit={messagingUX && onOutboundOptimistic ? handleSubmit : undefined}
       className={formClass}
     >
@@ -124,7 +139,7 @@ export function SmsReplyComposer({
           value={workspaceInboxSplit ? "workspace_inbox" : "workspace"}
         />
       ) : null}
-      {workspaceInboxSplit && messagingUX && onOutboundOptimistic ? (
+      {workspaceThread && messagingUX && onOutboundOptimistic ? (
         <input type="hidden" name="smsInPlace" value="1" />
       ) : null}
       <label className="sr-only" htmlFor="sms-body">
@@ -181,7 +196,7 @@ export function SmsReplyComposer({
                 ? "mb-px shrink-0 rounded-full bg-gradient-to-b from-sky-500 to-blue-800 px-3.5 py-2 text-xs font-bold tracking-wide text-white shadow-sm ring-1 ring-white/20 transition hover:brightness-[1.04] active:scale-[0.98] disabled:pointer-events-none disabled:opacity-35 sm:mb-0.5 sm:px-5 sm:py-2.5 sm:text-sm"
                 : "shrink-0 rounded-full bg-gradient-to-r from-blue-950 via-blue-700 to-sky-500 px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-blue-900/25 transition hover:brightness-105 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-40"
             }
-            disabled={!body.trim()}
+            disabled={!body.trim() || sendInFlight}
           >
             Send
           </button>

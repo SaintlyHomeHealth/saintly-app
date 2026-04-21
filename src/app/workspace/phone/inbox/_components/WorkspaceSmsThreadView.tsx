@@ -61,6 +61,13 @@ function mergeThreadById(prev: ThreadMessage[], incoming: ThreadMessage[]): Thre
   return sortThreadMessages([...byId.values()]);
 }
 
+/** Align optimistic bubble text with persisted outbound (trim + strip zero-width chars). */
+function normalizeBodyForMatch(s: string | null | undefined): string {
+  return String(s ?? "")
+    .replace(/\u200b/g, "")
+    .trim();
+}
+
 const ThreadMessageRow = memo(function ThreadMessageRow({ message: m }: { message: ThreadMessage }) {
   const inbound = String(m.direction).toLowerCase() === "inbound";
   const isPending = m.id.startsWith("optimistic-");
@@ -180,7 +187,7 @@ export function WorkspaceSmsThreadView({
           return !incoming.some(
             (row) =>
               String(row.direction).toLowerCase() === "outbound" &&
-              String(row.body ?? "").trim() === String(m.body ?? "").trim()
+              normalizeBodyForMatch(row.body) === normalizeBodyForMatch(m.body)
           );
         })
       );
@@ -191,9 +198,9 @@ export function WorkspaceSmsThreadView({
     [scrollToBottomIfFollowing]
   );
 
-  const fetchLatestMessages = useCallback(async () => {
+  const fetchLatestMessages = useCallback(async (): Promise<boolean> => {
     if (typeof document !== "undefined" && document.visibilityState !== "visible") {
-      return;
+      return false;
     }
     if (!supabaseRef.current) supabaseRef.current = createBrowserSupabaseClient();
     const supabase = supabaseRef.current;
@@ -203,7 +210,7 @@ export function WorkspaceSmsThreadView({
       .eq("conversation_id", conversationId)
       .is("deleted_at", null)
       .order("created_at", { ascending: true });
-    if (error || !data) return;
+    if (error || !data) return false;
     const rows: ThreadMessage[] = data.map((row) => ({
       id: String(row.id),
       created_at: typeof row.created_at === "string" ? row.created_at : null,
@@ -211,6 +218,7 @@ export function WorkspaceSmsThreadView({
       body: typeof row.body === "string" ? row.body : null,
     }));
     applyIncomingRows(rows, { scroll: "auto-if-following" });
+    return true;
   }, [applyIncomingRows, conversationId]);
 
   useLayoutEffect(() => {
@@ -326,12 +334,15 @@ export function WorkspaceSmsThreadView({
     });
   }, []);
 
-  const handleInPlaceSendComplete = useCallback(() => {
+  const handleInPlaceSendComplete = useCallback(async () => {
     setSendError(null);
+    const ok = await fetchLatestMessages();
+    if (ok) {
+      setOptimistic((prev) => prev.filter((m) => !m.id.startsWith("optimistic-")));
+    }
     startTransition(() => {
       router.refresh();
     });
-    void fetchLatestMessages();
   }, [router, fetchLatestMessages]);
 
   const handleInPlaceSendError = useCallback((msg: string) => {
@@ -401,7 +412,7 @@ export function WorkspaceSmsThreadView({
         <div
           className={`mx-auto w-full px-2.5 sm:px-4 ${appDesktopSplit ? "max-w-none lg:px-3" : "max-w-[40rem]"}`}
         >
-          {appDesktopSplit && sendError ? (
+          {sendError ? (
             <div
               role="alert"
               className="mb-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-950"
@@ -421,9 +432,9 @@ export function WorkspaceSmsThreadView({
             workspaceInboxSplit={appDesktopSplit}
             messagingUX
             onOutboundOptimistic={handleOptimistic}
-            onInPlaceSendComplete={appDesktopSplit ? handleInPlaceSendComplete : undefined}
-            onRemoveLastOptimistic={appDesktopSplit ? removeLastOptimistic : undefined}
-            onInPlaceSendError={appDesktopSplit ? handleInPlaceSendError : undefined}
+            onInPlaceSendComplete={handleInPlaceSendComplete}
+            onRemoveLastOptimistic={removeLastOptimistic}
+            onInPlaceSendError={handleInPlaceSendError}
           />
         </div>
       </div>

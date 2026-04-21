@@ -33,6 +33,7 @@ import type { EmploymentApplicationMeta } from "@/lib/crm/lead-employment-meta";
 import { hasAnyIntakeRequestDetail, type LeadIntakeRequestDetails } from "@/lib/crm/lead-intake-request";
 import { addCalendarDaysToIsoDate, getCrmCalendarTodayIso, getCrmCalendarTomorrowIso } from "@/lib/crm/crm-local-date";
 import {
+  buildWorkspaceInboxLeadSmsHref,
   buildWorkspaceKeypadCallHref,
   buildWorkspaceSmsToContactHref,
   pickOutboundE164ForDial,
@@ -171,6 +172,8 @@ export type LeadWorkspaceExistingProps = {
   medicareNotes: string;
   /** Structured CRM thread (`lead_activities`). */
   initialActivities: LeadActivityRow[];
+  /** When set, "Text lead" opens this inbox thread directly (navigation only; no SMS). */
+  workspaceSmsConversationId?: string | null;
   /** Visual triage (`leads.lead_temperature`); empty string = unset. */
   leadTemperature: string;
   /** `leads.waiting_on_doctors_orders` — patient intake only (not employee applicants). */
@@ -456,6 +459,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
     medicareEffectiveDateIso,
     medicareNotes,
     initialActivities,
+    workspaceSmsConversationId = null,
     leadTemperature,
     waitingOnDoctorsOrders = false,
     initialLeadQuality = null,
@@ -475,7 +479,12 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
     : null;
   const smsHref =
     contactId.trim() && pickOutboundE164ForDial(primaryPhone)
-      ? buildWorkspaceSmsToContactHref({ contactId: contactId.trim(), leadId })
+      ? workspaceSmsConversationId && workspaceSmsConversationId.trim()
+        ? buildWorkspaceInboxLeadSmsHref({
+            conversationId: workspaceSmsConversationId.trim(),
+            leadId,
+          })
+        : buildWorkspaceSmsToContactHref({ contactId: contactId.trim(), leadId })
       : null;
 
   return (

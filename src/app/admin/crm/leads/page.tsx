@@ -185,6 +185,42 @@ export default async function AdminCrmLeadsPage({
 
   list = list.slice(0, 100);
 
+  const contactIdsForSms = [
+    ...new Set(
+      list
+        .map((r) => (typeof r.contact_id === "string" ? r.contact_id.trim() : ""))
+        .filter((id) => id && UUID_RE.test(id))
+    ),
+  ];
+
+  const smsConversationIdByContactId: Record<string, string> = {};
+  if (contactIdsForSms.length > 0) {
+    const { data: convRows, error: convErr } = await supabaseAdmin
+      .from("conversations")
+      .select("id, primary_contact_id, last_message_at")
+      .eq("channel", "sms")
+      .in("primary_contact_id", contactIdsForSms)
+      .is("deleted_at", null);
+
+    if (convErr) {
+      console.warn("[crm/leads] sms thread lookup:", convErr.message);
+    } else {
+      const sorted = [...(convRows ?? [])].sort((a, b) => {
+        const ta = String(a.last_message_at ?? "");
+        const tb = String(b.last_message_at ?? "");
+        return tb.localeCompare(ta);
+      });
+      const seen = new Set<string>();
+      for (const row of sorted) {
+        const pc = typeof row.primary_contact_id === "string" ? row.primary_contact_id.trim() : "";
+        const id = typeof row.id === "string" ? row.id.trim() : "";
+        if (!pc || !id || seen.has(pc)) continue;
+        seen.add(pc);
+        smsConversationIdByContactId[pc] = id;
+      }
+    }
+  }
+
   const employeeOnlyView = f.leadType === "employee";
 
   const toastBanner =
@@ -355,6 +391,7 @@ export default async function AdminCrmLeadsPage({
         employeeOnlyView={employeeOnlyView}
         staffOptions={staffOptions}
         todayIso={todayIso}
+        smsConversationIdByContactId={smsConversationIdByContactId}
       />
     </div>
   );

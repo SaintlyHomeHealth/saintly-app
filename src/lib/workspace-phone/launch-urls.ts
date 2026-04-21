@@ -93,6 +93,16 @@ export function buildWorkspaceSmsToContactHref(opts: WorkspaceSmsLaunch): string
   return `/workspace/phone/sms-to-contact?${q.toString()}`;
 }
 
+/** Opens an existing inbox thread for CRM navigation (does not send SMS). */
+export function buildWorkspaceInboxLeadSmsHref(opts: { conversationId: string; leadId?: string }): string {
+  const q = new URLSearchParams();
+  q.set("thread", opts.conversationId);
+  if (opts.leadId && UUID_RE.test(opts.leadId)) {
+    q.set("leadId", opts.leadId);
+  }
+  return `/workspace/phone/inbox?${q.toString()}`;
+}
+
 /**
  * Workspace “new SMS” compose — supported query keys: `phone`, `contactId`, `name` (display hint).
  * Server page may redirect to an existing `/workspace/phone/inbox/[conversationId]` when a thread exists.
