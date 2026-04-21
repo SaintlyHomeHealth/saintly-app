@@ -7,6 +7,7 @@ import {
   ingestFacebookPartnerStandardLead,
   type FacebookPartnerStandardPayload,
 } from "@/lib/facebook/facebook-lead-ingestion";
+import { isValidE164, normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -16,6 +17,16 @@ function secretsEqual(received: string, expected: string): boolean {
   const b = Buffer.from(expected, "utf8");
   if (a.length !== b.length) return false;
   return timingSafeEqual(a, b);
+}
+
+/** Accept string or JSON number (e.g. 9167963306) before E.164 normalization. */
+function coerceWebhookPhoneRaw(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return String(Math.trunc(value));
+  }
+  if (typeof value === "string") return value.trim();
+  return String(value).trim();
 }
 
 /**
@@ -52,9 +63,25 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "invalid_json" } as const, { status: 400 });
   }
 
+  const rawPhoneForNormalize = coerceWebhookPhoneRaw(body.phone);
+  const phoneE164 = normalizeDialInputToE164(rawPhoneForNormalize);
+  // Temporary diagnostics — remove after partner launch validation.
+  console.log("[api/leads/facebook] phone_normalize", {
+    raw_phone: rawPhoneForNormalize,
+    normalized_e164: phoneE164,
+  });
+
+  const phoneForIngest =
+    phoneE164 && isValidE164(phoneE164) ? phoneE164 : rawPhoneForNormalize;
+
+  const payloadForIngest: FacebookPartnerStandardPayload = {
+    ...body,
+    phone: phoneForIngest,
+  };
+
   try {
     const result = await ingestFacebookPartnerStandardLead(supabaseAdmin, {
-      payload: body,
+      payload: payloadForIngest,
       rawBodyText,
     });
 
