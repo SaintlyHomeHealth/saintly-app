@@ -700,6 +700,7 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
       </section>
 
       <SmsThreadContactPanel
+        key={conversationId}
         conversationId={conversationId}
         phoneDisplayFormatted={phoneDisplayFormatted}
         hasPrimaryContact={Boolean(conv.primary_contact_id)}

@@ -2,13 +2,7 @@
 
 import Link from "next/link";
 import { ChevronLeft } from "lucide-react";
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useState,
-  type ReactNode,
-} from "react";
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 
 type ContactSavedPayload = { displayName: string; badgeLabel: string };
 
@@ -51,12 +45,21 @@ export function WorkspaceSmsConversationShell({
   appDesktopSplit = false,
   threadActions,
 }: Props) {
-  const [displayName, setDisplayName] = useState(initialDisplayName);
-  const [badge, setBadge] = useState(initialBadge);
+  /**
+   * Server props are the source of truth. `contactSaveOverride` only applies after a CRM save; it
+   * must not survive a different thread (client-side inbox navigation reuses this component).
+   */
+  const [contactSaveOverride, setContactSaveOverride] = useState<ContactSavedPayload | null>(null);
+
+  useEffect(() => {
+    setContactSaveOverride(null);
+  }, [smsThreadPaneId]);
+
+  const displayName = contactSaveOverride?.displayName ?? initialDisplayName;
+  const badge = contactSaveOverride?.badgeLabel ?? initialBadge;
 
   const onContactSaved = useCallback((p: ContactSavedPayload) => {
-    setDisplayName(p.displayName);
-    setBadge(p.badgeLabel);
+    setContactSaveOverride(p);
   }, []);
 
   return (
