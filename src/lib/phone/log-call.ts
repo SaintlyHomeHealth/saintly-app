@@ -21,6 +21,7 @@ import {
   updateVoiceCallSessionCallbackPriority,
   updateVoiceCallSessionVoicemailFields,
 } from "@/lib/phone/voice-call-sessions";
+import { ensureVoicemailThreadMessage } from "@/lib/phone/voicemail-thread-message";
 
 const PHONE_CALL_TRACE_LOGS =
   process.env.PHONE_CALL_TRACE_LOGS === "1" || process.env.NODE_ENV === "development";
@@ -1526,6 +1527,7 @@ export async function applyTwilioVoicemailRecording(
 
   if (isFinalOk) {
     await awaitVoiceAiClassificationForWebhook(callId);
+    await ensureVoicemailThreadMessage(supabase, callId);
     await triggerAutoFollowUp(supabase, callId);
     if (saintlyVmEnabled && !alreadyDoneSaintlyVm) {
       scheduleSaintlyVoicemailProcessing(callId);

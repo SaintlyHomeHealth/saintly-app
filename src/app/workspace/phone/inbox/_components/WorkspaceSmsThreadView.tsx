@@ -14,6 +14,10 @@ import {
 } from "react";
 
 import { SmsReplyComposer } from "@/app/admin/phone/messages/_components/SmsReplyComposer";
+import {
+  VoicemailThreadMessageRow,
+  type VoicemailThreadDetail,
+} from "@/app/workspace/phone/inbox/_components/VoicemailThreadMessageRow";
 import { formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
 import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
 
@@ -22,6 +26,8 @@ export type ThreadMessage = {
   created_at: string | null;
   direction: string;
   body: string | null;
+  message_type?: string | null;
+  phone_call_id?: string | null;
 };
 
 const INITIAL_WINDOW = 8;
@@ -40,11 +46,18 @@ function parseRealtimeMessage(row: unknown): ThreadMessage | null {
   const r = row as Record<string, unknown>;
   const id = r.id;
   if (typeof id !== "string" || !id) return null;
+  const phoneCallIdRaw = r.phone_call_id;
+  const phone_call_id =
+    phoneCallIdRaw != null && String(phoneCallIdRaw).trim() !== "" ? String(phoneCallIdRaw).trim() : null;
+  const mt = r.message_type;
+  const message_type = typeof mt === "string" && mt.trim() ? mt.trim() : "sms";
   return {
     id,
     created_at: typeof r.created_at === "string" ? r.created_at : null,
     direction: typeof r.direction === "string" ? r.direction : "",
     body: typeof r.body === "string" ? r.body : null,
+    message_type,
+    phone_call_id,
   };
 }
 
@@ -103,6 +116,8 @@ const ThreadMessageRow = memo(function ThreadMessageRow({ message: m }: { messag
 type Props = {
   conversationId: string;
   initialMessages: ThreadMessage[];
+  /** Server-loaded transcript/duration for voicemail rows (keyed by phone_call_id). */
+  voicemailDetailByCallId?: Record<string, VoicemailThreadDetail>;
   initialSuggestion: string | null;
   suggestionForMessageId: string | null;
   composerInitialDraft: string | null;
@@ -119,6 +134,7 @@ type Props = {
 export function WorkspaceSmsThreadView({
   conversationId,
   initialMessages,
+  voicemailDetailByCallId = {},
   initialSuggestion,
   suggestionForMessageId,
   composerInitialDraft,
@@ -206,17 +222,29 @@ export function WorkspaceSmsThreadView({
     const supabase = supabaseRef.current;
     const { data, error } = await supabase
       .from("messages")
-      .select("id, created_at, direction, body")
+      .select("id, created_at, direction, body, phone_call_id, message_type")
       .eq("conversation_id", conversationId)
       .is("deleted_at", null)
       .order("created_at", { ascending: true });
     if (error || !data) return false;
-    const rows: ThreadMessage[] = data.map((row) => ({
-      id: String(row.id),
-      created_at: typeof row.created_at === "string" ? row.created_at : null,
-      direction: typeof row.direction === "string" ? row.direction : "",
-      body: typeof row.body === "string" ? row.body : null,
-    }));
+    const rows: ThreadMessage[] = data.map((row) => {
+      const pid =
+        (row as { phone_call_id?: unknown }).phone_call_id != null &&
+        String((row as { phone_call_id?: unknown }).phone_call_id).trim() !== ""
+          ? String((row as { phone_call_id?: unknown }).phone_call_id).trim()
+          : null;
+      const mtRaw = (row as { message_type?: unknown }).message_type;
+      const message_type =
+        typeof mtRaw === "string" && mtRaw.trim() ? mtRaw.trim() : "sms";
+      return {
+        id: String(row.id),
+        created_at: typeof row.created_at === "string" ? row.created_at : null,
+        direction: typeof row.direction === "string" ? row.direction : "",
+        body: typeof row.body === "string" ? row.body : null,
+        message_type,
+        phone_call_id: pid,
+      };
+    });
     applyIncomingRows(rows, { scroll: "auto-if-following" });
     return true;
   }, [applyIncomingRows, conversationId]);
@@ -319,6 +347,8 @@ export function WorkspaceSmsThreadView({
         created_at: new Date().toISOString(),
         direction: "outbound",
         body,
+        message_type: "sms",
+        phone_call_id: null,
       },
     ]);
   };
@@ -395,7 +425,28 @@ export function WorkspaceSmsThreadView({
                 </p>
               </div>
             ) : (
-              merged.map((m) => <ThreadMessageRow key={m.id} message={m} />)
+              merged.map((m) => {
+                const isVm =
+                  String(m.message_type ?? "sms") === "voicemail" &&
+                  m.phone_call_id != null &&
+                  String(m.phone_call_id).trim() !== "";
+                if (isVm && m.phone_call_id) {
+                  const detail = voicemailDetailByCallId[m.phone_call_id];
+                  return (
+                    <VoicemailThreadMessageRow
+                      key={m.id}
+                      conversationId={conversationId}
+                      messageId={m.id}
+                      phoneCallId={m.phone_call_id}
+                      createdAt={m.created_at}
+                      body={m.body}
+                      detail={detail}
+                      appDesktopSplit={appDesktopSplit}
+                    />
+                  );
+                }
+                return <ThreadMessageRow key={m.id} message={m} />;
+              })
             )}
             <div ref={bottomRef} className="h-px w-full shrink-0" aria-hidden />
           </div>

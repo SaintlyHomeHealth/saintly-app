@@ -16,6 +16,7 @@ import { SmsThreadMarkReadOnViewClient } from "./SmsThreadMarkReadOnViewClient";
 import { SmsThreadDebugStrip } from "./SmsThreadDebugStrip";
 import { SmsThreadContactPanel } from "@/app/workspace/phone/inbox/_components/sms-thread-contact-panel";
 import { WorkspaceSmsConversationShell } from "@/app/workspace/phone/inbox/_components/workspace-sms-conversation-shell";
+import { VoicemailThreadMessageRow } from "@/app/workspace/phone/inbox/_components/VoicemailThreadMessageRow";
 import { WorkspaceSmsDeleteConversationButton } from "@/app/workspace/phone/inbox/_components/WorkspaceSmsDeleteConversationButton";
 import { WorkspaceSmsThreadView } from "@/app/workspace/phone/inbox/_components/WorkspaceSmsThreadView";
 import { supabaseAdmin } from "@/lib/admin";
@@ -256,7 +257,7 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
 
   const { data: msgRows, error: msgErr } = await supabase
     .from("messages")
-    .select("id, created_at, direction, body, viewed_at, metadata")
+    .select("id, created_at, direction, body, viewed_at, metadata, phone_call_id, message_type")
     .eq("conversation_id", conversationId)
     .is("deleted_at", null)
     .order("created_at", { ascending: true });
@@ -266,6 +267,53 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
   }
 
   const messages = msgRows ?? [];
+
+  const voicemailCallIds = [
+    ...new Set(
+      messages
+        .filter((m) => String((m as { message_type?: unknown }).message_type ?? "sms") === "voicemail")
+        .map((m) => {
+          const pid = (m as { phone_call_id?: unknown }).phone_call_id;
+          return pid != null && String(pid).trim() !== "" ? String(pid).trim() : null;
+        })
+        .filter((x): x is string => Boolean(x))
+    ),
+  ];
+
+  const voicemailDetailByCallId: Record<
+    string,
+    { durationSeconds: number | null; transcript: string | null }
+  > = {};
+
+  if (voicemailCallIds.length > 0) {
+    const { data: vmCalls, error: vmErr } = await supabaseAdmin
+      .from("phone_calls")
+      .select("id, voicemail_duration_seconds, metadata")
+      .in("id", voicemailCallIds);
+    if (vmErr) {
+      console.warn("[admin/phone/messages] voicemail detail:", vmErr.message);
+    }
+    for (const c of vmCalls ?? []) {
+      const id = typeof c.id === "string" ? c.id : "";
+      if (!id) continue;
+      const meta = c.metadata;
+      let transcript: string | null = null;
+      if (meta && typeof meta === "object" && !Array.isArray(meta)) {
+        const vt = (meta as Record<string, unknown>).voicemail_transcription;
+        if (vt && typeof vt === "object" && !Array.isArray(vt)) {
+          const t = (vt as Record<string, unknown>).text;
+          transcript = typeof t === "string" && t.trim() ? t.trim().slice(0, 1200) : null;
+        }
+      }
+      voicemailDetailByCallId[id] = {
+        durationSeconds:
+          typeof c.voicemail_duration_seconds === "number" && Number.isFinite(c.voicemail_duration_seconds)
+            ? c.voicemail_duration_seconds
+            : null,
+        transcript,
+      };
+    }
+  }
 
   /** Latest inbound message: Twilio `To` (business line), for Text-from seed when `preferred_from_e164` is unset. */
   const lastInboundBusinessLineE164 = (() => {
@@ -471,12 +519,30 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
       ? conv.follow_up_completed_at
       : null;
 
-  const threadMessages = messages.map((m) => ({
-    id: String(m.id),
-    created_at: typeof m.created_at === "string" ? m.created_at : null,
-    direction: String(m.direction ?? ""),
-    body: typeof m.body === "string" ? m.body : null,
-  }));
+  const threadMessages = messages.map((m) => {
+    const row = m as {
+      id: unknown;
+      created_at?: unknown;
+      direction?: unknown;
+      body?: unknown;
+      phone_call_id?: unknown;
+      message_type?: unknown;
+    };
+    const phoneCallId =
+      row.phone_call_id != null && String(row.phone_call_id).trim() !== ""
+        ? String(row.phone_call_id).trim()
+        : null;
+    const messageType =
+      typeof row.message_type === "string" && row.message_type.trim() ? row.message_type.trim() : "sms";
+    return {
+      id: String(row.id),
+      created_at: typeof row.created_at === "string" ? row.created_at : null,
+      direction: String(row.direction ?? ""),
+      body: typeof row.body === "string" ? row.body : null,
+      message_type: messageType,
+      phone_call_id: phoneCallId,
+    };
+  });
 
   const workspaceHeaderTitle = contactName
     ? contactName
@@ -717,6 +783,7 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
         key={conversationId}
         conversationId={conversationId}
         initialMessages={threadMessages}
+        voicemailDetailByCallId={voicemailDetailByCallId}
         initialSuggestion={initialSmsSuggestion}
         suggestionForMessageId={
           initialSmsSuggestion && suggestionMeta ? suggestionMeta.for_message_id : null
@@ -1271,6 +1338,26 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
           ) : (
             messages.map((m) => {
               const inbound = String(m.direction).toLowerCase() === "inbound";
+              const msgType = String((m as { message_type?: unknown }).message_type ?? "sms");
+              const pid =
+                (m as { phone_call_id?: unknown }).phone_call_id != null
+                  ? String((m as { phone_call_id?: unknown }).phone_call_id).trim()
+                  : "";
+              if (msgType === "voicemail" && pid) {
+                const detail = voicemailDetailByCallId[pid];
+                return (
+                  <div key={String(m.id)} className="flex justify-start">
+                    <VoicemailThreadMessageRow
+                      conversationId={conversationId}
+                      messageId={String(m.id)}
+                      phoneCallId={pid}
+                      createdAt={typeof m.created_at === "string" ? m.created_at : null}
+                      body={typeof m.body === "string" ? m.body : null}
+                      detail={detail}
+                    />
+                  </div>
+                );
+              }
               return (
                 <div key={String(m.id)} className={`flex ${inbound ? "justify-start" : "justify-end"}`}>
                   <div
