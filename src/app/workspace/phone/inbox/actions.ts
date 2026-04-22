@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
-import { canStaffAccessPhoneCallRow } from "@/lib/phone/staff-conversation-access";
+import { canStaffAccessConversationRow } from "@/lib/phone/staff-conversation-access";
 import { mergeTelemetryOnSend } from "@/lib/phone/sms-suggestion-telemetry";
 import { softDeleteSmsConversation, softDeleteSmsMessage } from "@/lib/phone/sms-soft-delete";
 import { ensureSmsConversationForPhone } from "@/lib/phone/sms-conversation-thread";
@@ -103,7 +103,7 @@ export async function softDeleteWorkspaceVoicemailListItem(
       ? String(callRow.assigned_to_user_id)
       : null;
 
-  if (!canStaffAccessPhoneCallRow(staff, { assigned_to_user_id: assignedTo })) {
+  if (!canStaffAccessConversationRow(staff, { assigned_to_user_id: assignedTo })) {
     return { ok: false, error: "forbidden" };
   }
 
