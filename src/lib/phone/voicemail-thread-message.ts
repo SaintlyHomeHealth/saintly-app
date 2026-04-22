@@ -116,4 +116,20 @@ export async function ensureVoicemailThreadMessage(
   if (touchErr) {
     console.warn("[voicemail-thread] touch conversation:", touchErr.message);
   }
+
+  const { data: callMetaRow, error: metaReadErr } = await supabase
+    .from("phone_calls")
+    .select("metadata")
+    .eq("id", callId)
+    .maybeSingle();
+  if (!metaReadErr && callMetaRow?.metadata != null && typeof callMetaRow.metadata === "object" && !Array.isArray(callMetaRow.metadata)) {
+    const meta = { ...(callMetaRow.metadata as Record<string, unknown>) };
+    if ("voicemail_inbox_soft_deleted_at" in meta) {
+      delete meta.voicemail_inbox_soft_deleted_at;
+      const { error: metaUpErr } = await supabase.from("phone_calls").update({ metadata: meta }).eq("id", callId);
+      if (metaUpErr) {
+        console.warn("[voicemail-thread] clear list-delete metadata:", metaUpErr.message);
+      }
+    }
+  }
 }

@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
+import { canStaffAccessPhoneCallRow } from "@/lib/phone/staff-conversation-access";
 import { mergeTelemetryOnSend } from "@/lib/phone/sms-suggestion-telemetry";
 import { softDeleteSmsConversation, softDeleteSmsMessage } from "@/lib/phone/sms-soft-delete";
 import { ensureSmsConversationForPhone } from "@/lib/phone/sms-conversation-thread";
@@ -14,6 +15,9 @@ import { canAccessWorkspacePhone, getStaffProfile } from "@/lib/staff-profile";
 import { supabaseAdmin } from "@/lib/admin";
 
 const SMS_BODY_MAX = 1600;
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 async function requirePhoneMessagingStaff() {
   const staff = await getStaffProfile();
@@ -45,6 +49,7 @@ export async function deleteWorkspaceSmsMessage(
   const result = await softDeleteSmsMessage(supabaseAdmin, staff, { conversationId, messageId });
   if (result.ok) {
     revalidateSmsViews(conversationId);
+    revalidatePath("/workspace/phone/voicemail");
   }
   return result;
 }
@@ -64,6 +69,90 @@ export async function deleteWorkspaceSmsConversation(
     revalidateSmsViews(conversationId);
   }
   return result;
+}
+
+/**
+ * Voicemail tab list: soft-delete the thread voicemail message when present, else flag `phone_calls.metadata`.
+ * Reuses `softDeleteSmsMessage` so behavior matches thread delete + 30-day cleanup.
+ */
+export async function softDeleteWorkspaceVoicemailListItem(
+  phoneCallId: string
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const staff = await getStaffProfile();
+  if (!staff || !canAccessWorkspacePhone(staff)) {
+    return { ok: false, error: "forbidden" };
+  }
+
+  const id = typeof phoneCallId === "string" ? phoneCallId.trim() : "";
+  if (!id || !UUID_RE.test(id)) {
+    return { ok: false, error: "invalid_id" };
+  }
+
+  const { data: callRow, error: callErr } = await supabaseAdmin
+    .from("phone_calls")
+    .select("id, assigned_to_user_id, metadata")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (callErr || !callRow?.id) {
+    return { ok: false, error: "not_found" };
+  }
+
+  const assignedTo =
+    callRow.assigned_to_user_id != null && String(callRow.assigned_to_user_id).trim() !== ""
+      ? String(callRow.assigned_to_user_id)
+      : null;
+
+  if (!canStaffAccessPhoneCallRow(staff, { assigned_to_user_id: assignedTo })) {
+    return { ok: false, error: "forbidden" };
+  }
+
+  const { data: vmMsg, error: msgErr } = await supabaseAdmin
+    .from("messages")
+    .select("id, conversation_id, deleted_at")
+    .eq("phone_call_id", id)
+    .eq("message_type", "voicemail")
+    .maybeSingle();
+
+  if (msgErr) {
+    console.warn("[voicemail-list-delete] message load:", msgErr.message);
+    return { ok: false, error: "load_failed" };
+  }
+
+  const msgDeleted =
+    vmMsg?.deleted_at != null && typeof vmMsg.deleted_at === "string" && vmMsg.deleted_at.trim() !== "";
+
+  if (msgDeleted) {
+    return { ok: true };
+  }
+
+  if (vmMsg?.id) {
+    const conversationId = String(vmMsg.conversation_id);
+    const messageId = String(vmMsg.id);
+    const result = await softDeleteSmsMessage(supabaseAdmin, staff, { conversationId, messageId });
+    if (!result.ok) {
+      return result;
+    }
+    revalidateSmsViews(conversationId);
+  } else {
+    const prev =
+      callRow.metadata != null && typeof callRow.metadata === "object" && !Array.isArray(callRow.metadata)
+        ? { ...(callRow.metadata as Record<string, unknown>) }
+        : {};
+    if (typeof prev.voicemail_inbox_soft_deleted_at === "string" && prev.voicemail_inbox_soft_deleted_at.trim()) {
+      revalidatePath("/workspace/phone/voicemail");
+      return { ok: true };
+    }
+    prev.voicemail_inbox_soft_deleted_at = new Date().toISOString();
+    const { error: upErr } = await supabaseAdmin.from("phone_calls").update({ metadata: prev }).eq("id", id);
+    if (upErr) {
+      console.warn("[voicemail-list-delete] metadata flag:", upErr.message);
+      return { ok: false, error: "update_failed" };
+    }
+  }
+
+  revalidatePath("/workspace/phone/voicemail");
+  return { ok: true };
 }
 
 export type SmsComposeSearchRow = {

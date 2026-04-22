@@ -1,6 +1,7 @@
 "use client";
 
 import { useWorkspaceSoftphone } from "@/components/softphone/WorkspaceSoftphoneProvider";
+import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
 import {
   CalendarDays,
   Hash,
@@ -14,7 +15,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { memo, useMemo, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
 type Tab = {
   href: string;
@@ -144,11 +145,83 @@ type NavProps = {
   showLeadsNav?: boolean;
   /** When set, only these workspace paths appear in the bottom bar (Staff Access page permissions). */
   allowedTabHrefs?: string[] | null;
+  /** Server snapshot; client keeps this updated via `/api/workspace/phone/inbox-unread` + realtime. */
+  initialInboxHasUnread?: boolean;
 };
 
-function NursePhoneBottomNavInner({ showLeadsNav = true, allowedTabHrefs = null }: NavProps) {
+/** Keep nav in sync shortly after mark-read / inbound SMS without hammering the API. */
+const INBOX_UNREAD_DEBOUNCE_MS = 320;
+
+function NursePhoneBottomNavInner({
+  showLeadsNav = true,
+  allowedTabHrefs = null,
+  initialInboxHasUnread = false,
+}: NavProps) {
   const pathname = usePathname() ?? "";
   const { status } = useWorkspaceSoftphone();
+  const [inboxHasUnread, setInboxHasUnread] = useState(Boolean(initialInboxHasUnread));
+
+  const refreshInboxUnread = useCallback(async () => {
+    if (typeof document !== "undefined" && document.visibilityState !== "visible") {
+      return;
+    }
+    try {
+      const res = await fetch("/api/workspace/phone/inbox-unread", { cache: "no-store" });
+      const json = (await res.json()) as { hasUnread?: boolean };
+      setInboxHasUnread(Boolean(json.hasUnread));
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  useEffect(() => {
+    setInboxHasUnread(Boolean(initialInboxHasUnread));
+  }, [initialInboxHasUnread]);
+
+  useEffect(() => {
+    void refreshInboxUnread();
+  }, [pathname, refreshInboxUnread]);
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      void refreshInboxUnread();
+    }, 50_000);
+    return () => window.clearInterval(id);
+  }, [refreshInboxUnread]);
+
+  useEffect(() => {
+    const onFocus = () => {
+      void refreshInboxUnread();
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onFocus);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onFocus);
+    };
+  }, [refreshInboxUnread]);
+
+  useEffect(() => {
+    const supabase = createBrowserSupabaseClient();
+    let debounce: ReturnType<typeof setTimeout> | null = null;
+    const schedule = () => {
+      if (debounce) clearTimeout(debounce);
+      debounce = setTimeout(() => {
+        debounce = null;
+        void refreshInboxUnread();
+      }, INBOX_UNREAD_DEBOUNCE_MS);
+    };
+    const channel = supabase
+      .channel("workspace_nav_inbox_unread")
+      .on("postgres_changes", { event: "*", schema: "public", table: "messages" }, schedule)
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "conversations" }, schedule)
+      .subscribe();
+
+    return () => {
+      if (debounce) clearTimeout(debounce);
+      void supabase.removeChannel(channel);
+    };
+  }, [refreshInboxUnread]);
   const tabsHrefKey = allowedTabHrefs?.length ? [...allowedTabHrefs].sort().join("|") : "";
   const tabs = useMemo(() => {
     let t = showLeadsNav ? [...tabsBase.slice(0, 6), leadsTab, ...tabsBase.slice(6)] : tabsBase;
@@ -172,6 +245,8 @@ function NursePhoneBottomNavInner({ showLeadsNav = true, allowedTabHrefs = null 
       <ul className="mx-auto flex w-full max-w-6xl items-stretch justify-between gap-0.5 px-1 pt-1">
         {tabs.map((t) => {
           const active = isActive(pathname, t.match);
+          const isInboxTab = t.href === "/workspace/phone/inbox";
+          const inboxUnreadHighlight = isInboxTab && inboxHasUnread && !active;
           return (
             <li key={t.href} className="min-w-0 flex-1">
               <Link
@@ -179,11 +254,15 @@ function NursePhoneBottomNavInner({ showLeadsNav = true, allowedTabHrefs = null 
                 className={`flex flex-col items-center justify-center rounded-xl px-0.5 py-2 text-[10px] font-semibold leading-tight transition sm:text-[11px] ${
                   active
                     ? "bg-phone-nav-active text-phone-navy ring-1 ring-inset ring-phone-border"
-                    : "text-slate-500 hover:bg-phone-ice/80 hover:text-phone-ink"
+                    : inboxUnreadHighlight
+                      ? "bg-sky-50/95 text-sky-900 ring-1 ring-inset ring-sky-200/90 hover:bg-sky-100/90"
+                      : "text-slate-500 hover:bg-phone-ice/80 hover:text-phone-ink"
                 }`}
               >
                 <span
-                  className={`mb-0.5 flex flex-col items-center ${active ? "text-phone-ink" : "text-slate-400"}`}
+                  className={`mb-0.5 flex flex-col items-center ${
+                    active ? "text-phone-ink" : inboxUnreadHighlight ? "text-sky-600" : "text-slate-400"
+                  }`}
                   title={t.iconTitle}
                 >
                   {t.icon}

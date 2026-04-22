@@ -9,6 +9,7 @@ const UNREAD_COUNT_PAGE_SIZE = 1000;
 
 /**
  * Count inbound messages with viewed_at IS NULL per conversation (unread from patient).
+ * Excludes `message_type = 'voicemail'` so voicemail thread cards do not light up SMS unread / nav.
  * Uses the service role and paginates so counts stay correct past the default row limit.
  * `supabase` is kept for call-site compatibility; the query uses `supabaseAdmin` so counts
  * match RLS-safe conversation lists and are not capped at 1000 rows.
@@ -32,6 +33,7 @@ export async function countUnreadInboundByConversationIds(
       .eq("direction", "inbound")
       .is("viewed_at", null)
       .is("deleted_at", null)
+      .not("message_type", "eq", "voicemail")
       .order("id", { ascending: true })
       .range(from, from + UNREAD_COUNT_PAGE_SIZE - 1);
 

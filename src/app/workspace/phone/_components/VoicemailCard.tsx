@@ -3,7 +3,9 @@
 import Link from "next/link";
 
 import { createPhoneCallTask } from "@/app/admin/phone/actions";
+import { WorkspaceVoicemailDeleteButton } from "./WorkspaceVoicemailDeleteButton";
 import { DialSoftphoneButton } from "@/app/workspace/phone/patients/_components/DialSoftphoneButton";
+import { formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
 
 type Props = {
   callId: string;
@@ -20,6 +22,10 @@ type Props = {
   transcriptError: string | null;
   aiRecap: string | null;
   compact?: boolean;
+  /** Voicemail tab: show delete on list cards (soft-delete). */
+  enableListDelete?: boolean;
+  /** When set, card is shown in the “Deleted VM” list (no delete). */
+  removedFromListAt?: string | null;
 };
 
 const actionBtnCls =
@@ -44,6 +50,8 @@ export function VoicemailCard({
   transcriptError,
   aiRecap,
   compact = false,
+  enableListDelete = false,
+  removedFromListAt = null,
 }: Props) {
   const followUpTitle = `Voicemail follow-up — ${title}`.slice(0, 500);
 
@@ -63,10 +71,20 @@ export function VoicemailCard({
     <p className={placeholderCls}>Transcript will appear shortly after the message is processed.</p>
   );
 
+  const removedLabel =
+    removedFromListAt && removedFromListAt.trim()
+      ? formatAdminPhoneWhen(removedFromListAt)
+      : null;
+
   return (
     <li
       className={`ws-phone-card px-3 py-2.5 text-xs ${compact ? "space-y-2" : "space-y-2.5"}`}
     >
+      {removedLabel ? (
+        <p className="mb-2 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-[11px] font-medium text-slate-700">
+          Removed from list · {removedLabel}
+        </p>
+      ) : null}
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold text-phone-navy">{title}</p>
@@ -126,6 +144,7 @@ export function VoicemailCard({
             Create follow-up
           </button>
         </form>
+        {enableListDelete && !removedFromListAt ? <WorkspaceVoicemailDeleteButton callId={callId} /> : null}
       </div>
     </li>
   );
