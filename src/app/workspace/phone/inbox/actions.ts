@@ -267,7 +267,7 @@ export async function sendWorkspaceNewSms(formData: FormData) {
   const contactId = typeof contactIdRaw === "string" ? contactIdRaw.trim() : "";
   const recruitingCandidateId = typeof recruitIdRaw === "string" ? recruitIdRaw.trim() : "";
 
-  const err = (code: string) => redirect(`/workspace/phone/inbox/new?err=${code}`);
+  const err = (code: string): never => redirect(`/workspace/phone/inbox/new?err=${code}`);
 
   if (!body) {
     err("sms_empty");
@@ -280,7 +280,7 @@ export async function sendWorkspaceNewSms(formData: FormData) {
   });
 
   if (!resolved.ok) {
-    err(mapResolveError(resolved.error));
+    redirect(`/workspace/phone/inbox/new?err=${mapResolveError(resolved.error)}`);
   }
 
   const { e164, contact } = resolved;
