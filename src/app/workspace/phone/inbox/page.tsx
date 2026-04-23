@@ -161,7 +161,19 @@ export default async function WorkspaceInboxPage(props: PageProps) {
   }
 
   const ids = rows.map((r) => r.id as string);
-  const unreadByConvId = await countUnreadInboundByConversationIds(supabase, ids);
+  const previewRowCap = ids.length > 0 ? Math.min(500, Math.max(120, ids.length * 8)) : 0;
+  const [unreadByConvId, previewQueryRes] = await Promise.all([
+    countUnreadInboundByConversationIds(supabase, ids),
+    ids.length === 0
+      ? Promise.resolve({ data: null as { conversation_id?: string; body?: string; created_at?: string }[] | null })
+      : supabase
+          .from("messages")
+          .select("conversation_id, body, created_at")
+          .in("conversation_id", ids)
+          .is("deleted_at", null)
+          .order("created_at", { ascending: false })
+          .limit(previewRowCap),
+  ]);
   if (process.env.SMS_UNREAD_DEBUG === "1") {
     const withUnread = ids.filter((id) => (unreadByConvId[id] ?? 0) > 0);
     console.warn("[sms-unread-debug] workspace inbox mapping", {
@@ -171,18 +183,10 @@ export default async function WorkspaceInboxPage(props: PageProps) {
     });
   }
   const previewByConvId: Record<string, string> = {};
-  if (ids.length > 0) {
-    const previewRowCap = Math.min(500, Math.max(120, ids.length * 8));
-    const { data: msgRows } = await supabase
-      .from("messages")
-      .select("conversation_id, body, created_at")
-      .in("conversation_id", ids)
-      .is("deleted_at", null)
-      .order("created_at", { ascending: false })
-      .limit(previewRowCap);
-
+  const msgRows = previewQueryRes.data;
+  if (msgRows && msgRows.length > 0) {
     const seen = new Set<string>();
-    for (const m of msgRows ?? []) {
+    for (const m of msgRows) {
       const cid = typeof m.conversation_id === "string" ? m.conversation_id : "";
       if (!cid || seen.has(cid)) continue;
       seen.add(cid);

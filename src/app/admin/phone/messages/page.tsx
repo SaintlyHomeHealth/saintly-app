@@ -160,7 +160,23 @@ export default async function AdminSmsInboxPage({ searchParams }: PageProps) {
     });
   }
   const ids = rows.map((r) => r.id as string);
-  const unreadByConvId = await countUnreadInboundByConversationIds(supabase, ids);
+  const assigneeIds = [...new Set(rows.map((r) => r.assigned_to_user_id as string | null).filter(Boolean))] as string[];
+
+  const [unreadByConvId, staffProfilesRes, previewQueryRes] = await Promise.all([
+    countUnreadInboundByConversationIds(supabase, ids),
+    assigneeIds.length === 0
+      ? Promise.resolve({ data: null as { user_id?: string; email?: string; full_name?: string }[] | null })
+      : supabaseAdmin.from("staff_profiles").select("user_id, email, full_name").in("user_id", assigneeIds),
+    ids.length === 0
+      ? Promise.resolve({ data: null as { conversation_id?: string; body?: string; created_at?: string }[] | null })
+      : supabase
+          .from("messages")
+          .select("conversation_id, body, created_at")
+          .in("conversation_id", ids)
+          .is("deleted_at", null)
+          .order("created_at", { ascending: false }),
+  ]);
+
   if (process.env.SMS_UNREAD_DEBUG === "1") {
     const withUnread = ids.filter((id) => (unreadByConvId[id] ?? 0) > 0);
     console.warn("[sms-unread-debug] admin inbox mapping", {
@@ -169,34 +185,21 @@ export default async function AdminSmsInboxPage({ searchParams }: PageProps) {
       sampleIdsWithUnread: withUnread.slice(0, 8),
     });
   }
-  const assigneeIds = [...new Set(rows.map((r) => r.assigned_to_user_id as string | null).filter(Boolean))] as string[];
 
   const labelByUserId: Record<string, string> = {};
-  if (assigneeIds.length > 0) {
-    const { data: staffRows } = await supabaseAdmin
-      .from("staff_profiles")
-      .select("user_id, email, full_name")
-      .in("user_id", assigneeIds);
-    for (const s of staffRows ?? []) {
-      const uid = typeof s.user_id === "string" ? s.user_id : "";
-      if (!uid) continue;
-      const em = typeof s.email === "string" ? s.email.trim() : "";
-      const fn = typeof s.full_name === "string" ? s.full_name.trim() : "";
-      labelByUserId[uid] = em || fn || `User ${uid.slice(0, 8)}…`;
-    }
+  for (const s of staffProfilesRes.data ?? []) {
+    const uid = typeof s.user_id === "string" ? s.user_id : "";
+    if (!uid) continue;
+    const em = typeof s.email === "string" ? s.email.trim() : "";
+    const fn = typeof s.full_name === "string" ? s.full_name.trim() : "";
+    labelByUserId[uid] = em || fn || `User ${uid.slice(0, 8)}…`;
   }
 
   const previewByConvId: Record<string, string> = {};
-  if (ids.length > 0) {
-    const { data: msgRows } = await supabase
-      .from("messages")
-      .select("conversation_id, body, created_at")
-      .in("conversation_id", ids)
-      .is("deleted_at", null)
-      .order("created_at", { ascending: false });
-
+  const msgRows = previewQueryRes.data;
+  if (msgRows && msgRows.length > 0) {
     const seen = new Set<string>();
-    for (const m of msgRows ?? []) {
+    for (const m of msgRows) {
       const cid = typeof m.conversation_id === "string" ? m.conversation_id : "";
       if (!cid || seen.has(cid)) continue;
       seen.add(cid);

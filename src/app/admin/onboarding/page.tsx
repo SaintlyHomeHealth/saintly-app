@@ -132,9 +132,20 @@ export default function AdminOnboardingDashboard() {
         const applicants = (applicantsData || []) as Applicant[];
         const events = (eventsData || []) as ComplianceEvent[];
 
+        const eventsByApplicantId = new Map<string, ComplianceEvent[]>();
+        for (const event of events) {
+          const aid = event.applicant_id;
+          let list = eventsByApplicantId.get(aid);
+          if (!list) {
+            list = [];
+            eventsByApplicantId.set(aid, list);
+          }
+          list.push(event);
+        }
+
         const groupedRows: DashboardRow[] = applicants.map((applicant) => ({
           applicant,
-          events: events.filter((event) => event.applicant_id === applicant.id),
+          events: eventsByApplicantId.get(applicant.id) ?? [],
         }));
 
         setRows(groupedRows);
