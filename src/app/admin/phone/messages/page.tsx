@@ -9,6 +9,16 @@ import {
   isAdminOrHigher,
   isPhoneWorkspaceUser,
 } from "@/lib/staff-profile";
+import {
+  routePerfLog,
+  routePerfStart,
+  routePerfTimed,
+  routePerfStepsEnabled,
+} from "@/lib/perf/route-perf";
+import {
+  buildSmsInboxPreviewByConversationId,
+  smsInboxPreviewMessageRowCap,
+} from "@/lib/phone/sms-inbox-preview";
 import { countUnreadInboundByConversationIds } from "@/lib/phone/sms-inbound-unread";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
@@ -62,13 +72,18 @@ type PageProps = {
 export const dynamic = "force-dynamic";
 
 export default async function AdminSmsInboxPage({ searchParams }: PageProps) {
-  const staff = await getStaffProfile();
+  const perfStart = routePerfStart();
+  const staff = routePerfStepsEnabled()
+    ? await routePerfTimed("staff_profile", getStaffProfile)
+    : await getStaffProfile();
   if (!staff || !isPhoneWorkspaceUser(staff) || !staff.phone_access_enabled) {
     redirect("/admin/phone");
   }
 
   const hasFull = hasFullCallVisibility(staff);
-  const supabase = await createServerSupabaseClient();
+  const supabase = routePerfStepsEnabled()
+    ? await routePerfTimed("server_supabase_client", createServerSupabaseClient)
+    : await createServerSupabaseClient();
 
   const sp = (await searchParams) ?? {};
   const filterRaw = typeof sp.filter === "string" ? sp.filter.trim() : "all";
@@ -104,7 +119,9 @@ export default async function AdminSmsInboxPage({ searchParams }: PageProps) {
     q = q.or(`assigned_to_user_id.eq.${staff.user_id},assigned_to_user_id.is.null`);
   }
 
-  const { data: convRows, error } = await q;
+  const { data: convRows, error } = routePerfStepsEnabled()
+    ? await routePerfTimed("conversations_list", () => q)
+    : await q;
   if (error) {
     console.warn("[admin/phone/messages] list:", error.message);
   }
@@ -161,20 +178,38 @@ export default async function AdminSmsInboxPage({ searchParams }: PageProps) {
   }
   const ids = rows.map((r) => r.id as string);
   const assigneeIds = [...new Set(rows.map((r) => r.assigned_to_user_id as string | null).filter(Boolean))] as string[];
+  const previewRowCap = smsInboxPreviewMessageRowCap(ids.length);
 
   const [unreadByConvId, staffProfilesRes, previewQueryRes] = await Promise.all([
-    countUnreadInboundByConversationIds(supabase, ids),
+    routePerfStepsEnabled()
+      ? routePerfTimed("unread_counts", () => countUnreadInboundByConversationIds(supabase, ids))
+      : countUnreadInboundByConversationIds(supabase, ids),
     assigneeIds.length === 0
       ? Promise.resolve({ data: null as { user_id?: string; email?: string; full_name?: string }[] | null })
-      : supabaseAdmin.from("staff_profiles").select("user_id, email, full_name").in("user_id", assigneeIds),
+      : routePerfStepsEnabled()
+        ? routePerfTimed("staff_assignees", () =>
+            supabaseAdmin.from("staff_profiles").select("user_id, email, full_name").in("user_id", assigneeIds)
+          )
+        : supabaseAdmin.from("staff_profiles").select("user_id, email, full_name").in("user_id", assigneeIds),
     ids.length === 0
       ? Promise.resolve({ data: null as { conversation_id?: string; body?: string; created_at?: string }[] | null })
-      : supabase
-          .from("messages")
-          .select("conversation_id, body, created_at")
-          .in("conversation_id", ids)
-          .is("deleted_at", null)
-          .order("created_at", { ascending: false }),
+      : routePerfStepsEnabled()
+        ? routePerfTimed("preview_messages", () =>
+            supabase
+              .from("messages")
+              .select("conversation_id, body, created_at")
+              .in("conversation_id", ids)
+              .is("deleted_at", null)
+              .order("created_at", { ascending: false })
+              .limit(previewRowCap)
+          )
+        : supabase
+            .from("messages")
+            .select("conversation_id, body, created_at")
+            .in("conversation_id", ids)
+            .is("deleted_at", null)
+            .order("created_at", { ascending: false })
+            .limit(previewRowCap),
   ]);
 
   if (process.env.SMS_UNREAD_DEBUG === "1") {
@@ -195,17 +230,10 @@ export default async function AdminSmsInboxPage({ searchParams }: PageProps) {
     labelByUserId[uid] = em || fn || `User ${uid.slice(0, 8)}…`;
   }
 
-  const previewByConvId: Record<string, string> = {};
-  const msgRows = previewQueryRes.data;
-  if (msgRows && msgRows.length > 0) {
-    const seen = new Set<string>();
-    for (const m of msgRows) {
-      const cid = typeof m.conversation_id === "string" ? m.conversation_id : "";
-      if (!cid || seen.has(cid)) continue;
-      seen.add(cid);
-      const body = typeof m.body === "string" ? m.body.trim() : "";
-      previewByConvId[cid] = body.slice(0, 120) + (body.length > 120 ? "…" : "");
-    }
+  const previewByConvId = buildSmsInboxPreviewByConversationId(previewQueryRes.data, 120);
+
+  if (perfStart) {
+    routePerfLog("admin/phone/messages", perfStart);
   }
 
   return (

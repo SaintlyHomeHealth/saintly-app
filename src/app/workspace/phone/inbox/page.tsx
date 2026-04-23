@@ -12,8 +12,17 @@ import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { labelForContactType } from "@/lib/crm/contact-types";
 import { formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
 import { countUnreadInboundByConversationIds } from "@/lib/phone/sms-inbound-unread";
+import {
+  buildSmsInboxPreviewByConversationId,
+  smsInboxPreviewMessageRowCap,
+} from "@/lib/phone/sms-inbox-preview";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
-import { routePerfLog, routePerfStart } from "@/lib/perf/route-perf";
+import {
+  routePerfLog,
+  routePerfStart,
+  routePerfTimed,
+  routePerfStepsEnabled,
+} from "@/lib/perf/route-perf";
 import {
   canAccessWorkspacePhone,
   getStaffProfile,
@@ -118,7 +127,9 @@ export const dynamic = "force-dynamic";
 export default async function WorkspaceInboxPage(props: PageProps) {
   const { searchParams } = props;
   const perfStart = routePerfStart();
-  const staff = await getStaffProfile();
+  const staff = routePerfStepsEnabled()
+    ? await routePerfTimed("staff_profile", getStaffProfile)
+    : await getStaffProfile();
   if (!staff || !canAccessWorkspacePhone(staff)) {
     redirect("/admin/phone");
   }
@@ -145,7 +156,9 @@ export default async function WorkspaceInboxPage(props: PageProps) {
     q = q.or(`assigned_to_user_id.eq.${staff.user_id},assigned_to_user_id.is.null`);
   }
 
-  const { data: convRows, error } = await q;
+  const { data: convRows, error } = routePerfStepsEnabled()
+    ? await routePerfTimed("conversations_list", () => q)
+    : await q;
   if (error && process.env.NODE_ENV === "development") {
     console.warn("[workspace/phone/inbox] list:", error.message);
   }
@@ -161,18 +174,30 @@ export default async function WorkspaceInboxPage(props: PageProps) {
   }
 
   const ids = rows.map((r) => r.id as string);
-  const previewRowCap = ids.length > 0 ? Math.min(500, Math.max(120, ids.length * 8)) : 0;
+  const previewRowCap = smsInboxPreviewMessageRowCap(ids.length);
   const [unreadByConvId, previewQueryRes] = await Promise.all([
-    countUnreadInboundByConversationIds(supabase, ids),
+    routePerfStepsEnabled()
+      ? routePerfTimed("unread_counts", () => countUnreadInboundByConversationIds(supabase, ids))
+      : countUnreadInboundByConversationIds(supabase, ids),
     ids.length === 0
       ? Promise.resolve({ data: null as { conversation_id?: string; body?: string; created_at?: string }[] | null })
-      : supabase
-          .from("messages")
-          .select("conversation_id, body, created_at")
-          .in("conversation_id", ids)
-          .is("deleted_at", null)
-          .order("created_at", { ascending: false })
-          .limit(previewRowCap),
+      : routePerfStepsEnabled()
+        ? routePerfTimed("preview_messages", async () =>
+            supabase
+              .from("messages")
+              .select("conversation_id, body, created_at")
+              .in("conversation_id", ids)
+              .is("deleted_at", null)
+              .order("created_at", { ascending: false })
+              .limit(previewRowCap)
+          )
+        : supabase
+            .from("messages")
+            .select("conversation_id, body, created_at")
+            .in("conversation_id", ids)
+            .is("deleted_at", null)
+            .order("created_at", { ascending: false })
+            .limit(previewRowCap),
   ]);
   if (process.env.SMS_UNREAD_DEBUG === "1") {
     const withUnread = ids.filter((id) => (unreadByConvId[id] ?? 0) > 0);
@@ -182,18 +207,7 @@ export default async function WorkspaceInboxPage(props: PageProps) {
       sampleIdsWithUnread: withUnread.slice(0, 8),
     });
   }
-  const previewByConvId: Record<string, string> = {};
-  const msgRows = previewQueryRes.data;
-  if (msgRows && msgRows.length > 0) {
-    const seen = new Set<string>();
-    for (const m of msgRows) {
-      const cid = typeof m.conversation_id === "string" ? m.conversation_id : "";
-      if (!cid || seen.has(cid)) continue;
-      seen.add(cid);
-      const body = typeof m.body === "string" ? m.body.trim() : "";
-      previewByConvId[cid] = body.slice(0, 100) + (body.length > 100 ? "…" : "");
-    }
-  }
+  const previewByConvId = buildSmsInboxPreviewByConversationId(previewQueryRes.data, 100);
 
   const contactIds = [
     ...new Set(
@@ -210,12 +224,15 @@ export default async function WorkspaceInboxPage(props: PageProps) {
   const patientByContactId = new Map<string, string>();
 
   if (contactIds.length > 0) {
-    const [leadsRes, patientsRes] = await Promise.all([
+    const crmPromise = Promise.all([
       leadRowsActiveOnly(
         supabase.from("leads").select("id, contact_id, status").in("contact_id", contactIds)
       ),
       supabase.from("patients").select("id, contact_id").in("contact_id", contactIds),
     ]);
+    const [leadsRes, patientsRes] = routePerfStepsEnabled()
+      ? await routePerfTimed("leads_patients", () => crmPromise)
+      : await crmPromise;
     if (leadsRes.error && process.env.NODE_ENV === "development") {
       console.warn("[workspace/phone/inbox] leads lookup:", leadsRes.error.message);
     }

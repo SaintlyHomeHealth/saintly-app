@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase/client";
 
@@ -72,7 +72,7 @@ function getStatusFromEvents(events: ComplianceEvent[]) {
   return "GOOD";
 }
 
-function StatusPill({ status }: { status: string }) {
+const StatusPill = memo(function StatusPill({ status }: { status: string }) {
   if (status === "OVERDUE") {
     return (
       <span className="inline-flex rounded-full bg-red-100 px-3 py-1 text-xs font-bold text-red-700">
@@ -94,7 +94,82 @@ function StatusPill({ status }: { status: string }) {
       GOOD
     </span>
   );
-}
+});
+
+const OnboardingApplicantTableRow = memo(function OnboardingApplicantTableRow({ row }: { row: DashboardRow }) {
+  const applicantName =
+    `${row.applicant.first_name || ""} ${row.applicant.last_name || ""}`.trim() || "Unnamed Applicant";
+  const status = getStatusFromEvents(row.events);
+
+  return (
+    <tr className="border-t border-slate-200 align-top hover:bg-slate-50">
+      <td className="px-6 py-5 font-semibold text-slate-900">
+        <Link
+          href={`/admin/onboarding/${row.applicant.id}`}
+          className="transition hover:text-sky-700 hover:underline"
+        >
+          {applicantName}
+        </Link>
+      </td>
+
+      <td className="px-6 py-5 text-slate-700">{row.applicant.email || "—"}</td>
+
+      <td className="px-6 py-5 text-slate-700">{row.applicant.position || "—"}</td>
+
+      <td className="px-6 py-5">
+        <StatusPill status={status} />
+      </td>
+
+      <td className="px-6 py-5">
+        {row.events.length === 0 ? (
+          <span className="text-slate-500">0 items</span>
+        ) : (
+          <div className="space-y-2">
+            {row.events.slice(0, 3).map((event) => (
+              <div key={event.id} className="rounded-lg bg-slate-100 px-3 py-2 text-xs text-slate-700">
+                <div className="font-semibold text-slate-800">{event.event_title}</div>
+                <div className="mt-1">Due: {formatDate(event.due_date)}</div>
+                <div className="mt-1">Status: {event.status}</div>
+              </div>
+            ))}
+
+            {row.events.length > 3 && (
+              <div className="text-xs font-medium text-slate-500">+{row.events.length - 3} more</div>
+            )}
+          </div>
+        )}
+      </td>
+    </tr>
+  );
+});
+
+const SummaryCard = memo(function SummaryCard({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone: "slate" | "green" | "yellow" | "red";
+}) {
+  const toneClasses =
+    tone === "green"
+      ? "border-green-200 bg-green-50 text-green-700"
+      : tone === "yellow"
+        ? "border-yellow-200 bg-yellow-50 text-yellow-700"
+        : tone === "red"
+          ? "border-red-200 bg-red-50 text-red-700"
+          : "border-slate-200 bg-white text-slate-700";
+
+  return (
+    <div className={`rounded-2xl border p-5 shadow-sm ${toneClasses}`}>
+      <div className="text-sm font-semibold uppercase tracking-wide opacity-80">
+        {label}
+      </div>
+      <div className="mt-3 text-3xl font-bold">{value}</div>
+    </div>
+  );
+});
 
 export default function AdminOnboardingDashboard() {
   const [rows, setRows] = useState<DashboardRow[]>([]);
@@ -237,72 +312,9 @@ export default function AdminOnboardingDashboard() {
                 </thead>
 
                 <tbody>
-                  {rows.map((row) => {
-                    const applicantName =
-                      `${row.applicant.first_name || ""} ${row.applicant.last_name || ""}`.trim() ||
-                      "Unnamed Applicant";
-
-                    const status = getStatusFromEvents(row.events);
-
-                    return (
-                      <tr
-                        key={row.applicant.id}
-                        className="border-t border-slate-200 align-top hover:bg-slate-50"
-                      >
-                        <td className="px-6 py-5 font-semibold text-slate-900">
-                          <Link
-                            href={`/admin/onboarding/${row.applicant.id}`}
-                            className="transition hover:text-sky-700 hover:underline"
-                          >
-                            {applicantName}
-                          </Link>
-                        </td>
-
-                        <td className="px-6 py-5 text-slate-700">
-                          {row.applicant.email || "—"}
-                        </td>
-
-                        <td className="px-6 py-5 text-slate-700">
-                          {row.applicant.position || "—"}
-                        </td>
-
-                        <td className="px-6 py-5">
-                          <StatusPill status={status} />
-                        </td>
-
-                        <td className="px-6 py-5">
-                          {row.events.length === 0 ? (
-                            <span className="text-slate-500">0 items</span>
-                          ) : (
-                            <div className="space-y-2">
-                              {row.events.slice(0, 3).map((event) => (
-                                <div
-                                  key={event.id}
-                                  className="rounded-lg bg-slate-100 px-3 py-2 text-xs text-slate-700"
-                                >
-                                  <div className="font-semibold text-slate-800">
-                                    {event.event_title}
-                                  </div>
-                                  <div className="mt-1">
-                                    Due: {formatDate(event.due_date)}
-                                  </div>
-                                  <div className="mt-1">
-                                    Status: {event.status}
-                                  </div>
-                                </div>
-                              ))}
-
-                              {row.events.length > 3 && (
-                                <div className="text-xs font-medium text-slate-500">
-                                  +{row.events.length - 3} more
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
+                  {rows.map((row) => (
+                    <OnboardingApplicantTableRow key={row.applicant.id} row={row} />
+                  ))}
 
                   {rows.length === 0 && (
                     <tr>
@@ -321,33 +333,5 @@ export default function AdminOnboardingDashboard() {
         )}
       </div>
     </main>
-  );
-}
-
-function SummaryCard({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: number;
-  tone: "slate" | "green" | "yellow" | "red";
-}) {
-  const toneClasses =
-    tone === "green"
-      ? "border-green-200 bg-green-50 text-green-700"
-      : tone === "yellow"
-      ? "border-yellow-200 bg-yellow-50 text-yellow-700"
-      : tone === "red"
-      ? "border-red-200 bg-red-50 text-red-700"
-      : "border-slate-200 bg-white text-slate-700";
-
-  return (
-    <div className={`rounded-2xl border p-5 shadow-sm ${toneClasses}`}>
-      <div className="text-sm font-semibold uppercase tracking-wide opacity-80">
-        {label}
-      </div>
-      <div className="mt-3 text-3xl font-bold">{value}</div>
-    </div>
   );
 }

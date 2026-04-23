@@ -1,4 +1,5 @@
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import type { ReactNode } from "react";
 
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
@@ -16,11 +17,28 @@ import {
   DashboardPushActionCard,
   DashboardPushLink,
 } from "@/app/admin/dashboard-push-nav";
-import { ProcessNoopBatchButton } from "@/app/admin/process-noop-batch-button";
+const ProcessNoopBatchButton = dynamic(
+  () =>
+    import("@/app/admin/process-noop-batch-button").then((m) => m.ProcessNoopBatchButton),
+  {
+    ssr: true,
+    loading: () => (
+      <span
+        className="inline-block min-h-[2.25rem] min-w-[10rem] rounded-full bg-slate-100/90"
+        aria-hidden
+      />
+    ),
+  }
+);
 import { applicantRolePrimaryForCompliance } from "@/lib/applicant-role-for-compliance";
 import { getCrmCalendarTodayIso } from "@/lib/crm/crm-local-date";
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
-import { routePerfLog, routePerfStart } from "@/lib/perf/route-perf";
+import {
+  routePerfLog,
+  routePerfStart,
+  routePerfStepsEnabled,
+  routePerfTimed,
+} from "@/lib/perf/route-perf";
 
 type ApplicantRow = {
   id: string;
@@ -453,7 +471,10 @@ export default async function AdminDashboardPage({
     nq?: string;
   }>;
 }) {
-  const staffProfile = await getStaffProfile();
+  const perfPageStart = routePerfStart();
+  const staffProfile = routePerfStepsEnabled()
+    ? await routePerfTimed("staff_profile", getStaffProfile)
+    : await getStaffProfile();
 
   const resolvedSearchParams = searchParams ? await searchParams : undefined;
   const notificationQueueFilter =
@@ -491,10 +512,12 @@ export default async function AdminDashboardPage({
   const pipelineFilter =
     resolvedSearchParams?.pipeline === "ready" ? resolvedSearchParams.pipeline : null;
 
-  const { data: applicantsRaw, error: applicantsError } = await supabase
-    .from("applicants")
-    .select("*")
-    .limit(50);
+  const applicantsRes = routePerfStepsEnabled()
+    ? await routePerfTimed("applicants_list", () =>
+        supabase.from("applicants").select("*").limit(50)
+      )
+    : await supabase.from("applicants").select("*").limit(50);
+  const { data: applicantsRaw, error: applicantsError } = applicantsRes;
 
   if (applicantsError) {
     console.error("Applicants query error:", applicantsError);
@@ -518,22 +541,11 @@ export default async function AdminDashboardPage({
 
   if (applicantIds.length > 0) {
     const batchPerf = routePerfStart();
-    const supabaseAuthed = await createServerSupabaseClient();
+    const supabaseAuthed = routePerfStepsEnabled()
+      ? await routePerfTimed("server_supabase_client", createServerSupabaseClient)
+      : await createServerSupabaseClient();
 
-    const [
-      { data: eventsRaw },
-      { data: formsRaw },
-      { data: credentialsRaw },
-      { data: contractsRaw },
-      { data: onboardingStatusesRaw },
-      { data: onboardingContractStatusesRaw },
-      { data: employeeTaxFormsRaw },
-      { data: applicantFilesRaw },
-      { data: documentsRaw },
-      { data: onboardingTrainingCompletionsRaw },
-      { data: trainingProgressRaw },
-      { data: annualEventsRaw },
-    ] = await Promise.all([
+    const batchPromise = Promise.all([
       supabase
         .from("admin_compliance_events")
         .select("id, applicant_id, event_type, event_title, due_date, status, completed_at")
@@ -595,6 +607,23 @@ export default async function AdminDashboardPage({
         )
         .order("due_date", { ascending: true }),
     ]);
+
+    const [
+      { data: eventsRaw },
+      { data: formsRaw },
+      { data: credentialsRaw },
+      { data: contractsRaw },
+      { data: onboardingStatusesRaw },
+      { data: onboardingContractStatusesRaw },
+      { data: employeeTaxFormsRaw },
+      { data: applicantFilesRaw },
+      { data: documentsRaw },
+      { data: onboardingTrainingCompletionsRaw },
+      { data: trainingProgressRaw },
+      { data: annualEventsRaw },
+    ] = routePerfStepsEnabled()
+      ? await routePerfTimed("applicant_batch_parallel", () => batchPromise)
+      : await batchPromise;
 
     complianceEvents = (eventsRaw || []) as ComplianceEvent[];
     adminForms = (formsRaw || []) as AdminForm[];
@@ -1588,6 +1617,10 @@ export default async function AdminDashboardPage({
   const phoneDashboardHref = staffProfile?.role === "nurse" ? "/workspace/phone/visits" : "/admin/phone";
   const crmPatientsHref =
     staffProfile?.role === "nurse" ? "/workspace/phone/patients" : "/admin/crm/patients";
+
+  if (perfPageStart) {
+    routePerfLog("admin/page", perfPageStart);
+  }
 
   return (
     <div className="space-y-6 p-6">
