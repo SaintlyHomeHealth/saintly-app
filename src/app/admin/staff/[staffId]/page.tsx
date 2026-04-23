@@ -68,7 +68,7 @@ function flashDetailErr(code: string | undefined): string | null {
     duplicate_email: "Another staff row already uses that work email.",
     auth_email: "Supabase Auth rejected the email change (duplicate login email or policy).",
     self_remove: "You cannot remove or permanently delete your own staff row here.",
-    permanent_forbidden: "Only a super admin can permanently delete a staff row that has a login.",
+    permanent_forbidden: "This action could not be completed.",
     permanent_payroll_blocked: "Cannot delete. This staff is linked to payroll. Deactivate instead.",
     permanent_confirm: "Confirmation did not match. Type DELETE or the exact work email from this row.",
     permanent_staff_row: "The staff row could not be removed after Auth was deleted. See details below.",
@@ -287,7 +287,7 @@ export default async function StaffAccessDetailPage({
 
   const errMsg = flashDetailErr(errCode);
   const okMsg = flashDetailOk(okCode);
-  const showPermanentDelete = profile.id !== viewer.id && (!hasLogin || canAssignSuperAdmin);
+  const showPermanentDelete = profile.id !== viewer.id;
   const showIdentityRoleField = profile.role !== "super_admin" || canAssignSuperAdmin;
 
   return (

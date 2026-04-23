@@ -82,7 +82,7 @@ function flashForErr(code: string | undefined): string | null {
     duplicate_email: "Another staff row already uses that work email.",
     auth_email: "Supabase Auth rejected the email change (duplicate login email or policy).",
     self_remove: "You cannot remove or deactivate your own staff row here.",
-    permanent_forbidden: "Only a super admin can permanently delete a staff row that has a login.",
+    permanent_forbidden: "This action could not be completed.",
     permanent_payroll_blocked:
       "Cannot delete. This staff is linked to payroll. Deactivate instead.",
     permanent_confirm: "Confirmation did not match. Type DELETE or the exact work email from this row.",

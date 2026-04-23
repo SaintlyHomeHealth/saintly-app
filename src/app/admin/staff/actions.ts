@@ -710,8 +710,6 @@ export type StaffListPermanentDeleteResult =
       errCode:
         | "payroll"
         | "self"
-        | "forbidden"
-        | "last_super"
         | "auth"
         | "load"
         | "constraint"
@@ -853,29 +851,6 @@ export async function staffListPermanentDeleteAction(staffProfileId: string): Pr
     return { ok: true, resultKind: "placeholder" };
   }
 
-  if (!isSuperAdmin(actor)) {
-    return {
-      ok: false,
-      error: "Only a super admin can permanently delete a staff row that has a login.",
-      errCode: "forbidden",
-    };
-  }
-
-  if (target.role === "super_admin") {
-    const { count, error: cErr } = await supabaseAdmin
-      .from("staff_profiles")
-      .select("id", { count: "exact", head: true })
-      .eq("role", "super_admin")
-      .eq("is_active", true);
-
-    if (cErr) {
-      return { ok: false, error: "Delete failed.", errCode: "other" };
-    }
-    if ((count ?? 0) <= 1) {
-      return { ok: false, error: "Keep at least one active super admin.", errCode: "last_super" };
-    }
-  }
-
   await supabaseAdmin.from("inbound_ring_group_memberships").delete().eq("user_id", userId);
 
   const { error: unlinkErr } = await supabaseAdmin
@@ -964,12 +939,6 @@ export async function permanentlyDeleteStaffUserForm(formData: FormData) {
     }
     if (r.errCode === "self") {
       redirect(`/admin/staff/${id}?err=self_remove`);
-    }
-    if (r.errCode === "forbidden") {
-      redirect(`/admin/staff/${id}?err=permanent_forbidden`);
-    }
-    if (r.errCode === "last_super") {
-      redirect(`/admin/staff/${id}?err=last_super`);
     }
     if (r.errCode === "load") {
       redirect(`/admin/staff/${id}?err=load`);
