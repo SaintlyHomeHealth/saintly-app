@@ -162,6 +162,8 @@ export default async function AdminStaffPage({
   const okMsg = flashForOk(okCode);
 
   const canAssignSuperAdmin = isSuperAdmin(viewer);
+  const viewerIsSuperAdmin = canAssignSuperAdmin;
+  const viewerStaffProfileId = viewer.id;
 
   return (
     <div className="space-y-6 bg-gradient-to-b from-slate-50/60 via-white to-slate-50/40 p-6">
@@ -364,7 +366,10 @@ export default async function AdminStaffPage({
                           <StaffDirectoryRowActions
                             staffProfileId={row.id}
                             hasLogin={hasLogin}
-                            label={name}
+                            isActive={row.is_active}
+                            applicantId={row.applicant_id}
+                            viewerStaffProfileId={viewerStaffProfileId}
+                            viewerIsSuperAdmin={viewerIsSuperAdmin}
                             initialFullName={(row.full_name ?? "").trim()}
                             initialEmail={(row.email ?? "").trim()}
                             initialSmsNotifyPhone={row.sms_notify_phone}

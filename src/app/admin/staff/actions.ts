@@ -823,6 +823,208 @@ export async function permanentlyDeleteStaffUser(formData: FormData) {
   redirect("/admin/staff?ok=permanent_deleted");
 }
 
+export type StaffListMutationResult = { ok: true } | { ok: false; error: string };
+
+/**
+ * Deactivate a staff row (login kept, access removed). Same server rules as `removeStaffRecord` for users with
+ * `user_id` — for the /admin/staff list overflow; returns JSON instead of redirecting.
+ */
+export async function staffListDeactivateAction(staffProfileId: string): Promise<StaffListMutationResult> {
+  const actor = await getStaffProfile();
+  if (!actor || !isAdminOrHigher(actor)) {
+    return { ok: false, error: "Not authorized." };
+  }
+
+  const id = String(staffProfileId ?? "").trim();
+  if (!id || !isUuid(id)) {
+    return { ok: false, error: "Invalid request." };
+  }
+
+  const { data: target, error: loadErr } = await supabaseAdmin
+    .from("staff_profiles")
+    .select("id, user_id, role, is_active")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (loadErr || !target) {
+    return { ok: false, error: "Could not load that staff record." };
+  }
+
+  if (target.user_id === actor.user_id) {
+    return { ok: false, error: "You cannot deactivate your own staff row here." };
+  }
+
+  const userId = typeof target.user_id === "string" ? target.user_id : null;
+  if (!userId) {
+    return { ok: false, error: "This row has no login. Use Delete permanently to remove a placeholder, or open the profile." };
+  }
+  if (target.is_active === false) {
+    return { ok: true };
+  }
+  if (target.role === "super_admin") {
+    const { count, error: cErr } = await supabaseAdmin
+      .from("staff_profiles")
+      .select("id", { count: "exact", head: true })
+      .eq("role", "super_admin")
+      .eq("is_active", true);
+
+    if (cErr) {
+      return { ok: false, error: "Update failed." };
+    }
+    if ((count ?? 0) <= 1) {
+      return { ok: false, error: "Keep at least one active super admin." };
+    }
+  }
+
+  const { error } = await supabaseAdmin
+    .from("staff_profiles")
+    .update({ is_active: false, updated_at: new Date().toISOString() })
+    .eq("id", id);
+
+  if (error) {
+    console.warn("[staff] staffListDeactivateAction:", error.message);
+    return { ok: false, error: "Update failed." };
+  }
+
+  await insertAuditLog({
+    action: "staff.remove_deactivated",
+    entityType: "staff_profiles",
+    entityId: id,
+    metadata: { had_login: true, source: "staff_list" },
+  });
+
+  revalidatePath("/admin/staff");
+  return { ok: true };
+}
+
+/**
+ * Permanent delete from list — no typed phrase. Same safety checks as `permanentlyDeleteStaffUser` except
+ * the confirmation string (modal replace).
+ */
+export async function staffListPermanentDeleteAction(staffProfileId: string): Promise<StaffListMutationResult> {
+  const actor = await getStaffProfile();
+  if (!actor || !isAdminOrHigher(actor)) {
+    return { ok: false, error: "Not authorized." };
+  }
+
+  const id = String(staffProfileId ?? "").trim();
+  if (!id || !isUuid(id)) {
+    return { ok: false, error: "Invalid request." };
+  }
+
+  const { data: target, error: loadErr } = await supabaseAdmin
+    .from("staff_profiles")
+    .select("id, user_id, role, applicant_id, email")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (loadErr || !target) {
+    return { ok: false, error: "Could not load that staff record." };
+  }
+
+  if (target.applicant_id) {
+    return {
+      ok: false,
+      error: "Can't delete permanently because this staff record is linked to payroll or other records. Deactivate instead.",
+    };
+  }
+
+  if (target.user_id === actor.user_id) {
+    return { ok: false, error: "You can't delete your own staff row." };
+  }
+
+  const userId = typeof target.user_id === "string" ? target.user_id : null;
+
+  if (!userId) {
+    const { error: delErr } = await supabaseAdmin.from("staff_profiles").delete().eq("id", id);
+    if (delErr) {
+      const msg = delErr.message || "";
+      console.warn("[staff] staffListPermanentDeleteAction placeholder:", msg);
+      if (/foreign key|constraint|violat/i.test(msg)) {
+        return {
+          ok: false,
+          error:
+            "Can't delete permanently because this staff record is still linked elsewhere. Deactivate or clear related links first.",
+        };
+      }
+      return { ok: false, error: "Delete failed." };
+    }
+    await insertAuditLog({
+      action: "staff.permanent_delete_placeholder",
+      entityType: "staff_profiles",
+      entityId: id,
+      metadata: { source: "staff_list" },
+    });
+    revalidatePath("/admin/staff");
+    return { ok: true };
+  }
+
+  if (!isSuperAdmin(actor)) {
+    return { ok: false, error: "Only a super admin can permanently delete a staff row that has a login." };
+  }
+
+  if (target.role === "super_admin") {
+    const { count, error: cErr } = await supabaseAdmin
+      .from("staff_profiles")
+      .select("id", { count: "exact", head: true })
+      .eq("role", "super_admin")
+      .eq("is_active", true);
+
+    if (cErr) {
+      return { ok: false, error: "Delete failed." };
+    }
+    if ((count ?? 0) <= 1) {
+      return { ok: false, error: "Keep at least one active super admin." };
+    }
+  }
+
+  await supabaseAdmin.from("inbound_ring_group_memberships").delete().eq("user_id", userId);
+
+  const { error: unlinkErr } = await supabaseAdmin
+    .from("staff_profiles")
+    .update({ user_id: null, updated_at: new Date().toISOString() })
+    .eq("id", id);
+
+  if (unlinkErr) {
+    console.warn("[staff] staffListPermanentDeleteAction unlink user_id:", unlinkErr.message);
+    return { ok: false, error: "Delete failed (could not prepare login removal)." };
+  }
+
+  const { error: authErr } = await supabaseAdmin.auth.admin.deleteUser(userId);
+  if (authErr) {
+    console.error("[staff] staffListPermanentDeleteAction auth delete", authErr.message);
+    await supabaseAdmin
+      .from("staff_profiles")
+      .update({ user_id: userId, updated_at: new Date().toISOString() })
+      .eq("id", id);
+    return { ok: false, error: "Supabase could not delete the login. Open the staff profile to retry or see details." };
+  }
+
+  const { error: delStaffErr } = await supabaseAdmin.from("staff_profiles").delete().eq("id", id);
+  if (delStaffErr) {
+    const msg = delStaffErr.message || "";
+    console.error("[staff] staffListPermanentDeleteAction staff row:", msg);
+    if (/foreign key|constraint|violat/i.test(msg)) {
+      return {
+        ok: false,
+        error:
+          "Can't delete permanently because this staff record is still linked in the database. Deactivate or clear related links and try again.",
+      };
+    }
+    return { ok: false, error: "The staff row could not be removed after the login was deleted. Open the profile for details." };
+  }
+
+  await insertAuditLog({
+    action: "staff.permanent_delete",
+    entityType: "staff_profiles",
+    entityId: id,
+    metadata: { auth_user_id: userId, source: "staff_list" },
+  });
+
+  revalidatePath("/admin/staff");
+  return { ok: true };
+}
+
 function revalidateStaffViews(staffProfileId: string) {
   revalidatePath("/admin/staff");
   revalidatePath(`/admin/staff/${staffProfileId}`);
