@@ -16,7 +16,9 @@ export const CONTACT_DIRECTORY_TYPE_FILTERS: { value: ContactDirectoryTypeFilter
   { value: "referral", label: "Referral" },
   { value: "physician", label: "Physician" },
   { value: "facility", label: "Facility" },
+  { value: "facility_vendor", label: "Facility / Vendor" },
   { value: "payer", label: "Payer" },
+  { value: "employee", label: "Employee" },
   { value: "other", label: "Other" },
 ];
 

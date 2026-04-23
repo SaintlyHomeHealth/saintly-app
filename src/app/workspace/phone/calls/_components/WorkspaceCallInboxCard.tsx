@@ -1,7 +1,10 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
-import { MessageSquare, Phone } from "lucide-react";
+import { MessageSquare, Phone, UserPlus } from "lucide-react";
+
+import { QuickSaveContactSheet } from "@/components/workspace-phone/QuickSaveContactSheet";
 
 import { WorkspaceMarkMissedResolvedButton } from "./WorkspaceMarkMissedResolvedButton";
 import { formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
@@ -75,6 +78,9 @@ type Props = {
 };
 
 export function WorkspaceCallInboxCard({ row, variant }: Props) {
+  const [saveOpen, setSaveOpen] = useState(false);
+  const [saveE164, setSaveE164] = useState("");
+  const [saveResetKey, setSaveResetKey] = useState(0);
   const label = crmDisplayNameFromContactsRaw(row.contacts);
   const activityIsoForDisplay =
     variant === "recent"
@@ -115,6 +121,15 @@ export function WorkspaceCallInboxCard({ row, variant }: Props) {
     }).catch(() => {});
   };
 
+  const openQuickSave = () => {
+    if (e164) {
+      setSaveE164(e164);
+      setSaveResetKey((k) => k + 1);
+      setSaveOpen(true);
+    }
+  };
+  const canQuickSave = Boolean(e164) && !cid;
+
   const nameClass = missed
     ? "truncate text-[15px] font-semibold text-rose-700"
     : "truncate text-[15px] font-semibold text-phone-navy";
@@ -123,6 +138,8 @@ export function WorkspaceCallInboxCard({ row, variant }: Props) {
     "inline-flex h-10 min-w-[2.75rem] flex-1 items-center justify-center gap-1.5 rounded-full bg-gradient-to-r from-blue-950 via-blue-700 to-sky-500 px-3 text-xs font-bold text-white shadow-md shadow-blue-900/20 transition hover:brightness-105 active:scale-[0.97] sm:flex-initial sm:px-4";
   const textBtnCls =
     "inline-flex h-10 min-w-[2.75rem] flex-1 items-center justify-center gap-1.5 rounded-full border border-sky-200/90 bg-white px-3 text-xs font-semibold text-sky-950 shadow-sm transition hover:bg-sky-50 active:scale-[0.97] sm:flex-initial sm:px-4";
+  const saveBtnCls =
+    "inline-flex h-10 min-w-[2.5rem] shrink-0 items-center justify-center gap-1 rounded-full border border-slate-200/90 bg-white px-2.5 text-[11px] font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50 active:scale-[0.97]";
 
   return (
     <li className="border-b border-slate-200/80 last:border-b-0">
@@ -144,8 +161,20 @@ export function WorkspaceCallInboxCard({ row, variant }: Props) {
             <p className="text-[11px] font-medium text-slate-400">{when}</p>
           </div>
         </div>
-        <div className="flex max-w-[11rem] shrink-0 flex-col items-stretch justify-center gap-1.5 sm:max-w-none sm:flex-row sm:items-center sm:gap-2">
+        <div className="flex max-w-[14rem] shrink-0 flex-col items-stretch justify-center gap-1.5 sm:max-w-none sm:flex-row sm:items-center sm:gap-2">
           {missed ? <WorkspaceMarkMissedResolvedButton callId={row.id} variant="compact" /> : null}
+          {canQuickSave ? (
+            <button
+              type="button"
+              onClick={openQuickSave}
+              title="Save contact"
+              aria-label={`Save contact ${numberDisplay}`}
+              className={saveBtnCls}
+            >
+              <UserPlus className="h-3.5 w-3.5 shrink-0" strokeWidth={2.25} aria-hidden />
+              <span className="hidden min-[360px]:inline">Save</span>
+            </button>
+          ) : null}
           {callHref ? (
             <Link
               href={callHref}
@@ -173,6 +202,15 @@ export function WorkspaceCallInboxCard({ row, variant }: Props) {
           ) : null}
         </div>
       </div>
+      {canQuickSave && saveOpen ? (
+        <QuickSaveContactSheet
+          open={saveOpen}
+          onOpenChange={setSaveOpen}
+          initialE164={saveE164}
+          phoneCallId={pid}
+          resetKey={saveResetKey}
+        />
+      ) : null}
     </li>
   );
 }

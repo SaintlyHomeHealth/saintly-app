@@ -10,7 +10,9 @@ export const CRM_CONTACT_TYPE_VALUES = [
   "referral",
   "physician",
   "facility",
+  "facility_vendor",
   "payer",
+  "employee",
   "other",
 ] as const;
 
@@ -23,7 +25,9 @@ export const CRM_CONTACT_TYPE_LABELS: Record<CrmContactTypeValue, string> = {
   referral: "Referral",
   physician: "Physician",
   facility: "Facility",
+  facility_vendor: "Facility / Vendor",
   payer: "Payer",
+  employee: "Employee",
   other: "Contact",
 };
 
@@ -38,6 +42,7 @@ export function normalizeCrmContactType(raw: string | null | undefined): CrmCont
   if (t === "payor") return "payer";
   /** UI label "Contact" maps to canonical slug `other`. */
   if (t === "contact") return "other";
+  if (t === "vendor" || t === "facility/vendor" || t === "facility_vendor") return "facility_vendor";
   if (isCrmContactTypeValue(t)) return t;
   return null;
 }

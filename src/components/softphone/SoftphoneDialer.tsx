@@ -13,6 +13,7 @@ import { isValidE164, normalizeDialInputToE164 } from "@/lib/softphone/phone-num
 import { isPlausiblePstnCallerRawForSubline } from "@/lib/softphone/twilio-incoming-caller-display";
 import { openSoftphoneAppSettings } from "@/lib/softphone/open-app-settings";
 import { isReactNativeWebViewShell } from "@/lib/softphone/native-speaker-bridge";
+import { QuickSaveContactSheet } from "@/components/workspace-phone/QuickSaveContactSheet";
 
 /** After initial delete, wait this long before rapid repeat (keypad backspace hold). */
 const KEYPAD_BACKSPACE_REPEAT_DELAY_MS = 420;
@@ -193,6 +194,10 @@ export function SoftphoneDialer({
   const [callerPickerOpen, setCallerPickerOpen] = useState(false);
   /** Keypad variant: inline expandable list (no full-screen modal). */
   const [callAsKeypadExpanded, setCallAsKeypadExpanded] = useState(false);
+  const [keypadSaveSheetOpen, setKeypadSaveSheetOpen] = useState(false);
+  const [keypadSaveE164, setKeypadSaveE164] = useState("");
+  const [keypadShowSaveCta, setKeypadShowSaveCta] = useState(false);
+  const [keypadSaveResetKey, setKeypadSaveResetKey] = useState(0);
   const outboundLines = softphoneCapabilities?.outbound_lines ?? [];
   const callAs = useMemo(
     () => buildCallAsSummary({ cap: softphoneCapabilities, sel: outboundCliSelection }),
@@ -229,6 +234,41 @@ export function SoftphoneDialer({
     window.addEventListener("blur", onWinBlur);
     return () => window.removeEventListener("blur", onWinBlur);
   }, [clearBackspaceRepeat]);
+
+  useEffect(() => {
+    if (variant !== "keypad") {
+      setKeypadShowSaveCta(false);
+      return;
+    }
+    if ((busy && status !== "in_call") || incoming) {
+      setKeypadShowSaveCta(false);
+      return;
+    }
+    const raw = digits.trim();
+    if (!raw) {
+      setKeypadShowSaveCta(false);
+      setKeypadSaveE164("");
+      return;
+    }
+    const handle = window.setTimeout(() => {
+      const e164 = isValidE164(raw) ? raw : normalizeDialInputToE164(raw);
+      if (!e164 || !isValidE164(e164)) {
+        setKeypadShowSaveCta(false);
+        setKeypadSaveE164("");
+        return;
+      }
+      setKeypadSaveE164(e164);
+      void fetch(`/api/workspace/phone/contact-by-phone?phone=${encodeURIComponent(e164)}`, { credentials: "include" })
+        .then((r) => r.json() as Promise<{ match?: unknown }>)
+        .then((j) => {
+          setKeypadShowSaveCta(!j?.match);
+        })
+        .catch(() => {
+          setKeypadShowSaveCta(false);
+        });
+    }, 400);
+    return () => window.clearTimeout(handle);
+  }, [variant, digits, busy, status, incoming]);
 
   const defaultPanel = (
     <>
@@ -636,6 +676,25 @@ export function SoftphoneDialer({
               ) : null}
             </div>
           </div>
+          {keypadShowSaveCta && status === "idle" && !incoming ? (
+            <div className="mt-3 w-full px-0">
+              <button
+                type="button"
+                onClick={() => {
+                  const raw = digits.trim();
+                  const e164 = isValidE164(raw) ? raw : normalizeDialInputToE164(raw);
+                  if (e164 && isValidE164(e164)) {
+                    setKeypadSaveE164(e164);
+                  }
+                  setKeypadSaveResetKey((k) => k + 1);
+                  setKeypadSaveSheetOpen(true);
+                }}
+                className="w-full touch-manipulation rounded-2xl border border-slate-200/90 bg-white py-2.5 text-sm font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50 active:scale-[0.99]"
+              >
+                Save contact
+              </button>
+            </div>
+          ) : null}
           {status === "in_call" ? (
             <div className="mt-4 w-full max-w-full sm:max-w-[520px] lg:mt-3">
             <div className="flex w-full flex-col gap-3">
@@ -1029,6 +1088,14 @@ export function SoftphoneDialer({
             </div>
           </div>
         </div>
+      ) : null}
+      {variant === "keypad" ? (
+        <QuickSaveContactSheet
+          open={keypadSaveSheetOpen}
+          onOpenChange={setKeypadSaveSheetOpen}
+          initialE164={keypadSaveE164}
+          resetKey={keypadSaveResetKey}
+        />
       ) : null}
     </section>
   );
