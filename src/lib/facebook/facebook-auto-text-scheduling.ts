@@ -1,5 +1,5 @@
 /**
- * Business hours + duplicate detection for Facebook automated intro SMS (America/Phoenix).
+ * Duplicate detection helpers for Facebook automated intro SMS.
  */
 import "server-only";
 
@@ -8,66 +8,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { phoneLookupCandidates } from "@/lib/crm/phone-lookup-candidates";
 import { isValidE164, normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
 
-export const FACEBOOK_AUTO_TEXT_TIMEZONE = "America/Phoenix";
-
-/** Inclusive 8:00, exclusive 7:00 PM (19:00) local Phoenix time. */
-const OPEN_MINUTES = 8 * 60;
-const CLOSE_MINUTES = 19 * 60;
-
 type GraphFieldDatum = { name?: string; values?: string[] };
-
-/** Phoenix has no DST — wall time maps to UTC via a fixed +7h offset from local civil time to UTC. */
-function phoenixWallTimeToUtcDate(y: number, mo: number, d: number, hour: number, minute: number): Date {
-  return new Date(Date.UTC(y, mo - 1, d, hour + 7, minute, 0, 0));
-}
-
-function addOnePhoenixCalendarDay(y: number, mo: number, d: number): { y: number; mo: number; d: number } {
-  const anchor = phoenixWallTimeToUtcDate(y, mo, d, 12, 0);
-  const next = new Date(anchor.getTime() + 24 * 60 * 60 * 1000);
-  return getPhoenixYmdHms(next);
-}
-
-export function getPhoenixYmdHms(d: Date): { y: number; mo: number; d: number; h: number; mi: number } {
-  const fmt = new Intl.DateTimeFormat("en-CA", {
-    timeZone: FACEBOOK_AUTO_TEXT_TIMEZONE,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
-  const parts = fmt.formatToParts(d);
-  const pick = (t: Intl.DateTimeFormatPartTypes) =>
-    parseInt(parts.find((x) => x.type === t)?.value ?? "0", 10);
-  return {
-    y: pick("year"),
-    mo: pick("month"),
-    d: pick("day"),
-    h: pick("hour"),
-    mi: pick("minute"),
-  };
-}
-
-export function isWithinFacebookAutoTextBusinessHours(now: Date = new Date()): boolean {
-  const { h, mi } = getPhoenixYmdHms(now);
-  const mins = h * 60 + mi;
-  return mins >= OPEN_MINUTES && mins < CLOSE_MINUTES;
-}
-
-/**
- * Next 8:00 AM America/Phoenix for queued sends: today if before 8:00 local, otherwise tomorrow.
- * (Call only when outside the send window; if called during 8–7, returns tomorrow 8:00 as a safe fallback.)
- */
-export function nextFacebookAutoTextOpenUtc(from: Date = new Date()): Date {
-  const { y, mo, d, h, mi } = getPhoenixYmdHms(from);
-  const mins = h * 60 + mi;
-  if (mins < OPEN_MINUTES) {
-    return phoenixWallTimeToUtcDate(y, mo, d, 8, 0);
-  }
-  const next = addOnePhoenixCalendarDay(y, mo, d);
-  return phoenixWallTimeToUtcDate(next.y, next.mo, next.d, 8, 0);
-}
 
 export function fieldMapFromLeadMetadataGraphFieldData(meta: unknown): Map<string, string> {
   const m = new Map<string, string>();

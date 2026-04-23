@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import { normalizeStaffLookupEmail } from "@/lib/admin/staff-auth-shared";
 import { supabaseAdmin } from "@/lib/admin";
 import {
   getStaffProfile,
@@ -34,48 +33,6 @@ type StaffRow = {
   shared_line_e164: string | null;
   phone_calling_profile: string | null;
 };
-
-type StaffAuthDiagnostics = {
-  authUserExists: boolean;
-  emailConfirmed: boolean;
-  staffLinkOk: boolean;
-};
-
-async function loadStaffAuthDiagnostics(rows: StaffRow[]): Promise<Map<string, StaffAuthDiagnostics>> {
-  const map = new Map<string, StaffAuthDiagnostics>();
-  await Promise.all(
-    rows.map(async (row) => {
-      if (!row.user_id) {
-        map.set(row.id, {
-          authUserExists: false,
-          emailConfirmed: false,
-          staffLinkOk: false,
-        });
-        return;
-      }
-      const { data, error } = await supabaseAdmin.auth.admin.getUserById(row.user_id);
-      if (error || !data?.user) {
-        map.set(row.id, {
-          authUserExists: false,
-          emailConfirmed: false,
-          staffLinkOk: false,
-        });
-        return;
-      }
-      const u = data.user;
-      const confirmed = Boolean(u.email_confirmed_at ?? u.confirmed_at);
-      const se = normalizeStaffLookupEmail(row.email);
-      const ae = normalizeStaffLookupEmail(u.email ?? null);
-      const staffLinkOk = Boolean(u.id === row.user_id && se.length > 0 && se === ae);
-      map.set(row.id, {
-        authUserExists: true,
-        emailConfirmed: confirmed,
-        staffLinkOk,
-      });
-    })
-  );
-  return map;
-}
 
 function phoneSummary(row: StaffRow): string {
   const prof = row.phone_calling_profile ?? "";
@@ -206,8 +163,6 @@ export default async function AdminStaffPage({
 
   const canAssignSuperAdmin = isSuperAdmin(viewer);
 
-  const authDiagnostics = await loadStaffAuthDiagnostics(list);
-
   return (
     <div className="space-y-6 bg-gradient-to-b from-slate-50/60 via-white to-slate-50/40 p-6">
       <AdminPageHeader
@@ -293,8 +248,8 @@ export default async function AdminStaffPage({
           </div>
 
           <p className="mt-4 text-xs text-slate-600">
-            Open a staff member for payroll linking, ring groups, page permissions, and full phone policy. This table
-            stays lightweight for daily scanning.
+            Open a staff profile for payroll linking, ring groups, page permissions, full phone policy, and Auth email
+            sync checks. This list avoids per-row Auth lookups so it stays fast to scan.
           </p>
 
           <div className="mt-4 overflow-x-auto rounded-[24px] border border-slate-200/90 bg-white shadow-sm">
@@ -307,7 +262,7 @@ export default async function AdminStaffPage({
                   <th className="whitespace-nowrap px-3 py-3 font-semibold">Active</th>
                   <th className="whitespace-nowrap px-3 py-3 font-semibold">Login</th>
                   <th className="hidden lg:table-cell whitespace-nowrap px-3 py-3 font-semibold">Phone</th>
-                  <th className="sticky right-0 z-20 min-w-[9rem] max-w-[18rem] whitespace-normal border-l border-slate-200/80 bg-slate-50/95 px-3 py-3 pl-3 text-right font-semibold shadow-[-6px_0_8px_-6px_rgba(15,23,42,0.12)] backdrop-blur-sm">
+                  <th className="sticky right-0 z-20 min-w-[9rem] max-w-[18rem] whitespace-normal border-l border-slate-200/80 bg-slate-50 px-3 py-3 pl-3 text-right font-semibold shadow-[inset_6px_0_8px_-8px_rgba(15,23,42,0.08)]">
                     Actions
                   </th>
                 </tr>
@@ -322,13 +277,11 @@ export default async function AdminStaffPage({
                 ) : (
                   list.map((row) => {
                     const hasLogin = Boolean(row.user_id);
-                    const diag = authDiagnostics.get(row.id);
                     const name =
                       (row.full_name ?? "").trim() ||
                       (row.email ?? "").split("@")[0] ||
                       "—";
                     const phoneOk = row.phone_access_enabled;
-                    const linkIssue = hasLogin && diag && (!diag.authUserExists || !diag.staffLinkOk || !diag.emailConfirmed);
                     return (
                       <tr key={row.id} className="border-b border-slate-100 last:border-0">
                         <td className="max-w-[9rem] px-3 py-3 font-medium text-slate-900 sm:max-w-[11rem]">
@@ -394,13 +347,7 @@ export default async function AdminStaffPage({
                           </form>
                         </td>
                         <td className="whitespace-nowrap px-3 py-3 text-slate-700">
-                          {hasLogin ? (
-                            <span className={linkIssue ? "font-semibold text-amber-800" : ""}>
-                              Yes{linkIssue ? " · check" : ""}
-                            </span>
-                          ) : (
-                            "No"
-                          )}
+                          {hasLogin ? "Yes" : "No"}
                         </td>
                         <td
                           className="hidden whitespace-nowrap px-3 py-3 text-slate-700 lg:table-cell"
@@ -413,7 +360,7 @@ export default async function AdminStaffPage({
                             {phoneOk ? "Access on" : "Access off"}
                           </span>
                         </td>
-                        <td className="sticky right-0 z-10 min-w-[9rem] max-w-[20rem] border-l border-slate-200/80 bg-white/95 px-2 py-2 align-middle text-right shadow-[-6px_0_8px_-6px_rgba(15,23,42,0.08)] backdrop-blur-sm">
+                        <td className="sticky right-0 z-10 min-w-[9rem] max-w-[20rem] border-l border-slate-200/80 bg-white px-2 py-2 align-middle text-right shadow-[inset_6px_0_8px_-8px_rgba(15,23,42,0.06)]">
                           <StaffDirectoryRowActions
                             staffProfileId={row.id}
                             hasLogin={hasLogin}

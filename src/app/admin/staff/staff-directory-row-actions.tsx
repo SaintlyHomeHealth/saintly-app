@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { createPortal } from "react-dom";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { CreateLoginDialog } from "./create-login-dialog";
 import { EditStaffDialog } from "./edit-staff-dialog";
@@ -28,7 +28,7 @@ const PRIMARY_CREATE =
 const PRIMARY_RESET =
   "inline-flex min-w-0 shrink-0 items-center justify-center rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-[11px] font-semibold text-indigo-950 shadow-sm hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-45";
 
-export function StaffDirectoryRowActions({
+function StaffDirectoryRowActionsInner({
   staffProfileId,
   hasLogin,
   label,
@@ -121,24 +121,6 @@ export function StaffDirectoryRowActions({
             </div>
             {hasLogin ? (
               <>
-                <div
-                  className="px-1 py-1"
-                  onClick={() => {
-                    setMenuOpen(false);
-                  }}
-                >
-                  <ResetPasswordDialog
-                    staffProfileId={staffProfileId}
-                    defaultAutoGenerate
-                    triggerLabel="Regenerate temporary password"
-                    dialogTitle="Regenerate temporary password"
-                    triggerClassName={MENU_ITEM}
-                    onApiResult={pushToast}
-                    onBeforeOpen={() => setMenuOpen(false)}
-                    initialSmsNotifyPhone={initialSmsNotifyPhone}
-                    offerAutomaticDelivery={false}
-                  />
-                </div>
                 <div className="px-1 py-1">
                   <ResendInviteButton
                     staffProfileId={staffProfileId}
@@ -226,3 +208,6 @@ export function StaffDirectoryRowActions({
     </div>
   );
 }
+
+export const StaffDirectoryRowActions = memo(StaffDirectoryRowActionsInner);
+StaffDirectoryRowActions.displayName = "StaffDirectoryRowActions";
