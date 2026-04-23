@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useId, useRef, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
 
-import { staffListPermanentDeleteAction } from "./actions";
+import { permanentlyDeleteStaffUser } from "./actions";
 
 type Props = {
   staffProfileId: string;
@@ -50,7 +50,7 @@ export function PermanentDeleteStaffDialog({ staffProfileId }: Props) {
 
   const runDelete = useCallback(() => {
     startTransition(async () => {
-      const r = await staffListPermanentDeleteAction(staffProfileId);
+      const r = await permanentlyDeleteStaffUser({ staffId: staffProfileId });
       if (r.ok) {
         setOpen(false);
         router.replace("/admin/staff?ok=staff_deleted");
@@ -79,11 +79,8 @@ export function PermanentDeleteStaffDialog({ staffProfileId }: Props) {
           onMouseDown={(e) => e.stopPropagation()}
         >
           <h2 id={titleId} className="text-sm font-semibold text-slate-900">
-            Delete this staff?
+            Delete this staff permanently?
           </h2>
-          <p className="mt-1.5 text-xs leading-relaxed text-slate-600">
-            This will permanently remove this staff record.
-          </p>
           <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
             <button
               type="button"

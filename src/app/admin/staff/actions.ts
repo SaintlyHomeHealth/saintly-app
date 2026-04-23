@@ -795,7 +795,7 @@ const PAYROLL_DELETE_BLOCKED_MSG =
   "Cannot delete. This staff is linked to payroll. Deactivate instead.";
 
 /**
- * Permanent delete from the staff list (and shared by `permanentlyDeleteStaffUser`). No typed phrase.
+ * Shared permanent-delete implementation (list, detail, and form wrappers). No typed phrase.
  */
 export async function staffListPermanentDeleteAction(staffProfileId: string): Promise<StaffListPermanentDeleteResult> {
   const actor = await getStaffProfile();
@@ -937,10 +937,16 @@ export async function staffListPermanentDeleteAction(staffProfileId: string): Pr
 }
 
 /**
- * Form-based entry point for permanent delete (e.g. legacy forms). Same rules as
- * `staffListPermanentDeleteAction` — no typed phrase; delegates to the shared implementation.
+ * Client and server call sites: same rules as `staffListPermanentDeleteAction`.
  */
-export async function permanentlyDeleteStaffUser(formData: FormData) {
+export async function permanentlyDeleteStaffUser(input: { staffId: string }): Promise<StaffListPermanentDeleteResult> {
+  return staffListPermanentDeleteAction(input.staffId);
+}
+
+/**
+ * Form-based entry (redirects on success/error). Prefer `permanentlyDeleteStaffUser` from client code.
+ */
+export async function permanentlyDeleteStaffUserForm(formData: FormData) {
   const actor = await getStaffProfile();
   if (!actor || !isAdminOrHigher(actor)) {
     redirect("/admin");

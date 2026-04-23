@@ -163,7 +163,6 @@ export default async function AdminStaffPage({
   const okMsg = flashForOk(okCode);
 
   const canAssignSuperAdmin = isSuperAdmin(viewer);
-  const viewerIsSuperAdmin = canAssignSuperAdmin;
   const viewerStaffProfileId = viewer.id;
 
   return (
@@ -369,7 +368,6 @@ export default async function AdminStaffPage({
                             hasLogin={hasLogin}
                             isActive={row.is_active}
                             viewerStaffProfileId={viewerStaffProfileId}
-                            viewerIsSuperAdmin={viewerIsSuperAdmin}
                             initialFullName={(row.full_name ?? "").trim()}
                             initialEmail={(row.email ?? "").trim()}
                             initialSmsNotifyPhone={row.sms_notify_phone}

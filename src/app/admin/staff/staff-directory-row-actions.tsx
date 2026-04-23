@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, useTransition } from "react";
 
-import { staffListDeactivateAction, staffListPermanentDeleteAction } from "./actions";
+import { permanentlyDeleteStaffUser, staffListDeactivateAction } from "./actions";
 import { CreateLoginDialog } from "./create-login-dialog";
 import { EditStaffDialog } from "./edit-staff-dialog";
 import { ResendInviteButton } from "./resend-invite-button";
@@ -16,7 +16,6 @@ type Props = {
   hasLogin: boolean;
   isActive: boolean;
   viewerStaffProfileId: string;
-  viewerIsSuperAdmin: boolean;
   initialFullName: string;
   initialEmail: string;
   initialSmsNotifyPhone: string | null;
@@ -41,7 +40,6 @@ function StaffDirectoryRowActionsInner({
   hasLogin,
   isActive,
   viewerStaffProfileId,
-  viewerIsSuperAdmin,
   initialFullName,
   initialEmail,
   initialSmsNotifyPhone,
@@ -56,7 +54,8 @@ function StaffDirectoryRowActionsInner({
   const [confirmKind, setConfirmKind] = useState<ConfirmKind | null>(null);
 
   const canDeactivate = hasLogin && isActive && staffProfileId !== viewerStaffProfileId;
-  const canPermanentDelete = staffProfileId !== viewerStaffProfileId && (!hasLogin || viewerIsSuperAdmin);
+  /** Server enforces payroll, login delete, etc.; UI only hides for self. */
+  const showDeletePermanently = staffProfileId !== viewerStaffProfileId;
 
   const pushToast = useCallback((kind: "ok" | "err", text: string) => {
     setToast({ kind, text });
@@ -128,7 +127,7 @@ function StaffDirectoryRowActionsInner({
 
   const runPermanentDelete = useCallback(() => {
     startTransition(async () => {
-      const r = await staffListPermanentDeleteAction(staffProfileId);
+      const r = await permanentlyDeleteStaffUser({ staffId: staffProfileId });
       if (r.ok) {
         pushToast("ok", "Staff deleted");
         setConfirmKind(null);
@@ -164,12 +163,7 @@ function StaffDirectoryRowActionsInner({
                   </p>
                 </>
               ) : (
-                <>
-                  <h2 className="text-sm font-semibold text-slate-900">Delete this staff?</h2>
-                  <p className="mt-1.5 text-xs leading-relaxed text-slate-600">
-                    This will permanently remove this staff record.
-                  </p>
-                </>
+                <h2 className="text-sm font-semibold text-slate-900">Delete this staff permanently?</h2>
               )}
               <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
                 <button
@@ -249,7 +243,7 @@ function StaffDirectoryRowActionsInner({
                 />
               </div>
             ) : null}
-            {canDeactivate || canPermanentDelete ? <div className="my-1 h-px bg-slate-100" /> : null}
+            {canDeactivate || showDeletePermanently ? <div className="my-1 h-px bg-slate-100" /> : null}
             {canDeactivate ? (
               <button
                 type="button"
@@ -263,7 +257,7 @@ function StaffDirectoryRowActionsInner({
                 Deactivate staff
               </button>
             ) : null}
-            {canPermanentDelete ? (
+            {showDeletePermanently ? (
               <button
                 type="button"
                 role="menuitem"
