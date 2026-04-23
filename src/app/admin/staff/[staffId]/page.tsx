@@ -69,8 +69,7 @@ function flashDetailErr(code: string | undefined): string | null {
     auth_email: "Supabase Auth rejected the email change (duplicate login email or policy).",
     self_remove: "You cannot remove or permanently delete your own staff row here.",
     permanent_forbidden: "Only a super admin can permanently delete a staff row that has a login.",
-    permanent_payroll_blocked:
-      "Permanent delete is blocked while a payroll employee is linked. Clear the employee link on this row first, or use Deactivate.",
+    permanent_payroll_blocked: "Cannot delete. This staff is linked to payroll. Deactivate instead.",
     permanent_confirm: "Confirmation did not match. Type DELETE or the exact work email from this row.",
     permanent_staff_row: "The staff row could not be removed after Auth was deleted. See details below.",
     permanent_auth: "Supabase could not delete the Auth user. Details below.",
@@ -289,7 +288,6 @@ export default async function StaffAccessDetailPage({
   const errMsg = flashDetailErr(errCode);
   const okMsg = flashDetailOk(okCode);
   const showPermanentDelete = profile.id !== viewer.id && (!hasLogin || canAssignSuperAdmin);
-  const permanentDeleteBlockedByPayroll = Boolean(profile.applicant_id);
   const showIdentityRoleField = profile.role !== "super_admin" || canAssignSuperAdmin;
 
   return (
@@ -751,20 +749,7 @@ export default async function StaffAccessDetailPage({
         </p>
         <div className="flex flex-wrap gap-2">
           <RemoveStaffDialog staffProfileId={profile.id} hasLogin={hasLogin} label={name} />
-          {showPermanentDelete && permanentDeleteBlockedByPayroll ? (
-            <p className="max-w-md rounded-[14px] border border-amber-200 bg-amber-50/90 px-3 py-2 text-[11px] text-amber-950">
-              <span className="font-semibold">Permanent delete unavailable:</span> a payroll employee is linked to this
-              row. Clear the employee link in Identity (or use Deactivate for normal offboarding).
-            </p>
-          ) : null}
-          {showPermanentDelete && !permanentDeleteBlockedByPayroll ? (
-            <PermanentDeleteStaffDialog
-              staffProfileId={profile.id}
-              label={name}
-              workEmail={(profile.email ?? "").trim()}
-              hasLogin={hasLogin}
-            />
-          ) : null}
+          {showPermanentDelete ? <PermanentDeleteStaffDialog staffProfileId={profile.id} /> : null}
         </div>
       </Card>
     </div>

@@ -700,130 +700,24 @@ export async function clearStaffApplicantLink(formData: FormData) {
   redirect(`/admin/staff/${staffProfileId}?ok=payroll_link_clear`);
 }
 
-/**
- * Hard delete: removes the staff directory row. Placeholder (no Auth user): any admin.
- * With login: super admin only — deletes Supabase Auth user, ring memberships, then staff row.
- * Blocked when applicant_id is set (payroll link); clear the link first. Does not delete applicant rows.
- */
-export async function permanentlyDeleteStaffUser(formData: FormData) {
-  const actor = await getStaffProfile();
-  if (!actor || !isAdminOrHigher(actor)) {
-    redirect("/admin");
-  }
-
-  const id = String(formData.get("staffProfileId") ?? "").trim();
-  const confirmed = String(formData.get("confirmed") ?? "") === "1";
-  const confirmPhrase = String(formData.get("confirmPhrase") ?? "").trim();
-
-  if (!id || !confirmed) {
-    redirect(`/admin/staff/${id}?err=invalid`);
-  }
-
-  const { data: target, error: loadErr } = await supabaseAdmin
-    .from("staff_profiles")
-    .select("id, user_id, role, applicant_id, email")
-    .eq("id", id)
-    .maybeSingle();
-
-  if (loadErr || !target) {
-    redirect(`/admin/staff/${id}?err=load`);
-  }
-
-  if (target.applicant_id) {
-    redirect(`/admin/staff/${id}?err=permanent_payroll_blocked`);
-  }
-
-  const emailNorm = normalizeStaffLookupEmail(target.email);
-  const phraseOk =
-    confirmPhrase === "DELETE" ||
-    (emailNorm.length > 0 && normalizeStaffLookupEmail(confirmPhrase) === emailNorm);
-  if (!phraseOk) {
-    redirect(`/admin/staff/${id}?err=permanent_confirm`);
-  }
-
-  if (target.user_id === actor.user_id) {
-    redirect(`/admin/staff/${id}?err=self_remove`);
-  }
-
-  const userId = typeof target.user_id === "string" ? target.user_id : null;
-
-  if (!userId) {
-    const { error: delErr } = await supabaseAdmin.from("staff_profiles").delete().eq("id", id);
-    if (delErr) {
-      console.warn("[staff] permanent delete placeholder:", delErr.message);
-      redirect(`/admin/staff/${id}?err=update`);
-    }
-    await insertAuditLog({
-      action: "staff.permanent_delete_placeholder",
-      entityType: "staff_profiles",
-      entityId: id,
-      metadata: {},
-    });
-    revalidatePath("/admin/staff");
-    redirect("/admin/staff?ok=permanent_deleted_row");
-  }
-
-  if (!isSuperAdmin(actor)) {
-    redirect(`/admin/staff/${id}?err=permanent_forbidden`);
-  }
-
-  if (target.role === "super_admin") {
-    const { count, error: cErr } = await supabaseAdmin
-      .from("staff_profiles")
-      .select("id", { count: "exact", head: true })
-      .eq("role", "super_admin")
-      .eq("is_active", true);
-
-    if (cErr) {
-      redirect(`/admin/staff/${id}?err=update`);
-    }
-    if ((count ?? 0) <= 1) {
-      redirect(`/admin/staff/${id}?err=last_super`);
-    }
-  }
-
-  await supabaseAdmin.from("inbound_ring_group_memberships").delete().eq("user_id", userId);
-
-  const { error: unlinkErr } = await supabaseAdmin
-    .from("staff_profiles")
-    .update({ user_id: null, updated_at: new Date().toISOString() })
-    .eq("id", id);
-
-  if (unlinkErr) {
-    console.warn("[staff] permanent delete unlink user_id:", unlinkErr.message);
-    redirect(`/admin/staff/${id}?err=update`);
-  }
-
-  const { error: authErr } = await supabaseAdmin.auth.admin.deleteUser(userId);
-  if (authErr) {
-    console.error("[staff] permanentlyDeleteStaffUser auth delete failed", authErr.message);
-    await supabaseAdmin
-      .from("staff_profiles")
-      .update({ user_id: userId, updated_at: new Date().toISOString() })
-      .eq("id", id);
-    const safe = encodeURIComponent(authErr.message.slice(0, 400));
-    redirect(`/admin/staff/${id}?err=permanent_auth&detail=${safe}`);
-  }
-
-  const { error: delStaffErr } = await supabaseAdmin.from("staff_profiles").delete().eq("id", id);
-  if (delStaffErr) {
-    console.error("[staff] permanent delete staff row:", delStaffErr.message);
-    const safe = encodeURIComponent(delStaffErr.message.slice(0, 400));
-    redirect(`/admin/staff/${id}?err=permanent_staff_row&detail=${safe}`);
-  }
-
-  await insertAuditLog({
-    action: "staff.permanent_delete",
-    entityType: "staff_profiles",
-    entityId: id,
-    metadata: { auth_user_id: userId },
-  });
-
-  revalidatePath("/admin/staff");
-  redirect("/admin/staff?ok=permanent_deleted");
-}
-
 export type StaffListMutationResult = { ok: true } | { ok: false; error: string };
+
+export type StaffListPermanentDeleteResult =
+  | { ok: true; resultKind: "placeholder" | "with_login" }
+  | {
+      ok: false;
+      error: string;
+      errCode:
+        | "payroll"
+        | "self"
+        | "forbidden"
+        | "last_super"
+        | "auth"
+        | "load"
+        | "constraint"
+        | "staff_row"
+        | "other";
+    };
 
 /**
  * Deactivate a staff row (login kept, access removed). Same server rules as `removeStaffRecord` for users with
@@ -897,19 +791,21 @@ export async function staffListDeactivateAction(staffProfileId: string): Promise
   return { ok: true };
 }
 
+const PAYROLL_DELETE_BLOCKED_MSG =
+  "Cannot delete. This staff is linked to payroll. Deactivate instead.";
+
 /**
- * Permanent delete from list — no typed phrase. Same safety checks as `permanentlyDeleteStaffUser` except
- * the confirmation string (modal replace).
+ * Permanent delete from the staff list (and shared by `permanentlyDeleteStaffUser`). No typed phrase.
  */
-export async function staffListPermanentDeleteAction(staffProfileId: string): Promise<StaffListMutationResult> {
+export async function staffListPermanentDeleteAction(staffProfileId: string): Promise<StaffListPermanentDeleteResult> {
   const actor = await getStaffProfile();
   if (!actor || !isAdminOrHigher(actor)) {
-    return { ok: false, error: "Not authorized." };
+    return { ok: false, error: "Not authorized.", errCode: "other" };
   }
 
   const id = String(staffProfileId ?? "").trim();
   if (!id || !isUuid(id)) {
-    return { ok: false, error: "Invalid request." };
+    return { ok: false, error: "Invalid request.", errCode: "other" };
   }
 
   const { data: target, error: loadErr } = await supabaseAdmin
@@ -919,18 +815,15 @@ export async function staffListPermanentDeleteAction(staffProfileId: string): Pr
     .maybeSingle();
 
   if (loadErr || !target) {
-    return { ok: false, error: "Could not load that staff record." };
+    return { ok: false, error: "Could not load that staff record.", errCode: "load" };
   }
 
   if (target.applicant_id) {
-    return {
-      ok: false,
-      error: "Can't delete permanently because this staff record is linked to payroll or other records. Deactivate instead.",
-    };
+    return { ok: false, error: PAYROLL_DELETE_BLOCKED_MSG, errCode: "payroll" };
   }
 
   if (target.user_id === actor.user_id) {
-    return { ok: false, error: "You can't delete your own staff row." };
+    return { ok: false, error: "You can't delete your own staff row.", errCode: "self" };
   }
 
   const userId = typeof target.user_id === "string" ? target.user_id : null;
@@ -945,9 +838,10 @@ export async function staffListPermanentDeleteAction(staffProfileId: string): Pr
           ok: false,
           error:
             "Can't delete permanently because this staff record is still linked elsewhere. Deactivate or clear related links first.",
+          errCode: "constraint",
         };
       }
-      return { ok: false, error: "Delete failed." };
+      return { ok: false, error: "Delete failed.", errCode: "other" };
     }
     await insertAuditLog({
       action: "staff.permanent_delete_placeholder",
@@ -956,11 +850,15 @@ export async function staffListPermanentDeleteAction(staffProfileId: string): Pr
       metadata: { source: "staff_list" },
     });
     revalidatePath("/admin/staff");
-    return { ok: true };
+    return { ok: true, resultKind: "placeholder" };
   }
 
   if (!isSuperAdmin(actor)) {
-    return { ok: false, error: "Only a super admin can permanently delete a staff row that has a login." };
+    return {
+      ok: false,
+      error: "Only a super admin can permanently delete a staff row that has a login.",
+      errCode: "forbidden",
+    };
   }
 
   if (target.role === "super_admin") {
@@ -971,10 +869,10 @@ export async function staffListPermanentDeleteAction(staffProfileId: string): Pr
       .eq("is_active", true);
 
     if (cErr) {
-      return { ok: false, error: "Delete failed." };
+      return { ok: false, error: "Delete failed.", errCode: "other" };
     }
     if ((count ?? 0) <= 1) {
-      return { ok: false, error: "Keep at least one active super admin." };
+      return { ok: false, error: "Keep at least one active super admin.", errCode: "last_super" };
     }
   }
 
@@ -987,7 +885,11 @@ export async function staffListPermanentDeleteAction(staffProfileId: string): Pr
 
   if (unlinkErr) {
     console.warn("[staff] staffListPermanentDeleteAction unlink user_id:", unlinkErr.message);
-    return { ok: false, error: "Delete failed (could not prepare login removal)." };
+    return {
+      ok: false,
+      error: "Delete failed (could not prepare login removal).",
+      errCode: "other",
+    };
   }
 
   const { error: authErr } = await supabaseAdmin.auth.admin.deleteUser(userId);
@@ -997,7 +899,11 @@ export async function staffListPermanentDeleteAction(staffProfileId: string): Pr
       .from("staff_profiles")
       .update({ user_id: userId, updated_at: new Date().toISOString() })
       .eq("id", id);
-    return { ok: false, error: "Supabase could not delete the login. Open the staff profile to retry or see details." };
+    return {
+      ok: false,
+      error: "Supabase could not delete the login. Open the staff profile to retry or see details.",
+      errCode: "auth",
+    };
   }
 
   const { error: delStaffErr } = await supabaseAdmin.from("staff_profiles").delete().eq("id", id);
@@ -1009,9 +915,14 @@ export async function staffListPermanentDeleteAction(staffProfileId: string): Pr
         ok: false,
         error:
           "Can't delete permanently because this staff record is still linked in the database. Deactivate or clear related links and try again.",
+        errCode: "constraint",
       };
     }
-    return { ok: false, error: "The staff row could not be removed after the login was deleted. Open the profile for details." };
+    return {
+      ok: false,
+      error: "The staff row could not be removed after the login was deleted. Open the profile for details.",
+      errCode: "staff_row",
+    };
   }
 
   await insertAuditLog({
@@ -1022,7 +933,62 @@ export async function staffListPermanentDeleteAction(staffProfileId: string): Pr
   });
 
   revalidatePath("/admin/staff");
-  return { ok: true };
+  return { ok: true, resultKind: "with_login" };
+}
+
+/**
+ * Form-based entry point for permanent delete (e.g. legacy forms). Same rules as
+ * `staffListPermanentDeleteAction` — no typed phrase; delegates to the shared implementation.
+ */
+export async function permanentlyDeleteStaffUser(formData: FormData) {
+  const actor = await getStaffProfile();
+  if (!actor || !isAdminOrHigher(actor)) {
+    redirect("/admin");
+  }
+
+  const id = String(formData.get("staffProfileId") ?? "").trim();
+  if (!id || !isUuid(id)) {
+    redirect(`/admin/staff/${id}?err=invalid`);
+  }
+
+  const r = await staffListPermanentDeleteAction(id);
+  if (!r.ok) {
+    if (r.errCode === "payroll") {
+      redirect(`/admin/staff/${id}?err=permanent_payroll_blocked`);
+    }
+    if (r.errCode === "self") {
+      redirect(`/admin/staff/${id}?err=self_remove`);
+    }
+    if (r.errCode === "forbidden") {
+      redirect(`/admin/staff/${id}?err=permanent_forbidden`);
+    }
+    if (r.errCode === "last_super") {
+      redirect(`/admin/staff/${id}?err=last_super`);
+    }
+    if (r.errCode === "load") {
+      redirect(`/admin/staff/${id}?err=load`);
+    }
+    if (r.errCode === "auth") {
+      const safe = encodeURIComponent(r.error.slice(0, 400));
+      redirect(`/admin/staff/${id}?err=permanent_auth&detail=${safe}`);
+    }
+    if (r.errCode === "constraint" || r.errCode === "staff_row") {
+      const safe = encodeURIComponent(r.error.slice(0, 400));
+      redirect(
+        r.errCode === "staff_row"
+          ? `/admin/staff/${id}?err=permanent_staff_row&detail=${safe}`
+          : `/admin/staff/${id}?err=permanent_applicant&detail=${safe}`
+      );
+    }
+    const safe = encodeURIComponent(r.error.slice(0, 400));
+    redirect(`/admin/staff/${id}?err=update&detail=${safe}`);
+  }
+
+  revalidatePath(`/admin/staff/${id}`);
+  if (r.resultKind === "placeholder") {
+    redirect("/admin/staff?ok=permanent_deleted_row");
+  }
+  redirect("/admin/staff?ok=permanent_deleted");
 }
 
 function revalidateStaffViews(staffProfileId: string) {

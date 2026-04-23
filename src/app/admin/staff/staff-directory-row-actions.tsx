@@ -15,7 +15,6 @@ type Props = {
   staffProfileId: string;
   hasLogin: boolean;
   isActive: boolean;
-  applicantId: string | null;
   viewerStaffProfileId: string;
   viewerIsSuperAdmin: boolean;
   initialFullName: string;
@@ -29,9 +28,6 @@ const MENU_ITEM =
 const DESTRUCTIVE =
   "flex w-full items-center rounded-lg px-3 py-2 text-left text-[11px] font-semibold text-red-800 hover:bg-red-50";
 
-const PERMANENT =
-  "flex w-full items-center rounded-lg px-3 py-2 text-left text-[11px] font-semibold text-rose-900 hover:bg-rose-50";
-
 const PRIMARY_CREATE =
   "inline-flex min-w-0 shrink-0 items-center justify-center rounded-full bg-slate-900 px-3 py-1.5 text-[11px] font-semibold text-white shadow-sm hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-45";
 
@@ -44,7 +40,6 @@ function StaffDirectoryRowActionsInner({
   staffProfileId,
   hasLogin,
   isActive,
-  applicantId,
   viewerStaffProfileId,
   viewerIsSuperAdmin,
   initialFullName,
@@ -61,8 +56,7 @@ function StaffDirectoryRowActionsInner({
   const [confirmKind, setConfirmKind] = useState<ConfirmKind | null>(null);
 
   const canDeactivate = hasLogin && isActive && staffProfileId !== viewerStaffProfileId;
-  const canPermanentDelete =
-    staffProfileId !== viewerStaffProfileId && !applicantId && (!hasLogin || viewerIsSuperAdmin);
+  const canPermanentDelete = staffProfileId !== viewerStaffProfileId && (!hasLogin || viewerIsSuperAdmin);
 
   const pushToast = useCallback((kind: "ok" | "err", text: string) => {
     setToast({ kind, text });
@@ -136,7 +130,7 @@ function StaffDirectoryRowActionsInner({
     startTransition(async () => {
       const r = await staffListPermanentDeleteAction(staffProfileId);
       if (r.ok) {
-        pushToast("ok", "Staff removed permanently.");
+        pushToast("ok", "Staff deleted");
         setConfirmKind(null);
         setMenuOpen(false);
         router.refresh();
@@ -171,9 +165,9 @@ function StaffDirectoryRowActionsInner({
                 </>
               ) : (
                 <>
-                  <h2 className="text-sm font-semibold text-rose-950">Delete permanently?</h2>
+                  <h2 className="text-sm font-semibold text-slate-900">Delete this staff?</h2>
                   <p className="mt-1.5 text-xs leading-relaxed text-slate-600">
-                    This removes the staff row permanently. Use only for duplicates, test, or bad entries.
+                    This will permanently remove this staff record.
                   </p>
                 </>
               )}
@@ -199,9 +193,9 @@ function StaffDirectoryRowActionsInner({
                     type="button"
                     disabled={isPending}
                     onClick={runPermanentDelete}
-                    className="rounded-lg bg-rose-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-900 disabled:opacity-50"
+                    className="rounded-lg bg-red-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-800 disabled:opacity-50"
                   >
-                    {isPending ? "…" : "Delete permanently"}
+                    {isPending ? "…" : "Delete"}
                   </button>
                 )}
               </div>
@@ -273,7 +267,7 @@ function StaffDirectoryRowActionsInner({
               <button
                 type="button"
                 role="menuitem"
-                className={PERMANENT}
+                className={DESTRUCTIVE}
                 onClick={() => {
                   setMenuOpen(false);
                   setConfirmKind("permanent");

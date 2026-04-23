@@ -84,7 +84,7 @@ function flashForErr(code: string | undefined): string | null {
     self_remove: "You cannot remove or deactivate your own staff row here.",
     permanent_forbidden: "Only a super admin can permanently delete a staff row that has a login.",
     permanent_payroll_blocked:
-      "Permanent delete is blocked while a payroll employee is linked. Clear the employee link on this staff row first, then try again — or use Deactivate.",
+      "Cannot delete. This staff is linked to payroll. Deactivate instead.",
     permanent_confirm: "Confirmation did not match. Type DELETE or the exact work email from this row.",
     permanent_staff_row: "The staff row could not be removed after Auth was deleted. Details below. Fix in Supabase if needed.",
     permanent_auth: "Supabase could not delete the Auth user. Details below.",
@@ -111,6 +111,7 @@ function flashForOk(code: string | undefined): string | null {
     payroll_link_clear: "Payroll employee link cleared.",
     permanent_deleted: "Staff row and Supabase login removed. Email can be reused for a new user.",
     permanent_deleted_row: "Placeholder staff row removed (no login was attached).",
+    staff_deleted: "Staff deleted",
   };
   return m[code] ?? "Saved.";
 }
@@ -367,7 +368,6 @@ export default async function AdminStaffPage({
                             staffProfileId={row.id}
                             hasLogin={hasLogin}
                             isActive={row.is_active}
-                            applicantId={row.applicant_id}
                             viewerStaffProfileId={viewerStaffProfileId}
                             viewerIsSuperAdmin={viewerIsSuperAdmin}
                             initialFullName={(row.full_name ?? "").trim()}
