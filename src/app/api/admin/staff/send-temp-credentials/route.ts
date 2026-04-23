@@ -10,15 +10,8 @@ import { insertAuditLog } from "@/lib/audit-log";
 import { supabaseAdmin } from "@/lib/admin";
 import { normalizePhone } from "@/lib/phone/us-phone-format";
 import { sendSms } from "@/lib/twilio/send-sms";
+import { getStaffSignInPageUrl } from "@/lib/auth/staff-sign-in-url";
 import { getStaffProfile, isAdminOrHigher } from "@/lib/staff-profile";
-
-function appOrigin(): string {
-  return (
-    process.env.NEXT_PUBLIC_APP_URL?.trim().replace(/\/$/, "") ||
-    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "") ||
-    "http://localhost:3000"
-  );
-}
 
 /**
  * POST { staffProfileId, temporaryPassword, channel: "sms" | "email" }
@@ -88,7 +81,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "load_failed" }, { status: 404 });
   }
 
-  const loginUrl = `${appOrigin()}/login`;
+  const loginUrl = getStaffSignInPageUrl();
   const firstName =
     typeof row.full_name === "string" && row.full_name.trim()
       ? row.full_name.trim().split(/\s+/)[0] ?? "there"

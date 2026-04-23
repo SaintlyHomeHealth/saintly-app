@@ -15,6 +15,7 @@ import {
   STAFF_PAGE_PRESETS,
 } from "@/lib/staff-page-access";
 import { formatPhoneNumber } from "@/lib/phone/us-phone-format";
+import { getStaffSignInPageUrl } from "@/lib/auth/staff-sign-in-url";
 import {
   getStaffProfile,
   isAdminOrHigher,
@@ -279,8 +280,7 @@ export default async function StaffAccessDetailPage({
   const name =
     (profile.full_name ?? "").trim() || (profile.email ?? "").split("@")[0] || "Staff member";
 
-  const loginUrl =
-    (process.env.NEXT_PUBLIC_APP_URL?.trim().replace(/\/$/, "") || "") + "/login";
+  const loginUrl = getStaffSignInPageUrl();
 
   const phoneAssign = phoneAssignmentSummary(profile);
   const passwordIsTemporary = profile.require_password_change === true;

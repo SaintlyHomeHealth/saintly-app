@@ -7,15 +7,8 @@ import {
 } from "@/lib/admin/staff-auth-shared";
 import { sendStaffAccessCredentialsEmail } from "@/lib/email/send-staff-access-credentials-email";
 import { normalizePhone } from "@/lib/phone/us-phone-format";
+import { getStaffSignInPageUrl } from "@/lib/auth/staff-sign-in-url";
 import { sendSms } from "@/lib/twilio/send-sms";
-
-function appOrigin(): string {
-  return (
-    process.env.NEXT_PUBLIC_APP_URL?.trim().replace(/\/$/, "") ||
-    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "") ||
-    "http://localhost:3000"
-  );
-}
 
 export type DeliverTempPasswordResult = { ok: true } | { ok: false; error: string; detail?: string };
 
@@ -28,7 +21,7 @@ export async function deliverTemporaryPasswordToEmail(input: {
   if (!email) {
     return { ok: false, error: "missing_email", detail: "Add a work email to this staff row first." };
   }
-  const loginUrl = `${appOrigin()}/login`;
+  const loginUrl = getStaffSignInPageUrl();
   const firstName = input.firstName.trim() || "there";
   const emailed = await sendStaffAccessCredentialsEmail({
     to: email,
@@ -62,7 +55,7 @@ export async function deliverTemporaryPasswordToSms(input: {
     };
   }
   const toE164 = digits.length === 10 ? `+1${digits}` : `+${digits}`;
-  const loginUrl = `${appOrigin()}/login`;
+  const loginUrl = getStaffSignInPageUrl();
   const text = `Saintly Home Health: your temporary sign-in password is ${input.temporaryPassword}. Sign in: ${loginUrl} — you may be asked to change it after signing in.`;
   const sent = await sendSms({ to: toE164, body: text });
   if (!sent.ok) {

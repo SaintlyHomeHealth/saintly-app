@@ -104,6 +104,9 @@ export async function middleware(request: NextRequest) {
 
   const pathname = request.nextUrl.pathname;
 
+  /** Public entry; SMS/email use this path as the canonical “staff app sign-in” link. */
+  const isPublicAdminSignIn = pathname === "/admin/login" || pathname.startsWith("/admin/login/");
+
   if (user) {
     const skipForcedPwd =
       pathname.startsWith("/login/forced-password-change") ||
@@ -127,7 +130,7 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  if (pathname.startsWith("/admin") && !user) {
+  if (pathname.startsWith("/admin") && !user && !isPublicAdminSignIn) {
     if (shouldLogAdminPath(pathname)) {
       authDebug("admin:no_session", {
         pathname,

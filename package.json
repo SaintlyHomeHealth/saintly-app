@@ -14,7 +14,8 @@
     "icons:generate-icons": "node scripts/generate-icons.mjs",
     "realtime-bridge": "tsx scripts/twilio-openai-realtime-bridge.ts",
     "debug:resume": "NODE_OPTIONS='--conditions=react-server' tsx scripts/debug-resume-extract.ts",
-    "verify:inbound-email": "tsx scripts/verify-inbound-email-helpers.ts"
+    "verify:inbound-email": "tsx scripts/verify-inbound-email-helpers.ts",
+    "verify:staff-sign-in-url": "tsx scripts/verify-staff-sign-in-url.mts"
   },
   "dependencies": {
     "@napi-rs/canvas": "^0.1.80",

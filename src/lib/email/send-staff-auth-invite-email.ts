@@ -1,5 +1,6 @@
 import "server-only";
 
+import { getStaffSignInPageUrl } from "@/lib/auth/staff-sign-in-url";
 import { isOnboardingEmailConfigured, ONBOARDING_EMAIL_NOT_CONFIGURED_ERROR } from "@/lib/email/send-onboarding-invite";
 
 const SUBJECT = "Set up your Saintly Home Health account";
@@ -12,24 +13,27 @@ function escapeHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
-function htmlBody(firstName: string, signInUrl: string): string {
+function htmlBody(firstName: string, signInUrl: string, signInPageUrl: string): string {
   const name = firstName.trim() || "there";
   return `<!DOCTYPE html><html><body style="font-family:system-ui,sans-serif;line-height:1.5;color:#0f172a;">
 <p>Hi ${escapeHtml(name)},</p>
 <p>You have been invited to the Saintly Home Health web app. Use the link below to complete sign-in setup (you may be asked to set a password).</p>
 <p><a href="${escapeHtml(signInUrl)}">${escapeHtml(signInUrl)}</a></p>
+<p>If the link has expired, you can open the sign-in page and use your work email: <a href="${escapeHtml(signInPageUrl)}">${escapeHtml(signInPageUrl)}</a></p>
 <p>If you did not expect this, you can ignore this message.</p>
 <p>— Saintly Home Health</p>
 </body></html>`;
 }
 
-function textBody(firstName: string, signInUrl: string): string {
+function textBody(firstName: string, signInUrl: string, signInPageUrl: string): string {
   const name = firstName.trim() || "there";
   return `Hi ${name},
 
 You have been invited to the Saintly Home Health web app. Open this link to complete sign-in setup (you may be asked to set a password).
 
 ${signInUrl}
+
+If the link has expired, you can use the app sign-in page: ${signInPageUrl}
 
 If you did not expect this, you can ignore this message.
 
@@ -57,6 +61,7 @@ export async function sendStaffAuthInviteEmail(
   if (!isOnboardingEmailConfigured()) {
     return { ok: false, error: ONBOARDING_EMAIL_NOT_CONFIGURED_ERROR };
   }
+  const signInPageUrl = getStaffSignInPageUrl();
   const apiKey = process.env.RESEND_API_KEY!.trim();
   const from = process.env.RESEND_FROM!.trim();
   const subject = SUBJECT;
@@ -72,8 +77,8 @@ export async function sendStaffAuthInviteEmail(
         from,
         to: [to],
         subject,
-        html: htmlBody(input.firstName, input.signInUrl),
-        text: textBody(input.firstName, input.signInUrl),
+        html: htmlBody(input.firstName, input.signInUrl, signInPageUrl),
+        text: textBody(input.firstName, input.signInUrl, signInPageUrl),
       }),
     });
     if (!res.ok) {
