@@ -130,6 +130,7 @@ export function StaffDirectoryRowActions({
                     dialogTitle="Regenerate temporary password"
                     triggerClassName={MENU_ITEM}
                     onApiResult={pushToast}
+                    onBeforeOpen={() => setMenuOpen(false)}
                   />
                 </div>
                 <div className="px-1 py-1">
@@ -189,12 +190,14 @@ export function StaffDirectoryRowActions({
           staffProfileId={staffProfileId}
           triggerClassName={PRIMARY_RESET}
           onApiResult={pushToast}
+          onBeforeOpen={() => setMenuOpen(false)}
         />
       ) : (
         <CreateLoginDialog
           staffProfileId={staffProfileId}
           triggerClassName={PRIMARY_CREATE}
           onApiResult={pushToast}
+          onBeforeOpen={() => setMenuOpen(false)}
         />
       )}
       <button

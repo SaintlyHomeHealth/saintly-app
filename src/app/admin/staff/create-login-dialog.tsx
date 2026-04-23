@@ -5,7 +5,8 @@ import {
   STAFF_TEMP_PASSWORD_MIN,
 } from "@/lib/admin/staff-auth-shared";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useId, useState } from "react";
+import { createPortal } from "react-dom";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 
 import { TemporaryPasswordReveal } from "./temporary-password-reveal";
 
@@ -20,6 +21,8 @@ type Props = {
   triggerClassName?: string;
   /** Fires after invite/temp-password API completes (for toast outside the modal). */
   onApiResult?: (kind: "ok" | "err", message: string) => void;
+  /** Runs immediately before the modal opens (e.g. close row overflow menu). */
+  onBeforeOpen?: () => void;
 };
 
 type Panel = "menu" | "invite" | "password";
@@ -72,9 +75,12 @@ export function CreateLoginDialog({
   compact = false,
   triggerClassName,
   onApiResult,
+  onBeforeOpen,
 }: Props) {
   const router = useRouter();
   const titleId = useId();
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const wasOpenRef = useRef(false);
   const [open, setOpen] = useState(false);
   const [panel, setPanel] = useState<Panel>("menu");
   const [loading, setLoading] = useState(false);
@@ -113,6 +119,22 @@ export function CreateLoginDialog({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open, close]);
+
+  useEffect(() => {
+    if (wasOpenRef.current && !open) {
+      triggerRef.current?.focus({ preventScroll: true });
+    }
+    wasOpenRef.current = open;
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [open]);
 
   function formatError(code: string, detail?: string): string {
     const base = ERROR_LABELS[code] ?? "Something went wrong.";
@@ -241,40 +263,22 @@ export function CreateLoginDialog({
     ? "inline-flex min-w-0 items-center justify-center rounded-full bg-slate-900 px-2.5 py-1 text-[10px] font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-45"
     : "inline-flex min-w-[7rem] items-center justify-center rounded-full bg-slate-900 px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-45";
 
-  return (
-    <div className="flex flex-col gap-1">
-      <button
-        type="button"
-        disabled={disabled}
-        title={disabled ? disabledReason : undefined}
-        onClick={() => {
-          if (disabled) return;
-          setOpen(true);
-          setPanel("menu");
-          resetFeedback();
-          setPassword("");
-          setPasswordConfirm("");
+  const modal =
+    open && typeof document !== "undefined" ? (
+      <div
+        className="fixed inset-0 z-[130] flex max-h-[100dvh] items-end justify-center overflow-y-auto bg-slate-900/40 p-4 sm:items-center sm:p-6"
+        role="presentation"
+        onMouseDown={(e) => {
+          if (e.target === e.currentTarget) close();
         }}
-        className={triggerClass}
       >
-        Create login
-      </button>
-
-      {open ? (
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 p-4 sm:items-center"
-          role="presentation"
-          onMouseDown={(e) => {
-            if (e.target === e.currentTarget) close();
-          }}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={titleId}
+          className="my-auto w-full max-w-md rounded-[24px] border border-indigo-100/90 bg-white p-5 shadow-xl"
+          onMouseDown={(e) => e.stopPropagation()}
         >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby={titleId}
-            className="w-full max-w-md rounded-[24px] border border-indigo-100/90 bg-white p-5 shadow-xl"
-            onMouseDown={(e) => e.stopPropagation()}
-          >
             {panel === "menu" ? (
               <>
                 <h2 id={titleId} className="text-base font-bold text-slate-900">
@@ -505,9 +509,32 @@ export function CreateLoginDialog({
                 </form>
               </>
             ) : null}
-          </div>
         </div>
-      ) : null}
+      </div>
+    ) : null;
+
+  return (
+    <div className="flex flex-col gap-1">
+      <button
+        ref={triggerRef}
+        type="button"
+        disabled={disabled}
+        title={disabled ? disabledReason : undefined}
+        onClick={() => {
+          if (disabled) return;
+          onBeforeOpen?.();
+          setOpen(true);
+          setPanel("menu");
+          resetFeedback();
+          setPassword("");
+          setPasswordConfirm("");
+        }}
+        className={triggerClass}
+      >
+        Create login
+      </button>
+
+      {modal ? createPortal(modal, document.body) : null}
     </div>
   );
 }

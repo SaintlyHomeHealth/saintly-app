@@ -2,7 +2,8 @@
 
 import { STAFF_TEMP_PASSWORD_MAX, STAFF_TEMP_PASSWORD_MIN } from "@/lib/admin/staff-auth-shared";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useId, useState } from "react";
+import { createPortal } from "react-dom";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 
 import { TemporaryPasswordReveal } from "./temporary-password-reveal";
 
@@ -19,6 +20,8 @@ type Props = {
   triggerClassName?: string;
   /** Fires after reset-password API completes (for toast outside the modal). */
   onApiResult?: (kind: "ok" | "err", message: string) => void;
+  /** Runs immediately before the modal opens (e.g. close row overflow menu). */
+  onBeforeOpen?: () => void;
 };
 
 const ERROR_LABELS: Record<string, string> = {
@@ -65,9 +68,12 @@ export function ResetPasswordDialog({
   dialogTitle,
   triggerClassName,
   onApiResult,
+  onBeforeOpen,
 }: Props) {
   const router = useRouter();
   const titleId = useId();
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const wasOpenRef = useRef(false);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -96,6 +102,22 @@ export function ResetPasswordDialog({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open, close]);
+
+  useEffect(() => {
+    if (wasOpenRef.current && !open) {
+      triggerRef.current?.focus({ preventScroll: true });
+    }
+    wasOpenRef.current = open;
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [open]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -165,41 +187,22 @@ export function ResetPasswordDialog({
       ? "inline-flex min-w-0 items-center justify-center rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-semibold text-slate-800 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-45"
       : "inline-flex min-w-[7rem] items-center justify-center rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-800 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-45");
 
-  return (
-    <div className="flex flex-col gap-1">
-      <button
-        type="button"
-        disabled={disabled}
-        title={disabled ? disabledReason : undefined}
-        onClick={() => {
-          if (disabled) return;
-          setOpen(true);
-          setError(null);
-          setSuccess(null);
-          setPassword("");
-          setPasswordConfirm("");
-          setAutoGenerate(defaultAutoGenerate);
+  const modal =
+    open && typeof document !== "undefined" ? (
+      <div
+        className="fixed inset-0 z-[130] flex max-h-[100dvh] items-end justify-center overflow-y-auto bg-slate-900/40 p-4 sm:items-center sm:p-6"
+        role="presentation"
+        onMouseDown={(e) => {
+          if (e.target === e.currentTarget) close();
         }}
-        className={triggerClass}
       >
-        {triggerLabel}
-      </button>
-
-      {open ? (
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 p-4 sm:items-center"
-          role="presentation"
-          onMouseDown={(e) => {
-            if (e.target === e.currentTarget) close();
-          }}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={titleId}
+          className="my-auto w-full max-w-md rounded-[24px] border border-indigo-100/90 bg-white p-5 shadow-xl"
+          onMouseDown={(e) => e.stopPropagation()}
         >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby={titleId}
-            className="w-full max-w-md rounded-[24px] border border-indigo-100/90 bg-white p-5 shadow-xl"
-            onMouseDown={(e) => e.stopPropagation()}
-          >
             <h2 id={titleId} className="text-base font-bold text-slate-900">
               {heading}
             </h2>
@@ -310,9 +313,33 @@ export function ResetPasswordDialog({
                 </button>
               </div>
             </form>
-          </div>
         </div>
-      ) : null}
+      </div>
+    ) : null;
+
+  return (
+    <div className="flex flex-col gap-1">
+      <button
+        ref={triggerRef}
+        type="button"
+        disabled={disabled}
+        title={disabled ? disabledReason : undefined}
+        onClick={() => {
+          if (disabled) return;
+          onBeforeOpen?.();
+          setOpen(true);
+          setError(null);
+          setSuccess(null);
+          setPassword("");
+          setPasswordConfirm("");
+          setAutoGenerate(defaultAutoGenerate);
+        }}
+        className={triggerClass}
+      >
+        {triggerLabel}
+      </button>
+
+      {modal ? createPortal(modal, document.body) : null}
     </div>
   );
 }
