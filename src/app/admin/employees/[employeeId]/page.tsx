@@ -3051,13 +3051,15 @@ export default async function EmployeeDetailPage({
         roleLine={roleLine}
         statusLabel={employeeStatusMeta.label}
         statusBadgeClass={employeeStatusMeta.badgeClass}
-        onboardingSummaryLine={onboardingSummaryLine}
+        readinessSummaryLine={onboardingSummaryLine}
+        activationBlockerSummary={
+          activationBlockingReasons.length > 0 ? activationBlockingReasons.join("; ") : null
+        }
         email={employee.email || "—"}
         phone={phoneDisplay}
         hireDateLabel={hireDateLabel}
         hireDateDisplay={hireDateDisplay}
       >
-        <div className="flex flex-wrap items-center gap-1.5">
                   <form action={updateEmployeeStatus}>
                     <input type="hidden" name="status" value="onboarding" />
                     <button
@@ -3069,19 +3071,14 @@ export default async function EmployeeDetailPage({
                   </form>
 
                   {activationBlockingReasons.length > 0 ? (
-                    <div className="flex flex-wrap items-center gap-2">
-                      <button
-                        type="button"
-                        disabled
-                        title={activationBlockingReasons.join(" • ")}
-                        className="inline-flex items-center rounded-full border border-slate-200 bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-400"
-                      >
-                        Mark Active
-                      </button>
-                      <span className="max-w-md text-xs font-medium text-red-700">
-                        Cannot mark active: {activationBlockingReasons.join("; ")}
-                      </span>
-                    </div>
+                    <button
+                      type="button"
+                      disabled
+                      title={activationBlockingReasons.join(" • ")}
+                      className="inline-flex items-center rounded-full border border-slate-200 bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-400"
+                    >
+                      Mark Active
+                    </button>
                   ) : !canChangeSensitiveEmployeeStatus ? (
                     <button
                       type="button"
@@ -3202,7 +3199,6 @@ export default async function EmployeeDetailPage({
                       View Exit Interview
                     </a>
                   ) : null}
-        </div>
       </EmployeeAdminSnapshotStrip>
       {!canChangeSensitiveEmployeeStatus ? (
         <p className="border-b border-slate-200 bg-white px-3 pb-2 text-xs text-slate-500 sm:px-4">
