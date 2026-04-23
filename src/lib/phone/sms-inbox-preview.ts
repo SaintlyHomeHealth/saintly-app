@@ -1,6 +1,11 @@
 /**
  * Shared SMS inbox “last message preview” helpers for workspace + admin list routes.
  * Same cap semantics everywhere so preview quality stays consistent and queries stay bounded.
+ *
+ * Preview rows use `ORDER BY created_at DESC` + limit, then first row per `conversation_id` wins
+ * (see `buildSmsInboxPreviewByConversationId`). A DB-side `DISTINCT ON (conversation_id)` would
+ * return the true latest per thread in one row per conv (often fewer rows read) but can differ
+ * from the capped scan when the cap truncates; treat as a product/perf tradeoff — needs approval.
  */
 
 /** Upper bound on message rows scanned to build per-conversation previews (newest-first walk). */

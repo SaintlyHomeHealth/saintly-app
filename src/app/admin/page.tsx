@@ -13,10 +13,35 @@ import {
   isPhoneWorkspaceUser,
   isSuperAdmin,
 } from "@/lib/staff-profile";
+import { applicantRolePrimaryForCompliance } from "@/lib/applicant-role-for-compliance";
+import { getCrmCalendarTodayIso } from "@/lib/crm/crm-local-date";
+import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import {
-  DashboardPushActionCard,
-  DashboardPushLink,
-} from "@/app/admin/dashboard-push-nav";
+  routePerfLog,
+  routePerfStart,
+  routePerfStepsEnabled,
+  routePerfTimed,
+} from "@/lib/perf/route-perf";
+
+const DashboardPushActionCard = dynamic(
+  () =>
+    import("@/app/admin/dashboard-push-nav").then((m) => m.DashboardPushActionCard),
+  {
+    ssr: true,
+    loading: () => (
+      <div className="h-[140px] w-full rounded-[24px] border border-slate-100 bg-slate-50/90" aria-hidden />
+    ),
+  }
+);
+const DashboardPushLink = dynamic(
+  () => import("@/app/admin/dashboard-push-nav").then((m) => m.DashboardPushLink),
+  {
+    ssr: true,
+    loading: () => (
+      <span className="inline-block min-h-[2.75rem] min-w-[8rem] rounded-full bg-slate-100/90" aria-hidden />
+    ),
+  }
+);
 const ProcessNoopBatchButton = dynamic(
   () =>
     import("@/app/admin/process-noop-batch-button").then((m) => m.ProcessNoopBatchButton),
@@ -30,15 +55,6 @@ const ProcessNoopBatchButton = dynamic(
     ),
   }
 );
-import { applicantRolePrimaryForCompliance } from "@/lib/applicant-role-for-compliance";
-import { getCrmCalendarTodayIso } from "@/lib/crm/crm-local-date";
-import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
-import {
-  routePerfLog,
-  routePerfStart,
-  routePerfStepsEnabled,
-  routePerfTimed,
-} from "@/lib/perf/route-perf";
 
 type ApplicantRow = {
   id: string;

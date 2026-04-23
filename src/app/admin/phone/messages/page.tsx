@@ -192,12 +192,12 @@ export default async function AdminSmsInboxPage({ searchParams }: PageProps) {
           )
         : supabaseAdmin.from("staff_profiles").select("user_id, email, full_name").in("user_id", assigneeIds),
     ids.length === 0
-      ? Promise.resolve({ data: null as { conversation_id?: string; body?: string; created_at?: string }[] | null })
+      ? Promise.resolve({ data: null as { conversation_id?: string; body?: string }[] | null })
       : routePerfStepsEnabled()
         ? routePerfTimed("preview_messages", () =>
             supabase
               .from("messages")
-              .select("conversation_id, body, created_at")
+              .select("conversation_id, body")
               .in("conversation_id", ids)
               .is("deleted_at", null)
               .order("created_at", { ascending: false })
@@ -205,7 +205,7 @@ export default async function AdminSmsInboxPage({ searchParams }: PageProps) {
           )
         : supabase
             .from("messages")
-            .select("conversation_id, body, created_at")
+            .select("conversation_id, body")
             .in("conversation_id", ids)
             .is("deleted_at", null)
             .order("created_at", { ascending: false })

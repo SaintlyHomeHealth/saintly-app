@@ -6,6 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "analyze": "ANALYZE=true next build",
+    "analyze:webpack": "ANALYZE=true next build --webpack",
     "start": "next start",
     "lint": "eslint",
     "icons:generate": "node scripts/generate-saintly-icons.mjs",

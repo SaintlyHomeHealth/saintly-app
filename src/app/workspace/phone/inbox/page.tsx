@@ -180,12 +180,12 @@ export default async function WorkspaceInboxPage(props: PageProps) {
       ? routePerfTimed("unread_counts", () => countUnreadInboundByConversationIds(supabase, ids))
       : countUnreadInboundByConversationIds(supabase, ids),
     ids.length === 0
-      ? Promise.resolve({ data: null as { conversation_id?: string; body?: string; created_at?: string }[] | null })
+      ? Promise.resolve({ data: null as { conversation_id?: string; body?: string }[] | null })
       : routePerfStepsEnabled()
         ? routePerfTimed("preview_messages", async () =>
             supabase
               .from("messages")
-              .select("conversation_id, body, created_at")
+              .select("conversation_id, body")
               .in("conversation_id", ids)
               .is("deleted_at", null)
               .order("created_at", { ascending: false })
@@ -193,7 +193,7 @@ export default async function WorkspaceInboxPage(props: PageProps) {
           )
         : supabase
             .from("messages")
-            .select("conversation_id, body, created_at")
+            .select("conversation_id, body")
             .in("conversation_id", ids)
             .is("deleted_at", null)
             .order("created_at", { ascending: false })
