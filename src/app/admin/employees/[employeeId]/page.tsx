@@ -17,7 +17,8 @@ import {
 } from "@/lib/employee-tax-forms";
 import ComplianceEventManager from "@/app/admin/compliance-event-manager";
 import CredentialManager from "./CredentialManager";
-import EmployeeContractTaxSection from "./EmployeeContractTaxSection";
+import AdminApplicationSnapshotSection from "./admin-application-snapshot-section";
+import EmployeeContractTaxWorkflow from "./employee-contract-tax-workflow";
 import EmployeeOnboardingCard from "./EmployeeOnboardingCard";
 import {
   applicantRolePrimaryForCompliance,
@@ -1006,10 +1007,12 @@ export default async function EmployeeDetailPage({
     inviteOk?: string;
     inviteErr?: string;
     toast?: string;
+    contractsWorkflow?: string;
   }>;
 }) {
   const resolvedParams = await params;
   const resolvedSearchParams = searchParams ? await searchParams : undefined;
+  const showContractsWorkflow = resolvedSearchParams?.contractsWorkflow === "1";
   const employeeId = resolvedParams.employeeId || resolvedParams.id;
 
   if (!employeeId) {
@@ -1293,6 +1296,47 @@ export default async function EmployeeDetailPage({
   if (!employee) {
     return <div className="p-6">Employee not found</div>;
   }
+
+  const [
+    { data: applicationWorkHistoryRaw },
+    { data: applicationReferencesRaw },
+    { data: onboardingEmergencySnapshot },
+  ] = await Promise.all([
+    supabaseAdmin
+      .from("applicant_work_history")
+      .select(
+        "employer_name, job_title, city_state, dates_employed, primary_duties, reason_for_leaving, sort_order"
+      )
+      .eq("applicant_id", employeeId)
+      .order("sort_order", { ascending: true }),
+    supabaseAdmin
+      .from("applicant_references")
+      .select("name, relationship, phone, email, sort_order")
+      .eq("applicant_id", employeeId)
+      .order("sort_order", { ascending: true }),
+    supabase
+      .from("onboarding_contracts")
+      .select(
+        "emergency_contact_name, emergency_contact_relationship, emergency_contact_phone, emergency_contact_secondary, emergency_medical_conditions, emergency_allergies, emergency_acknowledged, emergency_full_name, emergency_signed_at"
+      )
+      .eq("applicant_id", employeeId)
+      .maybeSingle(),
+  ]);
+
+  const applicationWorkHistory = (applicationWorkHistoryRaw || []) as Array<{
+    employer_name?: string | null;
+    job_title?: string | null;
+    city_state?: string | null;
+    dates_employed?: string | null;
+    primary_duties?: string | null;
+    reason_for_leaving?: string | null;
+  }>;
+  const applicationReferences = (applicationReferencesRaw || []) as Array<{
+    name?: string | null;
+    relationship?: string | null;
+    phone?: string | null;
+    email?: string | null;
+  }>;
 
   const supabaseAuthedForBatch = await createServerSupabaseClient();
 
@@ -2535,6 +2579,28 @@ export default async function EmployeeDetailPage({
     })
   );
 
+  const hasInitialDriversLicenseUpload =
+    uploadedDocumentTypes.has("drivers_license") || Boolean(latestDriversLicenseProof);
+  const hasInitialAutoInsuranceUpload = Boolean(latestAutoInsuranceProofNormalized);
+
+  const driversLicenseHistory = adminUploadRecords
+    .filter((file) => (file.document_type || "").toLowerCase().trim() === "drivers_license")
+    .slice()
+    .sort(
+      (a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+    );
+
+  const autoInsuranceHistory = adminUploadRecords
+    .filter(
+      (file) =>
+        (file.document_type || "").toLowerCase().trim() === "auto_insurance" ||
+        normalizeCredentialTypeKey(file.document_type) === "auto_insurance"
+    )
+    .slice()
+    .sort(
+      (a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+    );
+
   const documentsComplianceInitialHiring: InitialHiringRowDef[] = [
     {
       key: "oig",
@@ -2563,6 +2629,36 @@ export default async function EmployeeDetailPage({
       uploadLabel: "Background Check",
       anchorId: "background-section",
       history: buildAdminUploadHistoryDisplay(backgroundCheckHistory),
+    },
+    {
+      key: "drivers-license-initial",
+      label: "Driver’s License (initial file)",
+      statusLabel: hasInitialDriversLicenseUpload ? "On file" : "Missing",
+      statusTone: hasInitialDriversLicenseUpload ? "green" : "red",
+      lastUpdatedDisplay: latestDriversLicenseProof?.created_at
+        ? formatDateTime(latestDriversLicenseProof.created_at)
+        : "—",
+      viewUrl: (latestDriversLicenseProof as AdminUploadRecord | null)?.viewUrl ?? null,
+      documentType: "drivers_license",
+      uploadLabel: "Driver’s License",
+      anchorId: "drivers-license-section",
+      history: buildAdminUploadHistoryDisplay(driversLicenseHistory),
+      workflowOpenHref: `${employeePageBase}#credentials-section`,
+    },
+    {
+      key: "auto-insurance-initial",
+      label: "Auto Insurance (initial file)",
+      statusLabel: hasInitialAutoInsuranceUpload ? "On file" : "Missing",
+      statusTone: hasInitialAutoInsuranceUpload ? "green" : "red",
+      lastUpdatedDisplay: latestAutoInsuranceProofNormalized?.created_at
+        ? formatDateTime(latestAutoInsuranceProofNormalized.created_at)
+        : "—",
+      viewUrl: (latestAutoInsuranceProofNormalized as AdminUploadRecord | null)?.viewUrl ?? null,
+      documentType: "auto_insurance",
+      uploadLabel: "Auto Insurance",
+      anchorId: "auto_insurance-section",
+      history: buildAdminUploadHistoryDisplay(autoInsuranceHistory),
+      workflowOpenHref: `${employeePageBase}#credentials-section`,
     },
     {
       key: "fingerprint",
@@ -3064,6 +3160,15 @@ export default async function EmployeeDetailPage({
         subtitle="Portal pipeline, hire setup checklist, personnel file audit, and onboarding tools."
         defaultCollapsed={true}
       >
+        <AdminApplicationSnapshotSection
+          employeeId={employeeId}
+          applicationViewHref={applicationViewHref}
+          employee={employeeRecord}
+          onboardingStatus={onboardingStatus ?? null}
+          workHistory={applicationWorkHistory}
+          references={applicationReferences}
+          emergency={onboardingEmergencySnapshot ?? null}
+        />
         <AdminOnboardingCommandCenter
           employeeId={employeeId}
           employeeName={displayName}
@@ -3384,18 +3489,21 @@ export default async function EmployeeDetailPage({
 
       <OnboardingWorkflowSectionCollapsible
         title="Tax, contracts & agreements"
-        subtitle="Employment contract wizard, signatures, and tax forms."
+        subtitle="Compact status and actions — open the workflow when you need to prepare, send, or sign."
         defaultCollapsed={true}
       >
-        <div id="tax-forms-section" className="scroll-mt-24">
-          <EmployeeContractTaxSection
-            applicantId={employeeId}
-            employeeName={displayName}
-            initialContract={employeeContract}
-            suggestedRoleKey={suggestedContractRole}
-            initialTaxForm={employeeTaxForm}
-          />
-        </div>
+        <EmployeeContractTaxWorkflow
+          employeeId={employeeId}
+          employeeName={displayName}
+          employeePageBase={employeePageBase}
+          showWorkflowInitially={showContractsWorkflow}
+          initialContract={employeeContract}
+          suggestedRoleKey={suggestedContractRole}
+          initialTaxForm={employeeTaxForm}
+          contractPdfHref={contractPdfHref}
+          taxFormPdfHref={taxFormPdfHref}
+          isTaxFormSigned={isTaxFormSigned}
+        />
       </OnboardingWorkflowSectionCollapsible>
       <OnboardingWorkflowSectionCollapsible
         title="Credentials & expiring"

@@ -98,7 +98,7 @@ export default function EmployeeDocumentsComplianceDashboard({
     <div id="documents-compliance-dashboard" className="min-w-0 space-y-4 scroll-mt-24">
       <SectionTable
         title="Initial hiring requirements"
-        description="One-time file uploads and verification items for the personnel file."
+        description="One-time file uploads for the personnel file (including initial driver’s license and auto insurance documents). Credential expirations are tracked separately below."
       >
         <table className="w-full min-w-[640px] text-left text-sm">
           <thead>
