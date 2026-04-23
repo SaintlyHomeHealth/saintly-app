@@ -1,7 +1,13 @@
 import { revalidatePath } from "next/cache";
 import { NextResponse } from "next/server";
 
+import {
+  generateStaffResendSignInLink,
+  logStaffAuthInvite,
+} from "@/lib/admin/staff-auth-invite-provision";
 import { normalizeStaffLookupEmail } from "@/lib/admin/staff-auth-shared";
+import { staffAuthInviteEmailSubject, sendStaffAuthInviteEmail } from "@/lib/email/send-staff-auth-invite-email";
+import { isOnboardingEmailConfigured } from "@/lib/email/send-onboarding-invite";
 import { insertAuditLog } from "@/lib/audit-log";
 import { DEFAULT_POST_LOGIN_PATH } from "@/lib/auth/post-login-redirect";
 import { supabaseAdmin } from "@/lib/admin";
@@ -18,7 +24,7 @@ function appOrigin(): string {
 }
 
 /**
- * Re-sends Supabase invite email for an existing linked auth user (recovery / nudge).
+ * Re-sends a sign-in link via our Resend sender (Supabase Auth does not email the user here).
  */
 export async function POST(req: Request) {
   const actor = await getStaffProfile();
@@ -89,33 +95,71 @@ export async function POST(req: Request) {
   }
 
   const metaName = typeof row.full_name === "string" ? row.full_name : "";
+  const firstName = metaName.trim().split(/\s+/)[0] || "there";
   const redirectTo = `${appOrigin()}/auth/callback?next=${encodeURIComponent(DEFAULT_POST_LOGIN_PATH)}`;
 
-  const inviteRes = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
-    redirectTo,
-    data: { full_name: metaName },
+  if (!isOnboardingEmailConfigured()) {
+    return NextResponse.json(
+      { ok: false, error: "resend_not_configured", detail: "Set RESEND_API_KEY and RESEND_FROM to send sign-in links." },
+      { status: 503 }
+    );
+  }
+
+  const linkRes = await generateStaffResendSignInLink({ email, metaName, redirectTo });
+  if (!linkRes.ok) {
+    logStaffAuthInvite("resend_link_fail", {
+      path: "resend_invite",
+      recipient: email,
+      supabaseMethod: "generateLink_magiclink",
+      error: linkRes.error,
+      detail: linkRes.detail,
+    });
+    return NextResponse.json(
+      { ok: false, error: "invite_failed", detail: linkRes.detail },
+      { status: 502 }
+    );
+  }
+  logStaffAuthInvite("resend_link_ok", {
+    path: "resend_invite",
+    branch: "magiclink_then_resend",
+    recipient: email,
+    supabaseMethod: linkRes.supabaseMethod,
+    templateType: "staff_auth_invite",
+    supabaseAuthEmailSkipped: true,
   });
 
-  if (inviteRes.error) {
-    const gl = await supabaseAdmin.auth.admin.generateLink({
-      type: "invite",
-      email,
-      options: { redirectTo, data: { full_name: metaName } },
+  const em = await sendStaffAuthInviteEmail({
+    to: email,
+    firstName,
+    signInUrl: linkRes.actionLink,
+  });
+  if (!em.ok) {
+    logStaffAuthInvite("invite_email_fail", {
+      path: "resend_invite",
+      recipient: email,
+      emailProvider: "resend",
+      subject: staffAuthInviteEmailSubject(),
+      templateType: "staff_auth_invite",
+      error: em.error,
     });
-    if (gl.error) {
-      console.warn("[resend-invite]", inviteRes.error.message, gl.error.message);
-      return NextResponse.json(
-        { ok: false, error: "invite_failed", detail: inviteRes.error.message || gl.error.message },
-        { status: 502 }
-      );
-    }
+    return NextResponse.json(
+      { ok: false, error: "invite_email_failed", detail: em.error },
+      { status: 502 }
+    );
   }
+  logStaffAuthInvite("invite_email_ok", {
+    path: "resend_invite",
+    recipient: email,
+    emailProvider: "resend",
+    subject: staffAuthInviteEmailSubject(),
+    templateType: "staff_auth_invite",
+  });
 
   await insertAuditLog({
     action: "staff.resend_invite",
     entityType: "staff_profiles",
     entityId: staffProfileId,
-    metadata: { email },
+    metadata: { email, invite_email: "resend" },
   });
 
   const delivery: { smsSent?: boolean; smsError?: string } = {};

@@ -302,6 +302,34 @@ async function deliverOnboardingInvite(input: DeliverOnboardingInviteInput): Pro
     });
   }
 
+  console.info(
+    JSON.stringify({
+      source: "employee_onboarding_invite",
+      event: "deliver_complete",
+      t: new Date().toISOString(),
+      branch: "applicant_onboarding",
+      channel,
+      applicantId,
+      supabaseAuthMethod: null,
+      email:
+        emailSent || (channel === "email" || channel === "both")
+          ? {
+              provider: emailSent ? "resend" : "none_or_failed",
+              to: emailNorm,
+              subject:
+                input.emailVariant === "resume"
+                  ? "Resume your Saintly Home Health onboarding"
+                  : "Complete your Saintly Home Health onboarding",
+              templateType: input.emailVariant === "resume" ? "onboarding_resume" : "onboarding_invite",
+            }
+          : undefined,
+      sms:
+        channel === "sms" || channel === "both"
+          ? { provider: smsSent ? "twilio" : "none_or_failed", to: e164 ?? null }
+          : undefined,
+    })
+  );
+
   revalidatePath("/admin/employees");
   revalidatePath(`/admin/employees/${applicantId}`);
 

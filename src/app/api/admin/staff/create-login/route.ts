@@ -8,6 +8,10 @@ import {
   type StaffRowForAuthSync,
 } from "@/lib/admin/staff-auth-link";
 import {
+  logStaffAuthInvite,
+  provisionStaffAuthInviteForEmail,
+} from "@/lib/admin/staff-auth-invite-provision";
+import {
   generateServerTemporaryPassword,
   STAFF_TEMP_PASSWORD_MAX,
   STAFF_TEMP_PASSWORD_MIN,
@@ -18,6 +22,8 @@ import {
   deliverTemporaryPasswordToEmail,
   deliverTemporaryPasswordToSms,
 } from "@/lib/admin/staff-temp-credential-delivery";
+import { staffAuthInviteEmailSubject, sendStaffAuthInviteEmail } from "@/lib/email/send-staff-auth-invite-email";
+import { isOnboardingEmailConfigured } from "@/lib/email/send-onboarding-invite";
 import { insertAuditLog } from "@/lib/audit-log";
 import { DEFAULT_POST_LOGIN_PATH } from "@/lib/auth/post-login-redirect";
 import { supabaseAdmin } from "@/lib/admin";
@@ -31,49 +37,8 @@ function appOrigin(): string {
   );
 }
 
-async function resolveInviteUserId(
-  email: string,
-  metaName: string,
-  redirectTo: string
-): Promise<{ userId: string } | { error: string; detail?: string }> {
-  const inviteRes = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
-    redirectTo,
-    data: { full_name: metaName },
-  });
-
-  let newUserId: string | null = inviteRes.data?.user?.id ?? null;
-
-  if (!newUserId) {
-    newUserId = await findAuthUserIdByEmail(email);
-  }
-
-  if (!newUserId) {
-    const gl = await supabaseAdmin.auth.admin.generateLink({
-      type: "invite",
-      email,
-      options: {
-        redirectTo,
-        data: { full_name: metaName },
-      },
-    });
-    if (gl.error) {
-      console.warn(
-        "[api/admin/staff/create-login] invite:",
-        inviteRes.error?.message ?? gl.error.message
-      );
-      return {
-        error: "auth_provision_failed",
-        detail: inviteRes.error?.message ?? gl.error.message,
-      };
-    }
-    newUserId = gl.data?.user?.id ?? null;
-  }
-
-  if (!newUserId) {
-    return { error: "auth_provision_failed" };
-  }
-
-  return { userId: newUserId };
+function firstNameFromMetaName(fullName: string): string {
+  return fullName.trim().split(/\s+/)[0] || "there";
 }
 
 /** Ensures password sign-in works immediately (GoTrue email confirmation). */
@@ -156,7 +121,7 @@ async function tryWelcomeSms(
  * - mode: "invite" | "temporary_password" (default "invite")
  * - password, passwordConfirm: required when mode is temporary_password
  * - smsNotifyPhone: optional; when present, saved to staff_profiles before provisioning / SMS
- * - deliverEmail / deliverSms: for temporary_password, send credentials; for invite, deliverSms sends welcome text (invite email is always sent by Supabase)
+ * - deliverEmail / deliverSms: for temporary_password, send credentials; for invite, deliverSms sends welcome text (sign-in link email is sent by our Resend sender, not Supabase)
  * - sendWelcomeSms: legacy, same as deliverSms when true
  * - requirePasswordChange: default true (temporary_password only)
  */
@@ -394,15 +359,42 @@ export async function POST(req: Request) {
     });
   }
 
-  const resolved = await resolveInviteUserId(email, metaName, redirectTo);
-  if ("error" in resolved) {
+  if (!isOnboardingEmailConfigured()) {
     return NextResponse.json(
-      { ok: false, error: resolved.error, detail: resolved.detail },
+      { ok: false, error: "resend_not_configured", detail: "Set RESEND_API_KEY and RESEND_FROM to send staff sign-in links." },
+      { status: 503 }
+    );
+  }
+
+  const provisioned = await provisionStaffAuthInviteForEmail({
+    email,
+    metaName,
+    redirectTo,
+  });
+  if (!provisioned.ok) {
+    logStaffAuthInvite("provision_fail", {
+      path: "create_login_invite",
+      recipient: email,
+      supabaseMethod: "generateLink",
+      error: provisioned.error,
+      detail: provisioned.detail,
+    });
+    return NextResponse.json(
+      { ok: false, error: provisioned.error, detail: provisioned.detail },
       { status: 502 }
     );
   }
 
-  const sync = await syncStaffProfileWithAuthUser(row, resolved.userId);
+  logStaffAuthInvite("provision_ok", {
+    path: "create_login_invite",
+    branch: "provision_then_resend",
+    supabaseMethod: provisioned.supabaseMethod,
+    recipient: email,
+    templateType: "staff_auth_invite",
+    supabaseAuthEmailSkipped: true,
+  });
+
+  const sync = await syncStaffProfileWithAuthUser(row, provisioned.userId);
   if (!sync.ok) {
     return NextResponse.json(
       { ok: false, error: sync.error, detail: sync.detail },
@@ -410,14 +402,51 @@ export async function POST(req: Request) {
     );
   }
 
+  const firstName = firstNameFromMetaName(metaName);
+  const em = await sendStaffAuthInviteEmail({
+    to: email,
+    firstName,
+    signInUrl: provisioned.actionLink,
+  });
+  if (!em.ok) {
+    logStaffAuthInvite("invite_email_fail", {
+      path: "create_login_invite",
+      recipient: email,
+      emailProvider: "resend",
+      subject: staffAuthInviteEmailSubject(),
+      templateType: "staff_auth_invite",
+      error: em.error,
+    });
+    return NextResponse.json(
+      { ok: false, error: "invite_email_failed", detail: em.error },
+      { status: 502 }
+    );
+  }
+  logStaffAuthInvite("invite_email_ok", {
+    path: "create_login_invite",
+    recipient: email,
+    emailProvider: "resend",
+    subject: staffAuthInviteEmailSubject(),
+    templateType: "staff_auth_invite",
+  });
+
   await insertAuditLog({
     action: "staff.create_login",
     entityType: "staff_profiles",
     entityId: staffProfileId,
-    metadata: { email: sync.authEmail, method: "invite", outcome: "invite_linked" },
+    metadata: {
+      email: sync.authEmail,
+      method: "invite",
+      outcome: "invite_linked",
+      invite_email: "resend",
+      supabase_link_kind: provisioned.supabaseMethod,
+    },
   });
 
-  const delivery: { smsSent?: boolean; smsError?: string } = {};
+  const delivery: { emailSent?: boolean; smsSent?: boolean; smsError?: string; emailProvider?: string } = {
+    emailSent: true,
+    emailProvider: "resend",
+  };
 
   if (deliverSms) {
     if (normalizePhone(smsOnRow ?? "").length < 10) {
