@@ -27,6 +27,8 @@ import { getCredentialAnchorId } from "@/lib/credential-anchors";
 import { EmployeeArchiveButton } from "@/app/admin/employees/EmployeeArchiveButton";
 import { buildUnifiedOnboardingState } from "@/lib/onboarding/unified-onboarding-state";
 import AdminOnboardingCommandCenter from "./admin-onboarding-command-center";
+import EmployeeAdminActionRequiredTable from "./employee-admin-action-required-table";
+import EmployeeAdminSnapshotStrip from "./employee-admin-snapshot-strip";
 import type { PersonnelFileAuditItem } from "./personnel-file-audit-deferred";
 import OnboardingWorkflowSectionCollapsible from "./onboarding-workflow-section-collapsible";
 import PersonnelFileAuditDeferred from "./personnel-file-audit-loader";
@@ -2971,6 +2973,23 @@ export default async function EmployeeDetailPage({
       : "";
   const employeeIsInactive = String(employee.status || "").toLowerCase() === "inactive";
 
+  const displayName =
+    `${employee.first_name || ""} ${employee.last_name || ""}`.trim() || "Employee";
+  const roleTitleParts = [
+    employeeContract?.role_label?.trim(),
+    typeof employee.position === "string" ? employee.position.trim() : "",
+    typeof employee.primary_discipline === "string" ? employee.primary_discipline.trim() : "",
+  ].filter((s): s is string => Boolean(s));
+  const roleLine = roleTitleParts.length > 0 ? roleTitleParts.join(" · ") : "—";
+  const phoneDisplay =
+    typeof employee.phone === "string" && employee.phone.trim() ? employee.phone.trim() : null;
+  const hireEffective = employeeContract?.effective_date;
+  const hireDateDisplay = hireEffective ? formatDate(hireEffective) : "—";
+  const hireDateLabel = "Contract start";
+  const onboardingSummaryLine = `Onboarding ${Math.round(onboardingCommandSnapshot.percentComplete)}% · Survey ${
+    isSurveyReady ? "ready" : "not ready"
+  }`;
+
   return (
     <div className="mx-auto w-full max-w-7xl space-y-6 p-6">
       {statusChangeDeniedMessage ? (
@@ -3027,54 +3046,18 @@ export default async function EmployeeDetailPage({
         </div>
       ) : null}
 
-      <div id="onboarding-admin-summary" className="scroll-mt-24 space-y-5">
-        <AdminOnboardingCommandCenter
-          employeeId={employeeId}
-          employeeName={`${employee.first_name || ""} ${employee.last_name || ""}`.trim() || "Employee"}
-          snapshot={onboardingCommandSnapshot}
-        />
-        <div id="onboarding-portal-section">
-          <EmployeeOnboardingCard
-            employeeId={employeeId}
-            onboardingStatus={
-              onboardingStatus ? { ...onboardingStatus, applicant_id: employeeId } : null
-            }
-          />
-        </div>
-      </div>
-
-      <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
-        <div className="border-b border-slate-100 bg-slate-50/50 p-4">
-          <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-            <div className="max-w-3xl min-w-0">
-              <div className="inline-flex items-center rounded border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-600">
-                Employee record
-              </div>
-
-              <h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-900">
-                {employee.first_name} {employee.last_name}
-              </h1>
-
-              <p className="mt-1 text-sm text-slate-600">{employee.email}</p>
-
-              <div className="mt-4 flex flex-col gap-3">
-                <div className="flex flex-wrap items-center gap-3">
-                  <span
-                    className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${employeeStatusMeta.badgeClass}`}
-                  >
-                    {employeeStatusMeta.label}
-                  </span>
-
-                  <span
-                    className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${getBadgeClasses(
-                      isSurveyReady ? "green" : "red"
-                    )}`}
-                  >
-                    {isSurveyReady ? "Survey Ready" : "Not Ready"}
-                  </span>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-3">
+      <EmployeeAdminSnapshotStrip
+        name={displayName}
+        roleLine={roleLine}
+        statusLabel={employeeStatusMeta.label}
+        statusBadgeClass={employeeStatusMeta.badgeClass}
+        onboardingSummaryLine={onboardingSummaryLine}
+        email={employee.email || "—"}
+        phone={phoneDisplay}
+        hireDateLabel={hireDateLabel}
+        hireDateDisplay={hireDateDisplay}
+      >
+        <div className="flex flex-wrap items-center gap-1.5">
                   <form action={updateEmployeeStatus}>
                     <input type="hidden" name="status" value="onboarding" />
                     <button
@@ -3086,7 +3069,7 @@ export default async function EmployeeDetailPage({
                   </form>
 
                   {activationBlockingReasons.length > 0 ? (
-                    <div className="flex flex-wrap items-center gap-3">
+                    <div className="flex flex-wrap items-center gap-2">
                       <button
                         type="button"
                         disabled
@@ -3095,9 +3078,9 @@ export default async function EmployeeDetailPage({
                       >
                         Mark Active
                       </button>
-                      <p className="text-xs font-medium text-red-700">
-                        Cannot mark active yet: {activationBlockingReasons.join("; ")}
-                      </p>
+                      <span className="max-w-md text-xs font-medium text-red-700">
+                        Cannot mark active: {activationBlockingReasons.join("; ")}
+                      </span>
                     </div>
                   ) : !canChangeSensitiveEmployeeStatus ? (
                     <button
@@ -3219,118 +3202,36 @@ export default async function EmployeeDetailPage({
                       View Exit Interview
                     </a>
                   ) : null}
-                </div>
-
-                {!canChangeSensitiveEmployeeStatus ? (
-                  <p className="text-xs text-slate-500">
-                    Active/inactive status, exit finalization, credential edits, and survey packet
-                    snapshots require an admin or super admin.
-                  </p>
-                ) : null}
-              </div>
-
-              {!isSurveyReady ? (
-                <p className="mt-3 text-xs text-slate-500">Missing: {surveyMissingSummary}</p>
-              ) : null}
-
-              <p className="mt-3 max-w-2xl text-xs leading-relaxed text-slate-600">
-                Annual compliance uses separate event records so each year stays auditable without
-                overwriting prior forms.
-              </p>
-            </div>
-
-            <div className="min-w-0 xl:w-[420px]">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                Open program
-              </p>
-              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1.5 text-sm">
-                <Link href={skillsHref} className="font-medium text-sky-800 hover:underline">
-                  Skills <span className="font-normal text-slate-500">({skillsState.label})</span>
-                </Link>
-                <Link href={performanceHref} className="font-medium text-sky-800 hover:underline">
-                  Performance <span className="font-normal text-slate-500">({performanceState.label})</span>
-                </Link>
-                <Link href={oigHref} className="font-medium text-sky-800 hover:underline">
-                  OIG <span className="font-normal text-slate-500">({oigState.label})</span>
-                </Link>
-                <Link href={contractHref} className="font-medium text-sky-800 hover:underline">
-                  Contract review <span className="font-normal text-slate-500">({contractState.label})</span>
-                </Link>
-                <Link href={trainingHref} className="font-medium text-sky-800 hover:underline">
-                  Training <span className="font-normal text-slate-500">({trainingState.label})</span>
-                </Link>
-                <Link href={tbHref} className="font-medium text-sky-800 hover:underline">
-                  TB statement <span className="font-normal text-slate-500">({tbState.label})</span>
-                </Link>
-              </div>
-              <Link
-                href="#documents-compliance-dashboard"
-                className="mt-3 inline-block text-xs font-semibold text-sky-700 underline"
-              >
-                Documents & compliance tables
-              </Link>
-            </div>
-          </div>
         </div>
-
-        <div className="grid gap-2 border-t border-slate-100 bg-white p-3 md:grid-cols-2 xl:grid-cols-3">
-          {complianceSummary.map((item) => (
-            <div key={item.label} className="rounded-md border border-slate-200 bg-white px-3 py-2">
-              <div className="flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-xs font-semibold text-slate-900">{item.label}</p>
-                  <p className="mt-0.5 text-[11px] text-slate-500">{item.progress}</p>
-                </div>
-
-                <div className="flex flex-wrap items-center justify-end gap-2">
-                  <Link
-                    href={item.sectionHref}
-                    className="inline-flex items-center rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
-                  >
-                    Go
-                  </Link>
-                  {item.showPrint ? (
-                    <a
-                      href={item.printHref}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
-                    >
-                      {item.printLabel}
-                    </a>
-                  ) : null}
-                  {item.showView && item.viewHref ? (
-                    <a
-                      href={item.viewHref}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
-                    >
-                      View
-                    </a>
-                  ) : null}
-
-                  <span
-                    className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${getBadgeClasses(
-                      item.tone
-                    )}`}
-                  >
-                    {item.value}
-                  </span>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
+      </EmployeeAdminSnapshotStrip>
+      {!canChangeSensitiveEmployeeStatus ? (
+        <p className="border-b border-slate-200 bg-white px-3 pb-2 text-xs text-slate-500 sm:px-4">
+          Active/inactive status, exit finalization, credential edits, and survey packet snapshots require
+          an admin or super admin.
+        </p>
+      ) : null}
+      <EmployeeAdminActionRequiredTable steps={onboardingCommandSnapshot.blockingSteps} />
 
       <OnboardingWorkflowSectionCollapsible
         id="onboarding-section"
-        title="Onboarding pipeline detail"
-        subtitle="Portal steps and application status before hire setup is finalized."
-        defaultCollapsed={isSurveyReady}
+        title="Initial hiring requirements"
+        subtitle="Portal pipeline, hire setup checklist, personnel file audit, and onboarding tools."
+        defaultCollapsed={true}
       >
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <AdminOnboardingCommandCenter
+          employeeId={employeeId}
+          employeeName={displayName}
+          snapshot={onboardingCommandSnapshot}
+        />
+        <div id="onboarding-portal-section" className="mt-4">
+          <EmployeeOnboardingCard
+            employeeId={employeeId}
+            onboardingStatus={
+              onboardingStatus ? { ...onboardingStatus, applicant_id: employeeId } : null
+            }
+          />
+        </div>
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
           {onboardingStatusItems.map((item) => (
             <WorkflowStatusCard
               key={item.label}
@@ -3341,18 +3242,17 @@ export default async function EmployeeDetailPage({
           ))}
         </div>
 
-        <PersonnelFileAuditDeferred
-          items={personnelFileAuditForDeferred}
-          surveyReadyBadge={isSurveyReady ? "green" : "red"}
-        />
-      </OnboardingWorkflowSectionCollapsible>
+        <div className="mt-4">
+          <PersonnelFileAuditDeferred
+            items={personnelFileAuditForDeferred}
+            surveyReadyBadge={isSurveyReady ? "green" : "red"}
+          />
+        </div>
 
-      <WorkflowSection
-        id="hire-setup-section"
-        title="Hire Setup"
-        subtitle="Finalize employee setup items needed for hiring, activation, and initial competency review."
-      >
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div
+          id="hire-setup-section"
+          className="mt-4 grid scroll-mt-24 gap-3 md:grid-cols-2 xl:grid-cols-4"
+        >
           {hireSetupItems.map((item) => (
             <WorkflowStatusCard
               key={item.label}
@@ -3362,38 +3262,102 @@ export default async function EmployeeDetailPage({
             />
           ))}
         </div>
+      </OnboardingWorkflowSectionCollapsible>
 
-        <div className="mt-6 space-y-6">
-          <div id="skills-section">
-            <VersionedEventCard
-              employeeId={employeeId}
-              title="Skills Competency"
-              subtitle="Initial and annual clinical competency tracking tied to the active event."
-              href={skillsHref}
-              printHref={skillsPrintHref}
-              event={skillsEvent}
-              form={skillsForm}
-              progress={skillsProgress}
-              historyForms={skillsHistoryFormsPreview}
-            />
-          </div>
-
-          <div id="tax-forms-section">
-            <EmployeeContractTaxSection
-              applicantId={employeeId}
-              employeeName={`${employee.first_name || ""} ${employee.last_name || ""}`.trim()}
-              initialContract={employeeContract}
-              suggestedRoleKey={suggestedContractRole}
-              initialTaxForm={employeeTaxForm}
-            />
-          </div>
-        </div>
-      </WorkflowSection>
-
-      <WorkflowSection
-        title="Annual Compliance"
-        subtitle="Review recurring annual requirements, manage events, and keep historical records intact."
+      <OnboardingWorkflowSectionCollapsible
+        title="Compliance & ongoing programs"
+        subtitle="Annual requirements, program shortcuts, documents dashboard, and compliance history."
+        defaultCollapsed={true}
       >
+        <p className="text-xs leading-snug text-slate-500">
+          Annual compliance uses separate event records so each year stays auditable without overwriting prior
+          forms.
+        </p>
+        <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 border-b border-slate-100 pb-3 text-sm">
+          <Link href={skillsHref} className="font-medium text-sky-800 hover:underline">
+            Skills <span className="font-normal text-slate-500">({skillsState.label})</span>
+          </Link>
+          <Link href={performanceHref} className="font-medium text-sky-800 hover:underline">
+            Performance <span className="font-normal text-slate-500">({performanceState.label})</span>
+          </Link>
+          <Link href={oigHref} className="font-medium text-sky-800 hover:underline">
+            OIG <span className="font-normal text-slate-500">({oigState.label})</span>
+          </Link>
+          <Link href={contractHref} className="font-medium text-sky-800 hover:underline">
+            Contract review <span className="font-normal text-slate-500">({contractState.label})</span>
+          </Link>
+          <Link href={trainingHref} className="font-medium text-sky-800 hover:underline">
+            Training <span className="font-normal text-slate-500">({trainingState.label})</span>
+          </Link>
+          <Link href={tbHref} className="font-medium text-sky-800 hover:underline">
+            TB statement <span className="font-normal text-slate-500">({tbState.label})</span>
+          </Link>
+          <Link href="#documents-compliance-dashboard" className="text-xs font-semibold text-sky-700 underline">
+            Documents & compliance tables
+          </Link>
+        </div>
+
+        <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+          {complianceSummary.map((item) => (
+            <div key={item.label} className="rounded border border-slate-200 bg-slate-50/40 px-2.5 py-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold text-slate-900">{item.label}</p>
+                  <p className="text-[11px] text-slate-500">{item.progress}</p>
+                </div>
+                <div className="flex flex-wrap items-center justify-end gap-1.5">
+                  <Link
+                    href={item.sectionHref}
+                    className="inline-flex items-center rounded border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-700 transition hover:bg-slate-50"
+                  >
+                    Go
+                  </Link>
+                  {item.showPrint ? (
+                    <a
+                      href={item.printHref}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center rounded border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-700 transition hover:bg-slate-50"
+                    >
+                      {item.printLabel}
+                    </a>
+                  ) : null}
+                  {item.showView && item.viewHref ? (
+                    <a
+                      href={item.viewHref}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center rounded border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-700 transition hover:bg-slate-50"
+                    >
+                      View
+                    </a>
+                  ) : null}
+                  <span
+                    className={`inline-flex rounded px-2 py-0.5 text-[11px] font-semibold ${getBadgeClasses(
+                      item.tone
+                    )}`}
+                  >
+                    {item.value}
+                  </span>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="mt-4" id="skills-section">
+          <VersionedEventCard
+            employeeId={employeeId}
+            title="Skills Competency"
+            subtitle="Initial and annual clinical competency tracking tied to the active event."
+            href={skillsHref}
+            printHref={skillsPrintHref}
+            event={skillsEvent}
+            form={skillsForm}
+            progress={skillsProgress}
+            historyForms={skillsHistoryFormsPreview}
+          />
+        </div>
+
         {actionableReminderItems.length > 0 ? (
           <div className="mb-4 rounded border border-amber-200 bg-amber-50/70 px-3 py-2">
             <p className="text-xs font-semibold uppercase tracking-wide text-amber-950">Needs attention</p>
@@ -3411,11 +3375,11 @@ export default async function EmployeeDetailPage({
         ) : null}
 
         <p className="text-xs text-slate-500">
-          Current program status lives in the{" "}
+          Program status: use the{" "}
           <Link href="#documents-compliance-dashboard" className="font-semibold text-sky-700 underline">
-            ongoing / compliance table
+            documents & compliance tables
           </Link>{" "}
-          and the compact status row under the employee header.
+          below and the <span className="font-medium text-slate-700">Action required</span> section above.
         </p>
 
         <div className="mt-6" id="performance-section">
@@ -3634,11 +3598,66 @@ export default async function EmployeeDetailPage({
           </div>
         )}
         </div>
-      </WorkflowSection>
+      </OnboardingWorkflowSectionCollapsible>
 
-      <WorkflowSection
-        title="Expiring Credentials"
+      <OnboardingWorkflowSectionCollapsible
+        title="Training details"
+        subtitle="Onboarding training completion and certificates."
+        defaultCollapsed={true}
+      >
+        <div className="grid gap-3 text-sm sm:grid-cols-2">
+          <div>
+            <p className="text-xs font-semibold text-slate-500">Onboarding training</p>
+            <p className="mt-1 font-medium text-slate-900">{isTrainingComplete ? "Complete" : "Incomplete"}</p>
+          </div>
+          <div>
+            <p className="text-xs font-semibold text-slate-500">Recorded artifacts</p>
+            <p className="mt-1 text-slate-800">
+              Training progress rows: {trainingProgressRows?.length ?? 0}
+              {" · "}
+              Completions logged:{" "}
+              {(onboardingTrainingCompletions?.length || 0) + (latestTrainingCompletion ? 1 : 0)}
+            </p>
+          </div>
+        </div>
+        {trainingCertificateHref ? (
+          <a
+            href={trainingCertificateHref}
+            className="mt-3 inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+          >
+            Download training certificate
+          </a>
+        ) : (
+          <p className="mt-3 text-xs text-slate-500">No training certificate on file yet.</p>
+        )}
+        <p className="mt-3 text-xs text-slate-500">
+          Annual checklist:{" "}
+          <Link href={trainingHref} className="font-semibold text-sky-700 underline">
+            Open annual training checklist
+          </Link>
+          .
+        </p>
+      </OnboardingWorkflowSectionCollapsible>
+
+      <OnboardingWorkflowSectionCollapsible
+        title="Tax, contracts & agreements"
+        subtitle="Employment contract wizard, signatures, and tax forms."
+        defaultCollapsed={true}
+      >
+        <div id="tax-forms-section" className="scroll-mt-24">
+          <EmployeeContractTaxSection
+            applicantId={employeeId}
+            employeeName={displayName}
+            initialContract={employeeContract}
+            suggestedRoleKey={suggestedContractRole}
+            initialTaxForm={employeeTaxForm}
+          />
+        </div>
+      </OnboardingWorkflowSectionCollapsible>
+      <OnboardingWorkflowSectionCollapsible
+        title="Credentials & expiring"
         subtitle="Monitor CPR, driver’s license, professional license, auto insurance, fingerprint clearance card, and independent contractor insurance tracking."
+        defaultCollapsed={true}
       >
         <div
           id="expiring-credentials-section"
@@ -3715,7 +3734,7 @@ export default async function EmployeeDetailPage({
           </p>
           <CredentialReminderCappedTable rows={credentialReminderLog} />
         </div>
-      </WorkflowSection>
+      </OnboardingWorkflowSectionCollapsible>
 
       <WorkflowSection
         title="Saved Survey Packets"
