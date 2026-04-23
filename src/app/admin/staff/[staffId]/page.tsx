@@ -31,7 +31,7 @@ import {
   updateStaffSmsNotifyPhone,
 } from "../actions";
 import { CreateLoginDialog } from "../create-login-dialog";
-import { ResendInviteButton } from "../resend-invite-button";
+import { ResendInviteDialog } from "../resend-invite-dialog";
 import { EditStaffDialog } from "../edit-staff-dialog";
 import { InboundRingGroupsCell } from "../inbound-ring-groups-cell";
 import { PayrollStaffLinkDialog } from "../payroll-staff-link-dialog";
@@ -362,23 +362,37 @@ export default async function StaffAccessDetailPage({
 
       <Card title="Login access">
         <p className="text-xs text-slate-600">
-          Create a login first, then use reset or regenerate to issue a new temporary password. Each generated password
-          is shown once — copy it or send by SMS/email from the confirmation step.
+          Create a login with email invite or a temporary password. Use the same mobile field as Dispatch / welcome SMS
+          so onboarding texts work. Each generated password is shown once — copy it or send from the confirmation step.
         </p>
         <div className="flex flex-wrap gap-2">
-          <CreateLoginDialog staffProfileId={profile.id} disabled={hasLogin} />
-          <ResetPasswordDialog staffProfileId={profile.id} disabled={!hasLogin} />
+          <CreateLoginDialog
+            staffProfileId={profile.id}
+            disabled={hasLogin}
+            initialEmail={profile.email}
+            initialSmsNotifyPhone={profile.sms_notify_phone}
+          />
+          <ResetPasswordDialog
+            staffProfileId={profile.id}
+            disabled={!hasLogin}
+            initialSmsNotifyPhone={profile.sms_notify_phone}
+            offerAutomaticDelivery
+          />
           <ResetPasswordDialog
             staffProfileId={profile.id}
             disabled={!hasLogin}
             defaultAutoGenerate
             triggerLabel="Regenerate temporary password"
             dialogTitle="Regenerate temporary password"
+            initialSmsNotifyPhone={profile.sms_notify_phone}
+            offerAutomaticDelivery
           />
-          <ResendInviteButton
+          <ResendInviteDialog
             staffProfileId={profile.id}
             disabled={!hasLogin}
             disabledReason="Create a login first to resend the invite email."
+            initialEmail={profile.email}
+            initialSmsNotifyPhone={profile.sms_notify_phone}
           />
           <RepairLoginLinkButton staffProfileId={profile.id} />
         </div>

@@ -30,7 +30,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
   }
 
-  let body: { staffProfileId?: unknown; temporaryPassword?: unknown; channel?: unknown };
+  let body: {
+    staffProfileId?: unknown;
+    temporaryPassword?: unknown;
+    channel?: unknown;
+    smsNotifyPhone?: unknown;
+  };
   try {
     body = await req.json();
   } catch {
@@ -52,6 +57,25 @@ export async function POST(req: Request) {
     temporaryPassword.length > STAFF_TEMP_PASSWORD_MAX
   ) {
     return NextResponse.json({ ok: false, error: "invalid_password_length" }, { status: 400 });
+  }
+
+  if (channel === "sms" && Object.prototype.hasOwnProperty.call(body, "smsNotifyPhone")) {
+    const str = typeof body.smsNotifyPhone === "string" ? body.smsNotifyPhone.trim() : "";
+    const digits = str ? normalizePhone(str) : "";
+    const sms_notify_phone = digits.length >= 10 ? digits : null;
+    const { error: upErr } = await supabaseAdmin
+      .from("staff_profiles")
+      .update({ sms_notify_phone, updated_at: new Date().toISOString() })
+      .eq("id", staffProfileId);
+    if (upErr) {
+      return NextResponse.json({ ok: false, error: "phone_save_failed" }, { status: 500 });
+    }
+    await insertAuditLog({
+      action: "staff.sms_notify_phone_update",
+      entityType: "staff_profiles",
+      entityId: staffProfileId,
+      metadata: { has_value: Boolean(sms_notify_phone), source: "send_temp_credentials" },
+    });
   }
 
   const { data: row, error: loadErr } = await supabaseAdmin

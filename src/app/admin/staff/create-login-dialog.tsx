@@ -4,28 +4,26 @@ import {
   STAFF_TEMP_PASSWORD_MAX,
   STAFF_TEMP_PASSWORD_MIN,
 } from "@/lib/admin/staff-auth-shared";
+import { formatPhoneNumber, normalizePhone } from "@/lib/phone/us-phone-format";
 import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 
 import { TemporaryPasswordReveal } from "./temporary-password-reveal";
 
+type SignInMethod = "invite" | "temporary_password";
+
 type Props = {
   staffProfileId: string;
-  /** When true, button is visible but non-interactive (login already exists). */
   disabled?: boolean;
   disabledReason?: string;
-  /** Smaller trigger for dense tables. */
   compact?: boolean;
-  /** Overrides computed trigger button classes (e.g. directory primary CTA). */
   triggerClassName?: string;
-  /** Fires after invite/temp-password API completes (for toast outside the modal). */
   onApiResult?: (kind: "ok" | "err", message: string) => void;
-  /** Runs immediately before the modal opens (e.g. close row overflow menu). */
   onBeforeOpen?: () => void;
+  initialEmail?: string | null;
+  initialSmsNotifyPhone?: string | null;
 };
-
-type Panel = "menu" | "invite" | "password";
 
 const ERROR_LABELS: Record<string, string> = {
   forbidden: "You do not have permission.",
@@ -40,6 +38,8 @@ const ERROR_LABELS: Record<string, string> = {
   auth_user_linked_elsewhere: "That auth account is already linked to another staff row.",
   auth_user_load_failed: "Could not load the auth user to sync email.",
   auth_user_missing_email: "Auth user has no email on file.",
+  missing_sms_phone: "Enter a valid mobile number (10+ digits) to send SMS, or turn off SMS delivery.",
+  phone_save_failed: "Could not save the mobile number. Try again.",
 };
 
 function generateNumericSix(): string {
@@ -76,21 +76,26 @@ export function CreateLoginDialog({
   triggerClassName,
   onApiResult,
   onBeforeOpen,
+  initialEmail = null,
+  initialSmsNotifyPhone = null,
 }: Props) {
   const router = useRouter();
   const titleId = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const wasOpenRef = useRef(false);
   const [open, setOpen] = useState(false);
-  const [panel, setPanel] = useState<Panel>("menu");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [phoneInput, setPhoneInput] = useState("");
+  const [method, setMethod] = useState<SignInMethod>("invite");
+  const [inviteAlsoSms, setInviteAlsoSms] = useState(false);
+  const [tempDeliverEmail, setTempDeliverEmail] = useState(true);
+  const [tempDeliverSms, setTempDeliverSms] = useState(false);
+  const [autoGeneratePassword, setAutoGeneratePassword] = useState(true);
+  const [requirePasswordChange, setRequirePasswordChange] = useState(true);
   const [password, setPassword] = useState("");
   const [passwordConfirm, setPasswordConfirm] = useState("");
-  const [inviteWelcomeSms, setInviteWelcomeSms] = useState(false);
-  const [passwordWelcomeSms, setPasswordWelcomeSms] = useState(false);
-  const [autoGeneratePassword, setAutoGeneratePassword] = useState(false);
   const [revealedTempPassword, setRevealedTempPassword] = useState<string | null>(null);
 
   const resetFeedback = useCallback(() => {
@@ -100,16 +105,34 @@ export function CreateLoginDialog({
 
   const close = useCallback(() => {
     setOpen(false);
-    setPanel("menu");
     resetFeedback();
+    setLoading(false);
+    setPhoneInput("");
+    setMethod("invite");
+    setInviteAlsoSms(false);
+    setTempDeliverEmail(true);
+    setTempDeliverSms(false);
+    setAutoGeneratePassword(true);
+    setRequirePasswordChange(true);
     setPassword("");
     setPasswordConfirm("");
-    setLoading(false);
-    setInviteWelcomeSms(false);
-    setPasswordWelcomeSms(false);
-    setAutoGeneratePassword(false);
     setRevealedTempPassword(null);
   }, [resetFeedback]);
+
+  useEffect(() => {
+    if (!open) return;
+    setPhoneInput(formatPhoneNumber(initialSmsNotifyPhone));
+    setMethod("invite");
+    setInviteAlsoSms(false);
+    setTempDeliverEmail(true);
+    setTempDeliverSms(false);
+    setAutoGeneratePassword(true);
+    setRequirePasswordChange(true);
+    setPassword("");
+    setPasswordConfirm("");
+    resetFeedback();
+    setRevealedTempPassword(null);
+  }, [open, initialSmsNotifyPhone, resetFeedback]);
 
   useEffect(() => {
     if (!open) return;
@@ -142,55 +165,56 @@ export function CreateLoginDialog({
     return base + d;
   }
 
-  async function postInvite() {
-    resetFeedback();
-    setLoading(true);
-    try {
-      const res = await fetch("/api/admin/staff/create-login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          staffProfileId,
-          mode: "invite",
-          sendWelcomeSms: inviteWelcomeSms,
-        }),
-      });
-      const data = (await res.json().catch(() => ({}))) as {
-        ok?: boolean;
-        error?: string;
-        detail?: string;
-        outcome?: string;
-      };
+  function validatePhoneForSms(): boolean {
+    return normalizePhone(phoneInput).length >= 10;
+  }
 
-      if (!res.ok || !data.ok) {
-        const code = typeof data.error === "string" ? data.error : "request_failed";
-        const msg = formatError(code, data.detail);
+  async function submitCreate() {
+    resetFeedback();
+    const emailNorm = (initialEmail ?? "").trim();
+    if (!emailNorm) {
+      const msg = ERROR_LABELS.missing_email;
+      setError(msg);
+      onApiResult?.("err", msg);
+      return;
+    }
+
+    if (method === "invite") {
+      if (inviteAlsoSms && !validatePhoneForSms()) {
+        const msg = ERROR_LABELS.missing_sms_phone;
         setError(msg);
         onApiResult?.("err", msg);
         return;
       }
-
-      const okMsg =
-        "Login created and linked. Invite email sent if SMTP is configured; staff email synced from Auth.";
-      setSuccess(okMsg);
-      onApiResult?.("ok", okMsg);
-      router.refresh();
-      setTimeout(() => {
-        close();
-      }, 1400);
-    } catch {
-      const msg = "Network error. Try again.";
-      setError(msg);
-      onApiResult?.("err", msg);
-    } finally {
-      setLoading(false);
+    } else {
+      if (tempDeliverSms && !validatePhoneForSms()) {
+        const msg = ERROR_LABELS.missing_sms_phone;
+        setError(msg);
+        onApiResult?.("err", msg);
+        return;
+      }
+      if (tempDeliverEmail && !emailNorm) {
+        const msg = ERROR_LABELS.missing_email;
+        setError(msg);
+        onApiResult?.("err", msg);
+        return;
+      }
+      if (!autoGeneratePassword) {
+        if (password.length < STAFF_TEMP_PASSWORD_MIN || password.length > STAFF_TEMP_PASSWORD_MAX) {
+          const msg = ERROR_LABELS.password_requirements;
+          setError(msg);
+          onApiResult?.("err", msg);
+          return;
+        }
+        if (password !== passwordConfirm) {
+          const msg = ERROR_LABELS.password_mismatch;
+          setError(msg);
+          onApiResult?.("err", msg);
+          return;
+        }
+      }
     }
-  }
 
-  async function postTemporaryPassword(e: React.FormEvent) {
-    e.preventDefault();
-    resetFeedback();
     setLoading(true);
     try {
       const res = await fetch("/api/admin/staff/create-login", {
@@ -199,11 +223,14 @@ export function CreateLoginDialog({
         credentials: "include",
         body: JSON.stringify({
           staffProfileId,
-          mode: "temporary_password",
-          password: autoGeneratePassword ? undefined : password,
-          passwordConfirm: autoGeneratePassword ? undefined : passwordConfirm,
-          autoGeneratePassword,
-          sendWelcomeSms: passwordWelcomeSms,
+          mode: method,
+          smsNotifyPhone: phoneInput,
+          deliverSms: method === "invite" ? inviteAlsoSms : tempDeliverSms,
+          deliverEmail: method === "temporary_password" ? tempDeliverEmail : undefined,
+          autoGeneratePassword: method === "temporary_password" ? autoGeneratePassword : undefined,
+          password: method === "temporary_password" && !autoGeneratePassword ? password : undefined,
+          passwordConfirm: method === "temporary_password" && !autoGeneratePassword ? passwordConfirm : undefined,
+          requirePasswordChange: method === "temporary_password" ? requirePasswordChange : undefined,
         }),
       });
       const data = (await res.json().catch(() => ({}))) as {
@@ -212,6 +239,7 @@ export function CreateLoginDialog({
         detail?: string;
         outcome?: string;
         temporaryPassword?: string;
+        delivery?: { emailSent?: boolean; smsSent?: boolean; emailError?: string; smsError?: string };
       };
 
       if (!res.ok || !data.ok) {
@@ -222,31 +250,48 @@ export function CreateLoginDialog({
         return;
       }
 
-      const outcome = data.outcome;
+      const deliveryNote = (() => {
+        const d = data.delivery;
+        if (!d) return "";
+        const parts: string[] = [];
+        if (d.emailSent) parts.push("Credentials emailed.");
+        if (d.smsSent) parts.push("SMS sent.");
+        if (d.emailError) parts.push(`Email not sent: ${d.emailError}`);
+        if (d.smsError) parts.push(`SMS not sent: ${d.smsError}`);
+        return parts.length ? ` ${parts.join(" ")}` : "";
+      })();
+
+      if (method === "invite") {
+        const okMsg =
+          "Login created and linked. Supabase sends the invite to their work email." + deliveryNote;
+        setSuccess(okMsg);
+        onApiResult?.("ok", okMsg);
+        router.refresh();
+        setTimeout(() => close(), 1800);
+        return;
+      }
+
       const temp = typeof data.temporaryPassword === "string" ? data.temporaryPassword : null;
       if (temp) {
         setRevealedTempPassword(temp);
       }
+      const outcome = data.outcome;
       let okMsg: string;
       if (outcome === "login_relinked_existing_auth") {
         okMsg =
-          "Auth user already existed for this email — password updated, staff row relinked, and email synced from Auth.";
-        setSuccess(okMsg);
+          "Auth user already existed for this email — password updated, staff row relinked." + deliveryNote;
       } else {
         okMsg = temp
-          ? "Login created. Copy the temporary password below now — it cannot be retrieved later."
-          : "Login created and linked. Staff email synced from Auth.";
-        setSuccess(okMsg);
+          ? "Login created." + deliveryNote + " Copy the password below if you did not send it by email/SMS."
+          : "Login created and linked." + deliveryNote;
       }
+      setSuccess(okMsg);
       onApiResult?.("ok", okMsg);
-
       setPassword("");
       setPasswordConfirm("");
       router.refresh();
       if (!temp) {
-        setTimeout(() => {
-          close();
-        }, 1600);
+        setTimeout(() => close(), 2000);
       }
     } catch {
       const msg = "Network error. Try again.";
@@ -260,8 +305,10 @@ export function CreateLoginDialog({
   const triggerClass = triggerClassName
     ? triggerClassName
     : compact
-    ? "inline-flex min-w-0 items-center justify-center rounded-full bg-slate-900 px-2.5 py-1 text-[10px] font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-45"
-    : "inline-flex min-w-[7rem] items-center justify-center rounded-full bg-slate-900 px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-45";
+      ? "inline-flex min-w-0 items-center justify-center rounded-full bg-slate-900 px-2.5 py-1 text-[10px] font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-45"
+      : "inline-flex min-w-[7rem] items-center justify-center rounded-full bg-slate-900 px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-45";
+
+  const workEmailDisplay = (initialEmail ?? "").trim() || "—";
 
   const modal =
     open && typeof document !== "undefined" ? (
@@ -279,150 +326,130 @@ export function CreateLoginDialog({
           className="my-auto w-full max-w-md rounded-[24px] border border-indigo-100/90 bg-white p-5 shadow-xl"
           onMouseDown={(e) => e.stopPropagation()}
         >
-            {panel === "menu" ? (
-              <>
-                <h2 id={titleId} className="text-base font-bold text-slate-900">
-                  Create login
-                </h2>
-                <p className="mt-1 text-xs leading-relaxed text-slate-600">
-                  Choose how to provision Supabase Auth for this staff row. No internal IDs are shown.
-                </p>
-                <div className="mt-4 flex flex-col gap-2">
-                  <button
-                    type="button"
-                    className="rounded-[16px] border border-slate-200 bg-white px-4 py-3 text-left text-sm font-semibold text-slate-900 shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50/50"
-                    onClick={() => {
-                      resetFeedback();
-                      setPanel("invite");
-                    }}
-                  >
-                    Send invite
-                    <span className="mt-0.5 block text-xs font-normal text-slate-600">
-                      Email link to sign in (recommended)
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    className="rounded-[16px] border border-slate-200 bg-white px-4 py-3 text-left text-sm font-semibold text-slate-900 shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50/50"
-                    onClick={() => {
-                      resetFeedback();
-                      setPanel("password");
-                    }}
-                  >
-                    Create with temporary password
-                    <span className="mt-0.5 block text-xs font-normal text-slate-600">
-                      Set a password now; they sign in immediately
-                    </span>
-                  </button>
-                </div>
-                <div className="mt-4 flex justify-end">
-                  <button
-                    type="button"
-                    onClick={close}
-                    className="rounded-full border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </>
-            ) : null}
+          <h2 id={titleId} className="text-base font-bold text-slate-900">
+            Create login
+          </h2>
+          <p className="mt-1 text-xs leading-relaxed text-slate-600">
+            Provisions Supabase Auth and saves the mobile number on this staff row for welcome texts and dispatch alerts
+            (same field as Phone permissions).
+          </p>
 
-            {panel === "invite" ? (
-              <>
-                <h2 id={titleId} className="text-base font-bold text-slate-900">
-                  Send invite
-                </h2>
-                <p className="mt-1 text-xs text-slate-600">
-                  Sends an invite email (or creates the auth user), then links this row and syncs email from Auth.
-                </p>
-                {error ? (
-                  <p className="mt-3 rounded-[12px] border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-900">
-                    {error}
-                  </p>
-                ) : null}
-                {success ? (
-                  <p className="mt-3 rounded-[12px] border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
-                    {success}
-                  </p>
-                ) : null}
-                <label className="mt-3 flex items-start gap-2 text-xs text-slate-700">
-                  <input
-                    type="checkbox"
-                    checked={inviteWelcomeSms}
-                    onChange={(e) => setInviteWelcomeSms(e.target.checked)}
-                    className="mt-0.5 rounded border-slate-300"
-                  />
-                  Also send welcome SMS with login link (uses Dispatch / welcome # on this staff row)
-                </label>
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    disabled={loading}
-                    onClick={() => setPanel("menu")}
-                    className="rounded-full border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-                  >
-                    Back
-                  </button>
-                  <button
-                    type="button"
-                    disabled={loading || !!success}
-                    onClick={postInvite}
-                    className="rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
-                  >
-                    {loading ? "Sending…" : "Send invite"}
-                  </button>
-                </div>
-              </>
-            ) : null}
+          <div className="mt-4 space-y-3 rounded-[16px] border border-slate-100 bg-slate-50/80 p-3">
+            <div>
+              <p className="text-[11px] font-semibold text-slate-600">Work email</p>
+              <p className="mt-0.5 text-sm font-medium text-slate-900 [overflow-wrap:anywhere]">{workEmailDisplay}</p>
+            </div>
+            <label className="block text-[11px] font-semibold text-slate-700">
+              Mobile for welcome / dispatch SMS
+              <input
+                type="tel"
+                autoComplete="tel"
+                value={phoneInput}
+                onChange={(e) => setPhoneInput(formatPhoneNumber(e.target.value))}
+                className="mt-1 w-full rounded-[14px] border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
+                placeholder="(555) 555-5555"
+              />
+              <span className="mt-1 block text-[10px] font-normal text-slate-500">
+                Saved to this staff row when you submit. Used for onboarding texts and dispatch alerts.
+              </span>
+            </label>
+          </div>
 
-            {panel === "password" ? (
-              <>
-                <h2 id={titleId} className="text-base font-bold text-slate-900">
-                  Temporary password
-                </h2>
-                <p className="mt-1 text-xs text-slate-600">
-                  Creates or reuses the Auth user for this email, updates password if they already exist, then links
-                  and syncs staff_profiles (including email from Auth).
-                </p>
-                <form onSubmit={postTemporaryPassword} className="mt-4 space-y-3">
-                  {error ? (
-                    <p className="rounded-[12px] border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-900">
-                      {error}
-                    </p>
-                  ) : null}
-                  {success ? (
-                    <p className="rounded-[12px] border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
-                      {success}
-                    </p>
-                  ) : null}
-                  {revealedTempPassword ? (
-                    <TemporaryPasswordReveal
-                      staffProfileId={staffProfileId}
-                      password={revealedTempPassword}
-                      onDone={close}
-                    />
-                  ) : null}
-                  <label className="flex items-start gap-2 text-xs text-slate-700">
-                    <input
-                      type="checkbox"
-                      checked={autoGeneratePassword}
-                      onChange={(e) => {
-                        setAutoGeneratePassword(e.target.checked);
-                        resetFeedback();
-                      }}
-                      className="mt-0.5 rounded border-slate-300"
-                    />
-                    Generate secure password on server (recommended — shown once after save)
-                  </label>
-                  <label className="flex items-start gap-2 text-xs text-slate-700">
-                    <input
-                      type="checkbox"
-                      checked={passwordWelcomeSms}
-                      onChange={(e) => setPasswordWelcomeSms(e.target.checked)}
-                      className="mt-0.5 rounded border-slate-300"
-                    />
-                    Send welcome SMS with login link after creating login
-                  </label>
+          <fieldset className="mt-4 space-y-2">
+            <legend className="text-[11px] font-semibold text-slate-700">How they sign in</legend>
+            <label className="flex cursor-pointer items-start gap-2 rounded-[14px] border border-slate-200 bg-white p-3 text-sm has-[:checked]:border-indigo-300 has-[:checked]:bg-indigo-50/40">
+              <input
+                type="radio"
+                name="signin-method"
+                className="mt-1"
+                checked={method === "invite"}
+                onChange={() => setMethod("invite")}
+              />
+              <span>
+                <span className="font-semibold text-slate-900">Email invite</span>
+                <span className="mt-0.5 block text-xs font-normal text-slate-600">
+                  Supabase emails a sign-in link to their work address (recommended).
+                </span>
+              </span>
+            </label>
+            <label className="flex cursor-pointer items-start gap-2 rounded-[14px] border border-slate-200 bg-white p-3 text-sm has-[:checked]:border-indigo-300 has-[:checked]:bg-indigo-50/40">
+              <input
+                type="radio"
+                name="signin-method"
+                className="mt-1"
+                checked={method === "temporary_password"}
+                onChange={() => setMethod("temporary_password")}
+              />
+              <span>
+                <span className="font-semibold text-slate-900">Temporary password</span>
+                <span className="mt-0.5 block text-xs font-normal text-slate-600">
+                  They sign in immediately with a password you share (copy, email, or SMS).
+                </span>
+              </span>
+            </label>
+          </fieldset>
+
+          {method === "invite" ? (
+            <div className="mt-4 space-y-2 rounded-[14px] border border-slate-100 bg-white p-3">
+              <p className="text-[11px] font-semibold text-slate-700">Delivery</p>
+              <p className="text-xs text-slate-600">
+                <span className="font-semibold text-slate-800">Email:</span> invite message is sent automatically by
+                Supabase to <span className="font-medium">{workEmailDisplay}</span>.
+              </p>
+              <label className="flex items-start gap-2 text-xs text-slate-700">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 rounded border-slate-300"
+                  checked={inviteAlsoSms}
+                  onChange={(e) => setInviteAlsoSms(e.target.checked)}
+                />
+                Also send a welcome text with the sign-in link (uses mobile number above)
+              </label>
+            </div>
+          ) : (
+            <div className="mt-4 space-y-3 rounded-[14px] border border-slate-100 bg-white p-3">
+              <p className="text-[11px] font-semibold text-slate-700">Deliver temporary password</p>
+              <label className="flex items-start gap-2 text-xs text-slate-700">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 rounded border-slate-300"
+                  checked={tempDeliverEmail}
+                  onChange={(e) => setTempDeliverEmail(e.target.checked)}
+                />
+                Send password by email (Resend / work email)
+              </label>
+              <label className="flex items-start gap-2 text-xs text-slate-700">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 rounded border-slate-300"
+                  checked={tempDeliverSms}
+                  onChange={(e) => setTempDeliverSms(e.target.checked)}
+                />
+                Send password by SMS (uses mobile number above)
+              </label>
+              <label className="flex items-start gap-2 text-xs text-slate-700">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 rounded border-slate-300"
+                  checked={autoGeneratePassword}
+                  onChange={(e) => {
+                    setAutoGeneratePassword(e.target.checked);
+                    resetFeedback();
+                  }}
+                />
+                Generate secure password on server (recommended)
+              </label>
+              <label className="flex items-start gap-2 text-xs text-slate-700">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 rounded border-slate-300"
+                  checked={requirePasswordChange}
+                  onChange={(e) => setRequirePasswordChange(e.target.checked)}
+                />
+                Require password change on first sign-in
+              </label>
+              {!autoGeneratePassword ? (
+                <>
                   <div>
                     <label className="block text-[11px] font-semibold text-slate-700">Temporary password</label>
                     <input
@@ -430,31 +457,25 @@ export function CreateLoginDialog({
                       autoComplete="new-password"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
-                      disabled={autoGeneratePassword}
-                      className="mt-1 w-full rounded-[14px] border border-slate-200 px-3 py-2 text-sm text-slate-900 disabled:bg-slate-100"
-                      placeholder={`${STAFF_TEMP_PASSWORD_MIN}–${STAFF_TEMP_PASSWORD_MAX} chars; digits OK`}
+                      className="mt-1 w-full rounded-[14px] border border-slate-200 px-3 py-2 text-sm"
                       minLength={STAFF_TEMP_PASSWORD_MIN}
                       maxLength={STAFF_TEMP_PASSWORD_MAX}
-                      required={!autoGeneratePassword}
                     />
                   </div>
                   <div>
-                    <label className="block text-[11px] font-semibold text-slate-700">Confirm password</label>
+                    <label className="block text-[11px] font-semibold text-slate-700">Confirm</label>
                     <input
                       type="password"
                       autoComplete="new-password"
                       value={passwordConfirm}
                       onChange={(e) => setPasswordConfirm(e.target.value)}
-                      disabled={autoGeneratePassword}
-                      className="mt-1 w-full rounded-[14px] border border-slate-200 px-3 py-2 text-sm text-slate-900 disabled:bg-slate-100"
-                      required={!autoGeneratePassword}
+                      className="mt-1 w-full rounded-[14px] border border-slate-200 px-3 py-2 text-sm"
                     />
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
-                      disabled={autoGeneratePassword}
-                      className="rounded-full border border-slate-200 px-3 py-1.5 text-[11px] font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+                      className="rounded-full border border-slate-200 px-3 py-1 text-[11px] font-semibold text-slate-800 hover:bg-slate-50"
                       onClick={() => {
                         const g = generateNumericSix();
                         setPassword(g);
@@ -466,8 +487,7 @@ export function CreateLoginDialog({
                     </button>
                     <button
                       type="button"
-                      disabled={autoGeneratePassword}
-                      className="rounded-full border border-slate-200 px-3 py-1.5 text-[11px] font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+                      className="rounded-full border border-slate-200 px-3 py-1 text-[11px] font-semibold text-slate-800 hover:bg-slate-50"
                       onClick={() => {
                         const g = generateMixedTemp();
                         setPassword(g);
@@ -478,37 +498,51 @@ export function CreateLoginDialog({
                       Generate mixed
                     </button>
                   </div>
-                  <div className="flex flex-wrap gap-2 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPanel("menu");
-                        resetFeedback();
-                        setPassword("");
-                        setPasswordConfirm("");
-                      }}
-                      className="rounded-full border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                    >
-                      Back
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={loading || !!success || !!revealedTempPassword}
-                      className="rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
-                    >
-                      {loading ? "Creating…" : "Create login"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={close}
-                      className="rounded-full border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </form>
-              </>
-            ) : null}
+                </>
+              ) : null}
+            </div>
+          )}
+
+          {error ? (
+            <p className="mt-3 rounded-[12px] border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-900">
+              {error}
+            </p>
+          ) : null}
+          {success ? (
+            <p className="mt-3 rounded-[12px] border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
+              {success}
+            </p>
+          ) : null}
+          {revealedTempPassword ? (
+            <div className="mt-3">
+              <TemporaryPasswordReveal
+                staffProfileId={staffProfileId}
+                password={revealedTempPassword}
+                onDone={close}
+                initialSmsNotifyPhone={
+                  normalizePhone(phoneInput).length >= 10 ? phoneInput : initialSmsNotifyPhone
+                }
+              />
+            </div>
+          ) : null}
+
+          <div className="mt-4 flex flex-wrap justify-end gap-2">
+            <button
+              type="button"
+              onClick={close}
+              className="rounded-full border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={loading || !!success || !!revealedTempPassword}
+              onClick={submitCreate}
+              className="rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
+            >
+              {loading ? "Working…" : method === "invite" ? "Create login & send invite" : "Create login"}
+            </button>
+          </div>
         </div>
       </div>
     ) : null;
@@ -524,16 +558,11 @@ export function CreateLoginDialog({
           if (disabled) return;
           onBeforeOpen?.();
           setOpen(true);
-          setPanel("menu");
-          resetFeedback();
-          setPassword("");
-          setPasswordConfirm("");
         }}
         className={triggerClass}
       >
         Create login
       </button>
-
       {modal ? createPortal(modal, document.body) : null}
     </div>
   );

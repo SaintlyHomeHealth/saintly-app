@@ -16,6 +16,7 @@ type Props = {
   label: string;
   initialFullName: string;
   initialEmail: string;
+  initialSmsNotifyPhone: string | null;
 };
 
 const MENU_ITEM =
@@ -33,6 +34,7 @@ export function StaffDirectoryRowActions({
   label,
   initialFullName,
   initialEmail,
+  initialSmsNotifyPhone,
 }: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
   const anchorRef = useRef<HTMLButtonElement>(null);
@@ -131,6 +133,8 @@ export function StaffDirectoryRowActions({
                     triggerClassName={MENU_ITEM}
                     onApiResult={pushToast}
                     onBeforeOpen={() => setMenuOpen(false)}
+                    initialSmsNotifyPhone={initialSmsNotifyPhone}
+                    offerAutomaticDelivery={false}
                   />
                 </div>
                 <div className="px-1 py-1">
@@ -191,6 +195,8 @@ export function StaffDirectoryRowActions({
           triggerClassName={PRIMARY_RESET}
           onApiResult={pushToast}
           onBeforeOpen={() => setMenuOpen(false)}
+          initialSmsNotifyPhone={initialSmsNotifyPhone}
+          offerAutomaticDelivery
         />
       ) : (
         <CreateLoginDialog
@@ -198,6 +204,8 @@ export function StaffDirectoryRowActions({
           triggerClassName={PRIMARY_CREATE}
           onApiResult={pushToast}
           onBeforeOpen={() => setMenuOpen(false)}
+          initialEmail={initialEmail}
+          initialSmsNotifyPhone={initialSmsNotifyPhone}
         />
       )}
       <button

@@ -1,17 +1,35 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { formatPhoneNumber, normalizePhone } from "@/lib/phone/us-phone-format";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useState } from "react";
 
 type Props = {
   staffProfileId: string;
   password: string;
   onDone: () => void;
+  /** Dispatch / welcome SMS field from staff_profiles */
+  initialSmsNotifyPhone?: string | null;
 };
 
-export function TemporaryPasswordReveal({ staffProfileId, password, onDone }: Props) {
+export function TemporaryPasswordReveal({
+  staffProfileId,
+  password,
+  onDone,
+  initialSmsNotifyPhone = null,
+}: Props) {
+  const router = useRouter();
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState<null | "sms" | "email">(null);
+  const [phoneInput, setPhoneInput] = useState("");
+
+  useEffect(() => {
+    setPhoneInput(formatPhoneNumber(initialSmsNotifyPhone));
+  }, [initialSmsNotifyPhone]);
+
+  const hasSavedPhone = normalizePhone(initialSmsNotifyPhone).length >= 10;
+  const phoneOk = normalizePhone(phoneInput).length >= 10;
 
   const copy = useCallback(async () => {
     setErr(null);
@@ -30,11 +48,19 @@ export function TemporaryPasswordReveal({ staffProfileId, password, onDone }: Pr
       setMsg(null);
       setLoading(channel);
       try {
+        const body: Record<string, unknown> = {
+          staffProfileId,
+          temporaryPassword: password,
+          channel,
+        };
+        if (channel === "sms" && !hasSavedPhone && phoneOk) {
+          body.smsNotifyPhone = phoneInput;
+        }
         const res = await fetch("/api/admin/staff/send-temp-credentials", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
-          body: JSON.stringify({ staffProfileId, temporaryPassword: password, channel }),
+          body: JSON.stringify(body),
         });
         const data = (await res.json().catch(() => ({}))) as {
           ok?: boolean;
@@ -46,7 +72,7 @@ export function TemporaryPasswordReveal({ staffProfileId, password, onDone }: Pr
             typeof data.detail === "string" && data.detail.trim()
               ? data.detail
               : data.error === "missing_sms_phone"
-                ? "Add and save a Dispatch / welcome SMS number on this staff member first."
+                ? "No mobile number saved for welcome SMS — add one below, then try again."
                 : data.error === "missing_email"
                   ? "Add a work email to this staff member first."
                   : data.error === "email_failed"
@@ -56,13 +82,14 @@ export function TemporaryPasswordReveal({ staffProfileId, password, onDone }: Pr
           return;
         }
         setMsg(channel === "sms" ? "SMS sent." : "Email sent.");
+        router.refresh();
       } catch {
         setErr("Network error.");
       } finally {
         setLoading(null);
       }
     },
-    [staffProfileId, password]
+    [staffProfileId, password, hasSavedPhone, phoneOk, phoneInput, router]
   );
 
   return (
@@ -86,10 +113,27 @@ export function TemporaryPasswordReveal({ staffProfileId, password, onDone }: Pr
           Copy
         </button>
       </div>
+      {!hasSavedPhone ? (
+        <div className="mt-3 rounded-[12px] border border-amber-200/80 bg-white/90 px-3 py-2">
+          <p className="text-[11px] font-semibold text-amber-950">No mobile number saved for welcome SMS</p>
+          <p className="mt-1 text-[10px] text-amber-900/90">
+            Add their mobile here to text the password. It is saved to the same Dispatch / welcome field used in Phone
+            permissions.
+          </p>
+          <input
+            type="tel"
+            autoComplete="tel"
+            value={phoneInput}
+            onChange={(e) => setPhoneInput(formatPhoneNumber(e.target.value))}
+            className="mt-2 w-full rounded-[10px] border border-amber-200 px-2 py-1.5 text-sm text-slate-900"
+            placeholder="(555) 555-5555"
+          />
+        </div>
+      ) : null}
       <div className="mt-3 flex flex-wrap gap-2">
         <button
           type="button"
-          disabled={loading !== null}
+          disabled={loading !== null || (!hasSavedPhone && !phoneOk)}
           onClick={() => send("sms")}
           className="rounded-full border border-amber-700/30 bg-white px-3 py-1.5 text-xs font-semibold text-amber-950 hover:bg-amber-100/80 disabled:opacity-50"
         >

@@ -6,8 +6,13 @@ import {
   STAFF_TEMP_PASSWORD_MAX,
   STAFF_TEMP_PASSWORD_MIN,
 } from "@/lib/admin/staff-auth-shared";
+import {
+  deliverTemporaryPasswordToEmail,
+  deliverTemporaryPasswordToSms,
+} from "@/lib/admin/staff-temp-credential-delivery";
 import { insertAuditLog } from "@/lib/audit-log";
 import { supabaseAdmin } from "@/lib/admin";
+import { normalizePhone } from "@/lib/phone/us-phone-format";
 import { getStaffProfile, isAdminOrHigher } from "@/lib/staff-profile";
 
 export async function POST(req: Request) {
@@ -21,6 +26,9 @@ export async function POST(req: Request) {
     password?: unknown;
     passwordConfirm?: unknown;
     autoGenerate?: unknown;
+    requirePasswordChange?: unknown;
+    deliverEmail?: unknown;
+    deliverSms?: unknown;
   };
   try {
     body = await req.json();
@@ -50,9 +58,13 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "password_mismatch" }, { status: 400 });
   }
 
+  const deliverEmail = body.deliverEmail === true;
+  const deliverSms = body.deliverSms === true;
+  const requirePasswordChange = body.requirePasswordChange !== false;
+
   const { data: row, error: loadErr } = await supabaseAdmin
     .from("staff_profiles")
-    .select("id, user_id, email")
+    .select("id, user_id, email, full_name, sms_notify_phone")
     .eq("id", staffProfileId)
     .maybeSingle();
 
@@ -63,6 +75,13 @@ export async function POST(req: Request) {
   const userId = typeof row.user_id === "string" ? row.user_id : null;
   if (!userId) {
     return NextResponse.json({ ok: false, error: "no_login_to_reset" }, { status: 400 });
+  }
+
+  if (deliverSms) {
+    const digits = normalizePhone(typeof row.sms_notify_phone === "string" ? row.sms_notify_phone : "");
+    if (digits.length < 10) {
+      return NextResponse.json({ ok: false, error: "missing_sms_phone" }, { status: 400 });
+    }
   }
 
   const { error: updErr } = await supabaseAdmin.auth.admin.updateUserById(userId, {
@@ -80,7 +99,10 @@ export async function POST(req: Request) {
 
   await supabaseAdmin
     .from("staff_profiles")
-    .update({ require_password_change: true, updated_at: new Date().toISOString() })
+    .update({
+      require_password_change: requirePasswordChange,
+      updated_at: new Date().toISOString(),
+    })
     .eq("id", staffProfileId);
 
   await insertAuditLog({
@@ -90,11 +112,47 @@ export async function POST(req: Request) {
     metadata: { auto_generated: autoGenerate },
   });
 
+  const delivery: {
+    emailSent?: boolean;
+    emailError?: string;
+    smsSent?: boolean;
+    smsError?: string;
+  } = {};
+
+  const metaName = typeof row.full_name === "string" ? row.full_name : "";
+  const workEmail = typeof row.email === "string" ? row.email : null;
+
+  if (deliverEmail) {
+    const em = await deliverTemporaryPasswordToEmail({
+      workEmail,
+      firstName: metaName,
+      temporaryPassword: password,
+    });
+    if (em.ok) {
+      delivery.emailSent = true;
+    } else {
+      delivery.emailError = em.detail ?? em.error;
+    }
+  }
+
+  if (deliverSms) {
+    const sm = await deliverTemporaryPasswordToSms({
+      smsNotifyPhoneRaw: row.sms_notify_phone,
+      temporaryPassword: password,
+    });
+    if (sm.ok) {
+      delivery.smsSent = true;
+    } else {
+      delivery.smsError = sm.detail ?? sm.error;
+    }
+  }
+
   revalidatePath("/admin/staff");
   revalidatePath(`/admin/staff/${staffProfileId}`);
   return NextResponse.json({
     ok: true,
     outcome: "password_reset_success",
     temporaryPassword: password,
+    delivery,
   });
 }

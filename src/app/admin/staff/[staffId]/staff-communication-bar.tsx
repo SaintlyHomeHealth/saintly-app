@@ -51,8 +51,9 @@ export function StaffCommunicationBar({ staffProfileId, loginUrl }: Props) {
     <div className="rounded-[16px] border border-slate-100 bg-slate-50/50 p-3">
       <p className="text-xs font-semibold text-slate-700">Communication</p>
       <p className="mt-1 text-[10px] leading-snug text-slate-500">
-        To resend the Supabase invite email, use <span className="font-semibold text-slate-700">Resend invite</span> in
-        Login access above.
+        Use <span className="font-semibold text-slate-700">Resend invite</span> above for invite email plus optional
+        welcome text. Welcome SMS requires a saved mobile in Login access (same field as Dispatch / welcome in Phone
+        permissions).
       </p>
       <div className="mt-2 flex flex-wrap gap-2">
         <button

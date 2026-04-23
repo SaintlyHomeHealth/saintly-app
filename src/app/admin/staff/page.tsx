@@ -416,6 +416,7 @@ export default async function AdminStaffPage({
                             label={name}
                             initialFullName={(row.full_name ?? "").trim()}
                             initialEmail={(row.email ?? "").trim()}
+                            initialSmsNotifyPhone={row.sms_notify_phone}
                           />
                         </td>
                       </tr>

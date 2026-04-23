@@ -22,6 +22,9 @@ type Props = {
   onApiResult?: (kind: "ok" | "err", message: string) => void;
   /** Runs immediately before the modal opens (e.g. close row overflow menu). */
   onBeforeOpen?: () => void;
+  /** Show “also email / SMS password” before save (detail page). Kebab regenerate sets false. */
+  offerAutomaticDelivery?: boolean;
+  initialSmsNotifyPhone?: string | null;
 };
 
 const ERROR_LABELS: Record<string, string> = {
@@ -32,6 +35,7 @@ const ERROR_LABELS: Record<string, string> = {
   password_mismatch: "Passwords do not match.",
   password_requirements: `Use ${STAFF_TEMP_PASSWORD_MIN}–${STAFF_TEMP_PASSWORD_MAX} characters.`,
   auth_update_failed: "Supabase could not update the password.",
+  missing_sms_phone: "Add a valid mobile number below or turn off “Send password by SMS”.",
 };
 
 function generateNumericSix(): string {
@@ -69,6 +73,8 @@ export function ResetPasswordDialog({
   triggerClassName,
   onApiResult,
   onBeforeOpen,
+  offerAutomaticDelivery = true,
+  initialSmsNotifyPhone = null,
 }: Props) {
   const router = useRouter();
   const titleId = useId();
@@ -82,6 +88,9 @@ export function ResetPasswordDialog({
   const [passwordConfirm, setPasswordConfirm] = useState("");
   const [autoGenerate, setAutoGenerate] = useState(defaultAutoGenerate);
   const [revealedTempPassword, setRevealedTempPassword] = useState<string | null>(null);
+  const [deliverEmail, setDeliverEmail] = useState(false);
+  const [deliverSms, setDeliverSms] = useState(false);
+  const [requirePasswordChange, setRequirePasswordChange] = useState(true);
 
   const close = useCallback(() => {
     setOpen(false);
@@ -92,6 +101,9 @@ export function ResetPasswordDialog({
     setLoading(false);
     setAutoGenerate(defaultAutoGenerate);
     setRevealedTempPassword(null);
+    setDeliverEmail(false);
+    setDeliverSms(false);
+    setRequirePasswordChange(true);
   }, [defaultAutoGenerate]);
 
   useEffect(() => {
@@ -134,6 +146,9 @@ export function ResetPasswordDialog({
           password: autoGenerate ? undefined : password,
           passwordConfirm: autoGenerate ? undefined : passwordConfirm,
           autoGenerate,
+          requirePasswordChange,
+          deliverEmail: offerAutomaticDelivery ? deliverEmail : false,
+          deliverSms: offerAutomaticDelivery ? deliverSms : false,
         }),
       });
       const data = (await res.json().catch(() => ({}))) as {
@@ -142,6 +157,7 @@ export function ResetPasswordDialog({
         detail?: string;
         outcome?: string;
         temporaryPassword?: string;
+        delivery?: { emailSent?: boolean; smsSent?: boolean; emailError?: string; smsError?: string };
       };
 
       if (!res.ok || !data.ok) {
@@ -154,14 +170,26 @@ export function ResetPasswordDialog({
         return;
       }
 
+      const deliveryNote = (() => {
+        const d = data.delivery;
+        if (!d) return "";
+        const parts: string[] = [];
+        if (d.emailSent) parts.push("Emailed.");
+        if (d.smsSent) parts.push("Texted.");
+        if (d.emailError) parts.push(`Email: ${d.emailError}`);
+        if (d.smsError) parts.push(`SMS: ${d.smsError}`);
+        return parts.length ? ` ${parts.join(" ")}` : "";
+      })();
+
       const temp = typeof data.temporaryPassword === "string" ? data.temporaryPassword : null;
       if (temp) {
         setRevealedTempPassword(temp);
-        const msg = "Password reset. Copy the new temporary password below — it cannot be retrieved later.";
+        const msg =
+          "Password reset. Copy the new temporary password below — it cannot be retrieved later." + deliveryNote;
         setSuccess(msg);
         onApiResult?.("ok", msg);
       } else {
-        const msg = "Password reset successful. Share the new temporary password securely.";
+        const msg = "Password reset successful. Share the new temporary password securely." + deliveryNote;
         setSuccess(msg);
         onApiResult?.("ok", msg);
       }
@@ -227,91 +255,138 @@ export function ResetPasswordDialog({
                   staffProfileId={staffProfileId}
                   password={revealedTempPassword}
                   onDone={close}
+                  initialSmsNotifyPhone={initialSmsNotifyPhone}
                 />
               ) : null}
-              <label className="flex items-start gap-2 text-xs text-slate-700">
-                <input
-                  type="checkbox"
-                  checked={autoGenerate}
-                  onChange={(e) => {
-                    setAutoGenerate(e.target.checked);
-                    setError(null);
-                  }}
-                  className="mt-0.5 rounded border-slate-300"
-                />
-                Generate on server (shown once)
-              </label>
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-700">New temporary password</label>
-                <input
-                  type="password"
-                  autoComplete="new-password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  disabled={autoGenerate}
-                  className="mt-1 w-full rounded-[14px] border border-slate-200 px-3 py-2 text-sm text-slate-900 disabled:bg-slate-100"
-                  placeholder={`${STAFF_TEMP_PASSWORD_MIN}–${STAFF_TEMP_PASSWORD_MAX} characters (digits OK)`}
-                  minLength={STAFF_TEMP_PASSWORD_MIN}
-                  maxLength={STAFF_TEMP_PASSWORD_MAX}
-                  required={!autoGenerate}
-                />
-              </div>
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-700">Confirm password</label>
-                <input
-                  type="password"
-                  autoComplete="new-password"
-                  value={passwordConfirm}
-                  onChange={(e) => setPasswordConfirm(e.target.value)}
-                  disabled={autoGenerate}
-                  className="mt-1 w-full rounded-[14px] border border-slate-200 px-3 py-2 text-sm text-slate-900 disabled:bg-slate-100"
-                  required={!autoGenerate}
-                />
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  disabled={autoGenerate}
-                  className="rounded-full border border-slate-200 px-3 py-1.5 text-[11px] font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
-                  onClick={() => {
-                    const g = generateNumericSix();
-                    setPassword(g);
-                    setPasswordConfirm(g);
-                    setError(null);
-                  }}
-                >
-                  Generate 6-digit
-                </button>
-                <button
-                  type="button"
-                  disabled={autoGenerate}
-                  className="rounded-full border border-slate-200 px-3 py-1.5 text-[11px] font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
-                  onClick={() => {
-                    const g = generateMixedTemp();
-                    setPassword(g);
-                    setPasswordConfirm(g);
-                    setError(null);
-                  }}
-                >
-                  Generate mixed
-                </button>
-              </div>
-              <div className="flex flex-wrap gap-2 pt-1">
-                <button
-                  type="submit"
-                  disabled={loading || !!success || !!revealedTempPassword}
-                  className="rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
-                >
-                  {loading ? "Saving…" : "Save password"}
-                </button>
-                <button
-                  type="button"
-                  onClick={close}
-                  className="rounded-full border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                >
-                  Cancel
-                </button>
-              </div>
+              {!revealedTempPassword ? (
+                <>
+                  {offerAutomaticDelivery ? (
+                    <div className="rounded-[12px] border border-slate-100 bg-slate-50/80 p-3">
+                      <p className="text-[11px] font-semibold text-slate-700">After saving, also send</p>
+                      <label className="mt-2 flex items-start gap-2 text-xs text-slate-700">
+                        <input
+                          type="checkbox"
+                          className="mt-0.5 rounded border-slate-300"
+                          checked={deliverEmail}
+                          onChange={(e) => setDeliverEmail(e.target.checked)}
+                        />
+                        Email temporary password (work email on file)
+                      </label>
+                      <label className="mt-1 flex items-start gap-2 text-xs text-slate-700">
+                        <input
+                          type="checkbox"
+                          className="mt-0.5 rounded border-slate-300"
+                          checked={deliverSms}
+                          onChange={(e) => setDeliverSms(e.target.checked)}
+                        />
+                        Text temporary password (Dispatch / welcome mobile on file)
+                      </label>
+                    </div>
+                  ) : null}
+                  <label className="flex items-start gap-2 text-xs text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={requirePasswordChange}
+                      onChange={(e) => setRequirePasswordChange(e.target.checked)}
+                      className="mt-0.5 rounded border-slate-300"
+                    />
+                    Require password change on next sign-in
+                  </label>
+                  <label className="flex items-start gap-2 text-xs text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={autoGenerate}
+                      onChange={(e) => {
+                        setAutoGenerate(e.target.checked);
+                        setError(null);
+                      }}
+                      className="mt-0.5 rounded border-slate-300"
+                    />
+                    Generate on server (shown once)
+                  </label>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700">New temporary password</label>
+                    <input
+                      type="password"
+                      autoComplete="new-password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      disabled={autoGenerate}
+                      className="mt-1 w-full rounded-[14px] border border-slate-200 px-3 py-2 text-sm text-slate-900 disabled:bg-slate-100"
+                      placeholder={`${STAFF_TEMP_PASSWORD_MIN}–${STAFF_TEMP_PASSWORD_MAX} characters (digits OK)`}
+                      minLength={STAFF_TEMP_PASSWORD_MIN}
+                      maxLength={STAFF_TEMP_PASSWORD_MAX}
+                      required={!autoGenerate}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700">Confirm password</label>
+                    <input
+                      type="password"
+                      autoComplete="new-password"
+                      value={passwordConfirm}
+                      onChange={(e) => setPasswordConfirm(e.target.value)}
+                      disabled={autoGenerate}
+                      className="mt-1 w-full rounded-[14px] border border-slate-200 px-3 py-2 text-sm text-slate-900 disabled:bg-slate-100"
+                      required={!autoGenerate}
+                    />
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      disabled={autoGenerate}
+                      className="rounded-full border border-slate-200 px-3 py-1.5 text-[11px] font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+                      onClick={() => {
+                        const g = generateNumericSix();
+                        setPassword(g);
+                        setPasswordConfirm(g);
+                        setError(null);
+                      }}
+                    >
+                      Generate 6-digit
+                    </button>
+                    <button
+                      type="button"
+                      disabled={autoGenerate}
+                      className="rounded-full border border-slate-200 px-3 py-1.5 text-[11px] font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+                      onClick={() => {
+                        const g = generateMixedTemp();
+                        setPassword(g);
+                        setPasswordConfirm(g);
+                        setError(null);
+                      }}
+                    >
+                      Generate mixed
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    <button
+                      type="submit"
+                      disabled={loading || !!success}
+                      className="rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
+                    >
+                      {loading ? "Saving…" : "Save password"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={close}
+                      className="rounded-full border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="flex flex-wrap gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={close}
+                    className="rounded-full border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                  >
+                    Close
+                  </button>
+                </div>
+              )}
             </form>
         </div>
       </div>
