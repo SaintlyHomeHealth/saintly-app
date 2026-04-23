@@ -303,7 +303,7 @@ export default async function AdminStaffPage({
                   <th className="whitespace-nowrap px-3 py-3 font-semibold">Active</th>
                   <th className="whitespace-nowrap px-3 py-3 font-semibold">Login</th>
                   <th className="hidden lg:table-cell whitespace-nowrap px-3 py-3 font-semibold">Phone</th>
-                  <th className="sticky right-0 z-20 whitespace-nowrap border-l border-slate-200/80 bg-slate-50/95 px-3 py-3 pl-3 font-semibold shadow-[-6px_0_8px_-6px_rgba(15,23,42,0.12)] backdrop-blur-sm">
+                  <th className="sticky right-0 z-20 min-w-[9rem] max-w-[18rem] whitespace-normal border-l border-slate-200/80 bg-slate-50/95 px-3 py-3 pl-3 text-right font-semibold shadow-[-6px_0_8px_-6px_rgba(15,23,42,0.12)] backdrop-blur-sm">
                     Actions
                   </th>
                 </tr>
@@ -409,7 +409,7 @@ export default async function AdminStaffPage({
                             {phoneOk ? "Access on" : "Access off"}
                           </span>
                         </td>
-                        <td className="sticky right-0 z-10 border-l border-slate-200/80 bg-white/95 px-2 py-2 align-middle shadow-[-6px_0_8px_-6px_rgba(15,23,42,0.08)] backdrop-blur-sm">
+                        <td className="sticky right-0 z-10 min-w-[9rem] max-w-[20rem] border-l border-slate-200/80 bg-white/95 px-2 py-2 align-middle text-right shadow-[-6px_0_8px_-6px_rgba(15,23,42,0.08)] backdrop-blur-sm">
                           <StaffDirectoryRowActions
                             staffProfileId={row.id}
                             hasLogin={hasLogin}

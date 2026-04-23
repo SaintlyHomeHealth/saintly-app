@@ -16,6 +16,10 @@ type Props = {
   disabledReason?: string;
   /** Smaller trigger for dense tables. */
   compact?: boolean;
+  /** Overrides computed trigger button classes (e.g. directory primary CTA). */
+  triggerClassName?: string;
+  /** Fires after invite/temp-password API completes (for toast outside the modal). */
+  onApiResult?: (kind: "ok" | "err", message: string) => void;
 };
 
 type Panel = "menu" | "invite" | "password";
@@ -66,6 +70,8 @@ export function CreateLoginDialog({
   disabled = false,
   disabledReason = "This person already has a login. Use Reset password to change it.",
   compact = false,
+  triggerClassName,
+  onApiResult,
 }: Props) {
   const router = useRouter();
   const titleId = useId();
@@ -137,19 +143,24 @@ export function CreateLoginDialog({
 
       if (!res.ok || !data.ok) {
         const code = typeof data.error === "string" ? data.error : "request_failed";
-        setError(formatError(code, data.detail));
+        const msg = formatError(code, data.detail);
+        setError(msg);
+        onApiResult?.("err", msg);
         return;
       }
 
-      setSuccess(
-        "Login created and linked. Invite email sent if SMTP is configured; staff email synced from Auth."
-      );
+      const okMsg =
+        "Login created and linked. Invite email sent if SMTP is configured; staff email synced from Auth.";
+      setSuccess(okMsg);
+      onApiResult?.("ok", okMsg);
       router.refresh();
       setTimeout(() => {
         close();
       }, 1400);
     } catch {
-      setError("Network error. Try again.");
+      const msg = "Network error. Try again.";
+      setError(msg);
+      onApiResult?.("err", msg);
     } finally {
       setLoading(false);
     }
@@ -183,7 +194,9 @@ export function CreateLoginDialog({
 
       if (!res.ok || !data.ok) {
         const code = typeof data.error === "string" ? data.error : "request_failed";
-        setError(formatError(code, data.detail));
+        const msg = formatError(code, data.detail);
+        setError(msg);
+        onApiResult?.("err", msg);
         return;
       }
 
@@ -192,17 +205,18 @@ export function CreateLoginDialog({
       if (temp) {
         setRevealedTempPassword(temp);
       }
+      let okMsg: string;
       if (outcome === "login_relinked_existing_auth") {
-        setSuccess(
-          "Auth user already existed for this email — password updated, staff row relinked, and email synced from Auth."
-        );
+        okMsg =
+          "Auth user already existed for this email — password updated, staff row relinked, and email synced from Auth.";
+        setSuccess(okMsg);
       } else {
-        setSuccess(
-          temp
-            ? "Login created. Copy the temporary password below now — it cannot be retrieved later."
-            : "Login created and linked. Staff email synced from Auth."
-        );
+        okMsg = temp
+          ? "Login created. Copy the temporary password below now — it cannot be retrieved later."
+          : "Login created and linked. Staff email synced from Auth.";
+        setSuccess(okMsg);
       }
+      onApiResult?.("ok", okMsg);
 
       setPassword("");
       setPasswordConfirm("");
@@ -213,13 +227,17 @@ export function CreateLoginDialog({
         }, 1600);
       }
     } catch {
-      setError("Network error. Try again.");
+      const msg = "Network error. Try again.";
+      setError(msg);
+      onApiResult?.("err", msg);
     } finally {
       setLoading(false);
     }
   }
 
-  const triggerClass = compact
+  const triggerClass = triggerClassName
+    ? triggerClassName
+    : compact
     ? "inline-flex min-w-0 items-center justify-center rounded-full bg-slate-900 px-2.5 py-1 text-[10px] font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-45"
     : "inline-flex min-w-[7rem] items-center justify-center rounded-full bg-slate-900 px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-45";
 

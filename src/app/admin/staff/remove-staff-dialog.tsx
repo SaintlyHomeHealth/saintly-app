@@ -10,9 +10,11 @@ type Props = {
   label: string;
   /** Overrides the default “Deactivate” / “Remove” trigger label. */
   triggerLabel?: string;
+  /** Replaces default trigger styles (e.g. overflow menu row). */
+  buttonClassName?: string;
 };
 
-export function RemoveStaffDialog({ staffProfileId, hasLogin, label, triggerLabel }: Props) {
+export function RemoveStaffDialog({ staffProfileId, hasLogin, label, triggerLabel, buttonClassName }: Props) {
   const titleId = useId();
   const [open, setOpen] = useState(false);
   const [ack, setAck] = useState(false);
@@ -36,6 +38,10 @@ export function RemoveStaffDialog({ staffProfileId, hasLogin, label, triggerLabe
   const triggerText =
     triggerLabel ?? (hasLogin ? "Deactivate" : "Remove");
 
+  const triggerClass =
+    buttonClassName ??
+    "inline-flex min-w-0 items-center justify-center rounded-full border border-red-200 bg-red-50/80 px-3 py-1.5 text-[11px] font-semibold text-red-900 hover:bg-red-100";
+
   return (
     <div className="flex flex-col gap-1">
       <button
@@ -44,7 +50,7 @@ export function RemoveStaffDialog({ staffProfileId, hasLogin, label, triggerLabe
           setOpen(true);
           setAck(false);
         }}
-        className="inline-flex min-w-0 items-center justify-center rounded-full border border-red-200 bg-red-50/80 px-3 py-1.5 text-[11px] font-semibold text-red-900 hover:bg-red-100"
+        className={triggerClass}
       >
         {triggerText}
       </button>

@@ -7,6 +7,8 @@ type Props = {
   disabled?: boolean;
   disabledReason?: string;
   className?: string;
+  /** When set, success/error are reported here instead of inline under the button. */
+  onResult?: (kind: "ok" | "err", message: string) => void;
 };
 
 export function ResendInviteButton({
@@ -14,6 +16,7 @@ export function ResendInviteButton({
   disabled = false,
   disabledReason,
   className,
+  onResult,
 }: Props) {
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -33,12 +36,17 @@ export function ResendInviteButton({
       });
       const data = (await res.json().catch(() => ({}))) as { ok?: boolean; detail?: string; error?: string };
       if (!res.ok || !data.ok) {
-        setErr((data.detail as string) || data.error || "Could not resend invite.");
+        const text = (data.detail as string) || data.error || "Could not resend invite.";
+        if (onResult) onResult("err", text);
+        else setErr(text);
         return;
       }
-      setMsg("Invite email sent (if SMTP is configured).");
+      const okText = "Invite email sent (if SMTP is configured).";
+      if (onResult) onResult("ok", okText);
+      else setMsg(okText);
     } catch {
-      setErr("Network error.");
+      if (onResult) onResult("err", "Network error.");
+      else setErr("Network error.");
     } finally {
       setLoading(false);
     }
@@ -58,8 +66,10 @@ export function ResendInviteButton({
       >
         {loading ? "Sending…" : "Resend invite"}
       </button>
-      {msg ? <span className="text-[10px] text-emerald-700">{msg}</span> : null}
-      {err ? <span className="max-w-[14rem] text-[10px] text-red-700 [overflow-wrap:anywhere]">{err}</span> : null}
+      {onResult ? null : msg ? <span className="text-[10px] text-emerald-700">{msg}</span> : null}
+      {onResult ? null : err ? (
+        <span className="max-w-[14rem] text-[10px] text-red-700 [overflow-wrap:anywhere]">{err}</span>
+      ) : null}
     </span>
   );
 }

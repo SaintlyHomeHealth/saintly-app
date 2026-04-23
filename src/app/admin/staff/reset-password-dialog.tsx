@@ -17,6 +17,8 @@ type Props = {
   dialogTitle?: string;
   /** Full override for the trigger button classes (e.g. overflow menu row). */
   triggerClassName?: string;
+  /** Fires after reset-password API completes (for toast outside the modal). */
+  onApiResult?: (kind: "ok" | "err", message: string) => void;
 };
 
 const ERROR_LABELS: Record<string, string> = {
@@ -62,6 +64,7 @@ export function ResetPasswordDialog({
   triggerLabel = "Reset password",
   dialogTitle,
   triggerClassName,
+  onApiResult,
 }: Props) {
   const router = useRouter();
   const titleId = useId();
@@ -123,16 +126,22 @@ export function ResetPasswordDialog({
         const code = typeof data.error === "string" ? data.error : "request_failed";
         const base = ERROR_LABELS[code] ?? "Something went wrong.";
         const detail = typeof data.detail === "string" && data.detail ? ` (${data.detail})` : "";
-        setError(base + detail);
+        const msg = base + detail;
+        setError(msg);
+        onApiResult?.("err", msg);
         return;
       }
 
       const temp = typeof data.temporaryPassword === "string" ? data.temporaryPassword : null;
       if (temp) {
         setRevealedTempPassword(temp);
-        setSuccess("Password reset. Copy the new temporary password below — it cannot be retrieved later.");
+        const msg = "Password reset. Copy the new temporary password below — it cannot be retrieved later.";
+        setSuccess(msg);
+        onApiResult?.("ok", msg);
       } else {
-        setSuccess("Password reset successful. Share the new temporary password securely.");
+        const msg = "Password reset successful. Share the new temporary password securely.";
+        setSuccess(msg);
+        onApiResult?.("ok", msg);
       }
       setPassword("");
       setPasswordConfirm("");
@@ -141,7 +150,9 @@ export function ResetPasswordDialog({
         setTimeout(() => close(), 1600);
       }
     } catch {
-      setError("Network error. Try again.");
+      const msg = "Network error. Try again.";
+      setError(msg);
+      onApiResult?.("err", msg);
     } finally {
       setLoading(false);
     }
