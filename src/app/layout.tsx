@@ -15,9 +15,19 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+/** Resolve public site origin for metadata only (OG URLs, etc.). Production keeps the marketing fallback when unset. */
+function metadataSiteOrigin(): string {
+  const fromEnv = process.env.NEXT_PUBLIC_SITE_URL?.trim();
+  if (fromEnv) return fromEnv.replace(/\/$/, "");
+  if (process.env.NODE_ENV === "development") {
+    return "http://localhost:3000";
+  }
+  return "https://www.saintlyhomehealth.com";
+}
+
 export const metadata: Metadata = {
   /** Same build serves www + app subdomains; set per deploy for absolute OG URLs. */
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "https://www.saintlyhomehealth.com"),
+  metadataBase: new URL(metadataSiteOrigin()),
   title: {
     default: "Saintly Home Health",
     template: "%s · Saintly Home Health",

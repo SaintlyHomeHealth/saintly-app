@@ -49,7 +49,7 @@ function StaffDirectoryRowActionsInner({
   const [menuOpen, setMenuOpen] = useState(false);
   const anchorRef = useRef<HTMLButtonElement>(null);
   const menuPanelRef = useRef<HTMLDivElement>(null);
-  const [menuPos, setMenuPos] = useState({ top: 0, right: 0 });
+  const [menuLayout, setMenuLayout] = useState({ top: 0, right: 0, maxHeightPx: 400 });
   const [toast, setToast] = useState<null | { kind: "ok" | "err"; text: string }>(null);
   const [confirmKind, setConfirmKind] = useState<ConfirmKind | null>(null);
 
@@ -68,18 +68,80 @@ function StaffDirectoryRowActionsInner({
   }, [toast]);
 
   useLayoutEffect(() => {
-    if (!menuOpen || !anchorRef.current) return;
-    function place() {
+    if (!menuOpen) return;
+
+    const VIEWPORT_PAD = 8;
+    const GAP = 6;
+
+    function compute() {
       if (!anchorRef.current) return;
       const r = anchorRef.current.getBoundingClientRect();
-      setMenuPos({ top: r.bottom + 6, right: window.innerWidth - r.right });
+      const vh = window.innerHeight;
+      const capH = Math.min(vh * 0.7, 384);
+      const el = menuPanelRef.current;
+      const naturalH = el ? Math.max(el.scrollHeight, 1) : 280;
+      let right = window.innerWidth - r.right;
+      const spaceBelow = vh - VIEWPORT_PAD - (r.bottom + GAP);
+      const spaceAbove = r.top - VIEWPORT_PAD - GAP;
+
+      let top: number;
+      let maxHeightPx: number;
+
+      if (naturalH <= spaceBelow) {
+        top = r.bottom + GAP;
+        maxHeightPx = Math.min(capH, spaceBelow, naturalH);
+      } else if (naturalH <= spaceAbove) {
+        const h = Math.min(naturalH, capH, spaceAbove);
+        top = r.top - GAP - h;
+        maxHeightPx = h;
+      } else if (spaceBelow >= spaceAbove) {
+        top = r.bottom + GAP;
+        maxHeightPx = Math.min(capH, spaceBelow);
+      } else {
+        const h = Math.min(capH, spaceAbove);
+        top = Math.max(VIEWPORT_PAD, r.top - GAP - h);
+        maxHeightPx = h;
+      }
+
+      if (el) {
+        const menuW = el.offsetWidth;
+        const left = r.right - menuW;
+        if (left < VIEWPORT_PAD) {
+          right = window.innerWidth - (VIEWPORT_PAD + menuW);
+        }
+      }
+
+      setMenuLayout((prev) => {
+        if (
+          prev.top === top &&
+          prev.right === right &&
+          Math.abs(prev.maxHeightPx - maxHeightPx) < 0.5
+        ) {
+          return prev;
+        }
+        return { top, right, maxHeightPx };
+      });
     }
-    place();
-    window.addEventListener("resize", place);
-    window.addEventListener("scroll", place, true);
+
+    compute();
+    const ro =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => compute());
+    const ensureObserved = () => {
+      if (ro && menuPanelRef.current) ro.observe(menuPanelRef.current);
+    };
+    ensureObserved();
+    const onWin = () => compute();
+    window.addEventListener("resize", onWin);
+    window.addEventListener("scroll", onWin, true);
+    const raf = requestAnimationFrame(() => {
+      compute();
+      ensureObserved();
+    });
     return () => {
-      window.removeEventListener("resize", place);
-      window.removeEventListener("scroll", place, true);
+      cancelAnimationFrame(raf);
+      ro?.disconnect();
+      window.removeEventListener("resize", onWin);
+      window.removeEventListener("scroll", onWin, true);
     };
   }, [menuOpen]);
 
@@ -205,8 +267,12 @@ function StaffDirectoryRowActionsInner({
           <div
             ref={menuPanelRef}
             role="menu"
-            className="fixed z-40 max-h-[min(70vh,24rem)] min-w-[12.5rem] overflow-y-auto rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl"
-            style={{ top: menuPos.top, right: menuPos.right }}
+            className="fixed z-[1100] min-w-[12.5rem] overflow-y-auto rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl"
+            style={{
+              top: menuLayout.top,
+              right: menuLayout.right,
+              maxHeight: menuLayout.maxHeightPx,
+            }}
           >
             <Link
               href={`/admin/staff/${staffProfileId}`}

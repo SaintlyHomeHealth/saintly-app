@@ -7,6 +7,7 @@
     "build": "next build",
     "analyze": "ANALYZE=true next build",
     "analyze:webpack": "ANALYZE=true next build --webpack",
+    "perf:routes": "tsx scripts/route-perf-capture.mts",
     "start": "next start",
     "lint": "eslint",
     "icons:generate": "node scripts/generate-saintly-icons.mjs",
