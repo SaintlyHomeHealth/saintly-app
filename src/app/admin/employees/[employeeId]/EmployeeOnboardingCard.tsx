@@ -35,7 +35,7 @@ export default function EmployeeOnboardingCard({ employeeId, onboardingStatus }:
   const link = buildOnboardingEntryLink(employeeId);
 
   return (
-    <div className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
+    <div className="rounded-lg border border-slate-200 bg-white p-4">
       <div className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-400">
         Onboarding portal
       </div>

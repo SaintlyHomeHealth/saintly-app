@@ -46,47 +46,45 @@ type Props = {
   snapshot: UnifiedOnboardingSnapshot;
 };
 
-const BlockingStepCard = memo(function BlockingStepCard({
+const BlockingStepRow = memo(function BlockingStepRow({
   s,
 }: {
   s: UnifiedOnboardingSnapshot["blockingSteps"][number];
 }) {
   return (
-    <li className="rounded-2xl border border-red-200 bg-white p-4 shadow-sm">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <p className="text-sm font-semibold text-slate-900">{s.label}</p>
-          <p className="text-xs text-slate-500">{s.category}</p>
-          <p className="mt-1 text-sm text-slate-700">
-            <span className="font-medium">Status:</span> {s.displayStatus}
+    <li className="flex flex-col gap-2 border-b border-red-100 py-3 last:border-0 sm:flex-row sm:items-start sm:justify-between">
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-semibold text-slate-900">{s.label}</p>
+        <p className="text-[11px] text-slate-500">{s.category}</p>
+        <p className="mt-1 text-xs text-slate-700">
+          <span className="font-medium">Status:</span> {s.displayStatus}
+        </p>
+        {s.whyBlocking ? (
+          <p className="mt-1 text-xs text-red-800">
+            <span className="font-medium">Blocks:</span> {s.whyBlocking}
           </p>
-          {s.whyBlocking ? (
-            <p className="mt-1 text-sm text-red-800">
-              <span className="font-medium">Why it blocks:</span> {s.whyBlocking}
-            </p>
-          ) : null}
-          <p className="mt-2 text-sm text-slate-700">
-            <span className="font-medium">Tell the employee:</span> {s.adminCoaching}
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {s.employeeViewHref ? (
-            <a
-              href={s.employeeViewHref}
-              className="inline-flex items-center justify-center rounded-full border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-900"
-              target="_blank"
-              rel="noreferrer"
-            >
-              Open employee step
-            </a>
-          ) : null}
+        ) : null}
+        <p className="mt-1 text-xs text-slate-600">
+          <span className="font-medium">Coach:</span> {s.adminCoaching}
+        </p>
+      </div>
+      <div className="flex shrink-0 flex-wrap gap-2">
+        {s.employeeViewHref ? (
           <a
-            href={s.adminViewHref}
-            className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800"
+            href={s.employeeViewHref}
+            className="inline-flex items-center rounded border border-sky-200 bg-sky-50 px-2 py-1 text-xs font-semibold text-sky-900"
+            target="_blank"
+            rel="noreferrer"
           >
-            View (admin)
+            Employee view
           </a>
-        </div>
+        ) : null}
+        <a
+          href={s.adminViewHref}
+          className="inline-flex items-center rounded border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-800"
+        >
+          Admin
+        </a>
       </div>
     </li>
   );
@@ -103,8 +101,33 @@ export default function AdminOnboardingCommandCenter({ employeeId, employeeName,
   const previewHref = `${PREVIEW_START}?applicantId=${encodeURIComponent(employeeId)}`;
 
   return (
-    <div className="space-y-5">
-      <div className="overflow-hidden rounded-[24px] border border-slate-200 bg-gradient-to-br from-slate-50 to-white p-5 shadow-sm">
+    <div className="space-y-4">
+      {snapshot.blockingSteps.length > 0 ? (
+        <div
+          className="border-l-4 border-amber-500 bg-amber-50/90 px-4 py-3"
+          role="region"
+          aria-label="Action required"
+        >
+          <h2 className="text-xs font-bold uppercase tracking-wide text-amber-950">Action required</h2>
+          <p className="mt-1 text-xs text-amber-900/90">
+            {snapshot.blockingSteps.length} blocking item
+            {snapshot.blockingSteps.length === 1 ? "" : "s"} — resolve before onboarding is complete.
+          </p>
+          <ul className="mt-2 space-y-1.5">
+            {snapshot.blockingSteps.map((s) => (
+              <li key={s.key} className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-sm">
+                <span className="font-semibold text-slate-900">{s.label}</span>
+                <span className="text-slate-600">({s.displayStatus})</span>
+                <a href={s.adminViewHref} className="text-xs font-semibold text-sky-800 underline">
+                  Open
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      <div className="overflow-hidden rounded-lg border border-slate-200 bg-slate-50/40 p-4">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-500">
@@ -125,13 +148,11 @@ export default function AdminOnboardingCommandCenter({ employeeId, employeeName,
                 </span>
               ) : null}
             </div>
-            <dl className="mt-4 grid gap-2 text-sm sm:grid-cols-2">
+            <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
               <div>
                 <dt className="text-xs font-semibold text-slate-500">Last activity (portal)</dt>
                 <dd className="text-slate-800">
-                  {snapshot.lastActivityAt
-                    ? new Date(snapshot.lastActivityAt).toLocaleString()
-                    : "—"}
+                  {snapshot.lastActivityAt ? new Date(snapshot.lastActivityAt).toLocaleString() : "—"}
                 </dd>
               </div>
               <div>
@@ -155,9 +176,9 @@ export default function AdminOnboardingCommandCenter({ employeeId, employeeName,
           <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap lg:justify-end">
             <a
               href={previewHref}
-              className="inline-flex items-center justify-center rounded-full border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-900 transition hover:bg-sky-100"
+              className="inline-flex items-center justify-center rounded border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-900 transition hover:bg-sky-100"
             >
-              View onboarding as employee
+              View as employee
             </a>
             <button
               type="button"
@@ -169,15 +190,15 @@ export default function AdminOnboardingCommandCenter({ employeeId, employeeName,
                 setBusy(false);
                 if ("message" in res) setRecomputeMessage(res.message);
               }}
-              className="inline-flex w-full items-center justify-center rounded-full border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-900 transition hover:bg-indigo-100 disabled:opacity-50"
+              className="inline-flex w-full items-center justify-center rounded border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm font-semibold text-indigo-900 transition hover:bg-indigo-100 disabled:opacity-50"
             >
-              {busy ? "Recomputing…" : "Recompute onboarding status"}
+              {busy ? "Recomputing…" : "Recompute status"}
             </button>
             <Link
               href={`/admin/employees/${employeeId}#onboarding-section`}
-              className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-800 transition hover:bg-slate-50"
+              className="inline-flex items-center justify-center rounded border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-800 transition hover:bg-slate-50"
             >
-              Card grid (original view)
+              Detailed status
             </Link>
           </div>
         </div>
@@ -188,18 +209,18 @@ export default function AdminOnboardingCommandCenter({ employeeId, employeeName,
         ) : null}
       </div>
 
-      <div className="rounded-[24px] border-2 border-red-100 bg-red-50/40 p-5 shadow-sm">
-        <h2 className="text-lg font-semibold text-slate-900">What is blocking completion?</h2>
-        <p className="mt-1 text-sm text-slate-600">
+      <div className="rounded-lg border border-red-100 bg-red-50/50 p-4">
+        <h2 className="text-sm font-semibold text-slate-900">Blocking detail</h2>
+        <p className="mt-0.5 text-xs text-slate-600">
           Required items where status is not <span className="font-medium">complete</span> (
           {snapshot.blockingSteps.length}).
         </p>
         {snapshot.blockingSteps.length === 0 ? (
-          <p className="mt-4 text-sm font-medium text-emerald-800">No blocking items. You’re all set here.</p>
+          <p className="mt-3 text-sm font-medium text-emerald-800">No blocking items.</p>
         ) : (
-          <ul className="mt-4 space-y-3">
+          <ul className="mt-2 divide-y divide-red-100/80">
             {snapshot.blockingSteps.map((s) => (
-              <BlockingStepCard key={s.key} s={s} />
+              <BlockingStepRow key={s.key} s={s} />
             ))}
           </ul>
         )}

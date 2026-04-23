@@ -27,47 +27,37 @@ function getBadgeForTone(tone: PersonnelFileAuditItem["statusTone"]) {
 
 const AuditItem = memo(function AuditItem({ item }: { item: PersonnelFileAuditItem }) {
   return (
-    <div className="flex flex-col gap-2 rounded-[20px] border border-slate-200 bg-slate-50/80 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
-      <p className="text-sm font-medium text-slate-900">{item.label}</p>
-      <div className="flex flex-wrap items-center justify-end gap-2">
-        {item.showGo === false ? null : (
-          <Link
-            href={item.sectionHref}
-            className="inline-flex items-center rounded-full border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
-          >
-            Go
-          </Link>
-        )}
-        {item.artifactHref && item.status === "Complete" ? (
-          item.artifactExternal ? (
-            <a
-              href={item.artifactHref}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-xs font-semibold text-sky-700 transition hover:bg-sky-100"
-            >
-              {item.artifactLabel || "View"}
-            </a>
-          ) : (
-            <a
-              href={item.artifactHref}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-xs font-semibold text-sky-700 transition hover:bg-sky-100"
-            >
-              {item.artifactLabel || "View"}
-            </a>
-          )
-        ) : null}
+    <tr className="border-b border-slate-100 last:border-0">
+      <td className="py-2 pr-3 text-sm font-medium text-slate-900">{item.label}</td>
+      <td className="py-2 pr-3">
         <span
-          className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${getBadgeForTone(
+          className={`inline-flex rounded border px-2 py-0.5 text-xs font-semibold ${getBadgeForTone(
             item.statusTone
           )}`}
         >
           {item.status}
         </span>
-      </div>
-    </div>
+      </td>
+      <td className="py-2 text-right">
+        <div className="flex flex-wrap justify-end gap-2">
+          {item.showGo === false ? null : item.sectionHref ? (
+            <Link href={item.sectionHref} className="text-xs font-semibold text-sky-700 underline">
+              Go
+            </Link>
+          ) : null}
+          {item.artifactHref && item.status === "Complete" ? (
+            <a
+              href={item.artifactHref}
+              target="_blank"
+              rel="noreferrer"
+              className="text-xs font-semibold text-sky-700 underline"
+            >
+              {item.artifactLabel || "View"}
+            </a>
+          ) : null}
+        </div>
+      </td>
+    </tr>
   );
 });
 
@@ -81,27 +71,36 @@ type Props = {
  */
 function PersonnelFileAuditDeferredInner({ items, surveyReadyBadge }: Props) {
   return (
-    <div className="mt-6 rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+    <div className="mt-4 rounded-lg border border-slate-200 bg-white p-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h3 className="text-lg font-semibold text-slate-900">Personnel File Audit</h3>
-          <p className="mt-1 text-sm text-slate-500">Quick pass/fail review for survey-safe file readiness.</p>
+          <h3 className="text-sm font-semibold text-slate-900">Personnel file audit</h3>
+          <p className="mt-0.5 text-xs text-slate-500">Survey-ready checklist</p>
         </div>
         <span
-          className={`inline-flex w-fit rounded-full px-3 py-1 text-xs font-semibold ${
+          className={`inline-flex w-fit rounded border px-2 py-0.5 text-xs font-semibold ${
             surveyReadyBadge === "green"
-              ? "border border-green-200 bg-green-50 text-green-700"
-              : "border border-red-200 bg-red-50 text-red-700"
+              ? "border-green-200 bg-green-50 text-green-700"
+              : "border-red-200 bg-red-50 text-red-700"
           }`}
         >
-          {surveyReadyBadge === "green" ? "Complete" : "Needs Review"}
+          {surveyReadyBadge === "green" ? "Complete" : "Needs review"}
         </span>
       </div>
 
-      <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        {items.map((item) => (
-          <AuditItem key={item.label} item={item} />
-        ))}
+      <div className="mt-3 overflow-x-auto">
+        <table className="w-full min-w-[480px] text-left text-sm">
+          <thead>
+            <tr className="border-b border-slate-100 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              <th className="py-2 pr-3 font-medium">Item</th>
+              <th className="py-2 pr-3 font-medium">Status</th>
+              <th className="py-2 text-right font-medium">Action</th>
+            </tr>
+          </thead>
+          <tbody>{items.map((item) => (
+            <AuditItem key={item.label} item={item} />
+          ))}</tbody>
+        </table>
       </div>
     </div>
   );

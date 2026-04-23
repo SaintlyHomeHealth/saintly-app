@@ -18,7 +18,6 @@ import {
 import ComplianceEventManager from "@/app/admin/compliance-event-manager";
 import CredentialManager from "./CredentialManager";
 import EmployeeContractTaxSection from "./EmployeeContractTaxSection";
-import ApplicantFileUploadWithRefresh from "./ApplicantFileUploadWithRefresh";
 import EmployeeOnboardingCard from "./EmployeeOnboardingCard";
 import {
   applicantRolePrimaryForCompliance,
@@ -34,6 +33,12 @@ import PersonnelFileAuditDeferred from "./personnel-file-audit-loader";
 import { WorkflowStatusCard } from "./workflow-status-card";
 
 import CredentialReminderCappedTable from "./credential-reminder-capped-table";
+import EmployeeDocumentsComplianceDashboard, {
+  type DashboardHistoryEntry,
+  type ExpiringCredentialRowDef,
+  type InitialHiringRowDef,
+  type OngoingComplianceRowDef,
+} from "./employee-documents-compliance-dashboard";
 
 type ComplianceEvent = {
   id: string;
@@ -170,6 +175,13 @@ function formatDateTime(dateString?: string | null) {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+function buildAdminUploadHistoryDisplay(files: AdminUploadRecord[]): DashboardHistoryEntry[] {
+  return files.map((file, index) => ({
+    displayLine: `v${files.length - index} · ${file.created_at ? formatDate(file.created_at) : "—"}`,
+    viewUrl: file.viewUrl ?? null,
+  }));
 }
 
 function getBadgeClasses(tone: "green" | "red" | "amber" | "sky" | "slate") {
@@ -1258,16 +1270,16 @@ function WorkflowSection({
   return (
     <section
       id={id}
-      className="min-w-0 overflow-hidden rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm"
+      className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white p-4"
     >
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-slate-900">{title}</h2>
-          <p className="mt-1 text-sm text-slate-500">{subtitle}</p>
+          <h2 className="text-base font-semibold text-slate-900">{title}</h2>
+          <p className="mt-0.5 text-xs text-slate-500">{subtitle}</p>
         </div>
       </div>
 
-      <div className="mt-5">{children}</div>
+      <div className="mt-4">{children}</div>
     </section>
   );
 }
@@ -2811,6 +2823,100 @@ export default async function EmployeeDetailPage({
     })
   );
 
+  const documentsComplianceInitialHiring: InitialHiringRowDef[] = [
+    {
+      key: "oig",
+      label: "OIG exclusion proof",
+      statusLabel: isOigComplete ? "Complete" : "Missing",
+      statusTone: isOigComplete ? "green" : "red",
+      lastUpdatedDisplay: latestOigProof?.created_at ? formatDateTime(latestOigProof.created_at) : "—",
+      viewUrl: (latestOigProof as AdminUploadRecord | null)?.viewUrl ?? null,
+      documentType: "oig_check",
+      uploadLabel: "OIG Check Proof",
+      completeComplianceEventId: oigEvent?.id,
+      anchorId: "oig-proof-section",
+      history: buildAdminUploadHistoryDisplay(oigProofHistory),
+      workflowOpenHref: `${employeePageBase}#oig-section`,
+    },
+    {
+      key: "background",
+      label: "Background check",
+      statusLabel: hasBackgroundCheck ? "Complete" : "Missing",
+      statusTone: hasBackgroundCheck ? "green" : "red",
+      lastUpdatedDisplay: latestBackgroundCheckProof?.created_at
+        ? formatDateTime(latestBackgroundCheckProof.created_at)
+        : "—",
+      viewUrl: (latestBackgroundCheckProof as AdminUploadRecord | null)?.viewUrl ?? null,
+      documentType: "background_check",
+      uploadLabel: "Background Check",
+      anchorId: "background-section",
+      history: buildAdminUploadHistoryDisplay(backgroundCheckHistory),
+    },
+    {
+      key: "fingerprint",
+      label: "AZ Fingerprint Clearance Card (file)",
+      statusLabel: hasFingerprintUpload ? "On file" : "Missing",
+      statusTone: hasFingerprintUpload ? "green" : "red",
+      lastUpdatedDisplay: latestFingerprintProof?.created_at
+        ? formatDateTime(latestFingerprintProof.created_at)
+        : "—",
+      viewUrl: (latestFingerprintProof as AdminUploadRecord | null)?.viewUrl ?? null,
+      documentType: "fingerprint_clearance_card",
+      uploadLabel: "AZ Fingerprint Clearance Card",
+      anchorId: "fingerprint-section",
+      history: buildAdminUploadHistoryDisplay(fingerprintCardHistory),
+      workflowOpenHref: `${employeePageBase}#credentials-section`,
+    },
+    {
+      key: "tb",
+      label: "TB test / documentation (upload)",
+      statusLabel: hasTbDocumentation ? "On file" : "Missing",
+      statusTone: hasTbDocumentation ? "green" : "red",
+      lastUpdatedDisplay: latestTbTestProof?.created_at
+        ? formatDateTime(latestTbTestProof.created_at)
+        : "—",
+      viewUrl: (latestTbTestProof as AdminUploadRecord | null)?.viewUrl ?? null,
+      documentType: "tb_test",
+      uploadLabel: "TB Test Upload",
+      anchorId: "tb-section",
+      history: buildAdminUploadHistoryDisplay(tbTestHistory),
+      workflowOpenHref: `${employeePageBase}#tb-statement-section`,
+    },
+  ];
+
+  const documentsComplianceOngoing: OngoingComplianceRowDef[] = complianceSummary.map((item, i) => ({
+    key: `ongoing-${i}-${item.label}`,
+    label: item.label,
+    statusLabel: item.value,
+    statusTone: item.tone,
+    nextDueDisplay: item.progress,
+    sectionHref: item.sectionHref,
+  }));
+
+  const documentsComplianceExpiring: ExpiringCredentialRowDef[] = getLatestCredentialsByType(
+    allEmployeeCredentials
+  )
+    .map((c) => {
+      const st = getCredentialStatus(c.expiration_date);
+      const statusLabel: ExpiringCredentialRowDef["statusLabel"] =
+        st.label === "Expired"
+          ? "Expired"
+          : st.label === "Due Soon"
+            ? "Expiring"
+            : st.label === "Active"
+              ? "Valid"
+              : "Unknown";
+      return {
+        key: c.id,
+        label: formatCredentialType(c.credential_type),
+        statusLabel,
+        statusTone: st.tone,
+        expirationDisplay: c.expiration_date ? formatDate(c.expiration_date) : "—",
+        anchorId: getCredentialAnchorId(c.credential_type),
+      };
+    })
+    .sort((a, b) => a.expirationDisplay.localeCompare(b.expirationDisplay));
+
   const skillsHistoryForms = historyForms.filter(
     (historyForm) =>
       historyForm.form_type === "skills_competency" &&
@@ -2937,19 +3043,19 @@ export default async function EmployeeDetailPage({
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-[32px] border border-slate-200 bg-white shadow-sm">
-        <div className="bg-gradient-to-r from-sky-50 via-white to-cyan-50 p-8">
-          <div className="flex flex-col gap-8 xl:flex-row xl:items-start xl:justify-between">
-            <div className="max-w-3xl">
-              <div className="inline-flex items-center rounded-full border border-sky-100 bg-white/90 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-sky-700 shadow-sm">
-                Saintly Admin Portal
+      <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+        <div className="border-b border-slate-100 bg-slate-50/50 p-4">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+            <div className="max-w-3xl min-w-0">
+              <div className="inline-flex items-center rounded border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-600">
+                Employee record
               </div>
 
-              <h1 className="mt-4 text-4xl font-bold tracking-tight text-slate-900">
+              <h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-900">
                 {employee.first_name} {employee.last_name}
               </h1>
 
-              <p className="mt-2 text-lg text-slate-500">{employee.email}</p>
+              <p className="mt-1 text-sm text-slate-600">{employee.email}</p>
 
               <div className="mt-4 flex flex-col gap-3">
                 <div className="flex flex-wrap items-center gap-3">
@@ -3127,85 +3233,53 @@ export default async function EmployeeDetailPage({
                 <p className="mt-3 text-xs text-slate-500">Missing: {surveyMissingSummary}</p>
               ) : null}
 
-              <p className="mt-5 max-w-2xl text-sm leading-6 text-slate-600">
-                Annual compliance items are managed as separate event-based records so each
-                year can be tracked, completed, printed, and retained without overwriting
-                prior annual forms.
+              <p className="mt-3 max-w-2xl text-xs leading-relaxed text-slate-600">
+                Annual compliance uses separate event records so each year stays auditable without
+                overwriting prior forms.
               </p>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-2 xl:w-[860px]">
+            <div className="min-w-0 xl:w-[420px]">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                Open program
+              </p>
+              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1.5 text-sm">
+                <Link href={skillsHref} className="font-medium text-sky-800 hover:underline">
+                  Skills <span className="font-normal text-slate-500">({skillsState.label})</span>
+                </Link>
+                <Link href={performanceHref} className="font-medium text-sky-800 hover:underline">
+                  Performance <span className="font-normal text-slate-500">({performanceState.label})</span>
+                </Link>
+                <Link href={oigHref} className="font-medium text-sky-800 hover:underline">
+                  OIG <span className="font-normal text-slate-500">({oigState.label})</span>
+                </Link>
+                <Link href={contractHref} className="font-medium text-sky-800 hover:underline">
+                  Contract review <span className="font-normal text-slate-500">({contractState.label})</span>
+                </Link>
+                <Link href={trainingHref} className="font-medium text-sky-800 hover:underline">
+                  Training <span className="font-normal text-slate-500">({trainingState.label})</span>
+                </Link>
+                <Link href={tbHref} className="font-medium text-sky-800 hover:underline">
+                  TB statement <span className="font-normal text-slate-500">({tbState.label})</span>
+                </Link>
+              </div>
               <Link
-                href={skillsHref}
-                className={`inline-flex min-h-[72px] items-center justify-center rounded-[24px] px-6 py-4 text-center text-base font-semibold shadow-lg transition ${getButtonClasses(
-                  skillsState.tone
-                )}`}
+                href="#documents-compliance-dashboard"
+                className="mt-3 inline-block text-xs font-semibold text-sky-700 underline"
               >
-                {skillsState.buttonText} Skills Competency
-              </Link>
-
-              <Link
-                href={performanceHref}
-                className={`inline-flex min-h-[72px] items-center justify-center rounded-[24px] px-6 py-4 text-center text-base font-semibold shadow-lg transition ${getButtonClasses(
-                  performanceState.tone
-                )}`}
-              >
-                {performanceState.buttonText} Performance Evaluation
-              </Link>
-
-              <Link
-                href={oigHref}
-                className={`inline-flex min-h-[72px] items-center justify-center rounded-[24px] px-6 py-4 text-center text-base font-semibold shadow-lg transition ${getButtonClasses(
-                  oigState.tone
-                )}`}
-              >
-                {oigState.buttonText} OIG Check
-              </Link>
-
-              <Link
-                href={contractHref}
-                className={`inline-flex min-h-[72px] items-center justify-center rounded-[24px] px-6 py-4 text-center text-base font-semibold shadow-lg transition ${getButtonClasses(
-                  contractState.tone
-                )}`}
-              >
-                {contractState.buttonText} Contract Review
-              </Link>
-
-              <Link
-                href={trainingHref}
-                className={`inline-flex min-h-[72px] items-center justify-center rounded-[24px] px-6 py-4 text-center text-base font-semibold shadow-lg transition ${getButtonClasses(
-                  trainingState.tone
-                )}`}
-              >
-                {trainingState.buttonText} Annual Training
-              </Link>
-
-              <Link
-                href={tbHref}
-                className={`inline-flex min-h-[72px] items-center justify-center rounded-[24px] px-6 py-4 text-center text-base font-semibold shadow-lg transition ${getButtonClasses(
-                  tbState.tone
-                )}`}
-              >
-                {tbState.buttonText} TB Statement
+                Documents & compliance tables
               </Link>
             </div>
           </div>
         </div>
 
-        <div className="grid gap-4 border-t border-slate-100 bg-white p-6 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid gap-2 border-t border-slate-100 bg-white p-3 md:grid-cols-2 xl:grid-cols-3">
           {complianceSummary.map((item) => (
-            <div
-              key={item.label}
-              className="rounded-[24px] border border-slate-200 bg-slate-50/70 p-4"
-            >
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-                Current Status
-              </p>
-
-              <div className="mt-2 flex items-center justify-between gap-4">
-                <div>
-                  <p className="text-sm font-semibold text-slate-900">{item.label}</p>
-                  <p className="mt-1 text-xs text-slate-500">{item.progress}</p>
+            <div key={item.label} className="rounded-md border border-slate-200 bg-white px-3 py-2">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold text-slate-900">{item.label}</p>
+                  <p className="mt-0.5 text-[11px] text-slate-500">{item.progress}</p>
                 </div>
 
                 <div className="flex flex-wrap items-center justify-end gap-2">
@@ -3252,8 +3326,8 @@ export default async function EmployeeDetailPage({
 
       <OnboardingWorkflowSectionCollapsible
         id="onboarding-section"
-        title="Onboarding Status (detailed cards)"
-        subtitle="Track employee portal completion items before the hire setup is finalized."
+        title="Onboarding pipeline detail"
+        subtitle="Portal steps and application status before hire setup is finalized."
         defaultCollapsed={isSurveyReady}
       >
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
@@ -3321,91 +3395,28 @@ export default async function EmployeeDetailPage({
         subtitle="Review recurring annual requirements, manage events, and keep historical records intact."
       >
         {actionableReminderItems.length > 0 ? (
-          <div className="mb-6 rounded-[24px] border border-slate-200 bg-slate-50/80 p-5">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-              <div>
-                <h3 className="text-base font-semibold text-slate-900">Needs Action This Week</h3>
-                <p className="mt-1 text-sm text-slate-500">
-                  Due soon and overdue compliance items surfaced before they slip.
-                </p>
-              </div>
-            </div>
-
-            <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {actionableReminderItems.slice(0, 6).map((item) => (
-                <Link
-                  key={`${item.label}-${item.status.label}`}
-                  href={item.href}
-                  className="flex items-center justify-between gap-3 rounded-[20px] border border-slate-200 bg-white px-4 py-3 transition hover:bg-slate-50"
-                >
-                  <p className="text-sm font-medium text-slate-900">{item.label}</p>
-                  <span
-                    className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${item.status.badgeClass}`}
-                  >
-                    {item.status.label}
-                  </span>
-                </Link>
+          <div className="mb-4 rounded border border-amber-200 bg-amber-50/70 px-3 py-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-amber-950">Needs attention</p>
+            <ul className="mt-1.5 list-inside list-disc space-y-0.5 text-sm text-slate-800">
+              {actionableReminderItems.slice(0, 10).map((item) => (
+                <li key={`${item.label}-${item.status.label}`}>
+                  <Link href={item.href} className="font-medium text-sky-800 underline">
+                    {item.label}
+                  </Link>
+                  <span className="text-slate-600"> — {item.status.label}</span>
+                </li>
               ))}
-            </div>
+            </ul>
           </div>
         ) : null}
 
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {complianceSummary.map((item) => (
-            <div
-              key={item.label}
-              className="rounded-[24px] border border-slate-200 bg-slate-50/70 p-4"
-            >
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-                Current Status
-              </p>
-
-              <div className="mt-2 flex items-center justify-between gap-4">
-                <div>
-                  <p className="text-sm font-semibold text-slate-900">{item.label}</p>
-                  <p className="mt-1 text-xs text-slate-500">{item.progress}</p>
-                </div>
-
-                <div className="flex flex-wrap items-center justify-end gap-2">
-                  <Link
-                    href={item.sectionHref}
-                    className="inline-flex items-center rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
-                  >
-                    Go
-                  </Link>
-                  {item.showPrint ? (
-                    <a
-                      href={item.printHref}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
-                    >
-                      {item.printLabel}
-                    </a>
-                  ) : null}
-                  {item.showView && item.viewHref ? (
-                    <a
-                      href={item.viewHref}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
-                    >
-                      View
-                    </a>
-                  ) : null}
-
-                  <span
-                    className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${getBadgeClasses(
-                      item.tone
-                    )}`}
-                  >
-                    {item.value}
-                  </span>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
+        <p className="text-xs text-slate-500">
+          Current program status lives in the{" "}
+          <Link href="#documents-compliance-dashboard" className="font-semibold text-sky-700 underline">
+            ongoing / compliance table
+          </Link>{" "}
+          and the compact status row under the employee header.
+        </p>
 
         <div className="mt-6" id="performance-section">
           <VersionedEventCard
@@ -3474,434 +3485,16 @@ export default async function EmployeeDetailPage({
           />
         </div>
 
-        <div className="mt-6 grid gap-6 md:grid-cols-2 xl:grid-cols-4 items-start">
-          <div
-            id="oig-proof-section"
-            className="min-w-0 rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm"
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h3 className="text-lg font-semibold text-slate-900">OIG Proof Upload</h3>
-                <p className="mt-1 text-sm text-slate-500">
-                  Upload the exclusion-check proof from admin review. Uploading here
-                  marks the current OIG event complete.
-                </p>
-              </div>
-
-              <span
-                className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${getBadgeClasses(
-                  isOigComplete ? "green" : "red"
-                )}`}
-              >
-                {isOigComplete ? "Complete" : "Missing"}
-              </span>
-            </div>
-
-            <div className="mt-4 rounded-[20px] border border-slate-200 bg-slate-50/80 p-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
-                Latest Proof
-              </p>
-              <p className="mt-2 text-sm font-semibold text-slate-900">
-                {latestOigProof?.display_name || latestOigProof?.file_name || "No OIG proof uploaded"}
-              </p>
-              <p className="mt-1 text-xs text-slate-500">
-                {latestOigProof?.created_at
-                  ? `Uploaded ${formatDateTime(latestOigProof.created_at)}`
-                  : "Upload the completed OIG result from the admin side."}
-              </p>
-
-              {latestOigProof?.viewUrl ? (
-                <a
-                  href={latestOigProof.viewUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="mt-3 inline-flex items-center rounded-full border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
-                >
-                  View Current Proof
-                </a>
-              ) : null}
-            </div>
-
-            <div className="mt-4">
-              <ApplicantFileUploadWithRefresh
-                applicantId={employeeId}
-                documentType="oig_check"
-                label="OIG Check Proof"
-                completeComplianceEventId={oigEvent?.id}
-              />
-            </div>
-
-            <div className="mt-4 rounded-[24px] border border-slate-200 bg-white p-5">
-              <div className="flex items-center justify-between gap-3">
-                <h3 className="text-lg font-semibold text-slate-900">Version History</h3>
-              </div>
-
-              <div className="mt-4 max-h-[400px] space-y-3 overflow-y-auto">
-                {oigProofHistoryPreview.length === 0 ? (
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
-                    No version history yet.
-                  </div>
-                ) : (
-                  oigProofHistoryPreview.map((file, index) => {
-                    const isCurrent = index === 0;
-                    const versionNumber = oigProofHistory.length - index;
-
-                    return (
-                      <div
-                        key={`${file.created_at || "na"}-${file.viewUrl || file.file_name || index}`}
-                        className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50/70 px-3 py-2"
-                      >
-                        <div className="flex-1">
-                          <p className="text-xs font-semibold text-slate-900">
-                            v{versionNumber} · {file.created_at ? formatDate(file.created_at) : "—"}
-                          </p>
-                        </div>
-                        <div className="flex flex-shrink-0 items-center gap-1.5">
-                          <span
-                            className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
-                              isCurrent ? "bg-sky-50 text-sky-700" : "bg-slate-100 text-slate-600"
-                            }`}
-                          >
-                            {isCurrent ? "Current" : "Prior"}
-                          </span>
-                          {file.viewUrl ? (
-                            <a
-                              href={file.viewUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="inline-flex items-center rounded-full border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
-                            >
-                              View
-                            </a>
-                          ) : null}
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            </div>
-          </div>
-
-          <div id="background-section" className="min-w-0 rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h3 className="text-lg font-semibold text-slate-900">Background Check</h3>
-                <p className="mt-1 text-sm text-slate-500">
-                  Store background-check clearance in the employee file for admin review.
-                </p>
-              </div>
-
-              <span
-                className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${getBadgeClasses(
-                  hasBackgroundCheck ? "green" : "red"
-                )}`}
-              >
-                {hasBackgroundCheck ? "Complete" : "Missing"}
-              </span>
-            </div>
-
-            <div className="mt-4 rounded-[20px] border border-slate-200 bg-slate-50/80 p-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
-                Latest File
-              </p>
-              <p className="mt-2 text-sm font-semibold text-slate-900">
-                {latestBackgroundCheckProof?.display_name ||
-                  latestBackgroundCheckProof?.file_name ||
-                  "No background check uploaded"}
-              </p>
-              <p className="mt-1 text-xs text-slate-500">
-                {latestBackgroundCheckProof?.created_at
-                  ? `Uploaded ${formatDateTime(latestBackgroundCheckProof.created_at)}`
-                  : "Upload the completed background-check proof here."}
-              </p>
-
-              {latestBackgroundCheckProof?.viewUrl ? (
-                <a
-                  href={latestBackgroundCheckProof.viewUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="mt-3 inline-flex items-center rounded-full border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
-                >
-                  View Current File
-                </a>
-              ) : null}
-            </div>
-
-            <div className="mt-4">
-              <ApplicantFileUploadWithRefresh
-                applicantId={employeeId}
-                documentType="background_check"
-                label="Background Check"
-              />
-            </div>
-
-            <div className="mt-4 rounded-[24px] border border-slate-200 bg-white p-5">
-              <div className="flex items-center justify-between gap-3">
-                <h3 className="text-lg font-semibold text-slate-900">Version History</h3>
-              </div>
-
-              <div className="mt-4 max-h-[400px] space-y-3 overflow-y-auto">
-                {backgroundCheckHistoryPreview.length === 0 ? (
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
-                    No version history yet.
-                  </div>
-                ) : (
-                  backgroundCheckHistoryPreview.map((file, index) => {
-                    const isCurrent = index === 0;
-                    const versionNumber = backgroundCheckHistory.length - index;
-
-                    return (
-                      <div
-                        key={`${file.created_at || "na"}-${file.viewUrl || file.file_name || index}`}
-                        className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50/70 px-3 py-2"
-                      >
-                        <div className="flex-1">
-                          <p className="text-xs font-semibold text-slate-900">
-                            v{versionNumber} · {file.created_at ? formatDate(file.created_at) : "—"}
-                          </p>
-                        </div>
-                        <div className="flex flex-shrink-0 items-center gap-1.5">
-                          <span
-                            className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
-                              isCurrent ? "bg-sky-50 text-sky-700" : "bg-slate-100 text-slate-600"
-                            }`}
-                          >
-                            {isCurrent ? "Current" : "Prior"}
-                          </span>
-                          {file.viewUrl ? (
-                            <a
-                              href={file.viewUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="inline-flex items-center rounded-full border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
-                            >
-                              View
-                            </a>
-                          ) : null}
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            </div>
-          </div>
-
-          <div id="fingerprint-section" className="min-w-0 rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h3 className="text-lg font-semibold text-slate-900">
-                  AZ Fingerprint Clearance Card
-                </h3>
-                <p className="mt-1 text-sm text-slate-500">
-                  Review the current fingerprint card file or upload a new copy to the
-                  employee file.
-                </p>
-              </div>
-
-              <span
-                className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${getBadgeClasses(
-                  hasFingerprintUpload ? "green" : "red"
-                )}`}
-              >
-                {hasFingerprintUpload ? "On File" : "Missing"}
-              </span>
-            </div>
-
-            <div className="mt-4 rounded-[20px] border border-slate-200 bg-slate-50/80 p-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
-                Latest File
-              </p>
-              <p className="mt-2 text-sm font-semibold text-slate-900">
-                {latestFingerprintProof?.display_name ||
-                  latestFingerprintProof?.file_name ||
-                  "No fingerprint card uploaded"}
-              </p>
-              <p className="mt-1 text-xs text-slate-500">
-                {latestFingerprintProof?.created_at
-                  ? `Uploaded ${formatDateTime(latestFingerprintProof.created_at)}`
-                  : "Upload the current AZ Fingerprint Clearance Card here."}
-              </p>
-
-              {latestFingerprintProof?.viewUrl ? (
-                <a
-                  href={latestFingerprintProof.viewUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="mt-3 inline-flex items-center rounded-full border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
-                >
-                  View Current File
-                </a>
-              ) : null}
-            </div>
-
-            <div className="mt-4">
-              <ApplicantFileUploadWithRefresh
-                applicantId={employeeId}
-                documentType="fingerprint_clearance_card"
-                label="AZ Fingerprint Clearance Card"
-              />
-            </div>
-
-            <div className="mt-4 rounded-[24px] border border-slate-200 bg-white p-5">
-              <div className="flex items-center justify-between gap-3">
-                <h3 className="text-lg font-semibold text-slate-900">Version History</h3>
-              </div>
-
-              <div className="mt-4 max-h-[400px] space-y-3 overflow-y-auto">
-                {fingerprintCardHistoryPreview.length === 0 ? (
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
-                    No version history yet.
-                  </div>
-                ) : (
-                  fingerprintCardHistoryPreview.map((file, index) => {
-                    const isCurrent = index === 0;
-                    const versionNumber = fingerprintCardHistory.length - index;
-
-                    return (
-                      <div
-                        key={`${file.created_at || "na"}-${file.viewUrl || file.file_name || index}`}
-                        className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50/70 px-3 py-2"
-                      >
-                        <div className="flex-1">
-                          <p className="text-xs font-semibold text-slate-900">
-                            v{versionNumber} · {file.created_at ? formatDate(file.created_at) : "—"}
-                          </p>
-                        </div>
-                        <div className="flex flex-shrink-0 items-center gap-1.5">
-                          <span
-                            className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
-                              isCurrent ? "bg-sky-50 text-sky-700" : "bg-slate-100 text-slate-600"
-                            }`}
-                          >
-                            {isCurrent ? "Current" : "Prior"}
-                          </span>
-                          {file.viewUrl ? (
-                            <a
-                              href={file.viewUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="inline-flex items-center rounded-full border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
-                            >
-                              View
-                            </a>
-                          ) : null}
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            </div>
-          </div>
-
-          <div id="tb-section" className="min-w-0 rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h3 className="text-lg font-semibold text-slate-900">TB Documentation</h3>
-                <p className="mt-1 text-sm text-slate-500">
-                  Onboarding TB uploads now count in the admin file audit and stay
-                  visible here for review.
-                </p>
-              </div>
-
-              <span
-                className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${getBadgeClasses(
-                  hasTbDocumentation ? "green" : "red"
-                )}`}
-              >
-                {hasTbDocumentation ? "On File" : "Missing"}
-              </span>
-            </div>
-
-            <div className="mt-4 rounded-[20px] border border-slate-200 bg-slate-50/80 p-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
-                Latest TB Test Upload
-              </p>
-              <p className="mt-2 text-sm font-semibold text-slate-900">
-                {latestTbTestProof?.display_name || latestTbTestProof?.file_name || "No TB test uploaded"}
-              </p>
-              <p className="mt-1 text-xs text-slate-500">
-                {latestTbTestProof?.created_at
-                  ? `Uploaded ${formatDateTime(latestTbTestProof.created_at)}`
-                  : "TB can be satisfied by the onboarding document upload even before the annual statement is completed."}
-              </p>
-
-              {latestTbTestProof?.viewUrl ? (
-                <a
-                  href={latestTbTestProof.viewUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="mt-3 inline-flex items-center rounded-full border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
-                >
-                  View TB Upload
-                </a>
-              ) : null}
-            </div>
-
-            <div className="mt-4">
-              <ApplicantFileUploadWithRefresh
-                applicantId={employeeId}
-                documentType="tb_test"
-                label="TB Test Upload"
-              />
-            </div>
-
-            <div className="mt-4 rounded-[24px] border border-slate-200 bg-white p-5">
-              <div className="flex items-center justify-between gap-3">
-                <h3 className="text-lg font-semibold text-slate-900">Version History</h3>
-              </div>
-
-              <div className="mt-4 max-h-[400px] space-y-3 overflow-y-auto">
-                {tbTestHistoryPreview.length === 0 ? (
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
-                    No version history yet.
-                  </div>
-                ) : (
-                  tbTestHistoryPreview.map((file, index) => {
-                    const isCurrent = index === 0;
-                    const versionNumber = tbTestHistory.length - index;
-
-                    return (
-                      <div
-                        key={`${file.created_at || "na"}-${file.viewUrl || file.file_name || index}`}
-                        className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50/70 px-3 py-2"
-                      >
-                        <div className="flex-1">
-                          <p className="text-xs font-semibold text-slate-900">
-                            v{versionNumber} · {file.created_at ? formatDate(file.created_at) : "—"}
-                          </p>
-                        </div>
-                        <div className="flex flex-shrink-0 items-center gap-1.5">
-                          <span
-                            className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
-                              isCurrent ? "bg-sky-50 text-sky-700" : "bg-slate-100 text-slate-600"
-                            }`}
-                          >
-                            {isCurrent ? "Current" : "Prior"}
-                          </span>
-                          {file.viewUrl ? (
-                            <a
-                              href={file.viewUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="inline-flex items-center rounded-full border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
-                            >
-                              View
-                            </a>
-                          ) : null}
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            </div>
-          </div>
+        <div className="mt-6">
+          <EmployeeDocumentsComplianceDashboard
+            employeeId={employeeId}
+            initialHiring={documentsComplianceInitialHiring}
+            ongoingCompliance={documentsComplianceOngoing}
+            expiringCredentials={documentsComplianceExpiring}
+          />
         </div>
 
-        <div className="mt-6 rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="mt-6 rounded-lg border border-slate-200 bg-white p-4">
         <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
           <div>
             <h2 className="text-lg font-semibold text-slate-900">
@@ -4049,7 +3642,7 @@ export default async function EmployeeDetailPage({
       >
         <div
           id="expiring-credentials-section"
-          className={`rounded-[24px] border px-5 py-4 shadow-sm ${
+          className={`rounded-lg border px-4 py-3 ${
             missingCredentialTypes.length > 0 || overdueRequiredCredentialCount > 0
               ? "border-red-200 bg-red-50 text-red-800"
               : urgentRequiredCredentialCount > 0
@@ -4093,52 +3686,26 @@ export default async function EmployeeDetailPage({
           </p>
         </div>
 
-        {requiredCredentialReminderStatuses.length > 0 ? (
-          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {requiredCredentialReminderStatuses.map(({ credentialType, status, credential }) => (
-              <Link
-                key={credentialType}
-                href={
-                  credential
-                    ? `${employeePageBase}#${getCredentialAnchorId(credentialType)}`
-                    : `${employeePageBase}#credentials-section`
-                }
-                className="block rounded-[20px] border border-slate-200 bg-slate-50/80 px-4 py-3"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-semibold text-slate-900">
-                      {formatCredentialType(credentialType)}
-                    </p>
-                    <p className="mt-1 text-xs text-slate-500">
-                      {credential?.expiration_date
-                        ? `Expires ${formatDate(credential.expiration_date)}`
-                        : "No credential on file"}
-                    </p>
-                  </div>
+        <p className="mt-3 text-xs text-slate-600">
+          Per-credential expiration and actions: see{" "}
+          <Link href="#documents-compliance-dashboard" className="font-semibold text-sky-700 underline">
+            Expiring / credentials
+          </Link>{" "}
+          and the tracker below.
+        </p>
 
-                  <span
-                    className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${status.badgeClass}`}
-                  >
-                    {status.label}
-                  </span>
-                </div>
-              </Link>
-            ))}
-          </div>
-        ) : null}
-
-        <div id="credentials-section" className="mt-6">
+        <div id="credentials-section" className="mt-4">
           <CredentialManager
             employeeId={employeeId}
             initialCredentials={allEmployeeCredentials}
             allowMutations={canChangeSensitiveEmployeeStatus}
+            presentation="dashboard"
           />
         </div>
 
         <div
           id="credential-reminder-log-section"
-          className="mt-8 rounded-[24px] border border-violet-100 bg-violet-50/40 px-5 py-4 shadow-sm"
+          className="mt-6 rounded-lg border border-violet-100 bg-violet-50/40 px-3 py-3"
         >
           <h3 className="text-sm font-semibold text-slate-900">Credential SMS reminder log</h3>
           <p className="mt-1 text-xs text-slate-600">
@@ -4202,29 +3769,29 @@ export default async function EmployeeDetailPage({
         )}
       </WorkflowSection>
 
-      <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
-        <h2 className="text-lg font-semibold text-slate-900">Admin Guidance</h2>
+      <div className="rounded-lg border border-slate-200 bg-white p-4">
+        <h2 className="text-base font-semibold text-slate-900">Admin guidance</h2>
 
-        <div className="mt-4 grid gap-4 lg:grid-cols-3">
-          <div className="rounded-[22px] border border-slate-100 bg-slate-50 p-4">
+        <div className="mt-3 grid gap-3 lg:grid-cols-3">
+          <div className="rounded border border-slate-100 bg-slate-50/80 p-3">
             <p className="text-sm font-semibold text-slate-900">1. Start from the current event</p>
-            <p className="mt-2 text-sm leading-6 text-slate-600">
+            <p className="mt-1.5 text-xs leading-relaxed text-slate-600">
               Admin staff should always enter forms through the employee dashboard so the
               correct annual event is used.
             </p>
           </div>
 
-          <div className="rounded-[22px] border border-slate-100 bg-slate-50 p-4">
+          <div className="rounded border border-slate-100 bg-slate-50/80 p-3">
             <p className="text-sm font-semibold text-slate-900">2. Draft before finalize</p>
-            <p className="mt-2 text-sm leading-6 text-slate-600">
+            <p className="mt-1.5 text-xs leading-relaxed text-slate-600">
               Draft status protects in-progress work. Finalize should only happen after the
               live review is fully complete and survey-safe.
             </p>
           </div>
 
-          <div className="rounded-[22px] border border-slate-100 bg-slate-50 p-4">
+          <div className="rounded border border-slate-100 bg-slate-50/80 p-3">
             <p className="text-sm font-semibold text-slate-900">3. Preserve annual history</p>
-            <p className="mt-2 text-sm leading-6 text-slate-600">
+            <p className="mt-1.5 text-xs leading-relaxed text-slate-600">
               Each annual cycle should create a fresh event so prior-year performance and
               competency records stay intact for CHAP and audit review.
             </p>

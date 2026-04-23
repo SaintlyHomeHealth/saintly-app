@@ -26,23 +26,23 @@ export default function OnboardingWorkflowSectionCollapsible({
   return (
     <section
       id={id}
-      className="min-w-0 overflow-hidden rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm"
+      className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white p-4"
     >
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-slate-900">{title}</h2>
-          <p className="mt-1 text-sm text-slate-500">{subtitle}</p>
+          <h2 className="text-base font-semibold text-slate-900">{title}</h2>
+          <p className="mt-0.5 text-xs text-slate-500">{subtitle}</p>
         </div>
         <button
           type="button"
           onClick={() => setOpen((o) => !o)}
-          className="inline-flex w-fit items-center justify-center rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-800 transition hover:bg-slate-100"
+          className="inline-flex w-fit items-center justify-center rounded border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-800 transition hover:bg-slate-100"
         >
-          {open ? "Collapse" : "Expand"} section
+          {open ? "Collapse" : "Expand"}
         </button>
       </div>
 
-      {open ? <div className="mt-5">{children}</div> : null}
+      {open ? <div className="mt-4">{children}</div> : null}
     </section>
   );
 }

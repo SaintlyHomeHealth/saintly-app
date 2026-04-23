@@ -28,6 +28,8 @@ type Props = {
   initialCredentials: CredentialRecord[];
   /** When false, managers see read-only credential data (add/edit/delete/upload disabled). */
   allowMutations?: boolean;
+  /** Compact table + modal history (employee detail dashboard). */
+  presentation?: "legacy" | "dashboard";
 };
 
 type FormState = {
@@ -193,10 +195,34 @@ function formatCredentialClientError(error: unknown, fallback: string): string {
   return getErrorMessage(error, fallback);
 }
 
+function credentialRecencyTs(c: CredentialRecord) {
+  return new Date(c.uploaded_at || c.created_at || 0).getTime();
+}
+
+/** Client-safe copy of employee-directory credential type normalization (avoid server-only imports). */
+function normalizeCredentialTypeKeyClient(type: string | null | undefined): string {
+  const t = (type || "").toLowerCase().trim();
+  if (t === "cpr" || t === "cpr_card" || t === "cpr_bls" || t === "bls_cpr") {
+    return "cpr";
+  }
+  if (
+    t === "fingerprint_clearance_card" ||
+    t === "fingerprint_card" ||
+    t === "az_fingerprint_clearance_card"
+  ) {
+    return "fingerprint_clearance_card";
+  }
+  if (t === "insurance") {
+    return "independent_contractor_insurance";
+  }
+  return t;
+}
+
 export default function CredentialManager({
   employeeId,
   initialCredentials,
   allowMutations = true,
+  presentation = "legacy",
 }: Props) {
   const supabase = useMemo(() => createBrowserSupabaseClient(), []);
   const [credentials, setCredentials] = useState<CredentialRecord[]>(
@@ -210,6 +236,7 @@ export default function CredentialManager({
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [signedUrlNotice, setSignedUrlNotice] = useState("");
+  const [historyInModal, setHistoryInModal] = useState<CredentialRecord[]>([]);
 
   useEffect(() => {
     async function loadSignedUrls() {
@@ -308,6 +335,7 @@ export default function CredentialManager({
     setSelectedFile(null);
     setErrorMessage("");
     setSuccessMessage("");
+    setHistoryInModal([]);
     setIsOpen(true);
   }
 
@@ -325,6 +353,13 @@ export default function CredentialManager({
     setSelectedFile(null);
     setErrorMessage("");
     setSuccessMessage("");
+    const key = normalizeCredentialTypeKeyClient(credential.credential_type);
+    setHistoryInModal(
+      credentials
+        .filter((c) => normalizeCredentialTypeKeyClient(c.credential_type) === key)
+        .slice()
+        .sort((a, b) => credentialRecencyTs(b) - credentialRecencyTs(a))
+    );
     setIsOpen(true);
   }
 
@@ -335,6 +370,7 @@ export default function CredentialManager({
     setSelectedFile(null);
     setErrorMessage("");
     setSuccessMessage("");
+    setHistoryInModal([]);
   }
 
   async function handleSave(e: React.FormEvent) {
@@ -591,13 +627,19 @@ export default function CredentialManager({
   }
 
   return (
-    <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
-      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+    <div
+      className={
+        presentation === "dashboard"
+          ? "rounded-lg border border-slate-200 bg-white p-3"
+          : "rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm"
+      }
+    >
+      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-slate-900">
+          <h2 className="text-base font-semibold text-slate-900">
             Credential Expiration Tracking
           </h2>
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="mt-0.5 text-xs text-slate-500">
             Professional license, CPR, driver’s license, fingerprint clearance card,
             auto insurance, independent contractor insurance, liability insurance, and TB
             expiration dates are tracked here.
@@ -629,7 +671,11 @@ export default function CredentialManager({
             <button
               type="button"
               onClick={openAddModal}
-              className="ml-0 inline-flex items-center rounded-[18px] bg-gradient-to-r from-sky-600 to-cyan-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-sky-100 transition hover:-translate-y-0.5 md:ml-2"
+              className={
+                presentation === "dashboard"
+                  ? "ml-0 inline-flex items-center rounded border border-sky-700 bg-sky-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-800 md:ml-2"
+                  : "ml-0 inline-flex items-center rounded-[18px] bg-gradient-to-r from-sky-600 to-cyan-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-sky-100 transition hover:-translate-y-0.5 md:ml-2"
+              }
             >
               Add Credential
             </button>
@@ -638,7 +684,7 @@ export default function CredentialManager({
               type="button"
               disabled
               title="Only admins and super admins can add credentials."
-              className="ml-0 inline-flex cursor-not-allowed items-center rounded-[18px] border border-slate-200 bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-400 md:ml-2"
+              className="ml-0 inline-flex cursor-not-allowed items-center rounded border border-slate-200 bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-400 md:ml-2"
             >
               Add Credential
             </button>
@@ -647,8 +693,89 @@ export default function CredentialManager({
       </div>
 
       {credentials.length === 0 ? (
-        <div className="mt-4 rounded-[22px] border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
+        <div
+          className={
+            presentation === "dashboard"
+              ? "mt-2 rounded border border-dashed border-slate-200 px-3 py-4 text-sm text-slate-500"
+              : "mt-4 rounded-[22px] border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500"
+          }
+        >
           No credential records found.
+        </div>
+      ) : presentation === "dashboard" ? (
+        <div className="mt-3 overflow-x-auto">
+          <table className="w-full min-w-[720px] text-left text-sm">
+            <thead>
+              <tr className="border-b border-slate-100 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                <th className="px-2 py-2 font-medium">Credential</th>
+                <th className="px-2 py-2 font-medium">Status</th>
+                <th className="px-2 py-2 font-medium">Expires</th>
+                <th className="px-2 py-2 text-right font-medium">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {credentialGroups.map(({ current }) => {
+                const credential = current!;
+                const status = getCredentialStatus(credential.expiration_date);
+                return (
+                  <tr
+                    key={credential.id}
+                    id={getCredentialAnchorId(credential.credential_type)}
+                    className="scroll-mt-24"
+                  >
+                    <td className="px-2 py-2 font-medium text-slate-900">
+                      {credential.credential_name || formatCredentialType(credential.credential_type)}
+                      <span className="mt-0.5 block text-xs font-normal text-slate-500">
+                        {formatCredentialType(credential.credential_type)}
+                        {credential.issuing_state ? ` · ${credential.issuing_state}` : ""}
+                      </span>
+                    </td>
+                    <td className="px-2 py-2">
+                      <span
+                        className={`inline-flex rounded border px-2 py-0.5 text-xs font-semibold ${status.badgeClass}`}
+                      >
+                        {status.label}
+                      </span>
+                    </td>
+                    <td className="px-2 py-2 text-slate-600">{formatDate(credential.expiration_date)}</td>
+                    <td className="px-2 py-2 text-right">
+                      <div className="flex flex-wrap justify-end gap-2">
+                        {credential.view_url ? (
+                          <a
+                            href={credential.view_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-xs font-semibold text-sky-700 underline"
+                          >
+                            View
+                          </a>
+                        ) : null}
+                        {allowMutations ? (
+                          <button
+                            type="button"
+                            onClick={() => openEditModal(credential)}
+                            className="text-xs font-semibold text-sky-700 underline"
+                          >
+                            Edit
+                          </button>
+                        ) : null}
+                        {allowMutations ? (
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(credential)}
+                            disabled={deletingCredentialId === credential.id}
+                            className="text-xs font-semibold text-red-700 underline disabled:opacity-50"
+                          >
+                            {deletingCredentialId === credential.id ? "…" : "Delete"}
+                          </button>
+                        ) : null}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       ) : (
         <div className="mt-6 grid gap-4">
@@ -1053,6 +1180,37 @@ export default function CredentialManager({
                   className="w-full rounded-[16px] border border-slate-300 px-4 py-3 text-sm outline-none focus:border-sky-500"
                 />
               </label>
+
+              {form.id && historyInModal.length > 0 ? (
+                <div className="rounded border border-slate-200 bg-slate-50/60 p-3">
+                  <p className="text-xs font-semibold text-slate-700">Version history</p>
+                  <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto text-xs text-slate-700">
+                    {historyInModal.map((h, idx) => (
+                      <li
+                        key={h.id}
+                        className="flex items-center justify-between gap-2 border-b border-slate-100 py-1 last:border-0"
+                      >
+                        <span>
+                          v{historyInModal.length - idx} ·{" "}
+                          {h.uploaded_at || h.created_at
+                            ? formatDate(h.uploaded_at || h.created_at)
+                            : "—"}
+                        </span>
+                        {h.view_url ? (
+                          <a
+                            href={h.view_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="shrink-0 font-semibold text-sky-700 underline"
+                          >
+                            View
+                          </a>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
 
               {errorMessage ? (
                 <div className="rounded-[16px] border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
