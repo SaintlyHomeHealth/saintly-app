@@ -25,14 +25,15 @@ import {
   type ApplicantRoleFields,
 } from "@/lib/applicant-role-for-compliance";
 import { getCredentialAnchorId } from "@/lib/credential-anchors";
-import {
-  formatCredentialReminderCredentialType,
-  formatCredentialReminderStage,
-} from "@/lib/admin/credential-reminder-display";
 import { EmployeeArchiveButton } from "@/app/admin/employees/EmployeeArchiveButton";
-import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import { buildUnifiedOnboardingState } from "@/lib/onboarding/unified-onboarding-state";
 import AdminOnboardingCommandCenter from "./admin-onboarding-command-center";
+import type { PersonnelFileAuditItem } from "./personnel-file-audit-deferred";
+import OnboardingWorkflowSectionCollapsible from "./onboarding-workflow-section-collapsible";
+import PersonnelFileAuditDeferred from "./personnel-file-audit-loader";
+import { WorkflowStatusCard } from "./workflow-status-card";
+
+import CredentialReminderCappedTable from "./credential-reminder-capped-table";
 
 type ComplianceEvent = {
   id: string;
@@ -169,15 +170,6 @@ function formatDateTime(dateString?: string | null) {
     hour: "numeric",
     minute: "2-digit",
   });
-}
-
-function credentialReminderLogPhoneDisplay(metadata: unknown): string {
-  if (!metadata || typeof metadata !== "object") return "—";
-  const phone = (metadata as Record<string, unknown>).phone_e164;
-  if (typeof phone === "string" && phone.trim()) {
-    return formatPhoneForDisplay(phone);
-  }
-  return "—";
 }
 
 function getBadgeClasses(tone: "green" | "red" | "amber" | "sky" | "slate") {
@@ -1280,44 +1272,6 @@ function WorkflowSection({
   );
 }
 
-function WorkflowStatusCard({
-  label,
-  detail,
-  status,
-}: {
-  label: string;
-  detail: string;
-  status: "Complete" | "Missing" | "In Progress" | "Not Required";
-}) {
-  const tone =
-    status === "Complete"
-      ? "green"
-      : status === "Missing"
-        ? "red"
-        : status === "In Progress"
-          ? "amber"
-          : "slate";
-
-  return (
-    <div className="rounded-[22px] border border-slate-200 bg-slate-50/80 p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-sm font-semibold text-slate-900">{label}</p>
-          <p className="mt-1 text-xs leading-5 text-slate-500">{detail}</p>
-        </div>
-
-        <span
-          className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${getBadgeClasses(
-            tone
-          )}`}
-        >
-          {status}
-        </span>
-      </div>
-    </div>
-  );
-}
-
 export default async function EmployeeDetailPage({
   params,
   searchParams,
@@ -1616,189 +1570,292 @@ export default async function EmployeeDetailPage({
     return <div className="p-6">Employee not found</div>;
   }
 
-  const { data: employeeContractRaw } = await supabase
-    .from("employee_contracts")
-    .select("*")
-    .eq("applicant_id", employeeId)
-    .eq("is_current", true)
-    .single<EmployeeContractRow>();
+  const supabaseAuthedForBatch = await createServerSupabaseClient();
 
-  const employeeContract = employeeContractRaw || null;
-  const { data: onboardingContractStatus } = await supabase
-    .from("onboarding_contracts")
-    .select("completed")
-    .eq("applicant_id", employeeId)
-    .maybeSingle<{ completed?: boolean | null }>();
-  let employeeTaxForm: EmployeeTaxFormRow | null = null;
-
-  {
-    const { data: employeeTaxFormRaw } = await supabase
+  const [
+    { data: employeeContractRaw },
+    { data: onboardingContractStatus },
+    { data: employeeTaxFormRaw },
+    { data: onboardingStatus },
+    { data: allApplicantFilesRaw },
+    { data: documentsRowsRaw },
+    { data: onboardingTrainingCompletions },
+    { data: trainingProgressRows },
+    { data: latestTrainingCompletion },
+    { data: exitInterviewRaw },
+    { data: skillsEventsRaw },
+    { data: skillsFinalizedFormsRows },
+    { data: performanceEventsRaw },
+    { data: performanceFinalizedFormsRows },
+    { data: oigEvent },
+    { data: contractReviewEventsRaw },
+    { data: contractReviewFinalizedFormsRows },
+    { data: trainingChecklistEventsRaw },
+    { data: trainingChecklistFinalizedFormsRows },
+    { data: tbStatementEventsRaw },
+    { data: tbStatementFinalizedFormsRows },
+    { data: historyEventsRaw },
+    { data: credentials },
+    { data: credentialReminderLogRaw },
+  ] = await Promise.all([
+    supabase
+      .from("employee_contracts")
+      .select("*")
+      .eq("applicant_id", employeeId)
+      .eq("is_current", true)
+      .single<EmployeeContractRow>(),
+    supabase
+      .from("onboarding_contracts")
+      .select("completed")
+      .eq("applicant_id", employeeId)
+      .maybeSingle<{ completed?: boolean | null }>(),
+    supabase
       .from("employee_tax_forms")
       .select("*")
       .eq("applicant_id", employeeId)
       .eq("is_current", true)
-      .maybeSingle<EmployeeTaxFormRow>();
+      .maybeSingle<EmployeeTaxFormRow>(),
+    supabase
+      .from("onboarding_status")
+      .select(
+        "application_completed, onboarding_invite_status, onboarding_invite_sent_at, onboarding_invite_last_channel, onboarding_flow_status, onboarding_progress_percent, onboarding_started_at, onboarding_completed_at, onboarding_last_activity_at"
+      )
+      .eq("applicant_id", employeeId)
+      .maybeSingle<{
+        application_completed?: boolean | null;
+        onboarding_invite_status?: string | null;
+        onboarding_invite_sent_at?: string | null;
+        onboarding_invite_last_channel?: string | null;
+        onboarding_flow_status?: string | null;
+        onboarding_progress_percent?: number | null;
+        onboarding_started_at?: string | null;
+        onboarding_completed_at?: string | null;
+        onboarding_last_activity_at?: string | null;
+      }>(),
+    supabaseAdmin
+      .from("applicant_files")
+      .select("id, applicant_id, document_type, display_name, file_name, file_path, created_at")
+      .eq("applicant_id", employeeId)
+      .order("created_at", { ascending: false }),
+    supabaseAdmin
+      .from("documents")
+      .select("id, applicant_id, document_type, file_url, created_at")
+      .eq("applicant_id", employeeId)
+      .order("created_at", { ascending: false }),
+    supabase.from("onboarding_training_completions").select("id").eq("applicant_id", employeeId),
+    supabase.from("applicant_training_progress").select("id, is_complete").eq("applicant_id", employeeId),
+    supabase
+      .from("employee_training_completions")
+      .select("id")
+      .eq("applicant_id", employeeId)
+      .order("completed_at", { ascending: false })
+      .limit(1)
+      .maybeSingle<{ id: string }>(),
+    supabaseAdmin
+      .from("employee_exit_interviews")
+      .select("id, employee_id, reason_for_leaving, separation_type, rehire_eligible, notes, created_at")
+      .eq("employee_id", employeeId)
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from("admin_compliance_events")
+      .select("id, status, event_title, due_date, completed_at, event_type, created_at")
+      .eq("applicant_id", employeeId)
+      .eq("event_type", "skills_checklist")
+      .order("due_date", { ascending: false })
+      .limit(20),
+    supabase
+      .from("employee_admin_forms")
+      .select("compliance_event_id, finalized_at, created_at")
+      .eq("employee_id", employeeId)
+      .eq("form_type", "skills_competency")
+      .eq("status", "finalized"),
+    supabase
+      .from("admin_compliance_events")
+      .select("id, status, event_title, due_date, completed_at, event_type, created_at")
+      .eq("applicant_id", employeeId)
+      .eq("event_type", "annual_performance_evaluation")
+      .order("due_date", { ascending: false })
+      .limit(20),
+    supabase
+      .from("employee_admin_forms")
+      .select("compliance_event_id, finalized_at, created_at")
+      .eq("employee_id", employeeId)
+      .eq("form_type", "performance_evaluation")
+      .eq("status", "finalized"),
+    supabase
+      .from("admin_compliance_events")
+      .select("id, status, event_title, due_date, completed_at, event_type, created_at")
+      .eq("applicant_id", employeeId)
+      .eq("event_type", "annual_oig_check")
+      .order("due_date", { ascending: false })
+      .limit(1)
+      .maybeSingle<ComplianceEvent>(),
+    supabase
+      .from("admin_compliance_events")
+      .select("id, status, event_title, due_date, completed_at, event_type, created_at")
+      .eq("applicant_id", employeeId)
+      .in("event_type", ["annual_contract_review", "contract_annual_review"])
+      .order("due_date", { ascending: false })
+      .limit(20),
+    supabase
+      .from("employee_admin_forms")
+      .select("compliance_event_id, finalized_at, created_at")
+      .eq("employee_id", employeeId)
+      .eq("form_type", "contract_annual_review")
+      .eq("status", "finalized"),
+    supabase
+      .from("admin_compliance_events")
+      .select("id, status, event_title, due_date, completed_at, event_type, created_at")
+      .eq("applicant_id", employeeId)
+      .eq("event_type", "annual_training")
+      .order("due_date", { ascending: false })
+      .limit(20),
+    supabase
+      .from("employee_admin_forms")
+      .select("compliance_event_id, finalized_at, created_at")
+      .eq("employee_id", employeeId)
+      .eq("form_type", "annual_training_checklist")
+      .eq("status", "finalized"),
+    supabase
+      .from("admin_compliance_events")
+      .select("id, status, event_title, due_date, completed_at, event_type, created_at")
+      .eq("applicant_id", employeeId)
+      .eq("event_type", "annual_tb_statement")
+      .order("due_date", { ascending: false })
+      .limit(20),
+    supabase
+      .from("employee_admin_forms")
+      .select("compliance_event_id, finalized_at, created_at")
+      .eq("employee_id", employeeId)
+      .eq("form_type", "annual_tb_statement")
+      .eq("status", "finalized"),
+    supabase
+      .from("admin_compliance_events")
+      .select("id, status, event_title, due_date, completed_at, event_type, created_at")
+      .eq("applicant_id", employeeId)
+      .in("event_type", [
+        "skills_checklist",
+        "annual_performance_evaluation",
+        "annual_oig_check",
+        "annual_contract_review",
+        "contract_annual_review",
+        "annual_training",
+        "annual_tb_statement",
+      ])
+      .order("due_date", { ascending: false }),
+    supabaseAuthedForBatch
+      .from("employee_credentials")
+      .select("*")
+      .eq("employee_id", employeeId)
+      .order("uploaded_at", { ascending: false })
+      .order("created_at", { ascending: false }),
+    supabaseAdmin
+      .from("employee_credential_reminder_sends")
+      .select("id, credential_type, reminder_stage, created_at, expiration_anchor, metadata")
+      .eq("applicant_id", employeeId)
+      .order("created_at", { ascending: false })
+      .limit(500),
+  ]);
 
-    employeeTaxForm = employeeTaxFormRaw || null;
-  }
+  const employeeContract = employeeContractRaw || null;
+  const employeeTaxForm = (employeeTaxFormRaw || null) as EmployeeTaxFormRow | null;
 
-  const { data: onboardingStatus } = await supabase
-    .from("onboarding_status")
-    .select(
-      "application_completed, onboarding_invite_status, onboarding_invite_sent_at, onboarding_invite_last_channel, onboarding_flow_status, onboarding_progress_percent, onboarding_started_at, onboarding_completed_at, onboarding_last_activity_at"
-    )
-    .eq("applicant_id", employeeId)
-    .maybeSingle<{
-      application_completed?: boolean | null;
-      onboarding_invite_status?: string | null;
-      onboarding_invite_sent_at?: string | null;
-      onboarding_invite_last_channel?: string | null;
-      onboarding_flow_status?: string | null;
-      onboarding_progress_percent?: number | null;
-      onboarding_started_at?: string | null;
-      onboarding_completed_at?: string | null;
-      onboarding_last_activity_at?: string | null;
-    }>();
-
-  const { data: applicantFilesRaw } = await supabaseAdmin
-    .from("applicant_files")
-    .select("id, applicant_id, document_type, display_name, file_name, file_path, created_at")
-    .eq("applicant_id", employeeId)
-    .order("created_at", { ascending: false });
-
-  const applicantFiles = (applicantFilesRaw || []) as ApplicantFileRecord[];
-
-  const { data: documentsRowsRaw } = await supabaseAdmin
-    .from("documents")
-    .select("id, applicant_id, document_type, file_url, created_at")
-    .eq("applicant_id", employeeId)
-    .order("created_at", { ascending: false });
+  const allApplicantFileRows = (allApplicantFilesRaw || []) as ApplicantFileRecord[];
+  const applicantFiles = allApplicantFileRows;
+  const savedSurveyPacketRows = allApplicantFileRows.filter(
+    (row) => (row.document_type || "").toLowerCase() === "survey_packet"
+  ) as SavedSurveyPacketRecord[];
 
   const documentsRows = (documentsRowsRaw || []) as DocumentRecord[];
 
-  const { data: onboardingTrainingCompletions } = await supabase
-    .from("onboarding_training_completions")
-    .select("id")
-    .eq("applicant_id", employeeId);
-
-  const { data: trainingProgressRows } = await supabase
-    .from("applicant_training_progress")
-    .select("id, is_complete")
-    .eq("applicant_id", employeeId);
-
-  const { data: latestTrainingCompletion } = await supabase
-    .from("employee_training_completions")
-    .select("id")
-    .eq("applicant_id", employeeId)
-    .order("completed_at", { ascending: false })
-    .limit(1)
-    .maybeSingle<{ id: string }>();
-
-  const { data: exitInterviewRaw } = await supabaseAdmin
-    .from("employee_exit_interviews")
-    .select("id, employee_id, reason_for_leaving, separation_type, rehire_eligible, notes, created_at")
-    .eq("employee_id", employeeId)
-    .limit(1)
-    .maybeSingle();
-
   const exitInterview = (exitInterviewRaw || null) as ExitInterviewRecord | null;
-  let exitInterviewViewUrl: string | null = null;
 
-  if (exitInterview) {
-    const { data: signedUrlData } = await supabaseAdmin.storage
-      .from("applicant-files")
-      .createSignedUrl(getExitInterviewPdfPath(employeeId), 60 * 60);
-
-    exitInterviewViewUrl = signedUrlData?.signedUrl || null;
-  }
-
-  const { data: savedSurveyPacketRowsRaw } = await supabaseAdmin
-    .from("applicant_files")
-    .select("id, applicant_id, display_name, file_name, file_path, created_at")
-    .eq("applicant_id", employeeId)
-    .eq("document_type", "survey_packet")
-    .order("created_at", { ascending: false });
-
-  const savedSurveyPacketRows =
-    (savedSurveyPacketRowsRaw || []) as SavedSurveyPacketRecord[];
-
-  const savedSurveyPackets = await Promise.all(
-    savedSurveyPacketRows.map(async (packet) => {
-      if (!packet.file_path) {
-        return {
-          ...packet,
-          viewUrl: null,
-        };
-      }
-
-      const { data: signedUrlData } = await supabaseAdmin.storage
-        .from("applicant-files")
-        .createSignedUrl(packet.file_path, 60 * 60);
-
-      return {
-        ...packet,
-        viewUrl: signedUrlData?.signedUrl || null,
-      };
-    })
-  );
-
-  const applicantFilesWithUrls = await Promise.all(
-    applicantFiles.map(async (file) => {
-      if (!file.file_path) {
-        return {
-          ...file,
-          viewUrl: null,
-        };
-      }
-
-      const { data: signedUrlData } = await supabaseAdmin.storage
-        .from("applicant-files")
-        .createSignedUrl(file.file_path, 60 * 60);
-
-      return {
-        ...file,
-        viewUrl: signedUrlData?.signedUrl || null,
-      };
-    })
-  );
-
-  const documentUploadRecords = await Promise.all(
-    documentsRows.map(async (document) => {
-      const storageObject = getStorageObjectFromPublicUrl(document.file_url);
-      let viewUrl = document.file_url || null;
-
-      if (storageObject) {
+  const [exitInterviewViewUrl, savedSurveyPackets, applicantFilesWithUrls, documentUploadRecords] =
+    await Promise.all([
+      (async () => {
+        if (!exitInterview) return null as string | null;
         const { data: signedUrlData } = await supabaseAdmin.storage
-          .from(storageObject.bucket)
-          .createSignedUrl(storageObject.path, 60 * 60);
+          .from("applicant-files")
+          .createSignedUrl(getExitInterviewPdfPath(employeeId), 60 * 60);
+        return signedUrlData?.signedUrl || null;
+      })(),
+      Promise.all(
+        savedSurveyPacketRows.map(async (packet) => {
+          if (!packet.file_path) {
+            return {
+              ...packet,
+              viewUrl: null,
+            };
+          }
 
-        if (signedUrlData?.signedUrl) {
-          viewUrl = signedUrlData.signedUrl;
-        } else if (storageObject.bucket !== "applicant-files") {
-          const { data: fallbackSignedUrlData } = await supabaseAdmin.storage
+          const { data: signedUrlData } = await supabaseAdmin.storage
             .from("applicant-files")
-            .createSignedUrl(storageObject.path, 60 * 60);
+            .createSignedUrl(packet.file_path, 60 * 60);
 
-          viewUrl = fallbackSignedUrlData?.signedUrl || viewUrl;
-        }
-      }
+          return {
+            ...packet,
+            viewUrl: signedUrlData?.signedUrl || null,
+          };
+        })
+      ),
+      Promise.all(
+        applicantFiles.map(async (file) => {
+          if (!file.file_path) {
+            return {
+              ...file,
+              viewUrl: null,
+            };
+          }
 
-      return {
-        document_type: document.document_type,
-        display_name:
-          document.document_type === "tb_test"
-            ? "TB Test Upload"
-            : document.document_type === "fingerprint_clearance_card"
-              ? "AZ Fingerprint Clearance Card"
-              : document.document_type === "drivers_license"
-                ? "Driver's License"
-                : null,
-        file_name: null,
-        created_at: document.created_at,
-        viewUrl,
-      } satisfies AdminUploadRecord;
-    })
-  );
+          const { data: signedUrlData } = await supabaseAdmin.storage
+            .from("applicant-files")
+            .createSignedUrl(file.file_path, 60 * 60);
+
+          return {
+            ...file,
+            viewUrl: signedUrlData?.signedUrl || null,
+          };
+        })
+      ),
+      Promise.all(
+        documentsRows.map(async (document) => {
+          const storageObject = getStorageObjectFromPublicUrl(document.file_url);
+          let viewUrl = document.file_url || null;
+
+          if (storageObject) {
+            const { data: signedUrlData } = await supabaseAdmin.storage
+              .from(storageObject.bucket)
+              .createSignedUrl(storageObject.path, 60 * 60);
+
+            if (signedUrlData?.signedUrl) {
+              viewUrl = signedUrlData.signedUrl;
+            } else if (storageObject.bucket !== "applicant-files") {
+              const { data: fallbackSignedUrlData } = await supabaseAdmin.storage
+                .from("applicant-files")
+                .createSignedUrl(storageObject.path, 60 * 60);
+
+              viewUrl = fallbackSignedUrlData?.signedUrl || viewUrl;
+            }
+          }
+
+          return {
+            document_type: document.document_type,
+            display_name:
+              document.document_type === "tb_test"
+                ? "TB Test Upload"
+                : document.document_type === "fingerprint_clearance_card"
+                  ? "AZ Fingerprint Clearance Card"
+                  : document.document_type === "drivers_license"
+                    ? "Driver's License"
+                    : null,
+            file_name: null,
+            created_at: document.created_at,
+            viewUrl,
+          } satisfies AdminUploadRecord;
+        })
+      ),
+    ]);
 
   const adminUploadRecords: AdminUploadRecord[] = [
     ...applicantFilesWithUrls.map((file) => ({
@@ -1811,21 +1868,6 @@ export default async function EmployeeDetailPage({
     ...documentUploadRecords,
   ];
 
-  const { data: skillsEventsRaw } = await supabase
-    .from("admin_compliance_events")
-    .select("id, status, event_title, due_date, completed_at, event_type, created_at")
-    .eq("applicant_id", employeeId)
-    .eq("event_type", "skills_checklist")
-    .order("due_date", { ascending: false })
-    .limit(20);
-
-  const { data: skillsFinalizedFormsRows } = await supabase
-    .from("employee_admin_forms")
-    .select("compliance_event_id, finalized_at, created_at")
-    .eq("employee_id", employeeId)
-    .eq("form_type", "skills_competency")
-    .eq("status", "finalized");
-
   const skillsFinalizedAtByEventId = buildFinalizedAtByComplianceEventId(
     skillsFinalizedFormsRows as Array<
       Pick<AdminFormRecord, "compliance_event_id" | "finalized_at" | "created_at">
@@ -1836,21 +1878,6 @@ export default async function EmployeeDetailPage({
     (skillsEventsRaw || []) as ComplianceEvent[],
     skillsFinalizedAtByEventId
   );
-
-  const { data: performanceEventsRaw } = await supabase
-    .from("admin_compliance_events")
-    .select("id, status, event_title, due_date, completed_at, event_type, created_at")
-    .eq("applicant_id", employeeId)
-    .eq("event_type", "annual_performance_evaluation")
-    .order("due_date", { ascending: false })
-    .limit(20);
-
-  const { data: performanceFinalizedFormsRows } = await supabase
-    .from("employee_admin_forms")
-    .select("compliance_event_id, finalized_at, created_at")
-    .eq("employee_id", employeeId)
-    .eq("form_type", "performance_evaluation")
-    .eq("status", "finalized");
 
   const performanceFinalizedAtByEventId = buildFinalizedAtByComplianceEventId(
     performanceFinalizedFormsRows as Array<
@@ -1863,30 +1890,6 @@ export default async function EmployeeDetailPage({
     performanceFinalizedAtByEventId
   );
 
-  const { data: oigEvent } = await supabase
-    .from("admin_compliance_events")
-    .select("id, status, event_title, due_date, completed_at, event_type, created_at")
-    .eq("applicant_id", employeeId)
-    .eq("event_type", "annual_oig_check")
-    .order("due_date", { ascending: false })
-    .limit(1)
-    .maybeSingle<ComplianceEvent>();
-
-  const { data: contractReviewEventsRaw } = await supabase
-    .from("admin_compliance_events")
-    .select("id, status, event_title, due_date, completed_at, event_type, created_at")
-    .eq("applicant_id", employeeId)
-    .in("event_type", ["annual_contract_review", "contract_annual_review"])
-    .order("due_date", { ascending: false })
-    .limit(20);
-
-  const { data: contractReviewFinalizedFormsRows } = await supabase
-    .from("employee_admin_forms")
-    .select("compliance_event_id, finalized_at, created_at")
-    .eq("employee_id", employeeId)
-    .eq("form_type", "contract_annual_review")
-    .eq("status", "finalized");
-
   const contractReviewFinalizedAtByEventId = buildFinalizedAtByComplianceEventId(
     contractReviewFinalizedFormsRows as Array<
       Pick<AdminFormRecord, "compliance_event_id" | "finalized_at" | "created_at">
@@ -1897,21 +1900,6 @@ export default async function EmployeeDetailPage({
     (contractReviewEventsRaw || []) as ComplianceEvent[],
     contractReviewFinalizedAtByEventId
   );
-
-  const { data: trainingChecklistEventsRaw } = await supabase
-    .from("admin_compliance_events")
-    .select("id, status, event_title, due_date, completed_at, event_type, created_at")
-    .eq("applicant_id", employeeId)
-    .eq("event_type", "annual_training")
-    .order("due_date", { ascending: false })
-    .limit(20);
-
-  const { data: trainingChecklistFinalizedFormsRows } = await supabase
-    .from("employee_admin_forms")
-    .select("compliance_event_id, finalized_at, created_at")
-    .eq("employee_id", employeeId)
-    .eq("form_type", "annual_training_checklist")
-    .eq("status", "finalized");
 
   const trainingChecklistFinalizedAtByEventId = buildFinalizedAtByComplianceEventId(
     trainingChecklistFinalizedFormsRows as Array<
@@ -1924,21 +1912,6 @@ export default async function EmployeeDetailPage({
     trainingChecklistFinalizedAtByEventId
   );
 
-  const { data: tbStatementEventsRaw } = await supabase
-    .from("admin_compliance_events")
-    .select("id, status, event_title, due_date, completed_at, event_type, created_at")
-    .eq("applicant_id", employeeId)
-    .eq("event_type", "annual_tb_statement")
-    .order("due_date", { ascending: false })
-    .limit(20);
-
-  const { data: tbStatementFinalizedFormsRows } = await supabase
-    .from("employee_admin_forms")
-    .select("compliance_event_id, finalized_at, created_at")
-    .eq("employee_id", employeeId)
-    .eq("form_type", "annual_tb_statement")
-    .eq("status", "finalized");
-
   const tbStatementFinalizedAtByEventId = buildFinalizedAtByComplianceEventId(
     tbStatementFinalizedFormsRows as Array<
       Pick<AdminFormRecord, "compliance_event_id" | "finalized_at" | "created_at">
@@ -1950,23 +1923,10 @@ export default async function EmployeeDetailPage({
     tbStatementFinalizedAtByEventId
   );
 
-  const supabaseAuthed = await createServerSupabaseClient();
-  const { data: credentials } = await supabaseAuthed
-    .from("employee_credentials")
-    .select("*")
-    .eq("employee_id", employeeId)
-    .order("uploaded_at", { ascending: false })
-    .order("created_at", { ascending: false });
+  const historyEvents = (historyEventsRaw || []) as ComplianceEvent[];
 
   const allEmployeeCredentials = (credentials || []) as CredentialRecord[];
   const employeeCredentials = getLatestCredentialsByType(allEmployeeCredentials);
-
-  const { data: credentialReminderLogRaw } = await supabaseAdmin
-    .from("employee_credential_reminder_sends")
-    .select("id, credential_type, reminder_stage, created_at, expiration_anchor, metadata")
-    .eq("applicant_id", employeeId)
-    .order("created_at", { ascending: false })
-    .limit(500);
 
   type CredentialReminderLogRow = {
     id: string;
@@ -2000,13 +1960,33 @@ export default async function EmployeeDetailPage({
     .order("created_at", { ascending: false })
     .limit(1);
 
-  const { data: skillsFormRows } = skillsEvent?.id
-    ? await skillsFormQuery.eq("compliance_event_id", skillsEvent.id)
-    : await skillsFormQuery.is("compliance_event_id", null);
+  const historyEventIds = historyEvents.map((event) => event.id);
 
-  const { data: performanceFormRows } = performanceEvent?.id
-    ? await performanceFormQuery.eq("compliance_event_id", performanceEvent.id)
-    : await performanceFormQuery.is("compliance_event_id", null);
+  const [skillsFormRowsResult, performanceFormRowsResult, historyFormsRawRes] = await Promise.all([
+    skillsEvent?.id
+      ? skillsFormQuery.eq("compliance_event_id", skillsEvent.id)
+      : skillsFormQuery.is("compliance_event_id", null),
+    performanceEvent?.id
+      ? performanceFormQuery.eq("compliance_event_id", performanceEvent.id)
+      : performanceFormQuery.is("compliance_event_id", null),
+    historyEventIds.length > 0
+      ? supabase
+          .from("employee_admin_forms")
+          .select(
+            "id, status, compliance_event_id, finalized_at, created_at, updated_at, form_data, form_type"
+          )
+          .eq("employee_id", employeeId)
+          .in("compliance_event_id", historyEventIds)
+          .in("form_type", ["skills_competency", "performance_evaluation"])
+          .order("updated_at", { ascending: false })
+          .order("created_at", { ascending: false })
+      : Promise.resolve({ data: [] as AdminFormRecord[] | null }),
+  ]);
+
+  const { data: skillsFormRows } = skillsFormRowsResult;
+  const { data: performanceFormRows } = performanceFormRowsResult;
+  const { data: historyFormsRaw } = historyFormsRawRes;
+  const historyForms = (historyFormsRaw ?? []) as AdminFormRecord[];
 
   const skillsForm = (skillsFormRows?.[0] as AdminFormRecord | null) ?? null;
   const performanceForm =
@@ -2437,6 +2417,7 @@ export default async function EmployeeDetailPage({
   const skillsFormIsDraft = skillsForm?.status === "draft";
   const missingCredentialDisplayNames = missingCredentialTypes.map((t) => formatCredentialType(t));
 
+  /* Pure sync derive from loaded rows — runs once per request (server), not per React render. */
   const onboardingCommandSnapshot = buildUnifiedOnboardingState({
     applicantId: employeeId,
     employeePageBase,
@@ -2812,40 +2793,23 @@ export default async function EmployeeDetailPage({
       : []),
   ];
 
-  const { data: historyEventsRaw } = await supabase
-    .from("admin_compliance_events")
-    .select("id, status, event_title, due_date, completed_at, event_type, created_at")
-    .eq("applicant_id", employeeId)
-    .in("event_type", [
-      "skills_checklist",
-      "annual_performance_evaluation",
-      "annual_oig_check",
-      "annual_contract_review",
-      "contract_annual_review",
-      "annual_training",
-      "annual_tb_statement",
-    ])
-    .order("due_date", { ascending: false });
-
-  const historyEvents = (historyEventsRaw || []) as ComplianceEvent[];
-
-  const historyEventIds = historyEvents.map((event) => event.id);
-
-  const { data: historyFormsRaw } =
-    historyEventIds.length > 0
-      ? await supabase
-          .from("employee_admin_forms")
-          .select(
-            "id, status, compliance_event_id, finalized_at, created_at, updated_at, form_data, form_type"
-          )
-          .eq("employee_id", employeeId)
-          .in("compliance_event_id", historyEventIds)
-          .in("form_type", ["skills_competency", "performance_evaluation"])
-          .order("updated_at", { ascending: false })
-          .order("created_at", { ascending: false })
-      : { data: [] };
-
-  const historyForms = (historyFormsRaw ?? []) as AdminFormRecord[];
+  const personnelFileAuditForDeferred: PersonnelFileAuditItem[] = personnelFileAuditItems.map(
+    (item) => ({
+      label: item.label,
+      status: item.status,
+      sectionHref: item.sectionHref,
+      showGo: "showGo" in item ? item.showGo : undefined,
+      artifactHref: "artifactHref" in item && item.artifactHref ? item.artifactHref : null,
+      artifactLabel: "artifactLabel" in item ? item.artifactLabel : "View",
+      artifactExternal: "artifactExternal" in item ? item.artifactExternal : false,
+      statusTone:
+        item.status === "Complete"
+          ? "green"
+          : item.status === "Missing"
+            ? "red"
+            : "slate",
+    })
+  );
 
   const skillsHistoryForms = historyForms.filter(
     (historyForm) =>
@@ -3286,10 +3250,11 @@ export default async function EmployeeDetailPage({
         </div>
       </div>
 
-      <WorkflowSection
+      <OnboardingWorkflowSectionCollapsible
         id="onboarding-section"
         title="Onboarding Status (detailed cards)"
         subtitle="Track employee portal completion items before the hire setup is finalized."
+        defaultCollapsed={isSurveyReady}
       >
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
           {onboardingStatusItems.map((item) => (
@@ -3302,79 +3267,11 @@ export default async function EmployeeDetailPage({
           ))}
         </div>
 
-        <div className="mt-6 rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <h3 className="text-lg font-semibold text-slate-900">Personnel File Audit</h3>
-              <p className="mt-1 text-sm text-slate-500">
-                Quick pass/fail review for survey-safe file readiness.
-              </p>
-            </div>
-            <span
-              className={`inline-flex w-fit rounded-full px-3 py-1 text-xs font-semibold ${getBadgeClasses(
-                isSurveyReady ? "green" : "red"
-              )}`}
-            >
-              {isSurveyReady ? "Complete" : "Needs Review"}
-            </span>
-          </div>
-
-          <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {personnelFileAuditItems.map((item) => (
-              <div
-                key={item.label}
-                className="flex flex-col gap-2 rounded-[20px] border border-slate-200 bg-slate-50/80 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-3"
-              >
-                <p className="text-sm font-medium text-slate-900">{item.label}</p>
-                <div className="flex flex-wrap items-center justify-end gap-2">
-                  {"showGo" in item && item.showGo === false ? null : (
-                    <Link
-                      href={item.sectionHref}
-                      className="inline-flex items-center rounded-full border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
-                    >
-                      Go
-                    </Link>
-                  )}
-                  {"artifactHref" in item &&
-                  item.artifactHref &&
-                  item.status === "Complete" ? (
-                    item.artifactExternal ? (
-                      <a
-                        href={item.artifactHref}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-xs font-semibold text-sky-700 transition hover:bg-sky-100"
-                      >
-                        {item.artifactLabel || "View"}
-                      </a>
-                    ) : (
-                      <a
-                        href={item.artifactHref}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-xs font-semibold text-sky-700 transition hover:bg-sky-100"
-                      >
-                        {item.artifactLabel || "View"}
-                      </a>
-                    )
-                  ) : null}
-                  <span
-                    className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${getBadgeClasses(
-                      item.status === "Complete"
-                        ? "green"
-                        : item.status === "Missing"
-                          ? "red"
-                          : "slate"
-                    )}`}
-                  >
-                    {item.status}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </WorkflowSection>
+        <PersonnelFileAuditDeferred
+          items={personnelFileAuditForDeferred}
+          surveyReadyBadge={isSurveyReady ? "green" : "red"}
+        />
+      </OnboardingWorkflowSectionCollapsible>
 
       <WorkflowSection
         id="hire-setup-section"
@@ -4249,38 +4146,7 @@ export default async function EmployeeDetailPage({
             <code className="rounded bg-white/80 px-1 text-[11px]">employee_credential_reminder_sends</code>.
             Phone shows the number used for that batch when available (newer sends only).
           </p>
-          {credentialReminderLog.length === 0 ? (
-            <p className="mt-3 text-sm text-slate-500">No credential reminders have been logged for this employee yet.</p>
-          ) : (
-            <div className="mt-4 overflow-x-auto rounded-[16px] border border-slate-200 bg-white">
-              <table className="w-full min-w-[640px] text-left text-sm">
-                <thead>
-                  <tr className="border-b border-slate-200 bg-slate-50 text-xs font-semibold text-slate-600">
-                    <th className="px-3 py-2">Credential</th>
-                    <th className="px-3 py-2">Reminder stage</th>
-                    <th className="px-3 py-2">Expiration anchor</th>
-                    <th className="px-3 py-2">Sent at</th>
-                    <th className="px-3 py-2">Phone</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {credentialReminderLog.map((row) => (
-                    <tr key={row.id} className="border-b border-slate-100 last:border-0">
-                      <td className="px-3 py-2 font-medium text-slate-900">
-                        {formatCredentialReminderCredentialType(row.credential_type)}
-                      </td>
-                      <td className="px-3 py-2 text-slate-700">{formatCredentialReminderStage(row.reminder_stage)}</td>
-                      <td className="px-3 py-2 font-mono text-xs text-slate-600">{row.expiration_anchor}</td>
-                      <td className="whitespace-nowrap px-3 py-2 text-slate-700">{formatDateTime(row.created_at)}</td>
-                      <td className="whitespace-nowrap px-3 py-2 text-slate-700">
-                        {credentialReminderLogPhoneDisplay(row.metadata)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+          <CredentialReminderCappedTable rows={credentialReminderLog} />
         </div>
       </WorkflowSection>
 
