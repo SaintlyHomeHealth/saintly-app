@@ -57,6 +57,42 @@ function roleLabel(role: StaffRole): string {
   return m[role] ?? role;
 }
 
+function flashDetailErr(code: string | undefined): string | null {
+  if (!code) return null;
+  const m: Record<string, string> = {
+    invalid: "Check all fields and try again.",
+    forbidden: "You cannot assign that role.",
+    load: "Could not load that staff record.",
+    update: "Update failed.",
+    last_super: "Keep at least one active super admin.",
+    duplicate_email: "Another staff row already uses that work email.",
+    auth_email: "Supabase Auth rejected the email change (duplicate login email or policy).",
+    self_remove: "You cannot remove or permanently delete your own staff row here.",
+    permanent_forbidden: "Only a super admin can permanently delete a staff row that has a login.",
+    permanent_payroll_blocked:
+      "Permanent delete is blocked while a payroll employee is linked. Clear the employee link on this row first, or use Deactivate.",
+    permanent_confirm: "Confirmation did not match. Type DELETE or the exact work email from this row.",
+    permanent_staff_row: "The staff row could not be removed after Auth was deleted. See details below.",
+    permanent_auth: "Supabase could not delete the Auth user. Details below.",
+  };
+  return m[code] ?? "Something went wrong.";
+}
+
+function flashDetailOk(code: string | undefined): string | null {
+  if (!code) return null;
+  const m: Record<string, string> = {
+    profile: "Identity (name, email, and role if changed) saved.",
+    access: "Access toggles saved.",
+    pages: "Page permissions saved.",
+    phone: "Phone settings saved.",
+    ring_groups: "Inbound ring groups saved.",
+    sms: "Dispatch SMS number saved.",
+    payroll_link: "Payroll employee link saved.",
+    payroll_link_clear: "Payroll employee link cleared.",
+  };
+  return m[code] ?? "Saved.";
+}
+
 function Card({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="rounded-[24px] border border-slate-200/90 bg-white p-5 shadow-sm">
@@ -141,6 +177,19 @@ export default async function StaffAccessDetailPage({
   const sp = (await searchParams) ?? {};
   const okRaw = sp.ok;
   const okCode = typeof okRaw === "string" ? okRaw : undefined;
+  const errRaw = sp.err;
+  const errCode = typeof errRaw === "string" ? errRaw : undefined;
+  const detailRaw = sp.detail;
+  const errDetail =
+    typeof detailRaw === "string" && detailRaw.trim() !== ""
+      ? (() => {
+          try {
+            return decodeURIComponent(detailRaw);
+          } catch {
+            return detailRaw;
+          }
+        })()
+      : undefined;
 
   const { data: raw, error } = await supabaseAdmin
     .from("staff_profiles")
@@ -161,8 +210,10 @@ export default async function StaffAccessDetailPage({
 
   const hasLogin = Boolean(profile.user_id);
   let lastSignIn: string | null = null;
+  let authLoginEmail: string | null = null;
   if (hasLogin) {
     const { data: authData } = await supabaseAdmin.auth.admin.getUserById(profile.user_id);
+    authLoginEmail = typeof authData?.user?.email === "string" ? authData.user.email : null;
     const li = authData?.user?.last_sign_in_at;
     lastSignIn = typeof li === "string" ? li : null;
   }
@@ -235,6 +286,12 @@ export default async function StaffAccessDetailPage({
   const phoneAssign = phoneAssignmentSummary(profile);
   const passwordIsTemporary = profile.require_password_change === true;
 
+  const errMsg = flashDetailErr(errCode);
+  const okMsg = flashDetailOk(okCode);
+  const showPermanentDelete = profile.id !== viewer.id && (!hasLogin || canAssignSuperAdmin);
+  const permanentDeleteBlockedByPayroll = Boolean(profile.applicant_id);
+  const showIdentityRoleField = profile.role !== "super_admin" || canAssignSuperAdmin;
+
   return (
     <div className="space-y-6 bg-gradient-to-b from-slate-50/60 via-white to-slate-50/40 p-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -253,9 +310,17 @@ export default async function StaffAccessDetailPage({
         />
       </div>
 
-      {okCode ? (
+      {errMsg ? (
+        <p className="rounded-[16px] border border-rose-200 bg-rose-50/90 px-4 py-3 text-sm text-rose-900">
+          {errMsg}
+          {errDetail ? (
+            <span className="mt-2 block font-mono text-xs text-rose-800/90">{errDetail}</span>
+          ) : null}
+        </p>
+      ) : null}
+      {okMsg ? (
         <p className="rounded-[16px] border border-emerald-200 bg-emerald-50/90 px-4 py-3 text-sm text-emerald-900">
-          Saved.
+          {okMsg}
         </p>
       ) : null}
 
@@ -322,6 +387,12 @@ export default async function StaffAccessDetailPage({
             <span className="text-xs font-semibold text-slate-500">Work email</span>
             <p className="font-medium text-slate-900">{profile.email ?? "—"}</p>
           </div>
+          {hasLogin ? (
+            <div>
+              <span className="text-xs font-semibold text-slate-500">Auth sign-in email</span>
+              <p className="font-medium text-slate-900">{authLoginEmail ?? "—"}</p>
+            </div>
+          ) : null}
           <div>
             <span className="text-xs font-semibold text-slate-500">Status</span>
             <p className="font-medium text-slate-900">{profile.is_active ? "Active" : "Inactive"}</p>
@@ -340,6 +411,12 @@ export default async function StaffAccessDetailPage({
             staffProfileId={profile.id}
             initialFullName={(profile.full_name ?? "").trim()}
             initialEmail={(profile.email ?? "").trim()}
+            triggerLabel="Edit identity"
+            hasLogin={hasLogin}
+            authLoginEmail={authLoginEmail}
+            showRoleField={showIdentityRoleField}
+            currentRole={profile.role}
+            canAssignSuperAdmin={canAssignSuperAdmin}
           />
           <PayrollStaffLinkDialog
             staffProfileId={profile.id}
@@ -666,10 +743,27 @@ export default async function StaffAccessDetailPage({
       </Card>
 
       <Card title="Danger zone">
+        <p className="text-xs text-slate-600">
+          <span className="font-semibold text-slate-800">Deactivate</span> turns off this staff row and keeps the
+          Supabase login and history intact. <span className="font-semibold text-rose-900">Delete permanently</span>{" "}
+          removes the directory row and, when a login exists, deletes the Auth user — use only for mistaken or test
+          entries.
+        </p>
         <div className="flex flex-wrap gap-2">
           <RemoveStaffDialog staffProfileId={profile.id} hasLogin={hasLogin} label={name} />
-          {canAssignSuperAdmin && hasLogin ? (
-            <PermanentDeleteStaffDialog staffProfileId={profile.id} label={name} />
+          {showPermanentDelete && permanentDeleteBlockedByPayroll ? (
+            <p className="max-w-md rounded-[14px] border border-amber-200 bg-amber-50/90 px-3 py-2 text-[11px] text-amber-950">
+              <span className="font-semibold">Permanent delete unavailable:</span> a payroll employee is linked to this
+              row. Clear the employee link in Identity (or use Deactivate for normal offboarding).
+            </p>
+          ) : null}
+          {showPermanentDelete && !permanentDeleteBlockedByPayroll ? (
+            <PermanentDeleteStaffDialog
+              staffProfileId={profile.id}
+              label={name}
+              workEmail={(profile.email ?? "").trim()}
+              hasLogin={hasLogin}
+            />
           ) : null}
         </div>
       </Card>

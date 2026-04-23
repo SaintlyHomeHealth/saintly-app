@@ -114,6 +114,8 @@ export function StaffDirectoryRowActions({
                 staffProfileId={staffProfileId}
                 initialFullName={initialFullName}
                 initialEmail={initialEmail}
+                hasLogin={hasLogin}
+                triggerLabel="Edit"
                 buttonClassName={MENU_ITEM}
               />
             </div>

@@ -8,10 +8,6 @@ import { insertAuditLog } from "@/lib/audit-log";
 import { supabaseAdmin } from "@/lib/admin";
 import { normalizePhone } from "@/lib/phone/us-phone-format";
 import {
-  deleteApplicantRecord,
-  removeApplicantFilesFromStorage,
-} from "@/lib/admin/permanent-delete-staff-user";
-import {
   getStaffProfile,
   isAdminOrHigher,
   isSuperAdmin,
@@ -394,19 +390,50 @@ export async function updateStaffProfileIdentity(formData: FormData) {
   const id = String(formData.get("staffProfileId") ?? "").trim();
   const fullName = String(formData.get("fullName") ?? "").trim();
   const email = normalizeStaffLookupEmail(String(formData.get("email") ?? ""));
+  const includeRole = String(formData.get("includeRole") ?? "") === "1";
+  const roleRaw = includeRole ? String(formData.get("role") ?? "").trim() : "";
 
   if (!id || !fullName || !looksLikeWorkEmail(email)) {
-    redirect("/admin/staff?err=invalid");
+    redirect(`/admin/staff/${id}?err=invalid`);
+  }
+
+  if (includeRole && !isStaffRole(roleRaw)) {
+    redirect(`/admin/staff/${id}?err=invalid`);
+  }
+
+  if (includeRole && roleRaw === "super_admin" && !isSuperAdmin(actor)) {
+    redirect(`/admin/staff/${id}?err=forbidden`);
   }
 
   const { data: target, error: loadErr } = await supabaseAdmin
     .from("staff_profiles")
-    .select("id, email, user_id")
+    .select("id, email, user_id, role")
     .eq("id", id)
     .maybeSingle();
 
   if (loadErr || !target) {
-    redirect("/admin/staff?err=load");
+    redirect(`/admin/staff/${id}?err=load`);
+  }
+
+  const currentRole = target.role as StaffRole;
+  if (includeRole) {
+    if (currentRole === "super_admin" && !isSuperAdmin(actor)) {
+      redirect(`/admin/staff/${id}?err=forbidden`);
+    }
+    if (currentRole === "super_admin" && roleRaw !== "super_admin") {
+      const { count, error: cErr } = await supabaseAdmin
+        .from("staff_profiles")
+        .select("id", { count: "exact", head: true })
+        .eq("role", "super_admin")
+        .eq("is_active", true);
+
+      if (cErr) {
+        redirect(`/admin/staff/${id}?err=update`);
+      }
+      if ((count ?? 0) <= 1) {
+        redirect(`/admin/staff/${id}?err=last_super`);
+      }
+    }
   }
 
   const { data: dup } = await supabaseAdmin
@@ -417,12 +444,13 @@ export async function updateStaffProfileIdentity(formData: FormData) {
     .maybeSingle();
 
   if (dup?.id) {
-    redirect("/admin/staff?err=duplicate_email");
+    redirect(`/admin/staff/${id}?err=duplicate_email`);
   }
 
   const prevNorm = normalizeStaffLookupEmail(target.email);
   const emailChanged = prevNorm !== email;
   const userId = typeof target.user_id === "string" ? target.user_id : null;
+  const roleChanged = includeRole && roleRaw !== currentRole;
 
   if (userId && emailChanged) {
     const { error: aErr } = await supabaseAdmin.auth.admin.updateUserById(userId, {
@@ -433,20 +461,22 @@ export async function updateStaffProfileIdentity(formData: FormData) {
       console.warn("[staff] updateStaffProfileIdentity auth email:", aErr.message);
       if (process.env.NODE_ENV === "development") {
         const safe = encodeURIComponent(aErr.message.slice(0, 400));
-        redirect(`/admin/staff?err=auth_email&detail=${safe}`);
+        redirect(`/admin/staff/${id}?err=auth_email&detail=${safe}`);
       }
-      redirect("/admin/staff?err=auth_email");
+      redirect(`/admin/staff/${id}?err=auth_email`);
     }
   }
 
-  const { error: upErr } = await supabaseAdmin
-    .from("staff_profiles")
-    .update({
-      full_name: fullName,
-      email,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", id);
+  const updatePayload: Record<string, unknown> = {
+    full_name: fullName,
+    email,
+    updated_at: new Date().toISOString(),
+  };
+  if (roleChanged) {
+    updatePayload.role = roleRaw;
+  }
+
+  const { error: upErr } = await supabaseAdmin.from("staff_profiles").update(updatePayload).eq("id", id);
 
   if (upErr) {
     console.warn("[staff] updateStaffProfileIdentity:", upErr.message);
@@ -459,14 +489,23 @@ export async function updateStaffProfileIdentity(formData: FormData) {
         console.warn("[staff] updateStaffProfileIdentity auth revert failed:", revErr.message);
       }
     }
-    redirect("/admin/staff?err=update");
+    redirect(`/admin/staff/${id}?err=update`);
+  }
+
+  if (roleChanged) {
+    await insertAuditLog({
+      action: "staff.role_change",
+      entityType: "staff_profiles",
+      entityId: id,
+      metadata: { role: roleRaw, source: "identity_form" },
+    });
   }
 
   await insertAuditLog({
     action: "staff.profile_identity_update",
     entityType: "staff_profiles",
     entityId: id,
-    metadata: { email_changed: emailChanged },
+    metadata: { email_changed: emailChanged, role_changed: roleChanged },
   });
 
   revalidatePath("/admin/staff");
@@ -662,38 +701,70 @@ export async function clearStaffApplicantLink(formData: FormData) {
 }
 
 /**
- * Super-admin only: removes Supabase Auth user and linked applicant/onboarding data so the email can be reused.
- * Keeps separate from {@link removeStaffRecord} (archive/deactivate).
+ * Hard delete: removes the staff directory row. Placeholder (no Auth user): any admin.
+ * With login: super admin only — deletes Supabase Auth user, ring memberships, then staff row.
+ * Blocked when applicant_id is set (payroll link); clear the link first. Does not delete applicant rows.
  */
 export async function permanentlyDeleteStaffUser(formData: FormData) {
   const actor = await getStaffProfile();
-  if (!actor || !isSuperAdmin(actor)) {
-    redirect("/admin/staff?err=permanent_forbidden");
+  if (!actor || !isAdminOrHigher(actor)) {
+    redirect("/admin");
   }
 
   const id = String(formData.get("staffProfileId") ?? "").trim();
   const confirmed = String(formData.get("confirmed") ?? "") === "1";
+  const confirmPhrase = String(formData.get("confirmPhrase") ?? "").trim();
+
   if (!id || !confirmed) {
-    redirect("/admin/staff?err=invalid");
+    redirect(`/admin/staff/${id}?err=invalid`);
   }
 
   const { data: target, error: loadErr } = await supabaseAdmin
     .from("staff_profiles")
-    .select("id, user_id, role, applicant_id")
+    .select("id, user_id, role, applicant_id, email")
     .eq("id", id)
     .maybeSingle();
 
   if (loadErr || !target) {
-    redirect("/admin/staff?err=load");
+    redirect(`/admin/staff/${id}?err=load`);
+  }
+
+  if (target.applicant_id) {
+    redirect(`/admin/staff/${id}?err=permanent_payroll_blocked`);
+  }
+
+  const emailNorm = normalizeStaffLookupEmail(target.email);
+  const phraseOk =
+    confirmPhrase === "DELETE" ||
+    (emailNorm.length > 0 && normalizeStaffLookupEmail(confirmPhrase) === emailNorm);
+  if (!phraseOk) {
+    redirect(`/admin/staff/${id}?err=permanent_confirm`);
+  }
+
+  if (target.user_id === actor.user_id) {
+    redirect(`/admin/staff/${id}?err=self_remove`);
   }
 
   const userId = typeof target.user_id === "string" ? target.user_id : null;
+
   if (!userId) {
-    redirect("/admin/staff?err=permanent_no_login");
+    const { error: delErr } = await supabaseAdmin.from("staff_profiles").delete().eq("id", id);
+    if (delErr) {
+      console.warn("[staff] permanent delete placeholder:", delErr.message);
+      redirect(`/admin/staff/${id}?err=update`);
+    }
+    await insertAuditLog({
+      action: "staff.permanent_delete_placeholder",
+      entityType: "staff_profiles",
+      entityId: id,
+      metadata: {},
+    });
+    revalidatePath("/admin/staff");
+    redirect("/admin/staff?ok=permanent_deleted_row");
   }
 
-  if (userId === actor.user_id) {
-    redirect("/admin/staff?err=self_remove");
+  if (!isSuperAdmin(actor)) {
+    redirect(`/admin/staff/${id}?err=permanent_forbidden`);
   }
 
   if (target.role === "super_admin") {
@@ -704,46 +775,48 @@ export async function permanentlyDeleteStaffUser(formData: FormData) {
       .eq("is_active", true);
 
     if (cErr) {
-      redirect("/admin/staff?err=update");
+      redirect(`/admin/staff/${id}?err=update`);
     }
     if ((count ?? 0) <= 1) {
-      redirect("/admin/staff?err=last_super");
+      redirect(`/admin/staff/${id}?err=last_super`);
     }
   }
 
-  const applicantId = typeof target.applicant_id === "string" ? target.applicant_id : null;
-  const storageMeta: { paths: number; errors: string[] } = { paths: 0, errors: [] };
+  await supabaseAdmin.from("inbound_ring_group_memberships").delete().eq("user_id", userId);
 
-  if (applicantId) {
-    const { storagePathsAttempted, storageErrors } = await removeApplicantFilesFromStorage(applicantId);
-    storageMeta.paths = storagePathsAttempted;
-    storageMeta.errors = storageErrors;
+  const { error: unlinkErr } = await supabaseAdmin
+    .from("staff_profiles")
+    .update({ user_id: null, updated_at: new Date().toISOString() })
+    .eq("id", id);
 
-    const { ok, error: applicantDelErr } = await deleteApplicantRecord(applicantId);
-    if (!ok) {
-      console.error("[staff] permanentlyDeleteStaffUser applicant delete failed", applicantDelErr);
-      const safe = encodeURIComponent((applicantDelErr || "unknown").slice(0, 400));
-      redirect(`/admin/staff?err=permanent_applicant&detail=${safe}`);
-    }
+  if (unlinkErr) {
+    console.warn("[staff] permanent delete unlink user_id:", unlinkErr.message);
+    redirect(`/admin/staff/${id}?err=update`);
   }
 
   const { error: authErr } = await supabaseAdmin.auth.admin.deleteUser(userId);
   if (authErr) {
     console.error("[staff] permanentlyDeleteStaffUser auth delete failed", authErr.message);
+    await supabaseAdmin
+      .from("staff_profiles")
+      .update({ user_id: userId, updated_at: new Date().toISOString() })
+      .eq("id", id);
     const safe = encodeURIComponent(authErr.message.slice(0, 400));
-    redirect(`/admin/staff?err=permanent_auth&detail=${safe}`);
+    redirect(`/admin/staff/${id}?err=permanent_auth&detail=${safe}`);
+  }
+
+  const { error: delStaffErr } = await supabaseAdmin.from("staff_profiles").delete().eq("id", id);
+  if (delStaffErr) {
+    console.error("[staff] permanent delete staff row:", delStaffErr.message);
+    const safe = encodeURIComponent(delStaffErr.message.slice(0, 400));
+    redirect(`/admin/staff/${id}?err=permanent_staff_row&detail=${safe}`);
   }
 
   await insertAuditLog({
     action: "staff.permanent_delete",
     entityType: "staff_profiles",
     entityId: id,
-    metadata: {
-      auth_user_id: userId,
-      applicant_id: applicantId,
-      storage_paths_attempted: storageMeta.paths,
-      storage_cleanup_errors: storageMeta.errors.length ? storageMeta.errors : undefined,
-    },
+    metadata: { auth_user_id: userId },
   });
 
   revalidatePath("/admin/staff");
