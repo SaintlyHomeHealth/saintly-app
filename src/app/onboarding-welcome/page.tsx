@@ -2,6 +2,7 @@
 
 import { Suspense } from 'react'
 import { useRouter } from 'next/navigation'
+import OnboardingAdminPreviewClient from '../../components/OnboardingAdminPreviewClient'
 import OnboardingApplicantFromQuery from '../../components/OnboardingApplicantFromQuery'
 import OnboardingProgressSync from '../../components/OnboardingProgressSync'
 import OnboardingApplicantIdentity from '../../components/OnboardingApplicantIdentity'
@@ -11,6 +12,9 @@ export default function OnboardingWelcomePage() {
 
   return (
     <main className="shh-page">
+      <Suspense fallback={null}>
+        <OnboardingAdminPreviewClient />
+      </Suspense>
       <Suspense fallback={null}>
         <OnboardingApplicantFromQuery />
       </Suspense>

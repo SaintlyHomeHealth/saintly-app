@@ -2,6 +2,7 @@
 
 import { ChangeEvent, FormEvent, Suspense, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import OnboardingAdminPreviewClient from '../../components/OnboardingAdminPreviewClient'
 import OnboardingApplicantFromQuery from '../../components/OnboardingApplicantFromQuery'
 import OnboardingProgressSync from '../../components/OnboardingProgressSync'
 import { supabase } from '../../lib/supabase/client'
@@ -1102,6 +1103,9 @@ export default function OnboardingApplicationPage() {
   if (isHydrating) {
     return (
       <main className="shh-app-page">
+        <Suspense fallback={null}>
+          <OnboardingAdminPreviewClient />
+        </Suspense>
         <section className="shh-app-shell">
           <div className="shh-loading-card">Loading application…</div>
         </section>
@@ -1134,6 +1138,9 @@ export default function OnboardingApplicationPage() {
 
   return (
     <main className="shh-app-page">
+      <Suspense fallback={null}>
+        <OnboardingAdminPreviewClient />
+      </Suspense>
       <Suspense fallback={null}>
         <OnboardingApplicantFromQuery />
       </Suspense>

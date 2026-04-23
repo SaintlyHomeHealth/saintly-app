@@ -1,0 +1,527 @@
+import { deriveOnboardingProgress } from "./derive-progress";
+
+/**
+ * Single source of truth for onboarding + personnel-file gating in the admin UI.
+ * Drives the employee detail “command center” and can be re-used by APIs.
+ */
+
+export type OnboardingStepCategory =
+  | "profile"
+  | "documents"
+  | "payroll"
+  | "training"
+  | "compliance"
+  | "gate";
+
+export type OnboardingStepKey =
+  | "pipeline_application"
+  | "pipeline_documents"
+  | "pipeline_contracts_tax"
+  | "pipeline_training"
+  | "system_sync"
+  | "file_skills"
+  | "file_performance"
+  | "file_tb"
+  | "file_oig"
+  | "file_background"
+  | "credential_bundle";
+
+export type UnifiedStepStatus =
+  | "not_started"
+  | "in_progress"
+  | "submitted"
+  | "complete"
+  | "invalid"
+  | "needs_review";
+
+export type OnboardingStepRecord = {
+  key: OnboardingStepKey;
+  label: string;
+  category: OnboardingStepCategory;
+  required: boolean;
+  status: UnifiedStepStatus;
+  displayStatus: string;
+  countsTowardPipelineComplete: boolean;
+  countsTowardSurveyComplete: boolean;
+  blocking: boolean;
+  lastUpdatedAt: string | null;
+  failureReason: string | null;
+  adminCoaching: string;
+  whyBlocking: string | null;
+  /** Employee onboarding app path with applicant query (seeds localStorage). */
+  employeeViewHref: string | null;
+  /** Admin page anchor or form link. */
+  adminViewHref: string;
+  /** Raw inputs for the debug table */
+  raw: Record<string, string | boolean | null>;
+};
+
+export type AdminOnboardingOverallStatus =
+  | "not_started"
+  | "in_progress"
+  | "blocked"
+  | "ready_for_review"
+  | "complete";
+
+export type UnifiedOnboardingSnapshot = {
+  overallStatus: AdminOnboardingOverallStatus;
+  percentComplete: number;
+  lastActivityAt: string | null;
+  lastEmployeeActionLabel: string;
+  adminActionRequired: boolean;
+  corePipelineComplete: boolean;
+  surveyPacketComplete: boolean;
+  serverReportsComplete: boolean;
+  hasSyncMismatch: boolean;
+  steps: OnboardingStepRecord[];
+  blockingSteps: OnboardingStepRecord[];
+};
+
+const EMPLOYEE_BASE = (applicantId: string, path: string) =>
+  `${path}?applicant=${encodeURIComponent(applicantId)}`;
+
+function mapBoolToStatus(
+  done: boolean,
+  opts: { inProgress?: boolean; needsReview?: boolean; invalid?: boolean }
+): { status: UnifiedStepStatus; display: string } {
+  if (done) return { status: "complete", display: "Complete" };
+  if (opts.invalid) return { status: "invalid", display: "Invalid" };
+  if (opts.needsReview) return { status: "needs_review", display: "Needs review" };
+  if (opts.inProgress) return { status: "in_progress", display: "In progress" };
+  return { status: "not_started", display: "Missing" };
+}
+
+export type BuildUnifiedOnboardingStateInput = {
+  applicantId: string;
+  employeePageBase: string;
+  /** From onboarding_status row */
+  onboardingStatus: {
+    application_completed?: boolean | null;
+    onboarding_progress_percent?: number | null;
+    onboarding_flow_status?: string | null;
+    onboarding_started_at?: string | null;
+    onboarding_completed_at?: string | null;
+    onboarding_last_activity_at?: string | null;
+  } | null;
+  /** Core gates (same meaning as sync-progress / deriveOnboardingProgress). */
+  isApplicationComplete: boolean;
+  isDocumentsComplete: boolean;
+  isContractsComplete: boolean;
+  isTaxFormSigned: boolean;
+  isTrainingComplete: boolean;
+  /** Heuristics for in-progress. */
+  hasSomeDocumentUpload: boolean;
+  hasTrainingProgressButNotComplete: boolean;
+  /** Onboarding contract wizard completed (without tax) */
+  onboardingContractCompleted: boolean;
+  /** Personnel / survey (existing page semantics). */
+  isSkillsComplete: boolean;
+  isPerformanceComplete: boolean;
+  hasTbDocumentation: boolean;
+  isOigComplete: boolean;
+  hasBackgroundCheck: boolean;
+  hasCprCard: boolean;
+  hasDriversLicense: boolean;
+  hasFingerprintCard: boolean;
+  requiresCpr: boolean;
+  requiresDriversLicense: boolean;
+  requiresFingerprintCard: boolean;
+  /** Pre-formatted display names for missing required credentials. */
+  missingCredentialDisplayNames: string[];
+  skillsFormIsDraft: boolean;
+  isSurveyReady: boolean;
+};
+
+export function buildUnifiedOnboardingState(
+  input: BuildUnifiedOnboardingStateInput
+): UnifiedOnboardingSnapshot {
+  const {
+    applicantId,
+    employeePageBase,
+    onboardingStatus,
+    isApplicationComplete,
+    isDocumentsComplete,
+    isContractsComplete,
+    isTaxFormSigned,
+    isTrainingComplete,
+    hasSomeDocumentUpload,
+    hasTrainingProgressButNotComplete,
+    onboardingContractCompleted,
+    isSkillsComplete,
+    isPerformanceComplete,
+    hasTbDocumentation,
+    isOigComplete,
+    hasBackgroundCheck,
+    hasCprCard,
+    hasDriversLicense,
+    hasFingerprintCard,
+    requiresCpr,
+    requiresDriversLicense,
+    requiresFingerprintCard,
+    missingCredentialDisplayNames,
+    skillsFormIsDraft,
+    isSurveyReady,
+  } = input;
+
+  const coreInputs = {
+    applicationCompleted: isApplicationComplete,
+    documentsComplete: isDocumentsComplete,
+    contractsAndTaxComplete: isContractsComplete,
+    trainingComplete: isTrainingComplete,
+  };
+
+  const derived = deriveOnboardingProgress(coreInputs);
+  const percentFromDerivation = derived.percent;
+  const storedPercent = onboardingStatus?.onboarding_progress_percent;
+  const percentComplete = Math.max(
+    typeof storedPercent === "number" ? storedPercent : 0,
+    percentFromDerivation
+  );
+
+  const serverCompletedAt = onboardingStatus?.onboarding_completed_at;
+  const serverReportsComplete = Boolean(serverCompletedAt) || percentComplete >= 100;
+  const corePipelineComplete = derived.overallComplete;
+
+  /** onboarding_status can lag artifacts or be stamped early — surface for admins. */
+  const hasSyncMismatch =
+    (corePipelineComplete && !serverCompletedAt) ||
+    (!corePipelineComplete && Boolean(serverCompletedAt));
+
+  const lastActivityAt = onboardingStatus?.onboarding_last_activity_at ?? null;
+  const lastEmployeeActionLabel = lastActivityAt
+    ? "Last portal activity (synced to onboarding status)"
+    : onboardingStatus?.onboarding_started_at
+      ? "Onboarding started (no recent activity recorded)"
+      : "No recorded portal activity yet";
+
+  const steps: OnboardingStepRecord[] = [];
+
+  // --- Core pipeline
+  {
+    const m = mapBoolToStatus(isApplicationComplete, {});
+    steps.push({
+      key: "pipeline_application",
+      label: "Application (portal)",
+      category: "profile",
+      required: true,
+      status: m.status,
+      displayStatus: m.display,
+      countsTowardPipelineComplete: true,
+      countsTowardSurveyComplete: true,
+      blocking: !isApplicationComplete,
+      lastUpdatedAt: null,
+      failureReason: isApplicationComplete ? null : "application_completed is not true in onboarding_status",
+      adminCoaching: "Have them open the application step, save, and finish all required fields; confirm “mark complete” on the application if your flow uses it.",
+      whyBlocking: isApplicationComplete
+        ? null
+        : "The portal has not recorded a completed application (onboarding_status.application_completed).",
+      employeeViewHref: EMPLOYEE_BASE(applicantId, "/onboarding-application"),
+      adminViewHref: `${employeePageBase}#onboarding-admin-summary`,
+      raw: { application_completed: isApplicationComplete },
+    });
+  }
+
+  {
+    const inProg = hasSomeDocumentUpload && !isDocumentsComplete;
+    const m = mapBoolToStatus(isDocumentsComplete, { inProgress: inProg });
+    steps.push({
+      key: "pipeline_documents",
+      label: "Required document uploads",
+      category: "documents",
+      required: true,
+      status: m.status,
+      displayStatus: m.display,
+      countsTowardPipelineComplete: true,
+      countsTowardSurveyComplete: true,
+      blocking: !isDocumentsComplete,
+      lastUpdatedAt: null,
+      failureReason: isDocumentsComplete
+        ? null
+        : inProg
+          ? "Not all required document types are present in documents / applicant files."
+          : "No qualifying document set yet (7 types or applicant_files fallback).",
+      adminCoaching:
+        "Ask which Upload step they are on. Each of resume, ID, SS card, CPR, TB, fingerprint must be marked in documents (or applicant_files present).",
+      whyBlocking: !isDocumentsComplete
+        ? "The pipeline needs every required document type or a legacy applicant_files entry."
+        : null,
+      employeeViewHref: EMPLOYEE_BASE(applicantId, "/onboarding-documents"),
+      adminViewHref: `${employeePageBase}#background-section`,
+      raw: { documentsComplete: isDocumentsComplete, hasSomeUpload: hasSomeDocumentUpload },
+    });
+  }
+
+  {
+    const inProg = onboardingContractCompleted && !isTaxFormSigned;
+    const contractsOk = isContractsComplete;
+    const m = mapBoolToStatus(contractsOk, { inProgress: inProg, invalid: false });
+    steps.push({
+      key: "pipeline_contracts_tax",
+      label: "Contracts & tax (payroll)",
+      category: "payroll",
+      required: true,
+      status: m.status,
+      displayStatus: inProg && !contractsOk ? "In progress" : m.display,
+      countsTowardPipelineComplete: true,
+      countsTowardSurveyComplete: true,
+      blocking: !contractsOk,
+      lastUpdatedAt: null,
+      failureReason: contractsOk
+        ? null
+        : !onboardingContractCompleted
+          ? "onboarding_contracts.completed is not true."
+          : !isTaxFormSigned
+            ? "Required tax form is not signed/complete for their classification."
+            : "Contract/tax step incomplete.",
+      adminCoaching:
+        "Confirm they finished the contract wizard, then the correct W-4 / contractor form is signed; classification drives which tax form is required.",
+      whyBlocking: !contractsOk
+        ? "Needs onboarding_contracts.completed and a valid signed current tax form when required."
+        : null,
+      employeeViewHref: EMPLOYEE_BASE(applicantId, "/onboarding-contracts"),
+      adminViewHref: `${employeePageBase}#hire-setup-section`,
+      raw: {
+        contractsComplete: isContractsComplete,
+        taxSigned: isTaxFormSigned,
+        contractWizard: onboardingContractCompleted,
+      },
+    });
+  }
+
+  {
+    const m = mapBoolToStatus(isTrainingComplete, { inProgress: hasTrainingProgressButNotComplete });
+    steps.push({
+      key: "pipeline_training",
+      label: "Onboarding training / quizzes",
+      category: "training",
+      required: true,
+      status: m.status,
+      displayStatus: m.display,
+      countsTowardPipelineComplete: true,
+      countsTowardSurveyComplete: true,
+      blocking: !isTrainingComplete,
+      lastUpdatedAt: null,
+      failureReason: isTrainingComplete
+        ? null
+        : hasTrainingProgressButNotComplete
+          ? "Training started but not marked complete in onboarding_training_completions or applicant_training_progress.is_complete"
+          : "No training completion row yet.",
+      adminCoaching:
+        "They must finish the training page; completion is stored in onboarding_training_completions or applicant_training_progress (is_complete).",
+      whyBlocking: !isTrainingComplete
+        ? "Server-side check requires a completion row or at least one progress row with is_complete."
+        : null,
+      employeeViewHref: EMPLOYEE_BASE(applicantId, "/onboarding-training"),
+      adminViewHref: employeePageBase,
+      raw: { trainingComplete: isTrainingComplete, progressPartial: hasTrainingProgressButNotComplete },
+    });
+  }
+
+  {
+    const ok = !hasSyncMismatch;
+    steps.push({
+      key: "system_sync",
+      label: "System sync (progress vs. artifacts)",
+      category: "gate",
+      required: true,
+      status: ok ? "complete" : "needs_review",
+      displayStatus: ok ? "OK" : "Sync issue",
+      countsTowardPipelineComplete: true,
+      countsTowardSurveyComplete: false,
+      blocking: !ok,
+      lastUpdatedAt: lastActivityAt,
+      failureReason: ok
+        ? null
+        : "onboarding_status row is out of date vs. derived checks (use Recompute).",
+      adminCoaching: "Click “Recompute onboarding status” to reconcile onboarding_status with documents, contracts, and training tables.",
+      whyBlocking: !ok
+        ? "The stored onboarding row disagrees with what documents/contracts/training show."
+        : null,
+      employeeViewHref: EMPLOYEE_BASE(applicantId, "/onboarding-welcome"),
+      adminViewHref: employeePageBase,
+      raw: { coreComplete: corePipelineComplete, serverComplete: serverReportsComplete, mismatch: hasSyncMismatch },
+    });
+  }
+
+  // --- Survey / file audit (tax is in pipeline_contracts_tax; OIG/annual TB are separate from onboarding TB)
+  {
+    const m = mapBoolToStatus(isSkillsComplete, { inProgress: skillsFormIsDraft });
+    steps.push({
+      key: "file_skills",
+      label: "Skills competency (initial)",
+      category: "compliance",
+      required: true,
+      status: m.status,
+      displayStatus: m.display,
+      countsTowardPipelineComplete: false,
+      countsTowardSurveyComplete: true,
+      blocking: !isSkillsComplete,
+      lastUpdatedAt: null,
+      failureReason: isSkillsComplete ? null : "Skills form not finalized for the active event.",
+      adminCoaching: "Open Admin skills form, ensure event is the current one, complete or print when ready.",
+      whyBlocking: !isSkillsComplete ? "Survey readiness requires skills competency for the active event." : null,
+      employeeViewHref: null,
+      adminViewHref: `${employeePageBase}#skills-section`,
+      raw: { skillsOk: isSkillsComplete, draft: skillsFormIsDraft },
+    });
+  }
+
+  {
+    const m = mapBoolToStatus(isPerformanceComplete, {});
+    steps.push({
+      key: "file_performance",
+      label: "Performance evaluation (initial)",
+      category: "compliance",
+      required: true,
+      status: m.status,
+      displayStatus: m.display,
+      countsTowardPipelineComplete: false,
+      countsTowardSurveyComplete: true,
+      blocking: !isPerformanceComplete,
+      lastUpdatedAt: null,
+      failureReason: isPerformanceComplete ? null : "Performance form not complete.",
+      adminCoaching: "Complete the performance evaluation for the current cycle.",
+      whyBlocking: !isPerformanceComplete ? "Survey packet needs performance evaluation on file." : null,
+      employeeViewHref: null,
+      adminViewHref: `${employeePageBase}#performance-section`,
+      raw: { performanceOk: isPerformanceComplete },
+    });
+  }
+
+  {
+    const m = mapBoolToStatus(hasTbDocumentation, {});
+    steps.push({
+      key: "file_tb",
+      label: "TB documentation",
+      category: "documents",
+      required: true,
+      status: m.status,
+      displayStatus: m.display,
+      countsTowardPipelineComplete: false,
+      countsTowardSurveyComplete: true,
+      blocking: !hasTbDocumentation,
+      lastUpdatedAt: null,
+      failureReason: hasTbDocumentation ? null : "No tb_test in uploads / annual statement.",
+      adminCoaching: "Upload TB in onboarding documents or provide annual TB statement proof.",
+      whyBlocking: !hasTbDocumentation ? "Survey checklist requires TB proof." : null,
+      employeeViewHref: EMPLOYEE_BASE(applicantId, "/onboarding-documents"),
+      adminViewHref: `${employeePageBase}#tb-section`,
+      raw: { tbOk: hasTbDocumentation },
+    });
+  }
+
+  {
+    const m = mapBoolToStatus(isOigComplete, {});
+    steps.push({
+      key: "file_oig",
+      label: "OIG check",
+      category: "compliance",
+      required: true,
+      status: m.status,
+      displayStatus: m.display,
+      countsTowardPipelineComplete: false,
+      countsTowardSurveyComplete: true,
+      blocking: !isOigComplete,
+      lastUpdatedAt: null,
+      failureReason: isOigComplete ? null : "OIG event not completed and/or proof missing.",
+      adminCoaching: "Run OIG workflow or attach proof; upload counts when configured.",
+      whyBlocking: !isOigComplete ? "OIG is part of the survey safety checklist." : null,
+      employeeViewHref: null,
+      adminViewHref: `${employeePageBase}#oig-section`,
+      raw: { oigOk: isOigComplete },
+    });
+  }
+
+  {
+    const m = mapBoolToStatus(hasBackgroundCheck, {});
+    steps.push({
+      key: "file_background",
+      label: "Background check document",
+      category: "compliance",
+      required: true,
+      status: m.status,
+      displayStatus: m.display,
+      countsTowardPipelineComplete: false,
+      countsTowardSurveyComplete: true,
+      blocking: !hasBackgroundCheck,
+      lastUpdatedAt: null,
+      failureReason: hasBackgroundCheck ? null : "No background_check document in applicant_files.",
+      adminCoaching: "Have them upload the background result PDF or add via admin file audit.",
+      whyBlocking: !hasBackgroundCheck ? "Survey file audit lists background check as required." : null,
+      employeeViewHref: EMPLOYEE_BASE(applicantId, "/onboarding-documents"),
+      adminViewHref: `${employeePageBase}#background-section`,
+      raw: { bgOk: hasBackgroundCheck },
+    });
+  }
+
+  {
+    const credComplete =
+      missingCredentialDisplayNames.length === 0 &&
+      (!requiresCpr || hasCprCard) &&
+      (!requiresDriversLicense || hasDriversLicense) &&
+      (!requiresFingerprintCard || hasFingerprintCard);
+    const m = mapBoolToStatus(credComplete, { needsReview: !credComplete });
+    steps.push({
+      key: "credential_bundle",
+      label: "Required credentials (role-based)",
+      category: "compliance",
+      required: true,
+      status: m.status,
+      displayStatus: credComplete ? "Complete" : "Missing",
+      countsTowardPipelineComplete: false,
+      countsTowardSurveyComplete: true,
+      blocking: !credComplete,
+      lastUpdatedAt: null,
+      failureReason: credComplete ? null : `Missing: ${missingCredentialDisplayNames.join(", ")}`,
+      adminCoaching:
+        "Compare role + employment class to required credentials; use uploads (CPR, FP card) or credential records as applicable.",
+      whyBlocking: !credComplete
+        ? "At least one required credential is missing, expired, or not satisfied by an upload where allowed."
+        : null,
+      employeeViewHref: EMPLOYEE_BASE(applicantId, "/onboarding-documents"),
+      adminViewHref: `${employeePageBase}#expiring-credentials-section`,
+      raw: { missing: missingCredentialDisplayNames.join(";") },
+    });
+  }
+
+  const blockingSteps = steps.filter((s) => s.required && s.status !== "complete");
+
+  let overallStatus: AdminOnboardingOverallStatus = "in_progress";
+  if (isSurveyReady && serverReportsComplete && !hasSyncMismatch) {
+    overallStatus = "complete";
+  } else if (!onboardingStatus?.onboarding_started_at && !isApplicationComplete && percentComplete === 0) {
+    overallStatus = "not_started";
+  } else if (blockingSteps.length > 0) {
+    const pipelineBlockers = blockingSteps.filter((s) =>
+      ["pipeline_application", "pipeline_documents", "pipeline_contracts_tax", "pipeline_training"].includes(s.key)
+    );
+    if (pipelineBlockers.length > 0) {
+      overallStatus = "blocked";
+    } else if (blockingSteps.some((s) => s.status === "needs_review" || s.status === "invalid")) {
+      overallStatus = "ready_for_review";
+    } else {
+      overallStatus = "blocked";
+    }
+  }
+
+  const adminActionRequired = blockingSteps.some(
+    (s) =>
+      s.status === "needs_review" ||
+      s.status === "invalid" ||
+      (s.key === "system_sync" && s.blocking)
+  );
+
+  return {
+    overallStatus,
+    percentComplete,
+    lastActivityAt,
+    lastEmployeeActionLabel,
+    adminActionRequired,
+    corePipelineComplete,
+    surveyPacketComplete: isSurveyReady,
+    serverReportsComplete,
+    hasSyncMismatch,
+    steps,
+    blockingSteps,
+  };
+}

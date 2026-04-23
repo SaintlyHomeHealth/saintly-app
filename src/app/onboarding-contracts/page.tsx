@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import OnboardingAdminPreviewClient from "../../components/OnboardingAdminPreviewClient";
 import OnboardingApplicantFromQuery from "../../components/OnboardingApplicantFromQuery";
 import OnboardingProgressSync from "../../components/OnboardingProgressSync";
 import OnboardingApplicantIdentity from "../../components/OnboardingApplicantIdentity";
@@ -1540,6 +1541,9 @@ export default function OnboardingContractsPage() {
   if (isLoading) {
     return (
       <main className="min-h-screen bg-slate-50 px-4 py-8 text-slate-900 sm:px-6 lg:px-8">
+        <Suspense fallback={null}>
+          <OnboardingAdminPreviewClient />
+        </Suspense>
         <div className="mx-auto max-w-6xl">
           <div className="rounded-[24px] border border-slate-200 bg-white p-8 shadow-sm">
             <div className="animate-pulse space-y-4">
@@ -1556,6 +1560,9 @@ export default function OnboardingContractsPage() {
 
   return (
     <main className="min-h-screen bg-slate-50 text-slate-900">
+      <Suspense fallback={null}>
+        <OnboardingAdminPreviewClient />
+      </Suspense>
       <Suspense fallback={null}>
         <OnboardingApplicantFromQuery />
       </Suspense>

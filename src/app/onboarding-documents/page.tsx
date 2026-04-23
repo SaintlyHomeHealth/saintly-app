@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import ApplicantFileUpload from '../../components/ApplicantFileUpload'
+import OnboardingAdminPreviewClient from '../../components/OnboardingAdminPreviewClient'
 import OnboardingApplicantFromQuery from '../../components/OnboardingApplicantFromQuery'
 import OnboardingProgressSync from '../../components/OnboardingProgressSync'
 import OnboardingApplicantIdentity from '../../components/OnboardingApplicantIdentity'
@@ -751,6 +752,9 @@ export default function OnboardingDocumentsPage() {
 
   return (
     <main className="shh-docs-page">
+      <Suspense fallback={null}>
+        <OnboardingAdminPreviewClient />
+      </Suspense>
       <Suspense fallback={null}>
         <OnboardingApplicantFromQuery />
       </Suspense>

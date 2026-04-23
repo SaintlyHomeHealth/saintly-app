@@ -3,6 +3,7 @@
 import { type FormEvent, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import OnboardingAdminPreviewClient from "../../components/OnboardingAdminPreviewClient";
 import OnboardingApplicantFromQuery from "../../components/OnboardingApplicantFromQuery";
 import OnboardingProgressSync from "../../components/OnboardingProgressSync";
 import OnboardingApplicantIdentity from "../../components/OnboardingApplicantIdentity";
@@ -1208,6 +1209,9 @@ export default function OnboardingTrainingPage() {
 
   return (
     <main className="min-h-screen bg-slate-50">
+      <Suspense fallback={null}>
+        <OnboardingAdminPreviewClient />
+      </Suspense>
       <Suspense fallback={null}>
         <OnboardingApplicantFromQuery />
       </Suspense>

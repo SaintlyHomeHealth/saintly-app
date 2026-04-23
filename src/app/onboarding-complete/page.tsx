@@ -7,6 +7,7 @@ import OnboardingProgressSync from "../../components/OnboardingProgressSync";
 import { syncOnboardingProgressForApplicant } from "@/lib/onboarding/sync-progress";
 import { supabase } from "@/lib/supabase/client";
 import OnboardingApplicantIdentity from "../../components/OnboardingApplicantIdentity";
+import OnboardingAdminPreviewClient from "../../components/OnboardingAdminPreviewClient";
 import { EmploymentClassification } from "@/lib/employee-contracts";
 import {
   EmployeeTaxFormRow,
@@ -272,6 +273,9 @@ export default function OnboardingCompletePage() {
   if (loading) {
     return (
       <main className="min-h-screen bg-slate-50 text-slate-900">
+        <Suspense fallback={null}>
+          <OnboardingAdminPreviewClient />
+        </Suspense>
         <section className="mx-auto max-w-6xl px-4 pb-16 pt-8 sm:px-6 lg:px-8">
           <div className="rounded-[24px] border border-slate-200 bg-white p-8 shadow-sm">
             <div className="animate-pulse space-y-4">
@@ -289,6 +293,9 @@ export default function OnboardingCompletePage() {
 
   return (
     <main className="min-h-screen bg-slate-50 text-slate-900">
+      <Suspense fallback={null}>
+        <OnboardingAdminPreviewClient />
+      </Suspense>
       <Suspense fallback={null}>
         <OnboardingApplicantFromQuery />
       </Suspense>

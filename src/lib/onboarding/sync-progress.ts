@@ -32,6 +32,14 @@ function mergeFlowStatus(
   return rank[derived] > rank[prev] ? derived : prev;
 }
 
+/** Exported for admin diagnostics and unified onboarding state (core pipeline: application → documents → contracts/tax → training). */
+export async function getCoreOnboardingPipelineInputs(
+  supabase: SupabaseClient,
+  applicantId: string
+) {
+  return loadProgressInputs(supabase, applicantId);
+}
+
 async function loadProgressInputs(supabase: SupabaseClient, applicantId: string) {
   const { data: employeeContractData } = await supabase
     .from("employee_contracts")

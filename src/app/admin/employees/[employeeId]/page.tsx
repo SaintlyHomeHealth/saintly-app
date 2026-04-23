@@ -31,6 +31,8 @@ import {
 } from "@/lib/admin/credential-reminder-display";
 import { EmployeeArchiveButton } from "@/app/admin/employees/EmployeeArchiveButton";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
+import { buildUnifiedOnboardingState } from "@/lib/onboarding/unified-onboarding-state";
+import AdminOnboardingCommandCenter from "./admin-onboarding-command-center";
 
 type ComplianceEvent = {
   id: string;
@@ -2427,6 +2429,42 @@ export default async function EmployeeDetailPage({
   ].filter((item): item is string => Boolean(item));
 
   const isSurveyReady = missingSurveyItems.length === 0;
+
+  const hasSomeDocumentUpload =
+    ((applicantFiles?.length || 0) > 0 || (documentsRows?.length || 0) > 0) && !isDocumentsComplete;
+  const hasTrainingProgressButNotComplete =
+    (trainingProgressRows?.length || 0) > 0 && !isTrainingComplete;
+  const skillsFormIsDraft = skillsForm?.status === "draft";
+  const missingCredentialDisplayNames = missingCredentialTypes.map((t) => formatCredentialType(t));
+
+  const onboardingCommandSnapshot = buildUnifiedOnboardingState({
+    applicantId: employeeId,
+    employeePageBase,
+    onboardingStatus: onboardingStatus ?? null,
+    isApplicationComplete,
+    isDocumentsComplete,
+    isContractsComplete,
+    isTaxFormSigned,
+    isTrainingComplete,
+    hasSomeDocumentUpload,
+    hasTrainingProgressButNotComplete,
+    onboardingContractCompleted: Boolean(onboardingContractStatus?.completed),
+    isSkillsComplete,
+    isPerformanceComplete,
+    hasTbDocumentation,
+    isOigComplete,
+    hasBackgroundCheck,
+    hasCprCard,
+    hasDriversLicense,
+    hasFingerprintCard,
+    requiresCpr,
+    requiresDriversLicense,
+    requiresFingerprintCard,
+    missingCredentialDisplayNames,
+    skillsFormIsDraft,
+    isSurveyReady,
+  });
+
   const surveyMissingSummary =
     missingSurveyItems.length > 4
       ? `${missingSurveyItems.slice(0, 4).join(", ")} +${missingSurveyItems.length - 4} more`
@@ -2919,13 +2957,20 @@ export default async function EmployeeDetailPage({
         </div>
       ) : null}
 
-      <div id="onboarding-portal-section" className="scroll-mt-24">
-        <EmployeeOnboardingCard
+      <div id="onboarding-admin-summary" className="scroll-mt-24 space-y-5">
+        <AdminOnboardingCommandCenter
           employeeId={employeeId}
-          onboardingStatus={
-            onboardingStatus ? { ...onboardingStatus, applicant_id: employeeId } : null
-          }
+          employeeName={`${employee.first_name || ""} ${employee.last_name || ""}`.trim() || "Employee"}
+          snapshot={onboardingCommandSnapshot}
         />
+        <div id="onboarding-portal-section">
+          <EmployeeOnboardingCard
+            employeeId={employeeId}
+            onboardingStatus={
+              onboardingStatus ? { ...onboardingStatus, applicant_id: employeeId } : null
+            }
+          />
+        </div>
       </div>
 
       <div className="overflow-hidden rounded-[32px] border border-slate-200 bg-white shadow-sm">
@@ -3243,7 +3288,7 @@ export default async function EmployeeDetailPage({
 
       <WorkflowSection
         id="onboarding-section"
-        title="Onboarding Status"
+        title="Onboarding Status (detailed cards)"
         subtitle="Track employee portal completion items before the hire setup is finalized."
       >
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
