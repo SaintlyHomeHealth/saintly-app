@@ -29,6 +29,10 @@ function publicAppOrigin(): string {
   return raw.replace(/\/$/, "");
 }
 
+/**
+ * Employee onboarding entry URL. Uses a stable applicant UUID (no signed token, no expiry).
+ * The same link can be reused across devices and sessions; progress lives in the database.
+ */
 export function buildOnboardingEntryLink(applicantId: string): string {
   const base = publicAppOrigin();
   const path = `/onboarding-welcome?applicant=${encodeURIComponent(applicantId)}`;
@@ -158,29 +162,33 @@ export type SendOnboardingInviteResult =
     }
   | { ok: false; error: string };
 
+type DeliverOnboardingInviteInput = {
+  applicantId: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  channel: OnboardingInviteChannel;
+  staffUserId: string | null;
+  allowCooldownBypass?: boolean;
+  emailVariant?: "invite" | "resume";
+  inviteSendMetadata?: Record<string, unknown>;
+};
+
 /**
- * Admin: create/reuse applicant, persist invite metadata, send SMS and/or email, audit log.
+ * Sends SMS and/or email for an existing applicant. Always builds the onboarding URL from
+ * `applicantId` (never from an email lookup) so admin resends stay tied to the correct record.
  */
-export async function sendOnboardingInvite(
-  input: SendOnboardingInviteInput
-): Promise<SendOnboardingInviteResult> {
+async function deliverOnboardingInvite(input: DeliverOnboardingInviteInput): Promise<SendOnboardingInviteResult> {
   const channel = input.channel;
   if (channel !== "sms" && channel !== "email" && channel !== "both") {
     return { ok: false, error: "Invalid send method." };
   }
 
-  const created = await findOrCreateApplicant({
-    firstName: input.firstName,
-    lastName: input.lastName,
-    email: input.email,
-    phone: input.phone,
-  });
-  if (!created.ok) {
-    return created;
-  }
-
-  const applicantId = created.applicantId;
+  const applicantId = input.applicantId;
   const link = buildOnboardingEntryLink(applicantId);
+  const emailNorm = normalizeEmail(input.email);
+  const emailOk = Boolean(emailNorm && emailNorm.includes("@"));
 
   if (!input.allowCooldownBypass) {
     const lastMs = await recentInviteSendMs(applicantId);
@@ -197,6 +205,10 @@ export async function sendOnboardingInvite(
           ? `${ONBOARDING_EMAIL_NOT_CONFIGURED_ERROR} Or choose Text only.`
           : ONBOARDING_EMAIL_NOT_CONFIGURED_ERROR,
     };
+  }
+
+  if ((channel === "email" || channel === "both") && !emailOk) {
+    return { ok: false, error: "A valid email address is required to send an email invite." };
   }
 
   let smsSent = false;
@@ -239,9 +251,10 @@ export async function sendOnboardingInvite(
 
   if (channel === "email" || channel === "both") {
     const emailResult = await sendOnboardingInviteEmail({
-      to: normalizeEmail(input.email),
+      to: emailNorm,
       firstName: input.firstName.trim(),
       link,
+      variant: input.emailVariant ?? "invite",
     });
     if (!emailResult.ok) {
       if (smsSent) {
@@ -267,23 +280,27 @@ export async function sendOnboardingInvite(
     metadata: {
       sms_sent: smsSent,
       email_sent: emailSent,
+      ...(input.inviteSendMetadata ?? {}),
     },
   });
   if (logErr) {
     console.error("[onboarding-invite] audit insert:", logErr.message);
   }
 
-  await insertAuditLogTrusted({
-    action: "onboarding_invite_sent",
-    entityType: "applicant",
-    entityId: applicantId,
-    metadata: {
-      channels: channel,
-      sms_sent: smsSent,
-      email_sent: emailSent,
-      link,
-    },
-  });
+  if (input.staffUserId) {
+    await insertAuditLogTrusted({
+      action: "onboarding_invite_sent",
+      entityType: "applicant",
+      entityId: applicantId,
+      metadata: {
+        channels: channel,
+        sms_sent: smsSent,
+        email_sent: emailSent,
+        link,
+        ...(input.inviteSendMetadata ?? {}),
+      },
+    });
+  }
 
   revalidatePath("/admin/employees");
   revalidatePath(`/admin/employees/${applicantId}`);
@@ -296,6 +313,40 @@ export async function sendOnboardingInvite(
     emailSent,
     ...(emailFailureReason ? { emailFailureReason } : {}),
   };
+}
+
+/**
+ * Admin: create/reuse applicant, persist invite metadata, send SMS and/or email, audit log.
+ */
+export async function sendOnboardingInvite(
+  input: SendOnboardingInviteInput
+): Promise<SendOnboardingInviteResult> {
+  const channel = input.channel;
+  if (channel !== "sms" && channel !== "email" && channel !== "both") {
+    return { ok: false, error: "Invalid send method." };
+  }
+
+  const created = await findOrCreateApplicant({
+    firstName: input.firstName,
+    lastName: input.lastName,
+    email: input.email,
+    phone: input.phone,
+  });
+  if (!created.ok) {
+    return created;
+  }
+
+  return deliverOnboardingInvite({
+    applicantId: created.applicantId,
+    firstName: input.firstName,
+    lastName: input.lastName,
+    email: input.email,
+    phone: input.phone,
+    channel: input.channel,
+    staffUserId: input.staffUserId,
+    allowCooldownBypass: input.allowCooldownBypass,
+    emailVariant: "invite",
+  });
 }
 
 export type ResendOnboardingInviteInput = {
@@ -323,7 +374,8 @@ export async function resendOnboardingInvite(
     return { ok: false, error: "Applicant not found." };
   }
 
-  return sendOnboardingInvite({
+  return deliverOnboardingInvite({
+    applicantId: applicant.id,
     firstName: String(applicant.first_name || ""),
     lastName: String(applicant.last_name || ""),
     email: String(applicant.email || ""),
@@ -331,5 +383,30 @@ export async function resendOnboardingInvite(
     channel: input.channel,
     staffUserId: input.staffUserId,
     allowCooldownBypass: true,
+    emailVariant: "invite",
+  });
+}
+
+/**
+ * Public self-serve: send onboarding entry link to the email on file. Caller enforces cooldown and
+ * must not leak whether the email exists.
+ */
+export async function deliverOnboardingResumeEmail(input: {
+  applicantId: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+}): Promise<SendOnboardingInviteResult> {
+  return deliverOnboardingInvite({
+    applicantId: input.applicantId,
+    firstName: input.firstName,
+    lastName: input.lastName,
+    email: input.email,
+    phone: "",
+    channel: "email",
+    staffUserId: null,
+    allowCooldownBypass: true,
+    emailVariant: "resume",
+    inviteSendMetadata: { source: "onboarding_resume_self_serve" },
   });
 }

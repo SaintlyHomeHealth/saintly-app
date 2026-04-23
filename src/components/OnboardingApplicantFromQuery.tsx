@@ -9,6 +9,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-
 
 /**
  * Deep-link: /onboarding-welcome?applicant=<uuid> seeds the same localStorage key used across onboarding pages.
+ * That key is only a client pointer to `applicants.id`; form progress and uploads are read/written in Supabase.
  */
 export default function OnboardingApplicantFromQuery() {
   const searchParams = useSearchParams();

@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { Suspense } from 'react'
 import { useRouter } from 'next/navigation'
 import OnboardingAdminPreviewClient from '../../components/OnboardingAdminPreviewClient'
@@ -97,6 +98,13 @@ export default function OnboardingWelcomePage() {
                 Back to Home
               </button>
             </div>
+
+            <p className="mt-6 text-center text-sm text-slate-600">
+              <Link href="/onboarding-resume" className="font-medium text-sky-700 underline">
+                Lost this link or on a new device?
+              </Link>
+              <span className="text-slate-500"> — we&apos;ll email you a fresh onboarding link.</span>
+            </p>
           </div>
         </section>
 
