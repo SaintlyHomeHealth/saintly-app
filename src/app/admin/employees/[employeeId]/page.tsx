@@ -29,6 +29,10 @@ import { buildUnifiedOnboardingState } from "@/lib/onboarding/unified-onboarding
 import AdminOnboardingCommandCenter from "./admin-onboarding-command-center";
 import EmployeeAdminActionRequiredTable from "./employee-admin-action-required-table";
 import EmployeeAdminSnapshotStrip from "./employee-admin-snapshot-strip";
+import ComplianceProgramStatusTable, {
+  type ComplianceProgramHistoryEntry,
+  type ComplianceProgramStatusRow,
+} from "./compliance-program-status-table";
 import type { PersonnelFileAuditItem } from "./personnel-file-audit-deferred";
 import OnboardingWorkflowSectionCollapsible from "./onboarding-workflow-section-collapsible";
 import PersonnelFileAuditDeferred from "./personnel-file-audit-loader";
@@ -529,6 +533,30 @@ function getHistoryPrintHref(
   return null;
 }
 
+function mapProgramsHistory(
+  employeeId: string,
+  event: ComplianceEvent | null | undefined,
+  historyForms: AdminFormRecord[],
+  currentForm: AdminFormRecord | null | undefined,
+  formOpenHref: string
+): ComplianceProgramHistoryEntry[] | undefined {
+  if (!event || historyForms.length === 0) return undefined;
+  return historyForms.map((historyForm, index) => {
+    const versionNumber = historyForms.length - index;
+    const isCurrent = historyForm.id === currentForm?.id;
+    return {
+      id: historyForm.id,
+      versionNumber,
+      createdAtDisplay: formatDateTime(historyForm.created_at),
+      statusLabel: getAdminFormHistoryStatusLabel(historyForm, isCurrent),
+      statusBadgeClass: getAdminFormHistoryStatusClasses(historyForm, isCurrent),
+      isCurrent,
+      viewHref: formOpenHref,
+      printHref: getHistoryPrintHref(employeeId, event, historyForm),
+    };
+  });
+}
+
 function getAdminFormRecordLabel(formType?: string | null) {
   if ((formType || "").toLowerCase().trim() === "skills_competency") {
     return "Skills Competency";
@@ -938,324 +966,6 @@ function getStorageObjectFromPublicUrl(fileUrl?: string | null) {
     bucket: decodeURIComponent(match[1]),
     path: decodeURIComponent(match[2]),
   };
-}
-
-function VersionedEventCard({
-  employeeId,
-  title,
-  subtitle,
-  href,
-  printHref,
-  event,
-  form,
-  progress,
-  historyForms,
-}: {
-  employeeId: string;
-  title: string;
-  subtitle: string;
-  href: string;
-  printHref: string;
-  event?: ComplianceEvent | null;
-  form?: AdminFormRecord | null;
-  progress: ProgressSummary;
-  historyForms: AdminFormRecord[];
-}) {
-  const state = getRequirementState(event, form);
-  const printMeta = getPrintMeta(form, event);
-  const isLocked = isComplianceRequirementComplete(event, form);
-  const startNewVersionHref =
-    event?.id && isLocked
-      ? `${href}${href.includes("?") ? "&" : "?"}startNewVersion=1`
-      : null;
-  const currentVersionNumber = form
-    ? historyForms.length - historyForms.findIndex((item) => item.id === form.id)
-    : null;
-
-  return (
-    <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm transition hover:shadow-md">
-      <div className="flex flex-col gap-5">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <h2 className="text-xl font-semibold text-slate-900">{title}</h2>
-            <p className="mt-1 text-sm text-slate-500">{subtitle}</p>
-          </div>
-
-          <span
-            className={`inline-flex w-fit items-center rounded-full px-3 py-1 text-xs font-semibold ${getBadgeClasses(
-              state.tone
-            )}`}
-          >
-            {state.label}
-          </span>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3 rounded-[24px] border border-slate-100 bg-slate-50/80 p-4 sm:grid-cols-3">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-              Current Record
-            </p>
-            <p className="mt-1 text-sm font-medium text-slate-900">{title}</p>
-          </div>
-
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-              Version
-            </p>
-            <p className="mt-1 text-sm font-medium text-slate-900">
-              {currentVersionNumber ?? "—"}
-            </p>
-          </div>
-
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-              Status
-            </p>
-            <div className="mt-1 flex flex-wrap gap-2">
-              <span
-                className={`rounded-full px-3 py-1 text-xs font-semibold ${getAdminFormHistoryStatusClasses(
-                  form,
-                  true
-                )}`}
-              >
-                {getAdminFormHistoryStatusLabel(form, true)}
-              </span>
-              {form ? (
-                <span className="rounded-full bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-700">
-                  Current
-                </span>
-              ) : null}
-            </div>
-          </div>
-
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-              Created
-            </p>
-            <p className="mt-1 text-sm font-medium text-slate-900">
-              {formatDateTime(form?.created_at)}
-            </p>
-          </div>
-
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-              Completed
-            </p>
-            <p className="mt-1 text-sm font-medium text-slate-900">
-              {formatDateTime(form?.finalized_at || event?.completed_at)}
-            </p>
-          </div>
-        </div>
-
-        {progress.total > 0 ? (
-          <div>
-            <div className="mb-2 flex items-center justify-between text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
-              <span>Form Completion</span>
-              <span>{progress.percent}%</span>
-            </div>
-            <div className="h-3 overflow-hidden rounded-full bg-slate-100">
-              <div
-                className="h-full rounded-full bg-gradient-to-r from-sky-500 to-cyan-400 transition-all"
-                style={{ width: `${progress.percent}%` }}
-              />
-            </div>
-          </div>
-        ) : null}
-
-        <div className="rounded-[22px] bg-slate-50 px-4 py-3 text-sm text-slate-600">
-          {state.description}
-        </div>
-
-        <div className="flex flex-wrap gap-3">
-          <Link
-            href={href}
-            className={`inline-flex items-center justify-center rounded-[24px] px-5 py-3 text-sm font-semibold shadow-md transition ${getButtonClasses(
-              state.tone
-            )}`}
-          >
-            {state.buttonText}
-          </Link>
-
-          {startNewVersionHref ? (
-            <Link
-              href={startNewVersionHref}
-              className="inline-flex items-center justify-center rounded-[24px] border border-sky-200 bg-sky-50 px-5 py-3 text-sm font-semibold text-sky-700 shadow-sm transition hover:bg-sky-100"
-            >
-              Start New Version
-            </Link>
-          ) : null}
-
-          {printMeta.canPrint ? (
-            <Link
-              href={printHref}
-              className="inline-flex items-center justify-center rounded-[24px] border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
-            >
-              {printMeta.label}
-            </Link>
-          ) : null}
-        </div>
-
-        <div className="rounded-[24px] border border-slate-200 bg-white p-5">
-          <div className="flex items-center justify-between gap-3">
-            <h3 className="text-lg font-semibold text-slate-900">Version History</h3>
-          </div>
-
-          <div className="mt-4 space-y-3">
-            {historyForms.length === 0 ? (
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
-                No version history yet.
-              </div>
-            ) : (
-              historyForms.map((historyForm, index) => {
-                const isCurrent = historyForm.id === form?.id;
-                const versionNumber = historyForms.length - index;
-                const historyPrintHref =
-                  event && historyForm
-                    ? getHistoryPrintHref(employeeId, event, historyForm)
-                    : null;
-
-                return (
-                  <div
-                    key={historyForm.id}
-                    className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="text-sm font-semibold text-slate-900">Version {versionNumber}</p>
-                          <p className="mt-0.5 text-xs text-slate-500">
-                            {formatDateTime(historyForm.created_at)}
-                          </p>
-                          <div className="mt-1 flex flex-wrap gap-1.5">
-                            <span
-                              className={`rounded-full px-2 py-0.5 text-xs font-semibold ${getAdminFormHistoryStatusClasses(
-                                historyForm,
-                                isCurrent
-                              )}`}
-                            >
-                              {getAdminFormHistoryStatusLabel(historyForm, isCurrent)}
-                            </span>
-                            {isCurrent ? (
-                              <span className="rounded-full bg-sky-50 px-2 py-0.5 text-xs font-semibold text-sky-700">
-                                Current
-                              </span>
-                            ) : null}
-                          </div>
-                        </div>
-                      <div className="flex shrink-0 flex-wrap gap-2">
-                        <Link
-                          href={href}
-                          className="inline-flex items-center rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
-                        >
-                          View
-                        </Link>
-
-                        {historyPrintHref ? (
-                          <Link
-                            href={historyPrintHref}
-                            className="inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-700 transition hover:bg-sky-100"
-                          >
-                            Print
-                          </Link>
-                        ) : null}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function SimpleComplianceCard({
-  id,
-  title,
-  subtitle,
-  event,
-  actionHref,
-}: {
-  id: string;
-  title: string;
-  subtitle: string;
-  event?: ComplianceEvent | null;
-  actionHref: string;
-}) {
-  const state = getRequirementState(event, null);
-  const actionLabel = event?.id ? "Go" : "Create";
-
-  return (
-    <div
-      id={id}
-      className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm"
-    >
-      <div className="flex flex-col gap-5">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <h2 className="text-xl font-semibold text-slate-900">{title}</h2>
-            <p className="mt-1 text-sm text-slate-500">{subtitle}</p>
-          </div>
-
-          <span
-            className={`inline-flex w-fit items-center rounded-full px-3 py-1 text-xs font-semibold ${getBadgeClasses(
-              state.tone
-            )}`}
-          >
-            {state.label}
-          </span>
-        </div>
-
-        <div className="flex justify-end">
-          <Link
-            href={actionHref}
-            className="inline-flex items-center rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
-          >
-            {actionLabel}
-          </Link>
-        </div>
-
-        <div className="grid gap-3 rounded-[24px] border border-slate-100 bg-slate-50/80 p-4 sm:grid-cols-2 lg:grid-cols-3">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-              Annual Event
-            </p>
-            <p className="mt-1 text-sm font-medium text-slate-900">
-              {event?.event_title || "No event created"}
-            </p>
-          </div>
-
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-              Due Date
-            </p>
-            <p className="mt-1 text-sm font-medium text-slate-900">
-              {formatDate(event?.due_date)}
-            </p>
-          </div>
-
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-              Status
-            </p>
-            <p className="mt-1 text-sm font-medium capitalize text-slate-900">
-              {event?.status ? event.status.replaceAll("_", " ") : "No event yet"}
-            </p>
-          </div>
-
-          <div className="sm:col-span-2 lg:col-span-3">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-              Completed
-            </p>
-            <p className="mt-1 text-sm font-medium text-slate-900">
-              {formatDateTime(event?.completed_at)}
-            </p>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
 }
 
 function WorkflowSection({
@@ -2990,6 +2700,146 @@ export default async function EmployeeDetailPage({
     isSurveyReady ? "ready" : "not ready"
   }`;
 
+  const skillsRowState = getRequirementState(skillsEvent, skillsForm);
+  const skillsRowPrint = getPrintMeta(skillsForm, skillsEvent);
+  const skillsRowLocked = isComplianceRequirementComplete(skillsEvent, skillsForm);
+  const skillsRowHistory = mapProgramsHistory(
+    employeeId,
+    skillsEvent,
+    skillsHistoryForms,
+    skillsForm,
+    skillsHref
+  );
+  const skillsRowStartNew =
+    skillsEvent?.id && skillsRowLocked
+      ? `${skillsHref}${skillsHref.includes("?") ? "&" : "?"}startNewVersion=1`
+      : null;
+  const skillsRowShowDetails = Boolean(
+    skillsRowState.description ||
+      skillsProgress.total > 0 ||
+      (skillsRowHistory?.length ?? 0) > 0
+  );
+
+  const perfRowState = getRequirementState(performanceEvent, performanceForm);
+  const perfRowPrint = getPrintMeta(performanceForm, performanceEvent);
+  const perfRowLocked = isComplianceRequirementComplete(performanceEvent, performanceForm);
+  const perfRowHistory = mapProgramsHistory(
+    employeeId,
+    performanceEvent,
+    performanceHistoryForms,
+    performanceForm,
+    performanceHref
+  );
+  const perfRowStartNew =
+    performanceEvent?.id && perfRowLocked
+      ? `${performanceHref}${performanceHref.includes("?") ? "&" : "?"}startNewVersion=1`
+      : null;
+  const perfRowShowDetails = Boolean(
+    perfRowState.description ||
+      performanceProgress.total > 0 ||
+      (perfRowHistory?.length ?? 0) > 0
+  );
+
+  const trainingRowState = getRequirementState(trainingChecklistEvent, null);
+  const contractRowState = getRequirementState(contractReviewEvent, null);
+  const oigRowState = getRequirementState(effectiveOigEvent, null);
+  const tbRowState = getRequirementState(tbStatementEvent, null);
+
+  const complianceProgramStatusRows: ComplianceProgramStatusRow[] = [
+    {
+      rowKey: "skills",
+      sectionId: "skills-section",
+      program: "Skills Competency",
+      subtitle: "Initial & annual clinical competency",
+      currentRecord: skillsEvent?.event_title || "—",
+      statusLabel: skillsRowState.label,
+      statusBadgeClass: getBadgeClasses(skillsRowState.tone),
+      dueDateDisplay: formatDate(skillsEvent?.due_date),
+      primaryHref: skillsHref,
+      primaryLabel: skillsRowState.buttonText,
+      printHref: skillsRowPrint.canPrint ? skillsPrintHref : null,
+      printLabel: skillsRowPrint.label || undefined,
+      startNewVersionHref: skillsRowStartNew,
+      progressPercent: skillsProgress.total > 0 ? skillsProgress.percent : null,
+      progressTotal: skillsProgress.total > 0 ? skillsProgress.total : null,
+      description: skillsRowState.description,
+      history: skillsRowHistory,
+      showDetails: skillsRowShowDetails,
+    },
+    {
+      rowKey: "performance",
+      sectionId: "performance-section",
+      program: "Performance Evaluation",
+      subtitle: "Annual performance review",
+      currentRecord: performanceEvent?.event_title || "—",
+      statusLabel: perfRowState.label,
+      statusBadgeClass: getBadgeClasses(perfRowState.tone),
+      dueDateDisplay: formatDate(performanceEvent?.due_date),
+      primaryHref: performanceHref,
+      primaryLabel: perfRowState.buttonText,
+      printHref: perfRowPrint.canPrint ? performancePrintHref : null,
+      printLabel: perfRowPrint.label || undefined,
+      startNewVersionHref: perfRowStartNew,
+      progressPercent: performanceProgress.total > 0 ? performanceProgress.percent : null,
+      progressTotal: performanceProgress.total > 0 ? performanceProgress.total : null,
+      description: perfRowState.description,
+      history: perfRowHistory,
+      showDetails: perfRowShowDetails,
+    },
+    {
+      rowKey: "training",
+      sectionId: "training-checklist-section",
+      program: "Annual Training Checklist",
+      subtitle: "Yearly training tracking",
+      currentRecord: trainingChecklistEvent?.event_title || "—",
+      statusLabel: trainingRowState.label,
+      statusBadgeClass: getBadgeClasses(trainingRowState.tone),
+      dueDateDisplay: formatDate(trainingChecklistEvent?.due_date),
+      primaryHref: trainingHref,
+      primaryLabel: trainingChecklistEvent?.id ? "Open" : "Create",
+      showDetails: false,
+    },
+    {
+      rowKey: "contract-review",
+      sectionId: "contract-review-section",
+      program: "Contract Annual Review",
+      subtitle: "Annual contract review",
+      currentRecord: contractReviewEvent?.event_title || "—",
+      statusLabel: contractRowState.label,
+      statusBadgeClass: getBadgeClasses(contractRowState.tone),
+      dueDateDisplay: formatDate(contractReviewEvent?.due_date),
+      primaryHref: contractHref,
+      primaryLabel: contractReviewEvent?.id ? "Open" : "Create",
+      showDetails: false,
+    },
+    {
+      rowKey: "oig",
+      sectionId: "oig-section",
+      program: "OIG Exclusion Check",
+      subtitle: "Annual exclusion screening",
+      currentRecord: effectiveOigEvent?.event_title || "—",
+      statusLabel: oigRowState.label,
+      statusBadgeClass: getBadgeClasses(oigRowState.tone),
+      dueDateDisplay: formatDate(effectiveOigEvent?.due_date),
+      primaryHref: oigHref,
+      primaryLabel: effectiveOigEvent?.id ? "Open" : "Create",
+      showDetails: false,
+    },
+    {
+      rowKey: "tb",
+      sectionId: "tb-statement-section",
+      program: "Annual TB Statement",
+      subtitle: "Annual TB attestation",
+      currentRecord: tbStatementEvent?.event_title || "—",
+      statusLabel: tbRowState.label,
+      statusBadgeClass: getBadgeClasses(tbRowState.tone),
+      dueDateDisplay: formatDate(tbStatementEvent?.due_date),
+      primaryHref: tbHref,
+      primaryLabel: tbStatementEvent?.id ? "Open" : "Create",
+      showDetails: false,
+    },
+  ];
+
   return (
     <div className="mx-auto w-full max-w-7xl space-y-6 p-6">
       {statusChangeDeniedMessage ? (
@@ -3265,99 +3115,90 @@ export default async function EmployeeDetailPage({
         subtitle="Annual requirements, program shortcuts, documents dashboard, and compliance history."
         defaultCollapsed={true}
       >
-        <p className="text-xs leading-snug text-slate-500">
+        <p className="text-[11px] leading-snug text-slate-500">
           Annual compliance uses separate event records so each year stays auditable without overwriting prior
-          forms.
-        </p>
-        <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 border-b border-slate-100 pb-3 text-sm">
+          forms. Deep links:{" "}
           <Link href={skillsHref} className="font-medium text-sky-800 hover:underline">
-            Skills <span className="font-normal text-slate-500">({skillsState.label})</span>
+            Skills
           </Link>
+          {" · "}
           <Link href={performanceHref} className="font-medium text-sky-800 hover:underline">
-            Performance <span className="font-normal text-slate-500">({performanceState.label})</span>
+            Performance
           </Link>
+          {" · "}
           <Link href={oigHref} className="font-medium text-sky-800 hover:underline">
-            OIG <span className="font-normal text-slate-500">({oigState.label})</span>
+            OIG
           </Link>
+          {" · "}
           <Link href={contractHref} className="font-medium text-sky-800 hover:underline">
-            Contract review <span className="font-normal text-slate-500">({contractState.label})</span>
+            Contract
           </Link>
+          {" · "}
           <Link href={trainingHref} className="font-medium text-sky-800 hover:underline">
-            Training <span className="font-normal text-slate-500">({trainingState.label})</span>
+            Training
           </Link>
+          {" · "}
           <Link href={tbHref} className="font-medium text-sky-800 hover:underline">
-            TB statement <span className="font-normal text-slate-500">({tbState.label})</span>
+            TB
           </Link>
-          <Link href="#documents-compliance-dashboard" className="text-xs font-semibold text-sky-700 underline">
-            Documents & compliance tables
+          {" · "}
+          <Link href="#documents-compliance-dashboard" className="font-semibold text-sky-700 underline">
+            Documents
           </Link>
-        </div>
+          . Status: also see <span className="font-medium text-slate-700">Action required</span> above.
+        </p>
 
-        <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-          {complianceSummary.map((item) => (
-            <div key={item.label} className="rounded border border-slate-200 bg-slate-50/40 px-2.5 py-1.5">
-              <div className="flex items-center justify-between gap-2">
-                <div className="min-w-0">
-                  <p className="text-xs font-semibold text-slate-900">{item.label}</p>
-                  <p className="text-[11px] text-slate-500">{item.progress}</p>
-                </div>
-                <div className="flex flex-wrap items-center justify-end gap-1.5">
-                  <Link
-                    href={item.sectionHref}
-                    className="inline-flex items-center rounded border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-700 transition hover:bg-slate-50"
+        <div className="mt-2 border-b border-slate-100 pb-2">
+          <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Compliance overview</p>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {complianceSummary.map((item) => (
+              <div
+                key={item.label}
+                className="flex min-w-0 max-w-full items-center gap-1.5 rounded border border-slate-200 bg-slate-50/80 px-2 py-1 text-[11px]"
+              >
+                <span className="font-semibold text-slate-800">{item.label}</span>
+                <span
+                  className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ${getBadgeClasses(
+                    item.tone
+                  )}`}
+                >
+                  {item.value}
+                </span>
+                <Link
+                  href={item.sectionHref}
+                  className="shrink-0 font-semibold text-sky-800 underline"
+                >
+                  Go
+                </Link>
+                {item.showPrint ? (
+                  <a
+                    href={item.printHref}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="shrink-0 font-semibold text-sky-800 underline"
                   >
-                    Go
-                  </Link>
-                  {item.showPrint ? (
-                    <a
-                      href={item.printHref}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center rounded border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-700 transition hover:bg-slate-50"
-                    >
-                      {item.printLabel}
-                    </a>
-                  ) : null}
-                  {item.showView && item.viewHref ? (
-                    <a
-                      href={item.viewHref}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center rounded border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-700 transition hover:bg-slate-50"
-                    >
-                      View
-                    </a>
-                  ) : null}
-                  <span
-                    className={`inline-flex rounded px-2 py-0.5 text-[11px] font-semibold ${getBadgeClasses(
-                      item.tone
-                    )}`}
+                    {item.printLabel}
+                  </a>
+                ) : null}
+                {item.showView && item.viewHref ? (
+                  <a
+                    href={item.viewHref}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="shrink-0 font-semibold text-sky-800 underline"
                   >
-                    {item.value}
-                  </span>
-                </div>
+                    View
+                  </a>
+                ) : null}
               </div>
-            </div>
-          ))}
-        </div>
-        <div className="mt-4" id="skills-section">
-          <VersionedEventCard
-            employeeId={employeeId}
-            title="Skills Competency"
-            subtitle="Initial and annual clinical competency tracking tied to the active event."
-            href={skillsHref}
-            printHref={skillsPrintHref}
-            event={skillsEvent}
-            form={skillsForm}
-            progress={skillsProgress}
-            historyForms={skillsHistoryFormsPreview}
-          />
+            ))}
+          </div>
         </div>
 
         {actionableReminderItems.length > 0 ? (
-          <div className="mb-4 rounded border border-amber-200 bg-amber-50/70 px-3 py-2">
-            <p className="text-xs font-semibold uppercase tracking-wide text-amber-950">Needs attention</p>
-            <ul className="mt-1.5 list-inside list-disc space-y-0.5 text-sm text-slate-800">
+          <div className="mt-2 rounded border border-amber-200 bg-amber-50/80 px-2 py-1.5">
+            <p className="text-[10px] font-bold uppercase tracking-wide text-amber-950">Needs attention</p>
+            <ul className="mt-1 list-inside list-disc space-y-0.5 text-xs text-slate-800">
               {actionableReminderItems.slice(0, 10).map((item) => (
                 <li key={`${item.label}-${item.status.label}`}>
                   <Link href={item.href} className="font-medium text-sky-800 underline">
@@ -3370,71 +3211,14 @@ export default async function EmployeeDetailPage({
           </div>
         ) : null}
 
-        <p className="text-xs text-slate-500">
-          Program status: use the{" "}
-          <Link href="#documents-compliance-dashboard" className="font-semibold text-sky-700 underline">
-            documents & compliance tables
-          </Link>{" "}
-          below and the <span className="font-medium text-slate-700">Action required</span> section above.
-        </p>
-
-        <div className="mt-6" id="performance-section">
-          <VersionedEventCard
-            employeeId={employeeId}
-            title="Performance Evaluation"
-            subtitle="Annual performance review with draft, finalize, and locked completion flow."
-            href={performanceHref}
-            printHref={performancePrintHref}
-            event={performanceEvent}
-            form={performanceForm}
-            progress={performanceProgress}
-            historyForms={performanceHistoryFormsPreview}
-          />
-        </div>
-
-        <div className="mt-6 grid gap-6 lg:grid-cols-2 xl:grid-cols-2 items-start">
-          <div className="min-w-0">
-            <SimpleComplianceCard
-              id="training-checklist-section"
-              title="Annual Training Checklist"
-              subtitle="Annual training completion tracking for yearly staff compliance."
-              event={trainingChecklistEvent}
-              actionHref={trainingHref}
-            />
-          </div>
-
-          <div className="min-w-0">
-            <SimpleComplianceCard
-              id="contract-review-section"
-              title="Contract Annual Review"
-              subtitle="Annual contract review tracking for yearly compliance and retention."
-              event={contractReviewEvent}
-              actionHref={contractHref}
-            />
-          </div>
-
-          <div className="min-w-0">
-            <SimpleComplianceCard
-              id="oig-section"
-              title="OIG Exclusion Check"
-              subtitle="Annual exclusion screening tracking for survey-safe compliance review."
-              event={effectiveOigEvent}
-              actionHref={oigHref}
-            />
-          </div>
-
-          <div className="min-w-0">
-            <SimpleComplianceCard
-              id="tb-statement-section"
-              title="Annual TB Statement"
-              subtitle="Annual TB statement tracking for employee health compliance."
-              event={tbStatementEvent}
-              actionHref={tbHref}
-            />
+        <div className="mt-3">
+          <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Program status</p>
+          <div className="mt-1">
+            <ComplianceProgramStatusTable rows={complianceProgramStatusRows} />
           </div>
         </div>
 
-        <div id="event-management" className="mt-6">
+        <div id="event-management" className="mt-3">
           <ComplianceEventManager
             employeeId={employeeId}
             skillsEvent={skillsEvent}
@@ -3442,10 +3226,11 @@ export default async function EmployeeDetailPage({
             trainingEvent={trainingChecklistEvent}
             contractReviewEvent={contractReviewEvent}
             tbStatementEvent={tbStatementEvent}
+            presentation="compact"
           />
         </div>
 
-        <div className="mt-6">
+        <div className="mt-3">
           <EmployeeDocumentsComplianceDashboard
             employeeId={employeeId}
             initialHiring={documentsComplianceInitialHiring}
@@ -3454,145 +3239,107 @@ export default async function EmployeeDetailPage({
           />
         </div>
 
-        <div className="mt-6 rounded-lg border border-slate-200 bg-white p-4">
-        <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-          <div>
-            <h2 className="text-lg font-semibold text-slate-900">
-              Annual Compliance History
-            </h2>
-            <p className="mt-1 text-sm text-slate-500">
-              Prior annual events stay visible here so admin staff can quickly review and
-              print historical compliance records without overwriting prior years.
-            </p>
-          </div>
-        </div>
-
-        {historyRows.length === 0 ? (
-          <p className="mt-6 rounded-[22px] border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
-            No compliance history found yet.
+        <div className="mt-3 border-t border-slate-100 pt-2">
+          <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+            Annual compliance history
           </p>
-        ) : (
-          <div className="mt-6 overflow-hidden rounded-[24px] border border-slate-200">
-            <div className="hidden grid-cols-[1.2fr_1fr_1fr_1fr_1.2fr_1.4fr] gap-4 bg-slate-50 px-5 py-4 text-xs font-semibold uppercase tracking-[0.16em] text-slate-400 lg:grid">
-              <div>Requirement</div>
-              <div>Event Title</div>
-              <div>Due Date</div>
-              <div>Status</div>
-              <div>Completed</div>
-              <div>Actions</div>
-            </div>
+          <p className="mt-0.5 text-[11px] text-slate-500">
+            Prior year events — open or print without overwriting current cycle.
+          </p>
 
-            <div className="divide-y divide-slate-200">
-              {historyRows.map(({ event, form, printMeta, printHref }) => {
-                const statusLabel =
-                  form?.status === "finalized" || event.status === "completed"
-                    ? "Completed"
-                    : form?.status === "draft"
-                      ? "Draft Saved"
-                      : event.status
-                        ? event.status.replaceAll("_", " ")
-                        : "Not started";
+          {historyRows.length === 0 ? (
+            <p className="mt-2 rounded border border-slate-100 bg-slate-50 px-2 py-1.5 text-xs text-slate-500">
+              No compliance history yet.
+            </p>
+          ) : (
+            <div className="mt-2 overflow-hidden rounded-md border border-slate-200">
+              <div className="hidden gap-2 bg-slate-50 px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500 lg:grid lg:grid-cols-[1fr_1fr_minmax(0,0.9fr)_auto_auto_minmax(0,1.1fr)]">
+                <div>Requirement</div>
+                <div>Title</div>
+                <div>Due</div>
+                <div>Status</div>
+                <div>Completed</div>
+                <div className="text-right">Actions</div>
+              </div>
+              <div className="divide-y divide-slate-100">
+                {historyRows.map(({ event, form, printMeta, printHref }) => {
+                  const statusLabel =
+                    form?.status === "finalized" || event.status === "completed"
+                      ? "Completed"
+                      : form?.status === "draft"
+                        ? "Draft Saved"
+                        : event.status
+                          ? event.status.replaceAll("_", " ")
+                          : "Not started";
 
-                const tone =
-                  form?.status === "finalized" || event.status === "completed"
-                    ? "green"
-                    : form?.status === "draft"
-                      ? "amber"
-                      : event.status === "pending"
-                        ? "sky"
-                        : "slate";
+                  const tone =
+                    form?.status === "finalized" || event.status === "completed"
+                      ? "green"
+                      : form?.status === "draft"
+                        ? "amber"
+                        : event.status === "pending"
+                          ? "sky"
+                          : "slate";
 
-                const normalizedEventType = (event.event_type || "").toLowerCase().trim();
+                  const normalizedEventType = (event.event_type || "").toLowerCase().trim();
 
-                const openHref =
-                  normalizedEventType === "skills_checklist"
-                    ? `/admin/employees/${employeeId}/forms/skills-competency?eventId=${event.id}`
-                    : normalizedEventType === "annual_performance_evaluation"
-                      ? `/admin/employees/${employeeId}/forms/performance-evaluation?eventId=${event.id}`
-                      : normalizedEventType === "annual_oig_check"
-                        ? `/admin/employees/${employeeId}#oig-section`
-                        : normalizedEventType === "annual_training"
-                          ? `/admin/employees/${employeeId}#training-checklist-section`
-                          : normalizedEventType === "annual_tb_statement"
-                            ? `/admin/employees/${employeeId}#tb-statement-section`
-                            : `/admin/employees/${employeeId}#contract-review-section`;
+                  const openHref =
+                    normalizedEventType === "skills_checklist"
+                      ? `/admin/employees/${employeeId}/forms/skills-competency?eventId=${event.id}`
+                      : normalizedEventType === "annual_performance_evaluation"
+                        ? `/admin/employees/${employeeId}/forms/performance-evaluation?eventId=${event.id}`
+                        : normalizedEventType === "annual_oig_check"
+                          ? `/admin/employees/${employeeId}#oig-section`
+                          : normalizedEventType === "annual_training"
+                            ? `/admin/employees/${employeeId}#training-checklist-section`
+                            : normalizedEventType === "annual_tb_statement"
+                              ? `/admin/employees/${employeeId}#tb-statement-section`
+                              : `/admin/employees/${employeeId}#contract-review-section`;
 
-                return (
-                  <div key={event.id} className="px-5 py-5">
-                    <div className="grid gap-4 lg:grid-cols-[1.2fr_1fr_1fr_1fr_1.2fr_1.4fr] lg:items-center">
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400 lg:hidden">
-                          Requirement
-                        </p>
-                        <p className="text-sm font-semibold text-slate-900">
-                          {getEventTypeLabel(event.event_type)}
-                        </p>
+                  return (
+                    <div
+                      key={event.id}
+                      className="grid gap-1.5 px-2 py-1.5 text-xs lg:grid-cols-[1fr_1fr_minmax(0,0.9fr)_auto_auto_minmax(0,1.1fr)] lg:items-center"
+                    >
+                      <div className="font-semibold text-slate-900">
+                        {getEventTypeLabel(event.event_type)}
                       </div>
-
+                      <div className="text-slate-700 [overflow-wrap:anywhere]">{event.event_title || "—"}</div>
+                      <div className="text-slate-600">{formatDate(event.due_date)}</div>
                       <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400 lg:hidden">
-                          Event Title
-                        </p>
-                        <p className="text-sm text-slate-700">
-                          {event.event_title || "—"}
-                        </p>
-                      </div>
-
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400 lg:hidden">
-                          Due Date
-                        </p>
-                        <p className="text-sm text-slate-700">
-                          {formatDate(event.due_date)}
-                        </p>
-                      </div>
-
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400 lg:hidden">
-                          Status
-                        </p>
                         <span
-                          className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${getBadgeClasses(
+                          className={`inline-flex rounded px-1.5 py-0.5 text-[10px] font-semibold ${getBadgeClasses(
                             tone as "green" | "red" | "amber" | "sky" | "slate"
                           )}`}
                         >
                           {statusLabel}
                         </span>
                       </div>
-
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400 lg:hidden">
-                          Completed
-                        </p>
-                        <p className="text-sm text-slate-700">
-                          {formatDateTime(form?.finalized_at || event.completed_at)}
-                        </p>
+                      <div className="text-slate-600">
+                        {formatDateTime(form?.finalized_at || event.completed_at)}
                       </div>
-
-                      <div className="flex flex-wrap gap-2">
+                      <div className="flex flex-wrap justify-end gap-1">
                         <Link
                           href={openHref}
-                          className="inline-flex items-center rounded-full border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+                          className="rounded border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
                         >
                           Open
                         </Link>
-
                         {printMeta.canPrint && printHref ? (
                           <Link
                             href={printHref}
-                            className="inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-700 transition hover:bg-sky-100"
+                            className="rounded border border-sky-200 bg-sky-50 px-2 py-0.5 text-[11px] font-semibold text-sky-800 hover:bg-sky-100"
                           >
                             {printMeta.label}
                           </Link>
                         ) : null}
                       </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
-          </div>
-        )}
+          )}
         </div>
       </OnboardingWorkflowSectionCollapsible>
 

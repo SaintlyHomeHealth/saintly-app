@@ -20,6 +20,8 @@ type Props = {
   trainingEvent?: EventRecord | null;
   contractReviewEvent?: EventRecord | null;
   tbStatementEvent?: EventRecord | null;
+  /** Dense table layout for employee compliance section */
+  presentation?: "default" | "compact";
 };
 
 function getNextYearDateString() {
@@ -52,6 +54,22 @@ function AnnualEventStatusRow({ event }: { event: EventRecord }) {
   );
 }
 
+function CompactAnnualStatus({ event }: { event: EventRecord | null | undefined }) {
+  if (!event) return <span className="text-xs text-slate-500">No event</span>;
+  if (isAnnualEventCompleted(event)) {
+    return (
+      <span className="inline-flex rounded border border-green-200 bg-green-50 px-1.5 py-0.5 text-[10px] font-semibold text-green-800">
+        Completed
+      </span>
+    );
+  }
+  return (
+    <span className="text-[11px] capitalize text-slate-600">
+      {(event.status || "pending").replaceAll("_", " ")}
+    </span>
+  );
+}
+
 export default function ComplianceEventManager({
   employeeId,
   skillsEvent,
@@ -59,6 +77,7 @@ export default function ComplianceEventManager({
   trainingEvent,
   contractReviewEvent,
   tbStatementEvent,
+  presentation = "default",
 }: Props) {
   const router = useRouter();
 
@@ -194,6 +213,344 @@ export default function ComplianceEventManager({
     } finally {
       setSaving(false);
     }
+  }
+
+  if (presentation === "compact") {
+    const dateInputClass =
+      "w-full max-w-[11rem] rounded border border-slate-200 px-1.5 py-0.5 text-xs text-slate-900";
+    const btnSecondary =
+      "mt-1 block w-full max-w-[11rem] rounded border border-slate-300 bg-white px-1.5 py-0.5 text-[11px] font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50";
+    const btnCreate =
+      "rounded bg-sky-600 px-2 py-1 text-[11px] font-semibold text-white hover:bg-sky-700 disabled:opacity-50";
+
+    return (
+      <div className="rounded-md border border-slate-200 bg-white">
+        <div className="border-b border-slate-100 bg-slate-50 px-2 py-1">
+          <p className="text-[10px] font-bold uppercase tracking-wide text-slate-600">
+            Annual event management
+          </p>
+          <p className="text-[11px] text-slate-500">
+            Set due dates, open current events, or create the next cycle ({nextYear}).
+          </p>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[720px] border-collapse text-left text-sm">
+            <thead>
+              <tr className="border-b border-slate-200 bg-slate-50/90 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                <th className="px-2 py-1 font-semibold">Event type</th>
+                <th className="px-2 py-1 font-semibold">Current record</th>
+                <th className="px-2 py-1 font-semibold">Due date</th>
+                <th className="px-2 py-1 pr-2 text-right font-semibold">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr className="align-top">
+                <td className="border-b border-slate-100 px-2 py-1.5 text-xs font-medium text-slate-900">
+                  Skills Competency
+                </td>
+                <td className="border-b border-slate-100 px-2 py-1.5 text-xs">
+                  {skillsEvent ? (
+                    <>
+                      <div className="font-medium text-slate-800">
+                        {skillsEvent.event_title || "—"}
+                      </div>
+                      <div className="mt-0.5">
+                        <CompactAnnualStatus event={skillsEvent} />
+                      </div>
+                      <Link
+                        href={`/admin/employees/${employeeId}/forms/skills-competency?eventId=${skillsEvent.id}`}
+                        className="mt-0.5 inline-block text-[11px] font-semibold text-sky-800 underline"
+                      >
+                        Open
+                      </Link>
+                    </>
+                  ) : (
+                    <CompactAnnualStatus event={skillsEvent} />
+                  )}
+                </td>
+                <td className="border-b border-slate-100 px-2 py-1.5">
+                  <input
+                    type="date"
+                    value={skillsDueDate}
+                    onChange={(e) => setSkillsDueDate(e.target.value)}
+                    className={dateInputClass}
+                  />
+                  {skillsEvent ? (
+                    <button
+                      type="button"
+                      disabled={saving}
+                      onClick={() => updateDueDate(skillsEvent.id, skillsDueDate, "Skills event")}
+                      className={btnSecondary}
+                    >
+                      Update due
+                    </button>
+                  ) : null}
+                </td>
+                <td className="border-b border-slate-100 px-2 py-1.5 text-right">
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={() => createEvent("skills_checklist")}
+                    className={btnCreate}
+                  >
+                    Create
+                  </button>
+                </td>
+              </tr>
+              <tr className="align-top">
+                <td className="border-b border-slate-100 px-2 py-1.5 text-xs font-medium text-slate-900">
+                  Performance Evaluation
+                </td>
+                <td className="border-b border-slate-100 px-2 py-1.5 text-xs">
+                  {performanceEvent ? (
+                    <>
+                      <div className="font-medium text-slate-800">
+                        {performanceEvent.event_title || "—"}
+                      </div>
+                      <div className="mt-0.5">
+                        <CompactAnnualStatus event={performanceEvent} />
+                      </div>
+                      <Link
+                        href={`/admin/employees/${employeeId}/forms/performance-evaluation?eventId=${performanceEvent.id}`}
+                        className="mt-0.5 inline-block text-[11px] font-semibold text-sky-800 underline"
+                      >
+                        Open
+                      </Link>
+                    </>
+                  ) : (
+                    <CompactAnnualStatus event={performanceEvent} />
+                  )}
+                </td>
+                <td className="border-b border-slate-100 px-2 py-1.5">
+                  <input
+                    type="date"
+                    value={performanceDueDate}
+                    onChange={(e) => setPerformanceDueDate(e.target.value)}
+                    className={dateInputClass}
+                  />
+                  {performanceEvent ? (
+                    <button
+                      type="button"
+                      disabled={saving}
+                      onClick={() =>
+                        updateDueDate(performanceEvent.id, performanceDueDate, "Performance event")
+                      }
+                      className={btnSecondary}
+                    >
+                      Update due
+                    </button>
+                  ) : null}
+                </td>
+                <td className="border-b border-slate-100 px-2 py-1.5 text-right">
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={() => createEvent("annual_performance_evaluation")}
+                    className={btnCreate}
+                  >
+                    Create
+                  </button>
+                </td>
+              </tr>
+              <tr className="align-top">
+                <td className="border-b border-slate-100 px-2 py-1.5 text-xs font-medium text-slate-900">
+                  Annual Training
+                </td>
+                <td className="border-b border-slate-100 px-2 py-1.5 text-xs">
+                  {trainingEvent ? (
+                    <>
+                      <div className="font-medium text-slate-800">
+                        {trainingEvent.event_title || "—"}
+                      </div>
+                      <div className="mt-0.5">
+                        <CompactAnnualStatus event={trainingEvent} />
+                      </div>
+                      <Link
+                        href={`/admin/employees/${employeeId}/forms/annual-training-checklist?eventId=${trainingEvent.id}`}
+                        className="mt-0.5 inline-block text-[11px] font-semibold text-sky-800 underline"
+                      >
+                        Open
+                      </Link>
+                    </>
+                  ) : (
+                    <CompactAnnualStatus event={trainingEvent} />
+                  )}
+                </td>
+                <td className="border-b border-slate-100 px-2 py-1.5">
+                  <input
+                    type="date"
+                    value={trainingDueDate}
+                    onChange={(e) => setTrainingDueDate(e.target.value)}
+                    className={dateInputClass}
+                  />
+                  {trainingEvent ? (
+                    <button
+                      type="button"
+                      disabled={saving}
+                      onClick={() =>
+                        updateDueDate(trainingEvent.id, trainingDueDate, "Training event")
+                      }
+                      className={btnSecondary}
+                    >
+                      Update due
+                    </button>
+                  ) : null}
+                </td>
+                <td className="border-b border-slate-100 px-2 py-1.5 text-right">
+                  <button
+                    type="button"
+                    disabled={saving || hasOpenTrainingEvent}
+                    onClick={() => createEvent("annual_training")}
+                    className={btnCreate}
+                  >
+                    Create
+                  </button>
+                  {hasOpenTrainingEvent ? (
+                    <p className="mt-1 max-w-[14rem] text-left text-[10px] text-amber-800">
+                      Finish open event before creating another.
+                    </p>
+                  ) : null}
+                </td>
+              </tr>
+              <tr className="align-top">
+                <td className="border-b border-slate-100 px-2 py-1.5 text-xs font-medium text-slate-900">
+                  Contract Annual Review
+                </td>
+                <td className="border-b border-slate-100 px-2 py-1.5 text-xs">
+                  {contractReviewEvent ? (
+                    <>
+                      <div className="font-medium text-slate-800">
+                        {contractReviewEvent.event_title || "—"}
+                      </div>
+                      <div className="mt-0.5">
+                        <CompactAnnualStatus event={contractReviewEvent} />
+                      </div>
+                      <Link
+                        href={`/admin/employees/${employeeId}/forms/contract-annual-review?eventId=${contractReviewEvent.id}`}
+                        className="mt-0.5 inline-block text-[11px] font-semibold text-sky-800 underline"
+                      >
+                        Open
+                      </Link>
+                    </>
+                  ) : (
+                    <CompactAnnualStatus event={contractReviewEvent} />
+                  )}
+                </td>
+                <td className="border-b border-slate-100 px-2 py-1.5">
+                  <input
+                    type="date"
+                    value={contractReviewDueDate}
+                    onChange={(e) => setContractReviewDueDate(e.target.value)}
+                    className={dateInputClass}
+                  />
+                  {contractReviewEvent ? (
+                    <button
+                      type="button"
+                      disabled={saving}
+                      onClick={() =>
+                        updateDueDate(
+                          contractReviewEvent.id,
+                          contractReviewDueDate,
+                          "Contract review event"
+                        )
+                      }
+                      className={btnSecondary}
+                    >
+                      Update due
+                    </button>
+                  ) : null}
+                </td>
+                <td className="border-b border-slate-100 px-2 py-1.5 text-right">
+                  <button
+                    type="button"
+                    disabled={saving || hasOpenContractReviewEvent}
+                    onClick={() => createEvent("annual_contract_review")}
+                    className={btnCreate}
+                  >
+                    Create
+                  </button>
+                  {hasOpenContractReviewEvent ? (
+                    <p className="mt-1 max-w-[14rem] text-left text-[10px] text-amber-800">
+                      Finish open event before creating another.
+                    </p>
+                  ) : null}
+                </td>
+              </tr>
+              <tr className="align-top">
+                <td className="border-b border-slate-100 px-2 py-1.5 text-xs font-medium text-slate-900">
+                  Annual TB Statement
+                </td>
+                <td className="border-b border-slate-100 px-2 py-1.5 text-xs">
+                  {tbStatementEvent ? (
+                    <>
+                      <div className="font-medium text-slate-800">
+                        {tbStatementEvent.event_title || "—"}
+                      </div>
+                      <div className="mt-0.5">
+                        <CompactAnnualStatus event={tbStatementEvent} />
+                      </div>
+                      <Link
+                        href={`/admin/employees/${employeeId}/forms/annual-tb-statement?eventId=${tbStatementEvent.id}`}
+                        className="mt-0.5 inline-block text-[11px] font-semibold text-sky-800 underline"
+                      >
+                        Open
+                      </Link>
+                    </>
+                  ) : (
+                    <CompactAnnualStatus event={tbStatementEvent} />
+                  )}
+                </td>
+                <td className="border-b border-slate-100 px-2 py-1.5">
+                  <input
+                    type="date"
+                    value={tbStatementDueDate}
+                    onChange={(e) => setTbStatementDueDate(e.target.value)}
+                    className={dateInputClass}
+                  />
+                  {tbStatementEvent ? (
+                    <button
+                      type="button"
+                      disabled={saving}
+                      onClick={() =>
+                        updateDueDate(tbStatementEvent.id, tbStatementDueDate, "TB statement event")
+                      }
+                      className={btnSecondary}
+                    >
+                      Update due
+                    </button>
+                  ) : null}
+                </td>
+                <td className="border-b border-slate-100 px-2 py-1.5 text-right">
+                  <button
+                    type="button"
+                    disabled={saving || hasOpenTbStatementEvent}
+                    onClick={() => createEvent("annual_tb_statement")}
+                    className={btnCreate}
+                  >
+                    Create
+                  </button>
+                  {hasOpenTbStatementEvent ? (
+                    <p className="mt-1 max-w-[14rem] text-left text-[10px] text-amber-800">
+                      Finish open event before creating another.
+                    </p>
+                  ) : null}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        {error ? (
+          <div className="border-t border-rose-100 bg-rose-50 px-2 py-1.5 text-xs font-medium text-rose-800">
+            {error}
+          </div>
+        ) : null}
+        {message ? (
+          <div className="border-t border-green-100 bg-green-50 px-2 py-1.5 text-xs font-medium text-green-800">
+            {message}
+          </div>
+        ) : null}
+      </div>
+    );
   }
 
   return (
