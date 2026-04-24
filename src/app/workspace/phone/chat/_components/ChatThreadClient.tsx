@@ -86,6 +86,8 @@ export function ChatThreadClient({
   const [memberRole, setMemberRole] = useState("staff");
   const [canPost, setCanPost] = useState(true);
   const [members, setMembers] = useState<ChatMemberRow[]>([]);
+  /** True after members loaded at least once for this chat (used for header count; avoids pre-fetching on every open thread for admins). */
+  const [membersListHydrated, setMembersListHydrated] = useState(false);
   const [memberSearch, setMemberSearch] = useState("");
   const [memberSuggest, setMemberSuggest] = useState<Array<{ userId: string; label: string }>>([]);
   const [refMenuOpen, setRefMenuOpen] = useState(false);
@@ -103,10 +105,19 @@ export function ChatThreadClient({
       const res = await fetch(`/api/admin/internal-chat/chats/${chatId}/members`, { cache: "no-store" });
       const json = (await res.json()) as { members?: ChatMemberRow[] };
       setMembers(json.members ?? []);
+      setMembersListHydrated(true);
     } catch {
       setMembers([]);
     }
   }, [chatId, showMemberAdmin]);
+
+  useEffect(() => {
+    setMembersListHydrated(false);
+    setMembers([]);
+    setMembersPanelOpen(false);
+    setMemberSearch("");
+    setMemberSuggest([]);
+  }, [chatId]);
 
   const loadMessages = useCallback(
     async (options?: { showLoading?: boolean }) => {
@@ -155,8 +166,9 @@ export function ChatThreadClient({
   }, [loadMessages]);
 
   useEffect(() => {
+    if (!showMemberAdmin || !membersPanelOpen) return;
     void loadMembers();
-  }, [loadMembers]);
+  }, [showMemberAdmin, membersPanelOpen, loadMembers]);
 
   useEffect(() => {
     setReferenceMentions((prev) =>
@@ -211,7 +223,7 @@ export function ChatThreadClient({
   }, [chatId, loadMessages]);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    bottomRef.current?.scrollIntoView({ behavior: "auto", block: "end" });
   }, [messages.length]);
 
   const otherBubbleStyleBySenderId = useMemo(() => {
@@ -471,7 +483,9 @@ export function ChatThreadClient({
       {showMemberAdmin ? (
         <div className="shrink-0 border-b border-slate-100 bg-slate-50/90 px-2 py-1.5 sm:px-3 sm:py-2">
           <div className="flex items-center justify-between gap-2">
-            <p className="min-w-0 truncate text-xs font-medium text-slate-700">Members · {members.length}</p>
+            <p className="min-w-0 truncate text-xs font-medium text-slate-700">
+              Members{membersListHydrated ? ` · ${members.length}` : ""}
+            </p>
             <button
               type="button"
               onClick={() => setMembersPanelOpen((o) => !o)}

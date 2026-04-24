@@ -4,26 +4,19 @@ import { MessageCirclePlus, Search, Users } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-export type ChatListItem = {
-  id: string;
-  chatType: string;
-  title: string;
-  pinnedAt: string | null;
-  notificationsMuted: boolean;
-  lastMessageAt: string | null;
-  lastMessagePreview: string;
-  hasUnread: boolean;
-  patientId: string | null;
-  teamRole: string | null;
-};
+import type { WorkspaceInternalChatListItem } from "@/lib/internal-chat/workspace-chat-list";
+
+export type ChatListItem = WorkspaceInternalChatListItem;
 
 type Props = {
   showTeamAdmin: boolean;
+  /** When set (RSC), skip the client mount fetch — same payload as GET /api/workspace/internal-chat/chats. */
+  initialChats?: ChatListItem[];
 };
 
-export function ChatListClient({ showTeamAdmin }: Props) {
-  const [chats, setChats] = useState<ChatListItem[]>([]);
-  const [loading, setLoading] = useState(true);
+export function ChatListClient({ showTeamAdmin, initialChats }: Props) {
+  const [chats, setChats] = useState<ChatListItem[]>(() => initialChats ?? []);
+  const [loading, setLoading] = useState(!initialChats);
   const [searchQ, setSearchQ] = useState("");
   const [searching, setSearching] = useState(false);
   const [searchHits, setSearchHits] = useState<{
@@ -51,8 +44,9 @@ export function ChatListClient({ showTeamAdmin }: Props) {
   }, []);
 
   useEffect(() => {
+    if (initialChats) return;
     void load();
-  }, [load]);
+  }, [load, initialChats]);
 
   const runSearch = useCallback(async () => {
     const q = searchQ.trim();

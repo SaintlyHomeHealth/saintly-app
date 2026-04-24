@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import {
   memo,
@@ -13,7 +14,18 @@ import {
   type ReactNode,
 } from "react";
 
-import { SmsReplyComposer } from "@/app/admin/phone/messages/_components/SmsReplyComposer";
+const SmsReplyComposer = dynamic(
+  () => import("@/app/admin/phone/messages/_components/SmsReplyComposer").then((m) => m.SmsReplyComposer),
+  {
+    ssr: false,
+    loading: () => (
+      <div
+        className="h-14 w-full max-w-full animate-pulse rounded-xl border border-slate-200/80 bg-slate-100/80"
+        aria-hidden
+      />
+    ),
+  }
+);
 import {
   VoicemailThreadMessageRow,
   type VoicemailThreadDetail,
