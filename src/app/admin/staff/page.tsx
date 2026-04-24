@@ -77,7 +77,7 @@ function flashForErr(code: string | undefined): string | null {
     invalid: "Check all fields and try again.",
     forbidden: "You cannot assign that role.",
     insert:
-      "Could not add this staff row. The debug block below shows the database/PostgREST response (admin only). This is not necessarily a duplicate email unless code is 23505 or the message says unique constraint.",
+      "Could not add staff. Please try again or contact an administrator. If this keeps happening, use Staff email tools below to check whether the address is already in use.",
     applicant_taken: "That employee is already linked to another staff login.",
     load: "Could not load that staff record.",
     has_login: "This person already has a login.",
@@ -99,10 +99,11 @@ function flashForErr(code: string | undefined): string | null {
     duplicate_email_auth_orphan:
       "This email already exists in Supabase Auth but is not linked to any staff profile. Check “Link existing Supabase login” when adding, open Staff email tools to link a placeholder row, or remove the orphan Auth user if it is unused.",
     duplicate_email_orphan_auth:
-      "A Supabase Auth user still exists for this email and could not be removed (permission or dependency). Use Staff email tools or Supabase dashboard.",
+      "A Supabase Auth user still exists for this email and could not be removed (permission or dependency). Use Staff email tools below or the Supabase dashboard. If removal appeared to succeed but the user is still listed, refresh and search again.",
     insert_duplicate_unique:
-      "The database rejected this email as a duplicate (unique constraint). See detail below — another row may differ only by capitalization or spacing.",
-    link_failed: "Linking Supabase Auth to the new staff row failed; the row was not kept. See detail below.",
+      "That work email conflicts with an existing record (for example another staff row, applicant, or CRM contact, sometimes differing only by spacing or capitalization). Use Staff email tools below to find where it is used and fix the conflict.",
+    link_failed:
+      "Could not link the existing Supabase login to the new staff row; the row was not kept. Use Staff email tools below to repair this email, or try again.",
     auth_email: "Supabase Auth rejected the email change (duplicate login email or policy).",
     self_remove: "You cannot remove or deactivate your own staff row here.",
     permanent_forbidden: "This action could not be completed.",
@@ -115,20 +116,6 @@ function flashForErr(code: string | undefined): string | null {
     permanent_applicant: "Could not complete delete due to a linked employee record constraint. Clear the payroll link first.",
   };
   return m[code] ?? "Something went wrong.";
-}
-
-function spSearchParamString(
-  sp: Record<string, string | string[] | undefined>,
-  key: string
-): string | undefined {
-  const raw = sp[key];
-  const v = Array.isArray(raw) ? raw[0] : raw;
-  if (typeof v !== "string" || v.trim() === "") return undefined;
-  try {
-    return decodeURIComponent(v);
-  } catch {
-    return v;
-  }
 }
 
 function flashForOk(code: string | undefined): string | null {
@@ -186,19 +173,8 @@ export default async function AdminStaffPage({
   const sp = (await searchParams) ?? {};
   const errRaw = sp.err;
   const okRaw = sp.ok;
-  const detailRaw = sp.detail;
   const errCode = typeof errRaw === "string" ? errRaw : undefined;
   const okCode = typeof okRaw === "string" ? okRaw : undefined;
-  const errDetail =
-    typeof detailRaw === "string" && detailRaw.trim() !== ""
-      ? (() => {
-          try {
-            return decodeURIComponent(detailRaw);
-          } catch {
-            return detailRaw;
-          }
-        })()
-      : undefined;
   const dupIdRaw = sp.dupId;
   const dupStaffIdRaw = sp.dupStaffId;
   const dupStaffId = typeof dupStaffIdRaw === "string" ? dupStaffIdRaw : undefined;
@@ -222,19 +198,6 @@ export default async function AdminStaffPage({
 
   const errMsg = flashForErr(errCode);
   const okMsg = flashForOk(okCode);
-
-  const insCode = spSearchParamString(sp, "insCode");
-  const insMsg = spSearchParamString(sp, "insMsg");
-  const insDetails = spSearchParamString(sp, "insDetails");
-  const insHint = spSearchParamString(sp, "insHint");
-  const insConstraint = spSearchParamString(sp, "insConstraint");
-  const insNote = spSearchParamString(sp, "insNote");
-  const insEmptyRaw = sp.insEmpty;
-  const insEmpty =
-    insEmptyRaw === "1" || (Array.isArray(insEmptyRaw) && insEmptyRaw[0] === "1");
-  const showInsertDebug =
-    (errCode === "insert" || errCode === "insert_duplicate_unique") &&
-    (Boolean(insCode || insMsg || insDetails || insHint || insConstraint || insNote) || insEmpty);
 
   const canAssignSuperAdmin = isSuperAdmin(viewer);
   const viewerStaffProfileId = viewer.id;
@@ -294,66 +257,17 @@ export default async function AdminStaffPage({
                     Open the staff profile that owns this login
                   </Link>
                 ) : null}
-                {errDetail ? (
-                  <span className="mt-2 block font-mono text-xs leading-snug text-red-950/90 [overflow-wrap:anywhere]">
-                    {errDetail}
-                  </span>
+                {errCode === "insert" ||
+                errCode === "insert_duplicate_unique" ||
+                errCode === "link_failed" ? (
+                  <Link
+                    href="#staff-email-tools"
+                    className="mt-3 inline-block text-sm font-semibold text-red-950 underline underline-offset-2"
+                  >
+                    Open Staff email tools
+                  </Link>
                 ) : null}
               </p>
-              {showInsertDebug ? (
-                <div className="mb-4 rounded-[16px] border border-amber-300 bg-amber-50/95 px-4 py-3 text-xs text-amber-950 shadow-sm">
-                  <p className="font-sans text-[11px] font-bold uppercase tracking-wide text-amber-900/90">
-                    Admin debug — insert failure (Postgres / PostgREST)
-                  </p>
-                  <p className="mt-1 font-sans text-[11px] leading-relaxed text-amber-900/85">
-                    Values are truncated for URL safety. Check server logs for the full object.
-                  </p>
-                  <dl className="mt-2 space-y-1.5 font-mono text-[11px] leading-snug [overflow-wrap:anywhere]">
-                    {insEmpty ? (
-                      <div>
-                        <dt className="font-sans font-semibold text-amber-950">empty_row</dt>
-                        <dd className="text-amber-900">Insert returned no row id (RLS, policy, or silent failure).</dd>
-                      </div>
-                    ) : null}
-                    {insCode ? (
-                      <div>
-                        <dt className="font-sans font-semibold text-amber-950">code</dt>
-                        <dd>{insCode}</dd>
-                      </div>
-                    ) : null}
-                    {insMsg ? (
-                      <div>
-                        <dt className="font-sans font-semibold text-amber-950">message</dt>
-                        <dd>{insMsg}</dd>
-                      </div>
-                    ) : null}
-                    {insDetails ? (
-                      <div>
-                        <dt className="font-sans font-semibold text-amber-950">details</dt>
-                        <dd>{insDetails}</dd>
-                      </div>
-                    ) : null}
-                    {insHint ? (
-                      <div>
-                        <dt className="font-sans font-semibold text-amber-950">hint</dt>
-                        <dd>{insHint}</dd>
-                      </div>
-                    ) : null}
-                    {insConstraint ? (
-                      <div>
-                        <dt className="font-sans font-semibold text-amber-950">constraint</dt>
-                        <dd>{insConstraint}</dd>
-                      </div>
-                    ) : null}
-                    {insNote ? (
-                      <div>
-                        <dt className="font-sans font-semibold text-amber-950">note</dt>
-                        <dd>{insNote}</dd>
-                      </div>
-                    ) : null}
-                  </dl>
-                </div>
-              ) : null}
             </>
           ) : null}
           {okMsg ? (
@@ -427,7 +341,10 @@ export default async function AdminStaffPage({
             </form>
           </div>
 
-          <div className="mt-6 rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
+          <div
+            id="staff-email-tools"
+            className="mt-6 scroll-mt-6 rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm"
+          >
             <h2 className="text-sm font-semibold text-slate-900">Staff email tools</h2>
             <p className="mt-1 text-xs text-slate-600">
               When an address fails validation, find where it lives (staff, Auth, employee, CRM) and repair safely.

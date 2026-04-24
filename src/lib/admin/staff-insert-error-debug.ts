@@ -21,47 +21,7 @@ export function extractConstraintName(err: StaffInsertPostgrestError | null | un
   return null;
 }
 
-const MAX_QUERY_VALUE_LEN = 480;
-
-function qPart(key: string, val: string | null | undefined): string | null {
-  if (val == null) return null;
-  const s0 = String(val);
-  if (s0.trim() === "") return null;
-  const s = s0.length > MAX_QUERY_VALUE_LEN ? `${s0.slice(0, MAX_QUERY_VALUE_LEN - 1)}…` : s0;
-  return `${key}=${encodeURIComponent(s)}`;
-}
-
-/**
- * Safe, truncated query segment for redirect after failed insert (append to `?err=insert`).
- */
-export function staffInsertFailureQueryParams(
-  error: StaffInsertPostgrestError | null,
-  opts?: { emptyRow?: boolean }
-): string {
-  const parts: string[] = [];
-  if (opts?.emptyRow) {
-    parts.push("insEmpty=1");
-  }
-  if (!error) {
-    if (!opts?.emptyRow) {
-      parts.push(
-        "insNote=" + encodeURIComponent("No error object from Supabase on failed insert (unexpected).")
-      );
-    }
-    return parts.length ? `&${parts.join("&")}` : "";
-  }
-
-  const code = qPart("insCode", error.code);
-  const msg = qPart("insMsg", error.message);
-  const det = qPart("insDetails", error.details ?? undefined);
-  const hint = qPart("insHint", error.hint ?? undefined);
-  const cons = qPart("insConstraint", extractConstraintName(error) ?? undefined);
-  for (const p of [code, msg, det, hint, cons]) {
-    if (p) parts.push(p);
-  }
-  return parts.length ? `&${parts.join("&")}` : "";
-}
-
+/** Server-only logging for failed staff inserts (never surface in the UI). */
 export function logStaffInsertFailure(
   context: string,
   error: StaffInsertPostgrestError | null,

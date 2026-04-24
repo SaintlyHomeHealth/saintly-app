@@ -15,11 +15,7 @@ import {
   isPostgresUniqueViolation,
 } from "@/lib/admin/staff-email-diagnosis";
 import { normalizeStaffLookupEmail } from "@/lib/admin/staff-auth-shared";
-import {
-  logStaffInsertFailure,
-  staffInsertFailureQueryParams,
-  type StaffInsertPostgrestError,
-} from "@/lib/admin/staff-insert-error-debug";
+import { logStaffInsertFailure, type StaffInsertPostgrestError } from "@/lib/admin/staff-insert-error-debug";
 import { insertAuditLog } from "@/lib/audit-log";
 import { supabaseAdmin } from "@/lib/admin";
 import { normalizePhone } from "@/lib/phone/us-phone-format";
@@ -138,20 +134,16 @@ export async function addStaffProfile(formData: FormData) {
           : dx.contacts.length > 0
             ? `&contactId=${encodeURIComponent(dx.contacts[0]!.id)}`
             : "";
-      const safe = encodeURIComponent(String(error.message ?? "unique_violation").slice(0, 400));
-      const dbg = staffInsertFailureQueryParams(pgErr);
-      redirect(`/admin/staff?err=insert_duplicate_unique&detail=${safe}${extra}${dbg}`);
+      redirect(`/admin/staff?err=insert_duplicate_unique${extra}`);
     }
-    const dbg = staffInsertFailureQueryParams(pgErr, { emptyRow: !inserted?.id });
-    redirect(`/admin/staff?err=insert${dbg}`);
+    redirect("/admin/staff?err=insert");
   }
 
   if (linkOrphanAuth && existingAuthId) {
     const sync = await syncStaffProfileWithAuthUser(staffRowForAuthSync(inserted), existingAuthId);
     if (!sync.ok) {
       await supabaseAdmin.from("staff_profiles").delete().eq("id", inserted.id);
-      const safe = encodeURIComponent(String(sync.detail ?? sync.error).slice(0, 400));
-      redirect(`/admin/staff?err=link_failed&detail=${safe}`);
+      redirect("/admin/staff?err=link_failed");
     }
     await insertAuditLog({
       action: "staff.add_placeholder_linked_orphan_auth",
@@ -329,7 +321,7 @@ export async function deleteOrphanAuthByEmailForm(formData: FormData) {
 
   const still = await findAuthUserIdByEmail(email);
   if (still) {
-    redirect(`/admin/staff?err=duplicate_email_orphan_auth&detail=${encodeURIComponent("Delete returned but user still listed")}`);
+    redirect("/admin/staff?err=duplicate_email_orphan_auth");
   }
 
   await insertAuditLog({
@@ -592,12 +584,6 @@ export async function updateStaffRole(formData: FormData) {
       staffProfileId: id,
       roleRaw,
     });
-    if (process.env.NODE_ENV === "development") {
-      const safe = encodeURIComponent(
-        `${error.code ?? "unknown"}: ${error.message}`.slice(0, 400)
-      );
-      redirect(`/admin/staff?err=update&detail=${safe}`);
-    }
     redirect("/admin/staff?err=update");
   }
 
