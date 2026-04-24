@@ -1487,7 +1487,7 @@ export async function updateLeadIntake(formData: FormData) {
   revalidatePath("/admin/crm/leads");
   revalidatePath(`/admin/crm/leads/${leadId}`);
   revalidatePath("/workspace/phone/leads");
-  revalidatePath("/workspace/phone/follow-ups-today");
+  revalidatePath("/workspace/phone/chat");
 }
 
 export type SaveLeadOutcomeResult =
@@ -1698,7 +1698,7 @@ export async function saveLeadOutcomeCore(input: SaveLeadOutcomeInput): Promise<
   revalidatePath("/admin/crm/leads");
   revalidatePath(`/admin/crm/leads/${leadId}`);
   revalidatePath("/workspace/phone/leads");
-  revalidatePath("/workspace/phone/follow-ups-today");
+  revalidatePath("/workspace/phone/chat");
 
   return { ok: true };
 }
@@ -1812,7 +1812,7 @@ export async function saveLeadQuickNote(formData: FormData): Promise<SaveLeadQui
   revalidatePath("/admin/crm/leads");
   revalidatePath(`/admin/crm/leads/${leadId}`);
   revalidatePath("/workspace/phone/leads");
-  revalidatePath("/workspace/phone/follow-ups-today");
+  revalidatePath("/workspace/phone/chat");
 
   return { ok: true };
 }
@@ -2391,7 +2391,7 @@ export async function softDeleteLead(formData: FormData) {
     revalidatePath(`/admin/crm/contacts/${cid}`);
   }
   revalidatePath("/workspace/phone/leads");
-  revalidatePath("/workspace/phone/follow-ups-today");
+  revalidatePath("/workspace/phone/chat");
   revalidatePath("/workspace/phone/inbox");
   revalidatePath("/admin/phone");
   revalidatePath("/admin/phone/calls");
@@ -2435,7 +2435,7 @@ export async function bulkSoftDeleteLeads(
   revalidatePath("/admin/crm/leads");
   revalidatePath("/admin/crm/contacts");
   revalidatePath("/workspace/phone/leads");
-  revalidatePath("/workspace/phone/follow-ups-today");
+  revalidatePath("/workspace/phone/chat");
   revalidatePath("/workspace/phone/inbox");
   revalidatePath("/admin/phone");
   revalidatePath("/admin/phone/calls");
@@ -2595,7 +2595,7 @@ export async function setLeadWaitingOnDoctorsOrders(formData: FormData) {
   revalidatePath("/admin/crm/leads");
   revalidatePath(`/admin/crm/leads/${leadId}`);
   revalidatePath("/workspace/phone/leads");
-  revalidatePath("/workspace/phone/follow-ups-today");
+  revalidatePath("/workspace/phone/chat");
 }
 
 export type CrmLeadListQuickActionResult =
@@ -2655,7 +2655,7 @@ export async function quickMarkLeadSpoke(formData: FormData): Promise<CrmLeadLis
   revalidatePath("/admin/crm/leads");
   revalidatePath(`/admin/crm/leads/${leadId}`);
   revalidatePath("/workspace/phone/leads");
-  revalidatePath("/workspace/phone/follow-ups-today");
+  revalidatePath("/workspace/phone/chat");
   return { ok: true };
 }
 
@@ -2698,7 +2698,7 @@ export async function quickSetLeadFollowUpTomorrow(formData: FormData): Promise<
   revalidatePath("/admin/crm/leads");
   revalidatePath(`/admin/crm/leads/${leadId}`);
   revalidatePath("/workspace/phone/leads");
-  revalidatePath("/workspace/phone/follow-ups-today");
+  revalidatePath("/workspace/phone/chat");
   return { ok: true };
 }
 
@@ -2797,7 +2797,7 @@ export async function quickSetLeadTemperature(formData: FormData): Promise<CrmLe
   revalidatePath("/admin/crm/leads");
   revalidatePath(`/admin/crm/leads/${leadId}`);
   revalidatePath("/workspace/phone/leads");
-  revalidatePath("/workspace/phone/follow-ups-today");
+  revalidatePath("/workspace/phone/chat");
   return { ok: true };
 }
 

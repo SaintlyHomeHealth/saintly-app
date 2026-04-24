@@ -6,8 +6,8 @@ import {
   CalendarDays,
   Hash,
   Inbox,
+  MessageCircle,
   Phone,
-  PhoneForwarded,
   UserPlus,
   Users,
   Voicemail,
@@ -52,21 +52,15 @@ const tabsBase: Tab[] = [
     iconTitle: "Visits",
   },
   {
-    href: "/workspace/phone/follow-ups-today",
-    label: (
-      <span className="block text-center leading-[1.15]">
-        Follow-ups
-        <br />
-        Today
-      </span>
-    ),
-    match: /^\/workspace\/phone\/follow-ups-today/,
+    href: "/workspace/phone/chat",
+    label: "Chat",
+    match: /^\/workspace\/phone\/chat/,
     icon: (
       <span className={iconWrap}>
-        <PhoneForwarded className="h-4 w-4" strokeWidth={2} aria-hidden />
+        <MessageCircle className="h-4 w-4" strokeWidth={2} aria-hidden />
       </span>
     ),
-    iconTitle: "Follow-ups today",
+    iconTitle: "Chat",
   },
   {
     href: "/workspace/phone/inbox",

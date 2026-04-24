@@ -50,7 +50,7 @@ export const STAFF_PAGE_LABELS: Record<StaffPageKey, string> = {
   workspace_inbox: "Inbox (workspace)",
   workspace_calls: "Calls (workspace)",
   workspace_voicemail: "Voicemail (workspace)",
-  workspace_followups: "Follow-ups Today",
+  workspace_followups: "Chat",
   workspace_visits: "Visits (workspace)",
   workspace_patients: "Patients (workspace)",
   workspace_pay: "Pay (workspace)",
@@ -297,7 +297,7 @@ export function workspaceHrefToPageKey(href: string): StaffPageKey | null {
   if (href.startsWith("/workspace/phone/inbox")) return "workspace_inbox";
   if (href.startsWith("/workspace/phone/calls")) return "workspace_calls";
   if (href.startsWith("/workspace/phone/voicemail")) return "workspace_voicemail";
-  if (href.startsWith("/workspace/phone/follow-ups-today")) return "workspace_followups";
+  if (href.startsWith("/workspace/phone/chat")) return "workspace_followups";
   if (href.startsWith("/workspace/phone/visits") || href === "/workspace/phone") return "workspace_visits";
   if (href.startsWith("/workspace/phone/patients")) return "workspace_patients";
   if (href.startsWith("/workspace/phone/keypad")) return "workspace_keypad";
@@ -308,7 +308,7 @@ export function workspaceHrefToPageKey(href: string): StaffPageKey | null {
 
 const WORKSPACE_TAB_HREFS: { key: StaffPageKey; href: string }[] = [
   { key: "workspace_visits", href: "/workspace/phone/visits" },
-  { key: "workspace_followups", href: "/workspace/phone/follow-ups-today" },
+  { key: "workspace_followups", href: "/workspace/phone/chat" },
   { key: "workspace_inbox", href: "/workspace/phone/inbox" },
   { key: "workspace_calls", href: "/workspace/phone/calls" },
   { key: "workspace_voicemail", href: "/workspace/phone/voicemail" },
