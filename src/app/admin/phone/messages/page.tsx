@@ -16,6 +16,10 @@ import {
   routePerfStepsEnabled,
 } from "@/lib/perf/route-perf";
 import {
+  filterToSmsInboxConversationsInOrder,
+  type SmsInboxConversationListRow,
+} from "@/lib/phone/sms-inbox-conversation-scope";
+import {
   buildSmsInboxPreviewByConversationId,
   smsInboxPreviewMessageRowCap,
 } from "@/lib/phone/sms-inbox-preview";
@@ -104,6 +108,7 @@ export default async function AdminSmsInboxPage({ searchParams }: PageProps) {
       : "all";
 
   const limit = filter === "all" ? 80 : 200;
+  const fetchCap = limit * 3;
 
   let q = supabase
     .from("conversations")
@@ -113,7 +118,7 @@ export default async function AdminSmsInboxPage({ searchParams }: PageProps) {
     .eq("channel", "sms")
     .is("deleted_at", null)
     .order("last_message_at", { ascending: false, nullsFirst: false })
-    .limit(limit);
+    .limit(fetchCap);
 
   if (!hasFull) {
     q = q.or(`assigned_to_user_id.eq.${staff.user_id},assigned_to_user_id.is.null`);
@@ -126,7 +131,11 @@ export default async function AdminSmsInboxPage({ searchParams }: PageProps) {
     console.warn("[admin/phone/messages] list:", error.message);
   }
 
-  let rows = convRows ?? [];
+  let rows: SmsInboxConversationListRow[] = await filterToSmsInboxConversationsInOrder(
+    supabase,
+    (convRows ?? []) as SmsInboxConversationListRow[],
+    limit
+  );
 
   const now = new Date();
   const nowKey = ymdInTz(now);
@@ -200,6 +209,7 @@ export default async function AdminSmsInboxPage({ searchParams }: PageProps) {
               .select("conversation_id, body")
               .in("conversation_id", ids)
               .is("deleted_at", null)
+              .neq("message_type", "voicemail")
               .order("created_at", { ascending: false })
               .limit(previewRowCap)
           )
@@ -208,6 +218,7 @@ export default async function AdminSmsInboxPage({ searchParams }: PageProps) {
             .select("conversation_id, body")
             .in("conversation_id", ids)
             .is("deleted_at", null)
+            .neq("message_type", "voicemail")
             .order("created_at", { ascending: false })
             .limit(previewRowCap),
   ]);

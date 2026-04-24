@@ -13,6 +13,12 @@ import { labelForContactType } from "@/lib/crm/contact-types";
 import { formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
 import { countUnreadInboundByConversationIds } from "@/lib/phone/sms-inbound-unread";
 import {
+  filterToSmsInboxConversationsInOrder,
+  type SmsInboxConversationListRow,
+  WORKSPACE_SMS_INBOX_CONVERSATION_FETCH,
+  WORKSPACE_SMS_INBOX_MAX_VISIBLE,
+} from "@/lib/phone/sms-inbox-conversation-scope";
+import {
   buildSmsInboxPreviewByConversationId,
   smsInboxPreviewMessageRowCap,
 } from "@/lib/phone/sms-inbox-preview";
@@ -150,7 +156,7 @@ export default async function WorkspaceInboxPage(props: PageProps) {
     .eq("channel", "sms")
     .is("deleted_at", null)
     .order("last_message_at", { ascending: false, nullsFirst: false })
-    .limit(80);
+    .limit(WORKSPACE_SMS_INBOX_CONVERSATION_FETCH);
 
   if (!hasFull) {
     q = q.or(`assigned_to_user_id.eq.${staff.user_id},assigned_to_user_id.is.null`);
@@ -163,7 +169,11 @@ export default async function WorkspaceInboxPage(props: PageProps) {
     console.warn("[workspace/phone/inbox] list:", error.message);
   }
 
-  let rows = convRows ?? [];
+  let rows: SmsInboxConversationListRow[] = await filterToSmsInboxConversationsInOrder(
+    supabase,
+    (convRows ?? []) as SmsInboxConversationListRow[],
+    WORKSPACE_SMS_INBOX_MAX_VISIBLE
+  );
   if (qRaw) {
     const ql = qRaw.toLowerCase();
     rows = rows.filter((r) => {
@@ -188,6 +198,7 @@ export default async function WorkspaceInboxPage(props: PageProps) {
               .select("conversation_id, body")
               .in("conversation_id", ids)
               .is("deleted_at", null)
+              .neq("message_type", "voicemail")
               .order("created_at", { ascending: false })
               .limit(previewRowCap)
           )
@@ -196,6 +207,7 @@ export default async function WorkspaceInboxPage(props: PageProps) {
             .select("conversation_id, body")
             .in("conversation_id", ids)
             .is("deleted_at", null)
+            .neq("message_type", "voicemail")
             .order("created_at", { ascending: false })
             .limit(previewRowCap),
   ]);
