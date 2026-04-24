@@ -24,6 +24,7 @@ import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { labelForContactType } from "@/lib/crm/contact-types";
 import { ADMIN_PHONE_DISPLAY_TIMEZONE, formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
+import { resolvePhoneDisplayIdentity } from "@/lib/phone/resolve-phone-display-identity";
 import {
   canStaffAccessConversationRow,
   canStaffClaimConversation,
@@ -411,13 +412,27 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
       ? String(conv.primary_contact_id)
       : "";
 
+  const phoneDisplayFormatted =
+    mainE164 && mainE164 !== "" ? formatPhoneForDisplay(mainE164) : phoneDisplay;
+
+  const directoryIdentity = mainE164 ? await resolvePhoneDisplayIdentity(supabase, mainE164) : null;
+
+  const threadDisplayTitle = (() => {
+    if (contactName) return contactName;
+    if (directoryIdentity?.resolvedFromEntity && directoryIdentity.displayTitle.trim()) {
+      return directoryIdentity.displayTitle.trim();
+    }
+    if (unknownTexter) return "Unknown";
+    return phoneDisplayFormatted;
+  })();
+
   const workspaceCallHref =
     mainE164 && isValidE164(mainE164)
       ? buildWorkspaceKeypadCallHref({
           dial: mainE164,
           leadId: leadIdFromUrl && UUID_RE.test(leadIdFromUrl) ? leadIdFromUrl : undefined,
           contactId: primaryContactId && UUID_RE.test(primaryContactId) ? primaryContactId : undefined,
-          contextName: contactName ?? undefined,
+          contextName: threadDisplayTitle !== phoneDisplayFormatted ? threadDisplayTitle : contactName ?? undefined,
         })
       : null;
 
@@ -462,9 +477,6 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
     }
     return conv.primary_contact_id ? "Contact" : "Unknown";
   })();
-
-  const phoneDisplayFormatted =
-    mainE164 && mainE164 !== "" ? formatPhoneForDisplay(mainE164) : phoneDisplay;
 
   const leadBadge = (() => {
     switch (leadStatus) {
@@ -543,12 +555,6 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
       phone_call_id: phoneCallId,
     };
   });
-
-  const workspaceHeaderTitle = contactName
-    ? contactName
-    : unknownTexter
-      ? "Unknown"
-      : phoneDisplayFormatted;
 
   const workspaceContactPanelInitial =
     conv.primary_contact_id && contact
@@ -812,7 +818,7 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
         <SmsThreadMarkReadOnViewClient conversationId={conversationId} />
         <WorkspaceSmsConversationShell
           inboxHref={inboxHref}
-          initialDisplayName={workspaceHeaderTitle}
+          initialDisplayName={threadDisplayTitle}
           initialPhoneLine={phoneDisplayFormatted}
           initialBadge={workspaceEntityLabel}
           workspaceCallHref={workspaceCallHref}
@@ -928,11 +934,9 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
           <Link href={inboxHref} className="text-sm font-medium text-sky-800 hover:underline">
             ← Inbox
           </Link>
-          <h1 className="mt-2 text-xl font-bold text-slate-900 sm:text-2xl">
-            {contactName ? contactName : unknownTexter ? "Unknown" : phoneDisplay}
-          </h1>
-          {contactName || unknownTexter ? (
-            <p className="mt-0.5 text-sm text-slate-600">{phoneDisplay}</p>
+          <h1 className="mt-2 text-xl font-bold text-slate-900 sm:text-2xl">{threadDisplayTitle}</h1>
+          {threadDisplayTitle !== phoneDisplayFormatted ? (
+            <p className="mt-0.5 text-sm text-slate-600">{phoneDisplayFormatted}</p>
           ) : null}
         </div>
         <WorkspaceSmsDeleteConversationButton

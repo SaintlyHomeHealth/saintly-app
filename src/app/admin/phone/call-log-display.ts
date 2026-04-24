@@ -154,6 +154,7 @@ export async function enrichPhoneCallRowsWithResolvedIdentity(
       ...row,
       crm_contact_display_name: crmName,
       resolved_contact_id,
+      party_display_suppress_quick_save: Boolean(id?.suppressQuickSave),
     };
   });
 }

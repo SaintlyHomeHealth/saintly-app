@@ -24,6 +24,10 @@ import {
 } from "@/lib/phone/sms-inbox-preview";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import {
+  phoneRawToE164LookupKey,
+  resolvePhoneDisplayIdentityBatch,
+} from "@/lib/phone/resolve-phone-display-identity";
+import {
   routePerfLog,
   routePerfStart,
   routePerfTimed,
@@ -174,12 +178,27 @@ export default async function WorkspaceInboxPage(props: PageProps) {
     (convRows ?? []) as SmsInboxConversationListRow[],
     WORKSPACE_SMS_INBOX_MAX_VISIBLE
   );
+
+  const inboxDirectoryBatch = await resolvePhoneDisplayIdentityBatch(
+    supabase,
+    qRaw
+      ? rows.map((r) => r.main_phone_e164)
+      : rows
+          .filter((r) => !crmDisplayNameFromContactsRaw(r.contacts))
+          .map((r) => r.main_phone_e164)
+  );
+
   if (qRaw) {
     const ql = qRaw.toLowerCase();
     rows = rows.filter((r) => {
       const phone = typeof r.main_phone_e164 === "string" ? r.main_phone_e164.toLowerCase() : "";
       const name = (crmDisplayNameFromContactsRaw(r.contacts) ?? "").toLowerCase();
-      return phone.includes(ql) || name.includes(ql);
+      const key = phoneRawToE164LookupKey(typeof r.main_phone_e164 === "string" ? r.main_phone_e164 : "");
+      const resolvedName =
+        key && inboxDirectoryBatch.has(key)
+          ? (inboxDirectoryBatch.get(key)?.displayTitle ?? "").toLowerCase()
+          : "";
+      return phone.includes(ql) || name.includes(ql) || resolvedName.includes(ql);
     });
   }
 
@@ -385,8 +404,15 @@ export default async function WorkspaceInboxPage(props: PageProps) {
                         ? "border-l-4 border-l-transparent bg-white hover:bg-sky-50/40"
                         : "border-l-4 border-l-transparent hover:bg-phone-powder/50";
 
-                    const primaryLabel = name ?? phoneDisplay;
-                    const initials = rowInitials(name, phoneDisplay);
+                    const dirKey = phone !== "—" ? phoneRawToE164LookupKey(phone) : null;
+                    const dirId = dirKey ? inboxDirectoryBatch.get(dirKey) : undefined;
+                    const resolvedListTitle =
+                      !name && dirId?.resolvedFromEntity && dirId.displayTitle.trim()
+                        ? dirId.displayTitle.trim()
+                        : null;
+                    const primaryLabel = name ?? resolvedListTitle ?? phoneDisplay;
+                    const showPhoneSubline = phone !== "—" && primaryLabel !== phoneDisplay;
+                    const initials = rowInitials(name ?? resolvedListTitle, phoneDisplay);
 
                     const rowContentMobile = (
                       <div className="flex gap-2.5">
@@ -409,7 +435,9 @@ export default async function WorkspaceInboxPage(props: PageProps) {
                             </p>
                             <span className="shrink-0 pt-0.5 text-[10px] tabular-nums text-slate-400">{when}</span>
                           </div>
-                          {name ? <p className="truncate font-mono text-[11px] text-slate-500">{phoneDisplay}</p> : null}
+                          {showPhoneSubline ? (
+                            <p className="truncate font-mono text-[11px] text-slate-500">{phoneDisplay}</p>
+                          ) : null}
                           {preview ? (
                             <p className="mt-0.5 line-clamp-2 text-[12px] leading-snug text-slate-700">{preview}</p>
                           ) : null}

@@ -5,6 +5,11 @@ import { WorkspacePhonePageHeader } from "../_components/WorkspacePhonePageHeade
 import { VoicemailCard } from "@/app/workspace/phone/_components/VoicemailCard";
 import { formatDurationSeconds } from "@/lib/crm/patient-hub-detail-display";
 import { formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
+import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
+import {
+  phoneRawToE164LookupKey,
+  resolvePhoneDisplayIdentityBatch,
+} from "@/lib/phone/resolve-phone-display-identity";
 import { voicemailTranscriptionUiFromMeta, voiceAiShortSummaryFromMeta } from "@/lib/phone/voicemail-display";
 import { canAccessWorkspacePhone, getStaffProfile, hasFullCallVisibility } from "@/lib/staff-profile";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
@@ -178,6 +183,9 @@ export default async function WorkspaceVoicemailPage(props: PageProps) {
 
   const displayCalls = viewDeleted ? deletedCalls : activeCalls;
 
+  const vmParties = displayCalls.map((c) => callbackNumber(c.direction, c.from_e164, c.to_e164));
+  const vmIdentityByE164 = await resolvePhoneDisplayIdentityBatch(supabase, vmParties);
+
   const contactIds = [...new Set(calls.map((c) => c.contact_id).filter((x): x is string => Boolean(x)))];
 
   const threadByContact = new Map<string, string>();
@@ -276,7 +284,18 @@ export default async function WorkspaceVoicemailPage(props: PageProps) {
                   : null;
             const cid = typeof c.contact_id === "string" ? c.contact_id : "";
             const number = callbackNumber(c.direction, c.from_e164, c.to_e164);
-            const display = contactName(c.contacts) ?? number ?? "Unknown caller";
+            const formattedNum = number ? formatPhoneForDisplay(number) : "—";
+            const embedNm = contactName(c.contacts);
+            const lookupKey = phoneRawToE164LookupKey(number ?? "");
+            const resolved = lookupKey ? vmIdentityByE164.get(lookupKey) : undefined;
+            let display: string;
+            if (resolved?.resolvedFromEntity && resolved.displayTitle.trim()) {
+              display = resolved.displayTitle.trim();
+            } else if (embedNm) {
+              display = embedNm;
+            } else {
+              display = resolved?.displayTitle?.trim() || formattedNum || number || "Unknown caller";
+            }
             const convId = cid ? threadByContact.get(cid) ?? null : null;
             const patientId = cid ? patientByContact.get(cid) ?? null : null;
             const vmTx = voicemailTranscriptionUiFromMeta(c.metadata);
@@ -287,7 +306,7 @@ export default async function WorkspaceVoicemailPage(props: PageProps) {
                 key={c.id}
                 callId={c.id}
                 title={display}
-                subtitle={number ?? "Unknown number"}
+                subtitle={number ? formattedNum : "Unknown number"}
                 whenLabel={formatAdminPhoneWhen(when)}
                 durationLabel={formatDurationSeconds(vmSec)}
                 callbackPhone={number}

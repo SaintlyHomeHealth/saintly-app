@@ -407,7 +407,10 @@ export default async function AdminPhoneCallLogPage({ searchParams }: PageProps)
                 const statusLabel = formatCallLogStatus(row.status);
                 const missed = row.status.trim().toLowerCase() === "missed";
                 const contactId = row.contact_id ?? row.resolved_contact_id ?? null;
-                const showCreateLead = !contactId && Boolean(partyE164?.trim());
+                const showCreateLead =
+                  !contactId &&
+                  Boolean(partyE164?.trim()) &&
+                  !row.party_display_suppress_quick_save;
                 const targets = contactId ? openByContactId[contactId] : undefined;
                 const openPatientHref = targets?.patientId
                   ? `/admin/crm/patients/${targets.patientId}`

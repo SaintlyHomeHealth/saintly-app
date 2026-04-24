@@ -56,6 +56,8 @@ export type PhoneCallRow = {
   contact_id: string | null;
   /** Server merge: CRM contact matched by caller phone when `contact_id` on the call is still null. */
   resolved_contact_id?: string | null;
+  /** True when phone matches CRM, recruit, employee, facility, etc. — hide quick intake / save-as-contact. */
+  party_display_suppress_quick_save?: boolean;
   crm_contact_display_name: string | null;
   /** JSON from `phone_calls.metadata` (e.g. `crm` classification). */
   metadata: Record<string, unknown> | null;
@@ -1008,12 +1010,12 @@ export function RecentCallsLive({
                 const timeLabel = formatAdminPhoneWhen(row.started_at ?? row.created_at);
                 const durationLabel = row.duration_seconds != null ? `${row.duration_seconds}s` : "—";
                 const otherParty = otherPartyE164(row);
-                const nameOrNumber = row.crm_contact_display_name?.trim()
-                  ? row.crm_contact_display_name
-                  : otherParty
-                    ? formatPhoneForDisplay(otherParty)
-                    : "—";
                 const phoneLabel = otherParty ? formatPhoneForDisplay(otherParty) : "—";
+                const callTitle = row.crm_contact_display_name?.trim()
+                  ? row.crm_contact_display_name.trim()
+                  : otherParty
+                    ? phoneLabel
+                    : "—";
                 const assignedLabel = row.assigned_to_user_id
                   ? row.assigned_to_label?.trim() || row.assigned_to_user_id.slice(0, 8) + "…"
                   : "Unassigned";
@@ -1050,7 +1052,7 @@ export function RecentCallsLive({
                               missed ? "text-red-950" : "text-slate-900"
                             }`}
                           >
-                            {missed ? `Missed Call — ${nameOrNumber}` : nameOrNumber}
+                            {missed ? `Missed Call — ${callTitle}` : callTitle}
                           </div>
                           <div className="mt-0.5 text-[11px] text-slate-600">
                             {phoneLabel} · {timeLabel} · {durationLabel}
@@ -1227,7 +1229,9 @@ export function RecentCallsLive({
                             <div className="rounded-md border border-slate-200 bg-white p-2">
                               <div className="text-xs font-semibold text-slate-900">Intake</div>
                               <div className="mt-2 text-sm text-slate-700">
-                                {!effCid && row.from_e164 ? (
+                                {!effCid &&
+                                otherPartyE164(row) &&
+                                !row.party_display_suppress_quick_save ? (
                                   missed ? (
                                     <button
                                       type="button"

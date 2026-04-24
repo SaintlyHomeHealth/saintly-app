@@ -11,6 +11,8 @@ import {
 import { supabaseAdmin } from "@/lib/admin";
 import { loadCrmContextForPhoneCall } from "@/lib/phone/crm-context-for-call";
 import { formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
+import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
+import { resolvePhoneDisplayIdentity } from "@/lib/phone/resolve-phone-display-identity";
 import { canStaffAccessPhoneCallRow, canStaffClaimPhoneCall } from "@/lib/phone/staff-call-access";
 import {
   getStaffProfile,
@@ -247,6 +249,21 @@ export default async function AdminPhoneCallDetailPage({ params, searchParams }:
   const caller = primaryCallNumber(c);
   const phoneDefault = intakePhoneDefault(c);
 
+  const partyIdentity =
+    caller && caller !== "—" ? await resolvePhoneDisplayIdentity(supabaseAdmin, caller) : null;
+  const overviewTitle =
+    partyIdentity?.resolvedFromEntity && partyIdentity.displayTitle.trim()
+      ? partyIdentity.displayTitle.trim()
+      : caller && caller !== "—"
+        ? formatPhoneForDisplay(caller) || caller
+        : "—";
+  const overviewPhoneLine =
+    caller && caller !== "—"
+      ? partyIdentity?.formattedPhone ?? formatPhoneForDisplay(caller) ?? caller
+      : "—";
+  const transcriptCallerLabel =
+    overviewTitle !== "—" ? overviewTitle : caller && caller !== "—" ? caller : "Caller";
+
   const voiceAiRaw =
     c.metadata && typeof c.metadata === "object" && !Array.isArray(c.metadata)
       ? (c.metadata as Record<string, unknown>).voice_ai
@@ -294,7 +311,7 @@ export default async function AdminPhoneCallDetailPage({ params, searchParams }:
         <div className="mt-5">
           <CallDetailTranscriptThread
             bubbles={transcriptBubbles}
-            callerLabel={caller !== "—" ? caller : "Caller"}
+            callerLabel={transcriptCallerLabel}
           />
         </div>
       </section>
@@ -313,7 +330,12 @@ export default async function AdminPhoneCallDetailPage({ params, searchParams }:
 
       <section className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
         <h2 className="text-sm font-semibold text-slate-900">Overview</h2>
-        <p className="mt-3 font-mono text-2xl font-semibold tracking-tight text-slate-900">{caller}</p>
+        <p className="mt-3 text-2xl font-semibold tracking-tight text-slate-900">{overviewTitle}</p>
+        {overviewPhoneLine !== overviewTitle ? (
+          <p className="mt-1 font-mono text-sm font-medium tabular-nums tracking-tight text-slate-700">
+            {overviewPhoneLine}
+          </p>
+        ) : null}
         <p className="mt-1 text-xs text-slate-500">
           {c.direction.trim().toLowerCase() === "outbound" ? "Dialed number (outbound)" : "Caller ID (inbound)"}
         </p>
