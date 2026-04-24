@@ -74,6 +74,10 @@ function flashDetailErr(code: string | undefined): string | null {
     permanent_confirm: "Confirmation did not match. Type DELETE or the exact work email from this row.",
     permanent_staff_row: "The staff row could not be removed after Auth was deleted. See details below.",
     permanent_auth: "Supabase could not delete the Auth user. Details below.",
+    link_failed: "Could not link Supabase Auth to this staff row. See technical detail below.",
+    has_login: "This profile already has a linked login.",
+    auth_missing: "No Supabase Auth user exists for this row’s work email.",
+    email: "Set a work email on this row before linking Auth.",
   };
   return m[code] ?? "Something went wrong.";
 }
@@ -89,6 +93,9 @@ function flashDetailOk(code: string | undefined): string | null {
     sms: "Dispatch SMS number saved.",
     payroll_link: "Payroll employee link saved.",
     payroll_link_clear: "Payroll employee link cleared.",
+    added_linked: "Staff row created and linked to the existing Supabase login for this email.",
+    restored: "This staff profile is active again.",
+    linked_auth: "Supabase login linked to this staff row.",
   };
   return m[code] ?? "Saved.";
 }
@@ -180,6 +187,8 @@ export default async function StaffAccessDetailPage({
   const errRaw = sp.err;
   const errCode = typeof errRaw === "string" ? errRaw : undefined;
   const detailRaw = sp.detail;
+  const dupIdRaw = sp.dupId;
+  const dupRowId = typeof dupIdRaw === "string" ? dupIdRaw : undefined;
   const errDetail =
     typeof detailRaw === "string" && detailRaw.trim() !== ""
       ? (() => {
@@ -311,6 +320,14 @@ export default async function StaffAccessDetailPage({
       {errMsg ? (
         <p className="rounded-[16px] border border-rose-200 bg-rose-50/90 px-4 py-3 text-sm text-rose-900">
           {errMsg}
+          {errCode === "duplicate_email" && dupRowId ? (
+            <Link
+              href={`/admin/staff/${dupRowId}`}
+              className="mt-2 block text-sm font-semibold text-rose-950 underline underline-offset-2"
+            >
+              Open the other staff row using this email
+            </Link>
+          ) : null}
           {errDetail ? (
             <span className="mt-2 block font-mono text-xs text-rose-800/90">{errDetail}</span>
           ) : null}

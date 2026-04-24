@@ -2,6 +2,8 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { supabaseAdmin } from "@/lib/admin";
+import { diagnoseWorkEmail } from "@/lib/admin/staff-email-diagnosis";
+import { normalizeStaffLookupEmail } from "@/lib/admin/staff-auth-shared";
 import {
   getStaffProfile,
   isAdminOrHigher,
@@ -14,7 +16,14 @@ import { StaffDirectoryRowActions } from "./staff-directory-row-actions";
 
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 
-import { addStaffProfile, setStaffActive, updateStaffRole } from "./actions";
+import {
+  addStaffProfile,
+  deleteOrphanAuthByEmailForm,
+  linkOrphanAuthToStaffProfile,
+  restoreArchivedStaffProfile,
+  setStaffActive,
+  updateStaffRole,
+} from "./actions";
 
 type StaffRow = {
   id: string;
@@ -67,7 +76,7 @@ function flashForErr(code: string | undefined): string | null {
   const m: Record<string, string> = {
     invalid: "Check all fields and try again.",
     forbidden: "You cannot assign that role.",
-    insert: "Could not add staff (duplicate email?).",
+    insert: "Could not add this staff row. If the message below mentions a duplicate or constraint, use “Find duplicate email source” or check the database detail.",
     applicant_taken: "That employee is already linked to another staff login.",
     load: "Could not load that staff record.",
     has_login: "This person already has a login.",
@@ -81,17 +90,25 @@ function flashForErr(code: string | undefined): string | null {
     last_super: "Keep at least one active super admin.",
     duplicate_email: "Another staff row already uses that work email.",
     duplicate_email_staff:
-      "This work email is already on a staff directory row. Open that row or use a different email.",
+      "This work email is already on an active staff directory row. Open that row or use a different email.",
+    duplicate_email_staff_archived:
+      "This email belongs to an inactive (archived) staff profile. Restore that row instead of adding a duplicate, or change the archived row’s email first.",
     duplicate_email_auth:
-      "Supabase Auth already has a login linked to another staff row with this email. Open that staff profile or deactivate the duplicate first.",
+      "Supabase Auth already has a login linked to another staff row with this email. Open that staff profile first.",
+    duplicate_email_auth_orphan:
+      "This email already exists in Supabase Auth but is not linked to any staff profile. Check “Link existing Supabase login” when adding, open Staff email tools to link a placeholder row, or remove the orphan Auth user if it is unused.",
     duplicate_email_orphan_auth:
-      "A leftover Supabase login still exists for this email and could not be removed automatically. Check Auth users in Supabase or try again.",
+      "A Supabase Auth user still exists for this email and could not be removed (permission or dependency). Use Staff email tools or Supabase dashboard.",
+    insert_duplicate_unique:
+      "The database rejected this email as a duplicate (unique constraint). See detail below — another row may differ only by capitalization or spacing.",
+    link_failed: "Linking Supabase Auth to the new staff row failed; the row was not kept. See detail below.",
     auth_email: "Supabase Auth rejected the email change (duplicate login email or policy).",
     self_remove: "You cannot remove or deactivate your own staff row here.",
     permanent_forbidden: "This action could not be completed.",
     permanent_payroll_blocked:
       "Cannot delete. This staff is linked to payroll. Deactivate instead.",
     permanent_confirm: "Confirmation did not match. Type DELETE or the exact work email from this row.",
+    orphan_email_confirm: "To remove an orphan Auth user, type the same email in both fields.",
     permanent_staff_row: "The staff row could not be removed after Auth was deleted. Details below. Fix in Supabase if needed.",
     permanent_auth: "Supabase could not delete the Auth user. Details below.",
     permanent_applicant: "Could not complete delete due to a linked employee record constraint. Clear the payroll link first.",
@@ -118,6 +135,8 @@ function flashForOk(code: string | undefined): string | null {
     permanent_deleted: "Staff row and Supabase login removed. Email can be reused for a new user.",
     permanent_deleted_row: "Placeholder staff row removed (no login was attached).",
     staff_deleted: "Staff deleted",
+    orphan_auth_removed: "Orphan Supabase Auth user removed for that email (no staff row referenced it).",
+    auth_orphan_gone: "No Auth user was found for that email (already clear).",
   };
   return m[code] ?? "Saved.";
 }
@@ -169,6 +188,22 @@ export default async function AdminStaffPage({
   const dupStaffIdRaw = sp.dupStaffId;
   const dupStaffId = typeof dupStaffIdRaw === "string" ? dupStaffIdRaw : undefined;
   const dupRowId = typeof dupIdRaw === "string" ? dupIdRaw : undefined;
+  const authUserIdRaw = sp.authUserId;
+  const authUserIdParam = typeof authUserIdRaw === "string" ? authUserIdRaw : undefined;
+  const applicantIdRaw = sp.applicantId;
+  const applicantIdParam = typeof applicantIdRaw === "string" ? applicantIdRaw : undefined;
+  const contactIdRaw = sp.contactId;
+  const contactIdParam = typeof contactIdRaw === "string" ? contactIdRaw : undefined;
+  const inspectRaw = sp.inspectEmail;
+  const inspectEmail =
+    typeof inspectRaw === "string" && inspectRaw.trim() !== ""
+      ? normalizeStaffLookupEmail(inspectRaw)
+      : "";
+
+  const diagnosis = inspectEmail ? await diagnoseWorkEmail(inspectEmail) : null;
+  const authLinkedToProfileRow =
+    diagnosis?.authUserId &&
+    diagnosis.staffProfiles.some((s) => String(s.user_id ?? "") === diagnosis.authUserId);
 
   const errMsg = flashForErr(errCode);
   const okMsg = flashForOk(okCode);
@@ -190,12 +225,36 @@ export default async function AdminStaffPage({
           {errMsg ? (
             <p className="mb-4 rounded-[16px] border border-red-200 bg-red-50/90 px-4 py-3 text-sm text-red-900">
               {errMsg}
-              {errCode === "duplicate_email_staff" && dupRowId ? (
+              {(errCode === "duplicate_email_staff" || errCode === "duplicate_email_staff_archived") &&
+              dupRowId ? (
                 <Link
                   href={`/admin/staff/${dupRowId}`}
                   className="mt-2 block text-sm font-semibold text-red-950 underline underline-offset-2"
                 >
-                  Open the existing staff row
+                  {errCode === "duplicate_email_staff_archived"
+                    ? "Open archived staff row to restore or edit email"
+                    : "Open the existing staff row"}
+                </Link>
+              ) : null}
+              {errCode === "duplicate_email_auth_orphan" && authUserIdParam ? (
+                <span className="mt-2 block text-xs text-red-950/90">
+                  Auth user id: <span className="font-mono">{authUserIdParam}</span>
+                </span>
+              ) : null}
+              {errCode === "insert_duplicate_unique" && applicantIdParam ? (
+                <Link
+                  href={`/admin/employees/${applicantIdParam}`}
+                  className="mt-2 block text-sm font-semibold text-red-950 underline underline-offset-2"
+                >
+                  Open employee / applicant record with this email
+                </Link>
+              ) : null}
+              {errCode === "insert_duplicate_unique" && contactIdParam ? (
+                <Link
+                  href={`/admin/crm/contacts/${contactIdParam}`}
+                  className="mt-2 block text-sm font-semibold text-red-950 underline underline-offset-2"
+                >
+                  Open CRM contact with this email
                 </Link>
               ) : null}
               {errCode === "duplicate_email_auth" && dupStaffId ? (
@@ -273,7 +332,146 @@ export default async function AdminStaffPage({
                   Add staff
                 </button>
               </div>
+              <label className="flex items-start gap-2 sm:col-span-2 lg:col-span-4">
+                <input type="checkbox" name="linkOrphanAuth" value="1" className="mt-1" />
+                <span className="text-xs leading-relaxed text-slate-700">
+                  <span className="font-semibold text-slate-900">Link existing Supabase login</span> when this email
+                  already exists in Auth but is not attached to any staff row. (Skips invite for that case; profile is
+                  synced to the Auth email.)
+                </span>
+              </label>
             </form>
+          </div>
+
+          <div className="mt-6 rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
+            <h2 className="text-sm font-semibold text-slate-900">Staff email tools</h2>
+            <p className="mt-1 text-xs text-slate-600">
+              When an address fails validation, find where it lives (staff, Auth, employee, CRM) and repair safely.
+            </p>
+            <form method="get" action="/admin/staff" className="mt-3 flex flex-wrap items-end gap-2">
+              <label className="block min-w-[14rem] flex-1 text-xs font-semibold text-slate-700">
+                Find duplicate email source
+                <input
+                  name="inspectEmail"
+                  type="email"
+                  defaultValue={inspectEmail || ""}
+                  placeholder="name@company.com"
+                  className="mt-1 w-full rounded-[14px] border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-inner"
+                />
+              </label>
+              <button
+                type="submit"
+                className="rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100"
+              >
+                Search
+              </button>
+            </form>
+
+            {diagnosis && diagnosis.normalizedEmail ? (
+              <div className="mt-4 space-y-3 rounded-[16px] border border-slate-100 bg-slate-50/80 p-4 text-xs text-slate-800">
+                <p className="font-semibold text-slate-900">Results for {diagnosis.normalizedEmail}</p>
+                <ul className="list-inside list-disc space-y-1 text-slate-700">
+                  <li>
+                    <span className="font-medium">staff_profiles:</span>{" "}
+                    {diagnosis.staffProfiles.length === 0
+                      ? "No rows (case-insensitive match)."
+                      : diagnosis.staffProfiles.map((r) => (
+                          <span key={r.id} className="ml-1 inline-block">
+                            <Link
+                              href={`/admin/staff/${r.id}`}
+                              className="font-semibold text-indigo-800 underline underline-offset-2"
+                            >
+                              {r.is_active === false ? "Inactive · " : "Active · "}
+                              {(r.full_name ?? "").trim() || r.email || r.id.slice(0, 8)}
+                            </Link>
+                            {r.is_active === false ? (
+                              <form action={restoreArchivedStaffProfile} className="ml-2 inline">
+                                <input type="hidden" name="staffProfileId" value={r.id} />
+                                <button
+                                  type="submit"
+                                  className="rounded-full bg-emerald-700 px-2 py-0.5 text-[11px] font-semibold text-white hover:bg-emerald-800"
+                                >
+                                  Restore archived staff
+                                </button>
+                              </form>
+                            ) : null}
+                            {r.user_id || !diagnosis.authUserId ? null : (
+                              <form action={linkOrphanAuthToStaffProfile} className="ml-2 inline">
+                                <input type="hidden" name="staffProfileId" value={r.id} />
+                                <button
+                                  type="submit"
+                                  className="rounded-full border border-indigo-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-indigo-900 hover:bg-indigo-50"
+                                >
+                                  Link existing auth user
+                                </button>
+                              </form>
+                            )}
+                          </span>
+                        ))}
+                  </li>
+                  <li>
+                    <span className="font-medium">Supabase Auth:</span>{" "}
+                    {diagnosis.authUserId ? (
+                      <span className="font-mono text-[11px]">user id {diagnosis.authUserId}</span>
+                    ) : (
+                      "No user with this email (per admin listUsers scan)."
+                    )}
+                  </li>
+                  <li>
+                    <span className="font-medium">applicants (employee):</span>{" "}
+                    {diagnosis.applicants.length === 0
+                      ? "None with this email."
+                      : diagnosis.applicants.map((a) => (
+                          <Link
+                            key={a.id}
+                            href={`/admin/employees/${a.id}`}
+                            className="ml-1 font-semibold text-indigo-800 underline underline-offset-2"
+                          >
+                            {(a.first_name ?? "").trim()} {(a.last_name ?? "").trim()} ({a.status ?? "—"})
+                          </Link>
+                        ))}
+                  </li>
+                  <li>
+                    <span className="font-medium">contacts (CRM):</span>{" "}
+                    {diagnosis.contacts.length === 0
+                      ? "None with this email."
+                      : diagnosis.contacts.map((c) => (
+                          <Link
+                            key={c.id}
+                            href={`/admin/crm/contacts/${c.id}`}
+                            className="ml-1 font-semibold text-indigo-800 underline underline-offset-2"
+                          >
+                            {(c.full_name ?? "").trim() || c.id.slice(0, 8)}
+                          </Link>
+                        ))}
+                  </li>
+                </ul>
+                {diagnosis.authUserId && !authLinkedToProfileRow ? (
+                  <form action={deleteOrphanAuthByEmailForm} className="mt-3 space-y-2 border-t border-slate-200/80 pt-3">
+                    <p className="font-medium text-amber-950">
+                      Remove orphan Auth user only if this login is unused. No staff row may reference it.
+                    </p>
+                    <input type="hidden" name="email" value={diagnosis.normalizedEmail} />
+                    <label className="block text-[11px] font-semibold text-slate-700">
+                      Type the email again to confirm
+                      <input
+                        name="confirmEmail"
+                        type="email"
+                        required
+                        placeholder={diagnosis.normalizedEmail}
+                        className="mt-1 w-full max-w-md rounded-[14px] border border-slate-200 px-3 py-2 text-sm"
+                      />
+                    </label>
+                    <button
+                      type="submit"
+                      className="rounded-full border border-amber-300 bg-amber-50 px-4 py-2 text-xs font-semibold text-amber-950 hover:bg-amber-100"
+                    >
+                      Permanently remove orphan Auth user
+                    </button>
+                  </form>
+                ) : null}
+              </div>
+            ) : null}
           </div>
 
           <p className="mt-4 text-xs text-slate-600">

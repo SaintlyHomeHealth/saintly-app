@@ -6,7 +6,14 @@ import { redirect } from "next/navigation";
 import {
   deleteOrphanAuthUserForNormalizedEmail,
   findAuthUserIdByEmail,
+  syncStaffProfileWithAuthUser,
+  type StaffRowForAuthSync,
 } from "@/lib/admin/staff-auth-link";
+import {
+  diagnoseWorkEmail,
+  findStaffProfilesByWorkEmail,
+  isPostgresUniqueViolation,
+} from "@/lib/admin/staff-email-diagnosis";
 import { normalizeStaffLookupEmail } from "@/lib/admin/staff-auth-shared";
 import { insertAuditLog } from "@/lib/audit-log";
 import { supabaseAdmin } from "@/lib/admin";
@@ -22,6 +29,26 @@ import {
 } from "@/lib/staff-profile";
 import { isInboundRingGroupKey, type InboundRingGroupKey } from "@/lib/phone/ring-groups";
 import { defaultPagesForPreset, isStaffPagePreset, STAFF_PAGE_KEYS } from "@/lib/staff-page-access";
+
+function staffRowForAuthSync(r: {
+  id: string;
+  user_id: string | null;
+  email: string | null;
+  role: string;
+  is_active?: boolean | null;
+  phone_access_enabled?: boolean | null;
+  inbound_ring_enabled?: boolean | null;
+}): StaffRowForAuthSync {
+  return {
+    id: r.id,
+    user_id: r.user_id,
+    email: r.email,
+    role: r.role,
+    is_active: r.is_active !== false,
+    phone_access_enabled: r.phone_access_enabled === true,
+    inbound_ring_enabled: r.inbound_ring_enabled === true,
+  };
+}
 
 export async function addStaffProfile(formData: FormData) {
   const actor = await getStaffProfile();
@@ -40,13 +67,19 @@ export async function addStaffProfile(formData: FormData) {
     redirect("/admin/staff?err=forbidden");
   }
 
-  const { data: dupRow } = await supabaseAdmin
-    .from("staff_profiles")
-    .select("id")
-    .eq("email", email)
-    .maybeSingle();
-  if (dupRow?.id) {
-    redirect(`/admin/staff?err=duplicate_email_staff&dupId=${encodeURIComponent(dupRow.id)}`);
+  const linkOrphanAuth = String(formData.get("linkOrphanAuth") ?? "") === "1";
+
+  const staffMatches = await findStaffProfilesByWorkEmail(email);
+  const activeStaff = staffMatches.filter((r) => r.is_active !== false);
+  const inactiveStaff = staffMatches.filter((r) => r.is_active === false);
+
+  if (activeStaff.length > 0) {
+    const dup = activeStaff[0]!;
+    redirect(`/admin/staff?err=duplicate_email_staff&dupId=${encodeURIComponent(dup.id)}`);
+  }
+  if (inactiveStaff.length > 0) {
+    const dup = inactiveStaff[0]!;
+    redirect(`/admin/staff?err=duplicate_email_staff_archived&dupId=${encodeURIComponent(dup.id)}`);
   }
 
   const existingAuthId = await findAuthUserIdByEmail(email);
@@ -61,27 +94,61 @@ export async function addStaffProfile(formData: FormData) {
         `/admin/staff?err=duplicate_email_auth&dupStaffId=${encodeURIComponent(linked.id)}`
       );
     }
-    const { error: orphanDelErr } = await supabaseAdmin.auth.admin.deleteUser(existingAuthId);
-    if (orphanDelErr) {
-      console.warn("[staff] addStaffProfile orphan auth delete:", orphanDelErr.message);
-      const safe = encodeURIComponent(orphanDelErr.message.slice(0, 400));
-      redirect(`/admin/staff?err=duplicate_email_orphan_auth&detail=${safe}`);
+    if (!linkOrphanAuth) {
+      redirect(
+        `/admin/staff?err=duplicate_email_auth_orphan&authUserId=${encodeURIComponent(existingAuthId)}`
+      );
     }
   }
 
-  const { error } = await supabaseAdmin.from("staff_profiles").insert({
+  const insertPayload = {
     full_name: fullName,
     email,
     role: roleRaw,
-    user_id: null,
+    user_id: linkOrphanAuth && existingAuthId ? existingAuthId : null,
     is_active: true,
     phone_access_enabled: false,
     inbound_ring_enabled: false,
-  });
+  };
 
-  if (error) {
-    console.warn("[staff] addStaffProfile:", error.message);
+  const { data: inserted, error } = await supabaseAdmin
+    .from("staff_profiles")
+    .insert(insertPayload)
+    .select("id, user_id, email, role, is_active, phone_access_enabled, inbound_ring_enabled")
+    .maybeSingle();
+
+  if (error || !inserted?.id) {
+    console.warn("[staff] addStaffProfile:", error?.message);
+    if (error && isPostgresUniqueViolation(error)) {
+      const dx = await diagnoseWorkEmail(email);
+      const extra =
+        dx.applicants.length > 0
+          ? `&applicantId=${encodeURIComponent(dx.applicants[0]!.id)}`
+          : dx.contacts.length > 0
+            ? `&contactId=${encodeURIComponent(dx.contacts[0]!.id)}`
+            : "";
+      const safe = encodeURIComponent(String(error.message ?? "unique_violation").slice(0, 400));
+      redirect(`/admin/staff?err=insert_duplicate_unique&detail=${safe}${extra}`);
+    }
     redirect("/admin/staff?err=insert");
+  }
+
+  if (linkOrphanAuth && existingAuthId) {
+    const sync = await syncStaffProfileWithAuthUser(staffRowForAuthSync(inserted), existingAuthId);
+    if (!sync.ok) {
+      await supabaseAdmin.from("staff_profiles").delete().eq("id", inserted.id);
+      const safe = encodeURIComponent(String(sync.detail ?? sync.error).slice(0, 400));
+      redirect(`/admin/staff?err=link_failed&detail=${safe}`);
+    }
+    await insertAuditLog({
+      action: "staff.add_placeholder_linked_orphan_auth",
+      entityType: "staff_profiles",
+      entityId: inserted.id,
+      metadata: { email, role: roleRaw, auth_user_id: existingAuthId },
+    });
+    revalidatePath("/admin/staff");
+    revalidatePath(`/admin/staff/${inserted.id}`);
+    redirect(`/admin/staff/${inserted.id}?ok=added_linked`);
   }
 
   await insertAuditLog({
@@ -93,6 +160,174 @@ export async function addStaffProfile(formData: FormData) {
 
   revalidatePath("/admin/staff");
   redirect("/admin/staff?ok=added");
+}
+
+/**
+ * Reactivates an archived (inactive) staff profile so the directory row can be used again.
+ */
+export async function restoreArchivedStaffProfile(formData: FormData) {
+  const actor = await getStaffProfile();
+  if (!actor || !isAdminOrHigher(actor)) {
+    redirect("/admin");
+  }
+
+  const id = String(formData.get("staffProfileId") ?? "").trim();
+  if (!id || !isUuid(id)) {
+    redirect("/admin/staff?err=invalid");
+  }
+
+  const { data: row, error: loadErr } = await supabaseAdmin
+    .from("staff_profiles")
+    .select("id, is_active")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (loadErr || !row?.id) {
+    redirect("/admin/staff?err=load");
+  }
+
+  if (row.is_active !== false) {
+    redirect(`/admin/staff/${id}?err=invalid`);
+  }
+
+  const { error } = await supabaseAdmin
+    .from("staff_profiles")
+    .update({ is_active: true, updated_at: new Date().toISOString() })
+    .eq("id", id);
+
+  if (error) {
+    console.warn("[staff] restoreArchivedStaffProfile:", error.message);
+    redirect(`/admin/staff/${id}?err=update`);
+  }
+
+  await insertAuditLog({
+    action: "staff.restore_archived",
+    entityType: "staff_profiles",
+    entityId: id,
+    metadata: {},
+  });
+
+  revalidatePath("/admin/staff");
+  revalidatePath(`/admin/staff/${id}`);
+  redirect(`/admin/staff/${id}?ok=restored`);
+}
+
+/**
+ * Links a Supabase Auth user (same work email, no other staff row) to an existing placeholder profile.
+ */
+export async function linkOrphanAuthToStaffProfile(formData: FormData) {
+  const actor = await getStaffProfile();
+  if (!actor || !isAdminOrHigher(actor)) {
+    redirect("/admin");
+  }
+
+  const id = String(formData.get("staffProfileId") ?? "").trim();
+  if (!id || !isUuid(id)) {
+    redirect("/admin/staff?err=invalid");
+  }
+
+  const { data: row, error: loadErr } = await supabaseAdmin
+    .from("staff_profiles")
+    .select("id, user_id, email, role, is_active, phone_access_enabled, inbound_ring_enabled")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (loadErr || !row?.id) {
+    redirect("/admin/staff?err=load");
+  }
+
+  if (typeof row.user_id === "string" && row.user_id.trim() !== "") {
+    redirect(`/admin/staff/${id}?err=has_login`);
+  }
+
+  const email = normalizeStaffLookupEmail(typeof row.email === "string" ? row.email : "");
+  if (!email) {
+    redirect(`/admin/staff/${id}?err=email`);
+  }
+
+  const authId = await findAuthUserIdByEmail(email);
+  if (!authId) {
+    redirect(`/admin/staff/${id}?err=auth_missing`);
+  }
+
+  const { data: other } = await supabaseAdmin
+    .from("staff_profiles")
+    .select("id")
+    .eq("user_id", authId)
+    .maybeSingle();
+
+  if (other?.id && other.id !== id) {
+    redirect(
+      `/admin/staff?err=duplicate_email_auth&dupStaffId=${encodeURIComponent(other.id)}`
+    );
+  }
+
+  const sync = await syncStaffProfileWithAuthUser(staffRowForAuthSync(row), authId);
+  if (!sync.ok) {
+    const safe = encodeURIComponent(String(sync.detail ?? sync.error).slice(0, 400));
+    redirect(`/admin/staff/${id}?err=link_failed&detail=${safe}`);
+  }
+
+  await insertAuditLog({
+    action: "staff.link_orphan_auth",
+    entityType: "staff_profiles",
+    entityId: id,
+    metadata: { auth_user_id: authId, email },
+  });
+
+  revalidatePath("/admin/staff");
+  revalidatePath(`/admin/staff/${id}`);
+  redirect(`/admin/staff/${id}?ok=linked_auth`);
+}
+
+/**
+ * Deletes a Supabase Auth user only when no staff_profiles row references it (safe orphan cleanup).
+ */
+export async function deleteOrphanAuthByEmailForm(formData: FormData) {
+  const actor = await getStaffProfile();
+  if (!actor || !isAdminOrHigher(actor)) {
+    redirect("/admin");
+  }
+
+  const email = normalizeStaffLookupEmail(String(formData.get("email") ?? ""));
+  const confirm = normalizeStaffLookupEmail(String(formData.get("confirmEmail") ?? ""));
+  if (!email || email !== confirm) {
+    redirect("/admin/staff?err=orphan_email_confirm");
+  }
+
+  const authId = await findAuthUserIdByEmail(email);
+  if (!authId) {
+    redirect("/admin/staff?ok=auth_orphan_gone");
+  }
+
+  const { data: linked } = await supabaseAdmin
+    .from("staff_profiles")
+    .select("id")
+    .eq("user_id", authId)
+    .maybeSingle();
+
+  if (linked?.id) {
+    redirect(
+      `/admin/staff?err=duplicate_email_auth&dupStaffId=${encodeURIComponent(linked.id)}`
+    );
+  }
+
+  await deleteOrphanAuthUserForNormalizedEmail(email);
+
+  const still = await findAuthUserIdByEmail(email);
+  if (still) {
+    redirect(`/admin/staff?err=duplicate_email_orphan_auth&detail=${encodeURIComponent("Delete returned but user still listed")}`);
+  }
+
+  await insertAuditLog({
+    action: "staff.delete_orphan_auth_by_email",
+    entityType: "auth.users",
+    entityId: email,
+    metadata: { auth_user_id: authId },
+  });
+
+  revalidatePath("/admin/staff");
+  redirect("/admin/staff?ok=orphan_auth_removed");
 }
 
 export async function setPhoneAccess(formData: FormData) {
@@ -469,15 +704,11 @@ export async function updateStaffProfileIdentity(formData: FormData) {
     }
   }
 
-  const { data: dup } = await supabaseAdmin
-    .from("staff_profiles")
-    .select("id")
-    .eq("email", email)
-    .neq("id", id)
-    .maybeSingle();
-
-  if (dup?.id) {
-    redirect(`/admin/staff/${id}?err=duplicate_email`);
+  const dupOthers = (await findStaffProfilesByWorkEmail(email)).filter((r) => r.id !== id);
+  if (dupOthers.length > 0) {
+    redirect(
+      `/admin/staff/${id}?err=duplicate_email&dupId=${encodeURIComponent(dupOthers[0]!.id)}`
+    );
   }
 
   const prevNorm = normalizeStaffLookupEmail(target.email);
