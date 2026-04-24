@@ -1,9 +1,18 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { displayNameFromContact } from "@/app/workspace/phone/patients/_lib/patient-hub";
 import { insertAuditLogTrusted } from "@/lib/audit-log";
 import { supabaseAdmin } from "@/lib/admin";
+import { assertStaffAssignedToAllPatients } from "@/lib/internal-chat/assigned-patients";
 import { assertInternalChatMember, canPostToInternalChat } from "@/lib/internal-chat/access";
 import { decryptInternalChatUtf8, encryptInternalChatUtf8 } from "@/lib/internal-chat/crypto";
+import {
+  extractPatientMentionIdsFromCanonical,
+  extractStaffMentionIdsFromCanonical,
+  internalChatBodyForDisplay,
+  mergePicksIntoCanonical,
+  type MentionPick,
+} from "@/lib/internal-chat/mention-tokens";
 import { notifyInternalChatRecipients } from "@/lib/internal-chat/notify-members";
 import { canAccessWorkspaceInternalChat } from "@/lib/internal-chat/workspace-access";
 import { getStaffProfile } from "@/lib/staff-profile";
@@ -14,6 +23,34 @@ type RouteParams = { params: Promise<{ chatId: string }> };
 
 function bufFromB64(value: string): Buffer {
   return Buffer.from(value, "base64");
+}
+
+async function resolvePatientMentionCards(patientIds: string[]): Promise<Array<{ id: string; label: string }>> {
+  if (patientIds.length === 0) return [];
+  const { data: rows } = await supabaseAdmin
+    .from("patients")
+    .select("id, contacts ( full_name, first_name, last_name )")
+    .in("id", patientIds);
+
+  const map = new Map<string, string>();
+  for (const row of rows ?? []) {
+    const raw = row.contacts as
+      | {
+          full_name?: string | null;
+          first_name?: string | null;
+          last_name?: string | null;
+        }
+      | Array<{
+          full_name?: string | null;
+          first_name?: string | null;
+          last_name?: string | null;
+        }>
+      | null
+      | undefined;
+    const emb = Array.isArray(raw) ? raw[0] ?? null : raw ?? null;
+    map.set(String(row.id), displayNameFromContact(emb));
+  }
+  return patientIds.map((id) => ({ id, label: map.get(id) ?? "Patient" }));
 }
 
 export async function GET(_req: NextRequest, { params }: RouteParams) {
@@ -37,7 +74,7 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
   const { data: messages, error } = await supabaseAdmin
     .from("internal_chat_messages")
     .select(
-      "id, chat_id, sender_id, created_at, ciphertext, nonce, attachment_path, attachment_mime, attachment_name, mention_user_ids"
+      "id, chat_id, sender_id, created_at, ciphertext, nonce, attachment_path, attachment_mime, attachment_name, mention_user_ids, mention_patient_ids"
     )
     .eq("chat_id", cid)
     .order("created_at", { ascending: true })
@@ -79,27 +116,48 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
   }
 
   const out = (messages ?? []).map((m) => {
-    let body = "";
+    let bodyCanonical = "";
     try {
       const ct = typeof m.ciphertext === "string" ? m.ciphertext : "";
       const nn = typeof m.nonce === "string" ? m.nonce : "";
-      body = decryptInternalChatUtf8(bufFromB64(ct), bufFromB64(nn));
+      bodyCanonical = decryptInternalChatUtf8(bufFromB64(ct), bufFromB64(nn));
     } catch {
-      body = "";
+      bodyCanonical = "";
     }
+    const bodyDisplay = internalChatBodyForDisplay(bodyCanonical);
+    const pids = (m.mention_patient_ids ?? []) as string[];
+    const patientMentions =
+      pids.length > 0
+        ? pids.map((id) => ({
+            id: String(id),
+            label: "Patient",
+            href: `/workspace/phone/patients/${id}`,
+          }))
+        : [];
+
     return {
       id: m.id,
       senderId: m.sender_id,
       senderLabel: senderLabel.get(String(m.sender_id)) ?? "Staff",
       createdAt: m.created_at,
-      body,
+      body: bodyDisplay,
       attachmentPath: m.attachment_path,
       attachmentMime: m.attachment_mime,
       attachmentName: m.attachment_name,
       mentionUserIds: m.mention_user_ids ?? [],
       readByUserIds: readByMessage.get(String(m.id)) ?? [],
+      patientMentions,
     };
   });
+
+  const patientIdsToResolve = [...new Set(out.flatMap((o) => o.patientMentions.map((p) => p.id)))];
+  const resolved = await resolvePatientMentionCards(patientIdsToResolve);
+  const lab = new Map(resolved.map((r) => [r.id, r.label]));
+  for (const o of out) {
+    for (const p of o.patientMentions) {
+      p.label = lab.get(p.id) ?? p.label;
+    }
+  }
 
   await insertAuditLogTrusted({
     action: "internal_chat_thread_viewed",
@@ -140,9 +198,18 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
+  const { data: chatRow } = await supabaseAdmin
+    .from("internal_chats")
+    .select("id, chat_type")
+    .eq("id", cid)
+    .maybeSingle();
+
+  const chatType = typeof chatRow?.chat_type === "string" ? chatRow.chat_type : "";
+
   let bodyJson: {
     text?: string;
-    mentionUserIds?: string[];
+    staffMentions?: Array<{ userId?: string; label?: string }>;
+    patientMentions?: Array<{ patientId?: string; label?: string }>;
     attachmentPath?: string | null;
     attachmentMime?: string | null;
     attachmentName?: string | null;
@@ -153,9 +220,39 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
   }
 
-  const text = typeof bodyJson.text === "string" ? bodyJson.text : "";
-  const mentionRaw = Array.isArray(bodyJson.mentionUserIds) ? bodyJson.mentionUserIds : [];
-  const mentionUserIds = [...new Set(mentionRaw.map((u) => String(u).trim()).filter(Boolean))].slice(0, 25);
+  const displayText = typeof bodyJson.text === "string" ? bodyJson.text : "";
+  const staffPickRaw = Array.isArray(bodyJson.staffMentions) ? bodyJson.staffMentions : [];
+  const patientPickRaw = Array.isArray(bodyJson.patientMentions) ? bodyJson.patientMentions : [];
+
+  const staffPicks: MentionPick[] = staffPickRaw
+    .map((r) => ({
+      id: String(r.userId ?? "").trim(),
+      label: String(r.label ?? "").trim(),
+    }))
+    .filter((p) => p.id && p.label)
+    .slice(0, 25);
+
+  const patientPicks: MentionPick[] = patientPickRaw
+    .map((r) => ({
+      id: String(r.patientId ?? "").trim(),
+      label: String(r.label ?? "").trim(),
+    }))
+    .filter((p) => p.id && p.label)
+    .slice(0, 8);
+
+  if (patientPicks.length > 0 && chatType !== "company" && chatType !== "team") {
+    return NextResponse.json({ error: "patient_mentions_not_allowed" }, { status: 400 });
+  }
+
+  if (patientPicks.length > 0) {
+    const ok = await assertStaffAssignedToAllPatients(
+      staff.user_id,
+      patientPicks.map((p) => p.id)
+    );
+    if (!ok) {
+      return NextResponse.json({ error: "patient_mention_forbidden" }, { status: 403 });
+    }
+  }
 
   const attachmentPath =
     typeof bodyJson.attachmentPath === "string" && bodyJson.attachmentPath.trim()
@@ -170,8 +267,20 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       ? bodyJson.attachmentName.trim().slice(0, 200)
       : null;
 
-  if (!text.trim() && !attachmentPath) {
+  if (!displayText.trim() && !attachmentPath && staffPicks.length === 0 && patientPicks.length === 0) {
     return NextResponse.json({ error: "empty" }, { status: 400 });
+  }
+
+  const canonical = mergePicksIntoCanonical(displayText, staffPicks, patientPicks);
+  const mentionUserIds = extractStaffMentionIdsFromCanonical(canonical);
+  const mentionPatientIdsFromCanon = extractPatientMentionIdsFromCanonical(canonical);
+  const pickPatientSet = new Set(patientPicks.map((p) => p.id));
+  const canonPatientSet = new Set(mentionPatientIdsFromCanon);
+  if (
+    pickPatientSet.size !== canonPatientSet.size ||
+    ![...pickPatientSet].every((id) => canonPatientSet.has(id))
+  ) {
+    return NextResponse.json({ error: "patient_mention_mismatch" }, { status: 400 });
   }
 
   if (mentionUserIds.length > 0) {
@@ -188,21 +297,26 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     }
   }
 
-  const plain = text.trim() || (attachmentName ? `📎 ${attachmentName}` : " ");
+  const plain =
+    canonical.trim() ||
+    (attachmentName ? `📎 ${attachmentName}` : patientPicks.length ? "Patient reference" : " ");
   const { ciphertext, nonce } = encryptInternalChatUtf8(plain);
+
+  const insertRow: Record<string, unknown> = {
+    chat_id: cid,
+    sender_id: staff.user_id,
+    ciphertext: ciphertext.toString("base64"),
+    nonce: nonce.toString("base64"),
+    attachment_path: attachmentPath,
+    attachment_mime: attachmentMime,
+    attachment_name: attachmentName,
+    mention_user_ids: mentionUserIds,
+    mention_patient_ids: [...pickPatientSet],
+  };
 
   const { data: inserted, error: insErr } = await supabaseAdmin
     .from("internal_chat_messages")
-    .insert({
-      chat_id: cid,
-      sender_id: staff.user_id,
-      ciphertext: ciphertext.toString("base64"),
-      nonce: nonce.toString("base64"),
-      attachment_path: attachmentPath,
-      attachment_mime: attachmentMime,
-      attachment_name: attachmentName,
-      mention_user_ids: mentionUserIds,
-    })
+    .insert(insertRow)
     .select("id")
     .maybeSingle();
 
@@ -219,6 +333,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       message_id: inserted.id,
       body_length: plain.length,
       has_attachment: Boolean(attachmentPath),
+      patient_mention_count: patientPicks.length,
     },
   });
 

@@ -10,6 +10,67 @@ type RouteParams = { params: Promise<{ chatId: string }> };
 
 const MEMBER_ROLES = new Set(["admin", "staff", "read_only"]);
 
+export async function GET(_req: NextRequest, { params }: RouteParams) {
+  const staff = await getStaffProfile();
+  if (!staff || !isManagerOrHigher(staff)) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
+
+  const { chatId } = await params;
+  const cid = typeof chatId === "string" ? chatId.trim() : "";
+  if (!cid) {
+    return NextResponse.json({ error: "invalid" }, { status: 400 });
+  }
+
+  const { data: rows, error } = await supabaseAdmin
+    .from("internal_chat_members")
+    .select("user_id, member_role, pinned_at, notifications_muted")
+    .eq("chat_id", cid);
+
+  if (error) {
+    console.warn("[admin/internal-chat/members GET]", error.message);
+    return NextResponse.json({ error: "load_failed" }, { status: 500 });
+  }
+
+  const uids = (rows ?? []).map((r) => String(r.user_id)).filter(Boolean);
+  const { data: profiles } = await supabaseAdmin
+    .from("staff_profiles")
+    .select("user_id, full_name, email, role, is_active")
+    .in("user_id", uids);
+
+  const label = new Map(
+    (profiles ?? []).map((p) => [
+      String(p.user_id),
+      {
+        label:
+          (typeof p.full_name === "string" && p.full_name.trim()) ||
+          (typeof p.email === "string" && p.email.trim()) ||
+          "Staff",
+        email: p.email ?? null,
+        role: p.role ?? null,
+        isActive: p.is_active === true,
+      },
+    ])
+  );
+
+  const members = (rows ?? []).map((r) => {
+    const uid = String(r.user_id);
+    const meta = label.get(uid);
+    return {
+      userId: uid,
+      memberRole: r.member_role as string,
+      label: meta?.label ?? "Staff",
+      email: meta?.email ?? null,
+      staffRole: meta?.role ?? null,
+      isActive: meta?.isActive ?? false,
+    };
+  });
+
+  members.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }));
+
+  return NextResponse.json({ members });
+}
+
 export async function POST(req: NextRequest, { params }: RouteParams) {
   const staff = await getStaffProfile();
   if (!staff || !isManagerOrHigher(staff)) {
@@ -80,6 +141,10 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
   const userId = (req.nextUrl.searchParams.get("userId") ?? "").trim();
   if (!cid || !userId) {
     return NextResponse.json({ error: "invalid" }, { status: 400 });
+  }
+
+  if (userId === staff.user_id) {
+    return NextResponse.json({ error: "cannot_remove_self" }, { status: 400 });
   }
 
   const { error } = await supabaseAdmin

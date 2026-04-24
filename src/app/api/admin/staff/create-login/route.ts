@@ -180,6 +180,27 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "missing_email" }, { status: 400 });
   }
 
+  const preExistingAuth = await findAuthUserIdByEmail(email);
+  if (preExistingAuth) {
+    const { data: holder } = await supabaseAdmin
+      .from("staff_profiles")
+      .select("id")
+      .eq("user_id", preExistingAuth)
+      .maybeSingle();
+    if (holder?.id && holder.id !== staffProfileId) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "auth_email_owned_by_other_staff",
+          dupStaffProfileId: holder.id,
+          detail:
+            "Supabase Auth already has a login for this email, linked to a different staff profile. Open that profile or use a different email.",
+        },
+        { status: 409 }
+      );
+    }
+  }
+
   let smsOnRow: string | null =
     typeof (rowRaw as { sms_notify_phone?: string | null }).sms_notify_phone === "string"
       ? (rowRaw as { sms_notify_phone: string }).sms_notify_phone

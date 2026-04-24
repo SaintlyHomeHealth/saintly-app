@@ -13,6 +13,27 @@ export type StaffRowForAuthSync = {
   inbound_ring_enabled: boolean;
 };
 
+/**
+ * After a staff profile is removed, deletes the Auth user if no `staff_profiles` row still references it.
+ * Frees the email for a new placeholder or invite when hard-delete left an orphan login.
+ */
+export async function deleteOrphanAuthUserForNormalizedEmail(email: string | null | undefined): Promise<void> {
+  const want = normalizeStaffLookupEmail(email ?? "");
+  if (!want) return;
+  const authId = await findAuthUserIdByEmail(want);
+  if (!authId) return;
+  const { data: still } = await supabaseAdmin
+    .from("staff_profiles")
+    .select("id")
+    .eq("user_id", authId)
+    .maybeSingle();
+  if (still?.id) return;
+  const { error } = await supabaseAdmin.auth.admin.deleteUser(authId);
+  if (error) {
+    console.warn("[staff-auth-link] deleteOrphanAuthUser:", error.message);
+  }
+}
+
 export async function findAuthUserIdByEmail(email: string): Promise<string | null> {
   const want = normalizeStaffLookupEmail(email);
   let page = 1;

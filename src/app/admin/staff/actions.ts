@@ -3,6 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
+import {
+  deleteOrphanAuthUserForNormalizedEmail,
+  findAuthUserIdByEmail,
+} from "@/lib/admin/staff-auth-link";
 import { normalizeStaffLookupEmail } from "@/lib/admin/staff-auth-shared";
 import { insertAuditLog } from "@/lib/audit-log";
 import { supabaseAdmin } from "@/lib/admin";
@@ -26,7 +30,7 @@ export async function addStaffProfile(formData: FormData) {
   }
 
   const fullName = String(formData.get("fullName") ?? "").trim();
-  const email = String(formData.get("email") ?? "").trim().toLowerCase();
+  const email = normalizeStaffLookupEmail(String(formData.get("email") ?? ""));
   const roleRaw = String(formData.get("role") ?? "").trim();
 
   if (!fullName || !email || !isStaffRole(roleRaw)) {
@@ -34,6 +38,35 @@ export async function addStaffProfile(formData: FormData) {
   }
   if (roleRaw === "super_admin" && !isSuperAdmin(actor)) {
     redirect("/admin/staff?err=forbidden");
+  }
+
+  const { data: dupRow } = await supabaseAdmin
+    .from("staff_profiles")
+    .select("id")
+    .eq("email", email)
+    .maybeSingle();
+  if (dupRow?.id) {
+    redirect(`/admin/staff?err=duplicate_email_staff&dupId=${encodeURIComponent(dupRow.id)}`);
+  }
+
+  const existingAuthId = await findAuthUserIdByEmail(email);
+  if (existingAuthId) {
+    const { data: linked } = await supabaseAdmin
+      .from("staff_profiles")
+      .select("id")
+      .eq("user_id", existingAuthId)
+      .maybeSingle();
+    if (linked?.id) {
+      redirect(
+        `/admin/staff?err=duplicate_email_auth&dupStaffId=${encodeURIComponent(linked.id)}`
+      );
+    }
+    const { error: orphanDelErr } = await supabaseAdmin.auth.admin.deleteUser(existingAuthId);
+    if (orphanDelErr) {
+      console.warn("[staff] addStaffProfile orphan auth delete:", orphanDelErr.message);
+      const safe = encodeURIComponent(orphanDelErr.message.slice(0, 400));
+      redirect(`/admin/staff?err=duplicate_email_orphan_auth&detail=${safe}`);
+    }
   }
 
   const { error } = await supabaseAdmin.from("staff_profiles").insert({
@@ -847,6 +880,9 @@ export async function staffListPermanentDeleteAction(staffProfileId: string): Pr
       entityId: id,
       metadata: { source: "staff_list" },
     });
+    await deleteOrphanAuthUserForNormalizedEmail(
+      typeof target.email === "string" ? target.email : null
+    );
     revalidatePath("/admin/staff");
     return { ok: true, resultKind: "placeholder" };
   }
@@ -906,6 +942,10 @@ export async function staffListPermanentDeleteAction(staffProfileId: string): Pr
     entityId: id,
     metadata: { auth_user_id: userId, source: "staff_list" },
   });
+
+  await deleteOrphanAuthUserForNormalizedEmail(
+    typeof target.email === "string" ? target.email : null
+  );
 
   revalidatePath("/admin/staff");
   return { ok: true, resultKind: "with_login" };
@@ -1030,7 +1070,7 @@ export async function updateStaffPageAccess(formData: FormData) {
 
   const preset = isStaffPagePreset(presetRaw) ? presetRaw : "custom";
 
-  let page_permissions: Record<string, boolean> = {};
+  const page_permissions: Record<string, boolean> = {};
   if (preset === "custom") {
     for (const key of STAFF_PAGE_KEYS) {
       page_permissions[key] = formData.has(`access_${key}`);

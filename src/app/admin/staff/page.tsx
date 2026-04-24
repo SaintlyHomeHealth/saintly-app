@@ -80,6 +80,12 @@ function flashForErr(code: string | undefined): string | null {
     self_active: "You cannot deactivate your own account here.",
     last_super: "Keep at least one active super admin.",
     duplicate_email: "Another staff row already uses that work email.",
+    duplicate_email_staff:
+      "This work email is already on a staff directory row. Open that row or use a different email.",
+    duplicate_email_auth:
+      "Supabase Auth already has a login linked to another staff row with this email. Open that staff profile or deactivate the duplicate first.",
+    duplicate_email_orphan_auth:
+      "A leftover Supabase login still exists for this email and could not be removed automatically. Check Auth users in Supabase or try again.",
     auth_email: "Supabase Auth rejected the email change (duplicate login email or policy).",
     self_remove: "You cannot remove or deactivate your own staff row here.",
     permanent_forbidden: "This action could not be completed.",
@@ -159,6 +165,11 @@ export default async function AdminStaffPage({
           }
         })()
       : undefined;
+  const dupIdRaw = sp.dupId;
+  const dupStaffIdRaw = sp.dupStaffId;
+  const dupStaffId = typeof dupStaffIdRaw === "string" ? dupStaffIdRaw : undefined;
+  const dupRowId = typeof dupIdRaw === "string" ? dupIdRaw : undefined;
+
   const errMsg = flashForErr(errCode);
   const okMsg = flashForOk(okCode);
 
@@ -179,6 +190,22 @@ export default async function AdminStaffPage({
           {errMsg ? (
             <p className="mb-4 rounded-[16px] border border-red-200 bg-red-50/90 px-4 py-3 text-sm text-red-900">
               {errMsg}
+              {errCode === "duplicate_email_staff" && dupRowId ? (
+                <Link
+                  href={`/admin/staff/${dupRowId}`}
+                  className="mt-2 block text-sm font-semibold text-red-950 underline underline-offset-2"
+                >
+                  Open the existing staff row
+                </Link>
+              ) : null}
+              {errCode === "duplicate_email_auth" && dupStaffId ? (
+                <Link
+                  href={`/admin/staff/${dupStaffId}`}
+                  className="mt-2 block text-sm font-semibold text-red-950 underline underline-offset-2"
+                >
+                  Open the staff profile that owns this login
+                </Link>
+              ) : null}
               {errDetail ? (
                 <span className="mt-2 block font-mono text-xs leading-snug text-red-950/90 [overflow-wrap:anywhere]">
                   {errDetail}

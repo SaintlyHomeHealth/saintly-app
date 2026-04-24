@@ -1,9 +1,11 @@
 "use client";
 
 import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
-import { BellOff, ChevronLeft, Paperclip, Pin, Send } from "lucide-react";
+import { BellOff, ChevronLeft, Paperclip, Pin, Send, UserPlus } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+
+type PatientMentionCard = { id: string; label: string; href: string };
 
 type Msg = {
   id: string;
@@ -16,28 +18,60 @@ type Msg = {
   attachmentName: string | null;
   mentionUserIds: string[];
   readByUserIds: string[];
+  patientMentions?: PatientMentionCard[];
+};
+
+type StaffPick = { userId: string; label: string };
+type PatientPick = { patientId: string; label: string };
+
+type ChatMemberRow = {
+  userId: string;
+  memberRole: string;
+  label: string;
+  email: string | null;
+  isActive: boolean;
 };
 
 type Props = {
   chatId: string;
+  chatType: string;
   title: string;
   showMemberAdmin: boolean;
   selfUserId: string;
 };
 
-export function ChatThreadClient({ chatId, title, showMemberAdmin, selfUserId }: Props) {
+export function ChatThreadClient({ chatId, chatType, title, showMemberAdmin, selfUserId }: Props) {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [loading, setLoading] = useState(true);
   const [text, setText] = useState("");
+  const [staffPicks, setStaffPicks] = useState<StaffPick[]>([]);
+  const [patientPicks, setPatientPicks] = useState<PatientPick[]>([]);
   const [sending, setSending] = useState(false);
   const [mentionPick, setMentionPick] = useState<Array<{ userId: string; label: string }>>([]);
   const [showMentions, setShowMentions] = useState(false);
   const [muted, setMuted] = useState(false);
   const [pinned, setPinned] = useState(false);
-  const [memberUserId, setMemberUserId] = useState("");
   const [memberRole, setMemberRole] = useState("staff");
   const [canPost, setCanPost] = useState(true);
+  const [members, setMembers] = useState<ChatMemberRow[]>([]);
+  const [memberSearch, setMemberSearch] = useState("");
+  const [memberSuggest, setMemberSuggest] = useState<Array<{ userId: string; label: string }>>([]);
+  const [mentionablePatients, setMentionablePatients] = useState<PatientPick[]>([]);
+  const [patientMenuOpen, setPatientMenuOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement | null>(null);
+
+  const showPatientMentions = chatType === "company" || chatType === "team";
+
+  const loadMembers = useCallback(async () => {
+    if (!showMemberAdmin) return;
+    try {
+      const res = await fetch(`/api/admin/internal-chat/chats/${chatId}/members`, { cache: "no-store" });
+      const json = (await res.json()) as { members?: ChatMemberRow[] };
+      setMembers(json.members ?? []);
+    } catch {
+      setMembers([]);
+    }
+  }, [chatId, showMemberAdmin]);
 
   const loadMessages = useCallback(async () => {
     setLoading(true);
@@ -82,6 +116,25 @@ export function ChatThreadClient({ chatId, title, showMemberAdmin, selfUserId }:
   }, [loadMessages]);
 
   useEffect(() => {
+    void loadMembers();
+  }, [loadMembers]);
+
+  useEffect(() => {
+    if (!showPatientMentions) return;
+    void (async () => {
+      try {
+        const res = await fetch("/api/workspace/internal-chat/mentionable-patients", { cache: "no-store" });
+        const json = (await res.json()) as { patients?: Array<{ patientId: string; label: string }> };
+        setMentionablePatients(
+          (json.patients ?? []).map((p) => ({ patientId: p.patientId, label: p.label }))
+        );
+      } catch {
+        setMentionablePatients([]);
+      }
+    })();
+  }, [showPatientMentions]);
+
+  useEffect(() => {
     const supabase = createBrowserSupabaseClient();
     const channel = supabase
       .channel(`internal_chat_${chatId}`)
@@ -107,21 +160,42 @@ export function ChatThreadClient({ chatId, title, showMemberAdmin, selfUserId }:
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages.length]);
 
+  function upsertStaffPick(userId: string, label: string) {
+    setStaffPicks((prev) => {
+      const rest = prev.filter((p) => p.userId !== userId);
+      return [...rest, { userId, label }];
+    });
+  }
+
+  function upsertPatientPick(patientId: string, label: string) {
+    setPatientPicks((prev) => {
+      const rest = prev.filter((p) => p.patientId !== patientId);
+      return [...rest, { patientId, label }];
+    });
+  }
+
   async function send() {
     const t = text.trim();
-    if (!t || sending) return;
-    const mentionUserIds = [
-      ...new Set([...t.matchAll(/@([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/gi)].map((m) => m[1])),
-    ];
+    const sp = staffPicks.filter((p) => text.includes(`@${p.label}`));
+    const pp = patientPicks.filter((p) => text.includes(`@${p.label}`));
+    if ((!t && pp.length === 0 && sp.length === 0) || sending) return;
     setSending(true);
     try {
       const res = await fetch(`/api/workspace/internal-chat/chats/${chatId}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: t, mentionUserIds }),
+        body: JSON.stringify({
+          text: t,
+          staffMentions: sp.map((p) => ({ userId: p.userId, label: p.label })),
+          patientMentions: showPatientMentions
+            ? pp.map((p) => ({ patientId: p.patientId, label: p.label }))
+            : [],
+        }),
       });
       if (res.ok) {
         setText("");
+        setStaffPicks([]);
+        setPatientPicks([]);
         await loadMessages();
       }
     } finally {
@@ -158,6 +232,8 @@ export function ChatThreadClient({ chatId, title, showMemberAdmin, selfUserId }:
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           text: "",
+          staffMentions: [],
+          patientMentions: [],
           attachmentPath: objectPath,
           attachmentMime: file.type || "application/octet-stream",
           attachmentName: file.name,
@@ -170,7 +246,7 @@ export function ChatThreadClient({ chatId, title, showMemberAdmin, selfUserId }:
   }
 
   useEffect(() => {
-    const m = text.match(/@([\w.+@-]*)$/);
+    const m = text.match(/@([\w.'\u2019+-]*)$/u);
     const q = (m?.[1] ?? "").trim();
     if (!m || q.length < 1) {
       setShowMentions(false);
@@ -191,6 +267,27 @@ export function ChatThreadClient({ chatId, title, showMemberAdmin, selfUserId }:
     }, 200);
     return () => window.clearTimeout(id);
   }, [text]);
+
+  useEffect(() => {
+    if (!showMemberAdmin || memberSearch.trim().length < 2) {
+      setMemberSuggest([]);
+      return;
+    }
+    const id = window.setTimeout(async () => {
+      try {
+        const res = await fetch(
+          `/api/workspace/internal-chat/directory?q=${encodeURIComponent(memberSearch.trim())}`,
+          { cache: "no-store" }
+        );
+        const json = (await res.json()) as { users?: Array<{ userId: string; label: string }> };
+        const existing = new Set(members.map((x) => x.userId));
+        setMemberSuggest((json.users ?? []).filter((u) => !existing.has(u.userId)).slice(0, 12));
+      } catch {
+        setMemberSuggest([]);
+      }
+    }, 200);
+    return () => window.clearTimeout(id);
+  }, [memberSearch, members, showMemberAdmin]);
 
   async function toggleMute() {
     const next = !muted;
@@ -216,25 +313,52 @@ export function ChatThreadClient({ chatId, title, showMemberAdmin, selfUserId }:
     }
   }
 
-  async function addMember(e: React.FormEvent) {
-    e.preventDefault();
-    if (!memberUserId.trim()) return;
+  async function addMemberByUserId(userId: string) {
     await fetch(`/api/admin/internal-chat/chats/${chatId}/members`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userId: memberUserId.trim(), memberRole }),
+      body: JSON.stringify({ userId, memberRole }),
     });
-    setMemberUserId("");
+    setMemberSearch("");
+    setMemberSuggest([]);
+    await loadMembers();
   }
 
-  function renderBody(m: Msg) {
-    let out = m.body;
-    for (const id of m.mentionUserIds ?? []) {
-      const re = new RegExp(`@${id}`, "g");
-      out = out.replace(re, `@…`);
-    }
-    return out;
+  async function removeMember(userId: string) {
+    await fetch(`/api/admin/internal-chat/chats/${chatId}/members?userId=${encodeURIComponent(userId)}`, {
+      method: "DELETE",
+    });
+    await loadMembers();
   }
+
+  async function updateMemberRole(userId: string, role: string) {
+    await fetch(`/api/admin/internal-chat/chats/${chatId}/members`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId, memberRole: role }),
+    });
+    await loadMembers();
+  }
+
+  function insertStaffMentionFromPicker(userId: string, label: string) {
+    const m = text.match(/^(.*)@([\w.'\u2019+-]*)$/u);
+    const prefix = m ? m[1] ?? "" : text;
+    setText(`${prefix}@${label} `);
+    upsertStaffPick(userId, label);
+    setShowMentions(false);
+    setMentionPick([]);
+  }
+
+  function pickPatientForMention(p: PatientPick) {
+    setText((prev) => `${prev}@${p.label} `);
+    upsertPatientPick(p.patientId, p.label);
+    setPatientMenuOpen(false);
+  }
+
+  const canSend =
+    Boolean(text.trim()) ||
+    staffPicks.some((p) => text.includes(`@${p.label}`)) ||
+    (showPatientMentions && patientPicks.some((p) => text.includes(`@${p.label}`)));
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden pb-24">
@@ -268,17 +392,15 @@ export function ChatThreadClient({ chatId, title, showMemberAdmin, selfUserId }:
       </header>
 
       {showMemberAdmin ? (
-        <div className="border-b border-slate-100 bg-slate-50 px-3 py-2 text-xs">
-          <form className="flex flex-wrap items-end gap-2" onSubmit={addMember}>
-            <label className="flex flex-col">
-              <span className="text-[10px] font-semibold uppercase text-slate-500">Add user id</span>
-              <input
-                value={memberUserId}
-                onChange={(e) => setMemberUserId(e.target.value)}
-                placeholder="UUID"
-                className="w-48 rounded border border-slate-200 px-2 py-1 font-mono text-[11px]"
-              />
-            </label>
+        <div className="max-h-56 shrink-0 overflow-y-auto border-b border-slate-100 bg-slate-50 px-3 py-2 text-xs">
+          <div className="font-semibold text-slate-800">Manage members</div>
+          <div className="mt-2 flex flex-wrap items-end gap-2">
+            <input
+              value={memberSearch}
+              onChange={(e) => setMemberSearch(e.target.value)}
+              placeholder="Search staff to add…"
+              className="min-w-[10rem] flex-1 rounded border border-slate-200 px-2 py-1 text-sm"
+            />
             <select
               value={memberRole}
               onChange={(e) => setMemberRole(e.target.value)}
@@ -286,15 +408,58 @@ export function ChatThreadClient({ chatId, title, showMemberAdmin, selfUserId }:
             >
               <option value="staff">Staff</option>
               <option value="read_only">Read-only</option>
-              <option value="admin">Admin</option>
+              <option value="admin">Channel admin</option>
             </select>
-            <button type="submit" className="rounded bg-slate-800 px-2 py-1 font-semibold text-white">
-              Add / update
-            </button>
-          </form>
-          <p className="mt-1 text-[10px] text-slate-500">
-            Paste a teammate&apos;s user id from Staff Access / admin tools. Remove via API only in this MVP.
-          </p>
+          </div>
+          {memberSuggest.length > 0 ? (
+            <ul className="mt-1 max-h-24 overflow-y-auto rounded border border-slate-200 bg-white">
+              {memberSuggest.map((u) => (
+                <li key={u.userId}>
+                  <button
+                    type="button"
+                    className="w-full px-2 py-1.5 text-left text-sm hover:bg-slate-50"
+                    onClick={() => void addMemberByUserId(u.userId)}
+                  >
+                    {u.label}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          <ul className="mt-2 space-y-1">
+            {members.map((m) => (
+              <li
+                key={m.userId}
+                className="flex flex-wrap items-center justify-between gap-2 rounded border border-slate-200/80 bg-white px-2 py-1"
+              >
+                <span className="min-w-0 truncate">
+                  <span className="font-medium text-slate-900">{m.label}</span>
+                  {m.email ? <span className="ml-1 text-slate-500">({m.email})</span> : null}
+                  {!m.isActive ? <span className="ml-1 text-amber-700">inactive</span> : null}
+                </span>
+                <div className="flex items-center gap-1">
+                  <select
+                    value={m.memberRole}
+                    className="rounded border border-slate-200 px-1 py-0.5 text-[11px]"
+                    onChange={(e) => void updateMemberRole(m.userId, e.target.value)}
+                  >
+                    <option value="staff">Staff</option>
+                    <option value="read_only">Read-only</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                  {m.userId !== selfUserId ? (
+                    <button
+                      type="button"
+                      className="text-[11px] font-semibold text-rose-700"
+                      onClick={() => void removeMember(m.userId)}
+                    >
+                      Remove
+                    </button>
+                  ) : null}
+                </div>
+              </li>
+            ))}
+          </ul>
         </div>
       ) : null}
 
@@ -315,7 +480,26 @@ export function ChatThreadClient({ chatId, title, showMemberAdmin, selfUserId }:
                 {!mine ? (
                   <div className="mb-1 text-[10px] font-semibold text-slate-500">{m.senderLabel}</div>
                 ) : null}
-                <div className="whitespace-pre-wrap break-words">{renderBody(m)}</div>
+                {m.body ? (
+                  <div className="whitespace-pre-wrap break-words">{m.body}</div>
+                ) : null}
+                {m.patientMentions && m.patientMentions.length > 0 ? (
+                  <div className={`mt-2 space-y-1 ${mine ? "text-sky-100" : ""}`}>
+                    {m.patientMentions.map((p) => (
+                      <Link
+                        key={p.id}
+                        href={p.href}
+                        className={`block rounded-lg border px-2 py-1.5 text-xs font-medium ${
+                          mine
+                            ? "border-sky-400/50 bg-phone-navy/90 text-white"
+                            : "border-sky-200 bg-sky-50 text-sky-900"
+                        }`}
+                      >
+                        Patient · {p.label}
+                      </Link>
+                    ))}
+                  </div>
+                ) : null}
                 {m.attachmentPath ? (
                   <button
                     type="button"
@@ -349,14 +533,42 @@ export function ChatThreadClient({ chatId, title, showMemberAdmin, selfUserId }:
                 key={u.userId}
                 type="button"
                 className="block w-full px-2 py-1.5 text-left hover:bg-slate-50"
-                onClick={() => {
-                  setText((t) => t.slice(0, -1) + `@${u.userId} `);
-                  setShowMentions(false);
-                }}
+                onClick={() => insertStaffMentionFromPicker(u.userId, u.label)}
               >
                 {u.label}
               </button>
             ))}
+          </div>
+        ) : null}
+        {showPatientMentions && canPost ? (
+          <div className="mb-2">
+            <button
+              type="button"
+              onClick={() => setPatientMenuOpen((o) => !o)}
+              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-700"
+            >
+              <UserPlus className="h-3.5 w-3.5" />
+              Reference patient
+            </button>
+            {patientMenuOpen ? (
+              <ul className="mt-1 max-h-32 overflow-y-auto rounded-lg border border-slate-200 bg-white text-xs shadow-sm">
+                {mentionablePatients.length === 0 ? (
+                  <li className="px-2 py-2 text-slate-500">No assigned patients.</li>
+                ) : (
+                  mentionablePatients.map((p) => (
+                    <li key={p.patientId}>
+                      <button
+                        type="button"
+                        className="w-full px-2 py-1.5 text-left hover:bg-slate-50"
+                        onClick={() => pickPatientForMention(p)}
+                      >
+                        {p.label}
+                      </button>
+                    </li>
+                  ))
+                )}
+              </ul>
+            ) : null}
           </div>
         ) : null}
         <div className={`flex items-end gap-2 ${!canPost ? "pointer-events-none opacity-50" : ""}`}>
@@ -373,14 +585,14 @@ export function ChatThreadClient({ chatId, title, showMemberAdmin, selfUserId }:
             value={text}
             onChange={(e) => setText(e.target.value)}
             rows={2}
-            placeholder="Message… (@ for mentions)"
+            placeholder="Message… (type @ to mention a teammate)"
             disabled={!canPost}
             className="min-h-[44px] flex-1 resize-none rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-phone-border"
           />
           <button
             type="button"
             onClick={() => void send()}
-            disabled={!canPost || sending || !text.trim()}
+            disabled={!canPost || sending || !canSend}
             className="mb-0.5 flex h-10 w-10 items-center justify-center rounded-xl bg-phone-navy text-white disabled:opacity-40"
           >
             <Send className="h-4 w-4" />

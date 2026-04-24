@@ -29,6 +29,7 @@ export default async function WorkspaceChatThreadPage({
   return (
     <ChatThreadClient
       chatId={id}
+      chatType={resolved.chatType}
       title={resolved.title}
       showMemberAdmin={isManagerOrHigher(staff)}
       selfUserId={staff.user_id}

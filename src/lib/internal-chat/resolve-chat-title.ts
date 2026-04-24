@@ -2,11 +2,12 @@ import "server-only";
 
 import { displayNameFromContact } from "@/app/workspace/phone/patients/_lib/patient-hub";
 import { supabaseAdmin } from "@/lib/admin";
+import { fetchActiveAssignedPatientIdsForStaff } from "@/lib/internal-chat/assigned-patients";
 
 export async function resolveInternalChatTitleForViewer(
   chatId: string,
   viewerUserId: string
-): Promise<{ title: string } | null> {
+): Promise<{ title: string; chatType: string } | null> {
   const { data: mem } = await supabaseAdmin
     .from("internal_chat_members")
     .select("user_id")
@@ -31,6 +32,10 @@ export async function resolveInternalChatTitleForViewer(
   let title = typeof chat.title === "string" && chat.title.trim() ? chat.title.trim() : "Chat";
 
   if (chat.chat_type === "patient" && chat.patient_id) {
+    const allowed = await fetchActiveAssignedPatientIdsForStaff(viewerUserId);
+    if (!allowed.has(String(chat.patient_id))) {
+      return null;
+    }
     const { data: p } = await supabaseAdmin
       .from("patients")
       .select("contacts ( full_name, first_name, last_name )")
@@ -74,5 +79,5 @@ export async function resolveInternalChatTitleForViewer(
     title = title || `${chat.team_role} team`;
   }
 
-  return { title };
+  return { title, chatType: String(chat.chat_type) };
 }

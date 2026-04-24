@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 
+import { fetchActiveAssignedPatientIdsForStaff } from "@/lib/internal-chat/assigned-patients";
 import { decryptInternalChatUtf8 } from "@/lib/internal-chat/crypto";
+import { internalChatBodyForDisplay } from "@/lib/internal-chat/mention-tokens";
 import { canAccessWorkspaceInternalChat } from "@/lib/internal-chat/workspace-access";
 import { supabaseAdmin } from "@/lib/admin";
 import { displayNameFromContact } from "@/app/workspace/phone/patients/_lib/patient-hub";
@@ -49,7 +51,11 @@ export async function GET() {
   }
 
   const chatMap = new Map(chats.map((c) => [c.id as string, c as ChatRow]));
-  const patientIds = chats.map((c) => c.patient_id).filter(Boolean) as string[];
+  const allowedPatientIds = await fetchActiveAssignedPatientIdsForStaff(staff.user_id);
+  const patientIds = chats
+    .filter((c) => c.chat_type === "patient" && c.patient_id && allowedPatientIds.has(String(c.patient_id)))
+    .map((c) => c.patient_id)
+    .filter(Boolean) as string[];
 
   const contactByPatient = new Map<string, string>();
   if (patientIds.length > 0) {
@@ -133,7 +139,8 @@ export async function GET() {
         try {
           const ct = typeof last.ciphertext === "string" ? last.ciphertext : "";
           const nn = typeof last.nonce === "string" ? last.nonce : "";
-          preview = decryptInternalChatUtf8(Buffer.from(ct, "base64"), Buffer.from(nn, "base64"));
+          const raw = decryptInternalChatUtf8(Buffer.from(ct, "base64"), Buffer.from(nn, "base64"));
+          preview = internalChatBodyForDisplay(raw);
         } catch {
           preview = "";
         }
@@ -144,6 +151,9 @@ export async function GET() {
 
       let title = chat.title || "Chat";
       if (chat.chat_type === "patient") {
+        if (!chat.patient_id || !allowedPatientIds.has(String(chat.patient_id))) {
+          return null;
+        }
         const pn = chat.patient_id ? contactByPatient.get(chat.patient_id) : null;
         if (pn) {
           title = pn;
