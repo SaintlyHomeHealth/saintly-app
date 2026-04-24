@@ -3,8 +3,18 @@ import { randomInt } from "crypto";
 export const STAFF_TEMP_PASSWORD_MIN = 6;
 export const STAFF_TEMP_PASSWORD_MAX = 72;
 
+/** Zero-width space, ZWJ, ZWNJ, BOM — same removal as public.normalize_staff_work_email() in Postgres. */
+const STAFF_EMAIL_INVISIBLE = /[\u200B-\u200D\uFEFF]/g;
+
+/**
+ * Canonical work email for comparisons, forms, and inserts — must match
+ * `normalize_staff_work_email` in the database (trim, lowercase, strip ZWSP/BOM).
+ * Empty / null input yields "" (callers treat as missing).
+ */
 export function normalizeStaffLookupEmail(raw: string | null | undefined): string {
-  return (typeof raw === "string" ? raw : "").trim().toLowerCase();
+  if (raw == null || typeof raw !== "string") return "";
+  const s = raw.replace(STAFF_EMAIL_INVISIBLE, "").trim().toLowerCase();
+  return s;
 }
 
 /** Cryptographically strong temp password for admin handoff (shown once; stored only as Auth hash). */

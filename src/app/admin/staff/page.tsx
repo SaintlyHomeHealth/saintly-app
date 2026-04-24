@@ -370,11 +370,30 @@ export default async function AdminStaffPage({
             {diagnosis && diagnosis.normalizedEmail ? (
               <div className="mt-4 space-y-3 rounded-[16px] border border-slate-100 bg-slate-50/80 p-4 text-xs text-slate-800">
                 <p className="font-semibold text-slate-900">Results for {diagnosis.normalizedEmail}</p>
+                {diagnosis.staffLookupSource === "fallback" ? (
+                  <p className="rounded-lg border border-amber-200 bg-amber-50/90 px-3 py-2 text-amber-950">
+                    Staff lookup is using a <span className="font-semibold">fallback</span> (RPC missing or error).
+                    Apply migration <span className="font-mono">20260430268000_staff_profiles_email_normalize_function</span>{" "}
+                    so tools use the same <span className="font-mono">normalize_staff_work_email</span> as the database
+                    index.
+                    {diagnosis.staffLookupError ? (
+                      <span className="mt-1 block font-mono text-[10px] text-amber-900/90">
+                        {diagnosis.staffLookupError}
+                      </span>
+                    ) : null}
+                  </p>
+                ) : (
+                  <p className="text-[11px] text-slate-600">
+                    <span className="font-medium text-slate-800">staff_profiles</span> matches use SQL{" "}
+                    <span className="font-mono">admin_staff_profiles_conflicts_for_email</span> (same rule as the unique
+                    index: trim, lowercase, strip ZWSP/BOM).
+                  </p>
+                )}
                 <ul className="list-inside list-disc space-y-1 text-slate-700">
                   <li>
                     <span className="font-medium">staff_profiles:</span>{" "}
                     {diagnosis.staffProfiles.length === 0
-                      ? "No rows (case-insensitive match)."
+                      ? "No rows for this canonical email."
                       : diagnosis.staffProfiles.map((r) => (
                           <span key={r.id} className="ml-1 inline-block">
                             <Link
@@ -384,6 +403,12 @@ export default async function AdminStaffPage({
                               {r.is_active === false ? "Inactive · " : "Active · "}
                               {(r.full_name ?? "").trim() || r.email || r.id.slice(0, 8)}
                             </Link>
+                            <span className="mt-0.5 block max-w-xl font-mono text-[10px] leading-snug text-slate-500 [overflow-wrap:anywhere]">
+                              stored: {r.email === null ? "null" : JSON.stringify(r.email)}
+                              {typeof r.charLen === "number" ? ` · chars ${r.charLen}` : ""}
+                              {typeof r.octetLen === "number" ? ` · utf8 bytes ${r.octetLen}` : ""}
+                              {r.normalizedEmail ? ` · canonical ${r.normalizedEmail}` : ""}
+                            </span>
                             {r.is_active === false ? (
                               <form action={restoreArchivedStaffProfile} className="ml-2 inline">
                                 <input type="hidden" name="staffProfileId" value={r.id} />
