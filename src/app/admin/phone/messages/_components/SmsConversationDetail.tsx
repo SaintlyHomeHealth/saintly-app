@@ -1,3 +1,4 @@
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
@@ -14,7 +15,6 @@ import {
 import { SmsReplyComposer } from "./SmsReplyComposer";
 import { SmsThreadMarkReadOnViewClient } from "./SmsThreadMarkReadOnViewClient";
 import { SmsThreadDebugStrip } from "./SmsThreadDebugStrip";
-import { SmsThreadContactPanel } from "@/app/workspace/phone/inbox/_components/sms-thread-contact-panel";
 import { WorkspaceSmsConversationShell } from "@/app/workspace/phone/inbox/_components/workspace-sms-conversation-shell";
 import { VoicemailThreadMessageRow } from "@/app/workspace/phone/inbox/_components/VoicemailThreadMessageRow";
 import { WorkspaceSmsDeleteConversationButton } from "@/app/workspace/phone/inbox/_components/WorkspaceSmsDeleteConversationButton";
@@ -39,6 +39,22 @@ import {
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { isValidE164 } from "@/lib/softphone/phone-number";
 import { buildWorkspaceKeypadCallHref } from "@/lib/workspace-phone/launch-urls";
+
+const SmsThreadContactPanel = dynamic(
+  () =>
+    import("@/app/workspace/phone/inbox/_components/sms-thread-contact-panel").then(
+      (m) => m.SmsThreadContactPanel
+    ),
+  {
+    ssr: true,
+    loading: () => (
+      <div
+        className="h-20 w-full max-w-full animate-pulse rounded-xl border border-slate-200/80 bg-slate-100/60"
+        aria-hidden
+      />
+    ),
+  }
+);
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;

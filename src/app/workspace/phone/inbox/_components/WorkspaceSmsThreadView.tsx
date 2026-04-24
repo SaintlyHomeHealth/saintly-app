@@ -14,6 +14,14 @@ import {
   type ReactNode,
 } from "react";
 
+import {
+  VoicemailThreadMessageRow,
+  type VoicemailThreadDetail,
+} from "@/app/workspace/phone/inbox/_components/VoicemailThreadMessageRow";
+import { formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
+import { mergeThreadById, type WorkspaceSmsThreadMessage } from "@/lib/phone/workspace-sms-thread-messages";
+import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
+
 const SmsReplyComposer = dynamic(
   () => import("@/app/admin/phone/messages/_components/SmsReplyComposer").then((m) => m.SmsReplyComposer),
   {
@@ -26,21 +34,8 @@ const SmsReplyComposer = dynamic(
     ),
   }
 );
-import {
-  VoicemailThreadMessageRow,
-  type VoicemailThreadDetail,
-} from "@/app/workspace/phone/inbox/_components/VoicemailThreadMessageRow";
-import { formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
-import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
 
-export type ThreadMessage = {
-  id: string;
-  created_at: string | null;
-  direction: string;
-  body: string | null;
-  message_type?: string | null;
-  phone_call_id?: string | null;
-};
+export type ThreadMessage = WorkspaceSmsThreadMessage;
 
 const INITIAL_WINDOW = 8;
 const WINDOW_STEP = 8;
@@ -73,19 +68,6 @@ function parseRealtimeMessage(row: unknown): ThreadMessage | null {
   };
 }
 
-function sortThreadMessages(rows: ThreadMessage[]): ThreadMessage[] {
-  return [...rows].sort((a, b) =>
-    String(a.created_at ?? "").localeCompare(String(b.created_at ?? ""))
-  );
-}
-
-function mergeThreadById(prev: ThreadMessage[], incoming: ThreadMessage[]): ThreadMessage[] {
-  const byId = new Map<string, ThreadMessage>();
-  for (const m of prev) byId.set(m.id, m);
-  for (const m of incoming) byId.set(m.id, m);
-  return sortThreadMessages([...byId.values()]);
-}
-
 /** Align optimistic bubble text with persisted outbound (trim + strip zero-width chars). */
 function normalizeBodyForMatch(s: string | null | undefined): string {
   return String(s ?? "")
@@ -93,37 +75,46 @@ function normalizeBodyForMatch(s: string | null | undefined): string {
     .trim();
 }
 
-const ThreadMessageRow = memo(function ThreadMessageRow({ message: m }: { message: ThreadMessage }) {
-  const inbound = String(m.direction).toLowerCase() === "inbound";
-  const isPending = m.id.startsWith("optimistic-");
-  const when = formatAdminPhoneWhen(typeof m.created_at === "string" ? m.created_at : null);
+const ThreadMessageRow = memo(
+  function ThreadMessageRow({ message: m }: { message: ThreadMessage }) {
+    const inbound = String(m.direction).toLowerCase() === "inbound";
+    const isPending = m.id.startsWith("optimistic-");
+    const when = formatAdminPhoneWhen(typeof m.created_at === "string" ? m.created_at : null);
 
-  return (
-    <div
-      className={`flex w-full flex-col ${inbound ? "items-start" : "items-end"} gap-0.5 sm:gap-1`}
-    >
+    return (
       <div
-        className={`max-w-[min(92%,22rem)] rounded-[1.05rem] text-[15px] leading-[1.42] tracking-[0.01em] sm:rounded-[1.25rem] ${
-          inbound
-            ? "rounded-bl-md border border-slate-200/70 bg-white px-3 pb-2 pt-2.5 text-slate-900 [overflow-wrap:anywhere] isolate sm:shadow-[0_1px_2px_rgba(15,23,42,0.05)] sm:px-4 sm:pb-2.5 sm:pt-3"
-            : `rounded-br-md bg-gradient-to-br from-sky-500 via-sky-600 to-blue-800 px-3 py-1.5 text-white shadow-sm shadow-sky-900/12 ring-1 ring-white/15 sm:px-3.5 sm:py-2.5 sm:shadow-md ${
-                isPending ? "opacity-90" : ""
-              }`
-        }`}
+        className={`flex w-full flex-col ${inbound ? "items-start" : "items-end"} gap-0.5 sm:gap-1`}
       >
-        <p className="whitespace-pre-wrap break-words">{String(m.body ?? "")}</p>
+        <div
+          className={`max-w-[min(92%,22rem)] rounded-[1.05rem] text-[15px] leading-[1.42] tracking-[0.01em] sm:rounded-[1.25rem] ${
+            inbound
+              ? "rounded-bl-md border border-slate-200/70 bg-white px-3 pb-2 pt-2.5 text-slate-900 [overflow-wrap:anywhere] isolate sm:shadow-[0_1px_2px_rgba(15,23,42,0.05)] sm:px-4 sm:pb-2.5 sm:pt-3"
+              : `rounded-br-md bg-gradient-to-br from-sky-500 via-sky-600 to-blue-800 px-3 py-1.5 text-white shadow-sm shadow-sky-900/12 ring-1 ring-white/15 sm:px-3.5 sm:py-2.5 sm:shadow-md ${
+                  isPending ? "opacity-90" : ""
+                }`
+          }`}
+        >
+          <p className="whitespace-pre-wrap break-words">{String(m.body ?? "")}</p>
+        </div>
+        <p
+          className={`px-1 text-[10px] font-medium tabular-nums tracking-wide ${
+            inbound ? "text-left text-slate-400" : "text-right text-slate-400"
+          }`}
+        >
+          {when}
+          {isPending ? " · Sending…" : ""}
+        </p>
       </div>
-      <p
-        className={`px-1 text-[10px] font-medium tabular-nums tracking-wide ${
-          inbound ? "text-left text-slate-400" : "text-right text-slate-400"
-        }`}
-      >
-        {when}
-        {isPending ? " · Sending…" : ""}
-      </p>
-    </div>
-  );
-});
+    );
+  },
+  (prev, next) =>
+    prev.message.id === next.message.id &&
+    prev.message.created_at === next.message.created_at &&
+    prev.message.direction === next.message.direction &&
+    prev.message.body === next.message.body &&
+    (prev.message.message_type ?? null) === (next.message.message_type ?? null) &&
+    (prev.message.phone_call_id ?? null) === (next.message.phone_call_id ?? null)
+);
 
 type Props = {
   conversationId: string;
@@ -220,7 +211,7 @@ export function WorkspaceSmsThreadView({
         })
       );
       if (opts.scroll === "auto-if-following") {
-        scrollToBottomIfFollowing("smooth");
+        scrollToBottomIfFollowing("auto");
       }
     },
     [scrollToBottomIfFollowing]
@@ -272,7 +263,7 @@ export function WorkspaceSmsThreadView({
     if (optimistic.length === 0) return;
     nearBottomRef.current = true;
     requestAnimationFrame(() => {
-      bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+      bottomRef.current?.scrollIntoView({ behavior: "auto", block: "end" });
     });
   }, [optimistic.length]);
 
@@ -350,7 +341,7 @@ export function WorkspaceSmsThreadView({
     };
   }, [fetchLatestMessages]);
 
-  const handleOptimistic = (body: string) => {
+  const handleOptimistic = useCallback((body: string) => {
     const id = `optimistic-${Date.now()}`;
     setOptimistic((prev) => [
       ...prev,
@@ -363,7 +354,7 @@ export function WorkspaceSmsThreadView({
         phone_call_id: null,
       },
     ]);
-  };
+  }, []);
 
   const removeLastOptimistic = useCallback(() => {
     setOptimistic((prev) => {

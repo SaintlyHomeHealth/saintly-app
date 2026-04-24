@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState, useTransition, type FormEvent } from "react";
+import { memo, useMemo, useState, useTransition, type FormEvent } from "react";
 
 import { DialSoftphoneButton } from "@/app/workspace/phone/patients/_components/DialSoftphoneButton";
 import {
@@ -73,7 +73,7 @@ function readCurrentPositionOrNull(): Promise<{ lat: number; lng: number; accura
   });
 }
 
-export function WorkspaceVisitCard(props: Props) {
+function WorkspaceVisitCardInner(props: Props) {
   const [isPending, startTransition] = useTransition();
   const [showReschedule, setShowReschedule] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
@@ -233,3 +233,5 @@ export function WorkspaceVisitCard(props: Props) {
     </li>
   );
 }
+
+export const WorkspaceVisitCard = memo(WorkspaceVisitCardInner);

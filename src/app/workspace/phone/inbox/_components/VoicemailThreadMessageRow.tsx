@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { memo, useCallback, useState } from "react";
+import { memo, useCallback, useRef, useState } from "react";
 import { Trash2, Voicemail } from "lucide-react";
 
 import { deleteWorkspaceSmsMessage } from "@/app/workspace/phone/inbox/actions";
@@ -35,6 +35,7 @@ export const VoicemailThreadMessageRow = memo(function VoicemailThreadMessageRow
 }: Props) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
+  const deleteInFlight = useRef(false);
   const when = formatAdminPhoneWhen(typeof createdAt === "string" ? createdAt : null);
   const durationLabel =
     detail?.durationSeconds != null && Number.isFinite(detail.durationSeconds)
@@ -46,9 +47,10 @@ export const VoicemailThreadMessageRow = memo(function VoicemailThreadMessageRow
       : null;
 
   const onDelete = useCallback(async () => {
-    if (busy) return;
+    if (deleteInFlight.current) return;
     const ok = window.confirm("Delete this voicemail from the thread? The call log stays; audio may be removed after retention.");
     if (!ok) return;
+    deleteInFlight.current = true;
     setBusy(true);
     try {
       const res = await deleteWorkspaceSmsMessage(conversationId, messageId);
@@ -62,9 +64,10 @@ export const VoicemailThreadMessageRow = memo(function VoicemailThreadMessageRow
       }
       router.refresh();
     } finally {
+      deleteInFlight.current = false;
       setBusy(false);
     }
-  }, [busy, conversationId, messageId, router]);
+  }, [conversationId, messageId, router]);
 
   return (
     <div className="flex w-full flex-col items-start gap-0.5 sm:gap-1">
