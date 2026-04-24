@@ -23,6 +23,7 @@ import { supabaseAdmin } from "@/lib/admin";
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { labelForContactType } from "@/lib/crm/contact-types";
 import { ADMIN_PHONE_DISPLAY_TIMEZONE, formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
+import { extractSmsProviderStatusRaw, formatSmsOutboundDeliveryLabel } from "@/lib/phone/sms-delivery-ui";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import { resolvePhoneDisplayIdentity } from "@/lib/phone/resolve-phone-display-identity";
 import {
@@ -562,13 +563,21 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
         : null;
     const messageType =
       typeof row.message_type === "string" && row.message_type.trim() ? row.message_type.trim() : "sms";
+    const direction = String(row.direction ?? "");
+    const outbound_status_raw =
+      String(direction).toLowerCase() === "outbound"
+        ? extractSmsProviderStatusRaw(
+            m as { metadata?: unknown; direction?: unknown; status?: unknown; twilio_status?: unknown }
+          )
+        : null;
     return {
       id: String(row.id),
       created_at: typeof row.created_at === "string" ? row.created_at : null,
-      direction: String(row.direction ?? ""),
+      direction,
       body: typeof row.body === "string" ? row.body : null,
       message_type: messageType,
       phone_call_id: phoneCallId,
+      outbound_status_raw,
     };
   });
 
@@ -1394,7 +1403,14 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
                       }`}
                     >
                       {formatAdminPhoneWhen(typeof m.created_at === "string" ? m.created_at : null)} ·{" "}
-                      {inbound ? "Inbound" : "Outbound"}
+                      {inbound
+                        ? "Inbound"
+                        : formatSmsOutboundDeliveryLabel(
+                            extractSmsProviderStatusRaw(
+                              m as { metadata?: unknown; direction?: unknown; status?: unknown }
+                            ),
+                            { isOptimistic: false }
+                          )}
                     </p>
                   </div>
                 </div>

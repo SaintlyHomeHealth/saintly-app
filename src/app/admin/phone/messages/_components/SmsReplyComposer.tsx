@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { SmsTextFromBar } from "@/app/workspace/phone/inbox/_components/SmsTextFromBar";
@@ -52,6 +53,7 @@ export function SmsReplyComposer({
   onRemoveLastOptimistic,
   onInPlaceSendError,
 }: Props) {
+  const router = useRouter();
   const [body, setBody] = useState(
     () => initialSuggestion ?? (typeof initialDraft === "string" ? initialDraft.trim() : "")
   );
@@ -84,26 +86,32 @@ export function SmsReplyComposer({
   }, [body, messagingUX]);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    if (!messagingUX || !onOutboundOptimistic) return;
     e.preventDefault();
     const trimmed = body.trim();
     if (!trimmed) return;
     if (sendInFlightRef.current) return;
     sendInFlightRef.current = true;
     setSendInFlight(true);
-    onOutboundOptimistic(trimmed);
+    onOutboundOptimistic?.(trimmed);
     const fd = new FormData(e.currentTarget);
     try {
-      const result: void | SendConversationSmsResult = await sendConversationSms(fd);
-      if (result == null || typeof result !== "object" || !("ok" in result)) return;
+      const result: SendConversationSmsResult = await sendConversationSms(fd);
       if (result.ok) {
         setBody("");
         window.setTimeout(() => inputRef.current?.focus(), 0);
-        onInPlaceSendComplete?.();
+        if (onInPlaceSendComplete) {
+          onInPlaceSendComplete();
+        } else {
+          router.refresh();
+        }
       } else {
         onRemoveLastOptimistic?.();
         setBody(trimmed);
-        onInPlaceSendError?.(result.error);
+        if (onInPlaceSendError) {
+          onInPlaceSendError(result.error);
+        } else {
+          console.error(result.error);
+        }
       }
     } finally {
       sendInFlightRef.current = false;
@@ -121,14 +129,7 @@ export function SmsReplyComposer({
   return (
     <form
       id="sms-reply"
-      action={
-        messagingUX && onOutboundOptimistic
-          ? undefined
-          : async (fd: FormData) => {
-              await sendConversationSms(fd);
-            }
-      }
-      onSubmit={messagingUX && onOutboundOptimistic ? handleSubmit : undefined}
+      onSubmit={handleSubmit}
       className={formClass}
     >
       <input type="hidden" name="conversationId" value={conversationId} />
@@ -218,6 +219,7 @@ export function SmsReplyComposer({
             <button
               type="submit"
               className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-700"
+              disabled={!body.trim() || sendInFlight}
             >
               Send
             </button>

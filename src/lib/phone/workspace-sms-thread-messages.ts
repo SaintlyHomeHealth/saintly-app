@@ -10,6 +10,11 @@ export type WorkspaceSmsThreadMessage = {
   body: string | null;
   message_type?: string | null;
   phone_call_id?: string | null;
+  /**
+   * Lowercase Twilio/provider status (e.g. from `metadata.twilio_delivery.status`).
+   * Omitted for inbound; used only for outbound delivery label.
+   */
+  outbound_status_raw?: string | null;
 };
 
 export function sameWorkspaceSmsThreadMessage(
@@ -22,7 +27,8 @@ export function sameWorkspaceSmsThreadMessage(
     a.direction === b.direction &&
     a.body === b.body &&
     (a.message_type ?? null) === (b.message_type ?? null) &&
-    (a.phone_call_id ?? null) === (b.phone_call_id ?? null)
+    (a.phone_call_id ?? null) === (b.phone_call_id ?? null) &&
+    (a.outbound_status_raw ?? null) === (b.outbound_status_raw ?? null)
   );
 }
 

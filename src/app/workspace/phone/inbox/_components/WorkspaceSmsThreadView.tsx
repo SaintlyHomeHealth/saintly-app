@@ -19,6 +19,7 @@ import {
   type VoicemailThreadDetail,
 } from "@/app/workspace/phone/inbox/_components/VoicemailThreadMessageRow";
 import { formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
+import { extractSmsProviderStatusRaw, formatSmsOutboundDeliveryLabel } from "@/lib/phone/sms-delivery-ui";
 import { mergeThreadById, type WorkspaceSmsThreadMessage } from "@/lib/phone/workspace-sms-thread-messages";
 import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
 
@@ -48,6 +49,8 @@ const VISIBILITY_REFETCH_DEBOUNCE_MS = 450;
 /** If scroll is within this distance of the bottom, treat as “following” the thread (auto-scroll on new inbound). */
 const NEAR_BOTTOM_THRESHOLD_PX = 88;
 
+type MessageRowish = { metadata?: unknown; direction?: unknown; status?: unknown };
+
 function parseRealtimeMessage(row: unknown): ThreadMessage | null {
   if (!row || typeof row !== "object") return null;
   const r = row as Record<string, unknown>;
@@ -58,13 +61,19 @@ function parseRealtimeMessage(row: unknown): ThreadMessage | null {
     phoneCallIdRaw != null && String(phoneCallIdRaw).trim() !== "" ? String(phoneCallIdRaw).trim() : null;
   const mt = r.message_type;
   const message_type = typeof mt === "string" && mt.trim() ? mt.trim() : "sms";
+  const direction = typeof r.direction === "string" ? r.direction : "";
+  const raw =
+    String(direction).toLowerCase() === "outbound"
+      ? extractSmsProviderStatusRaw(r as MessageRowish)
+      : null;
   return {
     id,
     created_at: typeof r.created_at === "string" ? r.created_at : null,
-    direction: typeof r.direction === "string" ? r.direction : "",
+    direction,
     body: typeof r.body === "string" ? r.body : null,
     message_type,
     phone_call_id,
+    outbound_status_raw: raw,
   };
 }
 
@@ -80,6 +89,9 @@ const ThreadMessageRow = memo(
     const inbound = String(m.direction).toLowerCase() === "inbound";
     const isPending = m.id.startsWith("optimistic-");
     const when = formatAdminPhoneWhen(typeof m.created_at === "string" ? m.created_at : null);
+    const deliveryLabel = inbound
+      ? null
+      : formatSmsOutboundDeliveryLabel(m.outbound_status_raw ?? null, { isOptimistic: isPending });
 
     return (
       <div
@@ -102,7 +114,7 @@ const ThreadMessageRow = memo(
           }`}
         >
           {when}
-          {isPending ? " · Sending…" : ""}
+          {deliveryLabel ? ` · ${deliveryLabel}` : ""}
         </p>
       </div>
     );
@@ -113,7 +125,8 @@ const ThreadMessageRow = memo(
     prev.message.direction === next.message.direction &&
     prev.message.body === next.message.body &&
     (prev.message.message_type ?? null) === (next.message.message_type ?? null) &&
-    (prev.message.phone_call_id ?? null) === (next.message.phone_call_id ?? null)
+    (prev.message.phone_call_id ?? null) === (next.message.phone_call_id ?? null) &&
+    (prev.message.outbound_status_raw ?? null) === (next.message.outbound_status_raw ?? null)
 );
 
 type Props = {
@@ -225,7 +238,7 @@ export function WorkspaceSmsThreadView({
     const supabase = supabaseRef.current;
     const { data, error } = await supabase
       .from("messages")
-      .select("id, created_at, direction, body, phone_call_id, message_type")
+      .select("id, created_at, direction, body, phone_call_id, message_type, metadata")
       .eq("conversation_id", conversationId)
       .is("deleted_at", null)
       .order("created_at", { ascending: true });
@@ -239,13 +252,19 @@ export function WorkspaceSmsThreadView({
       const mtRaw = (row as { message_type?: unknown }).message_type;
       const message_type =
         typeof mtRaw === "string" && mtRaw.trim() ? mtRaw.trim() : "sms";
+      const direction = typeof row.direction === "string" ? row.direction : "";
+      const outbound_status_raw =
+        String(direction).toLowerCase() === "outbound"
+          ? extractSmsProviderStatusRaw(row as { metadata?: unknown; direction?: string })
+          : null;
       return {
         id: String(row.id),
         created_at: typeof row.created_at === "string" ? row.created_at : null,
-        direction: typeof row.direction === "string" ? row.direction : "",
+        direction,
         body: typeof row.body === "string" ? row.body : null,
         message_type,
         phone_call_id: pid,
+        outbound_status_raw,
       };
     });
     applyIncomingRows(rows, { scroll: "auto-if-following" });
@@ -352,6 +371,7 @@ export function WorkspaceSmsThreadView({
         body,
         message_type: "sms",
         phone_call_id: null,
+        outbound_status_raw: null,
       },
     ]);
   }, []);

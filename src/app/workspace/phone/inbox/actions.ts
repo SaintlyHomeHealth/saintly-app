@@ -1,11 +1,11 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
 
 import { canStaffAccessConversationRow } from "@/lib/phone/staff-conversation-access";
 import { mergeTelemetryOnSend } from "@/lib/phone/sms-suggestion-telemetry";
 import { softDeleteSmsConversation, softDeleteSmsMessage } from "@/lib/phone/sms-soft-delete";
+import { buildInitialTwilioDeliveryFromRestResponse } from "@/lib/phone/sms-delivery-ui";
 import { ensureSmsConversationForPhone } from "@/lib/phone/sms-conversation-thread";
 import { resolveContactAndPhoneForWorkspaceNewSms } from "@/lib/phone/workspace-new-sms-resolve";
 import { resolveManualInboxSmsFromOverride } from "@/lib/twilio/manual-inbox-sms-from";
@@ -19,13 +19,7 @@ const SMS_BODY_MAX = 1600;
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-async function requirePhoneMessagingStaff() {
-  const staff = await getStaffProfile();
-  if (!staff || !canAccessWorkspacePhone(staff)) {
-    redirect("/admin/phone");
-  }
-  return staff;
-}
+export type WorkspaceSmsActionResult = { ok: true } | { ok: false; error: string };
 
 function revalidateSmsViews(conversationId: string) {
   revalidatePath("/admin/phone/messages");
@@ -256,8 +250,11 @@ function mergeUniqueById<T extends { id: unknown }>(rows: T[]): T[] {
 /**
  * Start (or reuse) an SMS thread, send Twilio outbound, persist `messages`, then open the thread.
  */
-export async function sendWorkspaceNewSms(formData: FormData) {
-  const staff = await requirePhoneMessagingStaff();
+export async function sendWorkspaceNewSms(formData: FormData): Promise<WorkspaceSmsActionResult> {
+  const staff = await getStaffProfile();
+  if (!staff || !canAccessWorkspacePhone(staff)) {
+    return { ok: false, error: "You do not have access to send messages." };
+  }
 
   const bodyRaw = formData.get("body");
   const body = typeof bodyRaw === "string" ? bodyRaw.trim().slice(0, SMS_BODY_MAX) : "";
@@ -267,10 +264,8 @@ export async function sendWorkspaceNewSms(formData: FormData) {
   const contactId = typeof contactIdRaw === "string" ? contactIdRaw.trim() : "";
   const recruitingCandidateId = typeof recruitIdRaw === "string" ? recruitIdRaw.trim() : "";
 
-  const err = (code: string): never => redirect(`/workspace/phone/inbox/new?err=${code}`);
-
   if (!body) {
-    err("sms_empty");
+    return { ok: false, error: "Enter a message and try again." };
   }
 
   const resolved = await resolveContactAndPhoneForWorkspaceNewSms({
@@ -280,7 +275,7 @@ export async function sendWorkspaceNewSms(formData: FormData) {
   });
 
   if (!resolved.ok) {
-    redirect(`/workspace/phone/inbox/new?err=${mapResolveError(resolved.error)}`);
+    return { ok: false, error: mapResolveError(resolved.error) };
   }
 
   const { e164, contact } = resolved;
@@ -297,9 +292,10 @@ export async function sendWorkspaceNewSms(formData: FormData) {
       ensureError: ensured.error,
       e164,
     });
-    redirect(
-      `/workspace/phone/inbox/new?err=sms_thread&threadErr=${encodeURIComponent(ensured.error.slice(0, 500))}`
-    );
+    return {
+      ok: false,
+      error: ensured.error ? `Could not create SMS thread: ${ensured.error.slice(0, 500)}` : "Could not create SMS thread.",
+    };
   }
 
   const conversationId = ensured.conversationId;
@@ -333,7 +329,10 @@ export async function sendWorkspaceNewSms(formData: FormData) {
       error: sent.error,
     });
     const errShort = sent.error.slice(0, 600);
-    redirect(`/workspace/phone/inbox/new?smsErr=${encodeURIComponent(errShort)}`);
+    return {
+      ok: false,
+      error: errShort ? `SMS could not be sent: ${errShort}` : "SMS could not be sent. Try again.",
+    };
   }
 
   const now = new Date().toISOString();
@@ -343,14 +342,22 @@ export async function sendWorkspaceNewSms(formData: FormData) {
     direction: "outbound",
     body,
     external_message_sid: sent.messageSid,
-    metadata: { sent_by_user_id: staff.user_id, source: "workspace_new_sms" },
+    metadata: {
+      sent_by_user_id: staff.user_id,
+      source: "workspace_new_sms",
+      twilio_delivery: buildInitialTwilioDeliveryFromRestResponse({
+        twilioStatus: sent.twilioStatus ?? null,
+        updatedAtIso: now,
+      }),
+    },
   });
 
   if (insErr) {
     console.warn("[workspace-new-sms] message insert:", insErr.message);
-    redirect(
-      `/workspace/phone/inbox/new?smsErr=${encodeURIComponent(insErr.message.slice(0, 400))}`
-    );
+    return {
+      ok: false,
+      error: insErr.message ? `Message could not be saved: ${insErr.message.slice(0, 400)}` : "Message could not be saved.",
+    };
   }
 
   const { data: convBefore } = await supabaseAdmin
@@ -385,7 +392,7 @@ export async function sendWorkspaceNewSms(formData: FormData) {
   }
 
   revalidateSmsViews(conversationId);
-  redirect(`/workspace/phone/inbox/${conversationId}?ok=sms_sent`);
+  return { ok: true };
 }
 
 function mapResolveError(
@@ -393,16 +400,16 @@ function mapResolveError(
 ): string {
   switch (code) {
     case "bad_phone":
-      return "sms_bad_phone";
+      return "Phone number is invalid or missing.";
     case "contact_no_phone":
-      return "sms_contact_no_phone";
+      return "The selected contact does not have a phone number.";
     case "recruit_no_phone":
-      return "sms_recruit_no_phone";
+      return "The selected recruit does not have a phone number.";
     case "contact_not_found":
-      return "sms_contact_missing";
+      return "The selected contact could not be found.";
     case "contact_create_failed":
-      return "sms_contact_create";
+      return "Could not create a contact for this number.";
     default:
-      return "sms_resolve";
+      return "Could not resolve this SMS recipient.";
   }
 }

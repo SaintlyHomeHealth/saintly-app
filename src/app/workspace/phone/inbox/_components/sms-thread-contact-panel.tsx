@@ -1,11 +1,10 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useCallback, useMemo, useState, useTransition } from "react";
 
 import { saveSmsThreadContact, type SaveSmsThreadContactResult } from "@/app/admin/phone/messages/actions";
 import { CRM_CONTACT_TYPE_LABELS, type CrmContactTypeValue } from "@/lib/crm/contact-types";
-
-import { useWorkspaceSmsContactSave } from "./workspace-sms-conversation-shell";
 
 const SMS_THREAD_TYPE_OPTIONS: { value: CrmContactTypeValue; label: string }[] = [
   { value: "patient", label: CRM_CONTACT_TYPE_LABELS.patient },
@@ -49,7 +48,7 @@ export function SmsThreadContactPanel({
   initial,
   compactAside = false,
 }: Props) {
-  const ctx = useWorkspaceSmsContactSave();
+  const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [savedOk, setSavedOk] = useState(false);
@@ -99,10 +98,10 @@ export function SmsThreadContactPanel({
         }
         setSavedOk(true);
         setLinkedLocally(true);
-        ctx?.onContactSaved({ displayName: res.displayName, badgeLabel: res.badgeLabel });
+        router.refresh();
       });
     },
-    [ctx]
+    [router]
   );
 
   return (

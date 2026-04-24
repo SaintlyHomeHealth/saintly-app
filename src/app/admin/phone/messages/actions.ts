@@ -4,10 +4,10 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { supabaseAdmin } from "@/lib/admin";
-import { labelForContactType, normalizeCrmContactType } from "@/lib/crm/contact-types";
+import { normalizeCrmContactType } from "@/lib/crm/contact-types";
 import { findContactByIncomingPhone } from "@/lib/crm/find-contact-by-incoming-phone";
-import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { UNKNOWN_TEXTER_METADATA_KEY } from "@/lib/phone/sms-conversation-thread";
+import { buildInitialTwilioDeliveryFromRestResponse } from "@/lib/phone/sms-delivery-ui";
 import { mergeTelemetryOnSend, mergeTelemetryOnShown } from "@/lib/phone/sms-suggestion-telemetry";
 import {
   canStaffAccessConversationRow,
@@ -72,6 +72,8 @@ type ConversationAccessRow = {
   preferred_from_e164: string | null;
 };
 
+export type MessagingActionResult = { ok: true } | { ok: false; error: string };
+
 async function loadConversationForAccess(
   conversationId: string
 ): Promise<{ row: ConversationAccessRow | null }> {
@@ -108,42 +110,42 @@ async function loadConversationForAccess(
 }
 
 /** Marks inbound SMS as read for staff; revalidates inbox when any rows were updated. */
-export async function markSmsThreadInboundViewed(conversationId: string) {
+export async function markSmsThreadInboundViewed(conversationId: string): Promise<MessagingActionResult> {
   const staff = await getStaffProfile();
-  if (!requirePhoneMessagingStaff(staff)) return { ok: false as const };
-  if (!conversationId || !UUID_RE.test(conversationId)) return { ok: false as const };
+  if (!requirePhoneMessagingStaff(staff)) return { ok: false, error: "You do not have access." };
+  if (!conversationId || !UUID_RE.test(conversationId)) return { ok: false, error: "Invalid conversation." };
 
   const { row } = await loadConversationForAccess(conversationId);
-  if (!row) return { ok: false as const };
+  if (!row) return { ok: false, error: "Conversation not found." };
   if (
     !canStaffAccessConversationRow(staff, {
       assigned_to_user_id: row.assigned_to_user_id,
     })
   ) {
-    return { ok: false as const };
+    return { ok: false, error: "You do not have access to this conversation." };
   }
 
   const marked = await markInboundMessagesViewedForConversation(conversationId);
   if (marked > 0) {
     revalidateSmsConversationViews(conversationId);
   }
-  return { ok: true as const, marked };
+  return { ok: true };
 }
 
 /** Debug: clear viewed_at on the latest inbound message only (service role). */
-export async function markLatestInboundUnreadForDebug(conversationId: string) {
+export async function markLatestInboundUnreadForDebug(conversationId: string): Promise<MessagingActionResult> {
   const staff = await getStaffProfile();
-  if (!requirePhoneMessagingStaff(staff)) return { ok: false as const };
-  if (!conversationId || !UUID_RE.test(conversationId)) return { ok: false as const };
+  if (!requirePhoneMessagingStaff(staff)) return { ok: false, error: "You do not have access." };
+  if (!conversationId || !UUID_RE.test(conversationId)) return { ok: false, error: "Invalid conversation." };
 
   const { row } = await loadConversationForAccess(conversationId);
-  if (!row) return { ok: false as const };
+  if (!row) return { ok: false, error: "Conversation not found." };
   if (
     !canStaffAccessConversationRow(staff, {
       assigned_to_user_id: row.assigned_to_user_id,
     })
   ) {
-    return { ok: false as const };
+    return { ok: false, error: "You do not have access to this conversation." };
   }
 
   const { data: latest, error: selErr } = await supabaseAdmin
@@ -157,9 +159,9 @@ export async function markLatestInboundUnreadForDebug(conversationId: string) {
 
   if (selErr) {
     console.warn("[sms-debug] markLatestInboundUnreadForDebug select:", selErr.message);
-    return { ok: false as const };
+    return { ok: false, error: "Could not load latest inbound message." };
   }
-  if (!latest?.id) return { ok: true as const, marked: 0 };
+  if (!latest?.id) return { ok: true };
 
   const { error: upErr } = await supabaseAdmin
     .from("messages")
@@ -169,33 +171,33 @@ export async function markLatestInboundUnreadForDebug(conversationId: string) {
 
   if (upErr) {
     console.warn("[sms-debug] markLatestInboundUnreadForDebug update:", upErr.message);
-    return { ok: false as const };
+    return { ok: false, error: "Could not mark message unread." };
   }
 
   revalidateSmsConversationViews(conversationId);
-  return { ok: true as const, marked: 1 };
+  return { ok: true };
 }
 
-export async function claimConversation(formData: FormData) {
+export async function claimConversation(formData: FormData): Promise<MessagingActionResult> {
   const staff = await getStaffProfile();
   if (!requirePhoneMessagingStaff(staff)) {
-    return;
+    return { ok: false, error: "You do not have access." };
   }
 
   const raw = formData.get("conversationId");
   const conversationId = typeof raw === "string" ? raw.trim() : "";
   if (!conversationId || !UUID_RE.test(conversationId)) {
-    return;
+    return { ok: false, error: "Invalid conversation." };
   }
 
   const { row } = await loadConversationForAccess(conversationId);
   if (!row) {
     console.warn("[messages] claimConversation: not found", { conversationId });
-    return;
+    return { ok: false, error: "Conversation not found." };
   }
 
   if (!canStaffClaimConversation(staff, { assigned_to_user_id: row.assigned_to_user_id })) {
-    return;
+    return { ok: false, error: "You cannot claim this conversation." };
   }
 
   const now = new Date().toISOString();
@@ -213,19 +215,20 @@ export async function claimConversation(formData: FormData) {
 
   if (error) {
     console.warn("[messages] claimConversation:", error.message);
-    return;
+    return { ok: false, error: error.message || "Could not claim conversation." };
   }
   if (!data?.id) {
     console.warn("[messages] claimConversation: already assigned", { conversationId });
   }
 
   revalidateSmsConversationViews(conversationId);
+  return { ok: true };
 }
 
-export async function assignConversation(formData: FormData) {
+export async function assignConversation(formData: FormData): Promise<MessagingActionResult> {
   const staff = await getStaffProfile();
   if (!requirePhoneMessagingStaff(staff) || !hasFullCallVisibility(staff)) {
-    return;
+    return { ok: false, error: "You do not have access." };
   }
 
   const convRaw = formData.get("conversationId");
@@ -233,12 +236,12 @@ export async function assignConversation(formData: FormData) {
   const conversationId = typeof convRaw === "string" ? convRaw.trim() : "";
   const assignToUserId = typeof userRaw === "string" ? userRaw.trim() : "";
   if (!conversationId || !assignToUserId || !UUID_RE.test(assignToUserId)) {
-    return;
+    return { ok: false, error: "Invalid assignment." };
   }
 
   const { row } = await loadConversationForAccess(conversationId);
   if (!row) {
-    return;
+    return { ok: false, error: "Conversation not found." };
   }
 
   const { data: target, error: tErr } = await supabaseAdmin
@@ -249,7 +252,7 @@ export async function assignConversation(formData: FormData) {
 
   if (tErr || !target?.user_id || target.is_active === false) {
     console.warn("[messages] assignConversation target:", tErr?.message);
-    return;
+    return { ok: false, error: "Could not find an active staff member to assign." };
   }
 
   const now = new Date().toISOString();
@@ -264,22 +267,23 @@ export async function assignConversation(formData: FormData) {
 
   if (error) {
     console.warn("[messages] assignConversation:", error.message);
-    return;
+    return { ok: false, error: error.message || "Could not assign conversation." };
   }
 
   revalidateSmsConversationViews(conversationId);
+  return { ok: true };
 }
 
-export async function unassignConversation(formData: FormData) {
+export async function unassignConversation(formData: FormData): Promise<MessagingActionResult> {
   const staff = await getStaffProfile();
   if (!requirePhoneMessagingStaff(staff) || !isAdminOrHigher(staff)) {
-    return;
+    return { ok: false, error: "You do not have access." };
   }
 
   const raw = formData.get("conversationId");
   const conversationId = typeof raw === "string" ? raw.trim() : "";
   if (!conversationId) {
-    return;
+    return { ok: false, error: "Invalid conversation." };
   }
 
   const { error } = await supabaseAdmin
@@ -292,16 +296,17 @@ export async function unassignConversation(formData: FormData) {
 
   if (error) {
     console.warn("[messages] unassignConversation:", error.message);
-    return;
+    return { ok: false, error: error.message || "Could not unassign conversation." };
   }
 
   revalidateSmsConversationViews(conversationId);
+  return { ok: true };
 }
 
-export async function updateConversationLeadStatus(formData: FormData) {
+export async function updateConversationLeadStatus(formData: FormData): Promise<MessagingActionResult> {
   const staff = await getStaffProfile();
   if (!requirePhoneMessagingStaff(staff)) {
-    return;
+    return { ok: false, error: "You do not have access." };
   }
 
   const convRaw = formData.get("conversationId");
@@ -310,12 +315,12 @@ export async function updateConversationLeadStatus(formData: FormData) {
   const leadStatus = parseLeadStatus(statusRaw);
 
   if (!conversationId || !UUID_RE.test(conversationId) || !leadStatus) {
-    return;
+    return { ok: false, error: "Invalid lead status." };
   }
 
   const { row } = await loadConversationForAccess(conversationId);
   if (!row) {
-    return;
+    return { ok: false, error: "Conversation not found." };
   }
 
   if (
@@ -323,7 +328,7 @@ export async function updateConversationLeadStatus(formData: FormData) {
       assigned_to_user_id: row.assigned_to_user_id,
     })
   ) {
-    return;
+    return { ok: false, error: "You do not have access to this conversation." };
   }
 
   const prevStatus = typeof row.lead_status === "string" ? row.lead_status.trim() : "";
@@ -335,7 +340,7 @@ export async function updateConversationLeadStatus(formData: FormData) {
 
   if (error) {
     console.warn("[messages] updateConversationLeadStatus:", error.message);
-    return;
+    return { ok: false, error: error.message || "Could not update lead status." };
   }
 
   const zapierStatuses = new Set(["contacted", "scheduled", "admitted"]);
@@ -352,6 +357,7 @@ export async function updateConversationLeadStatus(formData: FormData) {
   }
 
   revalidateSmsConversationViews(conversationId);
+  return { ok: true };
 }
 
 const NEXT_ACTION_MAX = 500;
@@ -365,10 +371,10 @@ function datetimeLocalToIso(dueRaw: string | null | undefined): string | null {
   return d.toISOString();
 }
 
-export async function updateConversationFollowUp(formData: FormData) {
+export async function updateConversationFollowUp(formData: FormData): Promise<MessagingActionResult> {
   const staff = await getStaffProfile();
   if (!requirePhoneMessagingStaff(staff)) {
-    return;
+    return { ok: false, error: "You do not have access." };
   }
 
   const convRaw = formData.get("conversationId");
@@ -381,15 +387,15 @@ export async function updateConversationFollowUp(formData: FormData) {
   const dueIso = datetimeLocalToIso(typeof dueRaw === "string" ? dueRaw : null);
 
   if (!conversationId || !UUID_RE.test(conversationId)) {
-    return;
+    return { ok: false, error: "Invalid conversation." };
   }
   if (!nextAction && !dueIso) {
-    return;
+    return { ok: false, error: "Add a next action or due date." };
   }
 
   const { row } = await loadConversationForAccess(conversationId);
   if (!row) {
-    return;
+    return { ok: false, error: "Conversation not found." };
   }
 
   if (
@@ -397,7 +403,7 @@ export async function updateConversationFollowUp(formData: FormData) {
       assigned_to_user_id: row.assigned_to_user_id,
     })
   ) {
-    return;
+    return { ok: false, error: "You do not have access to this conversation." };
   }
 
   const { error } = await supabaseAdmin
@@ -411,28 +417,29 @@ export async function updateConversationFollowUp(formData: FormData) {
 
   if (error) {
     console.warn("[messages] updateConversationFollowUp:", error.message);
-    return;
+    return { ok: false, error: error.message || "Could not update follow-up." };
   }
 
   revalidateSmsConversationViews(conversationId);
+  return { ok: true };
 }
 
-export async function completeConversationFollowUp(formData: FormData) {
+export async function completeConversationFollowUp(formData: FormData): Promise<MessagingActionResult> {
   const staff = await getStaffProfile();
   if (!requirePhoneMessagingStaff(staff)) {
-    return;
+    return { ok: false, error: "You do not have access." };
   }
 
   const convRaw = formData.get("conversationId");
   const conversationId = typeof convRaw === "string" ? convRaw.trim() : "";
 
   if (!conversationId || !UUID_RE.test(conversationId)) {
-    return;
+    return { ok: false, error: "Invalid conversation." };
   }
 
   const { row } = await loadConversationForAccess(conversationId);
   if (!row) {
-    return;
+    return { ok: false, error: "Conversation not found." };
   }
 
   if (
@@ -440,7 +447,7 @@ export async function completeConversationFollowUp(formData: FormData) {
       assigned_to_user_id: row.assigned_to_user_id,
     })
   ) {
-    return;
+    return { ok: false, error: "You do not have access to this conversation." };
   }
 
   const now = new Date().toISOString();
@@ -453,28 +460,29 @@ export async function completeConversationFollowUp(formData: FormData) {
 
   if (error) {
     console.warn("[messages] completeConversationFollowUp:", error.message);
-    return;
+    return { ok: false, error: error.message || "Could not complete follow-up." };
   }
 
   revalidateSmsConversationViews(conversationId);
+  return { ok: true };
 }
 
-export async function clearConversationFollowUp(formData: FormData) {
+export async function clearConversationFollowUp(formData: FormData): Promise<MessagingActionResult> {
   const staff = await getStaffProfile();
   if (!requirePhoneMessagingStaff(staff)) {
-    return;
+    return { ok: false, error: "You do not have access." };
   }
 
   const convRaw = formData.get("conversationId");
   const conversationId = typeof convRaw === "string" ? convRaw.trim() : "";
 
   if (!conversationId || !UUID_RE.test(conversationId)) {
-    return;
+    return { ok: false, error: "Invalid conversation." };
   }
 
   const { row } = await loadConversationForAccess(conversationId);
   if (!row) {
-    return;
+    return { ok: false, error: "Conversation not found." };
   }
 
   if (
@@ -482,7 +490,7 @@ export async function clearConversationFollowUp(formData: FormData) {
       assigned_to_user_id: row.assigned_to_user_id,
     })
   ) {
-    return;
+    return { ok: false, error: "You do not have access to this conversation." };
   }
 
   const { error } = await supabaseAdmin
@@ -497,58 +505,20 @@ export async function clearConversationFollowUp(formData: FormData) {
 
   if (error) {
     console.warn("[messages] clearConversationFollowUp:", error.message);
-    return;
+    return { ok: false, error: error.message || "Could not clear follow-up." };
   }
 
   revalidateSmsConversationViews(conversationId);
+  return { ok: true };
 }
 
-/** Parsed from `returnTo` hidden field on SMS / workspace phone forms. */
-type SmsWorkspaceReturnMode = "admin" | "workspace" | "workspace_inbox";
+/** Messaging mutations return a consistent result shape for every UI context. */
+export type SendConversationSmsResult = MessagingActionResult;
 
-function parseSmsWorkspaceReturnMode(returnTo: string): SmsWorkspaceReturnMode {
-  if (returnTo === "workspace_inbox") return "workspace_inbox";
-  if (returnTo === "workspace") return "workspace";
-  return "admin";
-}
-
-function smsConversationRedirectPath(
-  conversationId: string,
-  mode: SmsWorkspaceReturnMode,
-  query: Record<string, string>
-): string {
-  if (mode === "workspace_inbox") {
-    const q = new URLSearchParams();
-    q.set("thread", conversationId);
-    for (const [k, v] of Object.entries(query)) {
-      if (v) q.set(k, v);
-    }
-    return `/workspace/phone/inbox?${q.toString()}`;
-  }
-  const base =
-    mode === "workspace"
-      ? `/workspace/phone/inbox/${conversationId}`
-      : `/admin/phone/messages/${conversationId}`;
-  const q = new URLSearchParams();
-  for (const [k, v] of Object.entries(query)) {
-    if (v) q.set(k, v);
-  }
-  const s = q.toString();
-  return s ? `${base}?${s}` : base;
-}
-
-/** Returned when desktop split inbox sends in place (`smsInPlace`); otherwise the action redirects. */
-export type SendConversationSmsResult = { ok: true } | { ok: false; error: string };
-
-export async function sendConversationSms(
-  formData: FormData
-): Promise<SendConversationSmsResult | void> {
+export async function sendConversationSms(formData: FormData): Promise<SendConversationSmsResult> {
   const staff = await getStaffProfile();
   const returnToRaw = String(formData.get("returnTo") ?? "").trim();
-  const workspaceMode = parseSmsWorkspaceReturnMode(returnToRaw);
-  const workspaceAny = workspaceMode !== "admin";
-  const smsInPlace =
-    workspaceMode === "workspace_inbox" && String(formData.get("smsInPlace") ?? "").trim() === "1";
+  const workspaceAny = returnToRaw === "workspace" || returnToRaw === "workspace_inbox";
 
   const idRaw = formData.get("conversationId");
   const bodyRaw = formData.get("body");
@@ -558,27 +528,20 @@ export async function sendConversationSms(
   if (!requirePhoneMessagingStaff(staff)) {
     console.warn("[sms-send] blocked: staff cannot access workspace phone", {
       hasStaff: Boolean(staff),
-      workspaceMode,
+      returnToRaw,
     });
-    if (smsInPlace) {
-      return { ok: false, error: "You do not have access to send messages." };
-    }
-    redirect(workspaceAny ? "/workspace/phone/inbox?err=sms_forbidden" : "/admin/phone?err=sms_forbidden");
+    return { ok: false, error: "You do not have access to send messages." };
   }
 
   logSmsDebug("[sms-ui] send submit", {
     conversationId,
     bodyLen: body.length,
-    workspaceMode,
-    smsInPlace,
+    returnToRaw,
   });
 
   if (!conversationId || !UUID_RE.test(conversationId) || !body) {
     console.warn("[sms-send] invalid conversation or empty body");
-    if (smsInPlace) {
-      return { ok: false, error: "Enter a message and try again." };
-    }
-    redirect(workspaceAny ? "/workspace/phone/inbox?err=sms_invalid" : "/admin/phone/messages?err=sms_invalid");
+    return { ok: false, error: "Enter a message and try again." };
   }
 
   const { row } = await loadConversationForAccess(conversationId);
@@ -596,10 +559,7 @@ export async function sendConversationSms(
 
   if (!row?.main_phone_e164) {
     console.warn("[sms-db] sendConversationSms: missing row or phone", { conversationId });
-    if (smsInPlace) {
-      return { ok: false, error: "No phone number on file for this conversation." };
-    }
-    redirect(smsConversationRedirectPath(conversationId, workspaceMode, { err: "sms_no_phone" }));
+    return { ok: false, error: "No phone number on file for this conversation." };
   }
 
   if (
@@ -608,24 +568,18 @@ export async function sendConversationSms(
     })
   ) {
     console.warn("[sms-send] forbidden: conversation row", { conversationId });
-    if (smsInPlace) {
-      return { ok: false, error: "You do not have access to this conversation." };
-    }
-    redirect(smsConversationRedirectPath(conversationId, workspaceMode, { err: "sms_forbidden" }));
+    return { ok: false, error: "You do not have access to this conversation." };
   }
 
   if (!to || !isValidE164(to)) {
     console.warn("[sms-send] bad E.164 after normalize", { rawRecipient, to });
-    if (smsInPlace) {
-      return { ok: false, error: "Phone number is invalid or missing." };
-    }
-    redirect(smsConversationRedirectPath(conversationId, workspaceMode, { err: "sms_bad_phone" }));
+    return { ok: false, error: "Phone number is invalid or missing." };
   }
 
   const manualFromRaw = String(formData.get("smsManualFromE164") ?? "").trim();
   logSmsDebug("[sms-send] backend_received_from", {
     smsManualFromE164: manualFromRaw || null,
-    workspaceMode,
+    returnToRaw,
   });
   const manualResolved = resolveManualInboxSmsFromOverride(manualFromRaw);
   if (manualFromRaw && manualResolved.source !== "explicit") {
@@ -664,15 +618,10 @@ export async function sendConversationSms(
   if (!sent.ok) {
     const errShort = sent.error.slice(0, 400);
     console.warn("[sms-twilio] send failed", errShort);
-    if (smsInPlace) {
-      return {
-        ok: false,
-        error: errShort ? `SMS could not be sent: ${errShort}` : "SMS could not be sent. Try again.",
-      };
-    }
-    redirect(
-      smsConversationRedirectPath(conversationId, workspaceMode, { err: "sms_twilio", smsErr: errShort })
-    );
+    return {
+      ok: false,
+      error: errShort ? `SMS could not be sent: ${errShort}` : "SMS could not be sent. Try again.",
+    };
   }
   logSmsDebug("[sms-twilio] send ok", { conversationId, messageSid: sent.messageSid });
 
@@ -683,24 +632,22 @@ export async function sendConversationSms(
     direction: "outbound",
     body,
     external_message_sid: sent.messageSid,
-    metadata: { sent_by_user_id: staff.user_id },
+    metadata: {
+      sent_by_user_id: staff.user_id,
+      twilio_delivery: buildInitialTwilioDeliveryFromRestResponse({
+        twilioStatus: sent.twilioStatus ?? null,
+        updatedAtIso: now,
+      }),
+    },
   });
 
   if (insErr) {
     console.warn("[sms-db] outbound insert failed", insErr.message);
     const dbMsg = insErr.message.slice(0, 400);
-    if (smsInPlace) {
-      return {
-        ok: false,
-        error: dbMsg ? `Message could not be saved: ${dbMsg}` : "Message could not be saved.",
-      };
-    }
-    redirect(
-      smsConversationRedirectPath(conversationId, workspaceMode, {
-        err: "sms_db",
-        smsErr: dbMsg,
-      })
-    );
+    return {
+      ok: false,
+      error: dbMsg ? `Message could not be saved: ${dbMsg}` : "Message could not be saved.",
+    };
   }
   console.log("[sms-db] outbound insert ok", { conversationId });
 
@@ -736,26 +683,26 @@ export async function sendConversationSms(
   }
 
   revalidateSmsConversationViews(conversationId);
-  if (smsInPlace) {
-    return { ok: true };
-  }
-  redirect(smsConversationRedirectPath(conversationId, workspaceMode, { ok: "sms_sent" }));
+  return { ok: true };
 }
 
 /** Fire once when the thread UI shows an AI suggestion (idempotent per for_message_id). */
-export async function recordSmsSuggestionShown(conversationId: string, forMessageId: string) {
+export async function recordSmsSuggestionShown(
+  conversationId: string,
+  forMessageId: string
+): Promise<MessagingActionResult> {
   const staff = await getStaffProfile();
   if (!requirePhoneMessagingStaff(staff)) {
-    return;
+    return { ok: false, error: "You do not have access." };
   }
 
   if (!conversationId || !UUID_RE.test(conversationId) || !forMessageId || !UUID_RE.test(forMessageId)) {
-    return;
+    return { ok: false, error: "Invalid suggestion." };
   }
 
   const { row } = await loadConversationForAccess(conversationId);
   if (!row) {
-    return;
+    return { ok: false, error: "Conversation not found." };
   }
 
   if (
@@ -763,7 +710,7 @@ export async function recordSmsSuggestionShown(conversationId: string, forMessag
       assigned_to_user_id: row.assigned_to_user_id,
     })
   ) {
-    return;
+    return { ok: false, error: "You do not have access to this conversation." };
   }
 
   const { data: convRow, error: selErr } = await supabaseAdmin
@@ -774,7 +721,7 @@ export async function recordSmsSuggestionShown(conversationId: string, forMessag
 
   if (selErr) {
     console.warn("[messages] recordSmsSuggestionShown select:", selErr.message);
-    return;
+    return { ok: false, error: "Could not load SMS suggestion." };
   }
 
   const meta: Record<string, unknown> =
@@ -784,7 +731,7 @@ export async function recordSmsSuggestionShown(conversationId: string, forMessag
 
   const nextTel = mergeTelemetryOnShown(meta, forMessageId);
   if (!nextTel) {
-    return;
+    return { ok: true };
   }
 
   const { error: upErr } = await supabaseAdmin
@@ -794,24 +741,22 @@ export async function recordSmsSuggestionShown(conversationId: string, forMessag
 
   if (upErr) {
     console.warn("[messages] recordSmsSuggestionShown update:", upErr.message);
-    return;
+    return { ok: false, error: "Could not record SMS suggestion telemetry." };
   }
 
   revalidateSmsConversationViews(conversationId);
+  return { ok: true };
 }
 
-export async function createContactIntakeFromConversation(formData: FormData) {
+export async function createContactIntakeFromConversation(
+  formData: FormData
+): Promise<MessagingActionResult> {
   const staff = await getStaffProfile();
   if (!requirePhoneMessagingStaff(staff)) {
-    redirect("/admin");
+    return { ok: false, error: "You do not have access." };
   }
 
   const convId = String(formData.get("conversationId") ?? "").trim();
-  const returnToRaw = String(formData.get("returnTo") ?? "").trim();
-  const workspaceMode = parseSmsWorkspaceReturnMode(returnToRaw);
-  const workspaceDedicated = workspaceMode === "workspace";
-  const workspaceInboxSplit = workspaceMode === "workspace_inbox";
-  const workspaceAny = workspaceMode !== "admin";
   const firstName = String(formData.get("firstName") ?? "").trim().slice(0, INTAKE_NAME_MAX);
   const lastName = String(formData.get("lastName") ?? "").trim().slice(0, INTAKE_NAME_MAX);
   const fullNameInput = String(formData.get("fullName") ?? "").trim().slice(0, INTAKE_NAME_MAX);
@@ -825,29 +770,15 @@ export async function createContactIntakeFromConversation(formData: FormData) {
   const referralSource = String(formData.get("referralSource") ?? "").trim();
   const notes = String(formData.get("notes") ?? "").trim();
 
-  const intakeErr = (code: string) => {
-    if (convId && UUID_RE.test(convId)) {
-      if (workspaceInboxSplit) {
-        redirect(`/workspace/phone/inbox?thread=${encodeURIComponent(convId)}&err=${encodeURIComponent(code)}`);
-      }
-      redirect(
-        workspaceDedicated
-          ? `/workspace/phone/inbox/${convId}?err=${code}`
-          : `/admin/phone/messages/${convId}?err=${code}`
-      );
-    }
-    redirect(workspaceAny ? `/workspace/phone/inbox?err=${code}` : `/admin/phone/messages?err=${code}`);
-  };
-
   if (!convId || !UUID_RE.test(convId)) {
-    intakeErr("intake");
+    return { ok: false, error: "Invalid conversation." };
   }
   if (!intakeType) {
-    intakeErr("intake");
+    return { ok: false, error: "Choose a contact type." };
   }
 
   if (!fullNameInput && !firstName) {
-    intakeErr("intake");
+    return { ok: false, error: "Name is required." };
   }
 
   const derivedFullName =
@@ -855,15 +786,15 @@ export async function createContactIntakeFromConversation(formData: FormData) {
 
   const phoneE164 = normalizeDialInputToE164(phoneRaw);
   if (!phoneE164 || !isValidE164(phoneE164)) {
-    intakeErr("intake_phone");
+    return { ok: false, error: "Phone number is invalid or missing." };
   }
   if (!derivedFullName) {
-    intakeErr("intake");
+    return { ok: false, error: "Name is required." };
   }
 
   const { row } = await loadConversationForAccess(convId);
   if (!row) {
-    intakeErr("intake");
+    return { ok: false, error: "Conversation not found." };
   }
 
   if (
@@ -871,11 +802,11 @@ export async function createContactIntakeFromConversation(formData: FormData) {
       assigned_to_user_id: row!.assigned_to_user_id,
     })
   ) {
-    intakeErr("intake_forbidden");
+    return { ok: false, error: "You do not have access to this conversation." };
   }
 
   if (row!.primary_contact_id) {
-    intakeErr("intake_exists");
+    return { ok: false, error: "This conversation already has a contact." };
   }
 
   const byPhone = await findContactByIncomingPhone(supabaseAdmin, phoneE164);
@@ -906,7 +837,7 @@ export async function createContactIntakeFromConversation(formData: FormData) {
 
     if (upErr) {
       console.warn("[messages] intake update contact:", upErr.message);
-      intakeErr("intake");
+      return { ok: false, error: upErr.message || "Could not update contact." };
     }
   } else {
     const { data: inserted, error: insErr } = await supabaseAdmin
@@ -918,7 +849,7 @@ export async function createContactIntakeFromConversation(formData: FormData) {
     const newId = inserted?.id;
     if (insErr || !newId) {
       console.warn("[messages] intake insert:", insErr?.message);
-      intakeErr("intake");
+      return { ok: false, error: insErr?.message || "Could not create contact." };
     }
     contactId = String(newId);
   }
@@ -950,48 +881,14 @@ export async function createContactIntakeFromConversation(formData: FormData) {
 
   if (linkErr) {
     console.warn("[messages] intake link:", linkErr.message);
-    intakeErr("intake");
+    return { ok: false, error: linkErr.message || "Could not link contact to thread." };
   }
 
   revalidateSmsConversationViews(convId);
-  if (workspaceInboxSplit) {
-    redirect(`/workspace/phone/inbox?thread=${encodeURIComponent(convId)}&ok=intake`);
-  }
-  if (workspaceDedicated) {
-    redirect(`/workspace/phone/inbox/${convId}?ok=intake`);
-  }
-  redirect(`/admin/phone/messages/${convId}?ok=intake`);
+  return { ok: true };
 }
 
-export type SaveSmsThreadContactResult =
-  | { ok: true; displayName: string; badgeLabel: string; primaryContactId: string }
-  | { ok: false; error: string };
-
-async function workspaceBadgeLabelForContact(
-  contactId: string,
-  contactTypeFallback: string | null
-): Promise<string> {
-  const { data: patRow } = await supabaseAdmin
-    .from("patients")
-    .select("id")
-    .eq("contact_id", contactId)
-    .maybeSingle();
-  if (patRow && typeof (patRow as { id?: string }).id === "string") {
-    return "Patient";
-  }
-  const { data: leadRow } = await leadRowsActiveOnly(
-    supabaseAdmin.from("leads").select("id").eq("contact_id", contactId).limit(1)
-  ).maybeSingle();
-  if (leadRow && typeof (leadRow as { id?: string }).id === "string") {
-    return "Lead";
-  }
-  const ct = (contactTypeFallback ?? "").trim();
-  if (ct) {
-    const lab = labelForContactType(ct);
-    if (lab !== "—") return lab;
-  }
-  return "Contact";
-}
+export type SaveSmsThreadContactResult = MessagingActionResult;
 
 /**
  * Create or update the CRM contact for the current SMS thread (workspace quick editor).
@@ -1118,14 +1015,6 @@ export async function saveSmsThreadContact(formData: FormData): Promise<SaveSmsT
     }
   }
 
-  const badgeLabel = await workspaceBadgeLabelForContact(contactId, normalizedType);
-
   revalidateSmsConversationViews(conversationId);
-
-  return {
-    ok: true,
-    displayName: fullNameRaw,
-    badgeLabel,
-    primaryContactId: contactId,
-  };
+  return { ok: true };
 }

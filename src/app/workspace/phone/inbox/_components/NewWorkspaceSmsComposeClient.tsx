@@ -1,9 +1,15 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { searchWorkspaceSmsComposeTargets, sendWorkspaceNewSms, type SmsComposeSearchRow } from "../actions";
+import {
+  searchWorkspaceSmsComposeTargets,
+  sendWorkspaceNewSms,
+  type SmsComposeSearchRow,
+  type WorkspaceSmsActionResult,
+} from "../actions";
 
 import { SmsTextFromBar } from "./SmsTextFromBar";
 
@@ -32,7 +38,9 @@ export function NewWorkspaceSmsComposeClient({
   errorBanner,
   twilioError,
 }: Props) {
+  const router = useRouter();
   const [phone, setPhone] = useState(initialPhone ?? "");
+  const [body, setBody] = useState("");
   const [contactId, setContactId] = useState((initialContactId ?? "").trim());
   const [recruitingCandidateId, setRecruitingCandidateId] = useState(initialRecruitingCandidateId ?? "");
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -41,6 +49,8 @@ export function NewWorkspaceSmsComposeClient({
     recruits: [],
   });
   const [pending, setPending] = useState(false);
+  const [sendPending, setSendPending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
 
@@ -99,6 +109,30 @@ export function NewWorkspaceSmsComposeClient({
   const showHits =
     pickerOpen && (hits.contacts.length > 0 || hits.recruits.length > 0 || (pending && phone.trim().length >= 2));
 
+  const handleSubmit = useCallback(
+    async (e: React.FormEvent<HTMLFormElement>) => {
+      e.preventDefault();
+      const trimmed = body.trim();
+      if (!trimmed || sendPending) return;
+      setSendPending(true);
+      setSendError(null);
+      const fd = new FormData(e.currentTarget);
+      try {
+        const result: WorkspaceSmsActionResult = await sendWorkspaceNewSms(fd);
+        if (result.ok) {
+          setBody("");
+          router.push("/workspace/phone/inbox");
+          router.refresh();
+        } else {
+          setSendError(result.error);
+        }
+      } finally {
+        setSendPending(false);
+      }
+    },
+    [body, router, sendPending]
+  );
+
   return (
     <div className="space-y-5">
       <div>
@@ -120,13 +154,18 @@ export function NewWorkspaceSmsComposeClient({
           {twilioError}
         </div>
       ) : null}
+      {sendError ? (
+        <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-900">
+          {sendError}
+        </div>
+      ) : null}
       {hint ? (
         <p className="rounded-2xl border border-violet-200/80 bg-violet-50/90 px-4 py-3 text-sm text-violet-950">
           {hint}
         </p>
       ) : null}
 
-      <form action={sendWorkspaceNewSms} className="space-y-4">
+      <form onSubmit={handleSubmit} className="space-y-4">
         <input type="hidden" name="contactId" value={contactId} />
         <input type="hidden" name="recruitingCandidateId" value={recruitingCandidateId} />
 
@@ -210,6 +249,8 @@ export function NewWorkspaceSmsComposeClient({
             name="body"
             rows={5}
             maxLength={1600}
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
             placeholder="Write your SMS…"
             className={inputCls}
             required
@@ -217,8 +258,8 @@ export function NewWorkspaceSmsComposeClient({
         </div>
 
         <div className="flex flex-wrap gap-2 pt-1">
-          <button type="submit" className={btnPrimary}>
-            Send
+          <button type="submit" className={btnPrimary} disabled={!body.trim() || sendPending}>
+            {sendPending ? "Sending..." : "Send"}
           </button>
           <Link
             href="/workspace/phone/inbox"

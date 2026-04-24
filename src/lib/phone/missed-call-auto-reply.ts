@@ -10,6 +10,7 @@ import {
   CALLBACK_FOLLOWUP_SMS_BODY,
   FOLLOWUP_SMS_COOLDOWN_MS,
 } from "@/lib/phone/voice-ai-callback-sms";
+import { buildInitialTwilioDeliveryFromRestResponse } from "@/lib/phone/sms-delivery-ui";
 import { sendSms } from "@/lib/twilio/send-sms";
 
 /**
@@ -123,6 +124,7 @@ export async function maybeSendMissedCallAutoReplyToCaller(
   if (!ensured.ok) {
     console.error("[missed-call-auto-reply] ensure conversation:", ensured.error);
   } else {
+    const deliveryAt = new Date().toISOString();
     const logged = await appendOutboundSmsToConversation(supabase, {
       conversationId: ensured.conversationId,
       body: MISSED_CALL_AUTO_REPLY_BODY,
@@ -130,6 +132,10 @@ export async function maybeSendMissedCallAutoReplyToCaller(
       metadata: {
         source: "missed_call_auto_reply",
         phone_call_id: input.callId,
+        twilio_delivery: buildInitialTwilioDeliveryFromRestResponse({
+          twilioStatus: result.twilioStatus ?? null,
+          updatedAtIso: deliveryAt,
+        }),
       },
       phoneCallId: input.callId,
     });
