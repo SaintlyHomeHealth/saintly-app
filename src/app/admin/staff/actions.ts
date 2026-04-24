@@ -15,6 +15,11 @@ import {
   isPostgresUniqueViolation,
 } from "@/lib/admin/staff-email-diagnosis";
 import { normalizeStaffLookupEmail } from "@/lib/admin/staff-auth-shared";
+import {
+  logStaffInsertFailure,
+  staffInsertFailureQueryParams,
+  type StaffInsertPostgrestError,
+} from "@/lib/admin/staff-insert-error-debug";
 import { insertAuditLog } from "@/lib/audit-log";
 import { supabaseAdmin } from "@/lib/admin";
 import { normalizePhone } from "@/lib/phone/us-phone-format";
@@ -118,7 +123,13 @@ export async function addStaffProfile(formData: FormData) {
     .maybeSingle();
 
   if (error || !inserted?.id) {
-    console.warn("[staff] addStaffProfile:", error?.message);
+    const pgErr = (error ?? null) as StaffInsertPostgrestError | null;
+    logStaffInsertFailure("addStaffProfile insert", pgErr, {
+      email,
+      role: roleRaw,
+      linkOrphanAuth,
+      insertedId: inserted?.id ?? null,
+    });
     if (error && isPostgresUniqueViolation(error)) {
       const dx = await diagnoseWorkEmail(email);
       const extra =
@@ -128,9 +139,11 @@ export async function addStaffProfile(formData: FormData) {
             ? `&contactId=${encodeURIComponent(dx.contacts[0]!.id)}`
             : "";
       const safe = encodeURIComponent(String(error.message ?? "unique_violation").slice(0, 400));
-      redirect(`/admin/staff?err=insert_duplicate_unique&detail=${safe}${extra}`);
+      const dbg = staffInsertFailureQueryParams(pgErr);
+      redirect(`/admin/staff?err=insert_duplicate_unique&detail=${safe}${extra}${dbg}`);
     }
-    redirect("/admin/staff?err=insert");
+    const dbg = staffInsertFailureQueryParams(pgErr, { emptyRow: !inserted?.id });
+    redirect(`/admin/staff?err=insert${dbg}`);
   }
 
   if (linkOrphanAuth && existingAuthId) {

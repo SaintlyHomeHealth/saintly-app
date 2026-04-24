@@ -76,7 +76,8 @@ function flashForErr(code: string | undefined): string | null {
   const m: Record<string, string> = {
     invalid: "Check all fields and try again.",
     forbidden: "You cannot assign that role.",
-    insert: "Could not add this staff row. If the message below mentions a duplicate or constraint, use “Find duplicate email source” or check the database detail.",
+    insert:
+      "Could not add this staff row. The debug block below shows the database/PostgREST response (admin only). This is not necessarily a duplicate email unless code is 23505 or the message says unique constraint.",
     applicant_taken: "That employee is already linked to another staff login.",
     load: "Could not load that staff record.",
     has_login: "This person already has a login.",
@@ -114,6 +115,20 @@ function flashForErr(code: string | undefined): string | null {
     permanent_applicant: "Could not complete delete due to a linked employee record constraint. Clear the payroll link first.",
   };
   return m[code] ?? "Something went wrong.";
+}
+
+function spSearchParamString(
+  sp: Record<string, string | string[] | undefined>,
+  key: string
+): string | undefined {
+  const raw = sp[key];
+  const v = Array.isArray(raw) ? raw[0] : raw;
+  if (typeof v !== "string" || v.trim() === "") return undefined;
+  try {
+    return decodeURIComponent(v);
+  } catch {
+    return v;
+  }
 }
 
 function flashForOk(code: string | undefined): string | null {
@@ -208,6 +223,19 @@ export default async function AdminStaffPage({
   const errMsg = flashForErr(errCode);
   const okMsg = flashForOk(okCode);
 
+  const insCode = spSearchParamString(sp, "insCode");
+  const insMsg = spSearchParamString(sp, "insMsg");
+  const insDetails = spSearchParamString(sp, "insDetails");
+  const insHint = spSearchParamString(sp, "insHint");
+  const insConstraint = spSearchParamString(sp, "insConstraint");
+  const insNote = spSearchParamString(sp, "insNote");
+  const insEmptyRaw = sp.insEmpty;
+  const insEmpty =
+    insEmptyRaw === "1" || (Array.isArray(insEmptyRaw) && insEmptyRaw[0] === "1");
+  const showInsertDebug =
+    (errCode === "insert" || errCode === "insert_duplicate_unique") &&
+    (Boolean(insCode || insMsg || insDetails || insHint || insConstraint || insNote) || insEmpty);
+
   const canAssignSuperAdmin = isSuperAdmin(viewer);
   const viewerStaffProfileId = viewer.id;
 
@@ -223,54 +251,110 @@ export default async function AdminStaffPage({
       <div className="overflow-hidden rounded-[32px] border border-indigo-100/90 bg-gradient-to-br from-indigo-50/45 via-white to-sky-50/30 shadow-sm">
         <div className="bg-white/40 p-6 sm:p-8">
           {errMsg ? (
-            <p className="mb-4 rounded-[16px] border border-red-200 bg-red-50/90 px-4 py-3 text-sm text-red-900">
-              {errMsg}
-              {(errCode === "duplicate_email_staff" || errCode === "duplicate_email_staff_archived") &&
-              dupRowId ? (
-                <Link
-                  href={`/admin/staff/${dupRowId}`}
-                  className="mt-2 block text-sm font-semibold text-red-950 underline underline-offset-2"
-                >
-                  {errCode === "duplicate_email_staff_archived"
-                    ? "Open archived staff row to restore or edit email"
-                    : "Open the existing staff row"}
-                </Link>
+            <>
+              <p className="mb-4 rounded-[16px] border border-red-200 bg-red-50/90 px-4 py-3 text-sm text-red-900">
+                {errMsg}
+                {(errCode === "duplicate_email_staff" || errCode === "duplicate_email_staff_archived") &&
+                dupRowId ? (
+                  <Link
+                    href={`/admin/staff/${dupRowId}`}
+                    className="mt-2 block text-sm font-semibold text-red-950 underline underline-offset-2"
+                  >
+                    {errCode === "duplicate_email_staff_archived"
+                      ? "Open archived staff row to restore or edit email"
+                      : "Open the existing staff row"}
+                  </Link>
+                ) : null}
+                {errCode === "duplicate_email_auth_orphan" && authUserIdParam ? (
+                  <span className="mt-2 block text-xs text-red-950/90">
+                    Auth user id: <span className="font-mono">{authUserIdParam}</span>
+                  </span>
+                ) : null}
+                {errCode === "insert_duplicate_unique" && applicantIdParam ? (
+                  <Link
+                    href={`/admin/employees/${applicantIdParam}`}
+                    className="mt-2 block text-sm font-semibold text-red-950 underline underline-offset-2"
+                  >
+                    Open employee / applicant record with this email
+                  </Link>
+                ) : null}
+                {errCode === "insert_duplicate_unique" && contactIdParam ? (
+                  <Link
+                    href={`/admin/crm/contacts/${contactIdParam}`}
+                    className="mt-2 block text-sm font-semibold text-red-950 underline underline-offset-2"
+                  >
+                    Open CRM contact with this email
+                  </Link>
+                ) : null}
+                {errCode === "duplicate_email_auth" && dupStaffId ? (
+                  <Link
+                    href={`/admin/staff/${dupStaffId}`}
+                    className="mt-2 block text-sm font-semibold text-red-950 underline underline-offset-2"
+                  >
+                    Open the staff profile that owns this login
+                  </Link>
+                ) : null}
+                {errDetail ? (
+                  <span className="mt-2 block font-mono text-xs leading-snug text-red-950/90 [overflow-wrap:anywhere]">
+                    {errDetail}
+                  </span>
+                ) : null}
+              </p>
+              {showInsertDebug ? (
+                <div className="mb-4 rounded-[16px] border border-amber-300 bg-amber-50/95 px-4 py-3 text-xs text-amber-950 shadow-sm">
+                  <p className="font-sans text-[11px] font-bold uppercase tracking-wide text-amber-900/90">
+                    Admin debug — insert failure (Postgres / PostgREST)
+                  </p>
+                  <p className="mt-1 font-sans text-[11px] leading-relaxed text-amber-900/85">
+                    Values are truncated for URL safety. Check server logs for the full object.
+                  </p>
+                  <dl className="mt-2 space-y-1.5 font-mono text-[11px] leading-snug [overflow-wrap:anywhere]">
+                    {insEmpty ? (
+                      <div>
+                        <dt className="font-sans font-semibold text-amber-950">empty_row</dt>
+                        <dd className="text-amber-900">Insert returned no row id (RLS, policy, or silent failure).</dd>
+                      </div>
+                    ) : null}
+                    {insCode ? (
+                      <div>
+                        <dt className="font-sans font-semibold text-amber-950">code</dt>
+                        <dd>{insCode}</dd>
+                      </div>
+                    ) : null}
+                    {insMsg ? (
+                      <div>
+                        <dt className="font-sans font-semibold text-amber-950">message</dt>
+                        <dd>{insMsg}</dd>
+                      </div>
+                    ) : null}
+                    {insDetails ? (
+                      <div>
+                        <dt className="font-sans font-semibold text-amber-950">details</dt>
+                        <dd>{insDetails}</dd>
+                      </div>
+                    ) : null}
+                    {insHint ? (
+                      <div>
+                        <dt className="font-sans font-semibold text-amber-950">hint</dt>
+                        <dd>{insHint}</dd>
+                      </div>
+                    ) : null}
+                    {insConstraint ? (
+                      <div>
+                        <dt className="font-sans font-semibold text-amber-950">constraint</dt>
+                        <dd>{insConstraint}</dd>
+                      </div>
+                    ) : null}
+                    {insNote ? (
+                      <div>
+                        <dt className="font-sans font-semibold text-amber-950">note</dt>
+                        <dd>{insNote}</dd>
+                      </div>
+                    ) : null}
+                  </dl>
+                </div>
               ) : null}
-              {errCode === "duplicate_email_auth_orphan" && authUserIdParam ? (
-                <span className="mt-2 block text-xs text-red-950/90">
-                  Auth user id: <span className="font-mono">{authUserIdParam}</span>
-                </span>
-              ) : null}
-              {errCode === "insert_duplicate_unique" && applicantIdParam ? (
-                <Link
-                  href={`/admin/employees/${applicantIdParam}`}
-                  className="mt-2 block text-sm font-semibold text-red-950 underline underline-offset-2"
-                >
-                  Open employee / applicant record with this email
-                </Link>
-              ) : null}
-              {errCode === "insert_duplicate_unique" && contactIdParam ? (
-                <Link
-                  href={`/admin/crm/contacts/${contactIdParam}`}
-                  className="mt-2 block text-sm font-semibold text-red-950 underline underline-offset-2"
-                >
-                  Open CRM contact with this email
-                </Link>
-              ) : null}
-              {errCode === "duplicate_email_auth" && dupStaffId ? (
-                <Link
-                  href={`/admin/staff/${dupStaffId}`}
-                  className="mt-2 block text-sm font-semibold text-red-950 underline underline-offset-2"
-                >
-                  Open the staff profile that owns this login
-                </Link>
-              ) : null}
-              {errDetail ? (
-                <span className="mt-2 block font-mono text-xs leading-snug text-red-950/90 [overflow-wrap:anywhere]">
-                  {errDetail}
-                </span>
-              ) : null}
-            </p>
+            </>
           ) : null}
           {okMsg ? (
             <p className="mb-4 rounded-[16px] border border-emerald-200 bg-emerald-50/90 px-4 py-3 text-sm text-emerald-900">
