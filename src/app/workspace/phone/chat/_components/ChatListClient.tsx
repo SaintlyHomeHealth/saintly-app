@@ -194,8 +194,8 @@ export function ChatListClient({ showTeamAdmin }: Props) {
   }
 
   return (
-    <div className="flex flex-1 flex-col px-4 pb-24 pt-2 sm:px-5">
-      <div className="relative mt-2">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-4 pt-2 sm:px-5">
+      <div className="relative mt-2 shrink-0">
         <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
         <input
           value={searchQ}
@@ -205,6 +205,7 @@ export function ChatListClient({ showTeamAdmin }: Props) {
         />
       </div>
 
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain pb-3">
       {searchQ.trim().length >= 2 && searchHits ? (
         <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3 text-sm">
           {searching ? <p className="text-slate-500">Searching…</p> : null}
@@ -303,6 +304,8 @@ export function ChatListClient({ showTeamAdmin }: Props) {
       {section("Teams", grouped.teams)}
       {section("Patients", grouped.patients)}
       {section("Direct messages", grouped.direct)}
+
+      </div>
 
       {dmOpen ? (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center">

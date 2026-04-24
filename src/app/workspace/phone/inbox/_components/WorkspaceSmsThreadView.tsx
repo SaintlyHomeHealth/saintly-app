@@ -400,7 +400,9 @@ export function WorkspaceSmsThreadView({
         style={{ WebkitOverflowScrolling: "touch" }}
       >
         <div
-          className={`mx-auto flex min-h-full w-full flex-col px-3 pb-0.5 pt-1.5 sm:px-4 sm:pb-3 sm:pt-3 ${
+          className={`mx-auto flex w-full flex-col px-3 pb-0.5 pt-1.5 sm:px-4 sm:pb-3 sm:pt-3 ${
+            merged.length === 0 ? "min-h-0" : "min-h-full"
+          } ${
             appDesktopSplit ? "max-w-none px-3 pt-1 sm:px-3 sm:pb-2 sm:pt-2 lg:px-3 lg:pb-1 lg:pt-1" : "max-w-[40rem]"
           }`}
         >
@@ -416,9 +418,13 @@ export function WorkspaceSmsThreadView({
             </div>
           ) : null}
 
-          <div className="flex min-h-0 flex-1 flex-col justify-end gap-1 pb-0.5 sm:gap-2 sm:pb-1">
+          <div
+            className={`flex flex-col gap-1 pb-0.5 sm:gap-2 sm:pb-1 ${
+              merged.length === 0 ? "" : "min-h-0 flex-1 justify-end"
+            }`}
+          >
             {merged.length === 0 ? (
-              <div className="flex flex-col items-center justify-end gap-1.5 px-2 pb-6 pt-4 text-center">
+              <div className="flex flex-col items-center justify-start gap-1.5 px-2 pb-2 pt-2 text-center sm:pt-3">
                 <p className="text-sm font-medium text-slate-600">No messages yet</p>
                 <p className="max-w-xs text-xs leading-relaxed text-slate-500">
                   Type below — your message shows up here right away.

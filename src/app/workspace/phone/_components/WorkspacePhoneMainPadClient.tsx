@@ -31,6 +31,8 @@ export function WorkspacePhoneMainPadClient({ children }: Props) {
   const isInboxRoute = pathname === "/workspace/phone/inbox";
   /** Inbox list: keep scroll inside the list column only — outer <main> must not scroll (avoids grey dead space). */
   const isInboxListOnly = isInboxRoute;
+  /** Internal chat list + thread: same bounded flex column as SMS (single bottom inset via --ws-phone-nav-pad). */
+  const isWorkspaceChatRoute = /^\/workspace\/phone\/chat(\/|$)/.test(pathname);
   const mainWidthClass = isInboxRoute ? "max-w-none w-full" : "max-w-6xl";
 
   const { status } = useWorkspaceSoftphone();
@@ -40,12 +42,10 @@ export function WorkspacePhoneMainPadClient({ children }: Props) {
       : isKeypadRoute
         ? // Keypad: reserve space for fixed bottom nav + safe area (inbox-style) so the Call row never sits under nav
           "pb-[max(8rem,calc(5.75rem+env(safe-area-inset-bottom,0px)))]"
-        : "pb-32";
-  const overflowClass = isSmsConversationThread
-    ? "overflow-hidden"
-    : isInboxListOnly
-      ? "overflow-hidden"
-      : "overflow-y-auto";
+        : // One shared inset for fixed bottom nav (avoid stacking pb-32 + inner pb-* dead space on mobile)
+          "pb-[var(--ws-phone-nav-pad)]";
+  const overflowClass =
+    isSmsConversationThread || isInboxListOnly || isWorkspaceChatRoute ? "overflow-hidden" : "overflow-y-auto";
 
   return (
     <main

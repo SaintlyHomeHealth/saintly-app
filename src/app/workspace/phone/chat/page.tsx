@@ -12,8 +12,9 @@ export default async function WorkspaceChatPage() {
   }
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <WorkspacePhonePageHeader
+        className="shrink-0"
         title="Chat"
         subtitle="Internal HIPAA-aware messaging for your team. SMS and calls stay in Inbox and Calls."
       />

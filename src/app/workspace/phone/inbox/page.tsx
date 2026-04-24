@@ -266,7 +266,7 @@ export default async function WorkspaceInboxPage(props: PageProps) {
       <WorkspaceInboxLiveClient />
       <InboxThreadMobileRouteClient />
       <div className="flex min-h-0 flex-1 flex-col lg:min-h-0 lg:flex-1 lg:flex-row lg:overflow-hidden">
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden border-sky-100/60 pb-[calc(5.5rem+env(safe-area-inset-bottom,0px))] pt-2 sm:pb-32 sm:pt-5 lg:w-[176px] lg:max-w-[176px] lg:flex-none lg:basis-[176px] lg:grow-0 lg:shrink-0 lg:border-r lg:border-slate-200/60 lg:bg-slate-50 lg:pb-0 lg:pt-0">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden border-sky-100/60 pt-2 sm:pt-5 lg:w-[176px] lg:max-w-[176px] lg:flex-none lg:basis-[176px] lg:grow-0 lg:shrink-0 lg:border-r lg:border-slate-200/60 lg:bg-slate-50 lg:pt-0">
           <div className="shrink-0 px-3 sm:px-5 lg:border-b lg:border-slate-200/50 lg:bg-slate-50 lg:px-2 lg:py-2 lg:shadow-[0_1px_0_0_rgba(241,245,249,0.9)]">
             <div className="lg:hidden">
               <div className="sticky top-0 z-10 -mx-3 border-b border-sky-100/70 bg-white/95 px-3 pb-2 pt-1 shadow-[0_4px_12px_-8px_rgba(30,58,138,0.06)] backdrop-blur-md supports-[backdrop-filter]:bg-white/92">
@@ -318,9 +318,9 @@ export default async function WorkspaceInboxPage(props: PageProps) {
               className="pointer-events-none absolute inset-x-0 bottom-0 z-[1] hidden h-6 bg-gradient-to-t from-slate-50 from-35% to-transparent lg:block"
               aria-hidden
             />
-            <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain lg:relative lg:z-0">
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain bg-white lg:relative lg:z-0 lg:bg-transparent">
               <InboxScrollRestorer>
-            <section className="mx-0 mt-0 min-h-full overflow-hidden border-0 bg-white sm:mx-5 sm:mt-2 sm:rounded-xl sm:border sm:border-slate-200/80 lg:mx-0 lg:mt-0 lg:min-h-0 lg:rounded-none lg:border-0 lg:border-t lg:border-slate-200/55 lg:bg-slate-50">
+            <section className="mx-0 mt-0 min-h-0 overflow-hidden border-0 bg-white sm:mx-5 sm:mt-2 sm:rounded-xl sm:border sm:border-slate-200/80 lg:mx-0 lg:mt-0 lg:rounded-none lg:border-0 lg:border-t lg:border-slate-200/55 lg:bg-slate-50">
               <ul className="divide-y divide-slate-200/55 sm:divide-sky-100/60 lg:divide-slate-100/70">
                 {rows.length === 0 ? (
                   <li className="px-4 py-10 text-center">

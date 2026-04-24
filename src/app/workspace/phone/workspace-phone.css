@@ -7,6 +7,11 @@
   /* Page shell (list + hub screens) */
   .ws-phone-page-shell {
     @apply bg-gradient-to-b from-slate-100/85 via-white to-sky-50/30;
+    /**
+     * Clearance for fixed NursePhoneBottomNav + iOS home indicator.
+     * Use with padding-bottom on <main> only once — do not stack duplicate pb on nested scroll areas.
+     */
+    --ws-phone-nav-pad: calc(4.25rem + env(safe-area-inset-bottom, 0px));
   }
 
   /* Elevated cards */

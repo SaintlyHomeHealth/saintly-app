@@ -4,7 +4,9 @@ import { WorkspacePhoneMainPadClient } from "./WorkspacePhoneMainPadClient";
 
 function MainFallback({ children }: { children: ReactNode }) {
   return (
-    <main className="mx-auto flex min-h-0 w-full max-w-6xl flex-1 flex-col overflow-y-auto pb-32">{children}</main>
+    <main className="mx-auto flex min-h-0 w-full max-w-6xl flex-1 flex-col overflow-y-auto pb-[var(--ws-phone-nav-pad)]">
+      {children}
+    </main>
   );
 }
 
