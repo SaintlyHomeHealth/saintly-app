@@ -26,6 +26,11 @@ export default async function WorkspaceChatThreadPage({
     redirect("/workspace/phone/chat");
   }
 
+  const selfDisplayName =
+    (typeof staff.full_name === "string" && staff.full_name.trim()) ||
+    (typeof staff.email === "string" && staff.email.trim()) ||
+    "You";
+
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
     <ChatThreadClient
@@ -34,6 +39,7 @@ export default async function WorkspaceChatThreadPage({
       title={resolved.title}
       showMemberAdmin={isManagerOrHigher(staff)}
       selfUserId={staff.user_id}
+      selfDisplayName={selfDisplayName}
     />
     </div>
   );

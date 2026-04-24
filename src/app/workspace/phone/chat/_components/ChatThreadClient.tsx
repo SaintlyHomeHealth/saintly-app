@@ -1,7 +1,7 @@
 "use client";
 
 import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
-import { BellOff, ChevronLeft, Paperclip, Pin, Send, UserPlus } from "lucide-react";
+import { Bell, BellOff, ChevronLeft, Paperclip, Pin, Send, UserPlus } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -38,9 +38,30 @@ type Props = {
   title: string;
   showMemberAdmin: boolean;
   selfUserId: string;
+  selfDisplayName: string;
 };
 
-export function ChatThreadClient({ chatId, chatType, title, showMemberAdmin, selfUserId }: Props) {
+/** Stable soft bubble colors for other users (readability on light backgrounds). */
+function bubbleStyleForSenderId(senderId: string): { background: string; border: string } {
+  let h = 0;
+  for (let i = 0; i < senderId.length; i++) {
+    h = (h * 31 + senderId.charCodeAt(i)) >>> 0;
+  }
+  const hue = h % 360;
+  return {
+    background: `hsl(${hue} 42% 93%)`,
+    border: `hsl(${hue} 28% 78%)`,
+  };
+}
+
+export function ChatThreadClient({
+  chatId,
+  chatType,
+  title,
+  showMemberAdmin,
+  selfUserId,
+  selfDisplayName,
+}: Props) {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [loading, setLoading] = useState(true);
   const [text, setText] = useState("");
@@ -58,6 +79,7 @@ export function ChatThreadClient({ chatId, chatType, title, showMemberAdmin, sel
   const [memberSuggest, setMemberSuggest] = useState<Array<{ userId: string; label: string }>>([]);
   const [mentionablePatients, setMentionablePatients] = useState<PatientPick[]>([]);
   const [patientMenuOpen, setPatientMenuOpen] = useState(false);
+  const [membersPanelOpen, setMembersPanelOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
   const showPatientMentions = chatType === "company" || chatType === "team";
@@ -362,38 +384,65 @@ export function ChatThreadClient({ chatId, chatType, title, showMemberAdmin, sel
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <header className="flex shrink-0 items-center gap-2 border-b border-slate-200 bg-white px-3 py-2">
+      <header className="flex shrink-0 items-center gap-1.5 border-b border-slate-200 bg-white px-2 py-1.5 sm:gap-2 sm:px-3 sm:py-2">
         <Link
           href="/workspace/phone/chat"
-          className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 text-slate-600"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-200 text-slate-600 sm:h-9 sm:w-9 sm:rounded-xl"
           aria-label="Back"
         >
           <ChevronLeft className="h-5 w-5" />
         </Link>
         <div className="min-w-0 flex-1">
-          <h1 className="truncate text-sm font-bold text-slate-900">{title}</h1>
+          <h1 className="truncate text-[13px] font-bold leading-tight text-slate-900 sm:text-sm">{title}</h1>
         </div>
         <button
           type="button"
           onClick={() => void togglePin()}
-          className={`rounded-lg p-2 ${pinned ? "bg-amber-50 text-amber-800" : "text-slate-500"}`}
-          title="Pin"
+          className={`shrink-0 rounded-lg p-1.5 sm:p-2 ${pinned ? "bg-amber-50 text-amber-800" : "text-slate-500"}`}
+          title={pinned ? "Unpin chat" : "Pin chat"}
+          aria-pressed={pinned}
+          aria-label={pinned ? "Unpin chat" : "Pin chat"}
         >
           <Pin className="h-4 w-4" />
         </button>
         <button
           type="button"
           onClick={() => void toggleMute()}
-          className={`rounded-lg p-2 ${muted ? "bg-slate-100 text-slate-800" : "text-slate-500"}`}
-          title="Mute notifications"
+          className={`flex shrink-0 items-center gap-1 rounded-lg p-1.5 sm:gap-0 sm:p-2 ${
+            muted
+              ? "bg-slate-200/80 text-slate-800"
+              : "text-sky-700 hover:bg-sky-50"
+          }`}
+          title={muted ? "Muted" : "Notifications on"}
+          aria-pressed={muted}
+          aria-label={muted ? "Muted. Press to turn notifications on." : "Notifications on. Press to mute."}
         >
-          <BellOff className="h-4 w-4" />
+          {muted ? <BellOff className="h-4 w-4" strokeWidth={2} /> : <Bell className="h-4 w-4" strokeWidth={2} />}
+          <span className="max-w-[4.5rem] truncate text-[10px] font-semibold sm:sr-only">
+            {muted ? "Muted" : "On"}
+          </span>
         </button>
       </header>
 
       {showMemberAdmin ? (
-        <div className="max-h-56 shrink-0 overflow-y-auto border-b border-slate-100 bg-slate-50 px-3 py-2 text-xs">
-          <div className="font-semibold text-slate-800">Manage members</div>
+        <div className="shrink-0 border-b border-slate-100 bg-slate-50/90 px-2 py-1.5 sm:px-3 sm:py-2">
+          <div className="flex items-center justify-between gap-2">
+            <p className="min-w-0 truncate text-xs font-medium text-slate-700">Members · {members.length}</p>
+            <button
+              type="button"
+              onClick={() => setMembersPanelOpen((o) => !o)}
+              className="shrink-0 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-800 shadow-sm"
+              aria-expanded={membersPanelOpen}
+            >
+              {membersPanelOpen ? "Done" : "Manage"}
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {showMemberAdmin && membersPanelOpen ? (
+        <div className="max-h-56 shrink-0 overflow-y-auto border-b border-slate-100 bg-slate-50 px-2 py-2 text-xs sm:px-3">
+          <div className="font-semibold text-slate-800">Add or edit members</div>
           <div className="mt-2 flex flex-wrap items-end gap-2">
             <input
               value={memberSearch}
@@ -463,25 +512,41 @@ export function ChatThreadClient({ chatId, chatType, title, showMemberAdmin, sel
         </div>
       ) : null}
 
-      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3">
+      <div className="min-h-0 flex-1 space-y-2.5 overflow-y-auto bg-slate-50/40 px-2.5 py-2.5 sm:space-y-3 sm:px-3 sm:py-3">
         {loading ? <p className="text-sm text-slate-500">Loading…</p> : null}
         {!loading && messages.length === 0 ? (
           <p className="text-sm text-slate-500">No messages yet. Say hello.</p>
         ) : null}
         {messages.map((m) => {
           const mine = m.senderId === selfUserId;
+          const otherStyle = !mine ? bubbleStyleForSenderId(m.senderId) : null;
+          const nameLine = mine ? selfDisplayName : m.senderLabel;
           return (
             <div key={m.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
               <div
-                className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm ${
-                  mine ? "bg-phone-navy text-white" : "border border-slate-200 bg-white text-slate-900"
+                className={`max-w-[90%] rounded-2xl border px-3 py-2 text-sm ${
+                  mine
+                    ? "border-phone-border/30 bg-phone-navy text-white"
+                    : "text-slate-900 shadow-sm"
                 }`}
+                style={
+                  !mine
+                    ? {
+                        background: otherStyle!.background,
+                        borderColor: otherStyle!.border,
+                      }
+                    : undefined
+                }
               >
-                {!mine ? (
-                  <div className="mb-1 text-[10px] font-semibold text-slate-500">{m.senderLabel}</div>
-                ) : null}
+                <div
+                  className={`mb-0.5 max-w-full truncate text-[10px] font-semibold leading-tight ${
+                    mine ? "text-sky-100" : "text-slate-600"
+                  }`}
+                >
+                  {nameLine}
+                </div>
                 {m.body ? (
-                  <div className="whitespace-pre-wrap break-words">{m.body}</div>
+                  <div className="whitespace-pre-wrap break-words leading-snug">{m.body}</div>
                 ) : null}
                 {m.patientMentions && m.patientMentions.length > 0 ? (
                   <div className={`mt-2 space-y-1 ${mine ? "text-sky-100" : ""}`}>
@@ -492,7 +557,7 @@ export function ChatThreadClient({ chatId, chatType, title, showMemberAdmin, sel
                         className={`block rounded-lg border px-2 py-1.5 text-xs font-medium ${
                           mine
                             ? "border-sky-400/50 bg-phone-navy/90 text-white"
-                            : "border-sky-200 bg-sky-50 text-sky-900"
+                            : "border-sky-200/90 bg-white/60 text-sky-900"
                         }`}
                       >
                         Patient · {p.label}
@@ -504,15 +569,22 @@ export function ChatThreadClient({ chatId, chatType, title, showMemberAdmin, sel
                   <button
                     type="button"
                     onClick={() => void openAttachment(m.attachmentPath!)}
-                    className={`mt-2 text-xs underline ${mine ? "text-sky-200" : "text-sky-700"}`}
+                    className={`mt-2 text-xs underline ${mine ? "text-sky-200" : "text-sky-800"}`}
                   >
                     {m.attachmentName ?? "Attachment"}
                   </button>
                 ) : null}
                 <div
-                  className={`mt-1 text-[10px] ${mine ? "text-sky-100/90" : "text-slate-400"}`}
+                  className={`mt-1.5 text-[10px] tabular-nums ${
+                    mine ? "text-sky-200/90" : "text-slate-500"
+                  }`}
                 >
-                  {new Date(m.createdAt).toLocaleString()}
+                  {new Date(m.createdAt).toLocaleString(undefined, {
+                    month: "short",
+                    day: "numeric",
+                    hour: "numeric",
+                    minute: "2-digit",
+                  })}
                   {mine && m.readByUserIds.filter((id) => id !== selfUserId).length > 0 ? " · Read" : null}
                 </div>
               </div>
@@ -522,7 +594,7 @@ export function ChatThreadClient({ chatId, chatType, title, showMemberAdmin, sel
         <div ref={bottomRef} />
       </div>
 
-      <div className="shrink-0 border-t border-slate-200 bg-white px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom,0px))]">
+      <div className="z-10 shrink-0 border-t border-slate-200 bg-white px-2 pt-2 shadow-[0_-4px_12px_rgba(15,23,42,0.04)] pb-[max(0.5rem,env(safe-area-inset-bottom,0px))]">
         {!canPost ? (
           <p className="mb-2 text-center text-xs text-slate-500">You have read-only access in this chat.</p>
         ) : null}
