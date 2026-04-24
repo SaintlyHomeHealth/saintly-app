@@ -289,6 +289,7 @@ from public.internal_chats c
 cross join public.staff_profiles sp
 where c.chat_type = 'company'
   and sp.is_active = true
+  and sp.user_id is not null
 on conflict (chat_id, user_id) do nothing;
 
 insert into public.internal_chats (chat_type, title, patient_id)
