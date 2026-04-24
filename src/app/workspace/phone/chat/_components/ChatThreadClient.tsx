@@ -9,7 +9,7 @@ import {
 } from "@/lib/internal-chat/internal-chat-ref-kinds";
 import { Bell, BellOff, ChevronLeft, Link2, Paperclip, Pin, Send } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type RefCard = {
   kind: InternalChatRefKind;
@@ -108,46 +108,50 @@ export function ChatThreadClient({
     }
   }, [chatId, showMemberAdmin]);
 
-  const loadMessages = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await fetch(`/api/workspace/internal-chat/chats/${chatId}/messages`, {
-        cache: "no-store",
-      });
-      const json = (await res.json()) as {
-        messages?: Msg[];
-        notificationsMuted?: boolean;
-        pinned?: boolean;
-        canPost?: boolean;
-      };
-      const list = json.messages ?? [];
-      setMessages(list);
-      if (typeof json.notificationsMuted === "boolean") {
-        setMuted(json.notificationsMuted);
-      }
-      if (typeof json.pinned === "boolean") {
-        setPinned(json.pinned);
-      }
-      if (typeof json.canPost === "boolean") {
-        setCanPost(json.canPost);
-      }
-      const last = list[list.length - 1];
-      if (last?.id) {
-        await fetch(`/api/workspace/internal-chat/chats/${chatId}/read`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ upToMessageId: last.id }),
+  const loadMessages = useCallback(
+    async (options?: { showLoading?: boolean }) => {
+      const showLoading = options?.showLoading === true;
+      if (showLoading) setLoading(true);
+      try {
+        const res = await fetch(`/api/workspace/internal-chat/chats/${chatId}/messages`, {
+          cache: "no-store",
         });
+        const json = (await res.json()) as {
+          messages?: Msg[];
+          notificationsMuted?: boolean;
+          pinned?: boolean;
+          canPost?: boolean;
+        };
+        const list = json.messages ?? [];
+        setMessages(list);
+        if (typeof json.notificationsMuted === "boolean") {
+          setMuted(json.notificationsMuted);
+        }
+        if (typeof json.pinned === "boolean") {
+          setPinned(json.pinned);
+        }
+        if (typeof json.canPost === "boolean") {
+          setCanPost(json.canPost);
+        }
+        const last = list[list.length - 1];
+        if (last?.id) {
+          await fetch(`/api/workspace/internal-chat/chats/${chatId}/read`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ upToMessageId: last.id }),
+          });
+        }
+      } catch {
+        setMessages([]);
+      } finally {
+        if (showLoading) setLoading(false);
       }
-    } catch {
-      setMessages([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [chatId]);
+    },
+    [chatId]
+  );
 
   useEffect(() => {
-    void loadMessages();
+    void loadMessages({ showLoading: true });
   }, [loadMessages]);
 
   useEffect(() => {
@@ -209,6 +213,16 @@ export function ChatThreadClient({
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages.length]);
+
+  const otherBubbleStyleBySenderId = useMemo(() => {
+    const m = new Map<string, { background: string; border: string }>();
+    for (const msg of messages) {
+      if (msg.senderId === selfUserId) continue;
+      if (m.has(msg.senderId)) continue;
+      m.set(msg.senderId, bubbleStyleForSenderId(msg.senderId));
+    }
+    return m;
+  }, [messages, selfUserId]);
 
   function upsertStaffPick(userId: string, label: string) {
     setStaffPicks((prev) => {
@@ -549,7 +563,7 @@ export function ChatThreadClient({
         ) : null}
         {messages.map((m) => {
           const mine = m.senderId === selfUserId;
-          const otherStyle = !mine ? bubbleStyleForSenderId(m.senderId) : null;
+          const otherStyle = !mine ? otherBubbleStyleBySenderId.get(m.senderId) ?? null : null;
           const nameLine = mine ? selfDisplayName : m.senderLabel;
           return (
             <div key={m.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>

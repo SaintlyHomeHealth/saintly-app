@@ -81,6 +81,10 @@ export function ChatListClient({ showTeamAdmin }: Props) {
   }, [searchQ]);
 
   useEffect(() => {
+    if (searchQ.trim().length < 2) {
+      setSearchHits(null);
+      return;
+    }
     const t = window.setTimeout(() => {
       void runSearch();
     }, 280);

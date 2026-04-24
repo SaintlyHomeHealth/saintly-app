@@ -186,7 +186,10 @@ export default async function WorkspaceVoicemailPage(props: PageProps) {
   const vmParties = displayCalls.map((c) => callbackNumber(c.direction, c.from_e164, c.to_e164));
   const vmIdentityByE164 = await resolvePhoneDisplayIdentityBatch(supabase, vmParties);
 
-  const contactIds = [...new Set(calls.map((c) => c.contact_id).filter((x): x is string => Boolean(x)))];
+  /** CRM thread/patient links only for rows on screen (avoids extra lookups when list is long). */
+  const contactIds = [
+    ...new Set(displayCalls.map((c) => c.contact_id).filter((x): x is string => Boolean(x))),
+  ];
 
   const threadByContact = new Map<string, string>();
   if (contactIds.length > 0) {
