@@ -3,17 +3,28 @@ import { NextResponse, type NextRequest } from "next/server";
 import { displayNameFromContact } from "@/app/workspace/phone/patients/_lib/patient-hub";
 import { insertAuditLogTrusted } from "@/lib/audit-log";
 import { supabaseAdmin } from "@/lib/admin";
-import { assertStaffAssignedToAllPatients } from "@/lib/internal-chat/assigned-patients";
 import { assertInternalChatMember, canPostToInternalChat } from "@/lib/internal-chat/access";
 import { decryptInternalChatUtf8, encryptInternalChatUtf8 } from "@/lib/internal-chat/crypto";
+import { INTERNAL_CHAT_REF_KINDS, type InternalChatRefKind } from "@/lib/internal-chat/internal-chat-ref-kinds";
 import {
   extractPatientMentionIdsFromCanonical,
+  extractReferenceTokensFromCanonical,
   extractStaffMentionIdsFromCanonical,
   internalChatBodyForDisplay,
   mergePicksIntoCanonical,
+  type InternalChatRefPick,
   type MentionPick,
 } from "@/lib/internal-chat/mention-tokens";
 import { notifyInternalChatRecipients } from "@/lib/internal-chat/notify-members";
+import {
+  assertEmployeeUserIdsPostable,
+  assertFacilityIdsPostable,
+  assertLeadIdsPostable,
+  assertPatientIdsPostable,
+  assertRecruitApplicantIdsPostable,
+  buildHrefForReference,
+  mapUserIdsToStaffRowIds,
+} from "@/lib/internal-chat/reference-validate";
 import { canAccessWorkspaceInternalChat } from "@/lib/internal-chat/workspace-access";
 import { getStaffProfile } from "@/lib/staff-profile";
 
@@ -25,7 +36,50 @@ function bufFromB64(value: string): Buffer {
   return Buffer.from(value, "base64");
 }
 
-async function resolvePatientMentionCards(patientIds: string[]): Promise<Array<{ id: string; label: string }>> {
+function isRefKind(s: string): s is InternalChatRefKind {
+  return (INTERNAL_CHAT_REF_KINDS as readonly string[]).includes(s);
+}
+
+type RefCardOut = { kind: InternalChatRefKind; id: string; label: string; href: string | null };
+type LegacyPatientMention = { id: string; label: string; href: string };
+
+function resolveReferenceCardsForViewerSync(
+  bodyCanonical: string,
+  pidsFromRow: string[],
+  staff: NonNullable<Awaited<ReturnType<typeof getStaffProfile>>>,
+  userToStaffRow: Map<string, string>,
+  patientLabelById: Map<string, string>
+): { referenceCards: RefCardOut[]; patientMentions: LegacyPatientMention[] } {
+  let tokens = extractReferenceTokensFromCanonical(bodyCanonical);
+  if (tokens.length === 0 && pidsFromRow.length > 0) {
+    tokens = pidsFromRow.map((id) => ({ kind: "patient" as const, id: String(id), label: "Patient" }));
+  }
+
+  const referenceCards: RefCardOut[] = tokens.map((t) => {
+    const staffRowId = t.kind === "employee" ? userToStaffRow.get(t.id) ?? null : null;
+    const label = t.kind === "patient" ? (patientLabelById.get(t.id) ?? t.label) : t.label;
+    return {
+      kind: t.kind,
+      id: t.id,
+      label,
+      href: buildHrefForReference(t.kind, t.id, staff, staffRowId),
+    };
+  });
+
+  const patientMentions: LegacyPatientMention[] = referenceCards
+    .filter((c) => c.kind === "patient")
+    .map((c) => ({
+      id: c.id,
+      label: c.label,
+      href: c.href ?? `/workspace/phone/patients/${c.id}`,
+    }));
+
+  return { referenceCards, patientMentions };
+}
+
+async function resolvePatientMentionCardLabels(
+  patientIds: string[]
+): Promise<Array<{ id: string; label: string }>> {
   if (patientIds.length === 0) return [];
   const { data: rows } = await supabaseAdmin
     .from("patients")
@@ -115,7 +169,19 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
     }
   }
 
-  const out = (messages ?? []).map((m) => {
+  const decr: Array<{
+    id: string;
+    senderId: string;
+    createdAt: string;
+    bodyDisplay: string;
+    bodyCanonical: string;
+    pids: string[];
+    attach: { path: string | null; mime: string | null; name: string | null };
+    mentionUids: string[];
+    readUids: string[];
+  }> = [];
+
+  for (const m of messages ?? []) {
     let bodyCanonical = "";
     try {
       const ct = typeof m.ciphertext === "string" ? m.ciphertext : "";
@@ -126,38 +192,66 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
     }
     const bodyDisplay = internalChatBodyForDisplay(bodyCanonical);
     const pids = (m.mention_patient_ids ?? []) as string[];
-    const patientMentions =
-      pids.length > 0
-        ? pids.map((id) => ({
-            id: String(id),
-            label: "Patient",
-            href: `/workspace/phone/patients/${id}`,
-          }))
-        : [];
-
-    return {
-      id: m.id,
+    decr.push({
+      id: String(m.id),
       senderId: m.sender_id,
-      senderLabel: senderLabel.get(String(m.sender_id)) ?? "Staff",
       createdAt: m.created_at,
-      body: bodyDisplay,
-      attachmentPath: m.attachment_path,
-      attachmentMime: m.attachment_mime,
-      attachmentName: m.attachment_name,
-      mentionUserIds: m.mention_user_ids ?? [],
-      readByUserIds: readByMessage.get(String(m.id)) ?? [],
+      bodyDisplay,
+      bodyCanonical,
+      pids,
+      attach: {
+        path: m.attachment_path,
+        mime: m.attachment_mime,
+        name: m.attachment_name,
+      },
+      mentionUids: (m.mention_user_ids ?? []) as string[],
+      readUids: readByMessage.get(String(m.id)) ?? [],
+    });
+  }
+
+  const allEmployeeUserIds = new Set<string>();
+  const allPatientIds = new Set<string>();
+  for (const d of decr) {
+    let toks = extractReferenceTokensFromCanonical(d.bodyCanonical);
+    if (toks.length === 0 && d.pids.length > 0) {
+      toks = d.pids.map((id) => ({ kind: "patient" as const, id: String(id), label: "Patient" }));
+    }
+    for (const t of toks) {
+      if (t.kind === "employee") allEmployeeUserIds.add(t.id);
+      if (t.kind === "patient") allPatientIds.add(t.id);
+    }
+    for (const p of d.pids) allPatientIds.add(String(p));
+  }
+
+  const [userToStaffRow, patientLabels] = await Promise.all([
+    mapUserIdsToStaffRowIds([...allEmployeeUserIds]),
+    resolvePatientMentionCardLabels([...allPatientIds]),
+  ]);
+  const patientLabelById = new Map(patientLabels.map((r) => [r.id, r.label]));
+
+  const out = decr.map((d) => {
+    const { referenceCards, patientMentions } = resolveReferenceCardsForViewerSync(
+      d.bodyCanonical,
+      d.pids,
+      staff,
+      userToStaffRow,
+      patientLabelById
+    );
+    return {
+      id: d.id,
+      senderId: d.senderId,
+      senderLabel: senderLabel.get(String(d.senderId)) ?? "Staff",
+      createdAt: d.createdAt,
+      body: d.bodyDisplay,
+      attachmentPath: d.attach.path,
+      attachmentMime: d.attach.mime,
+      attachmentName: d.attach.name,
+      mentionUserIds: d.mentionUids,
+      readByUserIds: d.readUids,
+      referenceCards,
       patientMentions,
     };
   });
-
-  const patientIdsToResolve = [...new Set(out.flatMap((o) => o.patientMentions.map((p) => p.id)))];
-  const resolved = await resolvePatientMentionCards(patientIdsToResolve);
-  const lab = new Map(resolved.map((r) => [r.id, r.label]));
-  for (const o of out) {
-    for (const p of o.patientMentions) {
-      p.label = lab.get(p.id) ?? p.label;
-    }
-  }
 
   await insertAuditLogTrusted({
     action: "internal_chat_thread_viewed",
@@ -180,6 +274,39 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
     memberRole: member.member_role,
     canPost,
   });
+}
+
+function idsByRefKind(refs: InternalChatRefPick[], kind: InternalChatRefKind): string[] {
+  return [...new Set(refs.filter((r) => r.kind === kind).map((r) => r.id))];
+}
+
+function submittedRefMap(refs: InternalChatRefPick[]): Map<string, Set<InternalChatRefKind>> {
+  const m = new Map<string, Set<InternalChatRefKind>>();
+  for (const r of refs) {
+    const s = m.get(r.id) ?? new Set();
+    s.add(r.kind);
+    m.set(r.id, s);
+  }
+  return m;
+}
+
+function extractedRefMap(tokens: ReturnType<typeof extractReferenceTokensFromCanonical>): Map<string, Set<InternalChatRefKind>> {
+  return submittedRefMap(tokens.map((t) => ({ kind: t.kind, id: t.id, label: t.label })));
+}
+
+function refMapsEqual(
+  a: Map<string, Set<InternalChatRefKind>>,
+  b: Map<string, Set<InternalChatRefKind>>
+): boolean {
+  if (a.size !== b.size) return false;
+  for (const [id, kinds] of a) {
+    const o = b.get(id);
+    if (!o || o.size !== kinds.size) return false;
+    for (const k of kinds) {
+      if (!o.has(k)) return false;
+    }
+  }
+  return true;
 }
 
 export async function POST(req: NextRequest, { params }: RouteParams) {
@@ -210,6 +337,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     text?: string;
     staffMentions?: Array<{ userId?: string; label?: string }>;
     patientMentions?: Array<{ patientId?: string; label?: string }>;
+    referenceMentions?: Array<{ type?: string; id?: string; label?: string }>;
     attachmentPath?: string | null;
     attachmentMime?: string | null;
     attachmentName?: string | null;
@@ -223,6 +351,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
   const displayText = typeof bodyJson.text === "string" ? bodyJson.text : "";
   const staffPickRaw = Array.isArray(bodyJson.staffMentions) ? bodyJson.staffMentions : [];
   const patientPickRaw = Array.isArray(bodyJson.patientMentions) ? bodyJson.patientMentions : [];
+  const referenceRaw = Array.isArray(bodyJson.referenceMentions) ? bodyJson.referenceMentions : [];
 
   const staffPicks: MentionPick[] = staffPickRaw
     .map((r) => ({
@@ -232,7 +361,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     .filter((p) => p.id && p.label)
     .slice(0, 25);
 
-  const patientPicks: MentionPick[] = patientPickRaw
+  const legacyPatientPicks: MentionPick[] = patientPickRaw
     .map((r) => ({
       id: String(r.patientId ?? "").trim(),
       label: String(r.label ?? "").trim(),
@@ -240,47 +369,103 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     .filter((p) => p.id && p.label)
     .slice(0, 8);
 
-  if (patientPicks.length > 0 && chatType !== "company" && chatType !== "team") {
-    return NextResponse.json({ error: "patient_mentions_not_allowed" }, { status: 400 });
+  const referencePicks: InternalChatRefPick[] = referenceRaw
+    .map((r) => {
+      const t = String(r.type ?? "").trim();
+      if (!isRefKind(t)) return null;
+      return {
+        kind: t,
+        id: String(r.id ?? "").trim(),
+        label: String(r.label ?? "").trim(),
+      };
+    })
+    .filter((x): x is InternalChatRefPick => Boolean(x && x.id && x.label))
+    .slice(0, 25);
+
+  const refKey = (r: InternalChatRefPick) => `${r.kind}:${r.id}`;
+  const refSeen = new Set<string>();
+  const allRefs: InternalChatRefPick[] = [];
+  for (const r of referencePicks) {
+    const k = refKey(r);
+    if (refSeen.has(k)) continue;
+    refSeen.add(k);
+    allRefs.push(r);
+  }
+  for (const p of legacyPatientPicks) {
+    const r: InternalChatRefPick = { kind: "patient", id: p.id, label: p.label };
+    const k = refKey(r);
+    if (refSeen.has(k)) continue;
+    refSeen.add(k);
+    allRefs.push(r);
   }
 
-  if (patientPicks.length > 0) {
-    const ok = await assertStaffAssignedToAllPatients(
-      staff.user_id,
-      patientPicks.map((p) => p.id)
-    );
-    if (!ok) {
-      return NextResponse.json({ error: "patient_mention_forbidden" }, { status: 403 });
-    }
+  if (allRefs.length > 0 && chatType !== "company" && chatType !== "team") {
+    return NextResponse.json({ error: "reference_mentions_not_allowed" }, { status: 400 });
   }
 
-  const attachmentPath =
+  const attachmentPathEarly =
     typeof bodyJson.attachmentPath === "string" && bodyJson.attachmentPath.trim()
       ? bodyJson.attachmentPath.trim()
       : null;
-  const attachmentMime =
-    typeof bodyJson.attachmentMime === "string" && bodyJson.attachmentMime.trim()
-      ? bodyJson.attachmentMime.trim()
-      : null;
-  const attachmentName =
-    typeof bodyJson.attachmentName === "string" && bodyJson.attachmentName.trim()
-      ? bodyJson.attachmentName.trim().slice(0, 200)
-      : null;
 
-  if (!displayText.trim() && !attachmentPath && staffPicks.length === 0 && patientPicks.length === 0) {
+  if (!displayText.trim() && !attachmentPathEarly && staffPicks.length === 0 && allRefs.length === 0) {
     return NextResponse.json({ error: "empty" }, { status: 400 });
   }
 
-  const canonical = mergePicksIntoCanonical(displayText, staffPicks, patientPicks);
+  const canonical = mergePicksIntoCanonical(
+    displayText,
+    staffPicks,
+    referencePicks,
+    legacyPatientPicks.length > 0 ? legacyPatientPicks : undefined
+  );
   const mentionUserIds = extractStaffMentionIdsFromCanonical(canonical);
-  const mentionPatientIdsFromCanon = extractPatientMentionIdsFromCanonical(canonical);
-  const pickPatientSet = new Set(patientPicks.map((p) => p.id));
-  const canonPatientSet = new Set(mentionPatientIdsFromCanon);
+  const extracted = extractReferenceTokensFromCanonical(canonical);
+  const submitted = submittedRefMap(allRefs);
+  const fromCanon = extractedRefMap(extracted);
+
+  if (!refMapsEqual(submitted, fromCanon)) {
+    return NextResponse.json({ error: "reference_mention_mismatch" }, { status: 400 });
+  }
+
   if (
-    pickPatientSet.size !== canonPatientSet.size ||
-    ![...pickPatientSet].every((id) => canonPatientSet.has(id))
+    !(await assertPatientIdsPostable(
+      staff,
+      extracted.filter((e) => e.kind === "patient").map((e) => e.id)
+    ))
   ) {
-    return NextResponse.json({ error: "patient_mention_mismatch" }, { status: 400 });
+    return NextResponse.json({ error: "patient_mention_forbidden" }, { status: 403 });
+  }
+  if (
+    !(await assertLeadIdsPostable(
+      staff,
+      idsByRefKind(allRefs, "lead")
+    ))
+  ) {
+    return NextResponse.json({ error: "lead_mention_forbidden" }, { status: 403 });
+  }
+  if (
+    !(await assertFacilityIdsPostable(
+      staff,
+      idsByRefKind(allRefs, "facility")
+    ))
+  ) {
+    return NextResponse.json({ error: "facility_mention_forbidden" }, { status: 403 });
+  }
+  if (
+    !(await assertEmployeeUserIdsPostable(
+      staff,
+      idsByRefKind(allRefs, "employee")
+    ))
+  ) {
+    return NextResponse.json({ error: "employee_mention_forbidden" }, { status: 403 });
+  }
+  if (
+    !(await assertRecruitApplicantIdsPostable(
+      staff,
+      idsByRefKind(allRefs, "recruit")
+    ))
+  ) {
+    return NextResponse.json({ error: "recruit_mention_forbidden" }, { status: 403 });
   }
 
   if (mentionUserIds.length > 0) {
@@ -297,9 +482,26 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     }
   }
 
+  const attachmentPath = attachmentPathEarly;
+  const attachmentMime =
+    typeof bodyJson.attachmentMime === "string" && bodyJson.attachmentMime.trim()
+      ? bodyJson.attachmentMime.trim()
+      : null;
+  const attachmentName =
+    typeof bodyJson.attachmentName === "string" && bodyJson.attachmentName.trim()
+      ? bodyJson.attachmentName.trim().slice(0, 200)
+      : null;
+
+  const mentionPatientIds = [...new Set(extractPatientMentionIdsFromCanonical(canonical))];
   const plain =
     canonical.trim() ||
-    (attachmentName ? `📎 ${attachmentName}` : patientPicks.length ? "Patient reference" : " ");
+    (attachmentName
+      ? `📎 ${attachmentName}`
+      : attachmentPath
+        ? "Attachment"
+        : allRefs.length
+          ? "Reference"
+          : " ");
   const { ciphertext, nonce } = encryptInternalChatUtf8(plain);
 
   const insertRow: Record<string, unknown> = {
@@ -311,7 +513,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     attachment_mime: attachmentMime,
     attachment_name: attachmentName,
     mention_user_ids: mentionUserIds,
-    mention_patient_ids: [...pickPatientSet],
+    mention_patient_ids: mentionPatientIds,
   };
 
   const { data: inserted, error: insErr } = await supabaseAdmin
@@ -333,7 +535,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       message_id: inserted.id,
       body_length: plain.length,
       has_attachment: Boolean(attachmentPath),
-      patient_mention_count: patientPicks.length,
+      reference_mention_count: allRefs.length,
     },
   });
 

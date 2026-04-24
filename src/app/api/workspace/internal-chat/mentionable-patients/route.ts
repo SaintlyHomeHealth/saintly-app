@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/admin";
 import { canAccessWorkspaceInternalChat } from "@/lib/internal-chat/workspace-access";
 import { displayNameFromContact } from "@/app/workspace/phone/patients/_lib/patient-hub";
-import { getStaffProfile } from "@/lib/staff-profile";
+import { getStaffProfile, isAdminOrHigher } from "@/lib/staff-profile";
 
 export const runtime = "nodejs";
 
@@ -11,6 +11,42 @@ export async function GET() {
   const staff = await getStaffProfile();
   if (!staff || !canAccessWorkspaceInternalChat(staff)) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
+
+  if (isAdminOrHigher(staff)) {
+    const { data, error } = await supabaseAdmin
+      .from("patients")
+      .select("id, patient_status, archived_at, is_test, contacts ( full_name, first_name, last_name )")
+      .eq("patient_status", "active")
+      .is("archived_at", null)
+      .limit(500);
+
+    if (error) {
+      console.warn("[internal-chat/mentionable-patients admin]", error.message);
+      return NextResponse.json({ error: "load_failed" }, { status: 500 });
+    }
+
+    const patients: Array<{ patientId: string; label: string }> = [];
+    for (const p of data ?? []) {
+      if ((p as { is_test?: boolean | null }).is_test === true) continue;
+      const raw = p.contacts as
+        | {
+            full_name?: string | null;
+            first_name?: string | null;
+            last_name?: string | null;
+          }
+        | Array<{
+            full_name?: string | null;
+            first_name?: string | null;
+            last_name?: string | null;
+          }>
+        | null
+        | undefined;
+      const emb = Array.isArray(raw) ? raw[0] ?? null : raw ?? null;
+      patients.push({ patientId: String(p.id), label: displayNameFromContact(emb) });
+    }
+    patients.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }));
+    return NextResponse.json({ patients: patients.slice(0, 200) });
   }
 
   const { data, error } = await supabaseAdmin

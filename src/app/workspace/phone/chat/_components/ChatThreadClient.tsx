@@ -1,9 +1,22 @@
 "use client";
 
 import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
-import { Bell, BellOff, ChevronLeft, Paperclip, Pin, Send, UserPlus } from "lucide-react";
+import {
+  INTERNAL_CHAT_REF_KINDS,
+  refComposerToken,
+  refKindDisplayLabel,
+  type InternalChatRefKind,
+} from "@/lib/internal-chat/internal-chat-ref-kinds";
+import { Bell, BellOff, ChevronLeft, Link2, Paperclip, Pin, Send } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+
+type RefCard = {
+  kind: InternalChatRefKind;
+  id: string;
+  label: string;
+  href: string | null;
+};
 
 type PatientMentionCard = { id: string; label: string; href: string };
 
@@ -19,10 +32,11 @@ type Msg = {
   mentionUserIds: string[];
   readByUserIds: string[];
   patientMentions?: PatientMentionCard[];
+  referenceCards?: RefCard[];
 };
 
 type StaffPick = { userId: string; label: string };
-type PatientPick = { patientId: string; label: string };
+type ReferenceMention = { type: InternalChatRefKind; id: string; label: string };
 
 type ChatMemberRow = {
   userId: string;
@@ -66,7 +80,6 @@ export function ChatThreadClient({
   const [loading, setLoading] = useState(true);
   const [text, setText] = useState("");
   const [staffPicks, setStaffPicks] = useState<StaffPick[]>([]);
-  const [patientPicks, setPatientPicks] = useState<PatientPick[]>([]);
   const [sending, setSending] = useState(false);
   const [mentionPick, setMentionPick] = useState<Array<{ userId: string; label: string }>>([]);
   const [showMentions, setShowMentions] = useState(false);
@@ -77,8 +90,12 @@ export function ChatThreadClient({
   const [members, setMembers] = useState<ChatMemberRow[]>([]);
   const [memberSearch, setMemberSearch] = useState("");
   const [memberSuggest, setMemberSuggest] = useState<Array<{ userId: string; label: string }>>([]);
-  const [mentionablePatients, setMentionablePatients] = useState<PatientPick[]>([]);
-  const [patientMenuOpen, setPatientMenuOpen] = useState(false);
+  const [refMenuOpen, setRefMenuOpen] = useState(false);
+  const [refTab, setRefTab] = useState<InternalChatRefKind>("patient");
+  const [refQuery, setRefQuery] = useState("");
+  const [refItems, setRefItems] = useState<Array<{ id: string; label: string }>>([]);
+  const [refLoading, setRefLoading] = useState(false);
+  const [referenceMentions, setReferenceMentions] = useState<ReferenceMention[]>([]);
   const [membersPanelOpen, setMembersPanelOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
@@ -142,19 +159,34 @@ export function ChatThreadClient({
   }, [loadMembers]);
 
   useEffect(() => {
-    if (!showPatientMentions) return;
-    void (async () => {
-      try {
-        const res = await fetch("/api/workspace/internal-chat/mentionable-patients", { cache: "no-store" });
-        const json = (await res.json()) as { patients?: Array<{ patientId: string; label: string }> };
-        setMentionablePatients(
-          (json.patients ?? []).map((p) => ({ patientId: p.patientId, label: p.label }))
-        );
-      } catch {
-        setMentionablePatients([]);
-      }
-    })();
-  }, [showPatientMentions]);
+    setReferenceMentions((prev) =>
+      prev.filter((r) => text.includes(refComposerToken(r.type, r.label)))
+    );
+  }, [text]);
+
+  useEffect(() => {
+    if (!refMenuOpen || !showPatientMentions) {
+      return;
+    }
+    const id = window.setTimeout(() => {
+      void (async () => {
+        setRefLoading(true);
+        try {
+          const res = await fetch(
+            `/api/workspace/internal-chat/references?type=${encodeURIComponent(refTab)}&q=${encodeURIComponent(refQuery.trim())}`,
+            { cache: "no-store" }
+          );
+          const json = (await res.json()) as { items?: Array<{ id: string; label: string }> };
+          setRefItems(json.items ?? []);
+        } catch {
+          setRefItems([]);
+        } finally {
+          setRefLoading(false);
+        }
+      })();
+    }, 200);
+    return () => window.clearTimeout(id);
+  }, [refMenuOpen, showPatientMentions, refTab, refQuery]);
 
   useEffect(() => {
     const supabase = createBrowserSupabaseClient();
@@ -189,18 +221,26 @@ export function ChatThreadClient({
     });
   }
 
-  function upsertPatientPick(patientId: string, label: string) {
-    setPatientPicks((prev) => {
-      const rest = prev.filter((p) => p.patientId !== patientId);
-      return [...rest, { patientId, label }];
+  function pickReference(kind: InternalChatRefKind, id: string, label: string) {
+    const token = refComposerToken(kind, label);
+    setText((prev) => {
+      const base = prev.trim();
+      return base ? `${prev}${prev.endsWith(" ") ? "" : " "}${token} ` : `${token} `;
     });
+    setReferenceMentions((prev) => {
+      const k = `${kind}:${id}`;
+      const rest = prev.filter((r) => `${r.type}:${r.id}` !== k);
+      return [...rest, { type: kind, id, label }];
+    });
+    setRefMenuOpen(false);
+    setRefQuery("");
   }
 
   async function send() {
     const t = text.trim();
     const sp = staffPicks.filter((p) => text.includes(`@${p.label}`));
-    const pp = patientPicks.filter((p) => text.includes(`@${p.label}`));
-    if ((!t && pp.length === 0 && sp.length === 0) || sending) return;
+    const rr = referenceMentions.filter((r) => text.includes(refComposerToken(r.type, r.label)));
+    if ((!t && rr.length === 0 && sp.length === 0) || sending) return;
     setSending(true);
     try {
       const res = await fetch(`/api/workspace/internal-chat/chats/${chatId}/messages`, {
@@ -209,15 +249,16 @@ export function ChatThreadClient({
         body: JSON.stringify({
           text: t,
           staffMentions: sp.map((p) => ({ userId: p.userId, label: p.label })),
-          patientMentions: showPatientMentions
-            ? pp.map((p) => ({ patientId: p.patientId, label: p.label }))
+          referenceMentions: showPatientMentions
+            ? rr.map((p) => ({ type: p.type, id: p.id, label: p.label }))
             : [],
+          patientMentions: [],
         }),
       });
       if (res.ok) {
         setText("");
         setStaffPicks([]);
-        setPatientPicks([]);
+        setReferenceMentions([]);
         await loadMessages();
       }
     } finally {
@@ -256,6 +297,7 @@ export function ChatThreadClient({
           text: "",
           staffMentions: [],
           patientMentions: [],
+          referenceMentions: [],
           attachmentPath: objectPath,
           attachmentMime: file.type || "application/octet-stream",
           attachmentName: file.name,
@@ -371,16 +413,11 @@ export function ChatThreadClient({
     setMentionPick([]);
   }
 
-  function pickPatientForMention(p: PatientPick) {
-    setText((prev) => `${prev}@${p.label} `);
-    upsertPatientPick(p.patientId, p.label);
-    setPatientMenuOpen(false);
-  }
-
   const canSend =
     Boolean(text.trim()) ||
     staffPicks.some((p) => text.includes(`@${p.label}`)) ||
-    (showPatientMentions && patientPicks.some((p) => text.includes(`@${p.label}`)));
+    (showPatientMentions &&
+      referenceMentions.some((r) => text.includes(refComposerToken(r.type, r.label))));
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -392,7 +429,7 @@ export function ChatThreadClient({
         >
           <ChevronLeft className="h-5 w-5" />
         </Link>
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 pl-1.5 sm:pl-2">
           <h1 className="truncate text-[13px] font-bold leading-tight text-slate-900 sm:text-sm">{title}</h1>
         </div>
         <button
@@ -548,7 +585,39 @@ export function ChatThreadClient({
                 {m.body ? (
                   <div className="whitespace-pre-wrap break-words leading-snug">{m.body}</div>
                 ) : null}
-                {m.patientMentions && m.patientMentions.length > 0 ? (
+                {m.referenceCards && m.referenceCards.length > 0 ? (
+                  <div className={`mt-2 space-y-1.5 ${mine ? "text-sky-100" : ""}`}>
+                    {m.referenceCards.map((p) => {
+                      const inner = (
+                        <span
+                          className={`inline-flex max-w-full items-center gap-1.5 rounded-lg border px-2 py-1.5 text-left text-xs font-medium ${
+                            mine
+                              ? "border-sky-400/50 bg-phone-navy/90 text-white"
+                              : "border-sky-200/80 bg-white/80 text-sky-950 shadow-sm"
+                          }`}
+                        >
+                          <span
+                            className={`shrink-0 text-[10px] font-bold uppercase tracking-wide ${
+                              mine ? "text-sky-200/85" : "text-sky-600/90"
+                            }`}
+                          >
+                            {refKindDisplayLabel(p.kind)}
+                          </span>
+                          <span className="min-w-0 truncate">{p.label}</span>
+                        </span>
+                      );
+                      return p.href ? (
+                        <Link key={`${p.kind}-${p.id}`} href={p.href} className="block w-fit max-w-full">
+                          {inner}
+                        </Link>
+                      ) : (
+                        <div key={`${p.kind}-${p.id}`} className="w-fit max-w-full">
+                          {inner}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : m.patientMentions && m.patientMentions.length > 0 ? (
                   <div className={`mt-2 space-y-1 ${mine ? "text-sky-100" : ""}`}>
                     {m.patientMentions.map((p) => (
                       <Link
@@ -616,30 +685,64 @@ export function ChatThreadClient({
           <div className="mb-2">
             <button
               type="button"
-              onClick={() => setPatientMenuOpen((o) => !o)}
-              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-700"
+              onClick={() => {
+                setRefMenuOpen((o) => !o);
+                if (!refMenuOpen) setRefQuery("");
+              }}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-800 shadow-sm"
             >
-              <UserPlus className="h-3.5 w-3.5" />
-              Reference patient
+              <Link2 className="h-3.5 w-3.5 shrink-0" />
+              Reference
             </button>
-            {patientMenuOpen ? (
-              <ul className="mt-1 max-h-32 overflow-y-auto rounded-lg border border-slate-200 bg-white text-xs shadow-sm">
-                {mentionablePatients.length === 0 ? (
-                  <li className="px-2 py-2 text-slate-500">No assigned patients.</li>
-                ) : (
-                  mentionablePatients.map((p) => (
-                    <li key={p.patientId}>
-                      <button
-                        type="button"
-                        className="w-full px-2 py-1.5 text-left hover:bg-slate-50"
-                        onClick={() => pickPatientForMention(p)}
-                      >
-                        {p.label}
-                      </button>
-                    </li>
-                  ))
-                )}
-              </ul>
+            {refMenuOpen ? (
+              <div className="mt-2 max-h-64 overflow-hidden rounded-lg border border-slate-200 bg-white text-xs shadow-md">
+                <div className="flex gap-0.5 overflow-x-auto border-b border-slate-100 bg-slate-50/90 px-1 py-1">
+                  {INTERNAL_CHAT_REF_KINDS.map((k) => (
+                    <button
+                      key={k}
+                      type="button"
+                      onClick={() => {
+                        setRefTab(k);
+                        setRefQuery("");
+                      }}
+                      className={`shrink-0 rounded-md px-2 py-1 text-[10px] font-bold uppercase tracking-wide ${
+                        refTab === k
+                          ? "bg-white text-sky-900 shadow-sm"
+                          : "text-slate-500 hover:text-slate-800"
+                      }`}
+                    >
+                      {refKindDisplayLabel(k)}
+                    </button>
+                  ))}
+                </div>
+                <div className="px-2 py-1.5">
+                  <input
+                    value={refQuery}
+                    onChange={(e) => setRefQuery(e.target.value)}
+                    placeholder="Search…"
+                    className="w-full rounded-md border border-slate-200 px-2 py-1.5 text-sm"
+                  />
+                </div>
+                <ul className="max-h-40 overflow-y-auto border-t border-slate-100">
+                  {refLoading ? (
+                    <li className="px-2 py-3 text-center text-slate-500">Loading…</li>
+                  ) : refItems.length === 0 ? (
+                    <li className="px-2 py-3 text-center text-slate-500">No matches.</li>
+                  ) : (
+                    refItems.map((it) => (
+                      <li key={it.id}>
+                        <button
+                          type="button"
+                          className="w-full px-2 py-1.5 text-left text-sm hover:bg-slate-50"
+                          onClick={() => pickReference(refTab, it.id, it.label)}
+                        >
+                          {it.label}
+                        </button>
+                      </li>
+                    ))
+                  )}
+                </ul>
+              </div>
             ) : null}
           </div>
         ) : null}
