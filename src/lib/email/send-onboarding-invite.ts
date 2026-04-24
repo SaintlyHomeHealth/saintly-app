@@ -8,18 +8,27 @@ const REUSABLE_LINK_NOTE_HTML =
 const REUSABLE_LINK_NOTE_TEXT =
   "This link does not expire and is not single-use—you can bookmark it or open it on another device to pick up where you left off.\n\n";
 
+function ctaButtonHtml(href: string, label: string): string {
+  return `<p style="margin:28px 0;">
+  <a href="${escapeHtml(href)}" style="display:inline-block;background:#0f172a;color:#ffffff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:600;">${escapeHtml(
+    label
+  )}</a>
+</p>`;
+}
+
 function htmlBody(firstName: string, link: string, variant: "invite" | "resume"): string {
   const name = firstName.trim() || "there";
+  const ctaLabel = variant === "resume" ? "Resume your onboarding" : "Complete your setup";
   const intro =
     variant === "resume"
       ? `<p>Hi ${escapeHtml(name)},</p>
-<p>Use the link below to return to your Saintly Home Health onboarding (works on mobile):</p>`
+<p>Use the button below to return to your Saintly Home Health onboarding (works on mobile):</p>`
       : `<p>Hi ${escapeHtml(name)},</p>
-<p>Welcome to Saintly Home Health. Please complete your secure onboarding using the link below (works on mobile):</p>`;
+<p>Welcome to Saintly Home Health. Please complete your secure onboarding using the button below (works on mobile):</p>`;
   return `<!DOCTYPE html><html><body style="font-family:system-ui,sans-serif;line-height:1.5;color:#0f172a;">
 ${intro}
 ${REUSABLE_LINK_NOTE_HTML}
-<p><a href="${escapeHtml(link)}">${escapeHtml(link)}</a></p>
+${ctaButtonHtml(link, ctaLabel)}
 <p>If you did not expect this message, you can ignore it.</p>
 <p>— Saintly Home Health</p>
 </body></html>`;

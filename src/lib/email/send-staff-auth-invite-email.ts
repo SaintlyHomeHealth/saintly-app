@@ -1,9 +1,11 @@
 import "server-only";
 
-import { getStaffSignInPageUrl } from "@/lib/auth/staff-sign-in-url";
 import { isOnboardingEmailConfigured, ONBOARDING_EMAIL_NOT_CONFIGURED_ERROR } from "@/lib/email/send-onboarding-invite";
 
 const SUBJECT = "Set up your Saintly Home Health account";
+
+/** User-facing sign-in in invite emails; avoids Supabase action links, tokens, and long query strings in the body. */
+const STAFF_INVITE_EMAIL_LOGIN_URL = "https://www.saintlyhomehealth.com/admin/login";
 
 function escapeHtml(s: string): string {
   return s
@@ -13,27 +15,38 @@ function escapeHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
-function htmlBody(firstName: string, signInUrl: string, signInPageUrl: string): string {
+function ctaButtonHtml(href: string, label: string): string {
+  return `<p style="margin:28px 0;">
+  <a href="${escapeHtml(href)}" style="display:inline-block;background:#0f172a;color:#ffffff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:600;">${escapeHtml(
+    label
+  )}</a>
+</p>`;
+}
+
+function htmlBody(firstName: string, _signInUrl: string, staffLoginUrl: string): string {
   const name = firstName.trim() || "there";
   return `<!DOCTYPE html><html><body style="font-family:system-ui,sans-serif;line-height:1.5;color:#0f172a;">
 <p>Hi ${escapeHtml(name)},</p>
-<p>You have been invited to the Saintly Home Health web app. Use the link below to complete sign-in setup (you may be asked to set a password).</p>
-<p><a href="${escapeHtml(signInUrl)}">${escapeHtml(signInUrl)}</a></p>
-<p>If the link has expired, you can open the sign-in page and use your work email: <a href="${escapeHtml(signInPageUrl)}">${escapeHtml(signInPageUrl)}</a></p>
+<p>You have been invited to the Saintly Home Health web app. Use the button below to complete your account sign-in (you may be asked to set a password).</p>
+${ctaButtonHtml(staffLoginUrl, "Complete your setup")}
+<p>You can also open the sign-in page and use your work email:<br>
+<a href="${escapeHtml(staffLoginUrl)}">${escapeHtml(staffLoginUrl)}</a></p>
 <p>If you did not expect this, you can ignore this message.</p>
 <p>— Saintly Home Health</p>
 </body></html>`;
 }
 
-function textBody(firstName: string, signInUrl: string, signInPageUrl: string): string {
+function textBody(firstName: string, _signInUrl: string, staffLoginUrl: string): string {
   const name = firstName.trim() || "there";
   return `Hi ${name},
 
-You have been invited to the Saintly Home Health web app. Open this link to complete sign-in setup (you may be asked to set a password).
+You have been invited to the Saintly Home Health web app. Complete your account sign-in at the page below (you may be asked to set a password).
 
-${signInUrl}
+Complete your setup:
+${staffLoginUrl}
 
-If the link has expired, you can use the app sign-in page: ${signInPageUrl}
+You can also open the sign-in page and use your work email:
+${staffLoginUrl}
 
 If you did not expect this, you can ignore this message.
 
@@ -61,7 +74,7 @@ export async function sendStaffAuthInviteEmail(
   if (!isOnboardingEmailConfigured()) {
     return { ok: false, error: ONBOARDING_EMAIL_NOT_CONFIGURED_ERROR };
   }
-  const signInPageUrl = getStaffSignInPageUrl();
+  const staffLoginUrl = STAFF_INVITE_EMAIL_LOGIN_URL;
   const apiKey = process.env.RESEND_API_KEY!.trim();
   const from = process.env.RESEND_FROM!.trim();
   const subject = SUBJECT;
@@ -77,8 +90,8 @@ export async function sendStaffAuthInviteEmail(
         from,
         to: [to],
         subject,
-        html: htmlBody(input.firstName, input.signInUrl, signInPageUrl),
-        text: textBody(input.firstName, input.signInUrl, signInPageUrl),
+        html: htmlBody(input.firstName, input.signInUrl, staffLoginUrl),
+        text: textBody(input.firstName, input.signInUrl, staffLoginUrl),
       }),
     });
     if (!res.ok) {
