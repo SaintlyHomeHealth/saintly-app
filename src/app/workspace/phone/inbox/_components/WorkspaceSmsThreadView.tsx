@@ -460,9 +460,9 @@ export function WorkspaceSmsThreadView({
       </div>
 
       <div
-        className={`z-20 shrink-0 border-t border-slate-200/80 bg-white pb-[max(0.25rem,env(safe-area-inset-bottom,0px))] pt-0.5 backdrop-blur-md supports-[backdrop-filter]:bg-white/95 ${
+        className={`z-20 shrink-0 border-t border-slate-200/80 bg-white pb-[max(0.5rem,env(safe-area-inset-bottom,0px))] pt-0.5 backdrop-blur-md supports-[backdrop-filter]:bg-white/95 ${
           appDesktopSplit
-            ? "border-slate-200 shadow-none lg:pt-1 lg:pb-[max(0.25rem,env(safe-area-inset-bottom,0px))]"
+            ? "border-slate-200 shadow-none lg:pt-1 lg:pb-[max(0.5rem,env(safe-area-inset-bottom,0px))]"
             : ""
         }`}
       >

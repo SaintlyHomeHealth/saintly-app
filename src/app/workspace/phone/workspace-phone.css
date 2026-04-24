@@ -11,7 +11,7 @@
      * Clearance for fixed NursePhoneBottomNav + iOS home indicator.
      * Use with padding-bottom on <main> only once — do not stack duplicate pb on nested scroll areas.
      */
-    --ws-phone-nav-pad: calc(4.5rem + env(safe-area-inset-bottom, 0px));
+    --ws-phone-nav-pad: calc(4.25rem + env(safe-area-inset-bottom, 0px));
   }
 
   /* Elevated cards */

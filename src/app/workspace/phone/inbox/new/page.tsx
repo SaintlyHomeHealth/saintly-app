@@ -137,7 +137,7 @@ export default async function WorkspaceInboxNewSmsPage({ searchParams }: PagePro
   }
 
   return (
-    <div className="ws-phone-page-shell flex flex-1 flex-col px-4 pb-28 pt-5 sm:px-5 sm:pb-32">
+    <div className="ws-phone-page-shell flex flex-1 flex-col px-4 pt-5 sm:px-5">
       <WorkspacePhonePageHeader
         title="New message"
         subtitle="Send an outbound SMS — opens in your inbox thread after it sends."

@@ -88,7 +88,7 @@ export function WorkspaceSmsConversationShell({
             className={`flex items-start justify-between gap-2 sm:gap-3 ${appDesktopSplit ? "mt-1.5 lg:mt-0 lg:min-w-0 lg:flex-1 lg:items-center lg:gap-3" : "mt-1.5 sm:mt-2.5"}`}
           >
             <div
-              className={`min-w-0 flex-1 ${appDesktopSplit ? "flex flex-col gap-0 lg:flex-row lg:items-center lg:gap-2" : ""}`}
+              className={`min-w-0 flex-1 pl-1.5 sm:pl-2 ${appDesktopSplit ? "flex flex-col gap-0 lg:flex-row lg:items-center lg:gap-2" : ""}`}
             >
               <div className="flex flex-wrap items-center gap-1.5">
                 <h1

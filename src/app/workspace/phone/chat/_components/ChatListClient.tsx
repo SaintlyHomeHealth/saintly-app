@@ -205,7 +205,7 @@ export function ChatListClient({ showTeamAdmin }: Props) {
         />
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain pb-3">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
       {searchQ.trim().length >= 2 && searchHits ? (
         <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3 text-sm">
           {searching ? <p className="text-slate-500">Searching…</p> : null}
