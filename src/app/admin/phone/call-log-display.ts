@@ -1,20 +1,12 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
+
 import type { PhoneCallRow } from "@/app/admin/phone/recent-calls-live";
 import { formatCrmOutcomeLabel, readCrmMetadata } from "@/app/admin/phone/_lib/crm-metadata";
-
-type ContactNameEmbed = { full_name?: unknown; first_name?: unknown; last_name?: unknown };
-
-function crmDisplayNameFromContactsRaw(contactsRaw: unknown): string | null {
-  let emb: ContactNameEmbed | null = null;
-  if (contactsRaw && typeof contactsRaw === "object" && !Array.isArray(contactsRaw)) {
-    emb = contactsRaw as ContactNameEmbed;
-  } else if (Array.isArray(contactsRaw) && contactsRaw[0] && typeof contactsRaw[0] === "object") {
-    emb = contactsRaw[0] as ContactNameEmbed;
-  }
-  const fn = emb && typeof emb.full_name === "string" ? emb.full_name.trim() : "";
-  const f1 = emb && typeof emb.first_name === "string" ? emb.first_name : null;
-  const f2 = emb && typeof emb.last_name === "string" ? emb.last_name : null;
-  return fn || [f1, f2].filter(Boolean).join(" ").trim() || null;
-}
+import { displayNameFromContactsRelation } from "@/lib/crm/contact-relation-display-name";
+import {
+  phoneRawToE164LookupKey,
+  resolvePhoneDisplayIdentityBatch,
+} from "@/lib/phone/resolve-phone-display-identity";
 
 function mapMetadata(raw: unknown): Record<string, unknown> | null {
   if (raw == null) return null;
@@ -24,7 +16,7 @@ function mapMetadata(raw: unknown): Record<string, unknown> | null {
 
 /** Maps `phone_calls` select row to `PhoneCallRow` (shared shape with legacy phone UI). */
 export function mapPhoneCallQueryRowForLog(raw: Record<string, unknown>): PhoneCallRow {
-  const crm_contact_display_name = crmDisplayNameFromContactsRaw(raw.contacts);
+  const crm_contact_display_name = displayNameFromContactsRelation(raw.contacts);
 
   return {
     id: String(raw.id),
@@ -65,6 +57,7 @@ export function mapPhoneCallQueryRowForLog(raw: Record<string, unknown>): PhoneC
     assigned_to_label: typeof raw.assigned_to_label === "string" ? raw.assigned_to_label : null,
     primary_tag: typeof raw.primary_tag === "string" ? raw.primary_tag : null,
     contact_id: typeof raw.contact_id === "string" ? raw.contact_id : null,
+    resolved_contact_id: null,
     crm_contact_display_name,
     metadata: mapMetadata(raw.metadata),
   };
@@ -128,4 +121,39 @@ export function callerPartyE164(direction: string, from_e164: string | null, to_
     return to_e164?.trim() || null;
   }
   return from_e164?.trim() || to_e164?.trim() || null;
+}
+
+/** Merge phone-directory resolution into call-log rows (server render + refresh). */
+export async function enrichPhoneCallRowsWithResolvedIdentity(
+  supabase: SupabaseClient,
+  rows: PhoneCallRow[]
+): Promise<PhoneCallRow[]> {
+  const parties = rows.map((r) => callerPartyE164(r.direction, r.from_e164, r.to_e164));
+  const batch = await resolvePhoneDisplayIdentityBatch(supabase, parties);
+  return rows.map((row) => {
+    const party = callerPartyE164(row.direction, row.from_e164, row.to_e164);
+    const key = phoneRawToE164LookupKey(party ?? "");
+    const id = key ? batch.get(key) : undefined;
+    const embed = row.crm_contact_display_name?.trim() || null;
+
+    let crmName: string | null = null;
+    if (id?.resolvedFromEntity && id.displayTitle.trim()) {
+      crmName = id.displayTitle.trim();
+    } else if (embed) {
+      crmName = embed;
+    } else if (id?.displayTitle?.trim()) {
+      crmName = id.displayTitle.trim();
+    }
+
+    const resolved_contact_id =
+      !row.contact_id && id?.contactId && (id.entityType === "contact" || id.entityType === "patient" || id.entityType === "lead")
+        ? id.contactId
+        : null;
+
+    return {
+      ...row,
+      crm_contact_display_name: crmName,
+      resolved_contact_id,
+    };
+  });
 }

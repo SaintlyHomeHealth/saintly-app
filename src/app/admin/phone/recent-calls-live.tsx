@@ -19,6 +19,11 @@ import {
 } from "./actions";
 import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
 import { formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
+import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
+
+function effectiveContactId(row: PhoneCallRow): string | null {
+  return row.contact_id ?? row.resolved_contact_id ?? null;
+}
 
 /** Per-contact CRM pipeline for Recent calls (server-built + client-merged). */
 export type ContactPipelineState = {
@@ -49,6 +54,8 @@ export type PhoneCallRow = {
   assigned_to_label: string | null;
   primary_tag: string | null;
   contact_id: string | null;
+  /** Server merge: CRM contact matched by caller phone when `contact_id` on the call is still null. */
+  resolved_contact_id?: string | null;
   crm_contact_display_name: string | null;
   /** JSON from `phone_calls.metadata` (e.g. `crm` classification). */
   metadata: Record<string, unknown> | null;
@@ -339,6 +346,7 @@ function normalizeRealtimePhoneCall(v: unknown): PhoneCallRow | null {
     assigned_to_label: typeof asLabel === "string" ? asLabel : null,
     primary_tag: typeof pTag === "string" ? pTag : null,
     contact_id: typeof cId === "string" ? cId : null,
+    resolved_contact_id: null,
     crm_contact_display_name: null,
     metadata,
   };
@@ -564,6 +572,7 @@ export function RecentCallsLive({
           r.assigned_to_label,
           r.primary_tag,
           r.contact_id,
+          r.resolved_contact_id ?? null,
           r.crm_contact_display_name,
           JSON.stringify(r.metadata ?? null),
         ]),
@@ -676,19 +685,29 @@ export function RecentCallsLive({
               }
               const prevRow = prev[idx];
               let crmName: string | null = null;
-              if (row.contact_id && prevRow.contact_id === row.contact_id) {
+              if (
+                effectiveContactId(row) &&
+                effectiveContactId(row) === effectiveContactId(prevRow)
+              ) {
                 crmName = prevRow.crm_contact_display_name ?? null;
               }
-              const merged: PhoneCallRow = { ...row, crm_contact_display_name: crmName };
+              const merged: PhoneCallRow = {
+                ...row,
+                crm_contact_display_name: crmName,
+                resolved_contact_id: row.contact_id ? null : prevRow.resolved_contact_id ?? null,
+              };
               const next = [...prev];
               next[idx] = merged;
               const sorted = next.sort(sortCallNewestFirst).slice(0, maxVisible);
-              if (merged.contact_id && !merged.crm_contact_display_name) {
-                void fetchCrmContactDisplayName(merged.contact_id).then((name) => {
+              const effMerged = effectiveContactId(merged);
+              if (effMerged && !merged.crm_contact_display_name) {
+                void fetchCrmContactDisplayName(effMerged).then((name) => {
                   if (!name) return;
                   setCalls((p) =>
                     p.map((r) =>
-                      r.id === merged.id && r.contact_id === merged.contact_id ? { ...r, crm_contact_display_name: name } : r
+                      r.id === merged.id && effectiveContactId(r) === effMerged
+                        ? { ...r, crm_contact_display_name: name }
+                        : r
                     )
                   );
                 });
@@ -716,7 +735,7 @@ export function RecentCallsLive({
   }, [callVisibility, currentUserId, maxVisible]);
 
   function handleCreateContactFromCall(row: PhoneCallRow) {
-    if (!row.from_e164?.trim() || row.contact_id) return;
+    if (!row.from_e164?.trim() || effectiveContactId(row)) return;
     setCreatingContactCallId(row.id);
     void createContactFromPhoneCall(row.id).then((res) => {
       setCreatingContactCallId(null);
@@ -727,6 +746,7 @@ export function RecentCallsLive({
             ? {
                 ...r,
                 contact_id: res.contactId,
+                resolved_contact_id: null,
                 crm_contact_display_name: res.crm_contact_display_name,
               }
             : r
@@ -746,12 +766,13 @@ export function RecentCallsLive({
   }
 
   function handleSaveContactName(row: PhoneCallRow) {
-    if (!row.contact_id) return;
+    const cid = effectiveContactId(row);
+    if (!cid) return;
     const name = contactNameInputValue(row).trim();
     if (!name) return;
     setSavingContactNameCallId(row.id);
     const fd = new FormData();
-    fd.set("contactId", row.contact_id);
+    fd.set("contactId", cid);
     fd.set("fullName", name);
     void updateContactFullName(fd).then((res) => {
       setSavingContactNameCallId(null);
@@ -768,7 +789,7 @@ export function RecentCallsLive({
   }
 
   function handleCreateLead(row: PhoneCallRow) {
-    const cid = row.contact_id;
+    const cid = effectiveContactId(row);
     if (!cid) return;
     setCreatingLeadCallId(row.id);
     void createLeadFromContact(cid).then((res) => {
@@ -785,7 +806,7 @@ export function RecentCallsLive({
   }
 
   function handleConvertLead(row: PhoneCallRow) {
-    const cid = row.contact_id;
+    const cid = effectiveContactId(row);
     if (!cid) return;
     const lid = contactPipeline[cid]?.activeLeadId;
     if (!lid) return;
@@ -869,7 +890,7 @@ export function RecentCallsLive({
     const missed = row.status.trim() === "missed";
     if (!missed) return;
 
-    if (row.contact_id) {
+    if (effectiveContactId(row)) {
       // Missed call treated as a lead: create the lead if needed.
       if (crmPipe?.patientStatus) return;
       if (crmPipe?.activeLeadId) return;
@@ -886,7 +907,14 @@ export function RecentCallsLive({
 
       setCalls((p) =>
         p.map((r) =>
-          r.id === row.id ? { ...r, contact_id: res.contactId, crm_contact_display_name: res.crm_contact_display_name } : r
+          r.id === row.id
+            ? {
+                ...r,
+                contact_id: res.contactId,
+                resolved_contact_id: null,
+                crm_contact_display_name: res.crm_contact_display_name,
+              }
+            : r
         )
       );
 
@@ -979,28 +1007,27 @@ export function RecentCallsLive({
                 const missed = isMissedCallStatus(row.status);
                 const timeLabel = formatAdminPhoneWhen(row.started_at ?? row.created_at);
                 const durationLabel = row.duration_seconds != null ? `${row.duration_seconds}s` : "—";
+                const otherParty = otherPartyE164(row);
                 const nameOrNumber = row.crm_contact_display_name?.trim()
                   ? row.crm_contact_display_name
-                  : row.from_e164?.trim()
-                    ? row.from_e164
-                    : row.to_e164?.trim()
-                      ? row.to_e164
-                      : "—";
-                const phoneLabel = row.from_e164?.trim() ? row.from_e164 : "—";
+                  : otherParty
+                    ? formatPhoneForDisplay(otherParty)
+                    : "—";
+                const phoneLabel = otherParty ? formatPhoneForDisplay(otherParty) : "—";
                 const assignedLabel = row.assigned_to_user_id
                   ? row.assigned_to_label?.trim() || row.assigned_to_user_id.slice(0, 8) + "…"
                   : "Unassigned";
                 const unassigned = !row.assigned_to_user_id;
-                const noContact = !row.contact_id;
+                const effCid = effectiveContactId(row);
+                const noContact = !effCid;
                 const trClass = NEUTRAL_ROW_CLASS;
                 const statusPillClass = statusPill(st);
-                const crmPipe = row.contact_id
-                  ? (contactPipeline[row.contact_id] ?? {
+                const crmPipe = effCid
+                  ? (contactPipeline[effCid] ?? {
                       activeLeadId: null,
                       patientStatus: null,
                     })
                   : null;
-                const otherParty = otherPartyE164(row);
 
                 return (
                   <tr
@@ -1200,7 +1227,7 @@ export function RecentCallsLive({
                             <div className="rounded-md border border-slate-200 bg-white p-2">
                               <div className="text-xs font-semibold text-slate-900">Intake</div>
                               <div className="mt-2 text-sm text-slate-700">
-                                {!row.contact_id && row.from_e164 ? (
+                                {!effCid && row.from_e164 ? (
                                   missed ? (
                                     <button
                                       type="button"
@@ -1222,7 +1249,7 @@ export function RecentCallsLive({
                                   )
                                 ) : null}
 
-                                {row.contact_id ? (
+                                {effCid ? (
                                   <div className="mt-2 flex flex-col gap-1.5">
                                     <div className="flex flex-wrap items-center gap-0.5">
                                       <input
@@ -1250,13 +1277,13 @@ export function RecentCallsLive({
                                       </button>
                                     </div>
 
-                                    {row.contact_id && crmPipe?.patientStatus ? (
+                                    {effCid && crmPipe?.patientStatus ? (
                                       <span className="text-[10px] font-medium text-emerald-800">
                                         Patient: {crmPipe.patientStatus}
                                       </span>
                                     ) : null}
 
-                                    {row.contact_id &&
+                                    {effCid &&
                                     crmPipe &&
                                     !crmPipe.patientStatus &&
                                     !crmPipe.activeLeadId ? (
@@ -1278,7 +1305,7 @@ export function RecentCallsLive({
                                       </button>
                                     ) : null}
 
-                                    {row.contact_id &&
+                                    {effCid &&
                                     crmPipe &&
                                     !crmPipe.patientStatus &&
                                     crmPipe.activeLeadId ? (

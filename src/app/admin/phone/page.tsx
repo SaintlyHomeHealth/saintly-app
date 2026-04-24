@@ -12,6 +12,7 @@ import {
   isPhoneWorkspaceUser,
 } from "@/lib/staff-profile";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import {
   buildWorkspaceKeypadCallHref,
   buildWorkspaceSmsToContactHref,
@@ -20,6 +21,7 @@ import {
 
 import {
   callerPartyE164,
+  enrichPhoneCallRowsWithResolvedIdentity,
   formatCallLogOutcome,
   formatCallLogStatus,
   mapPhoneCallQueryRowForLog,
@@ -116,7 +118,7 @@ export default async function AdminPhoneCallLogPage({ searchParams }: PageProps)
   let dbQuery = supabase
     .from("phone_calls")
     .select(
-      "id, created_at, updated_at, external_call_id, direction, from_e164, to_e164, status, started_at, ended_at, duration_seconds, voicemail_recording_sid, voicemail_duration_seconds, priority_sms_sent_at, priority_sms_reason, auto_reply_sms_sent_at, auto_reply_sms_body, assigned_to_user_id, assigned_at, assigned_to_label, primary_tag, contact_id, metadata, contacts ( full_name, first_name, last_name )"
+      "id, created_at, updated_at, external_call_id, direction, from_e164, to_e164, status, started_at, ended_at, duration_seconds, voicemail_recording_sid, voicemail_duration_seconds, priority_sms_sent_at, priority_sms_reason, auto_reply_sms_sent_at, auto_reply_sms_body, assigned_to_user_id, assigned_at, assigned_to_label, primary_tag, contact_id, metadata, contacts ( full_name, first_name, last_name, organization_name )"
     )
     .order("updated_at", { ascending: false })
     .limit(q.limit);
@@ -143,7 +145,7 @@ export default async function AdminPhoneCallLogPage({ searchParams }: PageProps)
   }
 
   const { data: rows, error } = await dbQuery;
-  const calls = (rows ?? []).map((r) => mapPhoneCallQueryRowForLog(r as Record<string, unknown>));
+  let calls = (rows ?? []).map((r) => mapPhoneCallQueryRowForLog(r as Record<string, unknown>));
   /** Match workspace calls: newest last-activity first (completed inbound surfaces). Avoid missed-first client sort that looked like a missed-only log when view=all. */
   const sortedCalls = [...calls].sort((a, b) => {
     const au = new Date(a.updated_at || a.created_at).getTime();
@@ -152,8 +154,13 @@ export default async function AdminPhoneCallLogPage({ searchParams }: PageProps)
     const bOk = Number.isFinite(bu) ? bu : 0;
     return bOk - aOk;
   });
+  const enrichedCalls = await enrichPhoneCallRowsWithResolvedIdentity(supabase, sortedCalls);
 
-  const contactIds = [...new Set(calls.map((c) => c.contact_id).filter((x): x is string => Boolean(x)))];
+  const contactIds = [
+    ...new Set(
+      enrichedCalls.flatMap((c) => [c.contact_id, c.resolved_contact_id].filter((x): x is string => Boolean(x)))
+    ),
+  ];
   const openByContactId = await loadContactOpenTargets(supabase, contactIds);
 
   const assigneeIds = [
@@ -364,20 +371,23 @@ export default async function AdminPhoneCallLogPage({ searchParams }: PageProps)
             </tr>
           </thead>
           <tbody>
-            {sortedCalls.length === 0 ? (
+            {enrichedCalls.length === 0 ? (
               <tr>
                 <td colSpan={9} className="px-3 py-10 text-center text-slate-500">
                   No calls match these filters.
                 </td>
               </tr>
             ) : (
-              sortedCalls.map((row) => {
+              enrichedCalls.map((row) => {
                 const timeRef = row.started_at ?? row.created_at;
                 const whenExact = formatAdminPhoneWhen(timeRef);
                 const ago = formatTimeAgo(timeRef);
                 const urgency = getCallUrgency(row);
-                const name = row.crm_contact_display_name?.trim() || "Unknown caller";
                 const partyE164 = callerPartyE164(row.direction, row.from_e164, row.to_e164);
+                const partyDisplay = formatPhoneForDisplay(partyE164);
+                const name =
+                  row.crm_contact_display_name?.trim() ||
+                  (partyE164?.trim() ? partyDisplay : "Unknown caller");
                 const dialE164 = pickOutboundE164ForDial(partyE164);
                 const uid = row.assigned_to_user_id;
                 const assignedLabel =
@@ -396,7 +406,7 @@ export default async function AdminPhoneCallLogPage({ searchParams }: PageProps)
                 const followUpLabel = getFollowUpStatus(row);
                 const statusLabel = formatCallLogStatus(row.status);
                 const missed = row.status.trim().toLowerCase() === "missed";
-                const contactId = row.contact_id;
+                const contactId = row.contact_id ?? row.resolved_contact_id ?? null;
                 const showCreateLead = !contactId && Boolean(partyE164?.trim());
                 const targets = contactId ? openByContactId[contactId] : undefined;
                 const openPatientHref = targets?.patientId
@@ -460,7 +470,7 @@ export default async function AdminPhoneCallLogPage({ searchParams }: PageProps)
                     </td>
                     <td className="px-3 py-2.5 align-top">
                       <p className="font-semibold text-slate-900">{name}</p>
-                      <p className="font-mono text-xs text-slate-600">{partyE164 ?? "—"}</p>
+                      <p className="font-mono text-xs text-slate-600">{partyDisplay}</p>
                       {aiCategoryLabel ? (
                         <p className="mt-1 text-[10px] font-semibold text-indigo-800">AI: {aiCategoryLabel}</p>
                       ) : null}

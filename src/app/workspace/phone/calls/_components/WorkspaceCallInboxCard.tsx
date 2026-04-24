@@ -7,6 +7,7 @@ import { MessageSquare, Phone, UserPlus } from "lucide-react";
 import { QuickSaveContactSheet } from "@/components/workspace-phone/QuickSaveContactSheet";
 
 import { WorkspaceMarkMissedResolvedButton } from "./WorkspaceMarkMissedResolvedButton";
+import { displayNameFromContactsRelation } from "@/lib/crm/contact-relation-display-name";
 import { formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import {
@@ -14,8 +15,6 @@ import {
   buildWorkspaceKeypadCallHref,
   pickOutboundE164ForDial,
 } from "@/lib/workspace-phone/launch-urls";
-
-type ContactNameEmbed = { full_name?: unknown; first_name?: unknown; last_name?: unknown };
 
 export type CallInboxRow = {
   id: string;
@@ -32,20 +31,14 @@ export type CallInboxRow = {
   contact_id: string | null;
   contacts?: unknown;
   metadata?: unknown;
+  /** Set on the server via `resolvePhoneDisplayIdentityBatch`. */
+  call_log_display?: {
+    title: string;
+    subtitlePhone: string;
+    smsContactId: string | null;
+    showQuickSave: boolean;
+  };
 };
-
-function crmDisplayNameFromContactsRaw(contactsRaw: unknown): string | null {
-  let emb: ContactNameEmbed | null = null;
-  if (contactsRaw && typeof contactsRaw === "object" && !Array.isArray(contactsRaw)) {
-    emb = contactsRaw as ContactNameEmbed;
-  } else if (Array.isArray(contactsRaw) && contactsRaw[0] && typeof contactsRaw[0] === "object") {
-    emb = contactsRaw[0] as ContactNameEmbed;
-  }
-  const fn = emb && typeof emb.full_name === "string" ? emb.full_name.trim() : "";
-  const f1 = emb && typeof emb.first_name === "string" ? emb.first_name : null;
-  const f2 = emb && typeof emb.last_name === "string" ? emb.last_name : null;
-  return fn || [f1, f2].filter(Boolean).join(" ").trim() || null;
-}
 
 function callbackNumber(direction: string | null, from: string | null, to: string | null): string | null {
   const dir = (direction ?? "").trim().toLowerCase();
@@ -81,7 +74,7 @@ export function WorkspaceCallInboxCard({ row, variant }: Props) {
   const [saveOpen, setSaveOpen] = useState(false);
   const [saveE164, setSaveE164] = useState("");
   const [saveResetKey, setSaveResetKey] = useState(0);
-  const label = crmDisplayNameFromContactsRaw(row.contacts);
+  const label = displayNameFromContactsRelation(row.contacts);
   const activityIsoForDisplay =
     variant === "recent"
       ? typeof row.updated_at === "string" && row.updated_at.trim()
@@ -95,10 +88,13 @@ export function WorkspaceCallInboxCard({ row, variant }: Props) {
   const when = formatAdminPhoneWhen(activityIsoForDisplay);
   const numRaw = callbackNumber(row.direction, row.from_e164, row.to_e164);
   const numberDisplay = numRaw ? formatPhoneForDisplay(numRaw) : "—";
-  const cid = typeof row.contact_id === "string" ? row.contact_id : "";
-  const title = label ?? numberDisplay;
+  const pre = row.call_log_display;
+  const cidRaw = pre?.smsContactId ?? row.contact_id;
+  const cid = typeof cidRaw === "string" && cidRaw.trim() ? cidRaw.trim() : "";
+  const title = pre?.title ?? label ?? numberDisplay;
+  const subtitlePhone = pre?.subtitlePhone ?? numberDisplay;
   const missed = variant === "missed";
-  const initials = initialsForRow(title, numberDisplay);
+  const initials = initialsForRow(title, subtitlePhone);
   const e164 = numRaw ? pickOutboundE164ForDial(numRaw) : null;
   const canDial = Boolean(e164);
   const callHref = canDial && e164 ? buildWorkspaceKeypadCallHref({ dial: e164, placeCall: false }) : null;
@@ -128,7 +124,7 @@ export function WorkspaceCallInboxCard({ row, variant }: Props) {
       setSaveOpen(true);
     }
   };
-  const canQuickSave = Boolean(e164) && !cid;
+  const canQuickSave = pre ? pre.showQuickSave : Boolean(e164) && !row.contact_id;
 
   const nameClass = missed
     ? "truncate text-[15px] font-semibold text-rose-700"
@@ -157,7 +153,7 @@ export function WorkspaceCallInboxCard({ row, variant }: Props) {
           </span>
           <div className="min-w-0 flex-1">
             <p className={nameClass}>{title}</p>
-            <p className="truncate font-mono text-[13px] tabular-nums text-slate-500">{numberDisplay}</p>
+            <p className="truncate font-mono text-[13px] tabular-nums text-slate-500">{subtitlePhone}</p>
             <p className="text-[11px] font-medium text-slate-400">{when}</p>
           </div>
         </div>
@@ -168,7 +164,7 @@ export function WorkspaceCallInboxCard({ row, variant }: Props) {
               type="button"
               onClick={openQuickSave}
               title="Save contact"
-              aria-label={`Save contact ${numberDisplay}`}
+              aria-label={`Save contact ${subtitlePhone}`}
               className={saveBtnCls}
             >
               <UserPlus className="h-3.5 w-3.5 shrink-0" strokeWidth={2.25} aria-hidden />
@@ -182,7 +178,7 @@ export function WorkspaceCallInboxCard({ row, variant }: Props) {
                 logCallback();
               }}
               title="Call"
-              aria-label={`Call ${numberDisplay}`}
+              aria-label={`Call ${subtitlePhone}`}
               className={callBtnCls}
             >
               <Phone className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
@@ -193,7 +189,7 @@ export function WorkspaceCallInboxCard({ row, variant }: Props) {
             <Link
               href={textHref}
               title="Text"
-              aria-label={`Text ${numberDisplay}`}
+              aria-label={`Text ${subtitlePhone}`}
               className={textBtnCls}
             >
               <MessageSquare className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />

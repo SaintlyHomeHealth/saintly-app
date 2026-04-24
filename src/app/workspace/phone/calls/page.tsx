@@ -10,6 +10,12 @@ import {
   isManagerOrHigher,
 } from "@/lib/staff-profile";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { displayNameFromContactsRelation } from "@/lib/crm/contact-relation-display-name";
+import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
+import {
+  phoneRawToE164LookupKey,
+  resolvePhoneDisplayIdentityBatch,
+} from "@/lib/phone/resolve-phone-display-identity";
 
 const MISSED_LIMIT = 25;
 const RECENT_LIMIT = 40;
@@ -32,6 +38,40 @@ function mergeRecentCalls(a: CallInboxRow[], b: CallInboxRow[]): CallInboxRow[] 
   return [...map.values()].sort((x, y) => activitySortKeyMs(y) - activitySortKeyMs(x)).slice(0, RECENT_LIMIT);
 }
 
+function callbackNumber(direction: string | null, from: string | null, to: string | null): string | null {
+  const dir = (direction ?? "").trim().toLowerCase();
+  const f = (from ?? "").trim();
+  const t = (to ?? "").trim();
+  if (dir === "outbound") return t || null;
+  return f || null;
+}
+
+function enrichWorkspaceCallRow(
+  row: CallInboxRow,
+  idMap: Awaited<ReturnType<typeof resolvePhoneDisplayIdentityBatch>>
+): CallInboxRow {
+  const party = callbackNumber(row.direction, row.from_e164, row.to_e164);
+  const key = phoneRawToE164LookupKey(party ?? "");
+  const id = key ? idMap.get(key) : undefined;
+  const embed = displayNameFromContactsRelation(row.contacts);
+  const subtitlePhone = party ? formatPhoneForDisplay(party) : "—";
+
+  let title: string;
+  if (id?.resolvedFromEntity && id.displayTitle.trim()) {
+    title = id.displayTitle.trim();
+  } else if (embed) {
+    title = embed;
+  } else {
+    title = id?.displayTitle?.trim() || subtitlePhone;
+  }
+
+  const smsContactId = row.contact_id ?? id?.contactId ?? null;
+  const showQuickSave =
+    Boolean(party && phoneRawToE164LookupKey(party)) && !row.contact_id && !id?.suppressQuickSave;
+
+  return { ...row, call_log_display: { title, subtitlePhone, smsContactId, showQuickSave } };
+}
+
 export default async function WorkspaceCallsPage() {
   const staff = await getStaffProfile();
   if (!staff || !canAccessWorkspacePhone(staff)) {
@@ -45,7 +85,7 @@ export default async function WorkspaceCallsPage() {
   const nurseScopeFilter = `assigned_to_user_id.eq.${staff.user_id},assigned_to_user_id.is.null,direction.eq.inbound`;
 
   const selectRow =
-    "id, created_at, updated_at, started_at, ended_at, direction, from_e164, to_e164, status, external_call_id, contact_id, metadata, contacts ( full_name, first_name, last_name )";
+    "id, created_at, updated_at, started_at, ended_at, direction, from_e164, to_e164, status, external_call_id, contact_id, metadata, contacts ( full_name, first_name, last_name, organization_name )";
 
   let missedQ = supabase
     .from("phone_calls")
@@ -98,6 +138,12 @@ export default async function WorkspaceCallsPage() {
     (recentResolvedMissedData ?? []) as CallInboxRow[]
   );
 
+  const forResolve = [...missed, ...recent];
+  const parties = forResolve.map((r) => callbackNumber(r.direction, r.from_e164, r.to_e164));
+  const identityByE164 = await resolvePhoneDisplayIdentityBatch(supabase, parties);
+  const missedDisplay = missed.map((r) => enrichWorkspaceCallRow(r, identityByE164));
+  const recentDisplay = recent.map((r) => enrichWorkspaceCallRow(r, identityByE164));
+
   return (
     <div className="ws-phone-page-shell flex flex-1 flex-col px-4 pb-6 pt-5 sm:px-5">
       <WorkspacePhonePageHeader
@@ -109,7 +155,7 @@ export default async function WorkspaceCallsPage() {
         }
       />
 
-      {missed.length > 0 ? (
+      {missedDisplay.length > 0 ? (
         <section className="mt-5" aria-labelledby="workspace-calls-missed-heading">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-rose-200/50 pb-2">
             <div>
@@ -119,11 +165,11 @@ export default async function WorkspaceCallsPage() {
               </h2>
             </div>
             <span className="rounded-full bg-rose-600 px-2.5 py-0.5 text-[11px] font-bold text-white tabular-nums">
-              {missed.length}
+              {missedDisplay.length}
             </span>
           </div>
           <ul className="overflow-hidden rounded-xl border border-slate-200/80 bg-white">
-            {missed.map((row) => (
+            {missedDisplay.map((row) => (
               <WorkspaceCallInboxCard key={row.id} row={row} variant="missed" />
             ))}
           </ul>
@@ -131,7 +177,7 @@ export default async function WorkspaceCallsPage() {
       ) : null}
 
       <section
-        className={missed.length > 0 ? "mt-8" : "mt-5"}
+        className={missedDisplay.length > 0 ? "mt-8" : "mt-5"}
         aria-labelledby="workspace-calls-recent-heading"
       >
         <div className="mb-3">
@@ -140,11 +186,11 @@ export default async function WorkspaceCallsPage() {
           </h2>
         </div>
         <div>
-          {recent.length === 0 ? (
+          {recentDisplay.length === 0 ? (
             <p className="ws-phone-empty px-4 py-8">No recent calls yet.</p>
           ) : (
             <ul className="overflow-hidden rounded-xl border border-slate-200/80 bg-white">
-              {recent.map((row) => (
+              {recentDisplay.map((row) => (
                 <WorkspaceCallInboxCard key={row.id} row={row} variant="recent" />
               ))}
             </ul>

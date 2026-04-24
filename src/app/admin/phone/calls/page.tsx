@@ -20,22 +20,8 @@ import type {
   PhoneNotificationRow,
 } from "../recent-calls-live";
 import { parsePhoneCallsSearchParams, type PhoneCallsFilters } from "../phone-call-filters";
-
-type ContactNameEmbed = { full_name?: unknown; first_name?: unknown; last_name?: unknown };
-
-function crmDisplayNameFromContactsRaw(contactsRaw: unknown): string | null {
-  let emb: ContactNameEmbed | null = null;
-  if (contactsRaw && typeof contactsRaw === "object" && !Array.isArray(contactsRaw)) {
-    emb = contactsRaw as ContactNameEmbed;
-  } else if (Array.isArray(contactsRaw) && contactsRaw[0] && typeof contactsRaw[0] === "object") {
-    emb = contactsRaw[0] as ContactNameEmbed;
-  }
-
-  const fn = emb && typeof emb.full_name === "string" ? emb.full_name.trim() : "";
-  const f1 = emb && typeof emb.first_name === "string" ? emb.first_name : null;
-  const f2 = emb && typeof emb.last_name === "string" ? emb.last_name : null;
-  return fn || [f1, f2].filter(Boolean).join(" ").trim() || null;
-}
+import { displayNameFromContactsRelation } from "@/lib/crm/contact-relation-display-name";
+import { enrichPhoneCallRowsWithResolvedIdentity } from "../call-log-display";
 
 async function loadContactPipelineByContactId(
   supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,
@@ -93,7 +79,7 @@ function mapMetadata(raw: unknown): Record<string, unknown> | null {
 }
 
 function mapPhoneCallQueryRow(raw: Record<string, unknown>): PhoneCallRow {
-  const crm_contact_display_name = crmDisplayNameFromContactsRaw((raw as { contacts?: unknown }).contacts);
+  const crm_contact_display_name = displayNameFromContactsRelation((raw as { contacts?: unknown }).contacts);
 
   return {
     id: String(raw.id),
@@ -135,6 +121,7 @@ function mapPhoneCallQueryRow(raw: Record<string, unknown>): PhoneCallRow {
     assigned_to_label: typeof raw.assigned_to_label === "string" ? raw.assigned_to_label : null,
     primary_tag: typeof raw.primary_tag === "string" ? raw.primary_tag : null,
     contact_id: typeof raw.contact_id === "string" ? raw.contact_id : null,
+    resolved_contact_id: null,
     crm_contact_display_name,
     metadata: mapMetadata(raw.metadata),
   };
@@ -189,7 +176,7 @@ export default async function AdminPhoneCallsFullPage({ searchParams }: PageProp
     let q = supabase
       .from("phone_calls")
       .select(
-        "id, created_at, updated_at, external_call_id, direction, from_e164, to_e164, status, started_at, ended_at, duration_seconds, voicemail_recording_sid, voicemail_duration_seconds, priority_sms_sent_at, priority_sms_reason, auto_reply_sms_sent_at, auto_reply_sms_body, assigned_to_user_id, assigned_at, assigned_to_label, primary_tag, contact_id, metadata, contacts ( full_name, first_name, last_name )"
+        "id, created_at, updated_at, external_call_id, direction, from_e164, to_e164, status, started_at, ended_at, duration_seconds, voicemail_recording_sid, voicemail_duration_seconds, priority_sms_sent_at, priority_sms_reason, auto_reply_sms_sent_at, auto_reply_sms_body, assigned_to_user_id, assigned_at, assigned_to_label, primary_tag, contact_id, metadata, contacts ( full_name, first_name, last_name, organization_name )"
       )
       .order("created_at", { ascending: false })
       .limit(100);
@@ -217,9 +204,14 @@ export default async function AdminPhoneCallsFullPage({ searchParams }: PageProp
     error = res.error;
   }
 
-  const calls = (rows || []).map((r) => mapPhoneCallQueryRow(r as Record<string, unknown>));
+  let calls = (rows || []).map((r) => mapPhoneCallQueryRow(r as Record<string, unknown>));
+  calls = await enrichPhoneCallRowsWithResolvedIdentity(supabase, calls);
 
-  const contactIdsForPipeline = [...new Set(calls.map((c) => c.contact_id).filter((x): x is string => Boolean(x)))];
+  const contactIdsForPipeline = [
+    ...new Set(
+      calls.flatMap((c) => [c.contact_id, c.resolved_contact_id].filter((x): x is string => Boolean(x)))
+    ),
+  ];
   const contactPipelineByContactId = await loadContactPipelineByContactId(supabase, contactIdsForPipeline);
 
   const callIds = calls.map((c) => c.id);
