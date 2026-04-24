@@ -325,14 +325,6 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
-  const { data: chatRow } = await supabaseAdmin
-    .from("internal_chats")
-    .select("id, chat_type")
-    .eq("id", cid)
-    .maybeSingle();
-
-  const chatType = typeof chatRow?.chat_type === "string" ? chatRow.chat_type : "";
-
   let bodyJson: {
     text?: string;
     staffMentions?: Array<{ userId?: string; label?: string }>;
@@ -397,10 +389,6 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     if (refSeen.has(k)) continue;
     refSeen.add(k);
     allRefs.push(r);
-  }
-
-  if (allRefs.length > 0 && chatType !== "company" && chatType !== "team") {
-    return NextResponse.json({ error: "reference_mentions_not_allowed" }, { status: 400 });
   }
 
   const attachmentPathEarly =

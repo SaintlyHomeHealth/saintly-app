@@ -48,7 +48,6 @@ type ChatMemberRow = {
 
 type Props = {
   chatId: string;
-  chatType: string;
   title: string;
   showMemberAdmin: boolean;
   selfUserId: string;
@@ -70,7 +69,6 @@ function bubbleStyleForSenderId(senderId: string): { background: string; border:
 
 export function ChatThreadClient({
   chatId,
-  chatType,
   title,
   showMemberAdmin,
   selfUserId,
@@ -98,8 +96,6 @@ export function ChatThreadClient({
   const [referenceMentions, setReferenceMentions] = useState<ReferenceMention[]>([]);
   const [membersPanelOpen, setMembersPanelOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement | null>(null);
-
-  const showPatientMentions = chatType === "company" || chatType === "team";
 
   const loadMembers = useCallback(async () => {
     if (!showMemberAdmin) return;
@@ -165,7 +161,7 @@ export function ChatThreadClient({
   }, [text]);
 
   useEffect(() => {
-    if (!refMenuOpen || !showPatientMentions) {
+    if (!refMenuOpen) {
       return;
     }
     const id = window.setTimeout(() => {
@@ -186,7 +182,7 @@ export function ChatThreadClient({
       })();
     }, 200);
     return () => window.clearTimeout(id);
-  }, [refMenuOpen, showPatientMentions, refTab, refQuery]);
+  }, [refMenuOpen, refTab, refQuery]);
 
   useEffect(() => {
     const supabase = createBrowserSupabaseClient();
@@ -249,9 +245,7 @@ export function ChatThreadClient({
         body: JSON.stringify({
           text: t,
           staffMentions: sp.map((p) => ({ userId: p.userId, label: p.label })),
-          referenceMentions: showPatientMentions
-            ? rr.map((p) => ({ type: p.type, id: p.id, label: p.label }))
-            : [],
+          referenceMentions: rr.map((p) => ({ type: p.type, id: p.id, label: p.label })),
           patientMentions: [],
         }),
       });
@@ -416,8 +410,7 @@ export function ChatThreadClient({
   const canSend =
     Boolean(text.trim()) ||
     staffPicks.some((p) => text.includes(`@${p.label}`)) ||
-    (showPatientMentions &&
-      referenceMentions.some((r) => text.includes(refComposerToken(r.type, r.label))));
+    referenceMentions.some((r) => text.includes(refComposerToken(r.type, r.label)));
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -681,7 +674,7 @@ export function ChatThreadClient({
             ))}
           </div>
         ) : null}
-        {showPatientMentions && canPost ? (
+        {canPost ? (
           <div className="mb-2">
             <button
               type="button"
