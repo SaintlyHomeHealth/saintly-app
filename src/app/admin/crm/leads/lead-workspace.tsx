@@ -19,6 +19,7 @@ import { LeadInsuranceSection } from "@/app/admin/crm/leads/_components/LeadInsu
 import { LeadMedicareFields } from "@/app/admin/crm/leads/_components/LeadMedicareFields";
 import type { LeadActivityRow } from "@/lib/crm/lead-activities-timeline";
 import { LeadQualityControls } from "@/app/admin/crm/leads/_components/LeadQualityControls";
+import { LeadConversationSection } from "@/app/admin/crm/leads/_components/LeadConversationSection";
 import { LeadSectionCard } from "@/app/admin/crm/leads/_components/LeadSectionCard";
 import { LeadSnapshot } from "@/app/admin/crm/leads/_components/LeadSnapshot";
 import { MapboxUsAddressFields } from "@/components/address/MapboxUsAddressFields";
@@ -174,6 +175,8 @@ export type LeadWorkspaceExistingProps = {
   initialActivities: LeadActivityRow[];
   /** When set, "Text lead" opens this inbox thread directly (navigation only; no SMS). */
   workspaceSmsConversationId?: string | null;
+  /** When true, show embedded workspace SMS thread on the lead (requires `canAccessWorkspacePhone`). */
+  canEmbedWorkspaceSms?: boolean;
   /** Visual triage (`leads.lead_temperature`); empty string = unset. */
   leadTemperature: string;
   /** `leads.waiting_on_doctors_orders` — patient intake only (not employee applicants). */
@@ -460,6 +463,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
     medicareNotes,
     initialActivities,
     workspaceSmsConversationId = null,
+    canEmbedWorkspaceSms = false,
     leadTemperature,
     waitingOnDoctorsOrders = false,
     initialLeadQuality = null,
@@ -518,6 +522,13 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
               Contact
             </a>
           </li>
+          {canEmbedWorkspaceSms && contactId.trim() ? (
+            <li>
+              <a href="#section-conversation" className="whitespace-nowrap hover:text-sky-800">
+                Conversation
+              </a>
+            </li>
+          ) : null}
           <li>
             <a href="#section-outcome" className="whitespace-nowrap hover:text-sky-800">
               Outcome
@@ -594,6 +605,20 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
             terminal={terminal}
             waitingOnDoctorsOrders={waitingOnDoctorsOrders}
           />
+
+          {canEmbedWorkspaceSms && contactId.trim() ? (
+            <LeadSectionCard
+              id="section-conversation"
+              title="Conversation"
+              description="SMS thread for this lead’s primary phone — same data and send path as the workspace phone inbox."
+            >
+              <LeadConversationSection
+                leadId={leadId}
+                contactId={contactId.trim()}
+                initialConversationId={workspaceSmsConversationId ?? null}
+              />
+            </LeadSectionCard>
+          ) : null}
 
           {isEmployeeLead && hasAnyIntakeRequestDetail(intakeRequestDefaults) ? (
         <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">

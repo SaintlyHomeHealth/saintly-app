@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "@/lib/admin";
+import { phoneLookupCandidates } from "@/lib/crm/phone-lookup-candidates";
 import { refreshConversationLastMessageAt } from "@/lib/phone/sms-soft-delete";
 
 import { pickOutboundE164ForDial } from "@/lib/workspace-phone/launch-urls";
@@ -44,6 +45,37 @@ export async function findLatestSmsConversationIdForContact(contactId: string): 
   }
 
   return String(existing.id);
+}
+
+/**
+ * Latest non-deleted SMS thread whose `main_phone_e164` matches the lead/contact phone (E.164 or normalizable).
+ * Uses the same candidate set as inbound SMS matching so formatted CRM phones still resolve.
+ */
+export async function findLatestSmsConversationIdForPhoneE164(
+  phoneRaw: string | null | undefined
+): Promise<string | null> {
+  const e164 = pickOutboundE164ForDial(phoneRaw ?? "");
+  if (!e164) return null;
+
+  const candidates = phoneLookupCandidates(e164);
+  if (candidates.length === 0) return null;
+
+  const { data: row, error } = await supabaseAdmin
+    .from("conversations")
+    .select("id")
+    .eq("channel", "sms")
+    .in("main_phone_e164", candidates)
+    .is("deleted_at", null)
+    .order("last_message_at", { ascending: false, nullsFirst: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.warn("[findLatestSmsConversationIdForPhoneE164] find:", error.message);
+    return null;
+  }
+
+  return row?.id ? String(row.id) : null;
 }
 
 /**

@@ -262,6 +262,8 @@ export async function upsertPhoneCallFromWebhook(
 
   if (isTerminalPhoneStatus(nextStatus)) {
     await awaitVoiceAiClassificationForWebhook(callId);
+    const { logTerminalPhoneCallForLeadTimeline } = await import("@/lib/crm/lead-communication-activity");
+    void logTerminalPhoneCallForLeadTimeline(callId);
   }
 
   return { ok: true, callId };
@@ -1277,6 +1279,8 @@ export async function applyTwilioVoiceStatusCallback(
     if (direction === "inbound") {
       await triggerAutoFollowUp(supabase, callId);
     }
+    const { logTerminalPhoneCallForLeadTimeline } = await import("@/lib/crm/lead-communication-activity");
+    void logTerminalPhoneCallForLeadTimeline(callId);
   }
 
   return { ok: true, callId };

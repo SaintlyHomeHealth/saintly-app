@@ -20,6 +20,10 @@ export const LEAD_ACTIVITY_EVENT = {
   inbound_email: "inbound_email",
   /** Standard partner POST `/api/leads/facebook` — shown as a system line on the lead thread. */
   facebook_lead_submitted: "facebook_lead_submitted",
+  /** Phone call (from `phone_calls`) — does not change pipeline status. */
+  communication_phone_call: "communication_phone_call",
+  /** SMS line item (preview only; full thread is in inbox). */
+  communication_sms: "communication_sms",
 } as const;
 
 export type LeadActivityEventType = (typeof LEAD_ACTIVITY_EVENT)[keyof typeof LEAD_ACTIVITY_EVENT];
@@ -65,6 +69,10 @@ export function leadActivityEventLabel(eventType: string): string {
       return "Inbound email";
     case LEAD_ACTIVITY_EVENT.facebook_lead_submitted:
       return "Facebook lead";
+    case LEAD_ACTIVITY_EVENT.communication_phone_call:
+      return "Call";
+    case LEAD_ACTIVITY_EVENT.communication_sms:
+      return "SMS";
     default:
       return eventType.replace(/_/g, " ");
   }
@@ -159,6 +167,13 @@ export function leadActivityThreadClasses(eventType: string): { rail: string; bu
       rail: "bg-blue-400/85",
       bubble: "border-blue-200/90 bg-blue-50/70 text-slate-900",
       label: "text-blue-900",
+    };
+  }
+  if (t === LEAD_ACTIVITY_EVENT.communication_phone_call || t === LEAD_ACTIVITY_EVENT.communication_sms) {
+    return {
+      rail: "bg-emerald-400/80",
+      bubble: "border-emerald-200/90 bg-emerald-50/75 text-slate-900",
+      label: "text-emerald-900",
     };
   }
   return {

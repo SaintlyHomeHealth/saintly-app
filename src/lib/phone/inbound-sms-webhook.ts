@@ -3,6 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { findContactByIncomingPhone } from "@/lib/crm/find-contact-by-incoming-phone";
+import { logSmsMessageForLeadTimeline } from "@/lib/crm/lead-communication-activity";
 import { notifyInboundSmsAfterPersist } from "@/lib/push/notify-inbound-sms";
 import { ensureSmsConversationForPhone } from "@/lib/phone/sms-conversation-thread";
 import { scheduleSmsReplySuggestionGeneration } from "@/lib/phone/sms-reply-suggestion";
@@ -188,6 +189,19 @@ export async function applyInboundTwilioSms(
 
   console.log("[sms-inbound] inbound message inserted", { conversationId, messageId: insertedMsg?.id });
   smsTiming("after_message_insert", { conversationId, messageId: insertedMsg?.id });
+
+  if (insertedMsg?.id) {
+    const contactIdForLog =
+      ensured.primaryContactId ?? (contact?.id ? String(contact.id) : null);
+    void logSmsMessageForLeadTimeline({
+      direction: "inbound",
+      contactId: contactIdForLog,
+      partyPhoneE164: fromE164,
+      conversationId,
+      messageId: String(insertedMsg.id),
+      body,
+    });
+  }
 
   if (process.env.SMS_UNREAD_DEBUG === "1" && insertedMsg) {
     console.warn("[sms-unread-debug] inbound insert row", {

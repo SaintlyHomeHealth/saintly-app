@@ -1,11 +1,11 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
 
 import { supabaseAdmin } from "@/lib/admin";
 import { normalizeCrmContactType } from "@/lib/crm/contact-types";
 import { findContactByIncomingPhone } from "@/lib/crm/find-contact-by-incoming-phone";
+import { logSmsMessageForLeadTimeline } from "@/lib/crm/lead-communication-activity";
 import { UNKNOWN_TEXTER_METADATA_KEY } from "@/lib/phone/sms-conversation-thread";
 import { buildInitialTwilioDeliveryFromRestResponse } from "@/lib/phone/sms-delivery-ui";
 import { mergeTelemetryOnSend, mergeTelemetryOnShown } from "@/lib/phone/sms-suggestion-telemetry";
@@ -627,19 +627,23 @@ export async function sendConversationSms(formData: FormData): Promise<SendConve
 
   const now = new Date().toISOString();
 
-  const { error: insErr } = await supabaseAdmin.from("messages").insert({
-    conversation_id: conversationId,
-    direction: "outbound",
-    body,
-    external_message_sid: sent.messageSid,
-    metadata: {
-      sent_by_user_id: staff.user_id,
-      twilio_delivery: buildInitialTwilioDeliveryFromRestResponse({
-        twilioStatus: sent.twilioStatus ?? null,
-        updatedAtIso: now,
-      }),
-    },
-  });
+  const { data: insertedMsg, error: insErr } = await supabaseAdmin
+    .from("messages")
+    .insert({
+      conversation_id: conversationId,
+      direction: "outbound",
+      body,
+      external_message_sid: sent.messageSid,
+      metadata: {
+        sent_by_user_id: staff.user_id,
+        twilio_delivery: buildInitialTwilioDeliveryFromRestResponse({
+          twilioStatus: sent.twilioStatus ?? null,
+          updatedAtIso: now,
+        }),
+      },
+    })
+    .select("id")
+    .single();
 
   if (insErr) {
     console.warn("[sms-db] outbound insert failed", insErr.message);
@@ -650,6 +654,18 @@ export async function sendConversationSms(formData: FormData): Promise<SendConve
     };
   }
   console.log("[sms-db] outbound insert ok", { conversationId });
+
+  if (insertedMsg?.id) {
+    void logSmsMessageForLeadTimeline({
+      direction: "outbound",
+      contactId: row.primary_contact_id,
+      partyPhoneE164: to,
+      conversationId,
+      messageId: String(insertedMsg.id),
+      body,
+      createdByUserId: staff.user_id,
+    });
+  }
 
   const { data: convBefore } = await supabaseAdmin
     .from("conversations")

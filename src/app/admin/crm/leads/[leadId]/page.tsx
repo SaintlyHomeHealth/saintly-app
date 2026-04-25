@@ -4,14 +4,18 @@ import { LeadWorkspace } from "../lead-workspace";
 import { parseEmploymentApplicationMeta, type EmploymentApplicationMeta } from "@/lib/crm/lead-employment-meta";
 import { parseLeadIntakeRequestFromMetadata } from "@/lib/crm/lead-intake-request";
 import { isLeadPipelineTerminal, isValidLeadPipelineStatus } from "@/lib/crm/lead-pipeline-status";
-import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
+import { canAccessWorkspacePhone, getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 import { supabaseAdmin } from "@/lib/admin";
 import type { LeadActivityRow } from "@/lib/crm/lead-activities-timeline";
 import { isMissingSchemaObjectError } from "@/lib/crm/supabase-migration-fallback";
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { LEAD_INSURANCE_BUCKET } from "@/lib/crm/lead-insurance-storage";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
-import { findLatestSmsConversationIdForContact } from "@/lib/workspace-phone/ensure-sms-thread-for-contact";
+import {
+  findLatestSmsConversationIdForContact,
+  findLatestSmsConversationIdForPhoneE164,
+} from "@/lib/workspace-phone/ensure-sms-thread-for-contact";
+import { pickOutboundE164ForDial } from "@/lib/workspace-phone/launch-urls";
 
 type ContactEmb = {
   full_name?: string | null;
@@ -322,7 +326,12 @@ export default async function LeadIntakePage({
       ? leadQualityRaw
       : null;
 
-  const workspaceSmsConversationId = contactId ? await findLatestSmsConversationIdForContact(contactId) : null;
+  const byContact = contactId ? await findLatestSmsConversationIdForContact(contactId) : null;
+  const dialE164ForThread = pickOutboundE164ForDial(primaryPhone);
+  const byPhone = dialE164ForThread ? await findLatestSmsConversationIdForPhoneE164(dialE164ForThread) : null;
+  /** Prefer `main_phone_e164` match so CRM stays aligned with the inbox thread even if `primary_contact_id` differs. */
+  const workspaceSmsConversationId = byPhone ?? byContact;
+  const canEmbedWorkspaceSms = Boolean(staff && canAccessWorkspacePhone(staff));
 
   return (
     <LeadWorkspace
@@ -330,6 +339,7 @@ export default async function LeadIntakePage({
       leadId={String(L.id)}
       contactId={contactId}
       workspaceSmsConversationId={workspaceSmsConversationId}
+      canEmbedWorkspaceSms={canEmbedWorkspaceSms}
       displayName={contactDisplayName(c ?? null)}
       sourceRaw={str(L.source)}
       rawStatus={rawStatus}
