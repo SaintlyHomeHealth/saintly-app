@@ -1,6 +1,11 @@
 import { getTwilioSmsOutboundDiagnostics } from "@/lib/twilio/sms-outbound-diagnostics";
 import { resolveTwilioWebhookBaseUrl } from "@/lib/twilio/signature-url";
 import { isSmsDebugEnabled, logSmsDebug } from "@/lib/twilio/sms-debug";
+import {
+  isSaintlyBackupSmsE164,
+  logAltSmsSenderUsed,
+  resolveDefaultTwilioSmsFromOrMsid,
+} from "@/lib/twilio/sms-from-numbers";
 
 export type SendSmsParams = {
   to: string;
@@ -27,6 +32,8 @@ export type SendSmsResult =
     }
   | { ok: false; error: string };
 
+export { resolveDefaultTwilioSmsFromOrMsid };
+
 function formatTwilioRestError(status: number, rawBody: string): string {
   const trimmed = rawBody.trim().slice(0, 1200);
   try {
@@ -43,20 +50,21 @@ function formatTwilioRestError(status: number, rawBody: string): string {
 }
 
 /**
- * Twilio Programmable Messaging (REST). Requires TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_SMS_FROM.
+ * Twilio Programmable Messaging (REST). Requires TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN.
+ * When `TWILIO_SMS_FROM` is unset, defaults to the Saintly primary long code (see `resolveDefaultTwilioSmsFromOrMsid`).
  *
  * `TWILIO_SMS_FROM` may be either:
  * - A Messaging Service SID (`MG…`) → request uses `MessagingServiceSid` (required by Twilio; do not send as `From`).
- * - A phone number in E.164 → request uses `From` (use any Twilio SMS-capable number, e.g. a temporary DID until porting completes).
+ * - A phone number in E.164 → request uses `From` (or omit env to use the org primary in code).
  *
  * Returns Twilio MessageSid on success for durable logging (messages.external_message_sid).
  */
 export async function sendSms(params: SendSmsParams): Promise<SendSmsResult> {
   const accountSid = process.env.TWILIO_ACCOUNT_SID?.trim();
   const authToken = process.env.TWILIO_AUTH_TOKEN?.trim();
-  const fromOrMsid =
-    (typeof params.fromOverride === "string" ? params.fromOverride.trim() : "") ||
-    process.env.TWILIO_SMS_FROM?.trim();
+  const fromOverrideTrimmed =
+    typeof params.fromOverride === "string" ? params.fromOverride.trim() : "";
+  const fromOrMsid = fromOverrideTrimmed || resolveDefaultTwilioSmsFromOrMsid();
   const to = params.to.trim();
   const body = params.body.trim();
 
@@ -86,6 +94,11 @@ export async function sendSms(params: SendSmsParams): Promise<SendSmsResult> {
   }
 
   const useMessagingService = fromOrMsid.startsWith("MG");
+  if (!useMessagingService && isSaintlyBackupSmsE164(fromOrMsid)) {
+    logAltSmsSenderUsed("ALT SMS sender used intentionally", {
+      source: fromOverrideTrimmed ? "fromOverride" : "env_or_default",
+    });
+  }
   const form = new URLSearchParams();
   form.set("To", to);
   form.set("Body", body);

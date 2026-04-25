@@ -6,6 +6,7 @@ import type { WorkspaceSmsThreadMessage } from "@/lib/phone/workspace-sms-thread
 import { canStaffAccessConversationRow } from "@/lib/phone/staff-conversation-access";
 import { canAccessWorkspacePhone, getStaffProfile, type StaffProfile } from "@/lib/staff-profile";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { SMS_OUTBOUND_FROM_EXPLICIT_KEY } from "@/lib/twilio/sms-from-numbers";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -42,6 +43,8 @@ export type WorkspaceSmsThreadBootstrap = {
   suggestionForMessageId: string | null;
   composerInitialDraft: null;
   smsPreferredFromE164: string | null;
+  /** True when `preferred_from_e164` for the backup line was set by explicit Text-from choice. */
+  smsPreferredFromExplicit: boolean;
   smsInboundToE164: string | null;
 };
 
@@ -170,6 +173,11 @@ export async function loadWorkspaceSmsThreadBootstrap(
     conv.preferred_from_e164 != null && String(conv.preferred_from_e164).trim() !== ""
       ? String(conv.preferred_from_e164).trim()
       : null;
+  const metaObj =
+    conv.metadata != null && typeof conv.metadata === "object" && !Array.isArray(conv.metadata)
+      ? (conv.metadata as Record<string, unknown>)
+      : null;
+  const smsPreferredFromExplicit = metaObj?.[SMS_OUTBOUND_FROM_EXPLICIT_KEY] === true;
 
   const lastMsg = messages.length > 0 ? messages[messages.length - 1] : null;
   const lastInboundMessageId =
@@ -227,6 +235,7 @@ export async function loadWorkspaceSmsThreadBootstrap(
         initialSmsSuggestion && suggestionMeta ? suggestionMeta.for_message_id : null,
       composerInitialDraft: null,
       smsPreferredFromE164: workspacePreferredFromE164,
+      smsPreferredFromExplicit,
       smsInboundToE164: lastInboundBusinessLineE164,
     },
   };

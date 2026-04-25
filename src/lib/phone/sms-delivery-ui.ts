@@ -22,13 +22,23 @@ export type SmsTwilioDeliveryMeta = {
 export function buildInitialTwilioDeliveryFromRestResponse(params: {
   twilioStatus: string | null;
   updatedAtIso: string;
+  /** E.164 we sent as `From` (omit when using Messaging Service `MG…` — real From arrives via status callback). */
+  fromE164?: string | null;
+  /** Recipient E.164 (optional, stored for audit / support). */
+  toE164?: string | null;
 }): SmsTwilioDeliveryMeta {
   const s = params.twilioStatus?.trim();
+  const from =
+    params.fromE164 != null && String(params.fromE164).trim() !== "" ? String(params.fromE164).trim() : undefined;
+  const to =
+    params.toE164 != null && String(params.toE164).trim() !== "" ? String(params.toE164).trim() : undefined;
   return {
     status: s ? s.toLowerCase() : null,
     error_code: null,
     error_message: null,
     updated_at: params.updatedAtIso,
+    ...(from ? { from } : {}),
+    ...(to ? { to } : {}),
   };
 }
 

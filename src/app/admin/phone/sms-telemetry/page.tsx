@@ -484,12 +484,14 @@ export default async function SmsSuggestionTelemetryPage() {
           metadata, else unknown. Adoption = sent unchanged ÷ shown; trust = unchanged ÷ (unchanged + edited); edit
           rate = edited ÷ (unchanged + edited).
         </p>
-        <Link
-          href="/admin/phone/messages"
-          className="mt-3 inline-block text-sm font-semibold text-sky-800 underline"
-        >
-          ← SMS inbox
-        </Link>
+        <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-sm">
+          <Link href="/admin/phone/messages" className="font-semibold text-sky-800 underline">
+            ← SMS inbox
+          </Link>
+          <Link href="/admin/phone/sms-sender-audit" className="font-semibold text-sky-800 underline">
+            SMS sender audit (7d)
+          </Link>
+        </div>
       </div>
 
       {list.length === 0 ? (

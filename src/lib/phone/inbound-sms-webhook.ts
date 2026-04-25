@@ -8,7 +8,6 @@ import { notifyInboundSmsAfterPersist } from "@/lib/push/notify-inbound-sms";
 import { ensureSmsConversationForPhone } from "@/lib/phone/sms-conversation-thread";
 import { scheduleSmsReplySuggestionGeneration } from "@/lib/phone/sms-reply-suggestion";
 import { isValidE164, normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
-import { allowlistedOutboundE164OrUndefined } from "@/lib/twilio/manual-inbox-sms-from";
 
 export type InboundTwilioSmsParams = Record<string, string>;
 
@@ -20,7 +19,7 @@ export type InboundTwilioSmsParams = Record<string, string>;
  * - Saintly shared Messaging Service numbers (+14803600008, +14805712062) so inbound works when
  *   `TWILIO_SMS_FROM` points at only one of them.
  *
- * Outbound SMS is unchanged: `sendSms` still uses `TWILIO_SMS_FROM` / `fromOverride` only.
+ * Outbound sender is not inferred from inbound `To`: use primary by default unless the thread has an explicit Text-from lock.
  */
 function buildInboundAllowedToE164Set(): Set<string> {
   const set = new Set<string>();
@@ -241,30 +240,11 @@ export async function applyInboundTwilioSms(
   smsTiming("before_conversation_touch");
   const now = new Date().toISOString();
 
-  const lockFrom = allowlistedOutboundE164OrUndefined(toE164);
-  const { data: convPrefRow, error: convPrefErr } = await supabase
-    .from("conversations")
-    .select("preferred_from_e164")
-    .eq("id", conversationId)
-    .maybeSingle();
-
-  if (convPrefErr) {
-    console.warn("[sms-inbound] preferred_from_e164 read:", convPrefErr.message);
-  }
-
-  const prefExisting =
-    convPrefRow?.preferred_from_e164 != null && String(convPrefRow.preferred_from_e164).trim() !== ""
-      ? String(convPrefRow.preferred_from_e164).trim()
-      : null;
-
-  const setPreferredFromInbound = !prefExisting && Boolean(lockFrom);
-
   const { error: touchErr } = await supabase
     .from("conversations")
     .update({
       last_message_at: now,
       updated_at: now,
-      ...(setPreferredFromInbound && lockFrom ? { preferred_from_e164: lockFrom } : {}),
     })
     .eq("id", conversationId);
 

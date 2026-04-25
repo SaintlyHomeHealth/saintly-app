@@ -13,6 +13,7 @@ import { contactHasPriorOutboundSms } from "@/lib/facebook/facebook-auto-text-sc
 import { appendOutboundSmsToConversation, ensureSmsConversationForOutboundSystem } from "@/lib/phone/sms-conversation-thread";
 import { normalizeDialInputToE164, isValidE164 } from "@/lib/softphone/phone-number";
 import { sendSms } from "@/lib/twilio/send-sms";
+import { getPrimarySmsFromNumber, isSaintlyBackupSmsE164, logAltSmsSenderUsed } from "@/lib/twilio/sms-from-numbers";
 
 function firstValue(map: Map<string, string>, keys: string[]): string {
   for (const k of keys) {
@@ -22,12 +23,18 @@ function firstValue(map: Map<string, string>, keys: string[]): string {
   return "";
 }
 
-/** Temporary outbound DID until port completes; override with `FACEBOOK_LEAD_INTRO_SMS_FROM`. */
-export const FACEBOOK_LEAD_INTRO_SMS_FROM_DEFAULT = "+14805712062";
+/** Default: Saintly primary long code. Override with `FACEBOOK_LEAD_INTRO_SMS_FROM` (e.g. for emergency / testing). */
+export const FACEBOOK_LEAD_INTRO_SMS_FROM_DEFAULT = getPrimarySmsFromNumber().e164;
 
 function resolveIntroFromE164(): string {
   const env = process.env.FACEBOOK_LEAD_INTRO_SMS_FROM?.trim();
-  return env || FACEBOOK_LEAD_INTRO_SMS_FROM_DEFAULT;
+  if (env) {
+    if (isSaintlyBackupSmsE164(env)) {
+      logAltSmsSenderUsed("ALT SMS sender used intentionally", { path: "facebook_lead_intro_sms", source: "env" });
+    }
+    return env;
+  }
+  return getPrimarySmsFromNumber().e164;
 }
 
 /** Editable copy — personalized line uses `buildFacebookLeadIntroBody`. */

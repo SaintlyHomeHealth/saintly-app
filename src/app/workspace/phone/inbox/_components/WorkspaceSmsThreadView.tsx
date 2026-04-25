@@ -139,7 +139,9 @@ type Props = {
   composerInitialDraft: string | null;
   /** Locked outbound line for this thread (server). */
   smsPreferredFromE164?: string | null;
-  /** Latest inbound Twilio `To` for seeding the picker when preferred is unset. */
+  /** True when the backup long code in `smsPreferredFromE164` was set by an explicit Text-from pick. */
+  smsPreferredFromExplicit?: boolean;
+  /** Latest inbound Twilio `To` (display / diagnostics only; default send uses primary). */
   smsInboundToE164?: string | null;
   /** CRM / thread tools — above the message list so the composer stays bottom-pinned. */
   threadTopSlot?: ReactNode;
@@ -155,6 +157,7 @@ export function WorkspaceSmsThreadView({
   suggestionForMessageId,
   composerInitialDraft,
   smsPreferredFromE164,
+  smsPreferredFromExplicit,
   smsInboundToE164,
   threadTopSlot,
   appDesktopSplit = false,
@@ -507,6 +510,7 @@ export function WorkspaceSmsThreadView({
             suggestionForMessageId={suggestionForMessageId}
             initialDraft={composerInitialDraft}
             smsPreferredFromE164={smsPreferredFromE164}
+            smsPreferredFromExplicit={smsPreferredFromExplicit}
             smsInboundToE164={smsInboundToE164}
             workspaceThread
             workspaceInboxSplit={appDesktopSplit}

@@ -15,7 +15,8 @@
     "realtime-bridge": "tsx scripts/twilio-openai-realtime-bridge.ts",
     "debug:resume": "NODE_OPTIONS='--conditions=react-server' tsx scripts/debug-resume-extract.ts",
     "verify:inbound-email": "tsx scripts/verify-inbound-email-helpers.ts",
-    "verify:staff-sign-in-url": "tsx scripts/verify-staff-sign-in-url.mts"
+    "verify:staff-sign-in-url": "tsx scripts/verify-staff-sign-in-url.mts",
+    "verify:sms-senders": "node --experimental-strip-types scripts/verify-sms-sender-defaults.mts"
   },
   "dependencies": {
     "@napi-rs/canvas": "^0.1.80",

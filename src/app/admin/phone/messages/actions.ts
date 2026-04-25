@@ -27,6 +27,12 @@ import {
 import { logSmsDebug } from "@/lib/twilio/sms-debug";
 import { sendSms } from "@/lib/twilio/send-sms";
 import {
+  isSaintlyBackupSmsE164,
+  resolveDefaultTwilioSmsFromOrMsid,
+  SMS_OUTBOUND_FROM_EXPLICIT_KEY,
+  shouldHonorThreadPreferredFromE164,
+} from "@/lib/twilio/sms-from-numbers";
+import {
   canAccessWorkspacePhone,
   getStaffProfile,
   hasFullCallVisibility,
@@ -70,6 +76,7 @@ type ConversationAccessRow = {
   main_phone_e164: string | null;
   lead_status: string | null;
   preferred_from_e164: string | null;
+  metadata: unknown;
 };
 
 export type MessagingActionResult = { ok: true } | { ok: false; error: string };
@@ -79,7 +86,7 @@ async function loadConversationForAccess(
 ): Promise<{ row: ConversationAccessRow | null }> {
   const { data, error } = await supabaseAdmin
     .from("conversations")
-    .select("id, assigned_to_user_id, primary_contact_id, main_phone_e164, lead_status, preferred_from_e164")
+    .select("id, assigned_to_user_id, primary_contact_id, main_phone_e164, lead_status, preferred_from_e164, metadata")
     .eq("id", conversationId)
     .eq("channel", "sms")
     .maybeSingle();
@@ -105,6 +112,7 @@ async function loadConversationForAccess(
         data.preferred_from_e164 != null && String(data.preferred_from_e164).trim() !== ""
           ? String(data.preferred_from_e164).trim()
           : null,
+      metadata: data.metadata,
     },
   };
 }
@@ -603,7 +611,7 @@ export async function sendConversationSms(formData: FormData): Promise<SendConve
         preferred_from_e164: row.preferred_from_e164,
       });
     }
-    if (pref) {
+    if (pref && shouldHonorThreadPreferredFromE164(pref, row.metadata)) {
       fromOverride = pref;
     }
   }
@@ -626,6 +634,8 @@ export async function sendConversationSms(formData: FormData): Promise<SendConve
   logSmsDebug("[sms-twilio] send ok", { conversationId, messageSid: sent.messageSid });
 
   const now = new Date().toISOString();
+  const resolvedFrom = (fromOverride ?? "").trim() || resolveDefaultTwilioSmsFromOrMsid();
+  const fromE164ForLog = resolvedFrom.startsWith("MG") ? null : resolvedFrom;
 
   const { data: insertedMsg, error: insErr } = await supabaseAdmin
     .from("messages")
@@ -639,6 +649,8 @@ export async function sendConversationSms(formData: FormData): Promise<SendConve
         twilio_delivery: buildInitialTwilioDeliveryFromRestResponse({
           twilioStatus: sent.twilioStatus ?? null,
           updatedAtIso: now,
+          fromE164: fromE164ForLog,
+          toE164: to,
         }),
       },
     })
@@ -682,6 +694,9 @@ export async function sendConversationSms(formData: FormData): Promise<SendConve
   const nextMeta: Record<string, unknown> = { ...meta, sms_suggestion_telemetry: telemetry };
   if (deleteSuggestion) {
     delete nextMeta.sms_reply_suggestion;
+  }
+  if (manualResolved.source === "explicit" && persistPreferredE164) {
+    nextMeta[SMS_OUTBOUND_FROM_EXPLICIT_KEY] = isSaintlyBackupSmsE164(persistPreferredE164);
   }
 
   const { error: touchErr } = await supabaseAdmin

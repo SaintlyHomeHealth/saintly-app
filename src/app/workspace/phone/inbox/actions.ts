@@ -11,6 +11,11 @@ import { resolveContactAndPhoneForWorkspaceNewSms } from "@/lib/phone/workspace-
 import { resolveManualInboxSmsFromOverride } from "@/lib/twilio/manual-inbox-sms-from";
 import { logSmsDebug } from "@/lib/twilio/sms-debug";
 import { sendSms } from "@/lib/twilio/send-sms";
+import {
+  isSaintlyBackupSmsE164,
+  resolveDefaultTwilioSmsFromOrMsid,
+  SMS_OUTBOUND_FROM_EXPLICIT_KEY,
+} from "@/lib/twilio/sms-from-numbers";
 import { canAccessWorkspacePhone, getStaffProfile } from "@/lib/staff-profile";
 import { supabaseAdmin } from "@/lib/admin";
 
@@ -336,6 +341,8 @@ export async function sendWorkspaceNewSms(formData: FormData): Promise<Workspace
   }
 
   const now = new Date().toISOString();
+  const resolvedFrom = (fromOverride ?? "").trim() || resolveDefaultTwilioSmsFromOrMsid();
+  const fromE164ForLog = resolvedFrom.startsWith("MG") ? null : resolvedFrom;
 
   const { error: insErr } = await supabaseAdmin.from("messages").insert({
     conversation_id: conversationId,
@@ -348,6 +355,8 @@ export async function sendWorkspaceNewSms(formData: FormData): Promise<Workspace
       twilio_delivery: buildInitialTwilioDeliveryFromRestResponse({
         twilioStatus: sent.twilioStatus ?? null,
         updatedAtIso: now,
+        fromE164: fromE164ForLog,
+        toE164: e164,
       }),
     },
   });
@@ -375,6 +384,9 @@ export async function sendWorkspaceNewSms(formData: FormData): Promise<Workspace
   const nextMeta: Record<string, unknown> = { ...meta, sms_suggestion_telemetry: telemetry };
   if (deleteSuggestion) {
     delete nextMeta.sms_reply_suggestion;
+  }
+  if (manualResolved.source === "explicit" && persistPreferredE164) {
+    nextMeta[SMS_OUTBOUND_FROM_EXPLICIT_KEY] = isSaintlyBackupSmsE164(persistPreferredE164);
   }
 
   const { error: touchErr } = await supabaseAdmin

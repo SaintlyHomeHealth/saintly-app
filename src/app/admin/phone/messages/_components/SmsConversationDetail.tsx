@@ -40,6 +40,7 @@ import {
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { isValidE164 } from "@/lib/softphone/phone-number";
 import { buildWorkspaceKeypadCallHref } from "@/lib/workspace-phone/launch-urls";
+import { SMS_OUTBOUND_FROM_EXPLICIT_KEY } from "@/lib/twilio/sms-from-numbers";
 
 const SmsThreadContactPanel = dynamic(
   () =>
@@ -352,6 +353,11 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
     conv.preferred_from_e164 != null && String(conv.preferred_from_e164).trim() !== ""
       ? String(conv.preferred_from_e164).trim()
       : null;
+  const convMetaObj =
+    conv.metadata && typeof conv.metadata === "object" && !Array.isArray(conv.metadata)
+      ? (conv.metadata as Record<string, unknown>)
+      : null;
+  const workspacePreferredFromExplicit = convMetaObj?.[SMS_OUTBOUND_FROM_EXPLICIT_KEY] === true;
 
   const lastMsg = messages.length > 0 ? messages[messages.length - 1] : null;
   const lastInboundMessageId =
@@ -821,6 +827,7 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
         }
         composerInitialDraft={composerInitialDraft}
         smsPreferredFromE164={workspacePreferredFromE164}
+        smsPreferredFromExplicit={workspacePreferredFromExplicit}
         smsInboundToE164={lastInboundBusinessLineE164}
         appDesktopSplit={workspaceDesktopSplit}
         threadTopSlot={

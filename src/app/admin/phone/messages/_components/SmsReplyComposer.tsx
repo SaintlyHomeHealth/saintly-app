@@ -16,7 +16,9 @@ type Props = {
   initialDraft?: string | null;
   /** Thread-locked outbound line (workspace inbox). */
   smsPreferredFromE164?: string | null;
-  /** Latest inbound Twilio `To` for Text-from seed. */
+  /** Backup line in `smsPreferredFromE164` is only default-selected when this is true. */
+  smsPreferredFromExplicit?: boolean;
+  /** Reserved for display; default outbound uses primary. */
   smsInboundToE164?: string | null;
   /** When true, server action redirects back to workspace phone inbox with send status. */
   workspaceThread?: boolean;
@@ -44,6 +46,7 @@ export function SmsReplyComposer({
   suggestionForMessageId,
   initialDraft,
   smsPreferredFromE164,
+  smsPreferredFromExplicit,
   smsInboundToE164,
   workspaceThread,
   workspaceInboxSplit,
@@ -157,6 +160,7 @@ export function SmsReplyComposer({
           className="shadow-none"
           lockScopeKey={conversationId}
           preferredFromE164={smsPreferredFromE164}
+          preferredFromExplicit={smsPreferredFromExplicit}
           inboundToE164={smsInboundToE164}
         />
       ) : null}

@@ -194,6 +194,7 @@ export function LeadConversationSection({ leadId, contactId, initialConversation
               suggestionForMessageId={bootstrap.suggestionForMessageId}
               composerInitialDraft={bootstrap.composerInitialDraft}
               smsPreferredFromE164={bootstrap.smsPreferredFromE164 ?? undefined}
+              smsPreferredFromExplicit={bootstrap.smsPreferredFromExplicit}
               smsInboundToE164={bootstrap.smsInboundToE164 ?? undefined}
               appDesktopSplit={false}
             />

@@ -5,6 +5,10 @@ import { memo, useCallback, useEffect, useMemo, useState } from "react";
 
 import { useWorkspaceSoftphone } from "@/components/softphone/WorkspaceSoftphoneProvider";
 import { formatPhoneNumber } from "@/lib/phone/us-phone-format";
+import {
+  isSaintlyBackupSmsE164,
+  SAINTLY_PRIMARY_SMS_E164,
+} from "@/lib/twilio/sms-from-numbers";
 
 type SmsOutboundInfo = {
   credentialsComplete: boolean;
@@ -33,20 +37,24 @@ export type SmsTextFromBarProps = {
   lockScopeKey?: string;
   /** Persisted thread lock (`conversations.preferred_from_e164`). */
   preferredFromE164?: string | null;
-  /** Latest inbound business line (message metadata) when preferred is unset. */
+  /** When true, a backup long code in `preferredFromE164` was chosen explicitly in Text-from. */
+  preferredFromExplicit?: boolean;
+  /** Legacy prop; inbound “To” no longer seeds the default sender (primary is default). */
   inboundToE164?: string | null;
 };
 
 /**
  * “Text from” row — mirrors Call-as interaction (expand / pick line).
  * Selected E.164 is submitted as `smsManualFromE164` for manual workspace SMS sends.
- * Seed order: preferred → latest inbound To → org default line.
+ * Seed: honor `preferredFromE164` unless it is the backup line without `preferredFromExplicit`;
+ * otherwise default to the org primary long code (not “first available” line order).
  */
 export const SmsTextFromBar = memo(function SmsTextFromBar({
   className = "",
   lockScopeKey,
   preferredFromE164,
-  inboundToE164,
+  preferredFromExplicit,
+  inboundToE164: _inboundToE164,
 }: SmsTextFromBarProps) {
   const { softphoneCapabilities } = useWorkspaceSoftphone();
   const lines = useMemo(
@@ -84,11 +92,15 @@ export const SmsTextFromBar = memo(function SmsTextFromBar({
 
   const seedE164 = useMemo(() => {
     const pref = preferredFromE164?.trim();
-    if (pref) return pref;
-    const inbound = inboundToE164?.trim();
-    if (inbound) return inbound;
-    return lines.find((l) => l.is_default)?.e164 ?? lines[0]?.e164 ?? null;
-  }, [lines, preferredFromE164, inboundToE164]);
+    if (pref) {
+      if (isSaintlyBackupSmsE164(pref) && !preferredFromExplicit) {
+        /* stale auto-picked backup — use primary */
+      } else {
+        return pref;
+      }
+    }
+    return lines.find((l) => l.e164 === SAINTLY_PRIMARY_SMS_E164)?.e164 ?? SAINTLY_PRIMARY_SMS_E164;
+  }, [lines, preferredFromE164, preferredFromExplicit]);
 
   const activeE164 = pickedE164 ?? seedE164;
 
