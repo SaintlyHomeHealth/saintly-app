@@ -2200,3 +2200,12 @@ export function useWorkspaceSoftphone() {
   }
   return ctx;
 }
+
+/**
+ * Same context as {@link useWorkspaceSoftphone} but returns `null` outside
+ * `WorkspaceSoftphoneProvider` (e.g. embedded CRM thread). Use when the UI can
+ * degrade (empty outbound lines until workspace shell is present).
+ */
+export function useOptionalWorkspaceSoftphone() {
+  return useContext(WorkspaceSoftphoneContext);
+}

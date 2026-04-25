@@ -3,7 +3,7 @@
 import { Check, ChevronDown, MessageSquare } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 
-import { useWorkspaceSoftphone } from "@/components/softphone/WorkspaceSoftphoneProvider";
+import { useOptionalWorkspaceSoftphone } from "@/components/softphone/WorkspaceSoftphoneProvider";
 import { formatPhoneNumber } from "@/lib/phone/us-phone-format";
 import {
   isSaintlyBackupSmsE164,
@@ -56,10 +56,10 @@ export const SmsTextFromBar = memo(function SmsTextFromBar({
   preferredFromExplicit,
   inboundToE164: _inboundToE164,
 }: SmsTextFromBarProps) {
-  const { softphoneCapabilities } = useWorkspaceSoftphone();
+  const softphoneCtx = useOptionalWorkspaceSoftphone();
   const lines = useMemo(
-    () => softphoneCapabilities?.outbound_lines ?? [],
-    [softphoneCapabilities]
+    () => softphoneCtx?.softphoneCapabilities?.outbound_lines ?? [],
+    [softphoneCtx]
   );
 
   const [smsInfo, setSmsInfo] = useState<SmsOutboundInfo | null>(null);

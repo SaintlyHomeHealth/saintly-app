@@ -157,7 +157,7 @@ export function WorkspaceSmsThreadView({
   suggestionForMessageId,
   composerInitialDraft,
   smsPreferredFromE164,
-  smsPreferredFromExplicit,
+  smsPreferredFromExplicit = false,
   smsInboundToE164,
   threadTopSlot,
   appDesktopSplit = false,

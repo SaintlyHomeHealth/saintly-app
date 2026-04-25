@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { Component, type ErrorInfo, type ReactNode, useEffect, useRef, useState } from "react";
 
 import {
   ensureLeadSmsThreadAction,
@@ -42,6 +42,54 @@ type Props = {
   /** From server: phone-first thread resolution; may be null when no thread yet. */
   initialConversationId: string | null;
 };
+
+class EmbeddedLeadSmsThreadErrorBoundary extends Component<
+  { leadId: string; conversationId: string; children: ReactNode },
+  { hasError: boolean }
+> {
+  state = { hasError: false };
+
+  static getDerivedStateFromError(): { hasError: boolean } {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: unknown, errorInfo: ErrorInfo) {
+    console.error("[LeadConversationSection] embedded SMS thread error", error, errorInfo.componentStack);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      const href = buildWorkspaceInboxLeadSmsHref({
+        conversationId: this.props.conversationId,
+        leadId: this.props.leadId,
+      });
+      return (
+        <div
+          className="rounded-xl border border-amber-200/90 bg-amber-50/90 px-4 py-3 text-sm text-amber-950 shadow-sm"
+          role="alert"
+        >
+          <p className="font-medium">Conversation could not load. Open in Inbox.</p>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <Link
+              href={href}
+              className="inline-flex items-center justify-center rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-950 shadow-sm transition hover:bg-amber-100/80"
+            >
+              Open in Inbox
+            </Link>
+            <button
+              type="button"
+              className="text-xs font-semibold text-amber-900 underline-offset-2 hover:underline"
+              onClick={() => this.setState({ hasError: false })}
+            >
+              Try again
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 export function LeadConversationSection({ leadId, contactId, initialConversationId }: Props) {
   const gateRef = useRef<HTMLDivElement | null>(null);
@@ -182,24 +230,28 @@ export function LeadConversationSection({ leadId, contactId, initialConversation
           </button>
         </div>
       ) : bootstrap ? (
-        <>
+        <EmbeddedLeadSmsThreadErrorBoundary
+          key={bootstrap.conversationId}
+          leadId={leadId}
+          conversationId={bootstrap.conversationId}
+        >
           <SmsThreadMarkReadOnViewClient conversationId={bootstrap.conversationId} />
           <div className="flex h-[min(28rem,52vh)] min-h-[16rem] flex-col overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-sm ring-1 ring-slate-200/40">
             <WorkspaceSmsThreadView
               key={bootstrap.conversationId}
               conversationId={bootstrap.conversationId}
-              initialMessages={bootstrap.initialMessages}
-              voicemailDetailByCallId={bootstrap.voicemailDetailByCallId}
+              initialMessages={bootstrap.initialMessages ?? []}
+              voicemailDetailByCallId={bootstrap.voicemailDetailByCallId ?? {}}
               initialSuggestion={bootstrap.initialSuggestion}
               suggestionForMessageId={bootstrap.suggestionForMessageId}
               composerInitialDraft={bootstrap.composerInitialDraft}
               smsPreferredFromE164={bootstrap.smsPreferredFromE164 ?? undefined}
-              smsPreferredFromExplicit={bootstrap.smsPreferredFromExplicit}
+              smsPreferredFromExplicit={Boolean(bootstrap.smsPreferredFromExplicit)}
               smsInboundToE164={bootstrap.smsInboundToE164 ?? undefined}
               appDesktopSplit={false}
             />
           </div>
-        </>
+        </EmbeddedLeadSmsThreadErrorBoundary>
       ) : null}
     </div>
   );
