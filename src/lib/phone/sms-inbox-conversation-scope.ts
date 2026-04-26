@@ -12,6 +12,31 @@ export const WORKSPACE_SMS_INBOX_CONVERSATION_FETCH = WORKSPACE_SMS_INBOX_MAX_VI
 
 export type SmsInboxConversationListRow = { id: string } & Record<string, unknown>;
 
+type SmsConversationIdRow = { conversation_id: string | null };
+
+async function loadConversationIdsWithSms(
+  supabase: SupabaseClient,
+  ids: string[]
+): Promise<Set<string> | null> {
+  const { data, error } = await supabase.rpc("sms_conversation_ids_with_messages", {
+    conversation_ids: ids,
+  });
+
+  if (error) {
+    if (process.env.NODE_ENV === "development") {
+      console.warn("[sms-inbox-conversation-scope] rpc unavailable:", error.message);
+    }
+    return null;
+  }
+
+  const withSms = new Set<string>();
+  for (const row of (data ?? []) as SmsConversationIdRow[]) {
+    const cid = typeof row.conversation_id === "string" ? row.conversation_id : "";
+    if (cid) withSms.add(cid);
+  }
+  return withSms;
+}
+
 /**
  * Preserves the caller’s sort order, drops threads with no SMS messages (voicemail-only),
  * then takes the first `maxVisible` rows.
@@ -24,6 +49,11 @@ export async function filterToSmsInboxConversationsInOrder(
   if (conversationRows.length === 0 || maxVisible <= 0) return [];
 
   const ids = conversationRows.map((r) => r.id);
+  const rpcWithSms = await loadConversationIdsWithSms(supabase, ids);
+  if (rpcWithSms) {
+    return conversationRows.filter((r) => rpcWithSms.has(r.id)).slice(0, maxVisible);
+  }
+
   const { data, error } = await supabase
     .from("messages")
     .select("conversation_id")

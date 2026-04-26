@@ -1,6 +1,6 @@
 "use client";
 
-import { startTransition, useCallback, useEffect, useRef } from "react";
+import { startTransition, useCallback, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 
 import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
@@ -17,11 +17,23 @@ const MIN_REFRESH_GAP_MS = 2800;
  * Scoped to the workspace inbox page: refreshes server components so the rail (order, preview,
  * unread) stays in sync. Active thread still merges new rows via WorkspaceSmsThreadView realtime.
  */
-export function WorkspaceInboxLiveClient() {
+export function WorkspaceInboxLiveClient({
+  conversationIds,
+  selectedConversationId,
+}: {
+  conversationIds: string[];
+  selectedConversationId?: string | null;
+}) {
   const router = useRouter();
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const trailingRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastRefreshAtRef = useRef(0);
+  const scopedIds = useMemo(
+    () => [...new Set([...conversationIds, selectedConversationId].filter((id): id is string => Boolean(id)))],
+    [conversationIds, selectedConversationId]
+  );
+  const realtimeFilter = scopedIds.length > 0 ? `conversation_id=in.(${scopedIds.join(",")})` : null;
+  const conversationFilter = scopedIds.length > 0 ? `id=in.(${scopedIds.join(",")})` : null;
 
   const scheduleRefresh = useCallback(() => {
     if (typeof document !== "undefined" && document.visibilityState !== "visible") {
@@ -74,31 +86,35 @@ export function WorkspaceInboxLiveClient() {
 
   useEffect(() => {
     const supabase = createBrowserSupabaseClient();
-    const channel = supabase
-      .channel("workspace_inbox_rail")
-      .on(
+    let channel = supabase.channel("workspace_inbox_rail_scoped");
+    if (realtimeFilter) {
+      channel = channel
+        .on(
+          "postgres_changes",
+          { event: "INSERT", schema: "public", table: "messages", filter: realtimeFilter },
+          () => scheduleRefresh()
+        )
+        .on(
+          "postgres_changes",
+          { event: "UPDATE", schema: "public", table: "messages", filter: realtimeFilter },
+          () => scheduleRefresh()
+        );
+    }
+    if (conversationFilter) {
+      channel = channel.on(
         "postgres_changes",
-        { event: "INSERT", schema: "public", table: "messages" },
+        { event: "UPDATE", schema: "public", table: "conversations", filter: conversationFilter },
         () => scheduleRefresh()
-      )
-      .on(
-        "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "messages" },
-        () => scheduleRefresh()
-      )
-      .on(
-        "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "conversations" },
-        () => scheduleRefresh()
-      )
-      .subscribe();
+      );
+    }
+    channel = channel.subscribe();
 
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
       if (trailingRef.current) clearTimeout(trailingRef.current);
       void supabase.removeChannel(channel);
     };
-  }, [scheduleRefresh]);
+  }, [conversationFilter, realtimeFilter, scheduleRefresh]);
 
   return null;
 }

@@ -13,28 +13,16 @@ import { contactRowsActiveOnly } from "@/lib/crm/contacts-active";
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { SERVICE_DISCIPLINE_CODES } from "@/lib/crm/service-disciplines";
 import { supabaseAdmin } from "@/lib/admin";
-import { buildContactSearchOrClause, matchesLeadSearchRow } from "@/lib/crm/crm-leads-search";
-import { sortLeadsForPipelineDefault } from "@/lib/crm/crm-leads-sort";
+import { buildContactSearchOrClause, escapeForIlike } from "@/lib/crm/crm-leads-search";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { crmFilterInputCls, crmPrimaryCtaCls } from "@/components/admin/crm-admin-list-styles";
-import { normalizeContact, staffPrimaryLabel, type CrmLeadRow } from "@/lib/crm/crm-leads-table-helpers";
+import { staffPrimaryLabel, type CrmLeadRow } from "@/lib/crm/crm-leads-table-helpers";
 import { isMissingSchemaObjectError } from "@/lib/crm/supabase-migration-fallback";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 
-function matchesDisciplineLead(
-  serviceDisciplines: string[] | null,
-  serviceType: string | null,
-  disc: string
-): boolean {
-  const sd = Array.isArray(serviceDisciplines) ? serviceDisciplines : [];
-  if (sd.includes(disc)) return true;
-  const legacy = (serviceType ?? "").trim();
-  if (!legacy) return false;
-  return legacy.split(",").some((x) => x.trim() === disc);
-}
-
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const EMPTY_SENTINEL = "00000000-0000-0000-0000-000000000000";
+const CRM_LEADS_LIST_LIMIT = 100;
 
 /** `public.leads` — shared column list for CRM list (without optional migration-gated columns). */
 const CRM_LEADS_LIST_SELECT_BASE =
@@ -121,7 +109,12 @@ export default async function AdminCrmLeadsPage({
 
   const buildFilteredLeadsQuery = (selectStr: string) => {
     let q = leadRowsActiveOnly(
-      supabaseAdmin.from("leads").select(selectStr).order("created_at", { ascending: false }).limit(500)
+      supabaseAdmin
+        .from("leads")
+        .select(selectStr)
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: false })
+        .limit(CRM_LEADS_LIST_LIMIT)
     );
 
     if (contactIdFilter) {
@@ -148,6 +141,9 @@ export default async function AdminCrmLeadsPage({
       if (f.payerType && PAYER_BROAD_CATEGORY_OPTIONS.includes(f.payerType as (typeof PAYER_BROAD_CATEGORY_OPTIONS)[number])) {
         q = q.eq("payer_type", f.payerType);
       }
+      if (f.discipline && SERVICE_DISCIPLINE_CODES.includes(f.discipline as (typeof SERVICE_DISCIPLINE_CODES)[number])) {
+        q = q.or(`service_disciplines.ov.{${f.discipline}},service_type.ilike.%${escapeForIlike(f.discipline)}%`);
+      }
     }
 
     if (f.leadType === "employee") {
@@ -171,19 +167,7 @@ export default async function AdminCrmLeadsPage({
     console.warn("[crm/leads] leads query failed:", error.message);
   }
 
-  let list = (rows ?? []) as CrmLeadRow[];
-
-  if (f.leadType !== "employee" && f.discipline && SERVICE_DISCIPLINE_CODES.includes(f.discipline as (typeof SERVICE_DISCIPLINE_CODES)[number])) {
-    list = list.filter((r) => matchesDisciplineLead(r.service_disciplines, r.service_type, f.discipline));
-  }
-
-  if (f.q.trim()) {
-    list = list.filter((r) => matchesLeadSearchRow(normalizeContact(r.contacts), f.q));
-  }
-
-  list = sortLeadsForPipelineDefault(list, todayIso, showDead);
-
-  list = list.slice(0, 100);
+  const list = (rows ?? []) as CrmLeadRow[];
 
   const contactIdsForSms = [
     ...new Set(

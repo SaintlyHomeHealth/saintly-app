@@ -100,6 +100,20 @@ export type OnboardingStatusLite = {
   onboarding_last_activity_at?: string | null;
 };
 
+const EMPLOYEE_DIRECTORY_APPLICANT_SELECT = [
+  "id",
+  "first_name",
+  "last_name",
+  "email",
+  "phone",
+  "position",
+  "primary_discipline",
+  "type_of_position",
+  "status",
+  "created_at",
+  "updated_at",
+].join(", ");
+
 type OnboardingContractStatusLite = {
   applicant_id: string;
   completed?: boolean | null;
@@ -706,7 +720,7 @@ export async function loadEmployeeDirectoryRows(): Promise<{
 }> {
   const { data: applicantsRaw, error: applicantsError } = await supabaseAdmin
     .from("applicants")
-    .select("*")
+    .select(EMPLOYEE_DIRECTORY_APPLICANT_SELECT)
     .order("created_at", { ascending: false })
     .limit(1500);
 

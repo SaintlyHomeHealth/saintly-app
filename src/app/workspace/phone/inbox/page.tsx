@@ -294,7 +294,10 @@ export default async function WorkspaceInboxPage(props: PageProps) {
 
   return (
     <div className="ws-phone-page-shell flex h-full min-h-0 flex-1 flex-col lg:h-full lg:min-h-0 lg:flex-1 lg:overflow-hidden">
-      <WorkspaceInboxLiveClient />
+      <WorkspaceInboxLiveClient
+        conversationIds={ids}
+        selectedConversationId={selectedThreadValid ? threadRaw : null}
+      />
       <InboxThreadMobileRouteClient />
       <div className="flex min-h-0 flex-1 flex-col lg:min-h-0 lg:flex-1 lg:flex-row lg:overflow-hidden">
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden border-sky-100/60 pt-2 sm:pt-5 lg:w-[176px] lg:max-w-[176px] lg:flex-none lg:basis-[176px] lg:grow-0 lg:shrink-0 lg:border-r lg:border-slate-200/60 lg:bg-slate-50 lg:pt-0">
