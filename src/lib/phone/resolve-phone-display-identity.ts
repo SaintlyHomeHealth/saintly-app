@@ -2,7 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { findContactByIncomingPhone } from "@/lib/crm/find-contact-by-incoming-phone";
+import { findContactByIncomingPhone, type CrmContactMatch } from "@/lib/crm/find-contact-by-incoming-phone";
 import { buildIncomingContactDisplayName, normalizedPhonesEquivalent } from "@/lib/crm/incoming-caller-lookup";
 import {
   buildPhoneColumnOrFilter,
@@ -11,6 +11,7 @@ import {
 } from "@/lib/crm/phone-supabase-match";
 import { normalizeRecruitingPhoneForStorage } from "@/lib/recruiting/recruiting-contact-normalize";
 import { formatPhoneNumber, normalizePhone } from "@/lib/phone/us-phone-format";
+import { routePerfLog, routePerfStart, routePerfStepsEnabled, routePerfTimed } from "@/lib/perf/route-perf";
 import { isValidE164, normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
 
 export type PhoneDisplayEntityType =
@@ -77,6 +78,8 @@ type FacilityContactRow = {
   mobile_phone: string | null;
   facility_id: string;
 };
+
+const PHONE_IDENTITY_BATCH_CHUNK_SIZE = 20;
 
 /**
  * Normalize to E.164 for CRM/directory matching (NANP + strict E.164). Returns null when not dialable.
@@ -327,12 +330,146 @@ export async function resolvePhoneDisplayIdentityBatch(
   phoneNumbers: (string | null | undefined)[]
 ): Promise<Map<string, PhoneDisplayIdentity>> {
   const keys = [...new Set(phoneNumbers.map((p) => phoneRawToE164LookupKey(p)).filter((k): k is string => Boolean(k)))];
+  const perfStart = routePerfStart();
   const out = new Map<string, PhoneDisplayIdentity>();
-  await Promise.all(
-    keys.map(async (k) => {
-      const id = await resolvePhoneDisplayIdentity(supabase, k);
-      out.set(k, id);
-    })
-  );
+  if (keys.length === 0) return out;
+
+  const contactByKey = routePerfStepsEnabled()
+    ? await routePerfTimed("phone_identity_batch.contacts", () => resolveContactsByPhoneKeys(supabase, keys))
+    : await resolveContactsByPhoneKeys(supabase, keys);
+  const contactIds = [
+    ...new Set([...contactByKey.values()].map((contact) => contact.id).filter((id): id is string => Boolean(id))),
+  ];
+  const [patientContactIds, leadContactIds] = routePerfStepsEnabled()
+    ? await routePerfTimed("phone_identity_batch.crm_classification", () =>
+        Promise.all([loadPatientContactIds(supabase, contactIds), loadLeadContactIds(supabase, contactIds)])
+      )
+    : await Promise.all([loadPatientContactIds(supabase, contactIds), loadLeadContactIds(supabase, contactIds)]);
+
+  for (const [key, contact] of contactByKey) {
+    out.set(key, identityFromContact(key, contact, patientContactIds, leadContactIds));
+  }
+
+  const unresolvedKeys = keys.filter((k) => !out.has(k));
+  const loadFallbacks = () =>
+    Promise.all(
+      unresolvedKeys.map(async (k) => {
+        const id = await resolvePhoneDisplayIdentity(supabase, k);
+        out.set(k, id);
+      })
+    );
+  if (routePerfStepsEnabled()) {
+    await routePerfTimed("phone_identity_batch.fallbacks", loadFallbacks);
+  } else {
+    await loadFallbacks();
+  }
+  if (perfStart) {
+    routePerfLog("phone_identity_batch", perfStart);
+  }
   return out;
+}
+
+async function resolveContactsByPhoneKeys(
+  supabase: SupabaseClient,
+  keys: string[]
+): Promise<Map<string, CrmContactMatch>> {
+  const out = new Map<string, CrmContactMatch>();
+  for (let i = 0; i < keys.length; i += PHONE_IDENTITY_BATCH_CHUNK_SIZE) {
+    const chunk = keys.slice(i, i + PHONE_IDENTITY_BATCH_CHUNK_SIZE);
+    const orFilter = chunk
+      .map((key) => buildPhoneColumnOrFilter(["primary_phone", "secondary_phone"], key))
+      .filter((filter): filter is string => Boolean(filter))
+      .join(",");
+    if (!orFilter) continue;
+
+    const { data, error } = await supabase
+      .from("contacts")
+      .select(
+        "id, first_name, last_name, full_name, organization_name, primary_phone, secondary_phone, email, contact_type, status"
+      )
+      .or(orFilter)
+      .limit(chunk.length * 40);
+    if (error) {
+      console.warn("[phone-display-identity] batch contacts:", error.message);
+      continue;
+    }
+
+    const rows = (data ?? []) as CrmContactMatch[];
+    for (const key of chunk) {
+      if (out.has(key)) continue;
+      const digitsKey = digitsKeyForIncomingPhone(key);
+      const match = rows.find(
+        (row) =>
+          normalizedPhonesEquivalent(row.primary_phone, digitsKey) ||
+          normalizedPhonesEquivalent(row.secondary_phone, digitsKey)
+      );
+      if (match?.id) out.set(key, match);
+    }
+  }
+  return out;
+}
+
+async function loadPatientContactIds(supabase: SupabaseClient, contactIds: string[]): Promise<Set<string>> {
+  if (contactIds.length === 0) return new Set();
+  const { data, error } = await supabase.from("patients").select("contact_id").in("contact_id", contactIds);
+  if (error) {
+    console.warn("[phone-display-identity] batch patients:", error.message);
+    return new Set();
+  }
+  return new Set(
+    (data ?? [])
+      .map((row) => (typeof row.contact_id === "string" ? row.contact_id : ""))
+      .filter((id): id is string => Boolean(id))
+  );
+}
+
+async function loadLeadContactIds(supabase: SupabaseClient, contactIds: string[]): Promise<Set<string>> {
+  if (contactIds.length === 0) return new Set();
+  const { data, error } = await supabase
+    .from("leads")
+    .select("contact_id")
+    .in("contact_id", contactIds)
+    .is("deleted_at", null)
+    .order("updated_at", { ascending: false });
+  if (error) {
+    console.warn("[phone-display-identity] batch leads:", error.message);
+    return new Set();
+  }
+  return new Set(
+    (data ?? [])
+      .map((row) => (typeof row.contact_id === "string" ? row.contact_id : ""))
+      .filter((id): id is string => Boolean(id))
+  );
+}
+
+function identityFromContact(
+  e164Key: string,
+  contact: CrmContactMatch,
+  patientContactIds: Set<string>,
+  leadContactIds: Set<string>
+): PhoneDisplayIdentity {
+  const formatted = formatPhoneNumber(e164Key) || e164Key;
+  const title =
+    buildIncomingContactDisplayName({
+      full_name: contact.full_name,
+      first_name: contact.first_name,
+      last_name: contact.last_name,
+      organization_name: contact.organization_name,
+      primary_phone: contact.primary_phone,
+      secondary_phone: contact.secondary_phone,
+    }) ?? formatted;
+  const entityType: PhoneDisplayEntityType = patientContactIds.has(contact.id)
+    ? "patient"
+    : leadContactIds.has(contact.id)
+      ? "lead"
+      : "contact";
+  return {
+    e164: e164Key,
+    formattedPhone: formatted,
+    displayTitle: title,
+    resolvedFromEntity: Boolean(trimName(title)) && title !== formatted,
+    entityType,
+    contactId: contact.id,
+    suppressQuickSave: true,
+  };
 }

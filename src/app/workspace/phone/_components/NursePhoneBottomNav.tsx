@@ -1,7 +1,7 @@
 "use client";
 
 import { useWorkspaceSoftphone } from "@/components/softphone/WorkspaceSoftphoneProvider";
-import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
+import { routePerfLog, routePerfStart } from "@/lib/perf/route-perf";
 import {
   CalendarDays,
   Hash,
@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 type Tab = {
   href: string;
@@ -139,12 +139,13 @@ type NavProps = {
   showLeadsNav?: boolean;
   /** When set, only these workspace paths appear in the bottom bar (Staff Access page permissions). */
   allowedTabHrefs?: string[] | null;
-  /** Server snapshot; client keeps this updated via `/api/workspace/phone/inbox-unread` + realtime. */
+  /** Server snapshot; client keeps this updated via focused refreshes and a fallback interval. */
   initialInboxHasUnread?: boolean;
 };
 
-/** Keep nav in sync shortly after mark-read / inbound SMS without hammering the API. */
-const INBOX_UNREAD_DEBOUNCE_MS = 320;
+/** Avoid duplicate unread scans when route/focus/interval triggers happen close together. */
+const INBOX_UNREAD_MIN_REFRESH_GAP_MS = 5_000;
+const INBOX_UNREAD_FALLBACK_INTERVAL_MS = 90_000;
 
 function NursePhoneBottomNavInner({
   showLeadsNav = true,
@@ -154,18 +155,40 @@ function NursePhoneBottomNavInner({
   const pathname = usePathname() ?? "";
   const { status } = useWorkspaceSoftphone();
   const [inboxHasUnread, setInboxHasUnread] = useState(Boolean(initialInboxHasUnread));
+  const unreadRefreshInFlightRef = useRef<Promise<void> | null>(null);
+  const lastUnreadRefreshAtRef = useRef(0);
 
-  const refreshInboxUnread = useCallback(async () => {
+  const refreshInboxUnread = useCallback(async (options?: { force?: boolean }) => {
     if (typeof document !== "undefined" && document.visibilityState !== "visible") {
       return;
     }
-    try {
-      const res = await fetch("/api/workspace/phone/inbox-unread", { cache: "no-store" });
-      const json = (await res.json()) as { hasUnread?: boolean };
-      setInboxHasUnread(Boolean(json.hasUnread));
-    } catch {
-      /* ignore */
+    const now = Date.now();
+    if (
+      !options?.force &&
+      lastUnreadRefreshAtRef.current > 0 &&
+      now - lastUnreadRefreshAtRef.current < INBOX_UNREAD_MIN_REFRESH_GAP_MS
+    ) {
+      return;
     }
+    if (unreadRefreshInFlightRef.current) {
+      return unreadRefreshInFlightRef.current;
+    }
+    lastUnreadRefreshAtRef.current = now;
+    const perfStart = routePerfStart();
+    const run = (async () => {
+      try {
+        const res = await fetch("/api/workspace/phone/inbox-unread", { cache: "no-store" });
+        const json = (await res.json()) as { hasUnread?: boolean };
+        setInboxHasUnread(Boolean(json.hasUnread));
+      } catch {
+        /* ignore */
+      } finally {
+        if (perfStart) routePerfLog("workspace_nav:inbox-unread-fetch", perfStart);
+        unreadRefreshInFlightRef.current = null;
+      }
+    })();
+    unreadRefreshInFlightRef.current = run;
+    return run;
   }, []);
 
   useEffect(() => {
@@ -173,19 +196,19 @@ function NursePhoneBottomNavInner({
   }, [initialInboxHasUnread]);
 
   useEffect(() => {
-    void refreshInboxUnread();
+    void refreshInboxUnread({ force: true });
   }, [pathname, refreshInboxUnread]);
 
   useEffect(() => {
     const id = window.setInterval(() => {
       void refreshInboxUnread();
-    }, 50_000);
+    }, INBOX_UNREAD_FALLBACK_INTERVAL_MS);
     return () => window.clearInterval(id);
   }, [refreshInboxUnread]);
 
   useEffect(() => {
     const onFocus = () => {
-      void refreshInboxUnread();
+      void refreshInboxUnread({ force: true });
     };
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onFocus);
@@ -195,27 +218,11 @@ function NursePhoneBottomNavInner({
     };
   }, [refreshInboxUnread]);
 
-  useEffect(() => {
-    const supabase = createBrowserSupabaseClient();
-    let debounce: ReturnType<typeof setTimeout> | null = null;
-    const schedule = () => {
-      if (debounce) clearTimeout(debounce);
-      debounce = setTimeout(() => {
-        debounce = null;
-        void refreshInboxUnread();
-      }, INBOX_UNREAD_DEBOUNCE_MS);
-    };
-    const channel = supabase
-      .channel("workspace_nav_inbox_unread")
-      .on("postgres_changes", { event: "*", schema: "public", table: "messages" }, schedule)
-      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "conversations" }, schedule)
-      .subscribe();
-
-    return () => {
-      if (debounce) clearTimeout(debounce);
-      void supabase.removeChannel(channel);
-    };
-  }, [refreshInboxUnread]);
+  /*
+   * Do not subscribe to `messages` here. A previous org-wide realtime listener woke every workspace
+   * session for every SMS event and then ran the unread-count API. Inbox/thread pages own scoped
+   * realtime; the nav badge uses explicit refresh triggers plus a slow fallback interval.
+   */
   const tabsHrefKey = allowedTabHrefs?.length ? [...allowedTabHrefs].sort().join("|") : "";
   const tabs = useMemo(() => {
     let t = showLeadsNav ? [...tabsBase.slice(0, 6), leadsTab, ...tabsBase.slice(6)] : tabsBase;

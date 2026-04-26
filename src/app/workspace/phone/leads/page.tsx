@@ -13,6 +13,12 @@ import { formatLeadPipelineStatusLabel, isLeadPipelineTerminal } from "@/lib/crm
 import { supabaseAdmin } from "@/lib/admin";
 import { pickOutboundE164ForDial } from "@/lib/workspace-phone/launch-urls";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
+import {
+  routePerfLog,
+  routePerfStart,
+  routePerfStepsEnabled,
+  routePerfTimed,
+} from "@/lib/perf/route-perf";
 import { canAccessWorkspacePhone, getStaffProfile, isWorkspaceEmployeeRole } from "@/lib/staff-profile";
 
 type ContactEmb = {
@@ -62,6 +68,8 @@ type ConvActivityRow = {
   created_at: string | null;
 };
 
+const WORKSPACE_LEADS_LIMIT = 100;
+
 function rowActivityMs(r: ConvActivityRow): number {
   let best = 0;
   for (const iso of [r.last_message_at, r.updated_at, r.created_at]) {
@@ -95,7 +103,10 @@ export default async function WorkspacePhoneLeadsPage({
 }: {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const staff = await getStaffProfile();
+  const perfStart = routePerfStart();
+  const staff = routePerfStepsEnabled()
+    ? await routePerfTimed("workspace_phone_leads.staff_profile", getStaffProfile)
+    : await getStaffProfile();
   if (!staff || !canAccessWorkspacePhone(staff)) {
     redirect("/admin/phone");
   }
@@ -109,14 +120,19 @@ export default async function WorkspacePhoneLeadsPage({
 
   const todayIso = getCrmCalendarTodayIso();
 
-  const { data: leadRows, error: leadsErr } = await leadRowsActiveOnly(
+  const leadsQuery = leadRowsActiveOnly(
     supabaseAdmin
       .from("leads")
       .select(
         "id, contact_id, status, follow_up_date, next_action, last_contact_at, last_outcome, created_at, contacts ( id, full_name, first_name, last_name, primary_phone )"
       )
-      .limit(400)
+      .order("last_contact_at", { ascending: false, nullsFirst: false })
+      .order("created_at", { ascending: false, nullsFirst: false })
+      .limit(WORKSPACE_LEADS_LIMIT)
   );
+  const { data: leadRows, error: leadsErr } = routePerfStepsEnabled()
+    ? await routePerfTimed("workspace_phone_leads.leads_query", () => leadsQuery)
+    : await leadsQuery;
 
   if (leadsErr) {
     console.warn("[workspace/phone/leads] leads:", leadsErr.message);
@@ -138,12 +154,15 @@ export default async function WorkspacePhoneLeadsPage({
   const convByContact = new Map<string, ConvActivityRow>();
 
   if (contactIds.length > 0) {
-    const { data: convRows, error: convErr } = await supabaseAdmin
+    const convQuery = supabaseAdmin
       .from("conversations")
       .select("primary_contact_id, last_message_at, updated_at, created_at")
       .eq("channel", "sms")
       .is("deleted_at", null)
       .in("primary_contact_id", contactIds);
+    const { data: convRows, error: convErr } = routePerfStepsEnabled()
+      ? await routePerfTimed("workspace_phone_leads.conversation_activity", () => convQuery)
+      : await convQuery;
 
     if (convErr) {
       console.warn("[workspace/phone/leads] conversations:", convErr.message);
@@ -194,6 +213,10 @@ export default async function WorkspacePhoneLeadsPage({
       sensitivity: "base",
     });
   });
+
+  if (perfStart) {
+    routePerfLog("workspace/phone/leads", perfStart);
+  }
 
   return (
     <div className="ws-phone-page-shell flex flex-1 flex-col px-4 pb-6 pt-5 sm:px-5">
