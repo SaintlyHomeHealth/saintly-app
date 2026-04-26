@@ -33,11 +33,21 @@ export function routePerfStep(label: string, durationMs: number): void {
   console.info(`[route-perf] step ${label} ${durationMs.toFixed(0)}ms`);
 }
 
-export async function routePerfTimed<T>(label: string, fn: () => Promise<T>): Promise<T> {
+export async function routePerfTimed<T>(label: string, fn: () => PromiseLike<T>): Promise<T> {
   const t0 = Date.now();
   try {
     return await fn();
   } finally {
     routePerfStep(label, Date.now() - t0);
   }
+}
+
+export function routePerfClientMark(label: string, startedAtMs: number): void {
+  if (!routePerfEnabled()) return;
+  const now =
+    typeof performance !== "undefined" && typeof performance.now === "function"
+      ? performance.now()
+      : Date.now();
+  const ms = Math.max(0, now - startedAtMs);
+  console.info(`[route-perf] client ${label} ${ms.toFixed(0)}ms`);
 }

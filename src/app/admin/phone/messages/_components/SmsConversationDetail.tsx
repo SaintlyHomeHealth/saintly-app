@@ -28,6 +28,12 @@ import { WORKSPACE_SMS_THREAD_INITIAL_MESSAGE_LIMIT } from "@/lib/phone/workspac
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import { resolvePhoneDisplayIdentity } from "@/lib/phone/resolve-phone-display-identity";
 import {
+  routePerfLog,
+  routePerfStart,
+  routePerfStepsEnabled,
+  routePerfTimed,
+} from "@/lib/perf/route-perf";
+import {
   canStaffAccessConversationRow,
   canStaffClaimConversation,
 } from "@/lib/phone/staff-conversation-access";
@@ -166,6 +172,7 @@ function isoToDatetimeLocalValue(iso: string | null): string {
 }
 
 export async function SmsConversationDetail(props: SmsConversationDetailProps) {
+  const perfStart = routePerfStart();
   const {
     params,
     searchParams,
@@ -175,7 +182,9 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
     workspaceDesktopSplit = false,
   } = props;
 
-  const staff = await getStaffProfile();
+  const staff = routePerfStepsEnabled()
+    ? await routePerfTimed("sms_conversation_detail.staff_profile", getStaffProfile)
+    : await getStaffProfile();
   if (!staff || !canAccessWorkspacePhone(staff)) {
     redirect(accessDeniedHref);
   }
@@ -201,14 +210,25 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
   const hasFull = hasFullCallVisibility(staff);
   const supabase = await createServerSupabaseClient();
 
-  const { data: conv, error: convErr } = await supabase
-    .from("conversations")
-    .select(
-      "id, created_at, updated_at, channel, main_phone_e164, preferred_from_e164, last_message_at, lead_status, next_action, follow_up_due_at, follow_up_completed_at, assigned_to_user_id, assigned_at, primary_contact_id, metadata, deleted_at, contacts ( id, full_name, first_name, last_name, primary_phone, contact_type, email, notes )"
-    )
-    .eq("id", conversationId)
-    .eq("channel", "sms")
-    .maybeSingle();
+  const { data: conv, error: convErr } = routePerfStepsEnabled()
+    ? await routePerfTimed("sms_conversation_detail.conversation", () =>
+        supabase
+          .from("conversations")
+          .select(
+            "id, created_at, updated_at, channel, main_phone_e164, preferred_from_e164, last_message_at, lead_status, next_action, follow_up_due_at, follow_up_completed_at, assigned_to_user_id, assigned_at, primary_contact_id, metadata, deleted_at, contacts ( id, full_name, first_name, last_name, primary_phone, contact_type, email, notes )"
+          )
+          .eq("id", conversationId)
+          .eq("channel", "sms")
+          .maybeSingle()
+      )
+    : await supabase
+        .from("conversations")
+        .select(
+          "id, created_at, updated_at, channel, main_phone_e164, preferred_from_e164, last_message_at, lead_status, next_action, follow_up_due_at, follow_up_completed_at, assigned_to_user_id, assigned_at, primary_contact_id, metadata, deleted_at, contacts ( id, full_name, first_name, last_name, primary_phone, contact_type, email, notes )"
+        )
+        .eq("id", conversationId)
+        .eq("channel", "sms")
+        .maybeSingle();
 
   if (convErr || !conv?.id) {
     console.warn("[admin/phone/messages/detail] load:", convErr?.message);
@@ -275,13 +295,23 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
     }
   }
 
-  const { data: msgRows, error: msgErr } = await supabase
-    .from("messages")
-    .select("id, created_at, direction, body, viewed_at, metadata, phone_call_id, message_type")
-    .eq("conversation_id", conversationId)
-    .is("deleted_at", null)
-    .order("created_at", { ascending: false })
-    .limit(WORKSPACE_SMS_THREAD_INITIAL_MESSAGE_LIMIT);
+  const { data: msgRows, error: msgErr } = routePerfStepsEnabled()
+    ? await routePerfTimed("sms_conversation_detail.messages", () =>
+        supabase
+          .from("messages")
+          .select("id, created_at, direction, body, viewed_at, metadata, phone_call_id, message_type")
+          .eq("conversation_id", conversationId)
+          .is("deleted_at", null)
+          .order("created_at", { ascending: false })
+          .limit(WORKSPACE_SMS_THREAD_INITIAL_MESSAGE_LIMIT)
+      )
+    : await supabase
+        .from("messages")
+        .select("id, created_at, direction, body, viewed_at, metadata, phone_call_id, message_type")
+        .eq("conversation_id", conversationId)
+        .is("deleted_at", null)
+        .order("created_at", { ascending: false })
+        .limit(WORKSPACE_SMS_THREAD_INITIAL_MESSAGE_LIMIT);
 
   if (msgErr) {
     console.warn("[admin/phone/messages] messages:", msgErr.message);
@@ -440,7 +470,13 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
   const phoneDisplayFormatted =
     mainE164 && mainE164 !== "" ? formatPhoneForDisplay(mainE164) : phoneDisplay;
 
-  const directoryIdentity = mainE164 ? await resolvePhoneDisplayIdentity(supabase, mainE164) : null;
+  const directoryIdentity = mainE164
+    ? routePerfStepsEnabled()
+      ? await routePerfTimed("sms_conversation_detail.directory_identity", () =>
+          resolvePhoneDisplayIdentity(supabase, mainE164)
+        )
+      : await resolvePhoneDisplayIdentity(supabase, mainE164)
+    : null;
 
   const threadDisplayTitle = (() => {
     if (contactName) return contactName;
@@ -465,26 +501,40 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
   let workspacePatientId: string | null = null;
   let canOpenWorkspacePatientDetail = false;
   if (workspaceShell && primaryContactId) {
-    const { data: leadRow } = await leadRowsActiveOnly(
-      supabase.from("leads").select("id").eq("contact_id", primaryContactId).limit(1)
-    ).maybeSingle();
+    const { data: leadRow } = routePerfStepsEnabled()
+      ? await routePerfTimed("sms_conversation_detail.workspace_lead_lookup", () =>
+          leadRowsActiveOnly(supabase.from("leads").select("id").eq("contact_id", primaryContactId).limit(1)).maybeSingle()
+        )
+      : await leadRowsActiveOnly(
+          supabase.from("leads").select("id").eq("contact_id", primaryContactId).limit(1)
+        ).maybeSingle();
     if (leadRow && typeof leadRow.id === "string") workspaceLeadId = leadRow.id;
 
-    const { data: patRow } = await supabase
-      .from("patients")
-      .select("id")
-      .eq("contact_id", primaryContactId)
-      .maybeSingle();
+    const { data: patRow } = routePerfStepsEnabled()
+      ? await routePerfTimed("sms_conversation_detail.workspace_patient_lookup", () =>
+          supabase.from("patients").select("id").eq("contact_id", primaryContactId).maybeSingle()
+        )
+      : await supabase.from("patients").select("id").eq("contact_id", primaryContactId).maybeSingle();
     if (patRow && typeof patRow.id === "string") workspacePatientId = patRow.id;
 
     if (workspacePatientId) {
-      const { data: assignRows } = await supabaseAdmin
-        .from("patient_assignments")
-        .select("id")
-        .eq("patient_id", workspacePatientId)
-        .eq("assigned_user_id", staff.user_id)
-        .eq("is_active", true)
-        .limit(1);
+      const { data: assignRows } = routePerfStepsEnabled()
+        ? await routePerfTimed("sms_conversation_detail.workspace_patient_assignment", () =>
+            supabaseAdmin
+              .from("patient_assignments")
+              .select("id")
+              .eq("patient_id", workspacePatientId)
+              .eq("assigned_user_id", staff.user_id)
+              .eq("is_active", true)
+              .limit(1)
+          )
+        : await supabaseAdmin
+            .from("patient_assignments")
+            .select("id")
+            .eq("patient_id", workspacePatientId)
+            .eq("assigned_user_id", staff.user_id)
+            .eq("is_active", true)
+            .limit(1);
       canOpenWorkspacePatientDetail = Boolean(assignRows?.length);
     }
   }
@@ -937,6 +987,10 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
       </>
     );
 
+    if (perfStart) {
+      routePerfLog("workspace/phone/inbox/thread", perfStart);
+    }
+
     if (workspaceDesktopSplit) {
       return (
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
@@ -954,6 +1008,10 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
     }
 
     return shell;
+  }
+
+  if (perfStart) {
+    routePerfLog("admin/phone/messages/thread", perfStart);
   }
 
   return (

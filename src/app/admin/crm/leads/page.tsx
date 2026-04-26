@@ -17,6 +17,12 @@ import { buildContactSearchOrClause, escapeForIlike } from "@/lib/crm/crm-leads-
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { crmFilterInputCls, crmPrimaryCtaCls } from "@/components/admin/crm-admin-list-styles";
 import { staffPrimaryLabel, type CrmLeadRow } from "@/lib/crm/crm-leads-table-helpers";
+import {
+  routePerfLog,
+  routePerfStart,
+  routePerfStepsEnabled,
+  routePerfTimed,
+} from "@/lib/perf/route-perf";
 import { isMissingSchemaObjectError } from "@/lib/crm/supabase-migration-fallback";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 
@@ -41,12 +47,16 @@ export default async function AdminCrmLeadsPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const staff = await getStaffProfile();
-  if (!staff || !isManagerOrHigher(staff)) {
-    redirect("/admin");
-  }
+  const perfStart = routePerfStart();
+  try {
+    const staff = routePerfStepsEnabled()
+      ? await routePerfTimed("admin_crm_leads.staff_profile", getStaffProfile)
+      : await getStaffProfile();
+    if (!staff || !isManagerOrHigher(staff)) {
+      redirect("/admin");
+    }
 
-  const rawSp = await searchParams;
+    const rawSp = await searchParams;
   const one = (k: string) => {
     const v = rawSp[k];
     return typeof v === "string" ? v : Array.isArray(v) ? v[0] : "";
@@ -83,10 +93,17 @@ export default async function AdminCrmLeadsPage({
   const followUpToday = f.followUp.toLowerCase() === "today";
   const todayIso = getCrmCalendarTodayIso();
 
-  const { data: staffRows } = await supabaseAdmin
-    .from("staff_profiles")
-    .select("user_id, email, role, full_name")
-    .order("email", { ascending: true });
+    const { data: staffRows } = routePerfStepsEnabled()
+      ? await routePerfTimed("admin_crm_leads.staff_options", () =>
+          supabaseAdmin
+            .from("staff_profiles")
+            .select("user_id, email, role, full_name")
+            .order("email", { ascending: true })
+        )
+      : await supabaseAdmin
+          .from("staff_profiles")
+          .select("user_id, email, role, full_name")
+          .order("email", { ascending: true });
 
   const staffOptions = (staffRows ?? []) as {
     user_id: string;
@@ -98,9 +115,11 @@ export default async function AdminCrmLeadsPage({
   let contactIdFilter: string[] | null = null;
   const contactOr = buildContactSearchOrClause(f.q);
   if (contactOr) {
-    const { data: hits } = await contactRowsActiveOnly(
-      supabaseAdmin.from("contacts").select("id").or(contactOr).limit(300)
-    );
+    const { data: hits } = routePerfStepsEnabled()
+      ? await routePerfTimed("admin_crm_leads.contact_search", () =>
+          contactRowsActiveOnly(supabaseAdmin.from("contacts").select("id").or(contactOr).limit(300))
+        )
+      : await contactRowsActiveOnly(supabaseAdmin.from("contacts").select("id").or(contactOr).limit(300));
     contactIdFilter = [...new Set((hits ?? []).map((h) => String(h.id)).filter(Boolean))];
     if (contactIdFilter.length === 0) {
       contactIdFilter = [EMPTY_SENTINEL];
@@ -159,15 +178,23 @@ export default async function AdminCrmLeadsPage({
     return q;
   };
 
-  let { data: rows, error } = await buildFilteredLeadsQuery(CRM_LEADS_LIST_SELECT_WITH_WAITING);
+  let { data: rows, error } = routePerfStepsEnabled()
+    ? await routePerfTimed("admin_crm_leads.leads_query", () =>
+        buildFilteredLeadsQuery(CRM_LEADS_LIST_SELECT_WITH_WAITING)
+      )
+    : await buildFilteredLeadsQuery(CRM_LEADS_LIST_SELECT_WITH_WAITING);
   if (error && isMissingSchemaObjectError(error)) {
-    ({ data: rows, error } = await buildFilteredLeadsQuery(CRM_LEADS_LIST_SELECT_WITHOUT_WAITING));
+    ({ data: rows, error } = routePerfStepsEnabled()
+      ? await routePerfTimed("admin_crm_leads.leads_query_legacy", () =>
+          buildFilteredLeadsQuery(CRM_LEADS_LIST_SELECT_WITHOUT_WAITING)
+        )
+      : await buildFilteredLeadsQuery(CRM_LEADS_LIST_SELECT_WITHOUT_WAITING));
   }
   if (error) {
     console.warn("[crm/leads] leads query failed:", error.message);
   }
 
-  const list = (rows ?? []) as CrmLeadRow[];
+  const list = (rows ?? []) as unknown as CrmLeadRow[];
 
   const contactIdsForSms = [
     ...new Set(
@@ -179,12 +206,21 @@ export default async function AdminCrmLeadsPage({
 
   const smsConversationIdByContactId: Record<string, string> = {};
   if (contactIdsForSms.length > 0) {
-    const { data: convRows, error: convErr } = await supabaseAdmin
-      .from("conversations")
-      .select("id, primary_contact_id, last_message_at")
-      .eq("channel", "sms")
-      .in("primary_contact_id", contactIdsForSms)
-      .is("deleted_at", null);
+    const { data: convRows, error: convErr } = routePerfStepsEnabled()
+      ? await routePerfTimed("admin_crm_leads.sms_thread_lookup", () =>
+          supabaseAdmin
+            .from("conversations")
+            .select("id, primary_contact_id, last_message_at")
+            .eq("channel", "sms")
+            .in("primary_contact_id", contactIdsForSms)
+            .is("deleted_at", null)
+        )
+      : await supabaseAdmin
+          .from("conversations")
+          .select("id, primary_contact_id, last_message_at")
+          .eq("channel", "sms")
+          .in("primary_contact_id", contactIdsForSms)
+          .is("deleted_at", null);
 
     if (convErr) {
       console.warn("[crm/leads] sms thread lookup:", convErr.message);
@@ -232,7 +268,7 @@ export default async function AdminCrmLeadsPage({
       </div>
     ) : null;
 
-  return (
+    return (
     <div className="space-y-6 p-6">
       {toastBanner}
       <AdminPageHeader
@@ -378,5 +414,10 @@ export default async function AdminCrmLeadsPage({
         smsConversationIdByContactId={smsConversationIdByContactId}
       />
     </div>
-  );
+    );
+  } finally {
+    if (perfStart) {
+      routePerfLog("admin/crm/leads", perfStart);
+    }
+  }
 }

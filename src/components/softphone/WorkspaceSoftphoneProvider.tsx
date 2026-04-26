@@ -1442,12 +1442,16 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
 
     const run = async () => {
       try {
+        const tokenFetchStart = routePerfStart();
         const res = await fetch("/api/softphone/token", { method: "GET", credentials: "include" });
         const body = (await res.json()) as {
           token?: string;
           identity?: string;
           error?: string;
         };
+        if (tokenFetchStart) {
+          routePerfLog("softphone:token-fetch", tokenFetchStart);
+        }
         if (cancelled) return;
         if (!res.ok || !body.token) {
           setListenState("error");

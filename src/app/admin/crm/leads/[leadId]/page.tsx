@@ -10,6 +10,12 @@ import type { LeadActivityRow } from "@/lib/crm/lead-activities-timeline";
 import { isMissingSchemaObjectError } from "@/lib/crm/supabase-migration-fallback";
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { LEAD_INSURANCE_BUCKET } from "@/lib/crm/lead-insurance-storage";
+import {
+  routePerfLog,
+  routePerfStart,
+  routePerfStepsEnabled,
+  routePerfTimed,
+} from "@/lib/perf/route-perf";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import {
   findLatestSmsConversationIdForContact,
@@ -87,15 +93,19 @@ export default async function LeadIntakePage({
   params: Promise<{ leadId: string }>;
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const staff = await getStaffProfile();
-  if (!staff || !isManagerOrHigher(staff)) {
-    redirect("/admin");
-  }
+  const perfStart = routePerfStart();
+  try {
+    const staff = routePerfStepsEnabled()
+      ? await routePerfTimed("admin_crm_lead_detail.staff_profile", getStaffProfile)
+      : await getStaffProfile();
+    if (!staff || !isManagerOrHigher(staff)) {
+      redirect("/admin");
+    }
 
-  const { leadId } = await params;
-  if (!leadId?.trim()) {
-    notFound();
-  }
+    const { leadId } = await params;
+    if (!leadId?.trim()) {
+      notFound();
+    }
 
   const sp = searchParams ? await searchParams : {};
   const convertErrRaw =
@@ -112,38 +122,80 @@ export default async function LeadIntakePage({
 
   const supabase = await createServerSupabaseClient();
 
-  let rowRes = await leadRowsActiveOnly(
-    supabase.from("leads").select(LEAD_DETAIL_SELECT_WITH_MEDICARE).eq("id", leadId.trim())
-  ).maybeSingle();
+    let rowRes = routePerfStepsEnabled()
+      ? await routePerfTimed("admin_crm_lead_detail.lead_query", () =>
+          leadRowsActiveOnly(
+            supabase.from("leads").select(LEAD_DETAIL_SELECT_WITH_MEDICARE).eq("id", leadId.trim())
+          ).maybeSingle()
+        )
+      : await leadRowsActiveOnly(
+          supabase.from("leads").select(LEAD_DETAIL_SELECT_WITH_MEDICARE).eq("id", leadId.trim())
+        ).maybeSingle();
 
   if (rowRes.error && isMissingSchemaObjectError(rowRes.error)) {
-    rowRes = await leadRowsActiveOnly(
-      supabase.from("leads").select(LEAD_DETAIL_SELECT_WITH_MEDICARE_NO_WAITING).eq("id", leadId.trim())
-    ).maybeSingle();
+    rowRes = routePerfStepsEnabled()
+      ? await routePerfTimed("admin_crm_lead_detail.lead_query_no_waiting", () =>
+          leadRowsActiveOnly(
+            supabase.from("leads").select(LEAD_DETAIL_SELECT_WITH_MEDICARE_NO_WAITING).eq("id", leadId.trim())
+          ).maybeSingle()
+        )
+      : await leadRowsActiveOnly(
+          supabase.from("leads").select(LEAD_DETAIL_SELECT_WITH_MEDICARE_NO_WAITING).eq("id", leadId.trim())
+        ).maybeSingle();
   }
 
   if (rowRes.error && isMissingSchemaObjectError(rowRes.error)) {
-    rowRes = await leadRowsActiveOnly(
-      supabase.from("leads").select(LEAD_DETAIL_SELECT_LEGACY).eq("id", leadId.trim())
-    ).maybeSingle();
+    rowRes = routePerfStepsEnabled()
+      ? await routePerfTimed("admin_crm_lead_detail.lead_query_legacy", () =>
+          leadRowsActiveOnly(
+            supabase.from("leads").select(LEAD_DETAIL_SELECT_LEGACY).eq("id", leadId.trim())
+          ).maybeSingle()
+        )
+      : await leadRowsActiveOnly(
+          supabase.from("leads").select(LEAD_DETAIL_SELECT_LEGACY).eq("id", leadId.trim())
+        ).maybeSingle();
   }
 
   if (rowRes.error && isMissingSchemaObjectError(rowRes.error)) {
-    rowRes = await leadRowsActiveOnly(
-      supabase.from("leads").select(LEAD_DETAIL_SELECT_WITH_MEDICARE_PRE_CONV).eq("id", leadId.trim())
-    ).maybeSingle();
+    rowRes = routePerfStepsEnabled()
+      ? await routePerfTimed("admin_crm_lead_detail.lead_query_pre_conv", () =>
+          leadRowsActiveOnly(
+            supabase.from("leads").select(LEAD_DETAIL_SELECT_WITH_MEDICARE_PRE_CONV).eq("id", leadId.trim())
+          ).maybeSingle()
+        )
+      : await leadRowsActiveOnly(
+          supabase.from("leads").select(LEAD_DETAIL_SELECT_WITH_MEDICARE_PRE_CONV).eq("id", leadId.trim())
+        ).maybeSingle();
   }
 
   if (rowRes.error && isMissingSchemaObjectError(rowRes.error)) {
-    rowRes = await leadRowsActiveOnly(
-      supabase.from("leads").select(LEAD_DETAIL_SELECT_WITH_MEDICARE_NO_WAITING_PRE_CONV).eq("id", leadId.trim())
-    ).maybeSingle();
+    rowRes = routePerfStepsEnabled()
+      ? await routePerfTimed("admin_crm_lead_detail.lead_query_no_waiting_pre_conv", () =>
+          leadRowsActiveOnly(
+            supabase
+              .from("leads")
+              .select(LEAD_DETAIL_SELECT_WITH_MEDICARE_NO_WAITING_PRE_CONV)
+              .eq("id", leadId.trim())
+          ).maybeSingle()
+        )
+      : await leadRowsActiveOnly(
+          supabase
+            .from("leads")
+            .select(LEAD_DETAIL_SELECT_WITH_MEDICARE_NO_WAITING_PRE_CONV)
+            .eq("id", leadId.trim())
+        ).maybeSingle();
   }
 
   if (rowRes.error && isMissingSchemaObjectError(rowRes.error)) {
-    rowRes = await leadRowsActiveOnly(
-      supabase.from("leads").select(LEAD_DETAIL_SELECT_LEGACY_PRE_CONV).eq("id", leadId.trim())
-    ).maybeSingle();
+    rowRes = routePerfStepsEnabled()
+      ? await routePerfTimed("admin_crm_lead_detail.lead_query_legacy_pre_conv", () =>
+          leadRowsActiveOnly(
+            supabase.from("leads").select(LEAD_DETAIL_SELECT_LEGACY_PRE_CONV).eq("id", leadId.trim())
+          ).maybeSingle()
+        )
+      : await leadRowsActiveOnly(
+          supabase.from("leads").select(LEAD_DETAIL_SELECT_LEGACY_PRE_CONV).eq("id", leadId.trim())
+        ).maybeSingle();
   }
 
   const { data: row, error } = rowRes;
@@ -152,10 +204,17 @@ export default async function LeadIntakePage({
     notFound();
   }
 
-  const { data: staffRows } = await supabase
-    .from("staff_profiles")
-    .select("user_id, email, full_name")
-    .order("email", { ascending: true });
+    const { data: staffRows } = routePerfStepsEnabled()
+      ? await routePerfTimed("admin_crm_lead_detail.staff_options", () =>
+          supabase
+            .from("staff_profiles")
+            .select("user_id, email, full_name")
+            .order("email", { ascending: true })
+        )
+      : await supabase
+          .from("staff_profiles")
+          .select("user_id, email, full_name")
+          .order("email", { ascending: true });
 
   const staffOptions = (staffRows ?? []) as {
     user_id: string;
@@ -169,9 +228,13 @@ export default async function LeadIntakePage({
   const L = row as Record<string, unknown>;
   const contactId = typeof L.contact_id === "string" && L.contact_id.trim() ? L.contact_id.trim() : "";
 
-  const { data: patientRow } = contactId
-    ? await supabase.from("patients").select("id").eq("contact_id", contactId).maybeSingle()
-    : { data: null };
+    const { data: patientRow } = contactId
+      ? routePerfStepsEnabled()
+        ? await routePerfTimed("admin_crm_lead_detail.patient_lookup", () =>
+            supabase.from("patients").select("id").eq("contact_id", contactId).maybeSingle()
+          )
+        : await supabase.from("patients").select("id").eq("contact_id", contactId).maybeSingle()
+      : { data: null };
 
   const patientId = patientRow?.id ? String(patientRow.id) : null;
 
@@ -282,17 +345,27 @@ export default async function LeadIntakePage({
       ? L.secondary_insurance_file_url.trim()
       : null;
 
-  const [primaryInsuranceViewUrl, secondaryInsuranceViewUrl] = await Promise.all([
-    leadInsuranceSignedUrl(primaryInsurancePath),
-    leadInsuranceSignedUrl(secondaryInsurancePath),
-  ]);
+    const [primaryInsuranceViewUrl, secondaryInsuranceViewUrl] = routePerfStepsEnabled()
+      ? await routePerfTimed("admin_crm_lead_detail.insurance_signed_urls", () =>
+          Promise.all([leadInsuranceSignedUrl(primaryInsurancePath), leadInsuranceSignedUrl(secondaryInsurancePath)])
+        )
+      : await Promise.all([leadInsuranceSignedUrl(primaryInsurancePath), leadInsuranceSignedUrl(secondaryInsurancePath)]);
 
-  const activityRes = await supabaseAdmin
-    .from("lead_activities")
-    .select("id, lead_id, event_type, body, metadata, created_at, created_by_user_id, deleted_at, deletable")
-    .eq("lead_id", leadId.trim())
-    .is("deleted_at", null)
-    .order("created_at", { ascending: true });
+    const activityRes = routePerfStepsEnabled()
+      ? await routePerfTimed("admin_crm_lead_detail.activities", () =>
+          supabaseAdmin
+            .from("lead_activities")
+            .select("id, lead_id, event_type, body, metadata, created_at, created_by_user_id, deleted_at, deletable")
+            .eq("lead_id", leadId.trim())
+            .is("deleted_at", null)
+            .order("created_at", { ascending: true })
+        )
+      : await supabaseAdmin
+          .from("lead_activities")
+          .select("id, lead_id, event_type, body, metadata, created_at, created_by_user_id, deleted_at, deletable")
+          .eq("lead_id", leadId.trim())
+          .is("deleted_at", null)
+          .order("created_at", { ascending: true });
 
   let initialActivities: LeadActivityRow[] = [];
   if (activityRes.error) {
@@ -326,14 +399,26 @@ export default async function LeadIntakePage({
       ? leadQualityRaw
       : null;
 
-  const byContact = contactId ? await findLatestSmsConversationIdForContact(contactId) : null;
-  const dialE164ForThread = pickOutboundE164ForDial(primaryPhone);
-  const byPhone = dialE164ForThread ? await findLatestSmsConversationIdForPhoneE164(dialE164ForThread) : null;
+    const byContact = contactId
+      ? routePerfStepsEnabled()
+        ? await routePerfTimed("admin_crm_lead_detail.sms_by_contact", () =>
+            findLatestSmsConversationIdForContact(contactId)
+          )
+        : await findLatestSmsConversationIdForContact(contactId)
+      : null;
+    const dialE164ForThread = pickOutboundE164ForDial(primaryPhone);
+    const byPhone = dialE164ForThread
+      ? routePerfStepsEnabled()
+        ? await routePerfTimed("admin_crm_lead_detail.sms_by_phone", () =>
+            findLatestSmsConversationIdForPhoneE164(dialE164ForThread)
+          )
+        : await findLatestSmsConversationIdForPhoneE164(dialE164ForThread)
+      : null;
   /** Prefer `main_phone_e164` match so CRM stays aligned with the inbox thread even if `primary_contact_id` differs. */
   const workspaceSmsConversationId = byPhone ?? byContact;
   const canEmbedWorkspaceSms = Boolean(staff && canAccessWorkspacePhone(staff));
 
-  return (
+    return (
     <LeadWorkspace
       mode="existing"
       leadId={String(L.id)}
@@ -380,5 +465,10 @@ export default async function LeadIntakePage({
       waitingOnDoctorsOrders={waitingOnDoctorsOrders}
       initialLeadQuality={initialLeadQuality}
     />
-  );
+    );
+  } finally {
+    if (perfStart) {
+      routePerfLog("admin/crm/leads/[leadId]", perfStart);
+    }
+  }
 }

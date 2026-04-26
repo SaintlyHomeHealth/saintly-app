@@ -1,7 +1,9 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { Suspense } from "react";
 
 import { MobileSupabaseSessionBridge } from "@/app/workspace/MobileSupabaseSessionBridge";
+import { RoutePerfClientLogger } from "@/components/perf/RoutePerfClientLogger";
 
 import "./globals.css";
 
@@ -76,6 +78,9 @@ export default function RootLayout({
          * call GET /api/softphone/token with Authorization: Bearer without waiting for /workspace/* to mount.
          */}
         <MobileSupabaseSessionBridge />
+        <Suspense fallback={null}>
+          <RoutePerfClientLogger />
+        </Suspense>
         {children}
       </body>
     </html>

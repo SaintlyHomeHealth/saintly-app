@@ -127,6 +127,10 @@ function rowInitials(name: string | null, phoneDisplay: string): string {
   return d.slice(-2) || "?";
 }
 
+function rowMainPhone(row: SmsInboxConversationListRow): string | null {
+  return typeof row.main_phone_e164 === "string" ? row.main_phone_e164 : null;
+}
+
 type PageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
@@ -173,20 +177,39 @@ export default async function WorkspaceInboxPage(props: PageProps) {
     console.warn("[workspace/phone/inbox] list:", error.message);
   }
 
-  let rows: SmsInboxConversationListRow[] = await filterToSmsInboxConversationsInOrder(
-    supabase,
-    (convRows ?? []) as SmsInboxConversationListRow[],
-    WORKSPACE_SMS_INBOX_MAX_VISIBLE
-  );
+  let rows: SmsInboxConversationListRow[] = routePerfStepsEnabled()
+    ? await routePerfTimed("conversation_has_sms_scope", () =>
+        filterToSmsInboxConversationsInOrder(
+          supabase,
+          (convRows ?? []) as SmsInboxConversationListRow[],
+          WORKSPACE_SMS_INBOX_MAX_VISIBLE
+        )
+      )
+    : await filterToSmsInboxConversationsInOrder(
+        supabase,
+        (convRows ?? []) as SmsInboxConversationListRow[],
+        WORKSPACE_SMS_INBOX_MAX_VISIBLE
+      );
 
-  const inboxDirectoryBatch = await resolvePhoneDisplayIdentityBatch(
-    supabase,
-    qRaw
-      ? rows.map((r) => r.main_phone_e164)
-      : rows
-          .filter((r) => !crmDisplayNameFromContactsRaw(r.contacts))
-          .map((r) => r.main_phone_e164)
-  );
+  const inboxDirectoryBatch = routePerfStepsEnabled()
+    ? await routePerfTimed("directory_identity_batch", () =>
+        resolvePhoneDisplayIdentityBatch(
+          supabase,
+          qRaw
+            ? rows.map(rowMainPhone)
+            : rows
+                .filter((r) => !crmDisplayNameFromContactsRaw(r.contacts))
+                .map(rowMainPhone)
+        )
+      )
+    : await resolvePhoneDisplayIdentityBatch(
+        supabase,
+        qRaw
+          ? rows.map(rowMainPhone)
+          : rows
+              .filter((r) => !crmDisplayNameFromContactsRaw(r.contacts))
+              .map(rowMainPhone)
+      );
 
   if (qRaw) {
     const ql = qRaw.toLowerCase();

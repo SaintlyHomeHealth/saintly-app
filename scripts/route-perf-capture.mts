@@ -4,6 +4,8 @@
  * Prereqs (add to .env.local or export for one run):
  *   ROUTE_PERF_EMAIL=<staff email with access to workspace + admin SMS + /admin>
  *   ROUTE_PERF_PASSWORD=<password>
+ *   ROUTE_PERF_LEAD_ID=<optional lead uuid for /admin/crm/leads/[leadId]>
+ *   ROUTE_PERF_CONVERSATION_ID=<optional conversation uuid for /workspace/phone/inbox/[conversationId]>
  *
  * Usage:
  *   ROUTE_PERF_STEPS=1 NEXT_PUBLIC_ROUTE_PERF=1 npx tsx scripts/route-perf-capture.mts
@@ -41,10 +43,21 @@ function loadDotEnvLocal() {
 loadDotEnvLocal();
 
 const ROUTES = [
+  "/workspace/phone",
   "/workspace/phone/inbox",
+  "/workspace/phone/calls",
+  "/workspace/phone/chat",
+  "/workspace/phone/voicemail",
+  process.env.ROUTE_PERF_CONVERSATION_ID?.trim()
+    ? `/workspace/phone/inbox/${process.env.ROUTE_PERF_CONVERSATION_ID.trim()}`
+    : null,
+  "/admin/crm/leads",
+  process.env.ROUTE_PERF_LEAD_ID?.trim()
+    ? `/admin/crm/leads/${process.env.ROUTE_PERF_LEAD_ID.trim()}`
+    : null,
   "/admin/phone/messages",
   "/admin",
-] as const;
+].filter((x): x is string => Boolean(x));
 
 const RUNS = 5;
 const ORIGIN = (process.env.ROUTE_PERF_ORIGIN || "http://127.0.0.1:3000").replace(/\/$/, "");

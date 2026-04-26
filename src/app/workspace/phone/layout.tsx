@@ -7,7 +7,12 @@ import { WorkspacePhoneHeaderBranding } from "./_components/WorkspacePhoneHeader
 import { WorkspacePhoneHeaderChrome } from "./_components/WorkspacePhoneHeaderChrome";
 import { WorkspacePhoneMainPad } from "./_components/WorkspacePhoneMainPad";
 import { WorkspacePhoneTopStatusStrip } from "./_components/WorkspacePhoneTopStatusStrip";
-import { routePerfLog, routePerfStart } from "@/lib/perf/route-perf";
+import {
+  routePerfLog,
+  routePerfStart,
+  routePerfStepsEnabled,
+  routePerfTimed,
+} from "@/lib/perf/route-perf";
 import { workspaceInboxHasUnreadInbound } from "@/lib/phone/workspace-inbox-unread";
 import { allowedWorkspaceTabHrefs, resolveEffectivePageAccess } from "@/lib/staff-page-access";
 import { canAccessWorkspacePhone, getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
@@ -16,7 +21,9 @@ import { createServerSupabaseClient } from "@/lib/supabase/server";
 export default async function WorkspacePhoneLayout({ children }: { children: ReactNode }) {
   const perfStart = routePerfStart();
   try {
-    const staff = await getStaffProfile();
+    const staff = routePerfStepsEnabled()
+      ? await routePerfTimed("workspace_phone_layout.staff_profile", getStaffProfile)
+      : await getStaffProfile();
     if (!staff) {
       redirect("/admin/phone");
     }
@@ -34,7 +41,11 @@ export default async function WorkspacePhoneLayout({ children }: { children: Rea
     let initialInboxHasUnread = false;
     if (canAccessWorkspacePhone(staff)) {
       const supabase = await createServerSupabaseClient();
-      initialInboxHasUnread = await workspaceInboxHasUnreadInbound(staff, supabase);
+      initialInboxHasUnread = routePerfStepsEnabled()
+        ? await routePerfTimed("workspace_phone_layout.initial_unread", () =>
+            workspaceInboxHasUnreadInbound(staff, supabase)
+          )
+        : await workspaceInboxHasUnreadInbound(staff, supabase);
     }
 
     return (
