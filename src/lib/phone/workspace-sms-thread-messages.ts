@@ -17,6 +17,8 @@ export type WorkspaceSmsThreadMessage = {
   outbound_status_raw?: string | null;
 };
 
+export const WORKSPACE_SMS_THREAD_INITIAL_MESSAGE_LIMIT = 50;
+
 export function sameWorkspaceSmsThreadMessage(
   a: WorkspaceSmsThreadMessage,
   b: WorkspaceSmsThreadMessage

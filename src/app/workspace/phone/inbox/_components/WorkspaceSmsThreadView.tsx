@@ -20,7 +20,11 @@ import {
 } from "@/app/workspace/phone/inbox/_components/VoicemailThreadMessageRow";
 import { formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
 import { extractSmsProviderStatusRaw, formatSmsOutboundDeliveryLabel } from "@/lib/phone/sms-delivery-ui";
-import { mergeThreadById, type WorkspaceSmsThreadMessage } from "@/lib/phone/workspace-sms-thread-messages";
+import {
+  mergeThreadById,
+  WORKSPACE_SMS_THREAD_INITIAL_MESSAGE_LIMIT,
+  type WorkspaceSmsThreadMessage,
+} from "@/lib/phone/workspace-sms-thread-messages";
 import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
 
 const SmsReplyComposer = dynamic(
@@ -147,6 +151,8 @@ type Props = {
   threadTopSlot?: ReactNode;
   /** Desktop inbox 3-pane: full-width thread column, no max-width card feel. */
   appDesktopSplit?: boolean;
+  /** Embedded CRM threads should update themselves without refreshing the whole lead page. */
+  refreshPageOnSend?: boolean;
 };
 
 export function WorkspaceSmsThreadView({
@@ -161,6 +167,7 @@ export function WorkspaceSmsThreadView({
   smsInboundToE164,
   threadTopSlot,
   appDesktopSplit = false,
+  refreshPageOnSend = true,
 }: Props) {
   const router = useRouter();
   const [sendError, setSendError] = useState<string | null>(null);
@@ -244,9 +251,10 @@ export function WorkspaceSmsThreadView({
       .select("id, created_at, direction, body, phone_call_id, message_type, metadata")
       .eq("conversation_id", conversationId)
       .is("deleted_at", null)
-      .order("created_at", { ascending: true });
+      .order("created_at", { ascending: false })
+      .limit(WORKSPACE_SMS_THREAD_INITIAL_MESSAGE_LIMIT);
     if (error || !data) return false;
-    const rows: ThreadMessage[] = data.map((row) => {
+    const rows: ThreadMessage[] = [...data].reverse().map((row) => {
       const pid =
         (row as { phone_call_id?: unknown }).phone_call_id != null &&
         String((row as { phone_call_id?: unknown }).phone_call_id).trim() !== ""
@@ -396,10 +404,12 @@ export function WorkspaceSmsThreadView({
     if (ok) {
       setOptimistic((prev) => prev.filter((m) => !m.id.startsWith("optimistic-")));
     }
-    startTransition(() => {
-      router.refresh();
-    });
-  }, [router, fetchLatestMessages]);
+    if (refreshPageOnSend) {
+      startTransition(() => {
+        router.refresh();
+      });
+    }
+  }, [router, fetchLatestMessages, refreshPageOnSend]);
 
   const handleInPlaceSendError = useCallback((msg: string) => {
     setSendError(msg);

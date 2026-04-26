@@ -249,6 +249,7 @@ export function LeadConversationSection({ leadId, contactId, initialConversation
               smsPreferredFromExplicit={Boolean(bootstrap.smsPreferredFromExplicit)}
               smsInboundToE164={bootstrap.smsInboundToE164 ?? undefined}
               appDesktopSplit={false}
+              refreshPageOnSend={false}
             />
           </div>
         </EmbeddedLeadSmsThreadErrorBoundary>

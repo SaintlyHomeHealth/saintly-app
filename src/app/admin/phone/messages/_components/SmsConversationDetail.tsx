@@ -24,6 +24,7 @@ import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { labelForContactType } from "@/lib/crm/contact-types";
 import { ADMIN_PHONE_DISPLAY_TIMEZONE, formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
 import { extractSmsProviderStatusRaw, formatSmsOutboundDeliveryLabel } from "@/lib/phone/sms-delivery-ui";
+import { WORKSPACE_SMS_THREAD_INITIAL_MESSAGE_LIMIT } from "@/lib/phone/workspace-sms-thread-messages";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import { resolvePhoneDisplayIdentity } from "@/lib/phone/resolve-phone-display-identity";
 import {
@@ -279,13 +280,14 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
     .select("id, created_at, direction, body, viewed_at, metadata, phone_call_id, message_type")
     .eq("conversation_id", conversationId)
     .is("deleted_at", null)
-    .order("created_at", { ascending: true });
+    .order("created_at", { ascending: false })
+    .limit(WORKSPACE_SMS_THREAD_INITIAL_MESSAGE_LIMIT);
 
   if (msgErr) {
     console.warn("[admin/phone/messages] messages:", msgErr.message);
   }
 
-  const messages = msgRows ?? [];
+  const messages = [...(msgRows ?? [])].reverse();
 
   const voicemailCallIds = [
     ...new Set(

@@ -3,7 +3,7 @@
 import { Check, ChevronDown, MessageSquare } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 
-import { useOptionalWorkspaceSoftphone } from "@/components/softphone/WorkspaceSoftphoneProvider";
+import { useOptionalWorkspaceSoftphone } from "@/components/softphone/WorkspaceSoftphoneContext";
 import { formatPhoneNumber } from "@/lib/phone/us-phone-format";
 import {
   isSaintlyBackupSmsE164,
@@ -54,7 +54,6 @@ export const SmsTextFromBar = memo(function SmsTextFromBar({
   lockScopeKey,
   preferredFromE164,
   preferredFromExplicit,
-  inboundToE164: _inboundToE164,
 }: SmsTextFromBarProps) {
   const softphoneCtx = useOptionalWorkspaceSoftphone();
   const lines = useMemo(
@@ -65,11 +64,7 @@ export const SmsTextFromBar = memo(function SmsTextFromBar({
   const [smsInfo, setSmsInfo] = useState<SmsOutboundInfo | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
-  const [pickedE164, setPickedE164] = useState<string | null>(null);
-
-  useEffect(() => {
-    setPickedE164(null);
-  }, [lockScopeKey]);
+  const [picked, setPicked] = useState<{ scope: string | null; e164: string } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -102,7 +97,7 @@ export const SmsTextFromBar = memo(function SmsTextFromBar({
     return lines.find((l) => l.e164 === SAINTLY_PRIMARY_SMS_E164)?.e164 ?? SAINTLY_PRIMARY_SMS_E164;
   }, [lines, preferredFromE164, preferredFromExplicit]);
 
-  const activeE164 = pickedE164 ?? seedE164;
+  const activeE164 = picked?.scope === (lockScopeKey ?? null) ? picked.e164 : seedE164;
 
   const toggle = useCallback(() => setExpanded((v) => !v), []);
 
@@ -153,7 +148,7 @@ export const SmsTextFromBar = memo(function SmsTextFromBar({
                     key={line.e164}
                     type="button"
                     onClick={() => {
-                      setPickedE164(line.e164);
+                      setPicked({ scope: lockScopeKey ?? null, e164: line.e164 });
                       setExpanded(false);
                     }}
                     className={`flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-[12px] transition duration-150 hover:bg-white ${

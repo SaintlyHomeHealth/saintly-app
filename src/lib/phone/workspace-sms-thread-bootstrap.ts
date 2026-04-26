@@ -2,7 +2,10 @@ import "server-only";
 
 import { supabaseAdmin } from "@/lib/admin";
 import { extractSmsProviderStatusRaw } from "@/lib/phone/sms-delivery-ui";
-import type { WorkspaceSmsThreadMessage } from "@/lib/phone/workspace-sms-thread-messages";
+import {
+  WORKSPACE_SMS_THREAD_INITIAL_MESSAGE_LIMIT,
+  type WorkspaceSmsThreadMessage,
+} from "@/lib/phone/workspace-sms-thread-messages";
 import { canStaffAccessConversationRow } from "@/lib/phone/staff-conversation-access";
 import { canAccessWorkspacePhone, getStaffProfile, type StaffProfile } from "@/lib/staff-profile";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
@@ -103,13 +106,14 @@ export async function loadWorkspaceSmsThreadBootstrap(
     .select("id, created_at, direction, body, metadata, phone_call_id, message_type")
     .eq("conversation_id", cid)
     .is("deleted_at", null)
-    .order("created_at", { ascending: true });
+    .order("created_at", { ascending: false })
+    .limit(WORKSPACE_SMS_THREAD_INITIAL_MESSAGE_LIMIT);
 
   if (msgErr) {
     console.warn("[workspace-sms-thread-bootstrap] messages:", msgErr.message);
   }
 
-  const messages = msgRows ?? [];
+  const messages = [...(msgRows ?? [])].reverse();
 
   const voicemailCallIds = [
     ...new Set(
