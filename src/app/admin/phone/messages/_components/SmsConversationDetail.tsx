@@ -1,10 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
-import {
-  SmsThreadContactPanelLazy,
-  WorkspaceSmsThreadViewLazy,
-} from "./sms-conversation-lazy-client";
+import { WorkspaceSmsThreadViewLazy } from "./sms-conversation-lazy-client";
 import {
   assignConversation,
   claimConversation,
@@ -119,21 +116,6 @@ function parseSmsReplySuggestion(
   const generatedAt = typeof o.generated_at === "string" ? o.generated_at.trim() : "";
   if (!text || !mid || !generatedAt) return null;
   return { text, for_message_id: mid, generated_at: generatedAt };
-}
-
-function parseVoiceAiMini(meta: unknown): { summary: string | null; category: string | null; urgency: string | null } {
-  if (!meta || typeof meta !== "object" || Array.isArray(meta)) {
-    return { summary: null, category: null, urgency: null };
-  }
-  const v = (meta as Record<string, unknown>).voice_ai;
-  if (!v || typeof v !== "object" || Array.isArray(v)) {
-    return { summary: null, category: null, urgency: null };
-  }
-  const o = v as Record<string, unknown>;
-  const summary = typeof o.short_summary === "string" ? o.short_summary.trim().slice(0, 280) : null;
-  const category = typeof o.caller_category === "string" ? o.caller_category.trim() : null;
-  const urgency = typeof o.urgency === "string" ? o.urgency.trim() : null;
-  return { summary: summary || null, category: category || null, urgency: urgency || null };
 }
 
 function isoToDatetimeLocalValue(iso: string | null): string {
@@ -381,7 +363,6 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
   const lastInboundMessageId =
     lastMsg && String(lastMsg.direction).toLowerCase() === "inbound" ? String(lastMsg.id) : null;
   const suggestionMeta = parseSmsReplySuggestion(conv.metadata);
-  const aiMini = parseVoiceAiMini(conv.metadata);
   const initialSmsSuggestion =
     smsAiSuggestionsEnabled &&
     suggestionMeta &&
@@ -625,232 +606,7 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
     };
   });
 
-  const workspaceContactPanelInitial =
-    conv.primary_contact_id && contact
-      ? {
-          fullName: contactName ?? "",
-          email: typeof contact.email === "string" ? contact.email : "",
-          contactType: typeof contact.contact_type === "string" ? contact.contact_type : "other",
-          notes: typeof contact.notes === "string" ? contact.notes : "",
-        }
-      : null;
-
-  const crmAsideCard = workspaceDesktopSplit
-    ? "rounded-lg border border-slate-200 bg-white p-3 shadow-none"
-    : "rounded-xl border border-slate-200 bg-white p-4 shadow-sm";
-  const crmAsideAi = workspaceDesktopSplit
-    ? "mb-2 rounded-lg border border-sky-100 bg-sky-50/50 p-2.5"
-    : "mb-4 rounded-xl border border-sky-100 bg-sky-50/50 p-3";
-
-  const workspaceCrmPanelInner = (
-    <>
-      {smsAiSuggestionsEnabled && (aiMini.summary || aiMini.category || aiMini.urgency) ? (
-        <section className={crmAsideAi}>
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-sky-800">AI insight</p>
-          {aiMini.summary ? (
-            <p className="mt-1 text-sm text-slate-700">{aiMini.summary}</p>
-          ) : (
-            <p className="mt-1 text-sm text-slate-500">No AI summary yet for this thread.</p>
-          )}
-          <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
-            {aiMini.category ? (
-              <span className="rounded-full bg-white px-2 py-0.5 font-semibold text-slate-700">
-                {aiMini.category.replace(/_/g, " ")}
-              </span>
-            ) : null}
-            {aiMini.urgency ? (
-              <span className="rounded-full bg-white px-2 py-0.5 font-semibold text-slate-700">
-                {aiMini.urgency}
-              </span>
-            ) : null}
-          </div>
-        </section>
-      ) : null}
-
-      <section className={crmAsideCard}>
-        <h2 className={`font-semibold text-slate-900 ${workspaceDesktopSplit ? "text-xs" : "text-sm"}`}>Assignment</h2>
-        <div className={`text-sm ${workspaceDesktopSplit ? "mt-2 space-y-2" : "mt-3 space-y-3"}`}>
-          <div>
-            <p className="text-xs font-medium text-slate-500">Lead status</p>
-            <div className="mt-1 flex flex-wrap items-center gap-2">
-              {leadBadge}
-              <form action={updateConversationLeadStatus} className="flex items-center gap-2">
-                <input type="hidden" name="conversationId" value={conversationId} />
-                <label className="sr-only" htmlFor="leadStatusWs">
-                  Lead status
-                </label>
-                <select
-                  id="leadStatusWs"
-                  name="leadStatus"
-                  defaultValue={leadStatus}
-                  required
-                  className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-sm text-slate-900"
-                >
-                  <option value="unclassified">Unclassified</option>
-                  <option value="new_lead">New lead</option>
-                  <option value="contacted">Contacted</option>
-                  <option value="scheduled">Scheduled</option>
-                  <option value="admitted">Admitted</option>
-                  <option value="not_qualified">Not qualified</option>
-                </select>
-                <button
-                  type="submit"
-                  className="rounded-lg bg-sky-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-sky-700"
-                >
-                  Update
-                </button>
-              </form>
-            </div>
-          </div>
-          <div>
-            <p className="text-xs font-medium text-slate-500">Assigned to</p>
-            <p className="mt-1 font-medium text-slate-900">{assigneeLabel ?? "Unassigned"}</p>
-            {conv.assigned_at ? (
-              <p className="mt-0.5 text-xs text-slate-500">
-                Since {formatAdminPhoneWhen(typeof conv.assigned_at === "string" ? conv.assigned_at : null)}
-              </p>
-            ) : null}
-          </div>
-          {canClaim ? (
-            <form action={claimConversation}>
-              <input type="hidden" name="conversationId" value={conversationId} />
-              <button
-                type="submit"
-                className="rounded-lg bg-sky-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-sky-700"
-              >
-                Claim conversation
-              </button>
-            </form>
-          ) : null}
-          {hasFull ? (
-            <form action={assignConversation} className="flex flex-wrap items-center gap-2">
-              <input type="hidden" name="conversationId" value={conversationId} />
-              <label className="text-slate-600">
-                Reassign
-                <select
-                  name="assignToUserId"
-                  defaultValue={assignedTo ?? ""}
-                  required
-                  className="ml-2 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-slate-900"
-                >
-                  <option value="" disabled>
-                    Select staff…
-                  </option>
-                  {assignedTo && !assignableStaff.some((s) => s.user_id === assignedTo) ? (
-                    <option value={assignedTo}>{assigneeLabel ?? `${assignedTo.slice(0, 8)}…`} (current)</option>
-                  ) : null}
-                  {assignableStaff.map((s) => (
-                    <option key={s.user_id} value={s.user_id}>
-                      {s.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <button
-                type="submit"
-                className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-800 hover:bg-slate-50"
-              >
-                Assign
-              </button>
-            </form>
-          ) : null}
-          {isAdminOrHigher(staff) ? (
-            <form action={unassignConversation} className="pt-1">
-              <input type="hidden" name="conversationId" value={conversationId} />
-              <button
-                type="submit"
-                className="text-xs font-medium text-slate-500 underline hover:text-slate-800"
-              >
-                Unassign (admin)
-              </button>
-            </form>
-          ) : null}
-        </div>
-      </section>
-
-      <section className={`${workspaceDesktopSplit ? "mt-2" : "mt-4"} ${crmAsideCard}`}>
-        <h2 className={`font-semibold text-slate-900 ${workspaceDesktopSplit ? "text-xs" : "text-sm"}`}>Next action</h2>
-        <div className={`text-sm ${workspaceDesktopSplit ? "mt-2 space-y-2" : "mt-3 space-y-3"}`}>
-          {followUpCompletedAt ? (
-            <div className="rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-2 text-emerald-900">
-              Completed {formatAdminPhoneWhen(followUpCompletedAt)}
-            </div>
-          ) : null}
-
-          <form action={updateConversationFollowUp} className="space-y-3">
-            <input type="hidden" name="conversationId" value={conversationId} />
-
-            <div>
-              <label className="block text-xs font-medium text-slate-600">Next action</label>
-              <input
-                name="nextAction"
-                defaultValue={nextAction}
-                className="mt-0.5 w-full rounded border border-slate-200 bg-white px-2 py-1.5 text-sm"
-                placeholder="e.g. Call back / Schedule assessment"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-medium text-slate-600">Due</label>
-              <input
-                type="datetime-local"
-                name="dueAt"
-                defaultValue={isoToDatetimeLocalValue(followUpDueAt)}
-                className="mt-0.5 w-full rounded border border-slate-200 bg-white px-2 py-1.5 text-sm"
-              />
-              {followUpDueAt ? (
-                <p className="mt-1 text-[11px] text-slate-500">
-                  Current: {formatAdminPhoneWhen(followUpDueAt)}
-                </p>
-              ) : (
-                <p className="mt-1 text-[11px] text-slate-500">Optional</p>
-              )}
-            </div>
-
-            <button
-              type="submit"
-              className="rounded-lg bg-sky-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-sky-700"
-            >
-              Save / update
-            </button>
-          </form>
-
-          {!followUpCompletedAt ? (
-            <>
-              <form action={completeConversationFollowUp}>
-                <input type="hidden" name="conversationId" value={conversationId} />
-                <button
-                  type="submit"
-                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-800 hover:bg-slate-50"
-                >
-                  Mark complete
-                </button>
-              </form>
-              <form action={clearConversationFollowUp}>
-                <input type="hidden" name="conversationId" value={conversationId} />
-                <button
-                  type="submit"
-                  className="w-full text-xs font-medium text-slate-500 underline hover:text-slate-800"
-                >
-                  Clear next action
-                </button>
-              </form>
-            </>
-          ) : null}
-        </div>
-      </section>
-
-      <SmsThreadContactPanelLazy
-        key={conversationId}
-        conversationId={conversationId}
-        phoneDisplayFormatted={phoneDisplayFormatted}
-        hasPrimaryContact={Boolean(conv.primary_contact_id)}
-        unknownTexter={unknownTexter}
-        initial={workspaceContactPanelInitial}
-        compactAside
-      />
-    </>
-  );
+  /** Workspace thread now mounts SMS only; CRM actions live on the CRM route to avoid hidden panel work. */
 
   if (workspaceShell) {
     const threadView = (
@@ -868,18 +624,7 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
         smsPreferredFromExplicit={workspacePreferredFromExplicit}
         smsInboundToE164={lastInboundBusinessLineE164}
         appDesktopSplit={workspaceDesktopSplit}
-        threadTopSlot={
-          workspaceDesktopSplit ? null : (
-            <details className="w-full border-b border-slate-200/50 bg-transparent text-sm sm:rounded-lg sm:border sm:border-slate-200/60 sm:bg-white/80">
-              <summary className="cursor-pointer list-none px-1 py-1 text-[12px] font-semibold text-slate-800 sm:px-2 sm:py-1.5 [&::-webkit-details-marker]:hidden">
-                <span className="mr-0.5 text-slate-400">▸</span> Details
-              </summary>
-              <div className="max-h-[min(32vh,14rem)] overflow-y-auto overscroll-y-contain px-1 pb-2 pt-0.5 sm:max-h-[min(38vh,18rem)] sm:border-t sm:border-slate-100 sm:px-2 sm:pb-2 sm:pt-1.5 md:max-h-[min(44vh,22rem)]">
-                {workspaceCrmPanelInner}
-              </div>
-            </details>
-          )
-        }
+        threadTopSlot={null}
       />
     );
 
@@ -975,22 +720,6 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
 
     if (perfStart) {
       routePerfLog("workspace/phone/inbox/thread", perfStart);
-    }
-
-    if (workspaceDesktopSplit) {
-      return (
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden lg:basis-0 lg:min-w-0">{shell}</div>
-          <aside className="hidden h-full min-h-0 w-[360px] max-w-[360px] shrink-0 grow-0 basis-[360px] flex-col overflow-hidden border-l border-slate-200 bg-white lg:flex">
-            <div className="flex h-10 shrink-0 items-center border-b border-slate-200 px-3">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Contact & CRM</p>
-            </div>
-            <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-3 py-2 pb-4">
-              <div className={workspaceDesktopSplit ? "space-y-2" : "space-y-2.5"}>{workspaceCrmPanelInner}</div>
-            </div>
-          </aside>
-        </div>
-      );
     }
 
     return shell;

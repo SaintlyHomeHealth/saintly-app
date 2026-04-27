@@ -43,8 +43,8 @@ const SmsReplyComposer = dynamic(
 
 export type ThreadMessage = WorkspaceSmsThreadMessage;
 
-const INITIAL_WINDOW = 8;
-const WINDOW_STEP = 8;
+const INITIAL_WINDOW = 25;
+const WINDOW_STEP = 25;
 
 const VISIBILITY_REFETCH_DEBOUNCE_MS = 450;
 

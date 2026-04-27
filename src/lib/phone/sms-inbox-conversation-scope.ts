@@ -7,8 +7,8 @@ const SMS_MESSAGE_TYPE = "sms" as const;
  * Inbox and unread scope: over-fetch by this factor, then cull `voicemail`-only threads and cap.
  * Voicemail is stored on the same `conversations` row but must not appear as its own Inbox list entry.
  */
-/** Cap at 100 rows per workspace SMS inbox performance contract. */
-export const WORKSPACE_SMS_INBOX_MAX_VISIBLE = 80;
+/** Hard render cap for workspace SMS inbox. */
+export const WORKSPACE_SMS_INBOX_MAX_VISIBLE = 40;
 export const WORKSPACE_SMS_INBOX_CONVERSATION_FETCH = 100;
 
 export type SmsInboxConversationListRow = { id: string } & Record<string, unknown>;

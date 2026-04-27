@@ -1,9 +1,10 @@
 "use client";
 
 import { usePathname, useSearchParams } from "next/navigation";
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 
 import { useWorkspacePhoneInCallLayout } from "@/components/softphone/WorkspaceSoftphoneContext";
+import { routePerfEnabled } from "@/lib/perf/route-perf";
 
 const WORKSPACE_INBOX_CONVERSATION_PATH =
   /^\/workspace\/phone\/inbox\/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -46,6 +47,14 @@ export function WorkspacePhoneMainPadClient({ children }: Props) {
           "pb-[var(--ws-phone-nav-pad)]";
   const overflowClass =
     isSmsConversationThread || isInboxListOnly || isWorkspaceChatRoute ? "overflow-hidden" : "overflow-y-auto";
+
+  useEffect(() => {
+    if (!routePerfEnabled()) return;
+    console.time("APP_RENDER");
+    requestAnimationFrame(() => {
+      console.timeEnd("APP_RENDER");
+    });
+  });
 
   return (
     <main

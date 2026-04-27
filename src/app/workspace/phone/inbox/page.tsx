@@ -156,6 +156,24 @@ export default async function WorkspaceInboxPage(props: PageProps) {
   const hasFull = hasFullCallVisibility(staff);
   const supabase = await createServerSupabaseClient();
 
+  if (selectedThreadValid) {
+    const inboxHref = qRaw
+      ? `/workspace/phone/inbox?${new URLSearchParams({ q: qRaw }).toString()}`
+      : "/workspace/phone/inbox";
+
+    return (
+      <div className="ws-phone-page-shell flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+        <SmsConversationDetail
+          params={Promise.resolve({ conversationId: threadRaw })}
+          searchParams={searchParams}
+          inboxHref={inboxHref}
+          accessDeniedHref="/admin/phone"
+          workspaceShell
+        />
+      </div>
+    );
+  }
+
   let q = supabase
     .from("conversations")
     .select(

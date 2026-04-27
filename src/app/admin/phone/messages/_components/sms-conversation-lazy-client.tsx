@@ -16,17 +16,3 @@ export const WorkspaceSmsThreadViewLazy = dynamic(
     ),
   }
 );
-
-export const SmsThreadContactPanelLazy = dynamic(
-  () =>
-    import("@/app/workspace/phone/inbox/_components/sms-thread-contact-panel").then((m) => m.SmsThreadContactPanel),
-  {
-    ssr: false,
-    loading: () => (
-      <div
-        className="h-20 w-full max-w-full animate-pulse rounded-xl border border-slate-200/80 bg-slate-100/60"
-        aria-hidden
-      />
-    ),
-  }
-);
