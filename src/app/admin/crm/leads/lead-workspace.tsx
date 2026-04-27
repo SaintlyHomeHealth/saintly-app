@@ -24,12 +24,16 @@ import { LeadSectionCard } from "@/app/admin/crm/leads/_components/LeadSectionCa
 import { LeadSnapshot } from "@/app/admin/crm/leads/_components/LeadSnapshot";
 import { MapboxUsAddressFields } from "@/components/address/MapboxUsAddressFields";
 import {
-  convertLeadToPatientFromLeadDetail,
   createLeadManualFromCrm,
   markLeadDead,
   updateLeadContactProfile,
   updateLeadIntake,
 } from "../actions";
+import type { CommunicationTimelineRow } from "@/lib/crm/build-crm-communication-timeline-model";
+import type { CrmStage } from "@/lib/crm/crm-stage";
+import { CrmCommunicationTimeline } from "@/app/admin/crm/_components/CrmCommunicationTimeline";
+import { CrmStageBadge } from "@/app/admin/crm/_components/CrmStageBadge";
+import { MoveToPatientStageButton } from "@/app/admin/crm/leads/_components/MoveToPatientStageButton";
 import type { EmploymentApplicationMeta } from "@/lib/crm/lead-employment-meta";
 import { hasAnyIntakeRequestDetail, type LeadIntakeRequestDetails } from "@/lib/crm/lead-intake-request";
 import { addCalendarDaysToIsoDate, getCrmCalendarTodayIso, getCrmCalendarTomorrowIso } from "@/lib/crm/crm-local-date";
@@ -59,12 +63,13 @@ function staffOptionLabel(s: LeadWorkspaceStaffOption): string {
 
 function convertErrorMessage(code: string): string {
   switch (code) {
+    case "already_patient_stage":
     case "already_converted":
-      return "This lead is already converted.";
+      return "This record is already in Patient stage.";
     case "lead_dead":
       return "This lead is marked dead and cannot be converted.";
     case "patient_exists":
-      return "A patient already exists for this contact.";
+      return "Could not update CRM stage. Try again from the lead.";
     case "forbidden":
       return "Not allowed.";
     case "insert_failed":
@@ -183,6 +188,10 @@ export type LeadWorkspaceExistingProps = {
   waitingOnDoctorsOrders?: boolean;
   /** `leads.lead_quality` — Meta conversion qualification. */
   initialLeadQuality?: string | null;
+  /** Shared CRM communication timeline (SMS, calls, notes, status). */
+  communicationTimelineRows: CommunicationTimelineRow[];
+  /** Pipeline CRM stage (Lead / Intake / Patient). */
+  crmStage: CrmStage;
 };
 
 export type LeadWorkspaceNewProps = {
@@ -233,7 +242,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
         <div className="rounded-[28px] border border-indigo-100 bg-indigo-50/40 p-5 shadow-sm ring-1 ring-indigo-100/60">
           <h2 className="text-sm font-semibold text-slate-900">Outcome</h2>
           <p className="mt-1 text-xs text-slate-600">
-            Convert to patient or mark dead after the lead exists. Those actions appear here once you save.
+            Move to Patient stage or mark dead after the lead exists. Those actions appear here once you save.
           </p>
         </div>
 
@@ -467,6 +476,8 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
     leadTemperature,
     waitingOnDoctorsOrders = false,
     initialLeadQuality = null,
+    communicationTimelineRows = [],
+    crmStage,
   } = props;
 
   const tomorrowIso = getCrmCalendarTomorrowIso();
@@ -505,6 +516,10 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
 
       <div className="mb-6">
         <LeadQualityControls leadId={leadId} initialLeadQuality={initialLeadQuality} pipelineStatus={rawStatus} />
+      </div>
+
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <CrmStageBadge stage={crmStage} />
       </div>
 
       <nav
@@ -618,6 +633,14 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
                 initialConversationId={workspaceSmsConversationId ?? null}
               />
             </LeadSectionCard>
+          ) : null}
+
+          {contactId.trim() ? (
+            <CrmCommunicationTimeline
+              rows={communicationTimelineRows}
+              leadId={leadId}
+              emptyHint="No SMS, calls, or notes on file yet."
+            />
           ) : null}
 
           {isEmployeeLead && hasAnyIntakeRequestDetail(intakeRequestDefaults) ? (
@@ -744,7 +767,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
 
       {isConverted && patientId ? (
         <div className="rounded-[28px] border border-emerald-200 bg-emerald-50/90 px-4 py-3 text-sm text-emerald-950">
-          <p className="font-semibold">Converted to patient</p>
+          <p className="font-semibold">Patient stage</p>
           <p className="mt-1 text-emerald-900/90">
             <Link href={`/admin/crm/patients/${patientId}`} className="font-semibold text-emerald-950 underline">
               Open patient chart
@@ -1006,28 +1029,32 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
             </div>
             <div className="mt-8 border-t border-slate-200/80 pt-6">
               <h3 className="text-sm font-semibold text-slate-900">Disposition</h3>
-              <p className="mt-1 text-xs text-slate-500">Convert to a patient chart or mark the lead dead.</p>
+              <p className="mt-1 text-xs text-slate-500">Move to Patient stage or mark the lead dead.</p>
               <div className="mt-4 flex flex-wrap gap-3">
                 {isEmployeeLead ? (
                   <p className="max-w-xl text-xs text-slate-600">
-                    Hiring applicants are not converted to patients from this screen. Use{" "}
+                    Hiring applicants are not moved to Patient stage from this screen. Use{" "}
                     <strong>Mark dead lead</strong> if the applicant is disqualified, or continue follow-up via contact
                     outcomes above.
                   </p>
-                ) : !patientId ? (
-                  <button
-                    type="submit"
-                    formAction={convertLeadToPatientFromLeadDetail}
-                    className="rounded-lg border border-sky-600 bg-sky-600 px-3 py-2 text-xs font-semibold text-white hover:bg-sky-700"
-                  >
-                    Convert to patient
-                  </button>
+                ) : !isConverted ? (
+                  <>
+                    <MoveToPatientStageButton leadId={leadId} />
+                    {patientId ? (
+                      <Link
+                        href={`/admin/crm/patients/${patientId}`}
+                        className="inline-flex rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-50"
+                      >
+                        Open patient chart
+                      </Link>
+                    ) : null}
+                  </>
                 ) : (
                   <Link
-                    href={`/admin/crm/patients/${patientId}`}
+                    href={`/admin/crm/patients/${patientId ?? ""}`}
                     className="inline-flex rounded-lg border border-sky-600 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-900 hover:bg-sky-100"
                   >
-                    Open existing patient
+                    Open patient chart
                   </Link>
                 )}
                 <button

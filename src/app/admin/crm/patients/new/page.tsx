@@ -6,7 +6,9 @@ import { PayerTypeSelect } from "@/components/crm/PayerTypeSelect";
 import { SearchablePayerSelect } from "@/components/crm/SearchablePayerSelect";
 import { ServiceDisciplineCheckboxes } from "@/components/crm/ServiceDisciplineCheckboxes";
 
-import { convertLeadToPatientFromCrm, createPatientManualFromCrm } from "../../actions";
+import { createPatientManualFromCrm } from "../../actions";
+import { MoveToPatientStageButton } from "../../leads/_components/MoveToPatientStageButton";
+import { normalizeCrmStage } from "@/lib/crm/crm-stage";
 import { supabaseAdmin } from "@/lib/admin";
 import { isLeadPipelineTerminal } from "@/lib/crm/lead-pipeline-status";
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
@@ -119,7 +121,7 @@ export default async function AdminCrmPatientNewPage({
   const { data: rows, error } = await leadRowsActiveOnly(
     supabase
       .from("leads")
-      .select("id, contact_id, source, status, created_at, contacts ( full_name, first_name, last_name )")
+      .select("id, contact_id, source, status, crm_stage, created_at, contacts ( full_name, first_name, last_name )")
       .order("created_at", { ascending: false })
       .limit(100)
   );
@@ -129,11 +131,14 @@ export default async function AdminCrmPatientNewPage({
     contact_id: string;
     source: string;
     status: string | null;
+    crm_stage: string | null;
     created_at: string;
     contacts: ContactEmb | ContactEmb[] | null;
   }[];
 
-  const convertible = list.filter((r) => !isLeadPipelineTerminal(r.status));
+  const convertible = list.filter(
+    (r) => !isLeadPipelineTerminal(r.status) && normalizeCrmStage(r.crm_stage) !== "patient"
+  );
 
   const { data: staffRows } = await supabaseAdmin
     .from("staff_profiles")
@@ -177,7 +182,7 @@ export default async function AdminCrmPatientNewPage({
                 <th className="px-4 py-3">Source</th>
                 <th className="px-4 py-3">Status</th>
                 <th className="whitespace-nowrap px-4 py-3">Intake</th>
-                <th className="whitespace-nowrap px-4 py-3">Convert</th>
+                <th className="whitespace-nowrap px-4 py-3">Patient stage</th>
               </tr>
             </thead>
             <tbody>
@@ -208,15 +213,10 @@ export default async function AdminCrmPatientNewPage({
                         </Link>
                       </td>
                       <td className="px-4 py-3">
-                        <form action={convertLeadToPatientFromCrm} className="inline">
-                          <input type="hidden" name="leadId" value={r.id} />
-                          <button
-                            type="submit"
-                            className="rounded border border-sky-600 bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-900 hover:bg-sky-100"
-                          >
-                            Convert to patient
-                          </button>
-                        </form>
+                        <MoveToPatientStageButton
+                          leadId={r.id}
+                          className="rounded border border-sky-600 bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-900 hover:bg-sky-100"
+                        />
                       </td>
                     </tr>
                   );

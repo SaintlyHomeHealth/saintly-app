@@ -8,7 +8,7 @@ export const LEAD_NEXT_ACTION_OPTIONS = [
   { value: "schedule_soc", label: "Schedule SOC" },
   { value: "verify_insurance", label: "Verify insurance" },
   { value: "get_doctor_info", label: "Get doctor info" },
-  { value: "convert_to_patient", label: "Convert to patient" },
+  { value: "convert_to_patient", label: "Move to Patient stage" },
   { value: "no_further_action", label: "No further action" },
   { value: "call_patient", label: "Call patient" },
   { value: "call_referral", label: "Call referral" },

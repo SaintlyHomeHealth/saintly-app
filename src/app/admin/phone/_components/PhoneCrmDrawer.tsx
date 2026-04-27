@@ -345,7 +345,7 @@ export function PhoneCrmDrawer({ selectedRow }: PhoneCrmDrawerProps) {
             type="button"
             className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50"
           >
-            Convert to Patient
+            Move to Patient Stage
             <span className="mt-0.5 block text-[10px] font-normal text-slate-500">Placeholder</span>
           </button>
         </div>

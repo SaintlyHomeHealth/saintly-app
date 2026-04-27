@@ -275,7 +275,7 @@ export function LeadSnapshot(props: LeadSnapshotProps) {
   if (!contact.primaryPhone.trim()) flags.push({ key: "nophone", node: <Badge tone="rose">Missing phone</Badge> });
   if (!contact.email.trim()) flags.push({ key: "noemail", node: <Badge tone="rose">Missing email</Badge> });
   if (!isEmployeeLead && !primaryPayerName.trim()) flags.push({ key: "nopayer", node: <Badge tone="rose">Missing payer</Badge> });
-  if (isConverted) flags.push({ key: "conv", node: <Badge tone="emerald">Converted</Badge> });
+  if (isConverted) flags.push({ key: "conv", node: <Badge tone="emerald">Patient stage</Badge> });
   if (isDead) flags.push({ key: "dead", node: <Badge tone="slate">Dead lead</Badge> });
 
   const plainText = buildSnapshotPlainText(props);
@@ -541,7 +541,7 @@ export function LeadSnapshot(props: LeadSnapshotProps) {
 
       {isConverted && patientId ? (
         <p className="mt-4 text-xs text-emerald-700">
-          Converted to patient — open the patient chart from the Outcome section below.
+          Patient stage — open the patient chart from the Outcome section below.
         </p>
       ) : null}
     </section>

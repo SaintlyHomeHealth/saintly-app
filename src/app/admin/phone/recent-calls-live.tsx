@@ -1321,7 +1321,7 @@ export function RecentCallsLive({
                                       >
                                         {convertingLeadId === crmPipe.activeLeadId
                                           ? "…"
-                                          : "Convert to Patient"}
+                                          : "Move to Patient Stage"}
                                       </button>
                                     ) : null}
                                   </div>

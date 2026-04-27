@@ -11,6 +11,7 @@ import {
   leadChipLabel,
 } from "@/app/workspace/phone/patients/_lib/patient-hub";
 import { canAccessWorkspacePhone, getStaffProfile } from "@/lib/staff-profile";
+import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 
 type ContactRow = {
   id: string;
@@ -159,6 +160,33 @@ export default async function WorkspacePatientsPage() {
     }
   }
 
+  /** Clinical workflow: show assigned charts only when CRM lead stage is Patient (not Lead/Intake after undo). */
+  const contactIdsForStageGate = [
+    ...new Set(
+      [...patientById.values()]
+        .map((p) => (typeof p.contact_id === "string" ? p.contact_id.trim() : ""))
+        .filter(Boolean)
+    ),
+  ];
+  let contactsInPatientCrmStage = new Set<string>();
+  if (contactIdsForStageGate.length > 0) {
+    const { data: patientStageRows, error: stageErr } = await leadRowsActiveOnly(
+      supabaseAdmin
+        .from("leads")
+        .select("contact_id")
+        .in("contact_id", contactIdsForStageGate)
+        .eq("crm_stage", "patient")
+    );
+    if (stageErr) {
+      console.warn("[workspace/phone/patients] crm_stage patient filter:", stageErr.message);
+    }
+    contactsInPatientCrmStage = new Set(
+      (patientStageRows ?? [])
+        .map((r) => (typeof r.contact_id === "string" ? r.contact_id.trim() : ""))
+        .filter(Boolean)
+    );
+  }
+
   const patientItems: ListItemPatient[] = [];
   const patientContactIds = new Set<string>();
 
@@ -189,6 +217,11 @@ export default async function WorkspacePatientsPage() {
         zip: null,
       } satisfies ContactRow);
     if (contactId && contactId !== "unknown") patientContactIds.add(contactId);
+
+    const gateCid = typeof po.contact_id === "string" ? po.contact_id.trim() : "";
+    if (!gateCid || !contactsInPatientCrmStage.has(gateCid)) {
+      continue;
+    }
 
     patientItems.push({
       kind: "patient",

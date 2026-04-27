@@ -15,6 +15,8 @@ export const LEAD_ACTIVITY_EVENT = {
   intake_field_updated: "intake_field_updated",
   dob_updated: "dob_updated",
   converted: "converted",
+  /** CRM stage changed (lead ↔ intake ↔ patient); reversible without deleting records. */
+  crm_stage_changed: "crm_stage_changed",
   marked_dead: "marked_dead",
   lead_temperature_updated: "lead_temperature_updated",
   inbound_email: "inbound_email",
@@ -61,6 +63,8 @@ export function leadActivityEventLabel(eventType: string): string {
       return "Date of birth";
     case LEAD_ACTIVITY_EVENT.converted:
       return "Converted";
+    case LEAD_ACTIVITY_EVENT.crm_stage_changed:
+      return "CRM stage";
     case LEAD_ACTIVITY_EVENT.marked_dead:
       return "Closed";
     case LEAD_ACTIVITY_EVENT.lead_temperature_updated:
@@ -95,7 +99,12 @@ export function leadActivityThreadClasses(eventType: string): { rail: string; bu
       label: "text-sky-800",
     };
   }
-  if (t === LEAD_ACTIVITY_EVENT.status_changed || t === LEAD_ACTIVITY_EVENT.marked_dead || t === LEAD_ACTIVITY_EVENT.converted) {
+  if (
+    t === LEAD_ACTIVITY_EVENT.status_changed ||
+    t === LEAD_ACTIVITY_EVENT.marked_dead ||
+    t === LEAD_ACTIVITY_EVENT.converted ||
+    t === LEAD_ACTIVITY_EVENT.crm_stage_changed
+  ) {
     return {
       rail: "bg-amber-400/85",
       bubble: "border-amber-200/90 bg-amber-50/70 text-slate-900",

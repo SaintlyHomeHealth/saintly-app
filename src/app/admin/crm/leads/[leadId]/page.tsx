@@ -22,6 +22,8 @@ import {
   findLatestSmsConversationIdForPhoneE164,
 } from "@/lib/workspace-phone/ensure-sms-thread-for-contact";
 import { pickOutboundE164ForDial } from "@/lib/workspace-phone/launch-urls";
+import { buildCrmCommunicationTimelineModel } from "@/lib/crm/build-crm-communication-timeline-model";
+import { resolveLeadCrmStage } from "@/lib/crm/crm-stage";
 
 type ContactEmb = {
   full_name?: string | null;
@@ -65,7 +67,7 @@ const LEAD_DETAIL_CONTACTS_EMBED =
 
 /** Base columns without optional migration-gated fields (before `fbclid` / `lead_quality` / `lead_stage`). */
 const LEAD_DETAIL_CORE_LEGACY_BASE =
-  "id, contact_id, source, status, owner_user_id, lead_type, next_action, follow_up_date, follow_up_at, created_at, last_contact_at, last_contact_type, last_outcome, last_note, notes, external_source_metadata, referring_doctor_name, doctor_office_name, doctor_office_phone, doctor_office_fax, doctor_office_contact_person, referring_provider_name, referring_provider_phone, payer_name, payer_type, primary_payer_type, primary_payer_name, secondary_payer_type, secondary_payer_name, referral_source, service_type, service_disciplines, intake_status, dob, primary_insurance_file_url, secondary_insurance_file_url, lead_temperature";
+  "id, contact_id, source, status, crm_stage, owner_user_id, lead_type, next_action, follow_up_date, follow_up_at, created_at, last_contact_at, last_contact_type, last_outcome, last_note, notes, external_source_metadata, referring_doctor_name, doctor_office_name, doctor_office_phone, doctor_office_fax, doctor_office_contact_person, referring_provider_name, referring_provider_phone, payer_name, payer_type, primary_payer_type, primary_payer_name, secondary_payer_type, secondary_payer_name, referral_source, service_type, service_disciplines, intake_status, dob, primary_insurance_file_url, secondary_insurance_file_url, lead_temperature";
 
 /** After migration `20260430230000_leads_facebook_conversion_tracking.sql`. */
 const LEAD_DETAIL_CORE_NO_WAITING = `${LEAD_DETAIL_CORE_LEGACY_BASE}, fbclid, lead_quality, lead_stage`;
@@ -270,7 +272,8 @@ export default async function LeadIntakePage({
         ? rawStatus
         : "new";
   const terminal = isLeadPipelineTerminal(rawStatus);
-  const isConverted = rawStatus.toLowerCase() === "converted";
+  const crmStageResolved = resolveLeadCrmStage(rawStatus, L.crm_stage);
+  const isConverted = crmStageResolved === "patient";
   const isDead = rawStatus.toLowerCase() === "dead_lead";
 
   const primaryPhone = typeof c?.primary_phone === "string" ? c.primary_phone.trim() : "";
@@ -418,6 +421,26 @@ export default async function LeadIntakePage({
   const workspaceSmsConversationId = byPhone ?? byContact;
   const canEmbedWorkspaceSms = Boolean(staff && canAccessWorkspacePhone(staff));
 
+  const communicationTimelineRows = contactId
+    ? routePerfStepsEnabled()
+      ? await routePerfTimed("admin_crm_lead_detail.communication_timeline", () =>
+          buildCrmCommunicationTimelineModel({
+            contactId,
+            leadId: leadId.trim(),
+            workspaceSmsConversationId,
+            lastNote,
+            leadActivities: initialActivities,
+          })
+        )
+      : await buildCrmCommunicationTimelineModel({
+          contactId,
+          leadId: leadId.trim(),
+          workspaceSmsConversationId,
+          lastNote,
+          leadActivities: initialActivities,
+        })
+    : [];
+
     return (
     <LeadWorkspace
       mode="existing"
@@ -464,6 +487,8 @@ export default async function LeadIntakePage({
       leadTemperature={leadTemperatureStr}
       waitingOnDoctorsOrders={waitingOnDoctorsOrders}
       initialLeadQuality={initialLeadQuality}
+      communicationTimelineRows={communicationTimelineRows}
+      crmStage={crmStageResolved}
     />
     );
   } finally {

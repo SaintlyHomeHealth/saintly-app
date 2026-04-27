@@ -58,7 +58,7 @@ import {
 } from "@/lib/crm/lead-payer-structured";
 import { isValidServiceDisciplineCode, parseServiceDisciplinesFromFormData } from "@/lib/crm/service-disciplines";
 import { formatFollowUpDate } from "@/lib/crm/crm-leads-table-helpers";
-import { convertLeadToPatient } from "@/app/admin/phone/actions";
+import { convertLeadToPatient, undoLeadPatientStage } from "@/app/admin/phone/actions";
 import { getCrmCalendarDateIsoFromInstant, getCrmCalendarTomorrowIso } from "@/lib/crm/crm-local-date";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 import { findOpenDuplicatePatientVisitId } from "@/lib/crm/dispatch-duplicate-visit";
@@ -1281,7 +1281,10 @@ export async function updateLeadIntake(formData: FormData) {
     (normStr(pipelineStatus) ?? "").toLowerCase() === "admitted" &&
     (normStr(B.status) ?? "").toLowerCase() !== "admitted"
   ) {
-    const fbRaw = typeof (B as Record<string, unknown>).fbclid === "string" ? (B as Record<string, unknown>).fbclid : null;
+    const fbRaw =
+      typeof (B as Record<string, unknown>).fbclid === "string"
+        ? ((B as Record<string, unknown>).fbclid as string)
+        : null;
     await sendAdmittedPatientToMeta({
       id: leadId,
       fbclid: fbRaw,
@@ -2289,7 +2292,55 @@ export async function convertLeadToPatientFromCrm(formData: FormData) {
     redirect(`/admin/crm/patients/new?error=${encodeURIComponent(res.error)}`);
   }
 
-  redirect(`/admin/crm/patients/${res.patientId}`);
+  const q = new URLSearchParams({
+    crmStageMoved: "1",
+    leadId,
+    prevStage: res.previousStage,
+  });
+  redirect(`/admin/crm/patients/${res.patientId}?${q.toString()}`);
+}
+
+/** Move CRM stage back to Lead from the patient chart (does not delete the chart). */
+export async function movePatientBackToLeadStage(formData: FormData) {
+  const staff = await getStaffProfile();
+  if (!staff || !isManagerOrHigher(staff)) {
+    redirect("/admin");
+  }
+
+  const patientId = readTrimmedField(formData, "patientId");
+  if (!patientId) {
+    redirect("/admin/crm/patients?error=missing_patient");
+  }
+
+  const { data: patientRow, error: pErr } = await supabaseAdmin
+    .from("patients")
+    .select("contact_id")
+    .eq("id", patientId)
+    .maybeSingle();
+
+  if (pErr || !patientRow?.contact_id) {
+    redirect(`/admin/crm/patients/${patientId}?moveBackError=load`);
+  }
+
+  const cid = String(patientRow.contact_id);
+
+  const { data: leadRow } = await leadRowsActiveOnly(
+    supabaseAdmin.from("leads").select("id, crm_stage").eq("contact_id", cid).eq("crm_stage", "patient")
+  )
+    .limit(1)
+    .maybeSingle();
+
+  const lid = leadRow && typeof leadRow.id === "string" ? leadRow.id.trim() : "";
+  if (!lid) {
+    redirect(`/admin/crm/patients/${patientId}?moveBackError=no_lead`);
+  }
+
+  const res = await undoLeadPatientStage(lid, "lead");
+  if (!res.ok) {
+    redirect(`/admin/crm/patients/${patientId}?moveBackError=${encodeURIComponent(res.error)}`);
+  }
+
+  redirect(`/admin/crm/leads/${lid}?moveBack=1`);
 }
 
 export type SendLeadSmsResult = { ok: true } | { ok: false; error: string };
@@ -2546,15 +2597,12 @@ export async function convertLeadToPatientFromLeadDetail(formData: FormData) {
     redirect(`/admin/crm/leads/${leadId}?convertError=${encodeURIComponent(res.error)}`);
   }
 
-  await insertLeadActivityRow({
+  const q = new URLSearchParams({
+    crmStageMoved: "1",
     leadId,
-    eventType: LEAD_ACTIVITY_EVENT.converted,
-    body: "Lead converted to patient",
-    metadata: { patient_id: res.patientId },
-    createdByUserId: staff.user_id,
+    prevStage: res.previousStage,
   });
-
-  redirect(`/admin/crm/patients/${res.patientId}`);
+  redirect(`/admin/crm/patients/${res.patientId}?${q.toString()}`);
 }
 
 function readTrimmedField(formData: FormData, key: string): string {

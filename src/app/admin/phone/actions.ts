@@ -21,6 +21,10 @@ import {
 } from "@/lib/phone/staff-call-access";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { isValidE164, normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
+import { appendLeadActivityRow } from "@/lib/crm/append-lead-activity";
+import { normalizeCrmStage, type CrmStage } from "@/lib/crm/crm-stage";
+import { LEAD_ACTIVITY_EVENT } from "@/lib/crm/lead-activity-types";
+import { insertAuditLogTrusted } from "@/lib/audit-log";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -459,8 +463,26 @@ export async function createLeadFromPhoneCallId(
 }
 
 export type ConvertLeadToPatientResult =
-  | { ok: true; patientId: string }
+  | { ok: true; patientId: string; previousStage: CrmStage }
   | { ok: false; error: string };
+
+async function auditCrmStageChange(input: {
+  leadId: string;
+  fromStage: CrmStage;
+  toStage: CrmStage;
+  patientId?: string | null;
+}): Promise<void> {
+  await insertAuditLogTrusted({
+    action: "crm_lead_stage_changed",
+    entityType: "lead",
+    entityId: input.leadId,
+    metadata: {
+      from_stage: input.fromStage,
+      to_stage: input.toStage,
+      patient_id: input.patientId ?? null,
+    },
+  });
+}
 
 export async function convertLeadToPatient(leadId: string): Promise<ConvertLeadToPatientResult> {
   const staff = await getStaffProfile();
@@ -477,7 +499,7 @@ export async function convertLeadToPatient(leadId: string): Promise<ConvertLeadT
     supabaseAdmin
       .from("leads")
       .select(
-        "id, contact_id, status, referring_provider_name, referring_provider_phone, referring_doctor_name, doctor_office_name, doctor_office_phone, doctor_office_fax, doctor_office_contact_person, payer_name, payer_type, referral_source, service_type, service_disciplines, intake_status"
+        "id, contact_id, status, crm_stage, referring_provider_name, referring_provider_phone, referring_doctor_name, doctor_office_name, doctor_office_phone, doctor_office_fax, doctor_office_contact_person, payer_name, payer_type, referral_source, service_type, service_disciplines, intake_status"
       )
       .eq("id", id)
   ).maybeSingle();
@@ -490,10 +512,13 @@ export async function convertLeadToPatient(leadId: string): Promise<ConvertLeadT
     return { ok: false, error: "lead_not_found" };
   }
 
-  const st = typeof lead.status === "string" ? lead.status.trim().toLowerCase() : "";
-  if (st === "converted") {
-    return { ok: false, error: "already_converted" };
+  const Lrow = lead as { crm_stage?: string | null };
+  const prevStage = normalizeCrmStage(Lrow.crm_stage);
+  if (prevStage === "patient") {
+    return { ok: false, error: "already_patient_stage" };
   }
+
+  const st = typeof lead.status === "string" ? lead.status.trim().toLowerCase() : "";
   if (st === "dead_lead") {
     return { ok: false, error: "lead_dead" };
   }
@@ -505,9 +530,6 @@ export async function convertLeadToPatient(leadId: string): Promise<ConvertLeadT
     .select("id")
     .eq("contact_id", cid)
     .maybeSingle();
-  if (existingPatient?.id) {
-    return { ok: false, error: "patient_exists" };
-  }
 
   const L = lead as {
     service_disciplines?: string[] | null;
@@ -518,49 +540,55 @@ export async function convertLeadToPatient(leadId: string): Promise<ConvertLeadT
     doctor_office_contact_person?: string | null;
   };
 
-  const leadDisc = L.service_disciplines;
-  const serviceDisciplines =
-    Array.isArray(leadDisc) && leadDisc.length > 0 ? leadDisc : ([] as string[]);
+  let patientId: string;
 
-  const doctorName = (L.referring_doctor_name ?? "").trim() || null;
-  const legacyRefName = (lead.referring_provider_name ?? "").trim() || null;
-  const physician_name = doctorName || legacyRefName;
-  const referring_provider_phone =
-    (lead.referring_provider_phone ?? "").trim() || (L.doctor_office_phone ?? "").trim() || null;
+  if (existingPatient?.id) {
+    patientId = String(existingPatient.id);
+  } else {
+    const leadDisc = L.service_disciplines;
+    const serviceDisciplines =
+      Array.isArray(leadDisc) && leadDisc.length > 0 ? leadDisc : ([] as string[]);
 
-  const { data: newPatient, error: pErr } = await supabaseAdmin
-    .from("patients")
-    .insert({
-      contact_id: cid,
-      patient_status: "active",
-      referring_provider_name: legacyRefName,
-      referring_provider_phone,
-      referring_doctor_name: doctorName,
-      doctor_office_name: (L.doctor_office_name ?? "").trim() || null,
-      doctor_office_phone: (L.doctor_office_phone ?? "").trim() || null,
-      doctor_office_fax: (L.doctor_office_fax ?? "").trim() || null,
-      doctor_office_contact_person: (L.doctor_office_contact_person ?? "").trim() || null,
-      payer_name: lead.payer_name ?? null,
-      payer_type: lead.payer_type ?? null,
-      referral_source: lead.referral_source ?? null,
-      service_type: lead.service_type ?? null,
-      service_disciplines: serviceDisciplines,
-      intake_status: lead.intake_status ?? null,
-      physician_name,
-    })
-    .select("id")
-    .single();
+    const doctorName = (L.referring_doctor_name ?? "").trim() || null;
+    const legacyRefName = (lead.referring_provider_name ?? "").trim() || null;
+    const physician_name = doctorName || legacyRefName;
+    const referring_provider_phone =
+      (lead.referring_provider_phone ?? "").trim() || (L.doctor_office_phone ?? "").trim() || null;
 
-  if (pErr || !newPatient?.id) {
-    console.warn("[admin/phone] convertLeadToPatient insert patient:", pErr?.message);
-    return { ok: false, error: "insert_failed" };
+    const { data: newPatient, error: pErr } = await supabaseAdmin
+      .from("patients")
+      .insert({
+        contact_id: cid,
+        patient_status: "active",
+        referring_provider_name: legacyRefName,
+        referring_provider_phone,
+        referring_doctor_name: doctorName,
+        doctor_office_name: (L.doctor_office_name ?? "").trim() || null,
+        doctor_office_phone: (L.doctor_office_phone ?? "").trim() || null,
+        doctor_office_fax: (L.doctor_office_fax ?? "").trim() || null,
+        doctor_office_contact_person: (L.doctor_office_contact_person ?? "").trim() || null,
+        payer_name: lead.payer_name ?? null,
+        payer_type: lead.payer_type ?? null,
+        referral_source: lead.referral_source ?? null,
+        service_type: lead.service_type ?? null,
+        service_disciplines: serviceDisciplines,
+        intake_status: lead.intake_status ?? null,
+        physician_name,
+      })
+      .select("id")
+      .single();
+
+    if (pErr || !newPatient?.id) {
+      console.warn("[admin/phone] convertLeadToPatient insert patient:", pErr?.message);
+      return { ok: false, error: "insert_failed" };
+    }
+
+    patientId = String(newPatient.id);
   }
-
-  const patientId = String(newPatient.id);
 
   const { error: uErr } = await supabaseAdmin
     .from("leads")
-    .update({ status: "converted" })
+    .update({ status: "converted", crm_stage: "patient" })
     .eq("id", id)
     .is("deleted_at", null);
 
@@ -569,12 +597,110 @@ export async function convertLeadToPatient(leadId: string): Promise<ConvertLeadT
     return { ok: false, error: "update_failed" };
   }
 
+  const uid = staff.user_id;
+  await auditCrmStageChange({ leadId: id, fromStage: prevStage, toStage: "patient", patientId });
+  await appendLeadActivityRow({
+    leadId: id,
+    eventType: LEAD_ACTIVITY_EVENT.crm_stage_changed,
+    body: `CRM stage: ${prevStage} → patient`,
+    metadata: { from_stage: prevStage, to_stage: "patient", patient_id: patientId },
+    createdByUserId: uid,
+  });
+
   revalidatePath("/admin/phone");
   revalidatePath("/admin/crm/patients");
   revalidatePath("/admin/crm/leads");
   revalidatePath("/admin/crm/contacts");
   revalidatePath(`/admin/crm/contacts/${cid}`);
   revalidatePath(`/admin/crm/leads/${id}`);
+  revalidatePath(`/admin/crm/patients/${patientId}`);
+  revalidatePath("/admin");
+  revalidatePath("/workspace/phone/chat");
+  return { ok: true, patientId, previousStage: prevStage };
+}
+
+export type UndoLeadPatientStageResult =
+  | { ok: true; patientId: string | null }
+  | { ok: false; error: string };
+
+/**
+ * Move CRM stage away from patient (does not delete the patient chart or contact).
+ */
+export async function undoLeadPatientStage(
+  leadId: string,
+  targetStage: CrmStage
+): Promise<UndoLeadPatientStageResult> {
+  const staff = await getStaffProfile();
+  if (!staff || !isManagerOrHigher(staff)) {
+    return { ok: false, error: "forbidden" };
+  }
+
+  const id = typeof leadId === "string" ? leadId.trim() : "";
+  if (!id) {
+    return { ok: false, error: "invalid" };
+  }
+  if (targetStage !== "lead" && targetStage !== "intake") {
+    return { ok: false, error: "invalid_target" };
+  }
+
+  const { data: lead, error: lErr } = await leadRowsActiveOnly(
+    supabaseAdmin
+      .from("leads")
+      .select("id, contact_id, status, crm_stage")
+      .eq("id", id)
+  ).maybeSingle();
+
+  if (lErr || !lead?.contact_id) {
+    console.warn("[admin/phone] undoLeadPatientStage load:", lErr?.message);
+    return { ok: false, error: "load_failed" };
+  }
+
+  const cur = normalizeCrmStage((lead as { crm_stage?: string | null }).crm_stage);
+  if (cur !== "patient") {
+    return { ok: false, error: "not_patient_stage" };
+  }
+
+  const cid = String(lead.contact_id);
+  const statusRaw = typeof lead.status === "string" ? lead.status.trim().toLowerCase() : "";
+
+  const { data: patientRow } = await supabaseAdmin.from("patients").select("id").eq("contact_id", cid).maybeSingle();
+  const patientId = patientRow?.id ? String(patientRow.id) : null;
+
+  const patch: Record<string, unknown> = { crm_stage: targetStage };
+  if (statusRaw === "converted") {
+    patch.status = "ready_to_convert";
+  }
+
+  const { error: uErr } = await supabaseAdmin.from("leads").update(patch).eq("id", id).is("deleted_at", null);
+
+  if (uErr) {
+    console.warn("[admin/phone] undoLeadPatientStage update:", uErr.message);
+    return { ok: false, error: "update_failed" };
+  }
+
+  await auditCrmStageChange({
+    leadId: id,
+    fromStage: "patient",
+    toStage: targetStage,
+    patientId,
+  });
+  await appendLeadActivityRow({
+    leadId: id,
+    eventType: LEAD_ACTIVITY_EVENT.crm_stage_changed,
+    body: `CRM stage: patient → ${targetStage}`,
+    metadata: { from_stage: "patient", to_stage: targetStage, patient_id: patientId },
+    createdByUserId: staff.user_id,
+  });
+
+  revalidatePath("/admin/phone");
+  revalidatePath("/admin/crm/patients");
+  revalidatePath("/admin/crm/leads");
+  revalidatePath("/admin/crm/contacts");
+  revalidatePath(`/admin/crm/contacts/${cid}`);
+  revalidatePath(`/admin/crm/leads/${id}`);
+  if (patientId) {
+    revalidatePath(`/admin/crm/patients/${patientId}`);
+  }
   revalidatePath("/admin");
   revalidatePath("/workspace/phone/chat");
   return { ok: true, patientId };

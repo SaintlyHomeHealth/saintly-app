@@ -8,20 +8,23 @@ import { ServiceDisciplineCheckboxes } from "@/components/crm/ServiceDisciplineC
 import { PatientAssignmentsSection } from "./_components/PatientAssignmentsSection";
 import {
   deleteCrmPatientIfAllowed,
+  movePatientBackToLeadStage,
   setCrmPatientArchive,
   setCrmPatientIsTest,
   updateCrmPatientCoreProfile,
   updatePatientIntake,
 } from "../../actions";
+import { CrmCommunicationTimeline } from "../../_components/CrmCommunicationTimeline";
+import { CrmStageBadge } from "../../_components/CrmStageBadge";
+import { CrmPatientStageMovedBanner } from "../_components/CrmPatientStageMovedBanner";
 import { readCrmMetadata, formatCrmTypeLabel, formatCrmOutcomeLabel } from "@/app/admin/phone/_lib/crm-metadata";
 import { readVoiceAiMetadata } from "@/app/admin/phone/_lib/voice-ai-metadata";
 import type { PhoneCallRow } from "@/app/admin/phone/recent-calls-live";
-import {
-  parseVoiceAiMini,
-  formatVisitChip,
-  formatDurationSeconds,
-  type TimelineEntry,
-} from "@/lib/crm/patient-hub-detail-display";
+import { parseVoiceAiMini, formatVisitChip, formatDurationSeconds } from "@/lib/crm/patient-hub-detail-display";
+import { buildCrmCommunicationTimelineModel } from "@/lib/crm/build-crm-communication-timeline-model";
+import type { LeadActivityRow } from "@/lib/crm/lead-activities-timeline";
+import type { CrmStage } from "@/lib/crm/crm-stage";
+import { normalizeCrmStage } from "@/lib/crm/crm-stage";
 import { formatVisitStatusLabel } from "@/lib/crm/patient-visit-status";
 import {
   buildCaregiverAlternateSummary,
@@ -123,6 +126,18 @@ export default async function PatientIntakePage({
         : undefined;
   const patientDeleteError =
     typeof patientDeleteErrorRaw === "string" ? decodeURIComponent(patientDeleteErrorRaw.trim()) : "";
+
+  const crmStageMovedRaw =
+    typeof sp.crmStageMoved === "string"
+      ? sp.crmStageMoved
+      : Array.isArray(sp.crmStageMoved)
+        ? sp.crmStageMoved[0]
+        : "";
+  const movedLeadIdFromQuery =
+    typeof sp.leadId === "string" ? sp.leadId : Array.isArray(sp.leadId) ? sp.leadId[0] : "";
+  const prevStageFromQuery =
+    typeof sp.prevStage === "string" ? sp.prevStage : Array.isArray(sp.prevStage) ? sp.prevStage[0] : "";
+  const showMovedBanner = crmStageMovedRaw === "1" && movedLeadIdFromQuery.trim() && prevStageFromQuery.trim();
 
   const { patientId } = await params;
   if (!patientId?.trim()) {
@@ -244,16 +259,6 @@ export default async function PatientIntakePage({
   const conversationId = conv?.id ? String(conv.id) : null;
   const aiMini = parseVoiceAiMini(conv?.metadata);
 
-  const { data: msgRows } = conversationId
-    ? await supabaseAdmin
-        .from("messages")
-        .select("created_at, direction, body")
-        .eq("conversation_id", conversationId)
-        .is("deleted_at", null)
-        .order("created_at", { ascending: false })
-        .limit(40)
-    : { data: null };
-
   const { data: callRows } = contactId
     ? await supabaseAdmin
         .from("phone_calls")
@@ -272,30 +277,50 @@ export default async function PatientIntakePage({
   );
   const vmCount = vmCalls.length;
 
-  const timeline: TimelineEntry[] = [];
+  const { data: leadRowsForContact } = contactId
+    ? await supabaseAdmin
+        .from("leads")
+        .select("id, crm_stage, last_note")
+        .eq("contact_id", contactId)
+        .is("deleted_at", null)
+        .order("created_at", { ascending: false })
+    : { data: null };
 
-  for (const m of msgRows ?? []) {
-    const at = typeof m.created_at === "string" ? m.created_at : "";
-    if (!at) continue;
-    const dir = String(m.direction).toLowerCase() === "inbound" ? "In" : "Out";
-    const body = typeof m.body === "string" ? m.body.trim().slice(0, 220) : "";
-    timeline.push({ kind: "sms", at, label: `SMS ${dir}`, body: body || "—" });
+  const leadsList = (leadRowsForContact ?? []) as {
+    id: string;
+    crm_stage: string | null;
+    last_note: string | null;
+  }[];
+  const patientStageLead =
+    leadsList.find((r) => normalizeCrmStage(r.crm_stage) === "patient") ?? leadsList[0] ?? null;
+  const timelineLeadId = patientStageLead?.id ?? null;
+  const lastNoteForTimeline =
+    typeof patientStageLead?.last_note === "string" ? patientStageLead.last_note : "";
+
+  let initialActivitiesForTimeline: LeadActivityRow[] = [];
+  if (timelineLeadId) {
+    const activityRes = await supabaseAdmin
+      .from("lead_activities")
+      .select("id, lead_id, event_type, body, metadata, created_at, created_by_user_id, deleted_at, deletable")
+      .eq("lead_id", timelineLeadId)
+      .is("deleted_at", null)
+      .order("created_at", { ascending: true });
+    initialActivitiesForTimeline = (activityRes.data ?? []) as LeadActivityRow[];
   }
 
-  for (const call of calls) {
-    const at =
-      typeof call.started_at === "string" ? call.started_at : (call.created_at as string | undefined);
-    if (!at) continue;
-    const dir = String(call.direction).toLowerCase() === "inbound" ? "Inbound" : "Outbound";
-    const vm =
-      typeof call.voicemail_recording_sid === "string" && call.voicemail_recording_sid.trim() !== "";
-    const sub = `${dir} · ${String(call.status)}${
-      typeof call.duration_seconds === "number" ? ` · ${call.duration_seconds}s` : ""
-    }`;
-    timeline.push({ kind: "call", at, label: "Call", sub, hasVm: vm });
-  }
+  const communicationTimelineRows = contactId
+    ? await buildCrmCommunicationTimelineModel({
+        contactId,
+        leadId: timelineLeadId,
+        workspaceSmsConversationId: conversationId,
+        lastNote: lastNoteForTimeline,
+        leadActivities: initialActivitiesForTimeline,
+      })
+    : [];
 
-  timeline.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
+  const showMoveBackToLead = Boolean(
+    patientStageLead?.id && normalizeCrmStage(patientStageLead.crm_stage) === "patient"
+  );
 
   const latestForAi = calls[0] ?? null;
   const voiceAiCall = latestForAi ? readVoiceAiMetadata(latestForAi) : null;
@@ -370,6 +395,9 @@ export default async function PatientIntakePage({
   };
   const showDoctorOffice = hasDoctorOfficeDisplayInfo(doctorOffice);
 
+  const crmStageForPatientBadge: CrmStage =
+    leadsList.length === 0 ? "patient" : normalizeCrmStage((patientStageLead ?? leadsList[0])?.crm_stage);
+
   return (
     <div className="space-y-6 p-6">
       {smsFlash ? (
@@ -396,6 +424,14 @@ export default async function PatientIntakePage({
         </div>
       ) : null}
 
+      {showMovedBanner ? (
+        <CrmPatientStageMovedBanner
+          patientId={pid}
+          movedLeadId={movedLeadIdFromQuery.trim()}
+          previousStage={normalizeCrmStage(prevStageFromQuery)}
+        />
+      ) : null}
+
       <section className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
         <h2 className="text-sm font-semibold text-slate-900">Record management</h2>
         <p className="mt-1 max-w-3xl text-xs leading-relaxed text-slate-600">
@@ -404,6 +440,21 @@ export default async function PatientIntakePage({
           <strong>Delete permanently</strong> is only offered when there are zero dispatch visits, assignments, and
           payroll visit rows — otherwise archive instead.
         </p>
+        {showMoveBackToLead ? (
+          <form action={movePatientBackToLeadStage} className="mt-4 rounded-xl border border-amber-200 bg-amber-50/80 px-4 py-3">
+            <input type="hidden" name="patientId" value={pid} />
+            <p className="text-xs font-semibold text-amber-950">CRM stage</p>
+            <p className="mt-1 max-w-2xl text-[11px] text-amber-900/90">
+              Move the linked lead back to Lead stage. The patient chart and all communication history stay attached.
+            </p>
+            <button
+              type="submit"
+              className="mt-3 rounded-lg border border-amber-700 bg-white px-3 py-2 text-xs font-semibold text-amber-950 shadow-sm hover:bg-amber-100"
+            >
+              Move back to Lead
+            </button>
+          </form>
+        ) : null}
         <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-end">
           <form action={setCrmPatientArchive} className="flex flex-wrap items-center gap-2">
             <input type="hidden" name="patientId" value={pid} />
@@ -456,6 +507,10 @@ export default async function PatientIntakePage({
           </form>
         </div>
       </section>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <CrmStageBadge stage={crmStageForPatientBadge} />
+      </div>
 
       <AdminPageHeader
         eyebrow="Patients"
@@ -838,40 +893,17 @@ export default async function PatientIntakePage({
         </div>
       </div>
 
-      <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="flex items-center justify-between gap-2">
-          <h2 className="text-sm font-semibold text-slate-900">Communication timeline</h2>
-          <span className="text-[10px] font-medium text-slate-400">Calls &amp; texts</span>
+      {!contactId ? (
+        <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-sm text-amber-800">No contact linked — communication timeline unavailable.</p>
         </div>
-        {!contactId ? (
-          <p className="mt-3 text-sm text-amber-800">No contact linked — timeline unavailable.</p>
-        ) : timeline.length === 0 ? (
-          <p className="mt-3 text-sm text-slate-500">No calls or texts logged yet.</p>
-        ) : (
-          <ul className="mt-3 space-y-3">
-            {timeline.map((e, i) => (
-              <li key={`${e.kind}-${e.at}-${i}`} className="flex gap-3 text-sm">
-                <span className="w-24 shrink-0 text-[11px] text-slate-400">{formatAdminPhoneWhen(e.at)}</span>
-                <div className="min-w-0 flex-1">
-                  <p className="font-medium text-slate-800">
-                    {e.kind === "sms" ? e.label : e.label}
-                    {e.kind === "call" && e.hasVm ? (
-                      <span className="ml-2 rounded-full bg-violet-100 px-1.5 py-0.5 text-[10px] font-semibold text-violet-900">
-                        Voicemail
-                      </span>
-                    ) : null}
-                  </p>
-                  {e.kind === "sms" ? (
-                    <p className="mt-0.5 text-slate-600">{e.body}</p>
-                  ) : (
-                    <p className="mt-0.5 text-xs text-slate-500">{e.sub}</p>
-                  )}
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+      ) : (
+        <CrmCommunicationTimeline
+          rows={communicationTimelineRows}
+          leadId={timelineLeadId}
+          emptyHint="No SMS, calls, or notes on this thread yet."
+        />
+      )}
 
       {lastWorkspaceProfile ? (
         <div className="rounded-[28px] border border-amber-200 bg-amber-50/80 p-5 shadow-sm">
