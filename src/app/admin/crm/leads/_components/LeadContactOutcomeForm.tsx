@@ -17,6 +17,8 @@ import { LEAD_NEXT_ACTION_OPTIONS } from "@/lib/crm/lead-follow-up-options";
 import { ATTEMPT_ACTION_KEYS, type AttemptActionKey } from "@/lib/crm/lead-contact-log";
 import { refreshPreservingWindowScroll } from "@/lib/navigation/scroll-preserving-refresh";
 
+const CRM_ATTEMPT_TIME_ZONE = "America/Chicago";
+
 type Props = {
   leadId: string;
   savedLastOutcome: string | null;
@@ -26,6 +28,7 @@ type Props = {
   defaultFollowUpAtIso: string | null;
   tomorrowIso: string;
   voicemailSuggestedIso: string;
+  initialAttemptLocal: string;
   inputCls: string;
 };
 
@@ -53,16 +56,33 @@ function outcomeSelectValue(v: string | null): string {
   return "";
 }
 
-function toDatetimeLocalValue(d: Date): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+function toDatetimeLocalValueInCrmTimeZone(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: CRM_ATTEMPT_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(d);
+  const pick = (type: Intl.DateTimeFormatPart["type"]) =>
+    parts.find((p) => p.type === type)?.value ?? "";
+  const year = pick("year");
+  const month = pick("month");
+  const day = pick("day");
+  const hour = pick("hour");
+  const minute = pick("minute");
+  return year && month && day && hour && minute ? `${year}-${month}-${day}T${hour}:${minute}` : "";
 }
 
 function defaultFollowUpParts(followIso: string, followAtIso: string | null): { date: string; time: string } {
   if (followAtIso) {
-    const d = new Date(followAtIso);
-    if (!Number.isNaN(d.getTime())) {
-      return { date: toDatetimeLocalValue(d).slice(0, 10), time: `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}` };
+    const local = toDatetimeLocalValueInCrmTimeZone(followAtIso);
+    if (local) {
+      return { date: local.slice(0, 10), time: local.slice(11, 16) };
     }
   }
   const d = followIso.trim();
@@ -94,6 +114,7 @@ export function LeadContactOutcomeForm({
   defaultFollowUpAtIso,
   tomorrowIso,
   voicemailSuggestedIso,
+  initialAttemptLocal,
   inputCls,
 }: Props) {
   const router = useRouter();
@@ -103,7 +124,7 @@ export function LeadContactOutcomeForm({
 
   const [outcome, setOutcome] = useState(() => outcomeSelectValue(savedLastOutcome));
   const [actions, setActions] = useState<Set<AttemptActionKey>>(new Set());
-  const [attemptLocal, setAttemptLocal] = useState(() => toDatetimeLocalValue(new Date()));
+  const [attemptLocal, setAttemptLocal] = useState(() => initialAttemptLocal);
   const [followDate, setFollowDate] = useState(() => defaultFollowUpParts(defaultFollowUpIso, defaultFollowUpAtIso).date);
   const [followTime, setFollowTime] = useState(() => defaultFollowUpParts(defaultFollowUpIso, defaultFollowUpAtIso).time);
   /** Only this attempt's note — not the full running `last_note` log. */
@@ -121,7 +142,7 @@ export function LeadContactOutcomeForm({
 
   const attemptInstantIso = useMemo(() => {
     const d = new Date(attemptLocal);
-    if (Number.isNaN(d.getTime())) return new Date().toISOString();
+    if (Number.isNaN(d.getTime())) return "";
     return d.toISOString();
   }, [attemptLocal]);
 

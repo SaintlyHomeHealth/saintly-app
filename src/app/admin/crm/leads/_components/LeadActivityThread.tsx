@@ -12,20 +12,13 @@ import {
 } from "@/lib/crm/lead-activity-types";
 import type { LeadActivityRow, UnifiedTimelineItem } from "@/lib/crm/lead-activities-timeline";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
+import { formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
 import { refreshPreservingWindowScroll } from "@/lib/navigation/scroll-preserving-refresh";
 
 import { highlightThreadKeywords } from "./lead-thread-highlight";
 
 function formatWhen(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+  return formatAdminPhoneWhen(iso);
 }
 
 function formatCompactWhen(ms: number): string {

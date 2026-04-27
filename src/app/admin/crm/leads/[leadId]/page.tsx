@@ -100,7 +100,7 @@ export default async function LeadIntakePage({
   params: Promise<{ leadId: string }>;
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  console.log("LEAD PAGE RENDER");
+  console.log("SERVER RENDER");
   const perfStart = routePerfStart();
   try {
     const staff = routePerfStepsEnabled()

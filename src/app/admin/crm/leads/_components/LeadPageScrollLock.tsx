@@ -4,6 +4,8 @@ import { useEffect } from "react";
 
 export function LeadPageScrollLock() {
   useEffect(() => {
+    console.log("CLIENT RENDER");
+
     const previousBodyOverflow = document.body.style.overflow;
     const previousHtmlOverflow = document.documentElement.style.overflow;
 
