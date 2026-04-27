@@ -611,7 +611,6 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
   if (workspaceShell) {
     const threadView = (
       <WorkspaceSmsThreadViewLazy
-        key={conversationId}
         conversationId={conversationId}
         initialMessages={threadMessages}
         voicemailDetailByCallId={voicemailDetailByCallId}
@@ -1202,7 +1201,6 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
         </div>
 
         <SmsReplyComposer
-          key={`${conversationId}:${lastInboundMessageId ?? ""}:${suggestionMeta?.generated_at ?? ""}:${composerInitialDraft ?? ""}`}
           conversationId={conversationId}
           initialSuggestion={initialSmsSuggestion}
           suggestionForMessageId={

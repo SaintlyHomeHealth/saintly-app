@@ -36,9 +36,12 @@ type Props = {
   onInPlaceSendError?: (message: string) => void;
 };
 
+function initialComposerBody(initialSuggestion: string | null, initialDraft: string | null | undefined): string {
+  return initialSuggestion ?? (typeof initialDraft === "string" ? initialDraft.trim() : "");
+}
+
 /**
  * Controlled reply box so AI suggestions pre-fill without overwriting after the user types.
- * Parent should change `key` when the latest inbound message id changes so a new suggestion can load.
  */
 export function SmsReplyComposer({
   conversationId,
@@ -57,18 +60,26 @@ export function SmsReplyComposer({
   onInPlaceSendError,
 }: Props) {
   const router = useRouter();
-  const [body, setBody] = useState(
-    () => initialSuggestion ?? (typeof initialDraft === "string" ? initialDraft.trim() : "")
-  );
-  const shownRecordedRef = useRef(false);
+  const [body, setBody] = useState(() => initialComposerBody(initialSuggestion, initialDraft));
+  const seedKey = `${conversationId}:${suggestionForMessageId ?? ""}:${initialSuggestion ?? ""}:${initialDraft ?? ""}`;
+  const lastSeedKeyRef = useRef(seedKey);
+  const userEditedRef = useRef(false);
+  const shownRecordedForRef = useRef<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const sendInFlightRef = useRef(false);
   const [sendInFlight, setSendInFlight] = useState(false);
 
   useEffect(() => {
+    if (lastSeedKeyRef.current === seedKey) return;
+    lastSeedKeyRef.current = seedKey;
+    if (userEditedRef.current) return;
+    setBody(initialComposerBody(initialSuggestion, initialDraft));
+  }, [initialDraft, initialSuggestion, seedKey]);
+
+  useEffect(() => {
     if (!initialSuggestion || !suggestionForMessageId) return;
-    if (shownRecordedRef.current) return;
-    shownRecordedRef.current = true;
+    if (shownRecordedForRef.current === suggestionForMessageId) return;
+    shownRecordedForRef.current = suggestionForMessageId;
     void recordSmsSuggestionShown(conversationId, suggestionForMessageId);
   }, [conversationId, initialSuggestion, suggestionForMessageId]);
 
@@ -100,6 +111,7 @@ export function SmsReplyComposer({
     try {
       const result: SendConversationSmsResult = await sendConversationSms(fd);
       if (result.ok) {
+        userEditedRef.current = false;
         setBody("");
         window.setTimeout(() => inputRef.current?.focus(), 0);
         if (onInPlaceSendComplete) {
@@ -109,6 +121,7 @@ export function SmsReplyComposer({
         }
       } else {
         onRemoveLastOptimistic?.();
+        userEditedRef.current = true;
         setBody(trimmed);
         if (onInPlaceSendError) {
           onInPlaceSendError(result.error);
@@ -181,7 +194,10 @@ export function SmsReplyComposer({
             rows={1}
             maxLength={1600}
             value={body}
-            onChange={(e) => setBody(e.target.value)}
+            onChange={(e) => {
+              userEditedRef.current = true;
+              setBody(e.target.value);
+            }}
             placeholder="Text message"
             className={
               workspaceThread
@@ -215,7 +231,10 @@ export function SmsReplyComposer({
             rows={3}
             maxLength={1600}
             value={body}
-            onChange={(e) => setBody(e.target.value)}
+            onChange={(e) => {
+              userEditedRef.current = true;
+              setBody(e.target.value);
+            }}
             placeholder="Type a message…"
             className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900"
           />

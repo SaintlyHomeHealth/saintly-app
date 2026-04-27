@@ -4,6 +4,8 @@ import { Loader2, SendHorizontal } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
+import { refreshPreservingWindowScroll } from "@/lib/navigation/scroll-preserving-refresh";
+
 const inputCls =
   "min-h-[42px] w-full flex-1 resize-none rounded-2xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 shadow-sm placeholder:text-slate-400 focus:border-sky-400 focus:outline-none focus:ring-1 focus:ring-sky-400";
 
@@ -34,10 +36,7 @@ export function LeadQuickNoteForm({ leadId }: { leadId: string }) {
       if (res.ok && r.ok) {
         setText("");
         setFeedback({ type: "ok", message: "Sent" });
-        router.refresh();
-        requestAnimationFrame(() => {
-          document.getElementById("lead-thread-end")?.scrollIntoView({ behavior: "smooth", block: "end" });
-        });
+        refreshPreservingWindowScroll(router);
         window.setTimeout(() => setFeedback(null), 1500);
       } else {
         const msg =

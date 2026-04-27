@@ -3,6 +3,8 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { refreshPreservingWindowScroll } from "@/lib/navigation/scroll-preserving-refresh";
+
 type LeadQuality = "qualified" | "unqualified" | null;
 
 function parseInitial(raw: string | null | undefined): LeadQuality {
@@ -87,7 +89,7 @@ export function LeadQualityControls(props: {
       }
       setAdmitted(true);
       setToast({ type: "ok", message: "Patient admitted" });
-      router.refresh();
+      refreshPreservingWindowScroll(router);
     } catch {
       setToast({ type: "err", message: "Could not admit patient. Try again." });
     } finally {

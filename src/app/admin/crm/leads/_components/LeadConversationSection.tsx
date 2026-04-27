@@ -36,6 +36,9 @@ const SmsThreadMarkReadOnViewClient = dynamic(
   { ssr: false }
 );
 
+const threadShellClass =
+  "flex h-[min(28rem,52vh)] min-h-[16rem] max-h-full flex-col overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-sm ring-1 ring-slate-200/40 [contain:layout] [overflow-anchor:none]";
+
 type Props = {
   leadId: string;
   contactId: string;
@@ -169,7 +172,7 @@ export function LeadConversationSection({ leadId, contactId, initialConversation
   };
 
   return (
-    <div ref={gateRef} className="space-y-3">
+    <div ref={gateRef} className="space-y-3 [overflow-anchor:none]">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-xs text-slate-500">
           Same thread and send path as workspace phone inbox. Messages sync in real time.
@@ -205,17 +208,17 @@ export function LeadConversationSection({ leadId, contactId, initialConversation
           </button>
         </div>
       ) : !sectionVisible ? (
-        <div className="flex min-h-[6rem] items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50/60 px-4">
+        <div className={`${threadShellClass} items-center justify-center border-dashed bg-slate-50/60 px-4 shadow-none ring-0`}>
           <p className="text-center text-xs text-slate-500">
             Scroll this section into view to load the SMS thread and avoid extra work until you need it.
           </p>
         </div>
       ) : loadingBootstrap && !bootstrap ? (
-        <div className="flex min-h-[14rem] items-center justify-center rounded-xl border border-slate-200/80 bg-white">
+        <div className={`${threadShellClass} items-center justify-center`}>
           <p className="text-sm text-slate-500">Loading messages…</p>
         </div>
       ) : loadError ? (
-        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900" role="alert">
+        <div className={`${threadShellClass} justify-center border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900`} role="alert">
           <p>{loadError}</p>
           <button
             type="button"
@@ -231,14 +234,12 @@ export function LeadConversationSection({ leadId, contactId, initialConversation
         </div>
       ) : bootstrap ? (
         <EmbeddedLeadSmsThreadErrorBoundary
-          key={bootstrap.conversationId}
           leadId={leadId}
           conversationId={bootstrap.conversationId}
         >
           <SmsThreadMarkReadOnViewClient conversationId={bootstrap.conversationId} />
-          <div className="flex h-[min(28rem,52vh)] min-h-[16rem] flex-col overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-sm ring-1 ring-slate-200/40">
+          <div className={threadShellClass}>
             <WorkspaceSmsThreadView
-              key={bootstrap.conversationId}
               conversationId={bootstrap.conversationId}
               initialMessages={bootstrap.initialMessages ?? []}
               voicemailDetailByCallId={bootstrap.voicemailDetailByCallId ?? {}}
@@ -249,7 +250,6 @@ export function LeadConversationSection({ leadId, contactId, initialConversation
               smsPreferredFromExplicit={Boolean(bootstrap.smsPreferredFromExplicit)}
               smsInboundToE164={bootstrap.smsInboundToE164 ?? undefined}
               appDesktopSplit={false}
-              refreshPageOnSend={false}
             />
           </div>
         </EmbeddedLeadSmsThreadErrorBoundary>

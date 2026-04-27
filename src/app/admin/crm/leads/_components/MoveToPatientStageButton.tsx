@@ -49,7 +49,6 @@ export function MoveToPatientStageButton(props: { leadId: string; className?: st
       prevStage: res.previousStage,
     });
     router.push(`/admin/crm/patients/${res.patientId}?${q.toString()}`);
-    router.refresh();
   }
 
   return (

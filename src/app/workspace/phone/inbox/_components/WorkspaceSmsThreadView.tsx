@@ -1,10 +1,8 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useRouter } from "next/navigation";
 import {
   memo,
-  startTransition,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -149,8 +147,6 @@ type Props = {
   threadTopSlot?: ReactNode;
   /** Desktop inbox 3-pane: full-width thread column, no max-width card feel. */
   appDesktopSplit?: boolean;
-  /** Embedded CRM threads should update themselves without refreshing the whole lead page. */
-  refreshPageOnSend?: boolean;
 };
 
 const WorkspaceSmsThreadViewInner = memo(function WorkspaceSmsThreadViewInner({
@@ -165,18 +161,18 @@ const WorkspaceSmsThreadViewInner = memo(function WorkspaceSmsThreadViewInner({
   smsInboundToE164,
   threadTopSlot,
   appDesktopSplit = false,
-  refreshPageOnSend = true,
 }: Props) {
   routePerfRenderCount("SmsThreadView");
-  const router = useRouter();
   const [sendError, setSendError] = useState<string | null>(null);
   const [serverMessages, setServerMessages] = useState<ThreadMessage[]>(() => initialMessages);
   const [optimistic, setOptimistic] = useState<ThreadMessage[]>([]);
   const [windowStart, setWindowStart] = useState(() =>
     Math.max(0, initialMessages.length - INITIAL_WINDOW)
   );
-  const bottomRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const prevScrollTopRef = useRef(0);
+  const prevHeightRef = useRef(0);
+  const lastUpdateWasNearBottomRef = useRef(true);
   const loadEarlierPreserveRef = useRef<{ prevHeight: number } | null>(null);
   const nearBottomRef = useRef(true);
   /** Reuse one browser client for thread fetch + realtime (avoids repeated client setup per poll). */
@@ -209,19 +205,48 @@ const WorkspaceSmsThreadViewInner = memo(function WorkspaceSmsThreadViewInner({
   const updateNearBottom = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
+    prevScrollTopRef.current = el.scrollTop;
     const gap = el.scrollHeight - el.scrollTop - el.clientHeight;
     nearBottomRef.current = gap <= NEAR_BOTTOM_THRESHOLD_PX;
   }, []);
 
-  const scrollToBottomIfFollowing = useCallback((behavior: ScrollBehavior) => {
-    if (!nearBottomRef.current) return;
-    requestAnimationFrame(() => {
-      bottomRef.current?.scrollIntoView({ behavior, block: "end" });
-    });
+  const isNearBottom = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return false;
+    return el.scrollHeight - el.scrollTop - el.clientHeight < 100;
   }, []);
+
+  const restoreScrollTop = useCallback((top: number) => {
+    requestAnimationFrame(() => {
+      const el = scrollRef.current;
+      if (!el) return;
+      el.scrollTop = top;
+      prevScrollTopRef.current = top;
+      updateNearBottom();
+    });
+  }, [updateNearBottom]);
+
+  const scrollToBottom = useCallback((behavior: ScrollBehavior) => {
+    const run = () => {
+      const el = scrollRef.current;
+      if (!el) return;
+      if (behavior === "smooth") {
+        el.scrollTo({ top: el.scrollHeight, behavior });
+      } else {
+        el.scrollTop = el.scrollHeight;
+      }
+      updateNearBottom();
+    };
+    requestAnimationFrame(run);
+  }, [updateNearBottom]);
 
   const applyIncomingRows = useCallback(
     (incoming: ThreadMessage[], opts: { scroll: "auto-if-following" | "never" }) => {
+      const el = scrollRef.current;
+      const wasNearBottom = isNearBottom();
+      lastUpdateWasNearBottomRef.current = wasNearBottom;
+      prevScrollTopRef.current = el?.scrollTop ?? 0;
+      prevHeightRef.current = el?.scrollHeight ?? prevHeightRef.current;
       setServerMessages((prev) => mergeThreadById(prev, incoming));
       setOptimistic((optPrev) => {
         if (optPrev.length === 0) return optPrev;
@@ -235,12 +260,31 @@ const WorkspaceSmsThreadViewInner = memo(function WorkspaceSmsThreadViewInner({
         });
         return next.length === optPrev.length ? optPrev : next;
       });
-      if (opts.scroll === "auto-if-following") {
-        scrollToBottomIfFollowing("auto");
+      if (opts.scroll === "auto-if-following" && wasNearBottom) {
+        scrollToBottom("auto");
+      } else {
+        restoreScrollTop(prevScrollTopRef.current);
       }
     },
-    [scrollToBottomIfFollowing]
+    [isNearBottom, restoreScrollTop, scrollToBottom]
   );
+
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+
+    const newHeight = el.scrollHeight;
+    const heightDiff = prevHeightRef.current === 0 ? 0 : newHeight - prevHeightRef.current;
+
+    if (!lastUpdateWasNearBottomRef.current && !isNearBottom()) {
+      const nextTop = prevScrollTopRef.current + heightDiff;
+      el.scrollTop = nextTop;
+      prevScrollTopRef.current = nextTop;
+    }
+
+    prevHeightRef.current = newHeight;
+    updateNearBottom();
+  }, [isNearBottom, merged, updateNearBottom]);
 
   const fetchLatestMessages = useCallback(async (): Promise<boolean> => {
     if (typeof document !== "undefined" && document.visibilityState !== "visible") {
@@ -298,7 +342,11 @@ const WorkspaceSmsThreadViewInner = memo(function WorkspaceSmsThreadViewInner({
   useEffect(() => {
     nearBottomRef.current = true;
     requestAnimationFrame(() => {
-      bottomRef.current?.scrollIntoView({ block: "end" });
+      const el = scrollRef.current;
+      if (!el) return;
+      el.scrollTop = el.scrollHeight;
+      prevScrollTopRef.current = el.scrollTop;
+      prevHeightRef.current = el.scrollHeight;
     });
   }, [conversationId]);
 
@@ -306,7 +354,11 @@ const WorkspaceSmsThreadViewInner = memo(function WorkspaceSmsThreadViewInner({
     if (optimistic.length === 0) return;
     nearBottomRef.current = true;
     requestAnimationFrame(() => {
-      bottomRef.current?.scrollIntoView({ behavior: "auto", block: "end" });
+      const el = scrollRef.current;
+      if (!el) return;
+      el.scrollTop = el.scrollHeight;
+      prevScrollTopRef.current = el.scrollTop;
+      prevHeightRef.current = el.scrollHeight;
     });
   }, [optimistic.length]);
 
@@ -409,19 +461,14 @@ const WorkspaceSmsThreadViewInner = memo(function WorkspaceSmsThreadViewInner({
     if (ok) {
       setOptimistic((prev) => prev.filter((m) => !m.id.startsWith("optimistic-")));
     }
-    if (refreshPageOnSend) {
-      startTransition(() => {
-        router.refresh();
-      });
-    }
-  }, [router, fetchLatestMessages, refreshPageOnSend]);
+  }, [fetchLatestMessages]);
 
   const handleInPlaceSendError = useCallback((msg: string) => {
     setSendError(msg);
   }, []);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+    <div className="flex h-full min-h-0 max-h-full flex-1 flex-col overflow-hidden [contain:layout] [overflow-anchor:none]">
       {threadTopSlot ? (
         <div
           className={`shrink-0 border-b border-slate-200/60 bg-white px-2 py-1 sm:px-3 sm:py-1.5 ${
@@ -437,7 +484,7 @@ const WorkspaceSmsThreadViewInner = memo(function WorkspaceSmsThreadViewInner({
       <div
         ref={scrollRef}
         onScroll={updateNearBottom}
-        className="relative min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch]"
+        className="relative h-full min-h-0 max-h-full flex-1 touch-pan-y overflow-y-auto overscroll-y-contain [contain:layout] [overflow-anchor:none] [-webkit-overflow-scrolling:touch]"
       >
         <div
           className={`mx-auto flex w-full flex-col px-3 pb-0.5 pt-1.5 sm:px-4 sm:pb-3 sm:pt-3 ${
@@ -494,7 +541,7 @@ const WorkspaceSmsThreadViewInner = memo(function WorkspaceSmsThreadViewInner({
                 return <ThreadMessageRow key={m.id} message={m} />;
               })
             )}
-            <div ref={bottomRef} className="h-px w-full shrink-0" aria-hidden />
+            <div className="h-px w-full shrink-0" aria-hidden />
           </div>
         </div>
       </div>
@@ -518,7 +565,6 @@ const WorkspaceSmsThreadViewInner = memo(function WorkspaceSmsThreadViewInner({
             </div>
           ) : null}
           <SmsReplyComposer
-            key={`${conversationId}:${suggestionForMessageId ?? "none"}`}
             conversationId={conversationId}
             initialSuggestion={initialSuggestion}
             suggestionForMessageId={suggestionForMessageId}

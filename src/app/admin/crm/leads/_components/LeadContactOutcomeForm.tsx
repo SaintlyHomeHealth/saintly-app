@@ -15,6 +15,7 @@ import {
 } from "@/lib/crm/lead-contact-outcome";
 import { LEAD_NEXT_ACTION_OPTIONS } from "@/lib/crm/lead-follow-up-options";
 import { ATTEMPT_ACTION_KEYS, type AttemptActionKey } from "@/lib/crm/lead-contact-log";
+import { refreshPreservingWindowScroll } from "@/lib/navigation/scroll-preserving-refresh";
 
 type Props = {
   leadId: string;
@@ -130,13 +131,6 @@ export function LeadContactOutcomeForm({
     return () => window.clearTimeout(t);
   }, [toast]);
 
-  useEffect(() => {
-    setFollowDate(defaultFollowUpParts(defaultFollowUpIso, defaultFollowUpAtIso).date);
-    setFollowTime(defaultFollowUpParts(defaultFollowUpIso, defaultFollowUpAtIso).time);
-    setNextAction(defaultNextAction);
-    setOutcome(outcomeSelectValue(savedLastOutcome));
-  }, [defaultFollowUpIso, defaultFollowUpAtIso, defaultNextAction, savedLastOutcome]);
-
   const toggleAction = (k: AttemptActionKey) => {
     setActions((prev) => {
       const n = new Set(prev);
@@ -207,8 +201,7 @@ export function LeadContactOutcomeForm({
           if (!outcome.trim()) {
             setOutcomeFieldError("Please select a contact result.");
             queueMicrotask(() => {
-              outcomeSelectRef.current?.focus();
-              outcomeSelectRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+              outcomeSelectRef.current?.focus({ preventScroll: true });
             });
             return;
           }
@@ -249,7 +242,7 @@ export function LeadContactOutcomeForm({
                 setNotes("");
                 setActions(new Set());
                 setToast({ type: "ok", message: toastMessage(result) });
-                await router.refresh();
+                refreshPreservingWindowScroll(router);
               } else {
                 setToast({ type: "err", message: toastMessage(result) });
                 if (result.error === "invalid_outcome") {

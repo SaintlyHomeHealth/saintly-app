@@ -1,6 +1,7 @@
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { ArrowLeft } from "lucide-react";
+import { memo } from "react";
 
 import { FormattedPhoneInput } from "@/components/phone/FormattedPhoneInput";
 import { LeadPayerInsuranceFields } from "@/app/admin/crm/leads/_components/LeadPayerInsuranceFields";
@@ -33,6 +34,7 @@ import type { CommunicationTimelineRow } from "@/lib/crm/build-crm-communication
 import type { CrmStage } from "@/lib/crm/crm-stage";
 import { CrmStageBadge } from "@/app/admin/crm/_components/CrmStageBadge";
 import { MoveToPatientStageButton } from "@/app/admin/crm/leads/_components/MoveToPatientStageButton";
+import { LeadPageScrollLock } from "@/app/admin/crm/leads/_components/LeadPageScrollLock";
 import type { EmploymentApplicationMeta } from "@/lib/crm/lead-employment-meta";
 import { hasAnyIntakeRequestDetail, type LeadIntakeRequestDetails } from "@/lib/crm/lead-intake-request";
 import { addCalendarDaysToIsoDate, getCrmCalendarTodayIso, getCrmCalendarTomorrowIso } from "@/lib/crm/crm-local-date";
@@ -219,7 +221,7 @@ export type LeadWorkspaceNewProps = {
 
 export type LeadWorkspaceProps = LeadWorkspaceExistingProps | LeadWorkspaceNewProps;
 
-export function LeadWorkspace(props: LeadWorkspaceProps) {
+function LeadWorkspaceComponent(props: LeadWorkspaceProps) {
   routePerfRenderCount("LeadWorkspace");
   const inp = leadWorkspaceInputCls;
 
@@ -519,8 +521,9 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
       : null;
 
   return (
-    <div className="scroll-smooth p-6 pb-44 lg:pb-52">
-      <div className="mb-5">
+    <div className="flex h-[calc(100dvh-4rem)] min-h-0 flex-col overflow-hidden p-6 [overflow-anchor:none]">
+      <LeadPageScrollLock />
+      <div className="mb-5 shrink-0">
         <Link
           href="/admin/crm/leads"
           className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50"
@@ -530,17 +533,17 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
         </Link>
       </div>
 
-      <div className="mb-6">
+      <div className="mb-6 shrink-0">
         <LeadQualityControls leadId={leadId} initialLeadQuality={initialLeadQuality} pipelineStatus={rawStatus} />
       </div>
 
-      <div className="mb-4 flex flex-wrap items-center gap-2">
+      <div className="mb-4 flex shrink-0 flex-wrap items-center gap-2">
         <CrmStageBadge stage={crmStage} />
       </div>
 
       <nav
         aria-label="Jump to section"
-        className="sticky top-0 z-30 mb-8 rounded-2xl border border-slate-200/90 bg-white/95 px-3 py-3 shadow-sm backdrop-blur-md sm:px-5"
+        className="z-30 mb-8 shrink-0 rounded-2xl border border-slate-200/90 bg-white/95 px-3 py-3 shadow-sm backdrop-blur-md sm:px-5"
       >
         <ul className="flex flex-nowrap gap-x-4 gap-y-2 overflow-x-auto pb-0.5 text-sm font-medium text-slate-600 sm:flex-wrap">
           <li>
@@ -601,8 +604,11 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
         </ul>
       </nav>
 
-      <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(300px,380px)] lg:gap-10 lg:items-start">
-        <div className="min-w-0 space-y-10">
+      <div className="min-h-0 flex-1 overflow-hidden lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(300px,380px)] lg:items-start lg:gap-10">
+        <div
+          className="min-h-0 min-w-0 space-y-10 overflow-y-auto overscroll-y-contain pr-1 [overflow-anchor:none]"
+          data-lead-scroll-container="true"
+        >
           <LeadSnapshot
             leadId={leadId}
             displayName={displayName}
@@ -1346,7 +1352,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
         </div>
       </div>
 
-      <aside className="mt-8 flex min-h-0 min-w-0 flex-col pb-32 lg:sticky lg:top-28 lg:mt-0 lg:max-h-[calc(100vh-8rem)] lg:overflow-hidden lg:self-start">
+      <aside className="mt-8 flex min-h-0 min-w-0 flex-col overflow-y-auto overscroll-y-contain pb-32 [overflow-anchor:none] lg:mt-0 lg:max-h-full lg:self-start">
         <LeadFollowUpContextPanel
           leadId={leadId}
           activities={initialActivities}
@@ -1363,3 +1369,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
     </div>
   );
 }
+
+export const LeadWorkspace = memo(LeadWorkspaceComponent);
+
+export default LeadWorkspace;

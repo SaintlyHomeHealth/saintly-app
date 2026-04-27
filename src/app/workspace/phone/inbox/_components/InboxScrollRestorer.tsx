@@ -15,25 +15,25 @@ export function InboxScrollRestorer({ children }: Props) {
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const el = ref.current;
+    const el = ref.current?.parentElement;
     if (!el) return;
     const raw = sessionStorage.getItem(KEY);
     if (raw == null) return;
     const y = Number(raw);
     if (!Number.isFinite(y) || y < 0) return;
     requestAnimationFrame(() => {
-      window.scrollTo(0, y);
+      el.scrollTop = y;
     });
   }, []);
 
   useEffect(() => {
-    const el = ref.current;
+    const el = ref.current?.parentElement;
     if (!el) return;
     const onScroll = () => {
-      sessionStorage.setItem(KEY, String(window.scrollY));
+      sessionStorage.setItem(KEY, String(el.scrollTop));
     };
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
   }, []);
 
   return (

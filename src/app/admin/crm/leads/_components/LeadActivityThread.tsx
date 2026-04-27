@@ -12,6 +12,7 @@ import {
 } from "@/lib/crm/lead-activity-types";
 import type { LeadActivityRow, UnifiedTimelineItem } from "@/lib/crm/lead-activities-timeline";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
+import { refreshPreservingWindowScroll } from "@/lib/navigation/scroll-preserving-refresh";
 
 import { highlightThreadKeywords } from "./lead-thread-highlight";
 
@@ -170,7 +171,7 @@ function LeadCommunicationActivityRow(props: {
         setShowNote(false);
         setNoteText("");
         setFeedback({ type: "ok", message: "Note saved" });
-        router.refresh();
+        refreshPreservingWindowScroll(router);
         window.setTimeout(() => setFeedback(null), 1500);
       } else {
         setFeedback({
@@ -189,7 +190,7 @@ function LeadCommunicationActivityRow(props: {
       const r = await quickMarkLeadSpoke(fd);
       if (r.ok) {
         setFeedback({ type: "ok", message: "Marked as spoke" });
-        router.refresh();
+        refreshPreservingWindowScroll(router);
         window.setTimeout(() => setFeedback(null), 1500);
       } else {
         setFeedback({ type: "err", message: "Could not update." });
@@ -394,7 +395,7 @@ export function LeadActivityThread(props: {
                   const r = (await res.json().catch(() => ({ ok: false }))) as { ok?: boolean };
                   if (res.ok && r.ok) {
                     setConfirmId(null);
-                    router.refresh();
+                    refreshPreservingWindowScroll(router);
                   }
                 });
               }}

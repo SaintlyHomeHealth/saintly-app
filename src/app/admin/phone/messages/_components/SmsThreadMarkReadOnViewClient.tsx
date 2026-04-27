@@ -1,7 +1,6 @@
 "use client";
 
-import { startTransition, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect } from "react";
 
 import { markSmsThreadInboundViewed } from "../actions";
 
@@ -10,8 +9,6 @@ import { markSmsThreadInboundViewed } from "../actions";
  * Deferred two animation frames so the thread shell + messages can paint before server work.
  */
 export function SmsThreadMarkReadOnViewClient({ conversationId }: { conversationId: string }) {
-  const router = useRouter();
-
   useEffect(() => {
     let cancelled = false;
     let raf1 = 0;
@@ -21,10 +18,6 @@ export function SmsThreadMarkReadOnViewClient({ conversationId }: { conversation
         if (cancelled) return;
         void (async () => {
           await markSmsThreadInboundViewed(conversationId);
-          if (cancelled) return;
-          startTransition(() => {
-            router.refresh();
-          });
         })();
       });
     });
@@ -33,7 +26,7 @@ export function SmsThreadMarkReadOnViewClient({ conversationId }: { conversation
       cancelAnimationFrame(raf1);
       cancelAnimationFrame(raf2);
     };
-  }, [conversationId, router]);
+  }, [conversationId]);
 
   return null;
 }

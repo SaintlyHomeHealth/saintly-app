@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useTransition } from "react";
 
 import { uploadLeadInsuranceCard } from "../../actions";
+import { refreshPreservingWindowScroll } from "@/lib/navigation/scroll-preserving-refresh";
 
 type LeadInsuranceSectionProps = {
   leadId: string;
@@ -63,7 +64,7 @@ function InsuranceSlot({
               fd.append("file", file);
               startTransition(async () => {
                 await uploadLeadInsuranceCard(fd);
-                router.refresh();
+                refreshPreservingWindowScroll(router);
               });
               e.target.value = "";
             }}
