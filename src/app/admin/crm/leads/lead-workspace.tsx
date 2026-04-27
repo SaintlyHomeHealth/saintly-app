@@ -1,7 +1,6 @@
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { ArrowLeft } from "lucide-react";
-import { memo } from "react";
 
 import { FormattedPhoneInput } from "@/components/phone/FormattedPhoneInput";
 import { LeadPayerInsuranceFields } from "@/app/admin/crm/leads/_components/LeadPayerInsuranceFields";
@@ -221,7 +220,7 @@ export type LeadWorkspaceNewProps = {
 
 export type LeadWorkspaceProps = LeadWorkspaceExistingProps | LeadWorkspaceNewProps;
 
-function LeadWorkspaceComponent(props: LeadWorkspaceProps) {
+export function LeadWorkspace(props: LeadWorkspaceProps) {
   routePerfRenderCount("LeadWorkspace");
   const inp = leadWorkspaceInputCls;
 
@@ -1369,7 +1368,3 @@ function LeadWorkspaceComponent(props: LeadWorkspaceProps) {
     </div>
   );
 }
-
-export const LeadWorkspace = memo(LeadWorkspaceComponent);
-
-export default LeadWorkspace;

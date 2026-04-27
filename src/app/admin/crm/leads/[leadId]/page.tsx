@@ -25,6 +25,11 @@ import { pickOutboundE164ForDial } from "@/lib/workspace-phone/launch-urls";
 import { buildCrmCommunicationTimelineModel } from "@/lib/crm/build-crm-communication-timeline-model";
 import { resolveLeadCrmStage } from "@/lib/crm/crm-stage";
 
+function isNextControlFlowError(error: unknown): boolean {
+  const digest = error && typeof error === "object" && "digest" in error ? String(error.digest) : "";
+  return digest.startsWith("NEXT_REDIRECT") || digest.startsWith("NEXT_HTTP_ERROR_FALLBACK");
+}
+
 type ContactEmb = {
   full_name?: string | null;
   first_name?: string | null;
@@ -95,6 +100,7 @@ export default async function LeadIntakePage({
   params: Promise<{ leadId: string }>;
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  console.log("LEAD PAGE RENDER");
   const perfStart = routePerfStart();
   try {
     const staff = routePerfStepsEnabled()
@@ -490,6 +496,18 @@ export default async function LeadIntakePage({
       communicationTimelineRows={communicationTimelineRows}
       crmStage={crmStageResolved}
     />
+    );
+  } catch (e) {
+    if (isNextControlFlowError(e)) {
+      throw e;
+    }
+    console.error("LEAD PAGE CRASH", e);
+    return (
+      <div className="p-6">
+        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
+          Something went wrong
+        </div>
+      </div>
     );
   } finally {
     if (perfStart) {
