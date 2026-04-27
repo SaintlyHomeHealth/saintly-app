@@ -546,7 +546,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
       : null;
 
   return (
-    <div className="flex h-[calc(100dvh-4rem)] min-h-0 flex-col overflow-hidden p-6 [overflow-anchor:none]">
+    <div className="min-h-full p-6 pb-44 [overflow-anchor:none] lg:pb-52">
       <LeadPageScrollLock />
       <div className="mb-5 shrink-0">
         <Link
@@ -629,9 +629,9 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
         </ul>
       </nav>
 
-      <div className="min-h-0 flex-1 overflow-hidden lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(300px,380px)] lg:items-start lg:gap-10">
+      <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(300px,380px)] lg:items-start lg:gap-10">
         <div
-          className="min-h-0 min-w-0 space-y-10 overflow-y-auto overscroll-y-contain pr-1 [overflow-anchor:none]"
+          className="min-w-0 space-y-10 [overflow-anchor:none]"
           data-lead-scroll-container="true"
         >
           <LeadSnapshot
@@ -1378,7 +1378,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
         </div>
       </div>
 
-      <aside className="mt-8 flex min-h-0 min-w-0 flex-col overflow-y-auto overscroll-y-contain pb-32 [overflow-anchor:none] lg:mt-0 lg:max-h-full lg:self-start">
+      <aside className="mt-8 flex min-h-0 min-w-0 flex-col pb-32 [overflow-anchor:none] lg:sticky lg:top-28 lg:mt-0 lg:max-h-[calc(100vh-8rem)] lg:overflow-hidden lg:self-start">
         <LeadFollowUpContextPanel
           leadId={leadId}
           activities={initialActivities}
