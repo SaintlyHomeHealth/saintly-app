@@ -45,9 +45,6 @@ export type ThreadMessage = WorkspaceSmsThreadMessage;
 const INITIAL_WINDOW = 8;
 const WINDOW_STEP = 8;
 
-/** Fallback when realtime is slow or unavailable (realtime + visibility debounce are primary). */
-const POLL_INTERVAL_MS = 50_000;
-
 const VISIBILITY_REFETCH_DEBOUNCE_MS = 450;
 
 /** If scroll is within this distance of the bottom, treat as “following” the thread (auto-scroll on new inbound). */
@@ -155,7 +152,7 @@ type Props = {
   refreshPageOnSend?: boolean;
 };
 
-export function WorkspaceSmsThreadView({
+const WorkspaceSmsThreadViewInner = memo(function WorkspaceSmsThreadViewInner({
   conversationId,
   initialMessages,
   voicemailDetailByCallId = {},
@@ -346,14 +343,6 @@ export function WorkspaceSmsThreadView({
   }, [applyIncomingRows, conversationId]);
 
   useEffect(() => {
-    const id = window.setInterval(() => {
-      if (document.visibilityState !== "visible") return;
-      void fetchLatestMessages();
-    }, POLL_INTERVAL_MS);
-    return () => window.clearInterval(id);
-  }, [fetchLatestMessages]);
-
-  useEffect(() => {
     const scheduleRefetch = () => {
       if (document.visibilityState !== "visible") return;
       if (visibilityFetchTimerRef.current) clearTimeout(visibilityFetchTimerRef.current);
@@ -534,4 +523,6 @@ export function WorkspaceSmsThreadView({
       </div>
     </div>
   );
-}
+});
+
+export const WorkspaceSmsThreadView = WorkspaceSmsThreadViewInner;

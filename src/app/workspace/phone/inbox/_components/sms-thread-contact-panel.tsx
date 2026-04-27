@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useMemo, useState, useTransition } from "react";
+import { memo, useCallback, useMemo, useState, useTransition } from "react";
 
 import { saveSmsThreadContact, type SaveSmsThreadContactResult } from "@/app/admin/phone/messages/actions";
 import { CRM_CONTACT_TYPE_LABELS, type CrmContactTypeValue } from "@/lib/crm/contact-types";
@@ -40,7 +40,7 @@ function parseTagsFromNotes(notes: string): { body: string; tags: string } {
   return { body, tags: tagPart };
 }
 
-export function SmsThreadContactPanel({
+export const SmsThreadContactPanel = memo(function SmsThreadContactPanel({
   conversationId,
   phoneDisplayFormatted,
   hasPrimaryContact,
@@ -241,4 +241,4 @@ export function SmsThreadContactPanel({
       </form>
     </section>
   );
-}
+});

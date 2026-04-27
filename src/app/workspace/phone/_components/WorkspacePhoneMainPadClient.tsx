@@ -3,7 +3,7 @@
 import { usePathname, useSearchParams } from "next/navigation";
 import type { ReactNode } from "react";
 
-import { useWorkspaceSoftphone } from "@/components/softphone/WorkspaceSoftphoneProvider";
+import { useWorkspacePhoneInCallLayout } from "@/components/softphone/WorkspaceSoftphoneContext";
 
 const WORKSPACE_INBOX_CONVERSATION_PATH =
   /^\/workspace\/phone\/inbox\/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -35,9 +35,9 @@ export function WorkspacePhoneMainPadClient({ children }: Props) {
   const isWorkspaceChatRoute = /^\/workspace\/phone\/chat(\/|$)/.test(pathname);
   const mainWidthClass = isInboxRoute ? "max-w-none w-full" : "max-w-6xl";
 
-  const { status } = useWorkspaceSoftphone();
+  const inCallLayout = useWorkspacePhoneInCallLayout();
   const pb =
-    status === "in_call"
+    inCallLayout
       ? "pb-[max(6.5rem,env(safe-area-inset-bottom,0px))]"
       : isKeypadRoute
         ? // Keypad: reserve space for fixed bottom nav + safe area (inbox-style) so the Call row never sits under nav

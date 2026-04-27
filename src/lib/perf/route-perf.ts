@@ -51,3 +51,14 @@ export function routePerfClientMark(label: string, startedAtMs: number): void {
   const ms = Math.max(0, now - startedAtMs);
   console.info(`[route-perf] client ${label} ${ms.toFixed(0)}ms`);
 }
+
+/** Bottom nav: time from tap handler start to immediately after `router.push` returns (opt-in). */
+export function routePerfClientNavTapToPush(startedAtPerfMs: number): void {
+  if (!routePerfEnabled()) return;
+  const now =
+    typeof performance !== "undefined" && typeof performance.now === "function"
+      ? performance.now()
+      : Date.now();
+  const ms = Math.max(0, now - startedAtPerfMs);
+  console.info(`[route-perf] client nav:tap→push ${ms.toFixed(1)}ms`);
+}

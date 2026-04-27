@@ -9,8 +9,8 @@
  */
 
 /** Upper bound on message rows scanned to build per-conversation previews (newest-first walk). */
-export const SMS_INBOX_PREVIEW_ROW_CAP_MAX = 500;
-export const SMS_INBOX_PREVIEW_ROW_CAP_MIN = 120;
+export const SMS_INBOX_PREVIEW_ROW_CAP_MAX = 100;
+export const SMS_INBOX_PREVIEW_ROW_CAP_MIN = 40;
 /** Multiplier: expect up to this many recent rows per thread before hitting the cap in typical traffic. */
 export const SMS_INBOX_PREVIEW_ROWS_PER_CONV_FACTOR = 8;
 

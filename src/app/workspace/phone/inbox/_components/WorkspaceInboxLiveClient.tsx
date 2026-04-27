@@ -3,13 +3,13 @@
 import { startTransition, useCallback, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 
+import { routePerfClientMark, routePerfEnabled } from "@/lib/perf/route-perf";
 import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
 
 /** Batch rapid postgres events before scheduling RSC work. */
 const DEBOUNCE_MS = 550;
 /**
- * Cap full `router.refresh()` churn: the client subscribes to ALL org `messages` rows, so busy SMS
- * traffic can otherwise schedule back-to-back RSC reloads. Trailing refresh preserves eventual consistency.
+ * Cap full `router.refresh()` churn on scoped inbox realtime; trailing refresh preserves eventual consistency.
  */
 const MIN_REFRESH_GAP_MS = 2800;
 
@@ -34,6 +34,14 @@ export function WorkspaceInboxLiveClient({
   );
   const realtimeFilter = scopedIds.length > 0 ? `conversation_id=in.(${scopedIds.join(",")})` : null;
   const conversationFilter = scopedIds.length > 0 ? `id=in.(${scopedIds.join(",")})` : null;
+
+  useEffect(() => {
+    if (!routePerfEnabled()) return;
+    const t0 = performance.now();
+    requestAnimationFrame(() => {
+      routePerfClientMark("workspace_inbox:live_client_to_raf", t0);
+    });
+  }, []);
 
   const scheduleRefresh = useCallback(() => {
     if (typeof document !== "undefined" && document.visibilityState !== "visible") {
@@ -85,6 +93,9 @@ export function WorkspaceInboxLiveClient({
   }, [scheduleRefresh]);
 
   useEffect(() => {
+    if (!realtimeFilter && !conversationFilter) {
+      return;
+    }
     const supabase = createBrowserSupabaseClient();
     let channel = supabase.channel("workspace_inbox_rail_scoped");
     if (realtimeFilter) {

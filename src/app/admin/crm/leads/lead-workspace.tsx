@@ -1,4 +1,5 @@
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { ArrowLeft } from "lucide-react";
 
 import { FormattedPhoneInput } from "@/components/phone/FormattedPhoneInput";
@@ -22,7 +23,6 @@ import { LeadQualityControls } from "@/app/admin/crm/leads/_components/LeadQuali
 import { LeadConversationSection } from "@/app/admin/crm/leads/_components/LeadConversationSection";
 import { LeadSectionCard } from "@/app/admin/crm/leads/_components/LeadSectionCard";
 import { LeadSnapshot } from "@/app/admin/crm/leads/_components/LeadSnapshot";
-import { MapboxUsAddressFields } from "@/components/address/MapboxUsAddressFields";
 import {
   createLeadManualFromCrm,
   markLeadDead,
@@ -31,7 +31,6 @@ import {
 } from "../actions";
 import type { CommunicationTimelineRow } from "@/lib/crm/build-crm-communication-timeline-model";
 import type { CrmStage } from "@/lib/crm/crm-stage";
-import { CrmCommunicationTimeline } from "@/app/admin/crm/_components/CrmCommunicationTimeline";
 import { CrmStageBadge } from "@/app/admin/crm/_components/CrmStageBadge";
 import { MoveToPatientStageButton } from "@/app/admin/crm/leads/_components/MoveToPatientStageButton";
 import type { EmploymentApplicationMeta } from "@/lib/crm/lead-employment-meta";
@@ -43,6 +42,21 @@ import {
   buildWorkspaceSmsToContactHref,
   pickOutboundE164ForDial,
 } from "@/lib/workspace-phone/launch-urls";
+
+const CrmCommunicationTimeline = dynamic(
+  () =>
+    import("@/app/admin/crm/_components/CrmCommunicationTimeline").then((m) => m.CrmCommunicationTimeline),
+  {
+    loading: () => <div className="h-40 animate-pulse rounded-xl bg-slate-100/80" aria-hidden />,
+  }
+);
+
+const MapboxUsAddressFields = dynamic(
+  () => import("@/components/address/MapboxUsAddressFields").then((m) => m.MapboxUsAddressFields),
+  {
+    loading: () => <div className="h-36 animate-pulse rounded-xl bg-slate-100/80" aria-hidden />,
+  }
+);
 
 export const leadWorkspaceInputCls =
   "mt-0.5 w-full max-w-md rounded border border-slate-200 px-2 py-1.5 text-sm text-slate-800";

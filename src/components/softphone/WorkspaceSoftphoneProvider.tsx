@@ -5,6 +5,7 @@ import type { Call, Device } from "@twilio/voice-sdk";
 
 import { routePerfLog, routePerfStart } from "@/lib/perf/route-perf";
 import {
+  WorkspacePhoneInCallLayoutContext,
   WorkspaceSoftphoneContext,
   type CallContextVoiceAi,
   type CallDeskContext,
@@ -2052,5 +2053,11 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     unlockRingtoneFromGesture,
   ]);
 
-  return <WorkspaceSoftphoneContext.Provider value={value}>{children}</WorkspaceSoftphoneContext.Provider>;
+  const inCallLayoutMode = status === "in_call";
+
+  return (
+    <WorkspacePhoneInCallLayoutContext.Provider value={inCallLayoutMode}>
+      <WorkspaceSoftphoneContext.Provider value={value}>{children}</WorkspaceSoftphoneContext.Provider>
+    </WorkspacePhoneInCallLayoutContext.Provider>
+  );
 }

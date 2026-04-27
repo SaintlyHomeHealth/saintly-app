@@ -1,7 +1,10 @@
-import dynamic from "next/dynamic";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
+import {
+  SmsThreadContactPanelLazy,
+  WorkspaceSmsThreadViewLazy,
+} from "./sms-conversation-lazy-client";
 import {
   assignConversation,
   claimConversation,
@@ -18,7 +21,6 @@ import { SmsThreadDebugStrip } from "./SmsThreadDebugStrip";
 import { WorkspaceSmsConversationShell } from "@/app/workspace/phone/inbox/_components/workspace-sms-conversation-shell";
 import { VoicemailThreadMessageRow } from "@/app/workspace/phone/inbox/_components/VoicemailThreadMessageRow";
 import { WorkspaceSmsDeleteConversationButton } from "@/app/workspace/phone/inbox/_components/WorkspaceSmsDeleteConversationButton";
-import { WorkspaceSmsThreadView } from "@/app/workspace/phone/inbox/_components/WorkspaceSmsThreadView";
 import { supabaseAdmin } from "@/lib/admin";
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { labelForContactType } from "@/lib/crm/contact-types";
@@ -48,22 +50,6 @@ import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { isValidE164 } from "@/lib/softphone/phone-number";
 import { buildWorkspaceKeypadCallHref } from "@/lib/workspace-phone/launch-urls";
 import { SMS_OUTBOUND_FROM_EXPLICIT_KEY } from "@/lib/twilio/sms-from-numbers";
-
-const SmsThreadContactPanel = dynamic(
-  () =>
-    import("@/app/workspace/phone/inbox/_components/sms-thread-contact-panel").then(
-      (m) => m.SmsThreadContactPanel
-    ),
-  {
-    ssr: true,
-    loading: () => (
-      <div
-        className="h-20 w-full max-w-full animate-pulse rounded-xl border border-slate-200/80 bg-slate-100/60"
-        aria-hidden
-      />
-    ),
-  }
-);
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -854,7 +840,7 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
         </div>
       </section>
 
-      <SmsThreadContactPanel
+      <SmsThreadContactPanelLazy
         key={conversationId}
         conversationId={conversationId}
         phoneDisplayFormatted={phoneDisplayFormatted}
@@ -868,7 +854,7 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
 
   if (workspaceShell) {
     const threadView = (
-      <WorkspaceSmsThreadView
+      <WorkspaceSmsThreadViewLazy
         key={conversationId}
         conversationId={conversationId}
         initialMessages={threadMessages}

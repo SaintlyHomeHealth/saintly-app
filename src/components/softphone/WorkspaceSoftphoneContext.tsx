@@ -152,6 +152,16 @@ export type WorkspaceSoftphoneContextValue = {
 
 export const WorkspaceSoftphoneContext = createContext<WorkspaceSoftphoneContextValue | null>(null);
 
+/**
+ * Narrow layout flag: true only while `status === "in_call"`.
+ * Use for bottom nav + main padding so a 1Hz call timer does not re-render those consumers.
+ */
+export const WorkspacePhoneInCallLayoutContext = createContext(false);
+
+export function useWorkspacePhoneInCallLayout(): boolean {
+  return useContext(WorkspacePhoneInCallLayoutContext);
+}
+
 export function useWorkspaceSoftphone() {
   const ctx = useContext(WorkspaceSoftphoneContext);
   if (!ctx) {

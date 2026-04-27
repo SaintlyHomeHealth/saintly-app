@@ -4,6 +4,12 @@
  */
 
 @layer components {
+  /* Workspace shell + bottom nav: drop motion cost on low-end phones (nav must feel instant). */
+  .ws-phone-page-shell,
+  .nurse-phone-bottom-nav {
+    transition: none !important;
+  }
+
   /* Page shell (list + hub screens) */
   .ws-phone-page-shell {
     @apply bg-gradient-to-b from-slate-100/85 via-white to-sky-50/30;
@@ -12,6 +18,12 @@
      * Use with padding-bottom on <main> only once — do not stack duplicate pb on nested scroll areas.
      */
     --ws-phone-nav-pad: calc(4.25rem + env(safe-area-inset-bottom, 0px));
+  }
+
+  .nurse-phone-bottom-nav {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    will-change: transform;
   }
 
   /* Elevated cards */
