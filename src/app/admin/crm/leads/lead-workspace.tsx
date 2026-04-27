@@ -42,6 +42,7 @@ import {
   buildWorkspaceSmsToContactHref,
   pickOutboundE164ForDial,
 } from "@/lib/workspace-phone/launch-urls";
+import { routePerfRenderCount } from "@/lib/perf/route-perf";
 
 const CrmCommunicationTimeline = dynamic(
   () =>
@@ -219,6 +220,7 @@ export type LeadWorkspaceNewProps = {
 export type LeadWorkspaceProps = LeadWorkspaceExistingProps | LeadWorkspaceNewProps;
 
 export function LeadWorkspace(props: LeadWorkspaceProps) {
+  routePerfRenderCount("LeadWorkspace");
   const inp = leadWorkspaceInputCls;
 
   if (props.mode === "new") {

@@ -45,16 +45,20 @@ export function mergeThreadById(
   prev: WorkspaceSmsThreadMessage[],
   incoming: WorkspaceSmsThreadMessage[]
 ): WorkspaceSmsThreadMessage[] {
+  if (incoming.length === 0) return prev;
   const byId = new Map<string, WorkspaceSmsThreadMessage>();
   for (const m of prev) {
     byId.set(m.id, m);
   }
+  let changed = false;
   for (const m of incoming) {
     const old = byId.get(m.id);
     if (old && sameWorkspaceSmsThreadMessage(old, m)) {
       continue;
     }
+    changed = true;
     byId.set(m.id, m);
   }
+  if (!changed) return prev;
   return sortThreadMessages([...byId.values()]);
 }

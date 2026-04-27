@@ -26,7 +26,7 @@ import {
   Volume2,
 } from "lucide-react";
 
-import { useWorkspaceSoftphone } from "@/components/softphone/WorkspaceSoftphoneProvider";
+import { useWorkspaceCallDuration, useWorkspaceSoftphone } from "@/components/softphone/WorkspaceSoftphoneProvider";
 
 import { LiveCallContextPanel } from "@/components/softphone/LiveCallContextPanel";
 import { softphoneDevLog } from "@/lib/softphone/softphone-client-debug";
@@ -105,7 +105,6 @@ export function ActiveCallBar() {
   const {
     status,
     activeRemoteLabel,
-    durationSec,
     hangUp,
     micMuted,
     isClientHold,
@@ -123,6 +122,7 @@ export function ActiveCallBar() {
     toggleCallRecording,
     sendDtmfDigits,
   } = useWorkspaceSoftphone();
+  const durationSec = useWorkspaceCallDuration();
 
   const [ctxOpen, setCtxOpen] = useState(false);
   const [debugOpen, setDebugOpen] = useState(false);

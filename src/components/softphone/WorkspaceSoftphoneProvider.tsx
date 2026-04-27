@@ -5,6 +5,7 @@ import type { Call, Device } from "@twilio/voice-sdk";
 
 import { routePerfLog, routePerfStart } from "@/lib/perf/route-perf";
 import {
+  WorkspaceCallDurationContext,
   WorkspacePhoneInCallLayoutContext,
   WorkspaceSoftphoneContext,
   type CallContextVoiceAi,
@@ -54,6 +55,7 @@ export type {
 } from "@/components/softphone/WorkspaceSoftphoneContext";
 export {
   useOptionalWorkspaceSoftphone,
+  useWorkspaceCallDuration,
   useWorkspaceSoftphone,
 } from "@/components/softphone/WorkspaceSoftphoneContext";
 
@@ -1952,7 +1954,6 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       busy,
       canDial,
       incoming: Boolean(incomingCall) || Boolean(nativeShellIncomingCallId),
-      durationSec,
       micMuted,
       isClientHold,
       isPstnHold,
@@ -2012,7 +2013,6 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     nativeShellIncomingCallId,
     callWaitingCall,
     callWaitingCallerUi,
-    durationSec,
     micMuted,
     isClientHold,
     isPstnHold,
@@ -2057,7 +2057,9 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
 
   return (
     <WorkspacePhoneInCallLayoutContext.Provider value={inCallLayoutMode}>
-      <WorkspaceSoftphoneContext.Provider value={value}>{children}</WorkspaceSoftphoneContext.Provider>
+      <WorkspaceCallDurationContext.Provider value={durationSec}>
+        <WorkspaceSoftphoneContext.Provider value={value}>{children}</WorkspaceSoftphoneContext.Provider>
+      </WorkspaceCallDurationContext.Provider>
     </WorkspacePhoneInCallLayoutContext.Provider>
   );
 }

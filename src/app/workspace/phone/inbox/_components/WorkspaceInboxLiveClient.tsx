@@ -1,9 +1,9 @@
 "use client";
 
-import { startTransition, useCallback, useEffect, useMemo, useRef } from "react";
+import { memo, startTransition, useCallback, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 
-import { routePerfClientMark, routePerfEnabled } from "@/lib/perf/route-perf";
+import { routePerfClientMark, routePerfEnabled, routePerfRenderCount } from "@/lib/perf/route-perf";
 import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
 
 /** Batch rapid postgres events before scheduling RSC work. */
@@ -17,23 +17,31 @@ const MIN_REFRESH_GAP_MS = 2800;
  * Scoped to the workspace inbox page: refreshes server components so the rail (order, preview,
  * unread) stays in sync. Active thread still merges new rows via WorkspaceSmsThreadView realtime.
  */
-export function WorkspaceInboxLiveClient({
+function WorkspaceInboxLiveClientInner({
   conversationIds,
   selectedConversationId,
 }: {
   conversationIds: string[];
   selectedConversationId?: string | null;
 }) {
+  routePerfRenderCount("WorkspaceInboxLiveClient");
   const router = useRouter();
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const trailingRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastRefreshAtRef = useRef(0);
+  const conversationIdsKey = conversationIds.join("|");
   const scopedIds = useMemo(
-    () => [...new Set([...conversationIds, selectedConversationId].filter((id): id is string => Boolean(id)))],
-    [conversationIds, selectedConversationId]
+    () => [...new Set([...conversationIdsKey.split("|"), selectedConversationId].filter((id): id is string => Boolean(id)))],
+    [conversationIdsKey, selectedConversationId]
   );
-  const realtimeFilter = scopedIds.length > 0 ? `conversation_id=in.(${scopedIds.join(",")})` : null;
-  const conversationFilter = scopedIds.length > 0 ? `id=in.(${scopedIds.join(",")})` : null;
+  const realtimeFilter = useMemo(
+    () => (scopedIds.length > 0 ? `conversation_id=in.(${scopedIds.join(",")})` : null),
+    [scopedIds]
+  );
+  const conversationFilter = useMemo(
+    () => (scopedIds.length > 0 ? `id=in.(${scopedIds.join(",")})` : null),
+    [scopedIds]
+  );
 
   useEffect(() => {
     if (!routePerfEnabled()) return;
@@ -129,3 +137,5 @@ export function WorkspaceInboxLiveClient({
 
   return null;
 }
+
+export const WorkspaceInboxLiveClient = memo(WorkspaceInboxLiveClientInner);

@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { ChevronLeft } from "lucide-react";
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, memo, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 
 type ContactSavedPayload = { displayName: string; badgeLabel: string };
+type ContactSavedOverride = ContactSavedPayload & { smsThreadPaneId: string };
 
 const WorkspaceSmsContactCtx = createContext<{
   onContactSaved: (p: ContactSavedPayload) => void;
@@ -32,7 +33,7 @@ type Props = {
   threadActions?: ReactNode;
 };
 
-export function WorkspaceSmsConversationShell({
+function WorkspaceSmsConversationShellInner({
   inboxHref,
   initialDisplayName,
   initialPhoneLine,
@@ -49,21 +50,20 @@ export function WorkspaceSmsConversationShell({
    * Server props are the source of truth. `contactSaveOverride` only applies after a CRM save; it
    * must not survive a different thread (client-side inbox navigation reuses this component).
    */
-  const [contactSaveOverride, setContactSaveOverride] = useState<ContactSavedPayload | null>(null);
+  const [contactSaveOverride, setContactSaveOverride] = useState<ContactSavedOverride | null>(null);
+  const activeContactSaveOverride =
+    contactSaveOverride?.smsThreadPaneId === smsThreadPaneId ? contactSaveOverride : null;
 
-  useEffect(() => {
-    setContactSaveOverride(null);
-  }, [smsThreadPaneId]);
-
-  const displayName = contactSaveOverride?.displayName ?? initialDisplayName;
-  const badge = contactSaveOverride?.badgeLabel ?? initialBadge;
+  const displayName = activeContactSaveOverride?.displayName ?? initialDisplayName;
+  const badge = activeContactSaveOverride?.badgeLabel ?? initialBadge;
 
   const onContactSaved = useCallback((p: ContactSavedPayload) => {
-    setContactSaveOverride(p);
-  }, []);
+    setContactSaveOverride({ ...p, smsThreadPaneId });
+  }, [smsThreadPaneId]);
+  const contactContextValue = useMemo(() => ({ onContactSaved }), [onContactSaved]);
 
   return (
-    <WorkspaceSmsContactCtx.Provider value={{ onContactSaved }}>
+    <WorkspaceSmsContactCtx.Provider value={contactContextValue}>
       <div
         className="flex min-h-0 flex-1 flex-col overflow-hidden px-0 pb-0"
         data-sms-thread-pane={smsThreadPaneId}
@@ -168,3 +168,5 @@ export function WorkspaceSmsConversationShell({
     </WorkspaceSmsContactCtx.Provider>
   );
 }
+
+export const WorkspaceSmsConversationShell = memo(WorkspaceSmsConversationShellInner);

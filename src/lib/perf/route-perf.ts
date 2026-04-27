@@ -62,3 +62,9 @@ export function routePerfClientNavTapToPush(startedAtPerfMs: number): void {
   const ms = Math.max(0, now - startedAtPerfMs);
   console.info(`[route-perf] client nav:tap→push ${ms.toFixed(1)}ms`);
 }
+
+/** Opt-in render counter for temporary perf triage. Enable with NEXT_PUBLIC_ROUTE_PERF=1. */
+export function routePerfRenderCount(label: string): void {
+  if (!routePerfEnabled()) return;
+  console.count(`RENDER: ${label}`);
+}

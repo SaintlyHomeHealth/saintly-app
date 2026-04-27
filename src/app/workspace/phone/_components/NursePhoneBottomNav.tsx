@@ -1,7 +1,12 @@
 "use client";
 
 import { useWorkspacePhoneInCallLayout } from "@/components/softphone/WorkspaceSoftphoneContext";
-import { routePerfClientNavTapToPush, routePerfEnabled, routePerfStart } from "@/lib/perf/route-perf";
+import {
+  routePerfClientNavTapToPush,
+  routePerfEnabled,
+  routePerfRenderCount,
+  routePerfStart,
+} from "@/lib/perf/route-perf";
 import {
   CalendarDays,
   Hash,
@@ -16,6 +21,7 @@ import {
 import { usePathname, useRouter } from "next/navigation";
 import {
   memo,
+  startTransition,
   useCallback,
   useEffect,
   useMemo,
@@ -154,11 +160,55 @@ type NavProps = {
 const INBOX_UNREAD_MIN_REFRESH_GAP_MS = 5_000;
 const INBOX_UNREAD_FALLBACK_INTERVAL_MS = 90_000;
 
+const NAV_ACTIVE_CLASS = "bg-phone-nav-active text-phone-navy ring-1 ring-inset ring-phone-border";
+const NAV_INBOX_UNREAD_CLASS =
+  "bg-sky-50/95 text-sky-900 ring-1 ring-inset ring-sky-200/90 hover:bg-sky-100/90";
+const NAV_IDLE_CLASS = "text-slate-500 hover:bg-phone-ice/80 hover:text-phone-ink";
+const NAV_ICON_ACTIVE_CLASS = "text-phone-ink";
+const NAV_ICON_UNREAD_CLASS = "text-sky-600";
+const NAV_ICON_IDLE_CLASS = "text-slate-400";
+
+const NavTabButton = memo(function NavTabButton({
+  tab,
+  active,
+  inboxUnreadHighlight,
+  onNavigate,
+}: {
+  tab: Tab;
+  active: boolean;
+  inboxUnreadHighlight: boolean;
+  onNavigate: (href: string) => void;
+}) {
+  const handleClick = useCallback(() => {
+    onNavigate(tab.href);
+  }, [onNavigate, tab.href]);
+
+  const surfaceClass = active ? NAV_ACTIVE_CLASS : inboxUnreadHighlight ? NAV_INBOX_UNREAD_CLASS : NAV_IDLE_CLASS;
+  const iconClass = active ? NAV_ICON_ACTIVE_CLASS : inboxUnreadHighlight ? NAV_ICON_UNREAD_CLASS : NAV_ICON_IDLE_CLASS;
+
+  return (
+    <button
+      type="button"
+      onClick={handleClick}
+      className={`flex w-full flex-col items-center justify-center rounded-xl px-0.5 py-2 text-[10px] font-semibold leading-tight sm:text-[11px] ${surfaceClass}`}
+    >
+      <span
+        className={`mb-0.5 flex flex-col items-center [&_svg]:pointer-events-none ${iconClass}`}
+        title={tab.iconTitle}
+      >
+        {tab.icon}
+      </span>
+      {tab.label}
+    </button>
+  );
+});
+
 function NursePhoneBottomNavInner({
   showLeadsNav = true,
   allowedTabHrefs = null,
   initialInboxHasUnread = false,
 }: NavProps) {
+  routePerfRenderCount("NursePhoneBottomNav");
   const pathname = usePathname() ?? "";
   const router = useRouter();
   const inCallLayout = useWorkspacePhoneInCallLayout();
@@ -187,7 +237,8 @@ function NursePhoneBottomNavInner({
       try {
         const res = await fetch("/api/workspace/phone/inbox-unread", { cache: "no-store" });
         const json = (await res.json()) as { hasUnread?: boolean };
-        setInboxHasUnread(Boolean(json.hasUnread));
+        const next = Boolean(json.hasUnread);
+        setInboxHasUnread((prev) => (prev === next ? prev : next));
       } catch {
         /* ignore */
       } finally {
@@ -203,7 +254,8 @@ function NursePhoneBottomNavInner({
   }, []);
 
   useEffect(() => {
-    setInboxHasUnread(Boolean(initialInboxHasUnread));
+    const next = Boolean(initialInboxHasUnread);
+    setInboxHasUnread((prev) => (prev === next ? prev : next));
   }, [initialInboxHasUnread]);
 
   /** Defer unread refresh off the navigation critical path (was tying fetches to every pathname). */
@@ -256,7 +308,9 @@ function NursePhoneBottomNavInner({
   const pushTab = useCallback(
     (href: string) => {
       const t0 = typeof performance !== "undefined" ? performance.now() : 0;
-      router.push(href);
+      startTransition(() => {
+        router.push(href);
+      });
       routePerfClientNavTapToPush(t0);
     },
     [router]
@@ -267,15 +321,18 @@ function NursePhoneBottomNavInner({
    * session for every SMS event and then ran the unread-count API. Inbox/thread pages own scoped
    * realtime; the nav badge uses explicit refresh triggers plus a slow fallback interval.
    */
-  const tabsHrefKey = allowedTabHrefs?.length ? [...allowedTabHrefs].sort().join("|") : "";
+  const tabsHrefKey = useMemo(
+    () => (allowedTabHrefs?.length ? [...allowedTabHrefs].sort().join("|") : ""),
+    [allowedTabHrefs]
+  );
   const tabs = useMemo(() => {
     let t = showLeadsNav ? [...tabsBase.slice(0, 6), leadsTab, ...tabsBase.slice(6)] : tabsBase;
-    if (tabsHrefKey && allowedTabHrefs && allowedTabHrefs.length > 0) {
-      const allow = new Set(allowedTabHrefs);
+    if (tabsHrefKey) {
+      const allow = new Set(tabsHrefKey.split("|"));
       t = t.filter((row) => allow.has(row.href));
     }
     return t;
-  }, [showLeadsNav, tabsHrefKey, allowedTabHrefs]);
+  }, [showLeadsNav, tabsHrefKey]);
 
   /** ActiveCallBar is fixed above the nav; hiding nav during a call avoids double-stack + wrong safe-area math on iPhone. */
   if (inCallLayout) {
@@ -294,27 +351,12 @@ function NursePhoneBottomNavInner({
           const inboxUnreadHighlight = isInboxTab && inboxHasUnread && !active;
           return (
             <li key={t.href} className="min-w-0 flex-1">
-              <button
-                type="button"
-                onClick={() => pushTab(t.href)}
-                className={`flex w-full flex-col items-center justify-center rounded-xl px-0.5 py-2 text-[10px] font-semibold leading-tight sm:text-[11px] ${
-                  active
-                    ? "bg-phone-nav-active text-phone-navy ring-1 ring-inset ring-phone-border"
-                    : inboxUnreadHighlight
-                      ? "bg-sky-50/95 text-sky-900 ring-1 ring-inset ring-sky-200/90 hover:bg-sky-100/90"
-                      : "text-slate-500 hover:bg-phone-ice/80 hover:text-phone-ink"
-                }`}
-              >
-                <span
-                  className={`mb-0.5 flex flex-col items-center [&_svg]:pointer-events-none ${
-                    active ? "text-phone-ink" : inboxUnreadHighlight ? "text-sky-600" : "text-slate-400"
-                  }`}
-                  title={t.iconTitle}
-                >
-                  {t.icon}
-                </span>
-                {t.label}
-              </button>
+              <NavTabButton
+                tab={t}
+                active={active}
+                inboxUnreadHighlight={inboxUnreadHighlight}
+                onNavigate={pushTab}
+              />
             </li>
           );
         })}

@@ -91,7 +91,6 @@ export type WorkspaceSoftphoneContextValue = {
   busy: boolean;
   canDial: boolean;
   incoming: boolean;
-  durationSec: number;
   /** Microphone mute (Twilio `Call.mute`). */
   micMuted: boolean;
   /** Client-side hold fallback when conference PSTN hold is unavailable. */
@@ -151,6 +150,7 @@ export type WorkspaceSoftphoneContextValue = {
 };
 
 export const WorkspaceSoftphoneContext = createContext<WorkspaceSoftphoneContextValue | null>(null);
+export const WorkspaceCallDurationContext = createContext(0);
 
 /**
  * Narrow layout flag: true only while `status === "in_call"`.
@@ -160,6 +160,10 @@ export const WorkspacePhoneInCallLayoutContext = createContext(false);
 
 export function useWorkspacePhoneInCallLayout(): boolean {
   return useContext(WorkspacePhoneInCallLayoutContext);
+}
+
+export function useWorkspaceCallDuration(): number {
+  return useContext(WorkspaceCallDurationContext);
 }
 
 export function useWorkspaceSoftphone() {

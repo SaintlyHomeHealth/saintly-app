@@ -25,6 +25,7 @@ import {
   WORKSPACE_SMS_THREAD_INITIAL_MESSAGE_LIMIT,
   type WorkspaceSmsThreadMessage,
 } from "@/lib/phone/workspace-sms-thread-messages";
+import { routePerfRenderCount } from "@/lib/perf/route-perf";
 import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
 
 const SmsReplyComposer = dynamic(
@@ -166,6 +167,7 @@ const WorkspaceSmsThreadViewInner = memo(function WorkspaceSmsThreadViewInner({
   appDesktopSplit = false,
   refreshPageOnSend = true,
 }: Props) {
+  routePerfRenderCount("SmsThreadView");
   const router = useRouter();
   const [sendError, setSendError] = useState<string | null>(null);
   const [serverMessages, setServerMessages] = useState<ThreadMessage[]>(() => initialMessages);
@@ -180,19 +182,20 @@ const WorkspaceSmsThreadViewInner = memo(function WorkspaceSmsThreadViewInner({
   /** Reuse one browser client for thread fetch + realtime (avoids repeated client setup per poll). */
   const supabaseRef = useRef<ReturnType<typeof createBrowserSupabaseClient> | null>(null);
   const visibilityFetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const latestFetchInFlightRef = useRef<Promise<boolean> | null>(null);
 
   const visibleBase = useMemo(() => serverMessages.slice(windowStart), [serverMessages, windowStart]);
   const merged = useMemo(() => [...visibleBase, ...optimistic], [visibleBase, optimistic]);
 
   const canLoadEarlier = windowStart > 0;
 
-  const loadEarlier = () => {
+  const loadEarlier = useCallback(() => {
     const el = scrollRef.current;
     if (el) {
       loadEarlierPreserveRef.current = { prevHeight: el.scrollHeight };
     }
     setWindowStart((w) => Math.max(0, w - WINDOW_STEP));
-  };
+  }, []);
 
   useLayoutEffect(() => {
     const el = scrollRef.current;
@@ -220,16 +223,18 @@ const WorkspaceSmsThreadViewInner = memo(function WorkspaceSmsThreadViewInner({
   const applyIncomingRows = useCallback(
     (incoming: ThreadMessage[], opts: { scroll: "auto-if-following" | "never" }) => {
       setServerMessages((prev) => mergeThreadById(prev, incoming));
-      setOptimistic((optPrev) =>
-        optPrev.filter((m) => {
+      setOptimistic((optPrev) => {
+        if (optPrev.length === 0) return optPrev;
+        const next = optPrev.filter((m) => {
           if (!m.id.startsWith("optimistic-")) return true;
           return !incoming.some(
             (row) =>
               String(row.direction).toLowerCase() === "outbound" &&
               normalizeBodyForMatch(row.body) === normalizeBodyForMatch(m.body)
           );
-        })
-      );
+        });
+        return next.length === optPrev.length ? optPrev : next;
+      });
       if (opts.scroll === "auto-if-following") {
         scrollToBottomIfFollowing("auto");
       }
@@ -241,45 +246,56 @@ const WorkspaceSmsThreadViewInner = memo(function WorkspaceSmsThreadViewInner({
     if (typeof document !== "undefined" && document.visibilityState !== "visible") {
       return false;
     }
+    if (latestFetchInFlightRef.current) {
+      return latestFetchInFlightRef.current;
+    }
     if (!supabaseRef.current) supabaseRef.current = createBrowserSupabaseClient();
     const supabase = supabaseRef.current;
-    const { data, error } = await supabase
-      .from("messages")
-      .select("id, created_at, direction, body, phone_call_id, message_type, metadata")
-      .eq("conversation_id", conversationId)
-      .is("deleted_at", null)
-      .order("created_at", { ascending: false })
-      .limit(WORKSPACE_SMS_THREAD_INITIAL_MESSAGE_LIMIT);
-    if (error || !data) return false;
-    const rows: ThreadMessage[] = [...data].reverse().map((row) => {
-      const pid =
-        (row as { phone_call_id?: unknown }).phone_call_id != null &&
-        String((row as { phone_call_id?: unknown }).phone_call_id).trim() !== ""
-          ? String((row as { phone_call_id?: unknown }).phone_call_id).trim()
-          : null;
-      const mtRaw = (row as { message_type?: unknown }).message_type;
-      const message_type =
-        typeof mtRaw === "string" && mtRaw.trim() ? mtRaw.trim() : "sms";
-      const direction = typeof row.direction === "string" ? row.direction : "";
-      const outbound_status_raw =
-        String(direction).toLowerCase() === "outbound"
-          ? extractSmsProviderStatusRaw(row as { metadata?: unknown; direction?: string })
-          : null;
-      return {
-        id: String(row.id),
-        created_at: typeof row.created_at === "string" ? row.created_at : null,
-        direction,
-        body: typeof row.body === "string" ? row.body : null,
-        message_type,
-        phone_call_id: pid,
-        outbound_status_raw,
-      };
-    });
-    applyIncomingRows(rows, { scroll: "auto-if-following" });
-    return true;
+    const run = (async () => {
+      try {
+        const { data, error } = await supabase
+          .from("messages")
+          .select("id, created_at, direction, body, phone_call_id, message_type, metadata")
+          .eq("conversation_id", conversationId)
+          .is("deleted_at", null)
+          .order("created_at", { ascending: false })
+          .limit(WORKSPACE_SMS_THREAD_INITIAL_MESSAGE_LIMIT);
+        if (error || !data) return false;
+        const rows: ThreadMessage[] = [...data].reverse().map((row) => {
+          const pid =
+            (row as { phone_call_id?: unknown }).phone_call_id != null &&
+            String((row as { phone_call_id?: unknown }).phone_call_id).trim() !== ""
+              ? String((row as { phone_call_id?: unknown }).phone_call_id).trim()
+              : null;
+          const mtRaw = (row as { message_type?: unknown }).message_type;
+          const message_type =
+            typeof mtRaw === "string" && mtRaw.trim() ? mtRaw.trim() : "sms";
+          const direction = typeof row.direction === "string" ? row.direction : "";
+          const outbound_status_raw =
+            String(direction).toLowerCase() === "outbound"
+              ? extractSmsProviderStatusRaw(row as { metadata?: unknown; direction?: string })
+              : null;
+          return {
+            id: String(row.id),
+            created_at: typeof row.created_at === "string" ? row.created_at : null,
+            direction,
+            body: typeof row.body === "string" ? row.body : null,
+            message_type,
+            phone_call_id: pid,
+            outbound_status_raw,
+          };
+        });
+        applyIncomingRows(rows, { scroll: "auto-if-following" });
+        return true;
+      } finally {
+        latestFetchInFlightRef.current = null;
+      }
+    })();
+    latestFetchInFlightRef.current = run;
+    return run;
   }, [applyIncomingRows, conversationId]);
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     nearBottomRef.current = true;
     requestAnimationFrame(() => {
       bottomRef.current?.scrollIntoView({ block: "end" });
@@ -388,7 +404,7 @@ const WorkspaceSmsThreadViewInner = memo(function WorkspaceSmsThreadViewInner({
   }, []);
 
   const handleInPlaceSendComplete = useCallback(async () => {
-    setSendError(null);
+    setSendError((prev) => (prev === null ? prev : null));
     const ok = await fetchLatestMessages();
     if (ok) {
       setOptimistic((prev) => prev.filter((m) => !m.id.startsWith("optimistic-")));
@@ -421,8 +437,7 @@ const WorkspaceSmsThreadViewInner = memo(function WorkspaceSmsThreadViewInner({
       <div
         ref={scrollRef}
         onScroll={updateNearBottom}
-        className="relative min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-y-contain"
-        style={{ WebkitOverflowScrolling: "touch" }}
+        className="relative min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch]"
       >
         <div
           className={`mx-auto flex w-full flex-col px-3 pb-0.5 pt-1.5 sm:px-4 sm:pb-3 sm:pt-3 ${
