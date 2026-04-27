@@ -20,10 +20,22 @@ import CredentialManager from "./CredentialManager";
 import AdminApplicationSnapshotSection from "./admin-application-snapshot-section";
 import EmployeeContractTaxWorkflow from "./employee-contract-tax-workflow";
 import EmployeeOnboardingCard from "./EmployeeOnboardingCard";
+import { getRequiredCredentialTypesForApplicant } from "@/lib/admin/employee-directory-data";
 import {
-  applicantRolePrimaryForCompliance,
-  type ApplicantRoleFields,
-} from "@/lib/applicant-role-for-compliance";
+  buildPersonnelFileAuditRows,
+  buildPersonnelFileDocumentKeySet,
+  buildApplicantRoleFieldsFromRecord,
+  inferContractRoleKeyFromApplicantFields,
+  getLatestApplicantUploadByCanonicalType,
+  isSalesAgentComplianceBand,
+  mergeApplicantRoleHints,
+  normalizeCredentialTypeKey,
+  normalizePersonnelFileDocumentKey,
+} from "@/lib/employee-requirements/personnel-file-requirements";
+import {
+  employeeDetailAdminTabUrl,
+  type EmployeeDetailWorkAreaTab,
+} from "@/lib/employee-requirements/employee-detail-work-areas";
 import { getCredentialAnchorId } from "@/lib/credential-anchors";
 import { EmployeeArchiveButton } from "@/app/admin/employees/EmployeeArchiveButton";
 import { buildUnifiedOnboardingState } from "@/lib/onboarding/unified-onboarding-state";
@@ -34,9 +46,10 @@ import ComplianceProgramStatusTable, {
   type ComplianceProgramHistoryEntry,
   type ComplianceProgramStatusRow,
 } from "./compliance-program-status-table";
-import type { PersonnelFileAuditItem } from "./personnel-file-audit-deferred";
+import type { PersonnelFileAuditRow } from "@/lib/employee-requirements/personnel-file-requirements";
 import OnboardingWorkflowSectionCollapsible from "./onboarding-workflow-section-collapsible";
 import PersonnelFileAuditDeferred from "./personnel-file-audit-loader";
+import EmployeeDetailTabScroll from "./employee-detail-tab-scroll";
 import { WorkflowStatusCard } from "./workflow-status-card";
 
 import CredentialReminderCappedTable from "./credential-reminder-capped-table";
@@ -140,11 +153,6 @@ type AdminUploadRecord = {
   created_at?: string | null;
   viewUrl?: string | null;
 };
-
-/** Appends `inline=1` so the employee-file route uses Content-Disposition: inline for in-browser viewing. */
-function appendEmployeeFileInlineView(href: string) {
-  return href.includes("?") ? `${href}&inline=1` : `${href}?inline=1`;
-}
 
 type ProgressSummary = {
   completed: number;
@@ -591,29 +599,6 @@ function getAdminFormHistoryStatusClasses(
     : "bg-amber-50 text-amber-700";
 }
 
-/** Maps legacy/alias credential_type values to the canonical keys used in readiness rules. */
-function normalizeCredentialTypeKey(type: string | null | undefined): string {
-  const t = (type || "").toLowerCase().trim();
-  if (t === "cpr" || t === "cpr_card" || t === "cpr_bls" || t === "bls_cpr") {
-    return "cpr";
-  }
-  if (
-    t === "fingerprint_clearance_card" ||
-    t === "fingerprint_card" ||
-    t === "az_fingerprint_clearance_card"
-  ) {
-    return "fingerprint_clearance_card";
-  }
-  if (t === "insurance") {
-    return "independent_contractor_insurance";
-  }
-  return t;
-}
-
-function normalizeDocumentTypeLookupKey(type: string | null | undefined): string {
-  return normalizeCredentialTypeKey(type).replace(/[\s-]+/g, "_");
-}
-
 function getCredentialRecencyTimestamp(credential: Pick<CredentialRecord, "uploaded_at" | "created_at">) {
   return new Date(credential.uploaded_at || credential.created_at || 0).getTime();
 }
@@ -663,82 +648,6 @@ function formatCredentialType(type: string) {
     default:
       return type || "Credential";
   }
-}
-
-function isIndependentContractorClassification(value?: string | null) {
-  const normalized = (value || "")
-    .toLowerCase()
-    .trim()
-    .replace(/[_-]+/g, " ");
-  return (
-    normalized === "contractor" ||
-    normalized === "independent contractor" ||
-    normalized === "1099" ||
-    normalized === "ic" ||
-    normalized.includes("contractor") ||
-    normalized.includes("1099")
-  );
-}
-
-function getRequiredCredentialTypes(
-  roleValue?: string | null,
-  employmentClassification?: EmployeeContractRow["employment_classification"] | null
-) {
-  const normalizedRole = (roleValue || "").toLowerCase().trim();
-  const requiredTypes: string[] = [];
-
-  const isLicensedClinicalRole =
-    normalizedRole === "rn" ||
-    normalizedRole === "lpn" ||
-    normalizedRole === "lvn" ||
-    normalizedRole === "pt" ||
-    normalizedRole === "pta" ||
-    normalizedRole === "ot" ||
-    normalizedRole === "ota" ||
-    normalizedRole === "st" ||
-    normalizedRole === "slp" ||
-    normalizedRole === "msw" ||
-    normalizedRole.includes("registered nurse") ||
-    normalizedRole.includes("licensed practical nurse") ||
-    normalizedRole.includes("licensed vocational nurse") ||
-    normalizedRole.includes("physical therapist") ||
-    normalizedRole.includes("physical therapy assistant") ||
-    normalizedRole.includes("occupational therapist") ||
-    normalizedRole.includes("occupational therapy assistant") ||
-    normalizedRole.includes("speech therapist") ||
-    normalizedRole.includes("speech language") ||
-    normalizedRole.includes("medical social worker");
-
-  if (isLicensedClinicalRole) {
-    requiredTypes.push(
-      "professional_license",
-      "cpr",
-      "tb_expiration",
-      "drivers_license",
-      "auto_insurance",
-      "fingerprint_clearance_card"
-    );
-  }
-
-  if (
-    normalizedRole.includes("caregiver") ||
-    normalizedRole.includes("hha") ||
-    normalizedRole.includes("cna")
-  ) {
-    requiredTypes.push(
-      "cpr",
-      "tb_expiration",
-      "drivers_license",
-      "auto_insurance",
-      "fingerprint_clearance_card"
-    );
-  }
-
-  if (isIndependentContractorClassification(employmentClassification || null)) {
-    requiredTypes.push("independent_contractor_insurance");
-  }
-
-  return Array.from(new Set(requiredTypes));
 }
 
 function getStringField(
@@ -942,18 +851,6 @@ function formatDateForInsert(date: Date) {
   return date.toISOString().slice(0, 10);
 }
 
-function getLatestApplicantFile(
-  files: AdminUploadRecord[],
-  documentType: string
-): AdminUploadRecord | null {
-  const targetType = normalizeDocumentTypeLookupKey(documentType);
-  return (
-    files.find(
-      (file) => normalizeDocumentTypeLookupKey(file.document_type) === targetType
-    ) || null
-  );
-}
-
 function getStorageObjectFromPublicUrl(fileUrl?: string | null) {
   if (!fileUrl) return null;
 
@@ -1008,10 +905,12 @@ export default async function EmployeeDetailPage({
     inviteErr?: string;
     toast?: string;
     contractsWorkflow?: string;
+    tab?: string;
   }>;
 }) {
   const resolvedParams = await params;
   const resolvedSearchParams = searchParams ? await searchParams : undefined;
+  const detailTab = resolvedSearchParams?.tab?.trim() || null;
   const showContractsWorkflow = resolvedSearchParams?.contractsWorkflow === "1";
   const employeeId = resolvedParams.employeeId || resolvedParams.id;
 
@@ -1053,13 +952,14 @@ export default async function EmployeeDetailPage({
 
       const { data: currentContract } = await supabase
         .from("employee_contracts")
-        .select("employment_classification, contract_status, employee_signed_at")
+        .select("employment_classification, contract_status, employee_signed_at, role_key")
         .eq("applicant_id", employeeId)
         .eq("is_current", true)
         .maybeSingle<{
           employment_classification?: EmployeeContractRow["employment_classification"] | null;
           contract_status?: EmployeeContractRow["contract_status"] | null;
           employee_signed_at?: string | null;
+          role_key?: EmployeeContractRow["role_key"] | null;
         }>();
 
       const { data: onboardingStatusForActivation } = await supabase
@@ -1088,13 +988,12 @@ export default async function EmployeeDetailPage({
         .limit(1)
         .maybeSingle<Pick<ComplianceEvent, "id" | "status" | "completed_at">>();
 
-      const requiredCredentialTypes = getRequiredCredentialTypes(
-        applicantRolePrimaryForCompliance({
-          position: getStringField(employeeStatusRecord, "position"),
-          primary_discipline: getStringField(employeeStatusRecord, "primary_discipline"),
-          type_of_position: getStringField(employeeStatusRecord, "type_of_position"),
-        }),
-        currentContract?.employment_classification || null
+      const applicantFieldsActivation = buildApplicantRoleFieldsFromRecord(employeeStatusRecord);
+      const inferredActivationRoleKey = inferContractRoleKeyFromApplicantFields(applicantFieldsActivation);
+      const requiredCredentialTypes = getRequiredCredentialTypesForApplicant(
+        applicantFieldsActivation,
+        currentContract?.employment_classification || null,
+        { contractRoleKey: currentContract?.role_key || inferredActivationRoleKey || null }
       );
 
       const supabaseAuthed = await createServerSupabaseClient();
@@ -1132,9 +1031,45 @@ export default async function EmployeeDetailPage({
         )
       );
 
-      const missingCredentialTypes = requiredCredentialTypes.filter(
-        (credentialType) => !existingCredentialTypes.has(credentialType)
+      const { data: activationApplicantFiles } = await supabase
+        .from("applicant_files")
+        .select("document_type")
+        .eq("applicant_id", employeeId);
+
+      const activationUploadKeys = buildPersonnelFileDocumentKeySet(
+        (activationApplicantFiles || []).map((f) => String(f.document_type || ""))
       );
+
+      const activationSalesLight = isSalesAgentComplianceBand(
+        mergeApplicantRoleHints(buildApplicantRoleFieldsFromRecord(employeeStatusRecord))
+      );
+
+      const missingCredentialTypes = requiredCredentialTypes.filter((credentialType) => {
+        if (existingCredentialTypes.has(credentialType)) return false;
+        if (credentialType === "cpr" && activationUploadKeys.has("cpr_front")) return false;
+        if (credentialType === "drivers_license" && activationUploadKeys.has("drivers_license")) {
+          return false;
+        }
+        if (
+          credentialType === "auto_insurance" &&
+          activationUploadKeys.has("auto_insurance")
+        ) {
+          return false;
+        }
+        if (
+          credentialType === "independent_contractor_insurance" &&
+          activationUploadKeys.has("independent_contractor_insurance")
+        ) {
+          return false;
+        }
+        if (
+          credentialType === "fingerprint_clearance_card" &&
+          activationUploadKeys.has("fingerprint_clearance_card")
+        ) {
+          return false;
+        }
+        return true;
+      });
 
       const hasExpiredRequiredCredentials = requiredCredentialTypes.some(
         (credentialType) =>
@@ -1180,7 +1115,7 @@ export default async function EmployeeDetailPage({
         !isContractSignedForActivation ||
         missingCredentialTypes.length > 0 ||
         hasExpiredRequiredCredentials ||
-        !isSkillsCompleteForActivation
+        (!isSkillsCompleteForActivation && !activationSalesLight)
       ) {
         redirect(`/admin/employees/${employeeId}`);
       }
@@ -1781,7 +1716,6 @@ export default async function EmployeeDetailPage({
     ? `/admin/employees/${employeeId}/forms/performance-evaluation/print?eventId=${performanceEvent.id}`
     : `/admin/employees/${employeeId}/forms/performance-evaluation/print`;
 
-  const oigHref = `/admin/employees/${employeeId}#oig-section`;
   const contractHref = contractReviewEvent?.id
     ? `/admin/employees/${employeeId}/forms/contract-annual-review?eventId=${contractReviewEvent.id}`
     : `/admin/employees/${employeeId}/forms/contract-annual-review`;
@@ -1810,41 +1744,51 @@ export default async function EmployeeDetailPage({
 
   const employeePageBase = `/admin/employees/${employeeId}`;
 
-  const latestOigProof = getLatestApplicantFile(adminUploadRecords, "oig_check");
-  const latestBackgroundCheckProof = getLatestApplicantFile(adminUploadRecords, "background_check");
-  const latestTbTestProof = getLatestApplicantFile(adminUploadRecords, "tb_test");
-  const latestCprProof = getLatestApplicantFile(adminUploadRecords, "cpr_front");
-  const latestDriversLicenseProof = getLatestApplicantFile(adminUploadRecords, "drivers_license");
-  const latestAutoInsuranceProof = getLatestApplicantFile(adminUploadRecords, "auto_insurance");
+  const getAdminWorkAreaUrl = (tab: EmployeeDetailWorkAreaTab) =>
+    employeeDetailAdminTabUrl(employeePageBase, tab);
+
+  const oigHref = getAdminWorkAreaUrl("compliance");
+
+  const latestOigProof = getLatestApplicantUploadByCanonicalType(adminUploadRecords, "oig_check");
+  const latestBackgroundCheckProof = getLatestApplicantUploadByCanonicalType(
+    adminUploadRecords,
+    "background_check"
+  );
+  const latestTbTestProof = getLatestApplicantUploadByCanonicalType(adminUploadRecords, "tb_test");
+  const latestCprProof = getLatestApplicantUploadByCanonicalType(adminUploadRecords, "cpr_front");
+  const latestDriversLicenseProof = getLatestApplicantUploadByCanonicalType(
+    adminUploadRecords,
+    "drivers_license"
+  );
+  const latestAutoInsuranceProof = getLatestApplicantUploadByCanonicalType(
+    adminUploadRecords,
+    "auto_insurance"
+  );
   const latestAutoInsuranceProofNormalized =
     latestAutoInsuranceProof ||
     adminUploadRecords.find(
-      (file) => normalizeCredentialTypeKey(file.document_type) === "auto_insurance"
+      (file) => normalizePersonnelFileDocumentKey(file.document_type) === "auto_insurance"
     ) ||
     null;
-  const latestIndependentContractorInsuranceProof = getLatestApplicantFile(
+  const latestIndependentContractorInsuranceProof = getLatestApplicantUploadByCanonicalType(
     adminUploadRecords,
     "independent_contractor_insurance"
   );
-  const latestFingerprintProof = getLatestApplicantFile(
+  const latestFingerprintProof = getLatestApplicantUploadByCanonicalType(
     adminUploadRecords,
     "fingerprint_clearance_card"
   );
 
-  const uploadedDocumentTypes = new Set(
-    [
-      ...(documentsRows || []).map((document) =>
-        normalizeDocumentTypeLookupKey(
-          String(
-            (document as {
-              document_type?: string | null;
-            }).document_type || ""
-          )
-        )
-      ),
-      ...applicantFiles.map((file) => normalizeDocumentTypeLookupKey(String(file.document_type || ""))),
-    ].filter(Boolean)
-  );
+  const uploadedDocumentTypes = buildPersonnelFileDocumentKeySet([
+    ...(documentsRows || []).map((document) =>
+      String(
+        (document as {
+          document_type?: string | null;
+        }).document_type || ""
+      )
+    ),
+    ...applicantFiles.map((file) => String(file.document_type || "")),
+  ]);
   const hasFingerprintUpload =
     uploadedDocumentTypes.has("fingerprint_clearance_card") || !!latestFingerprintProof;
 
@@ -1950,9 +1894,18 @@ export default async function EmployeeDetailPage({
   const effectiveEmploymentClassification =
     contractEmploymentClassification || taxFormEmploymentClassification || null;
 
-  const requiredCredentialTypes = getRequiredCredentialTypes(
-    applicantRolePrimaryForCompliance(employeeRecord as ApplicantRoleFields),
-    effectiveEmploymentClassification
+  const applicantFieldsForRequirements = buildApplicantRoleFieldsFromRecord(employeeRecord);
+  const mergedRoleHint = mergeApplicantRoleHints(applicantFieldsForRequirements);
+  const salesAgentLight = isSalesAgentComplianceBand(mergedRoleHint);
+  const effectiveContractRoleKey =
+    employeeContract?.role_key ||
+    inferContractRoleKeyFromApplicantFields(applicantFieldsForRequirements) ||
+    null;
+
+  const requiredCredentialTypes = getRequiredCredentialTypesForApplicant(
+    applicantFieldsForRequirements,
+    effectiveEmploymentClassification,
+    { contractRoleKey: effectiveContractRoleKey }
   );
 
   const requiredCredentialStatuses = requiredCredentialTypes.map((credentialType) => ({
@@ -1984,6 +1937,12 @@ export default async function EmployeeDetailPage({
   const missingCredentialTypes = requiredCredentialTypes.filter((credentialType) => {
     if (existingCredentialTypes.has(credentialType)) return false;
     if (credentialType === "cpr" && uploadedDocumentTypes.has("cpr_front")) return false;
+    if (
+      credentialType === "drivers_license" &&
+      (uploadedDocumentTypes.has("drivers_license") || !!latestDriversLicenseProof)
+    ) {
+      return false;
+    }
     if (
       credentialType === "auto_insurance" &&
       (uploadedDocumentTypes.has("auto_insurance") || !!latestAutoInsuranceProofNormalized)
@@ -2053,7 +2012,10 @@ export default async function EmployeeDetailPage({
     existingCredentialTypes.has("cpr") ||
     uploadedDocumentTypes.has("cpr_front");
   const hasDriversLicense =
-    !requiresDriversLicense || existingCredentialTypes.has("drivers_license");
+    !requiresDriversLicense ||
+    existingCredentialTypes.has("drivers_license") ||
+    uploadedDocumentTypes.has("drivers_license") ||
+    !!latestDriversLicenseProof;
   const hasAutoInsurance =
     !requiresAutoInsurance ||
     existingCredentialTypes.has("auto_insurance") ||
@@ -2135,7 +2097,7 @@ export default async function EmployeeDetailPage({
       )
       .map(({ credentialType, status }) => ({
         label: formatCredentialType(credentialType),
-        href: `#expiring-credentials-section`,
+        href: getAdminWorkAreaUrl("credentials"),
         status,
       })),
   ];
@@ -2160,7 +2122,7 @@ export default async function EmployeeDetailPage({
     !isSkillsComplete ? "Skills competency is not completed" : null,
   ].filter((reason): reason is string => Boolean(reason));
 
-  const missingSurveyItems = [
+  const missingSurveyItemsClinical = [
     !isApplicationComplete ? "Application" : null,
     !isDocumentsComplete ? "Documents" : null,
     !isContractsComplete ? "Contracts" : null,
@@ -2175,6 +2137,23 @@ export default async function EmployeeDetailPage({
     !hasDriversLicense ? "Driver’s License" : null,
     !hasFingerprintCard ? "AZ Fingerprint Clearance Card" : null,
   ].filter((item): item is string => Boolean(item));
+
+  /** Sales band omits clinical/survey file items; keep aligned with `salesAgentLightCompliance` in unified onboarding. */
+  const missingSurveyItemsSales = [
+    !isApplicationComplete ? "Application" : null,
+    !hasBackgroundCheck ? "Background Check" : null,
+    !isContractsComplete ? "Contracts" : null,
+    !isTaxFormSigned ? "Tax Form" : null,
+    !hasDriversLicense ? "Driver’s License" : null,
+    ...(requiresAutoInsurance ? [!hasAutoInsurance ? "Auto Insurance" : null] : []),
+    ...(requiresIndependentContractorInsurance
+      ? [!hasIndependentContractorInsurance ? "Independent Contractor Insurance" : null]
+      : []),
+  ].filter((item): item is string => Boolean(item));
+
+  const missingSurveyItems = (salesAgentLight ? missingSurveyItemsSales : missingSurveyItemsClinical).filter(
+    (item): item is string => Boolean(item)
+  );
 
   const isSurveyReady = missingSurveyItems.length === 0;
 
@@ -2212,6 +2191,10 @@ export default async function EmployeeDetailPage({
     missingCredentialDisplayNames,
     skillsFormIsDraft,
     isSurveyReady,
+    salesAgentLightCompliance: salesAgentLight,
+    treatPipelineDocumentsAsCompleteForProgress: salesAgentLight,
+    treatPipelineTrainingAsCompleteForProgress: salesAgentLight,
+    getAdminWorkAreaUrl,
   });
 
   const surveyMissingSummary =
@@ -2232,7 +2215,7 @@ export default async function EmployeeDetailPage({
         skillsProgress.total > 0
           ? `${skillsProgress.percent}% complete`
           : "No progress yet",
-      sectionHref: `${employeePageBase}#skills-section`,
+      sectionHref: getAdminWorkAreaUrl("skills"),
       printHref: skillsPrintHref,
       printLabel: skillsPrintMeta.label,
       showPrint: skillsPrintMeta.canPrint,
@@ -2247,7 +2230,7 @@ export default async function EmployeeDetailPage({
         performanceProgress.total > 0
           ? `${performanceProgress.percent}% complete`
           : "No progress yet",
-      sectionHref: `${employeePageBase}#performance-section`,
+      sectionHref: getAdminWorkAreaUrl("performance"),
       printHref: performancePrintHref,
       printLabel: performancePrintMeta.label,
       showPrint: performancePrintMeta.canPrint,
@@ -2263,7 +2246,7 @@ export default async function EmployeeDetailPage({
         : effectiveOigEvent?.due_date
           ? `Due ${formatDate(effectiveOigEvent.due_date)}`
           : "No event yet",
-      sectionHref: `${employeePageBase}#oig-section`,
+      sectionHref: getAdminWorkAreaUrl("compliance"),
       printHref: "",
       printLabel: "",
       showPrint: false,
@@ -2279,7 +2262,7 @@ export default async function EmployeeDetailPage({
       progress: contractReviewEvent?.due_date
         ? `Due ${formatDate(contractReviewEvent.due_date)}`
         : "No event yet",
-      sectionHref: `${employeePageBase}#contract-review-section`,
+      sectionHref: getAdminWorkAreaUrl("compliance"),
       printHref: "",
       printLabel: "",
       showPrint: false,
@@ -2293,7 +2276,7 @@ export default async function EmployeeDetailPage({
       progress: trainingChecklistEvent?.due_date
         ? `Due ${formatDate(trainingChecklistEvent.due_date)}`
         : "No event yet",
-      sectionHref: `${employeePageBase}#training-checklist-section`,
+      sectionHref: getAdminWorkAreaUrl("compliance"),
       printHref: "",
       printLabel: "",
       showPrint: false,
@@ -2307,7 +2290,7 @@ export default async function EmployeeDetailPage({
       progress: tbStatementEvent?.due_date
         ? `Due ${formatDate(tbStatementEvent.due_date)}`
         : "No event yet",
-      sectionHref: `${employeePageBase}#tb-statement-section`,
+      sectionHref: getAdminWorkAreaUrl("compliance"),
       printHref: "",
       printLabel: "",
       showPrint: false,
@@ -2391,193 +2374,48 @@ export default async function EmployeeDetailPage({
     },
   ] as const;
 
-  const personnelFileAuditItems = [
-    {
-      label: "Application",
-      status: isApplicationComplete ? "Complete" : "Missing",
-      sectionHref: "",
-      showGo: false,
-      artifactHref: isApplicationComplete
-        ? appendEmployeeFileInlineView(applicationViewHref)
-        : null,
-      artifactLabel: "View",
-      artifactExternal: true,
-    },
-    {
-      label: "Documents",
-      status: isDocumentsComplete ? "Complete" : "Missing",
-      sectionHref: `${employeePageBase}#background-section`,
-    },
-    {
-      label: "Contracts",
-      status: isContractsComplete ? "Complete" : "Missing",
-      sectionHref: `${employeePageBase}#hire-setup-section`,
-      artifactHref:
-        isContractsComplete && contractPdfHref
-          ? appendEmployeeFileInlineView(contractPdfHref)
-          : null,
-      artifactLabel: "View",
-      artifactExternal: false,
-    },
-    {
-      label: "Training",
-      status: isTrainingComplete ? "Complete" : "Missing",
-      sectionHref: "",
-      showGo: false,
-      artifactHref: trainingCertificateHref
-        ? appendEmployeeFileInlineView(trainingCertificateHref)
-        : null,
-      artifactLabel: "View",
-      artifactExternal: true,
-    },
-    {
-      label: "Skills Competency",
-      status: isSkillsComplete ? "Complete" : "Missing",
-      sectionHref: `${employeePageBase}#skills-section`,
-      artifactHref:
-        isSkillsComplete && skillsPrintMeta.canPrint ? skillsPrintHref : null,
-      artifactLabel: "View",
-      artifactExternal: false,
-    },
-    {
-      label: "Performance Evaluation",
-      status: isPerformanceComplete ? "Complete" : "Missing",
-      sectionHref: `${employeePageBase}#performance-section`,
-      artifactHref:
-        isPerformanceComplete && performancePrintMeta.canPrint
-          ? performancePrintHref
-          : null,
-      artifactLabel: "View",
-      artifactExternal: false,
-    },
-    {
-      label: "TB",
-      status: hasTbDocumentation ? "Complete" : "Missing",
-      sectionHref: `${employeePageBase}#tb-section`,
-      artifactHref: hasTbDocumentation
-        ? (latestTbTestProof as AdminUploadRecord | null)?.viewUrl ?? null
-        : null,
-      artifactLabel: "View",
-      artifactExternal: true,
-    },
-    {
-      label: "OIG",
-      status: isOigComplete ? "Complete" : "Missing",
-      sectionHref: `${employeePageBase}#oig-proof-section`,
-      artifactHref: isOigComplete
-        ? (latestOigProof as AdminUploadRecord | null)?.viewUrl ?? null
-        : null,
-      artifactLabel: "View",
-      artifactExternal: true,
-    },
-    {
-      label: "Background Check",
-      status: hasBackgroundCheck ? "Complete" : "Missing",
-      sectionHref: `${employeePageBase}#background-section`,
-      artifactHref: hasBackgroundCheck
-        ? (latestBackgroundCheckProof as AdminUploadRecord | null)?.viewUrl ?? null
-        : null,
-      artifactLabel: "View",
-      artifactExternal: true,
-    },
-    {
-      label: "Tax Form",
-      status: isTaxFormSigned ? "Complete" : "Missing",
-      sectionHref: `${employeePageBase}#tax-forms-section`,
-      artifactHref:
-        isTaxFormSigned && taxFormPdfHref
-          ? appendEmployeeFileInlineView(taxFormPdfHref)
-          : null,
-      artifactLabel: "View",
-      artifactExternal: false,
-    },
-    {
-      label: "CPR Card",
-      status: requiresCpr ? (hasCprCard ? "Complete" : "Missing") : "Not Required",
-      sectionHref: `${employeePageBase}#cpr-section`,
-      artifactHref: requiresCpr
-        ? (latestCprProof as AdminUploadRecord | null)?.viewUrl ?? null
-        : null,
-      artifactLabel: "View",
-      artifactExternal: true,
-    },
-    {
-      label: "Driver’s License",
-      status: requiresDriversLicense
-        ? hasDriversLicense
-          ? "Complete"
-          : "Missing"
-        : "Not Required",
-      sectionHref: `${employeePageBase}#drivers-license-section`,
-      artifactHref: requiresDriversLicense
-        ? (latestDriversLicenseProof as AdminUploadRecord | null)?.viewUrl ?? null
-        : null,
-      artifactLabel: "View",
-      artifactExternal: true,
-    },
-    {
-      label: "AZ Fingerprint Clearance Card",
-      status: requiresFingerprintCard
-        ? hasFingerprintCard
-          ? "Complete"
-          : "Missing"
-        : "Not Required",
-      sectionHref: `${employeePageBase}#fingerprint-section`,
-      artifactHref:
-        requiresFingerprintCard && hasFingerprintCard
-          ? (latestFingerprintProof as AdminUploadRecord | null)?.viewUrl ?? null
-          : null,
-      artifactLabel: "View",
-      artifactExternal: true,
-    },
-    ...(requiresAutoInsurance
-      ? [
-          {
-            label: "Auto Insurance",
-            status: hasAutoInsurance ? "Complete" : "Missing",
-            sectionHref: `${employeePageBase}#auto_insurance-section`,
-            artifactHref: hasAutoInsurance
-              ? (latestAutoInsuranceProofNormalized as AdminUploadRecord | null)?.viewUrl ?? null
-              : null,
-            artifactLabel: "View",
-            artifactExternal: true,
-          },
-        ]
-      : []),
-    ...(requiresIndependentContractorInsurance
-      ? [
-          {
-            label: "Independent Contractor Insurance",
-            status: hasIndependentContractorInsurance ? "Complete" : "Missing",
-            sectionHref: `${employeePageBase}#independent_contractor_insurance-section`,
-            artifactHref: hasIndependentContractorInsurance
-              ? (latestIndependentContractorInsuranceProof as AdminUploadRecord | null)?.viewUrl ??
-                null
-              : null,
-            artifactLabel: "View",
-            artifactExternal: true,
-          },
-        ]
-      : []),
-  ];
-
-  const personnelFileAuditForDeferred: PersonnelFileAuditItem[] = personnelFileAuditItems.map(
-    (item) => ({
-      label: item.label,
-      status: item.status,
-      sectionHref: item.sectionHref,
-      showGo: "showGo" in item ? item.showGo : undefined,
-      artifactHref: "artifactHref" in item && item.artifactHref ? item.artifactHref : null,
-      artifactLabel: "artifactLabel" in item ? item.artifactLabel : "View",
-      artifactExternal: "artifactExternal" in item ? item.artifactExternal : false,
-      statusTone:
-        item.status === "Complete"
-          ? "green"
-          : item.status === "Missing"
-            ? "red"
-            : "slate",
-    })
-  );
+  const personnelFileAuditForDeferred: PersonnelFileAuditRow[] = buildPersonnelFileAuditRows({
+    applicantId: employeeId,
+    isSalesAgent: salesAgentLight,
+    isApplicationComplete,
+    isDocumentsComplete,
+    isContractsComplete,
+    isTaxFormSigned,
+    isTrainingComplete,
+    isSkillsComplete,
+    isPerformanceComplete,
+    hasTbDocumentation,
+    isOigComplete,
+    hasBackgroundCheck,
+    requiresCpr,
+    hasCprCard,
+    requiresDriversLicense,
+    hasDriversLicense,
+    requiresFingerprintCard,
+    hasFingerprintCard,
+    requiresAutoInsurance,
+    hasAutoInsurance,
+    requiresIndependentContractorInsurance,
+    hasIndependentContractorInsurance,
+    applicationViewHref,
+    trainingCertificateHref,
+    contractPdfHref,
+    taxFormPdfHref,
+    skillsPrintHref,
+    skillsCanPrint: skillsPrintMeta.canPrint,
+    performancePrintHref,
+    performanceCanPrint: performancePrintMeta.canPrint,
+    latestCprViewUrl: (latestCprProof as AdminUploadRecord | null)?.viewUrl ?? null,
+    latestDriversLicenseViewUrl: (latestDriversLicenseProof as AdminUploadRecord | null)?.viewUrl ?? null,
+    latestFingerprintViewUrl: (latestFingerprintProof as AdminUploadRecord | null)?.viewUrl ?? null,
+    latestAutoInsuranceViewUrl: (latestAutoInsuranceProofNormalized as AdminUploadRecord | null)?.viewUrl ?? null,
+    latestIndependentContractorInsuranceViewUrl:
+      (latestIndependentContractorInsuranceProof as AdminUploadRecord | null)?.viewUrl ?? null,
+    latestTbViewUrl: (latestTbTestProof as AdminUploadRecord | null)?.viewUrl ?? null,
+    latestOigViewUrl: (latestOigProof as AdminUploadRecord | null)?.viewUrl ?? null,
+    latestBackgroundCheckViewUrl: (latestBackgroundCheckProof as AdminUploadRecord | null)?.viewUrl ?? null,
+    getAdminWorkAreaUrl,
+  });
 
   const hasInitialDriversLicenseUpload =
     uploadedDocumentTypes.has("drivers_license") || Boolean(latestDriversLicenseProof);
@@ -2614,7 +2452,7 @@ export default async function EmployeeDetailPage({
       completeComplianceEventId: oigEvent?.id,
       anchorId: "oig-proof-section",
       history: buildAdminUploadHistoryDisplay(oigProofHistory),
-      workflowOpenHref: `${employeePageBase}#oig-section`,
+      workflowOpenHref: getAdminWorkAreaUrl("compliance"),
     },
     {
       key: "background",
@@ -2629,6 +2467,7 @@ export default async function EmployeeDetailPage({
       uploadLabel: "Background Check",
       anchorId: "background-section",
       history: buildAdminUploadHistoryDisplay(backgroundCheckHistory),
+      workflowOpenHref: getAdminWorkAreaUrl("documents"),
     },
     {
       key: "drivers-license-initial",
@@ -2643,7 +2482,7 @@ export default async function EmployeeDetailPage({
       uploadLabel: "Driver’s License",
       anchorId: "drivers-license-section",
       history: buildAdminUploadHistoryDisplay(driversLicenseHistory),
-      workflowOpenHref: `${employeePageBase}#credentials-section`,
+      workflowOpenHref: getAdminWorkAreaUrl("credentials"),
     },
     {
       key: "auto-insurance-initial",
@@ -2658,7 +2497,7 @@ export default async function EmployeeDetailPage({
       uploadLabel: "Auto Insurance",
       anchorId: "auto_insurance-section",
       history: buildAdminUploadHistoryDisplay(autoInsuranceHistory),
-      workflowOpenHref: `${employeePageBase}#credentials-section`,
+      workflowOpenHref: getAdminWorkAreaUrl("credentials"),
     },
     {
       key: "fingerprint",
@@ -2673,7 +2512,7 @@ export default async function EmployeeDetailPage({
       uploadLabel: "AZ Fingerprint Clearance Card",
       anchorId: "fingerprint-section",
       history: buildAdminUploadHistoryDisplay(fingerprintCardHistory),
-      workflowOpenHref: `${employeePageBase}#credentials-section`,
+      workflowOpenHref: getAdminWorkAreaUrl("credentials"),
     },
     {
       key: "tb",
@@ -2688,7 +2527,7 @@ export default async function EmployeeDetailPage({
       uploadLabel: "TB Test Upload",
       anchorId: "tb-section",
       history: buildAdminUploadHistoryDisplay(tbTestHistory),
-      workflowOpenHref: `${employeePageBase}#tb-statement-section`,
+      workflowOpenHref: getAdminWorkAreaUrl("documents"),
     },
   ];
 
@@ -2938,6 +2777,7 @@ export default async function EmployeeDetailPage({
 
   return (
     <div className="mx-auto w-full max-w-7xl space-y-6 p-6">
+      <EmployeeDetailTabScroll tab={detailTab} />
       {statusChangeDeniedMessage ? (
         <div
           role="alert"
@@ -3159,6 +2999,7 @@ export default async function EmployeeDetailPage({
         title="Initial hiring requirements"
         subtitle="Portal pipeline, hire setup checklist, personnel file audit, and onboarding tools."
         defaultCollapsed={true}
+        expandWhenTab={["overview", "training", "payroll"]}
       >
         <AdminApplicationSnapshotSection
           employeeId={employeeId}
@@ -3216,9 +3057,11 @@ export default async function EmployeeDetailPage({
       </OnboardingWorkflowSectionCollapsible>
 
       <OnboardingWorkflowSectionCollapsible
+        id="compliance-programs-section"
         title="Compliance & ongoing programs"
         subtitle="Annual requirements, program shortcuts, documents dashboard, and compliance history."
         defaultCollapsed={true}
+        expandWhenTab={["documents", "skills", "performance", "compliance"]}
       >
         <p className="text-[11px] leading-snug text-slate-500">
           Annual compliance uses separate event records so each year stays auditable without overwriting prior
@@ -3247,7 +3090,7 @@ export default async function EmployeeDetailPage({
             TB
           </Link>
           {" · "}
-          <Link href="#documents-compliance-dashboard" className="font-semibold text-sky-700 underline">
+          <Link href={getAdminWorkAreaUrl("documents")} className="font-semibold text-sky-700 underline">
             Documents
           </Link>
           . Status: also see <span className="font-medium text-slate-700">Action required</span> above.
@@ -3316,7 +3159,7 @@ export default async function EmployeeDetailPage({
           </div>
         ) : null}
 
-        <div className="mt-3">
+        <div id="compliance-program-status" className="mt-3 scroll-mt-24">
           <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Program status</p>
           <div className="mt-1">
             <ComplianceProgramStatusTable rows={complianceProgramStatusRows} />
@@ -3394,12 +3237,12 @@ export default async function EmployeeDetailPage({
                       : normalizedEventType === "annual_performance_evaluation"
                         ? `/admin/employees/${employeeId}/forms/performance-evaluation?eventId=${event.id}`
                         : normalizedEventType === "annual_oig_check"
-                          ? `/admin/employees/${employeeId}#oig-section`
+                          ? getAdminWorkAreaUrl("compliance")
                           : normalizedEventType === "annual_training"
-                            ? `/admin/employees/${employeeId}#training-checklist-section`
+                            ? getAdminWorkAreaUrl("compliance")
                             : normalizedEventType === "annual_tb_statement"
-                              ? `/admin/employees/${employeeId}#tb-statement-section`
-                              : `/admin/employees/${employeeId}#contract-review-section`;
+                              ? getAdminWorkAreaUrl("compliance")
+                              : getAdminWorkAreaUrl("compliance");
 
                   return (
                     <div
@@ -3509,6 +3352,7 @@ export default async function EmployeeDetailPage({
         title="Credentials & expiring"
         subtitle="Monitor CPR, driver’s license, professional license, auto insurance, fingerprint clearance card, and independent contractor insurance tracking."
         defaultCollapsed={true}
+        expandWhenTab={["credentials"]}
       >
         <div
           id="expiring-credentials-section"
@@ -3558,7 +3402,7 @@ export default async function EmployeeDetailPage({
 
         <p className="mt-3 text-xs text-slate-600">
           Per-credential expiration and actions: see{" "}
-          <Link href="#documents-compliance-dashboard" className="font-semibold text-sky-700 underline">
+          <Link href={getAdminWorkAreaUrl("documents")} className="font-semibold text-sky-700 underline">
             Expiring / credentials
           </Link>{" "}
           and the tracker below.

@@ -141,7 +141,15 @@ export function inferContractRoleFromText(value?: string | null): ContractRoleKe
   if (
     normalized === "hha" ||
     normalized.includes("home health aide") ||
-    normalized.includes("caregiver")
+    normalized.includes("caregiver") ||
+    normalized.includes("cna") ||
+    normalized.includes("certified nursing assistant") ||
+    normalized.includes("nursing assistant") ||
+    normalized.includes("direct support") ||
+    normalized.includes("dsp") ||
+    normalized.includes("pca") ||
+    normalized.includes("personal care aide") ||
+    normalized.includes("chha")
   ) {
     return "hha";
   }

@@ -1,11 +1,16 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 type Props = {
   id?: string;
   title: string;
   subtitle: string;
+  /**
+   * If the URL has `?tab=` and it matches one of these values, expand on mount
+   * (employee detail work-area tabs from `employee-detail-work-areas.ts`).
+   */
+  expandWhenTab?: string[] | null;
   /** When true, the section body starts collapsed to reduce initial DOM. */
   defaultCollapsed: boolean;
   children: ReactNode;
@@ -18,10 +23,19 @@ export default function OnboardingWorkflowSectionCollapsible({
   id,
   title,
   subtitle,
+  expandWhenTab,
   defaultCollapsed,
   children,
 }: Props) {
   const [open, setOpen] = useState(!defaultCollapsed);
+
+  useEffect(() => {
+    if (!expandWhenTab?.length) return;
+    const tab = new URLSearchParams(window.location.search).get("tab");
+    if (tab && expandWhenTab.includes(tab)) {
+      setOpen(true);
+    }
+  }, [expandWhenTab]);
 
   return (
     <section

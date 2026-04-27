@@ -14,6 +14,12 @@ import {
   isSuperAdmin,
 } from "@/lib/staff-profile";
 import { applicantRolePrimaryForCompliance } from "@/lib/applicant-role-for-compliance";
+import {
+  applicantHasCredentialWithUploads,
+  normalizeCredentialTypeKey,
+  resolveRequiredCredentialTypesForApplicantRecord,
+} from "@/lib/admin/employee-directory-data";
+import { employeeDetailAdminTabUrl } from "@/lib/employee-requirements/employee-detail-work-areas";
 import { getCrmCalendarTodayIso } from "@/lib/crm/crm-local-date";
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import {
@@ -99,6 +105,7 @@ type EmployeeContractLite = {
   employment_classification: "employee" | "contractor" | null;
   contract_status?: "draft" | "sent" | "signed" | "void" | null;
   employee_signed_at?: string | null;
+  role_key?: string | null;
 };
 
 type OnboardingStatusLite = {
@@ -121,6 +128,7 @@ type EmployeeTaxFormLite = {
 type ApplicantFileLite = {
   id: string;
   applicant_id: string;
+  document_type?: string | null;
 };
 
 type DocumentLite = {
@@ -286,77 +294,6 @@ function getDashboardHref({
 
   const query = params.toString();
   return query ? `/admin?${query}` : "/admin";
-}
-
-function normalizeCredentialTypeKey(type: string | null | undefined): string {
-  const t = (type || "").toLowerCase().trim();
-
-  if (t === "insurance") {
-    return "independent_contractor_insurance";
-  }
-
-  return t;
-}
-
-function getRequiredCredentialTypes(
-  roleValue?: string | null,
-  employmentClassification?: "employee" | "contractor" | null
-) {
-  const normalizedRole = (roleValue || "").toLowerCase().trim();
-  const requiredTypes: string[] = [];
-
-  const isLicensedClinicalRole =
-    normalizedRole === "rn" ||
-    normalizedRole === "lpn" ||
-    normalizedRole === "lvn" ||
-    normalizedRole === "pt" ||
-    normalizedRole === "pta" ||
-    normalizedRole === "ot" ||
-    normalizedRole === "ota" ||
-    normalizedRole === "st" ||
-    normalizedRole === "slp" ||
-    normalizedRole === "msw" ||
-    normalizedRole.includes("registered nurse") ||
-    normalizedRole.includes("licensed practical nurse") ||
-    normalizedRole.includes("licensed vocational nurse") ||
-    normalizedRole.includes("physical therapist") ||
-    normalizedRole.includes("physical therapy assistant") ||
-    normalizedRole.includes("occupational therapist") ||
-    normalizedRole.includes("occupational therapy assistant") ||
-    normalizedRole.includes("speech therapist") ||
-    normalizedRole.includes("speech language") ||
-    normalizedRole.includes("medical social worker");
-
-  if (isLicensedClinicalRole) {
-    requiredTypes.push(
-      "professional_license",
-      "cpr",
-      "tb_expiration",
-      "drivers_license",
-      "auto_insurance",
-      "fingerprint_clearance_card"
-    );
-  }
-
-  if (
-    normalizedRole.includes("caregiver") ||
-    normalizedRole.includes("hha") ||
-    normalizedRole.includes("cna")
-  ) {
-    requiredTypes.push(
-      "cpr",
-      "tb_expiration",
-      "drivers_license",
-      "auto_insurance",
-      "fingerprint_clearance_card"
-    );
-  }
-
-  if (employmentClassification === "contractor") {
-    requiredTypes.push("independent_contractor_insurance");
-  }
-
-  return Array.from(new Set(requiredTypes));
 }
 
 function getDaysRemaining(dateString?: string | null) {
@@ -581,7 +518,7 @@ export default async function AdminDashboardPage({
         .order("expiration_date", { ascending: true }),
       supabase
         .from("employee_contracts")
-        .select("applicant_id, employment_classification, contract_status, employee_signed_at")
+        .select("applicant_id, employment_classification, contract_status, employee_signed_at, role_key")
         .in("applicant_id", applicantIds)
         .eq("is_current", true),
       supabase
@@ -599,7 +536,7 @@ export default async function AdminDashboardPage({
         .eq("is_current", true),
       supabase
         .from("applicant_files")
-        .select("id, applicant_id")
+        .select("id, applicant_id, document_type")
         .in("applicant_id", applicantIds),
       supabase
         .from("documents")
@@ -738,8 +675,10 @@ export default async function AdminDashboardPage({
 
   const missingCredentialDetails = applicants
     .map((applicant) => {
-      const requiredCredentialTypes = getRequiredCredentialTypes(
-        applicantRolePrimaryForCompliance(applicant),
+      const contract = contractByEmployee.get(applicant.id) || null;
+      const requiredCredentialTypes = resolveRequiredCredentialTypesForApplicantRecord(
+        applicant,
+        contract,
         employmentClassificationByEmployee.get(applicant.id) || null
       );
 
@@ -747,14 +686,15 @@ export default async function AdminDashboardPage({
         return null;
       }
 
-      const existingTypes = new Set(
-        (credentialsByEmployee.get(applicant.id) || []).map((credential) =>
-          normalizeCredentialTypeKey(credential.credential_type)
-        )
-      );
+      const credRows = credentialsByEmployee.get(applicant.id) || [];
+      const docSources = [
+        ...(documentsByEmployee.get(applicant.id) || []).map((d) => d.document_type),
+        ...(applicantFilesByEmployee.get(applicant.id) || []).map((f) => f.document_type),
+      ];
 
       const missingTypes = requiredCredentialTypes.filter(
-        (credentialType) => !existingTypes.has(credentialType)
+        (credentialType) =>
+          !applicantHasCredentialWithUploads(credentialType, credRows, docSources)
       );
 
       if (missingTypes.length === 0) {
@@ -783,8 +723,10 @@ export default async function AdminDashboardPage({
 
   const requiredCredentialReminderByEmployee = new Map(
     applicants.map((applicant) => {
-      const requiredTypes = getRequiredCredentialTypes(
-        applicantRolePrimaryForCompliance(applicant),
+      const contract = contractByEmployee.get(applicant.id) || null;
+      const requiredTypes = resolveRequiredCredentialTypesForApplicantRecord(
+        applicant,
+        contract,
         employmentClassificationByEmployee.get(applicant.id) || null
       );
 
@@ -953,19 +895,28 @@ export default async function AdminDashboardPage({
       const isContractSigned = Boolean(
         contract && (contract.contract_status === "signed" || contract.employee_signed_at)
       );
-      const requiredCredentialTypes = getRequiredCredentialTypes(
-        applicantRolePrimaryForCompliance(applicant),
+      const personnelDocSources = [
+        ...(documentsByEmployee.get(applicant.id) || []).map((d) => d.document_type),
+        ...(applicantFilesByEmployee.get(applicant.id) || []).map((f) => f.document_type),
+      ];
+      const credRowsForApplicant = credentialsByEmployee.get(applicant.id) || [];
+      const requiredCredentialTypes = resolveRequiredCredentialTypesForApplicantRecord(
+        applicant,
+        contract,
         employmentClassificationByEmployee.get(applicant.id) || null
       );
       const requiredCredentialStates = requiredCredentialTypes.map((credentialType) =>
-        getCredentialStateForType(credentialType, credentialsByEmployee.get(applicant.id) || [])
+        getCredentialStateForType(credentialType, credRowsForApplicant)
       );
       const hasExpiredRequiredCredentials = requiredCredentialStates.some(
         (status) => status.label === "Expired"
       );
-      const missingRequiredCredentials = requiredCredentialStates.some(
-        (status) => status.label === "Missing"
-      );
+      const missingRequiredCredentials = requiredCredentialTypes.some((ct) => {
+        if (applicantHasCredentialWithUploads(ct, credRowsForApplicant, personnelDocSources)) {
+          return false;
+        }
+        return getCredentialStateForType(ct, credRowsForApplicant).label === "Missing";
+      });
 
       const employeeAnnualEvents = annualComplianceEvents.filter(
         (event) => event.applicant_id === applicant.id
@@ -1027,16 +978,23 @@ export default async function AdminDashboardPage({
       const requiresFingerprintCard = requiredCredentialTypes.includes(
         "fingerprint_clearance_card"
       );
-      const existingCredentialTypes = new Set(
-        (credentialsByEmployee.get(applicant.id) || []).map((credential) =>
-          normalizeCredentialTypeKey(credential.credential_type)
-        )
-      );
-      const hasCprCard = !requiresCpr || existingCredentialTypes.has("cpr");
+      const hasCprCard =
+        !requiresCpr ||
+        applicantHasCredentialWithUploads("cpr", credRowsForApplicant, personnelDocSources);
       const hasDriversLicense =
-        !requiresDriversLicense || existingCredentialTypes.has("drivers_license");
+        !requiresDriversLicense ||
+        applicantHasCredentialWithUploads(
+          "drivers_license",
+          credRowsForApplicant,
+          personnelDocSources
+        );
       const hasFingerprintCard =
-        !requiresFingerprintCard || existingCredentialTypes.has("fingerprint_clearance_card");
+        !requiresFingerprintCard ||
+        applicantHasCredentialWithUploads(
+          "fingerprint_clearance_card",
+          credRowsForApplicant,
+          personnelDocSources
+        );
 
       const isSurveyReady =
         isApplicationComplete &&
@@ -1362,7 +1320,7 @@ export default async function AdminDashboardPage({
     employeeRows[0]?.applicant.id ??
     null;
   const viewAllAnnualEventsHref = viewAllAnnualEventsTargetId
-    ? `/admin/employees/${viewAllAnnualEventsTargetId}#event-management`
+    ? employeeDetailAdminTabUrl(`/admin/employees/${viewAllAnnualEventsTargetId}`, "compliance")
     : "/admin";
 
   const complianceIssueEmployeeIds = new Set<string>();
@@ -2353,7 +2311,7 @@ export default async function AdminDashboardPage({
                   </Link>
 
                   <Link
-                    href={`/admin/employees/${row.applicant.id}#event-management`}
+                    href={employeeDetailAdminTabUrl(`/admin/employees/${row.applicant.id}`, "compliance")}
                     className="inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-4 py-2 text-xs font-semibold text-sky-700 hover:bg-sky-100"
                   >
                     Manage Events

@@ -1,4 +1,5 @@
 import { deriveOnboardingProgress } from "./derive-progress";
+import type { EmployeeDetailWorkAreaTab } from "@/lib/employee-requirements/employee-detail-work-areas";
 
 /**
  * Single source of truth for onboarding + personnel-file gating in the admin UI.
@@ -130,6 +131,24 @@ export type BuildUnifiedOnboardingStateInput = {
   missingCredentialDisplayNames: string[];
   skillsFormIsDraft: boolean;
   isSurveyReady: boolean;
+  /**
+   * Sales-facing roles: skip heavy clinical onboarding steps for progress derivation and step blocking
+   * (see `getRequiredCredentialTypesForApplicant` / sales band in personnel-file requirements).
+   */
+  salesAgentLightCompliance?: boolean;
+  /**
+   * When true with salesAgentLightCompliance, progress % ignores incomplete onboarding documents.
+   */
+  treatPipelineDocumentsAsCompleteForProgress?: boolean;
+  /**
+   * When true with salesAgentLightCompliance, progress % ignores incomplete onboarding training.
+   */
+  treatPipelineTrainingAsCompleteForProgress?: boolean;
+  /**
+   * Deep links to real employee-detail work areas (`?tab=`), not hash-only URLs.
+   * SINGLE SOURCE with `buildPersonnelFileAuditRows` + personnel requirements.
+   */
+  getAdminWorkAreaUrl: (tab: EmployeeDetailWorkAreaTab) => string;
 };
 
 export function buildUnifiedOnboardingState(
@@ -161,13 +180,23 @@ export function buildUnifiedOnboardingState(
     missingCredentialDisplayNames,
     skillsFormIsDraft,
     isSurveyReady,
+    salesAgentLightCompliance,
+    treatPipelineDocumentsAsCompleteForProgress,
+    treatPipelineTrainingAsCompleteForProgress,
+    getAdminWorkAreaUrl,
   } = input;
+
+  const salesLight = salesAgentLightCompliance === true;
+  const documentsCompleteForProgress =
+    treatPipelineDocumentsAsCompleteForProgress && salesLight ? true : isDocumentsComplete;
+  const trainingCompleteForProgress =
+    treatPipelineTrainingAsCompleteForProgress && salesLight ? true : isTrainingComplete;
 
   const coreInputs = {
     applicationCompleted: isApplicationComplete,
-    documentsComplete: isDocumentsComplete,
+    documentsComplete: documentsCompleteForProgress,
     contractsAndTaxComplete: isContractsComplete,
-    trainingComplete: isTrainingComplete,
+    trainingComplete: trainingCompleteForProgress,
   };
 
   const derived = deriveOnboardingProgress(coreInputs);
@@ -216,7 +245,7 @@ export function buildUnifiedOnboardingState(
         ? null
         : "The portal has not recorded a completed application (onboarding_status.application_completed).",
       employeeViewHref: EMPLOYEE_BASE(applicantId, "/onboarding-application"),
-      adminViewHref: `${employeePageBase}#onboarding-admin-summary`,
+      adminViewHref: getAdminWorkAreaUrl("overview"),
       raw: { application_completed: isApplicationComplete },
     });
   }
@@ -228,26 +257,28 @@ export function buildUnifiedOnboardingState(
       key: "pipeline_documents",
       label: "Required document uploads",
       category: "documents",
-      required: true,
-      status: m.status,
-      displayStatus: m.display,
+      required: !salesLight,
+      status: salesLight ? "complete" : m.status,
+      displayStatus: salesLight ? "N/A" : m.display,
       countsTowardPipelineComplete: true,
-      countsTowardSurveyComplete: true,
-      blocking: !isDocumentsComplete,
+      countsTowardSurveyComplete: !salesLight,
+      blocking: !salesLight && !isDocumentsComplete,
       lastUpdatedAt: null,
-      failureReason: isDocumentsComplete
-        ? null
-        : inProg
-          ? "Not all required document types are present in documents / applicant files."
-          : "No qualifying document set yet (7 types or applicant_files fallback).",
+      failureReason:
+        salesLight || isDocumentsComplete
+          ? null
+          : inProg
+            ? "Not all required document types are present in documents / applicant files."
+            : "No qualifying document set yet (7 types or applicant_files fallback).",
       adminCoaching:
         "Ask which Upload step they are on. Each of resume, ID, SS card, CPR, TB, fingerprint must be marked in documents (or applicant_files present).",
-      whyBlocking: !isDocumentsComplete
-        ? "The pipeline needs every required document type or a legacy applicant_files entry."
-        : null,
+      whyBlocking:
+        salesLight || isDocumentsComplete
+          ? null
+          : "The pipeline needs every required document type or a legacy applicant_files entry.",
       employeeViewHref: EMPLOYEE_BASE(applicantId, "/onboarding-documents"),
-      adminViewHref: `${employeePageBase}#background-section`,
-      raw: { documentsComplete: isDocumentsComplete, hasSomeUpload: hasSomeDocumentUpload },
+      adminViewHref: getAdminWorkAreaUrl("documents"),
+      raw: { documentsComplete: isDocumentsComplete, hasSomeUpload: hasSomeDocumentUpload, salesLight },
     });
   }
 
@@ -279,7 +310,7 @@ export function buildUnifiedOnboardingState(
         ? "Needs onboarding_contracts.completed and a valid signed current tax form when required."
         : null,
       employeeViewHref: EMPLOYEE_BASE(applicantId, "/onboarding-contracts"),
-      adminViewHref: `${employeePageBase}#hire-setup-section`,
+      adminViewHref: getAdminWorkAreaUrl("payroll"),
       raw: {
         contractsComplete: isContractsComplete,
         taxSigned: isTaxFormSigned,
@@ -294,26 +325,28 @@ export function buildUnifiedOnboardingState(
       key: "pipeline_training",
       label: "Onboarding training / quizzes",
       category: "training",
-      required: true,
-      status: m.status,
-      displayStatus: m.display,
+      required: !salesLight,
+      status: salesLight ? "complete" : m.status,
+      displayStatus: salesLight ? "N/A" : m.display,
       countsTowardPipelineComplete: true,
-      countsTowardSurveyComplete: true,
-      blocking: !isTrainingComplete,
+      countsTowardSurveyComplete: !salesLight,
+      blocking: !salesLight && !isTrainingComplete,
       lastUpdatedAt: null,
-      failureReason: isTrainingComplete
-        ? null
-        : hasTrainingProgressButNotComplete
-          ? "Training started but not marked complete in onboarding_training_completions or applicant_training_progress.is_complete"
-          : "No training completion row yet.",
+      failureReason:
+        salesLight || isTrainingComplete
+          ? null
+          : hasTrainingProgressButNotComplete
+            ? "Training started but not marked complete in onboarding_training_completions or applicant_training_progress.is_complete"
+            : "No training completion row yet.",
       adminCoaching:
         "They must finish the training page; completion is stored in onboarding_training_completions or applicant_training_progress (is_complete).",
-      whyBlocking: !isTrainingComplete
-        ? "Server-side check requires a completion row or at least one progress row with is_complete."
-        : null,
+      whyBlocking:
+        salesLight || isTrainingComplete
+          ? null
+          : "Server-side check requires a completion row or at least one progress row with is_complete.",
       employeeViewHref: EMPLOYEE_BASE(applicantId, "/onboarding-training"),
-      adminViewHref: employeePageBase,
-      raw: { trainingComplete: isTrainingComplete, progressPartial: hasTrainingProgressButNotComplete },
+      adminViewHref: getAdminWorkAreaUrl("training"),
+      raw: { trainingComplete: isTrainingComplete, progressPartial: hasTrainingProgressButNotComplete, salesLight },
     });
   }
 
@@ -338,7 +371,7 @@ export function buildUnifiedOnboardingState(
         ? "The stored onboarding row disagrees with what documents/contracts/training show."
         : null,
       employeeViewHref: EMPLOYEE_BASE(applicantId, "/onboarding-welcome"),
-      adminViewHref: employeePageBase,
+      adminViewHref: getAdminWorkAreaUrl("overview"),
       raw: { coreComplete: corePipelineComplete, serverComplete: serverReportsComplete, mismatch: hasSyncMismatch },
     });
   }
@@ -350,19 +383,20 @@ export function buildUnifiedOnboardingState(
       key: "file_skills",
       label: "Skills competency (initial)",
       category: "compliance",
-      required: true,
-      status: m.status,
-      displayStatus: m.display,
+      required: !salesLight,
+      status: salesLight ? "complete" : m.status,
+      displayStatus: salesLight ? "N/A" : m.display,
       countsTowardPipelineComplete: false,
-      countsTowardSurveyComplete: true,
-      blocking: !isSkillsComplete,
+      countsTowardSurveyComplete: !salesLight,
+      blocking: !salesLight && !isSkillsComplete,
       lastUpdatedAt: null,
-      failureReason: isSkillsComplete ? null : "Skills form not finalized for the active event.",
+      failureReason: salesLight || isSkillsComplete ? null : "Skills form not finalized for the active event.",
       adminCoaching: "Open Admin skills form, ensure event is the current one, complete or print when ready.",
-      whyBlocking: !isSkillsComplete ? "Survey readiness requires skills competency for the active event." : null,
+      whyBlocking:
+        salesLight || isSkillsComplete ? null : "Survey readiness requires skills competency for the active event.",
       employeeViewHref: null,
-      adminViewHref: `${employeePageBase}#skills-section`,
-      raw: { skillsOk: isSkillsComplete, draft: skillsFormIsDraft },
+      adminViewHref: getAdminWorkAreaUrl("skills"),
+      raw: { skillsOk: isSkillsComplete, draft: skillsFormIsDraft, salesLight },
     });
   }
 
@@ -372,19 +406,22 @@ export function buildUnifiedOnboardingState(
       key: "file_performance",
       label: "Performance evaluation (initial)",
       category: "compliance",
-      required: true,
-      status: m.status,
-      displayStatus: m.display,
+      required: !salesLight,
+      status: salesLight ? "complete" : m.status,
+      displayStatus: salesLight ? "N/A" : m.display,
       countsTowardPipelineComplete: false,
-      countsTowardSurveyComplete: true,
-      blocking: !isPerformanceComplete,
+      countsTowardSurveyComplete: !salesLight,
+      blocking: !salesLight && !isPerformanceComplete,
       lastUpdatedAt: null,
-      failureReason: isPerformanceComplete ? null : "Performance form not complete.",
+      failureReason: salesLight || isPerformanceComplete ? null : "Performance form not complete.",
       adminCoaching: "Complete the performance evaluation for the current cycle.",
-      whyBlocking: !isPerformanceComplete ? "Survey packet needs performance evaluation on file." : null,
+      whyBlocking:
+        salesLight || isPerformanceComplete
+          ? null
+          : "Survey packet needs performance evaluation on file.",
       employeeViewHref: null,
-      adminViewHref: `${employeePageBase}#performance-section`,
-      raw: { performanceOk: isPerformanceComplete },
+      adminViewHref: getAdminWorkAreaUrl("performance"),
+      raw: { performanceOk: isPerformanceComplete, salesLight },
     });
   }
 
@@ -394,19 +431,19 @@ export function buildUnifiedOnboardingState(
       key: "file_tb",
       label: "TB documentation",
       category: "documents",
-      required: true,
-      status: m.status,
-      displayStatus: m.display,
+      required: !salesLight,
+      status: salesLight ? "complete" : m.status,
+      displayStatus: salesLight ? "N/A" : m.display,
       countsTowardPipelineComplete: false,
-      countsTowardSurveyComplete: true,
-      blocking: !hasTbDocumentation,
+      countsTowardSurveyComplete: !salesLight,
+      blocking: !salesLight && !hasTbDocumentation,
       lastUpdatedAt: null,
-      failureReason: hasTbDocumentation ? null : "No tb_test in uploads / annual statement.",
+      failureReason: salesLight || hasTbDocumentation ? null : "No tb_test in uploads / annual statement.",
       adminCoaching: "Upload TB in onboarding documents or provide annual TB statement proof.",
-      whyBlocking: !hasTbDocumentation ? "Survey checklist requires TB proof." : null,
+      whyBlocking: salesLight || hasTbDocumentation ? null : "Survey checklist requires TB proof.",
       employeeViewHref: EMPLOYEE_BASE(applicantId, "/onboarding-documents"),
-      adminViewHref: `${employeePageBase}#tb-section`,
-      raw: { tbOk: hasTbDocumentation },
+      adminViewHref: getAdminWorkAreaUrl("documents"),
+      raw: { tbOk: hasTbDocumentation, salesLight },
     });
   }
 
@@ -416,19 +453,19 @@ export function buildUnifiedOnboardingState(
       key: "file_oig",
       label: "OIG check",
       category: "compliance",
-      required: true,
-      status: m.status,
-      displayStatus: m.display,
+      required: !salesLight,
+      status: salesLight ? "complete" : m.status,
+      displayStatus: salesLight ? "N/A" : m.display,
       countsTowardPipelineComplete: false,
-      countsTowardSurveyComplete: true,
-      blocking: !isOigComplete,
+      countsTowardSurveyComplete: !salesLight,
+      blocking: !salesLight && !isOigComplete,
       lastUpdatedAt: null,
-      failureReason: isOigComplete ? null : "OIG event not completed and/or proof missing.",
+      failureReason: salesLight || isOigComplete ? null : "OIG event not completed and/or proof missing.",
       adminCoaching: "Run OIG workflow or attach proof; upload counts when configured.",
-      whyBlocking: !isOigComplete ? "OIG is part of the survey safety checklist." : null,
+      whyBlocking: salesLight || isOigComplete ? null : "OIG is part of the survey safety checklist.",
       employeeViewHref: null,
-      adminViewHref: `${employeePageBase}#oig-section`,
-      raw: { oigOk: isOigComplete },
+      adminViewHref: getAdminWorkAreaUrl("compliance"),
+      raw: { oigOk: isOigComplete, salesLight },
     });
   }
 
@@ -449,7 +486,7 @@ export function buildUnifiedOnboardingState(
       adminCoaching: "Have them upload the background result PDF or add via admin file audit.",
       whyBlocking: !hasBackgroundCheck ? "Survey file audit lists background check as required." : null,
       employeeViewHref: EMPLOYEE_BASE(applicantId, "/onboarding-documents"),
-      adminViewHref: `${employeePageBase}#background-section`,
+      adminViewHref: getAdminWorkAreaUrl("documents"),
       raw: { bgOk: hasBackgroundCheck },
     });
   }
@@ -479,7 +516,7 @@ export function buildUnifiedOnboardingState(
         ? "At least one required credential is missing, expired, or not satisfied by an upload where allowed."
         : null,
       employeeViewHref: EMPLOYEE_BASE(applicantId, "/onboarding-documents"),
-      adminViewHref: `${employeePageBase}#expiring-credentials-section`,
+      adminViewHref: getAdminWorkAreaUrl("credentials"),
       raw: { missing: missingCredentialDisplayNames.join(";") },
     });
   }

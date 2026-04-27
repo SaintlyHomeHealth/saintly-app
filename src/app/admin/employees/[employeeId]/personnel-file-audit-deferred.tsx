@@ -3,18 +3,11 @@
 import Link from "next/link";
 import { memo } from "react";
 
-export type PersonnelFileAuditItem = {
-  label: string;
-  status: string;
-  sectionHref: string;
-  showGo?: boolean;
-  artifactHref: string | null;
-  artifactLabel?: string;
-  artifactExternal?: boolean;
-  statusTone: "green" | "red" | "slate";
-};
+import type { PersonnelFileAuditRow } from "@/lib/employee-requirements/personnel-file-requirements";
 
-function getBadgeForTone(tone: PersonnelFileAuditItem["statusTone"]) {
+export type PersonnelFileAuditItem = PersonnelFileAuditRow;
+
+function getBadgeForTone(tone: PersonnelFileAuditRow["statusTone"]) {
   switch (tone) {
     case "green":
       return "border border-green-200 bg-green-50 text-green-700";
@@ -25,7 +18,11 @@ function getBadgeForTone(tone: PersonnelFileAuditItem["statusTone"]) {
   }
 }
 
-const AuditItem = memo(function AuditItem({ item }: { item: PersonnelFileAuditItem }) {
+const AuditItem = memo(function AuditItem({ item }: { item: PersonnelFileAuditRow }) {
+  const canView =
+    Boolean(item.viewHref) &&
+    (item.status === "Complete" || item.status === "On file");
+
   return (
     <tr className="border-b border-slate-100 last:border-0">
       <td className="py-2 pr-3 text-sm font-medium text-slate-900">{item.label}</td>
@@ -40,19 +37,29 @@ const AuditItem = memo(function AuditItem({ item }: { item: PersonnelFileAuditIt
       </td>
       <td className="py-2 text-right">
         <div className="flex flex-wrap justify-end gap-2">
-          {item.showGo === false ? null : item.sectionHref ? (
-            <Link href={item.sectionHref} className="text-xs font-semibold text-sky-700 underline">
-              Go
+          {item.openHref ? (
+            <Link href={item.openHref} className="text-xs font-semibold text-sky-700 underline">
+              Open
             </Link>
           ) : null}
-          {item.artifactHref && item.status === "Complete" ? (
+          {item.portalHref ? (
             <a
-              href={item.artifactHref}
+              href={item.portalHref}
+              target="_blank"
+              rel="noreferrer"
+              className="text-xs font-semibold text-violet-700 underline"
+            >
+              Employee app
+            </a>
+          ) : null}
+          {canView && item.viewHref ? (
+            <a
+              href={item.viewHref}
               target="_blank"
               rel="noreferrer"
               className="text-xs font-semibold text-sky-700 underline"
             >
-              {item.artifactLabel || "View"}
+              View
             </a>
           ) : null}
         </div>
@@ -62,7 +69,7 @@ const AuditItem = memo(function AuditItem({ item }: { item: PersonnelFileAuditIt
 });
 
 type Props = {
-  items: PersonnelFileAuditItem[];
+  items: PersonnelFileAuditRow[];
   surveyReadyBadge: "green" | "red";
 };
 

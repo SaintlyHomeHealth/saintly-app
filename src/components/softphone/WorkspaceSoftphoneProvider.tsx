@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import type { Call, Device } from "@twilio/voice-sdk";
 
 import { routePerfLog, routePerfStart } from "@/lib/perf/route-perf";
@@ -299,6 +300,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
   const [callStartedAtMs, setCallStartedAtMs] = useState<number | null>(null);
   const [inboundAiAssist, setInboundAiAssist] = useState<InboundAiAssistState | null>(null);
   const statusRef = useRef(status);
+  const hangUpInFlightRef = useRef(false);
   const ringtoneUnlockedRef = useRef(false);
   /** RN shell uses native CallKit audio — no browser ringtone gesture required. */
   useEffect(() => {
@@ -1493,62 +1495,81 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
   }, [finalizeCallCleanup]);
 
   const hangUp = useCallback(() => {
-    void (async () => {
+    if (hangUpInFlightRef.current) return;
+    hangUpInFlightRef.current = true;
+
+    const c = activeCallRef.current;
+    const sid =
+      readCallSid(c) ||
+      nativeShellActiveSidRef.current ||
+      nativeShellIncomingCallId;
+    const wasInCall = statusRef.current === "in_call";
+
+    flushSync(() => {
+      statusRef.current = "idle";
+      setStatus("idle");
+      setCallStartedAtMs(null);
+      setHoldBusy(false);
+      dispatchWorkspaceSoftphoneUi({ phase: "idle" });
+    });
+
+    Promise.resolve().then(async () => {
       softphoneDevLog("[softphone] hangup pressed");
-      if (nativeVoiceCallShell) {
-        const sid =
-          readCallSid(activeCallRef.current) ||
-          nativeShellActiveSidRef.current ||
-          nativeShellIncomingCallId;
-        if (statusRef.current === "in_call" && sid?.startsWith("CA")) {
+      try {
+        if (nativeVoiceCallShell) {
+          if (wasInCall && sid?.startsWith("CA")) {
+            try {
+              const res = await fetch("/api/workspace/phone/conference/end-call", {
+                method: "POST",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ callSid: sid }),
+              });
+              await res.json().catch(() => ({}));
+            } catch (e) {
+              softphoneDevWarn("[softphone] end-call server request failed", e);
+            }
+          }
+          if (sid) {
+            postNativeCallControlToReactNative({ action: "hangup", callId: sid });
+          } else {
+            postNativeCallControlToReactNative({ action: "hangup" });
+          }
+          finalizeCallCleanup("hangup:native_background", { endedCallSid: sid });
+          return;
+        }
+
+        if (c) {
           try {
+            c.disconnect();
+          } catch (e) {
+            softphoneDevWarn("[softphone] hangup disconnect threw", e);
+          }
+        }
+        if (sid) {
+          try {
+            softphoneDevLog("[softphone] server end-call request", { callSid: `${sid.slice(0, 10)}…` });
             const res = await fetch("/api/workspace/phone/conference/end-call", {
               method: "POST",
               credentials: "include",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ callSid: sid }),
             });
-            await res.json().catch(() => ({}));
+            const j = (await res.json().catch(() => ({}))) as { ok?: boolean; steps?: string[]; error?: string };
+            softphoneDevLog("[softphone] server end-call response", res.status, j);
           } catch (e) {
             softphoneDevWarn("[softphone] end-call server request failed", e);
           }
-        }
-        if (sid) {
-          postNativeCallControlToReactNative({ action: "hangup", callId: sid });
         } else {
-          postNativeCallControlToReactNative({ action: "hangup" });
+          softphoneDevWarn("[softphone] hangup with no activeCallRef — forcing idle UI");
         }
-        return;
+        finalizeCallCleanup("hangup", { endedCallSid: sid });
+      } catch (e) {
+        console.error("Hang up failed", e);
+      } finally {
+        hangUpInFlightRef.current = false;
       }
-
-      const c = activeCallRef.current;
-      const sid = c ? readCallSid(c) : null;
-      if (sid) {
-        try {
-          softphoneDevLog("[softphone] server end-call request", { callSid: `${sid.slice(0, 10)}…` });
-          const res = await fetch("/api/workspace/phone/conference/end-call", {
-            method: "POST",
-            credentials: "include",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ callSid: sid }),
-          });
-          const j = (await res.json().catch(() => ({}))) as { ok?: boolean; steps?: string[]; error?: string };
-          softphoneDevLog("[softphone] server end-call response", res.status, j);
-        } catch (e) {
-          softphoneDevWarn("[softphone] end-call server request failed", e);
-        }
-      } else {
-        softphoneDevWarn("[softphone] hangup with no activeCallRef — forcing idle UI");
-      }
-      if (c) {
-        try {
-          c.disconnect();
-        } catch (e) {
-          softphoneDevWarn("[softphone] hangup disconnect threw", e);
-        }
-      }
-      finalizeCallCleanup("hangup", { endedCallSid: sid });
-    })();
+    });
   }, [finalizeCallCleanup, nativeVoiceCallShell, nativeShellIncomingCallId]);
 
   const answerIncoming = useCallback(() => {

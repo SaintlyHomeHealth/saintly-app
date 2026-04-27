@@ -1,4 +1,7 @@
-import { getCredentialAnchorId } from "@/lib/credential-anchors";
+import {
+  employeeDetailAdminTabUrl,
+  type EmployeeDetailWorkAreaTab,
+} from "@/lib/employee-requirements/employee-detail-work-areas";
 
 /** Mirrors `CommandComplianceStatus` in `employee-directory-data` (kept local to avoid circular imports). */
 type ReadinessForHref = "clear" | "due_soon" | "missing_expired";
@@ -33,50 +36,43 @@ export function isEmployeeDirectoryItemKey(k: string): k is EmployeeDirectoryIte
   return DIRECTORY_ITEM_KEYS.includes(k);
 }
 
-function base(employeeId: string): string {
-  return `/admin/employees/${employeeId}`;
+function tab(employeeId: string, workArea: EmployeeDetailWorkAreaTab): string {
+  return employeeDetailAdminTabUrl(`/admin/employees/${employeeId}`, workArea);
 }
 
 /**
- * Maps a directory compliance cell to the closest existing section on the employee record.
- * Anchors align with `[employeeId]/page.tsx`, `CredentialManager`, and `getCredentialAnchorId`.
+ * Maps a directory compliance cell to the employee record `?tab=` work area (scroll targets on detail page).
  */
 export function complianceDirectoryItemHref(
   employeeId: string,
   itemKey: EmployeeDirectoryItemKey,
   requiredCredentialTypes: readonly string[]
 ): string {
-  const b = base(employeeId);
   switch (itemKey) {
     case "professional_license":
-      return `${b}#${getCredentialAnchorId("professional_license")}`;
     case "cpr":
-      return `${b}#${getCredentialAnchorId("cpr")}`;
     case "tb_expiration":
-      return `${b}#tb-section`;
     case "drivers_license":
-      return `${b}#${getCredentialAnchorId("drivers_license")}`;
+      return tab(employeeId, "credentials");
     case "insurance": {
       if (requiredCredentialTypes.includes("independent_contractor_insurance")) {
-        return `${b}#${getCredentialAnchorId("independent_contractor_insurance")}`;
+        return tab(employeeId, "credentials");
       }
       if (requiredCredentialTypes.includes("auto_insurance")) {
-        return `${b}#${getCredentialAnchorId("auto_insurance")}`;
+        return tab(employeeId, "credentials");
       }
-      return `${b}#expiring-credentials-section`;
+      return tab(employeeId, "credentials");
     }
     case "skills":
-      return `${b}#skills-section`;
+      return tab(employeeId, "skills");
     case "performance":
-      return `${b}#performance-section`;
+      return tab(employeeId, "performance");
     case "annual_tb_stmt":
-      return `${b}#tb-statement-section`;
     case "annual_train":
-      return `${b}#training-checklist-section`;
     case "annual_contract_rev":
-      return `${b}#contract-review-section`;
+      return tab(employeeId, "compliance");
     default:
-      return b;
+      return `/admin/employees/${employeeId}`;
   }
 }
 
@@ -92,21 +88,21 @@ export function readinessSummaryHref(
     flagOnboardingIncomplete: boolean;
   }
 ): string {
-  const b = base(employeeId);
+  const b = employeeId;
   if (r.commandComplianceStatus === "missing_expired") {
     const credIssue = r.flagMissingCredential || r.flagExpiredCredential;
     if (!credIssue && r.flagAnnualDue) {
-      return `${b}#event-management`;
+      return tab(b, "compliance");
     }
-    return `${b}#expiring-credentials-section`;
+    return tab(b, "credentials");
   }
   if (r.commandComplianceStatus === "due_soon") {
-    if (r.flagActivationBlocked) return `${b}#hire-setup-section`;
-    if (r.flagOnboardingIncomplete) return `${b}#onboarding-section`;
-    if (r.flagAnnualDue) return `${b}#event-management`;
-    return `${b}#expiring-credentials-section`;
+    if (r.flagActivationBlocked) return tab(b, "payroll");
+    if (r.flagOnboardingIncomplete) return tab(b, "overview");
+    if (r.flagAnnualDue) return tab(b, "compliance");
+    return tab(b, "credentials");
   }
-  return `${b}#credentials-section`;
+  return tab(b, "credentials");
 }
 
 export type EmployeeDirectoryFlagKind =
@@ -117,19 +113,18 @@ export type EmployeeDirectoryFlagKind =
   | "blocked";
 
 export function complianceFlagHref(employeeId: string, kind: EmployeeDirectoryFlagKind): string {
-  const b = base(employeeId);
+  const b = employeeId;
   switch (kind) {
     case "blocked":
-      return `${b}#hire-setup-section`;
+      return tab(b, "payroll");
     case "miss_cred":
-      return `${b}#expiring-credentials-section`;
     case "due_30d":
-      return `${b}#expiring-credentials-section`;
+      return tab(b, "credentials");
     case "annual":
-      return `${b}#event-management`;
+      return tab(b, "compliance");
     case "onboard":
-      return `${b}#onboarding-section`;
+      return tab(b, "overview");
     default:
-      return b;
+      return `/admin/employees/${b}`;
   }
 }

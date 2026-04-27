@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
 import {
   isReactNativeWebViewShell,
@@ -177,6 +177,11 @@ export function ActiveCallBar() {
     if (!keypadOpen) return;
     softphoneDevLog("[softphone] in-call keypad opened");
   }, [keypadOpen]);
+
+  const handleHangUpClick = useCallback(() => {
+    console.log("HANG CLICK");
+    hangUp();
+  }, [hangUp]);
 
   const onInCallKeypadDigit = (d: string) => {
     sendDtmfDigits(d);
@@ -386,7 +391,7 @@ export function ActiveCallBar() {
             ) : null}
             <button
               type="button"
-              onClick={hangUp}
+              onClick={handleHangUpClick}
               className="inline-flex h-11 items-center gap-1.5 rounded-full bg-red-500 px-4 text-sm font-semibold text-white shadow-lg shadow-red-900/30 hover:bg-red-600"
             >
               <PhoneOff className="h-4 w-4" strokeWidth={2} />
@@ -462,7 +467,7 @@ export function ActiveCallBar() {
         <div className="mt-4 flex sm:hidden">
           <button
             type="button"
-            onClick={hangUp}
+            onClick={handleHangUpClick}
             className="flex w-full items-center justify-center gap-2 rounded-2xl bg-red-500 py-4 text-base font-bold text-white shadow-lg shadow-red-900/35 active:scale-[0.99]"
           >
             <PhoneOff className="h-5 w-5" strokeWidth={2} />

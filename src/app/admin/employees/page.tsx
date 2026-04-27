@@ -22,6 +22,7 @@ import {
   filterEmployeeDirectoryRows,
   loadEmployeeDirectoryRows,
 } from "@/lib/admin/employee-directory-data";
+import { employeeDetailAdminTabUrl } from "@/lib/employee-requirements/employee-detail-work-areas";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import {
   buildAdminPhoneCallsSoftphoneHref,
@@ -468,7 +469,7 @@ export default async function AdminEmployeesDirectoryPage({
                 const itemCellHref = (key: string) =>
                   isEmployeeDirectoryItemKey(key)
                     ? complianceDirectoryItemHref(id, key, r.requiredCredentialTypes)
-                    : `/admin/employees/${id}#credentials-section`;
+                    : employeeDetailAdminTabUrl(`/admin/employees/${id}`, "credentials");
 
                 const itemCell = (key: string) => {
                   const it = byKey[key];
@@ -539,7 +540,7 @@ export default async function AdminEmployeesDirectoryPage({
                     </td>
                     <td className="max-w-[9rem] px-2 py-2">
                       <Link
-                        href={`/admin/employees/${id}#onboarding-portal-section`}
+                        href={employeeDetailAdminTabUrl(`/admin/employees/${id}`, "training")}
                         prefetch={false}
                         title="Open onboarding details"
                         className={`inline-flex max-w-full rounded-full px-2.5 py-0.5 text-[10px] font-semibold transition hover:ring-2 hover:ring-indigo-300 ${r.onboardingTrackBadgeClass}`}
@@ -667,7 +668,7 @@ export default async function AdminEmployeesDirectoryPage({
                       </form>
                       {r.credentialReminderLastSentAt ? (
                         <Link
-                          href={`/admin/employees/${id}#credential-reminder-log-section`}
+                          href={employeeDetailAdminTabUrl(`/admin/employees/${id}`, "credentials")}
                           prefetch={false}
                           className="mt-1.5 block text-[9px] leading-snug text-slate-500 underline-offset-2 hover:text-indigo-700 hover:underline"
                           title="Open full reminder log on employee record"

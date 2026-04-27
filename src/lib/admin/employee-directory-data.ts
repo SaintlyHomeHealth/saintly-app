@@ -2,8 +2,22 @@ import "server-only";
 
 import { supabaseAdmin } from "@/lib/admin";
 import { SMS_REMINDER_CREDENTIAL_TYPE_SET } from "@/lib/admin/credential-sms-constants";
-import { applicantRolePrimaryForCompliance } from "@/lib/applicant-role-for-compliance";
+import {
+  applicantRolePrimaryForCompliance,
+  type ApplicantRoleFields,
+} from "@/lib/applicant-role-for-compliance";
+import {
+  buildApplicantRoleFieldsFromRecord,
+  buildPersonnelFileDocumentKeySet,
+  inferContractRoleKeyFromApplicantFields,
+  isCaregiverFamilyRole,
+  isSalesAgentComplianceBand,
+  mergeApplicantRoleHints,
+  normalizeCredentialTypeKey,
+} from "@/lib/employee-requirements/personnel-file-requirements";
 import { normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
+
+export { normalizeCredentialTypeKey };
 
 /**
  * Employee directory: same source-of-truth as `/admin` dashboard and `/admin/employees/[id]`.
@@ -54,6 +68,12 @@ export type ApplicantRecord = {
   [key: string]: unknown;
 };
 
+function isApplicantRecord(value: unknown): value is ApplicantRecord {
+  if (value === null || typeof value !== "object") return false;
+  const id = (value as { id?: unknown }).id;
+  return typeof id === "string" && id.length > 0;
+}
+
 type ComplianceEvent = {
   id: string;
   applicant_id: string;
@@ -85,6 +105,7 @@ type EmployeeContractLite = {
   employment_classification: "employee" | "contractor" | null;
   contract_status?: "draft" | "sent" | "signed" | "void" | null;
   employee_signed_at?: string | null;
+  role_key?: string | null;
 };
 
 export type OnboardingStatusLite = {
@@ -100,19 +121,8 @@ export type OnboardingStatusLite = {
   onboarding_last_activity_at?: string | null;
 };
 
-const EMPLOYEE_DIRECTORY_APPLICANT_SELECT = [
-  "id",
-  "first_name",
-  "last_name",
-  "email",
-  "phone",
-  "position",
-  "primary_discipline",
-  "type_of_position",
-  "status",
-  "created_at",
-  "updated_at",
-].join(", ");
+const EMPLOYEE_DIRECTORY_APPLICANT_SELECT =
+  "id, first_name, last_name, email, phone, position, primary_discipline, type_of_position, status, created_at, updated_at";
 
 type OnboardingContractStatusLite = {
   applicant_id: string;
@@ -126,7 +136,7 @@ type EmployeeTaxFormLite = {
   employee_signed_at?: string | null;
 };
 
-type ApplicantFileLite = { id: string; applicant_id: string };
+type ApplicantFileLite = { id: string; applicant_id: string; document_type?: string | null };
 type DocumentLite = { id: string; applicant_id: string; document_type: string | null };
 type TrainingCompletionLite = { id: string; applicant_id: string };
 type TrainingProgressLite = { id: string; applicant_id: string; is_complete?: boolean | null };
@@ -142,40 +152,66 @@ const annualComplianceDefinitions = [
 
 const DASHBOARD_STAGE_ACTIVE_EMPLOYEE = "Active Employee";
 
-export function normalizeCredentialTypeKey(type: string | null | undefined): string {
-  const t = (type || "").toLowerCase().trim();
-  if (t === "insurance") return "independent_contractor_insurance";
-  return t;
-}
-
-export function getRequiredCredentialTypes(
-  roleValue?: string | null,
-  employmentClassification?: "employee" | "contractor" | null
+/**
+ * Credential types required for expiring-credential tracking (directory, SMS, employee detail).
+ * Uses merged role-ish applicant columns plus optional `employee_contracts.role_key`.
+ *
+ * SINGLE SOURCE OF TRUTH FOR “which credentials are required” — pair with personnel-file document
+ * normalization; do not duplicate role → credential mapping elsewhere.
+ */
+export function getRequiredCredentialTypesForApplicant(
+  fields: ApplicantRoleFields,
+  employmentClassification?: "employee" | "contractor" | null,
+  options?: { contractRoleKey?: string | null }
 ) {
-  const normalizedRole = (roleValue || "").toLowerCase().trim();
+  let merged = mergeApplicantRoleHints(fields);
+  const rk = (options?.contractRoleKey || "").toLowerCase().trim();
+  if (rk === "hha") {
+    merged = `${merged} home health aide hha caregiver certified caregiver`.trim();
+  } else if (rk === "rn") {
+    merged = `${merged} rn registered nurse`.trim();
+  } else if (rk === "pt") {
+    merged = `${merged} pt physical therapist`.trim();
+  } else if (rk === "st") {
+    merged = `${merged} st speech therapist`.trim();
+  } else if (rk === "msw") {
+    merged = `${merged} msw medical social worker`.trim();
+  }
+
   const requiredTypes: string[] = [];
 
+  if (isSalesAgentComplianceBand(merged)) {
+    requiredTypes.push("drivers_license", "auto_insurance");
+    if (employmentClassification === "contractor") {
+      requiredTypes.push("independent_contractor_insurance");
+    }
+    return Array.from(new Set(requiredTypes));
+  }
+
+  const roleTokens = merged.split(/[^a-z0-9+]+/).filter((t) => t.length > 0);
+  const hasRoleToken = (t: string) => roleTokens.includes(t);
+
   const isLicensedClinicalRole =
-    normalizedRole === "rn" ||
-    normalizedRole === "lpn" ||
-    normalizedRole === "lvn" ||
-    normalizedRole === "pt" ||
-    normalizedRole === "pta" ||
-    normalizedRole === "ot" ||
-    normalizedRole === "ota" ||
-    normalizedRole === "st" ||
-    normalizedRole === "slp" ||
-    normalizedRole === "msw" ||
-    normalizedRole.includes("registered nurse") ||
-    normalizedRole.includes("licensed practical nurse") ||
-    normalizedRole.includes("licensed vocational nurse") ||
-    normalizedRole.includes("physical therapist") ||
-    normalizedRole.includes("physical therapy assistant") ||
-    normalizedRole.includes("occupational therapist") ||
-    normalizedRole.includes("occupational therapy assistant") ||
-    normalizedRole.includes("speech therapist") ||
-    normalizedRole.includes("speech language") ||
-    normalizedRole.includes("medical social worker");
+    hasRoleToken("rn") ||
+    hasRoleToken("lpn") ||
+    hasRoleToken("lvn") ||
+    hasRoleToken("pt") ||
+    hasRoleToken("pta") ||
+    hasRoleToken("ot") ||
+    hasRoleToken("ota") ||
+    hasRoleToken("st") ||
+    hasRoleToken("slp") ||
+    hasRoleToken("msw") ||
+    merged.includes("registered nurse") ||
+    merged.includes("licensed practical nurse") ||
+    merged.includes("licensed vocational nurse") ||
+    merged.includes("physical therapist") ||
+    merged.includes("physical therapy assistant") ||
+    merged.includes("occupational therapist") ||
+    merged.includes("occupational therapy assistant") ||
+    merged.includes("speech therapist") ||
+    merged.includes("speech language") ||
+    merged.includes("medical social worker");
 
   if (isLicensedClinicalRole) {
     requiredTypes.push(
@@ -188,11 +224,7 @@ export function getRequiredCredentialTypes(
     );
   }
 
-  if (
-    normalizedRole.includes("caregiver") ||
-    normalizedRole.includes("hha") ||
-    normalizedRole.includes("cna")
-  ) {
+  if (isCaregiverFamilyRole(merged)) {
     requiredTypes.push(
       "cpr",
       "tb_expiration",
@@ -207,6 +239,92 @@ export function getRequiredCredentialTypes(
   }
 
   return Array.from(new Set(requiredTypes));
+}
+
+export function getRequiredCredentialTypes(
+  roleValue?: string | null,
+  employmentClassification?: "employee" | "contractor" | null
+) {
+  return getRequiredCredentialTypesForApplicant(
+    {
+      position: roleValue ?? null,
+      primary_discipline: null,
+      type_of_position: null,
+    },
+    employmentClassification
+  );
+}
+
+/** Same resolver as `/admin/employees/[id]` + directory (merged fields, `role_key`, inferred contract role). */
+export function resolveRequiredCredentialTypesForApplicantRecord(
+  applicant: unknown,
+  contract: { role_key?: string | null } | null | undefined,
+  employmentClassification: "employee" | "contractor" | null
+): string[] {
+  if (!isApplicantRecord(applicant)) {
+    console.error("INVALID_APPLICANT_RECORD", applicant);
+    return [];
+  }
+  const fields = buildApplicantRoleFieldsFromRecord(applicant);
+  const fromContract =
+    contract && typeof contract.role_key === "string" && contract.role_key.trim()
+      ? contract.role_key.trim()
+      : "";
+  const effectiveRk = fromContract || inferContractRoleKeyFromApplicantFields(fields) || null;
+  return getRequiredCredentialTypesForApplicant(fields, employmentClassification, {
+    contractRoleKey: effectiveRk,
+  });
+}
+
+/** Credential row and/or normalized personnel-file uploads (see `buildPersonnelFileDocumentKeySet`). */
+export function applicantHasCredentialWithUploads(
+  credentialType: string,
+  credentialRows: Array<{ credential_type: string }>,
+  documentTypeSources: Array<string | null | undefined>
+): boolean {
+  const existing = new Set(
+    credentialRows.map((c) => normalizeCredentialTypeKey(c.credential_type))
+  );
+  const personnelKeys = buildPersonnelFileDocumentKeySet(documentTypeSources);
+  return directoryApplicantHasCredentialRow(credentialType, existing, personnelKeys);
+}
+
+function resolveRequiredCredentialTypesForDirectoryApplicant(
+  applicant: ApplicantRecord,
+  contract: EmployeeContractLite | null | undefined,
+  employmentClassification: "employee" | "contractor" | null
+): string[] {
+  return resolveRequiredCredentialTypesForApplicantRecord(
+    applicant,
+    contract,
+    employmentClassification
+  );
+}
+
+/** Upload-aware checks aligned with `/admin/employees/[id]` missing-credential resolution. */
+function directoryApplicantHasCredentialRow(
+  credentialType: string,
+  existingNormalizedTypes: Set<string>,
+  personnelDocKeys: Set<string>
+): boolean {
+  if (existingNormalizedTypes.has(credentialType)) return true;
+  if (credentialType === "cpr" && personnelDocKeys.has("cpr_front")) return true;
+  if (credentialType === "drivers_license" && personnelDocKeys.has("drivers_license")) return true;
+  if (
+    credentialType === "fingerprint_clearance_card" &&
+    personnelDocKeys.has("fingerprint_clearance_card")
+  ) {
+    return true;
+  }
+  if (credentialType === "auto_insurance" && personnelDocKeys.has("auto_insurance")) return true;
+  if (credentialType === "tb_expiration" && personnelDocKeys.has("tb_test")) return true;
+  if (
+    credentialType === "independent_contractor_insurance" &&
+    personnelDocKeys.has("independent_contractor_insurance")
+  ) {
+    return true;
+  }
+  return false;
 }
 
 function getDaysUntil(dateString?: string | null) {
@@ -731,7 +849,14 @@ export async function loadEmployeeDirectoryRows(): Promise<{
     };
   }
 
-  const applicants = (applicantsRaw || []) as ApplicantRecord[];
+  const applicants: ApplicantRecord[] = [];
+  for (const row of applicantsRaw ?? []) {
+    if (!isApplicantRecord(row)) {
+      console.error("INVALID_APPLICANT_RECORD", row);
+      continue;
+    }
+    applicants.push(row);
+  }
   const applicantIds = applicants.map((a) => a.id);
 
   let complianceEvents: ComplianceEvent[] = [];
@@ -790,7 +915,7 @@ export async function loadEmployeeDirectoryRows(): Promise<{
         .order("expiration_date", { ascending: true }),
       supabaseAdmin
         .from("employee_contracts")
-        .select("applicant_id, employment_classification, contract_status, employee_signed_at")
+        .select("applicant_id, employment_classification, contract_status, employee_signed_at, role_key")
         .in("applicant_id", applicantIds)
         .eq("is_current", true),
       supabaseAdmin
@@ -808,7 +933,10 @@ export async function loadEmployeeDirectoryRows(): Promise<{
         .select("applicant_id, form_status, employee_signed_name, employee_signed_at")
         .in("applicant_id", applicantIds)
         .eq("is_current", true),
-      supabaseAdmin.from("applicant_files").select("id, applicant_id").in("applicant_id", applicantIds),
+      supabaseAdmin
+        .from("applicant_files")
+        .select("id, applicant_id, document_type")
+        .in("applicant_id", applicantIds),
       supabaseAdmin
         .from("documents")
         .select("id, applicant_id, document_type")
@@ -893,23 +1021,35 @@ export async function loadEmployeeDirectoryRows(): Promise<{
 
   const missingCredentialEmployeeIds = new Set<string>();
   applicants.forEach((applicant) => {
-    const required = getRequiredCredentialTypes(
-      applicantRolePrimaryForCompliance(applicant),
+    const contract = contractByEmployee.get(applicant.id) || null;
+    const required = resolveRequiredCredentialTypesForDirectoryApplicant(
+      applicant,
+      contract,
       employmentClassificationByEmployee.get(applicant.id) || null
     );
     if (required.length === 0) return;
+    const personnelKeys = buildPersonnelFileDocumentKeySet([
+      ...(documentsByEmployee.get(applicant.id) || []).map((d) => d.document_type),
+      ...(applicantFilesByEmployee.get(applicant.id) || []).map((f) => f.document_type),
+    ]);
     const existing = new Set(
       (credentialsByEmployee.get(applicant.id) || []).map((x) =>
         normalizeCredentialTypeKey(x.credential_type)
       )
     );
-    if (required.some((t) => !existing.has(t))) missingCredentialEmployeeIds.add(applicant.id);
+    const missingSome = required.some((t) => {
+      if (directoryApplicantHasCredentialRow(t, existing, personnelKeys)) return false;
+      return true;
+    });
+    if (missingSome) missingCredentialEmployeeIds.add(applicant.id);
   });
 
   const requiredCredentialReminderByEmployee = new Map(
     applicants.map((applicant) => {
-      const requiredTypes = getRequiredCredentialTypes(
-        applicantRolePrimaryForCompliance(applicant),
+      const contract = contractByEmployee.get(applicant.id) || null;
+      const requiredTypes = resolveRequiredCredentialTypesForDirectoryApplicant(
+        applicant,
+        contract,
         employmentClassificationByEmployee.get(applicant.id) || null
       );
       return [
@@ -1013,8 +1153,13 @@ export async function loadEmployeeDirectoryRows(): Promise<{
     const isContractSigned = Boolean(
       contract && (contract.contract_status === "signed" || contract.employee_signed_at)
     );
-    const requiredCredentialTypes = getRequiredCredentialTypes(
-      applicantRolePrimaryForCompliance(applicant),
+    const personnelDocKeys = buildPersonnelFileDocumentKeySet([
+      ...(documentsByEmployee.get(applicant.id) || []).map((d) => d.document_type),
+      ...(applicantFilesByEmployee.get(applicant.id) || []).map((f) => f.document_type),
+    ]);
+    const requiredCredentialTypes = resolveRequiredCredentialTypesForDirectoryApplicant(
+      applicant,
+      contract,
       employmentClassificationByEmployee.get(applicant.id) || null
     );
     const requiredCredentialStates = requiredCredentialTypes.map((ct) =>
@@ -1023,7 +1168,22 @@ export async function loadEmployeeDirectoryRows(): Promise<{
     const hasExpiredRequiredCredentials = requiredCredentialStates.some(
       (s) => s.label === "Expired"
     );
-    const missingRequiredCredentials = requiredCredentialStates.some((s) => s.label === "Missing");
+    const requiresCpr = requiredCredentialTypes.includes("cpr");
+    const requiresDriversLicense = requiredCredentialTypes.includes("drivers_license");
+    const requiresFingerprintCard = requiredCredentialTypes.includes("fingerprint_clearance_card");
+    const existingCredentialTypes = new Set(
+      (credentialsByEmployee.get(applicant.id) || []).map((c) =>
+        normalizeCredentialTypeKey(c.credential_type)
+      )
+    );
+    const missingRequiredCredentials = requiredCredentialTypes.some((ct) => {
+      if (directoryApplicantHasCredentialRow(ct, existingCredentialTypes, personnelDocKeys)) {
+        return false;
+      }
+      return (
+        getCredentialStateForType(ct, credentialsByEmployee.get(applicant.id) || []).label === "Missing"
+      );
+    });
 
     const employeeAnnualEvents = annualComplianceEvents.filter((e) => e.applicant_id === applicant.id);
     const employeeForms = adminForms.filter((f) => f.employee_id === applicant.id);
@@ -1077,19 +1237,23 @@ export async function loadEmployeeDirectoryRows(): Promise<{
         (e.status === "completed" || !!e.completed_at)
     );
 
-    const requiresCpr = requiredCredentialTypes.includes("cpr");
-    const requiresDriversLicense = requiredCredentialTypes.includes("drivers_license");
-    const requiresFingerprintCard = requiredCredentialTypes.includes("fingerprint_clearance_card");
-    const existingCredentialTypes = new Set(
-      (credentialsByEmployee.get(applicant.id) || []).map((c) =>
-        normalizeCredentialTypeKey(c.credential_type)
-      )
-    );
-    const hasCprCard = !requiresCpr || existingCredentialTypes.has("cpr");
+    const hasCprCard =
+      !requiresCpr ||
+      directoryApplicantHasCredentialRow("cpr", existingCredentialTypes, personnelDocKeys);
     const hasDriversLicense =
-      !requiresDriversLicense || existingCredentialTypes.has("drivers_license");
+      !requiresDriversLicense ||
+      directoryApplicantHasCredentialRow(
+        "drivers_license",
+        existingCredentialTypes,
+        personnelDocKeys
+      );
     const hasFingerprintCard =
-      !requiresFingerprintCard || existingCredentialTypes.has("fingerprint_clearance_card");
+      !requiresFingerprintCard ||
+      directoryApplicantHasCredentialRow(
+        "fingerprint_clearance_card",
+        existingCredentialTypes,
+        personnelDocKeys
+      );
 
     const isSurveyReady =
       isApplicationComplete &&
@@ -1318,8 +1482,10 @@ export async function loadEmployeeDirectoryRows(): Promise<{
       "";
     const lastUpdatedMs = updatedRaw ? new Date(updatedRaw).getTime() : 0;
 
-    const requiredCredentialTypes = getRequiredCredentialTypes(
-      applicantRolePrimaryForCompliance(applicant),
+    const contractForRow = contractByEmployee.get(applicant.id) || null;
+    const requiredCredentialTypes = resolveRequiredCredentialTypesForDirectoryApplicant(
+      applicant,
+      contractForRow,
       employmentClassificationByEmployee.get(applicant.id) || null
     );
 

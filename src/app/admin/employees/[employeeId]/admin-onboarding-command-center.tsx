@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useState } from "react";
 
+import { employeeDetailAdminTabUrl } from "@/lib/employee-requirements/employee-detail-work-areas";
 import { type UnifiedOnboardingSnapshot } from "@/lib/onboarding/unified-onboarding-state";
 
 import { recomputeOnboardingForEmployeeAction } from "./onboarding-employee-actions";
@@ -68,7 +69,7 @@ export default function AdminOnboardingCommandCenter({ employeeId, employeeName,
             {busy ? "Recomputing…" : "Recompute status"}
           </button>
           <Link
-            href={`/admin/employees/${employeeId}#onboarding-section`}
+            href={employeeDetailAdminTabUrl(`/admin/employees/${employeeId}`, "overview")}
             className="inline-flex items-center justify-center rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-800 transition hover:bg-slate-50"
           >
             Jump to pipeline

@@ -4,8 +4,11 @@ import { revalidatePath } from "next/cache";
 
 import { supabaseAdmin } from "@/lib/admin";
 import { SMS_REMINDER_CREDENTIAL_TYPE_SET } from "@/lib/admin/credential-sms-constants";
-import { applicantRolePrimaryForCompliance } from "@/lib/applicant-role-for-compliance";
-import { getRequiredCredentialTypes, normalizeCredentialTypeKey } from "@/lib/admin/employee-directory-data";
+import {
+  applicantHasCredentialWithUploads,
+  normalizeCredentialTypeKey,
+  resolveRequiredCredentialTypesForApplicantRecord,
+} from "@/lib/admin/employee-directory-data";
 import {
   appendOutboundSmsToConversation,
   ensureSmsConversationForOutboundSystem,
@@ -98,7 +101,8 @@ function formatUsDate(isoYmd: string): string {
  */
 export function buildCredentialReminderTargets(
   requiredTypes: readonly string[],
-  credentials: Array<{ credential_type: string; expiration_date: string | null }>
+  credentials: Array<{ credential_type: string; expiration_date: string | null }>,
+  documentTypeSources?: Array<string | null | undefined> | null
 ): CredentialReminderTarget[] {
   const remind = SMS_REMINDER_CREDENTIAL_TYPE_SET;
   const out: CredentialReminderTarget[] = [];
@@ -107,6 +111,13 @@ export function buildCredentialReminderTargets(
     if (!remind.has(ct)) continue;
     const label = LABELS[ct] || ct.replace(/_/g, " ");
     const state = credentialStateLabel(ct, credentials);
+    if (
+      state === "Missing" &&
+      documentTypeSources &&
+      applicantHasCredentialWithUploads(ct, credentials, documentTypeSources)
+    ) {
+      continue;
+    }
     if (state === "Active") continue;
 
     const anchor = expirationAnchorFor(ct, credentials);
@@ -205,7 +216,7 @@ export async function prepareEmployeeCredentialReminderSend(
 
   const { data: applicant, error: appErr } = await supabaseAdmin
     .from("applicants")
-    .select("id, first_name, last_name, phone, position, primary_discipline, type_of_position")
+    .select("*")
     .eq("id", applicantId)
     .maybeSingle();
 
@@ -215,7 +226,7 @@ export async function prepareEmployeeCredentialReminderSend(
 
   const { data: contract } = await supabaseAdmin
     .from("employee_contracts")
-    .select("employment_classification")
+    .select("employment_classification, role_key")
     .eq("applicant_id", applicantId)
     .eq("is_current", true)
     .maybeSingle();
@@ -226,27 +237,33 @@ export async function prepareEmployeeCredentialReminderSend(
       ? contract.employment_classification
       : null;
 
-  const required = getRequiredCredentialTypes(
-    applicantRolePrimaryForCompliance({
-      position: applicant.position as string | null,
-      primary_discipline: applicant.primary_discipline as string | null,
-      type_of_position: applicant.type_of_position as string | null,
-    }),
+  const required = resolveRequiredCredentialTypesForApplicantRecord(
+    applicant,
+    contract,
     classification
   );
 
-  const { data: credRows, error: credErr } = await supabaseAdmin
-    .from("employee_credentials")
-    .select("credential_type, expiration_date")
-    .eq("employee_id", applicantId);
+  const [{ data: credRows, error: credErr }, { data: docsRaw }, { data: filesRaw }] =
+    await Promise.all([
+      supabaseAdmin
+        .from("employee_credentials")
+        .select("credential_type, expiration_date")
+        .eq("employee_id", applicantId),
+      supabaseAdmin.from("documents").select("document_type").eq("applicant_id", applicantId),
+      supabaseAdmin.from("applicant_files").select("document_type").eq("applicant_id", applicantId),
+    ]);
 
   if (credErr) {
     return { ok: false, applicantId, error: credErr.message };
   }
 
   const credentials = (credRows || []) as Array<{ credential_type: string; expiration_date: string | null }>;
+  const documentTypeSources = [
+    ...(docsRaw || []).map((d: { document_type?: string | null }) => d.document_type),
+    ...(filesRaw || []).map((f: { document_type?: string | null }) => f.document_type),
+  ];
 
-  let rawTargets = buildCredentialReminderTargets(required, credentials);
+  let rawTargets = buildCredentialReminderTargets(required, credentials, documentTypeSources);
   if (excludeMissing) {
     rawTargets = rawTargets.filter((t) => t.stage !== "missing");
   }
