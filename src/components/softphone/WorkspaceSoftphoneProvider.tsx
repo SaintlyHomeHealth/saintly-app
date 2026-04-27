@@ -9,7 +9,6 @@ import {
   type CallContextVoiceAi,
   type CallDeskContext,
   type OutboundCliSelection,
-  type OutboundLineInfo,
   type PostCallTranscriptSnapshot,
   type SoftphoneConferenceContext,
   type SoftphoneServerCapabilities,
@@ -17,6 +16,7 @@ import {
 } from "@/components/softphone/WorkspaceSoftphoneContext";
 
 import { formatPhoneNumber, normalizePhone } from "@/lib/phone/us-phone-format";
+import { parseOutboundLinesFromCapabilitiesPayload } from "@/lib/phone/softphone-outbound-lines";
 import type { ConferenceGatingSnapshot } from "@/lib/phone/conference-gating";
 import type { LiveTranscriptEntry } from "@/lib/phone/live-transcript-entries";
 import type { SoftphoneRecordingMeta } from "@/lib/twilio/softphone-recording-types";
@@ -125,27 +125,6 @@ type InboundAiAssistState = {
   contactName: string | null;
   subtitle: string | null;
 };
-
-/**
- * Client-side normalize for GET /api/workspace/phone/softphone-capabilities:
- * accept `outbound_lines` or `outboundLines`, and per-row `is_default` or `default`.
- * If parsing had relied only on `j.outbound_lines`, camelCase payloads produced no lines and the dialer hid "Call as".
- */
-function parseOutboundLinesFromCapabilitiesPayload(j: Record<string, unknown>): OutboundLineInfo[] | undefined {
-  const raw = j.outbound_lines ?? j.outboundLines;
-  if (!Array.isArray(raw)) return undefined;
-  const out: OutboundLineInfo[] = [];
-  for (const item of raw) {
-    if (!item || typeof item !== "object") continue;
-    const o = item as Record<string, unknown>;
-    const e164 = typeof o.e164 === "string" ? o.e164.trim() : "";
-    if (!e164) continue;
-    const label = typeof o.label === "string" && o.label.trim() ? o.label.trim() : "Line";
-    const is_default = Boolean(o.is_default ?? o.default);
-    out.push({ e164, label, is_default });
-  }
-  return out.length ? out : undefined;
-}
 
 const SAINTLY_INBOUND_DEBUG_PREFIX = "[SAINTLY-INBOUND-DEBUG]";
 

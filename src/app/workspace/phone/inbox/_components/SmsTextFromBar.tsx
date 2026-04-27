@@ -1,12 +1,16 @@
 "use client";
 
 import { Check, ChevronDown, MessageSquare } from "lucide-react";
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { useOptionalWorkspaceSoftphone } from "@/components/softphone/WorkspaceSoftphoneContext";
+import { selectDefaultOutboundSmsLine } from "@/lib/phone/select-default-outbound-sms-line";
+import { parseOutboundLinesFromCapabilitiesPayload } from "@/lib/phone/softphone-outbound-lines";
 import { formatPhoneNumber } from "@/lib/phone/us-phone-format";
 import {
   isSaintlyBackupSmsE164,
+  isSaintlyPrimarySmsE164,
+  SAINTLY_BACKUP_SMS_E164,
   SAINTLY_PRIMARY_SMS_E164,
 } from "@/lib/twilio/sms-from-numbers";
 
@@ -56,15 +60,40 @@ export const SmsTextFromBar = memo(function SmsTextFromBar({
   preferredFromExplicit,
 }: SmsTextFromBarProps) {
   const softphoneCtx = useOptionalWorkspaceSoftphone();
-  const lines = useMemo(
+  const ctxLines = useMemo(
     () => softphoneCtx?.softphoneCapabilities?.outbound_lines ?? [],
     [softphoneCtx]
   );
+  const [fetchedLines, setFetchedLines] = useState<
+    { e164: string; label: string; is_default: boolean }[]
+  >([]);
+
+  const effectiveLines = ctxLines.length > 0 ? ctxLines : fetchedLines;
 
   const [smsInfo, setSmsInfo] = useState<SmsOutboundInfo | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [picked, setPicked] = useState<{ scope: string | null; e164: string } | null>(null);
+  const ctxLinesLenRef = useRef(0);
+  useLayoutEffect(() => {
+    ctxLinesLenRef.current = ctxLines.length;
+  }, [ctxLines.length]);
+
+  useEffect(() => {
+    if (ctxLines.length > 0) return;
+    let cancelled = false;
+    void fetch("/api/workspace/phone/softphone-capabilities", { credentials: "include" })
+      .then(async (r) => {
+        if (!r.ok || cancelled) return;
+        const j = (await r.json()) as Record<string, unknown>;
+        const parsed = parseOutboundLinesFromCapabilitiesPayload(j);
+        if (!cancelled && ctxLinesLenRef.current === 0 && parsed?.length) setFetchedLines(parsed);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [ctxLines.length]);
 
   useEffect(() => {
     let cancelled = false;
@@ -85,17 +114,16 @@ export const SmsTextFromBar = memo(function SmsTextFromBar({
     };
   }, []);
 
-  const seedE164 = useMemo(() => {
-    const pref = preferredFromE164?.trim();
-    if (pref) {
-      if (isSaintlyBackupSmsE164(pref) && !preferredFromExplicit) {
-        /* stale auto-picked backup — use primary */
-      } else {
-        return pref;
-      }
-    }
-    return lines.find((l) => l.e164 === SAINTLY_PRIMARY_SMS_E164)?.e164 ?? SAINTLY_PRIMARY_SMS_E164;
-  }, [lines, preferredFromE164, preferredFromExplicit]);
+  const seedE164 = useMemo(
+    () =>
+      selectDefaultOutboundSmsLine({
+        lines: effectiveLines,
+        configuredPrimaryE164: SAINTLY_PRIMARY_SMS_E164,
+        preferredFromE164,
+        preferredFromExplicit,
+      }),
+    [effectiveLines, preferredFromE164, preferredFromExplicit]
+  );
 
   const activeE164 = picked?.scope === (lockScopeKey ?? null) ? picked.e164 : seedE164;
 
@@ -111,11 +139,14 @@ export const SmsTextFromBar = memo(function SmsTextFromBar({
   const maskedFallback = err ? "—" : (smsInfo?.outboundSenderMasked ?? "…");
 
   const displayLine = useMemo(() => {
-    if (lines.length === 0) return maskedFallback;
     if (!activeE164) return maskedFallback;
-    const line = lines.find((l) => l.e164 === activeE164);
-    return line ? `${line.label} · ${formatPhoneNumber(activeE164)}` : formatPhoneNumber(activeE164);
-  }, [lines, activeE164, maskedFallback]);
+    const digits = activeE164.replace(/\D/g, "");
+    const line = effectiveLines.find((l) => l.e164.replace(/\D/g, "") === digits);
+    if (line) return `${line.label} · ${formatPhoneNumber(activeE164)}`;
+    if (isSaintlyPrimarySmsE164(activeE164)) return `Main · ${formatPhoneNumber(SAINTLY_PRIMARY_SMS_E164)}`;
+    if (isSaintlyBackupSmsE164(activeE164)) return `Alternate · ${formatPhoneNumber(SAINTLY_BACKUP_SMS_E164)}`;
+    return formatPhoneNumber(activeE164);
+  }, [effectiveLines, activeE164, maskedFallback]);
 
   return (
     <div className={`flex w-full min-w-0 flex-col gap-0.5 text-[11px] text-slate-700 ${className}`.trim()}>
@@ -139,10 +170,11 @@ export const SmsTextFromBar = memo(function SmsTextFromBar({
       </button>
       {expanded ? (
         <div className="mt-0.5 rounded-lg border border-slate-200/40 bg-white px-2 pb-2 pt-1.5 shadow-sm">
-          {lines.length > 0 ? (
+          {effectiveLines.length > 0 ? (
             <div className="max-h-[min(36vh,240px)] space-y-0.5 overflow-y-auto overscroll-y-contain">
-              {lines.map((line) => {
-                const selected = activeE164 === line.e164;
+              {effectiveLines.map((line) => {
+                const selected =
+                  activeE164.replace(/\D/g, "") === line.e164.replace(/\D/g, "");
                 return (
                   <button
                     key={line.e164}

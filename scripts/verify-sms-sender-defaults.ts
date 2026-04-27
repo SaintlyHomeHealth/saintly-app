@@ -1,7 +1,7 @@
 /**
  * Verification (no Jest): constants, env normalization, and thread backup preference flag.
- * Run: `npm run verify:sms-senders` (Node 20+ with --experimental-strip-types) or
- *      `node --experimental-strip-types scripts/verify-sms-sender-defaults.mts`
+ * Run: `npm run verify:sms-senders` (uses `tsx` so `@/` imports resolve) or
+ *      `npx tsx scripts/verify-sms-sender-defaults.ts`
  *
  * Expected outcomes in production: Facebook intro, lead/workspace/admin replies, onboarding invite SMS,
  * staff/credential/temp password SMS, and patient/ops SMS all use `sendSms`, which defaults to
@@ -19,7 +19,8 @@ import {
   SAINTLY_PRIMARY_SMS_E164,
   resolveDefaultTwilioSmsFromOrMsid,
   shouldHonorThreadPreferredFromE164,
-} from "../src/lib/twilio/sms-from-numbers.ts";
+} from "../src/lib/twilio/sms-from-numbers";
+import { selectDefaultOutboundSmsLine } from "../src/lib/phone/select-default-outbound-sms-line";
 
 const primary = getPrimarySmsFromNumber();
 assert.equal(primary.e164, "+14803600008");
@@ -52,5 +53,45 @@ try {
 assert.equal(shouldHonorThreadPreferredFromE164("+14805712062", {}), false);
 assert.equal(shouldHonorThreadPreferredFromE164("+14805712062", { sms_outbound_from_explicit: true }), true);
 assert.equal(shouldHonorThreadPreferredFromE164("+14803600008", {}), true);
+
+const backupLine = { e164: SAINTLY_BACKUP_SMS_E164, label: "Alternate", is_default: false };
+const mainLine = { e164: SAINTLY_PRIMARY_SMS_E164, label: "Main", is_default: true };
+
+assert.equal(selectDefaultOutboundSmsLine({ lines: [] }), SAINTLY_PRIMARY_SMS_E164);
+assert.equal(
+  selectDefaultOutboundSmsLine({ lines: [backupLine, { ...mainLine, is_default: false }] }),
+  SAINTLY_PRIMARY_SMS_E164
+);
+assert.equal(selectDefaultOutboundSmsLine({ lines: [backupLine] }), SAINTLY_BACKUP_SMS_E164);
+assert.equal(
+  selectDefaultOutboundSmsLine({
+    lines: [backupLine, mainLine],
+    preferredFromE164: SAINTLY_BACKUP_SMS_E164,
+    preferredFromExplicit: false,
+  }),
+  SAINTLY_PRIMARY_SMS_E164
+);
+assert.equal(
+  selectDefaultOutboundSmsLine({
+    lines: [backupLine, mainLine],
+    preferredFromE164: SAINTLY_BACKUP_SMS_E164,
+    preferredFromExplicit: true,
+  }),
+  SAINTLY_BACKUP_SMS_E164
+);
+assert.equal(
+  selectDefaultOutboundSmsLine({
+    lines: [{ e164: "+15551234567", label: "Other", is_default: false }, backupLine],
+    configuredPrimaryE164: "+15551234567",
+  }),
+  "+15551234567"
+);
+assert.equal(
+  selectDefaultOutboundSmsLine({
+    lines: [backupLine, { e164: SAINTLY_PRIMARY_SMS_E164, label: "Scheduling", is_default: false }],
+    currentSelectedE164: SAINTLY_BACKUP_SMS_E164,
+  }),
+  SAINTLY_BACKUP_SMS_E164
+);
 
 console.log("verify-sms-sender-defaults: OK");
