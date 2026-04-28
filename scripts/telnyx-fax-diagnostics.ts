@@ -74,12 +74,15 @@ function readNestedString(record: TelnyxRecord, path: string[]): string | null {
 }
 
 function safeRecord(endpoint: DiagnosticEndpoint, record: TelnyxRecord) {
+  const webhookEventUrl = readString(record, ["webhook_event_url"]);
   return {
     id: readString(record, ["id"]),
     name: readString(record, ["application_name", "connection_name", "name"]),
     record_type: readString(record, ["record_type"]),
     product: endpoint.product,
     connection_type: readString(record, ["connection_type", "type"]) ?? readString(record, ["record_type"]),
+    webhook_event_url: webhookEventUrl,
+    webhook_points_to_fax_inbound: webhookEventUrl ? webhookEventUrl.includes("/api/fax/inbound") : null,
     active: typeof record.active === "boolean" ? record.active : null,
     outbound_voice_profile_id: readNestedString(record, ["outbound", "outbound_voice_profile_id"]),
     id_for_telnyx_fax_send: endpoint.idForFaxSend,
@@ -118,7 +121,7 @@ async function main() {
       {
         telnyx_api_key_configured: true,
         telnyx_fax_connection_id_configured: Boolean(configuredFaxConnectionId),
-        note: "Use the id from a record where record_type is fax_application for TELNYX_FAX_CONNECTION_ID.",
+        note: "Use the id from a record where record_type is fax_application for TELNYX_FAX_CONNECTION_ID. The Fax Application webhook_event_url should point to /api/fax/inbound for inbound fax receiving.",
       },
       null,
       2

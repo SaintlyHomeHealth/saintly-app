@@ -15,8 +15,8 @@ Set in deployment (e.g. Vercel) and locally in `.env.local`. Verify before relea
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Browser + SSR cookie client, middleware | Publishable anon key |
 | `SUPABASE_SERVICE_ROLE_KEY` | `supabaseAdmin` (`src/lib/admin.ts`), `create-compliance-events`, `generate-onboarding-pdf`, and other server-only admin operations | **Service role** — never expose to the client |
 | `TELNYX_API_KEY` | Admin Fax Center outbound fax send | Server-side Telnyx API key |
-| `TELNYX_FAX_CONNECTION_ID` | Admin Fax Center outbound fax send | Required Telnyx Programmable Fax Application ID. Get this from Telnyx Fax Applications, or run `npm run debug:telnyx-fax` and use a record with `record_type: fax_application`. Do not use SIP credential/IP/FQDN connection IDs. |
-| `TELNYX_FAX_WEBHOOK_SECRET` | Telnyx fax inbound/status webhooks | Optional shared secret; webhook routes allow unsigned requests if unset |
+| `TELNYX_FAX_CONNECTION_ID` | Admin Fax Center outbound fax send | Required Telnyx Programmable Fax Application ID. Get this from Telnyx Fax Applications, or run `npm run debug:telnyx-fax` and use a record with `record_type: fax_application`. Do not use SIP credential/IP/FQDN connection IDs. The Fax Application webhook URL should point inbound fax events to `/api/fax/inbound`. |
+| `TELNYX_FAX_WEBHOOK_SECRET` | Telnyx fax inbound/status webhooks | Optional shared secret; webhook routes allow unsigned requests if unset. If set, configure Telnyx to send the same value in `x-webhook-secret`, `x-telnyx-webhook-secret`, or `Authorization: Bearer ...`. |
 | `NOTIFICATION_ENQUEUE_SECRET` | `POST /api/notifications/enqueue-annual-reminders` | Optional for app boot; route returns **503** if unset |
 
 ---

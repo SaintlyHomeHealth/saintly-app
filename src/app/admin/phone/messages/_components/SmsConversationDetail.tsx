@@ -24,7 +24,10 @@ import { labelForContactType } from "@/lib/crm/contact-types";
 import { ADMIN_PHONE_DISPLAY_TIMEZONE, formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
 import { normalizeConversationLeadStatusForInsert } from "@/lib/phone/conversation-lead-status";
 import { extractSmsProviderStatusRaw, formatSmsOutboundDeliveryLabel } from "@/lib/phone/sms-delivery-ui";
-import { WORKSPACE_SMS_THREAD_INITIAL_MESSAGE_LIMIT } from "@/lib/phone/workspace-sms-thread-messages";
+import {
+  readWorkspaceSmsThreadFax,
+  WORKSPACE_SMS_THREAD_INITIAL_MESSAGE_LIMIT,
+} from "@/lib/phone/workspace-sms-thread-messages";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import { resolvePhoneDisplayIdentity } from "@/lib/phone/resolve-phone-display-identity";
 import {
@@ -577,6 +580,7 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
       created_at?: unknown;
       direction?: unknown;
       body?: unknown;
+      metadata?: unknown;
       phone_call_id?: unknown;
       message_type?: unknown;
     };
@@ -600,6 +604,7 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
       body: typeof row.body === "string" ? row.body : null,
       message_type: messageType,
       phone_call_id: phoneCallId,
+      fax: readWorkspaceSmsThreadFax(row.metadata),
       outbound_status_raw,
     };
   });

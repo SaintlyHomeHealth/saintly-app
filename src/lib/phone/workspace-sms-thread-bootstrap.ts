@@ -3,6 +3,7 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/admin";
 import { extractSmsProviderStatusRaw } from "@/lib/phone/sms-delivery-ui";
 import {
+  readWorkspaceSmsThreadFax,
   WORKSPACE_SMS_THREAD_INITIAL_MESSAGE_LIMIT,
   type WorkspaceSmsThreadMessage,
 } from "@/lib/phone/workspace-sms-thread-messages";
@@ -201,6 +202,7 @@ export async function loadWorkspaceSmsThreadBootstrap(
       created_at?: unknown;
       direction?: unknown;
       body?: unknown;
+      metadata?: unknown;
       phone_call_id?: unknown;
       message_type?: unknown;
     };
@@ -224,6 +226,7 @@ export async function loadWorkspaceSmsThreadBootstrap(
       body: typeof row.body === "string" ? row.body : null,
       message_type: messageType,
       phone_call_id: phoneCallId,
+      fax: readWorkspaceSmsThreadFax(row.metadata),
       outbound_status_raw,
     };
   });

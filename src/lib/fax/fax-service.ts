@@ -1,9 +1,11 @@
 import "server-only";
 
 import { supabaseAdmin } from "@/lib/admin";
+import { findContactByIncomingPhone } from "@/lib/crm/find-contact-by-incoming-phone";
 import { handleNewLeadCreated } from "@/lib/crm/post-create-lead-workflow";
 import { isMissingSchemaObjectError } from "@/lib/crm/supabase-migration-fallback";
 import { normalizeFaxNumberToE164, faxNumberSearchVariants } from "@/lib/fax/phone-numbers";
+import { ensureSmsConversationForPhone } from "@/lib/phone/sms-conversation-thread";
 
 export const FAX_DOCUMENTS_BUCKET = "fax-documents";
 export const SAINTLY_EXISTING_FAX_NUMBER = "+14803934119";
@@ -286,7 +288,89 @@ export async function recordFaxEvent(input: {
   });
 }
 
-export async function upsertInboundFaxFromWebhook(body: unknown): Promise<{ ok: boolean; faxId?: string; error?: string }> {
+async function linkInboundFaxToConversation(input: {
+  fax: ReturnType<typeof extractTelnyxFax>;
+  faxId: string;
+  storagePath: string | null;
+}): Promise<{ ok: true; conversationId: string; messageId: string | null } | { ok: false; error: string }> {
+  const fromNumber = input.fax.fromNumber;
+  if (!fromNumber) {
+    return { ok: false, error: "Missing inbound fax from number" };
+  }
+
+  const contact = await findContactByIncomingPhone(supabaseAdmin, fromNumber);
+  const conversation = await ensureSmsConversationForPhone(supabaseAdmin, fromNumber, contact, {
+    leadStatusOnCreate: "new",
+  });
+  if (!conversation.ok) {
+    return { ok: false, error: conversation.error };
+  }
+
+  const externalMessageSid = `telnyx_fax:${input.fax.telnyxFaxId ?? input.faxId}`;
+  const existing = await supabaseAdmin
+    .from("messages")
+    .select("id")
+    .eq("external_message_sid", externalMessageSid)
+    .maybeSingle();
+  if (existing.error) {
+    return { ok: false, error: existing.error.message };
+  }
+  if (existing.data?.id) {
+    return { ok: true, conversationId: conversation.conversationId, messageId: existing.data.id as string };
+  }
+
+  const createdAt = input.fax.receivedAt ?? new Date().toISOString();
+  const body = input.fax.pageCount
+    ? `Inbound fax received (${input.fax.pageCount} page${input.fax.pageCount === 1 ? "" : "s"}).`
+    : "Inbound fax received.";
+  const { data: message, error: messageError } = await supabaseAdmin
+    .from("messages")
+    .insert({
+      conversation_id: conversation.conversationId,
+      direction: "inbound",
+      body,
+      external_message_sid: externalMessageSid,
+      message_type: "fax",
+      created_at: createdAt,
+      metadata: {
+        source: "telnyx_fax",
+        inbound_from_e164: input.fax.fromNumber,
+        inbound_to_e164: input.fax.toNumber,
+        fax: {
+          fax_id: input.faxId,
+          telnyx_fax_id: input.fax.telnyxFaxId,
+          media_url: input.fax.mediaUrl,
+          storage_path: input.storagePath,
+        },
+      },
+    })
+    .select("id")
+    .single();
+
+  if (messageError) {
+    const code = messageError.code != null ? String(messageError.code) : "";
+    if (code === "23505") {
+      return { ok: true, conversationId: conversation.conversationId, messageId: null };
+    }
+    return { ok: false, error: messageError.message };
+  }
+
+  const { error: touchError } = await supabaseAdmin
+    .from("conversations")
+    .update({ last_message_at: createdAt, updated_at: new Date().toISOString() })
+    .eq("id", conversation.conversationId);
+  if (touchError) {
+    console.warn("[fax/inbound] conversation last_message_at:", touchError.message);
+  }
+
+  return {
+    ok: true,
+    conversationId: conversation.conversationId,
+    messageId: message?.id ? String(message.id) : null,
+  };
+}
+
+export async function upsertInboundFaxFromWebhook(body: unknown): Promise<{ ok: boolean; faxId?: string; conversationId?: string; error?: string }> {
   const fax = extractTelnyxFax(body);
   if (!fax.telnyxFaxId) {
     return { ok: false, error: "Missing Telnyx fax id" };
@@ -308,7 +392,7 @@ export async function upsertInboundFaxFromWebhook(body: unknown): Promise<{ ok: 
       {
         telnyx_fax_id: fax.telnyxFaxId,
         direction: "inbound",
-        status: normalizeFaxStatus(fax.status, "inbound"),
+        status: normalizeFaxStatus(fax.status, "inbound") === "failed" ? "failed" : "success",
         from_number: fax.fromNumber,
         to_number: fax.toNumber,
         media_url: fax.mediaUrl,
@@ -330,13 +414,37 @@ export async function upsertInboundFaxFromWebhook(body: unknown): Promise<{ ok: 
     return { ok: false, error: error?.message ?? "Fax upsert failed" };
   }
 
+  console.log("[fax/inbound] saved_to_db", {
+    fax_id: data.id,
+    telnyx_fax_id: fax.telnyxFaxId,
+    from_number: fax.fromNumber,
+    to_number: fax.toNumber,
+    media_url_exists: Boolean(fax.mediaUrl),
+  });
+
   await recordFaxEvent({
     faxMessageId: data.id as string,
     eventType: telnyxEventType(body),
     payload: body,
   });
 
-  return { ok: true, faxId: data.id as string };
+  const conversation = await linkInboundFaxToConversation({
+    fax,
+    faxId: data.id as string,
+    storagePath: upload.storagePath,
+  });
+  if (!conversation.ok) {
+    return { ok: false, faxId: data.id as string, error: conversation.error };
+  }
+
+  console.log("[fax/inbound] conversation_linked", {
+    fax_id: data.id,
+    telnyx_fax_id: fax.telnyxFaxId,
+    conversation_id: conversation.conversationId,
+    message_id: conversation.messageId,
+  });
+
+  return { ok: true, faxId: data.id as string, conversationId: conversation.conversationId };
 }
 
 export async function updateFaxFromStatusWebhook(body: unknown): Promise<{ ok: boolean; faxId?: string; error?: string }> {

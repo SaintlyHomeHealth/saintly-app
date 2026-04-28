@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { upsertInboundFaxFromWebhook } from "@/lib/fax/fax-service";
+import { extractTelnyxFax, upsertInboundFaxFromWebhook } from "@/lib/fax/fax-service";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,10 +28,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
+  const fax = extractTelnyxFax(body);
+  console.log("[fax/inbound] request_received", {
+    payload: body,
+    fax_id: fax.telnyxFaxId,
+    from_number: fax.fromNumber,
+    to_number: fax.toNumber,
+    media_url: fax.mediaUrl,
+  });
+
   const result = await upsertInboundFaxFromWebhook(body);
   if (!result.ok) {
     return NextResponse.json({ error: result.error ?? "Inbound fax processing failed" }, { status: 400 });
   }
 
-  return NextResponse.json({ ok: true, fax_id: result.faxId });
+  return NextResponse.json({ ok: true, fax_id: result.faxId, conversation_id: result.conversationId });
 }

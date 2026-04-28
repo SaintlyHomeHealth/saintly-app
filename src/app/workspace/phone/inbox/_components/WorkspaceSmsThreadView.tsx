@@ -20,6 +20,7 @@ import { formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
 import { extractSmsProviderStatusRaw, formatSmsOutboundDeliveryLabel } from "@/lib/phone/sms-delivery-ui";
 import {
   mergeThreadById,
+  readWorkspaceSmsThreadFax,
   WORKSPACE_SMS_THREAD_INITIAL_MESSAGE_LIMIT,
   type WorkspaceSmsThreadMessage,
 } from "@/lib/phone/workspace-sms-thread-messages";
@@ -73,6 +74,7 @@ function parseRealtimeMessage(row: unknown): ThreadMessage | null {
     body: typeof r.body === "string" ? r.body : null,
     message_type,
     phone_call_id,
+    fax: readWorkspaceSmsThreadFax(r.metadata),
     outbound_status_raw: raw,
   };
 }
@@ -92,6 +94,11 @@ const ThreadMessageRow = memo(
     const deliveryLabel = inbound
       ? null
       : formatSmsOutboundDeliveryLabel(m.outbound_status_raw ?? null, { isOptimistic: isPending });
+    const isFax = String(m.message_type ?? "").toLowerCase() === "fax" || Boolean(m.fax);
+    const faxHref = m.fax?.fax_id
+      ? `/admin/fax/${encodeURIComponent(m.fax.fax_id)}`
+      : m.fax?.media_url ?? null;
+    const faxLinkLabel = m.fax?.fax_id ? "Open fax" : "Open PDF";
 
     return (
       <div
@@ -107,6 +114,23 @@ const ThreadMessageRow = memo(
           }`}
         >
           <p className="whitespace-pre-wrap break-words">{String(m.body ?? "")}</p>
+          {isFax ? (
+            <div className={`mt-2 rounded-xl border px-3 py-2 text-sm ${inbound ? "border-slate-200 bg-slate-50" : "border-white/20 bg-white/10"}`}>
+              <p className={`text-xs font-bold uppercase tracking-wide ${inbound ? "text-slate-500" : "text-sky-50/90"}`}>
+                Fax
+              </p>
+              {faxHref ? (
+                <a
+                  href={faxHref}
+                  target={m.fax?.media_url && !m.fax?.fax_id ? "_blank" : undefined}
+                  rel={m.fax?.media_url && !m.fax?.fax_id ? "noreferrer" : undefined}
+                  className={`mt-1 inline-flex text-sm font-semibold underline-offset-2 hover:underline ${inbound ? "text-sky-800" : "text-white"}`}
+                >
+                  {faxLinkLabel}
+                </a>
+              ) : null}
+            </div>
+          ) : null}
         </div>
         <p
           className={`px-1 text-[10px] font-medium tabular-nums tracking-wide ${
@@ -126,6 +150,8 @@ const ThreadMessageRow = memo(
     prev.message.body === next.message.body &&
     (prev.message.message_type ?? null) === (next.message.message_type ?? null) &&
     (prev.message.phone_call_id ?? null) === (next.message.phone_call_id ?? null) &&
+    (prev.message.fax?.fax_id ?? null) === (next.message.fax?.fax_id ?? null) &&
+    (prev.message.fax?.media_url ?? null) === (next.message.fax?.media_url ?? null) &&
     (prev.message.outbound_status_raw ?? null) === (next.message.outbound_status_raw ?? null)
 );
 
@@ -326,6 +352,7 @@ const WorkspaceSmsThreadViewInner = memo(function WorkspaceSmsThreadViewInner({
             body: typeof row.body === "string" ? row.body : null,
             message_type,
             phone_call_id: pid,
+            fax: readWorkspaceSmsThreadFax((row as { metadata?: unknown }).metadata),
             outbound_status_raw,
           };
         });

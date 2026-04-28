@@ -10,6 +10,7 @@ export type WorkspaceSmsThreadMessage = {
   body: string | null;
   message_type?: string | null;
   phone_call_id?: string | null;
+  fax?: WorkspaceSmsThreadFax | null;
   /**
    * Lowercase Twilio/provider status (e.g. from `metadata.twilio_delivery.status`).
    * Omitted for inbound; used only for outbound delivery label.
@@ -17,7 +18,43 @@ export type WorkspaceSmsThreadMessage = {
   outbound_status_raw?: string | null;
 };
 
+export type WorkspaceSmsThreadFax = {
+  fax_id: string | null;
+  telnyx_fax_id: string | null;
+  media_url: string | null;
+  storage_path: string | null;
+};
+
 export const WORKSPACE_SMS_THREAD_INITIAL_MESSAGE_LIMIT = 50;
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+function readString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+export function readWorkspaceSmsThreadFax(metadata: unknown): WorkspaceSmsThreadFax | null {
+  const meta = asRecord(metadata);
+  const fax = asRecord(meta.fax ?? meta);
+  const result = {
+    fax_id: readString(fax.fax_id),
+    telnyx_fax_id: readString(fax.telnyx_fax_id),
+    media_url: readString(fax.media_url),
+    storage_path: readString(fax.storage_path),
+  };
+  return result.fax_id || result.telnyx_fax_id || result.media_url || result.storage_path ? result : null;
+}
+
+function sameFax(a: WorkspaceSmsThreadFax | null | undefined, b: WorkspaceSmsThreadFax | null | undefined): boolean {
+  return (
+    (a?.fax_id ?? null) === (b?.fax_id ?? null) &&
+    (a?.telnyx_fax_id ?? null) === (b?.telnyx_fax_id ?? null) &&
+    (a?.media_url ?? null) === (b?.media_url ?? null) &&
+    (a?.storage_path ?? null) === (b?.storage_path ?? null)
+  );
+}
 
 export function sameWorkspaceSmsThreadMessage(
   a: WorkspaceSmsThreadMessage,
@@ -30,6 +67,7 @@ export function sameWorkspaceSmsThreadMessage(
     a.body === b.body &&
     (a.message_type ?? null) === (b.message_type ?? null) &&
     (a.phone_call_id ?? null) === (b.phone_call_id ?? null) &&
+    sameFax(a.fax, b.fax) &&
     (a.outbound_status_raw ?? null) === (b.outbound_status_raw ?? null)
   );
 }
