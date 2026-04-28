@@ -4,6 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { CrmContactMatch } from "@/lib/crm/find-contact-by-incoming-phone";
 import { findContactByIncomingPhone } from "@/lib/crm/find-contact-by-incoming-phone";
+import { normalizeConversationLeadStatusForInsert } from "@/lib/phone/conversation-lead-status";
 import { phoneLookupCandidates } from "@/lib/crm/phone-lookup-candidates";
 import { refreshConversationLastMessageAt } from "@/lib/phone/sms-soft-delete";
 import { isValidE164, normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
@@ -185,11 +186,8 @@ export async function ensureSmsConversationForPhone(
     main_phone_e164: phone,
     primary_contact_id: contactId,
     metadata: meta,
+    lead_status: normalizeConversationLeadStatusForInsert(options?.leadStatusOnCreate ?? "new"),
   };
-
-  if (options?.leadStatusOnCreate) {
-    insertPayload.lead_status = options.leadStatusOnCreate;
-  }
 
   console.log("[ensure-sms-conversation] inserting conversation", {
     payloadKeys: Object.keys(insertPayload),
@@ -244,7 +242,7 @@ export async function ensureSmsConversationForOutboundSystem(
     options?.knownContactMatch ??
     (await findContactByIncomingPhone(supabase, mainPhoneE164));
   return ensureSmsConversationForPhone(supabase, mainPhoneE164, contact, {
-    leadStatusOnCreate: options?.leadStatusOnCreate ?? "unclassified",
+    leadStatusOnCreate: options?.leadStatusOnCreate ?? "new",
   });
 }
 

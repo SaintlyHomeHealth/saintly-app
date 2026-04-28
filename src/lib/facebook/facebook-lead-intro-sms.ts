@@ -167,7 +167,7 @@ async function sendIntroNow(
 
   const knownContact = await fetchCrmContactMatchById(supabase, contactId);
   const conv = await ensureSmsConversationForOutboundSystem(supabase, e164, {
-    leadStatusOnCreate: "new_lead",
+    leadStatusOnCreate: "new",
     knownContactMatch: knownContact,
   });
   if (!conv.ok) {

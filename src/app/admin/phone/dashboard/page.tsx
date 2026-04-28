@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { supabaseAdmin } from "@/lib/admin";
+import { conversationLeadStatusDisplayLabel } from "@/lib/phone/conversation-lead-status";
 import { ADMIN_PHONE_DISPLAY_TIMEZONE, formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
 import { getStaffProfile, hasFullCallVisibility, isPhoneWorkspaceUser } from "@/lib/staff-profile";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
@@ -38,21 +39,7 @@ function ymdInTz(d: Date): string {
 }
 
 function leadLabel(leadStatus: string | null | undefined): string {
-  switch (leadStatus) {
-    case "contacted":
-      return "Contacted";
-    case "scheduled":
-      return "Scheduled";
-    case "admitted":
-      return "Admitted";
-    case "not_qualified":
-      return "Not qualified";
-    case "unclassified":
-      return "Unclassified";
-    case "new_lead":
-    default:
-      return "New lead";
-  }
+  return conversationLeadStatusDisplayLabel(leadStatus);
 }
 
 export default async function AdminPhoneDashboardPage() {
@@ -98,12 +85,12 @@ export default async function AdminPhoneDashboardPage() {
   }
 
   // Pipeline summary (from conversations.lead_status)
-  const contactedCount = await countScopedConversations((q) => q.eq("lead_status", "contacted"));
+  const newLeadCount = await countScopedConversations((q) => q.eq("lead_status", "new"));
+  const spokeCount = await countScopedConversations((q) => q.eq("lead_status", "spoke"));
+  const verifyInsuranceCount = await countScopedConversations((q) => q.eq("lead_status", "verify_insurance"));
   const scheduledCount = await countScopedConversations((q) => q.eq("lead_status", "scheduled"));
   const admittedCount = await countScopedConversations((q) => q.eq("lead_status", "admitted"));
   const notQualifiedCount = await countScopedConversations((q) => q.eq("lead_status", "not_qualified"));
-
-  const newLeadCount = await countScopedConversations((q) => q.eq("lead_status", "new_lead"));
 
   // Follow-up summary (from follow_up_due_at / follow_up_completed_at)
   let dueCandidateRows: { follow_up_due_at: unknown; follow_up_completed_at: unknown }[] = [];
@@ -374,14 +361,18 @@ export default async function AdminPhoneDashboardPage() {
 
       <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         <h2 className="text-sm font-semibold text-slate-900">Pipeline summary</h2>
-        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
           <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-3">
-            <p className="text-xs font-semibold text-slate-600">New leads</p>
+            <p className="text-xs font-semibold text-slate-600">New</p>
             <p className="mt-1 text-2xl font-bold text-slate-900">{newLeadCount}</p>
           </div>
           <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
-            <p className="text-xs font-semibold text-amber-900">Contacted</p>
-            <p className="mt-1 text-2xl font-bold text-amber-950">{contactedCount}</p>
+            <p className="text-xs font-semibold text-amber-900">Spoke</p>
+            <p className="mt-1 text-2xl font-bold text-amber-950">{spokeCount}</p>
+          </div>
+          <div className="rounded-lg border border-violet-200 bg-violet-50 p-3">
+            <p className="text-xs font-semibold text-violet-900">Verify insurance</p>
+            <p className="mt-1 text-2xl font-bold text-violet-950">{verifyInsuranceCount}</p>
           </div>
           <div className="rounded-lg border border-sky-200 bg-sky-50 p-3">
             <p className="text-xs font-semibold text-sky-900">Scheduled</p>
@@ -499,7 +490,7 @@ export default async function AdminPhoneDashboardPage() {
 
                   const updatedAt = typeof c.updated_at === "string" ? c.updated_at : null;
                   const leadStatus =
-                    typeof c.lead_status === "string" ? c.lead_status : "unclassified";
+                    typeof c.lead_status === "string" ? c.lead_status : null;
 
                   return (
                     <div key={id} className="rounded-md bg-white p-2">
@@ -538,7 +529,7 @@ export default async function AdminPhoneDashboardPage() {
 
                   const updatedAt = typeof c.updated_at === "string" ? c.updated_at : null;
                   const leadStatus =
-                    typeof c.lead_status === "string" ? c.lead_status : "unclassified";
+                    typeof c.lead_status === "string" ? c.lead_status : null;
 
                   return (
                     <div key={id} className="rounded-md bg-white p-2">

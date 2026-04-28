@@ -1,5 +1,6 @@
 import { supabaseAdmin } from "@/lib/admin";
 import { phoneLookupCandidates } from "@/lib/crm/phone-lookup-candidates";
+import { normalizeConversationLeadStatusForInsert } from "@/lib/phone/conversation-lead-status";
 import { refreshConversationLastMessageAt } from "@/lib/phone/sms-soft-delete";
 
 import { pickOutboundE164ForDial } from "@/lib/workspace-phone/launch-urls";
@@ -144,6 +145,7 @@ export async function ensureSmsConversationForContact(contactId: string): Promis
       channel: "sms",
       primary_contact_id: cid,
       main_phone_e164: e164,
+      lead_status: normalizeConversationLeadStatusForInsert("new"),
       metadata: { provisioned_from: "workspace_sms_to_contact" },
     })
     .select("id")

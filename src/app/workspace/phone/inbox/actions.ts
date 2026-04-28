@@ -286,9 +286,8 @@ export async function sendWorkspaceNewSms(formData: FormData): Promise<Workspace
   const { e164, contact } = resolved;
 
   /**
-   * Same as inbound SMS (`applyInboundTwilioSms`): omit `leadStatusOnCreate` so `lead_status` uses the
-   * column default (`new_lead`). Do not use `unclassified` here — DBs that have not applied migration
-   * `20260330160000_conversations_lead_status_unclassified.sql` reject that value on insert.
+   * Same as inbound SMS (`applyInboundTwilioSms`): `ensureSmsConversationForPhone` always persists a
+   * normalized `lead_status` (defaults to `new`). See `normalizeConversationLeadStatusForInsert`.
    */
   const ensured = await ensureSmsConversationForPhone(supabaseAdmin, e164, contact);
 

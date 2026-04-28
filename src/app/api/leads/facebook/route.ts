@@ -34,7 +34,7 @@ function coerceWebhookPhoneRaw(value: unknown): string {
  *
  * - POST JSON: `name`, `phone`, `email`, `zip`, `notes`, `medicare`, `service`, `source`, `campaign` (extras ignored).
  * - Auth: header `x-webhook-secret` must match env `FACEBOOK_LEADS_WEBHOOK_SECRET` (same as `/api/integrations/facebook-leads`).
- * - `leads.source` = `facebook_ads`; intro SMS sets `conversations.lead_status` = `new_lead`.
+ * - `leads.source` = `facebook_ads`; intro SMS creates the thread with `conversations.lead_status` = `new`.
  */
 export async function POST(req: NextRequest) {
   const envRaw = process.env.FACEBOOK_LEADS_WEBHOOK_SECRET;

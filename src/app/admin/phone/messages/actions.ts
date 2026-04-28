@@ -351,11 +351,11 @@ export async function updateConversationLeadStatus(formData: FormData): Promise<
     return { ok: false, error: error.message || "Could not update lead status." };
   }
 
-  const zapierStatuses = new Set(["contacted", "scheduled", "admitted"]);
+  const zapierStatuses = new Set(["spoke", "scheduled", "admitted"]);
   if (zapierStatuses.has(leadStatus) && prevStatus !== leadStatus) {
     const contact = await loadContactForZapierByConversation(row.primary_contact_id, row.main_phone_e164);
     const statusForZapier =
-      leadStatus === "contacted" ? "spoke" : leadStatus === "scheduled" ? "scheduled" : "admitted";
+      leadStatus === "spoke" ? "spoke" : leadStatus === "scheduled" ? "scheduled" : "admitted";
     notifyZapierLeadStatus({
       email: contact.email,
       phone: contact.phone,

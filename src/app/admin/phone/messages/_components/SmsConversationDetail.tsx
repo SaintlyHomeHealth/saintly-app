@@ -22,6 +22,7 @@ import { supabaseAdmin } from "@/lib/admin";
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { labelForContactType } from "@/lib/crm/contact-types";
 import { ADMIN_PHONE_DISPLAY_TIMEZONE, formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
+import { normalizeConversationLeadStatusForInsert } from "@/lib/phone/conversation-lead-status";
 import { extractSmsProviderStatusRaw, formatSmsOutboundDeliveryLabel } from "@/lib/phone/sms-delivery-ui";
 import { WORKSPACE_SMS_THREAD_INITIAL_MESSAGE_LIMIT } from "@/lib/phone/workspace-sms-thread-messages";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
@@ -423,10 +424,7 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
     !Array.isArray(conv.metadata) &&
     (conv.metadata as Record<string, unknown>).unknown_texter === true;
 
-  const leadStatus =
-    typeof conv.lead_status === "string" && conv.lead_status.trim()
-      ? conv.lead_status
-      : "unclassified";
+  const leadStatus = normalizeConversationLeadStatusForInsert(conv.lead_status);
 
   const mainE164 = typeof conv.main_phone_e164 === "string" ? conv.main_phone_e164.trim() : "";
   const primaryContactId =
@@ -522,10 +520,16 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
 
   const leadBadge = (() => {
     switch (leadStatus) {
-      case "contacted":
+      case "spoke":
         return (
           <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-900">
-            Contacted
+            Spoke
+          </span>
+        );
+      case "verify_insurance":
+        return (
+          <span className="inline-flex items-center rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[11px] font-semibold text-violet-900">
+            Verify insurance
           </span>
         );
       case "scheduled":
@@ -546,17 +550,11 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
             Not qualified
           </span>
         );
-      case "unclassified":
-        return (
-          <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-semibold text-slate-700">
-            Unclassified
-          </span>
-        );
-      case "new_lead":
+      case "new":
       default:
         return (
           <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-semibold text-slate-700">
-            New lead
+            New
           </span>
         );
     }
@@ -812,9 +810,9 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
                   required
                   className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-sm text-slate-900"
                 >
-                  <option value="unclassified">Unclassified</option>
-                  <option value="new_lead">New lead</option>
-                  <option value="contacted">Contacted</option>
+                  <option value="new">New</option>
+                  <option value="spoke">Spoke</option>
+                  <option value="verify_insurance">Verify insurance</option>
                   <option value="scheduled">Scheduled</option>
                   <option value="admitted">Admitted</option>
                   <option value="not_qualified">Not qualified</option>

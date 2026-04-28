@@ -2,6 +2,9 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { supabaseAdmin } from "@/lib/admin";
+import {
+  normalizeConversationLeadStatusForInsert,
+} from "@/lib/phone/conversation-lead-status";
 import { ADMIN_PHONE_DISPLAY_TIMEZONE, formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
 import {
   getStaffProfile,
@@ -69,6 +72,17 @@ function ymdInTz(d: Date): string {
   return `${get("year")}-${get("month")}-${get("day")}`;
 }
 
+const LEGACY_SMS_INBOX_FILTERS: Record<string, string> = {
+  new_lead: "new",
+  contacted: "spoke",
+};
+
+function normalizeSmsInboxFilterParam(raw: string): string {
+  const t = raw.trim();
+  if (!t || t === "all") return "all";
+  return LEGACY_SMS_INBOX_FILTERS[t] ?? t;
+}
+
 type PageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
@@ -90,15 +104,16 @@ export default async function AdminSmsInboxPage({ searchParams }: PageProps) {
     : await createServerSupabaseClient();
 
   const sp = (await searchParams) ?? {};
-  const filterRaw = typeof sp.filter === "string" ? sp.filter.trim() : "all";
+  const filterRaw = normalizeSmsInboxFilterParam(typeof sp.filter === "string" ? sp.filter : "");
   const filter =
     filterRaw === "all" ||
     filterRaw === "mine" ||
     filterRaw === "unassigned" ||
     filterRaw === "overdue" ||
     filterRaw === "due_today" ||
-    filterRaw === "new_lead" ||
-    filterRaw === "contacted" ||
+    filterRaw === "new" ||
+    filterRaw === "spoke" ||
+    filterRaw === "verify_insurance" ||
     filterRaw === "scheduled" ||
     filterRaw === "admitted" ||
     filterRaw === "not_qualified" ||
@@ -143,8 +158,7 @@ export default async function AdminSmsInboxPage({ searchParams }: PageProps) {
   if (filter !== "all") {
     rows = rows.filter((r) => {
       const assignedTo = r.assigned_to_user_id as string | null;
-      const leadStatus =
-        typeof r.lead_status === "string" && r.lead_status.trim() ? r.lead_status : "unclassified";
+      const leadStatus = normalizeConversationLeadStatusForInsert(r.lead_status);
       const dueIso =
         typeof r.follow_up_due_at === "string" && r.follow_up_due_at.trim()
           ? r.follow_up_due_at
@@ -170,10 +184,12 @@ export default async function AdminSmsInboxPage({ searchParams }: PageProps) {
           return completedAt == null && dueValid && due!.getTime() >= now.getTime();
         case "completed_followup":
           return completedAt != null;
-        case "new_lead":
-          return leadStatus === "new_lead";
-        case "contacted":
-          return leadStatus === "contacted";
+        case "new":
+          return leadStatus === "new";
+        case "spoke":
+          return leadStatus === "spoke";
+        case "verify_insurance":
+          return leadStatus === "verify_insurance";
         case "scheduled":
           return leadStatus === "scheduled";
         case "admitted":
@@ -297,8 +313,9 @@ export default async function AdminSmsInboxPage({ searchParams }: PageProps) {
             <option value="unassigned">Unassigned</option>
             <option value="overdue">Overdue</option>
             <option value="due_today">Due today</option>
-            <option value="new_lead">New leads</option>
-            <option value="contacted">Contacted</option>
+            <option value="new">New</option>
+            <option value="spoke">Spoke</option>
+            <option value="verify_insurance">Verify insurance</option>
             <option value="scheduled">Scheduled</option>
             <option value="admitted">Admitted</option>
             <option value="not_qualified">Not qualified</option>
@@ -352,8 +369,7 @@ export default async function AdminSmsInboxPage({ searchParams }: PageProps) {
                   : unknown
                     ? `Unknown · ${phone}`
                     : phone;
-                const leadStatus =
-                  typeof raw.lead_status === "string" && raw.lead_status.trim() ? raw.lead_status : "unclassified";
+                const leadCanon = normalizeConversationLeadStatusForInsert(raw.lead_status);
                 const dueIso =
                   typeof raw.follow_up_due_at === "string" && raw.follow_up_due_at.trim()
                     ? raw.follow_up_due_at
@@ -365,11 +381,17 @@ export default async function AdminSmsInboxPage({ searchParams }: PageProps) {
                 const now = new Date();
                 const nowKey = ymdInTz(now);
                 const leadBadge = (() => {
-                  switch (leadStatus) {
-                    case "contacted":
+                  switch (leadCanon) {
+                    case "spoke":
                       return (
                         <span className="ml-2 inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-900">
-                          Contacted
+                          Spoke
+                        </span>
+                      );
+                    case "verify_insurance":
+                      return (
+                        <span className="ml-2 inline-flex items-center rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[11px] font-semibold text-violet-900">
+                          Verify insurance
                         </span>
                       );
                     case "scheduled":
@@ -390,13 +412,7 @@ export default async function AdminSmsInboxPage({ searchParams }: PageProps) {
                           Not qualified
                         </span>
                       );
-                    case "unclassified":
-                      return (
-                        <span className="ml-2 inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-semibold text-slate-700">
-                          Unclassified
-                        </span>
-                      );
-                    case "new_lead":
+                    case "new":
                     default:
                       return (
                         <span className="ml-2 inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-semibold text-slate-700">

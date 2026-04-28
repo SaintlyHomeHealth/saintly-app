@@ -1,4 +1,5 @@
 import { formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
+import { conversationLeadStatusDisplayLabel } from "@/lib/phone/conversation-lead-status";
 
 export type ContactAddressFields = {
   address_line_1?: string | null;
@@ -36,10 +37,7 @@ export function displayNameFromContact(
 }
 
 export function leadChipLabel(raw: unknown): string {
-  const v = typeof raw === "string" ? raw.trim() : "";
-  if (!v) return "Unclassified";
-  if (v === "new_lead") return "New lead";
-  return v.replace(/_/g, " ");
+  return conversationLeadStatusDisplayLabel(typeof raw === "string" ? raw : null);
 }
 
 export { formatAdminPhoneWhen };

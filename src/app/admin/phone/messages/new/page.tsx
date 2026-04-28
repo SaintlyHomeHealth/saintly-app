@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 
 import { supabaseAdmin } from "@/lib/admin";
+import { normalizeConversationLeadStatusForInsert } from "@/lib/phone/conversation-lead-status";
 import { isValidE164 } from "@/lib/softphone/phone-number";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 
@@ -46,6 +47,7 @@ export default async function AdminNewSmsFromPhonePage({ searchParams }: PagePro
     .insert({
       channel: "sms",
       main_phone_e164: raw,
+      lead_status: normalizeConversationLeadStatusForInsert("new"),
       metadata: { provisioned_from: "admin_employee_directory" },
     })
     .select("id")
