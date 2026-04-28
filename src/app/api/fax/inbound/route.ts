@@ -16,6 +16,25 @@ function isAuthorized(req: NextRequest): boolean {
   return headerSecret === sharedSecret || bearer === sharedSecret;
 }
 
+function inboundFaxPayloadSummary(body: unknown) {
+  const fax = extractTelnyxFax(body);
+  return {
+    fax_id: fax.telnyxFaxId,
+    from_number: fax.fromNumber,
+    to_number: fax.toNumber,
+    media_url_exists: Boolean(fax.mediaUrl),
+  };
+}
+
+function inboundFaxErrorResponse(message: string) {
+  return NextResponse.json(
+    {
+      error: process.env.NODE_ENV === "production" ? "Inbound fax processing failed" : message,
+    },
+    { status: 500 }
+  );
+}
+
 export async function POST(req: NextRequest) {
   if (!isAuthorized(req)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -37,10 +56,25 @@ export async function POST(req: NextRequest) {
     media_url: fax.mediaUrl,
   });
 
-  const result = await upsertInboundFaxFromWebhook(body);
-  if (!result.ok) {
-    return NextResponse.json({ error: result.error ?? "Inbound fax processing failed" }, { status: 400 });
-  }
+  try {
+    const result = await upsertInboundFaxFromWebhook(body);
+    if (!result.ok) {
+      const message = result.error ?? "Inbound fax processing failed";
+      console.error("[fax/inbound] error", {
+        error: message,
+        payloadSummary: inboundFaxPayloadSummary(body),
+      });
+      return inboundFaxErrorResponse(message);
+    }
 
-  return NextResponse.json({ ok: true, fax_id: result.faxId, conversation_id: result.conversationId });
+    return NextResponse.json({ ok: true, fax_id: result.faxId, conversation_id: result.conversationId });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Inbound fax processing failed";
+    console.error("[fax/inbound] error", {
+      error: message,
+      stack: err instanceof Error ? err.stack : null,
+      payloadSummary: inboundFaxPayloadSummary(body),
+    });
+    return inboundFaxErrorResponse(message);
+  }
 }

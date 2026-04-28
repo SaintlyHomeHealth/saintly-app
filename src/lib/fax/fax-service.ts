@@ -313,6 +313,13 @@ async function linkInboundFaxToConversation(input: {
     .eq("external_message_sid", externalMessageSid)
     .maybeSingle();
   if (existing.error) {
+    console.error("[fax/inbound] messages lookup failed", {
+      error: existing.error.message,
+      code: existing.error.code,
+      fax_id: input.faxId,
+      telnyx_fax_id: input.fax.telnyxFaxId,
+      conversation_id: conversation.conversationId,
+    });
     return { ok: false, error: existing.error.message };
   }
   if (existing.data?.id) {
@@ -352,6 +359,17 @@ async function linkInboundFaxToConversation(input: {
     if (code === "23505") {
       return { ok: true, conversationId: conversation.conversationId, messageId: null };
     }
+    console.error("[fax/inbound] messages insert failed", {
+      error: messageError.message,
+      code: messageError.code,
+      details: messageError.details,
+      hint: messageError.hint,
+      fax_id: input.faxId,
+      telnyx_fax_id: input.fax.telnyxFaxId,
+      conversation_id: conversation.conversationId,
+      message_type: "fax",
+      metadataKeys: ["source", "inbound_from_e164", "inbound_to_e164", "fax"],
+    });
     return { ok: false, error: messageError.message };
   }
 
