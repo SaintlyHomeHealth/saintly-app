@@ -24,7 +24,7 @@ const VALID_CATEGORIES = new Set<FaxCategory>([
 const TELNYX_FAX_ENDPOINT = "https://api.telnyx.com/v2/faxes";
 // Fax setup env:
 // - TELNYX_API_KEY
-// - TELNYX_FAX_CONNECTION_ID
+// - TELNYX_FAX_CONNECTION_ID: Telnyx Programmable Fax Application id from /v2/fax_applications.
 // - TELNYX_FAX_WEBHOOK_SECRET (optional, used by inbound/status webhook routes)
 
 type SendFaxInput = {
