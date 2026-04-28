@@ -6,7 +6,7 @@ import { isMissingSchemaObjectError } from "@/lib/crm/supabase-migration-fallbac
 import { normalizeFaxNumberToE164, faxNumberSearchVariants } from "@/lib/fax/phone-numbers";
 
 export const FAX_DOCUMENTS_BUCKET = "fax-documents";
-export const SAINTLY_EXISTING_FAX_NUMBER = "+14808087157";
+export const SAINTLY_EXISTING_FAX_NUMBER = "+14803934119";
 
 export type FaxCategory = "referral" | "orders" | "signed_docs" | "insurance" | "marketing" | "misc";
 export type FaxPriority = "normal" | "urgent";

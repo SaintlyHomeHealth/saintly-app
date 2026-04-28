@@ -154,7 +154,7 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
               Review unread
             </Link>
             <span className="rounded-[20px] border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm">
-              Saintly fax: {formatPhoneForDisplay("+14808087157")}
+              Saintly fax: {formatPhoneForDisplay("+14803934119")}
             </span>
           </div>
         }
