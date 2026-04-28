@@ -16,6 +16,8 @@ import { missingFaxSchema, type FaxMessageRow } from "@/lib/fax/fax-service";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 
+import { SendFaxButton } from "./_components/SendFaxButton";
+
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
 const CATEGORIES = [
@@ -150,6 +152,7 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
         description="Inbound referrals, orders, signatures, and fax history."
         actions={
           <div className="flex flex-wrap gap-2">
+            <SendFaxButton />
             <Link href="/admin/fax?tab=inbox&unread=1" className={crmPrimaryCtaCls}>
               Review unread
             </Link>

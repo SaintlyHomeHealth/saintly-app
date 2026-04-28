@@ -176,8 +176,8 @@ async function parseInput(req: NextRequest): Promise<SendFaxInput> {
 
   const json = (await req.json()) as Record<string, unknown>;
   return {
-    to_number: textOrNull(json.to_number),
-    from_number: textOrNull(json.from_number),
+    to_number: textOrNull(json.to_number ?? json.to),
+    from_number: textOrNull(json.from_number ?? json.from),
     media_url: textOrNull(json.media_url ?? json.pdf_url),
     storage_path: textOrNull(json.storage_path),
     file: null,
