@@ -22,6 +22,10 @@ const VALID_CATEGORIES = new Set<FaxCategory>([
   "misc",
 ]);
 const TELNYX_FAX_ENDPOINT = "https://api.telnyx.com/v2/faxes";
+// Fax setup env:
+// - TELNYX_API_KEY
+// - TELNYX_FAX_CONNECTION_ID
+// - TELNYX_FAX_WEBHOOK_SECRET (optional, used by inbound/status webhook routes)
 
 type SendFaxInput = {
   to_number: string | null;
@@ -53,6 +57,7 @@ type OutboundFaxDebug = {
   telnyx_error_code?: string | null;
   telnyx_error_message?: string | null;
   telnyx_api_key_configured?: boolean;
+  connection_id_configured?: boolean;
 };
 
 class TelnyxFaxError extends Error {
@@ -108,6 +113,7 @@ function logOutboundFaxDebug(event: string, debug: OutboundFaxDebug) {
     telnyx_error_code: debug.telnyx_error_code ?? null,
     telnyx_error_message: safeDebugMessage(debug.telnyx_error_message),
     telnyx_api_key_configured: debug.telnyx_api_key_configured,
+    connection_id_configured: debug.connection_id_configured,
   });
 }
 
@@ -219,12 +225,18 @@ async function resolveMediaUrl(input: SendFaxInput, faxMessageId: string): Promi
 }
 
 function telnyxApiKey(): string {
-  const key = process.env.TELNYX_API_KEY;
+  const key = process.env.TELNYX_API_KEY?.trim();
   if (!key) throw new Error("Telnyx API key is not configured.");
   return key;
 }
 
-async function callTelnyxSendFax(input: { to: string; from: string; mediaUrl: string }) {
+function telnyxFaxConnectionId(): string {
+  const connectionId = process.env.TELNYX_FAX_CONNECTION_ID?.trim();
+  if (!connectionId) throw new Error("TELNYX_FAX_CONNECTION_ID is not configured.");
+  return connectionId;
+}
+
+async function callTelnyxSendFax(input: { to: string; from: string; mediaUrl: string; connectionId: string }) {
   const res = await fetch(TELNYX_FAX_ENDPOINT, {
     method: "POST",
     headers: {
@@ -235,6 +247,7 @@ async function callTelnyxSendFax(input: { to: string; from: string; mediaUrl: st
       to: input.to,
       from: input.from,
       media_url: input.mediaUrl,
+      connection_id: input.connectionId,
       webhook_url: "https://www.appsaintlyhomehealth.com/api/fax/status",
     }),
   });
@@ -286,11 +299,23 @@ export async function POST(req: NextRequest) {
     to_number: toNumber,
     media_url_exists: Boolean(input.media_url),
     storage_path_exists: Boolean(input.storage_path),
-    telnyx_api_key_configured: Boolean(process.env.TELNYX_API_KEY),
+    telnyx_api_key_configured: Boolean(process.env.TELNYX_API_KEY?.trim()),
+    connection_id_configured: Boolean(process.env.TELNYX_FAX_CONNECTION_ID?.trim()),
   };
   logOutboundFaxDebug("request_received", baseDebug);
   if (!toNumber) {
     return NextResponse.json({ error: "Enter a valid destination fax number." }, { status: 400 });
+  }
+  let connectionId: string;
+  try {
+    connectionId = telnyxFaxConnectionId();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "TELNYX_FAX_CONNECTION_ID is not configured.";
+    logOutboundFaxDebug("configuration_error", {
+      ...baseDebug,
+      telnyx_error_message: message,
+    });
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 
   const { data: faxRow, error: insertError } = await supabaseAdmin
@@ -323,7 +348,12 @@ export async function POST(req: NextRequest) {
       media_url_exists: Boolean(resolved.mediaUrl),
       storage_path_exists: Boolean(resolved.storagePath),
     });
-    const telnyx = await callTelnyxSendFax({ to: toNumber, from: fromNumber, mediaUrl: resolved.mediaUrl });
+    const telnyx = await callTelnyxSendFax({
+      to: toNumber,
+      from: fromNumber,
+      mediaUrl: resolved.mediaUrl,
+      connectionId,
+    });
     logOutboundFaxDebug("telnyx_response", {
       ...baseDebug,
       media_url_exists: Boolean(resolved.mediaUrl),
