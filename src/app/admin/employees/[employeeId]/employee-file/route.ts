@@ -20,7 +20,14 @@ type SupportedDocumentType =
   | "employment_contract"
   | "tax"
   | "training"
-  | "application";
+  | "application"
+  | "employee_handbook"
+  | "job_acceptance"
+  | "i9"
+  | "conflict_of_interest"
+  | "electronic_signature_agreement"
+  | "hepatitis_b_declination"
+  | "tb_risk_assessment";
 
 type ApplicantRow = {
   id: string;
@@ -40,12 +47,80 @@ type ApplicantRow = {
 type OnboardingContractRow = {
   selected_role?: string | null;
   role_title?: string | null;
+  role_description?: string | null;
   completed?: boolean | null;
   signed_at?: string | null;
   handbook_acknowledged?: boolean | null;
   job_description_acknowledged?: boolean | null;
   policies_acknowledged?: boolean | null;
   electronic_signature?: string | null;
+  job_acceptance_acknowledged?: boolean | null;
+  job_acceptance_full_name?: string | null;
+  job_acceptance_signed_at?: string | null;
+  i9_s1_last_name?: string | null;
+  i9_s1_first_name?: string | null;
+  i9_s1_middle_initial?: string | null;
+  i9_s1_other_last_names?: string | null;
+  i9_s1_street_address?: string | null;
+  i9_s1_apt_number?: string | null;
+  i9_s1_city?: string | null;
+  i9_s1_state?: string | null;
+  i9_s1_zip_code?: string | null;
+  i9_s1_dob?: string | null;
+  i9_s1_ssn?: string | null;
+  i9_s1_email?: string | null;
+  i9_s1_phone?: string | null;
+  i9_s1_attest_status?: string | null;
+  i9_s1_lpr_a_number?: string | null;
+  i9_s1_alien_work_until?: string | null;
+  i9_s1_alien_id_type?: string | null;
+  i9_s1_alien_a_number?: string | null;
+  i9_s1_i94_number?: string | null;
+  i9_s1_foreign_passport_number?: string | null;
+  i9_s1_passport_country?: string | null;
+  i9_s1_prep_used?: boolean | null;
+  i9_s1_prep_full_name?: string | null;
+  i9_s1_prep_street?: string | null;
+  i9_s1_prep_city?: string | null;
+  i9_s1_prep_state?: string | null;
+  i9_s1_prep_zip?: string | null;
+  i9_s1_employee_ack?: boolean | null;
+  i9_s1_employee_full_name?: string | null;
+  i9_s1_signed_at?: string | null;
+  conflict_confidentiality_acknowledged?: boolean | null;
+  conflict_confidentiality_disclosure?: string | null;
+  conflict_confidentiality_full_name?: string | null;
+  conflict_confidentiality_signed_at?: string | null;
+  electronic_signature_agreement_acknowledged?: boolean | null;
+  electronic_signature_agreement_full_name?: string | null;
+  electronic_signature_agreement_signed_at?: string | null;
+  hep_b_declination_acknowledged?: boolean | null;
+  hep_b_declination_full_name?: string | null;
+  hep_b_declination_signed_at?: string | null;
+  tb_history_positive_test_or_infection?: boolean | null;
+  tb_history_bcg_vaccine?: boolean | null;
+  tb_symptom_prolonged_recurrent_fever?: boolean | null;
+  tb_symptom_recent_weight_loss?: boolean | null;
+  tb_symptom_chronic_cough?: boolean | null;
+  tb_symptom_coughing_blood?: boolean | null;
+  tb_symptom_night_sweats?: boolean | null;
+  tb_risk_silicosis?: boolean | null;
+  tb_risk_gastrectomy?: boolean | null;
+  tb_risk_intestinal_bypass?: boolean | null;
+  tb_risk_weight_10_percent_below_ideal?: boolean | null;
+  tb_risk_chronic_renal_disease?: boolean | null;
+  tb_risk_diabetes_mellitus?: boolean | null;
+  tb_risk_steroid_or_immunosuppressive_therapy?: boolean | null;
+  tb_risk_hematologic_disorder?: boolean | null;
+  tb_risk_exposure_to_hiv_or_aids?: boolean | null;
+  tb_risk_other_malignancies?: boolean | null;
+  tb_baseline_residence_high_tb_country?: boolean | null;
+  tb_baseline_current_or_planned_immunosuppression?: boolean | null;
+  tb_baseline_close_contact_with_infectious_tb?: boolean | null;
+  tb_additional_comments?: string | null;
+  tb_acknowledged?: boolean | null;
+  tb_full_name?: string | null;
+  tb_signed_at?: string | null;
   created_at?: string | null;
 };
 
@@ -130,7 +205,14 @@ function getDocumentType(value: string | null): SupportedDocumentType {
     value === "employment_contract" ||
     value === "tax" ||
     value === "training" ||
-    value === "application"
+    value === "application" ||
+    value === "employee_handbook" ||
+    value === "job_acceptance" ||
+    value === "i9" ||
+    value === "conflict_of_interest" ||
+    value === "electronic_signature_agreement" ||
+    value === "hepatitis_b_declination" ||
+    value === "tb_risk_assessment"
   ) {
     return value;
   }
@@ -207,6 +289,24 @@ function getBinaryStatusLabel(isCompleted: boolean) {
   return isCompleted ? "[Completed]" : "[Missing]";
 }
 
+function parseRoleDescriptionLines(value?: string | null) {
+  if (!value?.trim()) return [] as string[];
+
+  try {
+    const parsed = JSON.parse(value);
+    if (Array.isArray(parsed)) {
+      return parsed.map((item) => String(item || "").trim()).filter(Boolean);
+    }
+  } catch {
+    return value
+      .split(/\n+/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+  }
+
+  return [];
+}
+
 function isComplianceEventCompleted(event: ComplianceEventRow) {
   const normalizedStatus = (event.status || "").trim().toLowerCase();
 
@@ -277,7 +377,7 @@ export async function GET(
       supabaseAdmin
         .from("onboarding_contracts")
         .select(
-          "selected_role, role_title, completed, signed_at, handbook_acknowledged, job_description_acknowledged, policies_acknowledged, electronic_signature, created_at"
+          "selected_role, role_title, role_description, completed, signed_at, handbook_acknowledged, job_description_acknowledged, policies_acknowledged, electronic_signature, job_acceptance_acknowledged, job_acceptance_full_name, job_acceptance_signed_at, i9_s1_last_name, i9_s1_first_name, i9_s1_middle_initial, i9_s1_other_last_names, i9_s1_street_address, i9_s1_apt_number, i9_s1_city, i9_s1_state, i9_s1_zip_code, i9_s1_dob, i9_s1_ssn, i9_s1_email, i9_s1_phone, i9_s1_attest_status, i9_s1_lpr_a_number, i9_s1_alien_work_until, i9_s1_alien_id_type, i9_s1_alien_a_number, i9_s1_i94_number, i9_s1_foreign_passport_number, i9_s1_passport_country, i9_s1_prep_used, i9_s1_prep_full_name, i9_s1_prep_street, i9_s1_prep_city, i9_s1_prep_state, i9_s1_prep_zip, i9_s1_employee_ack, i9_s1_employee_full_name, i9_s1_signed_at, conflict_confidentiality_acknowledged, conflict_confidentiality_disclosure, conflict_confidentiality_full_name, conflict_confidentiality_signed_at, electronic_signature_agreement_acknowledged, electronic_signature_agreement_full_name, electronic_signature_agreement_signed_at, hep_b_declination_acknowledged, hep_b_declination_full_name, hep_b_declination_signed_at, tb_history_positive_test_or_infection, tb_history_bcg_vaccine, tb_symptom_prolonged_recurrent_fever, tb_symptom_recent_weight_loss, tb_symptom_chronic_cough, tb_symptom_coughing_blood, tb_symptom_night_sweats, tb_risk_silicosis, tb_risk_gastrectomy, tb_risk_intestinal_bypass, tb_risk_weight_10_percent_below_ideal, tb_risk_chronic_renal_disease, tb_risk_diabetes_mellitus, tb_risk_steroid_or_immunosuppressive_therapy, tb_risk_hematologic_disorder, tb_risk_exposure_to_hiv_or_aids, tb_risk_other_malignancies, tb_baseline_residence_high_tb_country, tb_baseline_current_or_planned_immunosuppression, tb_baseline_close_contact_with_infectious_tb, tb_additional_comments, tb_acknowledged, tb_full_name, tb_signed_at, created_at"
         )
         .eq("applicant_id", employeeId)
         .order("created_at", { ascending: false })
@@ -506,6 +606,20 @@ export async function GET(
               ? "Training Certificate"
               : documentType === "application"
                 ? "Application Record"
+                : documentType === "employee_handbook"
+                  ? "Employee Handbook Acknowledgment"
+                  : documentType === "job_acceptance"
+                    ? "Job Acceptance Statement"
+                    : documentType === "i9"
+                      ? "Form I-9"
+                      : documentType === "conflict_of_interest"
+                        ? "Conflict of Interest + Confidentiality"
+                        : documentType === "electronic_signature_agreement"
+                          ? "Electronic Documentation Signature Agreement"
+                          : documentType === "hepatitis_b_declination"
+                            ? "Hepatitis B Vaccine Declination"
+                            : documentType === "tb_risk_assessment"
+                              ? "TB Risk Assessment"
                 : "Employee File";
 
     drawText("Saintly Home Health", {
@@ -624,6 +738,50 @@ export async function GET(
       drawDivider();
     };
 
+    const drawRoleBreakdown = () => {
+      if (!onboardingContract) return;
+      const roleSummary = parseRoleDescriptionLines(onboardingContract.role_description);
+      drawField("Role Title", onboardingContract.role_title || onboardingContract.selected_role);
+      if (employee.position) {
+        drawField("Role / Discipline", employee.position);
+      }
+      if (roleSummary.length > 0) {
+        drawText("Core Responsibilities", { bold: true, size: 11 });
+        roleSummary.forEach((line, index) => {
+          drawText(`${index + 1}. ${line}`, { indent: 12, size: 9 });
+        });
+      }
+    };
+
+    const drawPortalFormSection = (input: {
+      title: string;
+      intro: string[];
+      acknowledged: boolean;
+      signerName?: string | null;
+      signedAt?: string | null;
+      completionAt?: string | null;
+      extraFields?: Array<{ label: string; value: unknown }>;
+      includeRoleBreakdown?: boolean;
+    }) => {
+      drawSectionTitle(input.title);
+      drawField("Employee Name", employeeName || "—");
+      drawField("Role / Discipline", employee.position || onboardingContract?.role_title || "—");
+      input.intro.forEach((paragraph) => drawText(paragraph));
+      if (input.includeRoleBreakdown) {
+        y -= 4;
+        drawRoleBreakdown();
+      }
+      if (input.extraFields?.length) {
+        y -= 4;
+        input.extraFields.forEach((field) => drawField(field.label, field.value));
+      }
+      drawField("Acknowledged", input.acknowledged ? "Checked / Yes" : "Missing");
+      drawField("Employee Full Legal Name", input.signerName || "—");
+      drawField("Signed Date", formatDate(input.signedAt));
+      drawField("Completion Timestamp", formatDateTime(input.completionAt || input.signedAt));
+      drawDivider();
+    };
+
     if (documentType === "application") {
       drawSectionTitle("Application Information");
       const applicantData = employee as Record<string, unknown>;
@@ -645,6 +803,168 @@ export async function GET(
       drawField("Employee ID", employee.id);
       drawDivider();
       drawTrainingCertificateBody();
+    } else if (documentType === "employee_handbook") {
+      drawPortalFormSection({
+        title: "Employee Handbook Acknowledgment",
+        intro: [
+          "I acknowledge that I have reviewed or received access to the Saintly Home Health employee handbook and understand I am responsible for following agency standards, professionalism, and compliance expectations.",
+        ],
+        acknowledged: onboardingContract?.handbook_acknowledged === true,
+        signerName:
+          onboardingContract?.job_acceptance_full_name ||
+          onboardingContract?.electronic_signature ||
+          employeeName ||
+          "—",
+        signedAt: onboardingContract?.signed_at,
+        completionAt: onboardingContract?.signed_at,
+      });
+    } else if (documentType === "job_acceptance") {
+      drawPortalFormSection({
+        title: "Job Acceptance Statement",
+        intro: [
+          "I have read, understand and agree to the terms specified in this job description for the position I presently hold. A copy of this job description has been given to me.",
+          "I further understand that this job description may be reviewed at any time and that I will be provided with a revised copy.",
+        ],
+        acknowledged: onboardingContract?.job_acceptance_acknowledged === true,
+        signerName: onboardingContract?.job_acceptance_full_name,
+        signedAt: onboardingContract?.job_acceptance_signed_at,
+        completionAt: onboardingContract?.job_acceptance_signed_at,
+        includeRoleBreakdown: true,
+      });
+    } else if (documentType === "i9") {
+      drawPortalFormSection({
+        title: "Form I-9 — Section 1",
+        intro: [
+          "Employees must complete and sign Section 1 of Form I-9 no later than the first day of employment and attest, under penalty of perjury, that the information they provided is true and correct.",
+        ],
+        acknowledged: onboardingContract?.i9_s1_employee_ack === true,
+        signerName: onboardingContract?.i9_s1_employee_full_name,
+        signedAt: onboardingContract?.i9_s1_signed_at,
+        completionAt: onboardingContract?.i9_s1_signed_at,
+        extraFields: [
+          {
+            label: "Employee Name",
+            value: [
+              onboardingContract?.i9_s1_first_name,
+              onboardingContract?.i9_s1_middle_initial,
+              onboardingContract?.i9_s1_last_name,
+            ]
+              .filter(Boolean)
+              .join(" "),
+          },
+          { label: "Street Address", value: onboardingContract?.i9_s1_street_address },
+          { label: "City", value: onboardingContract?.i9_s1_city },
+          { label: "State", value: onboardingContract?.i9_s1_state },
+          { label: "ZIP Code", value: onboardingContract?.i9_s1_zip_code },
+          { label: "Date of Birth", value: formatDate(onboardingContract?.i9_s1_dob) },
+          { label: "Social Security Number", value: onboardingContract?.i9_s1_ssn },
+          { label: "Email Address", value: onboardingContract?.i9_s1_email },
+          { label: "Telephone Number", value: onboardingContract?.i9_s1_phone },
+          { label: "Citizenship / Attestation", value: onboardingContract?.i9_s1_attest_status },
+        ],
+      });
+    } else if (documentType === "conflict_of_interest") {
+      drawPortalFormSection({
+        title: "Conflict of Interest + Confidentiality",
+        intro: [
+          "I have read and am fully familiar with the Agency's policy statement regarding conflict of interest.",
+          "I understand that patient privacy and Protected Health Information must be maintained at all times and will only be disclosed to appropriate personnel on a need-to-know basis.",
+        ],
+        acknowledged: onboardingContract?.conflict_confidentiality_acknowledged === true,
+        signerName: onboardingContract?.conflict_confidentiality_full_name,
+        signedAt: onboardingContract?.conflict_confidentiality_signed_at,
+        completionAt: onboardingContract?.conflict_confidentiality_signed_at,
+        extraFields: [
+          {
+            label: "Disclosure / Outside Interest",
+            value: onboardingContract?.conflict_confidentiality_disclosure,
+          },
+        ],
+      });
+    } else if (documentType === "electronic_signature_agreement") {
+      drawPortalFormSection({
+        title: "Electronic Documentation Signature Agreement",
+        intro: [
+          "I understand that Agency staff may use electronic signatures on computer-generated documentation.",
+          "For the purpose of the computerized medical record and other agency documentation, I acknowledge that my login authentication password and signature passcode serve as my legal signature.",
+        ],
+        acknowledged:
+          onboardingContract?.electronic_signature_agreement_acknowledged === true,
+        signerName: onboardingContract?.electronic_signature_agreement_full_name,
+        signedAt: onboardingContract?.electronic_signature_agreement_signed_at,
+        completionAt: onboardingContract?.electronic_signature_agreement_signed_at,
+      });
+    } else if (documentType === "hepatitis_b_declination") {
+      drawPortalFormSection({
+        title: "Hepatitis B Vaccine Declination",
+        intro: [
+          "I understand that due to my occupational exposure to blood or other potentially infectious materials, I may be at risk of acquiring Hepatitis B virus (HBV) infection.",
+          "I have been given the opportunity to be vaccinated with Hepatitis B vaccine at no charge to myself. However, I decline Hepatitis B vaccination at this time.",
+        ],
+        acknowledged: onboardingContract?.hep_b_declination_acknowledged === true,
+        signerName: onboardingContract?.hep_b_declination_full_name,
+        signedAt: onboardingContract?.hep_b_declination_signed_at,
+        completionAt: onboardingContract?.hep_b_declination_signed_at,
+      });
+    } else if (documentType === "tb_risk_assessment") {
+      const tbRiskFactors = [
+        onboardingContract?.tb_risk_silicosis ? "Silicosis" : "",
+        onboardingContract?.tb_risk_gastrectomy ? "Gastrectomy" : "",
+        onboardingContract?.tb_risk_intestinal_bypass ? "Intestinal bypass" : "",
+        onboardingContract?.tb_risk_weight_10_percent_below_ideal
+          ? "Weight 10 percent below ideal body weight"
+          : "",
+        onboardingContract?.tb_risk_chronic_renal_disease ? "Chronic renal disease" : "",
+        onboardingContract?.tb_risk_diabetes_mellitus ? "Diabetes mellitus" : "",
+        onboardingContract?.tb_risk_steroid_or_immunosuppressive_therapy
+          ? "Steroid or immunosuppressive therapy"
+          : "",
+        onboardingContract?.tb_risk_hematologic_disorder ? "Hematologic disorder" : "",
+        onboardingContract?.tb_risk_exposure_to_hiv_or_aids ? "Exposure to HIV or AIDS" : "",
+        onboardingContract?.tb_risk_other_malignancies ? "Other malignancies" : "",
+      ]
+        .filter(Boolean)
+        .join(", ");
+
+      drawPortalFormSection({
+        title: "TB Risk Assessment",
+        intro: [
+          "Please complete this tuberculosis questionnaire and risk assessment honestly and completely. This information is used to document TB history, current symptoms, and baseline risk factors in accordance with Saintly Home Health onboarding requirements.",
+        ],
+        acknowledged: onboardingContract?.tb_acknowledged === true,
+        signerName: onboardingContract?.tb_full_name,
+        signedAt: onboardingContract?.tb_signed_at,
+        completionAt: onboardingContract?.tb_signed_at,
+        extraFields: [
+          {
+            label: "Positive TB skin test or TB infection history",
+            value: onboardingContract?.tb_history_positive_test_or_infection,
+          },
+          { label: "BCG vaccine", value: onboardingContract?.tb_history_bcg_vaccine },
+          {
+            label: "Prolonged or recurrent fever",
+            value: onboardingContract?.tb_symptom_prolonged_recurrent_fever,
+          },
+          { label: "Recent weight loss", value: onboardingContract?.tb_symptom_recent_weight_loss },
+          { label: "Chronic cough", value: onboardingContract?.tb_symptom_chronic_cough },
+          { label: "Coughing blood", value: onboardingContract?.tb_symptom_coughing_blood },
+          { label: "Night sweats", value: onboardingContract?.tb_symptom_night_sweats },
+          { label: "Risk factors", value: tbRiskFactors || "None reported" },
+          {
+            label: "Residence in high TB rate country",
+            value: onboardingContract?.tb_baseline_residence_high_tb_country,
+          },
+          {
+            label: "Current or planned immunosuppression",
+            value: onboardingContract?.tb_baseline_current_or_planned_immunosuppression,
+          },
+          {
+            label: "Close contact with infectious TB",
+            value: onboardingContract?.tb_baseline_close_contact_with_infectious_tb,
+          },
+          { label: "Additional comments", value: onboardingContract?.tb_additional_comments },
+        ],
+      });
     } else {
     drawSectionTitle("Compliance Summary");
     drawField(
@@ -773,6 +1093,100 @@ export async function GET(
     }
 
     if (documentType === "full") {
+      drawPortalFormSection({
+        title: "Employee Handbook Acknowledgment",
+        intro: [
+          "I acknowledge that I have reviewed or received access to the Saintly Home Health employee handbook and understand I am responsible for following agency standards, professionalism, and compliance expectations.",
+        ],
+        acknowledged: onboardingContract?.handbook_acknowledged === true,
+        signerName:
+          onboardingContract?.job_acceptance_full_name ||
+          onboardingContract?.electronic_signature ||
+          employeeName ||
+          "—",
+        signedAt: onboardingContract?.signed_at,
+        completionAt: onboardingContract?.signed_at,
+      });
+
+      drawPortalFormSection({
+        title: "Job Acceptance Statement",
+        intro: [
+          "I have read, understand and agree to the terms specified in this job description for the position I presently hold. A copy of this job description has been given to me.",
+          "I further understand that this job description may be reviewed at any time and that I will be provided with a revised copy.",
+        ],
+        acknowledged: onboardingContract?.job_acceptance_acknowledged === true,
+        signerName: onboardingContract?.job_acceptance_full_name,
+        signedAt: onboardingContract?.job_acceptance_signed_at,
+        completionAt: onboardingContract?.job_acceptance_signed_at,
+        includeRoleBreakdown: true,
+      });
+
+      drawPortalFormSection({
+        title: "Form I-9 — Section 1",
+        intro: [
+          "Employees must complete and sign Section 1 of Form I-9 and attest, under penalty of perjury, that the information they provided is true and correct.",
+        ],
+        acknowledged: onboardingContract?.i9_s1_employee_ack === true,
+        signerName: onboardingContract?.i9_s1_employee_full_name,
+        signedAt: onboardingContract?.i9_s1_signed_at,
+        completionAt: onboardingContract?.i9_s1_signed_at,
+      });
+
+      drawPortalFormSection({
+        title: "Conflict of Interest + Confidentiality",
+        intro: [
+          "I have read and am fully familiar with the Agency's policy statement regarding conflict of interest.",
+          "I understand that patient privacy and Protected Health Information must be maintained at all times.",
+        ],
+        acknowledged: onboardingContract?.conflict_confidentiality_acknowledged === true,
+        signerName: onboardingContract?.conflict_confidentiality_full_name,
+        signedAt: onboardingContract?.conflict_confidentiality_signed_at,
+        completionAt: onboardingContract?.conflict_confidentiality_signed_at,
+        extraFields: [
+          {
+            label: "Disclosure / Outside Interest",
+            value: onboardingContract?.conflict_confidentiality_disclosure,
+          },
+        ],
+      });
+
+      drawPortalFormSection({
+        title: "Electronic Documentation Signature Agreement",
+        intro: [
+          "I understand that Agency staff may use electronic signatures on computer-generated documentation.",
+          "My login authentication password and signature passcode serve as my legal signature for the computerized medical record and other agency documentation.",
+        ],
+        acknowledged:
+          onboardingContract?.electronic_signature_agreement_acknowledged === true,
+        signerName: onboardingContract?.electronic_signature_agreement_full_name,
+        signedAt: onboardingContract?.electronic_signature_agreement_signed_at,
+        completionAt: onboardingContract?.electronic_signature_agreement_signed_at,
+      });
+
+      drawPortalFormSection({
+        title: "Hepatitis B Vaccine Declination",
+        intro: [
+          "I have been given the opportunity to be vaccinated with Hepatitis B vaccine at no charge to myself. However, I decline Hepatitis B vaccination at this time.",
+        ],
+        acknowledged: onboardingContract?.hep_b_declination_acknowledged === true,
+        signerName: onboardingContract?.hep_b_declination_full_name,
+        signedAt: onboardingContract?.hep_b_declination_signed_at,
+        completionAt: onboardingContract?.hep_b_declination_signed_at,
+      });
+
+      drawPortalFormSection({
+        title: "TB Risk Assessment",
+        intro: [
+          "This questionnaire documents TB history, symptoms, and baseline risk factors in accordance with Saintly Home Health onboarding requirements.",
+        ],
+        acknowledged: onboardingContract?.tb_acknowledged === true,
+        signerName: onboardingContract?.tb_full_name,
+        signedAt: onboardingContract?.tb_signed_at,
+        completionAt: onboardingContract?.tb_signed_at,
+      });
+    }
+
+    if (documentType === "full") {
       drawSectionTitle("Training Completion");
       drawField("Status", getBinaryStatusLabel(trainingComplete));
 
@@ -856,7 +1270,21 @@ export async function GET(
               ? `${safeEmployeeName}-training-certificate.pdf`
               : documentType === "application"
                 ? `${safeEmployeeName}-application.pdf`
-                : `${safeEmployeeName}-employee-file.pdf`;
+                : documentType === "employee_handbook"
+                  ? `${safeEmployeeName}-employee-handbook.pdf`
+                  : documentType === "job_acceptance"
+                    ? `${safeEmployeeName}-job-acceptance.pdf`
+                    : documentType === "i9"
+                      ? `${safeEmployeeName}-i9.pdf`
+                      : documentType === "conflict_of_interest"
+                        ? `${safeEmployeeName}-conflict-of-interest.pdf`
+                        : documentType === "electronic_signature_agreement"
+                          ? `${safeEmployeeName}-electronic-signature-agreement.pdf`
+                          : documentType === "hepatitis_b_declination"
+                            ? `${safeEmployeeName}-hepatitis-b-declination.pdf`
+                            : documentType === "tb_risk_assessment"
+                              ? `${safeEmployeeName}-tb-risk-assessment.pdf`
+                              : `${safeEmployeeName}-employee-file.pdf`;
 
     if (saveSnapshot && documentType === "full") {
       const snapshotTimestamp = new Date();

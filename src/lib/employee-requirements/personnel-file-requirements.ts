@@ -199,6 +199,7 @@ const EMPLOYEE_ONBOARDING = (applicantId: string, path: string) =>
 
 export type PersonnelFileAuditRow = {
   label: string;
+  itemType: "document" | "form" | "summary";
   status: string;
   statusTone: "green" | "red" | "slate";
   /** Admin work area: `/admin/employees/{id}?tab=…` */
@@ -206,6 +207,7 @@ export type PersonnelFileAuditRow = {
   /** Employee onboarding portal (same items as pipeline). */
   portalHref?: string | null;
   viewHref: string | null;
+  downloadHref?: string | null;
   viewExternal?: boolean;
 };
 
@@ -229,6 +231,8 @@ export type BuildPersonnelFileAuditArgs = {
   hasResumeOnFile: boolean;
   hasSocialSecurityCard: boolean;
   hasEmployeeHandbookAck: boolean;
+  hasJobAcceptanceStatement: boolean;
+  hasI9Section1: boolean;
   hasConflictOfInterestForm: boolean;
   hasElectronicSignatureAgreement: boolean;
   hasHepatitisBDeclination: boolean;
@@ -243,6 +247,13 @@ export type BuildPersonnelFileAuditArgs = {
   trainingCertificateHref: string | null;
   contractPdfHref: string | null;
   taxFormPdfHref: string | null;
+  handbookPdfHref: string | null;
+  jobAcceptancePdfHref: string | null;
+  i9PdfHref: string | null;
+  conflictPdfHref: string | null;
+  electronicAgreementPdfHref: string | null;
+  hepatitisBPdfHref: string | null;
+  tbRiskPdfHref: string | null;
   skillsPrintHref: string;
   skillsCanPrint: boolean;
   performancePrintHref: string;
@@ -290,6 +301,8 @@ export function buildPersonnelFileAuditRows(input: BuildPersonnelFileAuditArgs):
     hasResumeOnFile,
     hasSocialSecurityCard,
     hasEmployeeHandbookAck,
+    hasJobAcceptanceStatement,
+    hasI9Section1,
     hasConflictOfInterestForm,
     hasElectronicSignatureAgreement,
     hasHepatitisBDeclination,
@@ -304,6 +317,13 @@ export function buildPersonnelFileAuditRows(input: BuildPersonnelFileAuditArgs):
     trainingCertificateHref,
     contractPdfHref,
     taxFormPdfHref,
+    handbookPdfHref,
+    jobAcceptancePdfHref,
+    i9PdfHref,
+    conflictPdfHref,
+    electronicAgreementPdfHref,
+    hepatitisBPdfHref,
+    tbRiskPdfHref,
     skillsPrintHref,
     skillsCanPrint,
     performancePrintHref,
@@ -333,11 +353,13 @@ export function buildPersonnelFileAuditRows(input: BuildPersonnelFileAuditArgs):
     const { status, tone } = auditStatus(true, isApplicationComplete);
     push({
       label: "Application",
+      itemType: "summary",
       status,
       statusTone: tone,
       openHref: getAdminWorkAreaUrl("overview"),
       portalHref: EMPLOYEE_ONBOARDING(applicantId, "/onboarding-application"),
       viewHref: isApplicationComplete ? appendInline(applicationViewHref) : null,
+      downloadHref: isApplicationComplete ? applicationViewHref : null,
       viewExternal: false,
     });
   }
@@ -346,6 +368,7 @@ export function buildPersonnelFileAuditRows(input: BuildPersonnelFileAuditArgs):
     const { status, tone } = auditStatus(true, isDocumentsComplete);
     push({
       label: "Documents",
+      itemType: "summary",
       status,
       statusTone: tone,
       openHref: getAdminWorkAreaUrl("documents"),
@@ -358,11 +381,13 @@ export function buildPersonnelFileAuditRows(input: BuildPersonnelFileAuditArgs):
     const { status, tone } = auditStatus(true, hasResumeOnFile);
     push({
       label: "Resume",
+      itemType: "document",
       status,
       statusTone: tone,
       openHref: getAdminWorkAreaUrl("documents"),
       portalHref: EMPLOYEE_ONBOARDING(applicantId, "/onboarding-documents"),
       viewHref: hasResumeOnFile && latestResumeViewUrl ? latestResumeViewUrl : null,
+      downloadHref: hasResumeOnFile && latestResumeViewUrl ? latestResumeViewUrl : null,
       viewExternal: true,
     });
   }
@@ -371,12 +396,14 @@ export function buildPersonnelFileAuditRows(input: BuildPersonnelFileAuditArgs):
     const { status, tone } = auditStatus(true, isContractsComplete);
     push({
       label: "Contracts",
+      itemType: "summary",
       status,
       statusTone: tone,
       openHref: getAdminWorkAreaUrl("payroll"),
       portalHref: EMPLOYEE_ONBOARDING(applicantId, "/onboarding-contracts"),
       viewHref:
         isContractsComplete && contractPdfHref ? appendInline(contractPdfHref) : null,
+      downloadHref: isContractsComplete ? contractPdfHref : null,
       viewExternal: false,
     });
   }
@@ -385,11 +412,13 @@ export function buildPersonnelFileAuditRows(input: BuildPersonnelFileAuditArgs):
     const { status, tone } = auditStatus(true, isTrainingComplete);
     push({
       label: "Training",
+      itemType: "summary",
       status,
       statusTone: tone,
       openHref: getAdminWorkAreaUrl("training"),
       portalHref: EMPLOYEE_ONBOARDING(applicantId, "/onboarding-training"),
       viewHref: trainingCertificateHref ? appendInline(trainingCertificateHref) : null,
+      downloadHref: trainingCertificateHref,
       viewExternal: false,
     });
   }
@@ -398,11 +427,13 @@ export function buildPersonnelFileAuditRows(input: BuildPersonnelFileAuditArgs):
     const { status, tone } = auditStatus(true, isSkillsComplete);
     push({
       label: "Skills Competency",
+      itemType: "summary",
       status,
       statusTone: tone,
       openHref: getAdminWorkAreaUrl("skills"),
       viewHref:
         isSkillsComplete && skillsCanPrint ? skillsPrintHref : null,
+      downloadHref: isSkillsComplete && skillsCanPrint ? skillsPrintHref : null,
       viewExternal: false,
     });
   }
@@ -411,11 +442,13 @@ export function buildPersonnelFileAuditRows(input: BuildPersonnelFileAuditArgs):
     const { status, tone } = auditStatus(true, isPerformanceComplete);
     push({
       label: "Performance Evaluation",
+      itemType: "summary",
       status,
       statusTone: tone,
       openHref: getAdminWorkAreaUrl("performance"),
       viewHref:
         isPerformanceComplete && performanceCanPrint ? performancePrintHref : null,
+      downloadHref: isPerformanceComplete && performanceCanPrint ? performancePrintHref : null,
       viewExternal: false,
     });
   }
@@ -424,11 +457,13 @@ export function buildPersonnelFileAuditRows(input: BuildPersonnelFileAuditArgs):
     const { status, tone } = auditStatus(true, hasTbDocumentation);
     push({
       label: "TB",
+      itemType: "document",
       status,
       statusTone: tone,
       openHref: getAdminWorkAreaUrl("documents"),
       portalHref: EMPLOYEE_ONBOARDING(applicantId, "/onboarding-documents"),
       viewHref: hasTbDocumentation && latestTbViewUrl ? latestTbViewUrl : null,
+      downloadHref: hasTbDocumentation && latestTbViewUrl ? latestTbViewUrl : null,
       viewExternal: true,
     });
   }
@@ -437,11 +472,13 @@ export function buildPersonnelFileAuditRows(input: BuildPersonnelFileAuditArgs):
     const { status, tone } = auditStatus(true, hasTbRiskAssessment);
     push({
       label: "TB Risk Assessment",
+      itemType: "form",
       status,
       statusTone: tone,
       openHref: getAdminWorkAreaUrl("documents"),
       portalHref: EMPLOYEE_ONBOARDING(applicantId, "/onboarding-documents"),
-      viewHref: null,
+      viewHref: hasTbRiskAssessment && tbRiskPdfHref ? appendInline(tbRiskPdfHref) : null,
+      downloadHref: hasTbRiskAssessment ? tbRiskPdfHref : null,
     });
   }
 
@@ -449,11 +486,44 @@ export function buildPersonnelFileAuditRows(input: BuildPersonnelFileAuditArgs):
     const { status, tone } = auditStatus(true, hasEmployeeHandbookAck);
     push({
       label: "Employee Handbook",
+      itemType: "form",
       status,
       statusTone: tone,
       openHref: getAdminWorkAreaUrl("documents"),
       portalHref: EMPLOYEE_ONBOARDING(applicantId, "/onboarding-documents"),
-      viewHref: null,
+      viewHref: hasEmployeeHandbookAck && handbookPdfHref ? appendInline(handbookPdfHref) : null,
+      downloadHref: hasEmployeeHandbookAck ? handbookPdfHref : null,
+    });
+  }
+
+  if (!isSalesAgent) {
+    const { status, tone } = auditStatus(true, hasJobAcceptanceStatement);
+    push({
+      label: "Job Acceptance Statement",
+      itemType: "form",
+      status,
+      statusTone: tone,
+      openHref: `${EMPLOYEE_ONBOARDING(applicantId, "/onboarding-contracts")}#job-acceptance-section`,
+      portalHref: `${EMPLOYEE_ONBOARDING(applicantId, "/onboarding-contracts")}#job-acceptance-section`,
+      viewHref:
+        hasJobAcceptanceStatement && jobAcceptancePdfHref
+          ? appendInline(jobAcceptancePdfHref)
+          : null,
+      downloadHref: hasJobAcceptanceStatement ? jobAcceptancePdfHref : null,
+    });
+  }
+
+  if (!isSalesAgent) {
+    const { status, tone } = auditStatus(true, hasI9Section1);
+    push({
+      label: "I-9",
+      itemType: "form",
+      status,
+      statusTone: tone,
+      openHref: `${EMPLOYEE_ONBOARDING(applicantId, "/onboarding-contracts")}#i9-section`,
+      portalHref: `${EMPLOYEE_ONBOARDING(applicantId, "/onboarding-contracts")}#i9-section`,
+      viewHref: hasI9Section1 && i9PdfHref ? appendInline(i9PdfHref) : null,
+      downloadHref: hasI9Section1 ? i9PdfHref : null,
     });
   }
 
@@ -461,11 +531,14 @@ export function buildPersonnelFileAuditRows(input: BuildPersonnelFileAuditArgs):
     const { status, tone } = auditStatus(true, hasConflictOfInterestForm);
     push({
       label: "Conflict of Interest + Confidentiality",
+      itemType: "form",
       status,
       statusTone: tone,
       openHref: getAdminWorkAreaUrl("documents"),
       portalHref: EMPLOYEE_ONBOARDING(applicantId, "/onboarding-documents"),
-      viewHref: null,
+      viewHref:
+        hasConflictOfInterestForm && conflictPdfHref ? appendInline(conflictPdfHref) : null,
+      downloadHref: hasConflictOfInterestForm ? conflictPdfHref : null,
     });
   }
 
@@ -473,11 +546,16 @@ export function buildPersonnelFileAuditRows(input: BuildPersonnelFileAuditArgs):
     const { status, tone } = auditStatus(true, hasElectronicSignatureAgreement);
     push({
       label: "Electronic Documentation Signature Agreement",
+      itemType: "form",
       status,
       statusTone: tone,
       openHref: getAdminWorkAreaUrl("documents"),
       portalHref: EMPLOYEE_ONBOARDING(applicantId, "/onboarding-documents"),
-      viewHref: null,
+      viewHref:
+        hasElectronicSignatureAgreement && electronicAgreementPdfHref
+          ? appendInline(electronicAgreementPdfHref)
+          : null,
+      downloadHref: hasElectronicSignatureAgreement ? electronicAgreementPdfHref : null,
     });
   }
 
@@ -485,11 +563,16 @@ export function buildPersonnelFileAuditRows(input: BuildPersonnelFileAuditArgs):
     const { status, tone } = auditStatus(true, hasHepatitisBDeclination);
     push({
       label: "Hepatitis B Vaccine Declination",
+      itemType: "form",
       status,
       statusTone: tone,
       openHref: getAdminWorkAreaUrl("documents"),
       portalHref: EMPLOYEE_ONBOARDING(applicantId, "/onboarding-documents"),
-      viewHref: null,
+      viewHref:
+        hasHepatitisBDeclination && hepatitisBPdfHref
+          ? appendInline(hepatitisBPdfHref)
+          : null,
+      downloadHref: hasHepatitisBDeclination ? hepatitisBPdfHref : null,
     });
   }
 
@@ -497,10 +580,12 @@ export function buildPersonnelFileAuditRows(input: BuildPersonnelFileAuditArgs):
     const { status, tone } = auditStatus(true, isOigComplete);
     push({
       label: "OIG",
+      itemType: "document",
       status,
       statusTone: tone,
       openHref: getAdminWorkAreaUrl("compliance"),
       viewHref: isOigComplete && latestOigViewUrl ? latestOigViewUrl : null,
+      downloadHref: isOigComplete && latestOigViewUrl ? latestOigViewUrl : null,
       viewExternal: true,
     });
   }
@@ -509,11 +594,14 @@ export function buildPersonnelFileAuditRows(input: BuildPersonnelFileAuditArgs):
     const { status, tone } = auditStatus(true, hasBackgroundCheck);
     push({
       label: "Background Check",
+      itemType: "document",
       status,
       statusTone: tone,
       openHref: getAdminWorkAreaUrl("documents"),
       portalHref: EMPLOYEE_ONBOARDING(applicantId, "/onboarding-documents"),
       viewHref: hasBackgroundCheck && latestBackgroundCheckViewUrl ? latestBackgroundCheckViewUrl : null,
+      downloadHref:
+        hasBackgroundCheck && latestBackgroundCheckViewUrl ? latestBackgroundCheckViewUrl : null,
       viewExternal: true,
     });
   }
@@ -522,11 +610,13 @@ export function buildPersonnelFileAuditRows(input: BuildPersonnelFileAuditArgs):
     const { status, tone } = auditStatus(true, isTaxFormSigned);
     push({
       label: "Tax Form",
+      itemType: "form",
       status,
       statusTone: tone,
       openHref: getAdminWorkAreaUrl("payroll"),
       portalHref: EMPLOYEE_ONBOARDING(applicantId, "/onboarding-contracts"),
       viewHref: isTaxFormSigned && taxFormPdfHref ? appendInline(taxFormPdfHref) : null,
+      downloadHref: isTaxFormSigned ? taxFormPdfHref : null,
       viewExternal: false,
     });
   }
@@ -535,11 +625,14 @@ export function buildPersonnelFileAuditRows(input: BuildPersonnelFileAuditArgs):
     const { status, tone } = auditStatus(requiresCpr, !requiresCpr || hasCprCard);
     push({
       label: "CPR Card",
+      itemType: "document",
       status,
       statusTone: tone,
       openHref: requiresCpr ? getAdminWorkAreaUrl("credentials") : null,
       portalHref: requiresCpr ? EMPLOYEE_ONBOARDING(applicantId, "/onboarding-documents") : null,
       viewHref:
+        requiresCpr && hasCprCard && latestCprViewUrl ? latestCprViewUrl : null,
+      downloadHref:
         requiresCpr && hasCprCard && latestCprViewUrl ? latestCprViewUrl : null,
       viewExternal: true,
     });
@@ -549,6 +642,7 @@ export function buildPersonnelFileAuditRows(input: BuildPersonnelFileAuditArgs):
     const { status, tone } = auditStatus(requiresDriversLicense, !requiresDriversLicense || hasDriversLicense);
     push({
       label: "Driver’s License",
+      itemType: "document",
       status,
       statusTone: tone,
       openHref: requiresDriversLicense ? getAdminWorkAreaUrl("credentials") : null,
@@ -556,6 +650,10 @@ export function buildPersonnelFileAuditRows(input: BuildPersonnelFileAuditArgs):
         ? EMPLOYEE_ONBOARDING(applicantId, "/onboarding-documents")
         : null,
       viewHref:
+        requiresDriversLicense && hasDriversLicense && latestDriversLicenseViewUrl
+          ? latestDriversLicenseViewUrl
+          : null,
+      downloadHref:
         requiresDriversLicense && hasDriversLicense && latestDriversLicenseViewUrl
           ? latestDriversLicenseViewUrl
           : null,
@@ -567,11 +665,16 @@ export function buildPersonnelFileAuditRows(input: BuildPersonnelFileAuditArgs):
     const { status, tone } = auditStatus(true, hasSocialSecurityCard);
     push({
       label: "Social Security Card",
+      itemType: "document",
       status,
       statusTone: tone,
       openHref: getAdminWorkAreaUrl("documents"),
       portalHref: EMPLOYEE_ONBOARDING(applicantId, "/onboarding-documents"),
       viewHref: hasSocialSecurityCard && latestSocialSecurityCardViewUrl ? latestSocialSecurityCardViewUrl : null,
+      downloadHref:
+        hasSocialSecurityCard && latestSocialSecurityCardViewUrl
+          ? latestSocialSecurityCardViewUrl
+          : null,
       viewExternal: true,
     });
   }
@@ -583,6 +686,7 @@ export function buildPersonnelFileAuditRows(input: BuildPersonnelFileAuditArgs):
     );
     push({
       label: "AZ Fingerprint Clearance Card",
+      itemType: "document",
       status,
       statusTone: tone,
       openHref: requiresFingerprintCard ? getAdminWorkAreaUrl("credentials") : null,
@@ -590,6 +694,10 @@ export function buildPersonnelFileAuditRows(input: BuildPersonnelFileAuditArgs):
         ? EMPLOYEE_ONBOARDING(applicantId, "/onboarding-documents")
         : null,
       viewHref:
+        requiresFingerprintCard && hasFingerprintCard && latestFingerprintViewUrl
+          ? latestFingerprintViewUrl
+          : null,
+      downloadHref:
         requiresFingerprintCard && hasFingerprintCard && latestFingerprintViewUrl
           ? latestFingerprintViewUrl
           : null,
@@ -601,11 +709,14 @@ export function buildPersonnelFileAuditRows(input: BuildPersonnelFileAuditArgs):
     const { status, tone } = auditStatus(true, hasAutoInsurance);
     push({
       label: "Auto Insurance",
+      itemType: "document",
       status,
       statusTone: tone,
       openHref: getAdminWorkAreaUrl("documents"),
       portalHref: EMPLOYEE_ONBOARDING(applicantId, "/onboarding-documents"),
       viewHref:
+        hasAutoInsurance && latestAutoInsuranceViewUrl ? latestAutoInsuranceViewUrl : null,
+      downloadHref:
         hasAutoInsurance && latestAutoInsuranceViewUrl ? latestAutoInsuranceViewUrl : null,
       viewExternal: true,
     });
@@ -615,10 +726,15 @@ export function buildPersonnelFileAuditRows(input: BuildPersonnelFileAuditArgs):
     const { status, tone } = auditStatus(true, hasIndependentContractorInsurance);
     push({
       label: "Independent Contractor Insurance",
+      itemType: "document",
       status,
       statusTone: tone,
       openHref: getAdminWorkAreaUrl("credentials"),
       viewHref:
+        hasIndependentContractorInsurance && latestIndependentContractorInsuranceViewUrl
+          ? latestIndependentContractorInsuranceViewUrl
+          : null,
+      downloadHref:
         hasIndependentContractorInsurance && latestIndependentContractorInsuranceViewUrl
           ? latestIndependentContractorInsuranceViewUrl
           : null,

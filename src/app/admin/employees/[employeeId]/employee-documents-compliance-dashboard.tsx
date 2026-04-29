@@ -1,14 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
 
-import ApplicantFileUploadWithRefresh from "./ApplicantFileUploadWithRefresh";
+import EmployeeDocumentActions, {
+  type EmployeeDocumentHistoryEntry,
+} from "./EmployeeDocumentActions";
 
-export type DashboardHistoryEntry = {
-  displayLine: string;
-  viewUrl: string | null;
-};
+export type DashboardHistoryEntry = EmployeeDocumentHistoryEntry;
 
 export type InitialHiringRowDef = {
   key: string;
@@ -18,14 +16,16 @@ export type InitialHiringRowDef = {
   statusTone: "green" | "red" | "amber" | "slate";
   lastUpdatedDisplay: string;
   viewUrl: string | null;
+  downloadUrl?: string | null;
   documentType: string;
   uploadLabel: string;
   completeComplianceEventId?: string;
   anchorId: string;
   history: DashboardHistoryEntry[];
-  /** Related admin workflow (annual OIG, TB statement, credentials, etc.) — shown as “Open”. */
   workflowOpenHref?: string | null;
   portalHref?: string | null;
+  fileRecordId?: string | null;
+  fileRecordSource?: "applicant_file" | "legacy_document" | null;
 };
 
 export type OngoingComplianceRowDef = {
@@ -94,13 +94,11 @@ export default function EmployeeDocumentsComplianceDashboard({
   ongoingCompliance,
   expiringCredentials,
 }: Props) {
-  const [uploadModal, setUploadModal] = useState<InitialHiringRowDef | null>(null);
-
   return (
     <div id="documents-compliance-dashboard" className="min-w-0 space-y-4 scroll-mt-24">
       <SectionTable
         title="Initial hiring requirements"
-        description="One-time file uploads for the personnel file (including initial driver’s license and auto insurance documents). Credential expirations are tracked separately below."
+        description="One-time file uploads and signed portal records for the personnel file. Credential expirations are tracked separately below."
       >
         <table className="w-full min-w-[640px] text-left text-sm">
           <thead>
@@ -126,53 +124,20 @@ export default function EmployeeDocumentsComplianceDashboard({
                 </td>
                 <td className="px-3 py-2 text-slate-600">{row.lastUpdatedDisplay}</td>
                 <td className="px-3 py-2 text-right">
-                  <div className="flex flex-wrap justify-end gap-x-3 gap-y-1">
-                    {row.workflowOpenHref ? (
-                      <Link
-                        href={row.workflowOpenHref}
-                        className="text-xs font-semibold text-sky-700 underline"
-                      >
-                        Open
-                      </Link>
-                    ) : null}
-                    {row.portalHref ? (
-                      <Link
-                        href={row.portalHref}
-                        className="text-xs font-semibold text-sky-700 underline"
-                      >
-                        Portal
-                      </Link>
-                    ) : null}
-                    {row.viewUrl ? (
-                      <>
-                        <a
-                          href={row.viewUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-xs font-semibold text-sky-700 underline"
-                        >
-                          View
-                        </a>
-                        {row.itemType === "document" ? (
-                          <button
-                            type="button"
-                            onClick={() => setUploadModal(row)}
-                            className="text-xs font-semibold text-sky-700 underline"
-                          >
-                            Replace
-                          </button>
-                        ) : null}
-                      </>
-                    ) : row.itemType === "document" ? (
-                      <button
-                        type="button"
-                        onClick={() => setUploadModal(row)}
-                        className="text-xs font-semibold text-sky-700 underline"
-                      >
-                        Complete
-                      </button>
-                    ) : null}
-                  </div>
+                  <EmployeeDocumentActions
+                    employeeId={employeeId}
+                    itemType={row.itemType}
+                    uploadLabel={row.uploadLabel}
+                    documentType={row.documentType}
+                    workflowOpenHref={row.workflowOpenHref}
+                    portalHref={row.portalHref}
+                    viewUrl={row.viewUrl}
+                    downloadUrl={row.downloadUrl}
+                    completeComplianceEventId={row.completeComplianceEventId}
+                    history={row.history}
+                    fileRecordId={row.fileRecordId}
+                    fileRecordSource={row.fileRecordSource}
+                  />
                 </td>
               </tr>
             ))}
@@ -263,78 +228,6 @@ export default function EmployeeDocumentsComplianceDashboard({
           </tbody>
         </table>
       </SectionTable>
-
-      {uploadModal ? (
-        <div
-          className="fixed inset-0 z-[60] flex items-end justify-center bg-slate-900/35 p-0 sm:items-center sm:p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="upload-modal-title"
-          onClick={() => setUploadModal(null)}
-        >
-          <div
-            className="max-h-[90vh] w-full max-w-lg overflow-y-auto border border-slate-200 bg-white sm:rounded-lg sm:shadow-xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="sticky top-0 flex items-start justify-between gap-3 border-b border-slate-100 bg-white px-4 py-3">
-              <div>
-                <h4 id="upload-modal-title" className="text-base font-semibold text-slate-900">
-                  {uploadModal.uploadLabel}
-                </h4>
-                <p className="mt-0.5 text-xs text-slate-500">
-                  {uploadModal.viewUrl
-                    ? "Replace the file on record or review prior versions."
-                    : "Add the required file to complete this item. Review prior versions below if any."}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setUploadModal(null)}
-                className="shrink-0 rounded border border-slate-200 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
-              >
-                Close
-              </button>
-            </div>
-
-            <div className="space-y-4 px-4 py-3">
-              <ApplicantFileUploadWithRefresh
-                applicantId={employeeId}
-                documentType={uploadModal.documentType}
-                label={uploadModal.uploadLabel}
-                completeComplianceEventId={uploadModal.completeComplianceEventId}
-              />
-
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Version history</p>
-                <ul className="mt-2 max-h-48 space-y-1 overflow-y-auto border border-slate-100">
-                  {uploadModal.history.length === 0 ? (
-                    <li className="px-2 py-2 text-xs text-slate-500">No prior uploads.</li>
-                  ) : (
-                    uploadModal.history.map((h, index) => (
-                      <li
-                        key={`${h.displayLine}-${index}`}
-                        className="flex items-center justify-between gap-2 border-b border-slate-50 px-2 py-1.5 text-xs last:border-0"
-                      >
-                        <span className="text-slate-700">{h.displayLine}</span>
-                        {h.viewUrl ? (
-                          <a
-                            href={h.viewUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="shrink-0 font-semibold text-sky-700 underline"
-                          >
-                            View
-                          </a>
-                        ) : null}
-                      </li>
-                    ))
-                  )}
-                </ul>
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }

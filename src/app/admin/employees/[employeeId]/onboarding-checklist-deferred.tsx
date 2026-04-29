@@ -17,7 +17,11 @@ function stepMatchesChip(step: OnboardingStepRecord, chip: ChipId): boolean {
   }
   if (chip === "blocked") return step.blocking;
   if (chip === "needs_review") {
-    return step.status === "needs_review" || step.status === "invalid" || step.displayStatus === "Sync issue";
+    return (
+      step.status === "needs_review" ||
+      step.status === "invalid" ||
+      step.displayStatus === "Needs review"
+    );
   }
   return true;
 }

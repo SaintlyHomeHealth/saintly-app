@@ -1,8 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { memo } from "react";
 
+import EmployeeDocumentActions from "./EmployeeDocumentActions";
 import type { PersonnelFileAuditRow } from "@/lib/employee-requirements/personnel-file-requirements";
 
 export type PersonnelFileAuditItem = PersonnelFileAuditRow;
@@ -19,10 +19,6 @@ function getBadgeForTone(tone: PersonnelFileAuditRow["statusTone"]) {
 }
 
 const AuditItem = memo(function AuditItem({ item }: { item: PersonnelFileAuditRow }) {
-  const canView =
-    Boolean(item.viewHref) &&
-    (item.status === "Complete" || item.status === "On file");
-
   return (
     <tr className="border-b border-slate-100 last:border-0">
       <td className="py-2 pr-3 text-sm font-medium text-slate-900">{item.label}</td>
@@ -36,33 +32,17 @@ const AuditItem = memo(function AuditItem({ item }: { item: PersonnelFileAuditRo
         </span>
       </td>
       <td className="py-2 text-right">
-        <div className="flex flex-wrap justify-end gap-2">
-          {item.openHref ? (
-            <Link href={item.openHref} className="text-xs font-semibold text-sky-700 underline">
-              Open
-            </Link>
-          ) : null}
-          {item.portalHref ? (
-            <a
-              href={item.portalHref}
-              target="_blank"
-              rel="noreferrer"
-              className="text-xs font-semibold text-violet-700 underline"
-            >
-              Employee app
-            </a>
-          ) : null}
-          {canView && item.viewHref ? (
-            <a
-              href={item.viewHref}
-              target="_blank"
-              rel="noreferrer"
-              className="text-xs font-semibold text-sky-700 underline"
-            >
-              View
-            </a>
-          ) : null}
-        </div>
+        <EmployeeDocumentActions
+          employeeId=""
+          itemType={item.itemType === "summary" ? "form" : item.itemType}
+          uploadLabel={item.label}
+          documentType={item.label}
+          workflowOpenHref={item.openHref}
+          portalHref={item.portalHref}
+          viewUrl={item.viewHref}
+          downloadUrl={item.downloadHref}
+          compact
+        />
       </td>
     </tr>
   );

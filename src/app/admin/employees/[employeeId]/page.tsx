@@ -153,11 +153,15 @@ type DocumentRecord = {
 };
 
 type AdminUploadRecord = {
+  id?: string;
+  source?: "applicant_file" | "legacy_document";
+  file_path?: string | null;
   document_type?: string | null;
   display_name?: string | null;
   file_name?: string | null;
   created_at?: string | null;
   viewUrl?: string | null;
+  downloadUrl?: string | null;
 };
 
 type ProgressSummary = {
@@ -1315,9 +1319,98 @@ export default async function EmployeeDetailPage({
       .single<EmployeeContractRow>(),
     supabase
       .from("onboarding_contracts")
-      .select(`completed, ${ONBOARDING_PORTAL_FORMS_SELECT}`)
+      .select(`
+        completed,
+        selected_role,
+        role_title,
+        role_description,
+        signed_at,
+        handbook_acknowledged,
+        job_description_acknowledged,
+        policies_acknowledged,
+        electronic_signature,
+        job_acceptance_acknowledged,
+        job_acceptance_full_name,
+        job_acceptance_signed_at,
+        i9_s1_last_name,
+        i9_s1_first_name,
+        i9_s1_middle_initial,
+        i9_s1_other_last_names,
+        i9_s1_street_address,
+        i9_s1_apt_number,
+        i9_s1_city,
+        i9_s1_state,
+        i9_s1_zip_code,
+        i9_s1_dob,
+        i9_s1_ssn,
+        i9_s1_email,
+        i9_s1_phone,
+        i9_s1_attest_status,
+        i9_s1_lpr_a_number,
+        i9_s1_alien_work_until,
+        i9_s1_alien_id_type,
+        i9_s1_alien_a_number,
+        i9_s1_i94_number,
+        i9_s1_foreign_passport_number,
+        i9_s1_passport_country,
+        i9_s1_prep_used,
+        i9_s1_prep_full_name,
+        i9_s1_prep_street,
+        i9_s1_prep_city,
+        i9_s1_prep_state,
+        i9_s1_prep_zip,
+        i9_s1_employee_ack,
+        i9_s1_employee_full_name,
+        i9_s1_signed_at,
+        ${ONBOARDING_PORTAL_FORMS_SELECT}
+      `)
       .eq("applicant_id", employeeId)
-      .maybeSingle<OnboardingPortalFormsRecord & { completed?: boolean | null }>(),
+      .maybeSingle<
+        OnboardingPortalFormsRecord & {
+          completed?: boolean | null;
+          selected_role?: string | null;
+          role_title?: string | null;
+          role_description?: string | null;
+          signed_at?: string | null;
+          handbook_acknowledged?: boolean | null;
+          job_description_acknowledged?: boolean | null;
+          policies_acknowledged?: boolean | null;
+          electronic_signature?: string | null;
+          job_acceptance_acknowledged?: boolean | null;
+          job_acceptance_full_name?: string | null;
+          job_acceptance_signed_at?: string | null;
+          i9_s1_last_name?: string | null;
+          i9_s1_first_name?: string | null;
+          i9_s1_middle_initial?: string | null;
+          i9_s1_other_last_names?: string | null;
+          i9_s1_street_address?: string | null;
+          i9_s1_apt_number?: string | null;
+          i9_s1_city?: string | null;
+          i9_s1_state?: string | null;
+          i9_s1_zip_code?: string | null;
+          i9_s1_dob?: string | null;
+          i9_s1_ssn?: string | null;
+          i9_s1_email?: string | null;
+          i9_s1_phone?: string | null;
+          i9_s1_attest_status?: string | null;
+          i9_s1_lpr_a_number?: string | null;
+          i9_s1_alien_work_until?: string | null;
+          i9_s1_alien_id_type?: string | null;
+          i9_s1_alien_a_number?: string | null;
+          i9_s1_i94_number?: string | null;
+          i9_s1_foreign_passport_number?: string | null;
+          i9_s1_passport_country?: string | null;
+          i9_s1_prep_used?: boolean | null;
+          i9_s1_prep_full_name?: string | null;
+          i9_s1_prep_street?: string | null;
+          i9_s1_prep_city?: string | null;
+          i9_s1_prep_state?: string | null;
+          i9_s1_prep_zip?: string | null;
+          i9_s1_employee_ack?: boolean | null;
+          i9_s1_employee_full_name?: string | null;
+          i9_s1_signed_at?: string | null;
+        }
+      >(),
     supabase
       .from("employee_tax_forms")
       .select("*")
@@ -1518,6 +1611,7 @@ export default async function EmployeeDetailPage({
             return {
               ...file,
               viewUrl: null,
+              downloadUrl: null,
             };
           }
 
@@ -1527,7 +1621,11 @@ export default async function EmployeeDetailPage({
 
           return {
             ...file,
+            source: "applicant_file" as const,
             viewUrl: signedUrlData?.signedUrl || null,
+            downloadUrl: `/api/admin/employee-documents/download?recordId=${encodeURIComponent(
+              file.id
+            )}&source=applicant_file`,
           };
         })
       ),
@@ -1553,6 +1651,9 @@ export default async function EmployeeDetailPage({
           }
 
           return {
+            id: document.id,
+            source: "legacy_document" as const,
+            file_path: storageObject?.path || null,
             document_type: document.document_type,
             display_name:
               document.document_type === "tb_test"
@@ -1565,6 +1666,9 @@ export default async function EmployeeDetailPage({
             file_name: null,
             created_at: document.created_at,
             viewUrl,
+            downloadUrl: `/api/admin/employee-documents/download?recordId=${encodeURIComponent(
+              document.id
+            )}&source=legacy_document`,
           } satisfies AdminUploadRecord;
         })
       ),
@@ -1572,11 +1676,15 @@ export default async function EmployeeDetailPage({
 
   const adminUploadRecords: AdminUploadRecord[] = [
     ...applicantFilesWithUrls.map((file) => ({
+      id: file.id,
+      source: "applicant_file" as const,
+      file_path: file.file_path,
       document_type: file.document_type,
       display_name: file.display_name,
       file_name: file.file_name,
       created_at: file.created_at,
       viewUrl: file.viewUrl,
+      downloadUrl: file.downloadUrl,
     })),
     ...documentUploadRecords,
   ];
@@ -1741,7 +1849,16 @@ export default async function EmployeeDetailPage({
   const taxFormPdfHref = employeeTaxForm
     ? `/admin/employees/${employeeId}/employee-file?document=tax`
     : null;
+  const handbookPdfHref = `/admin/employees/${employeeId}/employee-file?document=employee_handbook`;
+  const jobAcceptancePdfHref = `/admin/employees/${employeeId}/employee-file?document=job_acceptance`;
+  const i9PdfHref = `/admin/employees/${employeeId}/employee-file?document=i9`;
+  const conflictPdfHref = `/admin/employees/${employeeId}/employee-file?document=conflict_of_interest`;
+  const electronicAgreementPdfHref = `/admin/employees/${employeeId}/employee-file?document=electronic_signature_agreement`;
+  const hepatitisBPdfHref = `/admin/employees/${employeeId}/employee-file?document=hepatitis_b_declination`;
+  const tbRiskPdfHref = `/admin/employees/${employeeId}/employee-file?document=tb_risk_assessment`;
   const applicationViewHref = `/admin/employees/${employeeId}/employee-file?document=application`;
+  const surveyPacketPdfHref = `/admin/employees/${employeeId}/employee-file`;
+  const surveyPacketPrintHref = `/admin/employees/${employeeId}/employee-file?inline=1`;
   const surveyPacketZipHref = `/api/generate-onboarding-pdf?applicantId=${employeeId}`;
   const surveyPacketZipFileName = `saintly-onboarding-${employeeId}.zip`;
 
@@ -1749,6 +1866,9 @@ export default async function EmployeeDetailPage({
 
   const getAdminWorkAreaUrl = (tab: EmployeeDetailWorkAreaTab) =>
     employeeDetailAdminTabUrl(employeePageBase, tab);
+
+  const getInternalDocumentDownloadHref = (record?: AdminUploadRecord | null) =>
+    record?.downloadUrl || record?.viewUrl || null;
 
   const oigHref = getAdminWorkAreaUrl("compliance");
 
@@ -2028,6 +2148,23 @@ export default async function EmployeeDetailPage({
     portalStatus.documentItems.find((item) => item.key === "resume")?.complete === true;
   const hasEmployeeHandbookAck =
     portalStatus.formItems.find((item) => item.key === "employee_handbook_ack")?.complete === true;
+  const hasJobAcceptanceStatement =
+    onboardingContractStatus?.job_acceptance_acknowledged === true &&
+    Boolean(String(onboardingContractStatus?.job_acceptance_full_name || "").trim()) &&
+    Boolean(onboardingContractStatus?.job_acceptance_signed_at);
+  const hasI9Section1 =
+    Boolean(String(onboardingContractStatus?.i9_s1_last_name || "").trim()) &&
+    Boolean(String(onboardingContractStatus?.i9_s1_first_name || "").trim()) &&
+    Boolean(String(onboardingContractStatus?.i9_s1_street_address || "").trim()) &&
+    Boolean(String(onboardingContractStatus?.i9_s1_city || "").trim()) &&
+    Boolean(String(onboardingContractStatus?.i9_s1_state || "").trim()) &&
+    Boolean(String(onboardingContractStatus?.i9_s1_zip_code || "").trim()) &&
+    Boolean(onboardingContractStatus?.i9_s1_dob) &&
+    Boolean(String(onboardingContractStatus?.i9_s1_ssn || "").trim()) &&
+    Boolean(String(onboardingContractStatus?.i9_s1_attest_status || "").trim()) &&
+    onboardingContractStatus?.i9_s1_employee_ack === true &&
+    Boolean(String(onboardingContractStatus?.i9_s1_employee_full_name || "").trim()) &&
+    Boolean(onboardingContractStatus?.i9_s1_signed_at);
   const hasConflictOfInterestForm =
     portalStatus.formItems.find((item) => item.key === "conflict_of_interest")?.complete === true;
   const hasElectronicSignatureAgreement =
@@ -2165,6 +2302,8 @@ export default async function EmployeeDetailPage({
     !isDocumentsComplete ? "Documents" : null,
     !isContractsComplete ? "Contracts" : null,
     !isTrainingComplete ? "Training" : null,
+    !hasJobAcceptanceStatement ? "Job Acceptance Statement" : null,
+    !hasI9Section1 ? "I-9" : null,
     !hasEmployeeHandbookAck ? "Employee Handbook" : null,
     !hasConflictOfInterestForm ? "Conflict of Interest + Confidentiality" : null,
     !hasElectronicSignatureAgreement ? "Electronic Documentation Signature Agreement" : null,
@@ -2440,6 +2579,8 @@ export default async function EmployeeDetailPage({
     hasResumeOnFile,
     hasSocialSecurityCard,
     hasEmployeeHandbookAck,
+    hasJobAcceptanceStatement,
+    hasI9Section1,
     hasConflictOfInterestForm,
     hasElectronicSignatureAgreement,
     hasHepatitisBDeclination,
@@ -2454,6 +2595,13 @@ export default async function EmployeeDetailPage({
     trainingCertificateHref,
     contractPdfHref,
     taxFormPdfHref,
+    handbookPdfHref,
+    jobAcceptancePdfHref,
+    i9PdfHref,
+    conflictPdfHref,
+    electronicAgreementPdfHref,
+    hepatitisBPdfHref,
+    tbRiskPdfHref,
     skillsPrintHref,
     skillsCanPrint: skillsPrintMeta.canPrint,
     performancePrintHref,
@@ -2480,8 +2628,10 @@ export default async function EmployeeDetailPage({
   const hasInitialDriversLicenseUpload =
     uploadedDocumentTypes.has("drivers_license") || Boolean(latestDriversLicenseProof);
   const hasInitialResumeUpload = hasResumeOnFile;
+  const hasInitialCprUpload = requiresCpr ? hasCprCard : Boolean(latestCprProof);
   const hasInitialSocialSecurityCardUpload = hasSocialSecurityCard;
   const hasInitialAutoInsuranceUpload = Boolean(latestAutoInsuranceProofNormalized);
+  const hasInitialIndependentContractorInsuranceUpload = hasIndependentContractorInsurance;
 
   const driversLicenseHistory = adminUploadRecords
     .filter((file) => (file.document_type || "").toLowerCase().trim() === "drivers_license")
@@ -2515,6 +2665,24 @@ export default async function EmployeeDetailPage({
       (a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
     );
 
+  const cprHistory = adminUploadRecords
+    .filter((file) => normalizePersonnelFileDocumentKey(file.document_type) === "cpr_front")
+    .slice()
+    .sort(
+      (a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+    );
+
+  const independentContractorInsuranceHistory = adminUploadRecords
+    .filter(
+      (file) =>
+        normalizePersonnelFileDocumentKey(file.document_type) ===
+        "independent_contractor_insurance"
+    )
+    .slice()
+    .sort(
+      (a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+    );
+
   const documentsComplianceInitialHiring: InitialHiringRowDef[] = [
     {
       key: "resume",
@@ -2530,11 +2698,14 @@ export default async function EmployeeDetailPage({
         (typeof (employee as Record<string, unknown>).resume_url === "string"
           ? ((employee as Record<string, unknown>).resume_url as string)
           : null),
+      downloadUrl: getInternalDocumentDownloadHref(latestResumeProof as AdminUploadRecord | null),
       documentType: "resume",
       uploadLabel: "Resume",
       anchorId: "resume-section",
       history: buildAdminUploadHistoryDisplay(resumeHistory),
       workflowOpenHref: getAdminWorkAreaUrl("documents"),
+      fileRecordId: (latestResumeProof as AdminUploadRecord | null)?.id ?? null,
+      fileRecordSource: (latestResumeProof as AdminUploadRecord | null)?.source ?? null,
     },
     {
       key: "employee-handbook",
@@ -2542,8 +2713,11 @@ export default async function EmployeeDetailPage({
       itemType: "form",
       statusLabel: hasEmployeeHandbookAck ? "Complete" : "Missing",
       statusTone: hasEmployeeHandbookAck ? "green" : "red",
-      lastUpdatedDisplay: "—",
-      viewUrl: null,
+      lastUpdatedDisplay: onboardingContractStatus?.signed_at
+        ? formatDateTime(onboardingContractStatus.signed_at)
+        : "—",
+      viewUrl: hasEmployeeHandbookAck ? `${handbookPdfHref}&inline=1` : null,
+      downloadUrl: hasEmployeeHandbookAck ? handbookPdfHref : null,
       documentType: "employee_handbook_ack",
       uploadLabel: "Employee Handbook",
       anchorId: "employee-handbook-section",
@@ -2552,13 +2726,52 @@ export default async function EmployeeDetailPage({
       portalHref: `/onboarding-documents?applicant=${encodeURIComponent(employeeId)}`,
     },
     {
+      key: "job-acceptance",
+      label: "Job Acceptance Statement",
+      itemType: "form",
+      statusLabel: hasJobAcceptanceStatement ? "Complete" : "Missing",
+      statusTone: hasJobAcceptanceStatement ? "green" : "red",
+      lastUpdatedDisplay: onboardingContractStatus?.job_acceptance_signed_at
+        ? formatDateTime(onboardingContractStatus.job_acceptance_signed_at)
+        : "—",
+      viewUrl: hasJobAcceptanceStatement ? `${jobAcceptancePdfHref}&inline=1` : null,
+      downloadUrl: hasJobAcceptanceStatement ? jobAcceptancePdfHref : null,
+      documentType: "job_acceptance",
+      uploadLabel: "Job Acceptance Statement",
+      anchorId: "job-acceptance-section",
+      history: [],
+      workflowOpenHref: `/onboarding-contracts?applicant=${encodeURIComponent(employeeId)}#job-acceptance-section`,
+      portalHref: `/onboarding-contracts?applicant=${encodeURIComponent(employeeId)}#job-acceptance-section`,
+    },
+    {
+      key: "i9",
+      label: "I-9",
+      itemType: "form",
+      statusLabel: hasI9Section1 ? "Complete" : "Missing",
+      statusTone: hasI9Section1 ? "green" : "red",
+      lastUpdatedDisplay: onboardingContractStatus?.i9_s1_signed_at
+        ? formatDateTime(onboardingContractStatus.i9_s1_signed_at)
+        : "—",
+      viewUrl: hasI9Section1 ? `${i9PdfHref}&inline=1` : null,
+      downloadUrl: hasI9Section1 ? i9PdfHref : null,
+      documentType: "i9",
+      uploadLabel: "I-9",
+      anchorId: "i9-section",
+      history: [],
+      workflowOpenHref: `/onboarding-contracts?applicant=${encodeURIComponent(employeeId)}#i9-section`,
+      portalHref: `/onboarding-contracts?applicant=${encodeURIComponent(employeeId)}#i9-section`,
+    },
+    {
       key: "conflict-of-interest",
       label: "Conflict of Interest + Confidentiality",
       itemType: "form",
       statusLabel: hasConflictOfInterestForm ? "Complete" : "Missing",
       statusTone: hasConflictOfInterestForm ? "green" : "red",
-      lastUpdatedDisplay: "—",
-      viewUrl: null,
+      lastUpdatedDisplay: onboardingContractStatus?.conflict_confidentiality_signed_at
+        ? formatDateTime(onboardingContractStatus.conflict_confidentiality_signed_at)
+        : "—",
+      viewUrl: hasConflictOfInterestForm ? `${conflictPdfHref}&inline=1` : null,
+      downloadUrl: hasConflictOfInterestForm ? conflictPdfHref : null,
       documentType: "conflict_of_interest",
       uploadLabel: "Conflict of Interest + Confidentiality",
       anchorId: "conflict-of-interest-section",
@@ -2572,8 +2785,11 @@ export default async function EmployeeDetailPage({
       itemType: "form",
       statusLabel: hasElectronicSignatureAgreement ? "Complete" : "Missing",
       statusTone: hasElectronicSignatureAgreement ? "green" : "red",
-      lastUpdatedDisplay: "—",
-      viewUrl: null,
+      lastUpdatedDisplay: onboardingContractStatus?.electronic_signature_agreement_signed_at
+        ? formatDateTime(onboardingContractStatus.electronic_signature_agreement_signed_at)
+        : "—",
+      viewUrl: hasElectronicSignatureAgreement ? `${electronicAgreementPdfHref}&inline=1` : null,
+      downloadUrl: hasElectronicSignatureAgreement ? electronicAgreementPdfHref : null,
       documentType: "electronic_signature_agreement",
       uploadLabel: "Electronic Documentation Signature Agreement",
       anchorId: "electronic-signature-section",
@@ -2587,8 +2803,11 @@ export default async function EmployeeDetailPage({
       itemType: "form",
       statusLabel: hasHepatitisBDeclination ? "Complete" : "Missing",
       statusTone: hasHepatitisBDeclination ? "green" : "red",
-      lastUpdatedDisplay: "—",
-      viewUrl: null,
+      lastUpdatedDisplay: onboardingContractStatus?.hep_b_declination_signed_at
+        ? formatDateTime(onboardingContractStatus.hep_b_declination_signed_at)
+        : "—",
+      viewUrl: hasHepatitisBDeclination ? `${hepatitisBPdfHref}&inline=1` : null,
+      downloadUrl: hasHepatitisBDeclination ? hepatitisBPdfHref : null,
       documentType: "hepatitis_b_declination",
       uploadLabel: "Hepatitis B Vaccine Declination",
       anchorId: "hepatitis-b-declination-section",
@@ -2602,8 +2821,11 @@ export default async function EmployeeDetailPage({
       itemType: "form",
       statusLabel: hasTbRiskAssessment ? "Complete" : "Missing",
       statusTone: hasTbRiskAssessment ? "green" : "red",
-      lastUpdatedDisplay: "—",
-      viewUrl: null,
+      lastUpdatedDisplay: onboardingContractStatus?.tb_signed_at
+        ? formatDateTime(onboardingContractStatus.tb_signed_at)
+        : "—",
+      viewUrl: hasTbRiskAssessment ? `${tbRiskPdfHref}&inline=1` : null,
+      downloadUrl: hasTbRiskAssessment ? tbRiskPdfHref : null,
       documentType: "tb_risk_assessment",
       uploadLabel: "TB Risk Assessment",
       anchorId: "tb-risk-assessment-section",
@@ -2619,12 +2841,15 @@ export default async function EmployeeDetailPage({
       statusTone: isOigComplete ? "green" : "red",
       lastUpdatedDisplay: latestOigProof?.created_at ? formatDateTime(latestOigProof.created_at) : "—",
       viewUrl: (latestOigProof as AdminUploadRecord | null)?.viewUrl ?? null,
+      downloadUrl: getInternalDocumentDownloadHref(latestOigProof as AdminUploadRecord | null),
       documentType: "oig_check",
       uploadLabel: "OIG Check Proof",
       completeComplianceEventId: oigEvent?.id,
       anchorId: "oig-proof-section",
       history: buildAdminUploadHistoryDisplay(oigProofHistory),
       workflowOpenHref: getAdminWorkAreaUrl("compliance"),
+      fileRecordId: (latestOigProof as AdminUploadRecord | null)?.id ?? null,
+      fileRecordSource: (latestOigProof as AdminUploadRecord | null)?.source ?? null,
     },
     {
       key: "background",
@@ -2636,11 +2861,16 @@ export default async function EmployeeDetailPage({
         ? formatDateTime(latestBackgroundCheckProof.created_at)
         : "—",
       viewUrl: (latestBackgroundCheckProof as AdminUploadRecord | null)?.viewUrl ?? null,
+      downloadUrl: getInternalDocumentDownloadHref(
+        latestBackgroundCheckProof as AdminUploadRecord | null
+      ),
       documentType: "background_check",
       uploadLabel: "Background Check",
       anchorId: "background-section",
       history: buildAdminUploadHistoryDisplay(backgroundCheckHistory),
       workflowOpenHref: getAdminWorkAreaUrl("documents"),
+      fileRecordId: (latestBackgroundCheckProof as AdminUploadRecord | null)?.id ?? null,
+      fileRecordSource: (latestBackgroundCheckProof as AdminUploadRecord | null)?.source ?? null,
     },
     {
       key: "drivers-license-initial",
@@ -2652,11 +2882,16 @@ export default async function EmployeeDetailPage({
         ? formatDateTime(latestDriversLicenseProof.created_at)
         : "—",
       viewUrl: (latestDriversLicenseProof as AdminUploadRecord | null)?.viewUrl ?? null,
+      downloadUrl: getInternalDocumentDownloadHref(
+        latestDriversLicenseProof as AdminUploadRecord | null
+      ),
       documentType: "drivers_license",
       uploadLabel: "Driver’s License",
       anchorId: "drivers-license-section",
       history: buildAdminUploadHistoryDisplay(driversLicenseHistory),
       workflowOpenHref: getAdminWorkAreaUrl("credentials"),
+      fileRecordId: (latestDriversLicenseProof as AdminUploadRecord | null)?.id ?? null,
+      fileRecordSource: (latestDriversLicenseProof as AdminUploadRecord | null)?.source ?? null,
     },
     {
       key: "social-security-card",
@@ -2668,11 +2903,33 @@ export default async function EmployeeDetailPage({
         ? formatDateTime(latestSocialSecurityCardProof.created_at)
         : "—",
       viewUrl: (latestSocialSecurityCardProof as AdminUploadRecord | null)?.viewUrl ?? null,
+      downloadUrl: getInternalDocumentDownloadHref(
+        latestSocialSecurityCardProof as AdminUploadRecord | null
+      ),
       documentType: "social_security_card",
       uploadLabel: "Social Security Card",
       anchorId: "social-security-card-section",
       history: buildAdminUploadHistoryDisplay(socialSecurityCardHistory),
       workflowOpenHref: getAdminWorkAreaUrl("documents"),
+      fileRecordId: (latestSocialSecurityCardProof as AdminUploadRecord | null)?.id ?? null,
+      fileRecordSource: (latestSocialSecurityCardProof as AdminUploadRecord | null)?.source ?? null,
+    },
+    {
+      key: "cpr",
+      itemType: "document",
+      label: "CPR Card",
+      statusLabel: hasInitialCprUpload ? "Complete" : "Missing",
+      statusTone: hasInitialCprUpload ? "green" : "red",
+      lastUpdatedDisplay: latestCprProof?.created_at ? formatDateTime(latestCprProof.created_at) : "—",
+      viewUrl: (latestCprProof as AdminUploadRecord | null)?.viewUrl ?? null,
+      downloadUrl: getInternalDocumentDownloadHref(latestCprProof as AdminUploadRecord | null),
+      documentType: "cpr_front",
+      uploadLabel: "CPR Card",
+      anchorId: "cpr-section",
+      history: buildAdminUploadHistoryDisplay(cprHistory),
+      workflowOpenHref: getAdminWorkAreaUrl("credentials"),
+      fileRecordId: (latestCprProof as AdminUploadRecord | null)?.id ?? null,
+      fileRecordSource: (latestCprProof as AdminUploadRecord | null)?.source ?? null,
     },
     {
       key: "auto-insurance-initial",
@@ -2684,11 +2941,41 @@ export default async function EmployeeDetailPage({
         ? formatDateTime(latestAutoInsuranceProofNormalized.created_at)
         : "—",
       viewUrl: (latestAutoInsuranceProofNormalized as AdminUploadRecord | null)?.viewUrl ?? null,
+      downloadUrl: getInternalDocumentDownloadHref(
+        latestAutoInsuranceProofNormalized as AdminUploadRecord | null
+      ),
       documentType: "auto_insurance",
       uploadLabel: "Auto Insurance",
       anchorId: "auto_insurance-section",
       history: buildAdminUploadHistoryDisplay(autoInsuranceHistory),
       workflowOpenHref: getAdminWorkAreaUrl("credentials"),
+      fileRecordId: (latestAutoInsuranceProofNormalized as AdminUploadRecord | null)?.id ?? null,
+      fileRecordSource:
+        (latestAutoInsuranceProofNormalized as AdminUploadRecord | null)?.source ?? null,
+    },
+    {
+      key: "independent-contractor-insurance",
+      itemType: "document",
+      label: "Independent Contractor Insurance",
+      statusLabel: hasInitialIndependentContractorInsuranceUpload ? "Complete" : "Missing",
+      statusTone: hasInitialIndependentContractorInsuranceUpload ? "green" : "red",
+      lastUpdatedDisplay: latestIndependentContractorInsuranceProof?.created_at
+        ? formatDateTime(latestIndependentContractorInsuranceProof.created_at)
+        : "—",
+      viewUrl:
+        (latestIndependentContractorInsuranceProof as AdminUploadRecord | null)?.viewUrl ?? null,
+      downloadUrl: getInternalDocumentDownloadHref(
+        latestIndependentContractorInsuranceProof as AdminUploadRecord | null
+      ),
+      documentType: "independent_contractor_insurance",
+      uploadLabel: "Independent Contractor Insurance",
+      anchorId: "independent-contractor-insurance-section",
+      history: buildAdminUploadHistoryDisplay(independentContractorInsuranceHistory),
+      workflowOpenHref: getAdminWorkAreaUrl("credentials"),
+      fileRecordId:
+        (latestIndependentContractorInsuranceProof as AdminUploadRecord | null)?.id ?? null,
+      fileRecordSource:
+        (latestIndependentContractorInsuranceProof as AdminUploadRecord | null)?.source ?? null,
     },
     {
       key: "fingerprint",
@@ -2700,11 +2987,16 @@ export default async function EmployeeDetailPage({
         ? formatDateTime(latestFingerprintProof.created_at)
         : "—",
       viewUrl: (latestFingerprintProof as AdminUploadRecord | null)?.viewUrl ?? null,
+      downloadUrl: getInternalDocumentDownloadHref(
+        latestFingerprintProof as AdminUploadRecord | null
+      ),
       documentType: "fingerprint_clearance_card",
       uploadLabel: "AZ Fingerprint Clearance Card",
       anchorId: "fingerprint-section",
       history: buildAdminUploadHistoryDisplay(fingerprintCardHistory),
       workflowOpenHref: getAdminWorkAreaUrl("credentials"),
+      fileRecordId: (latestFingerprintProof as AdminUploadRecord | null)?.id ?? null,
+      fileRecordSource: (latestFingerprintProof as AdminUploadRecord | null)?.source ?? null,
     },
     {
       key: "tb",
@@ -2716,11 +3008,14 @@ export default async function EmployeeDetailPage({
         ? formatDateTime(latestTbTestProof.created_at)
         : "—",
       viewUrl: (latestTbTestProof as AdminUploadRecord | null)?.viewUrl ?? null,
+      downloadUrl: getInternalDocumentDownloadHref(latestTbTestProof as AdminUploadRecord | null),
       documentType: "tb_test",
       uploadLabel: "TB Test Upload",
       anchorId: "tb-section",
       history: buildAdminUploadHistoryDisplay(tbTestHistory),
       workflowOpenHref: getAdminWorkAreaUrl("documents"),
+      fileRecordId: (latestTbTestProof as AdminUploadRecord | null)?.id ?? null,
+      fileRecordSource: (latestTbTestProof as AdminUploadRecord | null)?.source ?? null,
     },
   ];
 
@@ -3112,14 +3407,38 @@ export default async function EmployeeDetailPage({
                   </a>
 
                   {isSurveyReady ? (
-                    <a
-                      href={surveyPacketZipHref}
-                      download={surveyPacketZipFileName}
-                      className="inline-flex items-center rounded-full border border-green-200 bg-green-50 px-3 py-1 text-xs font-semibold text-green-700 transition hover:bg-green-100"
-                    >
-                      Download Survey Packet
-                    </a>
-                  ) : null}
+                    <>
+                      <a
+                        href={surveyPacketPrintHref}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center rounded-full border border-green-200 bg-green-50 px-3 py-1 text-xs font-semibold text-green-700 transition hover:bg-green-100"
+                      >
+                        Generate Survey Packet
+                      </a>
+                      <a
+                        href={surveyPacketPdfHref}
+                        className="inline-flex items-center rounded-full border border-green-200 bg-white px-3 py-1 text-xs font-semibold text-green-700 transition hover:bg-green-50"
+                      >
+                        Download Survey Packet PDF
+                      </a>
+                      <a
+                        href={surveyPacketZipHref}
+                        download={surveyPacketZipFileName}
+                        className="inline-flex items-center rounded-full border border-green-200 bg-white px-3 py-1 text-xs font-semibold text-green-700 transition hover:bg-green-50"
+                      >
+                        Download Source Packet
+                      </a>
+                    </>
+                  ) : (
+                    <div className="flex flex-col items-start gap-1 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                      <span className="font-semibold">Survey packet blocked</span>
+                      <span>
+                        Missing: {missingSurveyItems.slice(0, 6).join(", ")}
+                        {missingSurveyItems.length > 6 ? ", ..." : ""}
+                      </span>
+                    </div>
+                  )}
 
                   {isSurveyReady ? (
                     canChangeSensitiveEmployeeStatus ? (
