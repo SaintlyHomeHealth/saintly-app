@@ -324,13 +324,12 @@ export default function OnboardingDocumentsPage() {
       await Promise.all([
         supabase
           .from('applicants')
-          .select('position, primary_discipline, type_of_position, resume_url')
+          .select('position, primary_discipline, type_of_position')
           .eq('id', id)
           .maybeSingle<{
             position?: string | null
             primary_discipline?: string | null
             type_of_position?: string | null
-            resume_url?: string | null
           }>(),
         supabase
           .from('employee_contracts')
@@ -347,7 +346,7 @@ export default function OnboardingDocumentsPage() {
       ])
 
     setApplicantRoleHint(applicantRolePrimaryForCompliance(applicantData ?? {}))
-    setResumeUrl(applicantData?.resume_url || null)
+    setResumeUrl(null)
     setContractEmploymentClassification(currentContractData?.employment_classification || null)
     setTaxFormEmploymentClassification(currentTaxFormData?.employment_classification || null)
   }

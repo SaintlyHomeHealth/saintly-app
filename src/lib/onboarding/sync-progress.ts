@@ -59,7 +59,6 @@ async function loadProgressInputs(supabase: SupabaseClient, applicantId: string)
   }
 
   const [
-    { data: applicantRow },
     { data: filesData },
     { data: documentsData },
     { data: onboardingStatusRow },
@@ -69,7 +68,6 @@ async function loadProgressInputs(supabase: SupabaseClient, applicantId: string)
     { data: trainingAttemptData },
     { data: trainingCompletionData },
   ] = await Promise.all([
-    supabase.from("applicants").select("resume_url").eq("id", applicantId).maybeSingle<{ resume_url?: string | null }>(),
     supabase.from("applicant_files").select("id").eq("applicant_id", applicantId),
     supabase.from("documents").select("id, document_type").eq("applicant_id", applicantId),
     supabase
@@ -107,7 +105,7 @@ async function loadProgressInputs(supabase: SupabaseClient, applicantId: string)
     documentKeys: uploadedTypes,
     onboardingForms: onboardingContractsRow,
     hasLegacyApplicantFileFallback: (filesData?.length || 0) > 0,
-    resumeUrl: applicantRow?.resume_url || null,
+    resumeUrl: null,
   });
 
   const taxOk =

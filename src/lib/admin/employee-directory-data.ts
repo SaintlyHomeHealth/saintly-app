@@ -69,7 +69,6 @@ export type ApplicantRecord = {
   position: string | null;
   primary_discipline: string | null;
   type_of_position: string | null;
-  resume_url: string | null;
   status: string | null;
   created_at: string | null;
   [key: string]: unknown;
@@ -129,7 +128,7 @@ export type OnboardingStatusLite = {
 };
 
 const EMPLOYEE_DIRECTORY_APPLICANT_SELECT =
-  "id, first_name, last_name, email, phone, position, primary_discipline, type_of_position, resume_url, status, created_at, updated_at";
+  "id, first_name, last_name, email, phone, position, primary_discipline, type_of_position, status, created_at, updated_at";
 
 type OnboardingContractStatusLite = {
   applicant_id: string;
@@ -865,6 +864,7 @@ export async function loadEmployeeDirectoryRows(): Promise<{
     .limit(1500);
 
   if (applicantsError) {
+    console.error("EMPLOYEE LOAD ERROR", applicantsError);
     return {
       rows: [],
       loadError: applicantsError.message,
@@ -1159,7 +1159,7 @@ export async function loadEmployeeDirectoryRows(): Promise<{
       documentKeys: uploadedDocumentTypes,
       onboardingForms: onboardingContractStatus,
       hasLegacyApplicantFileFallback: (applicantFilesByEmployee.get(applicant.id)?.length || 0) > 0,
-      resumeUrl: applicant.resume_url,
+      resumeUrl: null,
     });
     const isDocumentsComplete = portalStatus.documentsStepComplete;
     const isTaxFormSigned = Boolean(
