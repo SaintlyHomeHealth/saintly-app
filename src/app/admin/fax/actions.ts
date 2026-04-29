@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 
 import { supabaseAdmin } from "@/lib/admin";
 import { createReferralLeadFromFax, recordFaxEvent, type FaxCategory } from "@/lib/fax/fax-service";
-import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
+import { getStaffProfile, isAdminOrHigher, isManagerOrHigher } from "@/lib/staff-profile";
 
 const VALID_CATEGORIES = new Set<FaxCategory>([
   "referral",
@@ -19,6 +19,12 @@ const VALID_CATEGORIES = new Set<FaxCategory>([
 async function requireFaxAdmin() {
   const staff = await getStaffProfile();
   if (!staff || !isManagerOrHigher(staff)) redirect("/admin");
+  return staff;
+}
+
+async function requireFaxSupervisionAdmin() {
+  const staff = await getStaffProfile();
+  if (!staff || !isAdminOrHigher(staff)) redirect("/admin/fax");
   return staff;
 }
 
@@ -69,10 +75,58 @@ export async function archiveFaxAction(formData: FormData) {
   const archived = readString(formData, "archived") === "1";
   await updateFaxAndEvent({
     faxId,
-    patch: { is_archived: archived },
+    patch: archived ? { is_archived: true, status: "archived" } : { is_archived: false },
     eventType: archived ? "archived" : "unarchived",
     returnToPath: returnTo(formData, "/admin/fax"),
   });
+}
+
+export async function softDeleteFaxAction(formData: FormData) {
+  const faxId = readString(formData, "faxId");
+  const path = returnTo(formData, "/admin/fax");
+  const staff = await requireFaxAdmin();
+  if (!faxId) redirect(path);
+
+  await supabaseAdmin.from("fax_messages").update({ is_archived: true, status: "archived" }).eq("id", faxId);
+  console.log("[fax/delete] soft_delete", { fax_id: faxId, actor_user_id: staff.user_id });
+  await recordFaxEvent({
+    faxMessageId: faxId,
+    eventType: "deleted_soft",
+    payload: { actor_user_id: staff.user_id },
+  });
+  revalidatePath("/admin/fax");
+  revalidatePath(`/admin/fax/${faxId}`);
+  redirect(path);
+}
+
+export async function hardDeleteFaxAction(formData: FormData) {
+  const faxId = readString(formData, "faxId");
+  const path = returnTo(formData, "/admin/fax");
+  const staff = await requireFaxSupervisionAdmin();
+  if (!faxId) redirect(path);
+
+  const { data: fax, error: faxError } = await supabaseAdmin
+    .from("fax_messages")
+    .select("id, storage_path")
+    .eq("id", faxId)
+    .maybeSingle();
+  if (faxError || !fax?.id) redirect(path);
+
+  const storagePath =
+    typeof fax.storage_path === "string" && fax.storage_path.trim() ? fax.storage_path.trim() : null;
+  if (storagePath) {
+    await supabaseAdmin.storage.from("fax-documents").remove([storagePath]);
+  }
+
+  await supabaseAdmin.from("fax_messages").delete().eq("id", faxId);
+  console.log("[fax/delete] hard_delete", {
+    fax_id: faxId,
+    actor_user_id: staff.user_id,
+    storage_path: storagePath,
+  });
+  revalidatePath("/admin/fax");
+  revalidatePath(`/admin/fax/${faxId}`);
+  redirect(path);
 }
 
 export async function updateFaxCategoryAction(formData: FormData) {

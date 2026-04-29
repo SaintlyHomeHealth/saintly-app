@@ -12,10 +12,12 @@ import {
   crmPrimaryCtaCls,
 } from "@/components/admin/crm-admin-list-styles";
 import { supabaseAdmin } from "@/lib/admin";
+import { formatFaxSenderDisplay } from "@/lib/fax/format-fax-sender";
 import { missingFaxSchema, type FaxMessageRow } from "@/lib/fax/fax-service";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
-import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
+import { getStaffProfile, isAdminOrHigher, isManagerOrHigher } from "@/lib/staff-profile";
 
+import { DeleteFaxButton } from "./_components/DeleteFaxButton";
 import { SendFaxButton } from "./_components/SendFaxButton";
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
@@ -92,6 +94,7 @@ function filterHref(tab: string): string {
 export default async function AdminFaxCenterPage({ searchParams }: { searchParams: SearchParams }) {
   const staff = await getStaffProfile();
   if (!staff || !isManagerOrHigher(staff)) redirect("/admin");
+  const allowHardDelete = isAdminOrHigher(staff);
 
   const raw = await searchParams;
   const f = {
@@ -103,6 +106,15 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
     from: one(raw, "from").trim(),
     to: one(raw, "to").trim(),
   };
+  const currentSearch = new URLSearchParams();
+  if (f.tab) currentSearch.set("tab", f.tab);
+  if (f.q) currentSearch.set("q", f.q);
+  if (f.unread) currentSearch.set("unread", "1");
+  if (f.unassigned) currentSearch.set("unassigned", "1");
+  if (f.category) currentSearch.set("category", f.category);
+  if (f.from) currentSearch.set("from", f.from);
+  if (f.to) currentSearch.set("to", f.to);
+  const currentListPath = `/admin/fax${currentSearch.size ? `?${currentSearch.toString()}` : ""}`;
 
   let query = supabaseAdmin
     .from("fax_messages")
@@ -263,12 +275,13 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
           ) : (
             faxes.map((fax) => {
               const match = matchedBadge(fax);
-              const primary = fax.direction === "inbound" ? fax.sender_name || fax.from_number : fax.recipient_name || fax.to_number;
+              const primaryPhone = fax.direction === "inbound" ? fax.from_number : fax.to_number;
+              const primaryName = fax.direction === "inbound" ? fax.sender_name : fax.recipient_name;
+              const primary = formatFaxSenderDisplay(primaryPhone, primaryName);
               const secondary = fax.direction === "inbound" ? fax.to_number : fax.from_number;
               return (
-                <Link
+                <div
                   key={fax.id}
-                  href={`/admin/fax/${fax.id}`}
                   className={`grid grid-cols-[90px_1.2fr_120px_120px_80px_110px_130px_120px_120px] gap-3 px-4 py-3 text-sm transition ${crmListRowHoverCls}`}
                 >
                   <div>
@@ -277,7 +290,10 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
                     </span>
                   </div>
                   <div>
-                    <p className="font-semibold text-slate-900">{primary ? formatPhoneForDisplay(primary) === "—" ? primary : formatPhoneForDisplay(primary) : "Unknown sender"}</p>
+                    <Link href={`/admin/fax/${fax.id}`} className="block">
+                      <p className="font-semibold text-slate-900">{primary || "Unknown sender"}</p>
+                    </Link>
+                    <p className="text-xs text-slate-500">{primaryPhone ? formatPhoneForDisplay(primaryPhone) : "No primary number"}</p>
                     <p className="text-xs text-slate-500">{secondary ? `Via ${formatPhoneForDisplay(secondary)}` : "No secondary number"}</p>
                     {!fax.is_read && fax.direction === "inbound" ? <p className="mt-1 text-[11px] font-bold text-sky-700">Unread</p> : null}
                   </div>
@@ -295,10 +311,18 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
                   </div>
                   <div className="text-xs text-slate-600">{formatDateTime(fax.received_at ?? fax.sent_at ?? fax.created_at)}</div>
                   <div className="text-xs text-slate-600">{fax.assigned_to_user_id ? "Assigned" : "Unassigned"}</div>
-                  <div>
-                    <span className={crmActionBtnMuted}>Open</span>
+                  <div className="flex flex-wrap gap-2">
+                    <Link href={`/admin/fax/${fax.id}`} className={crmActionBtnMuted}>
+                      Open
+                    </Link>
+                    <DeleteFaxButton
+                      faxId={fax.id}
+                      returnTo={currentListPath}
+                      allowHardDelete={allowHardDelete}
+                      compact
+                    />
                   </div>
-                </Link>
+                </div>
               );
             })
           )}

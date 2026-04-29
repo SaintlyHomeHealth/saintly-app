@@ -13,9 +13,12 @@ import {
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { crmActionBtnMuted, crmActionBtnSky, crmFilterInputCls, crmPrimaryCtaCls } from "@/components/admin/crm-admin-list-styles";
 import { supabaseAdmin } from "@/lib/admin";
+import { formatFaxSenderDisplay } from "@/lib/fax/format-fax-sender";
 import { missingFaxSchema, signedFaxPdfUrl, type FaxMessageRow } from "@/lib/fax/fax-service";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
-import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
+import { getStaffProfile, isAdminOrHigher, isManagerOrHigher } from "@/lib/staff-profile";
+
+import { DeleteFaxButton } from "../_components/DeleteFaxButton";
 
 type FaxEventRow = {
   id: string;
@@ -71,6 +74,7 @@ function Field({ label, value }: { label: string; value: string | number | null 
 export default async function AdminFaxDetailPage({ params }: { params: Promise<{ faxId: string }> }) {
   const staff = await getStaffProfile();
   if (!staff || !isManagerOrHigher(staff)) redirect("/admin");
+  const allowHardDelete = isAdminOrHigher(staff);
 
   const { faxId } = await params;
   if (!faxId) notFound();
@@ -97,13 +101,15 @@ export default async function AdminFaxDetailPage({ params }: { params: Promise<{
   const pdfUrl = await signedFaxPdfUrl(fax.storage_path) ?? fax.pdf_url ?? fax.media_url;
   const returnTo = `/admin/fax/${fax.id}`;
   const matched = fax.patient_id ? "Patient" : fax.lead_id ? "Lead" : fax.facility_id ? "Facility" : "Unassigned";
+  const senderDisplay = formatFaxSenderDisplay(fax.from_number, fax.sender_name);
+  const recipientDisplay = formatFaxSenderDisplay(fax.to_number, fax.recipient_name);
 
   return (
     <div className="space-y-6 p-6">
       <AdminPageHeader
         eyebrow="Fax detail"
         title={fax.subject || `${fax.direction === "inbound" ? "Inbound" : "Outbound"} fax`}
-        metaLine={`${formatPhoneForDisplay(fax.from_number)} to ${formatPhoneForDisplay(fax.to_number)} · ${formatDateTime(fax.received_at ?? fax.sent_at ?? fax.created_at)}`}
+        metaLine={`${senderDisplay} to ${recipientDisplay} · ${formatDateTime(fax.received_at ?? fax.sent_at ?? fax.created_at)}`}
         description="Review the PDF, attach it to the right record, and keep a clear audit trail."
         actions={
           <div className="flex flex-wrap gap-2">
@@ -115,6 +121,7 @@ export default async function AdminFaxDetailPage({ params }: { params: Promise<{
                 Download / print PDF
               </a>
             ) : null}
+            <DeleteFaxButton faxId={fax.id} returnTo="/admin/fax" allowHardDelete={allowHardDelete} />
           </div>
         }
       />
@@ -147,12 +154,16 @@ export default async function AdminFaxDetailPage({ params }: { params: Promise<{
             <div className="mt-4 grid grid-cols-2 gap-4">
               <Field label="Status" value={fax.status} />
               <Field label="Category" value={categoryLabel(fax.category)} />
-              <Field label="From" value={formatPhoneForDisplay(fax.from_number)} />
-              <Field label="To" value={formatPhoneForDisplay(fax.to_number)} />
+              <Field label="From" value={senderDisplay} />
+              <Field label="To" value={recipientDisplay} />
               <Field label="Pages" value={fax.page_count} />
               <Field label="Assigned" value={staffLabel(assigned)} />
               <Field label="Received" value={formatDateTime(fax.received_at)} />
               <Field label="Completed" value={formatDateTime(fax.completed_at)} />
+            </div>
+            <div className="mt-4 grid grid-cols-2 gap-4">
+              <Field label="From number" value={formatPhoneForDisplay(fax.from_number)} />
+              <Field label="To number" value={formatPhoneForDisplay(fax.to_number)} />
             </div>
             {fax.failure_reason ? (
               <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">
