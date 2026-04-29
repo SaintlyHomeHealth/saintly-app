@@ -8,7 +8,9 @@ import {
   ONBOARDING_EMAIL_NOT_CONFIGURED_ERROR,
   sendOnboardingInviteEmail,
 } from "@/lib/email/send-onboarding-invite";
+import { normalizePhone } from "@/lib/phone/us-phone-format";
 import { appendOutboundSmsToConversation, ensureSmsConversationForOutboundSystem } from "@/lib/phone/sms-conversation-thread";
+import { normalizeRecruitingPhoneForStorage } from "@/lib/recruiting/recruiting-contact-normalize";
 import { isValidE164, normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
 import { sendSms } from "@/lib/twilio/send-sms";
 import { supabaseAdmin } from "@/lib/admin";
@@ -44,34 +46,108 @@ function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
+function normalizedPhoneMatchKey(phone: string): string | null {
+  return normalizeRecruitingPhoneForStorage(phone);
+}
+
+function phoneLookupVariants(phone: string): string[] {
+  const raw = phone.trim();
+  const digits = normalizePhone(raw);
+  const normalized = normalizedPhoneMatchKey(raw);
+  const e164 = normalizeDialInputToE164(raw);
+  const variants = new Set<string>();
+  if (raw) variants.add(raw);
+  if (digits) variants.add(digits);
+  if (normalized) variants.add(normalized);
+  if (digits.length === 10) variants.add(`+1${digits}`);
+  if (digits.length === 10) variants.add(`1${digits}`);
+  if (digits.length === 11 && digits.startsWith("1")) variants.add(`+${digits}`);
+  if (e164) variants.add(e164);
+  return [...variants].filter(Boolean);
+}
+
 async function findOrCreateApplicant(input: {
   firstName: string;
   lastName: string;
   email: string;
   phone: string;
+  role?: string;
 }): Promise<{ ok: true; applicantId: string } | { ok: false; error: string }> {
   const email = normalizeEmail(input.email);
-  if (!email || !email.includes("@")) {
-    return { ok: false, error: "A valid email is required." };
+  const hasValidEmail = Boolean(email && email.includes("@"));
+  const normalizedPhone = normalizedPhoneMatchKey(input.phone);
+  if (!hasValidEmail && !normalizedPhone) {
+    return { ok: false, error: "Add a valid email or mobile phone number." };
   }
 
-  const { data: existing, error: findErr } = await supabaseAdmin
-    .from("applicants")
-    .select("id, status")
-    .eq("email", email)
-    .maybeSingle<{ id: string; status?: string | null }>();
+  let existing:
+    | {
+        id: string;
+        status?: string | null;
+        phone?: string | null;
+      }
+    | null = null;
 
-  if (findErr) {
-    return { ok: false, error: findErr.message };
+  if (hasValidEmail) {
+    const { data: byEmail, error: findErr } = await supabaseAdmin
+      .from("applicants")
+      .select("id, status, phone")
+      .eq("email", email)
+      .maybeSingle<{ id: string; status?: string | null; phone?: string | null }>();
+
+    if (findErr) {
+      return { ok: false, error: findErr.message };
+    }
+    existing = byEmail;
   }
 
-  const patch = {
+  if (!existing?.id && normalizedPhone) {
+    const variants = phoneLookupVariants(input.phone);
+
+    if (variants.length > 0) {
+      const { data: byExactPhone, error: phoneExactErr } = await supabaseAdmin
+        .from("applicants")
+        .select("id, status, phone")
+        .in("phone", variants)
+        .limit(10);
+
+      if (phoneExactErr) {
+        return { ok: false, error: phoneExactErr.message };
+      }
+
+      existing =
+        ((byExactPhone ?? []) as { id: string; status?: string | null; phone?: string | null }[]).find(
+          (row) => normalizedPhoneMatchKey(row.phone ?? "") === normalizedPhone
+        ) ?? null;
+    }
+
+    if (!existing?.id) {
+      const suffix = normalizedPhone.slice(-4);
+      const { data: byPhoneSuffix, error: phoneSuffixErr } = await supabaseAdmin
+        .from("applicants")
+        .select("id, status, phone")
+        .ilike("phone", `%${suffix}%`)
+        .limit(50);
+
+      if (phoneSuffixErr) {
+        return { ok: false, error: phoneSuffixErr.message };
+      }
+
+      existing =
+        ((byPhoneSuffix ?? []) as { id: string; status?: string | null; phone?: string | null }[]).find(
+          (row) => normalizedPhoneMatchKey(row.phone ?? "") === normalizedPhone
+        ) ?? null;
+    }
+  }
+
+  const patch: Record<string, unknown> = {
     first_name: input.firstName.trim(),
     last_name: input.lastName.trim(),
-    email,
-    phone: input.phone.trim() || null,
     updated_at: new Date().toISOString(),
   };
+  if (hasValidEmail) patch.email = email;
+  if (input.phone.trim()) patch.phone = input.phone.trim();
+  if (input.role?.trim()) patch.position = input.role.trim();
 
   if (existing?.id) {
     const { error: upErr } = await supabaseAdmin.from("applicants").update(patch).eq("id", existing.id);
@@ -144,6 +220,7 @@ export type SendOnboardingInviteInput = {
   lastName: string;
   email: string;
   phone: string;
+  role?: string;
   channel: OnboardingInviteChannel;
   staffUserId: string;
   /** When false, still respects short cooldown (anti double-click). */
@@ -359,6 +436,7 @@ export async function sendOnboardingInvite(
     lastName: input.lastName,
     email: input.email,
     phone: input.phone,
+    role: input.role,
   });
   if (!created.ok) {
     return created;

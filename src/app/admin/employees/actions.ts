@@ -78,6 +78,75 @@ function readTrimmedField(formData: FormData, key: string): string {
   return typeof v === "string" ? v.trim() : "";
 }
 
+function sanitizeInternalReturnTo(raw: string): string | null {
+  const value = raw.trim();
+  if (!value.startsWith("/") || value.startsWith("//")) return null;
+  return value;
+}
+
+function redirectWithInviteNotice(
+  notice: Record<string, string>,
+  ctx: ReturnType<typeof readDirectoryContext>,
+  returnTo: string | null
+) {
+  if (!returnTo) {
+    redirectEmployeesWithParams(notice, ctx);
+  }
+
+  const [pathname, query = ""] = returnTo.split("?", 2);
+  const qs = new URLSearchParams(query);
+  for (const [key, value] of Object.entries(notice)) {
+    qs.set(key, value);
+  }
+  const next = qs.toString() ? `${pathname}?${qs.toString()}` : pathname;
+  redirect(next);
+}
+
+async function syncRecruitingCandidateAfterInvite(input: {
+  candidateId: string;
+  applicantId: string;
+  staffUserId: string;
+}) {
+  const candidateId = input.candidateId.trim();
+  const applicantId = input.applicantId.trim();
+  if (!candidateId || !applicantId) return;
+
+  const noteBody = `Employee onboarding invite sent. Applicant ID: ${applicantId}`;
+  const activityRow = {
+    candidate_id: candidateId,
+    activity_type: "note",
+    outcome: null,
+    body: noteBody,
+    created_by: input.staffUserId,
+  };
+
+  let { error: activityErr } = await supabaseAdmin.from("recruiting_candidate_activities").insert(activityRow);
+  if (activityErr?.code === "23503" && activityRow.created_by) {
+    ({ error: activityErr } = await supabaseAdmin.from("recruiting_candidate_activities").insert({
+      ...activityRow,
+      created_by: null,
+    }));
+  }
+  if (activityErr) {
+    console.warn("[recruiting] sync after onboarding invite activity:", activityErr.message);
+  }
+
+  const { error: candidateErr } = await supabaseAdmin
+    .from("recruiting_candidates")
+    .update({
+      status: "Onboarding",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", candidateId);
+
+  if (candidateErr) {
+    console.warn("[recruiting] sync after onboarding invite status:", candidateErr.message);
+  }
+
+  revalidatePath("/admin/recruiting");
+  revalidatePath(`/admin/recruiting/${candidateId}`);
+}
+
 export async function archiveEmployeeAction(formData: FormData) {
   const staff = await getStaffProfile();
   const applicantId = readTrimmedField(formData, "applicantId");
@@ -246,14 +315,17 @@ export async function submitAddEmployeeInviteAction(formData: FormData) {
   }
 
   const ctx = readDirectoryContext(formData);
+  const returnTo = sanitizeInternalReturnTo(readTrimmedField(formData, "returnTo"));
+  const recruitingCandidateId = readTrimmedField(formData, "recruitingCandidateId");
   const firstName = String(formData.get("firstName") ?? "").trim();
   const lastName = String(formData.get("lastName") ?? "").trim();
   const email = String(formData.get("email") ?? "").trim();
   const phone = String(formData.get("phone") ?? "").trim();
+  const role = String(formData.get("role") ?? "").trim();
   const channelRaw = String(formData.get("channel") ?? "").trim();
 
   if (channelRaw !== "sms" && channelRaw !== "email" && channelRaw !== "both") {
-    redirectEmployeesWithParams({ inviteErr: "Choose text, email, or both." }, ctx);
+    redirectWithInviteNotice({ inviteErr: "Choose text, email, or both." }, ctx, returnTo);
   }
   const channel = channelRaw as "sms" | "email" | "both";
 
@@ -262,12 +334,21 @@ export async function submitAddEmployeeInviteAction(formData: FormData) {
     lastName,
     email,
     phone,
+    role,
     channel,
     staffUserId: staff.user_id,
   });
 
   if (result.ok) {
-    redirectEmployeesWithParams(
+    if (recruitingCandidateId) {
+      await syncRecruitingCandidateAfterInvite({
+        candidateId: recruitingCandidateId,
+        applicantId: result.applicantId,
+        staffUserId: staff.user_id,
+      });
+    }
+
+    redirectWithInviteNotice(
       {
         inviteOk: "1",
         inviteApplicantId: result.applicantId,
@@ -275,10 +356,11 @@ export async function submitAddEmployeeInviteAction(formData: FormData) {
           ? { inviteEmailWarn: result.emailFailureReason.slice(0, 400) }
           : {}),
       },
-      ctx
+      ctx,
+      returnTo
     );
   } else {
-    redirectEmployeesWithParams({ inviteErr: result.error.slice(0, 400) }, ctx);
+    redirectWithInviteNotice({ inviteErr: result.error.slice(0, 400) }, ctx, returnTo);
   }
 }
 

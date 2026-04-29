@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import AddEmployeeInviteButton from "@/app/admin/employees/add-employee-invite-button";
 import {
   crmActionBtnSky,
   crmFilterBarCls,
@@ -27,6 +28,8 @@ import { recruitingInterestPillClass, recruitingStatusPillClass } from "./recrui
 type CandidateRow = {
   id: string;
   full_name: string;
+  first_name: string | null;
+  last_name: string | null;
   discipline: string | null;
   city: string | null;
   coverage_area: string | null;
@@ -83,6 +86,26 @@ function buildFilterQs(sp: {
   if (sp.lastContactTo) u.set("lastContactTo", sp.lastContactTo);
   const s = u.toString();
   return s ? `?${s}` : "";
+}
+
+function splitRecruitingName(
+  fullName: string,
+  firstName: string | null,
+  lastName: string | null
+): { firstName: string; lastName: string } {
+  const first = firstName?.trim() ?? "";
+  const last = lastName?.trim() ?? "";
+  if (first || last) {
+    return { firstName: first, lastName: last };
+  }
+  const parts = fullName.trim().split(/\s+/).filter(Boolean);
+  if (parts.length <= 1) {
+    return { firstName: parts[0] ?? "", lastName: "" };
+  }
+  return {
+    firstName: parts[0] ?? "",
+    lastName: parts.slice(1).join(" "),
+  };
 }
 
 export default async function AdminRecruitingListPage({
@@ -196,6 +219,30 @@ export default async function AdminRecruitingListPage({
   ].sort((a, b) => a.localeCompare(b));
 
   const filterQs = buildFilterQs(f);
+  const inviteErr =
+    typeof rawSp.inviteErr === "string"
+      ? rawSp.inviteErr.trim()
+      : Array.isArray(rawSp.inviteErr)
+        ? String(rawSp.inviteErr[0] ?? "").trim()
+        : "";
+  const inviteOk =
+    typeof rawSp.inviteOk === "string"
+      ? rawSp.inviteOk.trim()
+      : Array.isArray(rawSp.inviteOk)
+        ? String(rawSp.inviteOk[0] ?? "").trim()
+        : "";
+  const inviteApplicantId =
+    typeof rawSp.inviteApplicantId === "string"
+      ? rawSp.inviteApplicantId.trim()
+      : Array.isArray(rawSp.inviteApplicantId)
+        ? String(rawSp.inviteApplicantId[0] ?? "").trim()
+        : "";
+  const inviteEmailWarn =
+    typeof rawSp.inviteEmailWarn === "string"
+      ? rawSp.inviteEmailWarn.trim()
+      : Array.isArray(rawSp.inviteEmailWarn)
+        ? String(rawSp.inviteEmailWarn[0] ?? "").trim()
+        : "";
 
   return (
     <div className="space-y-6 p-6">
@@ -223,6 +270,36 @@ export default async function AdminRecruitingListPage({
           </div>
         }
       />
+
+      {inviteErr ? (
+        <div className="rounded-[20px] border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900 shadow-sm">
+          {inviteErr}
+        </div>
+      ) : null}
+
+      {inviteOk ? (
+        <div className="rounded-[20px] border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-950 shadow-sm">
+          Employee onboarding invite sent.
+          {inviteApplicantId ? (
+            <>
+              {" "}
+              <Link
+                href={`/admin/employees/${inviteApplicantId}`}
+                prefetch={false}
+                className="font-semibold text-emerald-900 underline-offset-2 hover:underline"
+              >
+                Open employee record
+              </Link>
+            </>
+          ) : null}
+        </div>
+      ) : null}
+
+      {inviteEmailWarn ? (
+        <div className="rounded-[20px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950 shadow-sm">
+          <span className="font-semibold">Text was sent, but email did not send.</span> {inviteEmailWarn}
+        </div>
+      ) : null}
 
       <form method="get" action="/admin/recruiting" className={`${crmFilterBarCls} flex-wrap`}>
         <label className="flex min-w-[8rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
@@ -376,6 +453,7 @@ export default async function AdminRecruitingListPage({
               const noAnswerCount = countById.get(r.id) ?? 0;
               const dueToday = Boolean(r.next_follow_up_at && isPhoenixSameCalendarDay(r.next_follow_up_at));
               const dueBucket = Boolean(r.next_follow_up_at && r.next_follow_up_at <= phoenixEndOfTodayIso());
+              const inviteName = splitRecruitingName(r.full_name, r.first_name, r.last_name);
               return (
                 <div
                   key={r.id}
@@ -437,6 +515,21 @@ export default async function AdminRecruitingListPage({
                     </div>
                   </div>
                   <div className="mt-4 flex flex-wrap gap-2">
+                    <AddEmployeeInviteButton
+                      triggerLabel="Onboard"
+                      triggerClassName={crmActionBtnSky}
+                      initialValues={{
+                        firstName: inviteName.firstName,
+                        lastName: inviteName.lastName,
+                        email: r.email,
+                        phone: r.phone,
+                        role: r.discipline,
+                      }}
+                      recruitingCandidateId={r.id}
+                      returnTo={`/admin/recruiting${filterQs}`}
+                      title="Invite new hire"
+                      description="Review the recruit details, fill any missing required contact fields, and send the onboarding invite."
+                    />
                     {r.phone?.trim() ? (
                       <a
                         href={`/admin/recruiting/open-keypad/${r.id}`}
@@ -479,6 +572,7 @@ export default async function AdminRecruitingListPage({
                   const noAnswerCount = countById.get(r.id) ?? 0;
                   const dueToday = Boolean(r.next_follow_up_at && isPhoenixSameCalendarDay(r.next_follow_up_at));
                   const dueBucket = Boolean(r.next_follow_up_at && r.next_follow_up_at <= phoenixEndOfTodayIso());
+                  const inviteName = splitRecruitingName(r.full_name, r.first_name, r.last_name);
                   return (
                     <tr
                       key={r.id}
@@ -525,6 +619,21 @@ export default async function AdminRecruitingListPage({
                       <td className="px-4 py-3 text-xs text-slate-600">{formatListDate(r.next_follow_up_at)}</td>
                       <td className="px-4 py-3 text-right">
                         <div className="flex flex-wrap justify-end gap-2">
+                          <AddEmployeeInviteButton
+                            triggerLabel="Onboard"
+                            triggerClassName={crmActionBtnSky}
+                            initialValues={{
+                              firstName: inviteName.firstName,
+                              lastName: inviteName.lastName,
+                              email: r.email,
+                              phone: r.phone,
+                              role: r.discipline,
+                            }}
+                            recruitingCandidateId={r.id}
+                            returnTo={`/admin/recruiting${filterQs}`}
+                            title="Invite new hire"
+                            description="Review the recruit details, fill any missing required contact fields, and send the onboarding invite."
+                          />
                           {r.phone?.trim() ? (
                             <a
                               href={`/admin/recruiting/open-keypad/${r.id}`}

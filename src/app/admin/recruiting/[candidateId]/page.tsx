@@ -113,6 +113,20 @@ export default async function AdminRecruitingCandidatePage({
   const listBackHref = buildListBackHref(sp);
 
   const errRaw = typeof sp.error === "string" ? sp.error : Array.isArray(sp.error) ? sp.error[0] : "";
+  const inviteErr = typeof sp.inviteErr === "string" ? sp.inviteErr.trim() : Array.isArray(sp.inviteErr) ? String(sp.inviteErr[0] ?? "").trim() : "";
+  const inviteOk = typeof sp.inviteOk === "string" ? sp.inviteOk.trim() : Array.isArray(sp.inviteOk) ? String(sp.inviteOk[0] ?? "").trim() : "";
+  const inviteApplicantId =
+    typeof sp.inviteApplicantId === "string"
+      ? sp.inviteApplicantId.trim()
+      : Array.isArray(sp.inviteApplicantId)
+        ? String(sp.inviteApplicantId[0] ?? "").trim()
+        : "";
+  const inviteEmailWarn =
+    typeof sp.inviteEmailWarn === "string"
+      ? sp.inviteEmailWarn.trim()
+      : Array.isArray(sp.inviteEmailWarn)
+        ? String(sp.inviteEmailWarn[0] ?? "").trim()
+        : "";
   const saveError =
     errRaw === "missing_name"
       ? "Full name is required."
@@ -138,6 +152,35 @@ export default async function AdminRecruitingCandidatePage({
       {saveError ? (
         <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-900">
           {saveError}
+        </div>
+      ) : null}
+
+      {inviteErr ? (
+        <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-900">
+          {inviteErr}
+        </div>
+      ) : null}
+
+      {inviteOk ? (
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-950">
+          Employee onboarding invite sent.
+          {inviteApplicantId ? (
+            <>
+              {" "}
+              <a
+                href={`/admin/employees/${inviteApplicantId}`}
+                className="font-semibold text-emerald-900 underline-offset-2 hover:underline"
+              >
+                Open employee record
+              </a>
+            </>
+          ) : null}
+        </div>
+      ) : null}
+
+      {inviteEmailWarn ? (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-950">
+          <span className="font-semibold">Text was sent, but email did not send.</span> {inviteEmailWarn}
         </div>
       ) : null}
 

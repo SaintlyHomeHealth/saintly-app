@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 
+import AddEmployeeInviteButton from "@/app/admin/employees/add-employee-invite-button";
 import { crmFilterInputCls, crmPrimaryCtaCls } from "@/components/admin/crm-admin-list-styles";
 import {
   RECRUITING_DISCIPLINE_OPTIONS,
@@ -83,6 +84,26 @@ const btnGhost =
 const btnRose =
   "inline-flex min-h-[2.35rem] flex-1 items-center justify-center rounded-xl border border-rose-200 bg-rose-50 px-2.5 py-2 text-center text-[11px] font-semibold text-rose-900 shadow-sm transition hover:bg-rose-100 sm:text-xs";
 
+function splitRecruitingName(
+  fullName: string,
+  firstName: string | null,
+  lastName: string | null
+): { firstName: string; lastName: string } {
+  const first = firstName?.trim() ?? "";
+  const last = lastName?.trim() ?? "";
+  if (first || last) {
+    return { firstName: first, lastName: last };
+  }
+  const parts = fullName.trim().split(/\s+/).filter(Boolean);
+  if (parts.length <= 1) {
+    return { firstName: parts[0] ?? "", lastName: "" };
+  }
+  return {
+    firstName: parts[0] ?? "",
+    lastName: parts.slice(1).join(" "),
+  };
+}
+
 function toDatetimeLocalValue(iso: string | null | undefined): string {
   if (!iso) return "";
   const d = new Date(iso);
@@ -148,6 +169,8 @@ export function RecruitingCandidateDetailClient({
   keypadCallHref,
 }: RecruitingCandidateDetailClientProps) {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [pending, startTransition] = useTransition();
   const [banner, setBanner] = useState<string | null>(null);
 
@@ -159,6 +182,8 @@ export function RecruitingCandidateDetailClient({
 
   const dueToday = Boolean(initial.next_follow_up_at && isPhoenixSameCalendarDay(initial.next_follow_up_at));
   const dueBucket = Boolean(initial.next_follow_up_at && initial.next_follow_up_at <= phoenixEndOfTodayIso());
+  const inviteName = splitRecruitingName(initial.full_name, initial.first_name, initial.last_name);
+  const returnTo = searchParams?.toString() ? `${pathname}?${searchParams.toString()}` : pathname;
 
   const timelineEntries = useMemo(() => buildRecruitingTimelineEntries(activities), [activities]);
 
@@ -259,6 +284,21 @@ export function RecruitingCandidateDetailClient({
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
+              <AddEmployeeInviteButton
+                triggerLabel="Onboard as employee"
+                triggerClassName={btnPrimary}
+                initialValues={{
+                  firstName: inviteName.firstName,
+                  lastName: inviteName.lastName,
+                  email: initial.email,
+                  phone: initial.phone,
+                  role: initial.discipline,
+                }}
+                recruitingCandidateId={initial.id}
+                returnTo={returnTo}
+                title="Invite new hire"
+                description="Review the recruit details, fill any missing required contact fields, and send the onboarding invite."
+              />
               {keypadCallHref ? (
                 <a
                   href={keypadCallHref}

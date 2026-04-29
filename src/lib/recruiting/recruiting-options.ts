@@ -27,6 +27,7 @@ export const RECRUITING_STATUS_OPTIONS = [
   "Not Interested",
   "No Response",
   "Interviewing",
+  "Onboarding",
   "Hired",
   "Archived",
 ] as const;
