@@ -150,28 +150,57 @@ export async function uploadFaxPdfFromUrl(input: {
   mediaUrl: string;
   telnyxFaxId: string;
   direction: "inbound" | "outbound";
-}): Promise<{ storagePath: string | null; error?: string }> {
+}): Promise<{ storagePath: string | null; storedPdfUrl: string | null; error?: string }> {
+  const safeId = input.telnyxFaxId.replace(/[^a-zA-Z0-9_-]/g, "_");
+  const storagePath = input.direction === "inbound" ? `inbound/${safeId}.pdf` : `outbound/${safeId}.pdf`;
   try {
+    console.log("[fax/inbound] downloading_pdf", {
+      fax_id: input.telnyxFaxId,
+      media_url: input.mediaUrl,
+    });
     const res = await fetch(input.mediaUrl, { cache: "no-store" });
     if (!res.ok) {
-      return { storagePath: null, error: `PDF download failed (${res.status})` };
+      const error = `PDF download failed (${res.status})`;
+      console.error("[fax/inbound] pdf_upload_failed", {
+        fax_id: input.telnyxFaxId,
+        media_url: input.mediaUrl,
+        error,
+      });
+      return { storagePath: null, storedPdfUrl: null, error };
     }
-    const contentType = res.headers.get("content-type") ?? "application/pdf";
     const bytes = await res.arrayBuffer();
-    const safeId = input.telnyxFaxId.replace(/[^a-zA-Z0-9_-]/g, "_");
-    const storagePath = `${input.direction}/${new Date().toISOString().slice(0, 10)}/${safeId}.pdf`;
     const { error } = await supabaseAdmin.storage
       .from(FAX_DOCUMENTS_BUCKET)
       .upload(storagePath, bytes, {
-        contentType: contentType.includes("pdf") ? contentType : "application/pdf",
+        contentType: "application/pdf",
         upsert: true,
       });
     if (error) {
-      return { storagePath: null, error: error.message };
+      console.error("[fax/inbound] pdf_upload_failed", {
+        fax_id: input.telnyxFaxId,
+        media_url: input.mediaUrl,
+        storage_path: storagePath,
+        error: error.message,
+      });
+      return { storagePath: null, storedPdfUrl: null, error: error.message };
     }
-    return { storagePath };
+
+    const storedPdfUrl = await signedFaxPdfUrl(storagePath);
+    console.log("[fax/inbound] uploaded_pdf", {
+      fax_id: input.telnyxFaxId,
+      storage_path: storagePath,
+      stored_pdf_url_exists: Boolean(storedPdfUrl),
+    });
+    return { storagePath, storedPdfUrl };
   } catch (err) {
-    return { storagePath: null, error: err instanceof Error ? err.message : "PDF download failed" };
+    const error = err instanceof Error ? err.message : "PDF download failed";
+    console.error("[fax/inbound] pdf_upload_failed", {
+      fax_id: input.telnyxFaxId,
+      media_url: input.mediaUrl,
+      storage_path: storagePath,
+      error,
+    });
+    return { storagePath: null, storedPdfUrl: null, error };
   }
 }
 
@@ -402,7 +431,7 @@ export async function upsertInboundFaxFromWebhook(body: unknown): Promise<{ ok: 
           telnyxFaxId: fax.telnyxFaxId,
           direction: "inbound",
         })
-      : { storagePath: null };
+      : { storagePath: null, storedPdfUrl: null };
 
   const { data, error } = await supabaseAdmin
     .from("fax_messages")
@@ -415,6 +444,7 @@ export async function upsertInboundFaxFromWebhook(body: unknown): Promise<{ ok: 
         to_number: fax.toNumber,
         media_url: fax.mediaUrl,
         storage_path: upload.storagePath,
+        pdf_url: upload.storedPdfUrl,
         page_count: fax.pageCount,
         received_at: fax.receivedAt ?? new Date().toISOString(),
         completed_at: fax.completedAt,

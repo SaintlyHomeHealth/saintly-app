@@ -128,7 +128,7 @@ export default async function AdminFaxDetailPage({ params }: { params: Promise<{
             <iframe src={pdfUrl} title="Fax PDF preview" className="h-[760px] w-full bg-slate-100" />
           ) : (
             <div className="flex h-[520px] items-center justify-center p-8 text-center text-sm text-slate-500">
-              No stored PDF is available yet. The webhook stores inbound Telnyx PDFs in the fax-documents bucket.
+              No PDF available.
             </div>
           )}
         </section>
