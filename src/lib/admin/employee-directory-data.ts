@@ -15,6 +15,11 @@ import {
   mergeApplicantRoleHints,
   normalizeCredentialTypeKey,
 } from "@/lib/employee-requirements/personnel-file-requirements";
+import {
+  buildOnboardingPortalStatus,
+  ONBOARDING_PORTAL_FORMS_SELECT,
+  type OnboardingPortalFormsRecord,
+} from "@/lib/onboarding/portal-documents-status";
 import { calculateTrainingCompletionSummary } from "@/lib/onboarding/training-status";
 import { normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
 
@@ -64,6 +69,7 @@ export type ApplicantRecord = {
   position: string | null;
   primary_discipline: string | null;
   type_of_position: string | null;
+  resume_url: string | null;
   status: string | null;
   created_at: string | null;
   [key: string]: unknown;
@@ -123,12 +129,12 @@ export type OnboardingStatusLite = {
 };
 
 const EMPLOYEE_DIRECTORY_APPLICANT_SELECT =
-  "id, first_name, last_name, email, phone, position, primary_discipline, type_of_position, status, created_at, updated_at";
+  "id, first_name, last_name, email, phone, position, primary_discipline, type_of_position, resume_url, status, created_at, updated_at";
 
 type OnboardingContractStatusLite = {
   applicant_id: string;
   completed?: boolean | null;
-};
+} & OnboardingPortalFormsRecord;
 
 type EmployeeTaxFormLite = {
   applicant_id: string;
@@ -945,7 +951,7 @@ export async function loadEmployeeDirectoryRows(): Promise<{
         .in("applicant_id", applicantIds),
       supabaseAdmin
         .from("onboarding_contracts")
-        .select("applicant_id, completed")
+        .select(`applicant_id, completed, ${ONBOARDING_PORTAL_FORMS_SELECT}`)
         .in("applicant_id", applicantIds),
       supabaseAdmin
         .from("employee_tax_forms")
@@ -1116,15 +1122,6 @@ export async function loadEmployeeDirectoryRows(): Promise<{
       .map((a) => a.id)
   );
 
-  const requiredOnboardingDocumentTypes = [
-    "resume",
-    "drivers_license",
-    "fingerprint_clearance_card",
-    "social_security_card",
-    "cpr_front",
-    "tb_test",
-  ];
-
   const employeeReadinessById = new Map<
     string,
     { isSurveyReady: boolean; activationBlocked: boolean; hasIncompleteHireFile: boolean }
@@ -1158,9 +1155,13 @@ export async function loadEmployeeDirectoryRows(): Promise<{
       )
     );
     const isApplicationComplete = onboardingStatusRecord?.application_completed === true;
-    const isDocumentsComplete =
-      (applicantFilesByEmployee.get(applicant.id)?.length || 0) > 0 ||
-      requiredOnboardingDocumentTypes.every((dt) => uploadedDocumentTypes.has(dt));
+    const portalStatus = buildOnboardingPortalStatus({
+      documentKeys: uploadedDocumentTypes,
+      onboardingForms: onboardingContractStatus,
+      hasLegacyApplicantFileFallback: (applicantFilesByEmployee.get(applicant.id)?.length || 0) > 0,
+      resumeUrl: applicant.resume_url,
+    });
+    const isDocumentsComplete = portalStatus.documentsStepComplete;
     const isTaxFormSigned = Boolean(
       taxForm &&
         (taxForm.form_status === "completed" ||

@@ -8,48 +8,18 @@ import OnboardingApplicantFromQuery from '../../components/OnboardingApplicantFr
 import OnboardingProgressSync from '../../components/OnboardingProgressSync'
 import OnboardingApplicantIdentity from '../../components/OnboardingApplicantIdentity'
 import { applicantRolePrimaryForCompliance } from '@/lib/applicant-role-for-compliance'
+import {
+  buildOnboardingPortalStatus,
+  ONBOARDING_PORTAL_FORMS_SELECT,
+  type OnboardingPortalFormsRecord,
+} from '@/lib/onboarding/portal-documents-status'
 import { supabase } from '../../lib/supabase/client'
 
 const AUTO_INSURANCE_DOCUMENT_TYPE = 'auto_insurance'
 const INDEPENDENT_CONTRACTOR_INSURANCE_DOCUMENT_TYPE = 'independent_contractor_insurance'
 
-type OnboardingContractsRow = {
+type OnboardingContractsRow = OnboardingPortalFormsRecord & {
   selected_role?: string | null
-  handbook_acknowledged: boolean | null
-  conflict_confidentiality_acknowledged: boolean | null
-  conflict_confidentiality_disclosure: string | null
-  conflict_confidentiality_full_name: string | null
-  conflict_confidentiality_signed_at: string | null
-  electronic_signature_agreement_acknowledged: boolean | null
-  electronic_signature_agreement_full_name: string | null
-  electronic_signature_agreement_signed_at: string | null
-  hep_b_declination_acknowledged: boolean | null
-  hep_b_declination_full_name: string | null
-  hep_b_declination_signed_at: string | null
-  tb_history_positive_test_or_infection: boolean | null
-  tb_history_bcg_vaccine: boolean | null
-  tb_symptom_prolonged_recurrent_fever: boolean | null
-  tb_symptom_recent_weight_loss: boolean | null
-  tb_symptom_chronic_cough: boolean | null
-  tb_symptom_coughing_blood: boolean | null
-  tb_symptom_night_sweats: boolean | null
-  tb_risk_silicosis: boolean | null
-  tb_risk_gastrectomy: boolean | null
-  tb_risk_intestinal_bypass: boolean | null
-  tb_risk_weight_10_percent_below_ideal: boolean | null
-  tb_risk_chronic_renal_disease: boolean | null
-  tb_risk_diabetes_mellitus: boolean | null
-  tb_risk_steroid_or_immunosuppressive_therapy: boolean | null
-  tb_risk_hematologic_disorder: boolean | null
-  tb_risk_exposure_to_hiv_or_aids: boolean | null
-  tb_risk_other_malignancies: boolean | null
-  tb_baseline_residence_high_tb_country: boolean | null
-  tb_baseline_current_or_planned_immunosuppression: boolean | null
-  tb_baseline_close_contact_with_infectious_tb: boolean | null
-  tb_additional_comments: string | null
-  tb_acknowledged: boolean | null
-  tb_full_name: string | null
-  tb_signed_at: string | null
 }
 
 type YesNoValue = '' | 'yes' | 'no'
@@ -229,6 +199,7 @@ export default function OnboardingDocumentsPage() {
   const [taxFormEmploymentClassification, setTaxFormEmploymentClassification] = useState<
     string | null
   >(null)
+  const [resumeUrl, setResumeUrl] = useState<string | null>(null)
 
   const fetchUploadedDocs = async (id: string) => {
     setLoadingDocs(true)
@@ -268,41 +239,7 @@ export default function OnboardingDocumentsPage() {
       .select(
         `
           selected_role,
-          handbook_acknowledged,
-          conflict_confidentiality_acknowledged,
-          conflict_confidentiality_disclosure,
-          conflict_confidentiality_full_name,
-          conflict_confidentiality_signed_at,
-          electronic_signature_agreement_acknowledged,
-          electronic_signature_agreement_full_name,
-          electronic_signature_agreement_signed_at,
-          hep_b_declination_acknowledged,
-          hep_b_declination_full_name,
-          hep_b_declination_signed_at,
-          tb_history_positive_test_or_infection,
-          tb_history_bcg_vaccine,
-          tb_symptom_prolonged_recurrent_fever,
-          tb_symptom_recent_weight_loss,
-          tb_symptom_chronic_cough,
-          tb_symptom_coughing_blood,
-          tb_symptom_night_sweats,
-          tb_risk_silicosis,
-          tb_risk_gastrectomy,
-          tb_risk_intestinal_bypass,
-          tb_risk_weight_10_percent_below_ideal,
-          tb_risk_chronic_renal_disease,
-          tb_risk_diabetes_mellitus,
-          tb_risk_steroid_or_immunosuppressive_therapy,
-          tb_risk_hematologic_disorder,
-          tb_risk_exposure_to_hiv_or_aids,
-          tb_risk_other_malignancies,
-          tb_baseline_residence_high_tb_country,
-          tb_baseline_current_or_planned_immunosuppression,
-          tb_baseline_close_contact_with_infectious_tb,
-          tb_additional_comments,
-          tb_acknowledged,
-          tb_full_name,
-          tb_signed_at
+          ${ONBOARDING_PORTAL_FORMS_SELECT}
         `
       )
       .eq('applicant_id', id)
@@ -387,12 +324,13 @@ export default function OnboardingDocumentsPage() {
       await Promise.all([
         supabase
           .from('applicants')
-          .select('position, primary_discipline, type_of_position')
+          .select('position, primary_discipline, type_of_position, resume_url')
           .eq('id', id)
           .maybeSingle<{
             position?: string | null
             primary_discipline?: string | null
             type_of_position?: string | null
+            resume_url?: string | null
           }>(),
         supabase
           .from('employee_contracts')
@@ -409,6 +347,7 @@ export default function OnboardingDocumentsPage() {
       ])
 
     setApplicantRoleHint(applicantRolePrimaryForCompliance(applicantData ?? {}))
+    setResumeUrl(applicantData?.resume_url || null)
     setContractEmploymentClassification(currentContractData?.employment_classification || null)
     setTaxFormEmploymentClassification(currentTaxFormData?.employment_classification || null)
   }
@@ -429,11 +368,6 @@ export default function OnboardingDocumentsPage() {
     })
   }, [applicantId])
 
-  const requiredDocs = useMemo(() => documentChecklist.filter((doc) => doc.required), [])
-
-  const requiredUploadedCount = useMemo(() => {
-    return requiredDocs.filter((doc) => uploadedDocs.includes(doc.documentType)).length
-  }, [requiredDocs, uploadedDocs])
   const isConflictFormComplete =
     conflictForm.acknowledged &&
     conflictForm.disclosure.trim().length > 0 &&
@@ -461,39 +395,83 @@ export default function OnboardingDocumentsPage() {
     tbForm.acknowledged &&
     tbForm.fullName.trim().length > 0 &&
     Boolean(tbForm.signedDate)
-  const requiredPortalForms = useMemo(
-    () => [
-      { label: 'Conflict of Interest + Confidentiality', complete: isConflictFormComplete },
-      {
-        label: 'Electronic Documentation Signature Agreement',
-        complete: isElectronicAgreementFormComplete,
-      },
-      { label: 'Hepatitis B Vaccine Declination', complete: isHepBDeclinationFormComplete },
-      { label: 'TB Questionnaire / Risk Assessment', complete: isTbFormComplete },
-    ],
+  const onboardingFormsChecklistRecord = useMemo<OnboardingPortalFormsRecord>(
+    () => ({
+      handbook_acknowledged: handbookAcknowledged,
+      conflict_confidentiality_acknowledged: conflictForm.acknowledged,
+      conflict_confidentiality_disclosure: conflictForm.disclosure,
+      conflict_confidentiality_full_name: conflictForm.fullName,
+      conflict_confidentiality_signed_at: conflictForm.signedDate || null,
+      electronic_signature_agreement_acknowledged: electronicAgreementForm.acknowledged,
+      electronic_signature_agreement_full_name: electronicAgreementForm.fullName,
+      electronic_signature_agreement_signed_at: electronicAgreementForm.signedDate || null,
+      hep_b_declination_acknowledged: hepBDeclinationForm.acknowledged,
+      hep_b_declination_full_name: hepBDeclinationForm.fullName,
+      hep_b_declination_signed_at: hepBDeclinationForm.signedDate || null,
+      tb_history_positive_test_or_infection: fromYesNo(tbForm.positiveTestOrInfection),
+      tb_history_bcg_vaccine: fromYesNo(tbForm.bcgVaccine),
+      tb_symptom_prolonged_recurrent_fever: fromYesNo(tbForm.prolongedRecurrentFever),
+      tb_symptom_recent_weight_loss: fromYesNo(tbForm.recentWeightLoss),
+      tb_symptom_chronic_cough: fromYesNo(tbForm.chronicCough),
+      tb_symptom_coughing_blood: fromYesNo(tbForm.coughingBlood),
+      tb_symptom_night_sweats: fromYesNo(tbForm.nightSweats),
+      tb_risk_silicosis: tbForm.riskSilicosis,
+      tb_risk_gastrectomy: tbForm.riskGastrectomy,
+      tb_risk_intestinal_bypass: tbForm.riskIntestinalBypass,
+      tb_risk_weight_10_percent_below_ideal: tbForm.riskWeightBelowIdeal,
+      tb_risk_chronic_renal_disease: tbForm.riskChronicRenalDisease,
+      tb_risk_diabetes_mellitus: tbForm.riskDiabetesMellitus,
+      tb_risk_steroid_or_immunosuppressive_therapy:
+        tbForm.riskSteroidOrImmunosuppressiveTherapy,
+      tb_risk_hematologic_disorder: tbForm.riskHematologicDisorder,
+      tb_risk_exposure_to_hiv_or_aids: tbForm.riskExposureToHivOrAids,
+      tb_risk_other_malignancies: tbForm.riskOtherMalignancies,
+      tb_baseline_residence_high_tb_country: fromYesNo(tbForm.residenceHighTbCountry),
+      tb_baseline_current_or_planned_immunosuppression: fromYesNo(
+        tbForm.currentOrPlannedImmunosuppression
+      ),
+      tb_baseline_close_contact_with_infectious_tb: fromYesNo(
+        tbForm.closeContactWithInfectiousTb
+      ),
+      tb_additional_comments: tbForm.additionalComments,
+      tb_acknowledged: tbForm.acknowledged,
+      tb_full_name: tbForm.fullName,
+      tb_signed_at: tbForm.signedDate || null,
+    }),
     [
-      isConflictFormComplete,
-      isElectronicAgreementFormComplete,
-      isHepBDeclinationFormComplete,
-      isTbFormComplete,
+      handbookAcknowledged,
+      conflictForm,
+      electronicAgreementForm,
+      hepBDeclinationForm,
+      tbForm,
     ]
   )
-  const requiredUploadChecklistItems = useMemo(
+  const portalStatus = useMemo(
     () =>
-      requiredDocs.map((doc) => ({
-        label: doc.label,
-        complete: uploadedDocs.includes(doc.documentType),
-      })),
-    [requiredDocs, uploadedDocs]
+      buildOnboardingPortalStatus({
+        documentKeys: new Set(uploadedDocs),
+        onboardingForms: onboardingFormsChecklistRecord,
+        resumeUrl,
+      }),
+    [uploadedDocs, onboardingFormsChecklistRecord, resumeUrl]
   )
-  const requiredFormsCompletedCount = requiredPortalForms.filter((form) => form.complete).length
-  const totalRequiredUploadsCount = requiredDocs.length
-  const totalRequiredFormsCount = requiredPortalForms.length
+  const requiredPortalForms = portalStatus.formItems.map((item) => ({
+    label: item.label === 'TB Risk Assessment' ? 'TB Questionnaire / Risk Assessment' : item.label,
+    complete: item.complete,
+  }))
+  const requiredUploadChecklistItems = useMemo(
+    () => portalStatus.documentItems.map((item) => ({ label: item.label, complete: item.complete })),
+    [portalStatus.documentItems]
+  )
+  const requiredUploadedCount = portalStatus.completedDocumentCount
+  const requiredFormsCompletedCount = portalStatus.completedFormCount
+  const totalRequiredUploadsCount = portalStatus.documentItems.length
+  const totalRequiredFormsCount = portalStatus.formItems.length
   const totalRequiredCount = totalRequiredUploadsCount + totalRequiredFormsCount
   const totalCompletedCount = requiredUploadedCount + requiredFormsCompletedCount
   const progressPercent =
     totalRequiredCount === 0 ? 0 : Math.round((totalCompletedCount / totalRequiredCount) * 100)
-  const isReadyForContracts = totalCompletedCount === totalRequiredCount
+  const isReadyForContracts = portalStatus.documentsStepComplete
   const roleHints = [applicantRoleHint, onboardingSelectedRole].filter(Boolean)
   const showOptionalAutoInsurance = roleHints.some((value) => isFieldStaffRole(value))
   const effectiveEmploymentClassification =
@@ -501,27 +479,30 @@ export default function OnboardingDocumentsPage() {
   const showOptionalIndependentContractorInsurance = isIndependentContractorClassification(
     effectiveEmploymentClassification
   )
-  const optionalDocumentChecklist = [
-    ...(showOptionalAutoInsurance
-      ? [
-          {
-            documentType: AUTO_INSURANCE_DOCUMENT_TYPE,
-            label: 'Auto Insurance',
-            description: 'Optional upload for field staff. Provide current proof of auto insurance.',
-          },
-        ]
-      : []),
-    ...(showOptionalIndependentContractorInsurance
-      ? [
-          {
-            documentType: INDEPENDENT_CONTRACTOR_INSURANCE_DOCUMENT_TYPE,
-            label: 'Independent Contractor Insurance',
-            description:
-              'Optional upload for IC / 1099 staff. Provide your current contractor insurance document.',
-          },
-        ]
-      : []),
-  ]
+  const optionalDocumentChecklist = useMemo(
+    () => [
+      ...(showOptionalAutoInsurance
+        ? [
+            {
+              documentType: AUTO_INSURANCE_DOCUMENT_TYPE,
+              label: 'Auto Insurance',
+              description: 'Optional upload for field staff. Provide current proof of auto insurance.',
+            },
+          ]
+        : []),
+      ...(showOptionalIndependentContractorInsurance
+        ? [
+            {
+              documentType: INDEPENDENT_CONTRACTOR_INSURANCE_DOCUMENT_TYPE,
+              label: 'Independent Contractor Insurance',
+              description:
+                'Optional upload for IC / 1099 staff. Provide your current contractor insurance document.',
+            },
+          ]
+        : []),
+    ],
+    [showOptionalAutoInsurance, showOptionalIndependentContractorInsurance]
+  )
   const optionalUploadChecklistItems = useMemo(
     () =>
       optionalDocumentChecklist.map((doc) => ({

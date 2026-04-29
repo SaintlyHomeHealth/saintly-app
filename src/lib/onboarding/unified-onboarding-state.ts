@@ -94,7 +94,6 @@ function mapBoolToStatus(
 
 export type BuildUnifiedOnboardingStateInput = {
   applicantId: string;
-  employeePageBase: string;
   /** From onboarding_status row */
   onboardingStatus: {
     application_completed?: boolean | null;
@@ -110,7 +109,7 @@ export type BuildUnifiedOnboardingStateInput = {
   isContractsComplete: boolean;
   isTaxFormSigned: boolean;
   isTrainingComplete: boolean;
-  /** Heuristics for in-progress. */
+  /** Heuristics for in-progress (uploads and/or required portal forms started). */
   hasSomeDocumentUpload: boolean;
   hasTrainingProgressButNotComplete: boolean;
   /** Onboarding contract wizard completed (without tax) */
@@ -156,7 +155,6 @@ export function buildUnifiedOnboardingState(
 ): UnifiedOnboardingSnapshot {
   const {
     applicantId,
-    employeePageBase,
     onboardingStatus,
     isApplicationComplete,
     isDocumentsComplete,
@@ -255,7 +253,7 @@ export function buildUnifiedOnboardingState(
     const m = mapBoolToStatus(isDocumentsComplete, { inProgress: inProg });
     steps.push({
       key: "pipeline_documents",
-      label: "Required document uploads",
+      label: "Required documents & portal forms",
       category: "documents",
       required: !salesLight,
       status: salesLight ? "complete" : m.status,
@@ -269,13 +267,13 @@ export function buildUnifiedOnboardingState(
           ? null
           : inProg
             ? "Not all required document types are present in documents / applicant files."
-            : "No qualifying document set yet (7 types or applicant_files fallback).",
+            : "Required document uploads or portal forms are still incomplete.",
       adminCoaching:
-        "Ask which Upload step they are on. Each of resume, ID, SS card, CPR, TB, fingerprint must be marked in documents (or applicant_files present).",
+        "Ask them to finish Step 3 completely. Resume, ID, SS card, CPR, TB, fingerprint, and every required portal form must all be completed.",
       whyBlocking:
         salesLight || isDocumentsComplete
           ? null
-          : "The pipeline needs every required document type or a legacy applicant_files entry.",
+          : "The pipeline needs every required Step 3 upload plus each required portal form.",
       employeeViewHref: EMPLOYEE_BASE(applicantId, "/onboarding-documents"),
       adminViewHref: getAdminWorkAreaUrl("documents"),
       raw: { documentsComplete: isDocumentsComplete, hasSomeUpload: hasSomeDocumentUpload, salesLight },
@@ -336,14 +334,14 @@ export function buildUnifiedOnboardingState(
         salesLight || isTrainingComplete
           ? null
           : hasTrainingProgressButNotComplete
-            ? "Training started but not marked complete in onboarding_training_completions or applicant_training_progress.is_complete"
-            : "No training completion row yet.",
+            ? "Training has started, but not all 6 required modules are passed at 80% or higher."
+            : "No complete required training set is on file yet.",
       adminCoaching:
-        "They must finish the training page; completion is stored in onboarding_training_completions or applicant_training_progress (is_complete).",
+        "They must finish all 6 required onboarding modules and pass each one at 80% or higher.",
       whyBlocking:
         salesLight || isTrainingComplete
           ? null
-          : "Server-side check requires a completion row or at least one progress row with is_complete.",
+          : "The training checklist is only complete when all 6 required modules are passed.",
       employeeViewHref: EMPLOYEE_BASE(applicantId, "/onboarding-training"),
       adminViewHref: getAdminWorkAreaUrl("training"),
       raw: { trainingComplete: isTrainingComplete, progressPartial: hasTrainingProgressButNotComplete, salesLight },
@@ -351,24 +349,31 @@ export function buildUnifiedOnboardingState(
   }
 
   {
-    const ok = !hasSyncMismatch;
+    const ok = corePipelineComplete && !hasSyncMismatch;
+    const needsReview = !ok && corePipelineComplete;
     steps.push({
       key: "system_sync",
       label: "System sync (progress vs. artifacts)",
       category: "gate",
       required: true,
-      status: ok ? "complete" : "needs_review",
-      displayStatus: ok ? "OK" : "Sync issue",
+      status: ok ? "complete" : needsReview ? "needs_review" : "not_started",
+      displayStatus: ok ? "Complete" : needsReview ? "Needs review" : "Missing",
       countsTowardPipelineComplete: true,
       countsTowardSurveyComplete: false,
       blocking: !ok,
       lastUpdatedAt: lastActivityAt,
       failureReason: ok
         ? null
-        : "onboarding_status row is out of date vs. derived checks (use Recompute).",
-      adminCoaching: "Click “Recompute onboarding status” to reconcile onboarding_status with documents, contracts, and training tables.",
+        : needsReview
+          ? "onboarding_status row is out of date vs. derived onboarding requirements."
+          : "Documents, portal forms, contracts, or training are still incomplete.",
+      adminCoaching: needsReview
+        ? "Click “Recompute onboarding status” to reconcile onboarding_status with documents, portal forms, contracts, and training."
+        : "Finish the required documents, portal forms, contracts, and training first.",
       whyBlocking: !ok
-        ? "The stored onboarding row disagrees with what documents/contracts/training show."
+        ? needsReview
+          ? "The stored onboarding row disagrees with the completed onboarding checklist."
+          : "Training, required documents, or required portal forms are still incomplete."
         : null,
       employeeViewHref: EMPLOYEE_BASE(applicantId, "/onboarding-welcome"),
       adminViewHref: getAdminWorkAreaUrl("overview"),

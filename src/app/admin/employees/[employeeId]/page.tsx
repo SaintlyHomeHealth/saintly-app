@@ -38,6 +38,11 @@ import {
 } from "@/lib/employee-requirements/employee-detail-work-areas";
 import { getCredentialAnchorId } from "@/lib/credential-anchors";
 import { EmployeeArchiveButton } from "@/app/admin/employees/EmployeeArchiveButton";
+import {
+  buildOnboardingPortalStatus,
+  ONBOARDING_PORTAL_FORMS_SELECT,
+  type OnboardingPortalFormsRecord,
+} from "@/lib/onboarding/portal-documents-status";
 import { calculateTrainingCompletionSummary } from "@/lib/onboarding/training-status";
 import { buildUnifiedOnboardingState } from "@/lib/onboarding/unified-onboarding-state";
 import AdminOnboardingCommandCenter from "./admin-onboarding-command-center";
@@ -1310,9 +1315,9 @@ export default async function EmployeeDetailPage({
       .single<EmployeeContractRow>(),
     supabase
       .from("onboarding_contracts")
-      .select("completed")
+      .select(`completed, ${ONBOARDING_PORTAL_FORMS_SELECT}`)
       .eq("applicant_id", employeeId)
-      .maybeSingle<{ completed?: boolean | null }>(),
+      .maybeSingle<OnboardingPortalFormsRecord & { completed?: boolean | null }>(),
     supabase
       .from("employee_tax_forms")
       .select("*")
@@ -1758,6 +1763,7 @@ export default async function EmployeeDetailPage({
     adminUploadRecords,
     "drivers_license"
   );
+  const latestResumeProof = getLatestApplicantUploadByCanonicalType(adminUploadRecords, "resume");
   const latestSocialSecurityCardProof = getLatestApplicantUploadByCanonicalType(
     adminUploadRecords,
     "social_security_card"
@@ -1791,6 +1797,15 @@ export default async function EmployeeDetailPage({
     ),
     ...applicantFiles.map((file) => String(file.document_type || "")),
   ]);
+  const portalStatus = buildOnboardingPortalStatus({
+    documentKeys: uploadedDocumentTypes,
+    onboardingForms: onboardingContractStatus,
+    hasLegacyApplicantFileFallback: (applicantFiles?.length || 0) > 0,
+    resumeUrl:
+      typeof (employee as Record<string, unknown>).resume_url === "string"
+        ? ((employee as Record<string, unknown>).resume_url as string)
+        : null,
+  });
   const hasFingerprintUpload =
     uploadedDocumentTypes.has("fingerprint_clearance_card") || !!latestFingerprintProof;
 
@@ -1966,21 +1981,8 @@ export default async function EmployeeDetailPage({
     }
     return true;
   });
-  const requiredOnboardingDocumentTypes = [
-    "resume",
-    "drivers_license",
-    "fingerprint_clearance_card",
-    "social_security_card",
-    "cpr_front",
-    "tb_test",
-  ];
-  const hasRequiredOnboardingDocuments = requiredOnboardingDocumentTypes.every((documentType) =>
-    uploadedDocumentTypes.has(documentType)
-  );
-
   const isApplicationComplete = onboardingStatus?.application_completed === true;
-  const isDocumentsComplete =
-    (applicantFiles?.length || 0) > 0 || hasRequiredOnboardingDocuments;
+  const isDocumentsComplete = portalStatus.documentsStepComplete;
   const isTaxFormSigned = Boolean(
     employeeTaxForm &&
       (employeeTaxForm.form_status === "completed" ||
@@ -2021,7 +2023,19 @@ export default async function EmployeeDetailPage({
   const isOigComplete = isComplianceRequirementComplete(effectiveOigEvent, null);
   const hasBackgroundCheck = uploadedDocumentTypes.has("background_check");
   const hasSocialSecurityCard =
-    uploadedDocumentTypes.has("social_security_card") || !!latestSocialSecurityCardProof;
+    portalStatus.documentItems.find((item) => item.key === "social_security_card")?.complete === true;
+  const hasResumeOnFile =
+    portalStatus.documentItems.find((item) => item.key === "resume")?.complete === true;
+  const hasEmployeeHandbookAck =
+    portalStatus.formItems.find((item) => item.key === "employee_handbook_ack")?.complete === true;
+  const hasConflictOfInterestForm =
+    portalStatus.formItems.find((item) => item.key === "conflict_of_interest")?.complete === true;
+  const hasElectronicSignatureAgreement =
+    portalStatus.formItems.find((item) => item.key === "electronic_signature_agreement")?.complete === true;
+  const hasHepatitisBDeclination =
+    portalStatus.formItems.find((item) => item.key === "hepatitis_b_declination")?.complete === true;
+  const hasTbRiskAssessment =
+    portalStatus.formItems.find((item) => item.key === "tb_risk_assessment")?.complete === true;
   const requiresCpr = requiredCredentialTypes.includes("cpr");
   const requiresDriversLicense = requiredCredentialTypes.includes("drivers_license");
   const requiresAutoInsurance = requiredCredentialTypes.includes("auto_insurance");
@@ -2151,6 +2165,12 @@ export default async function EmployeeDetailPage({
     !isDocumentsComplete ? "Documents" : null,
     !isContractsComplete ? "Contracts" : null,
     !isTrainingComplete ? "Training" : null,
+    !hasEmployeeHandbookAck ? "Employee Handbook" : null,
+    !hasConflictOfInterestForm ? "Conflict of Interest + Confidentiality" : null,
+    !hasElectronicSignatureAgreement ? "Electronic Documentation Signature Agreement" : null,
+    !hasHepatitisBDeclination ? "Hepatitis B Vaccine Declination" : null,
+    !hasTbRiskAssessment ? "TB Risk Assessment" : null,
+    !hasResumeOnFile ? "Resume" : null,
     !hasSocialSecurityCard ? "Social Security Card" : null,
     !isSkillsComplete ? "Skills Competency" : null,
     !isPerformanceComplete ? "Performance Evaluation" : null,
@@ -2183,7 +2203,9 @@ export default async function EmployeeDetailPage({
   const isSurveyReady = missingSurveyItems.length === 0;
 
   const hasSomeDocumentUpload =
-    ((applicantFiles?.length || 0) > 0 || (documentsRows?.length || 0) > 0) && !isDocumentsComplete;
+    (((applicantFiles?.length || 0) > 0 || (documentsRows?.length || 0) > 0) ||
+      portalStatus.completedFormCount > 0) &&
+    !isDocumentsComplete;
   const hasTrainingProgressButNotComplete =
     trainingSummary.hasAnyProgress && !isTrainingComplete;
   const skillsFormIsDraft = skillsForm?.status === "draft";
@@ -2192,7 +2214,6 @@ export default async function EmployeeDetailPage({
   /* Pure sync derive from loaded rows — runs once per request (server), not per React render. */
   const onboardingCommandSnapshot = buildUnifiedOnboardingState({
     applicantId: employeeId,
-    employeePageBase,
     onboardingStatus: onboardingStatus ?? null,
     isApplicationComplete,
     isDocumentsComplete,
@@ -2349,8 +2370,8 @@ export default async function EmployeeDetailPage({
     {
       label: "Documents",
       detail: isDocumentsComplete
-        ? "Required onboarding documents are available."
-        : "Resume, ID, CPR, TB, SS card, or fingerprint card still need upload.",
+        ? "Required onboarding documents and portal forms are complete."
+        : "Resume, required uploads, or required portal forms are still incomplete.",
       status: isDocumentsComplete ? "Complete" : "Missing",
     },
     {
@@ -2416,7 +2437,13 @@ export default async function EmployeeDetailPage({
     hasCprCard,
     requiresDriversLicense,
     hasDriversLicense,
+    hasResumeOnFile,
     hasSocialSecurityCard,
+    hasEmployeeHandbookAck,
+    hasConflictOfInterestForm,
+    hasElectronicSignatureAgreement,
+    hasHepatitisBDeclination,
+    hasTbRiskAssessment,
     requiresFingerprintCard,
     hasFingerprintCard,
     requiresAutoInsurance,
@@ -2431,6 +2458,11 @@ export default async function EmployeeDetailPage({
     skillsCanPrint: skillsPrintMeta.canPrint,
     performancePrintHref,
     performanceCanPrint: performancePrintMeta.canPrint,
+    latestResumeViewUrl:
+      (latestResumeProof as AdminUploadRecord | null)?.viewUrl ??
+      (typeof (employee as Record<string, unknown>).resume_url === "string"
+        ? ((employee as Record<string, unknown>).resume_url as string)
+        : null),
     latestCprViewUrl: (latestCprProof as AdminUploadRecord | null)?.viewUrl ?? null,
     latestDriversLicenseViewUrl: (latestDriversLicenseProof as AdminUploadRecord | null)?.viewUrl ?? null,
     latestSocialSecurityCardViewUrl:
@@ -2447,11 +2479,19 @@ export default async function EmployeeDetailPage({
 
   const hasInitialDriversLicenseUpload =
     uploadedDocumentTypes.has("drivers_license") || Boolean(latestDriversLicenseProof);
+  const hasInitialResumeUpload = hasResumeOnFile;
   const hasInitialSocialSecurityCardUpload = hasSocialSecurityCard;
   const hasInitialAutoInsuranceUpload = Boolean(latestAutoInsuranceProofNormalized);
 
   const driversLicenseHistory = adminUploadRecords
     .filter((file) => (file.document_type || "").toLowerCase().trim() === "drivers_license")
+    .slice()
+    .sort(
+      (a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+    );
+
+  const resumeHistory = adminUploadRecords
+    .filter((file) => (file.document_type || "").toLowerCase().trim() === "resume")
     .slice()
     .sort(
       (a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
@@ -2477,7 +2517,103 @@ export default async function EmployeeDetailPage({
 
   const documentsComplianceInitialHiring: InitialHiringRowDef[] = [
     {
+      key: "resume",
+      label: "Resume",
+      itemType: "document",
+      statusLabel: hasInitialResumeUpload ? "Complete" : "Missing",
+      statusTone: hasInitialResumeUpload ? "green" : "red",
+      lastUpdatedDisplay: latestResumeProof?.created_at
+        ? formatDateTime(latestResumeProof.created_at)
+        : "—",
+      viewUrl:
+        (latestResumeProof as AdminUploadRecord | null)?.viewUrl ??
+        (typeof (employee as Record<string, unknown>).resume_url === "string"
+          ? ((employee as Record<string, unknown>).resume_url as string)
+          : null),
+      documentType: "resume",
+      uploadLabel: "Resume",
+      anchorId: "resume-section",
+      history: buildAdminUploadHistoryDisplay(resumeHistory),
+      workflowOpenHref: getAdminWorkAreaUrl("documents"),
+    },
+    {
+      key: "employee-handbook",
+      label: "Employee Handbook",
+      itemType: "form",
+      statusLabel: hasEmployeeHandbookAck ? "Complete" : "Missing",
+      statusTone: hasEmployeeHandbookAck ? "green" : "red",
+      lastUpdatedDisplay: "—",
+      viewUrl: null,
+      documentType: "employee_handbook_ack",
+      uploadLabel: "Employee Handbook",
+      anchorId: "employee-handbook-section",
+      history: [],
+      workflowOpenHref: getAdminWorkAreaUrl("documents"),
+      portalHref: `/onboarding-documents?applicant=${encodeURIComponent(employeeId)}`,
+    },
+    {
+      key: "conflict-of-interest",
+      label: "Conflict of Interest + Confidentiality",
+      itemType: "form",
+      statusLabel: hasConflictOfInterestForm ? "Complete" : "Missing",
+      statusTone: hasConflictOfInterestForm ? "green" : "red",
+      lastUpdatedDisplay: "—",
+      viewUrl: null,
+      documentType: "conflict_of_interest",
+      uploadLabel: "Conflict of Interest + Confidentiality",
+      anchorId: "conflict-of-interest-section",
+      history: [],
+      workflowOpenHref: getAdminWorkAreaUrl("documents"),
+      portalHref: `/onboarding-documents?applicant=${encodeURIComponent(employeeId)}`,
+    },
+    {
+      key: "electronic-signature",
+      label: "Electronic Documentation Signature Agreement",
+      itemType: "form",
+      statusLabel: hasElectronicSignatureAgreement ? "Complete" : "Missing",
+      statusTone: hasElectronicSignatureAgreement ? "green" : "red",
+      lastUpdatedDisplay: "—",
+      viewUrl: null,
+      documentType: "electronic_signature_agreement",
+      uploadLabel: "Electronic Documentation Signature Agreement",
+      anchorId: "electronic-signature-section",
+      history: [],
+      workflowOpenHref: getAdminWorkAreaUrl("documents"),
+      portalHref: `/onboarding-documents?applicant=${encodeURIComponent(employeeId)}`,
+    },
+    {
+      key: "hepatitis-b-declination",
+      label: "Hepatitis B Vaccine Declination",
+      itemType: "form",
+      statusLabel: hasHepatitisBDeclination ? "Complete" : "Missing",
+      statusTone: hasHepatitisBDeclination ? "green" : "red",
+      lastUpdatedDisplay: "—",
+      viewUrl: null,
+      documentType: "hepatitis_b_declination",
+      uploadLabel: "Hepatitis B Vaccine Declination",
+      anchorId: "hepatitis-b-declination-section",
+      history: [],
+      workflowOpenHref: getAdminWorkAreaUrl("documents"),
+      portalHref: `/onboarding-documents?applicant=${encodeURIComponent(employeeId)}`,
+    },
+    {
+      key: "tb-risk-assessment",
+      label: "TB Risk Assessment",
+      itemType: "form",
+      statusLabel: hasTbRiskAssessment ? "Complete" : "Missing",
+      statusTone: hasTbRiskAssessment ? "green" : "red",
+      lastUpdatedDisplay: "—",
+      viewUrl: null,
+      documentType: "tb_risk_assessment",
+      uploadLabel: "TB Risk Assessment",
+      anchorId: "tb-risk-assessment-section",
+      history: [],
+      workflowOpenHref: getAdminWorkAreaUrl("documents"),
+      portalHref: `/onboarding-documents?applicant=${encodeURIComponent(employeeId)}`,
+    },
+    {
       key: "oig",
+      itemType: "document",
       label: "OIG exclusion proof",
       statusLabel: isOigComplete ? "Complete" : "Missing",
       statusTone: isOigComplete ? "green" : "red",
@@ -2492,6 +2628,7 @@ export default async function EmployeeDetailPage({
     },
     {
       key: "background",
+      itemType: "document",
       label: "Background check",
       statusLabel: hasBackgroundCheck ? "Complete" : "Missing",
       statusTone: hasBackgroundCheck ? "green" : "red",
@@ -2507,6 +2644,7 @@ export default async function EmployeeDetailPage({
     },
     {
       key: "drivers-license-initial",
+      itemType: "document",
       label: "Driver’s License (initial file)",
       statusLabel: hasInitialDriversLicenseUpload ? "On file" : "Missing",
       statusTone: hasInitialDriversLicenseUpload ? "green" : "red",
@@ -2522,6 +2660,7 @@ export default async function EmployeeDetailPage({
     },
     {
       key: "social-security-card",
+      itemType: "document",
       label: "Social Security Card",
       statusLabel: hasInitialSocialSecurityCardUpload ? "Complete" : "Missing",
       statusTone: hasInitialSocialSecurityCardUpload ? "green" : "red",
@@ -2537,6 +2676,7 @@ export default async function EmployeeDetailPage({
     },
     {
       key: "auto-insurance-initial",
+      itemType: "document",
       label: "Auto Insurance (initial file)",
       statusLabel: hasInitialAutoInsuranceUpload ? "On file" : "Missing",
       statusTone: hasInitialAutoInsuranceUpload ? "green" : "red",
@@ -2552,6 +2692,7 @@ export default async function EmployeeDetailPage({
     },
     {
       key: "fingerprint",
+      itemType: "document",
       label: "AZ Fingerprint Clearance Card (file)",
       statusLabel: hasFingerprintUpload ? "On file" : "Missing",
       statusTone: hasFingerprintUpload ? "green" : "red",
@@ -2567,6 +2708,7 @@ export default async function EmployeeDetailPage({
     },
     {
       key: "tb",
+      itemType: "document",
       label: "TB test / documentation (upload)",
       statusLabel: hasTbDocumentation ? "On file" : "Missing",
       statusTone: hasTbDocumentation ? "green" : "red",

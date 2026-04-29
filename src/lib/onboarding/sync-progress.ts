@@ -2,6 +2,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { EmploymentClassification } from "@/lib/employee-contracts";
 import { getTaxFormTypeForClassification } from "@/lib/employee-tax-forms";
+import {
+  buildOnboardingPortalStatus,
+  ONBOARDING_PORTAL_FORMS_SELECT,
+} from "@/lib/onboarding/portal-documents-status";
 import { calculateTrainingCompletionSummary } from "@/lib/onboarding/training-status";
 
 import {
@@ -9,15 +13,6 @@ import {
   deriveOnboardingProgress,
   type OnboardingFlowStatus,
 } from "./derive-progress";
-
-const REQUIRED_DOC_TYPES = [
-  "resume",
-  "drivers_license",
-  "fingerprint_clearance_card",
-  "social_security_card",
-  "cpr_front",
-  "tb_test",
-] as const;
 
 function mergeFlowStatus(
   prev: OnboardingFlowStatus,
@@ -64,15 +59,17 @@ async function loadProgressInputs(supabase: SupabaseClient, applicantId: string)
   }
 
   const [
+    { data: applicantRow },
     { data: filesData },
     { data: documentsData },
     { data: onboardingStatusRow },
-    { data: contractData },
+    { data: onboardingContractsRow },
     { data: taxRow },
     { data: trainingModulesData },
     { data: trainingAttemptData },
     { data: trainingCompletionData },
   ] = await Promise.all([
+    supabase.from("applicants").select("resume_url").eq("id", applicantId).maybeSingle<{ resume_url?: string | null }>(),
     supabase.from("applicant_files").select("id").eq("applicant_id", applicantId),
     supabase.from("documents").select("id, document_type").eq("applicant_id", applicantId),
     supabase
@@ -80,7 +77,11 @@ async function loadProgressInputs(supabase: SupabaseClient, applicantId: string)
       .select("application_completed")
       .eq("applicant_id", applicantId)
       .maybeSingle<{ application_completed?: boolean | null }>(),
-    supabase.from("onboarding_contracts").select("completed").eq("applicant_id", applicantId).maybeSingle(),
+    supabase
+      .from("onboarding_contracts")
+      .select(ONBOARDING_PORTAL_FORMS_SELECT)
+      .eq("applicant_id", applicantId)
+      .maybeSingle(),
     taxQuery.maybeSingle(),
     supabase
       .from("training_modules")
@@ -102,9 +103,12 @@ async function loadProgressInputs(supabase: SupabaseClient, applicantId: string)
 
   const isApplicationComplete = onboardingStatusRow?.application_completed === true;
 
-  const isDocumentsComplete =
-    (filesData?.length || 0) > 0 ||
-    REQUIRED_DOC_TYPES.every((dt) => uploadedTypes.has(dt));
+  const portalStatus = buildOnboardingPortalStatus({
+    documentKeys: uploadedTypes,
+    onboardingForms: onboardingContractsRow,
+    hasLegacyApplicantFileFallback: (filesData?.length || 0) > 0,
+    resumeUrl: applicantRow?.resume_url || null,
+  });
 
   const taxOk =
     !requiredTaxFormType ||
@@ -114,7 +118,7 @@ async function loadProgressInputs(supabase: SupabaseClient, applicantId: string)
           (String(taxRow.employee_signed_name || "").trim() && taxRow.employee_signed_at))
     );
 
-  const isContractsComplete = Boolean(contractData?.completed && taxOk);
+  const isContractsComplete = Boolean(onboardingContractsRow?.completed && taxOk);
 
   const trainingSummary = calculateTrainingCompletionSummary({
     modules: (trainingModulesData || []) as Array<{
@@ -136,7 +140,7 @@ async function loadProgressInputs(supabase: SupabaseClient, applicantId: string)
 
   return {
     applicationCompleted: isApplicationComplete,
-    documentsComplete: isDocumentsComplete,
+    documentsComplete: portalStatus.documentsStepComplete,
     contractsAndTaxComplete: isContractsComplete,
     trainingComplete: trainingSummary.isComplete,
   };

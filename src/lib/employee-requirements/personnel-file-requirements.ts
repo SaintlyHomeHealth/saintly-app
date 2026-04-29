@@ -226,7 +226,13 @@ export type BuildPersonnelFileAuditArgs = {
   hasCprCard: boolean;
   requiresDriversLicense: boolean;
   hasDriversLicense: boolean;
+  hasResumeOnFile: boolean;
   hasSocialSecurityCard: boolean;
+  hasEmployeeHandbookAck: boolean;
+  hasConflictOfInterestForm: boolean;
+  hasElectronicSignatureAgreement: boolean;
+  hasHepatitisBDeclination: boolean;
+  hasTbRiskAssessment: boolean;
   requiresFingerprintCard: boolean;
   hasFingerprintCard: boolean;
   requiresAutoInsurance: boolean;
@@ -241,6 +247,7 @@ export type BuildPersonnelFileAuditArgs = {
   skillsCanPrint: boolean;
   performancePrintHref: string;
   performanceCanPrint: boolean;
+  latestResumeViewUrl: string | null;
   latestCprViewUrl: string | null;
   latestDriversLicenseViewUrl: string | null;
   latestSocialSecurityCardViewUrl: string | null;
@@ -280,7 +287,13 @@ export function buildPersonnelFileAuditRows(input: BuildPersonnelFileAuditArgs):
     hasCprCard,
     requiresDriversLicense,
     hasDriversLicense,
+    hasResumeOnFile,
     hasSocialSecurityCard,
+    hasEmployeeHandbookAck,
+    hasConflictOfInterestForm,
+    hasElectronicSignatureAgreement,
+    hasHepatitisBDeclination,
+    hasTbRiskAssessment,
     requiresFingerprintCard,
     hasFingerprintCard,
     requiresAutoInsurance,
@@ -295,6 +308,7 @@ export function buildPersonnelFileAuditRows(input: BuildPersonnelFileAuditArgs):
     skillsCanPrint,
     performancePrintHref,
     performanceCanPrint,
+    latestResumeViewUrl,
     latestCprViewUrl,
     latestDriversLicenseViewUrl,
     latestSocialSecurityCardViewUrl,
@@ -337,6 +351,19 @@ export function buildPersonnelFileAuditRows(input: BuildPersonnelFileAuditArgs):
       openHref: getAdminWorkAreaUrl("documents"),
       portalHref: EMPLOYEE_ONBOARDING(applicantId, "/onboarding-documents"),
       viewHref: null,
+    });
+  }
+
+  if (!isSalesAgent) {
+    const { status, tone } = auditStatus(true, hasResumeOnFile);
+    push({
+      label: "Resume",
+      status,
+      statusTone: tone,
+      openHref: getAdminWorkAreaUrl("documents"),
+      portalHref: EMPLOYEE_ONBOARDING(applicantId, "/onboarding-documents"),
+      viewHref: hasResumeOnFile && latestResumeViewUrl ? latestResumeViewUrl : null,
+      viewExternal: true,
     });
   }
 
@@ -403,6 +430,66 @@ export function buildPersonnelFileAuditRows(input: BuildPersonnelFileAuditArgs):
       portalHref: EMPLOYEE_ONBOARDING(applicantId, "/onboarding-documents"),
       viewHref: hasTbDocumentation && latestTbViewUrl ? latestTbViewUrl : null,
       viewExternal: true,
+    });
+  }
+
+  if (!isSalesAgent) {
+    const { status, tone } = auditStatus(true, hasTbRiskAssessment);
+    push({
+      label: "TB Risk Assessment",
+      status,
+      statusTone: tone,
+      openHref: getAdminWorkAreaUrl("documents"),
+      portalHref: EMPLOYEE_ONBOARDING(applicantId, "/onboarding-documents"),
+      viewHref: null,
+    });
+  }
+
+  if (!isSalesAgent) {
+    const { status, tone } = auditStatus(true, hasEmployeeHandbookAck);
+    push({
+      label: "Employee Handbook",
+      status,
+      statusTone: tone,
+      openHref: getAdminWorkAreaUrl("documents"),
+      portalHref: EMPLOYEE_ONBOARDING(applicantId, "/onboarding-documents"),
+      viewHref: null,
+    });
+  }
+
+  if (!isSalesAgent) {
+    const { status, tone } = auditStatus(true, hasConflictOfInterestForm);
+    push({
+      label: "Conflict of Interest + Confidentiality",
+      status,
+      statusTone: tone,
+      openHref: getAdminWorkAreaUrl("documents"),
+      portalHref: EMPLOYEE_ONBOARDING(applicantId, "/onboarding-documents"),
+      viewHref: null,
+    });
+  }
+
+  if (!isSalesAgent) {
+    const { status, tone } = auditStatus(true, hasElectronicSignatureAgreement);
+    push({
+      label: "Electronic Documentation Signature Agreement",
+      status,
+      statusTone: tone,
+      openHref: getAdminWorkAreaUrl("documents"),
+      portalHref: EMPLOYEE_ONBOARDING(applicantId, "/onboarding-documents"),
+      viewHref: null,
+    });
+  }
+
+  if (!isSalesAgent) {
+    const { status, tone } = auditStatus(true, hasHepatitisBDeclination);
+    push({
+      label: "Hepatitis B Vaccine Declination",
+      status,
+      statusTone: tone,
+      openHref: getAdminWorkAreaUrl("documents"),
+      portalHref: EMPLOYEE_ONBOARDING(applicantId, "/onboarding-documents"),
+      viewHref: null,
     });
   }
 

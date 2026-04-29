@@ -28,6 +28,11 @@ import {
   routePerfStepsEnabled,
   routePerfTimed,
 } from "@/lib/perf/route-perf";
+import {
+  buildOnboardingPortalStatus,
+  ONBOARDING_PORTAL_FORMS_SELECT,
+  type OnboardingPortalFormsRecord,
+} from "@/lib/onboarding/portal-documents-status";
 import { calculateTrainingCompletionSummary } from "@/lib/onboarding/training-status";
 
 const DashboardPushActionCard = dynamic(
@@ -71,6 +76,7 @@ type ApplicantRow = {
   position: string | null;
   primary_discipline?: string | null;
   type_of_position?: string | null;
+  resume_url?: string | null;
   status?: string | null;
   created_at?: string | null;
 };
@@ -117,7 +123,7 @@ type OnboardingStatusLite = {
 type OnboardingContractStatusLite = {
   applicant_id: string;
   completed?: boolean | null;
-};
+} & OnboardingPortalFormsRecord;
 
 type EmployeeTaxFormLite = {
   applicant_id: string;
@@ -539,7 +545,7 @@ export default async function AdminDashboardPage({
         .in("applicant_id", applicantIds),
       supabase
         .from("onboarding_contracts")
-        .select("applicant_id, completed")
+        .select(`applicant_id, completed, ${ONBOARDING_PORTAL_FORMS_SELECT}`)
         .in("applicant_id", applicantIds),
       supabase
         .from("employee_tax_forms")
@@ -870,15 +876,6 @@ export default async function AdminDashboardPage({
       .map((applicant) => applicant.id)
   );
 
-  const requiredOnboardingDocumentTypes = [
-    "resume",
-    "drivers_license",
-    "fingerprint_clearance_card",
-    "social_security_card",
-    "cpr_front",
-    "tb_test",
-  ];
-
   const employeeReadinessById = new Map(
     applicants.map((applicant) => {
       const contract = contractByEmployee.get(applicant.id) || null;
@@ -892,11 +889,14 @@ export default async function AdminDashboardPage({
         )
       );
       const isApplicationComplete = onboardingStatusRecord?.application_completed === true;
-      const isDocumentsComplete =
-        (applicantFilesByEmployee.get(applicant.id)?.length || 0) > 0 ||
-        requiredOnboardingDocumentTypes.every((documentType) =>
-          uploadedDocumentTypes.has(documentType)
-        );
+      const portalStatus = buildOnboardingPortalStatus({
+        documentKeys: uploadedDocumentTypes,
+        onboardingForms: onboardingContractStatus,
+        hasLegacyApplicantFileFallback: (applicantFilesByEmployee.get(applicant.id)?.length || 0) > 0,
+        resumeUrl:
+          typeof applicant.resume_url === "string" ? applicant.resume_url : null,
+      });
+      const isDocumentsComplete = portalStatus.documentsStepComplete;
       const isTaxFormSigned = Boolean(
         taxForm &&
           (taxForm.form_status === "completed" ||

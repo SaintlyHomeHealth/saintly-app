@@ -13,6 +13,7 @@ export type DashboardHistoryEntry = {
 export type InitialHiringRowDef = {
   key: string;
   label: string;
+  itemType: "document" | "form";
   statusLabel: string;
   statusTone: "green" | "red" | "amber" | "slate";
   lastUpdatedDisplay: string;
@@ -24,6 +25,7 @@ export type InitialHiringRowDef = {
   history: DashboardHistoryEntry[];
   /** Related admin workflow (annual OIG, TB statement, credentials, etc.) — shown as “Open”. */
   workflowOpenHref?: string | null;
+  portalHref?: string | null;
 };
 
 export type OngoingComplianceRowDef = {
@@ -133,6 +135,14 @@ export default function EmployeeDocumentsComplianceDashboard({
                         Open
                       </Link>
                     ) : null}
+                    {row.portalHref ? (
+                      <Link
+                        href={row.portalHref}
+                        className="text-xs font-semibold text-sky-700 underline"
+                      >
+                        Portal
+                      </Link>
+                    ) : null}
                     {row.viewUrl ? (
                       <>
                         <a
@@ -143,15 +153,17 @@ export default function EmployeeDocumentsComplianceDashboard({
                         >
                           View
                         </a>
-                        <button
-                          type="button"
-                          onClick={() => setUploadModal(row)}
-                          className="text-xs font-semibold text-sky-700 underline"
-                        >
-                          Replace
-                        </button>
+                        {row.itemType === "document" ? (
+                          <button
+                            type="button"
+                            onClick={() => setUploadModal(row)}
+                            className="text-xs font-semibold text-sky-700 underline"
+                          >
+                            Replace
+                          </button>
+                        ) : null}
                       </>
-                    ) : (
+                    ) : row.itemType === "document" ? (
                       <button
                         type="button"
                         onClick={() => setUploadModal(row)}
@@ -159,7 +171,7 @@ export default function EmployeeDocumentsComplianceDashboard({
                       >
                         Complete
                       </button>
-                    )}
+                    ) : null}
                   </div>
                 </td>
               </tr>
