@@ -13,6 +13,7 @@ import {
   EmployeeTaxFormRow,
   getTaxFormTypeForClassification,
 } from "@/lib/employee-tax-forms";
+import { calculateTrainingCompletionSummary } from "@/lib/onboarding/training-status";
 
 type CompletionState = {
   step2: boolean;
@@ -101,25 +102,44 @@ export default function OnboardingCompletePage() {
               .maybeSingle<Pick<EmployeeTaxFormRow, "form_status">>()
           : { data: null, error: null };
 
-        const {
-          data: trainingCompletionData,
-          error: trainingCompletionError,
-        } = await supabase
-          .from("onboarding_training_completions")
-          .select("id")
-          .eq("applicant_id", applicantId);
+        const [
+          { data: trainingModulesData, error: trainingModulesError },
+          { data: trainingAttemptData, error: trainingAttemptError },
+          { data: trainingCompletionData, error: trainingCompletionError },
+        ] = await Promise.all([
+          supabase
+            .from("training_modules")
+            .select("id, key, pass_score")
+            .order("sort_order", { ascending: true }),
+          supabase
+            .from("employee_training_attempts")
+            .select("module_id, score, passed")
+            .eq("applicant_id", applicantId),
+          supabase
+            .from("employee_training_completions")
+            .select("module_id, score, passed")
+            .eq("applicant_id", applicantId),
+        ]);
 
-        const {
-          data: trainingProgressData,
-          error: trainingProgressError,
-        } = await supabase
-          .from("applicant_training_progress")
-          .select("id")
-          .eq("applicant_id", applicantId);
+        const trainingSummary = calculateTrainingCompletionSummary({
+          modules: (trainingModulesData || []) as Array<{
+            id: string;
+            key?: string | null;
+            pass_score?: number | null;
+          }>,
+          attempts: (trainingAttemptData || []) as Array<{
+            module_id: string;
+            score?: number | null;
+            passed?: boolean | null;
+          }>,
+          completions: (trainingCompletionData || []) as Array<{
+            module_id: string;
+            score?: number | null;
+            passed?: boolean | null;
+          }>,
+        });
 
-        const step5Complete =
-          (trainingCompletionData?.length || 0) > 0 ||
-          (trainingProgressData?.length || 0) > 0;
+        const step5Complete = trainingSummary.isComplete;
         const isRequiredTaxFormComplete =
           !!requiredTaxFormType && taxFormData?.form_status === "completed";
 
@@ -172,15 +192,20 @@ export default function OnboardingCompletePage() {
               ? "COMPLETE"
               : "NOT COMPLETE"
           }`,
-          `Step 5 onboarding_training_completions: ${
+          `Step 5 training modules: ${
+            trainingModulesError
+              ? trainingModulesError.message
+              : `${trainingModulesData?.length || 0} configured module row(s)`
+          }`,
+          `Step 5 employee_training_attempts: ${
+            trainingAttemptError
+              ? trainingAttemptError.message
+              : `${trainingAttemptData?.length || 0} attempt row(s)`
+          }`,
+          `Step 5 required training passed: ${
             trainingCompletionError
               ? trainingCompletionError.message
-              : `${trainingCompletionData?.length || 0} completion row(s)`
-          }`,
-          `Step 5 applicant_training_progress fallback: ${
-            trainingProgressError
-              ? trainingProgressError.message
-              : `${trainingProgressData?.length || 0} progress row(s)`
+              : `${trainingSummary.passedModuleCount}/${trainingSummary.requiredModuleCount}`
           }`,
         ];
 

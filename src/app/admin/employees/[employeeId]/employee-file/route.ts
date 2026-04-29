@@ -12,6 +12,7 @@ import {
 } from "@/lib/employee-contracts";
 import { getTaxFormLabel, normalizeTaxFormData } from "@/lib/employee-tax-forms";
 import { insertAuditLog } from "@/lib/audit-log";
+import { calculateTrainingCompletionSummary } from "@/lib/onboarding/training-status";
 
 type SupportedDocumentType =
   | "full"
@@ -91,6 +92,7 @@ type TrainingModuleRow = {
   key?: string | null;
   title?: string | null;
   sort_order?: number | null;
+  pass_score?: number | null;
 };
 
 type ComplianceEventRow = {
@@ -107,24 +109,11 @@ type TrainingPdfRow = TrainingCompletionRow & {
   module_sort_order: number;
 };
 
-type OnboardingTrainingCompletionRow = {
-  module_key?: string | null;
-  module_title?: string | null;
-  is_completed?: boolean | null;
-  completed_at?: string | null;
-};
-
 type PassedTrainingAttemptRow = {
   module_id: string;
   score: number | null;
   passed: boolean | null;
   completed_at: string | null;
-};
-
-type ApplicantTrainingProgressRow = {
-  id?: string;
-  completed_at?: string | null;
-  created_at?: string | null;
 };
 
 function shouldSaveSnapshot(value: string | null) {
@@ -278,9 +267,7 @@ export async function GET(
       { data: trainingCompletions, error: trainingCompletionsError },
       { data: trainingModules, error: trainingModulesError },
       { data: complianceEvents, error: complianceEventsError },
-      { data: onboardingTrainingCompletions, error: onboardingTrainingCompletionsError },
       { data: employeeTrainingAttempts, error: employeeTrainingAttemptsError },
-      { data: applicantTrainingProgress, error: applicantTrainingProgressError },
     ] = await Promise.all([
       supabaseAdmin
         .from("applicants")
@@ -323,7 +310,7 @@ export async function GET(
         .order("completed_at", { ascending: true }),
       supabaseAdmin
         .from("training_modules")
-        .select("id, key, title, sort_order"),
+        .select("id, key, title, sort_order, pass_score"),
       supabaseAdmin
         .from("admin_compliance_events")
         .select("event_type, event_title, status, due_date, completed_at, created_at")
@@ -331,21 +318,11 @@ export async function GET(
         .order("due_date", { ascending: false })
         .order("created_at", { ascending: false }),
       supabaseAdmin
-        .from("onboarding_training_completions")
-        .select("module_key, module_title, is_completed, completed_at")
-        .eq("applicant_id", employeeId)
-        .order("completed_at", { ascending: true }),
-      supabaseAdmin
         .from("employee_training_attempts")
         .select("module_id, score, passed, completed_at, created_at")
         .eq("applicant_id", employeeId)
         .eq("passed", true)
         .order("completed_at", { ascending: false }),
-      supabaseAdmin
-        .from("applicant_training_progress")
-        .select("id, completed_at, created_at")
-        .eq("applicant_id", employeeId)
-        .maybeSingle<ApplicantTrainingProgressRow>(),
     ]);
 
     const queryError = [
@@ -356,9 +333,7 @@ export async function GET(
       trainingCompletionsError,
       trainingModulesError,
       complianceEventsError,
-      onboardingTrainingCompletionsError,
       employeeTrainingAttemptsError,
-      applicantTrainingProgressError,
     ].find(Boolean);
 
     if (queryError) {
@@ -378,14 +353,11 @@ export async function GET(
       return accumulator;
     }, {});
 
-    const moduleMapByKey = ((trainingModules || []) as TrainingModuleRow[]).reduce<
-      Record<string, TrainingModuleRow>
-    >((accumulator, module) => {
-      if (module.key) {
-        accumulator[module.key] = module;
-      }
-      return accumulator;
-    }, {});
+    const trainingSummary = calculateTrainingCompletionSummary({
+      modules: (trainingModules || []) as TrainingModuleRow[],
+      attempts: (employeeTrainingAttempts || []) as PassedTrainingAttemptRow[],
+      completions: (trainingCompletions || []) as TrainingCompletionRow[],
+    });
 
     let trainingRows = ((trainingCompletions || []) as TrainingCompletionRow[])
       .map((row) => ({
@@ -396,33 +368,7 @@ export async function GET(
       }))
       .sort((left, right) => left.module_sort_order - right.module_sort_order) as TrainingPdfRow[];
 
-    if (trainingRows.length === 0) {
-      const onboardingRows = (onboardingTrainingCompletions ||
-        []) as OnboardingTrainingCompletionRow[];
-      if (onboardingRows.length > 0) {
-        trainingRows = onboardingRows
-          .map((row) => {
-            const mod = row.module_key ? moduleMapByKey[row.module_key] : undefined;
-            const moduleId = mod?.id || String(row.module_key || "onboarding");
-            return {
-              module_id: moduleId,
-              score: null,
-              passed: row.is_completed !== false,
-              completed_at: row.completed_at,
-              module_title:
-                row.module_title ||
-                mod?.title ||
-                mod?.key ||
-                row.module_key ||
-                "Training module",
-              module_sort_order: mod?.sort_order ?? Number.MAX_SAFE_INTEGER,
-            };
-          })
-          .sort((left, right) => left.module_sort_order - right.module_sort_order) as TrainingPdfRow[];
-      }
-    }
-
-    if (trainingRows.length === 0) {
+    if (trainingRows.length === 0 && trainingSummary.isComplete) {
       const attempts = (employeeTrainingAttempts || []) as PassedTrainingAttemptRow[];
       const latestByModule = new Map<string, PassedTrainingAttemptRow>();
       for (const attempt of attempts) {
@@ -441,26 +387,6 @@ export async function GET(
           module_sort_order: moduleMap[row.module_id]?.sort_order ?? Number.MAX_SAFE_INTEGER,
         }))
         .sort((left, right) => left.module_sort_order - right.module_sort_order) as TrainingPdfRow[];
-    }
-
-    if (trainingRows.length === 0) {
-      const progress = applicantTrainingProgress as ApplicantTrainingProgressRow | null;
-      const progressCompletedAt = progress?.completed_at || progress?.created_at || null;
-      // Matches onboarding-complete: a row in applicant_training_progress means training progress exists;
-      // completed_at is set when onboarding syncs full completion (see onboarding-training syncTrainingSummary).
-      const progressComplete = Boolean(progress?.completed_at) || Boolean(progress?.id);
-      if (progressComplete) {
-        trainingRows = [
-          {
-            module_id: "applicant_training_progress",
-            score: null,
-            passed: true,
-            completed_at: progressCompletedAt,
-            module_title: "Onboarding training summary",
-            module_sort_order: 0,
-          },
-        ] as TrainingPdfRow[];
-      }
     }
 
     const pdfDoc = await PDFDocument.create();

@@ -28,6 +28,7 @@ import {
   routePerfStepsEnabled,
   routePerfTimed,
 } from "@/lib/perf/route-perf";
+import { calculateTrainingCompletionSummary } from "@/lib/onboarding/training-status";
 
 const DashboardPushActionCard = dynamic(
   () =>
@@ -138,14 +139,23 @@ type DocumentLite = {
 };
 
 type TrainingCompletionLite = {
-  id: string;
   applicant_id: string;
+  module_id: string;
+  score?: number | null;
+  passed?: boolean | null;
 };
 
-type TrainingProgressLite = {
-  id: string;
+type TrainingAttemptLite = {
   applicant_id: string;
-  is_complete?: boolean | null;
+  module_id: string;
+  score?: number | null;
+  passed?: boolean | null;
+};
+
+type TrainingModuleLite = {
+  id: string;
+  key?: string | null;
+  pass_score?: number | null;
 };
 
 const annualComplianceDefinitions = [
@@ -489,8 +499,10 @@ export default async function AdminDashboardPage({
   let employeeTaxForms: EmployeeTaxFormLite[] = [];
   let applicantFiles: ApplicantFileLite[] = [];
   let documents: DocumentLite[] = [];
+  let trainingModules: TrainingModuleLite[] = [];
+  let trainingAttempts: TrainingAttemptLite[] = [];
   let onboardingTrainingCompletions: TrainingCompletionLite[] = [];
-  let trainingProgressRows: TrainingProgressLite[] = [];
+  const trainingSummaryByEmployee = new Map<string, ReturnType<typeof calculateTrainingCompletionSummary>>();
 
   if (applicantIds.length > 0) {
     const batchPerf = routePerfStart();
@@ -543,12 +555,16 @@ export default async function AdminDashboardPage({
         .select("id, applicant_id, document_type")
         .in("applicant_id", applicantIds),
       supabase
-        .from("onboarding_training_completions")
-        .select("id, applicant_id")
+        .from("training_modules")
+        .select("id, key, pass_score")
+        .order("sort_order", { ascending: true }),
+      supabase
+        .from("employee_training_attempts")
+        .select("applicant_id, module_id, score, passed")
         .in("applicant_id", applicantIds),
       supabase
-        .from("applicant_training_progress")
-        .select("id, applicant_id, is_complete")
+        .from("employee_training_completions")
+        .select("applicant_id, module_id, score, passed")
         .in("applicant_id", applicantIds),
       supabase
         .from("admin_compliance_events")
@@ -571,8 +587,9 @@ export default async function AdminDashboardPage({
       { data: employeeTaxFormsRaw },
       { data: applicantFilesRaw },
       { data: documentsRaw },
+      { data: trainingModulesRaw },
+      { data: trainingAttemptsRaw },
       { data: onboardingTrainingCompletionsRaw },
-      { data: trainingProgressRaw },
       { data: annualEventsRaw },
     ] = routePerfStepsEnabled()
       ? await routePerfTimed("applicant_batch_parallel", () => batchPromise)
@@ -588,10 +605,22 @@ export default async function AdminDashboardPage({
     employeeTaxForms = (employeeTaxFormsRaw || []) as EmployeeTaxFormLite[];
     applicantFiles = (applicantFilesRaw || []) as ApplicantFileLite[];
     documents = (documentsRaw || []) as DocumentLite[];
+    trainingModules = (trainingModulesRaw || []) as TrainingModuleLite[];
+    trainingAttempts = (trainingAttemptsRaw || []) as TrainingAttemptLite[];
     onboardingTrainingCompletions =
       (onboardingTrainingCompletionsRaw || []) as TrainingCompletionLite[];
-    trainingProgressRows = (trainingProgressRaw || []) as TrainingProgressLite[];
     annualComplianceEvents = (annualEventsRaw || []) as ComplianceEvent[];
+
+    applicants.forEach((applicant) => {
+      trainingSummaryByEmployee.set(
+        applicant.id,
+        calculateTrainingCompletionSummary({
+          modules: trainingModules,
+          attempts: trainingAttempts.filter((row) => row.applicant_id === applicant.id),
+          completions: onboardingTrainingCompletions.filter((row) => row.applicant_id === applicant.id),
+        })
+      );
+    });
 
     if (batchPerf) {
       routePerfLog("admin/dashboard/applicant-batch", batchPerf);
@@ -657,20 +686,6 @@ export default async function AdminDashboardPage({
     const current = documentsByEmployee.get(item.applicant_id) || [];
     current.push(item);
     documentsByEmployee.set(item.applicant_id, current);
-  });
-
-  const onboardingTrainingCompletionsByEmployee = new Map<string, TrainingCompletionLite[]>();
-  onboardingTrainingCompletions.forEach((item) => {
-    const current = onboardingTrainingCompletionsByEmployee.get(item.applicant_id) || [];
-    current.push(item);
-    onboardingTrainingCompletionsByEmployee.set(item.applicant_id, current);
-  });
-
-  const trainingProgressByEmployee = new Map<string, TrainingProgressLite[]>();
-  trainingProgressRows.forEach((item) => {
-    const current = trainingProgressByEmployee.get(item.applicant_id) || [];
-    current.push(item);
-    trainingProgressByEmployee.set(item.applicant_id, current);
   });
 
   const missingCredentialDetails = applicants
@@ -888,10 +903,7 @@ export default async function AdminDashboardPage({
             ((taxForm.employee_signed_name || "").trim() && taxForm.employee_signed_at))
       );
       const isContractsComplete = Boolean(onboardingContractStatus?.completed && isTaxFormSigned);
-      const isTrainingComplete = Boolean(
-        (onboardingTrainingCompletionsByEmployee.get(applicant.id)?.length || 0) > 0 ||
-          (trainingProgressByEmployee.get(applicant.id) || []).some((row) => row.is_complete)
-      );
+      const isTrainingComplete = trainingSummaryByEmployee.get(applicant.id)?.isComplete === true;
       const isContractSigned = Boolean(
         contract && (contract.contract_status === "signed" || contract.employee_signed_at)
       );
@@ -2740,4 +2752,3 @@ function getCredentialReminderStateForType(
 
   return { label: "Active" as const };
 }
-

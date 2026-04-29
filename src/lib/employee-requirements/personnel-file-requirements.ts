@@ -226,6 +226,7 @@ export type BuildPersonnelFileAuditArgs = {
   hasCprCard: boolean;
   requiresDriversLicense: boolean;
   hasDriversLicense: boolean;
+  hasSocialSecurityCard: boolean;
   requiresFingerprintCard: boolean;
   hasFingerprintCard: boolean;
   requiresAutoInsurance: boolean;
@@ -242,6 +243,7 @@ export type BuildPersonnelFileAuditArgs = {
   performanceCanPrint: boolean;
   latestCprViewUrl: string | null;
   latestDriversLicenseViewUrl: string | null;
+  latestSocialSecurityCardViewUrl: string | null;
   latestFingerprintViewUrl: string | null;
   latestAutoInsuranceViewUrl: string | null;
   latestIndependentContractorInsuranceViewUrl: string | null;
@@ -278,6 +280,7 @@ export function buildPersonnelFileAuditRows(input: BuildPersonnelFileAuditArgs):
     hasCprCard,
     requiresDriversLicense,
     hasDriversLicense,
+    hasSocialSecurityCard,
     requiresFingerprintCard,
     hasFingerprintCard,
     requiresAutoInsurance,
@@ -294,6 +297,7 @@ export function buildPersonnelFileAuditRows(input: BuildPersonnelFileAuditArgs):
     performanceCanPrint,
     latestCprViewUrl,
     latestDriversLicenseViewUrl,
+    latestSocialSecurityCardViewUrl,
     latestFingerprintViewUrl,
     latestAutoInsuranceViewUrl,
     latestIndependentContractorInsuranceViewUrl,
@@ -468,6 +472,19 @@ export function buildPersonnelFileAuditRows(input: BuildPersonnelFileAuditArgs):
         requiresDriversLicense && hasDriversLicense && latestDriversLicenseViewUrl
           ? latestDriversLicenseViewUrl
           : null,
+      viewExternal: true,
+    });
+  }
+
+  {
+    const { status, tone } = auditStatus(true, hasSocialSecurityCard);
+    push({
+      label: "Social Security Card",
+      status,
+      statusTone: tone,
+      openHref: getAdminWorkAreaUrl("documents"),
+      portalHref: EMPLOYEE_ONBOARDING(applicantId, "/onboarding-documents"),
+      viewHref: hasSocialSecurityCard && latestSocialSecurityCardViewUrl ? latestSocialSecurityCardViewUrl : null,
       viewExternal: true,
     });
   }

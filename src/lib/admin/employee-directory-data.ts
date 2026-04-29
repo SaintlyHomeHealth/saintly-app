@@ -15,6 +15,7 @@ import {
   mergeApplicantRoleHints,
   normalizeCredentialTypeKey,
 } from "@/lib/employee-requirements/personnel-file-requirements";
+import { calculateTrainingCompletionSummary } from "@/lib/onboarding/training-status";
 import { normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
 
 export { normalizeCredentialTypeKey };
@@ -138,8 +139,23 @@ type EmployeeTaxFormLite = {
 
 type ApplicantFileLite = { id: string; applicant_id: string; document_type?: string | null };
 type DocumentLite = { id: string; applicant_id: string; document_type: string | null };
-type TrainingCompletionLite = { id: string; applicant_id: string };
-type TrainingProgressLite = { id: string; applicant_id: string; is_complete?: boolean | null };
+type TrainingCompletionLite = {
+  applicant_id: string;
+  module_id: string;
+  score?: number | null;
+  passed?: boolean | null;
+};
+type TrainingAttemptLite = {
+  applicant_id: string;
+  module_id: string;
+  score?: number | null;
+  passed?: boolean | null;
+};
+type TrainingModuleLite = {
+  id: string;
+  key?: string | null;
+  pass_score?: number | null;
+};
 
 const annualComplianceDefinitions = [
   { eventType: "skills_checklist", label: "Skills Competency" },
@@ -869,8 +885,10 @@ export async function loadEmployeeDirectoryRows(): Promise<{
   let employeeTaxForms: EmployeeTaxFormLite[] = [];
   let applicantFiles: ApplicantFileLite[] = [];
   let documents: DocumentLite[] = [];
+  let trainingModules: TrainingModuleLite[] = [];
+  let trainingAttempts: TrainingAttemptLite[] = [];
   let onboardingTrainingCompletions: TrainingCompletionLite[] = [];
-  let trainingProgressRows: TrainingProgressLite[] = [];
+  const trainingSummaryByEmployee = new Map<string, ReturnType<typeof calculateTrainingCompletionSummary>>();
 
   if (applicantIds.length > 0) {
     const [
@@ -884,8 +902,9 @@ export async function loadEmployeeDirectoryRows(): Promise<{
       taxRes,
       filesRes,
       docsRes,
+      trainingModulesRes,
+      trainingAttemptsRes,
       trainDoneRes,
-      trainProgRes,
     ] = await Promise.all([
       supabaseAdmin
         .from("admin_compliance_events")
@@ -942,12 +961,16 @@ export async function loadEmployeeDirectoryRows(): Promise<{
         .select("id, applicant_id, document_type")
         .in("applicant_id", applicantIds),
       supabaseAdmin
-        .from("onboarding_training_completions")
-        .select("id, applicant_id")
+        .from("training_modules")
+        .select("id, key, pass_score")
+        .order("sort_order", { ascending: true }),
+      supabaseAdmin
+        .from("employee_training_attempts")
+        .select("applicant_id, module_id, score, passed")
         .in("applicant_id", applicantIds),
       supabaseAdmin
-        .from("applicant_training_progress")
-        .select("id, applicant_id, is_complete")
+        .from("employee_training_completions")
+        .select("applicant_id, module_id, score, passed")
         .in("applicant_id", applicantIds),
     ]);
 
@@ -961,8 +984,20 @@ export async function loadEmployeeDirectoryRows(): Promise<{
     employeeTaxForms = (taxRes.data || []) as EmployeeTaxFormLite[];
     applicantFiles = (filesRes.data || []) as ApplicantFileLite[];
     documents = (docsRes.data || []) as DocumentLite[];
+    trainingModules = (trainingModulesRes.data || []) as TrainingModuleLite[];
+    trainingAttempts = (trainingAttemptsRes.data || []) as TrainingAttemptLite[];
     onboardingTrainingCompletions = (trainDoneRes.data || []) as TrainingCompletionLite[];
-    trainingProgressRows = (trainProgRes.data || []) as TrainingProgressLite[];
+
+    applicants.forEach((applicant) => {
+      trainingSummaryByEmployee.set(
+        applicant.id,
+        calculateTrainingCompletionSummary({
+          modules: trainingModules,
+          attempts: trainingAttempts.filter((row) => row.applicant_id === applicant.id),
+          completions: onboardingTrainingCompletions.filter((row) => row.applicant_id === applicant.id),
+        })
+      );
+    });
   }
 
   const credentialsByEmployee = new Map<string, CredentialRecord[]>();
@@ -1003,20 +1038,6 @@ export async function loadEmployeeDirectoryRows(): Promise<{
     const cur = documentsByEmployee.get(d.applicant_id) || [];
     cur.push(d);
     documentsByEmployee.set(d.applicant_id, cur);
-  });
-
-  const onboardingTrainingCompletionsByEmployee = new Map<string, TrainingCompletionLite[]>();
-  onboardingTrainingCompletions.forEach((t) => {
-    const cur = onboardingTrainingCompletionsByEmployee.get(t.applicant_id) || [];
-    cur.push(t);
-    onboardingTrainingCompletionsByEmployee.set(t.applicant_id, cur);
-  });
-
-  const trainingProgressByEmployee = new Map<string, TrainingProgressLite[]>();
-  trainingProgressRows.forEach((t) => {
-    const cur = trainingProgressByEmployee.get(t.applicant_id) || [];
-    cur.push(t);
-    trainingProgressByEmployee.set(t.applicant_id, cur);
   });
 
   const missingCredentialEmployeeIds = new Set<string>();
@@ -1146,10 +1167,7 @@ export async function loadEmployeeDirectoryRows(): Promise<{
           ((taxForm.employee_signed_name || "").trim() && taxForm.employee_signed_at))
     );
     const isContractsComplete = Boolean(onboardingContractStatus?.completed && isTaxFormSigned);
-    const isTrainingComplete = Boolean(
-      (onboardingTrainingCompletionsByEmployee.get(applicant.id)?.length || 0) > 0 ||
-        (trainingProgressByEmployee.get(applicant.id) || []).some((row) => row.is_complete)
-    );
+    const isTrainingComplete = trainingSummaryByEmployee.get(applicant.id)?.isComplete === true;
     const isContractSigned = Boolean(
       contract && (contract.contract_status === "signed" || contract.employee_signed_at)
     );

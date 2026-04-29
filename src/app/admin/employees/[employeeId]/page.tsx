@@ -38,6 +38,7 @@ import {
 } from "@/lib/employee-requirements/employee-detail-work-areas";
 import { getCredentialAnchorId } from "@/lib/credential-anchors";
 import { EmployeeArchiveButton } from "@/app/admin/employees/EmployeeArchiveButton";
+import { calculateTrainingCompletionSummary } from "@/lib/onboarding/training-status";
 import { buildUnifiedOnboardingState } from "@/lib/onboarding/unified-onboarding-state";
 import AdminOnboardingCommandCenter from "./admin-onboarding-command-center";
 import EmployeeAdminActionRequiredTable from "./employee-admin-action-required-table";
@@ -1282,9 +1283,9 @@ export default async function EmployeeDetailPage({
     { data: onboardingStatus },
     { data: allApplicantFilesRaw },
     { data: documentsRowsRaw },
-    { data: onboardingTrainingCompletions },
-    { data: trainingProgressRows },
-    { data: latestTrainingCompletion },
+    { data: trainingModulesData },
+    { data: employeeTrainingAttemptsData },
+    { data: employeeTrainingCompletionsData },
     { data: exitInterviewRaw },
     { data: skillsEventsRaw },
     { data: skillsFinalizedFormsRows },
@@ -1345,15 +1346,19 @@ export default async function EmployeeDetailPage({
       .select("id, applicant_id, document_type, file_url, created_at")
       .eq("applicant_id", employeeId)
       .order("created_at", { ascending: false }),
-    supabase.from("onboarding_training_completions").select("id").eq("applicant_id", employeeId),
-    supabase.from("applicant_training_progress").select("id, is_complete").eq("applicant_id", employeeId),
+    supabase
+      .from("training_modules")
+      .select("id, key, pass_score")
+      .order("sort_order", { ascending: true }),
+    supabase
+      .from("employee_training_attempts")
+      .select("module_id, score, passed, completed_at, created_at")
+      .eq("applicant_id", employeeId),
     supabase
       .from("employee_training_completions")
-      .select("id")
+      .select("module_id, score, passed, completed_at")
       .eq("applicant_id", employeeId)
-      .order("completed_at", { ascending: false })
-      .limit(1)
-      .maybeSingle<{ id: string }>(),
+      .order("completed_at", { ascending: false }),
     supabaseAdmin
       .from("employee_exit_interviews")
       .select("id, employee_id, reason_for_leaving, separation_type, rehire_eligible, notes, created_at")
@@ -1731,13 +1736,6 @@ export default async function EmployeeDetailPage({
   const taxFormPdfHref = employeeTaxForm
     ? `/admin/employees/${employeeId}/employee-file?document=tax`
     : null;
-  const hasTrainingCertificateArtifact =
-    Boolean(latestTrainingCompletion) ||
-    (onboardingTrainingCompletions?.length || 0) > 0 ||
-    (trainingProgressRows || []).some((row) => row.is_complete);
-  const trainingCertificateHref = hasTrainingCertificateArtifact
-    ? `/admin/employees/${employeeId}/employee-file?document=training`
-    : null;
   const applicationViewHref = `/admin/employees/${employeeId}/employee-file?document=application`;
   const surveyPacketZipHref = `/api/generate-onboarding-pdf?applicantId=${employeeId}`;
   const surveyPacketZipFileName = `saintly-onboarding-${employeeId}.zip`;
@@ -1759,6 +1757,10 @@ export default async function EmployeeDetailPage({
   const latestDriversLicenseProof = getLatestApplicantUploadByCanonicalType(
     adminUploadRecords,
     "drivers_license"
+  );
+  const latestSocialSecurityCardProof = getLatestApplicantUploadByCanonicalType(
+    adminUploadRecords,
+    "social_security_card"
   );
   const latestAutoInsuranceProof = getLatestApplicantUploadByCanonicalType(
     adminUploadRecords,
@@ -1986,10 +1988,30 @@ export default async function EmployeeDetailPage({
           employeeTaxForm.employee_signed_at))
   );
   const isContractsComplete = Boolean(onboardingContractStatus?.completed && isTaxFormSigned);
-  const isTrainingComplete = Boolean(
-    (onboardingTrainingCompletions?.length || 0) > 0 ||
-      (trainingProgressRows || []).some((row) => row.is_complete)
-  );
+  const trainingSummary = calculateTrainingCompletionSummary({
+    modules: (trainingModulesData || []) as Array<{
+      id: string;
+      key?: string | null;
+      pass_score?: number | null;
+    }>,
+    attempts: (employeeTrainingAttemptsData || []) as Array<{
+      module_id: string;
+      score?: number | null;
+      passed?: boolean | null;
+      completed_at?: string | null;
+      created_at?: string | null;
+    }>,
+    completions: (employeeTrainingCompletionsData || []) as Array<{
+      module_id: string;
+      score?: number | null;
+      passed?: boolean | null;
+      completed_at?: string | null;
+    }>,
+  });
+  const isTrainingComplete = trainingSummary.isComplete;
+  const trainingCertificateHref = isTrainingComplete
+    ? `/admin/employees/${employeeId}/employee-file?document=training`
+    : null;
   const isSkillsComplete = isComplianceRequirementComplete(skillsEvent, skillsForm);
   const isPerformanceComplete = isComplianceRequirementComplete(
     performanceEvent,
@@ -1998,6 +2020,8 @@ export default async function EmployeeDetailPage({
   const hasTbDocumentation = uploadedDocumentTypes.has("tb_test") || !!latestTbTestProof;
   const isOigComplete = isComplianceRequirementComplete(effectiveOigEvent, null);
   const hasBackgroundCheck = uploadedDocumentTypes.has("background_check");
+  const hasSocialSecurityCard =
+    uploadedDocumentTypes.has("social_security_card") || !!latestSocialSecurityCardProof;
   const requiresCpr = requiredCredentialTypes.includes("cpr");
   const requiresDriversLicense = requiredCredentialTypes.includes("drivers_license");
   const requiresAutoInsurance = requiredCredentialTypes.includes("auto_insurance");
@@ -2127,6 +2151,7 @@ export default async function EmployeeDetailPage({
     !isDocumentsComplete ? "Documents" : null,
     !isContractsComplete ? "Contracts" : null,
     !isTrainingComplete ? "Training" : null,
+    !hasSocialSecurityCard ? "Social Security Card" : null,
     !isSkillsComplete ? "Skills Competency" : null,
     !isPerformanceComplete ? "Performance Evaluation" : null,
     !hasTbDocumentation ? "TB Test" : null,
@@ -2160,7 +2185,7 @@ export default async function EmployeeDetailPage({
   const hasSomeDocumentUpload =
     ((applicantFiles?.length || 0) > 0 || (documentsRows?.length || 0) > 0) && !isDocumentsComplete;
   const hasTrainingProgressButNotComplete =
-    (trainingProgressRows?.length || 0) > 0 && !isTrainingComplete;
+    trainingSummary.hasAnyProgress && !isTrainingComplete;
   const skillsFormIsDraft = skillsForm?.status === "draft";
   const missingCredentialDisplayNames = missingCredentialTypes.map((t) => formatCredentialType(t));
 
@@ -2391,6 +2416,7 @@ export default async function EmployeeDetailPage({
     hasCprCard,
     requiresDriversLicense,
     hasDriversLicense,
+    hasSocialSecurityCard,
     requiresFingerprintCard,
     hasFingerprintCard,
     requiresAutoInsurance,
@@ -2407,6 +2433,8 @@ export default async function EmployeeDetailPage({
     performanceCanPrint: performancePrintMeta.canPrint,
     latestCprViewUrl: (latestCprProof as AdminUploadRecord | null)?.viewUrl ?? null,
     latestDriversLicenseViewUrl: (latestDriversLicenseProof as AdminUploadRecord | null)?.viewUrl ?? null,
+    latestSocialSecurityCardViewUrl:
+      (latestSocialSecurityCardProof as AdminUploadRecord | null)?.viewUrl ?? null,
     latestFingerprintViewUrl: (latestFingerprintProof as AdminUploadRecord | null)?.viewUrl ?? null,
     latestAutoInsuranceViewUrl: (latestAutoInsuranceProofNormalized as AdminUploadRecord | null)?.viewUrl ?? null,
     latestIndependentContractorInsuranceViewUrl:
@@ -2419,6 +2447,7 @@ export default async function EmployeeDetailPage({
 
   const hasInitialDriversLicenseUpload =
     uploadedDocumentTypes.has("drivers_license") || Boolean(latestDriversLicenseProof);
+  const hasInitialSocialSecurityCardUpload = hasSocialSecurityCard;
   const hasInitialAutoInsuranceUpload = Boolean(latestAutoInsuranceProofNormalized);
 
   const driversLicenseHistory = adminUploadRecords
@@ -2434,6 +2463,13 @@ export default async function EmployeeDetailPage({
         (file.document_type || "").toLowerCase().trim() === "auto_insurance" ||
         normalizeCredentialTypeKey(file.document_type) === "auto_insurance"
     )
+    .slice()
+    .sort(
+      (a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+    );
+
+  const socialSecurityCardHistory = adminUploadRecords
+    .filter((file) => (file.document_type || "").toLowerCase().trim() === "social_security_card")
     .slice()
     .sort(
       (a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
@@ -2483,6 +2519,21 @@ export default async function EmployeeDetailPage({
       anchorId: "drivers-license-section",
       history: buildAdminUploadHistoryDisplay(driversLicenseHistory),
       workflowOpenHref: getAdminWorkAreaUrl("credentials"),
+    },
+    {
+      key: "social-security-card",
+      label: "Social Security Card",
+      statusLabel: hasInitialSocialSecurityCardUpload ? "Complete" : "Missing",
+      statusTone: hasInitialSocialSecurityCardUpload ? "green" : "red",
+      lastUpdatedDisplay: latestSocialSecurityCardProof?.created_at
+        ? formatDateTime(latestSocialSecurityCardProof.created_at)
+        : "—",
+      viewUrl: (latestSocialSecurityCardProof as AdminUploadRecord | null)?.viewUrl ?? null,
+      documentType: "social_security_card",
+      uploadLabel: "Social Security Card",
+      anchorId: "social-security-card-section",
+      history: buildAdminUploadHistoryDisplay(socialSecurityCardHistory),
+      workflowOpenHref: getAdminWorkAreaUrl("documents"),
     },
     {
       key: "auto-insurance-initial",
@@ -3304,10 +3355,9 @@ export default async function EmployeeDetailPage({
           <div>
             <p className="text-xs font-semibold text-slate-500">Recorded artifacts</p>
             <p className="mt-1 text-slate-800">
-              Training progress rows: {trainingProgressRows?.length ?? 0}
+              Passed modules: {trainingSummary.passedModuleCount}/{trainingSummary.requiredModuleCount}
               {" · "}
-              Completions logged:{" "}
-              {(onboardingTrainingCompletions?.length || 0) + (latestTrainingCompletion ? 1 : 0)}
+              Attempt rows: {employeeTrainingAttemptsData?.length ?? 0}
             </p>
           </div>
         </div>

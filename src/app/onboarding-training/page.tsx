@@ -7,18 +7,15 @@ import OnboardingAdminPreviewClient from "../../components/OnboardingAdminPrevie
 import OnboardingApplicantFromQuery from "../../components/OnboardingApplicantFromQuery";
 import OnboardingProgressSync from "../../components/OnboardingProgressSync";
 import OnboardingApplicantIdentity from "../../components/OnboardingApplicantIdentity";
+import {
+  calculateTrainingCompletionSummary,
+  DEFAULT_TRAINING_PASS_SCORE,
+  isRequiredTrainingModuleKey,
+  REQUIRED_TRAINING_MODULE_KEYS,
+  type RequiredTrainingModuleKey,
+} from "@/lib/onboarding/training-status";
 import { supabase } from "@/lib/supabase/client";
-
-const REQUIRED_MODULE_KEYS = [
-  "bloodborne-pathogens",
-  "infection-control",
-  "patient-rights",
-  "hipaa",
-  "emergency-preparedness",
-  "fraud-waste-abuse",
-] as const;
-
-type TrainingModuleKey = (typeof REQUIRED_MODULE_KEYS)[number];
+type TrainingModuleKey = RequiredTrainingModuleKey;
 
 type TrainingModuleRow = {
   id: string;
@@ -65,8 +62,6 @@ type QuizQuestion = {
 };
 
 type QuizBank = Record<TrainingModuleKey, QuizQuestion[]>;
-
-const DEFAULT_PASS_SCORE = 80;
 
 const QUIZ_BANK: QuizBank = {
   "bloodborne-pathogens": [
@@ -635,7 +630,7 @@ const QUIZ_BANK: QuizBank = {
 };
 
 function createInitialAnswersByModule() {
-  return REQUIRED_MODULE_KEYS.reduce<
+  return REQUIRED_TRAINING_MODULE_KEYS.reduce<
     Partial<Record<TrainingModuleKey, Record<string, string>>>
   >((moduleAnswers, moduleKey) => {
     moduleAnswers[moduleKey] = QUIZ_BANK[moduleKey].reduce<
@@ -650,7 +645,7 @@ function createInitialAnswersByModule() {
 }
 
 function isTrainingModuleKey(value: string): value is TrainingModuleKey {
-  return REQUIRED_MODULE_KEYS.includes(value as TrainingModuleKey);
+  return isRequiredTrainingModuleKey(value);
 }
 
 function formatCertificateDate(value: string) {
@@ -857,17 +852,22 @@ export default function OnboardingTrainingPage() {
     setApplicantId(storedApplicantId);
   }, []);
 
-  const totalCount = REQUIRED_MODULE_KEYS.length;
+  const totalCount = REQUIRED_TRAINING_MODULE_KEYS.length;
 
-  const completedCount = useMemo(() => {
-    return modules.filter((module) => completionsByModuleId[module.id]?.passed)
-      .length;
-  }, [completionsByModuleId, modules]);
+  const trainingSummary = useMemo(
+    () =>
+      calculateTrainingCompletionSummary({
+        modules,
+        attempts: Object.values(attemptsByModuleId),
+        completions: Object.values(completionsByModuleId),
+      }),
+    [attemptsByModuleId, completionsByModuleId, modules]
+  );
 
+  const completedCount = trainingSummary.passedModuleCount;
   const percentComplete =
     totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
-  const allRequiredComplete =
-    modules.length === totalCount && completedCount === totalCount;
+  const allRequiredComplete = trainingSummary.isComplete;
 
   const syncTrainingSummary = useCallback(
     async (applicantIdValue: string, completedModules: number) => {
@@ -923,7 +923,7 @@ export default function OnboardingTrainingPage() {
           .select(
             "id, key, number, sort_order, title, description, category, pdf_url, pass_score"
           )
-          .in("key", [...REQUIRED_MODULE_KEYS])
+          .in("key", [...REQUIRED_TRAINING_MODULE_KEYS])
           .order("sort_order", { ascending: true }),
         supabase
           .from("applicants")
@@ -1017,7 +1017,12 @@ export default function OnboardingTrainingPage() {
       setAttemptsByModuleId(latestAttemptsByModule);
 
       try {
-        await syncTrainingSummary(applicantId, Object.keys(completionsByModule).length);
+        const summary = calculateTrainingCompletionSummary({
+          modules: loadedModules,
+          attempts: Object.values(latestAttemptsByModule),
+          completions: Object.values(completionsByModule),
+        });
+        await syncTrainingSummary(applicantId, summary.passedModuleCount);
       } catch (summaryError) {
         console.error(summaryError);
       }
@@ -1068,7 +1073,7 @@ export default function OnboardingTrainingPage() {
       setSubmittingModuleKey(module.key);
       setPageError(null);
 
-      const passScore = module.pass_score ?? DEFAULT_PASS_SCORE;
+      const passScore = module.pass_score ?? DEFAULT_TRAINING_PASS_SCORE;
       const correctAnswers = questions.filter(
         (question) => answers[question.id] === question.correctAnswer
       ).length;
@@ -1127,12 +1132,19 @@ export default function OnboardingTrainingPage() {
           };
 
           setCompletionsByModuleId(nextCompletionsByModuleId);
-          await syncTrainingSummary(
-            applicantId,
-            Object.keys(nextCompletionsByModuleId).length
-          );
+          const summary = calculateTrainingCompletionSummary({
+            modules,
+            attempts: Object.values(nextAttemptsByModuleId),
+            completions: Object.values(nextCompletionsByModuleId),
+          });
+          await syncTrainingSummary(applicantId, summary.passedModuleCount);
         } else {
-          await syncTrainingSummary(applicantId, Object.keys(completionsByModuleId).length);
+          const summary = calculateTrainingCompletionSummary({
+            modules,
+            attempts: Object.values(nextAttemptsByModuleId),
+            completions: Object.values(completionsByModuleId),
+          });
+          await syncTrainingSummary(applicantId, summary.passedModuleCount);
         }
       } catch (error) {
         const message =
@@ -1354,7 +1366,7 @@ export default function OnboardingTrainingPage() {
 
                 const questions = QUIZ_BANK[moduleKey];
                 const answers = answersByModule[moduleKey] || {};
-                const passScore = module.pass_score ?? DEFAULT_PASS_SCORE;
+                const passScore = module.pass_score ?? DEFAULT_TRAINING_PASS_SCORE;
                 const completion = completionsByModuleId[module.id];
                 const latestAttempt = attemptsByModuleId[module.id];
                 const result = completion ?? latestAttempt;

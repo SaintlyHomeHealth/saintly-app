@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { EmploymentClassification } from "@/lib/employee-contracts";
 import { getTaxFormTypeForClassification } from "@/lib/employee-tax-forms";
+import { calculateTrainingCompletionSummary } from "@/lib/onboarding/training-status";
 
 import {
   applyStartedFloor,
@@ -68,8 +69,9 @@ async function loadProgressInputs(supabase: SupabaseClient, applicantId: string)
     { data: onboardingStatusRow },
     { data: contractData },
     { data: taxRow },
+    { data: trainingModulesData },
+    { data: trainingAttemptData },
     { data: trainingCompletionData },
-    { data: trainingProgressData },
   ] = await Promise.all([
     supabase.from("applicant_files").select("id").eq("applicant_id", applicantId),
     supabase.from("documents").select("id, document_type").eq("applicant_id", applicantId),
@@ -80,8 +82,18 @@ async function loadProgressInputs(supabase: SupabaseClient, applicantId: string)
       .maybeSingle<{ application_completed?: boolean | null }>(),
     supabase.from("onboarding_contracts").select("completed").eq("applicant_id", applicantId).maybeSingle(),
     taxQuery.maybeSingle(),
-    supabase.from("onboarding_training_completions").select("id").eq("applicant_id", applicantId),
-    supabase.from("applicant_training_progress").select("id, is_complete").eq("applicant_id", applicantId),
+    supabase
+      .from("training_modules")
+      .select("id, key, pass_score")
+      .order("sort_order", { ascending: true }),
+    supabase
+      .from("employee_training_attempts")
+      .select("module_id, score, passed")
+      .eq("applicant_id", applicantId),
+    supabase
+      .from("employee_training_completions")
+      .select("module_id, score, passed")
+      .eq("applicant_id", applicantId),
   ]);
 
   const uploadedTypes = new Set(
@@ -104,15 +116,29 @@ async function loadProgressInputs(supabase: SupabaseClient, applicantId: string)
 
   const isContractsComplete = Boolean(contractData?.completed && taxOk);
 
-  const trainingComplete =
-    (trainingCompletionData?.length || 0) > 0 ||
-    (trainingProgressData || []).some((row) => row.is_complete);
+  const trainingSummary = calculateTrainingCompletionSummary({
+    modules: (trainingModulesData || []) as Array<{
+      id: string;
+      key?: string | null;
+      pass_score?: number | null;
+    }>,
+    attempts: (trainingAttemptData || []) as Array<{
+      module_id: string;
+      score?: number | null;
+      passed?: boolean | null;
+    }>,
+    completions: (trainingCompletionData || []) as Array<{
+      module_id: string;
+      score?: number | null;
+      passed?: boolean | null;
+    }>,
+  });
 
   return {
     applicationCompleted: isApplicationComplete,
     documentsComplete: isDocumentsComplete,
     contractsAndTaxComplete: isContractsComplete,
-    trainingComplete,
+    trainingComplete: trainingSummary.isComplete,
   };
 }
 
