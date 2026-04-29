@@ -3,7 +3,6 @@ import { redirect } from "next/navigation";
 
 import AddEmployeeInviteButton from "@/app/admin/employees/add-employee-invite-button";
 import {
-  crmActionBtnSky,
   crmFilterBarCls,
   crmFilterInputCls,
   crmListRowHoverCls,
@@ -24,6 +23,9 @@ import { supabaseAdmin } from "@/lib/admin";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 
 import { recruitingInterestPillClass, recruitingStatusPillClass } from "./recruiting-status-styles";
+
+const recruitingRowActionBtnCls =
+  "inline-flex h-8 items-center justify-center rounded-lg border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-sky-900 shadow-sm transition hover:border-sky-300 hover:bg-sky-50 hover:shadow-md";
 
 type CandidateRow = {
   id: string;
@@ -514,10 +516,10 @@ export default async function AdminRecruitingListPage({
                       <div className="text-slate-800">{formatListDate(r.next_follow_up_at)}</div>
                     </div>
                   </div>
-                  <div className="mt-4 flex flex-wrap gap-2">
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
                     <AddEmployeeInviteButton
                       triggerLabel="Onboard"
-                      triggerClassName={crmActionBtnSky}
+                      triggerClassName={recruitingRowActionBtnCls}
                       initialValues={{
                         firstName: inviteName.firstName,
                         lastName: inviteName.lastName,
@@ -535,12 +537,12 @@ export default async function AdminRecruitingListPage({
                         href={`/admin/recruiting/open-keypad/${r.id}`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className={crmActionBtnSky}
+                        className={recruitingRowActionBtnCls}
                       >
                         Call
                       </a>
                     ) : null}
-                    <Link href={`/admin/recruiting/${r.id}${filterQs}`} className={crmActionBtnSky}>
+                    <Link href={`/admin/recruiting/${r.id}${filterQs}`} className={recruitingRowActionBtnCls}>
                       Open
                     </Link>
                   </div>
@@ -553,17 +555,17 @@ export default async function AdminRecruitingListPage({
             <table className="min-w-full divide-y divide-slate-100 text-sm">
               <thead className="bg-slate-50/90 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                 <tr>
-                  <th className="px-4 py-3">Candidate</th>
-                  <th className="px-4 py-3">Discipline</th>
-                  <th className="px-4 py-3">Location / area</th>
-                  <th className="px-4 py-3">Phone</th>
-                  <th className="px-4 py-3">Email</th>
-                  <th className="px-4 py-3">Source</th>
-                  <th className="px-4 py-3">Status</th>
-                  <th className="px-4 py-3">Interest</th>
-                  <th className="px-4 py-3">Last contact</th>
-                  <th className="px-4 py-3">Next follow-up</th>
-                  <th className="px-4 py-3 text-right">Actions</th>
+                  <th className="px-4 py-2.5">Candidate</th>
+                  <th className="px-4 py-2.5">Discipline</th>
+                  <th className="px-4 py-2.5">Location / area</th>
+                  <th className="px-4 py-2.5">Phone</th>
+                  <th className="px-4 py-2.5">Email</th>
+                  <th className="px-4 py-2.5">Source</th>
+                  <th className="px-4 py-2.5">Status</th>
+                  <th className="px-4 py-2.5">Interest</th>
+                  <th className="px-4 py-2.5">Last contact</th>
+                  <th className="px-4 py-2.5">Next follow-up</th>
+                  <th className="px-4 py-2.5 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -578,7 +580,7 @@ export default async function AdminRecruitingListPage({
                       key={r.id}
                       className={`bg-white/90 ${crmListRowHoverCls} ${dueToday ? "bg-amber-50/50" : ""}`}
                     >
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-2.5 align-middle">
                         <div className="flex flex-wrap items-center gap-2">
                           <Link
                             href={`/admin/recruiting/${r.id}${filterQs}`}
@@ -598,15 +600,17 @@ export default async function AdminRecruitingListPage({
                           ) : null}
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-xs text-slate-700">{r.discipline ?? "—"}</td>
-                      <td className="px-4 py-3 text-xs text-slate-600">{loc}</td>
-                      <td className="px-4 py-3 text-xs text-slate-700">{r.phone ? formatPhoneForDisplay(r.phone) : "—"}</td>
-                      <td className="px-4 py-3 text-xs text-slate-600">{r.email?.trim() || "—"}</td>
-                      <td className="px-4 py-3 text-xs text-slate-600">{r.source ?? "—"}</td>
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-2.5 align-middle text-xs text-slate-700">{r.discipline ?? "—"}</td>
+                      <td className="px-4 py-2.5 align-middle text-xs text-slate-600">{loc}</td>
+                      <td className="px-4 py-2.5 align-middle text-xs text-slate-700">
+                        {r.phone ? formatPhoneForDisplay(r.phone) : "—"}
+                      </td>
+                      <td className="px-4 py-2.5 align-middle text-xs text-slate-600">{r.email?.trim() || "—"}</td>
+                      <td className="px-4 py-2.5 align-middle text-xs text-slate-600">{r.source ?? "—"}</td>
+                      <td className="px-4 py-2.5 align-middle">
                         <span className={recruitingStatusPillClass(r.status ?? "")}>{r.status ?? "—"}</span>
                       </td>
-                      <td className="px-4 py-3 text-xs text-slate-700">
+                      <td className="px-4 py-2.5 align-middle text-xs text-slate-700">
                         {r.interest_level?.trim() ? (
                           <span className={recruitingInterestPillClass(r.interest_level)}>
                             {r.interest_level.replace(/_/g, " ")}
@@ -615,13 +619,13 @@ export default async function AdminRecruitingListPage({
                           "—"
                         )}
                       </td>
-                      <td className="px-4 py-3 text-xs text-slate-600">{formatListDate(r.last_contact_at)}</td>
-                      <td className="px-4 py-3 text-xs text-slate-600">{formatListDate(r.next_follow_up_at)}</td>
-                      <td className="px-4 py-3 text-right">
-                        <div className="flex flex-wrap justify-end gap-2">
+                      <td className="px-4 py-2.5 align-middle text-xs text-slate-600">{formatListDate(r.last_contact_at)}</td>
+                      <td className="px-4 py-2.5 align-middle text-xs text-slate-600">{formatListDate(r.next_follow_up_at)}</td>
+                      <td className="px-4 py-2.5 align-middle text-right">
+                        <div className="flex flex-wrap items-center justify-end gap-2">
                           <AddEmployeeInviteButton
                             triggerLabel="Onboard"
-                            triggerClassName={crmActionBtnSky}
+                            triggerClassName={recruitingRowActionBtnCls}
                             initialValues={{
                               firstName: inviteName.firstName,
                               lastName: inviteName.lastName,
@@ -639,12 +643,12 @@ export default async function AdminRecruitingListPage({
                               href={`/admin/recruiting/open-keypad/${r.id}`}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className={crmActionBtnSky}
+                              className={recruitingRowActionBtnCls}
                             >
                               Call
                             </a>
                           ) : null}
-                          <Link href={`/admin/recruiting/${r.id}${filterQs}`} className={crmActionBtnSky}>
+                          <Link href={`/admin/recruiting/${r.id}${filterQs}`} className={recruitingRowActionBtnCls}>
                             Open
                           </Link>
                         </div>
