@@ -4,6 +4,7 @@ import { extractTelnyxFax, upsertInboundFaxFromWebhook } from "@/lib/fax/fax-ser
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+const MANUAL_TEST_FAX_ID = "manual-test";
 
 function isAuthorized(req: NextRequest): boolean {
   const sharedSecret = process.env.TELNYX_FAX_WEBHOOK_SECRET;
@@ -35,11 +36,20 @@ function inboundFaxErrorResponse(message: string) {
   );
 }
 
-export async function POST(req: NextRequest) {
-  if (!isAuthorized(req)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+function isManualTestPayload(body: unknown): boolean {
+  const fax = extractTelnyxFax(body);
+  return fax.telnyxFaxId === MANUAL_TEST_FAX_ID;
+}
 
+export async function GET() {
+  return NextResponse.json({
+    ok: true,
+    route: "fax-inbound",
+    timestamp: new Date().toISOString(),
+  });
+}
+
+export async function POST(req: NextRequest) {
   let body: unknown;
   try {
     body = await req.json();
@@ -47,7 +57,22 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
+  const authorized = isAuthorized(req);
+  const manualTest = !authorized && isManualTestPayload(body);
+  if (!authorized && !manualTest) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const fax = extractTelnyxFax(body);
+  if (manualTest) {
+    console.log("[fax/inbound] manual_test_received", {
+      payload: body,
+      fax_id: fax.telnyxFaxId,
+      from_number: fax.fromNumber,
+      to_number: fax.toNumber,
+      media_url: fax.mediaUrl,
+    });
+  }
   console.log("[fax/inbound] request_received", {
     payload: body,
     fax_id: fax.telnyxFaxId,
@@ -67,7 +92,12 @@ export async function POST(req: NextRequest) {
       return inboundFaxErrorResponse(message);
     }
 
-    return NextResponse.json({ ok: true, fax_id: result.faxId, conversation_id: result.conversationId });
+    return NextResponse.json({
+      ok: true,
+      fax_id: result.faxId,
+      conversation_id: result.conversationId,
+      manual_test: manualTest,
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Inbound fax processing failed";
     console.error("[fax/inbound] error", {
