@@ -14,6 +14,7 @@ import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { crmActionBtnMuted, crmActionBtnSky, crmFilterInputCls, crmPrimaryCtaCls } from "@/components/admin/crm-admin-list-styles";
 import { supabaseAdmin } from "@/lib/admin";
 import { formatFaxSenderDisplay } from "@/lib/fax/format-fax-sender";
+import { formatFaxDateTimeDetail } from "@/lib/fax/format-fax-time";
 import { missingFaxSchema, signedFaxPdfUrl, type FaxMessageRow } from "@/lib/fax/fax-service";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import { getStaffProfile, isAdminOrHigher, isManagerOrHigher } from "@/lib/staff-profile";
@@ -32,14 +33,6 @@ type StaffOption = {
   email: string | null;
   full_name: string | null;
 };
-
-function formatDateTime(value: string | null | undefined): string {
-  if (!value) return "—";
-  return new Intl.DateTimeFormat("en-US", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value));
-}
 
 function categoryLabel(value: string): string {
   return value
@@ -109,7 +102,7 @@ export default async function AdminFaxDetailPage({ params }: { params: Promise<{
       <AdminPageHeader
         eyebrow="Fax detail"
         title={fax.subject || `${fax.direction === "inbound" ? "Inbound" : "Outbound"} fax`}
-        metaLine={`${senderDisplay} to ${recipientDisplay} · ${formatDateTime(fax.received_at ?? fax.sent_at ?? fax.created_at)}`}
+        metaLine={`${senderDisplay} to ${recipientDisplay} · ${formatFaxDateTimeDetail(fax.received_at ?? fax.sent_at ?? fax.created_at)}`}
         description="Review the PDF, attach it to the right record, and keep a clear audit trail."
         actions={
           <div className="flex flex-wrap gap-2">
@@ -158,8 +151,8 @@ export default async function AdminFaxDetailPage({ params }: { params: Promise<{
               <Field label="To" value={recipientDisplay} />
               <Field label="Pages" value={fax.page_count} />
               <Field label="Assigned" value={staffLabel(assigned)} />
-              <Field label="Received" value={formatDateTime(fax.received_at)} />
-              <Field label="Completed" value={formatDateTime(fax.completed_at)} />
+              <Field label="Received" value={formatFaxDateTimeDetail(fax.received_at)} />
+              <Field label="Completed" value={formatFaxDateTimeDetail(fax.completed_at)} />
             </div>
             <div className="mt-4 grid grid-cols-2 gap-4">
               <Field label="From number" value={formatPhoneForDisplay(fax.from_number)} />
@@ -312,7 +305,7 @@ export default async function AdminFaxDetailPage({ params }: { params: Promise<{
                 events.map((event) => (
                   <div key={event.id} className="rounded-2xl border border-slate-100 bg-slate-50 p-3">
                     <p className="text-xs font-bold uppercase tracking-wide text-slate-700">{event.event_type.replace(/_/g, " ")}</p>
-                    <p className="mt-1 text-xs text-slate-500">{formatDateTime(event.created_at)}</p>
+                    <p className="mt-1 text-xs text-slate-500">{formatFaxDateTimeDetail(event.created_at)}</p>
                   </div>
                 ))
               )}

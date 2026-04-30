@@ -13,6 +13,7 @@ import {
 } from "@/components/admin/crm-admin-list-styles";
 import { supabaseAdmin } from "@/lib/admin";
 import { formatFaxSenderDisplay } from "@/lib/fax/format-fax-sender";
+import { formatFaxDateTimeList } from "@/lib/fax/format-fax-time";
 import { missingFaxSchema, type FaxMessageRow } from "@/lib/fax/fax-service";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import { getStaffProfile, isAdminOrHigher, isManagerOrHigher } from "@/lib/staff-profile";
@@ -35,16 +36,6 @@ const CATEGORIES = [
 function one(raw: Record<string, string | string[] | undefined>, key: string): string {
   const value = raw[key];
   return typeof value === "string" ? value : Array.isArray(value) ? value[0] ?? "" : "";
-}
-
-function formatDateTime(value: string | null | undefined): string {
-  if (!value) return "—";
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(value));
 }
 
 function statusBadgeClass(status: string): string {
@@ -309,7 +300,9 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
                   <div>
                     <span className={`rounded-full border px-2 py-1 text-[11px] font-bold ${statusBadgeClass(fax.status)}`}>{fax.status}</span>
                   </div>
-                  <div className="text-xs text-slate-600">{formatDateTime(fax.received_at ?? fax.sent_at ?? fax.created_at)}</div>
+                  <div className="text-xs text-slate-600">
+                    {formatFaxDateTimeList(fax.received_at ?? fax.sent_at ?? fax.created_at)}
+                  </div>
                   <div className="text-xs text-slate-600">{fax.assigned_to_user_id ? "Assigned" : "Unassigned"}</div>
                   <div className="flex flex-wrap gap-2">
                     <Link href={`/admin/fax/${fax.id}`} className={crmActionBtnMuted}>
