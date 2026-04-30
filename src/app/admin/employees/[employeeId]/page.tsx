@@ -2649,6 +2649,9 @@ export default async function EmployeeDetailPage({
   const hasInitialAutoInsuranceUpload = Boolean(latestAutoInsuranceProofNormalized);
   const hasInitialIndependentContractorInsuranceUpload = hasIndependentContractorInsurance;
   const hasInitialProfessionalLicenseUpload = Boolean(latestProfessionalLicenseProof);
+  /** Initial hiring row: file on record counts as complete (same source as View/Download). */
+  const isOigInitialHiringRequirementComplete =
+    Boolean(latestOigProof) || isOigComplete;
 
   const driversLicenseHistory = adminUploadRecords
     .filter((file) => (file.document_type || "").toLowerCase().trim() === "drivers_license")
@@ -2854,8 +2857,8 @@ export default async function EmployeeDetailPage({
       key: "oig",
       itemType: "document",
       label: "OIG exclusion proof",
-      statusLabel: isOigComplete ? "Complete" : "Missing",
-      statusTone: isOigComplete ? "green" : "red",
+      statusLabel: isOigInitialHiringRequirementComplete ? "Complete" : "Missing",
+      statusTone: isOigInitialHiringRequirementComplete ? "green" : "red",
       lastUpdatedDisplay: latestOigProof?.created_at ? formatDateTime(latestOigProof.created_at) : "—",
       viewUrl: (latestOigProof as AdminUploadRecord | null)?.viewUrl ?? null,
       downloadUrl: getInternalDocumentDownloadHref(latestOigProof as AdminUploadRecord | null),
