@@ -13,6 +13,7 @@ import {
 import { getTaxFormLabel, normalizeTaxFormData } from "@/lib/employee-tax-forms";
 import { insertAuditLog } from "@/lib/audit-log";
 import { calculateTrainingCompletionSummary } from "@/lib/onboarding/training-status";
+import { mergeSurveyPacketAttachmentSection } from "@/lib/survey-packet/attachments";
 
 type SupportedDocumentType =
   | "full"
@@ -1238,7 +1239,19 @@ export async function GET(
     }
     }
 
-    pdfDoc.getPages().forEach((pdfPage) => {
+    let pdfForFooter: PDFDocument;
+    if (documentType === "full") {
+      const summaryBytes = await pdfDoc.save();
+      const { pdfBytes: withAttachments } = await mergeSurveyPacketAttachmentSection(
+        new Uint8Array(summaryBytes),
+        employeeId
+      );
+      pdfForFooter = await PDFDocument.load(withAttachments, { ignoreEncryption: true });
+    } else {
+      pdfForFooter = pdfDoc;
+    }
+
+    pdfForFooter.getPages().forEach((pdfPage) => {
       const pageWidth = pdfPage.getWidth();
 
       pdfPage.drawText("Saintly Home Health — Confidential Employee Record", {
@@ -1258,7 +1271,7 @@ export async function GET(
       });
     });
 
-    const pdfBytes = await pdfDoc.save();
+    const pdfBytes = await pdfForFooter.save();
     const fileName =
       documentType === "contract"
         ? `${safeEmployeeName}-contract.pdf`

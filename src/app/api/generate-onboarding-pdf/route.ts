@@ -3,6 +3,14 @@ import { createClient } from "@supabase/supabase-js";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import JSZip from "jszip";
 
+import { getAuthenticatedUser } from "@/lib/supabase/server";
+import { getStaffProfile, isAdminOrHigher } from "@/lib/staff-profile";
+import {
+  collectSurveyPacketAttachmentCandidates,
+  downloadAttachmentBytesForZip,
+  mergeSurveyPacketAttachmentSection,
+} from "@/lib/survey-packet/attachments";
+
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
@@ -57,18 +65,6 @@ type TrainingRow = {
   module_title: string | null;
   is_completed: boolean | null;
   completed_at: string | null;
-};
-
-type ApplicantFileRow = {
-  id: string;
-  applicant_id: string;
-  document_type: string | null;
-  display_name?: string | null;
-  file_name?: string | null;
-  file_path?: string | null;
-  storage_path?: string | null;
-  file_type?: string | null;
-  created_at?: string | null;
 };
 
 type ComplianceEventRow = {
@@ -138,109 +134,6 @@ function getFileExtension(
   if (contentType === "image/png") return "png";
   if (contentType === "image/webp") return "webp";
   return "bin";
-}
-
-function getDocumentLabel(documentType: string | null | undefined) {
-  const normalized = String(documentType || "").toLowerCase().trim();
-  switch (normalized) {
-    case "drivers_license":
-      return "Driver License";
-    case "cpr_card":
-    case "cpr_front":
-      return "CPR Card";
-    case "fingerprint_clearance_card":
-      return "Fingerprint Clearance Card";
-    case "auto_insurance":
-      return "Auto Insurance";
-    case "independent_contractor_insurance":
-      return "Independent Contractor Insurance";
-    case "oig_check":
-      return "OIG Check";
-    case "background_check":
-      return "Background Check";
-    case "tb_upload":
-    case "tb_test":
-      return "TB Upload";
-    default:
-      return "Uploaded Document";
-  }
-}
-
-function normalizePacketUploadType(documentType: string | null | undefined) {
-  const normalized = String(documentType || "").toLowerCase().trim();
-  if (normalized === "tb_test") return "tb_upload";
-  if (normalized === "cpr_front") return "cpr_card";
-  return normalized;
-}
-
-function normalizeCredentialTypeKey(type: string | null | undefined): string {
-  const t = (type || "").toLowerCase().trim();
-  if (t === "cpr" || t === "cpr_card" || t === "cpr_bls" || t === "bls_cpr") {
-    return "cpr";
-  }
-  if (
-    t === "fingerprint_clearance_card" ||
-    t === "fingerprint_card" ||
-    t === "az_fingerprint_clearance_card"
-  ) {
-    return "fingerprint_clearance_card";
-  }
-  if (t === "insurance") {
-    return "independent_contractor_insurance";
-  }
-  return t;
-}
-
-function normalizeDocumentTypeLookupKey(type: string | null | undefined): string {
-  return normalizeCredentialTypeKey(type).replace(/[\s-]+/g, "_");
-}
-
-function getLatestApplicantFile(
-  files: Array<{ document_type?: string | null }>,
-  documentType: string
-) {
-  const targetType = normalizeDocumentTypeLookupKey(documentType);
-  return (
-    files.find(
-      (file) => normalizeDocumentTypeLookupKey(file.document_type) === targetType
-    ) || null
-  );
-}
-
-function getStorageObjectFromPublicUrl(fileUrl?: string | null) {
-  if (!fileUrl) return null;
-  const match = fileUrl.match(/\/storage\/v1\/object\/public\/([^/]+)\/(.+)$/);
-  if (!match?.[1] || !match?.[2]) return null;
-  return {
-    bucket: decodeURIComponent(match[1]),
-    path: decodeURIComponent(match[2]),
-  };
-}
-
-function getSortableTimestamp(value?: string | null) {
-  if (!value) return 0;
-  const time = new Date(value).getTime();
-  return Number.isNaN(time) ? 0 : time;
-}
-
-function getLatestByDocumentType(files: ApplicantFileRow[]) {
-  const latest = new Map<string, ApplicantFileRow>();
-
-  for (const file of files) {
-    const rawType = String(file.document_type || "").toLowerCase().trim();
-    if (!rawType) continue;
-
-    const normalizedType = normalizePacketUploadType(rawType);
-    const existing = latest.get(normalizedType);
-    const fileTs = getSortableTimestamp(file.created_at);
-    const existingTs = getSortableTimestamp(existing?.created_at);
-
-    if (!existing || fileTs >= existingTs) {
-      latest.set(normalizedType, file);
-    }
-  }
-
-  return latest;
 }
 
 async function buildDocumentsArtifactPdf(documentRows: DocumentRow[]) {
@@ -363,6 +256,56 @@ async function buildFormOutputPdf(
   return new Uint8Array(await doc.save());
 }
 
+async function buildComplianceEventsSummaryPdf(
+  rows: ComplianceEventRow[]
+): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  let page = doc.addPage([612, 792]);
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  const margin = 48;
+  let y = 792 - margin;
+
+  const newPage = () => {
+    page = doc.addPage([612, 792]);
+    y = 792 - margin;
+  };
+
+  const draw = (text: string, opts?: { bold?: boolean; size?: number }) => {
+    const size = opts?.size ?? 10;
+    if (y < margin + 40) newPage();
+    page.drawText(text, {
+      x: margin,
+      y,
+      size,
+      font: opts?.bold ? bold : font,
+      color: rgb(0.1, 0.1, 0.15),
+    });
+    y -= size + 8;
+  };
+
+  draw("Compliance events", { bold: true, size: 14 });
+  draw("Summary of admin_compliance_events for this applicant.", { size: 9 });
+  y -= 4;
+
+  if (rows.length === 0) {
+    draw("No compliance event records.");
+  } else {
+    rows.forEach((e, i) => {
+      draw(`${i + 1}. ${e.event_title || e.event_type || "Event"}`, { bold: true, size: 11 });
+      draw(
+        `   Status: ${e.status || "—"}   Due: ${formatDate(e.due_date)}   Completed: ${formatDate(
+          e.completed_at
+        )}`,
+        { size: 9 }
+      );
+      y -= 6;
+    });
+  }
+
+  return new Uint8Array(await doc.save());
+}
+
 export async function GET(req: NextRequest) {
   try {
     const applicantId = req.nextUrl.searchParams.get("applicantId");
@@ -374,7 +317,17 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const [{ data: applicant, error: applicantError }, { data: documents, error: documentsError }, { data: contracts, error: contractsError }, { data: training, error: trainingError }, { data: applicantFiles, error: applicantFilesError }, { data: complianceEvents, error: complianceEventsError }, { data: adminForms, error: adminFormsError }] =
+    const user = await getAuthenticatedUser();
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const staffProfile = await getStaffProfile();
+    if (!isAdminOrHigher(staffProfile)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const [{ data: applicant, error: applicantError }, { data: documents, error: documentsError }, { data: contracts, error: contractsError }, { data: training, error: trainingError }, { data: complianceEvents, error: complianceEventsError }, { data: adminForms, error: adminFormsError }] =
       await Promise.all([
         supabase.from("applicants").select("*").eq("id", applicantId).maybeSingle(),
         supabase
@@ -392,13 +345,6 @@ export async function GET(req: NextRequest) {
           .select("applicant_id, module_key, module_title, is_completed, completed_at")
           .eq("applicant_id", applicantId)
           .order("completed_at", { ascending: true }),
-        supabase
-          .from("applicant_files")
-          .select(
-            "id, applicant_id, document_type, display_name, file_name, file_path, storage_path, file_type, created_at"
-          )
-          .eq("applicant_id", applicantId)
-          .order("created_at", { ascending: true }),
         supabase
           .from("admin_compliance_events")
           .select("id, event_type, event_title, status, due_date, completed_at, created_at")
@@ -442,12 +388,6 @@ export async function GET(req: NextRequest) {
         { status: 500 }
       );
     }
-    if (applicantFilesError) {
-      return NextResponse.json(
-        { error: applicantFilesError.message },
-        { status: 500 }
-      );
-    }
     if (complianceEventsError) {
       return NextResponse.json(
         { error: complianceEventsError.message },
@@ -472,7 +412,6 @@ export async function GET(req: NextRequest) {
     const documentRows = (documents || []) as DocumentRow[];
     const contractRow = (contracts || null) as ContractRow | null;
     const trainingRows = (training || []) as TrainingRow[];
-    const applicantFileRows = (applicantFiles || []) as ApplicantFileRow[];
     const complianceEventRows = (complianceEvents || []) as ComplianceEventRow[];
     const adminFormRows = (adminForms || []) as AdminFormRow[];
 
@@ -483,7 +422,6 @@ export async function GET(req: NextRequest) {
     const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
     const margin = 48;
-    const lineHeight = 16;
     let y = height - margin;
 
     const addPage = () => {
@@ -694,31 +632,23 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    const pdfBytes = await pdfDoc.save();
+    const summaryPdfBytes = new Uint8Array(await pdfDoc.save());
+    const { pdfBytes: mergedSummaryBytes } = await mergeSurveyPacketAttachmentSection(
+      summaryPdfBytes,
+      applicantId
+    );
 
     const safeFirst = (applicantRow.first_name || "applicant").replace(/\s+/g, "-");
     const safeLast = (applicantRow.last_name || "file").replace(/\s+/g, "-");
     const summaryFileName = `00-Summary-${safeFirst}-${safeLast}.pdf`;
 
-    const requiredApplicantFileTypes = new Set([
-      "drivers_license",
-      "cpr_card",
-      "cpr_front",
-      "fingerprint_clearance_card",
-      "auto_insurance",
-      "independent_contractor_insurance",
-      "oig_check",
-      "background_check",
-      "tb_upload",
-    ]);
-
     const zip = new JSZip();
-    zip.file(summaryFileName, pdfBytes);
-    const addedFileNames = new Set<string>();
-    const addZipFile = (preferredName: string, bytes: Uint8Array) => {
+    const addedZipPaths = new Set<string>();
+    const addZipFile = (folder: string, preferredName: string, bytes: Uint8Array) => {
       let name = preferredName;
+      let path = `${folder}/${name}`;
       let counter = 2;
-      while (addedFileNames.has(name)) {
+      while (addedZipPaths.has(path)) {
         const dotIndex = preferredName.lastIndexOf(".");
         if (dotIndex > 0) {
           const base = preferredName.slice(0, dotIndex);
@@ -727,102 +657,59 @@ export async function GET(req: NextRequest) {
         } else {
           name = `${preferredName} (${counter})`;
         }
+        path = `${folder}/${name}`;
         counter += 1;
       }
-      addedFileNames.add(name);
-      zip.file(name, bytes);
+      addedZipPaths.add(path);
+      zip.file(path, bytes);
     };
 
-    const applicantFilesWithUrls = await Promise.all(
-      applicantFileRows.map(async (file) => {
-        const storagePath = file.file_path || file.storage_path;
-        if (!storagePath) {
-          return {
-            ...file,
-            viewUrl: null,
-          };
-        }
-        const { data: signedUrlData } = await supabase.storage
-          .from("applicant-files")
-          .createSignedUrl(storagePath, 60 * 60);
-
-        return {
-          ...file,
-          viewUrl: signedUrlData?.signedUrl || null,
-        };
-      })
-    );
-
-    const documentUploadRecords = await Promise.all(
-      documentRows.map(async (document) => {
-        const storageObject = getStorageObjectFromPublicUrl(document.file_url);
-        let viewUrl = document.file_url || null;
-
-        if (storageObject) {
-          const { data: signedUrlData } = await supabase.storage
-            .from(storageObject.bucket)
-            .createSignedUrl(storageObject.path, 60 * 60);
-
-          if (signedUrlData?.signedUrl) {
-            viewUrl = signedUrlData.signedUrl;
-          } else if (storageObject.bucket !== "applicant-files") {
-            const { data: fallbackSignedUrlData } = await supabase.storage
-              .from("applicant-files")
-              .createSignedUrl(storageObject.path, 60 * 60);
-            viewUrl = fallbackSignedUrlData?.signedUrl || viewUrl;
-          }
-        }
-
-        return {
-          document_type: document.document_type,
-          display_name:
-            document.document_type === "tb_test"
-              ? "TB Test Upload"
-              : document.document_type === "fingerprint_clearance_card"
-                ? "AZ Fingerprint Clearance Card"
-                : document.document_type === "drivers_license"
-                  ? "Driver's License"
-                  : null,
-          file_name: null,
-          created_at: document.created_at,
-          viewUrl,
-        };
-      })
-    );
-
-    const adminUploadRecords = [
-      ...applicantFilesWithUrls.map((file) => ({
-        document_type: file.document_type,
-        display_name: file.display_name,
-        file_name: file.file_name,
-        created_at: file.created_at,
-        viewUrl: file.viewUrl,
-      })),
-      ...documentUploadRecords,
-    ];
-    const latestTbTestProof = getLatestApplicantFile(adminUploadRecords, "tb_test") as
-      | (typeof adminUploadRecords)[number]
-      | null;
-    const latestCprProof = getLatestApplicantFile(adminUploadRecords, "cpr_front") as
-      | (typeof adminUploadRecords)[number]
-      | null;
+    addZipFile("01-generated-forms", summaryFileName, mergedSummaryBytes);
 
     const origin = req.nextUrl.origin;
     const forwardCookie = req.headers.get("cookie") || "";
-    const generatedPdfArtifacts = [
-      { label: "Application", path: `/admin/employees/${applicantId}/employee-file?document=application` },
+
+    type GeneratedZipEntry = {
+      label: string;
+      path: string;
+      folder: string;
+    };
+
+    const generatedPdfArtifacts: GeneratedZipEntry[] = [
+      {
+        label: "Application",
+        path: `/admin/employees/${applicantId}/employee-file?document=application`,
+        folder: "01-generated-forms",
+      },
       {
         label: "Employment Contract",
         path: `/admin/employees/${applicantId}/employee-file?document=employment_contract`,
+        folder: "05-contracts-tax",
       },
-      { label: "Tax Form", path: `/admin/employees/${applicantId}/employee-file?document=tax` },
+      {
+        label: "Tax Form",
+        path: `/admin/employees/${applicantId}/employee-file?document=tax`,
+        folder: "05-contracts-tax",
+      },
       {
         label: "Training Certificate",
         path: `/admin/employees/${applicantId}/employee-file?document=training`,
+        folder: "04-training",
       },
-    ] as const;
+    ];
 
-    let generatedIndex = 1;
+    const nextIndex = (folder: string) => {
+      const prefix = `${folder}/`;
+      let max = 0;
+      for (const p of addedZipPaths) {
+        if (!p.startsWith(prefix)) continue;
+        const rest = p.slice(prefix.length);
+        const m = /^(\d{2})-/.exec(rest);
+        if (m) max = Math.max(max, parseInt(m[1], 10));
+      }
+      return String(max + 1).padStart(2, "0");
+    };
+
     for (const artifact of generatedPdfArtifacts) {
       const response = await fetch(`${origin}${artifact.path}`, {
         method: "GET",
@@ -837,14 +724,21 @@ export async function GET(req: NextRequest) {
       if (!contentType.toLowerCase().includes("application/pdf")) continue;
 
       const bytes = new Uint8Array(await response.arrayBuffer());
-      addZipFile(`${String(generatedIndex).padStart(2, "0")}-${artifact.label}.pdf`, bytes);
-      generatedIndex += 1;
+      const idx = nextIndex(artifact.folder);
+      addZipFile(
+        artifact.folder,
+        `${idx}-${artifact.label.replace(/\s+/g, "-")}.pdf`,
+        bytes
+      );
     }
 
     if (documentRows.length > 0) {
       const documentsPdf = await buildDocumentsArtifactPdf(documentRows);
-      addZipFile(`${String(generatedIndex).padStart(2, "0")}-Documents.pdf`, documentsPdf);
-      generatedIndex += 1;
+      addZipFile(
+        "01-generated-forms",
+        `${nextIndex("01-generated-forms")}-Documents-Artifact.pdf`,
+        documentsPdf
+      );
     }
 
     const finalizedSkillsForm =
@@ -868,8 +762,11 @@ export async function GET(req: NextRequest) {
           { label: "Updated At", value: finalizedSkillsForm.updated_at },
         ]
       );
-      addZipFile(`${String(generatedIndex).padStart(2, "0")}-Skills Competency.pdf`, skillsPdf);
-      generatedIndex += 1;
+      addZipFile(
+        "01-generated-forms",
+        `${nextIndex("01-generated-forms")}-Skills-Competency.pdf`,
+        skillsPdf
+      );
     }
 
     const finalizedPerformanceForm =
@@ -894,89 +791,33 @@ export async function GET(req: NextRequest) {
         ]
       );
       addZipFile(
-        `${String(generatedIndex).padStart(2, "0")}-Performance Evaluation.pdf`,
+        "01-generated-forms",
+        `${nextIndex("01-generated-forms")}-Performance-Evaluation.pdf`,
         performancePdf
       );
-      generatedIndex += 1;
     }
 
-    const latestByType = getLatestByDocumentType(
-      applicantFileRows.filter((file) =>
-        requiredApplicantFileTypes.has(normalizePacketUploadType(file.document_type))
-      )
+    const complianceSummaryPdf = await buildComplianceEventsSummaryPdf(complianceEventRows);
+    addZipFile(
+      "03-compliance-events",
+      `${nextIndex("03-compliance-events")}-Compliance-Events-Summary.pdf`,
+      complianceSummaryPdf
     );
-    const orderedUploadTypes = [
-      "drivers_license",
-      "cpr_card",
-      "fingerprint_clearance_card",
-      "auto_insurance",
-      "independent_contractor_insurance",
-      "oig_check",
-      "background_check",
-      "tb_upload",
-    ] as const;
-    const addedUploadTypes = new Set<string>();
 
-    for (const typeKey of orderedUploadTypes) {
-      const file = latestByType.get(typeKey);
-      if (!file) continue;
-
-      const storagePath = file.file_path || file.storage_path;
-      if (!storagePath) continue;
-
-      const { data: downloaded, error: downloadError } = await supabase.storage
-        .from("applicant-files")
-        .download(storagePath);
-      if (downloadError || !downloaded) continue;
-
-      const extension = getFileExtension(
-        file.file_name || file.display_name || null,
-        storagePath,
-        file.file_type || null
+    const attachmentCandidates = await collectSurveyPacketAttachmentCandidates(applicantId);
+    let uploadSeq = 1;
+    for (const c of attachmentCandidates) {
+      const bytes = await downloadAttachmentBytesForZip(c);
+      if (!bytes?.length) continue;
+      const ext = getFileExtension(c.fileNameGuess, c.storagePath, c.mimeHint);
+      const safeBase = sanitizeFileName(
+        `${String(uploadSeq).padStart(2, "0")}-${c.label}-${c.typeLabel}`.replace(
+          /\s+/g,
+          "-"
+        )
       );
-      const label = getDocumentLabel(typeKey);
-      const baseName = sanitizeFileName(label);
-      const fileName = `${String(generatedIndex).padStart(2, "0")}-${baseName}.${extension}`;
-      const fileBytes = new Uint8Array(await downloaded.arrayBuffer());
-      addZipFile(fileName, fileBytes);
-      addedUploadTypes.add(typeKey);
-      generatedIndex += 1;
-    }
-
-    if (!addedUploadTypes.has("tb_upload") && latestTbTestProof?.viewUrl) {
-      const tbFetch = await fetch(latestTbTestProof.viewUrl, { cache: "no-store" }).catch(
-        () => null
-      );
-      if (tbFetch?.ok) {
-        const contentType = tbFetch.headers.get("content-type");
-        const extension = getFileExtension(
-          latestTbTestProof.file_name || latestTbTestProof.display_name || null,
-          latestTbTestProof.viewUrl,
-          contentType
-        );
-        const tbBytes = new Uint8Array(await tbFetch.arrayBuffer());
-        addZipFile(`${String(generatedIndex).padStart(2, "0")}-TB Upload.${extension}`, tbBytes);
-        addedUploadTypes.add("tb_upload");
-        generatedIndex += 1;
-      }
-    }
-
-    if (!addedUploadTypes.has("cpr_card") && latestCprProof?.viewUrl) {
-      const cprFetch = await fetch(latestCprProof.viewUrl, { cache: "no-store" }).catch(
-        () => null
-      );
-      if (cprFetch?.ok) {
-        const contentType = cprFetch.headers.get("content-type");
-        const extension = getFileExtension(
-          latestCprProof.file_name || latestCprProof.display_name || null,
-          latestCprProof.viewUrl,
-          contentType
-        );
-        const cprBytes = new Uint8Array(await cprFetch.arrayBuffer());
-        addZipFile(`${String(generatedIndex).padStart(2, "0")}-CPR Card.${extension}`, cprBytes);
-        addedUploadTypes.add("cpr_card");
-        generatedIndex += 1;
-      }
+      addZipFile("02-uploaded-credentials", `${safeBase}.${ext}`, bytes);
+      uploadSeq += 1;
     }
 
     const zipBytes = await zip.generateAsync({ type: "uint8array" });

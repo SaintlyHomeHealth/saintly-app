@@ -32,7 +32,6 @@ export default function OnboardingCompletePage() {
     step5: false,
   });
   const [debugMessage, setDebugMessage] = useState("");
-  const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
   const [isCreatingComplianceEvents, setIsCreatingComplianceEvents] =
     useState(false);
 
@@ -262,39 +261,6 @@ export default function OnboardingCompletePage() {
     createComplianceEvents();
   }, [applicantId, overallComplete, loading, isCreatingComplianceEvents]);
 
-  const handleDownloadPdf = async () => {
-    if (!applicantId) return;
-
-    setIsDownloadingPdf(true);
-
-    try {
-      const response = await fetch(
-        `/api/generate-onboarding-pdf?applicantId=${encodeURIComponent(applicantId)}`
-      );
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(errorText || "Failed to generate PDF");
-      }
-
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `saintly-onboarding-${applicantId}.pdf`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
-    } catch (error) {
-      console.error(error);
-      alert("PDF generation failed. Check the server terminal for details.");
-    } finally {
-      setIsDownloadingPdf(false);
-    }
-  };
-
   if (loading) {
     return (
       <main className="min-h-screen bg-slate-50 text-slate-900">
@@ -522,17 +488,11 @@ export default function OnboardingCompletePage() {
                   <p className="mt-3 text-base leading-7 text-teal-700">
                     All required steps have been completed successfully.
                   </p>
-
-                  <button
-                    type="button"
-                    onClick={handleDownloadPdf}
-                    disabled={isDownloadingPdf}
-                    className="mt-6 inline-flex items-center justify-center rounded-full bg-teal-700 px-6 py-4 text-sm font-bold uppercase tracking-[0.12em] text-white shadow-[0_16px_36px_rgba(15,118,110,0.28)] transition hover:bg-teal-600 disabled:cursor-not-allowed disabled:opacity-70"
-                  >
-                    {isDownloadingPdf
-                      ? "Generating PDF..."
-                      : "Download Onboarding PDF"}
-                  </button>
+                  <p className="mt-4 text-sm leading-6 text-teal-800/90">
+                    Your complete onboarding packet (summary PDF with uploaded credentials and the
+                    source ZIP) is available from the admin team in the employee record. That
+                    download is restricted to Saintly staff for privacy and security.
+                  </p>
                 </div>
               ) : (
                 <div className="rounded-[24px] border border-amber-200 bg-amber-50 p-8 text-center shadow-sm">
