@@ -149,6 +149,34 @@ export function normalizePersonnelFileDocumentKey(type: string | null | undefine
   ) {
     return "fingerprint_clearance_card";
   }
+  /** Clinical professional licenses (PT, OT, RN, ST, MSW, etc.) — match upload keys like OIG aliases. */
+  if (
+    t === "professional_license" ||
+    t === "professionallicense" ||
+    t === "professional_license_card" ||
+    t === "professional_licensure" ||
+    t === "license" ||
+    t === "licensure" ||
+    t === "state_license" ||
+    t === "clinical_license" ||
+    t === "clinician_license" ||
+    t === "practitioner_license" ||
+    t === "therapy_license" ||
+    t === "pt_license" ||
+    t === "pta_license" ||
+    t === "ot_license" ||
+    t === "ota_license" ||
+    t === "rn_license" ||
+    t === "lpn_license" ||
+    t === "lvn_license" ||
+    t === "np_license" ||
+    t === "aprn_license" ||
+    t === "slp_license" ||
+    t === "speech_license" ||
+    t === "msw_license"
+  ) {
+    return "professional_license";
+  }
   if (t === "tb_test" || t === "tb" || t === "tb_documentation" || t === "tb_doc") {
     return "tb_test";
   }

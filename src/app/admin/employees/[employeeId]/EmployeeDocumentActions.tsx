@@ -192,12 +192,6 @@ export default function EmployeeDocumentActions({
             prefetch={false}
             className={actionClass}
             onClick={(e) => {
-              console.log("[EmployeeDocumentActions] Open clicked", {
-                employeeId,
-                uploadLabel,
-                documentType,
-                workflowOpenHref,
-              });
               e.preventDefault();
               router.push(workflowOpenHref);
             }}

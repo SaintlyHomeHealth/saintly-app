@@ -1046,9 +1046,15 @@ export default async function EmployeeDetailPage({
         .select("document_type")
         .eq("applicant_id", employeeId);
 
-      const activationUploadKeys = buildPersonnelFileDocumentKeySet(
-        (activationApplicantFiles || []).map((f) => String(f.document_type || ""))
-      );
+      const { data: activationDocuments } = await supabaseAdmin
+        .from("documents")
+        .select("document_type")
+        .eq("applicant_id", employeeId);
+
+      const activationUploadKeys = buildPersonnelFileDocumentKeySet([
+        ...(activationApplicantFiles || []).map((f) => String(f.document_type || "")),
+        ...(activationDocuments || []).map((d) => String((d as { document_type?: string | null }).document_type || "")),
+      ]);
 
       const activationSalesLight = isSalesAgentComplianceBand(
         mergeApplicantRoleHints(buildApplicantRoleFieldsFromRecord(employeeStatusRecord))
@@ -1075,6 +1081,12 @@ export default async function EmployeeDetailPage({
         if (
           credentialType === "fingerprint_clearance_card" &&
           activationUploadKeys.has("fingerprint_clearance_card")
+        ) {
+          return false;
+        }
+        if (
+          credentialType === "professional_license" &&
+          activationUploadKeys.has("professional_license")
         ) {
           return false;
         }
@@ -2132,6 +2144,12 @@ export default async function EmployeeDetailPage({
     if (
       credentialType === "fingerprint_clearance_card" &&
       hasFingerprintUpload
+    ) {
+      return false;
+    }
+    if (
+      credentialType === "professional_license" &&
+      (uploadedDocumentTypes.has("professional_license") || !!latestProfessionalLicenseProof)
     ) {
       return false;
     }

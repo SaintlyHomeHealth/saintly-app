@@ -238,7 +238,6 @@ export function getRequiredCredentialTypesForApplicant(
     requiredTypes.push(
       "professional_license",
       "cpr",
-      "tb_expiration",
       "drivers_license",
       "auto_insurance",
       "fingerprint_clearance_card"
@@ -248,7 +247,6 @@ export function getRequiredCredentialTypesForApplicant(
   if (isCaregiverFamilyRole(merged)) {
     requiredTypes.push(
       "cpr",
-      "tb_expiration",
       "drivers_license",
       "auto_insurance",
       "fingerprint_clearance_card"
@@ -338,7 +336,9 @@ function directoryApplicantHasCredentialRow(
     return true;
   }
   if (credentialType === "auto_insurance" && personnelDocKeys.has("auto_insurance")) return true;
-  if (credentialType === "tb_expiration" && personnelDocKeys.has("tb_test")) return true;
+  if (credentialType === "professional_license" && personnelDocKeys.has("professional_license")) {
+    return true;
+  }
   if (
     credentialType === "independent_contractor_insurance" &&
     personnelDocKeys.has("independent_contractor_insurance")
