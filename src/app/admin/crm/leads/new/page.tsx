@@ -1,8 +1,8 @@
 import { redirect } from "next/navigation";
 
 import { LeadWorkspace } from "../lead-workspace";
+import { loadAssignableLeadOwners } from "@/lib/crm/assignable-lead-owners";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
-import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 export default async function AdminCrmLeadNewPage({
   searchParams,
@@ -18,18 +18,7 @@ export default async function AdminCrmLeadNewPage({
   const manualErr = typeof params.manualError === "string" ? params.manualError.trim() : "";
   const fbclid = typeof params.fbclid === "string" ? params.fbclid.trim() : "";
 
-  const supabase = await createServerSupabaseClient();
-  const { data: staffRows } = await supabase
-    .from("staff_profiles")
-    .select("user_id, email, role, full_name")
-    .order("email", { ascending: true });
-
-  const staffOptions = (staffRows ?? []) as {
-    user_id: string;
-    email: string | null;
-    role: string;
-    full_name: string | null;
-  }[];
+  const staffOptions = await loadAssignableLeadOwners();
 
   return (
     <LeadWorkspace mode="new" createErrorCode={manualErr} staffOptions={staffOptions} initialFbclid={fbclid} />

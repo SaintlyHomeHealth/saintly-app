@@ -24,6 +24,7 @@ import {
 import { pickOutboundE164ForDial } from "@/lib/workspace-phone/launch-urls";
 import { buildCrmCommunicationTimelineModel } from "@/lib/crm/build-crm-communication-timeline-model";
 import { resolveLeadCrmStage } from "@/lib/crm/crm-stage";
+import { loadAssignableLeadOwners } from "@/lib/crm/assignable-lead-owners";
 
 function isNextControlFlowError(error: unknown): boolean {
   const digest = error && typeof error === "object" && "digest" in error ? String(error.digest) : "";
@@ -212,24 +213,6 @@ export default async function LeadIntakePage({
     notFound();
   }
 
-    const { data: staffRows } = routePerfStepsEnabled()
-      ? await routePerfTimed("admin_crm_lead_detail.staff_options", () =>
-          supabase
-            .from("staff_profiles")
-            .select("user_id, email, full_name")
-            .order("email", { ascending: true })
-        )
-      : await supabase
-          .from("staff_profiles")
-          .select("user_id, email, full_name")
-          .order("email", { ascending: true });
-
-  const staffOptions = (staffRows ?? []) as {
-    user_id: string;
-    email: string | null;
-    full_name: string | null;
-  }[];
-
   const cr = row.contacts as ContactEmb | ContactEmb[] | null;
   const c = Array.isArray(cr) ? cr[0] : cr;
 
@@ -259,6 +242,13 @@ export default async function LeadIntakePage({
 
   const ownerUid =
     typeof L.owner_user_id === "string" && L.owner_user_id.trim() ? L.owner_user_id.trim() : "";
+
+  const staffOptions = routePerfStepsEnabled()
+    ? await routePerfTimed("admin_crm_lead_detail.staff_options", () =>
+        loadAssignableLeadOwners({ preserveUserIds: ownerUid ? [ownerUid] : [] })
+      )
+    : await loadAssignableLeadOwners({ preserveUserIds: ownerUid ? [ownerUid] : [] });
+
   const nextActionVal = typeof L.next_action === "string" && L.next_action.trim() ? L.next_action.trim() : "";
   const followUpRaw = L.follow_up_date;
   const followUpIso =
