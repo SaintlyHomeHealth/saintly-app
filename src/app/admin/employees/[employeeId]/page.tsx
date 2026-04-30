@@ -2642,8 +2642,10 @@ export default async function EmployeeDetailPage({
     tbRiskPdfHref,
     skillsPrintHref,
     skillsCanPrint: skillsPrintMeta.canPrint,
+    skillsCompetencyAdminHref: skillsHref,
     performancePrintHref,
     performanceCanPrint: performancePrintMeta.canPrint,
+    performanceEvaluationAdminHref: performanceHref,
     latestResumeViewUrl:
       (latestResumeProof as AdminUploadRecord | null)?.viewUrl ??
       (typeof (employee as Record<string, unknown>).resume_url === "string"

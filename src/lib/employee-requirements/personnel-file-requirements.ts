@@ -260,8 +260,12 @@ export type BuildPersonnelFileAuditArgs = {
   tbRiskPdfHref: string | null;
   skillsPrintHref: string;
   skillsCanPrint: boolean;
+  /** Direct admin link to the Skills Competency form (include `eventId` when an active event exists). */
+  skillsCompetencyAdminHref: string;
   performancePrintHref: string;
   performanceCanPrint: boolean;
+  /** Direct admin link to the Performance Evaluation form (include `eventId` when an active event exists). */
+  performanceEvaluationAdminHref: string;
   latestResumeViewUrl: string | null;
   latestCprViewUrl: string | null;
   latestDriversLicenseViewUrl: string | null;
@@ -331,8 +335,10 @@ export function buildPersonnelFileAuditRows(input: BuildPersonnelFileAuditArgs):
     tbRiskPdfHref,
     skillsPrintHref,
     skillsCanPrint,
+    skillsCompetencyAdminHref,
     performancePrintHref,
     performanceCanPrint,
+    performanceEvaluationAdminHref,
     latestResumeViewUrl,
     latestCprViewUrl,
     latestDriversLicenseViewUrl,
@@ -435,7 +441,7 @@ export function buildPersonnelFileAuditRows(input: BuildPersonnelFileAuditArgs):
       itemType: "summary",
       status,
       statusTone: tone,
-      openHref: getAdminWorkAreaUrl("skills"),
+      openHref: skillsCompetencyAdminHref,
       viewHref:
         isSkillsComplete && skillsCanPrint ? skillsPrintHref : null,
       downloadHref: isSkillsComplete && skillsCanPrint ? skillsPrintHref : null,
@@ -450,7 +456,7 @@ export function buildPersonnelFileAuditRows(input: BuildPersonnelFileAuditArgs):
       itemType: "summary",
       status,
       statusTone: tone,
-      openHref: getAdminWorkAreaUrl("performance"),
+      openHref: performanceEvaluationAdminHref,
       viewHref:
         isPerformanceComplete && performanceCanPrint ? performancePrintHref : null,
       downloadHref: isPerformanceComplete && performanceCanPrint ? performancePrintHref : null,

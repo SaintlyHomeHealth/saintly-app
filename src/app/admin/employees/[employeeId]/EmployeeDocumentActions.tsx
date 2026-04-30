@@ -186,7 +186,18 @@ export default function EmployeeDocumentActions({
     <>
       <div className="flex flex-wrap justify-end gap-x-3 gap-y-1">
         {workflowOpenHref ? (
-          <a href={workflowOpenHref} className={actionClass}>
+          <a
+            href={workflowOpenHref}
+            className={actionClass}
+            onClick={() => {
+              console.log("[EmployeeDocumentActions] Open clicked", {
+                employeeId,
+                uploadLabel,
+                documentType,
+                workflowOpenHref,
+              });
+            }}
+          >
             Open
           </a>
         ) : null}
