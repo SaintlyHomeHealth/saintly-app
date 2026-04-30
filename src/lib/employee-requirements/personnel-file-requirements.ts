@@ -209,6 +209,8 @@ export type PersonnelFileAuditRow = {
   viewHref: string | null;
   downloadHref?: string | null;
   viewExternal?: boolean;
+  /** When set, used as `documentType` for admin applicant uploads instead of the row label. */
+  applicantUploadDocumentType?: string;
 };
 
 export type BuildPersonnelFileAuditArgs = {
@@ -587,6 +589,7 @@ export function buildPersonnelFileAuditRows(input: BuildPersonnelFileAuditArgs):
       viewHref: isOigComplete && latestOigViewUrl ? latestOigViewUrl : null,
       downloadHref: isOigComplete && latestOigViewUrl ? latestOigViewUrl : null,
       viewExternal: true,
+      applicantUploadDocumentType: "oig",
     });
   }
 
@@ -603,6 +606,7 @@ export function buildPersonnelFileAuditRows(input: BuildPersonnelFileAuditArgs):
       downloadHref:
         hasBackgroundCheck && latestBackgroundCheckViewUrl ? latestBackgroundCheckViewUrl : null,
       viewExternal: true,
+      applicantUploadDocumentType: "background_check",
     });
   }
 

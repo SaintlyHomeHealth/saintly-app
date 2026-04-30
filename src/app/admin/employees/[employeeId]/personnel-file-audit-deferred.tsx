@@ -18,7 +18,14 @@ function getBadgeForTone(tone: PersonnelFileAuditRow["statusTone"]) {
   }
 }
 
-const AuditItem = memo(function AuditItem({ item }: { item: PersonnelFileAuditRow }) {
+const AuditItem = memo(function AuditItem({
+  item,
+  applicantId,
+}: {
+  item: PersonnelFileAuditRow;
+  applicantId: string;
+}) {
+  const uploadDocType = item.applicantUploadDocumentType ?? item.label;
   return (
     <tr className="border-b border-slate-100 last:border-0">
       <td className="py-2 pr-3 text-sm font-medium text-slate-900">{item.label}</td>
@@ -33,10 +40,10 @@ const AuditItem = memo(function AuditItem({ item }: { item: PersonnelFileAuditRo
       </td>
       <td className="py-2 text-right">
         <EmployeeDocumentActions
-          employeeId=""
+          employeeId={applicantId}
           itemType={item.itemType === "summary" ? "form" : item.itemType}
           uploadLabel={item.label}
-          documentType={item.label}
+          documentType={uploadDocType}
           workflowOpenHref={item.openHref}
           portalHref={item.portalHref}
           viewUrl={item.viewHref}
@@ -49,6 +56,7 @@ const AuditItem = memo(function AuditItem({ item }: { item: PersonnelFileAuditRo
 });
 
 type Props = {
+  applicantId: string;
   items: PersonnelFileAuditRow[];
   surveyReadyBadge: "green" | "red";
 };
@@ -56,7 +64,7 @@ type Props = {
 /**
  * Client-only to defer JS for the full audit grid (many rows) until after the shell paints.
  */
-function PersonnelFileAuditDeferredInner({ items, surveyReadyBadge }: Props) {
+function PersonnelFileAuditDeferredInner({ applicantId, items, surveyReadyBadge }: Props) {
   return (
     <div className="mt-4 rounded-lg border border-slate-200 bg-white p-3">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -85,7 +93,7 @@ function PersonnelFileAuditDeferredInner({ items, surveyReadyBadge }: Props) {
             </tr>
           </thead>
           <tbody>{items.map((item) => (
-            <AuditItem key={item.label} item={item} />
+            <AuditItem key={item.label} item={item} applicantId={applicantId} />
           ))}</tbody>
         </table>
       </div>

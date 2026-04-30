@@ -1906,6 +1906,10 @@ export default async function EmployeeDetailPage({
     adminUploadRecords,
     "fingerprint_clearance_card"
   );
+  const latestProfessionalLicenseProof = getLatestApplicantUploadByCanonicalType(
+    adminUploadRecords,
+    "professional_license"
+  );
 
   const uploadedDocumentTypes = buildPersonnelFileDocumentKeySet([
     ...(documentsRows || []).map((document) =>
@@ -1931,7 +1935,7 @@ export default async function EmployeeDetailPage({
 
   const oigProofHistory = adminUploadRecords
     .filter(
-      (file) => (file.document_type || "").toLowerCase().trim() === "oig_check"
+      (file) => normalizePersonnelFileDocumentKey(file.document_type) === "oig_check"
     )
     .slice()
     .sort(
@@ -1941,7 +1945,7 @@ export default async function EmployeeDetailPage({
   const backgroundCheckHistory = adminUploadRecords
     .filter(
       (file) =>
-        (file.document_type || "").toLowerCase().trim() === "background_check"
+        normalizePersonnelFileDocumentKey(file.document_type) === "background_check"
     )
     .slice()
     .sort(
@@ -1973,6 +1977,18 @@ export default async function EmployeeDetailPage({
     );
 
   const oigProofHistoryPreview = oigProofHistory.slice(0, 2);
+  const professionalLicenseHistory = adminUploadRecords
+    .filter(
+      (file) =>
+        normalizePersonnelFileDocumentKey(file.document_type) === "professional_license"
+    )
+    .slice()
+    .sort(
+      (a, b) =>
+        new Date(b.created_at || 0).getTime() -
+        new Date(a.created_at || 0).getTime()
+    );
+
   const backgroundCheckHistoryPreview = backgroundCheckHistory.slice(0, 2);
   const fingerprintCardHistoryPreview = fingerprintCardHistory.slice(0, 2);
   const tbTestHistoryPreview = tbTestHistory.slice(0, 2);
@@ -2632,6 +2648,7 @@ export default async function EmployeeDetailPage({
   const hasInitialSocialSecurityCardUpload = hasSocialSecurityCard;
   const hasInitialAutoInsuranceUpload = Boolean(latestAutoInsuranceProofNormalized);
   const hasInitialIndependentContractorInsuranceUpload = hasIndependentContractorInsurance;
+  const hasInitialProfessionalLicenseUpload = Boolean(latestProfessionalLicenseProof);
 
   const driversLicenseHistory = adminUploadRecords
     .filter((file) => (file.document_type || "").toLowerCase().trim() === "drivers_license")
@@ -2842,8 +2859,8 @@ export default async function EmployeeDetailPage({
       lastUpdatedDisplay: latestOigProof?.created_at ? formatDateTime(latestOigProof.created_at) : "—",
       viewUrl: (latestOigProof as AdminUploadRecord | null)?.viewUrl ?? null,
       downloadUrl: getInternalDocumentDownloadHref(latestOigProof as AdminUploadRecord | null),
-      documentType: "oig_check",
-      uploadLabel: "OIG Check Proof",
+      documentType: "oig",
+      uploadLabel: "OIG exclusion proof",
       completeComplianceEventId: oigEvent?.id,
       anchorId: "oig-proof-section",
       history: buildAdminUploadHistoryDisplay(oigProofHistory),
@@ -2865,12 +2882,33 @@ export default async function EmployeeDetailPage({
         latestBackgroundCheckProof as AdminUploadRecord | null
       ),
       documentType: "background_check",
-      uploadLabel: "Background Check",
+      uploadLabel: "Background check",
       anchorId: "background-section",
       history: buildAdminUploadHistoryDisplay(backgroundCheckHistory),
       workflowOpenHref: getAdminWorkAreaUrl("documents"),
       fileRecordId: (latestBackgroundCheckProof as AdminUploadRecord | null)?.id ?? null,
       fileRecordSource: (latestBackgroundCheckProof as AdminUploadRecord | null)?.source ?? null,
+    },
+    {
+      key: "professional-license",
+      itemType: "document",
+      label: "Professional License",
+      statusLabel: hasInitialProfessionalLicenseUpload ? "Complete" : "Missing",
+      statusTone: hasInitialProfessionalLicenseUpload ? "green" : "red",
+      lastUpdatedDisplay: latestProfessionalLicenseProof?.created_at
+        ? formatDateTime(latestProfessionalLicenseProof.created_at)
+        : "—",
+      viewUrl: (latestProfessionalLicenseProof as AdminUploadRecord | null)?.viewUrl ?? null,
+      downloadUrl: getInternalDocumentDownloadHref(
+        latestProfessionalLicenseProof as AdminUploadRecord | null
+      ),
+      documentType: "professional_license",
+      uploadLabel: "Professional License",
+      anchorId: "professional-license-section",
+      history: buildAdminUploadHistoryDisplay(professionalLicenseHistory),
+      workflowOpenHref: getAdminWorkAreaUrl("documents"),
+      fileRecordId: (latestProfessionalLicenseProof as AdminUploadRecord | null)?.id ?? null,
+      fileRecordSource: (latestProfessionalLicenseProof as AdminUploadRecord | null)?.source ?? null,
     },
     {
       key: "drivers-license-initial",
@@ -3548,6 +3586,7 @@ export default async function EmployeeDetailPage({
 
         <div className="mt-4">
           <PersonnelFileAuditDeferred
+            applicantId={employeeId}
             items={personnelFileAuditForDeferred}
             surveyReadyBadge={isSurveyReady ? "green" : "red"}
           />
