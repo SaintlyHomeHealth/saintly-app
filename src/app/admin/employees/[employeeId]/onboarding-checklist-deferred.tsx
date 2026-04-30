@@ -68,7 +68,7 @@ function OnboardingChecklistDeferredInner({ snapshot }: Props) {
 
   const showAllFiltered = chips.has("all") || chips.size === 0;
 
-  const steps = snapshot.steps;
+  const steps = snapshot.steps.filter((s) => s.key !== "file_performance");
   const visibleSteps = useMemo(() => {
     return steps.filter((s) => {
       if (hideComplete && s.status === "complete") return false;

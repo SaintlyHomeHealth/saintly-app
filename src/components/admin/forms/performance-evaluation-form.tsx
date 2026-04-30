@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { applicantRolePrimaryForCompliance } from "@/lib/applicant-role-for-compliance";
 import { supabase } from "@/lib/supabase";
@@ -95,6 +96,7 @@ export default function PerformanceEvaluationForm({
   complianceEventId,
   startNewVersion = false,
 }: Props) {
+  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -301,14 +303,28 @@ export default function PerformanceEvaluationForm({
     };
 
     try {
-      const { data, error } = await supabase
-        .from("employee_admin_forms")
-        .insert(payload)
-        .select("id")
-        .single();
+      if (recordId) {
+        const { error } = await supabase
+          .from("employee_admin_forms")
+          .update({
+            status: nextStatus,
+            finalized_at: nextStatus === "finalized" ? new Date().toISOString() : null,
+            form_data: form,
+            form_title: "Performance Evaluation",
+            form_type: "performance_evaluation",
+          })
+          .eq("id", recordId);
+        if (error) throw error;
+      } else {
+        const { data, error } = await supabase
+          .from("employee_admin_forms")
+          .insert(payload)
+          .select("id")
+          .single();
 
-      if (error) throw error;
-      setRecordId(data.id);
+        if (error) throw error;
+        setRecordId(data.id);
+      }
 
       if (nextStatus === "finalized" && complianceEventId) {
         await supabase
@@ -322,6 +338,7 @@ export default function PerformanceEvaluationForm({
 
       setStatus(nextStatus);
       await loadFormHistory();
+      router.refresh();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to save form.");
     } finally {

@@ -154,6 +154,10 @@ export type BuildUnifiedOnboardingStateInput = {
    * SINGLE SOURCE with `buildPersonnelFileAuditRows` + personnel requirements.
    */
   getAdminWorkAreaUrl: (tab: EmployeeDetailWorkAreaTab) => string;
+  /** Direct link to admin Skills Competency form (short path under /skills-competency). */
+  skillsCompetencyAdminHref: string;
+  /** Direct link to admin Performance Evaluation form (short path under /performance-evaluation). */
+  performanceEvaluationAdminHref: string;
 };
 
 export function buildUnifiedOnboardingState(
@@ -189,6 +193,8 @@ export function buildUnifiedOnboardingState(
     treatPipelineDocumentsAsCompleteForProgress,
     treatPipelineTrainingAsCompleteForProgress,
     getAdminWorkAreaUrl,
+    skillsCompetencyAdminHref,
+    performanceEvaluationAdminHref,
   } = input;
 
   const salesLight = salesAgentLightCompliance === true;
@@ -407,7 +413,7 @@ export function buildUnifiedOnboardingState(
       whyBlocking:
         salesLight || isSkillsComplete ? null : "Survey readiness requires skills competency for the active event.",
       employeeViewHref: null,
-      adminViewHref: getAdminWorkAreaUrl("skills"),
+      adminViewHref: skillsCompetencyAdminHref,
       raw: { skillsOk: isSkillsComplete, draft: skillsFormIsDraft, salesLight },
     });
   }
@@ -430,7 +436,7 @@ export function buildUnifiedOnboardingState(
         "Performance evaluation is tracked under Compliance & ongoing programs, not initial onboarding.",
       whyBlocking: null,
       employeeViewHref: null,
-      adminViewHref: getAdminWorkAreaUrl("performance"),
+      adminViewHref: performanceEvaluationAdminHref,
       raw: { performanceOk: isPerformanceComplete, salesLight, initialOnboardingStep: false },
     });
   }

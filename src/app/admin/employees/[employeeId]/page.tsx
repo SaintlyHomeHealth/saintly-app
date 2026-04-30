@@ -1819,12 +1819,12 @@ export default async function EmployeeDetailPage({
   );
 
   const skillsHref = skillsEvent?.id
-    ? `/admin/employees/${employeeId}/forms/skills-competency?eventId=${skillsEvent.id}`
-    : `/admin/employees/${employeeId}/forms/skills-competency`;
+    ? `/admin/employees/${employeeId}/skills-competency?eventId=${skillsEvent.id}`
+    : `/admin/employees/${employeeId}/skills-competency`;
 
   const performanceHref = performanceEvent?.id
-    ? `/admin/employees/${employeeId}/forms/performance-evaluation?eventId=${performanceEvent.id}`
-    : `/admin/employees/${employeeId}/forms/performance-evaluation`;
+    ? `/admin/employees/${employeeId}/performance-evaluation?eventId=${performanceEvent.id}`
+    : `/admin/employees/${employeeId}/performance-evaluation`;
 
   const skillsPrintHref = skillsEvent?.id
     ? `/admin/employees/${employeeId}/forms/skills-competency/print?eventId=${skillsEvent.id}`
@@ -2416,6 +2416,8 @@ export default async function EmployeeDetailPage({
     salesAgentLightCompliance: salesAgentLight,
     treatPipelineDocumentsAsCompleteForProgress: salesAgentLight,
     treatPipelineTrainingAsCompleteForProgress: salesAgentLight,
+    skillsCompetencyAdminHref: skillsHref,
+    performanceEvaluationAdminHref: performanceHref,
     getAdminWorkAreaUrl,
   });
 
@@ -2437,7 +2439,7 @@ export default async function EmployeeDetailPage({
         skillsProgress.total > 0
           ? `${skillsProgress.percent}% complete`
           : "No progress yet",
-      sectionHref: getAdminWorkAreaUrl("skills"),
+      sectionHref: skillsHref,
       printHref: skillsPrintHref,
       printLabel: skillsPrintMeta.label,
       showPrint: skillsPrintMeta.canPrint,
@@ -2452,7 +2454,7 @@ export default async function EmployeeDetailPage({
         performanceProgress.total > 0
           ? `${performanceProgress.percent}% complete`
           : "No progress yet",
-      sectionHref: getAdminWorkAreaUrl("performance"),
+      sectionHref: performanceHref,
       printHref: performancePrintHref,
       printLabel: performancePrintMeta.label,
       showPrint: performancePrintMeta.canPrint,

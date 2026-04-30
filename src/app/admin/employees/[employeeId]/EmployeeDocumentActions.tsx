@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { type ChangeEvent, useRef, useState } from "react";
 
@@ -186,20 +187,23 @@ export default function EmployeeDocumentActions({
     <>
       <div className="flex flex-wrap justify-end gap-x-3 gap-y-1">
         {workflowOpenHref ? (
-          <a
+          <Link
             href={workflowOpenHref}
+            prefetch={false}
             className={actionClass}
-            onClick={() => {
+            onClick={(e) => {
               console.log("[EmployeeDocumentActions] Open clicked", {
                 employeeId,
                 uploadLabel,
                 documentType,
                 workflowOpenHref,
               });
+              e.preventDefault();
+              router.push(workflowOpenHref);
             }}
           >
             Open
-          </a>
+          </Link>
         ) : null}
         {portalHref ? (
           <a href={portalHref} className={actionClass}>
