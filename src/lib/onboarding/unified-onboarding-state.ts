@@ -118,7 +118,13 @@ export type BuildUnifiedOnboardingStateInput = {
   isSkillsComplete: boolean;
   isPerformanceComplete: boolean;
   hasTbDocumentation: boolean;
+  /** Compliance-cycle OIG complete (event). */
   isOigComplete: boolean;
+  /**
+   * When true, uploaded OIG proof (`oig` / `oig_check`) satisfies survey packet + action-required OIG step
+   * even if the annual compliance event is not closed.
+   */
+  hasOigProofOnFile?: boolean;
   hasBackgroundCheck: boolean;
   hasCprCard: boolean;
   hasDriversLicense: boolean;
@@ -168,6 +174,7 @@ export function buildUnifiedOnboardingState(
     isPerformanceComplete,
     hasTbDocumentation,
     isOigComplete,
+    hasOigProofOnFile = false,
     hasBackgroundCheck,
     hasCprCard,
     hasDriversLicense,
@@ -409,24 +416,22 @@ export function buildUnifiedOnboardingState(
     const m = mapBoolToStatus(isPerformanceComplete, {});
     steps.push({
       key: "file_performance",
-      label: "Performance evaluation (initial)",
+      label: "Performance evaluation (annual)",
       category: "compliance",
-      required: !salesLight,
+      required: false,
       status: salesLight ? "complete" : m.status,
       displayStatus: salesLight ? "N/A" : m.display,
       countsTowardPipelineComplete: false,
-      countsTowardSurveyComplete: !salesLight,
-      blocking: !salesLight && !isPerformanceComplete,
+      countsTowardSurveyComplete: false,
+      blocking: false,
       lastUpdatedAt: null,
-      failureReason: salesLight || isPerformanceComplete ? null : "Performance form not complete.",
-      adminCoaching: "Complete the performance evaluation for the current cycle.",
-      whyBlocking:
-        salesLight || isPerformanceComplete
-          ? null
-          : "Survey packet needs performance evaluation on file.",
+      failureReason: null,
+      adminCoaching:
+        "Performance evaluation is tracked under Compliance & ongoing programs, not initial onboarding.",
+      whyBlocking: null,
       employeeViewHref: null,
       adminViewHref: getAdminWorkAreaUrl("performance"),
-      raw: { performanceOk: isPerformanceComplete, salesLight },
+      raw: { performanceOk: isPerformanceComplete, salesLight, initialOnboardingStep: false },
     });
   }
 
@@ -453,7 +458,8 @@ export function buildUnifiedOnboardingState(
   }
 
   {
-    const m = mapBoolToStatus(isOigComplete, {});
+    const oigSurveySatisfied = isOigComplete || hasOigProofOnFile;
+    const m = mapBoolToStatus(oigSurveySatisfied, {});
     steps.push({
       key: "file_oig",
       label: "OIG check",
@@ -463,14 +469,23 @@ export function buildUnifiedOnboardingState(
       displayStatus: salesLight ? "N/A" : m.display,
       countsTowardPipelineComplete: false,
       countsTowardSurveyComplete: !salesLight,
-      blocking: !salesLight && !isOigComplete,
+      blocking: !salesLight && !oigSurveySatisfied,
       lastUpdatedAt: null,
-      failureReason: salesLight || isOigComplete ? null : "OIG event not completed and/or proof missing.",
+      failureReason:
+        salesLight || oigSurveySatisfied
+          ? null
+          : "OIG event not completed and no OIG proof file on record.",
       adminCoaching: "Run OIG workflow or attach proof; upload counts when configured.",
-      whyBlocking: salesLight || isOigComplete ? null : "OIG is part of the survey safety checklist.",
+      whyBlocking:
+        salesLight || oigSurveySatisfied ? null : "OIG is part of the survey safety checklist.",
       employeeViewHref: null,
       adminViewHref: getAdminWorkAreaUrl("compliance"),
-      raw: { oigOk: isOigComplete, salesLight },
+      raw: {
+        oigOk: oigSurveySatisfied,
+        oigEventComplete: isOigComplete,
+        hasOigProofOnFile,
+        salesLight,
+      },
     });
   }
 

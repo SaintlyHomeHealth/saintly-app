@@ -2177,6 +2177,7 @@ export default async function EmployeeDetailPage({
   );
   const hasTbDocumentation = uploadedDocumentTypes.has("tb_test") || !!latestTbTestProof;
   const isOigComplete = isComplianceRequirementComplete(effectiveOigEvent, null);
+  const isOigSurveyPacketSatisfied = hasOigProofOnFile || isOigComplete;
   const hasBackgroundCheck = uploadedDocumentTypes.has("background_check");
   const hasSocialSecurityCard =
     portalStatus.documentItems.find((item) => item.key === "social_security_card")?.complete === true;
@@ -2348,9 +2349,8 @@ export default async function EmployeeDetailPage({
     !hasResumeOnFile ? "Resume" : null,
     !hasSocialSecurityCard ? "Social Security Card" : null,
     !isSkillsComplete ? "Skills Competency" : null,
-    !isPerformanceComplete ? "Performance Evaluation" : null,
     !hasTbDocumentation ? "TB Test" : null,
-    !isOigComplete ? "OIG" : null,
+    !isOigSurveyPacketSatisfied ? "OIG" : null,
     !hasBackgroundCheck ? "Background Check" : null,
     !isTaxFormSigned ? "Tax Form" : null,
     !hasCprCard ? "CPR Card" : null,
@@ -2402,6 +2402,7 @@ export default async function EmployeeDetailPage({
     isPerformanceComplete,
     hasTbDocumentation,
     isOigComplete,
+    hasOigProofOnFile,
     hasBackgroundCheck,
     hasCprCard,
     hasDriversLicense,
@@ -2671,7 +2672,7 @@ export default async function EmployeeDetailPage({
   const hasInitialIndependentContractorInsuranceUpload = hasIndependentContractorInsurance;
   const hasInitialProfessionalLicenseUpload = Boolean(latestProfessionalLicenseProof);
   /** Initial hiring row: file on record counts as complete (same source as View/Download). */
-  const isOigInitialHiringRequirementComplete = hasOigProofOnFile || isOigComplete;
+  const isOigInitialHiringRequirementComplete = isOigSurveyPacketSatisfied;
 
   const driversLicenseHistory = adminUploadRecords
     .filter((file) => (file.document_type || "").toLowerCase().trim() === "drivers_license")
