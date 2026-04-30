@@ -225,6 +225,8 @@ export type BuildPersonnelFileAuditArgs = {
   isPerformanceComplete: boolean;
   hasTbDocumentation: boolean;
   isOigComplete: boolean;
+  /** True when an OIG proof file exists (`oig` / `oig_check`), independent of compliance event. */
+  hasOigProofOnFile: boolean;
   hasBackgroundCheck: boolean;
   requiresCpr: boolean;
   hasCprCard: boolean;
@@ -295,6 +297,7 @@ export function buildPersonnelFileAuditRows(input: BuildPersonnelFileAuditArgs):
     isPerformanceComplete,
     hasTbDocumentation,
     isOigComplete,
+    hasOigProofOnFile,
     hasBackgroundCheck,
     requiresCpr,
     hasCprCard,
@@ -579,15 +582,16 @@ export function buildPersonnelFileAuditRows(input: BuildPersonnelFileAuditArgs):
   }
 
   if (!isSalesAgent) {
-    const { status, tone } = auditStatus(true, isOigComplete);
+    const oigAuditSatisfied = isOigComplete || hasOigProofOnFile;
+    const { status, tone } = auditStatus(true, oigAuditSatisfied);
     push({
       label: "OIG",
       itemType: "document",
       status,
       statusTone: tone,
       openHref: getAdminWorkAreaUrl("compliance"),
-      viewHref: isOigComplete && latestOigViewUrl ? latestOigViewUrl : null,
-      downloadHref: isOigComplete && latestOigViewUrl ? latestOigViewUrl : null,
+      viewHref: oigAuditSatisfied && latestOigViewUrl ? latestOigViewUrl : null,
+      downloadHref: oigAuditSatisfied && latestOigViewUrl ? latestOigViewUrl : null,
       viewExternal: true,
       applicantUploadDocumentType: "oig",
     });

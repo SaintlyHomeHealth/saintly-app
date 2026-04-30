@@ -1872,7 +1872,27 @@ export default async function EmployeeDetailPage({
 
   const oigHref = getAdminWorkAreaUrl("compliance");
 
-  const latestOigProof = getLatestApplicantUploadByCanonicalType(adminUploadRecords, "oig_check");
+  const latestOigProofFromCanonical = getLatestApplicantUploadByCanonicalType(
+    adminUploadRecords,
+    "oig_check"
+  );
+  const latestOigCheck = getLatestApplicantUploadByCanonicalType(adminUploadRecords, "oig");
+  const latestOigProofFromRawType = (() => {
+    const matches = adminUploadRecords.filter((f) => {
+      const dt = String(f.document_type ?? "").toLowerCase().trim();
+      return dt === "oig" || dt === "oig_check";
+    });
+    if (matches.length === 0) return null;
+    return matches
+      .slice()
+      .sort(
+        (a, b) =>
+          new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+      )[0];
+  })();
+  const latestOigProof =
+    latestOigProofFromCanonical ?? latestOigCheck ?? latestOigProofFromRawType ?? null;
+  const hasOigProofOnFile = Boolean(latestOigProof);
   const latestBackgroundCheckProof = getLatestApplicantUploadByCanonicalType(
     adminUploadRecords,
     "background_check"
@@ -2587,6 +2607,7 @@ export default async function EmployeeDetailPage({
     isPerformanceComplete,
     hasTbDocumentation,
     isOigComplete,
+    hasOigProofOnFile,
     hasBackgroundCheck,
     requiresCpr,
     hasCprCard,
@@ -2650,8 +2671,7 @@ export default async function EmployeeDetailPage({
   const hasInitialIndependentContractorInsuranceUpload = hasIndependentContractorInsurance;
   const hasInitialProfessionalLicenseUpload = Boolean(latestProfessionalLicenseProof);
   /** Initial hiring row: file on record counts as complete (same source as View/Download). */
-  const isOigInitialHiringRequirementComplete =
-    Boolean(latestOigProof) || isOigComplete;
+  const isOigInitialHiringRequirementComplete = hasOigProofOnFile || isOigComplete;
 
   const driversLicenseHistory = adminUploadRecords
     .filter((file) => (file.document_type || "").toLowerCase().trim() === "drivers_license")
