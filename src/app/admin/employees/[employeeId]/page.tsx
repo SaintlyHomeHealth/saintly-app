@@ -2,7 +2,7 @@ import { supabase } from "@/lib/supabase";
 import { supabaseAdmin } from "@/lib/admin";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { getStaffProfile, isAdminOrHigher } from "@/lib/staff-profile";
+import { getStaffProfile, isAdminOrHigher, isManagerOrHigher } from "@/lib/staff-profile";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { insertAuditLog } from "@/lib/audit-log";
 import { skillsCompetencyDisciplines } from "@/lib/skills-competency";
@@ -932,6 +932,7 @@ export default async function EmployeeDetailPage({
     getStaffProfile
   );
   const canChangeSensitiveEmployeeStatus = isAdminOrHigher(staffProfileForActions);
+  const canUsePdfSign = isManagerOrHigher(staffProfileForActions);
 
   async function updateEmployeeStatus(formData: FormData) {
     "use server";
@@ -3441,6 +3442,15 @@ export default async function EmployeeDetailPage({
                   >
                     Download Employee File
                   </a>
+
+                  {canUsePdfSign ? (
+                    <Link
+                      href={`/admin/employees/${employeeId}/signatures`}
+                      className="inline-flex items-center rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-800 transition hover:bg-indigo-100"
+                    >
+                      Saintly PDF Sign
+                    </Link>
+                  ) : null}
 
                   {isSurveyReady ? (
                     <>
