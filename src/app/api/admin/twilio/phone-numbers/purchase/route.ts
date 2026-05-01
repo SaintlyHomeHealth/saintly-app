@@ -16,20 +16,21 @@ export async function POST(req: Request) {
     body = {};
   }
 
-  const rawPn = typeof body.phoneNumber === "string" ? body.phoneNumber.trim() : "";
+  const phoneNumber =
+    typeof body.phoneNumber === "string" ? body.phoneNumber.trim() : "";
   const label =
     typeof body.label === "string" && body.label.trim()
       ? body.label.trim().slice(0, 200)
       : null;
-  const numberType =
-    typeof body.numberType === "string" && body.numberType.trim()
-      ? body.numberType.trim().slice(0, 64)
-      : "staff_direct";
+
+  if (!phoneNumber) {
+    return NextResponse.json({ error: "phoneNumber is required." }, { status: 400 });
+  }
 
   const result = await purchaseTwilioNumberAndSaveToInventory({
-    phoneNumberRaw: rawPn,
+    phoneNumberRaw: phoneNumber,
     label,
-    numberType,
+    numberType: "staff_direct",
     assignedByUserId: gate.auth.user.id,
   });
 

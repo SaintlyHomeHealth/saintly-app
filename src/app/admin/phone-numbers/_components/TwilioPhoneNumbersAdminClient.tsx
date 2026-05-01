@@ -59,6 +59,31 @@ export function TwilioPhoneNumbersAdminClient(props: {
   const [xferPnId, setXferPnId] = useState("");
   const [syncBusy, setSyncBusy] = useState(false);
 
+  const [searchAreaCode, setSearchAreaCode] = useState("480");
+  const [searchContains, setSearchContains] = useState("");
+  const [searchLocality, setSearchLocality] = useState("");
+  const [searchRegion, setSearchRegion] = useState("");
+  const [searchSms, setSearchSms] = useState(true);
+  const [searchVoice, setSearchVoice] = useState(true);
+  const [searchMms, setSearchMms] = useState(false);
+  const [searchNumberType, setSearchNumberType] = useState<"local" | "toll_free">("local");
+  const [searchBusy, setSearchBusy] = useState(false);
+  const [searchErr, setSearchErr] = useState<string | null>(null);
+  const [searchResults, setSearchResults] = useState<
+    {
+      phone_number: string;
+      national_display: string;
+      locality: string | null;
+      region: string | null;
+      postal_code: string | null;
+      capabilities: { voice: boolean; sms: boolean; mms: boolean };
+      type: "local" | "toll_free";
+    }[]
+  >([]);
+  const [searchLabels, setSearchLabels] = useState<Record<string, string>>({});
+  const [purchaseBusyPhone, setPurchaseBusyPhone] = useState<string | null>(null);
+  const [searchNotice, setSearchNotice] = useState<string | null>(null);
+
   const staffByUserId = useMemo(() => {
     const m = new Map<string, string>();
     for (const s of props.assignableStaff) m.set(s.user_id, s.label);
@@ -191,6 +216,78 @@ export function TwilioPhoneNumbersAdminClient(props: {
     }
   }
 
+  async function onSearchTwilioNumbers(e: FormEvent) {
+    e.preventDefault();
+    setSearchErr(null);
+    setSearchNotice(null);
+    if (!searchSms && !searchVoice && !searchMms) {
+      setSearchErr("Select at least one capability (SMS, Voice, or MMS).");
+      return;
+    }
+    setSearchBusy(true);
+    try {
+      const res = await fetch("/api/admin/twilio/phone-numbers/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          areaCode: searchAreaCode.trim(),
+          contains: searchContains.trim() || undefined,
+          locality: searchLocality.trim() || undefined,
+          region: searchRegion.trim() || undefined,
+          requireSms: searchSms,
+          requireVoice: searchVoice,
+          requireMms: searchMms,
+          numberType: searchNumberType,
+          limit: 35,
+        }),
+      });
+      const j = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        numbers?: typeof searchResults;
+      };
+      if (!res.ok || !j.ok || !Array.isArray(j.numbers)) {
+        setSearchErr(j.error || "Search failed");
+        setSearchResults([]);
+        return;
+      }
+      setSearchResults(j.numbers);
+      if (j.numbers.length === 0) {
+        setSearchNotice("No numbers matched. Try another area code or loosen filters.");
+      }
+    } finally {
+      setSearchBusy(false);
+    }
+  }
+
+  async function onPurchaseSearchResult(phoneNumber: string) {
+    setSearchErr(null);
+    setSearchNotice(null);
+    setPurchaseBusyPhone(phoneNumber);
+    try {
+      const label = (searchLabels[phoneNumber] ?? "").trim() || null;
+      const res = await fetch("/api/admin/twilio/phone-numbers/purchase", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phoneNumber, label: label ?? undefined }),
+      });
+      const j = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        phoneNumber?: string;
+      };
+      if (!res.ok || !j.ok) {
+        alert(j.error ?? "Purchase failed");
+        return;
+      }
+      alert(`Number purchased and saved: ${j.phoneNumber ?? phoneNumber}`);
+      setSearchResults((prev) => prev.filter((r) => r.phone_number !== phoneNumber));
+      await refresh();
+    } finally {
+      setPurchaseBusyPhone(null);
+    }
+  }
+
   return (
     <div className="space-y-8">
       <div className="rounded-lg border border-blue-200 bg-blue-50/50 p-4 shadow-sm">
@@ -209,6 +306,170 @@ export function TwilioPhoneNumbersAdminClient(props: {
           {syncBusy ? "Syncing…" : "Sync from Twilio"}
         </button>
       </div>
+
+      <form
+        onSubmit={onSearchTwilioNumbers}
+        className="rounded-lg border border-violet-200 bg-violet-50/40 p-4 shadow-sm"
+      >
+        <h2 className="text-lg font-semibold text-neutral-900">Search available Twilio numbers</h2>
+        <p className="mt-1 text-sm text-neutral-700">
+          Search Twilio&apos;s inventory (US). Defaults favor Arizona markets (480, 602, 623). Purchases use the same
+          SMS/voice webhooks as manual buy.
+        </p>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <label className="flex flex-col gap-1 text-xs font-medium text-neutral-700">
+            Area code (local)
+            <input
+              className="rounded border border-neutral-300 px-3 py-2 text-sm font-mono"
+              placeholder="480"
+              value={searchAreaCode}
+              onChange={(e) => setSearchAreaCode(e.target.value)}
+              disabled={searchNumberType !== "local"}
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-xs font-medium text-neutral-700">
+            Contains digits (optional)
+            <input
+              className="rounded border border-neutral-300 px-3 py-2 text-sm font-mono"
+              placeholder="e.g. 555"
+              value={searchContains}
+              onChange={(e) => setSearchContains(e.target.value)}
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-xs font-medium text-neutral-700">
+            Locality (optional)
+            <input
+              className="rounded border border-neutral-300 px-3 py-2 text-sm"
+              placeholder="Phoenix"
+              value={searchLocality}
+              onChange={(e) => setSearchLocality(e.target.value)}
+              disabled={searchNumberType !== "local"}
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-xs font-medium text-neutral-700">
+            Region / state (optional)
+            <input
+              className="rounded border border-neutral-300 px-3 py-2 text-sm uppercase"
+              placeholder="AZ"
+              maxLength={2}
+              value={searchRegion}
+              onChange={(e) => setSearchRegion(e.target.value)}
+              disabled={searchNumberType !== "local"}
+            />
+          </label>
+        </div>
+        <div className="mt-3 flex flex-wrap items-center gap-4">
+          <label className="flex items-center gap-2 text-sm text-neutral-800">
+            <input type="checkbox" checked={searchSms} onChange={(e) => setSearchSms(e.target.checked)} />
+            SMS
+          </label>
+          <label className="flex items-center gap-2 text-sm text-neutral-800">
+            <input type="checkbox" checked={searchVoice} onChange={(e) => setSearchVoice(e.target.checked)} />
+            Voice
+          </label>
+          <label className="flex items-center gap-2 text-sm text-neutral-800">
+            <input type="checkbox" checked={searchMms} onChange={(e) => setSearchMms(e.target.checked)} />
+            MMS
+          </label>
+          <label className="flex items-center gap-2 text-sm text-neutral-800">
+            Number type
+            <select
+              className="rounded border border-neutral-300 px-2 py-1 text-sm"
+              value={searchNumberType}
+              onChange={(e) => setSearchNumberType(e.target.value === "toll_free" ? "toll_free" : "local")}
+            >
+              <option value="local">Local</option>
+              <option value="toll_free">Toll-free</option>
+            </select>
+          </label>
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            type="submit"
+            disabled={searchBusy}
+            className="rounded bg-violet-800 px-4 py-2 text-sm font-medium text-white hover:bg-violet-900 disabled:opacity-50"
+          >
+            {searchBusy ? "Searching…" : "Search numbers"}
+          </button>
+          <span className="self-center text-xs text-neutral-600">
+            Quick area codes:{" "}
+            <button
+              type="button"
+              className="text-violet-800 underline"
+              onClick={() => setSearchAreaCode("480")}
+            >
+              480
+            </button>
+            {", "}
+            <button type="button" className="text-violet-800 underline" onClick={() => setSearchAreaCode("602")}>
+              602
+            </button>
+            {", "}
+            <button type="button" className="text-violet-800 underline" onClick={() => setSearchAreaCode("623")}>
+              623
+            </button>
+          </span>
+        </div>
+        {searchErr ? <p className="mt-2 text-sm text-rose-600">{searchErr}</p> : null}
+        {searchNotice ? <p className="mt-2 text-sm text-amber-800">{searchNotice}</p> : null}
+      </form>
+
+      {searchResults.length > 0 ? (
+        <div className="overflow-x-auto rounded-lg border border-violet-200 bg-white shadow-sm">
+          <table className="min-w-full divide-y divide-violet-100 text-sm">
+            <thead className="bg-violet-50/80">
+              <tr>
+                <th className="px-3 py-2 text-left font-medium text-neutral-700">Number</th>
+                <th className="px-3 py-2 text-left font-medium text-neutral-700">Location</th>
+                <th className="px-3 py-2 text-left font-medium text-neutral-700">Type</th>
+                <th className="px-3 py-2 text-left font-medium text-neutral-700">SMS</th>
+                <th className="px-3 py-2 text-left font-medium text-neutral-700">Voice</th>
+                <th className="px-3 py-2 text-left font-medium text-neutral-700">MMS</th>
+                <th className="px-3 py-2 text-left font-medium text-neutral-700">Label</th>
+                <th className="px-3 py-2 text-left font-medium text-neutral-700">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-neutral-100">
+              {searchResults.map((row) => (
+                <tr key={row.phone_number}>
+                  <td className="whitespace-nowrap px-3 py-2 font-mono text-xs">
+                    <div>{row.phone_number}</div>
+                    <div className="text-neutral-500">{row.national_display}</div>
+                  </td>
+                  <td className="px-3 py-2 text-xs text-neutral-800">
+                    {[row.locality, row.region].filter(Boolean).join(", ") || "—"}
+                    {row.postal_code ? ` · ${row.postal_code}` : ""}
+                  </td>
+                  <td className="px-3 py-2 text-xs">{row.type === "toll_free" ? "Toll-free" : "Local"}</td>
+                  <td className="px-3 py-2">{row.capabilities.sms ? "Yes" : "—"}</td>
+                  <td className="px-3 py-2">{row.capabilities.voice ? "Yes" : "—"}</td>
+                  <td className="px-3 py-2">{row.capabilities.mms ? "Yes" : "—"}</td>
+                  <td className="px-3 py-2">
+                    <input
+                      className="w-full min-w-[120px] rounded border border-neutral-300 px-2 py-1 text-xs"
+                      placeholder="Optional"
+                      value={searchLabels[row.phone_number] ?? ""}
+                      onChange={(e) =>
+                        setSearchLabels((prev) => ({ ...prev, [row.phone_number]: e.target.value }))
+                      }
+                    />
+                  </td>
+                  <td className="px-3 py-2">
+                    <button
+                      type="button"
+                      className="rounded bg-neutral-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-neutral-800 disabled:opacity-50"
+                      disabled={purchaseBusyPhone !== null}
+                      onClick={() => void onPurchaseSearchResult(row.phone_number)}
+                    >
+                      {purchaseBusyPhone === row.phone_number ? "Buying…" : "Buy & Save"}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
 
       <form onSubmit={onBuy} className="rounded-lg border border-neutral-200 bg-white p-4 shadow-sm">
         <h2 className="text-lg font-semibold text-neutral-900">Buy number (Twilio)</h2>
