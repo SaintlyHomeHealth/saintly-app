@@ -1,5 +1,14 @@
 import "server-only";
 
+import type {
+  EmployeeDirectorySegment,
+  EmployeeDirectorySortDir,
+  EmployeeDirectorySortKey,
+} from "@/lib/admin/employee-directory-shared";
+import {
+  EMPLOYEE_DIRECTORY_FULL_MAX_APPLICANTS,
+  EMPLOYEE_DIRECTORY_MAX_PAGE_SIZE,
+} from "@/lib/admin/employee-directory-shared";
 import { supabaseAdmin } from "@/lib/admin";
 import { SMS_REMINDER_CREDENTIAL_TYPE_SET } from "@/lib/admin/credential-sms-constants";
 import {
@@ -34,18 +43,6 @@ export { normalizeCredentialTypeKey };
  * Why the old `/admin/employees` list was empty: it used `createClient` with the **anon** key on the
  * server, so RLS typically returned zero rows. This loader uses **service role** after staff auth.
  */
-
-export type EmployeeDirectorySegment =
-  | "all"
-  | "active"
-  | "inactive"
-  | "in_process"
-  | "due_soon"
-  | "missing_credentials"
-  | "expired"
-  | "annuals_due"
-  | "ready_to_activate"
-  | "activation_blocked";
 
 /** Per tracking column / CHAP-relevant item. */
 export type ComplianceItemTier = "ok" | "due_soon" | "missing" | "expired" | "na";
@@ -172,13 +169,6 @@ const annualComplianceDefinitions = [
 ] as const;
 
 const DASHBOARD_STAGE_ACTIVE_EMPLOYEE = "Active Employee";
-
-/** List page: cap how many applicants we enrich (compliance joins scale with this). Server actions/cron use higher default. */
-export const EMPLOYEE_DIRECTORY_LIST_MAX_APPLICANTS = 800;
-export const EMPLOYEE_DIRECTORY_FULL_MAX_APPLICANTS = 2000;
-
-export const EMPLOYEE_DIRECTORY_DEFAULT_PAGE_SIZE = 50;
-export const EMPLOYEE_DIRECTORY_MAX_PAGE_SIZE = 100;
 
 /**
  * Credential types required for expiring-credential tracking (directory, SMS, employee detail).
@@ -1642,9 +1632,6 @@ export async function loadEmployeeDirectoryRows(options?: {
   return { rows: rowsUncached, loadError: null, applicantFetchTruncated };
 }
 
-export type EmployeeDirectorySortKey = "name" | "status" | "updated" | "readiness" | "flags";
-export type EmployeeDirectorySortDir = "asc" | "desc";
-
 export function filterEmployeeDirectoryRows(
   rows: EmployeeDirectoryRow[],
   segment: EmployeeDirectorySegment,
@@ -1767,3 +1754,15 @@ export function paginateEmployeeDirectoryRows(
   const p = Math.max(0, pageZeroIndexed);
   return rows.slice(p * ps, p * ps + ps);
 }
+
+export type {
+  EmployeeDirectorySegment,
+  EmployeeDirectorySortDir,
+  EmployeeDirectorySortKey,
+} from "@/lib/admin/employee-directory-shared";
+export {
+  EMPLOYEE_DIRECTORY_DEFAULT_PAGE_SIZE,
+  EMPLOYEE_DIRECTORY_FULL_MAX_APPLICANTS,
+  EMPLOYEE_DIRECTORY_LIST_MAX_APPLICANTS,
+  EMPLOYEE_DIRECTORY_MAX_PAGE_SIZE,
+} from "@/lib/admin/employee-directory-shared";

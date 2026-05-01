@@ -8,7 +8,7 @@ import {
   type EmployeeDirectorySegment,
   type EmployeeDirectorySortDir,
   type EmployeeDirectorySortKey,
-} from "@/lib/admin/employee-directory-data";
+} from "@/lib/admin/employee-directory-shared";
 
 type Props = {
   applicantId: string;
