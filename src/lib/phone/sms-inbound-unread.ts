@@ -43,6 +43,7 @@ export async function countUnreadInboundByConversationIds(
       q = q.eq("owner_user_id", restrict);
     }
 
+    const { data, error } = await q;
     if (error) {
       console.warn("[sms-unread] countUnreadInboundByConversationIds:", error.message);
       return out;

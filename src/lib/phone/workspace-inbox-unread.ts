@@ -19,7 +19,7 @@ export async function workspaceInboxHasUnreadInbound(
   supabase: SupabaseClient
 ): Promise<boolean> {
   const hasFull = hasFullCallVisibility(staff);
-  let q = supabase
+  const q = supabase
     .from("conversations")
     .select("id")
     .eq("channel", "sms")

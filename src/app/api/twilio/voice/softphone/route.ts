@@ -12,6 +12,7 @@ import {
 import { isValidE164 } from "@/lib/softphone/phone-number";
 import { parseStaffUserIdFromTwilioClientFrom } from "@/lib/softphone/twilio-client-identity";
 import { escapeXml, softphoneConferenceRoomName } from "@/lib/twilio/softphone-conference";
+import { loadAssignedTwilioNumberForUser } from "@/lib/twilio/twilio-phone-number-repo";
 import { logTwilioVoiceTrace, summarizeTwimlResponse } from "@/lib/twilio/twilio-voice-trace-log";
 import { parseVerifiedTwilioFormBody } from "@/lib/twilio/verify-form-post";
 
@@ -19,7 +20,7 @@ import { parseVerifiedTwilioFormBody } from "@/lib/twilio/verify-form-post";
  * When `true`, outbound browser softphone uses Twilio Conference (Client + REST PSTN leg).
  * Set `TWILIO_SOFTPHONE_USE_CONFERENCE=true` after validation. Default keeps legacy `<Dial><Number>`.
  */
-function useConferenceOutbound(): boolean {
+function softphoneUsesConferenceOutbound(): boolean {
   return process.env.TWILIO_SOFTPHONE_USE_CONFERENCE === "true";
 }
 
@@ -118,11 +119,24 @@ export async function POST(req: NextRequest) {
     return new NextResponse(xml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
   }
 
+  const staffUserId = parseStaffUserIdFromTwilioClientFrom(fromRaw);
+
   // Outbound PSTN caller ID: default `TWILIO_SOFTPHONE_CALLER_ID_E164`; optional per-call override from
   // Twilio Client `OutboundCli` (browser dialer), validated against env allowlist (see `outbound-caller-ids.ts`).
   const envPrimary = process.env.TWILIO_SOFTPHONE_CALLER_ID_E164?.trim() || "";
   const outboundCfg = loadSoftphoneOutboundCallerConfigFromEnv();
   const allowlist = outboundCfg ? buildSoftphoneOutboundAllowlist(outboundCfg) : new Set<string>();
+  if (staffUserId) {
+    try {
+      const assignedRow = await loadAssignedTwilioNumberForUser(supabaseAdmin, staffUserId);
+      const pn = assignedRow?.phone_number?.trim() ?? "";
+      if (pn && isValidE164(pn) && assignedRow?.voice_enabled !== false) {
+        allowlist.add(pn);
+      }
+    } catch {
+      /* Staff DID is optional; never fail TwiML if inventory lookup breaks */
+    }
+  }
   const outboundCliRaw = params.OutboundCli?.trim();
   const resolvedFrom = outboundCfg
     ? resolveSoftphoneOutboundFromE164({ config: outboundCfg, outboundCliRaw, allowlist })
@@ -168,9 +182,8 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  const staffUserId = parseStaffUserIdFromTwilioClientFrom(fromRaw);
   const startedAt = new Date().toISOString();
-  const conferenceMode = useConferenceOutbound() && Boolean(toRaw && isValidE164(toRaw));
+  const conferenceMode = softphoneUsesConferenceOutbound() && Boolean(toRaw && isValidE164(toRaw));
   const roomName = conferenceMode ? softphoneConferenceRoomName(callSid) : "";
 
   const logResult = await upsertPhoneCallFromWebhook(supabaseAdmin, {

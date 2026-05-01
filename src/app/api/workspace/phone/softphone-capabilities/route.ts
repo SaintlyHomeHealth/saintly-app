@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
 
+import { supabaseAdmin } from "@/lib/admin";
 import {
   buildSoftphoneOutboundAllowlist,
   loadSoftphoneOutboundCallerConfigFromEnv,
 } from "@/lib/softphone/outbound-caller-ids";
 import { isValidE164 } from "@/lib/softphone/phone-number";
-import { canAccessWorkspacePhone, getStaffProfile } from "@/lib/staff-profile";
+import { canAccessWorkspacePhone, getStaffProfile, hasFullCallVisibility } from "@/lib/staff-profile";
+import { loadAssignedTwilioNumberForUser } from "@/lib/twilio/twilio-phone-number-repo";
 import { resolveTwilioMediaStreamWssUrl } from "@/lib/twilio/resolve-media-stream-wss-url";
 import { resolveTranscriptionStatusCallbackUrl } from "@/lib/twilio/resolve-transcription-callback-url";
 
@@ -44,6 +46,32 @@ export async function GET() {
       is_default: l.e164 === dedicated,
     }));
     defaultE164 = dedicated;
+  }
+
+  /** CRM-assigned Twilio DID (optional layer on top of env lines; never required to render keypad). */
+  let assignedVoiceE164: string | null = null;
+  let assignedVoiceLabel = "My line";
+  try {
+    const assignedRow = await loadAssignedTwilioNumberForUser(supabaseAdmin, staff.user_id);
+    const pn = assignedRow?.phone_number?.trim() ?? "";
+    if (pn && isValidE164(pn) && assignedRow?.voice_enabled !== false) {
+      assignedVoiceE164 = pn;
+      if (typeof assignedRow.label === "string" && assignedRow.label.trim()) {
+        assignedVoiceLabel = assignedRow.label.trim().slice(0, 80);
+      }
+    }
+  } catch {
+    assignedVoiceE164 = null;
+  }
+
+  if (outboundCfg && assignedVoiceE164) {
+    if (!lines.some((l) => l.e164 === assignedVoiceE164)) {
+      lines = [...lines, { e164: assignedVoiceE164, label: assignedVoiceLabel, is_default: false }];
+    }
+    if (!hasFullCallVisibility(staff)) {
+      lines = lines.map((l) => ({ ...l, is_default: l.e164 === assignedVoiceE164 }));
+      defaultE164 = assignedVoiceE164;
+    }
   }
 
   return NextResponse.json({
