@@ -173,6 +173,13 @@ const annualComplianceDefinitions = [
 
 const DASHBOARD_STAGE_ACTIVE_EMPLOYEE = "Active Employee";
 
+/** List page: cap how many applicants we enrich (compliance joins scale with this). Server actions/cron use higher default. */
+export const EMPLOYEE_DIRECTORY_LIST_MAX_APPLICANTS = 800;
+export const EMPLOYEE_DIRECTORY_FULL_MAX_APPLICANTS = 2000;
+
+export const EMPLOYEE_DIRECTORY_DEFAULT_PAGE_SIZE = 50;
+export const EMPLOYEE_DIRECTORY_MAX_PAGE_SIZE = 100;
+
 /**
  * Credential types required for expiring-credential tracking (directory, SMS, employee detail).
  * Uses merged role-ish applicant columns plus optional `employee_contracts.role_key`.
@@ -853,23 +860,41 @@ export function deriveEffectiveEmploymentKey(
   return "applicant";
 }
 
-export async function loadEmployeeDirectoryRows(): Promise<{
+export async function loadEmployeeDirectoryRows(options?: {
+  /** When omitted, uses {@link EMPLOYEE_DIRECTORY_FULL_MAX_APPLICANTS} (bulk SMS, cron). List page should pass {@link EMPLOYEE_DIRECTORY_LIST_MAX_APPLICANTS}. */
+  maxApplicants?: number;
+}): Promise<{
   rows: EmployeeDirectoryRow[];
   loadError: string | null;
+  /** True when the applicants query hit `maxApplicants` (more rows may exist in DB). */
+  applicantFetchTruncated: boolean;
 }> {
+  const maxApplicants = options?.maxApplicants ?? EMPLOYEE_DIRECTORY_FULL_MAX_APPLICANTS;
+  const timingLabel = "[employee-directory] loadEmployeeDirectoryRows";
+  if (process.env.NODE_ENV === "development") {
+    console.time(timingLabel);
+  }
+
   const { data: applicantsRaw, error: applicantsError } = await supabaseAdmin
     .from("applicants")
     .select(EMPLOYEE_DIRECTORY_APPLICANT_SELECT)
+    .order("updated_at", { ascending: false })
     .order("created_at", { ascending: false })
-    .limit(1500);
+    .limit(maxApplicants);
 
   if (applicantsError) {
     console.error("EMPLOYEE LOAD ERROR", applicantsError);
+    if (process.env.NODE_ENV === "development") {
+      console.timeEnd(timingLabel);
+    }
     return {
       rows: [],
       loadError: applicantsError.message,
+      applicantFetchTruncated: false,
     };
   }
+
+  const applicantFetchTruncated = (applicantsRaw?.length ?? 0) >= maxApplicants;
 
   const applicants: ApplicantRecord[] = [];
   for (const row of applicantsRaw ?? []) {
@@ -994,16 +1019,29 @@ export async function loadEmployeeDirectoryRows(): Promise<{
     trainingAttempts = (trainingAttemptsRes.data || []) as TrainingAttemptLite[];
     onboardingTrainingCompletions = (trainDoneRes.data || []) as TrainingCompletionLite[];
 
-    applicants.forEach((applicant) => {
+    const attemptsByApplicant = new Map<string, TrainingAttemptLite[]>();
+    for (const row of trainingAttempts) {
+      const cur = attemptsByApplicant.get(row.applicant_id) ?? [];
+      cur.push(row);
+      attemptsByApplicant.set(row.applicant_id, cur);
+    }
+    const completionsByApplicant = new Map<string, TrainingCompletionLite[]>();
+    for (const row of onboardingTrainingCompletions) {
+      const cur = completionsByApplicant.get(row.applicant_id) ?? [];
+      cur.push(row);
+      completionsByApplicant.set(row.applicant_id, cur);
+    }
+
+    for (const applicant of applicants) {
       trainingSummaryByEmployee.set(
         applicant.id,
         calculateTrainingCompletionSummary({
           modules: trainingModules,
-          attempts: trainingAttempts.filter((row) => row.applicant_id === applicant.id),
-          completions: onboardingTrainingCompletions.filter((row) => row.applicant_id === applicant.id),
+          attempts: attemptsByApplicant.get(applicant.id) ?? [],
+          completions: completionsByApplicant.get(applicant.id) ?? [],
         })
       );
-    });
+    }
   }
 
   const credentialsByEmployee = new Map<string, CredentialRecord[]>();
@@ -1045,6 +1083,25 @@ export async function loadEmployeeDirectoryRows(): Promise<{
     cur.push(d);
     documentsByEmployee.set(d.applicant_id, cur);
   });
+
+  const annualEventsByApplicant = new Map<string, ComplianceEvent[]>();
+  for (const e of annualComplianceEvents) {
+    const cur = annualEventsByApplicant.get(e.applicant_id) ?? [];
+    cur.push(e);
+    annualEventsByApplicant.set(e.applicant_id, cur);
+  }
+  const directoryComplianceEventsByApplicant = new Map<string, ComplianceEvent[]>();
+  for (const e of complianceEvents) {
+    const cur = directoryComplianceEventsByApplicant.get(e.applicant_id) ?? [];
+    cur.push(e);
+    directoryComplianceEventsByApplicant.set(e.applicant_id, cur);
+  }
+  const adminFormsByEmployeeId = new Map<string, AdminForm[]>();
+  for (const f of adminForms) {
+    const cur = adminFormsByEmployeeId.get(f.employee_id) ?? [];
+    cur.push(f);
+    adminFormsByEmployeeId.set(f.employee_id, cur);
+  }
 
   const missingCredentialEmployeeIds = new Set<string>();
   applicants.forEach((applicant) => {
@@ -1204,8 +1261,8 @@ export async function loadEmployeeDirectoryRows(): Promise<{
       );
     });
 
-    const employeeAnnualEvents = annualComplianceEvents.filter((e) => e.applicant_id === applicant.id);
-    const employeeForms = adminForms.filter((f) => f.employee_id === applicant.id);
+    const employeeAnnualEvents = annualEventsByApplicant.get(applicant.id) ?? [];
+    const employeeForms = adminFormsByEmployeeId.get(applicant.id) ?? [];
     const currentSkillsEvent =
       employeeAnnualEvents
         .filter((e) => (e.event_type || "").toLowerCase().trim() === "skills_checklist")
@@ -1315,8 +1372,8 @@ export async function loadEmployeeDirectoryRows(): Promise<{
     const inHiredPipeline =
       st === "active" ||
       st === "onboarding" ||
-      complianceEvents.some((e) => e.applicant_id === applicant.id) ||
-      annualComplianceEvents.some((e) => e.applicant_id === applicant.id) ||
+      (directoryComplianceEventsByApplicant.get(applicant.id)?.length ?? 0) > 0 ||
+      (annualEventsByApplicant.get(applicant.id)?.length ?? 0) > 0 ||
       employeeForms.length > 0;
 
     const complianceItems: ComplianceItemSnapshot[] = [];
@@ -1451,9 +1508,9 @@ export async function loadEmployeeDirectoryRows(): Promise<{
   const credentialReminderSummaryByApplicant = await loadCredentialReminderSummaryByApplicant(applicantIds);
 
   const rowsUncached: EmployeeDirectoryRow[] = applicants.map((applicant) => {
-    const employeeEvents = complianceEvents.filter((e) => e.applicant_id === applicant.id);
-    const employeeForms = adminForms.filter((f) => f.employee_id === applicant.id);
-    const stage = getEmployeeStage(employeeEvents, employeeForms);
+    const employeeEvents = directoryComplianceEventsByApplicant.get(applicant.id) ?? [];
+    const employeeFormsForStage = adminFormsByEmployeeId.get(applicant.id) ?? [];
+    const stage = getEmployeeStage(employeeEvents, employeeFormsForStage);
     const ns = String(applicant.status || "").toLowerCase().trim();
     const phoneRaw = typeof applicant.phone === "string" ? applicant.phone : "";
     const e164 = normalizeDialInputToE164(phoneRaw);
@@ -1578,7 +1635,11 @@ export async function loadEmployeeDirectoryRows(): Promise<{
     };
   });
 
-  return { rows: rowsUncached, loadError: null };
+  if (process.env.NODE_ENV === "development") {
+    console.timeEnd(timingLabel);
+  }
+
+  return { rows: rowsUncached, loadError: null, applicantFetchTruncated };
 }
 
 export type EmployeeDirectorySortKey = "name" | "status" | "updated" | "readiness" | "flags";
@@ -1693,5 +1754,16 @@ export function filterEmployeeDirectoryRows(
     return a.nameDisplay.localeCompare(b.nameDisplay, undefined, { sensitivity: "base" });
   });
 
-  return out.slice(0, 120);
+  return out;
+}
+
+/** After {@link filterEmployeeDirectoryRows}, slice one page for the list UI. Bulk SMS uses the full filtered array. */
+export function paginateEmployeeDirectoryRows(
+  rows: EmployeeDirectoryRow[],
+  pageZeroIndexed: number,
+  pageSize: number
+): EmployeeDirectoryRow[] {
+  const ps = Math.min(EMPLOYEE_DIRECTORY_MAX_PAGE_SIZE, Math.max(1, pageSize));
+  const p = Math.max(0, pageZeroIndexed);
+  return rows.slice(p * ps, p * ps + ps);
 }

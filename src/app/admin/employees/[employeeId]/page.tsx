@@ -1584,107 +1584,59 @@ export default async function EmployeeDetailPage({
   const savedSurveyPacketRows = allApplicantFileRows.filter(
     (row) => (row.document_type || "").toLowerCase() === "survey_packet"
   ) as SavedSurveyPacketRecord[];
-
+  
   const documentsRows = (documentsRowsRaw || []) as DocumentRecord[];
 
   const exitInterview = (exitInterviewRaw || null) as ExitInterviewRecord | null;
 
-  const [exitInterviewViewUrl, savedSurveyPackets, applicantFilesWithUrls, documentUploadRecords] =
-    await Promise.all([
-      (async () => {
-        if (!exitInterview) return null as string | null;
-        const { data: signedUrlData } = await supabaseAdmin.storage
-          .from("applicant-files")
-          .createSignedUrl(getExitInterviewPdfPath(employeeId), 60 * 60);
-        return signedUrlData?.signedUrl || null;
-      })(),
-      Promise.all(
-        savedSurveyPacketRows.map(async (packet) => {
-          if (!packet.file_path) {
-            return {
-              ...packet,
-              viewUrl: null,
-            };
-          }
+  let exitInterviewViewUrl: string | null = null;
+  if (exitInterview) {
+    const { data: signedUrlData } = await supabaseAdmin.storage
+      .from("applicant-files")
+      .createSignedUrl(getExitInterviewPdfPath(employeeId), 60 * 60);
+    exitInterviewViewUrl = signedUrlData?.signedUrl || null;
+  }
 
-          const { data: signedUrlData } = await supabaseAdmin.storage
-            .from("applicant-files")
-            .createSignedUrl(packet.file_path, 60 * 60);
+  const docParams = (recordId: string, source: "applicant_file" | "legacy_document", inline?: boolean) => {
+    const base = `/api/admin/employee-documents/download?recordId=${encodeURIComponent(recordId)}&source=${source}`;
+    return inline ? `${base}&inline=1` : base;
+  };
 
-          return {
-            ...packet,
-            viewUrl: signedUrlData?.signedUrl || null,
-          };
-        })
-      ),
-      Promise.all(
-        applicantFiles.map(async (file) => {
-          if (!file.file_path) {
-            return {
-              ...file,
-              viewUrl: null,
-              downloadUrl: null,
-            };
-          }
+  const savedSurveyPackets = savedSurveyPacketRows.map((packet) => ({
+    ...packet,
+    viewUrl: packet.file_path
+      ? docParams(packet.id, "applicant_file", true)
+      : null,
+  }));
 
-          const { data: signedUrlData } = await supabaseAdmin.storage
-            .from("applicant-files")
-            .createSignedUrl(file.file_path, 60 * 60);
+  const applicantFilesWithUrls = applicantFiles.map((file) => ({
+    ...file,
+    source: "applicant_file" as const,
+    viewUrl: file.file_path ? docParams(file.id, "applicant_file", true) : null,
+    downloadUrl: docParams(file.id, "applicant_file"),
+  }));
 
-          return {
-            ...file,
-            source: "applicant_file" as const,
-            viewUrl: signedUrlData?.signedUrl || null,
-            downloadUrl: `/api/admin/employee-documents/download?recordId=${encodeURIComponent(
-              file.id
-            )}&source=applicant_file`,
-          };
-        })
-      ),
-      Promise.all(
-        documentsRows.map(async (document) => {
-          const storageObject = getStorageObjectFromPublicUrl(document.file_url);
-          let viewUrl = document.file_url || null;
-
-          if (storageObject) {
-            const { data: signedUrlData } = await supabaseAdmin.storage
-              .from(storageObject.bucket)
-              .createSignedUrl(storageObject.path, 60 * 60);
-
-            if (signedUrlData?.signedUrl) {
-              viewUrl = signedUrlData.signedUrl;
-            } else if (storageObject.bucket !== "applicant-files") {
-              const { data: fallbackSignedUrlData } = await supabaseAdmin.storage
-                .from("applicant-files")
-                .createSignedUrl(storageObject.path, 60 * 60);
-
-              viewUrl = fallbackSignedUrlData?.signedUrl || viewUrl;
-            }
-          }
-
-          return {
-            id: document.id,
-            source: "legacy_document" as const,
-            file_path: storageObject?.path || null,
-            document_type: document.document_type,
-            display_name:
-              document.document_type === "tb_test"
-                ? "TB Test Upload"
-                : document.document_type === "fingerprint_clearance_card"
-                  ? "AZ Fingerprint Clearance Card"
-                  : document.document_type === "drivers_license"
-                    ? "Driver's License"
-                    : null,
-            file_name: null,
-            created_at: document.created_at,
-            viewUrl,
-            downloadUrl: `/api/admin/employee-documents/download?recordId=${encodeURIComponent(
-              document.id
-            )}&source=legacy_document`,
-          } satisfies AdminUploadRecord;
-        })
-      ),
-    ]);
+  const documentUploadRecords: AdminUploadRecord[] = documentsRows.map((document) => {
+    const storageObject = getStorageObjectFromPublicUrl(document.file_url);
+    return {
+      id: document.id,
+      source: "legacy_document" as const,
+      file_path: storageObject?.path || null,
+      document_type: document.document_type,
+      display_name:
+        document.document_type === "tb_test"
+          ? "TB Test Upload"
+          : document.document_type === "fingerprint_clearance_card"
+            ? "AZ Fingerprint Clearance Card"
+            : document.document_type === "drivers_license"
+              ? "Driver's License"
+              : null,
+      file_name: null,
+      created_at: document.created_at,
+      viewUrl: docParams(document.id, "legacy_document", true),
+      downloadUrl: docParams(document.id, "legacy_document"),
+    };
+  });
 
   const adminUploadRecords: AdminUploadRecord[] = [
     ...applicantFilesWithUrls.map((file) => ({

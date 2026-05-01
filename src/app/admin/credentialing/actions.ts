@@ -1007,6 +1007,7 @@ export async function uploadPayerCredentialingAttachmentAction(
     }
 
     if (uploaded.length > 0) {
+      revalidatePath("/admin/credentialing");
       revalidatePath(`/admin/credentialing/${credentialingId}`);
     }
 
@@ -1040,16 +1041,22 @@ export async function uploadPayerCredentialingAttachmentAction(
   }
 }
 
-export async function deletePayerCredentialingAttachment(formData: FormData) {
+export type DeletePayerCredentialingAttachmentResult =
+  | { ok: true }
+  | { ok: false; error: string };
+
+export async function deletePayerCredentialingAttachment(
+  formData: FormData
+): Promise<DeletePayerCredentialingAttachmentResult> {
   const staff = await getStaffProfile();
   if (!staff || !isManagerOrHigher(staff)) {
-    return;
+    return { ok: false, error: "You do not have permission to delete attachments." };
   }
 
   const credentialingId = readTrimmed(formData, "credentialing_id");
   const attachmentId = readTrimmed(formData, "attachment_id");
   if (!credentialingId || !attachmentId || !UUID_RE.test(credentialingId) || !UUID_RE.test(attachmentId)) {
-    return;
+    return { ok: false, error: "Invalid request." };
   }
 
   const { data: row, error: fetchErr } = await supabaseAdmin
@@ -1061,11 +1068,28 @@ export async function deletePayerCredentialingAttachment(formData: FormData) {
 
   if (fetchErr || !row?.storage_path) {
     console.warn("[credentialing] attachment delete fetch:", fetchErr?.message);
-    return;
+    return { ok: false, error: "Attachment not found or could not be loaded." };
   }
 
-  const path = String(row.storage_path);
-  await supabaseAdmin.storage.from(PAYER_CREDENTIALING_STORAGE_BUCKET).remove([path]);
+  const path = String(row.storage_path).trim();
+  if (!path) {
+    return { ok: false, error: "Attachment has no storage path." };
+  }
+
+  const fileLabel = typeof row.file_name === "string" && row.file_name.trim() ? row.file_name.trim() : "file";
+
+  const { error: storageErr } = await supabaseAdmin.storage
+    .from(PAYER_CREDENTIALING_STORAGE_BUCKET)
+    .remove([path]);
+
+  if (storageErr) {
+    console.warn("[credentialing] attachment storage remove:", path, storageErr.message);
+    return {
+      ok: false,
+      error:
+        "The file could not be removed from storage, so the attachment was left in place. Try again or contact support.",
+    };
+  }
 
   const { error: delErr } = await supabaseAdmin
     .from("payer_credentialing_attachments")
@@ -1074,20 +1098,29 @@ export async function deletePayerCredentialingAttachment(formData: FormData) {
     .eq("credentialing_record_id", credentialingId);
 
   if (delErr) {
-    console.warn("[credentialing] attachment delete:", delErr.message);
-    return;
+    console.error(
+      "[credentialing] attachment DB delete failed after storage remove (orphan storage risk mitigated; DB stale):",
+      delErr.message,
+      path
+    );
+    return {
+      ok: false,
+      error:
+        "The file was removed from storage, but the database could not be updated. Contact support so the record can be reconciled.",
+    };
   }
 
   await insertCredentialingActivity({
     credentialingRecordId: credentialingId,
     activityType: PAYER_CREDENTIALING_ACTIVITY_TYPES.attachment_removed,
-    summary: `Attachment removed: ${row.file_name ?? "file"}`,
+    summary: `Deleted attachment: ${fileLabel}`,
     details: path,
     createdByUserId: staff.user_id,
   });
 
   revalidatePath("/admin/credentialing");
   revalidatePath(`/admin/credentialing/${credentialingId}`);
+  return { ok: true };
 }
 
 const EMAIL_LABEL_MAX = 120;

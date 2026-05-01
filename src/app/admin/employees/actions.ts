@@ -7,11 +7,13 @@ import { supabaseAdmin } from "@/lib/admin";
 import { insertAuditLog } from "@/lib/audit-log";
 
 import {
+  EMPLOYEE_DIRECTORY_DEFAULT_PAGE_SIZE,
+  EMPLOYEE_DIRECTORY_MAX_PAGE_SIZE,
+  filterEmployeeDirectoryRows,
+  loadEmployeeDirectoryRows,
   type EmployeeDirectorySegment,
   type EmployeeDirectorySortDir,
   type EmployeeDirectorySortKey,
-  filterEmployeeDirectoryRows,
-  loadEmployeeDirectoryRows,
 } from "@/lib/admin/employee-directory-data";
 import { sendEmployeeCredentialReminderSms } from "@/lib/admin/employee-credential-reminder-sms";
 import { sendOnboardingInvite, resendOnboardingInvite } from "@/lib/admin/onboarding-invite";
@@ -47,6 +49,8 @@ function readDirectoryContext(formData: FormData): {
   q: string;
   sort: EmployeeDirectorySortKey;
   dir: EmployeeDirectorySortDir;
+  page: number;
+  pageSize: number;
 } {
   const segmentRaw = String(formData.get("segment") ?? "").trim();
   const segment: EmployeeDirectorySegment =
@@ -56,7 +60,14 @@ function readDirectoryContext(formData: FormData): {
   const sort: EmployeeDirectorySortKey = sortRaw && isSortKey(sortRaw) ? sortRaw : "updated";
   const dirRaw = String(formData.get("dir") ?? "").trim();
   const dir: EmployeeDirectorySortDir = dirRaw && isSortDir(dirRaw) ? dirRaw : "desc";
-  return { segment, q, sort, dir };
+  const pageParsed = parseInt(String(formData.get("page") ?? "1"), 10);
+  const page = Number.isFinite(pageParsed) && pageParsed > 0 ? pageParsed : 1;
+  const pageSizeParsed = parseInt(String(formData.get("page_size") ?? ""), 10);
+  const pageSize =
+    Number.isFinite(pageSizeParsed) && pageSizeParsed > 0
+      ? Math.min(EMPLOYEE_DIRECTORY_MAX_PAGE_SIZE, pageSizeParsed)
+      : EMPLOYEE_DIRECTORY_DEFAULT_PAGE_SIZE;
+  return { segment, q, sort, dir, page, pageSize };
 }
 
 function redirectEmployeesWithParams(
@@ -70,6 +81,8 @@ function redirectEmployeesWithParams(
     qs.set("sort", ctx.sort);
     qs.set("dir", ctx.dir);
   }
+  if (ctx.page > 1) qs.set("page", String(ctx.page));
+  if (ctx.pageSize !== EMPLOYEE_DIRECTORY_DEFAULT_PAGE_SIZE) qs.set("page_size", String(ctx.pageSize));
   redirect(`/admin/employees?${qs.toString()}`);
 }
 

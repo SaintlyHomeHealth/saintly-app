@@ -37,6 +37,8 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const recordId = url.searchParams.get("recordId");
   const source = parseSource(url.searchParams.get("source"));
+  const inline =
+    url.searchParams.get("inline") === "1" || url.searchParams.get("inline") === "true";
 
   if (!recordId || !source) {
     return NextResponse.json({ error: "Missing record id or source" }, { status: 400 });
@@ -74,11 +76,17 @@ export async function GET(request: Request) {
       }
 
       const bytes = Buffer.from(await data.arrayBuffer());
+      const safeName = (fileRow.file_name || "document")
+        .replace(/[^\w.\- ()\[\]+@]/g, "_")
+        .slice(0, 180);
+      const disposition = inline
+        ? `inline; filename="${safeName}"`
+        : `attachment; filename="${safeName}"`;
       return new NextResponse(bytes, {
         status: 200,
         headers: {
           "Content-Type": fileRow.file_type || "application/octet-stream",
-          "Content-Disposition": `attachment; filename="${fileRow.file_name || "document"}"`,
+          "Content-Disposition": disposition,
         },
       });
     }
@@ -113,12 +121,18 @@ export async function GET(request: Request) {
     }
 
     const bytes = Buffer.from(await data.arrayBuffer());
-    const fileName = `${(legacyRow?.document_type || "document").trim() || "document"}.pdf`;
+    const baseName =
+      `${(legacyRow?.document_type || "document").trim() || "document"}`.replace(
+        /[^\w.\- ()\[\]+@]/g,
+        "_"
+      );
+    const fileName = baseName.toLowerCase().endsWith(".pdf") ? baseName : `${baseName}.pdf`;
+    const disposition = inline ? `inline; filename="${fileName}"` : `attachment; filename="${fileName}"`;
     return new NextResponse(bytes, {
       status: 200,
       headers: {
         "Content-Type": data.type || "application/octet-stream",
-        "Content-Disposition": `attachment; filename="${fileName}"`,
+        "Content-Disposition": disposition,
       },
     });
   } catch (error) {

@@ -9,6 +9,10 @@ import {
   reapplyPayerCredentialing,
 } from "../actions";
 import {
+  CredentialingAttachmentsSection,
+  CredentialingAttachmentsSectionFallback,
+} from "./CredentialingAttachmentsSection";
+import {
   CredentialingChecklistSection,
   CredentialingChecklistSectionFallback,
 } from "./CredentialingChecklistSection";
@@ -314,6 +318,10 @@ export default async function AdminCredentialingDetailPage({
 
       <Suspense fallback={<CredentialingChecklistSectionFallback />}>
         <CredentialingChecklistSection credentialingId={id} />
+      </Suspense>
+
+      <Suspense fallback={<CredentialingAttachmentsSectionFallback />}>
+        <CredentialingAttachmentsSection credentialingId={id} />
       </Suspense>
 
       <Suspense fallback={<CredentialingNotesSectionFallback />}>

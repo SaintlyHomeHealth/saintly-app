@@ -1,6 +1,5 @@
 import Link from "next/link";
 
-import { CredentialingAttachmentUploadForm } from "./CredentialingAttachmentUploadForm";
 import {
   PAYER_CREDENTIALING_DOC_LABELS,
   PAYER_CREDENTIALING_DOC_TYPES,
@@ -85,21 +84,11 @@ export async function CredentialingChecklistSection({ credentialingId }: { crede
 
       <div className="mt-4 flex flex-wrap gap-2">
         <a
-          href="#credentialing-doc-upload"
+          href="#credentialing-uploaded-attachments"
           className="inline-flex items-center rounded-xl border border-slate-800 bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-800"
         >
-          Upload missing docs
+          Upload attachments
         </a>
-      </div>
-
-      <div id="credentialing-doc-upload" className="scroll-mt-28 mt-6 border-t border-slate-100 pt-5">
-        <p className="text-xs font-semibold text-slate-700">Upload files</p>
-        <p className="mt-1 text-[11px] text-slate-500">
-          Files attach to this payer record (bucket <span className="font-mono text-[10px]">payer-credentialing</span>).
-        </p>
-        <div className="mt-3">
-          <CredentialingAttachmentUploadForm credentialingId={credentialingId} />
-        </div>
       </div>
     </section>
   );

@@ -20,7 +20,11 @@ import {
   type EmployeeDirectorySortKey,
   complianceItemPillClass,
   filterEmployeeDirectoryRows,
+  EMPLOYEE_DIRECTORY_DEFAULT_PAGE_SIZE,
+  EMPLOYEE_DIRECTORY_LIST_MAX_APPLICANTS,
+  EMPLOYEE_DIRECTORY_MAX_PAGE_SIZE,
   loadEmployeeDirectoryRows,
+  paginateEmployeeDirectoryRows,
 } from "@/lib/admin/employee-directory-data";
 import { employeeDetailAdminTabUrl } from "@/lib/employee-requirements/employee-detail-work-areas";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
@@ -85,6 +89,8 @@ function buildQuery(sp: {
   q: string;
   sort: EmployeeDirectorySortKey;
   dir: EmployeeDirectorySortDir;
+  page?: number;
+  pageSize?: number;
 }): string {
   const u = new URLSearchParams();
   if (sp.segment !== "all") u.set("segment", sp.segment);
@@ -93,6 +99,10 @@ function buildQuery(sp: {
     u.set("sort", sp.sort);
     u.set("dir", sp.dir);
   }
+  const p = sp.page ?? 1;
+  const ps = sp.pageSize ?? EMPLOYEE_DIRECTORY_DEFAULT_PAGE_SIZE;
+  if (p > 1) u.set("page", String(p));
+  if (ps !== EMPLOYEE_DIRECTORY_DEFAULT_PAGE_SIZE) u.set("page_size", String(ps));
   const qs = u.toString();
   return qs ? `?${qs}` : "";
 }
@@ -144,8 +154,27 @@ export default async function AdminEmployeesDirectoryPage({
   const dirRaw = one("dir").trim();
   const dir: EmployeeDirectorySortDir = dirRaw && isSortDir(dirRaw) ? dirRaw : "desc";
 
-  const { rows: allRows, loadError } = await loadEmployeeDirectoryRows();
-  const filtered = filterEmployeeDirectoryRows(allRows, segment, q, sort, dir);
+  const pageRaw = one("page").trim();
+  const pageSizeRaw = one("page_size").trim();
+  const pageSize = Math.min(
+    EMPLOYEE_DIRECTORY_MAX_PAGE_SIZE,
+    Math.max(
+      1,
+      parseInt(pageSizeRaw || String(EMPLOYEE_DIRECTORY_DEFAULT_PAGE_SIZE), 10) ||
+        EMPLOYEE_DIRECTORY_DEFAULT_PAGE_SIZE
+    )
+  );
+
+  const {
+    rows: allRows,
+    loadError,
+    applicantFetchTruncated,
+  } = await loadEmployeeDirectoryRows({ maxApplicants: EMPLOYEE_DIRECTORY_LIST_MAX_APPLICANTS });
+  const directoryMatching = filterEmployeeDirectoryRows(allRows, segment, q, sort, dir);
+  const directoryTotal = directoryMatching.length;
+  const pageCount = Math.max(1, Math.ceil(directoryTotal / pageSize));
+  const page = Math.min(Math.max(1, parseInt(pageRaw || "1", 10) || 1), pageCount);
+  const filtered = paginateEmployeeDirectoryRows(directoryMatching, page - 1, pageSize);
 
   const filterInputCls =
     "rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800 shadow-sm";
@@ -298,6 +327,14 @@ export default async function AdminEmployeesDirectoryPage({
 
       {loadError ? <p className="text-sm text-red-700">Could not load applicants: {loadError}</p> : null}
 
+      {applicantFetchTruncated ? (
+        <p className="rounded-[20px] border border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-950 shadow-sm">
+          Directory loads the <span className="font-semibold">{EMPLOYEE_DIRECTORY_LIST_MAX_APPLICANTS}</span> most
+          recently updated applicants for speed. Use search to find someone not in that window. Admin jobs (bulk
+          credential SMS) still scan a wider set on the server.
+        </p>
+      ) : null}
+
       <div className="flex flex-wrap gap-2 rounded-[20px] border border-slate-200 bg-slate-50/80 p-3 shadow-sm">
         <span className="w-full text-[11px] font-semibold uppercase tracking-wide text-slate-500 sm:w-auto sm:py-1.5">
           Quick filters
@@ -307,7 +344,7 @@ export default async function AdminEmployeesDirectoryPage({
           return (
             <Link
               key={s.value}
-              href={`/admin/employees${buildQuery({ segment: s.value, q, sort, dir })}`}
+              href={`/admin/employees${buildQuery({ segment: s.value, q, sort, dir, page: 1, pageSize })}`}
               className={`${pillBase} ${
                 active
                   ? "border-indigo-400 bg-indigo-50 text-indigo-950"
@@ -326,6 +363,10 @@ export default async function AdminEmployeesDirectoryPage({
         className="flex flex-wrap items-end gap-2 rounded-[20px] border border-slate-200 bg-slate-50/80 p-4 shadow-sm"
       >
         {segment !== "all" ? <input type="hidden" name="segment" value={segment} /> : null}
+        <input type="hidden" name="page" value="1" />
+        {pageSize !== EMPLOYEE_DIRECTORY_DEFAULT_PAGE_SIZE ? (
+          <input type="hidden" name="page_size" value={String(pageSize)} />
+        ) : null}
         <label className="flex min-w-[12rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
           Search name, email, phone, role
           <input
@@ -375,6 +416,8 @@ export default async function AdminEmployeesDirectoryPage({
         <input type="hidden" name="q" value={q} />
         <input type="hidden" name="sort" value={sort} />
         <input type="hidden" name="dir" value={dir} />
+        <input type="hidden" name="page" value={String(page)} />
+        <input type="hidden" name="page_size" value={String(pageSize)} />
         <p className="max-w-2xl text-xs text-violet-950">
           <span className="font-semibold">Bulk credential SMS:</span> texts up to 30 employees in the{" "}
           <span className="font-medium">current filter</span> who have at least one SMS-scoped credential missing,
@@ -386,6 +429,39 @@ export default async function AdminEmployeesDirectoryPage({
           Send bulk SMS (filtered)
         </CredentialReminderSubmitButton>
       </form>
+
+      {directoryTotal > 0 ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-[20px] border border-slate-200 bg-white px-4 py-2 text-xs text-slate-600 shadow-sm">
+          <span>
+            Showing <span className="font-semibold text-slate-900">{(page - 1) * pageSize + 1}</span>–
+            <span className="font-semibold text-slate-900">{Math.min(page * pageSize, directoryTotal)}</span> of{" "}
+            <span className="font-semibold text-slate-900">{directoryTotal}</span> matching rows ({pageSize} per page).
+          </span>
+          <div className="flex flex-wrap items-center gap-2">
+            {page > 1 ? (
+              <Link
+                href={`/admin/employees${buildQuery({ segment, q, sort, dir, page: page - 1, pageSize })}`}
+                prefetch={false}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 font-semibold text-slate-800 hover:bg-slate-50"
+              >
+                Previous
+              </Link>
+            ) : null}
+            <span className="tabular-nums text-slate-500">
+              Page {page} / {pageCount}
+            </span>
+            {page < pageCount ? (
+              <Link
+                href={`/admin/employees${buildQuery({ segment, q, sort, dir, page: page + 1, pageSize })}`}
+                prefetch={false}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 font-semibold text-slate-800 hover:bg-slate-50"
+              >
+                Next
+              </Link>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
 
       <div className="overflow-x-auto rounded-[28px] border border-slate-200 bg-white shadow-sm">
         <table className="w-full min-w-[1780px] text-left text-sm">
@@ -649,6 +725,8 @@ export default async function AdminEmployeesDirectoryPage({
                         <input type="hidden" name="q" value={q} />
                         <input type="hidden" name="sort" value={sort} />
                         <input type="hidden" name="dir" value={dir} />
+                        <input type="hidden" name="page" value={String(page)} />
+                        <input type="hidden" name="page_size" value={String(pageSize)} />
                         <CredentialReminderSubmitButton
                           className={smsBtnBase}
                           disabled={r.credentialReminderTargetCount === 0 || !r.e164}
@@ -749,7 +827,7 @@ export default async function AdminEmployeesDirectoryPage({
                           applicantId={id}
                           archiveContext="list"
                           canArchive={r.effectiveEmploymentKey !== "inactive"}
-                          directoryFilters={{ segment, q, sort, dir }}
+                          directoryFilters={{ segment, q, sort, dir, page, pageSize }}
                         />
                       </div>
                     </td>
@@ -801,7 +879,8 @@ export default async function AdminEmployeesDirectoryPage({
           </li>
         </ul>
         <p className="mt-3 text-slate-500">
-          Showing up to 120 rows. Call uses in-app Twilio (keypad or phone calls page). Text opens or creates SMS.
+          Paged table ({EMPLOYEE_DIRECTORY_DEFAULT_PAGE_SIZE} rows per page by default). Call uses in-app Twilio (keypad
+          or phone calls page). Text opens or creates SMS.
         </p>
       </div>
     </div>

@@ -3,10 +3,11 @@
 import { useState, useTransition } from "react";
 
 import { archiveEmployeeAction } from "@/app/admin/employees/actions";
-import type {
-  EmployeeDirectorySegment,
-  EmployeeDirectorySortDir,
-  EmployeeDirectorySortKey,
+import {
+  EMPLOYEE_DIRECTORY_DEFAULT_PAGE_SIZE,
+  type EmployeeDirectorySegment,
+  type EmployeeDirectorySortDir,
+  type EmployeeDirectorySortKey,
 } from "@/lib/admin/employee-directory-data";
 
 type Props = {
@@ -21,6 +22,8 @@ type Props = {
     q: string;
     sort: EmployeeDirectorySortKey;
     dir: EmployeeDirectorySortDir;
+    page?: number;
+    pageSize?: number;
   };
 };
 
@@ -50,6 +53,15 @@ export function EmployeeArchiveButton({
       fd.set("q", directoryFilters.q);
       fd.set("sort", directoryFilters.sort);
       fd.set("dir", directoryFilters.dir);
+      if (directoryFilters.page != null && directoryFilters.page > 1) {
+        fd.set("page", String(directoryFilters.page));
+      }
+      if (
+        directoryFilters.pageSize != null &&
+        directoryFilters.pageSize !== EMPLOYEE_DIRECTORY_DEFAULT_PAGE_SIZE
+      ) {
+        fd.set("page_size", String(directoryFilters.pageSize));
+      }
     }
     startTransition(async () => {
       await archiveEmployeeAction(fd);
