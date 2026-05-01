@@ -31,6 +31,25 @@ export type AssignableStaffOption = {
   label: string;
 };
 
+export type TransferStaffPickOption = {
+  user_id: string;
+  full_name: string | null;
+  email: string | null;
+  /** False when deactivated; included in "from" list for historical transfers. */
+  is_active: boolean;
+};
+
+function formatStaffOptionLabel(s: TransferStaffPickOption): string {
+  const name = (s.full_name ?? "").trim();
+  const email = (s.email ?? "").trim();
+  const primary = name || email || "Staff member";
+  const inactive = s.is_active === false ? " [inactive]" : "";
+  if (name && email) {
+    return `${primary}${inactive} · ${email}`;
+  }
+  return `${primary}${inactive}`;
+}
+
 async function postJson(url: string, body: Record<string, unknown>): Promise<{ ok?: boolean; error?: string }> {
   const res = await fetch(url, {
     method: "POST",
@@ -47,6 +66,8 @@ async function postJson(url: string, body: Record<string, unknown>): Promise<{ o
 export function TwilioPhoneNumbersAdminClient(props: {
   initialNumbers: TwilioNumberRow[];
   assignableStaff: AssignableStaffOption[];
+  transferFromStaff: TransferStaffPickOption[];
+  transferToStaff: TransferStaffPickOption[];
 }) {
   const router = useRouter();
   const [numbers, setNumbers] = useState(props.initialNumbers);
@@ -54,9 +75,12 @@ export function TwilioPhoneNumbersAdminClient(props: {
   const [buyPn, setBuyPn] = useState("");
   const [buyLabel, setBuyLabel] = useState("");
   const [buyErr, setBuyErr] = useState<string | null>(null);
-  const [xferFrom, setXferFrom] = useState("");
-  const [xferTo, setXferTo] = useState("");
+  const [xferFromUserId, setXferFromUserId] = useState("");
+  const [xferToUserId, setXferToUserId] = useState("");
   const [xferPnId, setXferPnId] = useState("");
+  const [xferErr, setXferErr] = useState<string | null>(null);
+  const [xferSuccess, setXferSuccess] = useState<string | null>(null);
+  const [xferBusy, setXferBusy] = useState(false);
   const [syncBusy, setSyncBusy] = useState(false);
 
   const [searchAreaCode, setSearchAreaCode] = useState("480");
@@ -179,17 +203,62 @@ export function TwilioPhoneNumbersAdminClient(props: {
 
   async function onTransferHistory(e: FormEvent) {
     e.preventDefault();
-    const r = await postJson("/api/admin/twilio/phone-numbers/transfer-history", {
-      phoneNumberId: xferPnId.trim(),
-      fromUserId: xferFrom.trim(),
-      toUserId: xferTo.trim(),
-    });
-    if (!r.ok) {
-      alert(r.error ?? "Transfer failed");
+    setXferErr(null);
+    setXferSuccess(null);
+
+    const pnId = xferPnId.trim();
+    const fromId = xferFromUserId.trim();
+    const toId = xferToUserId.trim();
+
+    if (!pnId) {
+      setXferErr("Select the Twilio number to transfer history for.");
       return;
     }
-    alert("Historical messages updated where possible.");
-    await refresh();
+    if (!fromId) {
+      setXferErr("Select transfer from staff.");
+      return;
+    }
+    if (!toId) {
+      setXferErr("Select transfer to staff.");
+      return;
+    }
+    if (fromId === toId) {
+      setXferErr("Transfer from and transfer to must be different staff members.");
+      return;
+    }
+
+    setXferBusy(true);
+    try {
+      const res = await fetch("/api/admin/twilio/phone-numbers/transfer-history", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          phoneNumberId: pnId,
+          fromUserId: fromId,
+          toUserId: toId,
+        }),
+      });
+      const j = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        updatedCount?: number;
+      };
+      if (!res.ok || !j.ok) {
+        setXferErr(j.error ?? "Transfer failed. Try again.");
+        return;
+      }
+      const n = typeof j.updatedCount === "number" ? j.updatedCount : 0;
+      setXferSuccess(
+        n === 0
+          ? "Transfer completed. No message rows matched (they may already belong to the target staff or there was no history for that number)."
+          : `Transfer completed. Updated ${n} message${n === 1 ? "" : "s"}.`
+      );
+      setXferFromUserId("");
+      setXferToUserId("");
+      await refresh();
+    } finally {
+      setXferBusy(false);
+    }
   }
 
   async function onSyncFromTwilio() {
@@ -596,47 +665,87 @@ export function TwilioPhoneNumbersAdminClient(props: {
         </table>
       </div>
 
-      <form onSubmit={onTransferHistory} className="rounded-lg border border-amber-200 bg-amber-50/40 p-4">
-        <h2 className="text-lg font-semibold text-neutral-900">Transfer historical SMS ownership</h2>
-        <p className="mt-1 text-sm text-neutral-700">
-          Moves existing message rows from one staff user to another for the selected Twilio number (explicit admin action).
-        </p>
-        <div className="mt-4 grid gap-3 md:grid-cols-3">
-          <select
-            className="rounded border border-neutral-300 px-3 py-2 text-sm"
-            value={xferPnId}
-            onChange={(e) => setXferPnId(e.target.value)}
-            required
+      <details className="rounded-lg border border-amber-200 bg-amber-50/40 shadow-sm">
+        <summary className="cursor-pointer select-none px-4 py-3 text-base font-semibold text-neutral-900 hover:bg-amber-50/80">
+          Advanced: Transfer historical SMS ownership
+        </summary>
+        <form onSubmit={onTransferHistory} className="border-t border-amber-200/80 px-4 pb-4 pt-3">
+          <p className="text-sm font-medium text-amber-950">
+            This changes ownership of existing SMS history for the selected number. Use only when intentionally moving
+            old conversations from one staff member to another.
+          </p>
+          <div className="mt-4 grid gap-4 md:grid-cols-3">
+            <label className="flex flex-col gap-1 text-xs font-medium text-neutral-800">
+              Twilio number
+              <select
+                className="rounded border border-neutral-300 px-3 py-2 text-sm"
+                value={xferPnId}
+                onChange={(e) => {
+                  setXferPnId(e.target.value);
+                  setXferErr(null);
+                  setXferSuccess(null);
+                }}
+              >
+                <option value="">Select number…</option>
+                {numbers.map((n) => (
+                  <option key={n.id} value={n.id}>
+                    {n.phone_number}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-xs font-medium text-neutral-800">
+              Transfer from staff
+              <select
+                className="rounded border border-neutral-300 px-3 py-2 text-sm"
+                value={xferFromUserId}
+                onChange={(e) => {
+                  setXferFromUserId(e.target.value);
+                  setXferErr(null);
+                  setXferSuccess(null);
+                }}
+              >
+                <option value="">Choose staff…</option>
+                {props.transferFromStaff.map((s) => (
+                  <option key={s.user_id} value={s.user_id}>
+                    {formatStaffOptionLabel(s)}
+                  </option>
+                ))}
+              </select>
+              <span className="font-normal text-neutral-600">Includes inactive accounts for former employees.</span>
+            </label>
+            <label className="flex flex-col gap-1 text-xs font-medium text-neutral-800">
+              Transfer to staff
+              <select
+                className="rounded border border-neutral-300 px-3 py-2 text-sm"
+                value={xferToUserId}
+                onChange={(e) => {
+                  setXferToUserId(e.target.value);
+                  setXferErr(null);
+                  setXferSuccess(null);
+                }}
+              >
+                <option value="">Choose staff…</option>
+                {props.transferToStaff.map((s) => (
+                  <option key={s.user_id} value={s.user_id}>
+                    {formatStaffOptionLabel(s)}
+                  </option>
+                ))}
+              </select>
+              <span className="font-normal text-neutral-600">Active staff with a linked login only.</span>
+            </label>
+          </div>
+          {xferErr ? <p className="mt-3 text-sm text-rose-700">{xferErr}</p> : null}
+          {xferSuccess ? <p className="mt-3 text-sm text-emerald-800">{xferSuccess}</p> : null}
+          <button
+            type="submit"
+            disabled={xferBusy}
+            className="mt-4 rounded bg-amber-700 px-4 py-2 text-sm font-medium text-white hover:bg-amber-800 disabled:opacity-50"
           >
-            <option value="">Select number…</option>
-            {numbers.map((n) => (
-              <option key={n.id} value={n.id}>
-                {n.phone_number}
-              </option>
-            ))}
-          </select>
-          <input
-            className="rounded border border-neutral-300 px-3 py-2 text-sm font-mono"
-            placeholder="From user UUID"
-            value={xferFrom}
-            onChange={(e) => setXferFrom(e.target.value)}
-            required
-          />
-          <input
-            className="rounded border border-neutral-300 px-3 py-2 text-sm font-mono"
-            placeholder="To user UUID"
-            value={xferTo}
-            onChange={(e) => setXferTo(e.target.value)}
-            required
-          />
-        </div>
-        <button
-          type="submit"
-          className="mt-3 rounded bg-amber-700 px-4 py-2 text-sm font-medium text-white hover:bg-amber-800"
-        >
-          Transfer history
-        </button>
-      </form>
+            {xferBusy ? "Transferring…" : "Transfer history"}
+          </button>
+        </form>
+      </details>
     </div>
   );
 }

@@ -26,10 +26,16 @@ export async function POST(req: Request) {
   const toUserId = typeof body.toUserId === "string" ? body.toUserId.trim() : "";
 
   if (!UUID_RE.test(phoneNumberId) || !UUID_RE.test(fromUserId) || !UUID_RE.test(toUserId)) {
-    return NextResponse.json({ error: "Invalid ids." }, { status: 400 });
+    return NextResponse.json(
+      { error: "Select a Twilio number and both staff members (from / to)." },
+      { status: 400 }
+    );
   }
   if (fromUserId === toUserId) {
-    return NextResponse.json({ error: "fromUserId and toUserId must differ." }, { status: 400 });
+    return NextResponse.json(
+      { error: "Transfer from and transfer to must be different staff members." },
+      { status: 400 }
+    );
   }
 
   const { data: toProfile, error: tpErr } = await supabaseAdmin
