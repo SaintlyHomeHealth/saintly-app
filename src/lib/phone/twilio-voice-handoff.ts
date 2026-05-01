@@ -557,3 +557,41 @@ export function buildTwiMLAppIncomingClientRingTwiml(input: {
   </Dial>
 </Response>`.trim();
 }
+
+/**
+ * Inbound PSTN to a staff-owned Twilio number: ring that staff's Voice.js identity first; on no-answer,
+ * fall through to inbound-browser-fallback (company ring group / voicemail).
+ */
+export function buildStaffAssignedInboundDialTwiml (input: {
+  publicBase: string;
+  pstnCallerE164: string;
+  staffUserId: string;
+  clientDialExtras?: InboundCallerClientDialExtras | null;
+}): string {
+  const base = input.publicBase.trim().replace(/\/$/, "");
+  const uid = input.staffUserId.trim();
+  if (!base || !uid) {
+    return `<?xml version="1.0" encoding="UTF-8"?><Response></Response>`;
+  }
+  const identity = softphoneTwilioClientIdentity(uid);
+  const pstn = input.pstnCallerE164.trim();
+  const browserFallbackActionUrl = `${base}/api/twilio/voice/inbound-browser-fallback`;
+  const statusCallbackUrl = `${base}/api/twilio/voice/status`;
+  const browserRingSec = resolveBrowserFirstRingTimeoutSeconds();
+  const callerIdForDial = resolveInboundCallerIdForClientDial(pstn, "");
+
+  const browserDialAttrs = ` answerOnBridge="true" timeout="${browserRingSec}" callerId="${escapeXml(
+    callerIdForDial
+  )}" action="${escapeXml(browserFallbackActionUrl)}" method="POST" statusCallback="${escapeXml(
+    statusCallbackUrl
+  )}" statusCallbackMethod="POST" statusCallbackEvent="initiated ringing answered completed"`;
+
+  const clientBody = clientDialNounXml(identity, pstn, input.clientDialExtras ?? null);
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Dial${browserDialAttrs}>
+    ${clientBody}
+  </Dial>
+</Response>`.trim();
+}

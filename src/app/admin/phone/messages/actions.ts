@@ -9,8 +9,8 @@ import { logSmsMessageForLeadTimeline } from "@/lib/crm/lead-communication-activ
 import { UNKNOWN_TEXTER_METADATA_KEY } from "@/lib/phone/sms-conversation-thread";
 import { buildInitialTwilioDeliveryFromRestResponse } from "@/lib/phone/sms-delivery-ui";
 import { mergeTelemetryOnSend, mergeTelemetryOnShown } from "@/lib/phone/sms-suggestion-telemetry";
+import { staffMayAccessSmsConversation } from "@/lib/phone/staff-sms-conversation-access-async";
 import {
-  canStaffAccessConversationRow,
   canStaffClaimConversation,
 } from "@/lib/phone/staff-conversation-access";
 import {
@@ -26,6 +26,7 @@ import {
 } from "@/lib/twilio/manual-inbox-sms-from";
 import { logSmsDebug } from "@/lib/twilio/sms-debug";
 import { sendSms } from "@/lib/twilio/send-sms";
+import { resolveWorkspaceThreadOutboundSmsIdentity } from "@/lib/twilio/workspace-outbound-sms-identity";
 import {
   isSaintlyBackupSmsE164,
   resolveDefaultTwilioSmsFromOrMsid,
@@ -126,14 +127,17 @@ export async function markSmsThreadInboundViewed(conversationId: string): Promis
   const { row } = await loadConversationForAccess(conversationId);
   if (!row) return { ok: false, error: "Conversation not found." };
   if (
-    !canStaffAccessConversationRow(staff, {
+    !(await staffMayAccessSmsConversation(supabaseAdmin, staff, row.id, {
       assigned_to_user_id: row.assigned_to_user_id,
-    })
+    }))
   ) {
     return { ok: false, error: "You do not have access to this conversation." };
   }
 
-  const marked = await markInboundMessagesViewedForConversation(conversationId);
+  const marked = await markInboundMessagesViewedForConversation(conversationId, {
+    userId: staff.user_id,
+    fullAccess: hasFullCallVisibility(staff),
+  });
   if (marked > 0) {
     revalidateSmsConversationViews(conversationId);
   }
@@ -149,9 +153,9 @@ export async function markLatestInboundUnreadForDebug(conversationId: string): P
   const { row } = await loadConversationForAccess(conversationId);
   if (!row) return { ok: false, error: "Conversation not found." };
   if (
-    !canStaffAccessConversationRow(staff, {
+    !(await staffMayAccessSmsConversation(supabaseAdmin, staff, row.id, {
       assigned_to_user_id: row.assigned_to_user_id,
-    })
+    }))
   ) {
     return { ok: false, error: "You do not have access to this conversation." };
   }
@@ -332,9 +336,9 @@ export async function updateConversationLeadStatus(formData: FormData): Promise<
   }
 
   if (
-    !canStaffAccessConversationRow(staff, {
+    !(await staffMayAccessSmsConversation(supabaseAdmin, staff, row.id, {
       assigned_to_user_id: row.assigned_to_user_id,
-    })
+    }))
   ) {
     return { ok: false, error: "You do not have access to this conversation." };
   }
@@ -407,9 +411,9 @@ export async function updateConversationFollowUp(formData: FormData): Promise<Me
   }
 
   if (
-    !canStaffAccessConversationRow(staff, {
+    !(await staffMayAccessSmsConversation(supabaseAdmin, staff, row.id, {
       assigned_to_user_id: row.assigned_to_user_id,
-    })
+    }))
   ) {
     return { ok: false, error: "You do not have access to this conversation." };
   }
@@ -451,9 +455,9 @@ export async function completeConversationFollowUp(formData: FormData): Promise<
   }
 
   if (
-    !canStaffAccessConversationRow(staff, {
+    !(await staffMayAccessSmsConversation(supabaseAdmin, staff, row.id, {
       assigned_to_user_id: row.assigned_to_user_id,
-    })
+    }))
   ) {
     return { ok: false, error: "You do not have access to this conversation." };
   }
@@ -494,9 +498,9 @@ export async function clearConversationFollowUp(formData: FormData): Promise<Mes
   }
 
   if (
-    !canStaffAccessConversationRow(staff, {
+    !(await staffMayAccessSmsConversation(supabaseAdmin, staff, row.id, {
       assigned_to_user_id: row.assigned_to_user_id,
-    })
+    }))
   ) {
     return { ok: false, error: "You do not have access to this conversation." };
   }
@@ -571,9 +575,9 @@ export async function sendConversationSms(formData: FormData): Promise<SendConve
   }
 
   if (
-    !canStaffAccessConversationRow(staff, {
+    !(await staffMayAccessSmsConversation(supabaseAdmin, staff, row.id, {
       assigned_to_user_id: row.assigned_to_user_id,
-    })
+    }))
   ) {
     console.warn("[sms-send] forbidden: conversation row", { conversationId });
     return { ok: false, error: "You do not have access to this conversation." };
@@ -597,24 +601,33 @@ export async function sendConversationSms(formData: FormData): Promise<SendConve
     });
   }
 
-  let fromOverride: string | undefined;
-  /** When set, persist to `conversations.preferred_from_e164` after a successful send. */
-  let persistPreferredE164: string | undefined;
-
-  if (manualResolved.source === "explicit") {
-    fromOverride = manualResolved.fromOverride;
-    persistPreferredE164 = manualResolved.fromOverride;
-  } else {
-    const pref = allowlistedOutboundE164OrUndefined(row.preferred_from_e164);
-    if (row.preferred_from_e164 && !pref) {
-      logSmsDebug("[sms-send] preferred_from_ignored", {
-        preferred_from_e164: row.preferred_from_e164,
-      });
-    }
-    if (pref && shouldHonorThreadPreferredFromE164(pref, row.metadata)) {
-      fromOverride = pref;
-    }
+  const pref = allowlistedOutboundE164OrUndefined(row.preferred_from_e164);
+  if (row.preferred_from_e164 && !pref) {
+    logSmsDebug("[sms-send] preferred_from_ignored", {
+      preferred_from_e164: row.preferred_from_e164,
+    });
   }
+  const honorThreadPreferred = Boolean(
+    pref && shouldHonorThreadPreferredFromE164(pref, row.metadata)
+  );
+
+  const identity = await resolveWorkspaceThreadOutboundSmsIdentity(supabaseAdmin, staff, {
+    manualResolved,
+    threadPreferredE164: pref,
+    honorThreadPreferred,
+  });
+  if (!identity.ok) {
+    return { ok: false, error: identity.error };
+  }
+
+  let persistPreferredE164: string | undefined;
+  if (manualResolved.source === "explicit") {
+    persistPreferredE164 = manualResolved.fromOverride;
+  } else if (honorThreadPreferred && pref) {
+    persistPreferredE164 = pref;
+  }
+
+  const fromOverride = identity.fromOverride;
 
   logSmsDebug("[sms-twilio] send start", { conversationId, to, bodyLen: body.length });
   const sent = await sendSms({
@@ -634,7 +647,10 @@ export async function sendConversationSms(formData: FormData): Promise<SendConve
   logSmsDebug("[sms-twilio] send ok", { conversationId, messageSid: sent.messageSid });
 
   const now = new Date().toISOString();
-  const resolvedFrom = (fromOverride ?? "").trim() || resolveDefaultTwilioSmsFromOrMsid();
+  const resolvedFrom =
+    identity.fromE164ForMessage ??
+    (fromOverride && !fromOverride.startsWith("MG") ? fromOverride : null) ??
+    resolveDefaultTwilioSmsFromOrMsid();
   const fromE164ForLog = resolvedFrom.startsWith("MG") ? null : resolvedFrom;
 
   const { data: insertedMsg, error: insErr } = await supabaseAdmin
@@ -644,6 +660,11 @@ export async function sendConversationSms(formData: FormData): Promise<SendConve
       direction: "outbound",
       body,
       external_message_sid: sent.messageSid,
+      owner_user_id: identity.ownerUserId,
+      owner_staff_profile_id: identity.ownerStaffProfileId,
+      from_number: fromE164ForLog,
+      to_number: to,
+      twilio_phone_number_id: identity.twilioPhoneNumberId,
       metadata: {
         sent_by_user_id: staff.user_id,
         twilio_delivery: buildInitialTwilioDeliveryFromRestResponse({
@@ -737,9 +758,9 @@ export async function recordSmsSuggestionShown(
   }
 
   if (
-    !canStaffAccessConversationRow(staff, {
+    !(await staffMayAccessSmsConversation(supabaseAdmin, staff, row.id, {
       assigned_to_user_id: row.assigned_to_user_id,
-    })
+    }))
   ) {
     return { ok: false, error: "You do not have access to this conversation." };
   }
@@ -829,9 +850,9 @@ export async function createContactIntakeFromConversation(
   }
 
   if (
-    !canStaffAccessConversationRow(staff, {
+    !(await staffMayAccessSmsConversation(supabaseAdmin, staff, row!.id, {
       assigned_to_user_id: row!.assigned_to_user_id,
-    })
+    }))
   ) {
     return { ok: false, error: "You do not have access to this conversation." };
   }
@@ -952,9 +973,9 @@ export async function saveSmsThreadContact(formData: FormData): Promise<SaveSmsT
   }
 
   if (
-    !canStaffAccessConversationRow(staff, {
+    !(await staffMayAccessSmsConversation(supabaseAdmin, staff, row.id, {
       assigned_to_user_id: row.assigned_to_user_id,
-    })
+    }))
   ) {
     return { ok: false, error: "You do not have access to this thread." };
   }

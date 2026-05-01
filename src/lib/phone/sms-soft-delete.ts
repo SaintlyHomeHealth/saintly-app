@@ -2,8 +2,9 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { canStaffAccessConversationRow } from "@/lib/phone/staff-conversation-access";
+import { staffMayAccessSmsConversation } from "@/lib/phone/staff-sms-conversation-access-async";
 import type { StaffProfile } from "@/lib/staff-profile";
+import { hasFullCallVisibility } from "@/lib/staff-profile";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -84,18 +85,31 @@ export async function softDeleteSmsMessage(
     return { ok: false, error: "conversation_not_found" };
   }
 
-  if (!canStaffAccessConversationRow(staff, { assigned_to_user_id: conv.assigned_to_user_id })) {
+  const may = await staffMayAccessSmsConversation(supabase, staff, conversationId, {
+    assigned_to_user_id: conv.assigned_to_user_id,
+  });
+  if (!may) {
     return { ok: false, error: "forbidden" };
   }
 
   const { data: msg, error: msgLoadErr } = await supabase
     .from("messages")
-    .select("id, conversation_id, deleted_at")
+    .select("id, conversation_id, deleted_at, owner_user_id")
     .eq("id", messageId)
     .maybeSingle();
 
   if (msgLoadErr || !msg?.id || String(msg.conversation_id) !== conversationId) {
     return { ok: false, error: "message_not_found" };
+  }
+
+  if (!hasFullCallVisibility(staff)) {
+    const ow =
+      msg.owner_user_id != null && String(msg.owner_user_id).trim() !== ""
+        ? String(msg.owner_user_id).trim()
+        : null;
+    if (ow !== staff.user_id) {
+      return { ok: false, error: "forbidden" };
+    }
   }
 
   if (msg.deleted_at != null && String(msg.deleted_at).trim() !== "") {
@@ -137,7 +151,14 @@ export async function softDeleteSmsConversation(
     return { ok: false, error: "conversation_not_found" };
   }
 
-  if (!canStaffAccessConversationRow(staff, { assigned_to_user_id: conv.assigned_to_user_id })) {
+  const may = await staffMayAccessSmsConversation(supabase, staff, conversationId, {
+    assigned_to_user_id: conv.assigned_to_user_id,
+  });
+  if (!may) {
+    return { ok: false, error: "forbidden" };
+  }
+
+  if (!hasFullCallVisibility(staff)) {
     return { ok: false, error: "forbidden" };
   }
 

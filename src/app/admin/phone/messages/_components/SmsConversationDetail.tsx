@@ -36,8 +36,8 @@ import {
   routePerfStepsEnabled,
   routePerfTimed,
 } from "@/lib/perf/route-perf";
+import { staffMayAccessSmsConversation } from "@/lib/phone/staff-sms-conversation-access-async";
 import {
-  canStaffAccessConversationRow,
   canStaffClaimConversation,
 } from "@/lib/phone/staff-conversation-access";
 import {
@@ -218,11 +218,10 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
       ? String(conv.assigned_to_user_id)
       : null;
 
-  if (
-    !canStaffAccessConversationRow(staff, {
-      assigned_to_user_id: assignedTo,
-    })
-  ) {
+  const mayAccess = await staffMayAccessSmsConversation(supabase, staff, conversationId, {
+    assigned_to_user_id: assignedTo,
+  });
+  if (!mayAccess) {
     notFound();
   }
 

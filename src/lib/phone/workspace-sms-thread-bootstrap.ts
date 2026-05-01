@@ -7,7 +7,7 @@ import {
   WORKSPACE_SMS_THREAD_INITIAL_MESSAGE_LIMIT,
   type WorkspaceSmsThreadMessage,
 } from "@/lib/phone/workspace-sms-thread-messages";
-import { canStaffAccessConversationRow } from "@/lib/phone/staff-conversation-access";
+import { staffMayAccessSmsConversation } from "@/lib/phone/staff-sms-conversation-access-async";
 import { canAccessWorkspacePhone, getStaffProfile, type StaffProfile } from "@/lib/staff-profile";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { SMS_OUTBOUND_FROM_EXPLICIT_KEY } from "@/lib/twilio/sms-from-numbers";
@@ -94,11 +94,10 @@ export async function loadWorkspaceSmsThreadBootstrap(
       ? String(conv.assigned_to_user_id)
       : null;
 
-  if (
-    !canStaffAccessConversationRow(staff, {
-      assigned_to_user_id: assignedTo,
-    })
-  ) {
+  const may = await staffMayAccessSmsConversation(supabase, staff, cid, {
+    assigned_to_user_id: assignedTo,
+  });
+  if (!may) {
     return { ok: false, error: "You do not have access to this conversation." };
   }
 

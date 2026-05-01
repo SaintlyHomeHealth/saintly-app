@@ -16,7 +16,8 @@ const UNREAD_COUNT_PAGE_SIZE = 1000;
  */
 export async function countUnreadInboundByConversationIds(
   _supabase: SupabaseClient,
-  conversationIds: string[]
+  conversationIds: string[],
+  opts?: { restrictOwnerUserId?: string | null }
 ): Promise<Record<string, number>> {
   const out: Record<string, number> = {};
   for (const id of conversationIds) out[id] = 0;
@@ -26,7 +27,7 @@ export async function countUnreadInboundByConversationIds(
   let from = 0;
 
   for (;;) {
-    const { data, error } = await client
+    let q = client
       .from("messages")
       .select("conversation_id")
       .in("conversation_id", conversationIds)
@@ -36,6 +37,11 @@ export async function countUnreadInboundByConversationIds(
       .not("message_type", "eq", "voicemail")
       .order("id", { ascending: true })
       .range(from, from + UNREAD_COUNT_PAGE_SIZE - 1);
+
+    const restrict = opts?.restrictOwnerUserId?.trim();
+    if (restrict) {
+      q = q.eq("owner_user_id", restrict);
+    }
 
     if (error) {
       console.warn("[sms-unread] countUnreadInboundByConversationIds:", error.message);
@@ -67,16 +73,24 @@ export async function countUnreadInboundByConversationIds(
 /**
  * Mark all inbound messages in a thread as viewed (service role; RLS has no messages UPDATE for staff).
  */
-export async function markInboundMessagesViewedForConversation(conversationId: string): Promise<number> {
+export async function markInboundMessagesViewedForConversation(
+  conversationId: string,
+  viewer?: { userId: string; fullAccess: boolean }
+): Promise<number> {
   const now = new Date().toISOString();
-  const { data, error } = await supabaseAdmin
+  let q = supabaseAdmin
     .from("messages")
     .update({ viewed_at: now })
     .eq("conversation_id", conversationId)
     .eq("direction", "inbound")
     .is("viewed_at", null)
-    .is("deleted_at", null)
-    .select("id");
+    .is("deleted_at", null);
+
+  if (viewer && !viewer.fullAccess) {
+    q = q.eq("owner_user_id", viewer.userId);
+  }
+
+  const { data, error } = await q.select("id");
 
   if (error) {
     console.warn("[sms-unread] markInboundMessagesViewedForConversation:", error.message);

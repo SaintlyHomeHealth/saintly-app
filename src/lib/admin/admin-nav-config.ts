@@ -24,6 +24,7 @@ export const ADMIN_NAV_LABELS = {
   employees: "Employees",
   payroll: "Payroll",
   staffAccess: "Staff Access",
+  phoneNumbers: "Phone numbers",
 } as const;
 
 export type AdminNavItemId =
@@ -40,7 +41,8 @@ export type AdminNavItemId =
   | "dispatch"
   | "employees"
   | "payroll"
-  | "staff_access";
+  | "staff_access"
+  | "phone_numbers";
 
 export type AdminNavItemResolved = {
   id: AdminNavItemId;
@@ -177,6 +179,12 @@ export function buildAdminNavItems(staff: StaffProfile | null): AdminNavItemReso
     },
     ...(admin
       ? [
+          {
+            id: "phone_numbers" as const,
+            label: ADMIN_NAV_LABELS.phoneNumbers,
+            href: "/admin/phone-numbers",
+            disabled: false,
+          },
           {
             id: "staff_access" as const,
             label: ADMIN_NAV_LABELS.staffAccess,

@@ -27,10 +27,6 @@ export async function workspaceInboxHasUnreadInbound(
     .order("last_message_at", { ascending: false, nullsFirst: false })
     .limit(WORKSPACE_SMS_INBOX_CONVERSATION_FETCH);
 
-  if (!hasFull) {
-    q = q.or(`assigned_to_user_id.eq.${staff.user_id},assigned_to_user_id.is.null`);
-  }
-
   const { data: convRows, error } = routePerfStepsEnabled()
     ? await routePerfTimed("workspace_inbox_unread.conversations", () => q)
     : await q;
@@ -52,7 +48,13 @@ export async function workspaceInboxHasUnreadInbound(
   if (ids.length === 0) return false;
 
   const unreadByConvId = routePerfStepsEnabled()
-    ? await routePerfTimed("workspace_inbox_unread.counts", () => countUnreadInboundByConversationIds(supabase, ids))
-    : await countUnreadInboundByConversationIds(supabase, ids);
+    ? await routePerfTimed("workspace_inbox_unread.counts", () =>
+        countUnreadInboundByConversationIds(supabase, ids, {
+          restrictOwnerUserId: hasFull ? undefined : staff.user_id,
+        })
+      )
+    : await countUnreadInboundByConversationIds(supabase, ids, {
+        restrictOwnerUserId: hasFull ? undefined : staff.user_id,
+      });
   return Object.values(unreadByConvId).some((n) => (n ?? 0) > 0);
 }

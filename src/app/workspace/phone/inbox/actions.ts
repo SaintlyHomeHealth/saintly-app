@@ -2,20 +2,25 @@
 
 import { revalidatePath } from "next/cache";
 
-import { canStaffAccessConversationRow } from "@/lib/phone/staff-conversation-access";
+import { canStaffAccessPhoneCallRow } from "@/lib/phone/staff-call-access";
 import { mergeTelemetryOnSend } from "@/lib/phone/sms-suggestion-telemetry";
 import { softDeleteSmsConversation, softDeleteSmsMessage } from "@/lib/phone/sms-soft-delete";
 import { buildInitialTwilioDeliveryFromRestResponse } from "@/lib/phone/sms-delivery-ui";
 import { ensureSmsConversationForPhone } from "@/lib/phone/sms-conversation-thread";
 import { resolveContactAndPhoneForWorkspaceNewSms } from "@/lib/phone/workspace-new-sms-resolve";
-import { resolveManualInboxSmsFromOverride } from "@/lib/twilio/manual-inbox-sms-from";
+import {
+  allowlistedOutboundE164OrUndefined,
+  resolveManualInboxSmsFromOverride,
+} from "@/lib/twilio/manual-inbox-sms-from";
 import { logSmsDebug } from "@/lib/twilio/sms-debug";
 import { sendSms } from "@/lib/twilio/send-sms";
 import {
   isSaintlyBackupSmsE164,
   resolveDefaultTwilioSmsFromOrMsid,
   SMS_OUTBOUND_FROM_EXPLICIT_KEY,
+  shouldHonorThreadPreferredFromE164,
 } from "@/lib/twilio/sms-from-numbers";
+import { resolveWorkspaceThreadOutboundSmsIdentity } from "@/lib/twilio/workspace-outbound-sms-identity";
 import { canAccessWorkspacePhone, getStaffProfile } from "@/lib/staff-profile";
 import { supabaseAdmin } from "@/lib/admin";
 
@@ -89,7 +94,7 @@ export async function softDeleteWorkspaceVoicemailListItem(
 
   const { data: callRow, error: callErr } = await supabaseAdmin
     .from("phone_calls")
-    .select("id, assigned_to_user_id, metadata")
+    .select("id, assigned_to_user_id, owner_user_id, metadata")
     .eq("id", id)
     .maybeSingle();
 
@@ -102,7 +107,17 @@ export async function softDeleteWorkspaceVoicemailListItem(
       ? String(callRow.assigned_to_user_id)
       : null;
 
-  if (!canStaffAccessConversationRow(staff, { assigned_to_user_id: assignedTo })) {
+  const ownerUid =
+    callRow.owner_user_id != null && String(callRow.owner_user_id).trim() !== ""
+      ? String(callRow.owner_user_id)
+      : null;
+
+  if (
+    !canStaffAccessPhoneCallRow(staff, {
+      assigned_to_user_id: assignedTo,
+      owner_user_id: ownerUid,
+    })
+  ) {
     return { ok: false, error: "forbidden" };
   }
 
@@ -304,6 +319,12 @@ export async function sendWorkspaceNewSms(formData: FormData): Promise<Workspace
 
   const conversationId = ensured.conversationId;
 
+  const { data: convPrefRow } = await supabaseAdmin
+    .from("conversations")
+    .select("preferred_from_e164, metadata")
+    .eq("id", conversationId)
+    .maybeSingle();
+
   const manualFromRaw = String(formData.get("smsManualFromE164") ?? "").trim();
   logSmsDebug("[sms-send] backend_received_from", {
     smsManualFromE164: manualFromRaw || null,
@@ -317,13 +338,33 @@ export async function sendWorkspaceNewSms(formData: FormData): Promise<Workspace
     });
   }
 
-  const fromOverride = manualResolved.source === "explicit" ? manualResolved.fromOverride : undefined;
-  const persistPreferredE164 = manualResolved.source === "explicit" ? manualResolved.fromOverride : undefined;
+  const pref = allowlistedOutboundE164OrUndefined(
+    typeof convPrefRow?.preferred_from_e164 === "string" ? convPrefRow.preferred_from_e164 : ""
+  );
+  const honorThreadPreferred = Boolean(
+    pref && shouldHonorThreadPreferredFromE164(pref, convPrefRow?.metadata ?? {})
+  );
+
+  const identity = await resolveWorkspaceThreadOutboundSmsIdentity(supabaseAdmin, staff, {
+    manualResolved,
+    threadPreferredE164: pref,
+    honorThreadPreferred,
+  });
+  if (!identity.ok) {
+    return { ok: false, error: identity.error };
+  }
+
+  const persistPreferredE164 =
+    manualResolved.source === "explicit"
+      ? manualResolved.fromOverride
+      : honorThreadPreferred && pref
+        ? pref
+        : undefined;
 
   const sent = await sendSms({
     to: e164,
     body,
-    ...(fromOverride ? { fromOverride } : {}),
+    ...(identity.fromOverride ? { fromOverride: identity.fromOverride } : {}),
     logManualInboxSend: true,
   });
 
@@ -340,7 +381,10 @@ export async function sendWorkspaceNewSms(formData: FormData): Promise<Workspace
   }
 
   const now = new Date().toISOString();
-  const resolvedFrom = (fromOverride ?? "").trim() || resolveDefaultTwilioSmsFromOrMsid();
+  const resolvedFrom =
+    identity.fromE164ForMessage ??
+    (identity.fromOverride && !identity.fromOverride.startsWith("MG") ? identity.fromOverride : null) ??
+    resolveDefaultTwilioSmsFromOrMsid();
   const fromE164ForLog = resolvedFrom.startsWith("MG") ? null : resolvedFrom;
 
   const { error: insErr } = await supabaseAdmin.from("messages").insert({
@@ -348,6 +392,11 @@ export async function sendWorkspaceNewSms(formData: FormData): Promise<Workspace
     direction: "outbound",
     body,
     external_message_sid: sent.messageSid,
+    owner_user_id: identity.ownerUserId,
+    owner_staff_profile_id: identity.ownerStaffProfileId,
+    from_number: fromE164ForLog,
+    to_number: e164,
+    twilio_phone_number_id: identity.twilioPhoneNumberId,
     metadata: {
       sent_by_user_id: staff.user_id,
       source: "workspace_new_sms",

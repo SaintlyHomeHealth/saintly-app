@@ -7,6 +7,7 @@ import { logSmsMessageForLeadTimeline } from "@/lib/crm/lead-communication-activ
 import { notifyInboundSmsAfterPersist } from "@/lib/push/notify-inbound-sms";
 import { ensureSmsConversationForPhone } from "@/lib/phone/sms-conversation-thread";
 import { scheduleSmsReplySuggestionGeneration } from "@/lib/phone/sms-reply-suggestion";
+import { findTwilioPhoneNumberByToE164 } from "@/lib/twilio/twilio-phone-number-repo";
 import { isValidE164, normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
 
 export type InboundTwilioSmsParams = Record<string, string>;
@@ -102,6 +103,12 @@ export async function applyInboundTwilioSms(
   }
 
   let inboundToAllowed = false;
+  const tnInbound = await findTwilioPhoneNumberByToE164(supabase, toRaw);
+  const poolRowActive =
+    tnInbound &&
+    tnInbound.status !== "retired" &&
+    tnInbound.sms_enabled !== false;
+
   if (usesMessagingServiceSid) {
     /** Twilio routes inbound to any long code on the service; do not tie to a single env number. */
     inboundToAllowed = true;
@@ -114,7 +121,7 @@ export async function applyInboundTwilioSms(
     });
   } else {
     const allowedTo = buildInboundAllowedToE164Set();
-    inboundToAllowed = allowedTo.has(toE164);
+    inboundToAllowed = allowedTo.has(toE164) || Boolean(poolRowActive);
     console.log("[sms-inbound] inbound_to_validation", {
       fromE164,
       toE164,
@@ -122,6 +129,7 @@ export async function applyInboundTwilioSms(
       inboundToAllowed,
       allowlistSize: allowedTo.size,
       twilioSmsFromKind: "e164",
+      poolMatch: Boolean(poolRowActive),
     });
     if (!inboundToAllowed) {
       console.warn("[sms-inbound] To not in inbound allowlist (TWILIO_SMS_FROM + optional TWILIO_INBOUND_ALLOWED_TO_NUMBERS + defaults)", {
@@ -148,6 +156,36 @@ export async function applyInboundTwilioSms(
   smsTiming("after_ensure_conversation", { conversationId });
   console.log("[sms-inbound] conversation", { conversationId, matchedContact: Boolean(contact?.id) });
 
+  const { data: convSnap } = await supabase
+    .from("conversations")
+    .select("assigned_to_user_id")
+    .eq("id", conversationId)
+    .maybeSingle();
+
+  const convAssignedRaw =
+    convSnap?.assigned_to_user_id != null && String(convSnap.assigned_to_user_id).trim() !== ""
+      ? String(convSnap.assigned_to_user_id).trim()
+      : null;
+
+  let ownerUserId: string | null = null;
+  let ownerStaffProfileId: string | null = null;
+  let twilioPhoneNumberId: string | null = null;
+
+  if (poolRowActive && tnInbound) {
+    twilioPhoneNumberId = tnInbound.id;
+    ownerStaffProfileId =
+      tnInbound.assigned_staff_profile_id != null && String(tnInbound.assigned_staff_profile_id).trim() !== ""
+        ? String(tnInbound.assigned_staff_profile_id).trim()
+        : null;
+    if (tnInbound.assigned_user_id != null && String(tnInbound.assigned_user_id).trim() !== "") {
+      ownerUserId = String(tnInbound.assigned_user_id).trim();
+    }
+  }
+
+  if (!ownerUserId && convAssignedRaw) {
+    ownerUserId = convAssignedRaw;
+  }
+
   const metadata = {
     twilio_account_sid: params.AccountSid ?? null,
     twilio_api_version: params.ApiVersion ?? null,
@@ -164,6 +202,11 @@ export async function applyInboundTwilioSms(
       direction: "inbound",
       body: body.slice(0, 32000),
       external_message_sid: messageSid,
+      owner_user_id: ownerUserId,
+      owner_staff_profile_id: ownerStaffProfileId,
+      from_number: fromE164,
+      to_number: toE164,
+      twilio_phone_number_id: twilioPhoneNumberId,
       metadata,
     })
     .select("id, conversation_id, direction, viewed_at")
@@ -222,6 +265,8 @@ export async function applyInboundTwilioSms(
       matchedContact: contact,
       primaryContactId: ensured.primaryContactId,
       externalMessageSid: messageSid,
+      includeAdminRecipients:
+        Boolean(tnInbound?.assigned_user_id) && tnInbound?.status === "assigned",
     });
     console.log("[sms-inbound] sms_push_await_finished", { conversationId, messageId: insertedMsg?.id });
   } catch (e) {
@@ -240,13 +285,20 @@ export async function applyInboundTwilioSms(
   smsTiming("before_conversation_touch");
   const now = new Date().toISOString();
 
-  const { error: touchErr } = await supabase
-    .from("conversations")
-    .update({
-      last_message_at: now,
-      updated_at: now,
-    })
-    .eq("id", conversationId);
+  const convPatch: Record<string, unknown> = {
+    last_message_at: now,
+    updated_at: now,
+  };
+  if (
+    ownerUserId &&
+    tnInbound?.assigned_user_id &&
+    String(tnInbound.assigned_user_id).trim() === ownerUserId.trim()
+  ) {
+    convPatch.assigned_to_user_id = ownerUserId;
+    convPatch.assigned_at = now;
+  }
+
+  const { error: touchErr } = await supabase.from("conversations").update(convPatch).eq("id", conversationId);
 
   if (touchErr) {
     console.warn("[sms-inbound] last_message_at touch:", touchErr.message);

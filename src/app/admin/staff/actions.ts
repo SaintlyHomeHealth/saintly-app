@@ -18,6 +18,7 @@ import { normalizeStaffLookupEmail } from "@/lib/admin/staff-auth-shared";
 import { logStaffInsertFailure, type StaffInsertPostgrestError } from "@/lib/admin/staff-insert-error-debug";
 import { insertAuditLog } from "@/lib/audit-log";
 import { supabaseAdmin } from "@/lib/admin";
+import { releaseTwilioNumbersForStaffUser } from "@/lib/twilio/twilio-phone-number-repo";
 import { normalizePhone } from "@/lib/phone/us-phone-format";
 import {
   getStaffProfile,
@@ -838,6 +839,13 @@ export async function removeStaffRecord(formData: FormData) {
       redirect("/admin/staff?err=update");
     }
 
+    await releaseTwilioNumbersForStaffUser(supabaseAdmin, {
+      staffUserId: userId,
+      staffProfileId: id,
+      releasedByUserId: actor.user_id,
+      reason: "staff_deactivated",
+    });
+
     await insertAuditLog({
       action: "staff.remove_deactivated",
       entityType: "staff_profiles",
@@ -1040,6 +1048,13 @@ export async function staffListDeactivateAction(staffProfileId: string): Promise
     console.warn("[staff] staffListDeactivateAction:", error.message);
     return { ok: false, error: "Update failed." };
   }
+
+  await releaseTwilioNumbersForStaffUser(supabaseAdmin, {
+    staffUserId: userId,
+    staffProfileId: id,
+    releasedByUserId: actor.user_id,
+    reason: "staff_deactivated",
+  });
 
   await insertAuditLog({
     action: "staff.remove_deactivated",

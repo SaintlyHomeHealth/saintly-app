@@ -184,10 +184,6 @@ export default async function WorkspaceInboxPage(props: PageProps) {
     .order("last_message_at", { ascending: false, nullsFirst: false })
     .limit(WORKSPACE_SMS_INBOX_CONVERSATION_FETCH);
 
-  if (!hasFull) {
-    q = q.or(`assigned_to_user_id.eq.${staff.user_id},assigned_to_user_id.is.null`);
-  }
-
   const { data: convRows, error } = routePerfStepsEnabled()
     ? await routePerfTimed("conversations_list", () => q)
     : await q;
@@ -247,8 +243,14 @@ export default async function WorkspaceInboxPage(props: PageProps) {
   const previewRowCap = smsInboxPreviewMessageRowCap(ids.length);
   const [unreadByConvId, previewQueryRes] = await Promise.all([
     routePerfStepsEnabled()
-      ? routePerfTimed("unread_counts", () => countUnreadInboundByConversationIds(supabase, ids))
-      : countUnreadInboundByConversationIds(supabase, ids),
+      ? routePerfTimed("unread_counts", () =>
+          countUnreadInboundByConversationIds(supabase, ids, {
+            restrictOwnerUserId: hasFull ? undefined : staff.user_id,
+          })
+        )
+      : countUnreadInboundByConversationIds(supabase, ids, {
+          restrictOwnerUserId: hasFull ? undefined : staff.user_id,
+        }),
     ids.length === 0
       ? Promise.resolve({ data: null as { conversation_id?: string; body?: string }[] | null })
       : routePerfStepsEnabled()

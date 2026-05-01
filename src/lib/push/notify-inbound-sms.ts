@@ -6,7 +6,7 @@ import type { CrmContactMatch } from "@/lib/crm/find-contact-by-incoming-phone";
 import { buildIncomingContactDisplayName, type IncomingCallerContactRow } from "@/lib/crm/incoming-caller-lookup";
 import { fcmSmsPushDeployFingerprint } from "@/lib/push/fcm-sms-push-diagnostics";
 import { sendFcmDataAndNotificationToUserIds } from "@/lib/push/send-fcm-to-user-ids";
-import { resolveSmsPushRecipientUserIds } from "@/lib/push/resolve-sms-push-recipients";
+import { resolveSmsPushAdminUserIds, resolveSmsPushRecipientUserIds } from "@/lib/push/resolve-sms-push-recipients";
 import { formatPhoneNumber } from "@/lib/phone/us-phone-format";
 
 function truncate(s: string, max: number): string {
@@ -81,8 +81,8 @@ export async function notifyInboundSmsAfterPersist(
     matchedContact?: CrmContactMatch | null;
     /** From `ensureSmsConversationForPhone` — used when the thread is linked but phone match returned null. */
     primaryContactId?: string | null;
-    /** Twilio MessageSid — used for APNs collapse id so each SMS is a distinct alert. */
-    externalMessageSid?: string | null;
+    /** When true, merge active admin/super_admin recipients (staff-direct Twilio lines). */
+    includeAdminRecipients?: boolean | undefined;
   }
 ): Promise<void> {
   if (process.env.SAINTLY_PUSH_SMS_DISABLED === "1") {
@@ -96,7 +96,11 @@ export async function notifyInboundSmsAfterPersist(
       deploy: fcmSmsPushDeployFingerprint(),
     });
     pushTiming("before_resolve_recipients");
-    const userIds = await resolveSmsPushRecipientUserIds(supabase, input.conversationId);
+    let userIds = await resolveSmsPushRecipientUserIds(supabase, input.conversationId);
+    if (input.includeAdminRecipients) {
+      const admins = await resolveSmsPushAdminUserIds(supabase);
+      userIds = [...new Set([...userIds, ...admins])];
+    }
     pushTiming("after_resolve_recipients", { recipientUserCount: userIds.length });
     if (userIds.length === 0) {
       console.log("[push] inbound SMS notify skipped", { reason: "no_recipient_user_ids", conversationId: input.conversationId.trim() });

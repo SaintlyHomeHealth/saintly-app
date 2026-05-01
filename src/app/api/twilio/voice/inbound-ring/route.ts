@@ -27,6 +27,7 @@ import { phoneKeyForLoopCompare } from "@/lib/phone/twilio-voice-pstn-loop-guard
 import {
   buildEscalationInboundVoiceTwiml,
   buildInboundPstnOnlyDialTwiml,
+  buildStaffAssignedInboundDialTwiml,
   buildTwiMLAppIncomingClientRingTwiml,
   buildVoiceHandoffTwiml,
   readTwilioVoiceRingE164FromEnv,
@@ -35,6 +36,7 @@ import {
 import { isTwilioVoiceJsClientFrom, isTwilioVoiceJsClientTo } from "@/lib/twilio/twilio-voice-client-leg";
 import { logTwilioVoiceTrace, summarizeTwimlResponse } from "@/lib/twilio/twilio-voice-trace-log";
 import { parseVerifiedTwilioFormBody } from "@/lib/twilio/verify-form-post";
+import { findTwilioPhoneNumberByToE164 } from "@/lib/twilio/twilio-phone-number-repo";
 
 function escapeXml(text: string): string {
   return text
@@ -152,6 +154,15 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  const voiceTn = await findTwilioPhoneNumberByToE164(supabaseAdmin, to);
+  const staffVoiceUserId =
+    voiceTn?.status === "assigned" &&
+    voiceTn.voice_enabled !== false &&
+    voiceTn.assigned_user_id &&
+    String(voiceTn.assigned_user_id).trim() !== ""
+      ? String(voiceTn.assigned_user_id).trim()
+      : "";
+
   const useBusinessRouting = process.env.VOICE_BUSINESS_ROUTING_ENABLED?.trim() !== "0";
   const routePlan = useBusinessRouting ? await buildVoiceInboundRoutePlan() : null;
   const cascadeSteps = routePlan ? buildCascadeStepsFromPlan(routePlan) : null;
@@ -165,6 +176,9 @@ export async function POST(req: NextRequest) {
     status: "initiated",
     event_type: "call.incoming",
     started_at: new Date().toISOString(),
+    owner_user_id: staffVoiceUserId || undefined,
+    owner_staff_profile_id: voiceTn?.assigned_staff_profile_id ?? undefined,
+    twilio_phone_number_id: voiceTn?.id ?? undefined,
     metadata:
       routePlan && routingJson
         ? {
@@ -183,6 +197,31 @@ export async function POST(req: NextRequest) {
   const routingJsonWithCaller = routingJson
     ? { ...routingJson, inbound_caller_display: toRoutingInboundCallerDisplay(inboundResolved) }
     : routingJson;
+
+  if (staffVoiceUserId && publicBase && logResult.ok) {
+    const twimlStaff = buildStaffAssignedInboundDialTwiml({
+      publicBase,
+      pstnCallerE164: from,
+      staffUserId: staffVoiceUserId,
+      clientDialExtras: toClientDialExtras(inboundResolved),
+    });
+    logTwilioVoiceTrace({
+      route: "POST /api/twilio/voice/inbound-ring",
+      client_call_sid: callSid,
+      pstn_call_sid: null,
+      ai_path_entered: false,
+      softphone_bypass_path_entered: false,
+      twiml_summary: summarizeTwimlResponse(twimlStaff),
+      branch: "staff_twilio_number_first_dial",
+      parent_call_sid: parentCallSid,
+      from_raw: from,
+      to_raw: to,
+    });
+    return new NextResponse(twimlStaff, {
+      status: 200,
+      headers: { "Content-Type": "text/xml; charset=utf-8" },
+    });
+  }
 
   if (!logResult.ok) {
     console.error("[twilio/voice/inbound-ring] phone log failed:", logResult.error);

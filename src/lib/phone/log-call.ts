@@ -54,6 +54,9 @@ export type PhoneWebhookBody = {
   ended_at?: unknown;
   duration_seconds?: unknown;
   metadata?: unknown;
+  owner_user_id?: unknown;
+  owner_staff_profile_id?: unknown;
+  twilio_phone_number_id?: unknown;
   /** Logged as a phone_call_events row alongside the upsert. */
   event_type?: unknown;
   /** Spread into the event row payload alongside `intake`. */
@@ -65,6 +68,13 @@ function asOptionalString(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const t = value.trim();
   return t.length ? t : null;
+}
+
+function asOptionalUuid(value: unknown): string | null {
+  const s = asOptionalString(value);
+  if (!s) return null;
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s)) return null;
+  return s;
 }
 
 function asOptionalIsoTime(value: unknown): string | null {
@@ -129,6 +139,9 @@ export async function upsertPhoneCallFromWebhook(
   const endedVal = asOptionalIsoTime(body.ended_at);
   const durationVal = asOptionalInt(body.duration_seconds);
   const metaVal = body.metadata !== undefined ? asMetadata(body.metadata) : undefined;
+  const ownerUserId = asOptionalUuid(body.owner_user_id);
+  const ownerStaffProfileId = asOptionalUuid(body.owner_staff_profile_id);
+  const twilioPhoneNumberId = asOptionalUuid(body.twilio_phone_number_id);
 
   const { data: existing, error: findError } = await supabase
     .from("phone_calls")
@@ -143,7 +156,7 @@ export async function upsertPhoneCallFromWebhook(
   let callId: string;
 
   if (!existing?.id) {
-    const insertRow = {
+    const insertRow: Record<string, unknown> = {
       external_call_id: externalCallId,
       direction,
       from_e164: fromVal,
@@ -154,6 +167,9 @@ export async function upsertPhoneCallFromWebhook(
       duration_seconds: durationVal,
       metadata: metaVal ?? {},
     };
+    if (ownerUserId) insertRow.owner_user_id = ownerUserId;
+    if (ownerStaffProfileId) insertRow.owner_staff_profile_id = ownerStaffProfileId;
+    if (twilioPhoneNumberId) insertRow.twilio_phone_number_id = twilioPhoneNumberId;
 
     const { data: inserted, error: insertError } = await supabase
       .from("phone_calls")
