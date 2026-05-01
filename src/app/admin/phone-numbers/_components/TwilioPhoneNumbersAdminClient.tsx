@@ -1,7 +1,21 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useMemo, useState, type FormEvent } from "react";
+import { Fragment, useMemo, useState, type FormEvent } from "react";
+
+/** Major Arizona NANP area codes for combined inventory search. */
+const ARIZONA_AREA_CODES = ["480", "602", "623", "520", "928"] as const;
+
+type TwilioSearchHit = {
+  phone_number: string;
+  national_display: string;
+  locality: string | null;
+  region: string | null;
+  postal_code: string | null;
+  capabilities: { voice: boolean; sms: boolean; mms: boolean };
+  area_code: number | null;
+  type: "local" | "toll_free";
+};
 
 export type TwilioNumberRow = {
   id: string;
@@ -93,17 +107,7 @@ export function TwilioPhoneNumbersAdminClient(props: {
   const [searchNumberType, setSearchNumberType] = useState<"local" | "toll_free">("local");
   const [searchBusy, setSearchBusy] = useState(false);
   const [searchErr, setSearchErr] = useState<string | null>(null);
-  const [searchResults, setSearchResults] = useState<
-    {
-      phone_number: string;
-      national_display: string;
-      locality: string | null;
-      region: string | null;
-      postal_code: string | null;
-      capabilities: { voice: boolean; sms: boolean; mms: boolean };
-      type: "local" | "toll_free";
-    }[]
-  >([]);
+  const [searchResults, setSearchResults] = useState<TwilioSearchHit[]>([]);
   const [searchLabels, setSearchLabels] = useState<Record<string, string>>({});
   const [purchaseBusyPhone, setPurchaseBusyPhone] = useState<string | null>(null);
   const [searchNotice, setSearchNotice] = useState<string | null>(null);
@@ -285,48 +289,134 @@ export function TwilioPhoneNumbersAdminClient(props: {
     }
   }
 
-  async function onSearchTwilioNumbers(e: FormEvent) {
-    e.preventDefault();
+  async function executeTwilioSearch(payload: {
+    areaCode?: string;
+    areaCodes?: readonly string[];
+    contains?: string;
+    locality?: string;
+    region?: string;
+    requireSms: boolean;
+    requireVoice: boolean;
+    requireMms: boolean;
+    numberType: "local" | "toll_free";
+    limit: number;
+  }) {
     setSearchErr(null);
     setSearchNotice(null);
-    if (!searchSms && !searchVoice && !searchMms) {
+    if (!payload.requireSms && !payload.requireVoice && !payload.requireMms) {
       setSearchErr("Select at least one capability (SMS, Voice, or MMS).");
       return;
     }
     setSearchBusy(true);
     try {
+      const body: Record<string, unknown> = {
+        contains: payload.contains,
+        locality: payload.locality,
+        region: payload.region,
+        requireSms: payload.requireSms,
+        requireVoice: payload.requireVoice,
+        requireMms: payload.requireMms,
+        numberType: payload.numberType,
+        limit: payload.limit,
+      };
+      if (payload.areaCodes && payload.areaCodes.length > 0) {
+        body.areaCodes = [...payload.areaCodes];
+      } else {
+        body.areaCode = payload.areaCode ?? "";
+      }
+
       const res = await fetch("/api/admin/twilio/phone-numbers/search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          areaCode: searchAreaCode.trim(),
-          contains: searchContains.trim() || undefined,
-          locality: searchLocality.trim() || undefined,
-          region: searchRegion.trim() || undefined,
-          requireSms: searchSms,
-          requireVoice: searchVoice,
-          requireMms: searchMms,
-          numberType: searchNumberType,
-          limit: 35,
-        }),
+        body: JSON.stringify(body),
       });
       const j = (await res.json().catch(() => ({}))) as {
         ok?: boolean;
         error?: string;
-        numbers?: typeof searchResults;
+        numbers?: TwilioSearchHit[];
       };
-      if (!res.ok || !j.ok || !Array.isArray(j.numbers)) {
-        setSearchErr(j.error || "Search failed");
+
+      if (!res.ok) {
+        const errMsg =
+          typeof j.error === "string" && j.error.trim()
+            ? j.error.trim()
+            : `Search failed (${res.status}).`;
+        setSearchErr(errMsg);
         setSearchResults([]);
         return;
       }
+
+      if (!j.ok || !Array.isArray(j.numbers)) {
+        const fallback =
+          typeof j.error === "string" && j.error.trim()
+            ? j.error.trim()
+            : "Search returned an unexpected response.";
+        setSearchErr(fallback);
+        setSearchResults([]);
+        return;
+      }
+
       setSearchResults(j.numbers);
       if (j.numbers.length === 0) {
-        setSearchNotice("No numbers matched. Try another area code or loosen filters.");
+        setSearchNotice(
+          "No exact matches found. Try unchecking MMS, clearing locality/region, or searching 602 / 623."
+        );
       }
+    } catch (err) {
+      setSearchErr(err instanceof Error ? err.message : "Search request failed.");
+      setSearchResults([]);
     } finally {
       setSearchBusy(false);
     }
+  }
+
+  async function onSearchTwilioNumbers(e: FormEvent) {
+    e.preventDefault();
+    await executeTwilioSearch({
+      areaCode: searchAreaCode.trim(),
+      contains: searchContains.trim() || undefined,
+      locality: searchLocality.trim() || undefined,
+      region: searchRegion.trim() || undefined,
+      requireSms: searchSms,
+      requireVoice: searchVoice,
+      requireMms: searchMms,
+      numberType: searchNumberType,
+      limit: 35,
+    });
+  }
+
+  async function onBroadenSearch() {
+    setSearchMms(false);
+    setSearchLocality("");
+    setSearchRegion("");
+    await executeTwilioSearch({
+      areaCode: searchAreaCode.trim(),
+      contains: searchContains.trim() || undefined,
+      locality: "",
+      region: "",
+      requireSms: searchSms,
+      requireVoice: searchVoice,
+      requireMms: false,
+      numberType: searchNumberType,
+      limit: 35,
+    });
+  }
+
+  async function onSearchArizona() {
+    setSearchNumberType("local");
+    setSearchLocality("");
+    setSearchRegion("");
+    await executeTwilioSearch({
+      areaCodes: ARIZONA_AREA_CODES,
+      contains: searchContains.trim() || undefined,
+      locality: "",
+      region: "",
+      requireSms: searchSms,
+      requireVoice: searchVoice,
+      requireMms: searchMms,
+      numberType: "local",
+      limit: 50,
+    });
   }
 
   async function onPurchaseSearchResult(phoneNumber: string) {
@@ -382,7 +472,7 @@ export function TwilioPhoneNumbersAdminClient(props: {
       >
         <h2 className="text-lg font-semibold text-neutral-900">Search available Twilio numbers</h2>
         <p className="mt-1 text-sm text-neutral-700">
-          Search Twilio&apos;s inventory (US). Defaults favor Arizona markets (480, 602, 623). Purchases use the same
+          Search Twilio&apos;s inventory (US). Defaults favor Arizona (480, 602, 623, 520, 928). Purchases use the same
           SMS/voice webhooks as manual buy.
         </p>
         <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -436,9 +526,14 @@ export function TwilioPhoneNumbersAdminClient(props: {
             <input type="checkbox" checked={searchVoice} onChange={(e) => setSearchVoice(e.target.checked)} />
             Voice
           </label>
-          <label className="flex items-center gap-2 text-sm text-neutral-800">
-            <input type="checkbox" checked={searchMms} onChange={(e) => setSearchMms(e.target.checked)} />
-            MMS
+          <label className="flex flex-col gap-0.5 text-sm text-neutral-800">
+            <span className="flex items-center gap-2">
+              <input type="checkbox" checked={searchMms} onChange={(e) => setSearchMms(e.target.checked)} />
+              MMS
+            </span>
+            <span className="max-w-xs text-xs font-normal text-neutral-600">
+              MMS availability may reduce results. Leave off unless required.
+            </span>
           </label>
           <label className="flex items-center gap-2 text-sm text-neutral-800">
             Number type
@@ -460,6 +555,15 @@ export function TwilioPhoneNumbersAdminClient(props: {
           >
             {searchBusy ? "Searching…" : "Search numbers"}
           </button>
+          <button
+            type="button"
+            disabled={searchBusy || searchNumberType !== "local"}
+            title={searchNumberType !== "local" ? "Switch to Local to search Arizona area codes." : undefined}
+            className="rounded border border-violet-700 bg-white px-4 py-2 text-sm font-medium text-violet-900 hover:bg-violet-50 disabled:opacity-50"
+            onClick={() => void onSearchArizona()}
+          >
+            Search Arizona (480, 602, 623, 520, 928)
+          </button>
           <span className="self-center text-xs text-neutral-600">
             Quick area codes:{" "}
             <button
@@ -480,7 +584,19 @@ export function TwilioPhoneNumbersAdminClient(props: {
           </span>
         </div>
         {searchErr ? <p className="mt-2 text-sm text-rose-600">{searchErr}</p> : null}
-        {searchNotice ? <p className="mt-2 text-sm text-amber-800">{searchNotice}</p> : null}
+        {searchNotice ? (
+          <div className="mt-2 space-y-2 rounded border border-amber-200 bg-amber-50/80 px-3 py-2">
+            <p className="text-sm text-amber-950">{searchNotice}</p>
+            <button
+              type="button"
+              disabled={searchBusy}
+              className="rounded bg-amber-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-900 disabled:opacity-50"
+              onClick={() => void onBroadenSearch()}
+            >
+              Broaden search
+            </button>
+          </div>
+        ) : null}
       </form>
 
       {searchResults.length > 0 ? (
@@ -489,6 +605,7 @@ export function TwilioPhoneNumbersAdminClient(props: {
             <thead className="bg-violet-50/80">
               <tr>
                 <th className="px-3 py-2 text-left font-medium text-neutral-700">Number</th>
+                <th className="px-3 py-2 text-left font-medium text-neutral-700">Area</th>
                 <th className="px-3 py-2 text-left font-medium text-neutral-700">Location</th>
                 <th className="px-3 py-2 text-left font-medium text-neutral-700">Type</th>
                 <th className="px-3 py-2 text-left font-medium text-neutral-700">SMS</th>
@@ -499,11 +616,29 @@ export function TwilioPhoneNumbersAdminClient(props: {
               </tr>
             </thead>
             <tbody className="divide-y divide-neutral-100">
-              {searchResults.map((row) => (
-                <tr key={row.phone_number}>
+              {searchResults.map((row, idx) => {
+                const prev = idx > 0 ? searchResults[idx - 1] : null;
+                const showGroupHeader =
+                  row.type === "local" && (prev === null || prev.area_code !== row.area_code);
+                return (
+                  <Fragment key={row.phone_number}>
+                    {showGroupHeader ? (
+                      <tr className="bg-violet-100/60">
+                        <td
+                          colSpan={9}
+                          className="px-3 py-1.5 text-xs font-semibold tracking-wide text-neutral-800"
+                        >
+                          Area code {row.area_code ?? "—"}
+                        </td>
+                      </tr>
+                    ) : null}
+                    <tr>
                   <td className="whitespace-nowrap px-3 py-2 font-mono text-xs">
                     <div>{row.phone_number}</div>
                     <div className="text-neutral-500">{row.national_display}</div>
+                  </td>
+                  <td className="whitespace-nowrap px-3 py-2 font-mono text-xs text-neutral-800">
+                    {row.area_code ?? "—"}
                   </td>
                   <td className="px-3 py-2 text-xs text-neutral-800">
                     {[row.locality, row.region].filter(Boolean).join(", ") || "—"}
@@ -533,8 +668,10 @@ export function TwilioPhoneNumbersAdminClient(props: {
                       {purchaseBusyPhone === row.phone_number ? "Buying…" : "Buy & Save"}
                     </button>
                   </td>
-                </tr>
-              ))}
+                    </tr>
+                  </Fragment>
+                );
+              })}
             </tbody>
           </table>
         </div>
