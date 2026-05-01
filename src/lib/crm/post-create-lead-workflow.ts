@@ -6,7 +6,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { sendOperationalAlertSms } from "@/lib/ops/operational-alert-sms";
+import { sendCrmLeadAlertSms } from "@/lib/ops/crm-lead-alert-sms";
 import { notifyNewLeadCreatedPush } from "@/lib/push/notify-new-lead";
 
 const LOG = "[lead-intake]";
@@ -83,7 +83,7 @@ export async function handleNewLeadCreated(
     lead_id: leadId,
     contact_id_prefix: contactId.slice(0, 8),
     channel,
-    operational_sms: sendOps,
+    crm_lead_alert_sms: sendOps,
   });
 
   const tasks: Promise<unknown>[] = [
@@ -107,12 +107,14 @@ export async function handleNewLeadCreated(
           [cInfo?.first_name, cInfo?.last_name].filter(Boolean).join(" ").trim() ||
           "Contact";
 
-        const body = `Saintly ops: New CRM lead (${nm}). Leads /admin/crm/leads · contact ${contactId.slice(0, 8)}…`;
-        const r = await sendOperationalAlertSms(body);
+        const display =
+          nm.length > 42 ? `${nm.slice(0, 41).trimEnd()}…` : nm;
+        const body = `Saintly ops: New CRM lead (${display}). Leads /admin/crm/leads · contact ${contactId.slice(0, 8)}…`;
+        const r = await sendCrmLeadAlertSms(body);
         if (!r.ok) {
-          console.warn(LOG, "operational_sms_failed", { lead_id: leadId, channel, error: r.error });
+          console.warn(LOG, "crm_lead_alert_sms_failed", { lead_id: leadId, channel, error: r.error });
         } else {
-          console.log(LOG, "operational_sms_sent", { lead_id: leadId, channel });
+          console.log(LOG, "crm_lead_alert_sms_sent", { lead_id: leadId, channel });
         }
       })()
     );
