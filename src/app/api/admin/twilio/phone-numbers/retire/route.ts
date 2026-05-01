@@ -26,7 +26,7 @@ export async function POST(req: Request) {
 
   const { data: row, error: loadErr } = await supabaseAdmin
     .from("twilio_phone_numbers")
-    .select("id, assigned_user_id, status, is_primary_company_number")
+    .select("id, assigned_user_id, status, is_primary_company_number, is_company_backup_number")
     .eq("id", phoneNumberId)
     .maybeSingle();
 
@@ -35,6 +35,9 @@ export async function POST(req: Request) {
   }
   if (row.is_primary_company_number === true) {
     return NextResponse.json({ error: "Cannot retire the primary company number row." }, { status: 400 });
+  }
+  if (row.is_company_backup_number === true) {
+    return NextResponse.json({ error: "Cannot retire the backup company/shared line row." }, { status: 400 });
   }
 
   const prev =

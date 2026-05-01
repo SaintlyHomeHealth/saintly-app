@@ -265,7 +265,9 @@ export default async function StaffAccessDetailPage({
 
   const { data: twilioInvRows } = await supabaseAdmin
     .from("twilio_phone_numbers")
-    .select("id, phone_number, label, status, assigned_user_id")
+    .select(
+      "id, phone_number, label, status, assigned_user_id, number_type, is_primary_company_number, is_company_backup_number"
+    )
     .in("status", ["available", "assigned"])
     .order("phone_number", { ascending: true });
 
@@ -275,7 +277,13 @@ export default async function StaffAccessDetailPage({
     const pn = typeof r.phone_number === "string" ? r.phone_number : "";
     const st = typeof r.status === "string" ? r.status : "";
     const au = r.assigned_user_id != null ? String(r.assigned_user_id) : "";
+    const nt = typeof r.number_type === "string" ? r.number_type.trim() : "";
+    const isCompanyInventoryRow =
+      nt === "company_shared" ||
+      r.is_primary_company_number === true ||
+      r.is_company_backup_number === true;
     if (!id || !pn) continue;
+    if (isCompanyInventoryRow) continue;
     if (st === "available" || (st === "assigned" && uid && au === uid)) {
       twilioInventory.push({
         id,

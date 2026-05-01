@@ -19,7 +19,7 @@ export default async function AdminPhoneNumbersPage() {
     supabaseAdmin
       .from("twilio_phone_numbers")
       .select(
-        "id, phone_number, twilio_sid, label, number_type, status, assigned_user_id, assigned_staff_profile_id, is_primary_company_number, sms_enabled, voice_enabled"
+        "id, phone_number, twilio_sid, label, number_type, status, assigned_user_id, assigned_staff_profile_id, is_primary_company_number, is_company_backup_number, sms_enabled, voice_enabled"
       )
       .order("created_at", { ascending: false }),
     loadAssignableLeadOwners(),

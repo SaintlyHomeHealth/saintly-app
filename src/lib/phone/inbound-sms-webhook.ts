@@ -7,6 +7,10 @@ import { logSmsMessageForLeadTimeline } from "@/lib/crm/lead-communication-activ
 import { notifyInboundSmsAfterPersist } from "@/lib/push/notify-inbound-sms";
 import { ensureSmsConversationForPhone } from "@/lib/phone/sms-conversation-thread";
 import { scheduleSmsReplySuggestionGeneration } from "@/lib/phone/sms-reply-suggestion";
+import {
+  relayInboundCompanySmsCopyToPersonalCells,
+  shouldRelayInboundCompanySmsCopy,
+} from "@/lib/phone/inbound-company-sms-relay";
 import { findTwilioPhoneNumberByToE164 } from "@/lib/twilio/twilio-phone-number-repo";
 import { isValidE164, normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
 
@@ -277,6 +281,22 @@ export async function applyInboundTwilioSms(
     });
   }
   smsTiming("after_sms_push_await", { conversationId });
+
+  if (insertedMsg?.id && shouldRelayInboundCompanySmsCopy(toE164, tnInbound)) {
+    try {
+      await relayInboundCompanySmsCopyToPersonalCells({
+        fromE164,
+        toE164,
+        body,
+        messageSid,
+      });
+    } catch (e) {
+      console.warn("[sms-inbound] company_sms_relay_failed", {
+        conversationId,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
+  }
 
   if (process.env.SMS_AI_SUGGESTIONS_DISABLED !== "1" && insertedMsg?.id) {
     scheduleSmsReplySuggestionGeneration(supabase, conversationId, String(insertedMsg.id), fromE164);

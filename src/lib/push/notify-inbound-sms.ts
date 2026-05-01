@@ -83,6 +83,7 @@ export async function notifyInboundSmsAfterPersist(
     primaryContactId?: string | null;
     /** When true, merge active admin/super_admin recipients (staff-direct Twilio lines). */
     includeAdminRecipients?: boolean | undefined;
+    externalMessageSid?: string | null;
   }
 ): Promise<void> {
   if (process.env.SAINTLY_PUSH_SMS_DISABLED === "1") {

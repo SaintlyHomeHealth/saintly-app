@@ -67,6 +67,7 @@ export async function POST(req: Request) {
         number_type: numberType,
         status: "available",
         is_primary_company_number: false,
+        is_company_backup_number: false,
         sms_enabled: true,
         voice_enabled: true,
       })

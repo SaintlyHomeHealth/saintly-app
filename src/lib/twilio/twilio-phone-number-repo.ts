@@ -14,6 +14,8 @@ export type TwilioPhoneNumberRow = {
   assigned_user_id: string | null;
   assigned_staff_profile_id: string | null;
   is_primary_company_number: boolean;
+  /** Saintly backup shared line (+14805712062); at most one row may be true. */
+  is_company_backup_number: boolean;
   sms_enabled: boolean;
   voice_enabled: boolean;
   created_at: string;
@@ -34,6 +36,14 @@ export async function resolveInboundVoiceStaffAssigneeUserId (
   return uid || null;
 }
 
+function coerceTwilioPhoneNumberRow(data: unknown): TwilioPhoneNumberRow {
+  const r = data as TwilioPhoneNumberRow;
+  return {
+    ...r,
+    is_company_backup_number: Boolean(r.is_company_backup_number),
+  };
+}
+
 export async function findTwilioPhoneNumberByToE164 (
   supabase: SupabaseClient,
   toRaw: string
@@ -44,7 +54,7 @@ export async function findTwilioPhoneNumberByToE164 (
   const { data, error } = await supabase
     .from("twilio_phone_numbers")
     .select(
-      "id, phone_number, twilio_sid, label, number_type, status, assigned_user_id, assigned_staff_profile_id, is_primary_company_number, sms_enabled, voice_enabled, created_at, updated_at"
+      "id, phone_number, twilio_sid, label, number_type, status, assigned_user_id, assigned_staff_profile_id, is_primary_company_number, is_company_backup_number, sms_enabled, voice_enabled, created_at, updated_at"
     )
     .eq("phone_number", n)
     .maybeSingle();
@@ -54,7 +64,7 @@ export async function findTwilioPhoneNumberByToE164 (
     return null;
   }
   if (!data?.id) return null;
-  return data as TwilioPhoneNumberRow;
+  return coerceTwilioPhoneNumberRow(data);
 }
 
 export async function loadAssignedTwilioNumberForUser (
@@ -67,7 +77,7 @@ export async function loadAssignedTwilioNumberForUser (
   const { data, error } = await supabase
     .from("twilio_phone_numbers")
     .select(
-      "id, phone_number, twilio_sid, label, number_type, status, assigned_user_id, assigned_staff_profile_id, is_primary_company_number, sms_enabled, voice_enabled, created_at, updated_at"
+      "id, phone_number, twilio_sid, label, number_type, status, assigned_user_id, assigned_staff_profile_id, is_primary_company_number, is_company_backup_number, sms_enabled, voice_enabled, created_at, updated_at"
     )
     .eq("assigned_user_id", uid)
     .eq("status", "assigned")
@@ -78,7 +88,7 @@ export async function loadAssignedTwilioNumberForUser (
     return null;
   }
   if (!data?.id) return null;
-  return data as TwilioPhoneNumberRow;
+  return coerceTwilioPhoneNumberRow(data);
 }
 
 export async function logTwilioNumberAssignment (
@@ -126,13 +136,25 @@ export async function assignTwilioPhoneNumberToStaffUser (
   const { data: row, error: loadErr } = await supabase
     .from("twilio_phone_numbers")
     .select(
-      "id, phone_number, status, assigned_user_id, assigned_staff_profile_id"
+      "id, phone_number, status, assigned_user_id, assigned_staff_profile_id, number_type, is_primary_company_number, is_company_backup_number"
     )
     .eq("id", phoneNumberId)
     .maybeSingle();
 
   if (loadErr || !row?.id) {
     return { ok: false, error: "Number not found.", status: 404 };
+  }
+  const nt = typeof row.number_type === "string" ? row.number_type.trim() : "staff_direct";
+  const isCompanySharedRow =
+    row.is_primary_company_number === true ||
+    row.is_company_backup_number === true ||
+    nt === "company_shared";
+  if (isCompanySharedRow) {
+    return {
+      ok: false,
+      error: "Company/shared Twilio lines cannot be assigned as a dedicated staff number.",
+      status: 400,
+    };
   }
   if (row.status === "retired") {
     return { ok: false, error: "Cannot assign a retired number.", status: 400 };
