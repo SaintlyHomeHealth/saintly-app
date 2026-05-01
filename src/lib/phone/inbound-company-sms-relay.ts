@@ -13,15 +13,18 @@ import { isValidE164, normalizeDialInputToE164 } from "@/lib/softphone/phone-num
  * Comma-separated E.164 personal cells that receive a Twilio SMS copy for inbound texts on
  * company/shared lines (main + backup Saintly numbers and CRM rows typed `company_shared`).
  *
- * When unset, falls back to `OPERATIONAL_ALERT_SMS_TO` then `TWILIO_ALERT_TO` (same destinations
- * as operational / missed-call SMS alerts) so production keeps legacy behavior without new env.
+ * Opt-in only: numbers must be listed in `INBOUND_COMPANY_SMS_RELAY_TO`. There is **no** automatic
+ * fallback to `OPERATIONAL_ALERT_SMS_TO` or `TWILIO_ALERT_TO` (those stay for operational / lead alerts).
  *
- * Set `INBOUND_COMPANY_SMS_RELAY_DISABLED=1` to turn relay off (push + CRM persist unchanged).
+ * Optional legacy bridge: set `INBOUND_COMPANY_SMS_RELAY_FALLBACK_TO_OPS_ALERT=1` to also deliver to
+ * the same destinations as `OPERATIONAL_ALERT_SMS_TO` / `TWILIO_ALERT_TO` (deduped).
+ *
+ * Set `INBOUND_COMPANY_SMS_RELAY_DISABLED=1` to turn relay off entirely (push + CRM persist unchanged).
  */
 export function parseInboundCompanySmsRelayRecipients(): string[] {
-  const raw = process.env.INBOUND_COMPANY_SMS_RELAY_TO?.trim();
   const out: string[] = [];
   const seen = new Set<string>();
+  const raw = process.env.INBOUND_COMPANY_SMS_RELAY_TO?.trim();
   if (raw) {
     for (const part of raw.split(",")) {
       const n = normalizeDialInputToE164(part.trim());
@@ -29,17 +32,20 @@ export function parseInboundCompanySmsRelayRecipients(): string[] {
       seen.add(n);
       out.push(n);
     }
-    return out;
   }
-  const primary = process.env.OPERATIONAL_ALERT_SMS_TO?.trim();
-  const fallback = process.env.TWILIO_ALERT_TO?.trim();
-  for (const cand of [primary, fallback]) {
-    if (!cand) continue;
-    const n = normalizeDialInputToE164(cand);
-    if (!n || !isValidE164(n) || seen.has(n)) continue;
-    seen.add(n);
-    out.push(n);
+
+  if (process.env.INBOUND_COMPANY_SMS_RELAY_FALLBACK_TO_OPS_ALERT === "1") {
+    const primary = process.env.OPERATIONAL_ALERT_SMS_TO?.trim();
+    const fallback = process.env.TWILIO_ALERT_TO?.trim();
+    for (const cand of [primary, fallback]) {
+      if (!cand) continue;
+      const n = normalizeDialInputToE164(cand);
+      if (!n || !isValidE164(n) || seen.has(n)) continue;
+      seen.add(n);
+      out.push(n);
+    }
   }
+
   return out;
 }
 
@@ -78,7 +84,9 @@ export async function relayInboundCompanySmsCopyToPersonalCells(input: {
 }): Promise<void> {
   const recipients = parseInboundCompanySmsRelayRecipients();
   if (recipients.length === 0) {
-    console.log("[sms-relay] skipped (no INBOUND_COMPANY_SMS_RELAY_TO / OPERATIONAL_ALERT_SMS_TO / TWILIO_ALERT_TO)");
+    console.log(
+      "[sms-relay] skipped (set INBOUND_COMPANY_SMS_RELAY_TO for opt-in relay, or INBOUND_COMPANY_SMS_RELAY_FALLBACK_TO_OPS_ALERT=1 for ops-alert fallback)"
+    );
     return;
   }
 

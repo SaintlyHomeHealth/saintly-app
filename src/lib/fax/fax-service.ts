@@ -5,6 +5,7 @@ import { findContactByIncomingPhone } from "@/lib/crm/find-contact-by-incoming-p
 import { handleNewLeadCreated } from "@/lib/crm/post-create-lead-workflow";
 import { isMissingSchemaObjectError } from "@/lib/crm/supabase-migration-fallback";
 import { normalizeFaxNumberToE164, faxNumberSearchVariants } from "@/lib/fax/phone-numbers";
+import { dispatchInboundFaxAlertsIfNeeded } from "@/lib/fax/inbound-fax-alerts";
 import { ensureSmsConversationForPhone } from "@/lib/phone/sms-conversation-thread";
 
 export const FAX_DOCUMENTS_BUCKET = "fax-documents";
@@ -49,6 +50,8 @@ export type FaxMessageRow = {
   failure_reason: string | null;
   created_at: string;
   updated_at: string;
+  /** Set after HIPAA-safe inbound fax SMS/push alerts are dispatched (dedupes webhook retries). */
+  inbound_alert_sent_at?: string | null;
 };
 
 export type FaxMatch = {
@@ -491,6 +494,24 @@ export async function upsertInboundFaxFromWebhook(body: unknown): Promise<{ ok: 
     conversation_id: conversation.conversationId,
     message_id: conversation.messageId,
   });
+
+  const savedInboundStatus =
+    normalizeFaxStatus(fax.status, "inbound") === "failed" ? "failed" : "success";
+  try {
+    await dispatchInboundFaxAlertsIfNeeded(supabaseAdmin, {
+      faxMessageId: data.id as string,
+      telnyxFaxId: fax.telnyxFaxId,
+      fromNumber: fax.fromNumber,
+      pageCount: fax.pageCount,
+      receivedAt: fax.receivedAt,
+      shouldAlert: savedInboundStatus !== "failed",
+    });
+  } catch (e) {
+    console.warn("[fax/inbound] inbound_fax_alerts_failed", {
+      fax_id: data.id,
+      error: e instanceof Error ? e.message : String(e),
+    });
+  }
 
   return { ok: true, faxId: data.id as string, conversationId: conversation.conversationId };
 }
