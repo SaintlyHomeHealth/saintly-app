@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import { canStaffAccessPhoneCallRow } from "@/lib/phone/staff-call-access";
+import { staffMayAccessWorkspaceCallHistory } from "@/lib/phone/staff-phone-policy";
 import { supabaseAdmin } from "@/lib/admin";
 import { canAccessWorkspacePhone, getStaffProfile } from "@/lib/staff-profile";
 
@@ -25,7 +26,7 @@ export async function markWorkspaceMissedCallResolved(
   }
 
   const staff = await getStaffProfile();
-  if (!staff || !canAccessWorkspacePhone(staff)) {
+  if (!staff || !canAccessWorkspacePhone(staff) || !staffMayAccessWorkspaceCallHistory(staff)) {
     return { ok: false, error: "unauthorized" };
   }
 

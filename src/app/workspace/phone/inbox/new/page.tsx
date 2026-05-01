@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { WorkspacePhonePageHeader } from "../../_components/WorkspacePhonePageHeader";
 import { NewWorkspaceSmsComposeClient } from "../_components/NewWorkspaceSmsComposeClient";
+import { staffMayAccessWorkspaceSms } from "@/lib/phone/staff-phone-policy";
 import { pickOutboundE164ForDial } from "@/lib/workspace-phone/launch-urls";
 import { canAccessWorkspacePhone, getStaffProfile } from "@/lib/staff-profile";
 import { supabaseAdmin } from "@/lib/admin";
@@ -52,8 +53,8 @@ type PageProps = {
 
 export default async function WorkspaceInboxNewSmsPage({ searchParams }: PageProps) {
   const staff = await getStaffProfile();
-  if (!staff || !canAccessWorkspacePhone(staff)) {
-    redirect("/admin/phone");
+  if (!staff || !canAccessWorkspacePhone(staff) || !staffMayAccessWorkspaceSms(staff)) {
+    redirect("/workspace/phone/visits");
   }
 
   const sp = (await searchParams) ?? {};

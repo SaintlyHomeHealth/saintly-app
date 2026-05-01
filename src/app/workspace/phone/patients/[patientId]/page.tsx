@@ -21,7 +21,7 @@ import {
 import { supabaseAdmin } from "@/lib/admin";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import { voicemailTranscriptionUiFromMeta, voiceAiShortSummaryFromMeta } from "@/lib/phone/voicemail-display";
-import { canAccessWorkspacePhone, getStaffProfile } from "@/lib/staff-profile";
+import { canUseWorkspacePhoneAppShell, getStaffProfile } from "@/lib/staff-profile";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -85,7 +85,7 @@ function onSiteDurationLabel(arrivedAt: string | null, completedAt: string | nul
 
 export default async function WorkspacePatientDetailPage(props: { params: Promise<{ patientId: string }> }) {
   const staff = await getStaffProfile();
-  if (!staff || !canAccessWorkspacePhone(staff)) {
+  if (!staff || !canUseWorkspacePhoneAppShell(staff)) {
     redirect("/admin/phone");
   }
 

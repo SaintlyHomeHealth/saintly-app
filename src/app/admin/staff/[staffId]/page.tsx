@@ -40,6 +40,7 @@ import { PermanentDeleteStaffDialog } from "../permanent-delete-staff-dialog";
 import { RemoveStaffDialog } from "../remove-staff-dialog";
 import { RepairLoginLinkButton } from "../repair-login-link-button";
 import { ResetPasswordDialog } from "../reset-password-dialog";
+import { PhoneAssignmentModeFields } from "./PhoneAssignmentModeFields";
 import { StaffCommunicationBar } from "./staff-communication-bar";
 
 function roleLabel(role: StaffRole): string {
@@ -143,12 +144,24 @@ function phoneAssignmentSummary(profile: {
   dedicated_outbound_e164: string | null;
   shared_line_e164: string | null;
 }): { headline: string; detail: string } {
+  const mode = profile.phone_assignment_mode;
+  if (mode === "dedicated_and_shared") {
+    const d = profile.dedicated_outbound_e164?.trim();
+    const s = profile.shared_line_e164?.trim();
+    const parts = [d ? `Dedicated ${d}` : null, s ? `Shared ${s}` : null].filter(Boolean);
+    return {
+      headline: "Hybrid",
+      detail:
+        parts.join(" · ") ||
+        "Dedicated staff number + shared company line — set inventory and shared line fields below.",
+    };
+  }
   const hasDedicated =
-    profile.phone_assignment_mode === "dedicated" &&
+    mode === "dedicated" &&
     typeof profile.dedicated_outbound_e164 === "string" &&
     profile.dedicated_outbound_e164.trim() !== "";
   const hasShared =
-    profile.phone_assignment_mode === "shared" &&
+    mode === "shared" &&
     typeof profile.shared_line_e164 === "string" &&
     profile.shared_line_e164.trim() !== "";
   if (hasDedicated) {
@@ -157,7 +170,10 @@ function phoneAssignmentSummary(profile: {
   if (hasShared) {
     return { headline: "Assigned", detail: `Shared ${profile.shared_line_e164}` };
   }
-  return { headline: "Not assigned", detail: "Using organization default line until you set a dedicated or shared number." };
+  return {
+    headline: "Not assigned",
+    detail: "Organization default / no dedicated inventory assignment until you configure modes below.",
+  };
 }
 
 function callingProfileShort(profile: { phone_calling_profile: string }): string {
@@ -236,6 +252,40 @@ export default async function StaffAccessDetailPage({
       .eq("is_enabled", true);
     for (const m of memRows ?? []) {
       if (typeof m.ring_group_key === "string") memberships.push(m.ring_group_key);
+    }
+  }
+
+  let dedicatedInventoryCurrentId: string | null = null;
+  const twilioInventory: {
+    id: string;
+    phone_number: string;
+    label: string | null;
+    status: string;
+  }[] = [];
+
+  const { data: twilioInvRows } = await supabaseAdmin
+    .from("twilio_phone_numbers")
+    .select("id, phone_number, label, status, assigned_user_id")
+    .in("status", ["available", "assigned"])
+    .order("phone_number", { ascending: true });
+
+  const uid = profile.user_id.trim();
+  for (const r of twilioInvRows ?? []) {
+    const id = typeof r.id === "string" ? r.id : "";
+    const pn = typeof r.phone_number === "string" ? r.phone_number : "";
+    const st = typeof r.status === "string" ? r.status : "";
+    const au = r.assigned_user_id != null ? String(r.assigned_user_id) : "";
+    if (!id || !pn) continue;
+    if (st === "available" || (st === "assigned" && uid && au === uid)) {
+      twilioInventory.push({
+        id,
+        phone_number: pn,
+        label: typeof r.label === "string" ? r.label : null,
+        status: st,
+      });
+    }
+    if (st === "assigned" && uid && au === uid) {
+      dedicatedInventoryCurrentId = id;
     }
   }
 
@@ -640,18 +690,66 @@ export default async function StaffAccessDetailPage({
         <form action={updateStaffPhonePolicy} className="space-y-3 rounded-[16px] border border-slate-100 bg-slate-50/50 p-3">
           <input type="hidden" name="staffProfileId" value={profile.id} />
           <div className="grid gap-3 sm:grid-cols-2">
-            <label className="text-xs font-semibold text-slate-700">
-              Number assignment
-              <select
-                name="phoneAssignmentMode"
-                defaultValue={profile.phone_assignment_mode}
-                className="mt-1 w-full rounded-[12px] border border-slate-200 bg-white px-2 py-1.5 text-sm"
-              >
-                <option value="organization_default">Organization default (env lines)</option>
-                <option value="dedicated">Dedicated line from pool</option>
-                <option value="shared">Shared company line</option>
-              </select>
-            </label>
+            <div className="sm:col-span-2">
+              <PhoneAssignmentModeFields
+                initialMode={profile.phone_assignment_mode}
+                dedicatedInventoryCurrentId={dedicatedInventoryCurrentId}
+                twilioInventory={twilioInventory}
+                sharedSection={
+                  <>
+                    <p className="text-[11px] font-semibold leading-relaxed text-amber-950">
+                      Shared line access may expose company calls and texts depending on the permissions you enable
+                      below.
+                    </p>
+                    <label className="mt-1 block text-xs font-semibold text-slate-700">
+                      Shared line E.164 (reference / routing)
+                      <input
+                        name="sharedLineE164"
+                        defaultValue={profile.shared_line_e164 ?? ""}
+                        className="mt-1 w-full rounded-[12px] border border-slate-200 bg-white px-2 py-1.5 text-sm font-mono"
+                        placeholder="+14803600008"
+                      />
+                    </label>
+                    <p className="text-[11px] font-semibold text-slate-600">Shared company line permissions</p>
+                    <div className="flex flex-wrap gap-2 text-xs">
+                      {(
+                        [
+                          ["shared_full_access", "Full access"],
+                          ["shared_outbound_only", "Outbound only"],
+                          ["shared_receive_voice", "Receive voice"],
+                          ["shared_sms", "SMS"],
+                          ["shared_voicemail", "Voicemail"],
+                          ["shared_call_history", "Call history"],
+                        ] as const
+                      ).map(([name, label]) => {
+                        const permKey = name.replace(/^shared_/, "");
+                        return (
+                          <label key={name} className="flex items-center gap-1">
+                            <input
+                              type="checkbox"
+                              name={name}
+                              defaultChecked={profile.shared_line_permissions[permKey] === true}
+                            />
+                            {label}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </>
+                }
+                dedicatedExtraSection={
+                  <label className="block text-xs font-semibold text-slate-700">
+                    Manual dedicated E.164 (legacy override — optional if inventory is assigned)
+                    <input
+                      name="dedicatedOutboundE164"
+                      defaultValue={profile.dedicated_outbound_e164 ?? ""}
+                      className="mt-1 w-full rounded-[12px] border border-slate-200 bg-white px-2 py-1.5 text-sm font-mono"
+                      placeholder="+1…"
+                    />
+                  </label>
+                }
+              />
+            </div>
             <label className="text-xs font-semibold text-slate-700">
               Calling profile
               <select
@@ -663,24 +761,6 @@ export default async function StaffAccessDetailPage({
                 <option value="outbound_only">Outbound only</option>
                 <option value="inbound_disabled">Inbound disabled</option>
               </select>
-            </label>
-            <label className="text-xs font-semibold text-slate-700">
-              Dedicated outbound E.164
-              <input
-                name="dedicatedOutboundE164"
-                defaultValue={profile.dedicated_outbound_e164 ?? ""}
-                className="mt-1 w-full rounded-[12px] border border-slate-200 px-2 py-1.5 text-sm font-mono"
-                placeholder="+1…"
-              />
-            </label>
-            <label className="text-xs font-semibold text-slate-700">
-              Shared line E.164
-              <input
-                name="sharedLineE164"
-                defaultValue={profile.shared_line_e164 ?? ""}
-                className="mt-1 w-full rounded-[12px] border border-slate-200 px-2 py-1.5 text-sm font-mono"
-                placeholder="+1…"
-              />
             </label>
           </div>
           <div className="flex flex-wrap gap-3 text-xs text-slate-800">
@@ -720,33 +800,6 @@ export default async function StaffAccessDetailPage({
               <input type="checkbox" name="callRecordingEnabled" defaultChecked={profile.call_recording_enabled} />
               Call recording (policy)
             </label>
-          </div>
-          <div className="border-t border-slate-200 pt-2">
-            <p className="text-[11px] font-semibold text-slate-600">Shared line permissions (intent)</p>
-            <div className="mt-2 flex flex-wrap gap-2 text-xs">
-              {(
-                [
-                  ["shared_full_access", "Full access"],
-                  ["shared_outbound_only", "Outbound only"],
-                  ["shared_receive_voice", "Receive voice"],
-                  ["shared_sms", "SMS"],
-                  ["shared_voicemail", "Voicemail"],
-                  ["shared_call_history", "Call history"],
-                ] as const
-              ).map(([name, label]) => {
-                const permKey = name.replace(/^shared_/, "");
-                return (
-                  <label key={name} className="flex items-center gap-1">
-                    <input
-                      type="checkbox"
-                      name={name}
-                      defaultChecked={profile.shared_line_permissions[permKey] === true}
-                    />
-                    {label}
-                  </label>
-                );
-              })}
-            </div>
           </div>
           <button
             type="submit"

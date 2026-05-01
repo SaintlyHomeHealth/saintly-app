@@ -8,8 +8,15 @@ import {
   getStaffProfileUsingSupabaseUserJwt,
   staffAllowsInboundSoftphone,
 } from "@/lib/staff-profile";
+import { supabaseAdmin } from "@/lib/admin";
+import {
+  staffMayReceiveVoiceCalls,
+  staffMayRegisterTwilioSoftphone,
+} from "@/lib/phone/staff-phone-policy";
 import { computeIdentityInInboundRingListForStaff } from "@/lib/softphone/inbound-staff-ids";
+import { isValidE164 } from "@/lib/softphone/phone-number";
 import { softphoneTwilioClientIdentity } from "@/lib/softphone/twilio-client-identity";
+import { loadAssignedTwilioNumberForUser } from "@/lib/twilio/twilio-phone-number-repo";
 
 const AccessToken = twilio.jwt.AccessToken;
 const VoiceGrant = AccessToken.VoiceGrant;
@@ -61,6 +68,28 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Web softphone is disabled for this staff member." }, { status: 403 });
   }
 
+  let crmAssignedVoiceE164: string | null = null;
+  try {
+    const assignedRow = await loadAssignedTwilioNumberForUser(supabaseAdmin, staff.user_id);
+    const pn = assignedRow?.phone_number?.trim() ?? "";
+    if (pn && isValidE164(pn) && assignedRow?.voice_enabled !== false) {
+      crmAssignedVoiceE164 = pn;
+    }
+  } catch {
+    crmAssignedVoiceE164 = null;
+  }
+
+  const dialCtx = { crmAssignedVoiceE164 };
+  if (!staffMayRegisterTwilioSoftphone(staff, dialCtx)) {
+    return NextResponse.json(
+      {
+        error:
+          "Phone calling is not enabled for this account (Staff Access → Phone permissions). Contact an administrator.",
+      },
+      { status: 403 }
+    );
+  }
+
   const accountSid = process.env.TWILIO_ACCOUNT_SID?.trim();
   const apiKeySid = process.env.TWILIO_VOICE_API_KEY_SID?.trim();
   const apiKeySecret = process.env.TWILIO_VOICE_API_KEY_SECRET?.trim();
@@ -100,7 +129,8 @@ export async function GET(request: NextRequest) {
     ttl: 3600,
   });
 
-  const allowIncoming = staffAllowsInboundSoftphone(staff);
+  const allowIncoming =
+    staffAllowsInboundSoftphone(staff) && staffMayReceiveVoiceCalls(staff, dialCtx);
   const voiceGrant = new VoiceGrant({
     outgoingApplicationSid: twimlAppSid,
     incomingAllow: allowIncoming,

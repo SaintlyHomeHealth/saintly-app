@@ -10,6 +10,7 @@ import { UNKNOWN_TEXTER_METADATA_KEY } from "@/lib/phone/sms-conversation-thread
 import { buildInitialTwilioDeliveryFromRestResponse } from "@/lib/phone/sms-delivery-ui";
 import { mergeTelemetryOnSend, mergeTelemetryOnShown } from "@/lib/phone/sms-suggestion-telemetry";
 import { staffMayAccessSmsConversation } from "@/lib/phone/staff-sms-conversation-access-async";
+import { staffMayAccessWorkspaceSms } from "@/lib/phone/staff-phone-policy";
 import {
   canStaffClaimConversation,
 } from "@/lib/phone/staff-conversation-access";
@@ -55,12 +56,11 @@ function parseIntakeContactType(raw: unknown): "patient" | "family" | "referral"
 }
 
 /**
- * Same gate as `/workspace/phone` and `/admin/phone/messages` UI: nurses may message without
- * `phone_access_enabled`; managers/admins/super_admins still require that flag.
+ * Same gate as `/workspace/phone/inbox` and `/admin/phone/messages` UI: telephony plus SMS policy
+ * (assignment mode, shared-line SMS checkbox, `sms_messaging_enabled`).
  */
 function requirePhoneMessagingStaff(staff: StaffProfile | null): staff is StaffProfile {
-  if (!staff || !canAccessWorkspacePhone(staff)) return false;
-  return true;
+  return Boolean(staff && canAccessWorkspacePhone(staff) && staffMayAccessWorkspaceSms(staff));
 }
 
 function revalidateSmsConversationViews(conversationId: string) {

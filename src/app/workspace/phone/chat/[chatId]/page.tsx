@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { ChatThreadClient } from "../_components/ChatThreadClient";
 import { resolveInternalChatTitleForViewer } from "@/lib/internal-chat/resolve-chat-title";
 import { canAccessWorkspaceInternalChat } from "@/lib/internal-chat/workspace-access";
-import { canAccessWorkspacePhone, getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
+import { canUseWorkspacePhoneAppShell, getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 
 export default async function WorkspaceChatThreadPage({
   params,
@@ -11,7 +11,7 @@ export default async function WorkspaceChatThreadPage({
   params: Promise<{ chatId: string }>;
 }) {
   const staff = await getStaffProfile();
-  if (!canAccessWorkspacePhone(staff) || !canAccessWorkspaceInternalChat(staff)) {
+  if (!canUseWorkspacePhoneAppShell(staff) || !canAccessWorkspaceInternalChat(staff)) {
     redirect("/admin/phone");
   }
 

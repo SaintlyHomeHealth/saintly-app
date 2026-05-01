@@ -48,7 +48,9 @@ function phoneSummary(row: StaffRow): string {
   const short =
     prof === "inbound_outbound" ? "In+Out" : prof === "outbound_only" ? "Out only" : prof ? "In off" : "—";
   let line = "Default";
-  if (row.phone_assignment_mode === "dedicated" && row.dedicated_outbound_e164) {
+  if (row.phone_assignment_mode === "dedicated_and_shared") {
+    line = "Hybrid";
+  } else if (row.phone_assignment_mode === "dedicated" && row.dedicated_outbound_e164) {
     line = row.dedicated_outbound_e164;
   } else if (row.phone_assignment_mode === "shared" && row.shared_line_e164) {
     line = `Shared ${row.shared_line_e164}`;

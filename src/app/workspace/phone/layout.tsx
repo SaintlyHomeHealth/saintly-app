@@ -13,6 +13,7 @@ import {
   routePerfStepsEnabled,
   routePerfTimed,
 } from "@/lib/perf/route-perf";
+import { staffMayAccessWorkspaceSms } from "@/lib/phone/staff-phone-policy";
 import { workspaceInboxHasUnreadInbound } from "@/lib/phone/workspace-inbox-unread";
 import { allowedWorkspaceTabHrefs, resolveEffectivePageAccess } from "@/lib/staff-page-access";
 import { canAccessWorkspacePhone, getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
@@ -39,7 +40,7 @@ export default async function WorkspacePhoneLayout({ children }: { children: Rea
     const allowedTabs = allowedWorkspaceTabHrefs(access);
 
     let initialInboxHasUnread = false;
-    if (canAccessWorkspacePhone(staff)) {
+    if (canAccessWorkspacePhone(staff) && staffMayAccessWorkspaceSms(staff)) {
       const supabase = await createServerSupabaseClient();
       initialInboxHasUnread = routePerfStepsEnabled()
         ? await routePerfTimed("workspace_phone_layout.initial_unread", () =>

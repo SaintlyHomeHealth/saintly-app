@@ -19,6 +19,7 @@ import {
   routePerfStepsEnabled,
   routePerfTimed,
 } from "@/lib/perf/route-perf";
+import { staffMayAccessWorkspaceSms } from "@/lib/phone/staff-phone-policy";
 import { canAccessWorkspacePhone, getStaffProfile, isWorkspaceEmployeeRole } from "@/lib/staff-profile";
 
 type ContactEmb = {
@@ -107,8 +108,8 @@ export default async function WorkspacePhoneLeadsPage({
   const staff = routePerfStepsEnabled()
     ? await routePerfTimed("workspace_phone_leads.staff_profile", getStaffProfile)
     : await getStaffProfile();
-  if (!staff || !canAccessWorkspacePhone(staff)) {
-    redirect("/admin/phone");
+  if (!staff || !canAccessWorkspacePhone(staff) || !staffMayAccessWorkspaceSms(staff)) {
+    redirect("/workspace/phone/visits");
   }
 
   if (isWorkspaceEmployeeRole(staff.role)) {

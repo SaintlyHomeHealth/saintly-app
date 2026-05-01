@@ -8,6 +8,7 @@ import {
   type WorkspaceSmsThreadMessage,
 } from "@/lib/phone/workspace-sms-thread-messages";
 import { staffMayAccessSmsConversation } from "@/lib/phone/staff-sms-conversation-access-async";
+import { staffMayAccessWorkspaceSms } from "@/lib/phone/staff-phone-policy";
 import { canAccessWorkspacePhone, getStaffProfile, type StaffProfile } from "@/lib/staff-profile";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { SMS_OUTBOUND_FROM_EXPLICIT_KEY } from "@/lib/twilio/sms-from-numbers";
@@ -16,7 +17,7 @@ const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function requirePhoneMessagingStaff(staff: StaffProfile | null): staff is StaffProfile {
-  return Boolean(staff && canAccessWorkspacePhone(staff));
+  return Boolean(staff && canAccessWorkspacePhone(staff) && staffMayAccessWorkspaceSms(staff));
 }
 
 function parseSmsReplySuggestion(

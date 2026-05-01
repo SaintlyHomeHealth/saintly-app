@@ -10,7 +10,7 @@ import {
   formatAdminPhoneWhen,
   leadChipLabel,
 } from "@/app/workspace/phone/patients/_lib/patient-hub";
-import { canAccessWorkspacePhone, getStaffProfile } from "@/lib/staff-profile";
+import { canUseWorkspacePhoneAppShell, getStaffProfile } from "@/lib/staff-profile";
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 
 type ContactRow = {
@@ -70,7 +70,7 @@ function rolePriorityForList(role: string): number {
 
 export default async function WorkspacePatientsPage() {
   const staff = await getStaffProfile();
-  if (!staff || !canAccessWorkspacePhone(staff)) {
+  if (!staff || !canUseWorkspacePhoneAppShell(staff)) {
     redirect("/admin/phone");
   }
 

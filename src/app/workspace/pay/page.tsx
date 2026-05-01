@@ -7,7 +7,7 @@ import { getPayPeriodForDate } from "@/lib/payroll/pay-period";
 import { isPayWeekInAllowedNurseBillingWindow, selfBillingCalendarTimeZone } from "@/lib/payroll/self-billing-dates";
 import { supabaseAdmin } from "@/lib/admin";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
-import { canAccessWorkspacePhone, getStaffProfile } from "@/lib/staff-profile";
+import { canUseWorkspacePhoneAppShell, getStaffProfile } from "@/lib/staff-profile";
 
 import { PayWeekPicker } from "./PayWeekPicker";
 import { SelfBillingView, type SelfBillingLineVM } from "./SelfBillingView";
@@ -51,7 +51,7 @@ export default async function WorkspacePayPage({
   searchParams?: Promise<{ week?: string }>;
 }) {
   const staff = await getStaffProfile();
-  if (!staff || !canAccessWorkspacePhone(staff)) {
+  if (!staff || !canUseWorkspacePhoneAppShell(staff)) {
     redirect("/admin/phone");
   }
 

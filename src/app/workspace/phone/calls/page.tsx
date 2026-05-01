@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { WorkspaceCallInboxCard, type CallInboxRow } from "./_components/WorkspaceCallInboxCard";
 import { WorkspacePhonePageHeader } from "../_components/WorkspacePhonePageHeader";
+import { staffMayAccessWorkspaceCallHistory } from "@/lib/phone/staff-phone-policy";
 import {
   canAccessWorkspacePhone,
   getStaffProfile,
@@ -74,8 +75,8 @@ function enrichWorkspaceCallRow(
 
 export default async function WorkspaceCallsPage() {
   const staff = await getStaffProfile();
-  if (!staff || !canAccessWorkspacePhone(staff)) {
-    redirect("/admin/phone");
+  if (!staff || !canAccessWorkspacePhone(staff) || !staffMayAccessWorkspaceCallHistory(staff)) {
+    redirect("/workspace/phone/visits");
   }
 
   const hasFull = hasFullCallVisibility(staff);

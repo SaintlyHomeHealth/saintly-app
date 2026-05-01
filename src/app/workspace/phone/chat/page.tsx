@@ -4,14 +4,14 @@ import { WorkspacePhonePageHeader } from "../_components/WorkspacePhonePageHeade
 import { ChatListClient } from "./_components/ChatListClient";
 import { canAccessWorkspaceInternalChat } from "@/lib/internal-chat/workspace-access";
 import { getWorkspaceInternalChatListForStaff } from "@/lib/internal-chat/workspace-chat-list";
-import { canAccessWorkspacePhone, getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
+import { canUseWorkspacePhoneAppShell, getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 
 export default async function WorkspaceChatPage() {
   const staff = await getStaffProfile();
   if (!staff) {
     redirect("/admin/phone");
   }
-  if (!canAccessWorkspacePhone(staff) || !canAccessWorkspaceInternalChat(staff)) {
+  if (!canUseWorkspacePhoneAppShell(staff) || !canAccessWorkspaceInternalChat(staff)) {
     redirect("/admin/phone");
   }
 

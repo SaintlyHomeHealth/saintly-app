@@ -23,6 +23,7 @@ import {
   smsInboxPreviewMessageRowCap,
 } from "@/lib/phone/sms-inbox-preview";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
+import { staffMayAccessWorkspaceSms } from "@/lib/phone/staff-phone-policy";
 import {
   phoneRawToE164LookupKey,
   resolvePhoneDisplayIdentityBatch,
@@ -144,8 +145,8 @@ export default async function WorkspaceInboxPage(props: PageProps) {
   const staff = routePerfStepsEnabled()
     ? await routePerfTimed("staff_profile", getStaffProfile)
     : await getStaffProfile();
-  if (!staff || !canAccessWorkspacePhone(staff)) {
-    redirect("/admin/phone");
+  if (!staff || !canAccessWorkspacePhone(staff) || !staffMayAccessWorkspaceSms(staff)) {
+    redirect("/workspace/phone/visits");
   }
 
   const sp = (await searchParams) ?? {};

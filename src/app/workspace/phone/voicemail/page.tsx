@@ -11,6 +11,7 @@ import {
   resolvePhoneDisplayIdentityBatch,
 } from "@/lib/phone/resolve-phone-display-identity";
 import { voicemailTranscriptionUiFromMeta, voiceAiShortSummaryFromMeta } from "@/lib/phone/voicemail-display";
+import { staffMayAccessWorkspaceVoicemail } from "@/lib/phone/staff-phone-policy";
 import { canAccessWorkspacePhone, getStaffProfile, hasFullCallVisibility } from "@/lib/staff-profile";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
@@ -63,8 +64,8 @@ export const dynamic = "force-dynamic";
 
 export default async function WorkspaceVoicemailPage(props: PageProps) {
   const staff = await getStaffProfile();
-  if (!staff || !canAccessWorkspacePhone(staff)) {
-    redirect("/admin/phone");
+  if (!staff || !canAccessWorkspacePhone(staff) || !staffMayAccessWorkspaceVoicemail(staff)) {
+    redirect("/workspace/phone/visits");
   }
   const sp = (await props.searchParams) ?? {};
   const viewRaw = typeof sp.view === "string" ? sp.view.trim().toLowerCase() : "";

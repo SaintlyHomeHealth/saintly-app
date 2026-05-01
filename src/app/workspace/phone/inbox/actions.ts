@@ -21,6 +21,10 @@ import {
   shouldHonorThreadPreferredFromE164,
 } from "@/lib/twilio/sms-from-numbers";
 import { resolveWorkspaceThreadOutboundSmsIdentity } from "@/lib/twilio/workspace-outbound-sms-identity";
+import {
+  staffMayAccessWorkspaceSms,
+  staffMayAccessWorkspaceVoicemail,
+} from "@/lib/phone/staff-phone-policy";
 import { canAccessWorkspacePhone, getStaffProfile } from "@/lib/staff-profile";
 import { supabaseAdmin } from "@/lib/admin";
 
@@ -47,7 +51,7 @@ export async function deleteWorkspaceSmsMessage(
   messageId: string
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const staff = await getStaffProfile();
-  if (!staff || !canAccessWorkspacePhone(staff)) {
+  if (!staff || !canAccessWorkspacePhone(staff) || !staffMayAccessWorkspaceSms(staff)) {
     return { ok: false, error: "forbidden" };
   }
   const result = await softDeleteSmsMessage(supabaseAdmin, staff, { conversationId, messageId });
@@ -65,7 +69,7 @@ export async function deleteWorkspaceSmsConversation(
   conversationId: string
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const staff = await getStaffProfile();
-  if (!staff || !canAccessWorkspacePhone(staff)) {
+  if (!staff || !canAccessWorkspacePhone(staff) || !staffMayAccessWorkspaceSms(staff)) {
     return { ok: false, error: "forbidden" };
   }
   const result = await softDeleteSmsConversation(supabaseAdmin, staff, { conversationId });
@@ -83,7 +87,7 @@ export async function softDeleteWorkspaceVoicemailListItem(
   phoneCallId: string
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const staff = await getStaffProfile();
-  if (!staff || !canAccessWorkspacePhone(staff)) {
+  if (!staff || !canAccessWorkspacePhone(staff) || !staffMayAccessWorkspaceVoicemail(staff)) {
     return { ok: false, error: "forbidden" };
   }
 
@@ -185,7 +189,7 @@ export async function searchWorkspaceSmsComposeTargets(query: string): Promise<{
   recruits: SmsComposeSearchRow[];
 }> {
   const staff = await getStaffProfile();
-  if (!staff || !canAccessWorkspacePhone(staff)) {
+  if (!staff || !canAccessWorkspacePhone(staff) || !staffMayAccessWorkspaceSms(staff)) {
     return { contacts: [], recruits: [] };
   }
 
@@ -272,7 +276,7 @@ function mergeUniqueById<T extends { id: unknown }>(rows: T[]): T[] {
  */
 export async function sendWorkspaceNewSms(formData: FormData): Promise<WorkspaceSmsActionResult> {
   const staff = await getStaffProfile();
-  if (!staff || !canAccessWorkspacePhone(staff)) {
+  if (!staff || !canAccessWorkspacePhone(staff) || !staffMayAccessWorkspaceSms(staff)) {
     return { ok: false, error: "You do not have access to send messages." };
   }
 

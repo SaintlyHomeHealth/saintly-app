@@ -18,7 +18,10 @@ import { normalizeStaffLookupEmail } from "@/lib/admin/staff-auth-shared";
 import { logStaffInsertFailure, type StaffInsertPostgrestError } from "@/lib/admin/staff-insert-error-debug";
 import { insertAuditLog } from "@/lib/audit-log";
 import { supabaseAdmin } from "@/lib/admin";
-import { releaseTwilioNumbersForStaffUser } from "@/lib/twilio/twilio-phone-number-repo";
+import {
+  assignTwilioPhoneNumberToStaffUser,
+  releaseTwilioNumbersForStaffUser,
+} from "@/lib/twilio/twilio-phone-number-repo";
 import { normalizePhone } from "@/lib/phone/us-phone-format";
 import {
   getStaffProfile,
@@ -1355,6 +1358,9 @@ export async function updateStaffPageAccess(formData: FormData) {
   redirect(`/admin/staff/${id}?ok=pages`);
 }
 
+const ASSIGN_UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 export async function updateStaffPhonePolicy(formData: FormData) {
   const actor = await getStaffProfile();
   if (!actor || !isAdminOrHigher(actor)) {
@@ -1364,9 +1370,22 @@ export async function updateStaffPhonePolicy(formData: FormData) {
   const id = String(formData.get("staffProfileId") ?? "").trim();
   if (!id) redirect("/admin/staff?err=invalid");
 
+  const { data: existingRow, error: loadErr } = await supabaseAdmin
+    .from("staff_profiles")
+    .select("user_id, shared_line_permissions")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (loadErr || !existingRow?.user_id) {
+    redirect(`/admin/staff/${id}?err=update`);
+  }
+
   const modeRaw = String(formData.get("phoneAssignmentMode") ?? "").trim();
   const phone_assignment_mode: PhoneAssignmentMode =
-    modeRaw === "dedicated" || modeRaw === "shared" || modeRaw === "organization_default"
+    modeRaw === "dedicated" ||
+    modeRaw === "shared" ||
+    modeRaw === "organization_default" ||
+    modeRaw === "dedicated_and_shared"
       ? modeRaw
       : "organization_default";
 
@@ -1386,14 +1405,24 @@ export async function updateStaffPhonePolicy(formData: FormData) {
   const push_notifications_enabled = formData.has("pushNotificationsEnabled");
   const call_recording_enabled = formData.has("callRecordingEnabled");
 
-  const shared_line_permissions: Record<string, boolean> = {
-    full_access: formData.has("shared_full_access"),
-    outbound_only: formData.has("shared_outbound_only"),
-    receive_voice: formData.has("shared_receive_voice"),
-    sms: formData.has("shared_sms"),
-    voicemail: formData.has("shared_voicemail"),
-    call_history: formData.has("shared_call_history"),
-  };
+  let shared_line_permissions: Record<string, boolean> = {};
+  const rawExistingPerms = existingRow.shared_line_permissions;
+  if (rawExistingPerms && typeof rawExistingPerms === "object" && !Array.isArray(rawExistingPerms)) {
+    for (const [k, v] of Object.entries(rawExistingPerms as Record<string, unknown>)) {
+      if (typeof v === "boolean") shared_line_permissions[k] = v;
+    }
+  }
+
+  if (phone_assignment_mode === "shared" || phone_assignment_mode === "dedicated_and_shared") {
+    shared_line_permissions = {
+      full_access: formData.has("shared_full_access"),
+      outbound_only: formData.has("shared_outbound_only"),
+      receive_voice: formData.has("shared_receive_voice"),
+      sms: formData.has("shared_sms"),
+      voicemail: formData.has("shared_voicemail"),
+      call_history: formData.has("shared_call_history"),
+    };
+  }
 
   const { error } = await supabaseAdmin
     .from("staff_profiles")
@@ -1416,6 +1445,25 @@ export async function updateStaffPhonePolicy(formData: FormData) {
   if (error) {
     console.warn("[staff] updateStaffPhonePolicy:", error.message);
     redirect(`/admin/staff/${id}?err=update`);
+  }
+
+  const invId = String(formData.get("inventoryTwilioPhoneNumberId") ?? "").trim();
+  if (
+    ASSIGN_UUID_RE.test(invId) &&
+    (phone_assignment_mode === "dedicated" || phone_assignment_mode === "dedicated_and_shared")
+  ) {
+    const assignResult = await assignTwilioPhoneNumberToStaffUser(supabaseAdmin, {
+      phoneNumberId: invId,
+      assignToUserId: existingRow.user_id,
+      assignedByUserId: actor.user_id,
+      reason: "staff_access_phone_policy",
+      syncDedicatedOutboundE164: true,
+    });
+    if (!assignResult.ok) {
+      redirect(
+        `/admin/staff/${id}?err=update&detail=${encodeURIComponent(assignResult.error.slice(0, 600))}`
+      );
+    }
   }
 
   await insertAuditLog({

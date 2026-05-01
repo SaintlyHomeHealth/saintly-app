@@ -1,6 +1,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
+import { staffMayAccessWorkspaceSms } from "@/lib/phone/staff-phone-policy";
 import { ensureSmsConversationForContact } from "@/lib/workspace-phone/ensure-sms-thread-for-contact";
 import { canAccessWorkspacePhone, getStaffProfile } from "@/lib/staff-profile";
 
@@ -18,8 +19,8 @@ export default async function WorkspaceSmsToContactPage({
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const staff = await getStaffProfile();
-  if (!staff || !canAccessWorkspacePhone(staff)) {
-    redirect("/admin/phone");
+  if (!staff || !canAccessWorkspacePhone(staff) || !staffMayAccessWorkspaceSms(staff)) {
+    redirect("/workspace/phone/visits");
   }
 
   const sp = searchParams ? await searchParams : {};

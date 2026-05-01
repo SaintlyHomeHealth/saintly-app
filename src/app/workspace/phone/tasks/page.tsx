@@ -5,6 +5,7 @@ import { WorkspacePhonePageHeader } from "../_components/WorkspacePhonePageHeade
 import { assignPhoneCallTaskToMe, updatePhoneCallTaskStatus } from "@/app/admin/phone/actions";
 import { supabaseAdmin } from "@/lib/admin";
 import { formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
+import { staffMayAccessWorkspaceCallHistory } from "@/lib/phone/staff-phone-policy";
 import { canAccessWorkspacePhone, getStaffProfile } from "@/lib/staff-profile";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
@@ -45,8 +46,8 @@ function sortTasks(a: TaskRow, b: TaskRow): number {
 
 export default async function WorkspaceTasksPage() {
   const staff = await getStaffProfile();
-  if (!staff || !canAccessWorkspacePhone(staff)) {
-    redirect("/admin/phone");
+  if (!staff || !canAccessWorkspacePhone(staff) || !staffMayAccessWorkspaceCallHistory(staff)) {
+    redirect("/workspace/phone/visits");
   }
 
   const viewerUserId = staff.user_id;

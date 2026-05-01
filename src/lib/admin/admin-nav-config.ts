@@ -1,7 +1,7 @@
 import { adminNavIdToPageKey, resolveEffectivePageAccess } from "@/lib/staff-page-access";
 import type { StaffProfile } from "@/lib/staff-profile";
 import {
-  canAccessWorkspacePhone,
+  canUseWorkspacePhoneAppShell,
   isAdminOrHigher,
   isPhoneWorkspaceUser,
 } from "@/lib/staff-profile";
@@ -76,7 +76,7 @@ export function buildAdminNavItems(staff: StaffProfile | null): AdminNavItemReso
   const access = resolveEffectivePageAccess(staff);
   const admin = isAdminOrHigher(staff);
   const phone = isPhoneWorkspaceUser(staff);
-  const workspacePhone = canAccessWorkspacePhone(staff);
+  const workspaceShell = canUseWorkspacePhoneAppShell(staff);
   const nurse = staff.role === "nurse";
 
   const patientsHref = nurse ? "/workspace/phone/patients" : "/admin/crm/patients";
@@ -127,9 +127,9 @@ export function buildAdminNavItems(staff: StaffProfile | null): AdminNavItemReso
       href: patientsHref,
       ...(nurse
         ? {
-            disabled: !workspacePhone || access.workspace_patients !== true,
-            disabledReason: !workspacePhone
-              ? "Workspace phone access required"
+            disabled: !workspaceShell || access.workspace_patients !== true,
+            disabledReason: !workspaceShell
+              ? "Workspace phone app required"
               : "Not enabled in Staff Access",
           }
         : g("patients", false, "")),
@@ -157,7 +157,7 @@ export function buildAdminNavItems(staff: StaffProfile | null): AdminNavItemReso
       id: "workspace_keypad",
       label: ADMIN_NAV_LABELS.workspaceKeypad,
       href: "/workspace/phone/keypad",
-      ...g("workspace_keypad", !workspacePhone, "Workspace phone access required"),
+      ...g("workspace_keypad", !workspaceShell, "Workspace phone app required"),
     },
     {
       id: "dispatch",

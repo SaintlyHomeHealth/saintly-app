@@ -4,8 +4,16 @@ import { redirect } from "next/navigation";
 import { KeypadDialerLazy } from "./KeypadDialerLazy";
 import { WorkspacePhonePageHeader } from "../_components/WorkspacePhonePageHeader";
 import { routePerfLog, routePerfStart } from "@/lib/perf/route-perf";
+import { staffMayDialOutbound } from "@/lib/phone/staff-phone-policy";
+import { isValidE164 } from "@/lib/softphone/phone-number";
 import { fallbackPathAfterKeypadDenied, resolveEffectivePageAccess } from "@/lib/staff-page-access";
-import { canAccessWorkspaceShell, getStaffProfile } from "@/lib/staff-profile";
+import {
+  canAccessWorkspacePhone,
+  canUseWorkspacePhoneAppShell,
+  getStaffProfile,
+} from "@/lib/staff-profile";
+import { supabaseAdmin } from "@/lib/admin";
+import { loadAssignedTwilioNumberForUser } from "@/lib/twilio/twilio-phone-number-repo";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -25,13 +33,28 @@ export default async function WorkspaceKeypadPage({
   if (!staff) {
     redirect("/login");
   }
-  if (!canAccessWorkspaceShell(staff)) {
+  if (!canUseWorkspacePhoneAppShell(staff)) {
     redirect("/unauthorized?reason=forbidden");
   }
   const access = resolveEffectivePageAccess(staff);
   if (!access.workspace_keypad) {
     redirect(fallbackPathAfterKeypadDenied(access));
   }
+
+  let crmAssignedVoiceE164: string | null = null;
+  try {
+    const row = await loadAssignedTwilioNumberForUser(supabaseAdmin, staff.user_id);
+    const pn = row?.phone_number?.trim() ?? "";
+    if (pn && isValidE164(pn) && row?.voice_enabled !== false) {
+      crmAssignedVoiceE164 = pn;
+    }
+  } catch {
+    crmAssignedVoiceE164 = null;
+  }
+  const dialCtx = { crmAssignedVoiceE164 };
+
+  const telephonyOk = canAccessWorkspacePhone(staff);
+  const outboundOk = telephonyOk && staffMayDialOutbound(staff, dialCtx);
 
   const sp = searchParams ? await searchParams : {};
   const dial = (oneParam(sp, "dial") || oneParam(sp, "number")).trim();
@@ -57,6 +80,24 @@ export default async function WorkspaceKeypadPage({
   return (
     <div className="ws-phone-page-shell flex min-h-0 shrink-0 flex-col px-3 pb-3 pt-2 sm:px-5 sm:pb-4 sm:pt-4 lg:px-8">
       <WorkspacePhonePageHeader title="Keypad" />
+      {!telephonyOk ? (
+        <div className="mt-4 rounded-2xl border border-amber-200/90 bg-amber-50/95 px-4 py-4 text-sm text-amber-950">
+          <p className="font-semibold">Phone access is off</p>
+          <p className="mt-2 leading-relaxed text-amber-900/95">
+            You do not have phone access enabled. Contact an administrator to turn on Staff Access → Phone
+            permissions.
+          </p>
+        </div>
+      ) : !outboundOk ? (
+        <div className="mt-4 rounded-2xl border border-sky-200/90 bg-sky-50/95 px-4 py-4 text-sm text-sky-950">
+          <p className="font-semibold">Outbound calling is not enabled</p>
+          <p className="mt-2 leading-relaxed text-sky-900/95">
+            Your role does not include placing calls from this keypad (number assignment or shared-line outbound may
+            be missing). Ask an admin to review Staff Access → Phone permissions or assign a Twilio line in Admin →
+            Phone Numbers.
+          </p>
+        </div>
+      ) : null}
       {leadId && UUID_RE.test(leadId) ? (
         <p className="mt-2 rounded-2xl border border-sky-200/80 bg-sky-50/90 px-4 py-3 text-sm text-sky-950">
           CRM lead:{" "}
@@ -84,25 +125,27 @@ export default async function WorkspaceKeypadPage({
           ) : null}
         </p>
       ) : null}
-      <div className="mt-1 flex min-h-0 w-full shrink-0 flex-col gap-3 sm:mt-3 lg:mx-auto lg:max-w-[min(100%,60rem)] lg:flex-row lg:items-start lg:justify-center lg:gap-8">
-        <div className="flex w-full max-w-[560px] shrink-0 flex-col p-0 sm:rounded-2xl sm:border sm:border-sky-100/60 sm:bg-white sm:p-5 sm:shadow-sm lg:max-w-[620px] lg:p-4 lg:shadow-[0_8px_30px_-12px_rgba(30,58,138,0.08)]">
-          <KeypadDialerLazy
-            key={dialerKey}
-            staffDisplayName={staffDisplayName}
-            variant="keypad"
-            initialDigits={dial || undefined}
-            autoPlaceCall={autoPlaceCall && Boolean(dial)}
-          />
+      {telephonyOk && outboundOk ? (
+        <div className="mt-1 flex min-h-0 w-full shrink-0 flex-col gap-3 sm:mt-3 lg:mx-auto lg:max-w-[min(100%,60rem)] lg:flex-row lg:items-start lg:justify-center lg:gap-8">
+          <div className="flex w-full max-w-[560px] shrink-0 flex-col p-0 sm:rounded-2xl sm:border sm:border-sky-100/60 sm:bg-white sm:p-5 sm:shadow-sm lg:max-w-[620px] lg:p-4 lg:shadow-[0_8px_30px_-12px_rgba(30,58,138,0.08)]">
+            <KeypadDialerLazy
+              key={dialerKey}
+              staffDisplayName={staffDisplayName}
+              variant="keypad"
+              initialDigits={dial || undefined}
+              autoPlaceCall={autoPlaceCall && Boolean(dial)}
+            />
+          </div>
+          <aside className="hidden w-full max-w-[320px] shrink-0 rounded-2xl border border-sky-100/70 bg-gradient-to-b from-white to-sky-50/35 p-5 text-sm text-slate-600 shadow-sm shadow-sky-100/40 lg:block lg:w-[320px] lg:flex-none lg:p-4">
+            <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Tips</p>
+            <ul className="mt-3 list-inside list-disc space-y-2 leading-relaxed">
+              <li>Tap a number on the pad once to unlock ringtone audio on mobile browsers.</li>
+              <li>Use the large blue Call button — it stays easy to hit while you are moving.</li>
+              <li>Patient and lead actions elsewhere can deep-link you here with a number ready to dial.</li>
+            </ul>
+          </aside>
         </div>
-        <aside className="hidden w-full max-w-[320px] shrink-0 rounded-2xl border border-sky-100/70 bg-gradient-to-b from-white to-sky-50/35 p-5 text-sm text-slate-600 shadow-sm shadow-sky-100/40 lg:block lg:w-[320px] lg:flex-none lg:p-4">
-          <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Tips</p>
-          <ul className="mt-3 list-inside list-disc space-y-2 leading-relaxed">
-            <li>Tap a number on the pad once to unlock ringtone audio on mobile browsers.</li>
-            <li>Use the large blue Call button — it stays easy to hit while you are moving.</li>
-            <li>Patient and lead actions elsewhere can deep-link you here with a number ready to dial.</li>
-          </ul>
-        </aside>
-      </div>
+      ) : null}
     </div>
   );
 }

@@ -15,7 +15,7 @@ export type StaffRole =
   | "credentialing"
   | "read_only";
 
-export type PhoneAssignmentMode = "organization_default" | "dedicated" | "shared";
+export type PhoneAssignmentMode = "organization_default" | "dedicated" | "shared" | "dedicated_and_shared";
 
 export type PhoneCallingProfile = "outbound_only" | "inbound_outbound" | "inbound_disabled";
 
@@ -140,13 +140,18 @@ export function hasFullCallVisibility(profile: StaffProfile | null | undefined):
 }
 
 /**
- * `/workspace/phone` shell: active nurses may enter without `phone_access_enabled` (that flag is often off in DB
- * for clinical staff). Other roles still require `phone_access_enabled` so ops access stays gated.
+ * `/workspace/phone` telephony (SMS, Twilio softphone token, voicemail UI, workspace call log APIs).
+ * Requires explicit Staff Access → Phone access ON (all roles including nurses).
  */
 export function canAccessWorkspacePhone(profile: StaffProfile | null | undefined): boolean {
   if (!profile || profile.is_active === false || !isPhoneWorkspaceUser(profile)) return false;
-  if (profile.role === "nurse") return true;
   return profile.phone_access_enabled === true;
+}
+
+/** Visits board and similar workspace-phone tabs that do not require telephony entitlement. */
+export function canUseWorkspacePhoneAppShell(profile: StaffProfile | null | undefined): boolean {
+  if (!profile || profile.is_active === false || !isPhoneWorkspaceUser(profile)) return false;
+  return true;
 }
 
 export function staffAllowsInboundSoftphone(profile: Pick<StaffProfile, "phone_calling_profile">): boolean {
@@ -242,7 +247,8 @@ export function mapStaffRow(data: Record<string, unknown>): StaffProfile | null 
     typeof data.phone_assignment_mode === "string" &&
     (data.phone_assignment_mode === "organization_default" ||
       data.phone_assignment_mode === "dedicated" ||
-      data.phone_assignment_mode === "shared")
+      data.phone_assignment_mode === "shared" ||
+      data.phone_assignment_mode === "dedicated_and_shared")
       ? data.phone_assignment_mode
       : "organization_default";
 

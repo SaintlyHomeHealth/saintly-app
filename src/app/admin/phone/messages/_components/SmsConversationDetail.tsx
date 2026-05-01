@@ -37,6 +37,7 @@ import {
   routePerfTimed,
 } from "@/lib/perf/route-perf";
 import { staffMayAccessSmsConversation } from "@/lib/phone/staff-sms-conversation-access-async";
+import { staffMayAccessWorkspaceSms } from "@/lib/phone/staff-phone-policy";
 import {
   canStaffClaimConversation,
 } from "@/lib/phone/staff-conversation-access";
@@ -157,7 +158,7 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
   const staff = routePerfStepsEnabled()
     ? await routePerfTimed("sms_conversation_detail.staff_profile", getStaffProfile)
     : await getStaffProfile();
-  if (!staff || !canAccessWorkspacePhone(staff)) {
+  if (!staff || !canAccessWorkspacePhone(staff) || !staffMayAccessWorkspaceSms(staff)) {
     redirect(accessDeniedHref);
   }
 

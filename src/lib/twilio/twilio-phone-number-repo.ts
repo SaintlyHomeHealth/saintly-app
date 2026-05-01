@@ -100,6 +100,132 @@ export async function logTwilioNumberAssignment (
   });
 }
 
+const ASSIGN_UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/**
+ * Assign an inventory row to a staff auth user (Admin Phone Numbers / Staff Access).
+ * Optionally mirrors E.164 onto staff_profiles.dedicated_outbound_e164 for legacy env allowlists.
+ */
+export async function assignTwilioPhoneNumberToStaffUser (
+  supabase: SupabaseClient,
+  input: {
+    phoneNumberId: string;
+    assignToUserId: string;
+    assignedByUserId: string | null;
+    reason?: string | null;
+    syncDedicatedOutboundE164?: boolean;
+  }
+): Promise<{ ok: true; phone_number: string } | { ok: false; error: string; status: number }> {
+  const phoneNumberId = input.phoneNumberId.trim();
+  const assignToUserId = input.assignToUserId.trim();
+  if (!ASSIGN_UUID_RE.test(phoneNumberId) || !ASSIGN_UUID_RE.test(assignToUserId)) {
+    return { ok: false, error: "Invalid phoneNumberId or assignToUserId.", status: 400 };
+  }
+
+  const { data: row, error: loadErr } = await supabase
+    .from("twilio_phone_numbers")
+    .select(
+      "id, phone_number, status, assigned_user_id, assigned_staff_profile_id"
+    )
+    .eq("id", phoneNumberId)
+    .maybeSingle();
+
+  if (loadErr || !row?.id) {
+    return { ok: false, error: "Number not found.", status: 404 };
+  }
+  if (row.status === "retired") {
+    return { ok: false, error: "Cannot assign a retired number.", status: 400 };
+  }
+  if (row.status === "assigned" && row.assigned_user_id && String(row.assigned_user_id) !== assignToUserId) {
+    return { ok: false, error: "Number is already assigned. Use reassign or unassign first.", status: 409 };
+  }
+
+  const { data: profile, error: profErr } = await supabase
+    .from("staff_profiles")
+    .select("id, user_id, role, is_active")
+    .eq("user_id", assignToUserId)
+    .maybeSingle();
+
+  if (profErr || !profile?.id || !profile.user_id) {
+    return { ok: false, error: "Staff profile not found for that user.", status: 400 };
+  }
+  if (profile.is_active === false) {
+    return { ok: false, error: "Cannot assign to inactive staff.", status: 400 };
+  }
+  if (profile.role === "read_only") {
+    return { ok: false, error: "Cannot assign numbers to read-only users.", status: 400 };
+  }
+
+  if (
+    row.status === "assigned" &&
+    row.assigned_user_id &&
+    String(row.assigned_user_id).trim() === assignToUserId
+  ) {
+    const pn = typeof row.phone_number === "string" ? row.phone_number.trim() : "";
+    return { ok: true, phone_number: pn };
+  }
+
+  const { data: other } = await supabase
+    .from("twilio_phone_numbers")
+    .select("id")
+    .eq("assigned_user_id", assignToUserId)
+    .eq("status", "assigned")
+    .neq("id", phoneNumberId)
+    .maybeSingle();
+
+  if (other?.id) {
+    return {
+      ok: false,
+      error: "That staff member already has an assigned Twilio number. Unassign it first.",
+      status: 409,
+    };
+  }
+
+  const prevUser =
+    row.assigned_user_id != null && String(row.assigned_user_id).trim() !== ""
+      ? String(row.assigned_user_id).trim()
+      : null;
+
+  await logTwilioNumberAssignment(supabase, {
+    phoneNumberId,
+    assignedFromUserId: prevUser,
+    assignedToUserId: assignToUserId,
+    assignedByUserId: input.assignedByUserId,
+    reason: input.reason ?? "assign",
+  });
+
+  const { error: upErr } = await supabase
+    .from("twilio_phone_numbers")
+    .update({
+      assigned_user_id: assignToUserId,
+      assigned_staff_profile_id: profile.id,
+      status: "assigned",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", phoneNumberId);
+
+  if (upErr) {
+    console.warn("[twilio-phone-numbers] assign update:", upErr.message);
+    return { ok: false, error: upErr.message, status: 500 };
+  }
+
+  const phone_number =
+    typeof row.phone_number === "string" && row.phone_number.trim() ? row.phone_number.trim() : "";
+
+  if (input.syncDedicatedOutboundE164 && phone_number) {
+    await supabase
+      .from("staff_profiles")
+      .update({
+        dedicated_outbound_e164: phone_number,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("user_id", assignToUserId);
+  }
+
+  return { ok: true, phone_number };
+}
+
 export async function releaseTwilioNumbersForStaffUser (
   supabase: SupabaseClient,
   input: {

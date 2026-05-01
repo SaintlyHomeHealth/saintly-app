@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { workspaceInboxHasUnreadInbound } from "@/lib/phone/workspace-inbox-unread";
+import { staffMayAccessWorkspaceSms } from "@/lib/phone/staff-phone-policy";
 import { routePerfLog, routePerfStart, routePerfStepsEnabled, routePerfTimed } from "@/lib/perf/route-perf";
 import { canAccessWorkspacePhone, getStaffProfile } from "@/lib/staff-profile";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
@@ -17,7 +18,7 @@ export async function GET() {
     const staff = routePerfStepsEnabled()
       ? await routePerfTimed("workspace_inbox_unread_api.staff_profile", getStaffProfile)
       : await getStaffProfile();
-    if (!staff || !canAccessWorkspacePhone(staff)) {
+    if (!staff || !canAccessWorkspacePhone(staff) || !staffMayAccessWorkspaceSms(staff)) {
       return NextResponse.json({ hasUnread: false }, { status: 200 });
     }
 
