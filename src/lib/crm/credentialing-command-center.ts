@@ -111,6 +111,13 @@ export type PayerCredentialingDocumentStub = {
   status: string;
 };
 
+/** Batched checklist counts for list pages (avoids nested `payer_credentialing_documents` on every row). */
+export type PayerCredentialingChecklistRollup = {
+  missing: number;
+  uploaded: number;
+  waived: number;
+};
+
 export type PayerCredentialingListRow = {
   id: string;
   payer_name: string;
@@ -138,6 +145,8 @@ export type PayerCredentialingListRow = {
   denial_reason?: string | null;
   /** From nested select; empty if migration not applied yet */
   payer_credentialing_documents?: PayerCredentialingDocumentStub[] | null;
+  /** Set by list loaders that batch-fetch checklist rows instead of nesting documents. */
+  credentialing_checklist_rollup?: PayerCredentialingChecklistRollup | null;
 };
 
 function msDaysSince(iso: string | null): number | null {
@@ -189,9 +198,25 @@ export function hasReachableContact(r: PayerCredentialingListRow): boolean {
 }
 
 function getDocList(r: PayerCredentialingListRow): PayerCredentialingDocumentStub[] {
+  const rollup = r.credentialing_checklist_rollup;
+  if (rollup) {
+    const total = rollup.missing + rollup.uploaded + rollup.waived;
+    if (total > 0) {
+      const out: PayerCredentialingDocumentStub[] = [];
+      for (let i = 0; i < rollup.missing; i++) out.push({ status: "missing" });
+      for (let i = 0; i < rollup.uploaded; i++) out.push({ status: "uploaded" });
+      for (let i = 0; i < rollup.waived; i++) out.push({ status: "not_applicable" });
+      return out;
+    }
+  }
   const raw = r.payer_credentialing_documents;
   if (!raw || !Array.isArray(raw)) return [];
   return raw;
+}
+
+/** Public alias for pipeline / segment filters (same stubs as nested checklist). */
+export function getCredentialingChecklistDocStubs(r: PayerCredentialingListRow): PayerCredentialingDocumentStub[] {
+  return getDocList(r);
 }
 
 export function payerCredentialingFollowUpIsStale(r: PayerCredentialingListRow): boolean {
@@ -249,8 +274,8 @@ export function analyzePayerCredentialingAttention(r: PayerCredentialingListRow)
     if (!hasReachableContact(r)) {
       reasons.push("no_reachable_contact");
     }
-    const docs = getDocList(r);
-    if (docs.length > 0 && summarizePayerDocuments(docs).hasMissing) {
+    const checklistDocs = getDocList(r);
+    if (checklistDocs.length > 0 && summarizePayerDocuments(checklistDocs).hasMissing) {
       reasons.push("missing_documents");
     }
     if (!r.assigned_owner_user_id?.trim()) {
@@ -303,8 +328,8 @@ export function computeCredentialingSummaryStats(rows: PayerCredentialingListRow
     if (r.contracting_status === "contracted") contracted += 1;
     if (r.credentialing_status === "stalled" || r.contracting_status === "stalled") stalled += 1;
     if (analyzePayerCredentialingAttention(r).needsAttention) needsAttention += 1;
-    const docs = getDocList(r);
-    if (docs.length > 0 && summarizePayerDocuments(docs).hasMissing) docsMissing += 1;
+    const checklistDocs = getDocList(r);
+    if (checklistDocs.length > 0 && summarizePayerDocuments(checklistDocs).hasMissing) docsMissing += 1;
     if (payerCredentialingReadyToBill(r.credentialing_status, r.contracting_status)) readyToBill += 1;
     if ((r.priority ?? "medium").toLowerCase() === "high") highPriority += 1;
   }

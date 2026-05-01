@@ -40,6 +40,7 @@ import {
   isPhoneWorkspaceUser,
   type StaffProfile,
 } from "@/lib/staff-profile";
+import { adminPerfTimed, routePerfLog, routePerfStart } from "@/lib/perf/route-perf";
 
 const SEGMENTS: { value: EmployeeDirectorySegment; label: string }[] = [
   { value: "all", label: "All" },
@@ -132,10 +133,12 @@ export default async function AdminEmployeesDirectoryPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const staff = await getStaffProfile();
-  if (!staff || !isManagerOrHigher(staff)) {
-    redirect("/admin");
-  }
+  const perfStart = routePerfStart();
+  try {
+    const staff = await adminPerfTimed("admin_employees_list.staff_profile", getStaffProfile);
+    if (!staff || !isManagerOrHigher(staff)) {
+      redirect("/admin");
+    }
 
   const raw = await searchParams;
   const one = (k: string) => {
@@ -169,7 +172,9 @@ export default async function AdminEmployeesDirectoryPage({
     rows: allRows,
     loadError,
     applicantFetchTruncated,
-  } = await loadEmployeeDirectoryRows({ maxApplicants: EMPLOYEE_DIRECTORY_LIST_MAX_APPLICANTS });
+  } = await adminPerfTimed("admin_employees_list.loadEmployeeDirectoryRows", () =>
+    loadEmployeeDirectoryRows({ maxApplicants: EMPLOYEE_DIRECTORY_LIST_MAX_APPLICANTS })
+  );
   const directoryMatching = filterEmployeeDirectoryRows(allRows, segment, q, sort, dir);
   const directoryTotal = directoryMatching.length;
   const pageCount = Math.max(1, Math.ceil(directoryTotal / pageSize));
@@ -885,4 +890,7 @@ export default async function AdminEmployeesDirectoryPage({
       </div>
     </div>
   );
+  } finally {
+    routePerfLog("admin/employees", perfStart);
+  }
 }

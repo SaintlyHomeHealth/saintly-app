@@ -19,6 +19,7 @@ import { supabaseAdmin } from "@/lib/admin";
 import { staffPrimaryLabel } from "@/lib/crm/crm-leads-table-helpers";
 import { formatPhoneForDisplay, normalizePhone } from "@/lib/phone/us-phone-format";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
+import { adminPerfTimed, routePerfLog, routePerfStart } from "@/lib/perf/route-perf";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
@@ -123,6 +124,7 @@ function buildFilterQueryString(sp: {
   q?: string;
   presence?: string;
   cohort?: string;
+  page?: string;
 }): string {
   const u = new URLSearchParams();
   if (sp.status) u.set("status", sp.status);
@@ -133,6 +135,7 @@ function buildFilterQueryString(sp: {
   if (sp.q) u.set("q", sp.q);
   if (sp.presence) u.set("presence", sp.presence);
   if (sp.cohort) u.set("cohort", sp.cohort);
+  if (sp.page && sp.page !== "1") u.set("page", sp.page);
   return u.toString();
 }
 
@@ -145,6 +148,10 @@ function intersectIds(a: string[] | null, b: string[]): string[] {
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const EMPTY_SENTINEL = "00000000-0000-0000-0000-000000000000";
+
+/** Recent-rows cap for the server query; filters apply in memory, then we paginate the result. */
+const PATIENTS_LIST_FETCH_CAP = 200;
+const PATIENTS_PAGE_SIZE = 50;
 
 function PatientStatusBadge({ status }: { status: string }) {
   const s = status.toLowerCase();
@@ -168,10 +175,12 @@ export default async function AdminCrmPatientsPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const staff = await getStaffProfile();
-  if (!staff || !isManagerOrHigher(staff)) {
-    redirect("/admin");
-  }
+  const perfStart = routePerfStart();
+  try {
+    const staff = await adminPerfTimed("admin_crm_patients.staff_profile", getStaffProfile);
+    if (!staff || !isManagerOrHigher(staff)) {
+      redirect("/admin");
+    }
 
   const rawSp = await searchParams;
   const one = (k: string) => {
@@ -189,18 +198,16 @@ export default async function AdminCrmPatientsPage({
     payerType: one("payerType").trim(),
     primaryNurse: one("primaryNurse").trim(),
     q: one("q").trim(),
+    page: one("page").trim(),
     presence:
       presenceRaw === "archived" || presenceRaw === "all" || presenceRaw === "active" ? presenceRaw : "active",
     cohort:
       cohortRaw === "test" || cohortRaw === "all" || cohortRaw === "prod" ? cohortRaw : "prod",
   };
 
-  const returnTo = buildFilterQueryString(f);
-
-  const { data: staffRows } = await supabaseAdmin
-    .from("staff_profiles")
-    .select("user_id, email, role, full_name")
-    .order("email", { ascending: true });
+  const { data: staffRows } = await adminPerfTimed("admin_crm_patients.staff_options", () =>
+    supabaseAdmin.from("staff_profiles").select("user_id, email, role, full_name").order("email", { ascending: true })
+  );
 
   const staffOptions = (staffRows ?? []) as {
     user_id: string;
@@ -238,7 +245,7 @@ export default async function AdminCrmPatientsPage({
     combinedPatientIds = intersectIds(combinedPatientIds, primaryIds);
   }
 
-  const supabase = await createServerSupabaseClient();
+  const supabase = await adminPerfTimed("admin_crm_patients.server_client", createServerSupabaseClient);
   let query = supabase.from("patients").select(
     "id, contact_id, patient_status, start_of_care, payer_name, payer_type, physician_name, referring_provider_name, intake_status, referral_source, service_type, service_disciplines, created_at, archived_at, is_test, contacts ( full_name, first_name, last_name, primary_phone ), patient_assignments ( id, assigned_user_id, role, is_active, discipline, is_primary )"
   );
@@ -271,7 +278,9 @@ export default async function AdminCrmPatientsPage({
     }
   }
 
-  const { data: rows, error } = await query.order("created_at", { ascending: false }).limit(500);
+  const { data: rows, error } = await adminPerfTimed("admin_crm_patients.patients_query", () =>
+    query.order("created_at", { ascending: false }).limit(PATIENTS_LIST_FETCH_CAP)
+  );
 
   let list = (rows ?? []).map((raw) => {
     const r = raw as PatientRow;
@@ -300,7 +309,17 @@ export default async function AdminCrmPatientsPage({
     list = list.filter((r) => matchesSearch(r, normalizeContact(r.contacts), f.q));
   }
 
-  list = list.slice(0, 100);
+  const patientFetchMayTruncate = list.length >= PATIENTS_LIST_FETCH_CAP;
+
+  const totalMatching = list.length;
+  const pageCount = Math.max(1, Math.ceil(totalMatching / PATIENTS_PAGE_SIZE));
+  const pageNum = Math.min(Math.max(1, parseInt(f.page || "1", 10) || 1), pageCount);
+  list = list.slice((pageNum - 1) * PATIENTS_PAGE_SIZE, pageNum * PATIENTS_PAGE_SIZE);
+
+  const returnTo = buildFilterQueryString({
+    ...f,
+    page: pageNum > 1 ? String(pageNum) : "",
+  });
 
   const primaryUserIds = [
     ...new Set(
@@ -358,6 +377,7 @@ export default async function AdminCrmPatientsPage({
       />
 
       <form method="get" action="/admin/crm/patients" className={crmFilterBarCls}>
+        <input type="hidden" name="page" value="1" />
         <label className="flex min-w-[8rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
           Presence
           <select name="presence" defaultValue={f.presence} className={crmFilterInputCls}>
@@ -455,6 +475,56 @@ export default async function AdminCrmPatientsPage({
           Clear
         </Link>
       </form>
+
+      {patientFetchMayTruncate ? (
+        <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950 shadow-sm">
+          List loads at most <span className="font-semibold">{PATIENTS_LIST_FETCH_CAP}</span> recent charts for this filter
+          preset. Narrow filters or search to find a specific patient; open a chart for full documents and notes.
+        </p>
+      ) : null}
+
+      {totalMatching > 0 ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs text-slate-600 shadow-sm">
+          <span>
+            Showing{" "}
+            <span className="font-semibold text-slate-900">{(pageNum - 1) * PATIENTS_PAGE_SIZE + 1}</span>–
+            <span className="font-semibold text-slate-900">
+              {Math.min(pageNum * PATIENTS_PAGE_SIZE, totalMatching)}
+            </span>{" "}
+            of <span className="font-semibold text-slate-900">{totalMatching}</span> matching ({PATIENTS_PAGE_SIZE} per
+            page).
+          </span>
+          <div className="flex flex-wrap items-center gap-2">
+            {pageNum > 1 ? (
+              <Link
+                href={`/admin/crm/patients?${buildFilterQueryString({
+                  ...f,
+                  page: String(pageNum - 1),
+                })}`}
+                prefetch={false}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 font-semibold text-slate-800 hover:bg-slate-50"
+              >
+                Previous
+              </Link>
+            ) : null}
+            <span className="tabular-nums text-slate-500">
+              Page {pageNum} / {pageCount}
+            </span>
+            {pageNum < pageCount ? (
+              <Link
+                href={`/admin/crm/patients?${buildFilterQueryString({
+                  ...f,
+                  page: String(pageNum + 1),
+                })}`}
+                prefetch={false}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 font-semibold text-slate-800 hover:bg-slate-50"
+              >
+                Next
+              </Link>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
 
       <div className={crmListScrollOuterCls}>
         <div className="min-w-[1080px] text-sm">
@@ -599,4 +669,7 @@ export default async function AdminCrmPatientsPage({
       </div>
     </div>
   );
+  } finally {
+    routePerfLog("admin/crm/patients", perfStart);
+  }
 }

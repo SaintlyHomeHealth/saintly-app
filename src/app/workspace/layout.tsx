@@ -2,13 +2,13 @@ import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 
 import { WorkspaceGlobalSoftphoneShell } from "./WorkspaceGlobalSoftphoneShell";
-import { routePerfLog, routePerfStart } from "@/lib/perf/route-perf";
+import { adminPerfTimed, routePerfLog, routePerfStart } from "@/lib/perf/route-perf";
 import { canAccessWorkspaceShell, getStaffProfile } from "@/lib/staff-profile";
 
 export default async function WorkspaceLayout({ children }: { children: ReactNode }) {
   const perfStart = routePerfStart();
   try {
-    const staff = await getStaffProfile();
+    const staff = await adminPerfTimed("workspace/layout.getStaffProfile", getStaffProfile);
     if (!staff) {
       redirect("/login");
     }
@@ -18,8 +18,6 @@ export default async function WorkspaceLayout({ children }: { children: ReactNod
 
     return <WorkspaceGlobalSoftphoneShell>{children}</WorkspaceGlobalSoftphoneShell>;
   } finally {
-    if (perfStart) {
-      routePerfLog("workspace/layout", perfStart);
-    }
+    routePerfLog("workspace/layout", perfStart);
   }
 }

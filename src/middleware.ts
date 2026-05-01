@@ -112,7 +112,8 @@ export async function middleware(request: NextRequest) {
       pathname.startsWith("/login/forced-password-change") ||
       pathname.startsWith("/api/") ||
       pathname.startsWith("/_next");
-    if (!skipForcedPwd) {
+    const deferPwdQueryToAdminGate = pathname.startsWith("/admin");
+    if (!skipForcedPwd && !deferPwdQueryToAdminGate) {
       const { data: pwdRow } = await supabase
         .from("staff_profiles")
         .select("require_password_change")
@@ -148,6 +149,10 @@ export async function middleware(request: NextRequest) {
   }
 
   if (pathname.startsWith("/admin") && user) {
+    const skipForcedPwd =
+      pathname.startsWith("/login/forced-password-change") ||
+      pathname.startsWith("/api/") ||
+      pathname.startsWith("/_next");
     const gate = await resolveStaffGate(supabase, user.id);
 
     if (shouldLogAdminPath(pathname)) {
@@ -162,6 +167,16 @@ export async function middleware(request: NextRequest) {
         denyReason: gate.ok ? null : gate.reason,
         redirectIfDenied: gate.ok ? null : `/unauthorized?reason=${gate.reason}`,
       });
+    }
+
+    if (gate.ok && !skipForcedPwd && gate.require_password_change === true) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/login/forced-password-change";
+      url.searchParams.set(
+        "next",
+        `${request.nextUrl.pathname}${request.nextUrl.search}`
+      );
+      return NextResponse.redirect(url);
     }
 
     if (!gate.ok) {

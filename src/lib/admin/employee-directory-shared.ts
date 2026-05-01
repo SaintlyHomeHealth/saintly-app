@@ -16,7 +16,7 @@ export type EmployeeDirectorySortKey = "name" | "status" | "updated" | "readines
 export type EmployeeDirectorySortDir = "asc" | "desc";
 
 /** List page: cap how many applicants we enrich (compliance joins scale with this). */
-export const EMPLOYEE_DIRECTORY_LIST_MAX_APPLICANTS = 800;
+export const EMPLOYEE_DIRECTORY_LIST_MAX_APPLICANTS = 400;
 /** Default cap for bulk SMS / cron when loading the directory on the server. */
 export const EMPLOYEE_DIRECTORY_FULL_MAX_APPLICANTS = 2000;
 

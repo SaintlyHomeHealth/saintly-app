@@ -37,6 +37,7 @@ import {
   type EmployeeDetailWorkAreaTab,
 } from "@/lib/employee-requirements/employee-detail-work-areas";
 import { getCredentialAnchorId } from "@/lib/credential-anchors";
+import { adminPerfTimed, routePerfLog, routePerfStart } from "@/lib/perf/route-perf";
 import { EmployeeArchiveButton } from "@/app/admin/employees/EmployeeArchiveButton";
 import {
   buildOnboardingPortalStatus,
@@ -369,10 +370,6 @@ function getEmployeeStatusMeta(statusValue?: string | null) {
         badgeClass: "border border-sky-200 bg-sky-50 text-sky-700",
       };
     }
-}
-
-function getExitInterviewPdfPath(employeeId: string) {
-  return `exit-interviews/${employeeId}/exit-interview.pdf`;
 }
 
 function getRequirementState(
@@ -918,7 +915,9 @@ export default async function EmployeeDetailPage({
     tab?: string;
   }>;
 }) {
-  const resolvedParams = await params;
+  const perfStart = routePerfStart();
+  try {
+    const resolvedParams = await params;
   const resolvedSearchParams = searchParams ? await searchParams : undefined;
   const detailTab = resolvedSearchParams?.tab?.trim() || null;
   const showContractsWorkflow = resolvedSearchParams?.contractsWorkflow === "1";
@@ -928,7 +927,10 @@ export default async function EmployeeDetailPage({
     return <div className="p-6">Invalid employee ID</div>;
   }
 
-  const staffProfileForActions = await getStaffProfile();
+  const staffProfileForActions = await adminPerfTimed(
+    "admin_employee_detail.staff_profile",
+    getStaffProfile
+  );
   const canChangeSensitiveEmployeeStatus = isAdminOrHigher(staffProfileForActions);
 
   async function updateEmployeeStatus(formData: FormData) {
@@ -1244,11 +1246,9 @@ export default async function EmployeeDetailPage({
     redirect(`/admin/employees/${employeeId}`);
   }
 
-  const { data: employee } = await supabase
-    .from("applicants")
-    .select("*")
-    .eq("id", employeeId)
-    .single();
+  const { data: employee } = await adminPerfTimed("admin_employee_detail.applicant_row", () =>
+    supabase.from("applicants").select("*").eq("id", employeeId).single()
+  );
 
   if (!employee) {
     return <div className="p-6">Employee not found</div>;
@@ -1258,7 +1258,8 @@ export default async function EmployeeDetailPage({
     { data: applicationWorkHistoryRaw },
     { data: applicationReferencesRaw },
     { data: onboardingEmergencySnapshot },
-  ] = await Promise.all([
+  ] = await adminPerfTimed("admin_employee_detail.parallel_misc", () =>
+    Promise.all([
     supabaseAdmin
       .from("applicant_work_history")
       .select(
@@ -1278,7 +1279,8 @@ export default async function EmployeeDetailPage({
       )
       .eq("applicant_id", employeeId)
       .maybeSingle(),
-  ]);
+    ])
+  );
 
   const applicationWorkHistory = (applicationWorkHistoryRaw || []) as Array<{
     employer_name?: string | null;
@@ -1322,7 +1324,8 @@ export default async function EmployeeDetailPage({
     { data: historyEventsRaw },
     { data: credentials },
     { data: credentialReminderLogRaw },
-  ] = await Promise.all([
+  ] = await adminPerfTimed("admin_employee_detail.parallel_main_batch", () =>
+    Promise.all([
     supabase
       .from("employee_contracts")
       .select("*")
@@ -1574,7 +1577,8 @@ export default async function EmployeeDetailPage({
       .eq("applicant_id", employeeId)
       .order("created_at", { ascending: false })
       .limit(500),
-  ]);
+    ])
+  );
 
   const employeeContract = employeeContractRaw || null;
   const employeeTaxForm = (employeeTaxFormRaw || null) as EmployeeTaxFormRow | null;
@@ -1589,13 +1593,9 @@ export default async function EmployeeDetailPage({
 
   const exitInterview = (exitInterviewRaw || null) as ExitInterviewRecord | null;
 
-  let exitInterviewViewUrl: string | null = null;
-  if (exitInterview) {
-    const { data: signedUrlData } = await supabaseAdmin.storage
-      .from("applicant-files")
-      .createSignedUrl(getExitInterviewPdfPath(employeeId), 60 * 60);
-    exitInterviewViewUrl = signedUrlData?.signedUrl || null;
-  }
+  const exitInterviewViewUrl = exitInterview
+    ? `/api/admin/employee-exit-interview/pdf?employeeId=${encodeURIComponent(employeeId)}`
+    : null;
 
   const docParams = (recordId: string, source: "applicant_file" | "legacy_document", inline?: boolean) => {
     const base = `/api/admin/employee-documents/download?recordId=${encodeURIComponent(recordId)}&source=${source}`;
@@ -4062,4 +4062,7 @@ export default async function EmployeeDetailPage({
       </div>
     </div>
   );
+  } finally {
+    routePerfLog("admin/employees/[employeeId]", perfStart);
+  }
 }

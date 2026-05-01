@@ -1,5 +1,6 @@
 import {
   analyzePayerCredentialingAttention,
+  getCredentialingChecklistDocStubs,
   payerCredentialingReadyToBill,
   type CredentialingAttentionReason,
   type PayerCredentialingListRow,
@@ -48,7 +49,7 @@ export const CREDENTIALING_PIPELINE_BLOCKER_LABELS: Record<CredentialingPipeline
 export function credentialingPipelineWorkHasBegun(r: PayerCredentialingListRow): boolean {
   if ((r.last_follow_up_at ?? "").trim()) return true;
 
-  const docs = r.payer_credentialing_documents ?? [];
+  const docs = getCredentialingChecklistDocStubs(r);
   if (docs.length > 0) {
     const sum = summarizePayerDocuments(docs);
     if (sum.total > 0 && sum.missing < sum.total) return true;
@@ -105,7 +106,7 @@ export function computeCredentialingPipelineStage(r: PayerCredentialingListRow):
   // Default in_progress without follow-up / docs / next step counts as Not started for display.
   if (cred === "in_progress" && !credentialingPipelineWorkHasBegun(r)) return "not_started";
 
-  const docs = r.payer_credentialing_documents ?? [];
+  const docs = getCredentialingChecklistDocStubs(r);
   if (docs.length > 0 && summarizePayerDocuments(docs).hasMissing) {
     return "gathering_docs";
   }

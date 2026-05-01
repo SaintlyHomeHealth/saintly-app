@@ -11,6 +11,7 @@ import {
   hasFullCallVisibility,
   isPhoneWorkspaceUser,
 } from "@/lib/staff-profile";
+import { adminPerfTimed, routePerfLog, routePerfStart } from "@/lib/perf/route-perf";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import {
@@ -99,10 +100,12 @@ type PageProps = {
 };
 
 export default async function AdminPhoneCallLogPage({ searchParams }: PageProps) {
-  const staffProfile = await getStaffProfile();
-  if (!staffProfile || !isPhoneWorkspaceUser(staffProfile)) {
-    redirect("/admin");
-  }
+  const perfStart = routePerfStart();
+  try {
+    const staffProfile = await adminPerfTimed("admin_phone_call_log.staff_profile", getStaffProfile);
+    if (!staffProfile || !isPhoneWorkspaceUser(staffProfile)) {
+      redirect("/admin");
+    }
 
   const hasFull = hasFullCallVisibility(staffProfile);
   const sp = (await searchParams) ?? {};
@@ -145,7 +148,7 @@ export default async function AdminPhoneCallLogPage({ searchParams }: PageProps)
   }
 
   const { data: rows, error } = await dbQuery;
-  let calls = (rows ?? []).map((r) => mapPhoneCallQueryRowForLog(r as Record<string, unknown>));
+  const calls = (rows ?? []).map((r) => mapPhoneCallQueryRowForLog(r as Record<string, unknown>));
   /** Match workspace calls: newest last-activity first (completed inbound surfaces). Avoid missed-first client sort that looked like a missed-only log when view=all. */
   const sortedCalls = [...calls].sort((a, b) => {
     const au = new Date(a.updated_at || a.created_at).getTime();
@@ -600,4 +603,7 @@ export default async function AdminPhoneCallLogPage({ searchParams }: PageProps)
       </p>
     </div>
   );
+  } finally {
+    routePerfLog("admin/phone", perfStart);
+  }
 }

@@ -28,7 +28,7 @@ import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const EMPTY_SENTINEL = "00000000-0000-0000-0000-000000000000";
-const CRM_LEADS_LIST_LIMIT = 100;
+const CRM_LEADS_LIST_LIMIT = 50;
 
 /** `public.leads` — shared column list for CRM list (without optional migration-gated columns). */
 const CRM_LEADS_LIST_SELECT_BASE =
@@ -276,7 +276,7 @@ export default async function AdminCrmLeadsPage({
         title="Leads"
         description={
           <>
-            Intake and follow-ups — up to 100 rows after filters. Open a lead for full detail.
+            Intake and follow-ups — up to 50 rows after filters. Open a lead for full detail.
             {error ? <span className="mt-2 block text-sm text-red-700">{error.message}</span> : null}
           </>
         }

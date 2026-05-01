@@ -4,6 +4,9 @@
  *
  * Set ROUTE_PERF_STEPS=1 (server) for per-step DB segment timings on instrumented routes.
  * Steps log as `[route-perf] step <name> <ms>ms` in addition to totals when totals are enabled.
+ *
+ * Set DEBUG_ADMIN_PERF=1 (server) for `console.time` / `console.timeEnd` on wrapped segments
+ * (same labels as ROUTE_PERF_STEPS when both are on).
  */
 export function routePerfEnabled(): boolean {
   return process.env.NEXT_PUBLIC_ROUTE_PERF === "1";
@@ -14,14 +17,19 @@ export function routePerfStepsEnabled(): boolean {
   return process.env.ROUTE_PERF_STEPS === "1";
 }
 
-/** Start marker (ms since epoch); 0 when neither total nor step logging is on. */
+/** Enables `console.time` / `console.timeEnd` for measured admin RSC segments. */
+export function adminConsolePerfEnabled(): boolean {
+  return process.env.DEBUG_ADMIN_PERF === "1";
+}
+
+/** Start marker (ms since epoch); 0 when no route/total/step/admin console perf is enabled. */
 export function routePerfStart(): number {
-  if (!routePerfEnabled() && !routePerfStepsEnabled()) return 0;
+  if (!routePerfEnabled() && !routePerfStepsEnabled() && !adminConsolePerfEnabled()) return 0;
   return Date.now();
 }
 
 export function routePerfLog(segment: string, startedAtMs: number): void {
-  if (!routePerfEnabled() && !routePerfStepsEnabled()) return;
+  if (!routePerfEnabled() && !routePerfStepsEnabled() && !adminConsolePerfEnabled()) return;
   if (!startedAtMs) return;
   const ms = Date.now() - startedAtMs;
   console.info(`[route-perf] ${segment} total=${ms.toFixed(0)}ms`);
@@ -39,6 +47,23 @@ export async function routePerfTimed<T>(label: string, fn: () => PromiseLike<T>)
     return await fn();
   } finally {
     routePerfStep(label, Date.now() - t0);
+  }
+}
+
+/**
+ * Wraps async work with optional `console.time` (DEBUG_ADMIN_PERF=1) and optional
+ * `[route-perf] step` (ROUTE_PERF_STEPS=1).
+ */
+export async function adminPerfTimed<T>(label: string, fn: () => Promise<T>): Promise<T> {
+  const useConsole = adminConsolePerfEnabled();
+  const useStep = routePerfStepsEnabled();
+  if (useConsole) console.time(label);
+  const t0 = useStep ? Date.now() : 0;
+  try {
+    return await fn();
+  } finally {
+    if (useConsole) console.timeEnd(label);
+    if (useStep && t0) routePerfStep(label, Date.now() - t0);
   }
 }
 

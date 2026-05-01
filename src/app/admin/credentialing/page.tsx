@@ -11,6 +11,7 @@ import {
 import {
   analyzePayerCredentialingAttention,
   formatCredentialingDueDateLabel,
+  getCredentialingChecklistDocStubs,
   payerCredentialingReadyToBill,
   type PayerCredentialingListRow,
 } from "@/lib/crm/credentialing-command-center";
@@ -30,8 +31,11 @@ import {
 } from "@/lib/crm/credentialing-pipeline-display";
 import { loadCredentialingStaffLabelMap } from "@/lib/crm/credentialing-staff-directory";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
+import { adminPerfTimed, routePerfLog, routePerfStart } from "@/lib/perf/route-perf";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+
+const CREDENTIALING_LIST_FETCH_CAP = 500;
 
 type PriorityFilter = "" | CredentialingPriorityValue;
 
@@ -70,7 +74,7 @@ function matchesSegment(r: PayerCredentialingListRow, segment: CredentialingList
     return analyzePayerCredentialingAttention(r).needsAttention;
   }
   if (segment === "docs_missing") {
-    const docs = r.payer_credentialing_documents ?? [];
+    const docs = getCredentialingChecklistDocStubs(r);
     return docs.length > 0 && summarizePayerDocuments(docs).hasMissing;
   }
   return true;
@@ -141,59 +145,107 @@ export default async function AdminCredentialingPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const staff = await getStaffProfile();
-  if (!staff || !isManagerOrHigher(staff)) {
-    redirect("/admin");
-  }
+  const perfStart = routePerfStart();
+  try {
+    const staff = await adminPerfTimed("admin_credentialing.staff_profile", getStaffProfile);
+    if (!staff || !isManagerOrHigher(staff)) {
+      redirect("/admin");
+    }
 
-  const raw = await searchParams;
-  const segRaw = typeof raw.segment === "string" ? raw.segment.trim().toLowerCase() : "";
-  const segment: CredentialingListSegment = isCredentialingListSegment(segRaw) ? segRaw : "all";
-  const bucketRaw = typeof raw.bucket === "string" ? raw.bucket.trim().toLowerCase() : "";
-  const bucket: CredentialingSummaryBucket | "" = isCredentialingSummaryBucket(bucketRaw) ? bucketRaw : "";
-  const q = typeof raw.q === "string" ? raw.q : Array.isArray(raw.q) ? raw.q[0] ?? "" : "";
-  const qTrim = q.trim();
-  const prRaw = typeof raw.priority === "string" ? raw.priority.trim().toLowerCase() : "";
-  const priorityFilter: PriorityFilter =
-    prRaw === "high" || prRaw === "medium" || prRaw === "low" ? prRaw : "";
+    const raw = await searchParams;
+    const segRaw = typeof raw.segment === "string" ? raw.segment.trim().toLowerCase() : "";
+    const segment: CredentialingListSegment = isCredentialingListSegment(segRaw) ? segRaw : "all";
+    const bucketRaw = typeof raw.bucket === "string" ? raw.bucket.trim().toLowerCase() : "";
+    const bucket: CredentialingSummaryBucket | "" = isCredentialingSummaryBucket(bucketRaw) ? bucketRaw : "";
+    const q = typeof raw.q === "string" ? raw.q : Array.isArray(raw.q) ? raw.q[0] ?? "" : "";
+    const qTrim = q.trim();
+    const prRaw = typeof raw.priority === "string" ? raw.priority.trim().toLowerCase() : "";
+    const priorityFilter: PriorityFilter =
+      prRaw === "high" || prRaw === "medium" || prRaw === "low" ? prRaw : "";
 
-  const supabase = await createServerSupabaseClient();
-  const { data: rows, error } = await supabase
-    .from("payer_credentialing_records")
-    .select(
-      `id, payer_name, payer_type, market_state, credentialing_status, contracting_status,
+    const supabase = await adminPerfTimed("admin_credentialing.server_client", createServerSupabaseClient);
+
+    const { data: rows, error } = await adminPerfTimed("admin_credentialing.payer_records_query", () =>
+      supabase
+        .from("payer_credentialing_records")
+        .select(
+          `id, payer_name, payer_type, market_state, credentialing_status, contracting_status,
        portal_url, primary_contact_name, primary_contact_phone, primary_contact_phone_direct, primary_contact_fax,
        primary_contact_email,
        last_follow_up_at, updated_at, created_at, assigned_owner_user_id,
        next_action, next_action_due_date, priority, denial_reason,
-       payer_credentialing_record_emails ( email ),
-       payer_credentialing_documents ( status )`
-    )
-    .order("updated_at", { ascending: false })
-    .limit(2000);
+       payer_credentialing_record_emails ( email )`
+        )
+        .order("updated_at", { ascending: false })
+        .limit(CREDENTIALING_LIST_FETCH_CAP)
+    );
 
-  const allList = normalizeCredentialingRows(rows ?? []);
+    const recordIds = (rows ?? [])
+      .map((row) => (row as { id?: string }).id)
+      .filter((id): id is string => typeof id === "string" && id.length > 0);
 
-  const bucketStats = computeCredentialingSummaryBuckets(allList);
+    const rollupById = new Map<
+      string,
+      { missing: number; uploaded: number; waived: number }
+    >();
 
-  const ownerIds = allList.map((r) => r.assigned_owner_user_id).filter((x): x is string => Boolean(x));
-  const ownerLabels = await loadCredentialingStaffLabelMap(ownerIds);
+    if (recordIds.length > 0) {
+      const { data: docRows, error: docErr } = await adminPerfTimed(
+        "admin_credentialing.checklist_rollup_query",
+        () =>
+          supabase
+            .from("payer_credentialing_documents")
+            .select("payer_credentialing_record_id, status")
+            .in("payer_credentialing_record_id", recordIds)
+      );
+      if (docErr) {
+        console.warn("[admin/credentialing] checklist rollup:", docErr.message);
+      } else {
+        for (const dr of docRows ?? []) {
+          const ridRaw = (dr as { payer_credentialing_record_id?: unknown }).payer_credentialing_record_id;
+          const rid = typeof ridRaw === "string" ? ridRaw : "";
+          if (!rid) continue;
+          let agg = rollupById.get(rid);
+          if (!agg) {
+            agg = { missing: 0, uploaded: 0, waived: 0 };
+            rollupById.set(rid, agg);
+          }
+          const st = typeof (dr as { status?: unknown }).status === "string" ? (dr as { status: string }).status : "";
+          if (st === "missing") agg.missing += 1;
+          else if (st === "uploaded") agg.uploaded += 1;
+          else if (st === "not_applicable") agg.waived += 1;
+        }
+      }
+    }
 
-  let list = allList;
-  if (bucket) {
-    list = list.filter((r) => matchesCredentialingSummaryBucket(r, bucket));
-  } else {
-    list = list.filter((r) => matchesSegment(r, segment));
-  }
-  list = list.filter((r) => matchesPriorityFilter(r, priorityFilter));
-  list = list.filter((r) => matchesSearch(r, qTrim));
+    const baseList = normalizeCredentialingRows(rows ?? []);
+    const allList = baseList.map((r) => ({
+      ...r,
+      credentialing_checklist_rollup: rollupById.get(r.id) ?? null,
+    }));
 
-  const chipBase =
-    "inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-semibold transition";
-  const chipOff = `${chipBase} border-slate-200 bg-white text-slate-600 hover:border-sky-200 hover:bg-sky-50`;
-  const chipOn = `${chipBase} border-sky-300 bg-sky-50 text-sky-900`;
-  const priChip = (pf: PriorityFilter) =>
-    `${chipBase} ${priorityFilter === pf ? "border-rose-400 bg-rose-50 text-rose-950" : "border-slate-200 bg-white text-slate-600 hover:border-rose-200"}`;
+    const bucketStats = computeCredentialingSummaryBuckets(allList);
+
+    const ownerIds = allList.map((r) => r.assigned_owner_user_id).filter((x): x is string => Boolean(x));
+    const ownerLabels = await adminPerfTimed("admin_credentialing.owner_label_map", () =>
+      loadCredentialingStaffLabelMap(ownerIds)
+    );
+
+    let list = allList;
+    if (bucket) {
+      list = list.filter((r) => matchesCredentialingSummaryBucket(r, bucket));
+    } else {
+      list = list.filter((r) => matchesSegment(r, segment));
+    }
+    list = list.filter((r) => matchesPriorityFilter(r, priorityFilter));
+    list = list.filter((r) => matchesSearch(r, qTrim));
+
+    const chipBase =
+      "inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-semibold transition";
+    const chipOff = `${chipBase} border-slate-200 bg-white text-slate-600 hover:border-sky-200 hover:bg-sky-50`;
+    const chipOn = `${chipBase} border-sky-300 bg-sky-50 text-sky-900`;
+    const priChip = (pf: PriorityFilter) =>
+      `${chipBase} ${priorityFilter === pf ? "border-rose-400 bg-rose-50 text-rose-950" : "border-slate-200 bg-white text-slate-600 hover:border-rose-200"}`;
 
   return (
     <div className="space-y-6 p-6">
@@ -225,6 +277,13 @@ export default async function AdminCredentialingPage({
           {error.message.includes("payer_credentialing") || error.message.includes("column")
             ? "Apply the latest credentialing migrations, then reload."
             : error.message}
+        </p>
+      ) : null}
+
+      {(rows ?? []).length >= CREDENTIALING_LIST_FETCH_CAP ? (
+        <p className="rounded-[20px] border border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-950 shadow-sm">
+          List loads the <span className="font-semibold">{CREDENTIALING_LIST_FETCH_CAP}</span> most recently updated payer
+          records for speed. Use search or segments to narrow; open a record for attachments and the full checklist.
         </p>
       ) : null}
 
@@ -462,4 +521,7 @@ export default async function AdminCredentialingPage({
       </div>
     </div>
   );
+  } finally {
+    routePerfLog("admin/credentialing", perfStart);
+  }
 }
