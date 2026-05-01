@@ -2,7 +2,8 @@
 
 import { useWorkspacePhoneInCallLayout } from "@/components/softphone/WorkspaceSoftphoneContext";
 import {
-  routePerfClientNavTapToPush,
+  routePerfClientNavTapToMicrotask,
+  routePerfClientNavTapToPathnameSettled,
   routePerfEnabled,
   routePerfRenderCount,
   routePerfStart,
@@ -18,10 +19,10 @@ import {
   Voicemail,
   Wallet,
 } from "lucide-react";
-import { usePathname, useRouter } from "next/navigation";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import {
   memo,
-  startTransition,
   useCallback,
   useEffect,
   useMemo,
@@ -168,29 +169,34 @@ const NAV_ICON_ACTIVE_CLASS = "text-phone-ink";
 const NAV_ICON_UNREAD_CLASS = "text-sky-600";
 const NAV_ICON_IDLE_CLASS = "text-slate-400";
 
-const NavTabButton = memo(function NavTabButton({
+const navLinkClass =
+  "flex w-full flex-col items-center justify-center rounded-xl px-0.5 py-2 text-[10px] font-semibold leading-tight sm:text-[11px] no-underline";
+
+const NavTabLink = memo(function NavTabLink({
   tab,
   active,
   inboxUnreadHighlight,
-  onNavigate,
+  onTapStart,
 }: {
   tab: Tab;
   active: boolean;
   inboxUnreadHighlight: boolean;
-  onNavigate: (href: string) => void;
+  onTapStart: (href: string, match: RegExp, tapPerfMs: number) => void;
 }) {
-  const handleClick = useCallback(() => {
-    onNavigate(tab.href);
-  }, [onNavigate, tab.href]);
-
   const surfaceClass = active ? NAV_ACTIVE_CLASS : inboxUnreadHighlight ? NAV_INBOX_UNREAD_CLASS : NAV_IDLE_CLASS;
   const iconClass = active ? NAV_ICON_ACTIVE_CLASS : inboxUnreadHighlight ? NAV_ICON_UNREAD_CLASS : NAV_ICON_IDLE_CLASS;
 
   return (
-    <button
-      type="button"
-      onClick={handleClick}
-      className={`flex w-full flex-col items-center justify-center rounded-xl px-0.5 py-2 text-[10px] font-semibold leading-tight sm:text-[11px] ${surfaceClass}`}
+    <Link
+      href={tab.href}
+      prefetch
+      aria-current={active ? "page" : undefined}
+      className={`${navLinkClass} ${surfaceClass}`}
+      onClick={() => {
+        const tTap = typeof performance !== "undefined" && performance.now ? performance.now() : 0;
+        onTapStart(tab.href, tab.match, tTap);
+        routePerfClientNavTapToMicrotask(tTap);
+      }}
     >
       <span
         className={`mb-0.5 flex flex-col items-center [&_svg]:pointer-events-none ${iconClass}`}
@@ -199,7 +205,7 @@ const NavTabButton = memo(function NavTabButton({
         {tab.icon}
       </span>
       {tab.label}
-    </button>
+    </Link>
   );
 });
 
@@ -210,11 +216,12 @@ function NursePhoneBottomNavInner({
 }: NavProps) {
   routePerfRenderCount("NursePhoneBottomNav");
   const pathname = usePathname() ?? "";
-  const router = useRouter();
   const inCallLayout = useWorkspacePhoneInCallLayout();
   const [inboxHasUnread, setInboxHasUnread] = useState(Boolean(initialInboxHasUnread));
+  const [pendingTabHref, setPendingTabHref] = useState<string | null>(null);
   const unreadRefreshInFlightRef = useRef<Promise<void> | null>(null);
   const lastUnreadRefreshAtRef = useRef(0);
+  const navTapPerfRef = useRef(0);
 
   const refreshInboxUnread = useCallback(async (options?: { force?: boolean }) => {
     if (typeof document !== "undefined" && document.visibilityState !== "visible") {
@@ -258,7 +265,9 @@ function NursePhoneBottomNavInner({
     setInboxHasUnread((prev) => (prev === next ? prev : next));
   }, [initialInboxHasUnread]);
 
-  /** Defer unread refresh off the navigation critical path (was tying fetches to every pathname). */
+  /**
+   * Initial badge hydrate only — do not tie to pathname (tab switches were competing with RSC fetches).
+   */
   useEffect(() => {
     if (typeof window === "undefined") return;
     let idleId: number | null = null;
@@ -279,12 +288,7 @@ function NursePhoneBottomNavInner({
         window.clearTimeout(timeoutId);
       }
     };
-  }, [pathname, refreshInboxUnread]);
-
-  useEffect(() => {
-    router.prefetch("/workspace/phone/inbox");
-    router.prefetch("/workspace/phone/keypad");
-  }, [router]);
+  }, [refreshInboxUnread]);
 
   useEffect(() => {
     const id = window.setInterval(() => {
@@ -305,16 +309,24 @@ function NursePhoneBottomNavInner({
     };
   }, [refreshInboxUnread]);
 
-  const pushTab = useCallback(
-    (href: string) => {
-      const t0 = typeof performance !== "undefined" ? performance.now() : 0;
-      startTransition(() => {
-        router.push(href);
-      });
-      routePerfClientNavTapToPush(t0);
-    },
-    [router]
-  );
+  const onTabTapStart = useCallback((href: string, match: RegExp, tapPerfMs: number) => {
+    /** Same-tab taps: avoid sticky `pendingTabHref` when `pathname` never updates. */
+    if (isActive(pathname, match)) {
+      setPendingTabHref(null);
+      return;
+    }
+    setPendingTabHref(href);
+    navTapPerfRef.current = tapPerfMs;
+  }, [pathname]);
+
+  useEffect(() => {
+    setPendingTabHref(null);
+    const t0 = navTapPerfRef.current;
+    if (t0 > 0 && routePerfEnabled()) {
+      routePerfClientNavTapToPathnameSettled(t0, pathname);
+      navTapPerfRef.current = 0;
+    }
+  }, [pathname]);
 
   /*
    * Do not subscribe to `messages` here. A previous org-wide realtime listener woke every workspace
@@ -346,16 +358,18 @@ function NursePhoneBottomNavInner({
     >
       <ul className="mx-auto flex w-full max-w-6xl items-stretch justify-between gap-0.5 px-1 pt-1">
         {tabs.map((t) => {
-          const active = isActive(pathname, t.match);
+          const active = pendingTabHref
+            ? pendingTabHref === t.href
+            : isActive(pathname, t.match);
           const isInboxTab = t.href === "/workspace/phone/inbox";
           const inboxUnreadHighlight = isInboxTab && inboxHasUnread && !active;
           return (
             <li key={t.href} className="min-w-0 flex-1">
-              <NavTabButton
+              <NavTabLink
                 tab={t}
                 active={active}
                 inboxUnreadHighlight={inboxUnreadHighlight}
-                onNavigate={pushTab}
+                onTapStart={onTabTapStart}
               />
             </li>
           );

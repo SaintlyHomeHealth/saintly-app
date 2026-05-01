@@ -271,7 +271,8 @@ export default async function WorkspacePatientsPage() {
       .from("phone_calls")
       .select("contact_id, started_at, voicemail_recording_sid")
       .in("contact_id", contactIds)
-      .order("started_at", { ascending: false });
+      .order("started_at", { ascending: false })
+      .limit(400);
 
     for (const call of calls ?? []) {
       const cid = typeof call.contact_id === "string" ? call.contact_id : "";
@@ -305,7 +306,7 @@ export default async function WorkspacePatientsPage() {
     .eq("assigned_to_user_id", viewerId)
     .not("primary_contact_id", "is", null)
     .order("last_message_at", { ascending: false, nullsFirst: false })
-    .limit(60);
+    .limit(40);
 
   const extraContactIds = [...new Set(
     (convOnly ?? [])

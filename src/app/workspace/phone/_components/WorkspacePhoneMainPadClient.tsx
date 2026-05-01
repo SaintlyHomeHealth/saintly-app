@@ -50,11 +50,13 @@ export function WorkspacePhoneMainPadClient({ children }: Props) {
 
   useEffect(() => {
     if (!routePerfEnabled()) return;
-    console.time("APP_RENDER");
-    requestAnimationFrame(() => {
-      console.timeEnd("APP_RENDER");
+    const label = `APP_RENDER:${pathname}`;
+    console.time(label);
+    const id = requestAnimationFrame(() => {
+      console.timeEnd(label);
     });
-  });
+    return () => cancelAnimationFrame(id);
+  }, [pathname]);
 
   return (
     <main

@@ -9,7 +9,8 @@ const SMS_MESSAGE_TYPE = "sms" as const;
  */
 /** Hard render cap for workspace SMS inbox. */
 export const WORKSPACE_SMS_INBOX_MAX_VISIBLE = 40;
-export const WORKSPACE_SMS_INBOX_CONVERSATION_FETCH = 100;
+/** Over-fetch for voicemail-thread culling; keep modest to speed first paint on mobile. */
+export const WORKSPACE_SMS_INBOX_CONVERSATION_FETCH = 56;
 
 export type SmsInboxConversationListRow = { id: string } & Record<string, unknown>;
 
