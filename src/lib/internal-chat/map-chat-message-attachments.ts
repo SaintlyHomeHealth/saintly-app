@@ -13,7 +13,7 @@ export function mapSupabaseNestedChatAttachments(raw: unknown): MappedChatAttach
   for (const row of raw) {
     if (!row || typeof row !== "object") continue;
     const r = row as Record<string, unknown>;
-    const id = typeof r.id === "string" ? r.id : "";
+    const id = r.id != null ? String(r.id).trim() : "";
     if (!id) continue;
     out.push({
       id,

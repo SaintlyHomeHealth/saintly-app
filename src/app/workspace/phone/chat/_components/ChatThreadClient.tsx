@@ -65,6 +65,10 @@ type Props = {
 const CHAT_UPLOAD_ACCEPT =
   "image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf,.pdf,.heic,.heif";
 
+/** UUID v4 pattern for attachment ids from API */
+const CHAT_ATTACHMENT_UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 type PendingAttachment = { file: File; url: string };
 
 function uploadChatFilesWithProgress(
@@ -136,14 +140,19 @@ type ChatAttachmentTileProps = {
 
 function ChatAttachmentTile({ att, mine }: ChatAttachmentTileProps) {
   const [thumbFailed, setThumbFailed] = useState(false);
-  const srcPath = chatAttachmentProtectedPath(att.id);
+  const idNorm = typeof att.id === "string" ? att.id.trim().toLowerCase() : "";
+  const idOk = Boolean(idNorm && CHAT_ATTACHMENT_UUID_RE.test(idNorm));
+  const srcPath = idOk ? chatAttachmentProtectedPath(idNorm) : "";
+
   const canTryInline =
+    idOk &&
     !thumbFailed &&
     isInlineChatImageContentType(att.contentType) &&
     !isHeicFamilyContentType(att.contentType) &&
     !isLikelyHeicFilename(att.fileName);
 
   const openInNewTab = () => {
+    if (!idOk) return;
     try {
       const origin = typeof window !== "undefined" ? window.location.origin : "";
       const url = origin ? `${origin}${srcPath}` : srcPath;
@@ -158,6 +167,20 @@ function ChatAttachmentTile({ att, mine }: ChatAttachmentTileProps) {
       ? "border-sky-400/40 bg-phone-navy/95 text-white"
       : "border-slate-200 bg-white text-slate-800 shadow-sm"
   }`;
+
+  if (!idOk) {
+    return (
+      <div
+        className={`max-w-xs rounded-lg border px-2 py-2 text-left text-xs ${
+          mine
+            ? "border-amber-400/50 bg-phone-navy/90 text-amber-100"
+            : "border-amber-200 bg-amber-50/90 text-amber-900"
+        }`}
+      >
+        Invalid attachment link
+      </div>
+    );
+  }
 
   if (canTryInline) {
     return (

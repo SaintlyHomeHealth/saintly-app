@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 
 import { supabaseAdmin } from "@/lib/admin";
+import { assertInternalChatMember } from "@/lib/internal-chat/access";
 import { CHAT_ATTACHMENTS_BUCKET } from "@/lib/internal-chat/chat-attachments-bucket";
 import { chatAttachmentDebugEnabled } from "@/lib/internal-chat/chat-attachment-constants";
 import { canAccessWorkspaceInternalChat } from "@/lib/internal-chat/workspace-access";
-import { createServerSupabaseClient } from "@/lib/supabase/server";
-import { getStaffProfile } from "@/lib/staff-profile";
+import { createServerSupabaseClient, getAuthenticatedUser } from "@/lib/supabase/server";
+import { getStaffProfile, isAdminOrHigher } from "@/lib/staff-profile";
 
 export const runtime = "nodejs";
 
@@ -29,24 +30,45 @@ function attachErrorResponse(req: Request, status: number, code: string, message
   return NextResponse.json({ error: code, message }, { status });
 }
 
+function postgrestErrorFields(err: { message?: string; code?: string; details?: string; hint?: string }) {
+  return {
+    message: err.message,
+    code: err.code,
+    details: err.details,
+    hint: err.hint,
+  };
+}
+
+const ATTACHMENT_SELECT =
+  "id, storage_path, storage_bucket, content_type, chat_thread_id, chat_message_id, size_bytes, file_name";
+
 export async function GET(
   req: Request,
   ctx: { params: Promise<{ attachmentId: string }> }
 ): Promise<Response> {
   const debug = chatAttachmentDebugEnabled();
 
+  const user = await getAuthenticatedUser();
+  if (!user) {
+    if (debug) {
+      console.warn("[chat-attachments/view] unauthorized: no auth user");
+    }
+    return attachErrorResponse(req, 401, "unauthorized", "Sign in required.");
+  }
+
   const staff = await getStaffProfile();
   if (!staff || !canAccessWorkspaceInternalChat(staff)) {
     if (debug) {
-      console.warn("[chat-attachments/view] forbidden: no staff / workspace chat access", {
+      console.warn("[chat-attachments/view] forbidden: staff / workspace chat gate", {
         hasStaff: Boolean(staff),
+        userId: user.id,
       });
     }
     return attachErrorResponse(
       req,
       403,
       "forbidden",
-      "You do not have access to this attachment."
+      "You do not have access to workspace chat attachments."
     );
   }
 
@@ -59,27 +81,55 @@ export async function GET(
   if (debug) {
     console.info("[chat-attachments/view] request", {
       attachmentId: aid,
-      userId: staff.user_id,
+      authUserId: user.id,
+      staffUserId: staff.user_id,
+      staffRole: staff.role,
+      isActive: staff.is_active,
     });
   }
 
-  const supabaseUser = await createServerSupabaseClient();
-  const { data: row, error } = await supabaseUser
+  /** Compare RLS path vs service path (debug only). */
+  if (debug) {
+    try {
+      const supabaseUser = await createServerSupabaseClient();
+      const rlsTry = await supabaseUser
+        .from("chat_message_attachments")
+        .select("id")
+        .eq("id", aid)
+        .maybeSingle();
+
+      if (rlsTry.error) {
+        console.warn("[chat-attachments/view] rls_jwt_select_error", {
+          attachmentId: aid,
+          authUserId: user.id,
+          ...postgrestErrorFields(rlsTry.error),
+        });
+      } else {
+        console.info("[chat-attachments/view] rls_jwt_select_ok", {
+          attachmentId: aid,
+          rowReturned: Boolean(rlsTry.data),
+        });
+      }
+    } catch (e) {
+      console.warn("[chat-attachments/view] rls_probe_exception", {
+        attachmentId: aid,
+        err: e instanceof Error ? e.message : String(e),
+      });
+    }
+  }
+
+  const { data: row, error: rowErr } = await supabaseAdmin
     .from("chat_message_attachments")
-    .select(
-      "id, storage_path, storage_bucket, content_type, chat_thread_id, chat_message_id, size_bytes, file_name"
-    )
+    .select(ATTACHMENT_SELECT)
     .eq("id", aid)
     .maybeSingle();
 
-  if (error) {
-    if (debug) {
-      console.warn("[chat-attachments/view] select error", {
-        attachmentId: aid,
-        message: error.message,
-        code: error.code,
-      });
-    }
+  if (rowErr) {
+    console.warn("[chat-attachments/view] admin_select_failed", {
+      attachmentId: aid,
+      authUserId: user.id,
+      ...postgrestErrorFields(rowErr),
+    });
     return attachErrorResponse(
       req,
       500,
@@ -90,9 +140,68 @@ export async function GET(
 
   if (!row?.storage_path || !row?.storage_bucket) {
     if (debug) {
-      console.warn("[chat-attachments/view] not_found", { attachmentId: aid, rowPresent: Boolean(row) });
+      console.warn("[chat-attachments/view] not_found_after_admin_select", {
+        attachmentId: aid,
+        rowPresent: Boolean(row),
+      });
     }
-    return attachErrorResponse(req, 404, "not_found", "Attachment not found or access denied.");
+    return attachErrorResponse(req, 404, "not_found", "Attachment not found.");
+  }
+
+  const member = await assertInternalChatMember(row.chat_thread_id, staff.user_id);
+  const adminBypass = isAdminOrHigher(staff) && staff.is_active !== false;
+
+  if (!member && !adminBypass) {
+    if (debug) {
+      console.warn("[chat-attachments/view] forbidden_not_thread_member", {
+        attachmentId: aid,
+        chatThreadId: row.chat_thread_id,
+        userId: staff.user_id,
+      });
+    }
+    return attachErrorResponse(
+      req,
+      403,
+      "forbidden",
+      "You do not have access to this attachment."
+    );
+  }
+
+  const { data: msg, error: msgErr } = await supabaseAdmin
+    .from("internal_chat_messages")
+    .select("id, chat_id")
+    .eq("id", row.chat_message_id)
+    .maybeSingle();
+
+  if (msgErr) {
+    console.warn("[chat-attachments/view] message_lookup_failed", {
+      attachmentId: aid,
+      chatMessageId: row.chat_message_id,
+      ...postgrestErrorFields(msgErr),
+    });
+    return attachErrorResponse(
+      req,
+      500,
+      "message_lookup_failed",
+      "Could not verify attachment message."
+    );
+  }
+
+  if (!msg || String(msg.chat_id) !== String(row.chat_thread_id)) {
+    if (debug) {
+      console.warn("[chat-attachments/view] thread_message_mismatch", {
+        attachmentId: aid,
+        rowThreadId: row.chat_thread_id,
+        messageId: row.chat_message_id,
+        messageChatId: msg?.chat_id ?? null,
+      });
+    }
+    return attachErrorResponse(
+      req,
+      404,
+      "not_found",
+      "Attachment is not linked to a valid chat message."
+    );
   }
 
   const bucket = String(row.storage_bucket);
@@ -106,7 +215,7 @@ export async function GET(
   const path = String(row.storage_path);
 
   if (debug) {
-    console.info("[chat-attachments/view] row", {
+    console.info("[chat-attachments/view] row_ok", {
       id: row.id,
       storage_bucket: bucket,
       storage_path: path,
@@ -115,20 +224,19 @@ export async function GET(
       chat_message_id: row.chat_message_id,
       size_bytes: row.size_bytes,
       file_name: row.file_name,
+      memberRole: member?.member_role ?? null,
+      adminBypass,
     });
   }
 
   const { data, error: signErr } = await supabaseAdmin.storage.from(bucket).createSignedUrl(path, 120);
 
   if (signErr || !data?.signedUrl) {
-    console.warn("[chat-attachments/view] sign_failed:", signErr?.message, { attachmentId: aid, path });
-    if (debug) {
-      console.warn("[chat-attachments/view] sign detail", {
-        attachmentId: aid,
-        signErr: signErr?.message,
-        hasUrl: Boolean(data?.signedUrl),
-      });
-    }
+    console.warn("[chat-attachments/view] sign_failed", {
+      attachmentId: aid,
+      path,
+      signMessage: signErr?.message,
+    });
     return attachErrorResponse(
       req,
       500,
