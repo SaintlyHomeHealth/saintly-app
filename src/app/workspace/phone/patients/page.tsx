@@ -12,6 +12,32 @@ import {
 } from "@/app/workspace/phone/patients/_lib/patient-hub";
 import { canUseWorkspacePhoneAppShell, getStaffProfile } from "@/lib/staff-profile";
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
+import { devTimedSupabaseQuery } from "@/lib/perf/supabase-dev-query-log";
+
+type WorkspacePatientAssignmentRow = {
+  id: string;
+  role: string;
+  patient_id: string;
+};
+
+type WorkspacePatientWithContact = {
+  id: string;
+  patient_status: string | null;
+  contact_id: string | null;
+  contacts: ContactRow | ContactRow[] | null;
+};
+
+function chunkIds(ids: string[], size: number): string[][] {
+  if (size <= 0) return ids.length ? [ids] : [];
+  const out: string[][] = [];
+  for (let i = 0; i < ids.length; i += size) {
+    out.push(ids.slice(i, i + size));
+  }
+  return out;
+}
+
+const PATIENT_IN_CHUNK = 100;
+const CONTACT_STAGE_CHUNK = 100;
 
 type ContactRow = {
   id: string;
@@ -77,11 +103,17 @@ export default async function WorkspacePatientsPage() {
   const viewerId = staff.user_id;
 
   /** Step 1: assignments only (reliable). Nested `patients(contacts)` embeds can fail or empty in some PostgREST configs. */
-  const { data: assignmentRows, error: assignErr } = await supabaseAdmin
-    .from("patient_assignments")
-    .select("id, role, patient_id")
-    .eq("assigned_user_id", viewerId)
-    .eq("is_active", true);
+  const { data: assignmentRows, error: assignErr } = await devTimedSupabaseQuery<
+    WorkspacePatientAssignmentRow[]
+  >(
+    "workspace_patients.assignments",
+    () =>
+      supabaseAdmin
+        .from("patient_assignments")
+        .select("id, role, patient_id")
+        .eq("assigned_user_id", viewerId)
+        .eq("is_active", true)
+  );
 
   if (assignErr) {
     console.warn("[workspace/phone/patients] assignments:", assignErr.message);
@@ -100,31 +132,33 @@ export default async function WorkspacePatientsPage() {
 
   const patientIds = [...roleByPatientId.keys()];
 
-  type PatientWithContact = {
-    id: string;
-    patient_status: string | null;
-    contact_id: string | null;
-    contacts: ContactRow | ContactRow[] | null;
-  };
-
-  const patientById = new Map<string, PatientWithContact>();
+  const patientById = new Map<string, WorkspacePatientWithContact>();
   if (patientIds.length > 0) {
-    const { data: pRows, error: pErr } = await supabaseAdmin
-      .from("patients")
-      .select(
-        "id, patient_status, contact_id, contacts ( id, full_name, first_name, last_name, primary_phone, secondary_phone, address_line_1, address_line_2, city, state, zip )"
-      )
-      .in("id", patientIds)
-      .is("archived_at", null)
-      .eq("is_test", false);
+    let patientFetchErr: { message?: string } | null = null;
+    for (const slice of chunkIds(patientIds, PATIENT_IN_CHUNK)) {
+      const { data: pRows, error } = await devTimedSupabaseQuery<WorkspacePatientWithContact[]>(
+        `workspace_patients.patients_batch_${slice.length}`,
+        () =>
+          supabaseAdmin
+            .from("patients")
+            .select(
+              "id, patient_status, contact_id, contacts ( id, full_name, first_name, last_name, primary_phone, secondary_phone, address_line_1, address_line_2, city, state, zip )"
+            )
+            .in("id", slice)
+            .is("archived_at", null)
+            .eq("is_test", false)
+      );
+      if (error) {
+        patientFetchErr = error;
+      }
 
-    if (pErr) {
-      console.warn("[workspace/phone/patients] patients:", pErr.message);
+      for (const raw of pRows ?? []) {
+        const p = raw as WorkspacePatientWithContact;
+        if (p?.id) patientById.set(String(p.id), p);
+      }
     }
-
-    for (const raw of pRows ?? []) {
-      const p = raw as PatientWithContact;
-      if (p?.id) patientById.set(String(p.id), p);
+    if (patientFetchErr) {
+      console.warn("[workspace/phone/patients] patients:", patientFetchErr.message);
     }
 
     const missingContactIds: string[] = [];
@@ -139,14 +173,19 @@ export default async function WorkspacePatientsPage() {
 
     const uniqueMissing = [...new Set(missingContactIds)];
     if (uniqueMissing.length > 0) {
-      const { data: cOnly } = await supabaseAdmin
-        .from("contacts")
-        .select(
-          "id, full_name, first_name, last_name, primary_phone, secondary_phone, address_line_1, address_line_2, city, state, zip"
-        )
-        .in("id", uniqueMissing);
+      const cMap = new Map<string, ContactRow>();
+      for (const slice of chunkIds(uniqueMissing, CONTACT_STAGE_CHUNK)) {
+        const { data: cOnly } = await supabaseAdmin
+          .from("contacts")
+          .select(
+            "id, full_name, first_name, last_name, primary_phone, secondary_phone, address_line_1, address_line_2, city, state, zip"
+          )
+          .in("id", slice);
+        for (const row of (cOnly ?? []) as ContactRow[]) {
+          if (row?.id) cMap.set(String(row.id), row);
+        }
+      }
 
-      const cMap = new Map((cOnly ?? []).map((row) => [String((row as ContactRow).id), row as ContactRow]));
       for (const [id, p] of patientById.entries()) {
         const cid = typeof p.contact_id === "string" ? p.contact_id.trim() : "";
         if (!cid) continue;
@@ -168,23 +207,28 @@ export default async function WorkspacePatientsPage() {
         .filter(Boolean)
     ),
   ];
-  let contactsInPatientCrmStage = new Set<string>();
+  const contactsInPatientCrmStage = new Set<string>();
+  let stageGateHadError = false;
   if (contactIdsForStageGate.length > 0) {
-    const { data: patientStageRows, error: stageErr } = await leadRowsActiveOnly(
-      supabaseAdmin
-        .from("leads")
-        .select("contact_id")
-        .in("contact_id", contactIdsForStageGate)
-        .eq("crm_stage", "patient")
-    );
-    if (stageErr) {
-      console.warn("[workspace/phone/patients] crm_stage patient filter:", stageErr.message);
+    for (const slice of chunkIds(contactIdsForStageGate, CONTACT_STAGE_CHUNK)) {
+      const { data: patientStageRows, error: stageErr } = await leadRowsActiveOnly(
+        supabaseAdmin
+          .from("leads")
+          .select("contact_id")
+          .in("contact_id", slice)
+          .eq("crm_stage", "patient")
+      );
+      if (stageErr) {
+        stageGateHadError = true;
+      }
+      for (const r of patientStageRows ?? []) {
+        const cid = typeof r.contact_id === "string" ? r.contact_id.trim() : "";
+        if (cid) contactsInPatientCrmStage.add(cid);
+      }
     }
-    contactsInPatientCrmStage = new Set(
-      (patientStageRows ?? [])
-        .map((r) => (typeof r.contact_id === "string" ? r.contact_id.trim() : ""))
-        .filter(Boolean)
-    );
+    if (stageGateHadError) {
+      console.warn("[workspace/phone/patients] crm_stage patient filter: one or more batches failed");
+    }
   }
 
   const patientItems: ListItemPatient[] = [];

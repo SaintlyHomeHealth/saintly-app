@@ -1,19 +1,16 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { Suspense } from "react";
 
-import { KeypadDialerLazy } from "./KeypadDialerLazy";
+import { KeypadOutboundDialSection } from "./KeypadOutboundDialSection";
 import { WorkspacePhonePageHeader } from "../_components/WorkspacePhonePageHeader";
 import { routePerfLog, routePerfStart } from "@/lib/perf/route-perf";
-import { staffMayDialOutbound } from "@/lib/phone/staff-phone-policy";
-import { isValidE164 } from "@/lib/softphone/phone-number";
 import { fallbackPathAfterKeypadDenied, resolveEffectivePageAccess } from "@/lib/staff-page-access";
 import {
   canAccessWorkspacePhone,
   canUseWorkspacePhoneAppShell,
   getStaffProfile,
 } from "@/lib/staff-profile";
-import { supabaseAdmin } from "@/lib/admin";
-import { loadAssignedTwilioNumberForUser } from "@/lib/twilio/twilio-phone-number-repo";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -21,6 +18,28 @@ const UUID_RE =
 function oneParam(sp: Record<string, string | string[] | undefined>, key: string): string {
   const v = sp[key];
   return typeof v === "string" ? v : Array.isArray(v) ? (v[0] ?? "") : "";
+}
+
+function KeypadDialSuspenseFallback() {
+  return (
+    <div
+      className="mt-1 flex min-h-0 w-full shrink-0 flex-col gap-3 sm:mt-3 lg:mx-auto lg:max-w-[min(100%,60rem)] lg:flex-row lg:items-start lg:justify-center lg:gap-8"
+      aria-busy="true"
+      aria-label="Loading keypad"
+    >
+      <div className="flex w-full max-w-[560px] shrink-0 flex-col p-0 sm:rounded-2xl sm:border sm:border-sky-100/60 sm:bg-white sm:p-5 sm:shadow-sm lg:max-w-[620px] lg:p-4 lg:shadow-[0_8px_30px_-12px_rgba(30,58,138,0.08)]">
+        <div className="flex aspect-[4/5] max-h-[520px] min-h-[280px] w-full animate-pulse flex-col rounded-2xl bg-slate-100/90 sm:aspect-auto sm:min-h-[420px]" />
+      </div>
+      <aside className="hidden w-full max-w-[320px] shrink-0 rounded-2xl border border-sky-100/70 bg-gradient-to-b from-white to-sky-50/35 p-5 lg:block lg:w-[320px] lg:flex-none lg:p-4">
+        <div className="h-4 w-24 animate-pulse rounded bg-slate-200/80" />
+        <div className="mt-4 space-y-2">
+          <div className="h-3 w-full animate-pulse rounded bg-slate-100" />
+          <div className="h-3 w-5/6 animate-pulse rounded bg-slate-100" />
+          <div className="h-3 w-full animate-pulse rounded bg-slate-100" />
+        </div>
+      </aside>
+    </div>
+  );
 }
 
 export default async function WorkspaceKeypadPage({
@@ -41,20 +60,7 @@ export default async function WorkspaceKeypadPage({
     redirect(fallbackPathAfterKeypadDenied(access));
   }
 
-  let crmAssignedVoiceE164: string | null = null;
-  try {
-    const row = await loadAssignedTwilioNumberForUser(supabaseAdmin, staff.user_id);
-    const pn = row?.phone_number?.trim() ?? "";
-    if (pn && isValidE164(pn) && row?.voice_enabled !== false) {
-      crmAssignedVoiceE164 = pn;
-    }
-  } catch {
-    crmAssignedVoiceE164 = null;
-  }
-  const dialCtx = { crmAssignedVoiceE164 };
-
   const telephonyOk = canAccessWorkspacePhone(staff);
-  const outboundOk = telephonyOk && staffMayDialOutbound(staff, dialCtx);
 
   const sp = searchParams ? await searchParams : {};
   const dial = (oneParam(sp, "dial") || oneParam(sp, "number")).trim();
@@ -88,15 +94,6 @@ export default async function WorkspaceKeypadPage({
             permissions.
           </p>
         </div>
-      ) : !outboundOk ? (
-        <div className="mt-4 rounded-2xl border border-sky-200/90 bg-sky-50/95 px-4 py-4 text-sm text-sky-950">
-          <p className="font-semibold">Outbound calling is not enabled</p>
-          <p className="mt-2 leading-relaxed text-sky-900/95">
-            Your role does not include placing calls from this keypad (number assignment or shared-line outbound may
-            be missing). Ask an admin to review Staff Access → Phone permissions or assign a Twilio line in Admin →
-            Phone Numbers.
-          </p>
-        </div>
       ) : null}
       {leadId && UUID_RE.test(leadId) ? (
         <p className="mt-2 rounded-2xl border border-sky-200/80 bg-sky-50/90 px-4 py-3 text-sm text-sky-950">
@@ -125,27 +122,17 @@ export default async function WorkspaceKeypadPage({
           ) : null}
         </p>
       ) : null}
-      {telephonyOk && outboundOk ? (
-        <div className="mt-1 flex min-h-0 w-full shrink-0 flex-col gap-3 sm:mt-3 lg:mx-auto lg:max-w-[min(100%,60rem)] lg:flex-row lg:items-start lg:justify-center lg:gap-8">
-          <div className="flex w-full max-w-[560px] shrink-0 flex-col p-0 sm:rounded-2xl sm:border sm:border-sky-100/60 sm:bg-white sm:p-5 sm:shadow-sm lg:max-w-[620px] lg:p-4 lg:shadow-[0_8px_30px_-12px_rgba(30,58,138,0.08)]">
-            <KeypadDialerLazy
-              key={dialerKey}
-              staffDisplayName={staffDisplayName}
-              variant="keypad"
-              initialDigits={dial || undefined}
-              autoPlaceCall={autoPlaceCall && Boolean(dial)}
-            />
-          </div>
-          <aside className="hidden w-full max-w-[320px] shrink-0 rounded-2xl border border-sky-100/70 bg-gradient-to-b from-white to-sky-50/35 p-5 text-sm text-slate-600 shadow-sm shadow-sky-100/40 lg:block lg:w-[320px] lg:flex-none lg:p-4">
-            <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Tips</p>
-            <ul className="mt-3 list-inside list-disc space-y-2 leading-relaxed">
-              <li>Tap a number on the pad once to unlock ringtone audio on mobile browsers.</li>
-              <li>Use the large blue Call button — it stays easy to hit while you are moving.</li>
-              <li>Patient and lead actions elsewhere can deep-link you here with a number ready to dial.</li>
-            </ul>
-          </aside>
-        </div>
-      ) : null}
+      {!telephonyOk ? null : (
+        <Suspense fallback={<KeypadDialSuspenseFallback />}>
+          <KeypadOutboundDialSection
+            staff={staff}
+            staffDisplayName={staffDisplayName}
+            dialerKey={dialerKey}
+            initialDigits={dial || undefined}
+            autoPlaceCall={autoPlaceCall && Boolean(dial)}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }

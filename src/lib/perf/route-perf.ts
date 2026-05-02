@@ -7,6 +7,9 @@
  *
  * Set DEBUG_ADMIN_PERF=1 (server) for `console.time` / `console.timeEnd` on wrapped segments
  * (same labels as ROUTE_PERF_STEPS when both are on).
+ *
+ * In development, `[db-dev]` logs from `devTimedSupabaseQuery` include duration and row-count
+ * estimates only (no PHI).
  */
 export function routePerfEnabled(): boolean {
   return process.env.NEXT_PUBLIC_ROUTE_PERF === "1";

@@ -34,6 +34,7 @@ import {
   routePerfTimed,
   routePerfStepsEnabled,
 } from "@/lib/perf/route-perf";
+import { devTimedSupabaseQuery } from "@/lib/perf/supabase-dev-query-log";
 import {
   canAccessWorkspacePhone,
   getStaffProfile,
@@ -175,10 +176,10 @@ export default async function WorkspaceInboxPage(props: PageProps) {
     );
   }
 
-  let q = supabase
+  const q = supabase
     .from("conversations")
     .select(
-      "id, main_phone_e164, last_message_at, lead_status, assigned_to_user_id, primary_contact_id, metadata, next_action, follow_up_due_at, follow_up_completed_at, contacts ( id, full_name, first_name, last_name, primary_phone, contact_type, email )"
+      "id, main_phone_e164, last_message_at, lead_status, assigned_to_user_id, primary_contact_id, metadata, next_action, follow_up_due_at, follow_up_completed_at, contacts ( id, full_name, first_name, last_name, primary_phone, contact_type )"
     )
     .eq("channel", "sms")
     .is("deleted_at", null)
@@ -186,8 +187,10 @@ export default async function WorkspaceInboxPage(props: PageProps) {
     .limit(WORKSPACE_SMS_INBOX_CONVERSATION_FETCH);
 
   const { data: convRows, error } = routePerfStepsEnabled()
-    ? await routePerfTimed("conversations_list", () => q)
-    : await q;
+    ? await routePerfTimed("conversations_list", () =>
+        devTimedSupabaseQuery<SmsInboxConversationListRow[]>("workspace_inbox.conversations_list", () => q)
+      )
+    : await devTimedSupabaseQuery<SmsInboxConversationListRow[]>("workspace_inbox.conversations_list", () => q);
   if (error && process.env.NODE_ENV === "development") {
     console.warn("[workspace/phone/inbox] list:", error.message);
   }

@@ -24,6 +24,11 @@ import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 
 import { recruitingInterestPillClass, recruitingStatusPillClass } from "./recruiting-status-styles";
 
+const RECRUITING_LIST_SELECT =
+  "id, full_name, first_name, last_name, discipline, city, coverage_area, phone, email, source, status, interest_level, recruiting_tags, last_contact_at, next_follow_up_at, updated_at";
+
+const RECRUITING_ACTIVITY_IN_CHUNK = 120;
+
 const recruitingRowActionBtnCls =
   "inline-flex h-8 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-sky-900 shadow-sm transition hover:border-sky-300 hover:bg-sky-50 hover:shadow-md whitespace-nowrap";
 
@@ -141,7 +146,11 @@ export default async function AdminRecruitingListPage({
     lastContactTo: one("lastContactTo").trim(),
   };
 
-  let query = supabaseAdmin.from("recruiting_candidates").select("*").order("updated_at", { ascending: false }).limit(2000);
+  let query = supabaseAdmin
+    .from("recruiting_candidates")
+    .select(RECRUITING_LIST_SELECT)
+    .order("updated_at", { ascending: false })
+    .limit(2000);
 
   if (f.status) {
     query = query.eq("status", f.status);
@@ -200,14 +209,17 @@ export default async function AdminRecruitingListPage({
   const ids = list.map((r) => r.id);
   const countById = new Map<string, number>();
   if (ids.length) {
-    const { data: naRows } = await supabaseAdmin
-      .from("recruiting_candidate_activities")
-      .select("candidate_id")
-      .eq("outcome", "no_answer")
-      .in("candidate_id", ids);
-    for (const r of naRows ?? []) {
-      const id = (r as { candidate_id: string }).candidate_id;
-      countById.set(id, (countById.get(id) ?? 0) + 1);
+    for (let i = 0; i < ids.length; i += RECRUITING_ACTIVITY_IN_CHUNK) {
+      const slice = ids.slice(i, i + RECRUITING_ACTIVITY_IN_CHUNK);
+      const { data: naRows } = await supabaseAdmin
+        .from("recruiting_candidate_activities")
+        .select("candidate_id")
+        .eq("outcome", "no_answer")
+        .in("candidate_id", slice);
+      for (const r of naRows ?? []) {
+        const id = (r as { candidate_id: string }).candidate_id;
+        countById.set(id, (countById.get(id) ?? 0) + 1);
+      }
     }
   }
 

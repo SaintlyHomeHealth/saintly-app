@@ -13,11 +13,8 @@ import {
   routePerfStepsEnabled,
   routePerfTimed,
 } from "@/lib/perf/route-perf";
-import { staffMayAccessWorkspaceSms } from "@/lib/phone/staff-phone-policy";
-import { workspaceInboxHasUnreadInbound } from "@/lib/phone/workspace-inbox-unread";
 import { allowedWorkspaceTabHrefs, resolveEffectivePageAccess } from "@/lib/staff-page-access";
-import { canAccessWorkspacePhone, getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
-import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 
 export default async function WorkspacePhoneLayout({ children }: { children: ReactNode }) {
   const perfStart = routePerfStart();
@@ -39,15 +36,10 @@ export default async function WorkspacePhoneLayout({ children }: { children: Rea
     const access = resolveEffectivePageAccess(staff);
     const allowedTabs = allowedWorkspaceTabHrefs(access);
 
-    let initialInboxHasUnread = false;
-    if (canAccessWorkspacePhone(staff) && staffMayAccessWorkspaceSms(staff)) {
-      const supabase = await createServerSupabaseClient();
-      initialInboxHasUnread = routePerfStepsEnabled()
-        ? await routePerfTimed("workspace_phone_layout.initial_unread", () =>
-            workspaceInboxHasUnreadInbound(staff, supabase)
-          )
-        : await workspaceInboxHasUnreadInbound(staff, supabase);
-    }
+    /**
+     * Unread badge hydrates client-side (`NursePhoneBottomNav` hits `/api/workspace/phone/inbox-unread`
+     * on idle/focus). Skipping the layout DB scan removes a blocking round-trip on every tab navigation.
+     */
 
     return (
       <div className="ws-phone-page-shell flex h-[100dvh] max-h-[100dvh] min-h-0 flex-col overflow-x-hidden text-slate-900">
@@ -65,11 +57,7 @@ export default async function WorkspacePhoneLayout({ children }: { children: Rea
 
         <WorkspacePhoneMainPad>{children}</WorkspacePhoneMainPad>
 
-        <NursePhoneBottomNav
-          showLeadsNav={showAdminLink}
-          allowedTabHrefs={allowedTabs}
-          initialInboxHasUnread={initialInboxHasUnread}
-        />
+        <NursePhoneBottomNav showLeadsNav={showAdminLink} allowedTabHrefs={allowedTabs} initialInboxHasUnread={false} />
       </div>
     );
   } finally {

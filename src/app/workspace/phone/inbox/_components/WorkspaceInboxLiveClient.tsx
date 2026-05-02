@@ -7,11 +7,11 @@ import { routePerfClientMark, routePerfEnabled, routePerfRenderCount } from "@/l
 import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
 
 /** Batch rapid postgres events before scheduling RSC work. */
-const DEBOUNCE_MS = 550;
+const DEBOUNCE_MS = 650;
 /**
  * Cap full `router.refresh()` churn on scoped inbox realtime; trailing refresh preserves eventual consistency.
  */
-const MIN_REFRESH_GAP_MS = 2800;
+const MIN_REFRESH_GAP_MS = 3400;
 
 /**
  * Scoped to the workspace inbox page: refreshes server components so the rail (order, preview,
