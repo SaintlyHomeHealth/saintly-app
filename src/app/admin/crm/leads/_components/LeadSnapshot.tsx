@@ -192,6 +192,8 @@ function buildSnapshotPlainText(p: LeadSnapshotProps): string {
     L("Referring provider phone", p.intakeDefaults.referring_provider_phone.trim());
     if (hasAnyIntakeRequestDetail(p.intakeRequest)) {
       L("Service needed", p.intakeRequest.service_needed.trim());
+      L("PT timing", p.intakeRequest.pt_timing.trim());
+      L("Wound type", p.intakeRequest.wound_type.trim());
       L("Situation", p.intakeRequest.situation.trim());
     }
     L("Lead notes", p.applicationNotes.trim());
@@ -496,6 +498,16 @@ export function LeadSnapshot(props: LeadSnapshotProps) {
                     {intakeRequest.start_time.trim() ? (
                       <p>
                         <span className="text-slate-500">Start time:</span> {intakeRequest.start_time}
+                      </p>
+                    ) : null}
+                    {intakeRequest.pt_timing.trim() ? (
+                      <p>
+                        <span className="text-slate-500">PT timing:</span> {intakeRequest.pt_timing}
+                      </p>
+                    ) : null}
+                    {intakeRequest.wound_type.trim() ? (
+                      <p>
+                        <span className="text-slate-500">Wound type:</span> {intakeRequest.wound_type}
                       </p>
                     ) : null}
                     {intakeRequest.situation.trim() ? (

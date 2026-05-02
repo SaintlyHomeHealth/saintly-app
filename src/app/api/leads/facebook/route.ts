@@ -61,9 +61,8 @@ function pickOptionalUnknown(norm: Record<string, unknown>, aliases: string[]): 
 /**
  * Zapier / Facebook Lead Ads → CRM (`ingestFacebookPartnerStandardLead`).
  *
- * - POST JSON with flexible field names (case/spacing/underscores normalized).
- * - Auth: header `x-webhook-secret` must match env `FACEBOOK_LEADS_WEBHOOK_SECRET`.
- * - `leads.source` = `facebook_lead_ads`; `leads.status` = `new_lead`.
+ * Wound care + physical therapy lead forms: normalized keys after alias handling.
+ * Auth: header `x-webhook-secret` must match env `FACEBOOK_LEADS_WEBHOOK_SECRET`.
  */
 export async function POST(req: NextRequest) {
   const envRaw = process.env.FACEBOOK_LEADS_WEBHOOK_SECRET;
@@ -110,24 +109,27 @@ export async function POST(req: NextRequest) {
   const careFor = pickScalarString(norm, ["care_for", "Care_For", "care for"]);
   const zip = pickScalarString(norm, ["zip", "zip_code", "zip code", "postal_code", "postal code"]);
   const notes = pickScalarString(norm, ["notes", "note", "message"]);
-  const service = pickScalarString(norm, ["service", "service_needed", "service needed"]);
+  const ptTiming = pickScalarString(norm, ["pt_timing", "pt timing", "Pt_Timing"]);
+  const serviceNeeded = pickScalarString(norm, ["service_needed", "service needed", "service", "Service"]);
   const campaign = pickScalarString(norm, ["campaign", "utm_campaign"]);
   const attributionSource = pickScalarString(norm, ["source", "utm_source", "referral_source"]);
 
-  console.log("Normalized lead:", {
-    fullName,
+  const normalizedLead = {
+    full_name: fullName,
     phone,
     email,
-    formName,
-    hasMedicare: hasMedicareRaw,
-    woundType,
-    careFor,
-    zip,
+    zip_code: zip,
+    has_medicare: hasMedicareRaw,
+    care_for: careFor,
+    pt_timing: ptTiming,
+    service_needed: serviceNeeded,
+    form_name: formName,
+    wound_type: woundType,
     notes,
-    service,
     campaign,
-    attributionSource,
-  });
+    attribution_source: attributionSource,
+  };
+  console.log("Normalized lead:", normalizedLead);
 
   if (!fullName.trim() && !phone.trim()) {
     return NextResponse.json({ ok: false, error: "missing_name_or_phone" } as const, { status: 400 });
@@ -144,7 +146,9 @@ export async function POST(req: NextRequest) {
     care_for: careFor || undefined,
     zip: zip || undefined,
     notes: notes || undefined,
-    service: service || undefined,
+    service_needed: serviceNeeded || undefined,
+    service: serviceNeeded || undefined,
+    pt_timing: ptTiming || undefined,
     campaign: campaign || undefined,
     source: attributionSource || undefined,
   };
@@ -164,7 +168,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       ok: true,
       lead_id: result.leadId,
-      contact_id: result.contactId,
     } as const);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

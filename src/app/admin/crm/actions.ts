@@ -1029,6 +1029,8 @@ function readIntakeRequestFromForm(formData: FormData): LeadIntakeRequestDetails
     care_for: get("intake_care_for"),
     start_time: get("intake_start_time"),
     situation: get("intake_situation"),
+    pt_timing: get("intake_pt_timing"),
+    wound_type: get("intake_wound_type"),
   };
 }
 

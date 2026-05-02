@@ -9,6 +9,10 @@ export type LeadIntakeRequestDetails = {
   care_for: string;
   start_time: string;
   situation: string;
+  /** Physical therapy — preferred timing / urgency from Facebook Lead Ads. */
+  pt_timing: string;
+  /** Wound care — explicit wound type label when provided. */
+  wound_type: string;
 };
 
 const EMPTY: LeadIntakeRequestDetails = {
@@ -17,6 +21,8 @@ const EMPTY: LeadIntakeRequestDetails = {
   care_for: "",
   start_time: "",
   situation: "",
+  pt_timing: "",
+  wound_type: "",
 };
 
 function fv(map: Map<string, string>, keys: string[]): string {
@@ -47,12 +53,15 @@ function buildFieldMapFromGraphFieldData(fieldData: unknown): Map<string, string
 
 /** Build from normalized lowercased field map keys (Facebook / Zapier `fields` after normalization). */
 export function buildLeadIntakeRequestFromFieldMap(fieldMap: Map<string, string>): LeadIntakeRequestDetails {
+  const woundType = fv(fieldMap, ["wound_type", "wound type"]);
   return {
     zip_code: fv(fieldMap, ["zip_code", "zip", "zip code", "postal_code", "postal code"]),
-    service_needed: fv(fieldMap, ["service_needed", "service needed"]),
+    service_needed: fv(fieldMap, ["service_needed", "service needed", "service"]),
     care_for: fv(fieldMap, ["care_for", "care for"]),
     start_time: fv(fieldMap, ["start_time", "start time"]),
     situation: fv(fieldMap, ["situation", "wound_type", "wound type"]),
+    pt_timing: fv(fieldMap, ["pt_timing", "pt timing"]),
+    wound_type: woundType,
   };
 }
 
@@ -79,6 +88,8 @@ export function parseLeadIntakeRequestFromMetadata(meta: unknown): LeadIntakeReq
       care_for: s("care_for"),
       start_time: s("start_time"),
       situation: s("situation"),
+      pt_timing: s("pt_timing"),
+      wound_type: s("wound_type"),
     };
     if (hasAnyIntakeRequestDetail(out)) return out;
   }

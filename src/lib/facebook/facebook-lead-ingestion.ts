@@ -742,9 +742,12 @@ export type FacebookPartnerStandardPayload = {
   notes?: unknown;
   medicare?: unknown;
   has_medicare?: unknown;
+  /** Prefer Zapier `service_needed`; `service` kept as fallback. */
+  service_needed?: unknown;
   service?: unknown;
   wound_type?: unknown;
   care_for?: unknown;
+  pt_timing?: unknown;
   form_name?: unknown;
   source?: unknown;
   campaign?: unknown;
@@ -806,8 +809,13 @@ function buildPartnerStandardFieldMap(payload: FacebookPartnerStandardPayload): 
   add("zip", payload.zip);
   add("zip_code", payload.zip);
   add("notes", payload.notes);
-  add("service_needed", payload.service);
-  add("service", payload.service);
+  const serviceCombined =
+    asNonEmptyTrimmedString(payload.service_needed) || asNonEmptyTrimmedString(payload.service);
+  if (serviceCombined) {
+    add("service_needed", serviceCombined);
+    add("service", serviceCombined);
+  }
+  add("pt_timing", payload.pt_timing);
   const medicareRaw = partnerMedicareRaw(payload);
   if (medicareRaw !== undefined && String(medicareRaw).trim() !== "") {
     const line = typeof medicareRaw === "boolean" ? (medicareRaw ? "yes" : "no") : String(medicareRaw).trim();
@@ -871,19 +879,22 @@ export async function ingestFacebookPartnerStandardLead(
 
   const campaign = asNonEmptyTrimmedString(payload.campaign);
   const userNotes = asNonEmptyTrimmedString(payload.notes);
-  const serviceLine = asNonEmptyTrimmedString(payload.service);
+  const serviceLine =
+    asNonEmptyTrimmedString(payload.service_needed) || asNonEmptyTrimmedString(payload.service);
   const medicareLine = formatMedicareHumanLine(partnerMedicareRaw(payload));
   const formNameLine = asNonEmptyTrimmedString(payload.form_name);
   const woundLine = asNonEmptyTrimmedString(payload.wound_type);
   const careForLine = asNonEmptyTrimmedString(payload.care_for);
+  const ptTimingLine = asNonEmptyTrimmedString(payload.pt_timing);
 
   const leadNotesParts = [
     "Facebook Lead Ads (Zapier / partner webhook).",
     formNameLine ? `Form name: ${formNameLine}` : null,
     woundLine ? `Wound type: ${woundLine}` : null,
     careForLine ? `Care for: ${careForLine}` : null,
+    ptTimingLine ? `PT timing: ${ptTimingLine}` : null,
     userNotes ? `Notes: ${userNotes}` : null,
-    serviceLine ? `Service: ${serviceLine}` : null,
+    serviceLine ? `Service needed: ${serviceLine}` : null,
     campaign ? `Campaign: ${campaign}` : null,
     referral_from_field ? `Attribution source: ${referral_from_field}` : null,
     medicareLine ? `Medicare: ${medicareLine}` : null,
@@ -916,13 +927,30 @@ export async function ingestFacebookPartnerStandardLead(
 
   const contactId = String(contactRow.id);
 
+  const intakeRequestSnapshot = buildLeadIntakeRequestFromFieldMap(fieldMap);
+  const intakeDetailsSnapshot = {
+    form_name: formNameLine || null,
+    full_name: nameParts.full_name,
+    phone_e164: phoneE164,
+    email,
+    zip_code: zip,
+    has_medicare: medicareLine || null,
+    care_for: careForLine || null,
+    pt_timing: ptTimingLine || null,
+    service_needed: serviceLine || null,
+    wound_type: woundLine || null,
+    source: "facebook_lead_ads" as const,
+    status: "new_lead" as const,
+  };
+
   const externalMeta = {
     source: "facebook_lead_ads" as const,
     ingestion_channel: "partner_api" as const,
     partner_source: referral_from_field || null,
     partner_campaign: campaign || null,
     raw_body_preview: rawBodyText.slice(0, 100_000),
-    intake_request: buildLeadIntakeRequestFromFieldMap(fieldMap),
+    intake_request: intakeRequestSnapshot,
+    intake_details: intakeDetailsSnapshot,
     ingestion_received_at: ingestionReceivedAt,
     ingestion_completed_at: new Date().toISOString(),
   };

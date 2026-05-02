@@ -446,6 +446,14 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
                 <input name="intake_start_time" className={inp} />
               </label>
               <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
+                PT timing (Facebook / Zapier)
+                <input name="intake_pt_timing" className={inp} placeholder="e.g. ASAP, mornings, after discharge" />
+              </label>
+              <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
+                Wound type
+                <input name="intake_wound_type" className={inp} />
+              </label>
+              <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
                 Situation
                 <textarea name="intake_situation" rows={3} className={inp} />
               </label>
@@ -717,6 +725,18 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
               <div className="sm:col-span-2">
                 <dt className="text-[10px] font-semibold uppercase text-slate-500">Start time</dt>
                 <dd className="text-sm">{intakeRequestDefaults.start_time}</dd>
+              </div>
+            ) : null}
+            {intakeRequestDefaults.pt_timing.trim() ? (
+              <div className="sm:col-span-2">
+                <dt className="text-[10px] font-semibold uppercase text-slate-500">PT timing</dt>
+                <dd className="text-sm">{intakeRequestDefaults.pt_timing}</dd>
+              </div>
+            ) : null}
+            {intakeRequestDefaults.wound_type.trim() ? (
+              <div className="sm:col-span-2">
+                <dt className="text-[10px] font-semibold uppercase text-slate-500">Wound type</dt>
+                <dd className="text-sm">{intakeRequestDefaults.wound_type}</dd>
               </div>
             ) : null}
             {intakeRequestDefaults.situation.trim() ? (
@@ -992,6 +1012,8 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
               <input type="hidden" name="intake_service_needed" value={intakeRequestDefaults.service_needed} />
               <input type="hidden" name="intake_care_for" value={intakeRequestDefaults.care_for} />
               <input type="hidden" name="intake_start_time" value={intakeRequestDefaults.start_time} />
+              <input type="hidden" name="intake_pt_timing" value={intakeRequestDefaults.pt_timing} />
+              <input type="hidden" name="intake_wound_type" value={intakeRequestDefaults.wound_type} />
               <input type="hidden" name="intake_situation" value={intakeRequestDefaults.situation} />
               <input type="hidden" name="lead_notes" value={applicationNotes} />
               <input type="hidden" name="lead_temperature" value={leadTemperature} />
@@ -1257,6 +1279,14 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
                   <input name="intake_start_time" className={inp} defaultValue={intakeRequestDefaults.start_time} />
                 </label>
                 <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
+                  PT timing
+                  <input name="intake_pt_timing" className={inp} defaultValue={intakeRequestDefaults.pt_timing} />
+                </label>
+                <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
+                  Wound type
+                  <input name="intake_wound_type" className={inp} defaultValue={intakeRequestDefaults.wound_type} />
+                </label>
+                <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
                   Situation
                   <textarea
                     name="intake_situation"
@@ -1334,6 +1364,18 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
                     <p>
                       <span className="font-medium text-slate-600">Start time: </span>
                       {intakeRequestDefaults.start_time}
+                    </p>
+                  ) : null}
+                  {intakeRequestDefaults.pt_timing.trim() ? (
+                    <p>
+                      <span className="font-medium text-slate-600">PT timing: </span>
+                      {intakeRequestDefaults.pt_timing}
+                    </p>
+                  ) : null}
+                  {intakeRequestDefaults.wound_type.trim() ? (
+                    <p>
+                      <span className="font-medium text-slate-600">Wound type: </span>
+                      {intakeRequestDefaults.wound_type}
                     </p>
                   ) : null}
                   {intakeRequestDefaults.situation.trim() ? (
