@@ -10,6 +10,7 @@ import {
   leadActivityEventLabel,
   leadActivityThreadClasses,
 } from "@/lib/crm/lead-activity-types";
+import { replaceLegacyContactedLabelInText } from "@/lib/crm/lead-contact-outcome-normalize";
 import type { LeadActivityRow, UnifiedTimelineItem } from "@/lib/crm/lead-activities-timeline";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import { formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
@@ -413,6 +414,11 @@ export function LeadActivityThread(props: {
           }
 
           if (kind === "contact") {
+            const bodyRaw = (act.body ?? "").trim();
+            const body =
+              act.event_type === LEAD_ACTIVITY_EVENT.contact_attempt
+                ? replaceLegacyContactedLabelInText(bodyRaw)
+                : bodyRaw;
             return (
               <li key={act.id}>
                 <ContactLine time={`${when} · ${who}`}>{body ? highlightThreadKeywords(body) : null}</ContactLine>

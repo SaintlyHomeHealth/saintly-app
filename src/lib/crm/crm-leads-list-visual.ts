@@ -1,4 +1,8 @@
-import { formatLeadContactOutcomeLabel, formatLeadLastContactSummary } from "@/lib/crm/lead-contact-outcome";
+import {
+  formatLeadContactOutcomeLabel,
+  formatLeadLastContactSummary,
+  resolveEffectiveLeadContactOutcome,
+} from "@/lib/crm/lead-contact-outcome";
 import { formatLeadPipelineStatusLabel } from "@/lib/crm/lead-pipeline-status";
 
 import type { CrmLeadRow } from "./crm-leads-table-helpers";
@@ -13,14 +17,14 @@ export function contactStageBadgeLabel(row: CrmLeadRow): { label: string; badgeC
     return { label: "New", badgeClass: "bg-sky-50 text-sky-950 ring-sky-200/70" };
   }
 
-  const raw = (row.last_outcome ?? "").trim();
-  if (!raw) {
+  const effective = resolveEffectiveLeadContactOutcome(row.last_outcome, row.status);
+  if (!effective) {
     return { label: "Attempt logged", badgeClass: "bg-slate-100 text-slate-700 ring-slate-200/80" };
   }
 
-  const lo = raw.toLowerCase();
+  const lo = effective.toLowerCase();
   return {
-    label: contactStageShortLabel(lo, raw),
+    label: contactStageShortLabel(lo, effective),
     badgeClass: contactStageBadgeClassForOutcome(lo),
   };
 }
@@ -147,7 +151,8 @@ export function followUpUrgency(followUpIso: string | null | undefined, todayIso
 export function leadRowCardClass(row: CrmLeadRow, fu: FollowUpUrgency): string {
   const stRaw = (row.status ?? "").trim().toLowerCase();
   const st = stRaw === "contacted" ? "spoke" : stRaw;
-  const lo = (row.last_outcome ?? "").trim().toLowerCase();
+  const loEff = resolveEffectiveLeadContactOutcome(row.last_outcome, row.status);
+  const lo = (loEff ?? "").toLowerCase();
   if (row.waiting_on_doctors_orders === true && row.lead_type !== "employee") {
     return "border-l-[4px] border-l-rose-600 bg-rose-50/50 ring-1 ring-rose-200/90 shadow-[inset_4px_0_0_rgba(225,29,72,0.12)]";
   }
@@ -199,16 +204,17 @@ export function followUpUrgencyRowClass(u: FollowUpUrgency): string {
 export function lastContactHumanLine(
   lastContactAt: string | null | undefined,
   lastOutcome: string | null | undefined,
-  todayIso: string
+  todayIso: string,
+  pipelineStatus?: string | null
 ): { line: string; tone: "good" | "warn" | "bad" | "muted" } {
   if (!lastContactAt || typeof lastContactAt !== "string" || !lastContactAt.trim()) {
     return { line: "No attempts logged", tone: "muted" };
   }
   const lastDay = lastContactAt.trim().slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(lastDay)) {
-    return { line: formatLeadLastContactSummary(lastContactAt, lastOutcome), tone: "muted" };
+    return { line: formatLeadLastContactSummary(lastContactAt, lastOutcome, pipelineStatus), tone: "muted" };
   }
-  const outcomeLbl = formatLeadContactOutcomeLabel(lastOutcome);
+  const outcomeLbl = formatLeadContactOutcomeLabel(lastOutcome, pipelineStatus);
   const tLast = new Date(`${lastDay}T12:00:00Z`).getTime();
   const tToday = new Date(`${todayIso}T12:00:00Z`).getTime();
   const diffDays = Math.round((tToday - tLast) / 86400000);
@@ -226,7 +232,7 @@ export function lastContactHumanLine(
   if (diffDays > 7) {
     return { line: `${diffDays} days ago · ${outcomeLbl}`, tone: "bad" };
   }
-  return { line: formatLeadLastContactSummary(lastContactAt, lastOutcome), tone: "muted" };
+  return { line: formatLeadLastContactSummary(lastContactAt, lastOutcome, pipelineStatus), tone: "muted" };
 }
 
 export function lastContactToneClass(tone: "good" | "warn" | "bad" | "muted"): string {

@@ -1,5 +1,33 @@
 import { ATTEMPT_ACTION_KEYS, type AttemptActionKey } from "@/lib/crm/lead-contact-log";
-import { isValidLeadContactOutcome } from "@/lib/crm/lead-contact-outcome";
+
+/** Mirrors `leads_last_outcome_check` / `LEAD_CONTACT_OUTCOME_OPTIONS` — keep in sync; avoids import cycle with `lead-contact-outcome.ts`. */
+const LEAD_LAST_OUTCOME_CANONICAL = new Set([
+  "spoke",
+  "no_answer",
+  "left_voicemail",
+  "text_sent",
+  "spoke_scheduled",
+  "not_interested",
+  "wrong_number",
+]);
+
+function isCanonicalLeadLastOutcome(v: string): boolean {
+  return LEAD_LAST_OUTCOME_CANONICAL.has(v);
+}
+/**
+ * Legacy CRM tokens that mean "spoke" (pipeline or stored outcome). Trim + ASCII case fold.
+ * Any label that normalizes to this must never fall through to "Attempt logged" / unknown.
+ */
+export function isLegacyContactedOutcomeToken(v: string | null | undefined): boolean {
+  if (v == null || typeof v !== "string") return false;
+  return v.trim().toLowerCase() === "contacted";
+}
+
+/** Historical log lines / activity bodies may still contain the word "contacted" as a free-text outcome. */
+export function replaceLegacyContactedLabelInText(s: string): string {
+  if (!s || typeof s !== "string") return s;
+  return s.replace(/\bcontacted\b/gi, "Spoke");
+}
 
 /** Map human labels (and short labels) to canonical `leads.last_outcome` values. */
 const RESULT_LABEL_TO_VALUE: Record<string, string> = {
@@ -21,10 +49,10 @@ const RESULT_LABEL_TO_VALUE: Record<string, string> = {
 export function normalizeContactOutcomeResult(value: string): string {
   const t = typeof value === "string" ? value.trim() : "";
   if (!t) return "";
-  if (t.toLowerCase() === "contacted") return "spoke";
-  if (isValidLeadContactOutcome(t)) return t;
+  if (isLegacyContactedOutcomeToken(t)) return "spoke";
+  if (isCanonicalLeadLastOutcome(t)) return t;
   const mapped = RESULT_LABEL_TO_VALUE[t];
-  if (mapped && isValidLeadContactOutcome(mapped)) return mapped;
+  if (mapped && isCanonicalLeadLastOutcome(mapped)) return mapped;
   return t;
 }
 

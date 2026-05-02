@@ -168,7 +168,7 @@ function buildSnapshotPlainText(p: LeadSnapshotProps): string {
   L("Next action", formatLeadNextActionLabel(p.nextActionVal));
   L("Lead next follow-up", p.followUpIso ? fmtIsoDate(p.followUpIso) : "—");
   L("Lead priority", leadTemperatureLabel(normalizeLeadTemperature(p.leadTemperature)));
-  L("Last contact", formatLeadLastContactSummary(p.lastContactAt, p.lastOutcome));
+  L("Last contact", formatLeadLastContactSummary(p.lastContactAt, p.lastOutcome, p.rawStatus));
 
   if (!p.isEmployeeLead) {
     L(
@@ -395,7 +395,9 @@ export function LeadSnapshot(props: LeadSnapshotProps) {
               {tempBadge ?? <span className="text-slate-400">Not set</span>}
             </Field>
             <Field label="Last contact / outcome" emphasis>
-              <span className="font-medium text-slate-900">{formatLeadLastContactSummary(lastContactAt, lastOutcome)}</span>
+              <span className="font-medium text-slate-900">
+                {formatLeadLastContactSummary(lastContactAt, lastOutcome, rawStatus)}
+              </span>
             </Field>
           </dl>
         </SubCard>

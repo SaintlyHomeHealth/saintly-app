@@ -74,7 +74,7 @@ function relativeCreatedParts(iso: string): { short: string; full: string } {
   const d = new Date(iso);
   const full = Number.isNaN(d.getTime()) ? String(iso) : d.toLocaleString();
   if (Number.isNaN(d.getTime())) return { short: "—", full };
-  let diffMs = Date.now() - d.getTime();
+  const diffMs = Date.now() - d.getTime();
   if (!Number.isFinite(diffMs)) return { short: "—", full };
   const mins = Math.round(diffMs / 60000);
   if (mins < 1) return { short: "just now", full };
@@ -617,7 +617,7 @@ export function CrmLeadsList({
                 const nextActionLabel = formatLeadNextActionLabel(r.next_action);
                 const detailHref = `/admin/crm/leads/${r.id}`;
                 const fu = followUpUrgency(r.follow_up_date, todayIso);
-                const lcHuman = lastContactHumanLine(r.last_contact_at, r.last_outcome, todayIso);
+                const lcHuman = lastContactHumanLine(r.last_contact_at, r.last_outcome, todayIso, r.status);
                 const contactStage = contactStageBadgeLabel(r);
 
                 return (
@@ -824,7 +824,7 @@ export function CrmLeadsList({
                 const detailHref = `/admin/crm/leads/${r.id}`;
                 const nextActionLabel = formatLeadNextActionLabel(r.next_action);
                 const fu = followUpUrgency(r.follow_up_date, todayIso);
-                const lcHuman = lastContactHumanLine(r.last_contact_at, r.last_outcome, todayIso);
+                const lcHuman = lastContactHumanLine(r.last_contact_at, r.last_outcome, todayIso, r.status);
                 const contactStage = contactStageBadgeLabel(r);
                 const intakePatient = !isEmployee ? patientIntakeSummaryLine(r) : null;
 

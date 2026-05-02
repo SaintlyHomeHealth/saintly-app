@@ -961,6 +961,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
               key={leadId}
               leadId={leadId}
               savedLastOutcome={lastOutcome}
+              pipelineStatus={rawStatus}
               defaultNextAction={nextActionVal}
               defaultLeadTemperature={leadTemperature || ""}
               defaultFollowUpIso={followUpIso}

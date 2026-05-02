@@ -1,3 +1,5 @@
+import { isLegacyContactedOutcomeToken, normalizeContactOutcomeResult } from "@/lib/crm/lead-contact-outcome-normalize";
+
 /**
  * `leads.last_outcome` — logged result of a contact attempt (DB check constraint).
  */
@@ -24,11 +26,34 @@ const OUTCOME_LABELS = Object.fromEntries(LEAD_CONTACT_OUTCOME_OPTIONS.map((o) =
   string
 >;
 
-export function formatLeadContactOutcomeLabel(v: string | null | undefined): string {
-  if (!v || typeof v !== "string") return "—";
-  const t = v.trim();
-  const norm = t.toLowerCase() === "contacted" ? "spoke" : t;
-  return OUTCOME_LABELS[norm as LeadContactOutcomeValue] ?? norm.replace(/_/g, " ");
+/**
+ * Canonical outcome for UI + list logic.
+ * Order: normalize stored outcome (contacted → spoke) first; if missing, infer from pipeline when
+ * status is legacy contacted / spoke (migrated rows often have `last_outcome` null).
+ */
+export function resolveEffectiveLeadContactOutcome(
+  lastOutcome: string | null | undefined,
+  pipelineStatus: string | null | undefined
+): string | null {
+  const raw = typeof lastOutcome === "string" ? lastOutcome.trim() : "";
+  if (raw) {
+    if (isLegacyContactedOutcomeToken(raw)) return "spoke";
+    const normalized = normalizeContactOutcomeResult(raw);
+    if (isValidLeadContactOutcome(normalized)) return normalized;
+    return null;
+  }
+  const stRaw = typeof pipelineStatus === "string" ? pipelineStatus : "";
+  if (isLegacyContactedOutcomeToken(stRaw) || stRaw.trim().toLowerCase() === "spoke") return "spoke";
+  return null;
+}
+
+export function formatLeadContactOutcomeLabel(
+  v: string | null | undefined,
+  pipelineStatus?: string | null
+): string {
+  const effective = resolveEffectiveLeadContactOutcome(v, pipelineStatus ?? null);
+  if (!effective) return "—";
+  return OUTCOME_LABELS[effective as LeadContactOutcomeValue] ?? effective.replace(/_/g, " ");
 }
 
 export type LeadContactTypeValue = "call" | "text";
@@ -48,7 +73,8 @@ export function formatLeadContactTypeLabel(v: string | null | undefined): string
 /** e.g. "Apr 1 – Left voicemail" */
 export function formatLeadLastContactSummary(
   lastContactAtIso: string | null | undefined,
-  lastOutcome: string | null | undefined
+  lastOutcome: string | null | undefined,
+  pipelineStatus?: string | null
 ): string {
   if (!lastContactAtIso || typeof lastContactAtIso !== "string") return "—";
   const t = lastContactAtIso.trim();
@@ -56,7 +82,7 @@ export function formatLeadLastContactSummary(
   const d = new Date(t);
   if (Number.isNaN(d.getTime())) return "—";
   const datePart = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-  const out = formatLeadContactOutcomeLabel(lastOutcome);
+  const out = formatLeadContactOutcomeLabel(lastOutcome, pipelineStatus);
   if (out === "—") return datePart;
   return `${datePart} – ${out}`;
 }

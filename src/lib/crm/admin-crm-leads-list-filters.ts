@@ -15,6 +15,37 @@ export const EMPTY_CONTACT_SENTINEL = "00000000-0000-0000-0000-000000000000";
 
 export const ADMIN_CRM_LEADS_PAGE_SIZE = 50;
 
+/** URL `contactOutcome` — latest logged attempt (`leads.last_contact_at` / `last_outcome` / `last_contact_type`). */
+export const ADMIN_CRM_LEAD_LIST_CONTACT_OUTCOME_URL_VALUES = [
+  "left_voicemail",
+  "spoke",
+  "sent_text",
+  "called",
+  "none",
+] as const;
+
+export type AdminCrmLeadListContactOutcomeFilter =
+  (typeof ADMIN_CRM_LEAD_LIST_CONTACT_OUTCOME_URL_VALUES)[number];
+
+export function isValidAdminCrmLeadListContactOutcomeFilter(v: string): v is AdminCrmLeadListContactOutcomeFilter {
+  return (ADMIN_CRM_LEAD_LIST_CONTACT_OUTCOME_URL_VALUES as readonly string[]).includes(v);
+}
+
+export function formatAdminCrmLeadListContactOutcomeFilterLabel(v: AdminCrmLeadListContactOutcomeFilter): string {
+  switch (v) {
+    case "left_voicemail":
+      return "Left voicemail";
+    case "spoke":
+      return "Spoke";
+    case "sent_text":
+      return "Sent text";
+    case "called":
+      return "Called";
+    case "none":
+      return "No attempts logged";
+  }
+}
+
 export type AdminCrmLeadListUrlFilters = {
   status: string;
   source: string;
@@ -24,6 +55,8 @@ export type AdminCrmLeadListUrlFilters = {
   discipline: string;
   leadType: string;
   showDead: boolean;
+  /** Empty or a valid `ADMIN_CRM_LEAD_LIST_CONTACT_OUTCOME_URL_VALUES` slug (URL param `contactOutcome`). */
+  contactOutcome: string;
 };
 
 /**
@@ -70,6 +103,32 @@ export function attachAdminCrmLeadListPredicates(
 
   if (f.leadType === "employee") q = q.eq("lead_type", "employee");
   else if (f.leadType === "patient") q = q.is("lead_type", null);
+
+  const co = (f.contactOutcome ?? "").trim();
+  if (co && isValidAdminCrmLeadListContactOutcomeFilter(co)) {
+    switch (co) {
+      case "left_voicemail":
+        q = q.eq("last_outcome", "left_voicemail");
+        break;
+      case "spoke":
+        q = q.or(
+          "last_outcome.in.(spoke,spoke_scheduled,contacted),and(last_outcome.is.null,status.eq.spoke),and(last_outcome.is.null,status.eq.contacted)"
+        );
+        break;
+      case "sent_text":
+        q = q.eq("last_outcome", "text_sent");
+        break;
+      case "called":
+        q = q.eq("last_contact_type", "call");
+        q = q.or("last_outcome.is.null,last_outcome.eq.no_answer,last_outcome.eq.wrong_number,last_outcome.eq.not_interested");
+        break;
+      case "none":
+        q = q.is("last_contact_at", null);
+        break;
+      default:
+        break;
+    }
+  }
 
   if (!f.showDead && !f.status) q = q.neq("status", "dead_lead");
 

@@ -22,6 +22,7 @@ export function buildAdminCrmLeadsHref(state: Partial<AdminCrmLeadListHrefState>
     payerType = "",
     discipline = "",
     leadType = "",
+    contactOutcome = "",
     q = "",
     showDead = false,
     page = 1,
@@ -35,6 +36,7 @@ export function buildAdminCrmLeadsHref(state: Partial<AdminCrmLeadListHrefState>
   if (payerType.trim()) u.set("payerType", payerType.trim());
   if (discipline.trim()) u.set("discipline", discipline.trim());
   if (leadType.trim()) u.set("leadType", leadType.trim());
+  if (contactOutcome.trim()) u.set("contactOutcome", contactOutcome.trim());
   if (q.trim()) u.set("q", q.trim());
   if (showDead) u.set("showDead", "1");
 

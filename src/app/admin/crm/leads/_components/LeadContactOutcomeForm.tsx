@@ -12,6 +12,7 @@ import {
 import {
   isValidLeadContactOutcome,
   LEAD_CONTACT_OUTCOME_OPTIONS,
+  resolveEffectiveLeadContactOutcome,
 } from "@/lib/crm/lead-contact-outcome";
 import { LEAD_NEXT_ACTION_OPTIONS } from "@/lib/crm/lead-follow-up-options";
 import { ATTEMPT_ACTION_KEYS, type AttemptActionKey } from "@/lib/crm/lead-contact-log";
@@ -22,6 +23,8 @@ const CRM_ATTEMPT_TIME_ZONE = "America/Chicago";
 type Props = {
   leadId: string;
   savedLastOutcome: string | null;
+  /** Pipeline `leads.status` — when `savedLastOutcome` is empty, legacy spoke/contact stages infer default "spoke". */
+  pipelineStatus?: string | null;
   defaultNextAction: string;
   /** `leads.lead_temperature` — empty string = not set. */
   defaultLeadTemperature: string;
@@ -53,8 +56,15 @@ function toastMessage(result: SaveLeadOutcomeResult): string {
   }
 }
 
-function outcomeSelectValue(v: string | null): string {
-  if (v && isValidLeadContactOutcome(v)) return v;
+function outcomeSelectValue(v: string | null, pipelineStatus?: string | null): string {
+  const raw = v == null ? "" : String(v).trim();
+  if (raw) {
+    const n = normalizeContactOutcomeResult(raw);
+    if (n && isValidLeadContactOutcome(n)) return n;
+    return "";
+  }
+  const inferred = resolveEffectiveLeadContactOutcome(null, pipelineStatus ?? null);
+  if (inferred && isValidLeadContactOutcome(inferred)) return inferred;
   return "";
 }
 
@@ -111,6 +121,7 @@ function helperForOutcome(outcome: string): string | null {
 export function LeadContactOutcomeForm({
   leadId,
   savedLastOutcome,
+  pipelineStatus = null,
   defaultNextAction,
   defaultLeadTemperature,
   defaultFollowUpIso,
@@ -125,7 +136,7 @@ export function LeadContactOutcomeForm({
   const [toast, setToast] = useState<null | { type: "ok" | "err"; message: string }>(null);
   const outcomeSelectRef = useRef<HTMLSelectElement>(null);
 
-  const [outcome, setOutcome] = useState(() => outcomeSelectValue(savedLastOutcome));
+  const [outcome, setOutcome] = useState(() => outcomeSelectValue(savedLastOutcome, pipelineStatus));
   const [actions, setActions] = useState<Set<AttemptActionKey>>(new Set());
   const [attemptLocal, setAttemptLocal] = useState(() => initialAttemptLocal);
   const [followDate, setFollowDate] = useState(() => defaultFollowUpParts(defaultFollowUpIso, defaultFollowUpAtIso).date);

@@ -34,6 +34,7 @@ export function CrmLeadsDensityToggle({ density }: Props) {
       payerType: qs.payerType ?? "",
       discipline: qs.discipline ?? "",
       leadType: qs.leadType ?? "",
+      contactOutcome: qs.contactOutcome ?? "",
       q: qs.q ?? "",
       showDead: qs.showDead === "1",
       page: Math.max(1, Number.parseInt(qs.page ?? "1", 10) || 1),

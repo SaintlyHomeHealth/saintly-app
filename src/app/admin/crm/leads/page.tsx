@@ -5,8 +5,11 @@ import { CrmLeadsList } from "@/app/admin/crm/leads/_components/CrmLeadsList";
 import { CrmLeadsDensityToggle } from "@/app/admin/crm/leads/_components/CrmLeadsDensityToggle";
 import {
   ADMIN_CRM_LEADS_PAGE_SIZE,
+  ADMIN_CRM_LEAD_LIST_CONTACT_OUTCOME_URL_VALUES,
   attachAdminCrmLeadListPredicates,
   EMPTY_CONTACT_SENTINEL,
+  formatAdminCrmLeadListContactOutcomeFilterLabel,
+  isValidAdminCrmLeadListContactOutcomeFilter,
   type AdminCrmLeadListUrlFilters,
 } from "@/lib/crm/admin-crm-leads-list-filters";
 import { buildAdminCrmLeadsHref, type AdminCrmLeadListHrefState } from "@/lib/crm/admin-crm-leads-list-url";
@@ -61,6 +64,7 @@ function narrowingFiltersPresent(f: {
   payerType: string;
   discipline: string;
   leadType: string;
+  contactOutcome: string;
 }): boolean {
   return Boolean(
     f.q.trim() ||
@@ -70,7 +74,8 @@ function narrowingFiltersPresent(f: {
       f.followUp.trim() ||
       f.payerType.trim() ||
       f.discipline.trim() ||
-      f.leadType.trim()
+      f.leadType.trim() ||
+      (f.contactOutcome.trim() && isValidAdminCrmLeadListContactOutcomeFilter(f.contactOutcome.trim()))
   );
 }
 
@@ -102,6 +107,7 @@ export default async function AdminCrmLeadsPage({
       payerType: one("payerType").trim(),
       discipline: one("discipline").trim(),
       leadType: one("leadType").trim(),
+      contactOutcome: one("contactOutcome").trim(),
       q: one("q").trim(),
     };
     const showDead = one("showDead").trim() === "1";
@@ -117,6 +123,7 @@ export default async function AdminCrmLeadsPage({
       discipline: f.discipline,
       leadType: f.leadType,
       showDead,
+      contactOutcome: f.contactOutcome,
     };
 
     const densityRaw = one("density").trim().toLowerCase();
@@ -202,7 +209,7 @@ export default async function AdminCrmLeadsPage({
 
     const computedTotalPages = totalFiltered <= 0 ? 1 : Math.max(1, Math.ceil(totalFiltered / ADMIN_CRM_LEADS_PAGE_SIZE));
 
-    let requestedPage = initialPageGuess;
+    const requestedPage = initialPageGuess;
     let safePage = requestedPage > computedTotalPages ? computedTotalPages : requestedPage;
     safePage = Math.max(1, safePage);
 
@@ -470,6 +477,20 @@ export default async function AdminCrmLeadsPage({
               Follow-up: today <span className="font-bold text-slate-500">×</span>
             </Link>
           ) : null}
+          {(() => {
+            const co = f.contactOutcome.trim();
+            if (!isValidAdminCrmLeadListContactOutcomeFilter(co)) return null;
+            return (
+              <Link
+                href={hrefWith({ contactOutcome: "" })}
+                prefetch={false}
+                className={`${chipMuted} hover:border-sky-300 hover:bg-sky-50`}
+              >
+                Contact outcome: {formatAdminCrmLeadListContactOutcomeFilterLabel(co)}{" "}
+                <span className="font-bold text-slate-500">×</span>
+              </Link>
+            );
+          })()}
           {employeeOnlyView === false && f.payerType.trim() ? (
             <Link href={hrefWith({ payerType: "" })} prefetch={false} className={`${chipMuted} hover:border-sky-300 hover:bg-sky-50`}>
               Payer: {f.payerType} <span className="font-bold text-slate-500">×</span>
@@ -553,6 +574,21 @@ export default async function AdminCrmLeadsPage({
             <select name="followUp" defaultValue={followUpToday ? "today" : ""} className={crmFilterInputCls}>
               <option value="">Any</option>
               <option value="today">Today (Central)</option>
+            </select>
+          </label>
+          <label className="flex min-w-[8.5rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+            Contact outcome
+            <select
+              name="contactOutcome"
+              defaultValue={isValidAdminCrmLeadListContactOutcomeFilter(f.contactOutcome.trim()) ? f.contactOutcome.trim() : ""}
+              className={crmFilterInputCls}
+            >
+              <option value="">All</option>
+              {ADMIN_CRM_LEAD_LIST_CONTACT_OUTCOME_URL_VALUES.map((v) => (
+                <option key={v} value={v}>
+                  {formatAdminCrmLeadListContactOutcomeFilterLabel(v)}
+                </option>
+              ))}
             </select>
           </label>
           <label className="flex min-w-[7.5rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
