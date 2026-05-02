@@ -1,9 +1,11 @@
 /**
- * Operational backfill: download Twilio MMS for recent inbound SMS rows that have MessageSid +
- * empty body and no attachments yet (older webhook behavior).
+ * Operational backfill: download Twilio MMS for inbound messages with MessageSid + empty body +
+ * zero phone_message_attachments (older webhook / missed persist).
  *
  * Usage:
  *   npx tsx scripts/backfill-twilio-inbound-mms.ts [--days=14] [--limit=250] [--verbose]
+ *   npx tsx scripts/backfill-twilio-inbound-mms.ts --sids=MMabc...,MMdef... [--verbose]
+ *   npx tsx scripts/backfill-twilio-inbound-mms.ts --sids=MM... --only-sids   # do not scan --days window
  */
 
 import { randomUUID } from "node:crypto";
@@ -16,6 +18,24 @@ import { absoluteTwilioMediaDownloadUrlsFromListPayload } from "../src/lib/phone
 
 const BUCKET = "phone-message-media";
 const DOWNLOAD_MAX_BYTES = 20 * 1024 * 1024;
+const MEDIA_PAGE_CAP = 8;
+const MEDIA_ITEMS_CAP = 30;
+
+/** User-facing verbatim reasons for skip summaries / ops logs. */
+const R = {
+  missingRelation: "missing relation",
+  missingBucket: "missing bucket",
+  twilioAuthFailed: "Twilio auth failed",
+  twilioMediaListEmpty: "Twilio REST media list empty",
+  twilioListHttpError: "Twilio REST media list HTTP error",
+  mediaDownloadFailed: "media download failed",
+  storageUploadFailed: "Supabase storage upload failed",
+  attachmentInsertFailed: "attachment insert failed",
+  rowNotFoundForSid: "message row not found for external_message_sid",
+  alreadyHasAttachments: "already has attachments",
+  nonEmptyBody: "non-empty body skipped",
+  badSidPrefix: "external_message_sid not SM/MM",
+} as const;
 
 function loadLocalEnv() {
   for (const filename of [".env.local", ".env"]) {
@@ -45,55 +65,129 @@ function parseFlag(name: string): boolean {
   return process.argv.includes(name) || process.argv.some((a) => a.startsWith(`${name}=`));
 }
 
+/** Comma-separated --sids=MM...,SM... */
+function parseSidsArg(): string[] {
+  const raw = process.argv.find((a) => a.startsWith("--sids="));
+  if (!raw) return [];
+  return raw
+    .slice("--sids=".length)
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
 function sanitizeFileName(base: string): string {
   return base.replace(/[^\w.\-]+/g, "_").slice(0, 180) || "file";
 }
 
-async function listTwilioMessageMediaUrls(
-  messageSid: string
-): Promise<{ ok: true; urls: string[] } | { ok: false; error: string }> {
-  const sid = process.env.TWILIO_ACCOUNT_SID?.trim();
+function absoluteTwilioUrl(pathOrUrl: string): string {
+  const t = pathOrUrl.trim();
+  if (t.startsWith("http")) return t;
+  return `https://api.twilio.com${t.startsWith("/") ? t : `/${t}`}`;
+}
+
+async function listTwilioMessageMediaUrlsAllPages(
+  messageSid: string,
+  verbose: boolean
+): Promise<
+  | { ok: true; urls: string[] }
+  | { ok: false; reason: typeof R.twilioAuthFailed | typeof R.twilioListHttpError; detail: string }
+> {
+  const accountSid = process.env.TWILIO_ACCOUNT_SID?.trim();
   const token = process.env.TWILIO_AUTH_TOKEN?.trim();
-  if (!sid || !token) {
-    return { ok: false, error: "TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN missing" };
+  if (!accountSid || !token) {
+    return {
+      ok: false,
+      reason: R.twilioAuthFailed,
+      detail: "TWILIO_ACCOUNT_SID or TWILIO_AUTH_TOKEN unset",
+    };
   }
-  const url = `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(sid)}/Messages/${encodeURIComponent(messageSid)}/Media.json`;
+
+  const authHeader = `Basic ${Buffer.from(`${accountSid}:${token}`).toString("base64")}`;
+  let nextUrl =
+    `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(accountSid)}/Messages/` +
+    `${encodeURIComponent(messageSid)}/Media.json`;
+
+  const collected: string[] = [];
+  const seenPages = new Set<string>();
+
   try {
-    const res = await fetch(url, {
-      redirect: "follow",
-      headers: {
-        Authorization: `Basic ${Buffer.from(`${sid}:${token}`).toString("base64")}`,
-      },
-    });
-    const jUnknown: unknown = await res.json().catch(() => null);
-    if (!res.ok) {
-      let detail = "";
-      if (typeof jUnknown === "object" && jUnknown && "message" in jUnknown) {
-        const msg = (jUnknown as Record<string, unknown>).message;
-        detail = typeof msg === "string" ? ` ${msg.slice(0, 120)}` : "";
+    for (let page = 0; page < MEDIA_PAGE_CAP; page++) {
+      if (seenPages.has(nextUrl)) break;
+      seenPages.add(nextUrl);
+
+      const res = await fetch(nextUrl, {
+        redirect: "follow",
+        headers: { Authorization: authHeader },
+      });
+      const jUnknown: unknown = await res.json().catch(() => null);
+
+      if (res.status === 401 || res.status === 403) {
+        let detail = `HTTP ${res.status}`;
+        if (typeof jUnknown === "object" && jUnknown && "message" in jUnknown) {
+          const msg = (jUnknown as Record<string, unknown>).message;
+          detail = typeof msg === "string" ? msg.slice(0, 200) : detail;
+        }
+        return { ok: false, reason: R.twilioAuthFailed, detail };
       }
-      return { ok: false, error: `list Media HTTP ${res.status}${detail}` };
+
+      if (!res.ok) {
+        let detail = `HTTP ${res.status}`;
+        if (typeof jUnknown === "object" && jUnknown && "message" in jUnknown) {
+          const msg = (jUnknown as Record<string, unknown>).message;
+          if (typeof msg === "string") detail = `${detail}: ${msg.slice(0, 200)}`;
+        }
+        return { ok: false, reason: R.twilioListHttpError, detail };
+      }
+
+      const pageUrls = absoluteTwilioMediaDownloadUrlsFromListPayload(jUnknown);
+      for (const u of pageUrls) {
+        if (collected.length >= MEDIA_ITEMS_CAP) break;
+        collected.push(u);
+      }
+
+      const rec =
+        jUnknown && typeof jUnknown === "object" && !Array.isArray(jUnknown)
+          ? (jUnknown as Record<string, unknown>)
+          : {};
+      const nu = rec.next_page_uri;
+      const np = nu != null ? String(nu).trim() : "";
+      if (!np || collected.length >= MEDIA_ITEMS_CAP) break;
+
+      nextUrl = absoluteTwilioUrl(np);
     }
-    const urls = absoluteTwilioMediaDownloadUrlsFromListPayload(jUnknown);
-    return { ok: true, urls };
+
+    if (verbose && collected.length === 0) {
+      console.info("[backfill-mms] Twilio REST media list empty (diagnostic)", {
+        messageSid,
+        hint:
+          "Valid 200 responses with zero parsed URIs, or MMS media expired (>~13 days) / wrong Twilio Account SID for this MessageSid.",
+      });
+    }
+
+    return { ok: true, urls: collected };
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    return {
+      ok: false,
+      reason: R.twilioListHttpError,
+      detail: e instanceof Error ? e.message : String(e),
+    };
   }
 }
 
 async function fetchTwilioBytes(
   absoluteUrl: string
-): Promise<{ ok: true; buf: Uint8Array; ct: string | null } | { ok: false; error: string }> {
-  const sid = process.env.TWILIO_ACCOUNT_SID?.trim();
+): Promise<{ ok: true; buf: Uint8Array; ct: string | null } | { ok: false; error: string; authReject?: boolean }> {
+  const accountSid = process.env.TWILIO_ACCOUNT_SID?.trim();
   const token = process.env.TWILIO_AUTH_TOKEN?.trim();
-  if (!sid || !token) {
-    return { ok: false, error: "TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN missing" };
+  if (!accountSid || !token) {
+    return { ok: false, error: `${R.twilioAuthFailed}: missing TWILIO_ACCOUNT_SID or TWILIO_AUTH_TOKEN` };
   }
   try {
     const res = await fetch(absoluteUrl, {
       redirect: "follow",
       headers: {
-        Authorization: `Basic ${Buffer.from(`${sid}:${token}`).toString("base64")}`,
+        Authorization: `Basic ${Buffer.from(`${accountSid}:${token}`).toString("base64")}`,
       },
     });
     const rawCt = res.headers.get("content-type");
@@ -101,6 +195,15 @@ async function fetchTwilioBytes(
     const lower = ctHeader.toLowerCase();
     const contentType =
       lower.includes("application/json") ? null : ctHeader.split(";")[0]?.trim() || null;
+
+    if (res.status === 401 || res.status === 403) {
+      const t = await res.text().catch(() => "");
+      return {
+        ok: false,
+        error: `${R.twilioAuthFailed}: HTTP ${res.status} ${t.slice(0, 120)}`,
+        authReject: true,
+      };
+    }
 
     if (!res.ok) {
       const t = await res.text().catch(() => "");
@@ -113,12 +216,19 @@ async function fetchTwilioBytes(
   }
 }
 
+function isMissingBucketErr(msg: string): boolean {
+  const m = msg.toLowerCase();
+  return m.includes("bucket not found") || m.includes('bucket "phone-message-media"') || /not\s+exist.*bucket/i.test(m);
+}
+
 async function main() {
   loadLocalEnv();
 
   const days = parseArg("--days", 14);
   const rowLimit = parseArg("--limit", 250);
   const verbose = parseFlag("--verbose");
+  const explicitSids = parseSidsArg();
+  const onlyExplicitSids = parseFlag("--only-sids");
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
@@ -130,60 +240,134 @@ async function main() {
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
   const supabase = createClient(url, key, { auth: { persistSession: false } });
 
-  let tableProbe = "";
+  const skips: Record<string, number> = {};
+  let processedMessages = 0;
+  let ingestedParts = 0;
+
+  let missingRelationBoot = false;
   const probe = await supabase.from("phone_message_attachments").select("id", { head: true, count: "exact" });
   if (probe.error) {
-    tableProbe =
-      probe.error.message.includes("does not exist") || probe.error.code === "42P01"
-        ? 'Table "phone_message_attachments" missing — apply migration 20260501142000_phone_message_attachments.sql'
-        : probe.error.message;
+    missingRelationBoot =
+      probe.error.message.includes("does not exist") || probe.error.code === "42P01";
     console.warn("[backfill-mms] table_probe:", probe.error.code ?? "", probe.error.message);
+    if (missingRelationBoot) {
+      console.error("[backfill-mms]", R.missingRelation, "— apply migration 20260501142000_phone_message_attachments.sql");
+      process.exit(1);
+    }
   }
 
-  const { data: rows, error } = await supabase
-    .from("messages")
-    .select("id, conversation_id, external_message_sid, body, direction, deleted_at")
-    .eq("direction", "inbound")
-    .is("deleted_at", null)
-    .gte("created_at", since)
-    .not("external_message_sid", "is", null)
-    .order("created_at", { ascending: false })
-    .limit(rowLimit * 5);
+  const selectCols = "id, conversation_id, external_message_sid, body, direction, deleted_at";
+
+  const bySid = new Map<string, Record<string, unknown>>();
+
+  if (explicitSids.length > 0) {
+    console.log("[backfill-mms] explicit_sids", explicitSids);
+    const { data: sidRows, error: sidErr } = await supabase
+      .from("messages")
+      .select(selectCols)
+      .eq("direction", "inbound")
+      .is("deleted_at", null)
+      .in("external_message_sid", explicitSids);
+    if (sidErr || !sidRows) {
+      console.error("[backfill-mms] explicit sid query failed:", sidErr?.message ?? "unknown");
+      process.exit(1);
+    }
+    for (const s of explicitSids) {
+      const row = sidRows.find(
+        (r) =>
+          typeof (r as { external_message_sid?: unknown }).external_message_sid === "string" &&
+          ((r as { external_message_sid: string }).external_message_sid ?? "").trim() === s.trim()
+      );
+      if (!row) {
+        console.warn("[backfill-mms] skip:", R.rowNotFoundForSid, { external_message_sid: s });
+        skips[R.rowNotFoundForSid] = (skips[R.rowNotFoundForSid] ?? 0) + 1;
+      } else {
+        bySid.set(s.trim(), row as Record<string, unknown>);
+      }
+    }
+  }
+
+  const { data: rows, error } =
+    explicitSids.length > 0 && onlyExplicitSids
+      ? { data: [] as Record<string, unknown>[], error: null }
+      : await supabase
+          .from("messages")
+          .select(selectCols)
+          .eq("direction", "inbound")
+          .is("deleted_at", null)
+          .gte("created_at", since)
+          .not("external_message_sid", "is", null)
+          .order("created_at", { ascending: false })
+          .limit(rowLimit * 5);
 
   if (error || !rows) {
     console.error("[backfill-mms] load messages:", error?.message ?? "unknown");
     process.exit(1);
   }
 
-  const skips: Record<string, number> = {};
-  let processedMessages = 0;
-  let ingestedParts = 0;
-
-  const smsLike = rows.filter((r) => {
+  function isEmptyBodyMmsCandidate(r: Record<string, unknown>): boolean {
     const body = typeof r.body === "string" ? r.body.trim() : "";
     const sidRaw =
       typeof r.external_message_sid === "string" ? r.external_message_sid.trim() : "";
     if (!sidRaw) return false;
     if (body !== "") return false;
     return sidRaw.startsWith("SM") || sidRaw.startsWith("MM");
-  });
-
-  if (verbose) {
-    console.info("[backfill-mms] candidate_snapshot", {
-      loadedRows: rows.length,
-      emptyBodyInboundSmsMmsCandidates: smsLike.length,
-      rowCap: rowLimit,
-    });
   }
 
-  const candidates = smsLike.slice(0, rowLimit);
+  const windowSmsLike = rows.filter(isEmptyBodyMmsCandidate);
+
+  const seenIds = new Set<string>();
+  const candidatesRaw: Record<string, unknown>[] = [];
+
+  function pushCandidate(r: Record<string, unknown>): void {
+    const id = typeof r.id === "string" ? r.id : "";
+    if (!id || seenIds.has(id)) return;
+    if (candidatesRaw.length >= rowLimit) return;
+    seenIds.add(id);
+    candidatesRaw.push(r);
+  }
+
+  if (explicitSids.length === 0) {
+    for (const r of windowSmsLike) {
+      pushCandidate(r);
+    }
+  } else {
+    for (const sid of explicitSids) {
+      const r = bySid.get(sid.trim());
+      if (r) pushCandidate(r);
+    }
+    if (!onlyExplicitSids) {
+      for (const r of windowSmsLike) {
+        pushCandidate(r);
+      }
+    }
+  }
 
   function bump(skip: string, detail: Record<string, unknown>): void {
     skips[skip] = (skips[skip] ?? 0) + 1;
-    if (verbose) console.info("[backfill-mms] skip:", skip, detail);
+    console.info("[backfill-mms] skip:", skip, detail);
   }
 
-  for (const r of candidates) {
+  /** Verbose / explicit-SID trace lines in addition to `[backfill-mms] skip:` */
+  function logVerbose(detail: Record<string, unknown>) {
+    if (verbose || explicitSids.length > 0) {
+      console.info("[backfill-mms] verbose:", detail);
+    }
+  }
+
+  if (verbose) {
+    console.info("[backfill-mms] candidate_snapshot", {
+      windowLoadedRows: rows.length,
+      windowEmptyBodyMms: windowSmsLike.length,
+      explicitSidsRequested: explicitSids,
+      onlyExplicitSids,
+      mergedCandidates: candidatesRaw.length,
+      rowCap: rowLimit,
+      since,
+    });
+  }
+
+  for (const r of candidatesRaw) {
     const body = typeof r.body === "string" ? r.body.trim() : "";
     const messageSid =
       typeof r.external_message_sid === "string" ? r.external_message_sid.trim() : "";
@@ -191,11 +375,21 @@ async function main() {
     const conversationId = typeof r.conversation_id === "string" ? r.conversation_id : "";
 
     if (!messageId || !conversationId || !messageSid) {
-      bump("missing_ids", {
+      bump("missing_db_ids", {
         rowId: r.id,
         conversation_id: r.conversation_id,
         external_message_sid: r.external_message_sid,
       });
+      continue;
+    }
+
+    if (!messageSid.startsWith("SM") && !messageSid.startsWith("MM")) {
+      bump(R.badSidPrefix, { messageId, external_message_sid: messageSid });
+      continue;
+    }
+
+    if (body !== "") {
+      bump(R.nonEmptyBody, { messageId, external_message_sid: messageSid, bodyLen: body.length });
       continue;
     }
 
@@ -205,57 +399,73 @@ async function main() {
       .eq("message_id", messageId);
 
     if (cErr) {
-      bump("attachment_count_query_failed", {
+      const mr = cErr.code === "42P01" || cErr.message.includes("does not exist");
+      bump(mr ? R.missingRelation : "attachment_count_query_failed", {
         messageId,
         external_message_sid: messageSid,
-        bodyLen: body.length,
-        err: cErr.message,
+        detail: cErr.message,
         code: cErr.code,
       });
       continue;
     }
     if ((count ?? 0) > 0) {
-      bump("already_has_attachments", {
-        messageId,
-        external_message_sid: messageSid,
-        bodyLen: body.length,
-      });
+      bump(R.alreadyHasAttachments, { messageId, external_message_sid: messageSid });
       continue;
     }
 
-    const listed = await listTwilioMessageMediaUrls(messageSid);
-    if (!listed.ok) {
-      bump("twilio_list_failed", {
-        messageId,
+    console.log("[backfill-mms] processing", {
+      external_message_sid: messageSid,
+      message_id: messageId,
+      conversation_id: conversationId,
+    });
+
+    const listed = await listTwilioMessageMediaUrlsAllPages(messageSid, verbose);
+    if (listed.ok === false) {
+      bump(listed.reason, {
         external_message_sid: messageSid,
-        bodyLen: body.length,
-        detail: listed.error,
+        message_id: messageId,
+        detail: listed.detail,
       });
-      console.warn("[backfill-mms] twilio_list_failed", messageSid, listed.error);
+      logVerbose({
+        sid: messageSid,
+        outcome: listed.reason,
+        detail: listed.detail,
+      });
       continue;
     }
     if (listed.urls.length === 0) {
-      bump("twilio_list_empty_maybe_expired", {
-        messageId,
+      bump(R.twilioMediaListEmpty, {
         external_message_sid: messageSid,
-        bodyLen: body.length,
+        message_id: messageId,
       });
-      console.warn("[backfill-mms] twilio_media_empty_after_list_ok", messageSid);
+      logVerbose({ sid: messageSid, outcome: R.twilioMediaListEmpty });
       continue;
     }
 
     processedMessages += 1;
+    let anyPartInserted = false;
     const urls = listed.urls.slice(0, 10);
 
     for (let i = 0; i < urls.length; i++) {
       const rawUrl = urls[i]!;
       const dl = await fetchTwilioBytes(rawUrl);
       if (dl.ok === false) {
-        console.warn("[backfill-mms] download_fail", messageSid, i, dl.error);
+        bump(dl.authReject === true ? R.twilioAuthFailed : R.mediaDownloadFailed, {
+          external_message_sid: messageSid,
+          message_id: messageId,
+          partIndex: i,
+          detail: dl.error,
+          mediaUrlSnippet: rawUrl.slice(0, 120),
+        });
         continue;
       }
       if (dl.buf.byteLength > DOWNLOAD_MAX_BYTES) {
-        console.warn("[backfill-mms] too_large_skip", messageSid, i);
+        bump("media_download_too_large", {
+          external_message_sid: messageSid,
+          message_id: messageId,
+          bytes: dl.buf.byteLength,
+          max: DOWNLOAD_MAX_BYTES,
+        });
         continue;
       }
       const normCt =
@@ -272,7 +482,17 @@ async function main() {
         upsert: false,
       });
       if (upErr) {
-        console.warn("[backfill-mms] upload_fail", storage_path, upErr.message);
+        const bucketHint = isMissingBucketErr(upErr.message) ? R.missingBucket : "";
+        bump(R.storageUploadFailed, {
+          external_message_sid: messageSid,
+          message_id: messageId,
+          partIndex: i,
+          detail: upErr.message,
+          ...(bucketHint ? { classifiedAs: bucketHint } : {}),
+        });
+        if (bucketHint) {
+          console.error("[backfill-mms]", R.missingBucket, "(upload error):", upErr.message);
+        }
         continue;
       }
 
@@ -292,22 +512,44 @@ async function main() {
       });
       const code = insErr?.code != null ? String(insErr.code) : "";
       if (insErr && code !== "23505") {
-        console.warn("[backfill-mms] insert_fail", messageSid, i, insErr.message);
+        bump(R.attachmentInsertFailed, {
+          external_message_sid: messageSid,
+          message_id: messageId,
+          partIndex: i,
+          detail: insErr.message,
+          code: insErr.code,
+        });
         await supabase.storage.from(BUCKET).remove([storage_path]).catch(() => {});
       } else {
         ingestedParts += 1;
+        anyPartInserted = true;
+        console.log("[backfill-mms] inserted attachment", {
+          external_message_sid: messageSid,
+          message_id: messageId,
+          partIndex: i,
+          storage_path,
+        });
       }
+    }
+
+    if (!anyPartInserted && urls.length > 0) {
+      bump("all_parts_failed_for_message", {
+        external_message_sid: messageSid,
+        message_id: messageId,
+        attemptedParts: urls.length,
+      });
     }
   }
 
   console.log("[backfill-mms] complete", {
     days,
+    since,
     rowLimit,
-    ...(tableProbe ? { migrationHint: tableProbe } : {}),
+    ...(explicitSids.length ? { explicitSidsRequested: explicitSids, onlyExplicitSids } : {}),
     messagesHydratedFromTwilio: processedMessages,
     mediaPartsInserted: ingestedParts,
     skipReasonCounts: skips,
-    candidateInboundRowsExamined: candidates.length,
+    candidateInboundRowsExamined: candidatesRaw.length,
   });
 }
 
