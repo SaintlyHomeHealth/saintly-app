@@ -1,10 +1,10 @@
 import type { AdminCrmLeadListUrlFilters } from "@/lib/crm/admin-crm-leads-list-filters";
 
 /** Round-trip helpers for CRM leads list URLs (filters + paging + density). */
-export type AdminCrmLeadListHrefState = Omit<AdminCrmLeadListUrlFilters, "followUpToday"> & {
+export type AdminCrmLeadListHrefState = AdminCrmLeadListUrlFilters & {
   /** Raw search query for contacts */
   q: string;
-  /** `followUp` URL value: `"today"` or empty */
+  /** `followUp` URL value: `"today"` or empty (legacy dashboard / bookmark). */
   followUp: string;
   page: number;
   /** Omit from URL when default compact */
@@ -15,30 +15,24 @@ export function buildAdminCrmLeadsHref(state: Partial<AdminCrmLeadListHrefState>
   const u = new URLSearchParams();
 
   const {
-    status = "",
-    source = "",
+    contactStatus = "",
+    leadPriority = "",
     owner = "",
+    payer = "",
     followUp = "",
-    payerType = "",
-    discipline = "",
-    leadType = "",
-    contactOutcome = "",
     q = "",
-    showDead = false,
+    includeDead = false,
     page = 1,
     density = "compact",
   } = state;
 
-  if (status.trim()) u.set("status", status.trim());
-  if (source.trim()) u.set("source", source.trim());
+  if (contactStatus.trim()) u.set("contactStatus", contactStatus.trim());
+  if (leadPriority.trim()) u.set("leadPriority", leadPriority.trim());
   if (owner.trim()) u.set("owner", owner.trim());
+  if (payer.trim()) u.set("payer", payer.trim());
   if (followUp.trim()) u.set("followUp", followUp.trim());
-  if (payerType.trim()) u.set("payerType", payerType.trim());
-  if (discipline.trim()) u.set("discipline", discipline.trim());
-  if (leadType.trim()) u.set("leadType", leadType.trim());
-  if (contactOutcome.trim()) u.set("contactOutcome", contactOutcome.trim());
   if (q.trim()) u.set("q", q.trim());
-  if (showDead) u.set("showDead", "1");
+  if (includeDead) u.set("includeDead", "1");
 
   const p = Math.max(1, Math.floor(Number(page)) || 1);
   if (p > 1) u.set("page", String(p));

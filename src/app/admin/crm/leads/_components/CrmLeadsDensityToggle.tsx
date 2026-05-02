@@ -27,16 +27,13 @@ export function CrmLeadsDensityToggle({ density }: Props) {
     const u = new URL(window.location.href);
     const qs = Object.fromEntries(u.searchParams.entries());
     const merged = buildAdminCrmLeadsHref({
-      status: qs.status ?? "",
-      source: qs.source ?? "",
+      contactStatus: qs.contactStatus ?? "",
+      leadPriority: qs.leadPriority ?? "",
       owner: qs.owner ?? "",
+      payer: qs.payer ?? "",
       followUp: qs.followUp ?? "",
-      payerType: qs.payerType ?? "",
-      discipline: qs.discipline ?? "",
-      leadType: qs.leadType ?? "",
-      contactOutcome: qs.contactOutcome ?? "",
       q: qs.q ?? "",
-      showDead: qs.showDead === "1",
+      includeDead: qs.includeDead === "1" || qs.showDead === "1",
       page: Math.max(1, Number.parseInt(qs.page ?? "1", 10) || 1),
       density: next === "compact" ? "compact" : "comfortable",
     });

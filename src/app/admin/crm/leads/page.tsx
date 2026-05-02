@@ -5,21 +5,20 @@ import { CrmLeadsList } from "@/app/admin/crm/leads/_components/CrmLeadsList";
 import { CrmLeadsDensityToggle } from "@/app/admin/crm/leads/_components/CrmLeadsDensityToggle";
 import {
   ADMIN_CRM_LEADS_PAGE_SIZE,
-  ADMIN_CRM_LEAD_LIST_CONTACT_OUTCOME_URL_VALUES,
+  ADMIN_CRM_LEADS_CONTACT_STATUS_URL_VALUES,
   attachAdminCrmLeadListPredicates,
   EMPTY_CONTACT_SENTINEL,
-  formatAdminCrmLeadListContactOutcomeFilterLabel,
-  isValidAdminCrmLeadListContactOutcomeFilter,
+  formatAdminCrmLeadsContactStatusLabel,
+  isValidAdminCrmLeadsContactStatusFilter,
+  parseAdminCrmLeadsListSearchParams,
   type AdminCrmLeadListUrlFilters,
 } from "@/lib/crm/admin-crm-leads-list-filters";
+import { harvestLeadsPayerFilterSuggestions } from "@/lib/crm/admin-crm-leads-payer-suggestions";
 import { buildAdminCrmLeadsHref, type AdminCrmLeadListHrefState } from "@/lib/crm/admin-crm-leads-list-url";
 import { getCrmCalendarTodayIso } from "@/lib/crm/crm-local-date";
-import { LEAD_PIPELINE_STATUS_OPTIONS, formatLeadPipelineStatusLabel } from "@/lib/crm/lead-pipeline-status";
-import { LEAD_SOURCE_OPTIONS, formatLeadSourceLabel } from "@/lib/crm/lead-source-options";
-import { PAYER_BROAD_CATEGORY_OPTIONS } from "@/lib/crm/payer-type-options";
 import { contactRowsActiveOnly } from "@/lib/crm/contacts-active";
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
-import { SERVICE_DISCIPLINE_CODES } from "@/lib/crm/service-disciplines";
+import { LEAD_TEMPERATURE_VALUES, isValidLeadTemperature, leadTemperatureLabel } from "@/lib/crm/lead-temperature";
 import { supabaseAdmin } from "@/lib/admin";
 import { buildContactSearchOrClause } from "@/lib/crm/crm-leads-search";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
@@ -55,27 +54,21 @@ function parsePage(one: (k: string) => string): number {
   return Math.floor(n);
 }
 
-function narrowingFiltersPresent(f: {
+function narrowingFiltersPresent(input: {
   q: string;
-  status: string;
-  source: string;
+  contactStatus: string;
+  leadPriority: string;
   owner: string;
-  followUp: string;
-  payerType: string;
-  discipline: string;
-  leadType: string;
-  contactOutcome: string;
+  payer: string;
+  followUpToday: boolean;
 }): boolean {
   return Boolean(
-    f.q.trim() ||
-      f.status.trim() ||
-      f.source.trim() ||
-      f.owner.trim() ||
-      f.followUp.trim() ||
-      f.payerType.trim() ||
-      f.discipline.trim() ||
-      f.leadType.trim() ||
-      (f.contactOutcome.trim() && isValidAdminCrmLeadListContactOutcomeFilter(f.contactOutcome.trim()))
+    input.q.trim() ||
+      input.owner.trim() ||
+      input.payer.trim() ||
+      (input.contactStatus.trim() && isValidAdminCrmLeadsContactStatusFilter(input.contactStatus.trim())) ||
+      (input.leadPriority.trim() && isValidLeadTemperature(input.leadPriority.trim())) ||
+      input.followUpToday
   );
 }
 
@@ -96,34 +89,29 @@ export default async function AdminCrmLeadsPage({
     const rawSp = await searchParams;
     const one = (k: string) => {
       const v = rawSp[k];
-      return typeof v === "string" ? v : Array.isArray(v) ? v[0] : "";
+      return typeof v === "string" ? v : Array.isArray(v) ? v[0] ?? "" : "";
     };
 
+    const parsed = parseAdminCrmLeadsListSearchParams(rawSp);
+    const followUpToday = parsed.followUp.toLowerCase() === "today";
     const f = {
-      status: one("status").trim(),
-      source: one("source").trim(),
-      owner: one("owner").trim(),
-      followUp: one("followUp").trim(),
-      payerType: one("payerType").trim(),
-      discipline: one("discipline").trim(),
-      leadType: one("leadType").trim(),
-      contactOutcome: one("contactOutcome").trim(),
-      q: one("q").trim(),
+      contactStatus: parsed.contactStatus,
+      leadPriority: parsed.leadPriority,
+      owner: parsed.owner,
+      payer: parsed.payer,
+      followUp: parsed.followUp,
+      q: parsed.q,
     };
-    const showDead = one("showDead").trim() === "1";
-    const followUpToday = f.followUp.toLowerCase() === "today";
+    const includeDead = parsed.includeDead;
     const todayIso = getCrmCalendarTodayIso();
 
     const urlFiltersForAttach: AdminCrmLeadListUrlFilters = {
-      status: f.status,
-      source: f.source,
+      contactStatus: f.contactStatus,
+      leadPriority: f.leadPriority,
       owner: f.owner,
+      payer: f.payer,
       followUpToday,
-      payerType: f.payerType,
-      discipline: f.discipline,
-      leadType: f.leadType,
-      showDead,
-      contactOutcome: f.contactOutcome,
+      includeDead,
     };
 
     const densityRaw = one("density").trim().toLowerCase();
@@ -134,7 +122,8 @@ export default async function AdminCrmLeadsPage({
 
     const dismissToastHref = buildAdminCrmLeadsHref({
       ...f,
-      showDead,
+      includeDead,
+      followUp: f.followUp,
       page: initialPageGuess,
       density,
     });
@@ -153,6 +142,10 @@ export default async function AdminCrmLeadsPage({
       role: string;
       full_name: string | null;
     }[];
+
+    const payerFilterOptions = routePerfStepsEnabled()
+      ? await routePerfTimed("admin_crm_leads.payer_suggestions", () => harvestLeadsPayerFilterSuggestions(supabaseAdmin))
+      : await harvestLeadsPayerFilterSuggestions(supabaseAdmin);
 
     let contactIdFilter: string[] | null = null;
     const contactOr = buildContactSearchOrClause(f.q);
@@ -183,7 +176,7 @@ export default async function AdminCrmLeadsPage({
       );
     };
 
-    const needBaseline = narrowingFiltersPresent(f);
+    const needBaseline = narrowingFiltersPresent({ ...f, followUpToday });
 
     const filteredCountPromise = routePerfStepsEnabled()
       ? routePerfTimed("admin_crm_leads.leads_count", () => execFilteredExactCount())
@@ -217,7 +210,8 @@ export default async function AdminCrmLeadsPage({
       redirect(
         buildAdminCrmLeadsHref({
           ...f,
-          showDead,
+          includeDead,
+          followUp: f.followUp,
           density,
           page: safePage,
         })
@@ -297,19 +291,19 @@ export default async function AdminCrmLeadsPage({
       }
     }
 
-    const employeeOnlyView = f.leadType === "employee";
+    const employeeOnlyView = false;
 
     const rangeStart = list.length === 0 ? 0 : (safePage - 1) * ADMIN_CRM_LEADS_PAGE_SIZE + 1;
     const rangeEnd = (safePage - 1) * ADMIN_CRM_LEADS_PAGE_SIZE + list.length;
 
-    const defaultHidesDeadPipeline = !showDead && !f.status.trim();
+    const hidingDeadByDefault = !includeDead;
 
-    const hasSearchOrColumnFilters = narrowingFiltersPresent(f);
+    const hasSearchOrColumnFilters = narrowingFiltersPresent({ ...f, followUpToday });
     const baselineTotal =
       needBaseline && baselineRes && typeof baselineRes.count === "number" ? baselineRes.count : null;
 
     const hrefWith = (patch: Partial<AdminCrmLeadListHrefState>) =>
-      buildAdminCrmLeadsHref({ ...f, showDead, page: safePage, density, ...patch });
+      buildAdminCrmLeadsHref({ ...f, includeDead, followUp: f.followUp, page: safePage, density, ...patch });
 
     const paginationPrevHref = safePage <= 1 ? null : hrefWith({ page: safePage - 1 });
     const paginationNextHref = safePage >= computedTotalPages ? null : hrefWith({ page: safePage + 1 });
@@ -349,7 +343,7 @@ export default async function AdminCrmLeadsPage({
 
     const summaryPrimary =
       totalFiltered <= 0
-        ? hasSearchOrColumnFilters || showDead || safePage > 1
+        ? hasSearchOrColumnFilters || includeDead || safePage > 1
           ? "No leads match these filters."
           : "No leads found."
         : `Showing ${rangeStart}–${rangeEnd} of ${totalFiltered} leads`;
@@ -398,7 +392,7 @@ export default async function AdminCrmLeadsPage({
                   {hasSearchOrColumnFilters && baselineTotal !== null ? (
                     <>
                       {" "}
-                      — filtered from <span className="font-medium text-slate-800">{baselineTotal}</span> leads with no column
+                      — filtered from <span className="font-medium text-slate-800">{baselineTotal}</span> leads with no list
                       filters (still excludes deleted rows and hides dead/not qualified like a fresh visit)
                     </>
                   ) : null}
@@ -406,9 +400,9 @@ export default async function AdminCrmLeadsPage({
               ) : (
                 <span>Open filters can hide rows — check chips below.</span>
               )}
-              {defaultHidesDeadPipeline ? (
+              {hidingDeadByDefault ? (
                 <span className="text-sky-900/85">
-                  Active filter: omitting pipeline status &quot;Dead / not qualified&quot; unless you enable &quot;Include dead&quot; or choose that status explicitly.
+                  Hiding pipeline &quot;Dead / not qualified&quot; unless you enable Include dead.
                 </span>
               ) : null}
             </div>
@@ -448,24 +442,33 @@ export default async function AdminCrmLeadsPage({
 
         {/* Explicit filter chips (no silent filters) */}
         <div className="flex flex-wrap items-center gap-1.5">
-          {!hasSearchOrColumnFilters && !showDead && safePage <= 1 ? (
-            <span className={`${chipMuted} border-emerald-200/80 bg-emerald-50/60 text-emerald-950`}>Default list (no column filters)</span>
+          {!hasSearchOrColumnFilters && !includeDead && safePage <= 1 ? (
+            <span className={`${chipMuted} border-emerald-200/80 bg-emerald-50/60 text-emerald-950`}>Default list (no filters)</span>
           ) : null}
-          {defaultHidesDeadPipeline && safePage <= 1 ? (
+          {hidingDeadByDefault && safePage <= 1 ? (
             <span className={`${chipMuted} border-sky-200/80 bg-sky-50/70 text-sky-950`}>Hiding dead / not qualified by default</span>
           ) : null}
 
-          {f.status.trim() ? (
-            <Link href={hrefWith({ status: "" })} prefetch={false} className={`${chipMuted} hover:border-sky-300 hover:bg-sky-50`}>
-              Status: {formatLeadPipelineStatusLabel(f.status)}{" "}
-              <span className="font-bold text-slate-500">×</span>
-            </Link>
-          ) : null}
-          {f.source.trim() ? (
-            <Link href={hrefWith({ source: "" })} prefetch={false} className={`${chipMuted} hover:border-sky-300 hover:bg-sky-50`}>
-              Source: {formatLeadSourceLabel(f.source)} <span className="font-bold text-slate-500">×</span>
-            </Link>
-          ) : null}
+          {(() => {
+            const cs = f.contactStatus.trim();
+            if (!isValidAdminCrmLeadsContactStatusFilter(cs)) return null;
+            return (
+              <Link href={hrefWith({ contactStatus: "" })} prefetch={false} className={`${chipMuted} hover:border-sky-300 hover:bg-sky-50`}>
+                Contact status: {formatAdminCrmLeadsContactStatusLabel(cs)}{" "}
+                <span className="font-bold text-slate-500">×</span>
+              </Link>
+            );
+          })()}
+          {(() => {
+            const lp = f.leadPriority.trim();
+            if (!isValidLeadTemperature(lp)) return null;
+            return (
+              <Link href={hrefWith({ leadPriority: "" })} prefetch={false} className={`${chipMuted} hover:border-sky-300 hover:bg-sky-50`}>
+                Priority: {leadTemperatureLabel(lp)}{" "}
+                <span className="font-bold text-slate-500">×</span>
+              </Link>
+            );
+          })()}
           {UUID_RE.test(f.owner.trim()) ? (
             <Link href={hrefWith({ owner: "" })} prefetch={false} className={`${chipMuted} hover:border-sky-300 hover:bg-sky-50`}>
               Owner: {ownerLabelForChip ?? f.owner.slice(0, 8)}{" "}
@@ -477,40 +480,17 @@ export default async function AdminCrmLeadsPage({
               Follow-up: today <span className="font-bold text-slate-500">×</span>
             </Link>
           ) : null}
-          {(() => {
-            const co = f.contactOutcome.trim();
-            if (!isValidAdminCrmLeadListContactOutcomeFilter(co)) return null;
-            return (
-              <Link
-                href={hrefWith({ contactOutcome: "" })}
-                prefetch={false}
-                className={`${chipMuted} hover:border-sky-300 hover:bg-sky-50`}
-              >
-                Contact outcome: {formatAdminCrmLeadListContactOutcomeFilterLabel(co)}{" "}
-                <span className="font-bold text-slate-500">×</span>
-              </Link>
-            );
-          })()}
-          {employeeOnlyView === false && f.payerType.trim() ? (
-            <Link href={hrefWith({ payerType: "" })} prefetch={false} className={`${chipMuted} hover:border-sky-300 hover:bg-sky-50`}>
-              Payer: {f.payerType} <span className="font-bold text-slate-500">×</span>
-            </Link>
-          ) : null}
-          {employeeOnlyView === false && f.discipline.trim() ? (
-            <Link href={hrefWith({ discipline: "" })} prefetch={false} className={`${chipMuted} hover:border-sky-300 hover:bg-sky-50`}>
-              Discipline: {f.discipline} <span className="font-bold text-slate-500">×</span>
-            </Link>
-          ) : null}
-          {f.leadType.trim() ? (
-            <Link href={hrefWith({ leadType: "" })} prefetch={false} className={`${chipMuted} hover:border-sky-300 hover:bg-sky-50`}>
-              Type:{" "}
-              {f.leadType === "employee" ? "Employee applicants" : f.leadType === "patient" ? "Patient & referral" : f.leadType}{" "}
+          {f.payer.trim() ? (
+            <Link href={hrefWith({ payer: "" })} prefetch={false} className={`${chipMuted} max-w-[14rem] hover:border-sky-300 hover:bg-sky-50`}>
+              <span className="truncate" title={f.payer}>
+                Payer: {f.payer.length > 28 ? `${f.payer.slice(0, 28)}…` : f.payer}
+              </span>{" "}
               <span className="font-bold text-slate-500">×</span>
             </Link>
           ) : null}
-          {showDead ? (
-            <Link href={hrefWith({ showDead: false })} prefetch={false} className={`${chipMuted} hover:border-sky-300 hover:bg-sky-50`}>
-              Including dead / not qualified <span className="font-bold text-slate-500">×</span>
+          {includeDead ? (
+            <Link href={hrefWith({ includeDead: false })} prefetch={false} className={`${chipMuted} hover:border-sky-300 hover:bg-sky-50`}>
+              Include dead / not qualified <span className="font-bold text-slate-500">×</span>
             </Link>
           ) : null}
           {f.q.trim() ? (
@@ -536,29 +516,34 @@ export default async function AdminCrmLeadsPage({
           className="flex flex-wrap items-end gap-x-2 gap-y-2 rounded-xl border border-slate-200 bg-white p-2.5 shadow-sm sm:rounded-[22px]"
         >
           {density === "comfortable" ? <input type="hidden" name="density" value="comfortable" /> : null}
+          {followUpToday ? <input type="hidden" name="followUp" value="today" /> : null}
           <label className="flex min-w-[7.5rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-            Status
-            <select name="status" defaultValue={f.status} className={crmFilterInputCls}>
+            Contact status
+            <select
+              name="contactStatus"
+              defaultValue={isValidAdminCrmLeadsContactStatusFilter(f.contactStatus.trim()) ? f.contactStatus.trim() : ""}
+              className={crmFilterInputCls}
+            >
               <option value="">All</option>
-              {LEAD_PIPELINE_STATUS_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
+              {ADMIN_CRM_LEADS_CONTACT_STATUS_URL_VALUES.map((v) => (
+                <option key={v} value={v}>
+                  {formatAdminCrmLeadsContactStatusLabel(v)}
                 </option>
               ))}
             </select>
           </label>
           <label className="flex min-w-[7.5rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-            Source
-            <select name="source" defaultValue={f.source} className={crmFilterInputCls}>
+            Lead priority
+            <select name="leadPriority" defaultValue={isValidLeadTemperature(f.leadPriority.trim()) ? f.leadPriority.trim() : ""} className={crmFilterInputCls}>
               <option value="">All</option>
-              {LEAD_SOURCE_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
+              {LEAD_TEMPERATURE_VALUES.map((v) => (
+                <option key={v} value={v}>
+                  {leadTemperatureLabel(v)}
                 </option>
               ))}
             </select>
           </label>
-          <label className="flex min-w-[9.5rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+          <label className="flex min-w-[9rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
             Owner
             <select name="owner" defaultValue={f.owner} className={crmFilterInputCls}>
               <option value="">All</option>
@@ -569,65 +554,24 @@ export default async function AdminCrmLeadsPage({
               ))}
             </select>
           </label>
-          <label className="flex min-w-[7.5rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-            Follow-up
-            <select name="followUp" defaultValue={followUpToday ? "today" : ""} className={crmFilterInputCls}>
-              <option value="">Any</option>
-              <option value="today">Today (Central)</option>
-            </select>
-          </label>
           <label className="flex min-w-[8.5rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-            Contact outcome
-            <select
-              name="contactOutcome"
-              defaultValue={isValidAdminCrmLeadListContactOutcomeFilter(f.contactOutcome.trim()) ? f.contactOutcome.trim() : ""}
+            Payer
+            <input
+              type="text"
+              name="payer"
+              list="crm-admin-leads-payer-list"
+              defaultValue={f.payer}
+              placeholder="Keyword (e.g. United, Humana)…"
+              autoComplete="off"
               className={crmFilterInputCls}
-            >
-              <option value="">All</option>
-              {ADMIN_CRM_LEAD_LIST_CONTACT_OUTCOME_URL_VALUES.map((v) => (
-                <option key={v} value={v}>
-                  {formatAdminCrmLeadListContactOutcomeFilterLabel(v)}
-                </option>
+            />
+            <datalist id="crm-admin-leads-payer-list">
+              {payerFilterOptions.map((p) => (
+                <option key={p} value={p} />
               ))}
-            </select>
+            </datalist>
           </label>
-          <label className="flex min-w-[7.5rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-            Payer type
-            <select name="payerType" defaultValue={f.payerType} className={crmFilterInputCls}>
-              <option value="">All</option>
-              {PAYER_BROAD_CATEGORY_OPTIONS.map((p) => (
-                <option key={p} value={p}>
-                  {p}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex min-w-[5.5rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-            Discipline
-            <select name="discipline" defaultValue={f.discipline} className={crmFilterInputCls}>
-              <option value="">All</option>
-              {SERVICE_DISCIPLINE_CODES.map((d) => (
-                <option key={d} value={d}>
-                  {d}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex min-w-[9.5rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-            Lead type
-            <select name="leadType" defaultValue={f.leadType} className={crmFilterInputCls}>
-              <option value="">All (mixed)</option>
-              <option value="patient">Patient &amp; referral</option>
-              <option value="employee">Employee applicants</option>
-            </select>
-          </label>
-          <div className="flex min-h-[2rem] items-center gap-2 rounded-lg border border-slate-200 bg-slate-50/80 px-2">
-            <label className="flex cursor-pointer items-center gap-1.5 text-[11px] font-medium text-slate-600">
-              <input type="checkbox" name="showDead" value="1" defaultChecked={showDead} className="h-3.5 w-3.5 rounded border-slate-300 text-sky-600" />
-              Include dead / not qualified
-            </label>
-          </div>
-          <label className="flex min-w-[min(100%,14rem)] flex-1 flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:min-w-[14rem]">
+          <label className="flex min-w-[min(100%,12rem)] flex-1 flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:min-w-[12rem]">
             Search name, phone, or email
             <input
               type="search"
@@ -636,6 +580,16 @@ export default async function AdminCrmLeadsPage({
               placeholder="Name, phone, or email…"
               className={`${crmFilterInputCls} min-h-[2rem]`}
             />
+          </label>
+          <label className="flex min-h-[2rem] cursor-pointer items-center gap-1 rounded-md border border-slate-200/90 bg-slate-50/60 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
+            <input
+              type="checkbox"
+              name="includeDead"
+              value="1"
+              defaultChecked={includeDead}
+              className="h-3 w-3 rounded border-slate-300 text-sky-600"
+            />
+            Include dead
           </label>
           <button
             type="submit"
@@ -651,12 +605,6 @@ export default async function AdminCrmLeadsPage({
           </Link>
         </form>
 
-        {employeeOnlyView ? (
-          <p className="text-[11px] text-slate-500">
-            Applicant view: payer type and discipline filters are not applied. Use pipeline status and search as needed.
-          </p>
-        ) : null}
-
         <CrmLeadsList
           initialList={list}
           employeeOnlyView={employeeOnlyView}
@@ -665,7 +613,7 @@ export default async function AdminCrmLeadsPage({
           smsConversationIdByContactId={smsConversationIdByContactId}
           initialDensity={density}
           emptyState={{
-            narrowFiltersActive: hasSearchOrColumnFilters || showDead || safePage > 1,
+            narrowFiltersActive: hasSearchOrColumnFilters || includeDead || safePage > 1,
             clearHref: clearAllFiltersHref,
           }}
         />
