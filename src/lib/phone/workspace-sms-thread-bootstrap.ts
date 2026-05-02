@@ -191,7 +191,7 @@ export async function loadWorkspaceSmsThreadBootstrap(
   const lastMsg = messages.length > 0 ? messages[messages.length - 1] : null;
   const lastInboundMessageId =
     lastMsg && String(lastMsg.direction).toLowerCase() === "inbound" ? String(lastMsg.id) : null;
-  const suggestionMeta = parseSmsReplySuggestion(conv.metadata);
+  const suggestionMeta = smsAiSuggestionsEnabled ? parseSmsReplySuggestion(conv.metadata) : null;
   const initialSmsSuggestion =
     smsAiSuggestionsEnabled &&
     suggestionMeta &&

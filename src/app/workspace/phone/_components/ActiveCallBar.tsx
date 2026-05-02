@@ -179,7 +179,6 @@ export function ActiveCallBar() {
   }, [keypadOpen]);
 
   const handleHangUpClick = useCallback(() => {
-    console.log("HANG CLICK");
     hangUp();
   }, [hangUp]);
 

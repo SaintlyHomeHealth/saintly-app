@@ -172,8 +172,8 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
 
   /** SMS composer draft only; see `ENABLE_SMS_AI_SUGGESTIONS` and `SMS_AI_SUGGESTIONS_DISABLED`. */
   const smsAiSuggestionsEnabled = smsReplyAiSuggestionsEnabled();
-  const showSmsThreadDebug =
-    process.env.NODE_ENV === "development" || process.env.SMS_THREAD_DEBUG === "1";
+  /** MMS/thread diagnostics: opt-in via SMS_THREAD_DEBUG=1 only (not implied by NODE_ENV). */
+  const showSmsThreadDebug = process.env.SMS_THREAD_DEBUG === "1";
 
   const sp = (await searchParams) ?? {};
   const ok = typeof sp.ok === "string" ? sp.ok : undefined;
@@ -373,7 +373,7 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
   const lastMsg = messages.length > 0 ? messages[messages.length - 1] : null;
   const lastInboundMessageId =
     lastMsg && String(lastMsg.direction).toLowerCase() === "inbound" ? String(lastMsg.id) : null;
-  const suggestionMeta = parseSmsReplySuggestion(conv.metadata);
+  const suggestionMeta = smsAiSuggestionsEnabled ? parseSmsReplySuggestion(conv.metadata) : null;
   const initialSmsSuggestion =
     smsAiSuggestionsEnabled &&
     suggestionMeta &&

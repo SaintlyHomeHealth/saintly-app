@@ -79,10 +79,12 @@ async function resolveMmsParts(messageSid: string, params: Record<string, string
     return [];
   }
 
-  console.log("[sms-inbound] mms_rest_media_candidates", {
-    messageSid,
-    count: listed.mediaUrlsAbsolute.length,
-  });
+  if (process.env.SMS_PUSH_TIMING === "1") {
+    console.log("[sms-inbound] mms_rest_media_candidates", {
+      messageSid,
+      count: listed.mediaUrlsAbsolute.length,
+    });
+  }
 
   return listed.mediaUrlsAbsolute.slice(0, 10).map((rawUrl, index) => ({
     index,

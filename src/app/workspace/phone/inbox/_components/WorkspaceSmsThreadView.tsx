@@ -109,6 +109,43 @@ function mergeAttachmentRealtime(
   return sortThreadAttachments(base);
 }
 
+function readNumMediaFromMessageMetadata(metadata: unknown): number {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return 0;
+  const nm = (metadata as Record<string, unknown>).num_media;
+  if (typeof nm === "number" && Number.isFinite(nm) && nm > 0) return Math.floor(nm);
+  if (typeof nm === "string" && /^\d+$/.test(nm.trim())) {
+    const v = parseInt(nm.trim(), 10);
+    return Number.isFinite(v) && v > 0 ? v : 0;
+  }
+  return 0;
+}
+
+/**
+ * Delayed thread refetch is only for MMS rows that may hydrate attachments asynchronously.
+ * Avoids refetching on empty-body inbound SMS with no MMS signals.
+ */
+function inboundEmptyInboundMayNeedMmsAttachmentHydration(row: Record<string, unknown>): boolean {
+  const direction = typeof row.direction === "string" ? row.direction.toLowerCase().trim() : "";
+  if (direction !== "inbound") return false;
+  if (normalizeBodyForMatch(typeof row.body === "string" ? row.body : null) !== "") return false;
+
+  const nested = row.phone_message_attachments;
+  if (Array.isArray(nested) && nested.length > 0) return false;
+
+  if (readNumMediaFromMessageMetadata(row.metadata) > 0) return true;
+
+  const sidRaw = row.external_message_sid;
+  const sid =
+    typeof sidRaw === "string"
+      ? sidRaw.trim()
+      : sidRaw != null && String(sidRaw).trim() !== ""
+        ? String(sidRaw).trim()
+        : "";
+  if (sid.startsWith("MM")) return true;
+
+  return false;
+}
+
 const ThreadMessageRow = memo(
   function ThreadMessageRow({
     message: m,
@@ -503,7 +540,11 @@ const WorkspaceSmsThreadViewInner = memo(function WorkspaceSmsThreadViewInner({
           const inboundEmpty =
             String(row.direction).toLowerCase() === "inbound" &&
             normalizeBodyForMatch(row.body) === "";
-          if (inboundEmpty && !row.id.startsWith("optimistic-")) {
+          if (
+            inboundEmpty &&
+            !row.id.startsWith("optimistic-") &&
+            inboundEmptyInboundMayNeedMmsAttachmentHydration(payload.new as Record<string, unknown>)
+          ) {
             const idSet = mmsHydrationKickIdsRef.current;
             if (!idSet.has(row.id)) {
               idSet.add(row.id);

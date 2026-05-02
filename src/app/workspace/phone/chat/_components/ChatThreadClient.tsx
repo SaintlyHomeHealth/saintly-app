@@ -9,7 +9,7 @@ import {
 } from "@/lib/internal-chat/internal-chat-ref-kinds";
 import { Bell, BellOff, Camera, ChevronLeft, FileText, ImageIcon, Link2, Paperclip, Pin, Send, X } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type RefCard = {
   kind: InternalChatRefKind;
@@ -138,7 +138,7 @@ type ChatAttachmentTileProps = {
   mine: boolean;
 };
 
-function ChatAttachmentTile({ att, mine }: ChatAttachmentTileProps) {
+const ChatAttachmentTile = memo(function ChatAttachmentTile({ att, mine }: ChatAttachmentTileProps) {
   const [thumbFailed, setThumbFailed] = useState(false);
   const idNorm = typeof att.id === "string" ? att.id.trim().toLowerCase() : "";
   const idOk = Boolean(idNorm && CHAT_ATTACHMENT_UUID_RE.test(idNorm));
@@ -197,6 +197,8 @@ function ChatAttachmentTile({ att, mine }: ChatAttachmentTileProps) {
           alt=""
           className="max-h-56 max-w-full object-contain"
           loading="lazy"
+          decoding="async"
+          draggable={false}
           onError={() => setThumbFailed(true)}
         />
       </button>
@@ -226,7 +228,7 @@ function ChatAttachmentTile({ att, mine }: ChatAttachmentTileProps) {
       </span>
     </button>
   );
-}
+});
 
 export function ChatThreadClient({
   chatId,
@@ -263,6 +265,10 @@ export function ChatThreadClient({
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
+  /** One browser client + debounced realtime reload coalesces message + attachment INSERT bursts. */
+  const supabaseRef = useRef<ReturnType<typeof createBrowserSupabaseClient> | null>(null);
+  const realtimeReloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const skipNextRealtimeReloadRef = useRef(false);
 
   useEffect(() => {
     setPendingFiles((prev) => {
@@ -277,6 +283,11 @@ export function ChatThreadClient({
     setMembersPanelOpen(false);
     setMemberSearch("");
     setMemberSuggest([]);
+    skipNextRealtimeReloadRef.current = false;
+    if (realtimeReloadTimerRef.current) {
+      clearTimeout(realtimeReloadTimerRef.current);
+      realtimeReloadTimerRef.current = null;
+    }
   }, [chatId]);
 
   const loadMembers = useCallback(async () => {
@@ -352,6 +363,15 @@ export function ChatThreadClient({
     }
   }, [loadMessages]);
 
+  const scheduleRealtimeReload = useCallback(() => {
+    if (skipNextRealtimeReloadRef.current) return;
+    if (realtimeReloadTimerRef.current) clearTimeout(realtimeReloadTimerRef.current);
+    realtimeReloadTimerRef.current = setTimeout(() => {
+      realtimeReloadTimerRef.current = null;
+      void loadMessages().then((list) => runAfterMessageInsert(list));
+    }, 240);
+  }, [loadMessages, runAfterMessageInsert]);
+
   useEffect(() => {
     void loadMessages({ showLoading: true });
   }, [loadMessages]);
@@ -392,7 +412,8 @@ export function ChatThreadClient({
   }, [refMenuOpen, refTab, refQuery]);
 
   useEffect(() => {
-    const supabase = createBrowserSupabaseClient();
+    if (!supabaseRef.current) supabaseRef.current = createBrowserSupabaseClient();
+    const supabase = supabaseRef.current;
     const channel = supabase
       .channel(`internal_chat_${chatId}`)
       .on(
@@ -404,7 +425,7 @@ export function ChatThreadClient({
           filter: `chat_id=eq.${chatId}`,
         },
         () => {
-          void loadMessages().then((list) => runAfterMessageInsert(list));
+          scheduleRealtimeReload();
         }
       )
       .on(
@@ -416,14 +437,18 @@ export function ChatThreadClient({
           filter: `chat_thread_id=eq.${chatId}`,
         },
         () => {
-          void loadMessages();
+          scheduleRealtimeReload();
         }
       )
       .subscribe();
     return () => {
+      if (realtimeReloadTimerRef.current) {
+        clearTimeout(realtimeReloadTimerRef.current);
+        realtimeReloadTimerRef.current = null;
+      }
       void supabase.removeChannel(channel);
     };
-  }, [chatId, loadMessages, runAfterMessageInsert]);
+  }, [chatId, scheduleRealtimeReload]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "auto", block: "end" });
@@ -492,6 +517,11 @@ export function ChatThreadClient({
           console.warn("[chat] multipart upload failed", up.status);
           return;
         }
+        skipNextRealtimeReloadRef.current = true;
+        if (realtimeReloadTimerRef.current) {
+          clearTimeout(realtimeReloadTimerRef.current);
+          realtimeReloadTimerRef.current = null;
+        }
         for (const row of pendingFiles) {
           URL.revokeObjectURL(row.url);
         }
@@ -501,6 +531,9 @@ export function ChatThreadClient({
         setReferenceMentions([]);
         const list = await loadMessages();
         runAfterMessageInsert(list);
+        window.setTimeout(() => {
+          skipNextRealtimeReloadRef.current = false;
+        }, 600);
         return;
       }
 

@@ -22,6 +22,9 @@ import {
 import { canAccessWorkspaceInternalChat } from "@/lib/internal-chat/workspace-access";
 import { getStaffProfile } from "@/lib/staff-profile";
 
+/** Initial thread load: latest N only (older history not fetched on every open). */
+const INTERNAL_CHAT_INITIAL_MESSAGE_LIMIT = 50;
+
 export const runtime = "nodejs";
 
 type RouteParams = { params: Promise<{ chatId: string }> };
@@ -115,14 +118,16 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
   }
   const canPost = member.member_role !== "read_only";
 
-  const { data: messages, error } = await supabaseAdmin
+  const { data: messagesDesc, error } = await supabaseAdmin
     .from("internal_chat_messages")
     .select(
       "id, chat_id, sender_id, created_at, ciphertext, nonce, attachment_path, attachment_mime, attachment_name, mention_user_ids, mention_patient_ids, chat_message_attachments ( id, file_name, content_type, size_bytes )"
     )
     .eq("chat_id", cid)
-    .order("created_at", { ascending: true })
-    .limit(200);
+    .order("created_at", { ascending: false })
+    .limit(INTERNAL_CHAT_INITIAL_MESSAGE_LIMIT);
+
+  const messages = messagesDesc && messagesDesc.length > 0 ? [...messagesDesc].reverse() : messagesDesc;
 
   if (error) {
     console.warn("[internal-chat/messages GET]", error.message);
