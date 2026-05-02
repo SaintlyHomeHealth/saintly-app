@@ -108,6 +108,8 @@ function helperForOutcome(outcome: string): string | null {
   switch (outcome) {
     case "no_answer":
       return "Tip: mark whether voicemail was left and whether a text was sent.";
+    case "no_response":
+      return "Manual status after multiple tries with no reply. Attempted actions are optional; add a note if helpful.";
     case "spoke":
     case "spoke_scheduled":
       return "Capture the next step before saving.";
@@ -228,6 +230,12 @@ export function LeadContactOutcomeForm({
         }}>
           Called
         </button>
+        <button type="button" className={chipCls} onClick={() => {
+          setOutcome("no_response");
+          setActions(new Set());
+        }}>
+          No response
+        </button>
       </div>
 
       <form
@@ -246,7 +254,7 @@ export function LeadContactOutcomeForm({
             return;
           }
 
-          if (actions.size === 0) {
+          if (outcome !== "no_response" && actions.size === 0) {
             setToast({ type: "err", message: "Select at least one attempted action." });
             return;
           }
@@ -348,7 +356,12 @@ export function LeadContactOutcomeForm({
 
           <div className="sm:col-span-2">
             <p className="text-[11px] font-medium text-slate-600">
-              Attempted actions <span className="text-red-600">*</span>
+              Attempted actions{" "}
+              {outcome === "no_response" ? (
+                <span className="font-normal text-slate-500">(optional)</span>
+              ) : (
+                <span className="text-red-600">*</span>
+              )}
             </p>
             <div className="mt-2 flex flex-wrap gap-3">
               {ATTEMPT_ACTION_KEYS.map((k) => (

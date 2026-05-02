@@ -41,6 +41,8 @@ function contactStageShortLabel(outcomeLower: string, outcomeRaw: string): strin
       return "Texted";
     case "no_answer":
       return "No answer";
+    case "no_response":
+      return "No response";
     case "not_interested":
       return "Not interested";
     case "wrong_number":
@@ -62,6 +64,8 @@ function contactStageBadgeClassForOutcome(outcomeLower: string): string {
       return "bg-sky-50 text-sky-950 ring-sky-200/70";
     case "no_answer":
       return "bg-amber-50 text-amber-950 ring-amber-200/70";
+    case "no_response":
+      return "bg-indigo-50 text-indigo-950 ring-indigo-200/70";
     case "not_interested":
       return "bg-rose-50 text-rose-900 ring-rose-200/70";
     case "wrong_number":

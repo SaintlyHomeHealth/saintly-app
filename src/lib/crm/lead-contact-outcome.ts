@@ -6,6 +6,7 @@ import { isLegacyContactedOutcomeToken, normalizeContactOutcomeResult } from "@/
 export const LEAD_CONTACT_OUTCOME_OPTIONS = [
   { value: "spoke", label: "Spoke" },
   { value: "no_answer", label: "No answer" },
+  { value: "no_response", label: "No response" },
   { value: "left_voicemail", label: "Left voicemail" },
   { value: "text_sent", label: "Text sent" },
   { value: "spoke_scheduled", label: "Spoke + scheduled" },

@@ -1576,7 +1576,7 @@ export async function saveLeadOutcomeCore(input: SaveLeadOutcomeInput): Promise<
   }
 
   const actionKeys = normalizeAttemptActionKeys(input.actionKeys);
-  if (actionKeys.length === 0) {
+  if (outcome !== "no_response" && actionKeys.length === 0) {
     return {
       ok: false,
       error: "invalid_outcome",
@@ -1627,7 +1627,8 @@ export async function saveLeadOutcomeCore(input: SaveLeadOutcomeInput): Promise<
 
   const followUpAt = input.followUpAt;
 
-  const contactType = deriveContactTypeFromActions(actionKeys);
+  const contactType =
+    outcome === "no_response" && actionKeys.length === 0 ? null : deriveContactTypeFromActions(actionKeys);
 
   const logBlock = formatContactAttemptLogBlock({
     attemptAt,
@@ -2767,8 +2768,8 @@ export async function quickMarkLeadSpoke(formData: FormData): Promise<CrmLeadLis
   return { ok: true };
 }
 
-/** List row: set follow-up to tomorrow (Central CRM calendar). */
-export async function quickSetLeadFollowUpTomorrow(formData: FormData): Promise<CrmLeadListQuickActionResult> {
+/** List row: log left voicemail (call channel), without clearing notes / follow-up. */
+export async function quickMarkLeadLeftVoicemail(formData: FormData): Promise<CrmLeadListQuickActionResult> {
   const staff = await getStaffProfile();
   if (!staff || !isManagerOrHigher(staff)) {
     return { ok: false, error: "forbidden" };
@@ -2777,30 +2778,58 @@ export async function quickSetLeadFollowUpTomorrow(formData: FormData): Promise<
   if (!leadId) {
     return { ok: false, error: "invalid_lead" };
   }
-  const tomorrow = getCrmCalendarTomorrowIso();
-
-  const { data: prevLead } = await leadRowsActiveOnly(
-    supabaseAdmin.from("leads").select("follow_up_date").eq("id", leadId)
-  ).maybeSingle();
 
   const { error } = await supabaseAdmin
     .from("leads")
-    .update({ follow_up_date: tomorrow })
+    .update({
+      last_outcome: "left_voicemail",
+      last_contact_type: "call",
+      last_contact_at: new Date().toISOString(),
+    })
     .eq("id", leadId)
     .is("deleted_at", null);
 
   if (error) {
-    console.warn("[admin/crm] quickSetLeadFollowUpTomorrow:", error.message);
+    console.warn("[admin/crm] quickMarkLeadLeftVoicemail:", error.message);
     return { ok: false, error: "save_failed" };
   }
 
-  await insertLeadActivityRow({
-    leadId,
-    eventType: LEAD_ACTIVITY_EVENT.follow_up_changed,
-    body: `Follow-up changed from ${formatFollowUpDate(normStr(prevLead?.follow_up_date))} to ${formatFollowUpDate(tomorrow)}`,
-    metadata: { before: normStr(prevLead?.follow_up_date), after: tomorrow },
-    createdByUserId: staff.user_id,
-  });
+  revalidatePath("/admin");
+  revalidatePath("/admin/crm/leads");
+  revalidatePath(`/admin/crm/leads/${leadId}`);
+  revalidatePath("/workspace/phone/leads");
+  revalidatePath("/workspace/phone/chat");
+  return { ok: true };
+}
+
+/**
+ * List row: manual "no response" after multiple attempts (does not imply a single call/text outcome).
+ * Sets `last_contact_type` null so list filters like "Called" still mean a logged call attempt.
+ */
+export async function quickMarkLeadNoResponse(formData: FormData): Promise<CrmLeadListQuickActionResult> {
+  const staff = await getStaffProfile();
+  if (!staff || !isManagerOrHigher(staff)) {
+    return { ok: false, error: "forbidden" };
+  }
+  const leadId = readTrimmedField(formData, "leadId");
+  if (!leadId) {
+    return { ok: false, error: "invalid_lead" };
+  }
+
+  const { error } = await supabaseAdmin
+    .from("leads")
+    .update({
+      last_outcome: "no_response",
+      last_contact_type: null,
+      last_contact_at: new Date().toISOString(),
+    })
+    .eq("id", leadId)
+    .is("deleted_at", null);
+
+  if (error) {
+    console.warn("[admin/crm] quickMarkLeadNoResponse:", error.message);
+    return { ok: false, error: "save_failed" };
+  }
 
   revalidatePath("/admin");
   revalidatePath("/admin/crm/leads");

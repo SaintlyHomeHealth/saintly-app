@@ -13,7 +13,13 @@ export const EMPTY_CONTACT_SENTINEL = "00000000-0000-0000-0000-000000000000";
 export const ADMIN_CRM_LEADS_PAGE_SIZE = 50;
 
 /** URL `contactStatus` — latest contact attempt outcome (`leads.last_outcome` / `last_contact_type` / pipeline infer). */
-export const ADMIN_CRM_LEADS_CONTACT_STATUS_URL_VALUES = ["spoke", "left_vm", "called", "no_answer"] as const;
+export const ADMIN_CRM_LEADS_CONTACT_STATUS_URL_VALUES = [
+  "spoke",
+  "left_vm",
+  "called",
+  "no_answer",
+  "no_response",
+] as const;
 
 export type AdminCrmLeadsContactStatusFilter = (typeof ADMIN_CRM_LEADS_CONTACT_STATUS_URL_VALUES)[number];
 
@@ -31,6 +37,8 @@ export function formatAdminCrmLeadsContactStatusLabel(v: AdminCrmLeadsContactSta
       return "Called";
     case "no_answer":
       return "No answer";
+    case "no_response":
+      return "No response";
   }
 }
 
@@ -92,6 +100,9 @@ export function attachAdminCrmLeadListPredicates(
       case "no_answer":
         q = q.eq("last_outcome", "no_answer");
         break;
+      case "no_response":
+        q = q.eq("last_outcome", "no_response");
+        break;
       case "called":
         q = q.eq("last_contact_type", "call");
         q = q.or("last_outcome.is.null,last_outcome.eq.wrong_number,last_outcome.eq.not_interested");
@@ -130,6 +141,7 @@ export function parseAdminCrmLeadsListSearchParams(raw: Record<string, string | 
     else if (legacyCo === "spoke") contactStatus = "spoke";
     else if (legacyCo === "called") contactStatus = "called";
     else if (legacyCo === "no_answer") contactStatus = "no_answer";
+    else if (legacyCo === "no_response") contactStatus = "no_response";
   }
 
   let payer = one("payer").trim();

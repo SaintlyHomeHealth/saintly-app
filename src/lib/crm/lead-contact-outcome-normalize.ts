@@ -4,6 +4,7 @@ import { ATTEMPT_ACTION_KEYS, type AttemptActionKey } from "@/lib/crm/lead-conta
 const LEAD_LAST_OUTCOME_CANONICAL = new Set([
   "spoke",
   "no_answer",
+  "no_response",
   "left_voicemail",
   "text_sent",
   "spoke_scheduled",
@@ -32,6 +33,7 @@ export function replaceLegacyContactedLabelInText(s: string): string {
 /** Map human labels (and short labels) to canonical `leads.last_outcome` values. */
 const RESULT_LABEL_TO_VALUE: Record<string, string> = {
   "No answer": "no_answer",
+  "No response": "no_response",
   Contacted: "spoke",
   contacted: "spoke",
   "Spoke": "spoke",
