@@ -1251,26 +1251,28 @@ export default async function EmployeeDetailPage({
 
   const applicantRowResult = await adminPerfTimed("admin_employee_detail.applicant_row", () =>
     devTimedSupabaseQuery("admin_employee_detail.applicant_row", () =>
-      supabase.from("applicants").select(APPLICANTS_ADMIN_DETAIL_COLUMNS).eq("id", employeeId).single()
+      supabase.from("applicants").select("*").eq("id", employeeId).single()
     )
   );
 
   const employee = applicantRowResult.data;
+  const applicantLookupError = applicantRowResult.error;
 
-  if (process.env.NODE_ENV === "development") {
-    if (applicantRowResult.error) {
-      console.error(
-        "[admin_employee_detail] applicants query failed:",
-        applicantRowResult.error.message ?? applicantRowResult.error
-      );
-    }
-    if (
-      employee &&
-      (typeof (employee as { id?: unknown }).id !== "string" ||
-        !(employee as { id: string }).id.trim())
-    ) {
-      console.error("[admin_employee_detail] applicant row missing id");
-    }
+  if (applicantLookupError) {
+    console.error("[admin_employee_detail] applicant lookup failed", {
+      employeeId,
+      code: applicantLookupError.code,
+      message: applicantLookupError.message,
+      details: applicantLookupError.details,
+    });
+  }
+
+  if (
+    employee &&
+    (typeof (employee as { id?: unknown }).id !== "string" ||
+      !(employee as { id: string }).id.trim())
+  ) {
+    console.error("[admin_employee_detail] applicant row missing id", { employeeId });
   }
 
   if (!employee) {
