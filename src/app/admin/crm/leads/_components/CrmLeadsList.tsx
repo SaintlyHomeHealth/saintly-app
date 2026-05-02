@@ -45,8 +45,46 @@ import {
   buildWorkspaceSmsToContactHref,
   pickOutboundE164ForDial,
 } from "@/lib/workspace-phone/launch-urls";
+import { disciplineLabel } from "@/lib/crm/service-disciplines";
 
 const pillBase = "inline-flex max-w-full shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ring-1";
+
+function patientIntakeSummaryLine(row: CrmLeadRow): { line: string; hasPayer: boolean } {
+  const insLines = leadInsuranceDisplayLinesFromRow(row);
+  const payerHead =
+    insLines.length > 0 ? (insLines[0].includes("·") ? insLines[0].split("·")[0]!.trim() : insLines[0].trim()) : "";
+  const legacyBroad = (row.payer_type ?? "").trim();
+  const payerPart = payerHead || legacyBroad;
+  const discs = ((row.service_disciplines ?? []) as string[])
+    .map((x) => x.trim())
+    .filter(Boolean)
+    .map(disciplineLabel)
+    .join("/");
+  const st = (row.service_type ?? "").trim();
+  const svcPart = st || discs;
+  const care = (row.intake_status ?? "").trim();
+  const segments = [payerPart, svcPart, care].filter(Boolean);
+  return {
+    line: segments.join(" • "),
+    hasPayer: insLines.length > 0 || Boolean(legacyBroad),
+  };
+}
+
+function relativeCreatedParts(iso: string): { short: string; full: string } {
+  const d = new Date(iso);
+  const full = Number.isNaN(d.getTime()) ? String(iso) : d.toLocaleString();
+  if (Number.isNaN(d.getTime())) return { short: "—", full };
+  let diffMs = Date.now() - d.getTime();
+  if (!Number.isFinite(diffMs)) return { short: "—", full };
+  const mins = Math.round(diffMs / 60000);
+  if (mins < 1) return { short: "just now", full };
+  if (mins < 60) return { short: `${mins}m ago`, full };
+  const hrs = Math.round(mins / 60);
+  if (hrs < 48) return { short: `${hrs}h ago`, full };
+  const days = Math.round(hrs / 24);
+  if (days < 14) return { short: `${days}d ago`, full };
+  return { short: d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }), full };
+}
 
 function LeadTypeBadge({ leadType, status }: { leadType: string | null; status: string | null }) {
   if (leadType === "employee") {
@@ -61,21 +99,29 @@ function LeadTypeBadge({ leadType, status }: { leadType: string | null; status: 
   return <span className={`${pillBase} bg-sky-50 text-sky-900 ring-sky-200/70`}>Lead</span>;
 }
 
-function CompactContactLines({ phoneDisplay, email }: { phoneDisplay: string | null; email: string | null }) {
+function CompactContactLines({
+  phoneDisplay,
+  email,
+  dense,
+}: {
+  phoneDisplay: string | null;
+  email: string | null;
+  dense?: boolean;
+}) {
   if (!phoneDisplay && !email) {
-    return <span className="text-[10px] text-slate-400">No phone or email</span>;
+    return <span className={`text-slate-400 ${dense ? "text-[9px]" : "text-[10px]"}`}>No phone or email</span>;
   }
   return (
-    <div className="flex min-w-0 flex-col gap-0.5 text-[11px] leading-tight text-slate-600">
+    <div className={`flex min-w-0 flex-col ${dense ? "gap-px text-[10px]" : "gap-0.5 text-[11px]"} leading-tight text-slate-600`}>
       {phoneDisplay ? (
         <div className="flex items-center justify-end gap-1 tabular-nums md:justify-start">
-          <Phone className="h-3 w-3 shrink-0 text-slate-400" aria-hidden />
+          <Phone className={`${dense ? "h-2.5 w-2.5" : "h-3 w-3"} shrink-0 text-slate-400`} aria-hidden />
           <span>{phoneDisplay}</span>
         </div>
       ) : null}
       {email ? (
         <div className="flex min-w-0 items-center justify-end gap-1 md:justify-start">
-          <Mail className="h-3 w-3 shrink-0 text-slate-400" aria-hidden />
+          <Mail className={`${dense ? "h-2.5 w-2.5" : "h-3 w-3"} shrink-0 text-slate-400`} aria-hidden />
           <span className="truncate" title={email}>
             {email}
           </span>
@@ -90,19 +136,20 @@ function LeadActionButtonRow({
   phone,
   keypadHref,
   smsHref,
+  compact,
 }: {
   leadId: string;
   phone: string;
   keypadHref: string | null;
   smsHref: string | null;
+  compact?: boolean;
 }) {
   const detailHref = `/admin/crm/leads/${leadId}`;
+  const pad = compact ? "px-1.5 py-0.5 text-[9px]" : "px-2 py-1 text-[10px]";
   const primary =
-    "inline-flex items-center justify-center rounded-md border px-2 py-1 text-[10px] font-semibold shadow-sm transition hover:shadow";
-  const secondary =
-    "inline-flex items-center justify-center rounded-md border border-slate-200 bg-white px-2 py-1 text-[10px] font-semibold text-slate-700 shadow-sm hover:border-slate-300 hover:bg-slate-50";
-  const disabled =
-    "inline-flex cursor-not-allowed items-center justify-center rounded-md border border-slate-100 bg-slate-50 px-2 py-1 text-[10px] font-semibold text-slate-400 opacity-60 shadow-none";
+    `inline-flex items-center justify-center rounded-md border ${pad} font-semibold shadow-sm transition hover:shadow`;
+  const secondary = `inline-flex items-center justify-center rounded-md border border-slate-200 bg-white ${pad} font-semibold text-slate-700 shadow-sm hover:border-slate-300 hover:bg-slate-50`;
+  const disabled = `inline-flex cursor-not-allowed items-center justify-center rounded-md border border-slate-100 bg-slate-50 ${pad} font-semibold text-slate-400 opacity-60 shadow-none`;
 
   return (
     <div className="flex w-full shrink-0 flex-nowrap items-center justify-end gap-1">
@@ -145,15 +192,16 @@ function LeadRowMobileDialRow({
   keypadHref,
   smsHref,
   phone,
+  compact,
 }: {
   keypadHref: string | null;
   smsHref: string | null;
   phone: string;
+  compact?: boolean;
 }) {
-  const primary =
-    "inline-flex min-h-[32px] flex-1 items-center justify-center rounded-md border px-2 py-1 text-[10px] font-semibold shadow-sm transition hover:shadow";
-  const disabled =
-    "inline-flex min-h-[32px] flex-1 cursor-not-allowed items-center justify-center rounded-md border border-slate-100 bg-slate-50 px-2 py-1 text-[10px] font-semibold text-slate-400 opacity-60 shadow-none";
+  const h = compact ? "min-h-[28px]" : "min-h-[32px]";
+  const primary = `inline-flex ${h} flex-1 items-center justify-center rounded-md border px-2 py-0.5 text-[10px] font-semibold shadow-sm transition hover:shadow`;
+  const disabled = `inline-flex ${h} flex-1 cursor-not-allowed items-center justify-center rounded-md border border-slate-100 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold text-slate-400 opacity-60 shadow-none`;
 
   return (
     <div className="flex w-full min-w-0 gap-1.5 pt-1 md:hidden">
@@ -187,7 +235,11 @@ function LeadRowMobileDialRow({
   );
 }
 
-const checkboxCls = "h-4 w-4 shrink-0 rounded border-slate-300 text-sky-600 focus:ring-sky-500/30";
+const checkboxClsComfortable =
+  "h-4 w-4 shrink-0 rounded border-slate-300 text-sky-600 focus:ring-sky-500/30";
+
+const checkboxClsCompact =
+  "h-3.5 w-3.5 shrink-0 rounded border-slate-300 text-sky-600 focus:ring-sky-500/30";
 
 type StaffOpt = {
   user_id: string;
@@ -204,6 +256,12 @@ type Props = {
   todayIso: string;
   /** Latest SMS thread id per CRM contact for "Text" deep-links (navigation only). */
   smsConversationIdByContactId?: Record<string, string>;
+  /** Mirrors URL `density` — default Compact for admins. Does not alter server filtering. */
+  initialDensity?: "compact" | "comfortable";
+  emptyState?: {
+    narrowFiltersActive: boolean;
+    clearHref: string;
+  };
 };
 
 const quickBtnCls =
@@ -216,9 +274,10 @@ const TEMP_OPTIONS: { value: LeadTemperature; label: string }[] = [
   { value: "dead", label: "Dead" },
 ];
 
-function leadTemperaturePillClass(t: LeadTemperature, selected: boolean): string {
-  const base =
-    "inline-flex min-w-[2.75rem] shrink-0 items-center justify-center rounded-md border px-1 py-0.5 text-[10px] font-semibold transition disabled:opacity-50";
+function leadTemperaturePillClass(t: LeadTemperature, selected: boolean, compact?: boolean): string {
+  const base = compact
+    ? "inline-flex min-w-[2.25rem] shrink-0 items-center justify-center rounded border px-[3px] py-[1px] text-[9px] font-semibold transition disabled:opacity-50"
+    : "inline-flex min-w-[2.75rem] shrink-0 items-center justify-center rounded-md border px-1 py-0.5 text-[10px] font-semibold transition disabled:opacity-50";
   if (!selected) {
     return `${base} border-slate-200/90 bg-white text-slate-600 shadow-sm hover:border-slate-300 hover:bg-slate-50`;
   }
@@ -236,7 +295,15 @@ function leadTemperaturePillClass(t: LeadTemperature, selected: boolean): string
   }
 }
 
-function LeadTemperatureQuickSet({ leadId, value }: { leadId: string; value: string | null }) {
+function LeadTemperatureQuickSet({
+  leadId,
+  value,
+  compact,
+}: {
+  leadId: string;
+  value: string | null;
+  compact?: boolean;
+}) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const current = normalizeLeadTemperature(value);
@@ -252,9 +319,9 @@ function LeadTemperatureQuickSet({ leadId, value }: { leadId: string; value: str
   };
 
   return (
-    <div className="pt-1" role="group" aria-label="Lead priority">
-      <p className="mb-0.5 text-[9px] font-semibold uppercase tracking-wide text-slate-500">Priority</p>
-      <div className="flex flex-wrap gap-0.5">
+    <div className={compact ? "pt-0.5" : "pt-1"} role="group" aria-label="Lead priority">
+      <p className={`${compact ? "mb-px text-[8px]" : "mb-0.5 text-[9px]"} font-semibold uppercase tracking-wide text-slate-500`}>Priority</p>
+      <div className="flex flex-wrap gap-px">
         {TEMP_OPTIONS.map((o) => (
           <button
             key={o.value}
@@ -262,7 +329,7 @@ function LeadTemperatureQuickSet({ leadId, value }: { leadId: string; value: str
             disabled={pending}
             title={`Set priority: ${o.label}`}
             onClick={() => onPick(o.value)}
-            className={leadTemperaturePillClass(o.value, current === o.value)}
+            className={leadTemperaturePillClass(o.value, current === o.value, compact)}
           >
             {o.label}
           </button>
@@ -272,10 +339,14 @@ function LeadTemperatureQuickSet({ leadId, value }: { leadId: string; value: str
   );
 }
 
-function LeadQuickActions({ leadId }: { leadId: string }) {
+function LeadQuickActions({ leadId, compact }: { leadId: string; compact?: boolean }) {
   const router = useRouter();
+  const qcls = compact
+    ? `${quickBtnCls} px-1 py-px text-[9px]`
+    : quickBtnCls;
+
   return (
-    <div className="flex flex-nowrap gap-0.5 pt-0.5">
+    <div className={`flex flex-nowrap ${compact ? "gap-px pt-px" : "gap-0.5 pt-0.5"}`}>
       <form
         action={async (fd) => {
           const r = await quickMarkLeadSpoke(fd);
@@ -284,7 +355,7 @@ function LeadQuickActions({ leadId }: { leadId: string }) {
         className="inline"
       >
         <input type="hidden" name="leadId" value={leadId} />
-        <button type="submit" className={quickBtnCls} title="Log last contact as Spoke (call)">
+        <button type="submit" className={qcls} title="Log last contact as Spoke (call)">
           Spoke
         </button>
       </form>
@@ -296,7 +367,7 @@ function LeadQuickActions({ leadId }: { leadId: string }) {
         className="inline"
       >
         <input type="hidden" name="leadId" value={leadId} />
-        <button type="submit" className={quickBtnCls} title="Set follow-up to tomorrow (Central)">
+        <button type="submit" className={qcls} title="Set follow-up to tomorrow (Central)">
           F/U tomorrow
         </button>
       </form>
@@ -308,11 +379,7 @@ function LeadQuickActions({ leadId }: { leadId: string }) {
         className="inline"
       >
         <input type="hidden" name="leadId" value={leadId} />
-        <button
-          type="submit"
-          className={`${quickBtnCls} border-rose-200/80 text-rose-800 hover:bg-rose-50/80`}
-          title="Mark this lead as dead"
-        >
+        <button type="submit" className={`${qcls} border-rose-200/80 text-rose-800 hover:bg-rose-50/80`} title="Mark this lead as dead">
           Dead
         </button>
       </form>
@@ -347,8 +414,17 @@ export function CrmLeadsList({
   staffOptions,
   todayIso,
   smsConversationIdByContactId = {},
+  initialDensity = "compact",
+  emptyState,
 }: Props) {
   const router = useRouter();
+  const comfy = initialDensity === "comfortable";
+  const compact = !comfy;
+  const chkClass = comfy ? checkboxClsComfortable : checkboxClsCompact;
+  const hdrPad = comfy ? "px-3 py-2 gap-x-4" : "px-2 py-1.5 gap-x-2";
+  const rowPad = comfy ? "px-3 py-2 gap-x-3 gap-y-1.5" : "px-2 py-1 gap-x-2 gap-y-1";
+  const nameSz = comfy ? "text-[15px] font-bold" : "text-sm font-semibold";
+
   const [rows, setRows] = useState(initialList);
 
   useEffect(() => {
@@ -406,7 +482,9 @@ export function CrmLeadsList({
 
   const bulkBar =
     someSelected ? (
-      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-800 shadow-sm">
+      <div
+        className={`flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 text-slate-800 shadow-sm ${compact ? "px-3 py-1.5 text-xs" : "px-4 py-2.5 text-sm"}`}
+      >
         <span className="font-medium text-slate-700">{selected.size} selected</span>
         <button
           type="button"
@@ -471,13 +549,13 @@ export function CrmLeadsList({
         {employeeOnlyView ? (
           <div className="min-w-[1080px] text-sm">
             <div
-              className={`hidden gap-x-4 border-b border-slate-100 bg-slate-50/90 px-3 py-2 text-[11px] font-semibold tracking-tight text-slate-600 md:grid ${employeeGrid}`}
+              className={`hidden border-b border-slate-100 bg-slate-50/90 ${hdrPad} text-[11px] font-semibold tracking-tight text-slate-600 md:grid ${employeeGrid}`}
             >
               <div className="flex items-center justify-center">
                 <input
                   ref={selectAllRef}
                   type="checkbox"
-                  className={checkboxCls}
+                  className={chkClass}
                   checked={allSelected}
                   onChange={toggleAll}
                   disabled={rowIds.length === 0}
@@ -491,7 +569,23 @@ export function CrmLeadsList({
               <div className="text-right">Created</div>
             </div>
             {rows.length === 0 ? (
-              <div className="px-4 py-10 text-slate-500">No employee applicants match these filters.</div>
+              <div className="space-y-3 px-4 py-8 text-center text-sm text-slate-600 md:text-left">
+                <p className="font-medium text-slate-800">{emptyState?.narrowFiltersActive ? "No leads match these filters." : "No leads found."}</p>
+                <p className="text-xs text-slate-500">
+                  {emptyState?.narrowFiltersActive
+                    ? "Adjust search or filters, check pagination, or clear all filters."
+                    : "There are currently no CRM leads matching the default visibility rules."}
+                </p>
+                {emptyState?.narrowFiltersActive && emptyState.clearHref ? (
+                  <Link
+                    href={emptyState.clearHref}
+                    prefetch={false}
+                    className="inline-flex rounded-lg border border-sky-600 bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-900 hover:bg-sky-100"
+                  >
+                    Clear all filters
+                  </Link>
+                ) : null}
+              </div>
             ) : (
               rows.map((r) => {
                 const contact = normalizeContact(r.contacts);
@@ -529,12 +623,12 @@ export function CrmLeadsList({
                 return (
                   <div
                     key={r.id}
-                    className={`grid grid-cols-1 gap-x-3 gap-y-1.5 border-b border-slate-100 px-3 py-2 transition-colors last:border-0 md:items-start ${employeeGrid} ${leadRowCardClass(r, fu)} ${crmListRowHoverCls}`}
+                    className={`grid grid-cols-1 border-b border-slate-100 transition-colors last:border-0 md:items-start ${rowPad} ${employeeGrid} ${leadRowCardClass(r, fu)} ${crmListRowHoverCls}`}
                   >
-                    <div className="flex items-start justify-center pt-0.5 md:pt-1">
+                    <div className={`flex items-start justify-center ${compact ? "md:pt-0.5" : "pt-0.5 md:pt-1"}`}>
                       <input
                         type="checkbox"
-                        className={checkboxCls}
+                        className={chkClass}
                         checked={selected.has(r.id)}
                         onChange={() => toggleOne(r.id)}
                         aria-label={`Select lead ${displayName}`}
@@ -544,7 +638,7 @@ export function CrmLeadsList({
                       <div className="flex min-w-0 flex-wrap items-center gap-2">
                         <Link
                           href={detailHref}
-                          className="min-w-0 text-[15px] font-bold leading-tight text-slate-900 hover:text-sky-800 hover:underline"
+                          className={`min-w-0 ${nameSz} leading-tight text-slate-900 hover:text-sky-800 hover:underline`}
                         >
                           {displayName}
                         </Link>
@@ -572,57 +666,100 @@ export function CrmLeadsList({
                           ) : null}
                         </span>
                       </div>
-                      <LeadRowMobileDialRow keypadHref={keypadHref} smsHref={smsHref} phone={phone} />
+                      <LeadRowMobileDialRow compact={compact} keypadHref={keypadHref} smsHref={smsHref} phone={phone} />
                     </div>
-                    <div className="min-w-0 space-y-1 text-[11px] leading-snug text-slate-600">
-                      <p className="text-[13px] leading-snug text-slate-900">
-                        <span className="font-normal text-slate-500">Next: </span>
-                        {nextActionLabel !== "—" ? (
-                          <span className="font-semibold text-slate-900">{nextActionLabel}</span>
-                        ) : (
-                          <span className="font-normal text-slate-400">No next action</span>
-                        )}
-                      </p>
-                      <div>
-                        <span className="text-slate-500">Follow-up: </span>
-                        <span className={followUpValueClass(fu)}>{formatFollowUpDate(r.follow_up_date)}</span>
-                      </div>
-                      <div className="text-[10px] text-slate-400">
-                        <span className="text-slate-400">Last contact: </span>
-                        <span className={`font-normal ${lastContactToneClass(lcHuman.tone)}`}>{lcHuman.line}</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-500">Owner: </span>
-                        {owner ? staffPrimaryLabel(owner) : "—"}
-                      </div>
-                      <LeadQuickActions leadId={r.id} />
-                      <LeadTemperatureQuickSet leadId={r.id} value={r.lead_temperature ?? null} />
+                    <div className={`min-w-0 ${compact ? "space-y-1 text-[10px] leading-tight text-slate-700" : "space-y-1 text-[11px] leading-snug text-slate-600"}`}>
+                      {compact ? (
+                        <>
+                          <p className="text-[10px] text-slate-800">
+                            <span className="text-slate-400">Next:</span> {nextActionLabel !== "—" ? nextActionLabel : "None"}
+                            {" · "}
+                            <span className="text-slate-400">F/U:</span>{" "}
+                            <span className={followUpValueClass(fu)}>{formatFollowUpDate(r.follow_up_date)}</span>
+                            {" · "}
+                            <span className="text-slate-400">Last:</span>{" "}
+                            <span className={`font-normal ${lastContactToneClass(lcHuman.tone)}`}>{lcHuman.line}</span>
+                            {" · "}
+                            <span className="text-slate-400">Owner:</span> {owner ? staffPrimaryLabel(owner) : "—"}
+                          </p>
+                          <LeadQuickActions compact leadId={r.id} />
+                          <LeadTemperatureQuickSet compact leadId={r.id} value={r.lead_temperature ?? null} />
+                        </>
+                      ) : (
+                        <>
+                          <p className="text-[13px] leading-snug text-slate-900">
+                            <span className="font-normal text-slate-500">Next: </span>
+                            {nextActionLabel !== "—" ? (
+                              <span className="font-semibold text-slate-900">{nextActionLabel}</span>
+                            ) : (
+                              <span className="font-normal text-slate-400">No next action</span>
+                            )}
+                          </p>
+                          <div>
+                            <span className="text-slate-500">Follow-up: </span>
+                            <span className={followUpValueClass(fu)}>{formatFollowUpDate(r.follow_up_date)}</span>
+                          </div>
+                          <div className="text-[10px] text-slate-400">
+                            <span className="text-slate-400">Last contact: </span>
+                            <span className={`font-normal ${lastContactToneClass(lcHuman.tone)}`}>{lcHuman.line}</span>
+                          </div>
+                          <div>
+                            <span className="text-slate-500">Owner: </span>
+                            {owner ? staffPrimaryLabel(owner) : "—"}
+                          </div>
+                          <LeadQuickActions leadId={r.id} />
+                          <LeadTemperatureQuickSet leadId={r.id} value={r.lead_temperature ?? null} />
+                        </>
+                      )}
                     </div>
-                    <div className="min-w-0 text-[11px] leading-snug text-slate-600">
-                      <div className="rounded-md border border-slate-100 bg-slate-50/50 px-2 py-1.5">
-                        <div className="font-medium text-slate-700">{role}</div>
-                        {exp !== "—" ? <div className="text-slate-500">{exp}</div> : null}
-                        {(r.referral_source ?? "").trim() ? (
-                          <div className="mt-0.5 text-slate-500">{(r.referral_source ?? "").trim()}</div>
-                        ) : null}
-                        {resume ? (
-                          <a
-                            href={resume}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="mt-1 inline-block font-medium text-sky-800 underline-offset-2 hover:underline"
-                          >
-                            Resume
-                          </a>
-                        ) : null}
-                      </div>
+                    <div className={`min-w-0 ${compact ? "text-[10px] leading-tight text-slate-700" : "text-[11px] leading-snug text-slate-600"}`}>
+                      {compact ? (
+                        <div className="flex flex-wrap items-baseline gap-x-1 gap-y-0 text-slate-700">
+                          <span className="font-medium">{role}</span>
+                          {exp !== "—" ? <span className="text-slate-600">· {exp}</span> : null}
+                          {(r.referral_source ?? "").trim() ? (
+                            <span className="text-slate-500">· {(r.referral_source ?? "").trim()}</span>
+                          ) : null}
+                          {resume ? (
+                            <>
+                              ·{" "}
+                              <a href={resume} target="_blank" rel="noopener noreferrer" className="font-semibold text-sky-800 underline-offset-2 hover:underline">
+                                Resume
+                              </a>
+                            </>
+                          ) : null}
+                        </div>
+                      ) : (
+                        <div className="rounded-md border border-slate-100 bg-slate-50/50 px-2 py-1.5">
+                          <div className="font-medium text-slate-700">{role}</div>
+                          {exp !== "—" ? <div className="text-slate-500">{exp}</div> : null}
+                          {(r.referral_source ?? "").trim() ? (
+                            <div className="mt-0.5 text-slate-500">{(r.referral_source ?? "").trim()}</div>
+                          ) : null}
+                          {resume ? (
+                            <a
+                              href={resume}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="mt-1 inline-block font-medium text-sky-800 underline-offset-2 hover:underline"
+                            >
+                              Resume
+                            </a>
+                          ) : null}
+                        </div>
+                      )}
                     </div>
-                    <div className="flex min-w-0 flex-col gap-2 md:items-end">
-                      <CompactContactLines phoneDisplay={phone ? formatPhoneForDisplay(phone) : null} email={email || null} />
-                      <LeadActionButtonRow leadId={r.id} phone={phone} keypadHref={keypadHref} smsHref={smsHref} />
+                    <div className={`flex min-w-0 flex-col md:items-end ${compact ? "gap-1" : "gap-2"}`}>
+                      <CompactContactLines dense={compact} phoneDisplay={phone ? formatPhoneForDisplay(phone) : null} email={email || null} />
+                      <LeadActionButtonRow compact={compact} leadId={r.id} phone={phone} keypadHref={keypadHref} smsHref={smsHref} />
                     </div>
-                    <div className="whitespace-nowrap text-right text-[11px] tabular-nums text-slate-500 md:pt-1">
-                      {new Date(r.created_at).toLocaleString()}
+                    <div
+                      className={`text-right tabular-nums text-slate-500 ${compact ? "text-[10px] leading-tight md:max-w-none" : "whitespace-nowrap text-[11px] md:pt-1"}`}
+                    >
+                      {(() => {
+                        const c = relativeCreatedParts(r.created_at);
+                        return <span title={c.full}>{compact ? c.short : c.full}</span>;
+                      })()}
                     </div>
                   </div>
                 );
@@ -632,13 +769,13 @@ export function CrmLeadsList({
         ) : (
           <div className="min-w-[1080px] text-sm">
             <div
-              className={`hidden gap-x-4 border-b border-slate-100 bg-slate-50/90 px-3 py-2 text-[11px] font-semibold tracking-tight text-slate-600 md:grid ${mixedGrid}`}
+              className={`hidden border-b border-slate-100 bg-slate-50/90 ${hdrPad} text-[11px] font-semibold tracking-tight text-slate-600 md:grid ${mixedGrid}`}
             >
               <div className="flex items-center justify-center">
                 <input
                   ref={selectAllRef}
                   type="checkbox"
-                  className={checkboxCls}
+                  className={chkClass}
                   checked={allSelected}
                   onChange={toggleAll}
                   disabled={rowIds.length === 0}
@@ -652,7 +789,23 @@ export function CrmLeadsList({
               <div className="text-right">Created</div>
             </div>
             {rows.length === 0 ? (
-              <div className="px-4 py-10 text-slate-500">No leads match these filters.</div>
+              <div className="space-y-3 px-4 py-8 text-center text-sm text-slate-600 md:text-left">
+                <p className="font-medium text-slate-800">{emptyState?.narrowFiltersActive ? "No leads match these filters." : "No leads found."}</p>
+                <p className="text-xs text-slate-500">
+                  {emptyState?.narrowFiltersActive
+                    ? "Adjust search or filters, check pagination, or clear all filters."
+                    : "There are currently no CRM leads matching the default visibility rules."}
+                </p>
+                {emptyState?.narrowFiltersActive && emptyState.clearHref ? (
+                  <Link
+                    href={emptyState.clearHref}
+                    prefetch={false}
+                    className="inline-flex rounded-lg border border-sky-600 bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-900 hover:bg-sky-100"
+                  >
+                    Clear all filters
+                  </Link>
+                ) : null}
+              </div>
             ) : (
               rows.map((r) => {
                 const contact = normalizeContact(r.contacts);
@@ -687,16 +840,17 @@ export function CrmLeadsList({
                 const fu = followUpUrgency(r.follow_up_date, todayIso);
                 const lcHuman = lastContactHumanLine(r.last_contact_at, r.last_outcome, todayIso);
                 const contactStage = contactStageBadgeLabel(r);
+                const intakePatient = !isEmployee ? patientIntakeSummaryLine(r) : null;
 
                 return (
                   <div
                     key={r.id}
-                    className={`grid grid-cols-1 gap-x-3 gap-y-1.5 border-b border-slate-100 px-3 py-2 transition-colors last:border-0 md:items-start ${mixedGrid} ${leadRowCardClass(r, fu)} ${crmListRowHoverCls}`}
+                    className={`grid grid-cols-1 border-b border-slate-100 transition-colors last:border-0 md:items-start ${rowPad} ${mixedGrid} ${leadRowCardClass(r, fu)} ${crmListRowHoverCls}`}
                   >
-                    <div className="flex items-start justify-center pt-0.5 md:pt-1">
+                    <div className={`flex items-start justify-center ${compact ? "md:pt-0.5" : "pt-0.5 md:pt-1"}`}>
                       <input
                         type="checkbox"
-                        className={checkboxCls}
+                        className={chkClass}
                         checked={selected.has(r.id)}
                         onChange={() => toggleOne(r.id)}
                         aria-label={`Select lead ${displayName}`}
@@ -706,7 +860,7 @@ export function CrmLeadsList({
                       <div className="flex min-w-0 flex-wrap items-center gap-2">
                         <Link
                           href={detailHref}
-                          className="min-w-0 text-[15px] font-bold leading-tight text-slate-900 hover:text-sky-800 hover:underline"
+                          className={`min-w-0 ${nameSz} leading-tight text-slate-900 hover:text-sky-800 hover:underline`}
                         >
                           {displayName}
                         </Link>
@@ -726,7 +880,7 @@ export function CrmLeadsList({
                         ) : null}
                         {!isEmployee && r.waiting_on_doctors_orders === true ? (
                           <span
-                            className={`${pillBase} max-w-[min(100%,18rem)] bg-rose-600 px-2 py-1 text-[10px] font-extrabold uppercase tracking-wide text-white shadow-md ring-2 ring-rose-300`}
+                            className={`${pillBase} max-w-[min(100%,18rem)] bg-rose-600 ${compact ? "px-1.5 py-[1px] text-[8px]" : "px-2 py-1 text-[10px]"} font-extrabold uppercase tracking-wide text-white shadow-md ring-2 ring-rose-300`}
                             title="Unsigned physician orders — do not schedule"
                           >
                             WAITING ON DOCTOR&apos;S ORDERS
@@ -742,50 +896,105 @@ export function CrmLeadsList({
                           ) : null}
                         </span>
                       </div>
-                      <LeadRowMobileDialRow keypadHref={keypadHref} smsHref={smsHref} phone={phone} />
+                      <LeadRowMobileDialRow compact={compact} keypadHref={keypadHref} smsHref={smsHref} phone={phone} />
                     </div>
-                    <div className="min-w-0 space-y-1 text-[11px] leading-snug text-slate-600">
-                      <p className="text-[13px] leading-snug text-slate-900">
-                        <span className="font-normal text-slate-500">Next: </span>
-                        {nextActionLabel !== "—" ? (
-                          <span className="font-semibold text-slate-900">{nextActionLabel}</span>
-                        ) : (
-                          <span className="font-normal text-slate-400">No next action</span>
-                        )}
-                      </p>
-                      <div>
-                        <span className="text-slate-500">Follow-up: </span>
-                        <span className={followUpValueClass(fu)}>{formatFollowUpDate(r.follow_up_date)}</span>
-                      </div>
-                      <div className="text-[10px] text-slate-400">
-                        <span className="text-slate-400">Last contact: </span>
-                        <span className={`font-normal ${lastContactToneClass(lcHuman.tone)}`}>{lcHuman.line}</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-500">Owner: </span>
-                        {owner ? staffPrimaryLabel(owner) : "—"}
-                      </div>
-                      <LeadQuickActions leadId={r.id} />
-                      <LeadTemperatureQuickSet leadId={r.id} value={r.lead_temperature ?? null} />
+                    <div className={`min-w-0 ${compact ? "space-y-1 text-[10px] leading-tight text-slate-700" : "space-y-1 text-[11px] leading-snug text-slate-600"}`}>
+                      {compact ? (
+                        <>
+                          <p className="text-[10px] text-slate-800">
+                            <span className="text-slate-400">Next:</span> {nextActionLabel !== "—" ? nextActionLabel : "None"}
+                            {" · "}
+                            <span className="text-slate-400">F/U:</span>{" "}
+                            <span className={followUpValueClass(fu)}>{formatFollowUpDate(r.follow_up_date)}</span>
+                            {" · "}
+                            <span className="text-slate-400">Last:</span>{" "}
+                            <span className={`font-normal ${lastContactToneClass(lcHuman.tone)}`}>{lcHuman.line}</span>
+                            {" · "}
+                            <span className="text-slate-400">Owner:</span> {owner ? staffPrimaryLabel(owner) : "—"}
+                          </p>
+                          <LeadQuickActions compact leadId={r.id} />
+                          <LeadTemperatureQuickSet compact leadId={r.id} value={r.lead_temperature ?? null} />
+                        </>
+                      ) : (
+                        <>
+                          <p className="text-[13px] leading-snug text-slate-900">
+                            <span className="font-normal text-slate-500">Next: </span>
+                            {nextActionLabel !== "—" ? (
+                              <span className="font-semibold text-slate-900">{nextActionLabel}</span>
+                            ) : (
+                              <span className="font-normal text-slate-400">No next action</span>
+                            )}
+                          </p>
+                          <div>
+                            <span className="text-slate-500">Follow-up: </span>
+                            <span className={followUpValueClass(fu)}>{formatFollowUpDate(r.follow_up_date)}</span>
+                          </div>
+                          <div className="text-[10px] text-slate-400">
+                            <span className="text-slate-400">Last contact: </span>
+                            <span className={`font-normal ${lastContactToneClass(lcHuman.tone)}`}>{lcHuman.line}</span>
+                          </div>
+                          <div>
+                            <span className="text-slate-500">Owner: </span>
+                            {owner ? staffPrimaryLabel(owner) : "—"}
+                          </div>
+                          <LeadQuickActions leadId={r.id} />
+                          <LeadTemperatureQuickSet leadId={r.id} value={r.lead_temperature ?? null} />
+                        </>
+                      )}
                     </div>
-                    <div className="min-w-0 text-[11px] leading-snug text-slate-600">
+                    <div className={`min-w-0 ${compact ? "text-[10px] leading-tight text-slate-700" : "text-[11px] leading-snug text-slate-600"}`}>
                       {isEmployee ? (
-                        <div className="rounded-md border border-slate-100 bg-slate-50/50 px-2 py-1.5">
-                          <div className="font-medium text-slate-700">{role || "—"}</div>
-                          {exp ? <div className="text-slate-500">{exp}</div> : null}
-                          {(r.referral_source ?? "").trim() ? (
-                            <div className="mt-0.5 text-slate-500">{(r.referral_source ?? "").trim()}</div>
-                          ) : null}
-                          {resume ? (
-                            <a
-                              href={resume}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="mt-1 inline-block font-medium text-sky-800 underline-offset-2 hover:underline"
-                            >
-                              Resume
-                            </a>
-                          ) : null}
+                        compact ? (
+                          <div className="flex flex-wrap items-baseline gap-x-1 gap-y-0 text-slate-700">
+                            <span className="font-medium">{role || "—"}</span>
+                            {exp ? <span className="text-slate-600">· {exp}</span> : null}
+                            {(r.referral_source ?? "").trim() ? (
+                              <span className="text-slate-500">· {(r.referral_source ?? "").trim()}</span>
+                            ) : null}
+                            {resume ? (
+                              <>
+                                ·{" "}
+                                <a
+                                  href={resume}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="font-semibold text-sky-800 underline-offset-2 hover:underline"
+                                >
+                                  Resume
+                                </a>
+                              </>
+                            ) : null}
+                          </div>
+                        ) : (
+                          <div className="rounded-md border border-slate-100 bg-slate-50/50 px-2 py-1.5">
+                            <div className="font-medium text-slate-700">{role || "—"}</div>
+                            {exp ? <div className="text-slate-500">{exp}</div> : null}
+                            {(r.referral_source ?? "").trim() ? (
+                              <div className="mt-0.5 text-slate-500">{(r.referral_source ?? "").trim()}</div>
+                            ) : null}
+                            {resume ? (
+                              <a
+                                href={resume}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="mt-1 inline-block font-medium text-sky-800 underline-offset-2 hover:underline"
+                              >
+                                Resume
+                              </a>
+                            ) : null}
+                          </div>
+                        )
+                      ) : compact ? (
+                        <div>
+                          <div className="text-[10px] text-slate-700">
+                            {intakePatient && intakePatient.line.trim() ? (
+                              <span>{intakePatient.line}</span>
+                            ) : intakePatient?.hasPayer ? (
+                              <span className="text-slate-500">Incomplete payer details</span>
+                            ) : (
+                              <span className="text-slate-400">Payer not set</span>
+                            )}
+                          </div>
                         </div>
                       ) : (
                         <div className="rounded-md border border-slate-100 bg-slate-50/30 px-2 py-1.5 text-slate-600">
@@ -811,12 +1020,17 @@ export function CrmLeadsList({
                         </div>
                       )}
                     </div>
-                    <div className="flex min-w-0 flex-col gap-2 md:items-end">
-                      <CompactContactLines phoneDisplay={phone ? formatPhoneForDisplay(phone) : null} email={email || null} />
-                      <LeadActionButtonRow leadId={r.id} phone={phone} keypadHref={keypadHref} smsHref={smsHref} />
+                    <div className={`flex min-w-0 flex-col md:items-end ${compact ? "gap-1" : "gap-2"}`}>
+                      <CompactContactLines dense={compact} phoneDisplay={phone ? formatPhoneForDisplay(phone) : null} email={email || null} />
+                      <LeadActionButtonRow compact={compact} leadId={r.id} phone={phone} keypadHref={keypadHref} smsHref={smsHref} />
                     </div>
-                    <div className="whitespace-nowrap text-right text-[11px] tabular-nums text-slate-500 md:pt-1">
-                      {new Date(r.created_at).toLocaleString()}
+                    <div
+                      className={`text-right tabular-nums text-slate-500 ${compact ? "text-[10px] leading-tight md:max-w-none" : "whitespace-nowrap text-[11px] md:pt-1"}`}
+                    >
+                      {(() => {
+                        const c = relativeCreatedParts(r.created_at);
+                        return <span title={c.full}>{compact ? c.short : c.full}</span>;
+                      })()}
                     </div>
                   </div>
                 );
