@@ -28,6 +28,8 @@ export type CrmLeadRow = {
   referring_provider_name: string | null;
   next_action: string | null;
   follow_up_date: string | null;
+  /** ISO instant; paired with `follow_up_date` for list display with time (Central). */
+  follow_up_at?: string | null;
   last_contact_at: string | null;
   last_outcome: string | null;
   service_disciplines: string[] | null;
@@ -70,6 +72,24 @@ export function formatFollowUpDate(iso: string | null | undefined): string {
   const parsed = new Date(`${d}T12:00:00`);
   if (Number.isNaN(parsed.getTime())) return d;
   return parsed.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+const CRM_LIST_FU_TZ = "America/Chicago";
+
+/** Compact follow-up for leads list: date + time when `follow_up_at` is present. */
+export function formatFollowUpListLabel(followUpDate: string | null | undefined, followUpAt: string | null | undefined): string {
+  const dateStr = formatFollowUpDate(followUpDate);
+  if (dateStr === "—") return "—";
+  const at = typeof followUpAt === "string" ? followUpAt.trim() : "";
+  if (!at) return dateStr;
+  const inst = new Date(at);
+  if (Number.isNaN(inst.getTime())) return dateStr;
+  const timePart = new Intl.DateTimeFormat("en-US", {
+    timeZone: CRM_LIST_FU_TZ,
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(inst);
+  return `${dateStr} ${timePart}`;
 }
 
 export function staffPrimaryLabel(s: {

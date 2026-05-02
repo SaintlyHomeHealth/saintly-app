@@ -4,6 +4,8 @@ import { isValidLeadContactOutcome } from "@/lib/crm/lead-contact-outcome";
 /** Map human labels (and short labels) to canonical `leads.last_outcome` values. */
 const RESULT_LABEL_TO_VALUE: Record<string, string> = {
   "No answer": "no_answer",
+  Contacted: "spoke",
+  contacted: "spoke",
   "Spoke": "spoke",
   "Left VM": "left_voicemail",
   "Left voicemail": "left_voicemail",
@@ -19,6 +21,7 @@ const RESULT_LABEL_TO_VALUE: Record<string, string> = {
 export function normalizeContactOutcomeResult(value: string): string {
   const t = typeof value === "string" ? value.trim() : "";
   if (!t) return "";
+  if (t.toLowerCase() === "contacted") return "spoke";
   if (isValidLeadContactOutcome(t)) return t;
   const mapped = RESULT_LABEL_TO_VALUE[t];
   if (mapped && isValidLeadContactOutcome(mapped)) return mapped;

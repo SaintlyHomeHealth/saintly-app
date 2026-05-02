@@ -31,7 +31,7 @@ import { formatLeadPipelineStatusLabel } from "@/lib/crm/lead-pipeline-status";
 import {
   contactDisplayName,
   contactEmail,
-  formatFollowUpDate,
+  formatFollowUpListLabel,
   normalizeContact,
   staffPrimaryLabel,
   trunc,
@@ -47,7 +47,7 @@ import {
 } from "@/lib/workspace-phone/launch-urls";
 import { disciplineLabel } from "@/lib/crm/service-disciplines";
 
-const pillBase = "inline-flex max-w-full shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ring-1";
+const pillBase = "inline-flex max-w-full shrink-0 rounded-full px-1 py-[1px] text-[9px] font-semibold ring-1";
 
 function patientIntakeSummaryLine(row: CrmLeadRow): { line: string; hasPayer: boolean } {
   const insLines = leadInsuranceDisplayLinesFromRow(row);
@@ -182,7 +182,7 @@ function LeadActionButtonRow({
       <Link href={detailHref} className={secondary}>
         View
       </Link>
-      <LeadDeleteButton leadId={leadId} variant="tableInlineSubtle" />
+      <LeadDeleteButton leadId={leadId} variant="tableInlineGhost" />
     </div>
   );
 }
@@ -421,8 +421,8 @@ export function CrmLeadsList({
   const comfy = initialDensity === "comfortable";
   const compact = !comfy;
   const chkClass = comfy ? checkboxClsComfortable : checkboxClsCompact;
-  const hdrPad = comfy ? "px-3 py-2 gap-x-4" : "px-2 py-1.5 gap-x-2";
-  const rowPad = comfy ? "px-3 py-2 gap-x-3 gap-y-1.5" : "px-2 py-1 gap-x-2 gap-y-1";
+  const hdrPad = comfy ? "px-3 py-1.5 gap-x-3" : "px-2 py-1 gap-x-1.5";
+  const rowPad = comfy ? "px-3 py-1.5 gap-x-3 gap-y-1" : "px-1.5 py-0.5 gap-x-1.5 gap-y-0.5";
   const nameSz = comfy ? "text-[15px] font-bold" : "text-sm font-semibold";
 
   const [rows, setRows] = useState(initialList);
@@ -574,7 +574,7 @@ export function CrmLeadsList({
                 <p className="text-xs text-slate-500">
                   {emptyState?.narrowFiltersActive
                     ? "Adjust search or filters, check pagination, or clear all filters."
-                    : "There are currently no CRM leads matching the default visibility rules."}
+                    : "No open leads match the default list (dead / not qualified are hidden unless you include them)."}
                 </p>
                 {emptyState?.narrowFiltersActive && emptyState.clearHref ? (
                   <Link
@@ -671,17 +671,23 @@ export function CrmLeadsList({
                     <div className={`min-w-0 ${compact ? "space-y-1 text-[10px] leading-tight text-slate-700" : "space-y-1 text-[11px] leading-snug text-slate-600"}`}>
                       {compact ? (
                         <>
-                          <p className="text-[10px] text-slate-800">
-                            <span className="text-slate-400">Next:</span> {nextActionLabel !== "—" ? nextActionLabel : "None"}
-                            {" · "}
-                            <span className="text-slate-400">F/U:</span>{" "}
-                            <span className={followUpValueClass(fu)}>{formatFollowUpDate(r.follow_up_date)}</span>
-                            {" · "}
-                            <span className="text-slate-400">Last:</span>{" "}
-                            <span className={`font-normal ${lastContactToneClass(lcHuman.tone)}`}>{lcHuman.line}</span>
-                            {" · "}
-                            <span className="text-slate-400">Owner:</span> {owner ? staffPrimaryLabel(owner) : "—"}
-                          </p>
+                          <div className="space-y-0.5 text-[10px] leading-snug text-slate-800">
+                            <p>
+                              <span className="text-slate-400">Next:</span>{" "}
+                              {nextActionLabel !== "—" ? nextActionLabel : "None"}
+                              <span className="text-slate-300"> · </span>
+                              <span className="text-slate-400">F/U:</span>{" "}
+                              <span className={followUpValueClass(fu)}>
+                                {formatFollowUpListLabel(r.follow_up_date, r.follow_up_at)}
+                              </span>
+                            </p>
+                            <p>
+                              <span className="text-slate-400">Last:</span>{" "}
+                              <span className={`font-normal ${lastContactToneClass(lcHuman.tone)}`}>{lcHuman.line}</span>
+                              <span className="text-slate-300"> · </span>
+                              <span className="text-slate-400">Owner:</span> {owner ? staffPrimaryLabel(owner) : "—"}
+                            </p>
+                          </div>
                           <LeadQuickActions compact leadId={r.id} />
                           <LeadTemperatureQuickSet compact leadId={r.id} value={r.lead_temperature ?? null} />
                         </>
@@ -697,7 +703,7 @@ export function CrmLeadsList({
                           </p>
                           <div>
                             <span className="text-slate-500">Follow-up: </span>
-                            <span className={followUpValueClass(fu)}>{formatFollowUpDate(r.follow_up_date)}</span>
+                            <span className={followUpValueClass(fu)}>{formatFollowUpListLabel(r.follow_up_date, r.follow_up_at)}</span>
                           </div>
                           <div className="text-[10px] text-slate-400">
                             <span className="text-slate-400">Last contact: </span>
@@ -713,41 +719,21 @@ export function CrmLeadsList({
                       )}
                     </div>
                     <div className={`min-w-0 ${compact ? "text-[10px] leading-tight text-slate-700" : "text-[11px] leading-snug text-slate-600"}`}>
-                      {compact ? (
-                        <div className="flex flex-wrap items-baseline gap-x-1 gap-y-0 text-slate-700">
-                          <span className="font-medium">{role}</span>
-                          {exp !== "—" ? <span className="text-slate-600">· {exp}</span> : null}
-                          {(r.referral_source ?? "").trim() ? (
-                            <span className="text-slate-500">· {(r.referral_source ?? "").trim()}</span>
-                          ) : null}
-                          {resume ? (
-                            <>
-                              ·{" "}
-                              <a href={resume} target="_blank" rel="noopener noreferrer" className="font-semibold text-sky-800 underline-offset-2 hover:underline">
-                                Resume
-                              </a>
-                            </>
-                          ) : null}
-                        </div>
-                      ) : (
-                        <div className="rounded-md border border-slate-100 bg-slate-50/50 px-2 py-1.5">
-                          <div className="font-medium text-slate-700">{role}</div>
-                          {exp !== "—" ? <div className="text-slate-500">{exp}</div> : null}
-                          {(r.referral_source ?? "").trim() ? (
-                            <div className="mt-0.5 text-slate-500">{(r.referral_source ?? "").trim()}</div>
-                          ) : null}
-                          {resume ? (
-                            <a
-                              href={resume}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="mt-1 inline-block font-medium text-sky-800 underline-offset-2 hover:underline"
-                            >
+                      <div className="flex flex-wrap items-baseline gap-x-1 gap-y-0 text-slate-700">
+                        <span className="font-medium">{role}</span>
+                        {exp !== "—" ? <span className="text-slate-600">· {exp}</span> : null}
+                        {(r.referral_source ?? "").trim() ? (
+                          <span className="text-slate-500">· {(r.referral_source ?? "").trim()}</span>
+                        ) : null}
+                        {resume ? (
+                          <>
+                            ·{" "}
+                            <a href={resume} target="_blank" rel="noopener noreferrer" className="font-semibold text-sky-800 underline-offset-2 hover:underline">
                               Resume
                             </a>
-                          ) : null}
-                        </div>
-                      )}
+                          </>
+                        ) : null}
+                      </div>
                     </div>
                     <div className={`flex min-w-0 flex-col md:items-end ${compact ? "gap-1" : "gap-2"}`}>
                       <CompactContactLines dense={compact} phoneDisplay={phone ? formatPhoneForDisplay(phone) : null} email={email || null} />
@@ -794,7 +780,7 @@ export function CrmLeadsList({
                 <p className="text-xs text-slate-500">
                   {emptyState?.narrowFiltersActive
                     ? "Adjust search or filters, check pagination, or clear all filters."
-                    : "There are currently no CRM leads matching the default visibility rules."}
+                    : "No open leads match the default list (dead / not qualified are hidden unless you include them)."}
                 </p>
                 {emptyState?.narrowFiltersActive && emptyState.clearHref ? (
                   <Link
@@ -901,17 +887,23 @@ export function CrmLeadsList({
                     <div className={`min-w-0 ${compact ? "space-y-1 text-[10px] leading-tight text-slate-700" : "space-y-1 text-[11px] leading-snug text-slate-600"}`}>
                       {compact ? (
                         <>
-                          <p className="text-[10px] text-slate-800">
-                            <span className="text-slate-400">Next:</span> {nextActionLabel !== "—" ? nextActionLabel : "None"}
-                            {" · "}
-                            <span className="text-slate-400">F/U:</span>{" "}
-                            <span className={followUpValueClass(fu)}>{formatFollowUpDate(r.follow_up_date)}</span>
-                            {" · "}
-                            <span className="text-slate-400">Last:</span>{" "}
-                            <span className={`font-normal ${lastContactToneClass(lcHuman.tone)}`}>{lcHuman.line}</span>
-                            {" · "}
-                            <span className="text-slate-400">Owner:</span> {owner ? staffPrimaryLabel(owner) : "—"}
-                          </p>
+                          <div className="space-y-0.5 text-[10px] leading-snug text-slate-800">
+                            <p>
+                              <span className="text-slate-400">Next:</span>{" "}
+                              {nextActionLabel !== "—" ? nextActionLabel : "None"}
+                              <span className="text-slate-300"> · </span>
+                              <span className="text-slate-400">F/U:</span>{" "}
+                              <span className={followUpValueClass(fu)}>
+                                {formatFollowUpListLabel(r.follow_up_date, r.follow_up_at)}
+                              </span>
+                            </p>
+                            <p>
+                              <span className="text-slate-400">Last:</span>{" "}
+                              <span className={`font-normal ${lastContactToneClass(lcHuman.tone)}`}>{lcHuman.line}</span>
+                              <span className="text-slate-300"> · </span>
+                              <span className="text-slate-400">Owner:</span> {owner ? staffPrimaryLabel(owner) : "—"}
+                            </p>
+                          </div>
                           <LeadQuickActions compact leadId={r.id} />
                           <LeadTemperatureQuickSet compact leadId={r.id} value={r.lead_temperature ?? null} />
                         </>
@@ -927,7 +919,7 @@ export function CrmLeadsList({
                           </p>
                           <div>
                             <span className="text-slate-500">Follow-up: </span>
-                            <span className={followUpValueClass(fu)}>{formatFollowUpDate(r.follow_up_date)}</span>
+                            <span className={followUpValueClass(fu)}>{formatFollowUpListLabel(r.follow_up_date, r.follow_up_at)}</span>
                           </div>
                           <div className="text-[10px] text-slate-400">
                             <span className="text-slate-400">Last contact: </span>
@@ -966,21 +958,24 @@ export function CrmLeadsList({
                             ) : null}
                           </div>
                         ) : (
-                          <div className="rounded-md border border-slate-100 bg-slate-50/50 px-2 py-1.5">
-                            <div className="font-medium text-slate-700">{role || "—"}</div>
-                            {exp ? <div className="text-slate-500">{exp}</div> : null}
+                          <div className="flex flex-wrap items-baseline gap-x-1 gap-y-0 text-[11px] text-slate-700">
+                            <span className="font-medium">{role || "—"}</span>
+                            {exp ? <span className="text-slate-600">· {exp}</span> : null}
                             {(r.referral_source ?? "").trim() ? (
-                              <div className="mt-0.5 text-slate-500">{(r.referral_source ?? "").trim()}</div>
+                              <span className="text-slate-500">· {(r.referral_source ?? "").trim()}</span>
                             ) : null}
                             {resume ? (
-                              <a
-                                href={resume}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="mt-1 inline-block font-medium text-sky-800 underline-offset-2 hover:underline"
-                              >
-                                Resume
-                              </a>
+                              <>
+                                ·{" "}
+                                <a
+                                  href={resume}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="font-semibold text-sky-800 underline-offset-2 hover:underline"
+                                >
+                                  Resume
+                                </a>
+                              </>
                             ) : null}
                           </div>
                         )
@@ -997,8 +992,8 @@ export function CrmLeadsList({
                           </div>
                         </div>
                       ) : (
-                        <div className="rounded-md border border-slate-100 bg-slate-50/30 px-2 py-1.5 text-slate-600">
-                          <div className="flex flex-wrap gap-x-2 gap-y-0.5">
+                        <div className="text-[11px] leading-snug text-slate-600">
+                          <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-slate-700">
                             <span>{(r.intake_status ?? "").trim() || "—"}</span>
                           </div>
                           {(() => {

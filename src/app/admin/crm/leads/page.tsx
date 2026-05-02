@@ -34,7 +34,7 @@ import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const CRM_LEADS_LIST_SELECT_BASE =
-  "id, contact_id, source, status, lead_type, owner_user_id, created_at, intake_status, referral_source, payer_name, payer_type, primary_payer_type, primary_payer_name, secondary_payer_type, secondary_payer_name, referring_provider_name, next_action, follow_up_date, last_contact_at, last_outcome, service_disciplines, service_type, external_source_metadata, lead_temperature";
+  "id, contact_id, source, status, lead_type, owner_user_id, created_at, intake_status, referral_source, payer_name, payer_type, primary_payer_type, primary_payer_name, secondary_payer_type, secondary_payer_name, referring_provider_name, next_action, follow_up_date, follow_up_at, last_contact_at, last_outcome, service_disciplines, service_type, external_source_metadata, lead_temperature";
 
 const CRM_LEADS_LIST_CONTACTS_EMBED =
   "contacts ( full_name, first_name, last_name, primary_phone, secondary_phone, email )";
@@ -345,7 +345,7 @@ export default async function AdminCrmLeadsPage({
         ? hasSearchOrColumnFilters || showDead || safePage > 1
           ? "No leads match these filters."
           : "No leads found."
-        : `Showing ${rangeStart}–${rangeEnd} of ${totalFiltered}`;
+        : `Showing ${rangeStart}–${rangeEnd} of ${totalFiltered} leads`;
 
     return (
       <div className="space-y-3 p-4 sm:space-y-4 sm:p-6">
@@ -356,7 +356,9 @@ export default async function AdminCrmLeadsPage({
           title="Leads"
           description={
             <>
-              Paginated CRM list ({ADMIN_CRM_LEADS_PAGE_SIZE} per page). Soft-deleted leads stay hidden unless recovered elsewhere.
+              Paginated CRM list ({ADMIN_CRM_LEADS_PAGE_SIZE} per page). Rows with{" "}
+              <span className="font-medium">Dead / not qualified</span> are hidden by default (use{" "}
+              <span className="font-medium">Include dead / not qualified</span>); soft-deleted leads stay archived.
               {error ? <span className="mt-2 block text-sm text-red-700">{error.message}</span> : null}
               {countErr?.message ? (
                 <span className="mt-2 block text-sm text-amber-800">Could not compute total ({countErr.message}).</span>

@@ -23,6 +23,8 @@ type Props = {
   leadId: string;
   savedLastOutcome: string | null;
   defaultNextAction: string;
+  /** `leads.lead_temperature` — empty string = not set. */
+  defaultLeadTemperature: string;
   defaultFollowUpIso: string;
   /** ISO instant when server has `follow_up_at`; drives date+time fields. */
   defaultFollowUpAtIso: string | null;
@@ -110,6 +112,7 @@ export function LeadContactOutcomeForm({
   leadId,
   savedLastOutcome,
   defaultNextAction,
+  defaultLeadTemperature,
   defaultFollowUpIso,
   defaultFollowUpAtIso,
   tomorrowIso,
@@ -130,6 +133,7 @@ export function LeadContactOutcomeForm({
   /** Only this attempt's note — not the full running `last_note` log. */
   const [notes, setNotes] = useState("");
   const [nextAction, setNextAction] = useState(defaultNextAction);
+  const [leadTemperature, setLeadTemperature] = useState(() => (defaultLeadTemperature || "").trim().toLowerCase());
   const [outcomeFieldError, setOutcomeFieldError] = useState<string | null>(null);
 
   const followUpInstantIso = useMemo(() => {
@@ -151,6 +155,10 @@ export function LeadContactOutcomeForm({
     const t = window.setTimeout(() => setToast(null), 4500);
     return () => window.clearTimeout(t);
   }, [toast]);
+
+  useEffect(() => {
+    setLeadTemperature((defaultLeadTemperature || "").trim().toLowerCase());
+  }, [defaultLeadTemperature]);
 
   const toggleAction = (k: AttemptActionKey) => {
     setActions((prev) => {
@@ -242,6 +250,8 @@ export function LeadContactOutcomeForm({
                 follow_up_at: followUpInstantIso || null,
                 outcome_note: notes.trim() || null,
                 lead_id: leadId,
+                lead_temperature:
+                  leadTemperature.trim() === "" ? null : leadTemperature.trim().toLowerCase(),
               };
 
               const res = await fetch("/api/crm/contact-outcome", {
@@ -376,7 +386,26 @@ export function LeadContactOutcomeForm({
               ))}
             </select>
             <span className="text-[10px] font-normal text-slate-500">
-              Same list as Pipeline — this stays in sync when you save an outcome.
+              Drives the “Next:” line on the leads list (only this section edits it).
+            </span>
+          </label>
+
+          <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
+            Lead priority
+            <select
+              className={inputCls}
+              value={leadTemperature}
+              onChange={(e) => setLeadTemperature(e.target.value)}
+              aria-describedby="contact-outcome-priority-hint"
+            >
+              <option value="">Not set</option>
+              <option value="hot">Hot</option>
+              <option value="warm">Warm</option>
+              <option value="cool">Cool</option>
+              <option value="dead">Dead triage</option>
+            </select>
+            <span id="contact-outcome-priority-hint" className="text-[10px] font-normal text-slate-500">
+              List triage only; does not mark the lead dead.
             </span>
           </label>
 

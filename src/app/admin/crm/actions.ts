@@ -1239,11 +1239,9 @@ export async function updateLeadIntake(formData: FormData) {
 
   const followUpDateUpdate = readFollowUpDateForIntakeUpdate(formData);
 
-  const payload = {
+  const payload: Record<string, unknown> = {
     ...(pipelineStatus !== null ? { status: pipelineStatus } : {}),
     owner_user_id: readOptionalOwnerUserId(formData),
-    next_action: readLeadNextActionFromForm(formData),
-    ...(followUpDateUpdate !== undefined ? { follow_up_date: followUpDateUpdate } : {}),
     referring_doctor_name: readOptionalIntakeText(formData, "referring_doctor_name"),
     doctor_office_name: readOptionalIntakeText(formData, "doctor_office_name"),
     doctor_office_phone: readOptionalNormalizedPhone(formData, "doctor_office_phone"),
@@ -1266,8 +1264,17 @@ export async function updateLeadIntake(formData: FormData) {
     medicare_number: readOptionalIntakeText(formData, "medicare_number"),
     medicare_effective_date: readOptionalMedicareEffectiveDateIso(formData),
     medicare_notes: readOptionalIntakeText(formData, "medicare_notes"),
-    lead_temperature: readOptionalLeadTemperature(formData),
   };
+
+  if (formData.has("next_action")) {
+    payload.next_action = readLeadNextActionFromForm(formData);
+  }
+  if (followUpDateUpdate !== undefined) {
+    payload.follow_up_date = followUpDateUpdate;
+  }
+  if (formData.has("lead_temperature")) {
+    payload.lead_temperature = readOptionalLeadTemperature(formData);
+  }
 
   const B = beforeRow as Record<string, unknown>;
   const uid = staff.user_id;
@@ -1327,17 +1334,19 @@ export async function updateLeadIntake(formData: FormData) {
     });
   }
 
-  const oldNext = normStr(B.next_action);
-  const newNext = readLeadNextActionFromForm(formData);
-  const newNextNorm = newNext == null ? null : newNext;
-  if (oldNext !== newNextNorm) {
-    await insertLeadActivityRow({
-      leadId,
-      eventType: LEAD_ACTIVITY_EVENT.next_action_changed,
-      body: `Next action changed from ${formatLeadNextActionLabel(oldNext)} to ${formatLeadNextActionLabel(newNextNorm)}`,
-      metadata: { before: oldNext, after: newNextNorm },
-      createdByUserId: uid,
-    });
+  if (formData.has("next_action")) {
+    const oldNext = normStr(B.next_action);
+    const newNext = readLeadNextActionFromForm(formData);
+    const newNextNorm = newNext == null ? null : newNext;
+    if (oldNext !== newNextNorm) {
+      await insertLeadActivityRow({
+        leadId,
+        eventType: LEAD_ACTIVITY_EVENT.next_action_changed,
+        body: `Next action changed from ${formatLeadNextActionLabel(oldNext)} to ${formatLeadNextActionLabel(newNextNorm)}`,
+        metadata: { before: oldNext, after: newNextNorm },
+        createdByUserId: uid,
+      });
+    }
   }
 
   if (followUpDateUpdate !== undefined) {
@@ -1430,18 +1439,20 @@ export async function updateLeadIntake(formData: FormData) {
     });
   }
 
-  const beforeTmp = normalizeLeadTemperature(
-    typeof B.lead_temperature === "string" ? B.lead_temperature : null
-  );
-  const afterTmp = normalizeLeadTemperature(payload.lead_temperature);
-  if (beforeTmp !== afterTmp) {
-    await insertLeadActivityRow({
-      leadId,
-      eventType: LEAD_ACTIVITY_EVENT.lead_temperature_updated,
-      body: `Priority changed from ${leadTemperatureLabel(beforeTmp)} to ${leadTemperatureLabel(afterTmp)}`,
-      metadata: { before: beforeTmp, after: afterTmp },
-      createdByUserId: uid,
-    });
+  if (formData.has("lead_temperature")) {
+    const beforeTmp = normalizeLeadTemperature(
+      typeof B.lead_temperature === "string" ? B.lead_temperature : null
+    );
+    const afterTmp = normalizeLeadTemperature(readOptionalLeadTemperature(formData));
+    if (beforeTmp !== afterTmp) {
+      await insertLeadActivityRow({
+        leadId,
+        eventType: LEAD_ACTIVITY_EVENT.lead_temperature_updated,
+        body: `Priority changed from ${leadTemperatureLabel(beforeTmp)} to ${leadTemperatureLabel(afterTmp)}`,
+        metadata: { before: beforeTmp, after: afterTmp },
+        createdByUserId: uid,
+      });
+    }
   }
 
   if (irChanged) {
@@ -1536,6 +1547,8 @@ export type SaveLeadOutcomeInput = {
   followUpAt: Date | null;
   nextAction: string | null;
   notes: string;
+  /** When set (including `null` to clear), updates `leads.lead_temperature`. When omitted, leaves priority unchanged. */
+  leadTemperature?: string | null;
 };
 
 /**
@@ -1574,7 +1587,9 @@ export async function saveLeadOutcomeCore(input: SaveLeadOutcomeInput): Promise<
   const { data: leadBefore, error: leadLoadErr } = await leadRowsActiveOnly(
     supabaseAdmin
       .from("leads")
-      .select("last_outcome, contacts ( full_name, first_name, last_name, primary_phone, email )")
+      .select(
+        "last_outcome, lead_temperature, contacts ( full_name, first_name, last_name, primary_phone, email )"
+      )
       .eq("id", leadId)
   ).maybeSingle();
 
@@ -1623,6 +1638,18 @@ export async function saveLeadOutcomeCore(input: SaveLeadOutcomeInput): Promise<
     note: notes,
   });
 
+  const tempPatch: Record<string, string | null> = {};
+  if (input.leadTemperature !== undefined) {
+    if (input.leadTemperature == null || String(input.leadTemperature).trim() === "") {
+      tempPatch.lead_temperature = null;
+    } else {
+      const t = String(input.leadTemperature).trim().toLowerCase();
+      if (isValidLeadTemperature(t)) {
+        tempPatch.lead_temperature = t;
+      }
+    }
+  }
+
   const rowUpdate = {
     last_contact_at: attemptAt.toISOString(),
     last_contact_type: contactType,
@@ -1631,6 +1658,7 @@ export async function saveLeadOutcomeCore(input: SaveLeadOutcomeInput): Promise<
     follow_up_date: followUpAt ? getCrmCalendarDateIsoFromInstant(followUpAt) : null,
     follow_up_at: followUpAt ? followUpAt.toISOString() : null,
     contact_attempt_actions: actionKeys,
+    ...tempPatch,
   };
 
   console.log("[admin/crm] saveLeadOutcomeCore rowUpdate", rowUpdate);
@@ -1686,9 +1714,27 @@ export async function saveLeadOutcomeCore(input: SaveLeadOutcomeInput): Promise<
     console.error("[admin/crm] saveLeadOutcomeCore: activity insert failed after lead update");
   }
 
+  if ("lead_temperature" in tempPatch) {
+    const beforeTmp = normalizeLeadTemperature(
+      typeof leadBefore.lead_temperature === "string" ? leadBefore.lead_temperature : null
+    );
+    const afterRaw = tempPatch.lead_temperature;
+    const afterTmp = afterRaw === null ? null : normalizeLeadTemperature(afterRaw);
+    if (beforeTmp !== afterTmp) {
+      await insertLeadActivityRow({
+        leadId,
+        eventType: LEAD_ACTIVITY_EVENT.lead_temperature_updated,
+        body: `Priority changed from ${leadTemperatureLabel(beforeTmp)} to ${leadTemperatureLabel(afterTmp)}`,
+        metadata: { before: beforeTmp, after: afterTmp },
+        createdByUserId: staff.user_id,
+      });
+    }
+  }
+
   if (outcome === "spoke") {
-    const prev = typeof leadBefore.last_outcome === "string" ? leadBefore.last_outcome.trim() : "";
-    if (prev !== "spoke") {
+    const prev = typeof leadBefore.last_outcome === "string" ? leadBefore.last_outcome.trim().toLowerCase() : "";
+    const prevEffective = prev === "contacted" ? "spoke" : prev;
+    if (prevEffective !== "spoke") {
       const c = contactFieldsFromLeadContactJoin(leadBefore.contacts);
       notifyZapierLeadStatus({
         email: c.email,
@@ -1731,6 +1777,14 @@ export async function saveLeadOutcome(formData: FormData): Promise<SaveLeadOutco
 
   const nextAction = readLeadNextActionFromForm(formData);
 
+  let leadTemperature: string | null | undefined = undefined;
+  if (formData.has("lead_temperature")) {
+    const v = formData.get("lead_temperature");
+    if (typeof v !== "string") leadTemperature = undefined;
+    else if (v.trim() === "") leadTemperature = null;
+    else leadTemperature = v.trim();
+  }
+
   const attemptAt = readIsoInstantFromForm(formData, "attempt_at_iso") ?? new Date();
   const followUpAt = readIsoInstantFromForm(formData, "follow_up_at_iso");
 
@@ -1742,6 +1796,7 @@ export async function saveLeadOutcome(formData: FormData): Promise<SaveLeadOutco
     followUpAt,
     nextAction,
     notes,
+    leadTemperature,
   });
 }
 
@@ -2666,7 +2721,9 @@ export async function quickMarkLeadSpoke(formData: FormData): Promise<CrmLeadLis
   const { data: leadBefore, error: leadLoadErr } = await leadRowsActiveOnly(
     supabaseAdmin
       .from("leads")
-      .select("last_outcome, contacts ( full_name, first_name, last_name, primary_phone, email )")
+      .select(
+        "last_outcome, lead_temperature, contacts ( full_name, first_name, last_name, primary_phone, email )"
+      )
       .eq("id", leadId)
   ).maybeSingle();
 
@@ -2690,8 +2747,9 @@ export async function quickMarkLeadSpoke(formData: FormData): Promise<CrmLeadLis
     return { ok: false, error: "save_failed" };
   }
 
-  const prev = typeof leadBefore.last_outcome === "string" ? leadBefore.last_outcome.trim() : "";
-  if (prev !== "spoke") {
+  const prev = typeof leadBefore.last_outcome === "string" ? leadBefore.last_outcome.trim().toLowerCase() : "";
+  const prevEffective = prev === "contacted" ? "spoke" : prev;
+  if (prevEffective !== "spoke") {
     const c = contactFieldsFromLeadContactJoin(leadBefore.contacts);
     notifyZapierLeadStatus({
       email: c.email,
@@ -3032,8 +3090,6 @@ export async function createLeadManualFromCrm(formData: FormData) {
       status: "new",
       ...(fbclid ? { fbclid } : {}),
       owner_user_id: readOptionalOwnerUserId(formData),
-      next_action: readLeadNextActionFromForm(formData),
-      follow_up_date: readOptionalFollowUpDateIso(formData),
       referring_doctor_name: readOptionalIntakeText(formData, "referring_doctor_name"),
       doctor_office_name: readOptionalIntakeText(formData, "doctor_office_name"),
       doctor_office_phone: readOptionalNormalizedPhone(formData, "doctor_office_phone"),

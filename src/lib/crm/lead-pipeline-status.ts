@@ -39,7 +39,8 @@ const LABELS = Object.fromEntries(LEAD_PIPELINE_STATUS_OPTIONS.map((o) => [o.val
 
 export function formatLeadPipelineStatusLabel(v: string | null | undefined): string {
   if (v == null || String(v).trim() === "") return "—";
-  const t = String(v).trim();
+  const raw = String(v).trim();
+  const t = raw.toLowerCase() === "contacted" ? "spoke" : raw;
   return (LABELS as Record<string, string>)[t] ?? t.replace(/_/g, " ");
 }
 

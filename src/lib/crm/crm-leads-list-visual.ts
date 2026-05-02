@@ -15,7 +15,7 @@ export function contactStageBadgeLabel(row: CrmLeadRow): { label: string; badgeC
 
   const raw = (row.last_outcome ?? "").trim();
   if (!raw) {
-    return { label: "Contacted", badgeClass: "bg-slate-100 text-slate-700 ring-slate-200/80" };
+    return { label: "Attempt logged", badgeClass: "bg-slate-100 text-slate-700 ring-slate-200/80" };
   }
 
   const lo = raw.toLowerCase();
@@ -26,6 +26,7 @@ export function contactStageBadgeLabel(row: CrmLeadRow): { label: string; badgeC
 }
 
 function contactStageShortLabel(outcomeLower: string, outcomeRaw: string): string {
+  if (outcomeLower === "contacted") return "Spoke";
   switch (outcomeLower) {
     case "spoke":
     case "spoke_scheduled":
@@ -47,6 +48,7 @@ function contactStageShortLabel(outcomeLower: string, outcomeRaw: string): strin
 
 function contactStageBadgeClassForOutcome(outcomeLower: string): string {
   switch (outcomeLower) {
+    case "contacted":
     case "spoke":
     case "spoke_scheduled":
       return "bg-purple-50 text-purple-950 ring-purple-200/70";
@@ -74,7 +76,8 @@ export function shouldShowPipelineStatusOnLeadRow(status: string | null | undefi
 export type PipelineHeat = "HOT" | "WARM" | "NEW" | "COLD" | "DEAD";
 
 export function derivePipelineHeat(row: CrmLeadRow, todayIso: string): PipelineHeat {
-  const s = (row.status ?? "").trim().toLowerCase();
+  const sRaw = (row.status ?? "").trim().toLowerCase();
+  const s = sRaw === "contacted" ? "spoke" : sRaw;
   if (s === "dead_lead") return "DEAD";
   if (s === "converted") return "COLD";
   const fu = row.follow_up_date?.slice(0, 10) ?? "";
@@ -112,7 +115,8 @@ export function pipelineHeatBadgeClass(h: PipelineHeat): string {
 
 /** Soft status pill colors — consistent CRM palette (scan-friendly, not neon). */
 export function pipelineStatusBadgeClass(status: string | null | undefined): string {
-  const s = (status ?? "").trim().toLowerCase();
+  const sRaw = (status ?? "").trim().toLowerCase();
+  const s = sRaw === "contacted" ? "spoke" : sRaw;
   if (s === "new" || s === "new_applicant") return "bg-sky-50 text-sky-950 ring-sky-200/70";
   if (s === "attempted_contact") return "bg-amber-50 text-amber-950 ring-amber-200/70";
   if (s === "spoke") return "bg-purple-50 text-purple-950 ring-purple-200/70";
@@ -141,7 +145,8 @@ export function followUpUrgency(followUpIso: string | null | undefined, todayIso
  * Priority: dead → overdue FU → today FU → qualified/ready → new → default.
  */
 export function leadRowCardClass(row: CrmLeadRow, fu: FollowUpUrgency): string {
-  const st = (row.status ?? "").trim().toLowerCase();
+  const stRaw = (row.status ?? "").trim().toLowerCase();
+  const st = stRaw === "contacted" ? "spoke" : stRaw;
   const lo = (row.last_outcome ?? "").trim().toLowerCase();
   if (row.waiting_on_doctors_orders === true && row.lead_type !== "employee") {
     return "border-l-[4px] border-l-rose-600 bg-rose-50/50 ring-1 ring-rose-200/90 shadow-[inset_4px_0_0_rgba(225,29,72,0.12)]";
@@ -197,7 +202,7 @@ export function lastContactHumanLine(
   todayIso: string
 ): { line: string; tone: "good" | "warn" | "bad" | "muted" } {
   if (!lastContactAt || typeof lastContactAt !== "string" || !lastContactAt.trim()) {
-    return { line: "Never contacted", tone: "muted" };
+    return { line: "No attempts logged", tone: "muted" };
   }
   const lastDay = lastContactAt.trim().slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(lastDay)) {

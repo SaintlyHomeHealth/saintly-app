@@ -96,6 +96,16 @@ export async function POST(req: Request) {
   const notesRaw = b.outcome_note;
   const notes = typeof notesRaw === "string" ? notesRaw.trim().slice(0, 4000) : "";
 
+  let leadTemperature: string | null | undefined = undefined;
+  if (Object.prototype.hasOwnProperty.call(b, "lead_temperature")) {
+    const lt = b.lead_temperature;
+    if (lt === null || lt === "") {
+      leadTemperature = null;
+    } else if (typeof lt === "string") {
+      leadTemperature = lt.trim();
+    }
+  }
+
   const result = await saveLeadOutcomeCore({
     leadId,
     outcome,
@@ -104,6 +114,7 @@ export async function POST(req: Request) {
     followUpAt,
     nextAction: nextParsed.value,
     notes,
+    leadTemperature,
   });
 
   return NextResponse.json(result, { status: httpStatusForResult(result) });

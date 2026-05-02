@@ -6,7 +6,6 @@ import { FormattedPhoneInput } from "@/components/phone/FormattedPhoneInput";
 import { LeadPayerInsuranceFields } from "@/app/admin/crm/leads/_components/LeadPayerInsuranceFields";
 import { leadDisplayPrimaryPayerName } from "@/lib/crm/lead-payer-structured";
 import { ServiceDisciplineCheckboxes } from "@/components/crm/ServiceDisciplineCheckboxes";
-import { LEAD_NEXT_ACTION_OPTIONS } from "@/lib/crm/lead-follow-up-options";
 import {
   formatLeadPipelineStatusLabel,
   isLeadPipelineTerminal,
@@ -293,8 +292,8 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
           <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
             <h2 className="text-sm font-semibold text-slate-900">Pipeline &amp; ownership</h2>
             <p className="mt-1 text-xs text-slate-500">
-              Contact details, source, and follow-up. Pipeline status starts as <strong>New</strong> (change it after
-              save like any other lead).
+              Pipeline status starts as <strong>New</strong> (change it after save like any other lead). Set next step
+              and follow-up from <strong>Contact outcome</strong> once the lead exists.
             </p>
             <div className="mt-4 grid max-w-2xl gap-3 sm:grid-cols-2">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 sm:col-span-2">Contact</p>
@@ -339,24 +338,6 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
                     </option>
                   ))}
                 </select>
-              </label>
-              <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-                Next action
-                <select name="next_action" className={inp} defaultValue="">
-                  <option value="">—</option>
-                  {LEAD_NEXT_ACTION_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-                Next follow-up date
-                <input name="follow_up_date" type="date" className={inp} />
-                <span className="text-[10px] font-normal text-slate-500">
-                  CRM next touch; you can also set this after the lead is created from Contact outcome.
-                </span>
               </label>
             </div>
           </div>
@@ -966,9 +947,11 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
           title="Contact outcome"
           description={
             <>
-              Log each attempt. This section sets the <strong>lead next follow-up</strong> (date and time)—the single CRM
-              callback that drives lists and reminders. <strong>No answer</strong> presets follow-up to tomorrow;{" "}
-              <strong>Left voicemail</strong> suggests two days out (edit before save if you prefer).
+              Log each attempt, triage priority, next step, and the <strong>lead next follow-up</strong> (date and time)
+              that drives lists and reminders. <strong>No answer</strong> presets follow-up to tomorrow;{" "}
+              <strong>Left voicemail</strong> suggests two days out (edit before save if you prefer).{" "}
+              <strong>Dead triage</strong> priority is visual only—use <strong>Mark dead lead</strong> below to close the
+              referral.
             </>
           }
           className="border-amber-200/80 bg-amber-50/20 ring-amber-100/50"
@@ -979,6 +962,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
               leadId={leadId}
               savedLastOutcome={lastOutcome}
               defaultNextAction={nextActionVal}
+              defaultLeadTemperature={leadTemperature || ""}
               defaultFollowUpIso={followUpIso}
               defaultFollowUpAtIso={followUpAtIso}
               tomorrowIso={tomorrowIso}
@@ -1026,12 +1010,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
           <LeadSectionCard
             id="section-pipeline"
             title="Pipeline & ownership"
-            description={
-              <>
-                Status, owner, and pipeline next step. The <strong>lead next follow-up date and time</strong> live in{" "}
-                <strong>Contact outcome</strong> above (not here). Use disposition when the referral is won or lost.
-              </>
-            }
+            description="Set the lead’s current pipeline stage and owner."
             className="border-indigo-100/90 bg-indigo-50/20 ring-indigo-100/40"
           >
             <div className="grid max-w-2xl gap-4 sm:grid-cols-2">
@@ -1062,39 +1041,6 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
                     </option>
                   ))}
                 </select>
-              </label>
-              <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
-                Next action
-                <select name="next_action" className={inp} defaultValue={nextActionVal}>
-                  <option value="">—</option>
-                  {LEAD_NEXT_ACTION_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-                <span className="text-[10px] font-normal text-slate-500">
-                  You can also set this when logging <strong>Contact outcome</strong>. Follow-up <strong>date and time</strong>{" "}
-                  for the lead are only set there.
-                </span>
-              </label>
-              <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
-                Lead priority (visual triage)
-                <select
-                  name="lead_temperature"
-                  className={inp}
-                  defaultValue={leadTemperature || ""}
-                  aria-describedby="lead-temperature-hint"
-                >
-                  <option value="">— Not set —</option>
-                  <option value="hot">Hot</option>
-                  <option value="warm">Warm</option>
-                  <option value="cool">Cool</option>
-                  <option value="dead">Dead (triage)</option>
-                </select>
-                <span id="lead-temperature-hint" className="mt-1 text-[10px] font-normal text-slate-500">
-                  List triage only — separate from pipeline status and insurance. Use for what needs attention first.
-                </span>
               </label>
             </div>
             <div className="mt-8 border-t border-slate-200/80 pt-6">

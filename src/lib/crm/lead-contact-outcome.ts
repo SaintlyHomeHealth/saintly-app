@@ -27,7 +27,8 @@ const OUTCOME_LABELS = Object.fromEntries(LEAD_CONTACT_OUTCOME_OPTIONS.map((o) =
 export function formatLeadContactOutcomeLabel(v: string | null | undefined): string {
   if (!v || typeof v !== "string") return "—";
   const t = v.trim();
-  return OUTCOME_LABELS[t as LeadContactOutcomeValue] ?? t.replace(/_/g, " ");
+  const norm = t.toLowerCase() === "contacted" ? "spoke" : t;
+  return OUTCOME_LABELS[norm as LeadContactOutcomeValue] ?? norm.replace(/_/g, " ");
 }
 
 export type LeadContactTypeValue = "call" | "text";

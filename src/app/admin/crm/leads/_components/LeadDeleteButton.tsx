@@ -6,8 +6,8 @@ import { softDeleteLead } from "@/app/admin/crm/actions";
 
 type Props = {
   leadId: string;
-  /** Table row: compact text link. Detail page: slightly larger. Inline: pill in CRM row action group. tableInlineSubtle: muted outline in dense toolbars. */
-  variant?: "table" | "tableInline" | "tableInlineSubtle" | "detail";
+  /** Table row: compact text link. Detail page: slightly larger. Inline: pill in CRM row action group. tableInlineSubtle: muted outline in dense toolbars. tableInlineGhost: minimal text control in compact rows. */
+  variant?: "table" | "tableInline" | "tableInlineSubtle" | "tableInlineGhost" | "detail";
 };
 
 export function LeadDeleteButton({ leadId, variant = "table" }: Props) {
@@ -21,7 +21,9 @@ export function LeadDeleteButton({ leadId, variant = "table" }: Props) {
         ? "inline-flex items-center justify-center rounded-lg border border-rose-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-rose-800 shadow-sm transition hover:border-rose-300 hover:bg-rose-50 hover:shadow-md"
         : variant === "tableInlineSubtle"
           ? "inline-flex items-center justify-center rounded-md border border-rose-200/70 bg-white px-2 py-1 text-[10px] font-medium text-rose-700/85 shadow-none transition hover:border-rose-300/80 hover:bg-rose-50/60"
-          : "rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-900 hover:bg-rose-100";
+          : variant === "tableInlineGhost"
+            ? "inline-flex items-center justify-center rounded px-0.5 py-px text-[9px] font-normal text-slate-500 underline-offset-2 transition hover:bg-slate-100 hover:text-slate-700 hover:underline"
+            : "rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-900 hover:bg-rose-100";
 
   const confirm = () => {
     const fd = new FormData();
