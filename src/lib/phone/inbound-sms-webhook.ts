@@ -6,6 +6,7 @@ import { findContactByIncomingPhone } from "@/lib/crm/find-contact-by-incoming-p
 import { logSmsMessageForLeadTimeline } from "@/lib/crm/lead-communication-activity";
 import { notifyInboundSmsAfterPersist } from "@/lib/push/notify-inbound-sms";
 import { ensureSmsConversationForPhone } from "@/lib/phone/sms-conversation-thread";
+import { smsReplyAiSuggestionsEnabled } from "@/lib/phone/sms-ai-suggestions-flag";
 import { scheduleSmsReplySuggestionGeneration } from "@/lib/phone/sms-reply-suggestion";
 import {
   relayInboundCompanySmsCopyToPersonalCells,
@@ -330,7 +331,7 @@ export async function applyInboundTwilioSms(
     }
   }
 
-  if (process.env.SMS_AI_SUGGESTIONS_DISABLED !== "1" && insertedMsg?.id) {
+  if (smsReplyAiSuggestionsEnabled() && insertedMsg?.id) {
     scheduleSmsReplySuggestionGeneration(supabase, conversationId, String(insertedMsg.id), fromE164);
   }
 

@@ -52,6 +52,7 @@ import {
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { isValidE164 } from "@/lib/softphone/phone-number";
 import { buildWorkspaceKeypadCallHref } from "@/lib/workspace-phone/launch-urls";
+import { smsReplyAiSuggestionsEnabled } from "@/lib/phone/sms-ai-suggestions-flag";
 import { SMS_OUTBOUND_FROM_EXPLICIT_KEY } from "@/lib/twilio/sms-from-numbers";
 
 const UUID_RE =
@@ -169,8 +170,8 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
     notFound();
   }
 
-  /** Set SMS_AI_SUGGESTIONS_DISABLED=1 to turn off OpenAI reply suggestions + CRM “AI insight”. Default: on. */
-  const smsAiSuggestionsEnabled = process.env.SMS_AI_SUGGESTIONS_DISABLED !== "1";
+  /** SMS composer draft only; see `ENABLE_SMS_AI_SUGGESTIONS` and `SMS_AI_SUGGESTIONS_DISABLED`. */
+  const smsAiSuggestionsEnabled = smsReplyAiSuggestionsEnabled();
   const showSmsThreadDebug =
     process.env.NODE_ENV === "development" || process.env.SMS_THREAD_DEBUG === "1";
 

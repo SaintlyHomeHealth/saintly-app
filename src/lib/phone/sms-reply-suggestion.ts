@@ -10,6 +10,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { revalidatePath } from "next/cache";
 
 import { fetchOpenAiJsonObject } from "@/lib/phone/phone-call-ai-context";
+import { smsReplyAiSuggestionsEnabled } from "@/lib/phone/sms-ai-suggestions-flag";
 import { mergeTelemetryOnGeneration } from "@/lib/phone/sms-suggestion-telemetry";
 
 /** Max recent messages sent to the model (newest window). */
@@ -82,7 +83,7 @@ function parseSuggestedReply(raw: unknown): string {
 }
 
 function smsAiSuggestionsDisabled(): boolean {
-  return process.env.SMS_AI_SUGGESTIONS_DISABLED === "1";
+  return !smsReplyAiSuggestionsEnabled();
 }
 
 export async function runSmsReplySuggestionGeneration(

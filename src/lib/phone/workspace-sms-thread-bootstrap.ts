@@ -12,6 +12,7 @@ import { staffMayAccessSmsConversation } from "@/lib/phone/staff-sms-conversatio
 import { staffMayAccessWorkspaceSms } from "@/lib/phone/staff-phone-policy";
 import { canAccessWorkspacePhone, getStaffProfile, type StaffProfile } from "@/lib/staff-profile";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { smsReplyAiSuggestionsEnabled } from "@/lib/phone/sms-ai-suggestions-flag";
 import { SMS_OUTBOUND_FROM_EXPLICIT_KEY } from "@/lib/twilio/sms-from-numbers";
 
 const UUID_RE =
@@ -71,7 +72,7 @@ export async function loadWorkspaceSmsThreadBootstrap(
     return { ok: false, error: "Invalid conversation." };
   }
 
-  const smsAiSuggestionsEnabled = process.env.SMS_AI_SUGGESTIONS_DISABLED !== "1";
+  const smsAiSuggestionsEnabled = smsReplyAiSuggestionsEnabled();
   const supabase = await createServerSupabaseClient();
 
   const { data: conv, error: convErr } = await supabase

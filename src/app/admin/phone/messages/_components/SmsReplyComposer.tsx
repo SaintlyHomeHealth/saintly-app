@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { SmsTextFromBar } from "@/app/workspace/phone/inbox/_components/SmsTextFromBar";
+import { ENABLE_SMS_AI_SUGGESTIONS } from "@/lib/phone/sms-ai-suggestions-flag";
 
 import { recordSmsSuggestionShown, sendConversationSms, type SendConversationSmsResult } from "../actions";
 
@@ -77,6 +78,7 @@ export function SmsReplyComposer({
   }, [initialDraft, initialSuggestion, seedKey]);
 
   useEffect(() => {
+    if (!ENABLE_SMS_AI_SUGGESTIONS) return;
     if (!initialSuggestion || !suggestionForMessageId) return;
     if (shownRecordedForRef.current === suggestionForMessageId) return;
     shownRecordedForRef.current = suggestionForMessageId;
