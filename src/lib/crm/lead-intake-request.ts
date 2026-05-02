@@ -52,7 +52,7 @@ export function buildLeadIntakeRequestFromFieldMap(fieldMap: Map<string, string>
     service_needed: fv(fieldMap, ["service_needed", "service needed"]),
     care_for: fv(fieldMap, ["care_for", "care for"]),
     start_time: fv(fieldMap, ["start_time", "start time"]),
-    situation: fv(fieldMap, ["situation"]),
+    situation: fv(fieldMap, ["situation", "wound_type", "wound type"]),
   };
 }
 

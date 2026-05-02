@@ -15,6 +15,7 @@ export type LeadIntakeNotifyChannel =
   | "manual_crm"
   | "facebook"
   | "facebook_ads"
+  | "facebook_lead_ads"
   | "phone_workspace"
   | "voice_intake"
   | "employment_web"

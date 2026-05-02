@@ -735,19 +735,52 @@ export async function ingestFacebookLeadFromWebhookPayload(
 /** Public POST body for `/api/leads/facebook` (partner JSON integration). */
 export type FacebookPartnerStandardPayload = {
   name?: unknown;
+  full_name?: unknown;
   phone?: unknown;
   email?: unknown;
   zip?: unknown;
   notes?: unknown;
   medicare?: unknown;
+  has_medicare?: unknown;
   service?: unknown;
+  wound_type?: unknown;
+  care_for?: unknown;
+  form_name?: unknown;
   source?: unknown;
   campaign?: unknown;
 };
 
 function asNonEmptyTrimmedString(v: unknown): string {
-  if (typeof v !== "string") return "";
-  return v.trim();
+  if (v === null || v === undefined) return "";
+  if (typeof v === "string") return v.trim();
+  if (typeof v === "number" && Number.isFinite(v)) return String(v).trim();
+  return "";
+}
+
+/** Zapier may send phone as JSON number. */
+function partnerPayloadPhoneRaw(payload: FacebookPartnerStandardPayload): string {
+  const v = payload.phone;
+  if (v === null || v === undefined) return "";
+  if (typeof v === "number" && Number.isFinite(v)) return String(Math.trunc(v));
+  if (typeof v === "string") return v.trim();
+  return String(v).trim();
+}
+
+function partnerMedicareRaw(payload: FacebookPartnerStandardPayload): unknown {
+  if (payload.medicare !== null && payload.medicare !== undefined && String(payload.medicare).trim() !== "") {
+    return payload.medicare;
+  }
+  if (payload.has_medicare !== null && payload.has_medicare !== undefined && String(payload.has_medicare).trim() !== "") {
+    return payload.has_medicare;
+  }
+  return undefined;
+}
+
+function formatMedicareHumanLine(raw: unknown): string {
+  if (raw === null || raw === undefined) return "";
+  if (typeof raw === "boolean") return raw ? "Yes" : "No";
+  const s = String(raw).trim();
+  return s;
 }
 
 function buildPartnerStandardFieldMap(payload: FacebookPartnerStandardPayload): Map<string, string> {
@@ -762,7 +795,9 @@ function buildPartnerStandardFieldMap(payload: FacebookPartnerStandardPayload): 
           : "";
     if (s) m.set(k, s);
   };
-  const name = asNonEmptyTrimmedString(payload.name);
+  const name =
+    asNonEmptyTrimmedString(payload.full_name) ||
+    asNonEmptyTrimmedString(payload.name);
   if (name) {
     add("name", name);
     add("full_name", name);
@@ -773,12 +808,16 @@ function buildPartnerStandardFieldMap(payload: FacebookPartnerStandardPayload): 
   add("notes", payload.notes);
   add("service_needed", payload.service);
   add("service", payload.service);
-  if (payload.medicare !== null && payload.medicare !== undefined && String(payload.medicare).trim() !== "") {
-    add(
-      "medicare",
-      typeof payload.medicare === "boolean" ? (payload.medicare ? "yes" : "no") : String(payload.medicare)
-    );
+  const medicareRaw = partnerMedicareRaw(payload);
+  if (medicareRaw !== undefined && String(medicareRaw).trim() !== "") {
+    const line = typeof medicareRaw === "boolean" ? (medicareRaw ? "yes" : "no") : String(medicareRaw).trim();
+    add("medicare", line);
+    add("has_medicare", line);
   }
+  add("care_for", payload.care_for);
+  add("form_name", payload.form_name);
+  add("wound_type", payload.wound_type);
+  add("situation", payload.wound_type);
   add("referral_source", payload.source);
   add("source_tag", payload.source);
   add("campaign", payload.campaign);
@@ -788,9 +827,9 @@ function buildPartnerStandardFieldMap(payload: FacebookPartnerStandardPayload): 
 }
 
 /**
- * CRM insert for standardized Facebook partner JSON (landing page / server-to-server).
- * - `leads.source` = `facebook_ads`
- * - Phone stored as E.164 on `contacts.primary_phone`
+ * CRM insert for standardized Facebook partner JSON (Zapier / landing page / server-to-server).
+ * - `leads.source` = `facebook_lead_ads`; `leads.status` = `new_lead`
+ * - Phone stored as E.164 on `contacts.primary_phone` when provided; optional when name-only
  * - Same staff notifications + intro SMS path as other Facebook lead ingestion
  */
 export async function ingestFacebookPartnerStandardLead(
@@ -798,18 +837,22 @@ export async function ingestFacebookPartnerStandardLead(
   params: { payload: FacebookPartnerStandardPayload; rawBodyText: string }
 ): Promise<{ ok: true; leadId: string; contactId: string } | { ok: false; error: string }> {
   const { payload, rawBodyText } = params;
-  const rawPhone = asNonEmptyTrimmedString(payload.phone);
-  const nameRaw = asNonEmptyTrimmedString(payload.name);
-  if (!nameRaw) {
-    return { ok: false, error: "missing_name" };
-  }
-  if (!rawPhone) {
-    return { ok: false, error: "missing_phone" };
+  const rawPhone = partnerPayloadPhoneRaw(payload);
+  const nameRaw =
+    asNonEmptyTrimmedString(payload.full_name) ||
+    asNonEmptyTrimmedString(payload.name);
+
+  if (!nameRaw && !rawPhone) {
+    return { ok: false, error: "missing_name_or_phone" };
   }
 
-  const phoneE164 = normalizeDialInputToE164(rawPhone);
-  if (!phoneE164 || !isValidE164(phoneE164)) {
-    return { ok: false, error: "invalid_phone" };
+  let phoneE164: string | null = null;
+  if (rawPhone) {
+    const normalized = normalizeDialInputToE164(rawPhone);
+    if (!normalized || !isValidE164(normalized)) {
+      return { ok: false, error: "invalid_phone" };
+    }
+    phoneE164 = normalized;
   }
 
   const fieldMap = buildPartnerStandardFieldMap(payload);
@@ -829,17 +872,16 @@ export async function ingestFacebookPartnerStandardLead(
   const campaign = asNonEmptyTrimmedString(payload.campaign);
   const userNotes = asNonEmptyTrimmedString(payload.notes);
   const serviceLine = asNonEmptyTrimmedString(payload.service);
-  const medicareLine =
-    payload.medicare !== null && payload.medicare !== undefined && String(payload.medicare).trim() !== ""
-      ? typeof payload.medicare === "boolean"
-        ? payload.medicare
-          ? "Yes"
-          : "No"
-        : String(payload.medicare).trim()
-      : "";
+  const medicareLine = formatMedicareHumanLine(partnerMedicareRaw(payload));
+  const formNameLine = asNonEmptyTrimmedString(payload.form_name);
+  const woundLine = asNonEmptyTrimmedString(payload.wound_type);
+  const careForLine = asNonEmptyTrimmedString(payload.care_for);
 
   const leadNotesParts = [
-    "Facebook partner API lead.",
+    "Facebook Lead Ads (Zapier / partner webhook).",
+    formNameLine ? `Form name: ${formNameLine}` : null,
+    woundLine ? `Wound type: ${woundLine}` : null,
+    careForLine ? `Care for: ${careForLine}` : null,
     userNotes ? `Notes: ${userNotes}` : null,
     serviceLine ? `Service: ${serviceLine}` : null,
     campaign ? `Campaign: ${campaign}` : null,
@@ -850,7 +892,7 @@ export async function ingestFacebookPartnerStandardLead(
   const leadNotes = leadNotesParts.join("\n\n").slice(0, 8000) || null;
 
   const ingestionReceivedAt = new Date().toISOString();
-  const contactIntro = `Submitted via Facebook partner API (${ingestionReceivedAt}).`;
+  const contactIntro = `Submitted via Facebook Lead Ads webhook (${ingestionReceivedAt}).`;
   const contactNotes = [contactIntro, leadNotes].filter(Boolean).join("\n\n").slice(0, 8000);
 
   const { data: contactRow, error: cErr } = await supabase
@@ -875,7 +917,7 @@ export async function ingestFacebookPartnerStandardLead(
   const contactId = String(contactRow.id);
 
   const externalMeta = {
-    source: "facebook_ads" as const,
+    source: "facebook_lead_ads" as const,
     ingestion_channel: "partner_api" as const,
     partner_source: referral_from_field || null,
     partner_campaign: campaign || null,
@@ -889,8 +931,8 @@ export async function ingestFacebookPartnerStandardLead(
     .from("leads")
     .insert({
       contact_id: contactId,
-      source: "facebook_ads",
-      status: "new",
+      source: "facebook_lead_ads",
+      status: "new_lead",
       owner_user_id: null,
       external_source_id: null,
       external_source_metadata: externalMeta,
@@ -916,7 +958,7 @@ export async function ingestFacebookPartnerStandardLead(
     lead_id: leadId,
     event_type: LEAD_ACTIVITY_EVENT.facebook_lead_submitted,
     body: "Facebook Lead Submitted",
-    metadata: { channel: "facebook_ads_partner_api" },
+    metadata: { channel: "facebook_lead_ads_zapier" },
     created_by_user_id: null,
     deletable: false,
   });
@@ -932,7 +974,7 @@ export async function ingestFacebookPartnerStandardLead(
   await handleNewLeadCreated(supabase, {
     leadId,
     contactId,
-    intakeChannel: "facebook_ads",
+    intakeChannel: "facebook_lead_ads",
   });
 
   await runFacebookLeadIntroSmsAfterInsert(supabase, {

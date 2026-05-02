@@ -9,6 +9,7 @@ export const LEAD_SOURCE_OPTIONS = [
   { value: "hospital", label: "Hospital" },
   { value: "facebook", label: "Facebook" },
   { value: "facebook_ads", label: "Facebook ads (API)" },
+  { value: "facebook_lead_ads", label: "Facebook Lead Ads (Zapier)" },
   { value: "google", label: "Google" },
   { value: "other", label: "Other" },
 ] as const;

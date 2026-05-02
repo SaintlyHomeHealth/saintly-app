@@ -7,7 +7,6 @@ import {
   ingestFacebookPartnerStandardLead,
   type FacebookPartnerStandardPayload,
 } from "@/lib/facebook/facebook-lead-ingestion";
-import { isValidE164, normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -19,22 +18,52 @@ function secretsEqual(received: string, expected: string): boolean {
   return timingSafeEqual(a, b);
 }
 
-/** Accept string or JSON number (e.g. 9167963306) before E.164 normalization. */
-function coerceWebhookPhoneRaw(value: unknown): string {
-  if (value === null || value === undefined) return "";
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return String(Math.trunc(value));
+/** Lowercase keys; spaces → underscores so `full name`, `full_name`, `Full Name` align. */
+function canonicalFieldKey(k: string): string {
+  return k.trim().toLowerCase().replace(/\s+/g, "_");
+}
+
+function normalizeIncomingRecord(raw: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(raw)) {
+    out[canonicalFieldKey(k)] = v;
   }
-  if (typeof value === "string") return value.trim();
-  return String(value).trim();
+  return out;
+}
+
+function pickScalarString(norm: Record<string, unknown>, aliases: string[]): string {
+  for (const a of aliases) {
+    const ck = canonicalFieldKey(a);
+    const v = norm[ck];
+    if (v === null || v === undefined) continue;
+    if (typeof v === "string") {
+      const t = v.trim();
+      if (t) return t;
+    }
+    if (typeof v === "number" && Number.isFinite(v)) {
+      const t = String(v).trim();
+      if (t) return t;
+    }
+  }
+  return "";
+}
+
+function pickOptionalUnknown(norm: Record<string, unknown>, aliases: string[]): unknown {
+  for (const a of aliases) {
+    const ck = canonicalFieldKey(a);
+    if (Object.prototype.hasOwnProperty.call(norm, ck) && norm[ck] !== undefined) {
+      return norm[ck];
+    }
+  }
+  return undefined;
 }
 
 /**
- * Standardized Facebook partner JSON → CRM (same pipeline as Meta/Zapier ingestion: staff push + SMS intro + inbox).
+ * Zapier / Facebook Lead Ads → CRM (`ingestFacebookPartnerStandardLead`).
  *
- * - POST JSON: `name`, `phone`, `email`, `zip`, `notes`, `medicare`, `service`, `source`, `campaign` (extras ignored).
- * - Auth: header `x-webhook-secret` must match env `FACEBOOK_LEADS_WEBHOOK_SECRET` (same as `/api/integrations/facebook-leads`).
- * - `leads.source` = `facebook_ads`; intro SMS creates the thread with `conversations.lead_status` = `new`.
+ * - POST JSON with flexible field names (case/spacing/underscores normalized).
+ * - Auth: header `x-webhook-secret` must match env `FACEBOOK_LEADS_WEBHOOK_SECRET`.
+ * - `leads.source` = `facebook_lead_ads`; `leads.status` = `new_lead`.
  */
 export async function POST(req: NextRequest) {
   const envRaw = process.env.FACEBOOK_LEADS_WEBHOOK_SECRET;
@@ -56,27 +85,68 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "invalid_body" } as const, { status: 400 });
   }
 
-  let body: FacebookPartnerStandardPayload;
+  let parsed: unknown;
   try {
-    body = JSON.parse(rawBodyText) as FacebookPartnerStandardPayload;
+    parsed = JSON.parse(rawBodyText);
   } catch {
     return NextResponse.json({ ok: false, error: "invalid_json" } as const, { status: 400 });
   }
 
-  const rawPhoneForNormalize = coerceWebhookPhoneRaw(body.phone);
-  const phoneE164 = normalizeDialInputToE164(rawPhoneForNormalize);
-  // Temporary diagnostics — remove after partner launch validation.
-  console.log("[api/leads/facebook] phone_normalize", {
-    raw_phone: rawPhoneForNormalize,
-    normalized_e164: phoneE164,
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return NextResponse.json({ ok: false, error: "invalid_body" } as const, { status: 400 });
+  }
+
+  const body = parsed as Record<string, unknown>;
+  console.log("Incoming payload:", body);
+
+  const norm = normalizeIncomingRecord(body);
+
+  const fullName = pickScalarString(norm, ["full_name", "full name", "name", "Name"]);
+  const phone = pickScalarString(norm, ["phone", "Phone", "phone_number", "phone number", "mobile"]);
+  const email = pickScalarString(norm, ["email", "Email"]);
+  const formName = pickScalarString(norm, ["form_name", "form name", "Form name"]);
+  const hasMedicareRaw = pickOptionalUnknown(norm, ["has_medicare", "Has_Medicare", "has medicare"]);
+  const woundType = pickScalarString(norm, ["wound_type", "Wound_Type", "wound type"]);
+  const careFor = pickScalarString(norm, ["care_for", "Care_For", "care for"]);
+  const zip = pickScalarString(norm, ["zip", "zip_code", "zip code", "postal_code", "postal code"]);
+  const notes = pickScalarString(norm, ["notes", "note", "message"]);
+  const service = pickScalarString(norm, ["service", "service_needed", "service needed"]);
+  const campaign = pickScalarString(norm, ["campaign", "utm_campaign"]);
+  const attributionSource = pickScalarString(norm, ["source", "utm_source", "referral_source"]);
+
+  console.log("Normalized lead:", {
+    fullName,
+    phone,
+    email,
+    formName,
+    hasMedicare: hasMedicareRaw,
+    woundType,
+    careFor,
+    zip,
+    notes,
+    service,
+    campaign,
+    attributionSource,
   });
 
-  const phoneForIngest =
-    phoneE164 && isValidE164(phoneE164) ? phoneE164 : rawPhoneForNormalize;
+  if (!fullName.trim() && !phone.trim()) {
+    return NextResponse.json({ ok: false, error: "missing_name_or_phone" } as const, { status: 400 });
+  }
 
   const payloadForIngest: FacebookPartnerStandardPayload = {
-    ...body,
-    phone: phoneForIngest,
+    full_name: fullName || undefined,
+    name: fullName || undefined,
+    phone: phone || undefined,
+    email: email || undefined,
+    form_name: formName || undefined,
+    has_medicare: hasMedicareRaw,
+    wound_type: woundType || undefined,
+    care_for: careFor || undefined,
+    zip: zip || undefined,
+    notes: notes || undefined,
+    service: service || undefined,
+    campaign: campaign || undefined,
+    source: attributionSource || undefined,
   };
 
   try {
@@ -93,8 +163,8 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       ok: true,
-      leadId: result.leadId,
-      contactId: result.contactId,
+      lead_id: result.leadId,
+      contact_id: result.contactId,
     } as const);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

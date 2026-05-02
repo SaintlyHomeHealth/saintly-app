@@ -4,6 +4,8 @@
  */
 export const LEAD_PIPELINE_STATUS_OPTIONS = [
   { value: "new", label: "New" },
+  /** Facebook Lead Ads Zapier webhook (`/api/leads/facebook`). */
+  { value: "new_lead", label: "New lead" },
   { value: "new_applicant", label: "New applicant" },
   { value: "attempted_contact", label: "Attempting contact" },
   { value: "spoke", label: "Spoke" },
