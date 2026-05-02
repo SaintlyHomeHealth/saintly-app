@@ -50,7 +50,39 @@ export type TwilioMessageMediaRestPage = {
   media_list?: TwilioMessageMediaRestItem[];
 };
 
-/** List MMS media URIs via Twilio REST (backfill path when webhook lacked NumMedia rows). */
+/**
+ * Normalize Twilio “list Media” JSON (keys vary across API versions) to downloadable absolute URLs.
+ */
+export function absoluteTwilioMediaDownloadUrlsFromListPayload(jUnknown: unknown): string[] {
+  const record =
+    jUnknown && typeof jUnknown === "object" && !Array.isArray(jUnknown)
+      ? (jUnknown as Record<string, unknown>)
+      : {};
+
+  let rawList: TwilioMessageMediaRestItem[] = [];
+  for (const key of ["media_list", "media", "Media", "resources", "contents"] as const) {
+    const v = record[key];
+    if (Array.isArray(v) && v.length > 0) {
+      rawList = v as TwilioMessageMediaRestItem[];
+      break;
+    }
+  }
+
+  const out: string[] = [];
+  for (const row of rawList) {
+    if (!row || typeof row !== "object") continue;
+    const u = typeof row.uri === "string" ? row.uri.trim() : "";
+    if (!u) continue;
+    const trimmed = u.replace(/\.json(\?.*)?$/i, "");
+    const absolute = trimmed.startsWith("http")
+      ? trimmed
+      : `https://api.twilio.com${trimmed.startsWith("/") ? trimmed : `/${trimmed}`}`;
+    out.push(absolute);
+  }
+  return out;
+}
+
+/** Lists MMS media URIs via Twilio REST (webhook/backfill fallback). */
 export async function fetchTwilioMessageMediaUriListViaRest(
   messageSid: string
 ): Promise<
@@ -72,27 +104,13 @@ export async function fetchTwilioMessageMediaUriListViaRest(
     });
     const j = (await res.json().catch(() => null)) as TwilioMessageMediaRestPage | null;
     if (!res.ok) {
-      return { ok: false, error: `Twilio list media HTTP ${res.status}` };
+      return {
+        ok: false,
+        error: `Twilio list media HTTP ${res.status}`,
+      };
     }
-    const record = j && typeof j === "object" && !Array.isArray(j) ? (j as Record<string, unknown>) : {};
-    const rawList =
-      Array.isArray(record.media_list)
-        ? (record.media_list as TwilioMessageMediaRestItem[])
-        : Array.isArray(record.contents)
-          ? (record.contents as TwilioMessageMediaRestItem[])
-          : [];
-    const list = rawList ?? [];
-    const out: string[] = [];
-    for (const row of list) {
-      const u = typeof row.uri === "string" ? row.uri.trim() : "";
-      if (!u) continue;
-      const trimmed = u.replace(/\.json(\?.*)?$/i, "");
-      const absolute = trimmed.startsWith("http")
-        ? trimmed
-        : `https://api.twilio.com${trimmed.startsWith("/") ? trimmed : `/${trimmed}`}`;
-      out.push(absolute);
-    }
-    return { ok: true, mediaUrlsAbsolute: out };
+    const urls = absoluteTwilioMediaDownloadUrlsFromListPayload(j);
+    return { ok: true, mediaUrlsAbsolute: urls };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }

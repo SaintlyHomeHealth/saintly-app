@@ -3,7 +3,7 @@
  * empty body and no attachments yet (older webhook behavior).
  *
  * Usage:
- *   npx tsx scripts/backfill-twilio-inbound-mms.ts [--days=14] [--limit=250]
+ *   npx tsx scripts/backfill-twilio-inbound-mms.ts [--days=14] [--limit=250] [--verbose]
  */
 
 import { randomUUID } from "node:crypto";
@@ -11,6 +11,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { createClient } from "@supabase/supabase-js";
+
+import { absoluteTwilioMediaDownloadUrlsFromListPayload } from "../src/lib/phone/twilio-media-fetch";
 
 const BUCKET = "phone-message-media";
 const DOWNLOAD_MAX_BYTES = 20 * 1024 * 1024;
@@ -39,11 +41,17 @@ function parseArg(name: string, def: number): number {
   return Number.isFinite(n) && n > 0 ? n : def;
 }
 
+function parseFlag(name: string): boolean {
+  return process.argv.includes(name) || process.argv.some((a) => a.startsWith(`${name}=`));
+}
+
 function sanitizeFileName(base: string): string {
   return base.replace(/[^\w.\-]+/g, "_").slice(0, 180) || "file";
 }
 
-async function listTwilioMessageMediaUrls(messageSid: string): Promise<{ ok: true; urls: string[] } | { ok: false; error: string }> {
+async function listTwilioMessageMediaUrls(
+  messageSid: string
+): Promise<{ ok: true; urls: string[] } | { ok: false; error: string }> {
   const sid = process.env.TWILIO_ACCOUNT_SID?.trim();
   const token = process.env.TWILIO_AUTH_TOKEN?.trim();
   if (!sid || !token) {
@@ -59,25 +67,14 @@ async function listTwilioMessageMediaUrls(messageSid: string): Promise<{ ok: tru
     });
     const jUnknown: unknown = await res.json().catch(() => null);
     if (!res.ok) {
-      return { ok: false, error: `list Media HTTP ${res.status}` };
+      let detail = "";
+      if (typeof jUnknown === "object" && jUnknown && "message" in jUnknown) {
+        const msg = (jUnknown as Record<string, unknown>).message;
+        detail = typeof msg === "string" ? ` ${msg.slice(0, 120)}` : "";
+      }
+      return { ok: false, error: `list Media HTTP ${res.status}${detail}` };
     }
-    const record = jUnknown && typeof jUnknown === "object" && !Array.isArray(jUnknown) ? (jUnknown as Record<string, unknown>) : {};
-    const rawList =
-      Array.isArray(record.media_list)
-        ? (record.media_list as { uri?: unknown }[])
-        : Array.isArray(record.contents)
-          ? (record.contents as { uri?: unknown }[])
-          : [];
-    const urls: string[] = [];
-    for (const row of rawList ?? []) {
-      const u = typeof row.uri === "string" ? row.uri.trim() : "";
-      if (!u) continue;
-      const trimmed = u.replace(/\.json(\?.*)?$/i, "");
-      const absolute = trimmed.startsWith("http")
-        ? trimmed
-        : `https://api.twilio.com${trimmed.startsWith("/") ? trimmed : `/${trimmed}`}`;
-      urls.push(absolute);
-    }
+    const urls = absoluteTwilioMediaDownloadUrlsFromListPayload(jUnknown);
     return { ok: true, urls };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
@@ -121,6 +118,7 @@ async function main() {
 
   const days = parseArg("--days", 14);
   const rowLimit = parseArg("--limit", 250);
+  const verbose = parseFlag("--verbose");
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
@@ -131,6 +129,16 @@ async function main() {
 
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
   const supabase = createClient(url, key, { auth: { persistSession: false } });
+
+  let tableProbe = "";
+  const probe = await supabase.from("phone_message_attachments").select("id", { head: true, count: "exact" });
+  if (probe.error) {
+    tableProbe =
+      probe.error.message.includes("does not exist") || probe.error.code === "42P01"
+        ? 'Table "phone_message_attachments" missing — apply migration 20260501142000_phone_message_attachments.sql'
+        : probe.error.message;
+    console.warn("[backfill-mms] table_probe:", probe.error.code ?? "", probe.error.message);
+  }
 
   const { data: rows, error } = await supabase
     .from("messages")
@@ -147,24 +155,49 @@ async function main() {
     process.exit(1);
   }
 
-  const smsLike = rows.filter((r) => {
-    const body = typeof r.body === "string" ? r.body.trim() : "";
-    const sidRaw = typeof r.external_message_sid === "string" ? r.external_message_sid.trim() : "";
-    if (!sidRaw || body !== "") return false;
-    return sidRaw.startsWith("SM") || sidRaw.startsWith("MM");
-  });
-
+  const skips: Record<string, number> = {};
   let processedMessages = 0;
   let ingestedParts = 0;
 
+  const smsLike = rows.filter((r) => {
+    const body = typeof r.body === "string" ? r.body.trim() : "";
+    const sidRaw =
+      typeof r.external_message_sid === "string" ? r.external_message_sid.trim() : "";
+    if (!sidRaw) return false;
+    if (body !== "") return false;
+    return sidRaw.startsWith("SM") || sidRaw.startsWith("MM");
+  });
+
+  if (verbose) {
+    console.info("[backfill-mms] candidate_snapshot", {
+      loadedRows: rows.length,
+      emptyBodyInboundSmsMmsCandidates: smsLike.length,
+      rowCap: rowLimit,
+    });
+  }
+
   const candidates = smsLike.slice(0, rowLimit);
 
-  for (const row of candidates) {
-    const messageId = typeof row.id === "string" ? row.id : "";
-    const conversationId = typeof row.conversation_id === "string" ? row.conversation_id : "";
+  function bump(skip: string, detail: Record<string, unknown>): void {
+    skips[skip] = (skips[skip] ?? 0) + 1;
+    if (verbose) console.info("[backfill-mms] skip:", skip, detail);
+  }
+
+  for (const r of candidates) {
+    const body = typeof r.body === "string" ? r.body.trim() : "";
     const messageSid =
-      typeof row.external_message_sid === "string" ? row.external_message_sid.trim() : "";
-    if (!messageId || !conversationId || !messageSid) continue;
+      typeof r.external_message_sid === "string" ? r.external_message_sid.trim() : "";
+    const messageId = typeof r.id === "string" ? r.id : "";
+    const conversationId = typeof r.conversation_id === "string" ? r.conversation_id : "";
+
+    if (!messageId || !conversationId || !messageSid) {
+      bump("missing_ids", {
+        rowId: r.id,
+        conversation_id: r.conversation_id,
+        external_message_sid: r.external_message_sid,
+      });
+      continue;
+    }
 
     const { count, error: cErr } = await supabase
       .from("phone_message_attachments")
@@ -172,12 +205,42 @@ async function main() {
       .eq("message_id", messageId);
 
     if (cErr) {
-      console.warn("[backfill-mms] count attachments:", messageId, cErr.message);
+      bump("attachment_count_query_failed", {
+        messageId,
+        external_message_sid: messageSid,
+        bodyLen: body.length,
+        err: cErr.message,
+        code: cErr.code,
+      });
+      continue;
     }
-    if ((count ?? 0) > 0) continue;
+    if ((count ?? 0) > 0) {
+      bump("already_has_attachments", {
+        messageId,
+        external_message_sid: messageSid,
+        bodyLen: body.length,
+      });
+      continue;
+    }
 
     const listed = await listTwilioMessageMediaUrls(messageSid);
-    if (!listed.ok || listed.urls.length === 0) {
+    if (!listed.ok) {
+      bump("twilio_list_failed", {
+        messageId,
+        external_message_sid: messageSid,
+        bodyLen: body.length,
+        detail: listed.error,
+      });
+      console.warn("[backfill-mms] twilio_list_failed", messageSid, listed.error);
+      continue;
+    }
+    if (listed.urls.length === 0) {
+      bump("twilio_list_empty_maybe_expired", {
+        messageId,
+        external_message_sid: messageSid,
+        bodyLen: body.length,
+      });
+      console.warn("[backfill-mms] twilio_media_empty_after_list_ok", messageSid);
       continue;
     }
 
@@ -196,7 +259,8 @@ async function main() {
         continue;
       }
       const normCt =
-        (dl.ct || "application/octet-stream").split(";")[0]!.trim().toLowerCase() || "application/octet-stream";
+        (dl.ct || "application/octet-stream").split(";")[0]!.trim().toLowerCase() ||
+        "application/octet-stream";
       const suffix = sanitizeFileName(`mms-${messageSid.slice(-8)}-${i}`);
       const fileName =
         normCt.includes("pdf") ? `${suffix}.pdf` : normCt.includes("webp") ? `${suffix}.webp` : `${suffix}.jpg`;
@@ -239,9 +303,11 @@ async function main() {
   console.log("[backfill-mms] complete", {
     days,
     rowLimit,
-    candidateMessagesSeen: candidates.length,
+    ...(tableProbe ? { migrationHint: tableProbe } : {}),
     messagesHydratedFromTwilio: processedMessages,
     mediaPartsInserted: ingestedParts,
+    skipReasonCounts: skips,
+    candidateInboundRowsExamined: candidates.length,
   });
 }
 

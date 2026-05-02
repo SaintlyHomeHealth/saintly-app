@@ -11,7 +11,13 @@ export function mapNestedPhoneAttachmentsFromRpcRow(raw: unknown): WorkspaceSmsT
     if (!id) continue;
     const ct = typeof o.content_type === "string" ? o.content_type.trim() : null;
     const fn = typeof o.file_name === "string" ? o.file_name.trim() : null;
-    const idx = typeof o.provider_media_index === "number" ? o.provider_media_index : null;
+    const idxRaw = o.provider_media_index;
+    const idx =
+      typeof idxRaw === "number" && Number.isFinite(idxRaw)
+        ? idxRaw
+        : typeof idxRaw === "string" && /^\d+$/.test(idxRaw.trim())
+          ? Number.parseInt(idxRaw.trim(), 10)
+          : null;
     out.push({
       id,
       content_type: ct ?? null,

@@ -274,7 +274,7 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
         supabase
           .from("messages")
           .select(
-            "id, created_at, direction, body, viewed_at, metadata, phone_call_id, message_type, phone_message_attachments ( id, content_type, file_name, provider_media_index )"
+            "id, created_at, direction, body, viewed_at, metadata, phone_call_id, message_type, external_message_sid, phone_message_attachments ( id, content_type, file_name, provider_media_index )"
           )
           .eq("conversation_id", conversationId)
           .is("deleted_at", null)
@@ -284,7 +284,7 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
     : await supabase
         .from("messages")
         .select(
-          "id, created_at, direction, body, viewed_at, metadata, phone_call_id, message_type, phone_message_attachments ( id, content_type, file_name, provider_media_index )"
+          "id, created_at, direction, body, viewed_at, metadata, phone_call_id, message_type, external_message_sid, phone_message_attachments ( id, content_type, file_name, provider_media_index )"
         )
         .eq("conversation_id", conversationId)
         .is("deleted_at", null)
@@ -389,6 +389,28 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
   const lastMessageDirection =
     lastMsg && typeof lastMsg.direction === "string" ? lastMsg.direction.trim().toLowerCase() : null;
   const hasUnviewedInbound = unreadInboundCount > 0;
+
+  const recentMmsHydrationForDebug = showSmsThreadDebug
+    ? messages.slice(-40).map((raw) => {
+        const rr = raw as {
+          id: unknown;
+          body?: unknown;
+          external_message_sid?: unknown;
+          phone_message_attachments?: unknown;
+        };
+        const atRaw = rr.phone_message_attachments;
+        const bodyTrim = typeof rr.body === "string" ? rr.body.trim() : "";
+        return {
+          messageId: String(rr.id ?? ""),
+          externalMessageSid:
+            typeof rr.external_message_sid === "string" && rr.external_message_sid.trim()
+              ? rr.external_message_sid.trim()
+              : null,
+          bodyLen: bodyTrim.length,
+          attachmentCount: Array.isArray(atRaw) ? atRaw.length : 0,
+        };
+      })
+    : undefined;
 
   const draftRaw = typeof sp.draft === "string" ? sp.draft : Array.isArray(sp.draft) ? sp.draft[0] : "";
   const composerInitialDraft =
@@ -638,6 +660,7 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
         smsPreferredFromExplicit={workspacePreferredFromExplicit}
         smsInboundToE164={lastInboundBusinessLineE164}
         smsLeadInsuranceTargetId={linkedLeadIdForMmsSave}
+        smsThreadMmsDiag={showSmsThreadDebug}
       />
     );
 
@@ -692,6 +715,7 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
                   unreadInboundCount={unreadInboundCount}
                   lastMessageDirection={lastMessageDirection}
                   hasUnviewedInbound={hasUnviewedInbound}
+                  recentMmsHydration={recentMmsHydrationForDebug}
                 />
               </div>
             ) : null}
@@ -804,6 +828,7 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
           unreadInboundCount={unreadInboundCount}
           lastMessageDirection={lastMessageDirection}
           hasUnviewedInbound={hasUnviewedInbound}
+          recentMmsHydration={recentMmsHydrationForDebug}
         />
       ) : null}
 

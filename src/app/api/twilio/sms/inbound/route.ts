@@ -48,12 +48,17 @@ export async function POST(req: NextRequest) {
     const to = (p.To ?? "").trim();
     const body = typeof p.Body === "string" ? p.Body : "";
 
+    const numRaw = typeof p.NumMedia === "string" ? p.NumMedia.trim() : "";
+    const nm = Number.parseInt(numRaw || "0", 10);
+
     console.log("[sms-inbound] parsed_inbound_fields", {
       route,
       messageSid: messageSid || "(missing)",
       from: from || "(missing)",
       to: to || "(missing)",
       bodyLen: body.length,
+      numMedia: Number.isFinite(nm) ? nm : null,
+      hasAnyMediaUrl0: typeof p.MediaUrl0 === "string" && Boolean(p.MediaUrl0.trim()),
       hasAccountSid: Boolean(p.AccountSid),
       hasSmsSid: Boolean(p.SmsSid),
       hasMessageSid: Boolean(p.MessageSid),

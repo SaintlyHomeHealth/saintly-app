@@ -78,6 +78,9 @@ function parseRealtimeMessage(row: unknown): ThreadMessage | null {
     message_type,
     phone_call_id,
     fax: readWorkspaceSmsThreadFax(r.metadata),
+    attachments: mapNestedPhoneAttachmentsFromRpcRow(
+      (r as { phone_message_attachments?: unknown }).phone_message_attachments
+    ),
     outbound_status_raw: raw,
   };
 }
@@ -110,9 +113,11 @@ const ThreadMessageRow = memo(
   function ThreadMessageRow({
     message: m,
     smsLeadInsuranceTargetId,
+    smsThreadMmsDiag,
   }: {
     message: ThreadMessage;
     smsLeadInsuranceTargetId: string | null;
+    smsThreadMmsDiag: boolean;
   }) {
     const inbound = String(m.direction).toLowerCase() === "inbound";
     const isPending = m.id.startsWith("optimistic-");
@@ -128,7 +133,14 @@ const ThreadMessageRow = memo(
     const bodyTrim = normalizeBodyForMatch(m.body ?? null);
     const attachmentsList = Array.isArray(m.attachments) ? m.attachments : [];
     const showAttachments = attachmentsList.length > 0;
-    const showBubble = bodyTrim !== "" || showAttachments || isFax;
+    const showUnavailableInboundMms =
+      smsThreadMmsDiag &&
+      inbound &&
+      !isPending &&
+      bodyTrim === "" &&
+      !showAttachments &&
+      !isFax;
+    const showBubble = bodyTrim !== "" || showAttachments || isFax || showUnavailableInboundMms;
 
     return (
       <div
@@ -146,6 +158,13 @@ const ThreadMessageRow = memo(
         >
           {bodyTrim !== "" ? (
           <p className="whitespace-pre-wrap break-words">{bodyTrim}</p>
+          ) : null}
+          {showUnavailableInboundMms ? (
+            <p className="text-xs font-semibold leading-snug text-amber-900">
+              Attachment unavailable (
+              <span className="font-mono">{m.id.slice(0, 8)}</span>). Check rows in Supabase
+              (`phone_message_attachments`) or run MMS backfill; Twilio-hosted media expires.
+            </p>
           ) : null}
           {showAttachments ? (
             <SmsMessageMediaAttachments
@@ -195,7 +214,8 @@ const ThreadMessageRow = memo(
     (prev.message.fax?.media_url ?? null) === (next.message.fax?.media_url ?? null) &&
     (prev.message.outbound_status_raw ?? null) === (next.message.outbound_status_raw ?? null) &&
     attachmentSignature(prev.message.attachments) === attachmentSignature(next.message.attachments) &&
-    (prev.smsLeadInsuranceTargetId ?? null) === (next.smsLeadInsuranceTargetId ?? null)
+    (prev.smsLeadInsuranceTargetId ?? null) === (next.smsLeadInsuranceTargetId ?? null) &&
+    prev.smsThreadMmsDiag === next.smsThreadMmsDiag
 );
 
 type Props = {
@@ -218,6 +238,8 @@ type Props = {
   appDesktopSplit?: boolean;
   /** Linked CRM lead (when any) for “save MMS to insurance card” actions on inbound media. */
   smsLeadInsuranceTargetId?: string | null;
+  /** When true (SMS_THREAD_DEBUG), show MMS hydration hints + stale empty MMS warnings + console diagnostics. */
+  smsThreadMmsDiag?: boolean;
 };
 
 const WorkspaceSmsThreadViewInner = memo(function WorkspaceSmsThreadViewInner({
@@ -233,6 +255,7 @@ const WorkspaceSmsThreadViewInner = memo(function WorkspaceSmsThreadViewInner({
   threadTopSlot,
   appDesktopSplit = false,
   smsLeadInsuranceTargetId = null,
+  smsThreadMmsDiag = false,
 }: Props) {
   routePerfRenderCount("SmsThreadView");
   const [sendError, setSendError] = useState<string | null>(null);
@@ -251,6 +274,7 @@ const WorkspaceSmsThreadViewInner = memo(function WorkspaceSmsThreadViewInner({
   const supabaseRef = useRef<ReturnType<typeof createBrowserSupabaseClient> | null>(null);
   const visibilityFetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latestFetchInFlightRef = useRef<Promise<boolean> | null>(null);
+  const mmsHydrationKickIdsRef = useRef<Set<string>>(new Set());
 
   const visibleBase = useMemo(() => serverMessages.slice(windowStart), [serverMessages, windowStart]);
   const merged = useMemo(() => [...visibleBase, ...optimistic], [visibleBase, optimistic]);
@@ -419,6 +443,24 @@ const WorkspaceSmsThreadViewInner = memo(function WorkspaceSmsThreadViewInner({
   }, [applyIncomingRows, conversationId]);
 
   useEffect(() => {
+    mmsHydrationKickIdsRef.current.clear();
+  }, [conversationId]);
+
+  useEffect(() => {
+    if (!smsThreadMmsDiag || typeof window === "undefined") return;
+    const h = window.setTimeout(() => {
+      const recent = [...serverMessages].slice(-45).map((m) => ({
+        message_id: m.id,
+        direction: m.direction,
+        body_len: normalizeBodyForMatch(m.body ?? null).length,
+        attachment_count: Array.isArray(m.attachments) ? m.attachments.length : 0,
+      }));
+      console.info("[sms-mms-thread-debug]", { conversationId, recent });
+    }, 560);
+    return () => window.clearTimeout(h);
+  }, [conversationId, serverMessages, smsThreadMmsDiag]);
+
+  useEffect(() => {
     nearBottomRef.current = true;
     requestAnimationFrame(() => {
       const el = scrollRef.current;
@@ -458,6 +500,17 @@ const WorkspaceSmsThreadViewInner = memo(function WorkspaceSmsThreadViewInner({
           const row = parseRealtimeMessage(payload.new);
           if (!row || !row.id) return;
           applyIncomingRows([row], { scroll: "auto-if-following" });
+          const inboundEmpty =
+            String(row.direction).toLowerCase() === "inbound" &&
+            normalizeBodyForMatch(row.body) === "";
+          if (inboundEmpty && !row.id.startsWith("optimistic-")) {
+            const idSet = mmsHydrationKickIdsRef.current;
+            if (!idSet.has(row.id)) {
+              idSet.add(row.id);
+              window.setTimeout(() => void fetchLatestMessages(), 650);
+              window.setTimeout(() => void fetchLatestMessages(), 2900);
+            }
+          }
         }
       )
       .on(
@@ -492,12 +545,19 @@ const WorkspaceSmsThreadViewInner = memo(function WorkspaceSmsThreadViewInner({
         },
         (payload) => {
           const r = payload.new as Record<string, unknown> | null;
-          const aid = typeof r?.id === "string" ? r.id.trim() : "";
-          const mid = typeof r?.message_id === "string" ? r.message_id.trim() : "";
+          if (!r) return;
+          const aid = typeof r.id === "string" ? r.id.trim() : "";
+          const mid = typeof r.message_id === "string" ? r.message_id.trim() : "";
           if (!aid || !mid) return;
           const ct = typeof r.content_type === "string" ? r.content_type.trim() : null;
           const fn = typeof r.file_name === "string" ? r.file_name.trim() : null;
-          const imx = typeof r.provider_media_index === "number" ? r.provider_media_index : null;
+          const imxRaw = r.provider_media_index;
+          const imx =
+            typeof imxRaw === "number" && Number.isFinite(imxRaw)
+              ? imxRaw
+              : typeof imxRaw === "string" && /^\d+$/.test(imxRaw.trim())
+                ? Number.parseInt(imxRaw.trim(), 10)
+                : null;
           const attRow: WorkspaceSmsThreadAttachment = {
             id: aid,
             content_type: ct ?? null,
@@ -660,7 +720,14 @@ const WorkspaceSmsThreadViewInner = memo(function WorkspaceSmsThreadViewInner({
                     />
                   );
                 }
-                return <ThreadMessageRow key={m.id} message={m} smsLeadInsuranceTargetId={smsLeadInsuranceTargetId} />;
+                return (
+                  <ThreadMessageRow
+                    key={m.id}
+                    message={m}
+                    smsLeadInsuranceTargetId={smsLeadInsuranceTargetId}
+                    smsThreadMmsDiag={smsThreadMmsDiag}
+                  />
+                );
               })
             )}
             <div className="h-px w-full shrink-0" aria-hidden />
