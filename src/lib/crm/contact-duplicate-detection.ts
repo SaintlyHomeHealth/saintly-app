@@ -1,3 +1,7 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+import { contactRowsActiveOnly } from "@/lib/crm/contacts-active";
+import { escapeForIlike } from "@/lib/crm/crm-leads-search";
 import { normalizePhone } from "@/lib/phone/us-phone-format";
 
 export type ContactDuplicateLite = {
@@ -72,9 +76,67 @@ export type DuplicateCandidate = {
   matchedBy: DuplicateMatchReason[];
 };
 
+const DUPLICATE_POOL_SELECT = "id, primary_phone, email, full_name, organization_name";
+
+/**
+ * Loads only contacts that might match **primary phone digits** or **email** (case-insensitive),
+ * instead of scanning thousands of unrelated rows. `findDuplicateCandidatesForContact` still
+ * applies strict normalized equality so conservative matching is preserved.
+ */
+export async function fetchContactDuplicateMatchPool(
+  supabase: SupabaseClient,
+  excludeContactId: string,
+  row: ContactDuplicateLite
+): Promise<ContactDuplicateLite[]> {
+  const curP = normalizeContactPrimaryPhoneForDedupe(row.primary_phone);
+  const curE = normalizeContactEmailForDedupe(row.email);
+  if (!curP && !curE) return [];
+
+  const byId = new Map<string, ContactDuplicateLite>();
+
+  const ingest = (rows: ContactDuplicateLite[] | null | undefined) => {
+    for (const r of rows ?? []) {
+      if (!r?.id || r.id === excludeContactId) continue;
+      byId.set(r.id, r);
+    }
+  };
+
+  const tasks: Promise<{ data: unknown }>[] = [];
+
+  if (curE) {
+    const esc = escapeForIlike(curE);
+    tasks.push(
+      contactRowsActiveOnly(
+        supabase.from("contacts").select(DUPLICATE_POOL_SELECT).neq("id", excludeContactId).ilike("email", esc)
+      ).limit(200)
+    );
+  }
+
+  if (curP && curP.length >= 10) {
+    const tail10 = curP.slice(-10);
+    const escDigits = escapeForIlike(tail10);
+    tasks.push(
+      contactRowsActiveOnly(
+        supabase
+          .from("contacts")
+          .select(DUPLICATE_POOL_SELECT)
+          .neq("id", excludeContactId)
+          .ilike("primary_phone", `%${escDigits}%`)
+      ).limit(500)
+    );
+  }
+
+  const results = await Promise.all(tasks);
+  for (const res of results) {
+    ingest(res.data as ContactDuplicateLite[] | null);
+  }
+
+  return [...byId.values()];
+}
+
 /**
  * Candidates outside the current contact: same normalized **primary** phone and/or **email**.
- * Pool is pre-loaded (e.g. cap 4k rows); matching is in-memory.
+ * Pool is pre-loaded (targeted queries or capped batch); matching is in-memory.
  */
 export function findDuplicateCandidatesForContact(
   current: ContactDuplicateLite,

@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { getStaffProfile, isAdminOrHigher, isManagerOrHigher } from "@/lib/staff-profile";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { insertAuditLog } from "@/lib/audit-log";
+import { APPLICANTS_ADMIN_DETAIL_COLUMNS } from "@/lib/admin/applicant-admin-detail-select";
 import { skillsCompetencyDisciplines } from "@/lib/skills-competency";
 import { performanceEvaluationDisciplines } from "@/lib/performance-evaluation";
 import {
@@ -38,6 +39,7 @@ import {
 } from "@/lib/employee-requirements/employee-detail-work-areas";
 import { getCredentialAnchorId } from "@/lib/credential-anchors";
 import { adminPerfTimed, routePerfLog, routePerfStart } from "@/lib/perf/route-perf";
+import { devTimedSupabaseQuery } from "@/lib/perf/supabase-dev-query-log";
 import { EmployeeArchiveButton } from "@/app/admin/employees/EmployeeArchiveButton";
 import {
   buildOnboardingPortalStatus,
@@ -953,7 +955,7 @@ export default async function EmployeeDetailPage({
     if (nextStatus === "active") {
       const { data: employeeForStatus } = await supabase
         .from("applicants")
-        .select("*")
+        .select(APPLICANTS_ADMIN_DETAIL_COLUMNS)
         .eq("id", employeeId)
         .maybeSingle();
 
@@ -1248,7 +1250,9 @@ export default async function EmployeeDetailPage({
   }
 
   const { data: employee } = await adminPerfTimed("admin_employee_detail.applicant_row", () =>
-    supabase.from("applicants").select("*").eq("id", employeeId).single()
+    devTimedSupabaseQuery("admin_employee_detail.applicant_row", () =>
+      supabase.from("applicants").select(APPLICANTS_ADMIN_DETAIL_COLUMNS).eq("id", employeeId).single()
+    )
   );
 
   if (!employee) {
@@ -1329,7 +1333,9 @@ export default async function EmployeeDetailPage({
     Promise.all([
     supabase
       .from("employee_contracts")
-      .select("*")
+      .select(
+        "id, applicant_id, role_key, role_label, employment_classification, employment_type, pay_type, pay_rate, mileage_type, mileage_rate, effective_date, contract_status, contract_text_snapshot, admin_prepared_by, admin_prepared_at, employee_signed_name, employee_signed_at, created_at, updated_at"
+      )
       .eq("applicant_id", employeeId)
       .eq("is_current", true)
       .single<EmployeeContractRow>(),
@@ -1429,7 +1435,9 @@ export default async function EmployeeDetailPage({
       >(),
     supabase
       .from("employee_tax_forms")
-      .select("*")
+      .select(
+        "id, applicant_id, form_type, form_status, version_number, is_current, superseded_form_id, employment_classification, form_data, admin_sent_by, admin_sent_at, employee_signed_name, employee_signed_at, created_at, updated_at"
+      )
       .eq("applicant_id", employeeId)
       .eq("is_current", true)
       .maybeSingle<EmployeeTaxFormRow>(),
@@ -1568,7 +1576,9 @@ export default async function EmployeeDetailPage({
       .order("due_date", { ascending: false }),
     supabaseAuthedForBatch
       .from("employee_credentials")
-      .select("*")
+      .select(
+        "id, employee_id, credential_type, credential_name, credential_number, issuing_state, issue_date, expiration_date, notes, created_at, updated_at, uploaded_at"
+      )
       .eq("employee_id", employeeId)
       .order("uploaded_at", { ascending: false })
       .order("created_at", { ascending: false }),

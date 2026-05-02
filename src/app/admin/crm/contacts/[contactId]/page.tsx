@@ -15,7 +15,11 @@ import {
   resolveDirectorySourceLabel,
   resolveDirectoryStatusLabel,
 } from "@/lib/crm/contact-directory";
-import { findDuplicateCandidatesForContact, type ContactDuplicateLite } from "@/lib/crm/contact-duplicate-detection";
+import {
+  fetchContactDuplicateMatchPool,
+  findDuplicateCandidatesForContact,
+  type ContactDuplicateLite,
+} from "@/lib/crm/contact-duplicate-detection";
 import { labelForContactType } from "@/lib/crm/contact-types";
 import { formatLeadSourceLabel } from "@/lib/crm/lead-source-options";
 import { buildCaregiverAlternateSummary } from "@/lib/crm/patient-caregiver-display";
@@ -33,9 +37,9 @@ import {
   type StaffProfile,
 } from "@/lib/staff-profile";
 import { ContactArchiveButton } from "@/app/admin/crm/contacts/_components/ContactArchiveButton";
-import { contactRowsActiveOnly } from "@/lib/crm/contacts-active";
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
+import { devTimedSupabaseQuery } from "@/lib/perf/supabase-dev-query-log";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 function staffPrimaryLabel(s: {
@@ -142,13 +146,7 @@ export default async function AdminCrmContactDetailPage({
   const row = crow as ContactDirectoryDbRow;
   const isArchived = row.archived_at != null && String(row.archived_at).trim() !== "";
 
-  const [
-    { data: prow },
-    { data: lrows },
-    { data: dupPool },
-    { data: callRows },
-    { data: convRows },
-  ] = await Promise.all([
+  const [{ data: prow }, { data: lrows }, { data: callRows }, { data: convRows }] = await Promise.all([
     supabase.from("patients").select("id, contact_id, patient_status, created_at").eq("contact_id", contactId).maybeSingle(),
     leadRowsActiveOnly(
       supabase
@@ -156,13 +154,6 @@ export default async function AdminCrmContactDetailPage({
         .select("id, contact_id, source, status, owner_user_id, created_at, updated_at")
         .eq("contact_id", contactId)
         .order("created_at", { ascending: false })
-    ),
-    contactRowsActiveOnly(
-      supabase
-        .from("contacts")
-        .select("id, primary_phone, email, full_name, organization_name")
-        .neq("id", contactId)
-        .limit(4000)
     ),
     supabase
       .from("phone_calls")
@@ -178,6 +169,12 @@ export default async function AdminCrmContactDetailPage({
       .is("deleted_at", null)
       .limit(20),
   ]);
+
+  const dupPoolRes = await devTimedSupabaseQuery("crm_contact_duplicate_pool", async () => ({
+    data: await fetchContactDuplicateMatchPool(supabase, contactId, row as ContactDuplicateLite),
+    error: null,
+  }));
+  const dupPool = dupPoolRes.data ?? [];
 
   const patientRow = prow as { id: string; patient_status: string; created_at?: string } | null;
   const patient: PatientLinkBrief | null = patientRow
@@ -228,7 +225,7 @@ export default async function AdminCrmContactDetailPage({
     ? staffPrimaryLabel(staffByUserId[directoryOwnerId] ?? { user_id: directoryOwnerId, email: null, full_name: null })
     : "—";
 
-  const dupCandidates = findDuplicateCandidatesForContact(row as ContactDuplicateLite, (dupPool ?? []) as ContactDuplicateLite[]);
+  const dupCandidates = findDuplicateCandidatesForContact(row as ContactDuplicateLite, dupPool);
 
   const displayName = contactDirectoryDisplayName(row);
   const primaryE164 = pickOutboundE164ForDial(row.primary_phone);
