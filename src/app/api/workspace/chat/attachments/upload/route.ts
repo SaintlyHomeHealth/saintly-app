@@ -147,6 +147,16 @@ export async function POST(req: NextRequest): Promise<Response> {
         throw new Error("insert_failed");
       }
 
+      logDebug("attachment_row_ok", {
+        attachmentId,
+        chat_message_id: messageId,
+        chat_thread_id: threadId,
+        storage_bucket: CHAT_ATTACHMENTS_BUCKET,
+        storage_path: storagePath,
+        content_type: contentType,
+        size_bytes: file.size,
+      });
+
       out.push({
         id: attachmentId,
         fileName: file.name,

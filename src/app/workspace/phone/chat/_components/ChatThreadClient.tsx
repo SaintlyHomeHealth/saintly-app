@@ -67,7 +67,6 @@ const CHAT_UPLOAD_ACCEPT =
 
 type PendingAttachment = { file: File; url: string };
 
-/** Stable soft bubble colors for other users (readability on light backgrounds). */
 function uploadChatFilesWithProgress(
   form: FormData,
   onProgress: (ratio: number) => void
@@ -103,7 +102,23 @@ function isPdfContentType(ct: string): boolean {
   return ct.toLowerCase() === "application/pdf";
 }
 
+function isHeicFamilyContentType(ct: string): boolean {
+  const t = ct.trim().toLowerCase();
+  return t === "image/heic" || t === "image/heif" || t === "image/heic-sequence";
+}
+
+function isLikelyHeicFilename(name: string): boolean {
+  const n = name.trim().toLowerCase();
+  return n.endsWith(".heic") || n.endsWith(".heif");
+}
+
+function chatAttachmentProtectedPath(attachmentId: string): string {
+  return `/api/workspace/chat/attachments/${encodeURIComponent(attachmentId)}`;
+}
+
+/** Stable soft bubble colors for other users (readability on light backgrounds). */
 function bubbleStyleForSenderId(senderId: string): { background: string; border: string } {
+  let h = 0;
   for (let i = 0; i < senderId.length; i++) {
     h = (h * 31 + senderId.charCodeAt(i)) >>> 0;
   }
@@ -112,6 +127,82 @@ function bubbleStyleForSenderId(senderId: string): { background: string; border:
     background: `hsl(${hue} 42% 93%)`,
     border: `hsl(${hue} 28% 78%)`,
   };
+}
+
+type ChatAttachmentTileProps = {
+  att: ChatAttachmentItem;
+  mine: boolean;
+};
+
+function ChatAttachmentTile({ att, mine }: ChatAttachmentTileProps) {
+  const [thumbFailed, setThumbFailed] = useState(false);
+  const srcPath = chatAttachmentProtectedPath(att.id);
+  const canTryInline =
+    !thumbFailed &&
+    isInlineChatImageContentType(att.contentType) &&
+    !isHeicFamilyContentType(att.contentType) &&
+    !isLikelyHeicFilename(att.fileName);
+
+  const openInNewTab = () => {
+    try {
+      const origin = typeof window !== "undefined" ? window.location.origin : "";
+      const url = origin ? `${origin}${srcPath}` : srcPath;
+      window.open(url, "_blank", "noopener,noreferrer");
+    } catch {
+      /* opening must never break the chat */
+    }
+  };
+
+  const cardClass = `flex w-full max-w-xs items-center gap-2 rounded-lg border px-2 py-2 text-left text-xs font-medium ${
+    mine
+      ? "border-sky-400/40 bg-phone-navy/95 text-white"
+      : "border-slate-200 bg-white text-slate-800 shadow-sm"
+  }`;
+
+  if (canTryInline) {
+    return (
+      <button
+        type="button"
+        onClick={openInNewTab}
+        className={`block max-w-full overflow-hidden rounded-lg text-left ${
+          mine ? "ring-1 ring-white/25" : "ring-1 ring-slate-200/90"
+        }`}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={srcPath}
+          alt=""
+          className="max-h-56 max-w-full object-contain"
+          loading="lazy"
+          onError={() => setThumbFailed(true)}
+        />
+      </button>
+    );
+  }
+
+  const previewUnavailable = thumbFailed;
+
+  return (
+    <button type="button" onClick={openInNewTab} className={cardClass}>
+      {isPdfContentType(att.contentType) ? (
+        <FileText className="h-8 w-8 shrink-0 opacity-90" />
+      ) : (
+        <ImageIcon className="h-8 w-8 shrink-0 opacity-90" />
+      )}
+      <span className="min-w-0 flex-1 text-left">
+        <span className="block truncate">{att.fileName}</span>
+        {previewUnavailable ? (
+          <span
+            className={`mt-0.5 block text-[10px] font-normal leading-snug ${
+              mine ? "text-sky-200/90" : "text-slate-500"
+            }`}
+          >
+            Preview unavailable — tap to open or download.
+          </span>
+        ) : null}
+      </span>
+    </button>
+  );
 }
 
 export function ChatThreadClient({
@@ -414,15 +505,15 @@ export function ChatThreadClient({
   }
 
   async function openAttachment(path: string) {
-    const res = await fetch(`/api/workspace/internal-chat/attachment-url?path=${encodeURIComponent(path)}`);
-    const json = (await res.json()) as { url?: string };
-    if (json.url) {
-      window.open(json.url, "_blank", "noopener,noreferrer");
+    try {
+      const res = await fetch(`/api/workspace/internal-chat/attachment-url?path=${encodeURIComponent(path)}`);
+      const json = (await res.json()) as { url?: string };
+      if (json.url) {
+        window.open(json.url, "_blank", "noopener,noreferrer");
+      }
+    } catch {
+      /* ignore */
     }
-  }
-
-  function openChatAttachment(attachmentId: string) {
-    window.open(`/api/workspace/chat/attachments/${attachmentId}`, "_blank", "noopener,noreferrer");
   }
 
   function addPendingFromFileList(list: FileList | null) {
@@ -693,7 +784,9 @@ export function ChatThreadClient({
         ) : null}
         {messages.map((m) => {
           const mine = m.senderId === selfUserId;
-          const otherStyle = !mine ? otherBubbleStyleBySenderId.get(m.senderId) ?? null : null;
+          const otherStyle = !mine
+            ? otherBubbleStyleBySenderId.get(m.senderId) ?? bubbleStyleForSenderId(m.senderId)
+            : null;
           const nameLine = mine ? selfDisplayName : m.senderLabel;
           return (
             <div key={m.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
@@ -704,10 +797,10 @@ export function ChatThreadClient({
                     : "text-slate-900 shadow-sm"
                 }`}
                 style={
-                  !mine
+                  !mine && otherStyle
                     ? {
-                        background: otherStyle!.background,
-                        borderColor: otherStyle!.border,
+                        background: otherStyle.background,
+                        borderColor: otherStyle.border,
                       }
                     : undefined
                 }
@@ -774,41 +867,7 @@ export function ChatThreadClient({
                 {m.attachments && m.attachments.length > 0 ? (
                   <div className="mt-2 flex flex-col gap-2">
                     {m.attachments.map((att) => (
-                      <div key={att.id}>
-                        {isInlineChatImageContentType(att.contentType) ? (
-                          <button
-                            type="button"
-                            onClick={() => openChatAttachment(att.id)}
-                            className={`block overflow-hidden rounded-lg ${
-                              mine ? "ring-1 ring-white/25" : "ring-1 ring-slate-200/90"
-                            }`}
-                          >
-                            <img
-                              src={`/api/workspace/chat/attachments/${att.id}`}
-                              alt={att.fileName}
-                              className="max-h-56 max-w-full object-contain"
-                              loading="lazy"
-                            />
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => openChatAttachment(att.id)}
-                            className={`flex w-full max-w-xs items-center gap-2 rounded-lg border px-2 py-2 text-left text-xs font-medium ${
-                              mine
-                                ? "border-sky-400/40 bg-phone-navy/95 text-white"
-                                : "border-slate-200 bg-white text-slate-800 shadow-sm"
-                            }`}
-                          >
-                            {isPdfContentType(att.contentType) ? (
-                              <FileText className="h-8 w-8 shrink-0 opacity-90" />
-                            ) : (
-                              <ImageIcon className="h-8 w-8 shrink-0 opacity-90" />
-                            )}
-                            <span className="min-w-0 flex-1 truncate">{att.fileName}</span>
-                          </button>
-                        )}
-                      </div>
+                      <ChatAttachmentTile key={att.id} att={att} mine={mine} />
                     ))}
                   </div>
                 ) : null}
