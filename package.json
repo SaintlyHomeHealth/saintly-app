@@ -17,7 +17,8 @@
     "debug:telnyx-fax": "tsx scripts/telnyx-fax-diagnostics.ts",
     "verify:inbound-email": "tsx scripts/verify-inbound-email-helpers.ts",
     "verify:staff-sign-in-url": "tsx scripts/verify-staff-sign-in-url.mts",
-    "verify:sms-senders": "tsx scripts/verify-sms-sender-defaults.ts"
+    "verify:sms-senders": "tsx scripts/verify-sms-sender-defaults.ts",
+    "backfill:twilio-mms": "tsx scripts/backfill-twilio-inbound-mms.ts"
   },
   "dependencies": {
     "@napi-rs/canvas": "^0.1.80",

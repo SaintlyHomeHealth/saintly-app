@@ -19,8 +19,10 @@ import {
   WORKSPACE_SMS_INBOX_MAX_VISIBLE,
 } from "@/lib/phone/sms-inbox-conversation-scope";
 import {
-  buildSmsInboxPreviewByConversationId,
   smsInboxPreviewMessageRowCap,
+  smsInboxPreviewSelectionsFromMessages,
+  smsInboxPreviewsAugmentWithAttachmentTotals,
+  type AttachmentTotalsForPreview,
 } from "@/lib/phone/sms-inbox-preview";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import { staffMayAccessWorkspaceSms } from "@/lib/phone/staff-phone-policy";
@@ -256,12 +258,14 @@ export default async function WorkspaceInboxPage(props: PageProps) {
           restrictOwnerUserId: hasFull ? undefined : staff.user_id,
         }),
     ids.length === 0
-      ? Promise.resolve({ data: null as { conversation_id?: string; body?: string }[] | null })
+      ? Promise.resolve({
+          data: null as { conversation_id?: string; body?: string; id?: string }[] | null,
+        })
       : routePerfStepsEnabled()
         ? routePerfTimed("preview_messages", async () =>
             supabase
               .from("messages")
-              .select("conversation_id, body")
+              .select("conversation_id, body, id")
               .in("conversation_id", ids)
               .is("deleted_at", null)
               .neq("message_type", "voicemail")
@@ -270,7 +274,7 @@ export default async function WorkspaceInboxPage(props: PageProps) {
           )
         : supabase
             .from("messages")
-            .select("conversation_id, body")
+            .select("conversation_id, body, id")
             .in("conversation_id", ids)
             .is("deleted_at", null)
             .neq("message_type", "voicemail")
@@ -285,7 +289,43 @@ export default async function WorkspaceInboxPage(props: PageProps) {
       sampleIdsWithUnread: withUnread.slice(0, 8),
     });
   }
-  const previewByConvId = buildSmsInboxPreviewByConversationId(previewQueryRes.data, 100);
+  const inboxPreviewSel = smsInboxPreviewSelectionsFromMessages(previewQueryRes.data ?? [], 100);
+  let previewByConvId = inboxPreviewSel.previewByConversationId;
+  const pickedMessageIds = [...new Set(Object.values(inboxPreviewSel.messageIdByConversationId))].filter(
+    (x) => typeof x === "string" && x.length > 0
+  );
+  if (pickedMessageIds.length > 0) {
+    const { data: attRows } = await supabase
+      .from("phone_message_attachments")
+      .select("message_id, content_type")
+      .in("message_id", pickedMessageIds);
+    const totalsByMessageId: Record<string, AttachmentTotalsForPreview> = {};
+    for (const r of attRows ?? []) {
+      const mid = typeof (r as { message_id?: unknown }).message_id === "string" ? (r as { message_id: string }).message_id : "";
+      if (!mid) continue;
+      const ctRaw =
+        typeof (r as { content_type?: unknown }).content_type === "string"
+          ? (r as { content_type: string }).content_type.split(";")[0]!.trim().toLowerCase()
+          : "";
+      const cur =
+        totalsByMessageId[mid] ??
+        ({
+          imageCount: 0,
+          nonImageCount: 0,
+        } satisfies AttachmentTotalsForPreview);
+      if (ctRaw.startsWith("image/")) {
+        cur.imageCount += 1;
+      } else {
+        cur.nonImageCount += 1;
+      }
+      totalsByMessageId[mid] = cur;
+    }
+    previewByConvId = smsInboxPreviewsAugmentWithAttachmentTotals(
+      previewByConvId,
+      inboxPreviewSel.messageIdByConversationId,
+      totalsByMessageId
+    );
+  }
 
   const contactIds = [
     ...new Set(

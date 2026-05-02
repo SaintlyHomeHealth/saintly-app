@@ -2,6 +2,7 @@ import "server-only";
 
 import { supabaseAdmin } from "@/lib/admin";
 import { extractSmsProviderStatusRaw } from "@/lib/phone/sms-delivery-ui";
+import { mapNestedPhoneAttachmentsFromRpcRow } from "@/lib/phone/map-phone-message-attachments-row";
 import {
   readWorkspaceSmsThreadFax,
   WORKSPACE_SMS_THREAD_INITIAL_MESSAGE_LIMIT,
@@ -104,7 +105,9 @@ export async function loadWorkspaceSmsThreadBootstrap(
 
   const { data: msgRows, error: msgErr } = await supabase
     .from("messages")
-    .select("id, created_at, direction, body, metadata, phone_call_id, message_type")
+    .select(
+      "id, created_at, direction, body, metadata, phone_call_id, message_type, phone_message_attachments ( id, content_type, file_name, provider_media_index )"
+    )
     .eq("conversation_id", cid)
     .is("deleted_at", null)
     .order("created_at", { ascending: false })
@@ -205,6 +208,7 @@ export async function loadWorkspaceSmsThreadBootstrap(
       metadata?: unknown;
       phone_call_id?: unknown;
       message_type?: unknown;
+      phone_message_attachments?: unknown;
     };
     const phoneCallId =
       row.phone_call_id != null && String(row.phone_call_id).trim() !== ""
@@ -219,6 +223,7 @@ export async function loadWorkspaceSmsThreadBootstrap(
             m as { metadata?: unknown; direction?: unknown; status?: unknown; twilio_status?: unknown }
           )
         : null;
+    const attachments = mapNestedPhoneAttachmentsFromRpcRow(row.phone_message_attachments);
     return {
       id: String(row.id),
       created_at: typeof row.created_at === "string" ? row.created_at : null,
@@ -227,6 +232,7 @@ export async function loadWorkspaceSmsThreadBootstrap(
       message_type: messageType,
       phone_call_id: phoneCallId,
       fax: readWorkspaceSmsThreadFax(row.metadata),
+      attachments,
       outbound_status_raw,
     };
   });

@@ -530,7 +530,7 @@ const WorkspaceSmsThreadViewInner = memo(function WorkspaceSmsThreadViewInner({
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [applyIncomingRows, conversationId]);
+  }, [applyIncomingRows, conversationId, fetchLatestMessages, isNearBottom, scrollToBottom]);
 
   useEffect(() => {
     const scheduleRefetch = () => {
@@ -660,7 +660,7 @@ const WorkspaceSmsThreadViewInner = memo(function WorkspaceSmsThreadViewInner({
                     />
                   );
                 }
-                return <ThreadMessageRow key={m.id} message={m} />;
+                return <ThreadMessageRow key={m.id} message={m} smsLeadInsuranceTargetId={smsLeadInsuranceTargetId} />;
               })
             )}
             <div className="h-px w-full shrink-0" aria-hidden />

@@ -119,11 +119,18 @@ export function mergeThreadById(
   let changed = false;
   for (const m of incoming) {
     const old = byId.get(m.id);
-    if (old && sameWorkspaceSmsThreadMessage(old, m)) {
+    let merged = m;
+    if (
+      old?.attachments?.length &&
+      (!Array.isArray(m.attachments) || m.attachments.length === 0)
+    ) {
+      merged = { ...m, attachments: old.attachments };
+    }
+    if (old && sameWorkspaceSmsThreadMessage(old, merged)) {
       continue;
     }
     changed = true;
-    byId.set(m.id, m);
+    byId.set(m.id, merged);
   }
   if (!changed) return prev;
   return sortThreadMessages([...byId.values()]);
