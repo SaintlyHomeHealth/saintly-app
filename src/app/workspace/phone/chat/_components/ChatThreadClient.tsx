@@ -7,7 +7,7 @@ import {
   refKindDisplayLabel,
   type InternalChatRefKind,
 } from "@/lib/internal-chat/internal-chat-ref-kinds";
-import { Bell, BellOff, ChevronLeft, Link2, Paperclip, Pin, Send } from "lucide-react";
+import { Bell, BellOff, Camera, ChevronLeft, FileText, ImageIcon, Link2, Paperclip, Pin, Send, X } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -20,6 +20,13 @@ type RefCard = {
 
 type PatientMentionCard = { id: string; label: string; href: string };
 
+type ChatAttachmentItem = {
+  id: string;
+  fileName: string;
+  contentType: string;
+  sizeBytes: number | null;
+};
+
 type Msg = {
   id: string;
   senderId: string;
@@ -29,6 +36,7 @@ type Msg = {
   attachmentPath: string | null;
   attachmentMime: string | null;
   attachmentName: string | null;
+  attachments?: ChatAttachmentItem[];
   mentionUserIds: string[];
   readByUserIds: string[];
   patientMentions?: PatientMentionCard[];
@@ -54,9 +62,48 @@ type Props = {
   selfDisplayName: string;
 };
 
+const CHAT_UPLOAD_ACCEPT =
+  "image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf,.pdf,.heic,.heif";
+
+type PendingAttachment = { file: File; url: string };
+
 /** Stable soft bubble colors for other users (readability on light backgrounds). */
+function uploadChatFilesWithProgress(
+  form: FormData,
+  onProgress: (ratio: number) => void
+): Promise<{ ok: boolean; status: number; json: Record<string, unknown> | null }> {
+  return new Promise((resolve) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/api/workspace/chat/attachments/upload");
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) {
+        onProgress(Math.min(1, e.loaded / e.total));
+      }
+    };
+    xhr.onload = () => {
+      let json: Record<string, unknown> | null = null;
+      try {
+        json = JSON.parse(xhr.responseText) as Record<string, unknown>;
+      } catch {
+        json = null;
+      }
+      resolve({ ok: xhr.status >= 200 && xhr.status < 300, status: xhr.status, json });
+    };
+    xhr.onerror = () => resolve({ ok: false, status: 0, json: null });
+    xhr.send(form);
+  });
+}
+
+function isInlineChatImageContentType(ct: string): boolean {
+  const t = ct.toLowerCase();
+  return t === "image/jpeg" || t === "image/png" || t === "image/webp";
+}
+
+function isPdfContentType(ct: string): boolean {
+  return ct.toLowerCase() === "application/pdf";
+}
+
 function bubbleStyleForSenderId(senderId: string): { background: string; border: string } {
-  let h = 0;
   for (let i = 0; i < senderId.length; i++) {
     h = (h * 31 + senderId.charCodeAt(i)) >>> 0;
   }
@@ -97,7 +144,26 @@ export function ChatThreadClient({
   const [refLoading, setRefLoading] = useState(false);
   const [referenceMentions, setReferenceMentions] = useState<ReferenceMention[]>([]);
   const [membersPanelOpen, setMembersPanelOpen] = useState(false);
+  const [pendingFiles, setPendingFiles] = useState<PendingAttachment[]>([]);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const cameraInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    setPendingFiles((prev) => {
+      prev.forEach((r) => URL.revokeObjectURL(r.url));
+      return [];
+    });
+  }, [chatId]);
+
+  useEffect(() => {
+    setMembersListHydrated(false);
+    setMembers([]);
+    setMembersPanelOpen(false);
+    setMemberSearch("");
+    setMemberSuggest([]);
+  }, [chatId]);
 
   const loadMembers = useCallback(async () => {
     if (!showMemberAdmin) return;
@@ -111,18 +177,11 @@ export function ChatThreadClient({
     }
   }, [chatId, showMemberAdmin]);
 
-  useEffect(() => {
-    setMembersListHydrated(false);
-    setMembers([]);
-    setMembersPanelOpen(false);
-    setMemberSearch("");
-    setMemberSuggest([]);
-  }, [chatId]);
-
   const loadMessages = useCallback(
-    async (options?: { showLoading?: boolean }) => {
+    async (options?: { showLoading?: boolean }): Promise<Msg[] | null> => {
       const showLoading = options?.showLoading === true;
       if (showLoading) setLoading(true);
+      let result: Msg[] | null = null;
       try {
         const res = await fetch(`/api/workspace/internal-chat/chats/${chatId}/messages`, {
           cache: "no-store",
@@ -135,6 +194,7 @@ export function ChatThreadClient({
         };
         const list = json.messages ?? [];
         setMessages(list);
+        result = list;
         if (typeof json.notificationsMuted === "boolean") {
           setMuted(json.notificationsMuted);
         }
@@ -157,9 +217,26 @@ export function ChatThreadClient({
       } finally {
         if (showLoading) setLoading(false);
       }
+      return result;
     },
     [chatId]
   );
+
+  const runAfterMessageInsert = useCallback((list: Msg[] | null) => {
+    if (!list?.length) return;
+    const needsHydration = list.some((m) => {
+      const hasLegacy = Boolean(m.attachmentPath);
+      const hasNew = (m.attachments?.length ?? 0) > 0;
+      const hasBody = Boolean(m.body?.trim());
+      const hasRefs =
+        (m.referenceCards?.length ?? 0) > 0 || (m.patientMentions?.length ?? 0) > 0;
+      return !hasBody && !hasLegacy && !hasNew && !hasRefs;
+    });
+    if (needsHydration) {
+      window.setTimeout(() => void loadMessages(), 500);
+      window.setTimeout(() => void loadMessages(), 2500);
+    }
+  }, [loadMessages]);
 
   useEffect(() => {
     void loadMessages({ showLoading: true });
@@ -213,6 +290,18 @@ export function ChatThreadClient({
           filter: `chat_id=eq.${chatId}`,
         },
         () => {
+          void loadMessages().then((list) => runAfterMessageInsert(list));
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "chat_message_attachments",
+          filter: `chat_thread_id=eq.${chatId}`,
+        },
+        () => {
           void loadMessages();
         }
       )
@@ -220,7 +309,7 @@ export function ChatThreadClient({
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [chatId, loadMessages]);
+  }, [chatId, loadMessages, runAfterMessageInsert]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "auto", block: "end" });
@@ -262,9 +351,45 @@ export function ChatThreadClient({
     const t = text.trim();
     const sp = staffPicks.filter((p) => text.includes(`@${p.label}`));
     const rr = referenceMentions.filter((r) => text.includes(refComposerToken(r.type, r.label)));
-    if ((!t && rr.length === 0 && sp.length === 0) || sending) return;
+    const hasPending = pendingFiles.length > 0;
+    if ((!t && rr.length === 0 && sp.length === 0 && !hasPending) || sending) return;
     setSending(true);
+    if (hasPending) {
+      setUploadProgress(0);
+    }
     try {
+      if (hasPending) {
+        const form = new FormData();
+        form.set("chat_thread_id", chatId);
+        form.set(
+          "meta",
+          JSON.stringify({
+            text: t,
+            staffMentions: sp.map((p) => ({ userId: p.userId, label: p.label })),
+            referenceMentions: rr.map((p) => ({ type: p.type, id: p.id, label: p.label })),
+            patientMentions: [],
+          })
+        );
+        for (const row of pendingFiles) {
+          form.append("files", row.file);
+        }
+        const up = await uploadChatFilesWithProgress(form, (ratio) => setUploadProgress(ratio));
+        if (!up.ok) {
+          console.warn("[chat] multipart upload failed", up.status);
+          return;
+        }
+        for (const row of pendingFiles) {
+          URL.revokeObjectURL(row.url);
+        }
+        setPendingFiles([]);
+        setText("");
+        setStaffPicks([]);
+        setReferenceMentions([]);
+        const list = await loadMessages();
+        runAfterMessageInsert(list);
+        return;
+      }
+
       const res = await fetch(`/api/workspace/internal-chat/chats/${chatId}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -279,10 +404,12 @@ export function ChatThreadClient({
         setText("");
         setStaffPicks([]);
         setReferenceMentions([]);
-        await loadMessages();
+        const list = await loadMessages();
+        runAfterMessageInsert(list);
       }
     } finally {
       setSending(false);
+      setUploadProgress(null);
     }
   }
 
@@ -294,39 +421,27 @@ export function ChatThreadClient({
     }
   }
 
-  async function onPickFile(file: File | null) {
-    if (!file) return;
-    const safe = file.name.replace(/[^\w.\-()+ ]/g, "_").slice(0, 120);
-    const objectPath = `${chatId}/${crypto.randomUUID()}/${safe}`;
-    const supabase = createBrowserSupabaseClient();
-    const { error: upErr } = await supabase.storage.from("internal-chat").upload(objectPath, file, {
-      cacheControl: "3600",
-      upsert: false,
-      contentType: file.type || undefined,
+  function openChatAttachment(attachmentId: string) {
+    window.open(`/api/workspace/chat/attachments/${attachmentId}`, "_blank", "noopener,noreferrer");
+  }
+
+  function addPendingFromFileList(list: FileList | null) {
+    if (!list?.length) return;
+    const next: PendingAttachment[] = [];
+    for (const file of [...list]) {
+      if (!file.size) continue;
+      next.push({ file, url: URL.createObjectURL(file) });
+    }
+    if (!next.length) return;
+    setPendingFiles((p) => [...p, ...next].slice(0, 12));
+  }
+
+  function removePendingAt(index: number) {
+    setPendingFiles((p) => {
+      const row = p[index];
+      if (row) URL.revokeObjectURL(row.url);
+      return p.filter((_, i) => i !== index);
     });
-    if (upErr) {
-      console.warn("[chat] upload", upErr.message);
-      return;
-    }
-    setSending(true);
-    try {
-      await fetch(`/api/workspace/internal-chat/chats/${chatId}/messages`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          text: "",
-          staffMentions: [],
-          patientMentions: [],
-          referenceMentions: [],
-          attachmentPath: objectPath,
-          attachmentMime: file.type || "application/octet-stream",
-          attachmentName: file.name,
-        }),
-      });
-      await loadMessages();
-    } finally {
-      setSending(false);
-    }
   }
 
   useEffect(() => {
@@ -434,6 +549,7 @@ export function ChatThreadClient({
   }
 
   const canSend =
+    pendingFiles.length > 0 ||
     Boolean(text.trim()) ||
     staffPicks.some((p) => text.includes(`@${p.label}`)) ||
     referenceMentions.some((r) => text.includes(refComposerToken(r.type, r.label)));
@@ -655,6 +771,47 @@ export function ChatThreadClient({
                     ))}
                   </div>
                 ) : null}
+                {m.attachments && m.attachments.length > 0 ? (
+                  <div className="mt-2 flex flex-col gap-2">
+                    {m.attachments.map((att) => (
+                      <div key={att.id}>
+                        {isInlineChatImageContentType(att.contentType) ? (
+                          <button
+                            type="button"
+                            onClick={() => openChatAttachment(att.id)}
+                            className={`block overflow-hidden rounded-lg ${
+                              mine ? "ring-1 ring-white/25" : "ring-1 ring-slate-200/90"
+                            }`}
+                          >
+                            <img
+                              src={`/api/workspace/chat/attachments/${att.id}`}
+                              alt={att.fileName}
+                              className="max-h-56 max-w-full object-contain"
+                              loading="lazy"
+                            />
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => openChatAttachment(att.id)}
+                            className={`flex w-full max-w-xs items-center gap-2 rounded-lg border px-2 py-2 text-left text-xs font-medium ${
+                              mine
+                                ? "border-sky-400/40 bg-phone-navy/95 text-white"
+                                : "border-slate-200 bg-white text-slate-800 shadow-sm"
+                            }`}
+                          >
+                            {isPdfContentType(att.contentType) ? (
+                              <FileText className="h-8 w-8 shrink-0 opacity-90" />
+                            ) : (
+                              <ImageIcon className="h-8 w-8 shrink-0 opacity-90" />
+                            )}
+                            <span className="min-w-0 flex-1 truncate">{att.fileName}</span>
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
                 {m.attachmentPath ? (
                   <button
                     type="button"
@@ -700,6 +857,38 @@ export function ChatThreadClient({
                 {u.label}
               </button>
             ))}
+          </div>
+        ) : null}
+        {canPost && pendingFiles.length > 0 ? (
+          <div className="mb-2 flex flex-wrap gap-2">
+            {pendingFiles.map((pf, i) => (
+              <div key={`${pf.url}-${i}`} className="relative">
+                {pf.file.type.startsWith("image/") ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={pf.url} alt="" className="h-20 w-20 rounded-lg object-cover" />
+                ) : (
+                  <div className="flex h-20 w-20 items-center justify-center rounded-lg border border-slate-200 bg-slate-50">
+                    <FileText className="h-8 w-8 text-slate-500" />
+                  </div>
+                )}
+                <button
+                  type="button"
+                  className="absolute -right-1 -top-1 rounded-full bg-slate-800 p-0.5 text-white shadow"
+                  onClick={() => removePendingAt(i)}
+                  aria-label="Remove attachment"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : null}
+        {canPost && uploadProgress !== null && sending ? (
+          <div className="mb-2 h-1.5 w-full overflow-hidden rounded-full bg-slate-200">
+            <div
+              className="h-full bg-phone-navy transition-all"
+              style={{ width: `${Math.round(Math.min(1, uploadProgress) * 100)}%` }}
+            />
           </div>
         ) : null}
         {canPost ? (
@@ -768,15 +957,44 @@ export function ChatThreadClient({
           </div>
         ) : null}
         <div className={`flex items-end gap-2 ${!canPost ? "pointer-events-none opacity-50" : ""}`}>
-          <label className="rounded-xl border border-slate-200 p-2 text-slate-500 hover:bg-slate-50">
-            <Paperclip className="h-4 w-4" />
-            <input
-              type="file"
-              className="hidden"
-              disabled={!canPost}
-              onChange={(e) => void onPickFile(e.target.files?.[0] ?? null)}
-            />
-          </label>
+          <div className="flex shrink-0 flex-col gap-1">
+            <label
+              className="cursor-pointer rounded-xl border border-slate-200 p-2 text-slate-500 hover:bg-slate-50"
+              title="Attach photos or files"
+            >
+              <Paperclip className="h-4 w-4" />
+              <input
+                ref={fileInputRef}
+                type="file"
+                className="hidden"
+                multiple
+                accept={CHAT_UPLOAD_ACCEPT}
+                disabled={!canPost || sending}
+                onChange={(e) => {
+                  addPendingFromFileList(e.target.files);
+                  e.target.value = "";
+                }}
+              />
+            </label>
+            <label
+              className="cursor-pointer rounded-xl border border-slate-200 p-2 text-slate-500 hover:bg-slate-50 sm:hidden"
+              title="Camera"
+            >
+              <Camera className="h-4 w-4" />
+              <input
+                ref={cameraInputRef}
+                type="file"
+                className="hidden"
+                accept="image/*"
+                capture="environment"
+                disabled={!canPost || sending}
+                onChange={(e) => {
+                  addPendingFromFileList(e.target.files);
+                  e.target.value = "";
+                }}
+              />
+            </label>
+          </div>
           <textarea
             value={text}
             onChange={(e) => setText(e.target.value)}

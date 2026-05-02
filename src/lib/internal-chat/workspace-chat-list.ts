@@ -3,6 +3,10 @@ import { supabaseAdmin } from "@/lib/admin";
 import { fetchActiveAssignedPatientIdsForStaff } from "@/lib/internal-chat/assigned-patients";
 import { decryptInternalChatUtf8 } from "@/lib/internal-chat/crypto";
 import { internalChatBodyForDisplay } from "@/lib/internal-chat/mention-tokens";
+import {
+  listPreviewForChatAttachments,
+  mapSupabaseNestedChatAttachments,
+} from "@/lib/internal-chat/map-chat-message-attachments";
 import type { StaffProfile } from "@/lib/staff-profile";
 
 type ChatRow = {
@@ -93,7 +97,9 @@ export async function getWorkspaceInternalChatListForStaff(
 
   const { data: msgRows } = await supabaseAdmin
     .from("internal_chat_messages")
-    .select("id, chat_id, created_at, ciphertext, nonce, attachment_name")
+    .select(
+      "id, chat_id, created_at, ciphertext, nonce, attachment_name, attachment_mime, chat_message_attachments ( content_type, file_name )"
+    )
     .in("chat_id", chatIds)
     .order("created_at", { ascending: false })
     .limit(400);
@@ -153,8 +159,14 @@ export async function getWorkspaceInternalChatListForStaff(
         } catch {
           preview = "";
         }
-        if (!preview && last.attachment_name) {
-          preview = `📎 ${last.attachment_name}`;
+        if (!preview.trim()) {
+          const nested = (last as { chat_message_attachments?: unknown }).chat_message_attachments;
+          const mapped = mapSupabaseNestedChatAttachments(nested);
+          preview = listPreviewForChatAttachments(
+            mapped,
+            typeof last.attachment_mime === "string" ? last.attachment_mime : null,
+            typeof last.attachment_name === "string" ? last.attachment_name : null
+          );
         }
       }
 
