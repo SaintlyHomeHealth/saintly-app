@@ -12,6 +12,8 @@ import {
   shouldRelayInboundCompanySmsCopy,
 } from "@/lib/phone/inbound-company-sms-relay";
 import { findTwilioPhoneNumberByToE164 } from "@/lib/twilio/twilio-phone-number-repo";
+import { persistInboundTwilioMmsAttachments } from "@/lib/phone/persist-inbound-twilio-mms";
+import { resolveInboundSmsAttachmentPushPreview } from "@/lib/phone/sms-mms-push-preview";
 import { isValidE164, normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
 
 export type InboundTwilioSmsParams = Record<string, string>;
@@ -221,6 +223,22 @@ export async function applyInboundTwilioSms(
     if (code === "23505") {
       smsTiming("duplicate_message_sid_skip", { messageSid });
       console.log("[sms-inbound] duplicate MessageSid (idempotent ok)", { messageSid });
+      const { data: existingRow } = await supabase
+        .from("messages")
+        .select("id, conversation_id")
+        .eq("external_message_sid", messageSid)
+        .maybeSingle();
+      const existingId = existingRow?.id != null ? String(existingRow.id) : "";
+      const existingConv =
+        existingRow?.conversation_id != null ? String(existingRow.conversation_id) : "";
+      if (existingId && existingConv) {
+        await persistInboundTwilioMmsAttachments(supabase, {
+          messageId: existingId,
+          conversationId: existingConv,
+          messageSid,
+          params,
+        });
+      }
       console.log("[sms-inbound] persist_pipeline_result", {
         ok: true,
         duplicateMessageSid: true,
@@ -235,6 +253,15 @@ export async function applyInboundTwilioSms(
 
   console.log("[sms-inbound] inbound message inserted", { conversationId, messageId: insertedMsg?.id });
   smsTiming("after_message_insert", { conversationId, messageId: insertedMsg?.id });
+
+  if (insertedMsg?.id) {
+    await persistInboundTwilioMmsAttachments(supabase, {
+      messageId: String(insertedMsg.id),
+      conversationId,
+      messageSid,
+      params,
+    });
+  }
 
   if (insertedMsg?.id) {
     const contactIdForLog =
@@ -261,10 +288,13 @@ export async function applyInboundTwilioSms(
   // Await push so serverless requests do not freeze the isolate before FCM completes (Vercel).
   smsTiming("before_sms_push_await", { conversationId });
   console.log("[sms-inbound] about_to_await_sms_push", { conversationId, messageId: insertedMsg?.id });
+  const attachmentPreview = resolveInboundSmsAttachmentPushPreview(body, params);
+
   try {
     await notifyInboundSmsAfterPersist(supabase, {
       conversationId,
       bodyPreview: body,
+      bodyPreviewAttachmentHint: attachmentPreview,
       fromE164: fromE164,
       matchedContact: contact,
       primaryContactId: ensured.primaryContactId,
@@ -284,11 +314,13 @@ export async function applyInboundTwilioSms(
 
   if (insertedMsg?.id && shouldRelayInboundCompanySmsCopy(toE164, tnInbound)) {
     try {
+      const numMediaRelay = Number.parseInt((params.NumMedia ?? "0").trim(), 10);
       await relayInboundCompanySmsCopyToPersonalCells({
         fromE164,
         toE164,
         body,
         messageSid,
+        numMedia: Number.isFinite(numMediaRelay) ? Math.min(Math.floor(numMediaRelay), 20) : 0,
       });
     } catch (e) {
       console.warn("[sms-inbound] company_sms_relay_failed", {

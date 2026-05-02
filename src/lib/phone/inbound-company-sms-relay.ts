@@ -81,6 +81,8 @@ export async function relayInboundCompanySmsCopyToPersonalCells(input: {
   toE164: string;
   body: string;
   messageSid: string;
+  /** MMS parts count from Twilio `NumMedia` (0 when SMS-only). */
+  numMedia?: number | undefined;
 }): Promise<void> {
   const recipients = parseInboundCompanySmsRelayRecipients();
   if (recipients.length === 0) {
@@ -94,7 +96,9 @@ export async function relayInboundCompanySmsCopyToPersonalCells(input: {
   const fromParty = formatPhoneNumber(input.fromE164) || input.fromE164;
   const excerpt = (input.body ?? "").trim().slice(0, 900);
   const sidShort = input.messageSid.trim().slice(-8);
-  let composed = `Saintly line ${line} — SMS from ${fromParty}${excerpt ? `: ${excerpt}` : ""}`;
+  const nm = typeof input.numMedia === "number" && Number.isFinite(input.numMedia) ? Math.max(0, Math.floor(input.numMedia)) : 0;
+  const mmsTail = excerpt ? "" : nm > 0 ? ` (${nm === 1 ? "MMS / photo" : `MMS — ${nm} attachments`})` : "";
+  let composed = `Saintly line ${line} — SMS from ${fromParty}${excerpt ? `: ${excerpt}` : mmsTail}`;
   if (sidShort) composed += ` [${sidShort}]`;
   composed = composed.slice(0, RELAY_BODY_MAX);
 

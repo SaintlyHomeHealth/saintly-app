@@ -16,6 +16,7 @@ import { SmsReplyComposer } from "./SmsReplyComposer";
 import { SmsThreadMarkReadOnViewClient } from "./SmsThreadMarkReadOnViewClient";
 import { SmsThreadDebugStrip } from "./SmsThreadDebugStrip";
 import { WorkspaceSmsConversationShell } from "@/app/workspace/phone/inbox/_components/workspace-sms-conversation-shell";
+import { SmsMessageMediaAttachments } from "@/app/workspace/phone/inbox/_components/SmsMessageMediaAttachments";
 import { VoicemailThreadMessageRow } from "@/app/workspace/phone/inbox/_components/VoicemailThreadMessageRow";
 import { WorkspaceSmsDeleteConversationButton } from "@/app/workspace/phone/inbox/_components/WorkspaceSmsDeleteConversationButton";
 import { supabaseAdmin } from "@/lib/admin";
@@ -56,6 +57,7 @@ import { SMS_OUTBOUND_FROM_EXPLICIT_KEY } from "@/lib/twilio/sms-from-numbers";
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+import { mapNestedPhoneAttachmentsFromRpcRow as mapSupabaseNestedPhoneAttachments } from "@/lib/phone/map-phone-message-attachments-row";
 export type SmsConversationDetailProps = {
   params: Promise<{ conversationId: string }>;
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
@@ -271,7 +273,9 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
     ? await routePerfTimed("sms_conversation_detail.messages", () =>
         supabase
           .from("messages")
-          .select("id, created_at, direction, body, viewed_at, metadata, phone_call_id, message_type")
+          .select(
+            "id, created_at, direction, body, viewed_at, metadata, phone_call_id, message_type, phone_message_attachments ( id, content_type, file_name, provider_media_index )"
+          )
           .eq("conversation_id", conversationId)
           .is("deleted_at", null)
           .order("created_at", { ascending: false })
@@ -279,7 +283,9 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
       )
     : await supabase
         .from("messages")
-        .select("id, created_at, direction, body, viewed_at, metadata, phone_call_id, message_type")
+        .select(
+          "id, created_at, direction, body, viewed_at, metadata, phone_call_id, message_type, phone_message_attachments ( id, content_type, file_name, provider_media_index )"
+        )
         .eq("conversation_id", conversationId)
         .is("deleted_at", null)
         .order("created_at", { ascending: false })
@@ -465,19 +471,22 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
         })
       : null;
 
-  let workspaceLeadId: string | null = null;
+  let linkedLeadIdForMmsSave: string | null = null;
+  if (primaryContactId) {
+    const leadPromise = leadRowsActiveOnly(
+      supabase.from("leads").select("id").eq("contact_id", primaryContactId).limit(1)
+    ).maybeSingle();
+    const { data: leadRow } = routePerfStepsEnabled()
+      ? await routePerfTimed("sms_conversation_detail.linked_lead_lookup", () => leadPromise)
+      : await leadPromise;
+    if (leadRow && typeof leadRow.id === "string") linkedLeadIdForMmsSave = leadRow.id;
+  }
+
+  const workspaceLeadId: string | null = workspaceShell ? linkedLeadIdForMmsSave : null;
+
   let workspacePatientId: string | null = null;
   let canOpenWorkspacePatientDetail = false;
   if (workspaceShell && primaryContactId) {
-    const { data: leadRow } = routePerfStepsEnabled()
-      ? await routePerfTimed("sms_conversation_detail.workspace_lead_lookup", () =>
-          leadRowsActiveOnly(supabase.from("leads").select("id").eq("contact_id", primaryContactId).limit(1)).maybeSingle()
-        )
-      : await leadRowsActiveOnly(
-          supabase.from("leads").select("id").eq("contact_id", primaryContactId).limit(1)
-        ).maybeSingle();
-    if (leadRow && typeof leadRow.id === "string") workspaceLeadId = leadRow.id;
-
     const { data: patRow } = routePerfStepsEnabled()
       ? await routePerfTimed("sms_conversation_detail.workspace_patient_lookup", () =>
           supabase.from("patients").select("id").eq("contact_id", primaryContactId).maybeSingle()
@@ -583,11 +592,13 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
       metadata?: unknown;
       phone_call_id?: unknown;
       message_type?: unknown;
+      phone_message_attachments?: unknown;
     };
     const phoneCallId =
       row.phone_call_id != null && String(row.phone_call_id).trim() !== ""
         ? String(row.phone_call_id).trim()
         : null;
+    const attachments = mapSupabaseNestedPhoneAttachments(row.phone_message_attachments);
     const messageType =
       typeof row.message_type === "string" && row.message_type.trim() ? row.message_type.trim() : "sms";
     const direction = String(row.direction ?? "");
@@ -605,6 +616,7 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
       message_type: messageType,
       phone_call_id: phoneCallId,
       fax: readWorkspaceSmsThreadFax(row.metadata),
+      attachments,
       outbound_status_raw,
     };
   });
@@ -625,8 +637,7 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
         smsPreferredFromE164={workspacePreferredFromE164}
         smsPreferredFromExplicit={workspacePreferredFromExplicit}
         smsInboundToE164={lastInboundBusinessLineE164}
-        appDesktopSplit={workspaceDesktopSplit}
-        threadTopSlot={null}
+        smsLeadInsuranceTargetId={linkedLeadIdForMmsSave}
       />
     );
 
@@ -1171,6 +1182,13 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
                   </div>
                 );
               }
+              const attachments =
+                mapSupabaseNestedPhoneAttachments(
+                  (m as { phone_message_attachments?: unknown }).phone_message_attachments
+                ) ?? [];
+              const bodyTrim =
+                typeof m.body === "string" ? m.body.trim() : String(m.body ?? "").trim();
+              const hasMedia = attachments.length > 0;
               return (
                 <div key={String(m.id)} className={`flex ${inbound ? "justify-start" : "justify-end"}`}>
                   <div
@@ -1180,7 +1198,16 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
                         : "bg-sky-700 text-white"
                     }`}
                   >
-                    <p className="whitespace-pre-wrap break-words">{String(m.body ?? "")}</p>
+                    {bodyTrim !== "" ? (
+                      <p className="whitespace-pre-wrap break-words">{bodyTrim}</p>
+                    ) : null}
+                    {hasMedia ? (
+                      <SmsMessageMediaAttachments
+                        inbound={inbound}
+                        attachments={attachments}
+                        smsLeadInsuranceTargetId={linkedLeadIdForMmsSave}
+                      />
+                    ) : null}
                     <p
                       className={`mt-1 text-[10px] ${
                         inbound ? "text-slate-500" : "text-sky-100"

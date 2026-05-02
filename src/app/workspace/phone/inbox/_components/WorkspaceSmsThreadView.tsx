@@ -16,16 +16,19 @@ import {
   VoicemailThreadMessageRow,
   type VoicemailThreadDetail,
 } from "@/app/workspace/phone/inbox/_components/VoicemailThreadMessageRow";
+import { SmsMessageMediaAttachments, sortThreadAttachments } from "@/app/workspace/phone/inbox/_components/SmsMessageMediaAttachments";
 import { formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
 import { extractSmsProviderStatusRaw, formatSmsOutboundDeliveryLabel } from "@/lib/phone/sms-delivery-ui";
 import {
   mergeThreadById,
   readWorkspaceSmsThreadFax,
   WORKSPACE_SMS_THREAD_INITIAL_MESSAGE_LIMIT,
+  type WorkspaceSmsThreadAttachment,
   type WorkspaceSmsThreadMessage,
 } from "@/lib/phone/workspace-sms-thread-messages";
 import { routePerfRenderCount } from "@/lib/perf/route-perf";
 import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
+import { mapNestedPhoneAttachmentsFromRpcRow } from "@/lib/phone/map-phone-message-attachments-row";
 
 const SmsReplyComposer = dynamic(
   () => import("@/app/admin/phone/messages/_components/SmsReplyComposer").then((m) => m.SmsReplyComposer),
@@ -86,8 +89,31 @@ function normalizeBodyForMatch(s: string | null | undefined): string {
     .trim();
 }
 
+function attachmentSignature(list: WorkspaceSmsThreadAttachment[] | null | undefined): string {
+  if (!Array.isArray(list) || list.length === 0) return "";
+  return list
+    .map((x) => x.id)
+    .sort()
+    .join("|");
+}
+
+function mergeAttachmentRealtime(
+  prev: WorkspaceSmsThreadAttachment[] | null | undefined,
+  next: WorkspaceSmsThreadAttachment
+): WorkspaceSmsThreadAttachment[] {
+  const base = [...(Array.isArray(prev) ? prev : [])].filter((a) => a.id !== next.id);
+  base.push(next);
+  return sortThreadAttachments(base);
+}
+
 const ThreadMessageRow = memo(
-  function ThreadMessageRow({ message: m }: { message: ThreadMessage }) {
+  function ThreadMessageRow({
+    message: m,
+    smsLeadInsuranceTargetId,
+  }: {
+    message: ThreadMessage;
+    smsLeadInsuranceTargetId: string | null;
+  }) {
     const inbound = String(m.direction).toLowerCase() === "inbound";
     const isPending = m.id.startsWith("optimistic-");
     const when = formatAdminPhoneWhen(typeof m.created_at === "string" ? m.created_at : null);
@@ -99,11 +125,16 @@ const ThreadMessageRow = memo(
       ? `/admin/fax/${encodeURIComponent(m.fax.fax_id)}`
       : m.fax?.media_url ?? null;
     const faxLinkLabel = m.fax?.fax_id ? "Open fax" : "Open PDF";
+    const bodyTrim = normalizeBodyForMatch(m.body ?? null);
+    const attachmentsList = Array.isArray(m.attachments) ? m.attachments : [];
+    const showAttachments = attachmentsList.length > 0;
+    const showBubble = bodyTrim !== "" || showAttachments || isFax;
 
     return (
       <div
         className={`flex w-full flex-col ${inbound ? "items-start" : "items-end"} gap-0.5 sm:gap-1`}
       >
+        {showBubble ? (
         <div
           className={`max-w-[min(92%,22rem)] rounded-[1.05rem] text-[15px] leading-[1.42] tracking-[0.01em] sm:rounded-[1.25rem] ${
             inbound
@@ -113,7 +144,16 @@ const ThreadMessageRow = memo(
                 }`
           }`}
         >
-          <p className="whitespace-pre-wrap break-words">{String(m.body ?? "")}</p>
+          {bodyTrim !== "" ? (
+          <p className="whitespace-pre-wrap break-words">{bodyTrim}</p>
+          ) : null}
+          {showAttachments ? (
+            <SmsMessageMediaAttachments
+              inbound={inbound}
+              attachments={attachmentsList}
+              smsLeadInsuranceTargetId={smsLeadInsuranceTargetId}
+            />
+          ) : null}
           {isFax ? (
             <div className={`mt-2 rounded-xl border px-3 py-2 text-sm ${inbound ? "border-slate-200 bg-slate-50" : "border-white/20 bg-white/10"}`}>
               <p className={`text-xs font-bold uppercase tracking-wide ${inbound ? "text-slate-500" : "text-sky-50/90"}`}>
@@ -132,6 +172,7 @@ const ThreadMessageRow = memo(
             </div>
           ) : null}
         </div>
+        ) : null}
         <p
           className={`px-1 text-[10px] font-medium tabular-nums tracking-wide ${
             inbound ? "text-left text-slate-400" : "text-right text-slate-400"
@@ -152,7 +193,9 @@ const ThreadMessageRow = memo(
     (prev.message.phone_call_id ?? null) === (next.message.phone_call_id ?? null) &&
     (prev.message.fax?.fax_id ?? null) === (next.message.fax?.fax_id ?? null) &&
     (prev.message.fax?.media_url ?? null) === (next.message.fax?.media_url ?? null) &&
-    (prev.message.outbound_status_raw ?? null) === (next.message.outbound_status_raw ?? null)
+    (prev.message.outbound_status_raw ?? null) === (next.message.outbound_status_raw ?? null) &&
+    attachmentSignature(prev.message.attachments) === attachmentSignature(next.message.attachments) &&
+    (prev.smsLeadInsuranceTargetId ?? null) === (next.smsLeadInsuranceTargetId ?? null)
 );
 
 type Props = {
@@ -173,6 +216,8 @@ type Props = {
   threadTopSlot?: ReactNode;
   /** Desktop inbox 3-pane: full-width thread column, no max-width card feel. */
   appDesktopSplit?: boolean;
+  /** Linked CRM lead (when any) for “save MMS to insurance card” actions on inbound media. */
+  smsLeadInsuranceTargetId?: string | null;
 };
 
 const WorkspaceSmsThreadViewInner = memo(function WorkspaceSmsThreadViewInner({
@@ -187,6 +232,7 @@ const WorkspaceSmsThreadViewInner = memo(function WorkspaceSmsThreadViewInner({
   smsInboundToE164,
   threadTopSlot,
   appDesktopSplit = false,
+  smsLeadInsuranceTargetId = null,
 }: Props) {
   routePerfRenderCount("SmsThreadView");
   const [sendError, setSendError] = useState<string | null>(null);
@@ -325,7 +371,9 @@ const WorkspaceSmsThreadViewInner = memo(function WorkspaceSmsThreadViewInner({
       try {
         const { data, error } = await supabase
           .from("messages")
-          .select("id, created_at, direction, body, phone_call_id, message_type, metadata")
+          .select(
+            "id, created_at, direction, body, phone_call_id, message_type, metadata, phone_message_attachments ( id, content_type, file_name, provider_media_index )"
+          )
           .eq("conversation_id", conversationId)
           .is("deleted_at", null)
           .order("created_at", { ascending: false })
@@ -345,6 +393,9 @@ const WorkspaceSmsThreadViewInner = memo(function WorkspaceSmsThreadViewInner({
             String(direction).toLowerCase() === "outbound"
               ? extractSmsProviderStatusRaw(row as { metadata?: unknown; direction?: string })
               : null;
+          const attachmentsRaw = mapNestedPhoneAttachmentsFromRpcRow(
+            (row as { phone_message_attachments?: unknown }).phone_message_attachments
+          );
           return {
             id: String(row.id),
             created_at: typeof row.created_at === "string" ? row.created_at : null,
@@ -353,6 +404,7 @@ const WorkspaceSmsThreadViewInner = memo(function WorkspaceSmsThreadViewInner({
             message_type,
             phone_call_id: pid,
             fax: readWorkspaceSmsThreadFax((row as { metadata?: unknown }).metadata),
+            attachments: attachmentsRaw,
             outbound_status_raw,
           };
         });
@@ -428,6 +480,49 @@ const WorkspaceSmsThreadViewInner = memo(function WorkspaceSmsThreadViewInner({
           const row = parseRealtimeMessage(payload.new);
           if (!row) return;
           applyIncomingRows([row], { scroll: "never" });
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "phone_message_attachments",
+          filter: `conversation_id=eq.${conversationId}`,
+        },
+        (payload) => {
+          const r = payload.new as Record<string, unknown> | null;
+          const aid = typeof r?.id === "string" ? r.id.trim() : "";
+          const mid = typeof r?.message_id === "string" ? r.message_id.trim() : "";
+          if (!aid || !mid) return;
+          const ct = typeof r.content_type === "string" ? r.content_type.trim() : null;
+          const fn = typeof r.file_name === "string" ? r.file_name.trim() : null;
+          const imx = typeof r.provider_media_index === "number" ? r.provider_media_index : null;
+          const attRow: WorkspaceSmsThreadAttachment = {
+            id: aid,
+            content_type: ct ?? null,
+            file_name: fn ?? null,
+            provider_media_index: imx,
+          };
+          const wasNearBottom = isNearBottom();
+          setServerMessages((prev) => {
+            const ix = prev.findIndex((m) => m.id === mid);
+            if (ix === -1) {
+              void fetchLatestMessages();
+              return prev;
+            }
+            const cur = prev[ix]!;
+            const nextAttachments = mergeAttachmentRealtime(cur.attachments ?? null, attRow);
+            if (attachmentSignature(cur.attachments) === attachmentSignature(nextAttachments)) {
+              return prev;
+            }
+            const clone = [...prev];
+            clone[ix] = { ...cur, attachments: nextAttachments };
+            return clone;
+          });
+          if (wasNearBottom) {
+            requestAnimationFrame(() => scrollToBottom("auto"));
+          }
         }
       )
       .subscribe();

@@ -3,6 +3,13 @@
  * Preserves object identity for unchanged messages so memoized rows skip re-renders.
  */
 
+export type WorkspaceSmsThreadAttachment = {
+  id: string;
+  content_type: string | null;
+  file_name: string | null;
+  provider_media_index?: number | null;
+};
+
 export type WorkspaceSmsThreadMessage = {
   id: string;
   created_at: string | null;
@@ -11,6 +18,7 @@ export type WorkspaceSmsThreadMessage = {
   message_type?: string | null;
   phone_call_id?: string | null;
   fax?: WorkspaceSmsThreadFax | null;
+  attachments?: WorkspaceSmsThreadAttachment[] | null;
   /**
    * Lowercase Twilio/provider status (e.g. from `metadata.twilio_delivery.status`).
    * Omitted for inbound; used only for outbound delivery label.
@@ -56,6 +64,25 @@ function sameFax(a: WorkspaceSmsThreadFax | null | undefined, b: WorkspaceSmsThr
   );
 }
 
+function sameAttachments(
+  a: WorkspaceSmsThreadAttachment[] | null | undefined,
+  b: WorkspaceSmsThreadAttachment[] | null | undefined
+): boolean {
+  const aa = Array.isArray(a) ? a : [];
+  const bb = Array.isArray(b) ? b : [];
+  if (aa.length !== bb.length) return false;
+  for (let i = 0; i < aa.length; i++) {
+    if (
+      aa[i]?.id !== bb[i]?.id ||
+      (aa[i]?.content_type ?? "") !== (bb[i]?.content_type ?? "") ||
+      (aa[i]?.file_name ?? "") !== (bb[i]?.file_name ?? "")
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export function sameWorkspaceSmsThreadMessage(
   a: WorkspaceSmsThreadMessage,
   b: WorkspaceSmsThreadMessage
@@ -68,6 +95,7 @@ export function sameWorkspaceSmsThreadMessage(
     (a.message_type ?? null) === (b.message_type ?? null) &&
     (a.phone_call_id ?? null) === (b.phone_call_id ?? null) &&
     sameFax(a.fax, b.fax) &&
+    sameAttachments(a.attachments ?? null, b.attachments ?? null) &&
     (a.outbound_status_raw ?? null) === (b.outbound_status_raw ?? null)
   );
 }

@@ -5,6 +5,16 @@ import { revalidatePath } from "next/cache";
 import { canStaffAccessPhoneCallRow } from "@/lib/phone/staff-call-access";
 import { mergeTelemetryOnSend } from "@/lib/phone/sms-suggestion-telemetry";
 import { softDeleteSmsConversation, softDeleteSmsMessage } from "@/lib/phone/sms-soft-delete";
+import { LEAD_ACTIVITY_EVENT } from "@/lib/crm/lead-activity-types";
+import {
+  LEAD_INSURANCE_BUCKET,
+  LEAD_INSURANCE_MAX_BYTES,
+  isAllowedLeadInsuranceMime,
+  sanitizeLeadInsuranceFileName,
+} from "@/lib/crm/lead-insurance-storage";
+import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
+import { PHONE_MESSAGE_MEDIA_BUCKET } from "@/lib/phone/phone-message-media-bucket";
+import { staffMayAccessSmsConversation } from "@/lib/phone/staff-sms-conversation-access-async";
 import { buildInitialTwilioDeliveryFromRestResponse } from "@/lib/phone/sms-delivery-ui";
 import { ensureSmsConversationForPhone } from "@/lib/phone/sms-conversation-thread";
 import { resolveContactAndPhoneForWorkspaceNewSms } from "@/lib/phone/workspace-new-sms-resolve";
@@ -27,6 +37,7 @@ import {
 } from "@/lib/phone/staff-phone-policy";
 import { canAccessWorkspacePhone, getStaffProfile } from "@/lib/staff-profile";
 import { supabaseAdmin } from "@/lib/admin";
+import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 const SMS_BODY_MAX = 1600;
 
@@ -476,4 +487,175 @@ function mapResolveError(
     default:
       return "Could not resolve this SMS recipient.";
   }
+}
+
+export async function saveSmsMmsAttachmentToLeadInsurance(
+  formData: FormData
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const staff = await getStaffProfile();
+  if (!staff || !canAccessWorkspacePhone(staff) || !staffMayAccessWorkspaceSms(staff)) {
+    return { ok: false, error: "You do not have access." };
+  }
+
+  const attachmentIdRaw = formData.get("attachmentId");
+  const leadIdRaw = formData.get("leadId");
+  const slotRaw = formData.get("slot");
+  const attachmentId =
+    typeof attachmentIdRaw === "string" ? attachmentIdRaw.trim().toLowerCase() : "";
+  const leadId = typeof leadIdRaw === "string" ? leadIdRaw.trim().toLowerCase() : "";
+  const slot = typeof slotRaw === "string" ? slotRaw.trim() : "";
+  if (!attachmentId || !UUID_RE.test(attachmentId) || !leadId || !UUID_RE.test(leadId)) {
+    return { ok: false, error: "Missing or invalid selection." };
+  }
+  if (slot !== "primary" && slot !== "secondary") {
+    return { ok: false, error: "Choose primary or secondary insurance card." };
+  }
+
+  const supabaseUser = await createServerSupabaseClient();
+  const { data: viewAtt, error: viewErr } = await supabaseUser
+    .from("phone_message_attachments")
+    .select("id, conversation_id")
+    .eq("id", attachmentId)
+    .maybeSingle();
+  if (viewErr || !viewAtt?.conversation_id) {
+    return { ok: false, error: "Attachment not found or not accessible." };
+  }
+
+  const convId = String(viewAtt.conversation_id);
+  const { data: convSnap, error: convErr } = await supabaseAdmin
+    .from("conversations")
+    .select("id, primary_contact_id, assigned_to_user_id")
+    .eq("id", convId)
+    .maybeSingle();
+  if (convErr || !convSnap?.id) {
+    return { ok: false, error: "Conversation not found." };
+  }
+  const assignedTo =
+    convSnap.assigned_to_user_id != null && String(convSnap.assigned_to_user_id).trim() !== ""
+      ? String(convSnap.assigned_to_user_id).trim()
+      : null;
+  const may = await staffMayAccessSmsConversation(supabaseUser, staff, convId, {
+    assigned_to_user_id: assignedTo,
+  });
+  if (!may) {
+    return { ok: false, error: "You do not have access to this thread." };
+  }
+  const primaryContactId =
+    convSnap.primary_contact_id != null && String(convSnap.primary_contact_id).trim() !== ""
+      ? String(convSnap.primary_contact_id).trim()
+      : null;
+  if (!primaryContactId) {
+    return { ok: false, error: "Link a CRM contact before saving documents." };
+  }
+
+  const { data: attachment, error: attErr } = await supabaseAdmin
+    .from("phone_message_attachments")
+    .select(
+      "id, storage_path, storage_bucket, content_type, file_name, conversation_id, message_id"
+    )
+    .eq("id", attachmentId)
+    .maybeSingle();
+
+  if (attErr || !attachment?.storage_path || !attachment.storage_bucket) {
+    return { ok: false, error: "Could not load attachment." };
+  }
+  const phoneBucket = String(attachment.storage_bucket);
+  const phonePath = String(attachment.storage_path);
+  if (phoneBucket !== PHONE_MESSAGE_MEDIA_BUCKET) {
+    return { ok: false, error: "Unsupported attachment source." };
+  }
+
+  const mimeRaw =
+    typeof attachment.content_type === "string" && attachment.content_type.trim()
+      ? attachment.content_type.trim()
+      : "application/octet-stream";
+  if (!isAllowedLeadInsuranceMime(mimeRaw)) {
+    return { ok: false, error: "Only JPG, PNG, WebP, or PDF can be linked as an insurance card." };
+  }
+
+  const { data: leadRow, error: leadErr } = await leadRowsActiveOnly(
+    supabaseAdmin
+      .from("leads")
+      .select("id, contact_id, primary_insurance_file_url, secondary_insurance_file_url")
+      .eq("id", leadId)
+      .maybeSingle()
+  );
+
+  if (leadErr || !leadRow?.id || String(leadRow.contact_id) !== primaryContactId) {
+    return { ok: false, error: "That lead does not match this texting thread." };
+  }
+
+  const column =
+    slot === "primary" ? ("primary_insurance_file_url" as const) : ("secondary_insurance_file_url" as const);
+  const prevPath =
+    typeof leadRow[column] === "string" && (leadRow[column] as string).trim()
+      ? (leadRow[column] as string).trim()
+      : "";
+
+  const dl = await supabaseAdmin.storage.from(phoneBucket).download(phonePath);
+  const blob = dl?.data ?? null;
+  if (blob == null || dl.error) {
+    console.warn("[sms-mms-save-lead] download:", dl?.error?.message);
+    return { ok: false, error: "Could not download the MMS file." };
+  }
+  const ab = await blob.arrayBuffer();
+  const buffer = Buffer.from(ab);
+  if (buffer.byteLength < 16) {
+    return { ok: false, error: "File appears empty." };
+  }
+  if (buffer.byteLength > LEAD_INSURANCE_MAX_BYTES) {
+    return { ok: false, error: "File is larger than allowed for CRM insurance uploads." };
+  }
+
+  const origNameRaw =
+    typeof attachment.file_name === "string" && attachment.file_name.trim()
+      ? attachment.file_name.trim()
+      : `insurance.${mimeRaw.includes("pdf") ? "pdf" : "jpg"}`;
+  const safeBase = sanitizeLeadInsuranceFileName(origNameRaw);
+  const storagePath = `${leadId}/${slot}-${Date.now()}-${safeBase}`;
+  const ct = mimeRaw.split(";")[0]?.trim()?.toLowerCase() ?? "application/octet-stream";
+
+  const up = await supabaseAdmin.storage.from(LEAD_INSURANCE_BUCKET).upload(storagePath, buffer, {
+    contentType: ct,
+    upsert: false,
+  });
+  if (up.error) {
+    console.warn("[sms-mms-save-lead] lead upload:", up.error.message);
+    return { ok: false, error: "Could not copy file to CRM storage." };
+  }
+
+  const { error: lu } = await supabaseAdmin.from("leads").update({ [column]: storagePath }).eq("id", leadId);
+  if (lu) {
+    console.warn("[sms-mms-save-lead] leads update:", lu.message);
+    await supabaseAdmin.storage.from(LEAD_INSURANCE_BUCKET).remove([storagePath]).catch(() => {});
+    return { ok: false, error: "Could not update the lead record." };
+  }
+
+  if (prevPath && prevPath !== storagePath) {
+    await supabaseAdmin.storage.from(LEAD_INSURANCE_BUCKET).remove([prevPath]).catch(() => {});
+  }
+
+  const { error: actErr } = await supabaseAdmin.from("lead_activities").insert({
+    lead_id: leadId,
+    event_type: LEAD_ACTIVITY_EVENT.document_uploaded,
+    body:
+      slot === "primary"
+        ? "Insurance card saved from MMS (primary)"
+        : "Insurance card saved from MMS (secondary)",
+    metadata: { slot, source: "sms_mms_attachment", attachment_id: attachmentId },
+    created_by_user_id: staff.user_id,
+    deletable: false,
+  });
+  if (actErr) {
+    console.warn("[sms-mms-save-lead] lead activity:", actErr.message);
+  }
+
+  revalidatePath("/admin/crm/leads");
+  revalidatePath(`/admin/crm/leads/${leadId}`);
+  if (primaryContactId) {
+    revalidatePath("/admin/crm/contacts");
+    revalidatePath(`/admin/crm/contacts/${primaryContactId}`);
+  }
+  revalidatePath("/workspace/phone/inbox");
+  return { ok: true };
 }

@@ -47,11 +47,9 @@ export const APPLICANTS_ADMIN_DETAIL_COLUMNS = [
   "created_at",
   "updated_at",
   "resume_url",
-  /** `buildApplicantRoleFieldsFromRecord` */
-  "position_applied",
-  "discipline",
-  "job_title",
-  "title",
-  "role",
-  "role_title",
+  /**
+   * Role-ish extras are merged by `buildApplicantRoleFieldsFromRecord` only when present on the row.
+   * Do not list columns that are not real `public.applicants` columns — PostgREST rejects the whole
+   * `.select()` and the employee detail page gets no row (“Employee not found”).
+   */
 ].join(", ");

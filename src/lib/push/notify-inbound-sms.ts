@@ -76,6 +76,8 @@ export async function notifyInboundSmsAfterPersist(
   input: {
     conversationId: string;
     bodyPreview: string;
+    /** When SMS body is empty but MMS existed (detected via NumMedia/content types). */
+    bodyPreviewAttachmentHint?: string | null;
     fromE164?: string | null;
     /** CRM row from the same phone lookup used for the thread (no extra query). */
     matchedContact?: CrmContactMatch | null;
@@ -116,7 +118,9 @@ export async function notifyInboundSmsAfterPersist(
     pushTiming("after_resolve_sender_label");
 
     const from = (input.fromE164 ?? "").trim() || "unknown";
-    const preview = truncate(input.bodyPreview || "(no text)", 120);
+    const bodyTrim = typeof input.bodyPreview === "string" ? input.bodyPreview.trim() : "";
+    const hint = typeof input.bodyPreviewAttachmentHint === "string" ? input.bodyPreviewAttachmentHint.trim() : "";
+    const preview = truncate(bodyTrim ? bodyTrim : hint || "(no text)", 120);
     const cid = input.conversationId.trim();
     const openPath = `/workspace/phone/inbox?${new URLSearchParams({ thread: cid }).toString()}`;
     const msgSid = (input.externalMessageSid ?? "").trim();

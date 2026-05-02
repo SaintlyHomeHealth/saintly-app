@@ -1249,11 +1249,29 @@ export default async function EmployeeDetailPage({
     redirect(`/admin/employees/${employeeId}`);
   }
 
-  const { data: employee } = await adminPerfTimed("admin_employee_detail.applicant_row", () =>
+  const applicantRowResult = await adminPerfTimed("admin_employee_detail.applicant_row", () =>
     devTimedSupabaseQuery("admin_employee_detail.applicant_row", () =>
       supabase.from("applicants").select(APPLICANTS_ADMIN_DETAIL_COLUMNS).eq("id", employeeId).single()
     )
   );
+
+  const employee = applicantRowResult.data;
+
+  if (process.env.NODE_ENV === "development") {
+    if (applicantRowResult.error) {
+      console.error(
+        "[admin_employee_detail] applicants query failed:",
+        applicantRowResult.error.message ?? applicantRowResult.error
+      );
+    }
+    if (
+      employee &&
+      (typeof (employee as { id?: unknown }).id !== "string" ||
+        !(employee as { id: string }).id.trim())
+    ) {
+      console.error("[admin_employee_detail] applicant row missing id");
+    }
+  }
 
   if (!employee) {
     return <div className="p-6">Employee not found</div>;
