@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, startTransition, useCallback, useEffect, useMemo, useRef } from "react";
+import { memo, startTransition, useCallback, useEffect, useMemo, useRef, useId } from "react";
 import { useRouter } from "next/navigation";
 
 import { routePerfClientMark, routePerfEnabled, routePerfRenderCount } from "@/lib/perf/route-perf";
@@ -26,6 +26,7 @@ function WorkspaceInboxLiveClientInner({
 }) {
   routePerfRenderCount("WorkspaceInboxLiveClient");
   const router = useRouter();
+  const realtimeInstanceId = useId().replace(/:/g, "");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const trailingRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastRefreshAtRef = useRef(0);
@@ -105,7 +106,7 @@ function WorkspaceInboxLiveClientInner({
       return;
     }
     const supabase = createBrowserSupabaseClient();
-    let channel = supabase.channel("workspace_inbox_rail_scoped");
+    let channel = supabase.channel(`workspace_inbox_rail_${realtimeInstanceId}`);
     if (realtimeFilter) {
       channel = channel
         .on(
@@ -133,7 +134,7 @@ function WorkspaceInboxLiveClientInner({
       if (trailingRef.current) clearTimeout(trailingRef.current);
       void supabase.removeChannel(channel);
     };
-  }, [conversationFilter, realtimeFilter, scheduleRefresh]);
+  }, [conversationFilter, realtimeFilter, realtimeInstanceId, scheduleRefresh]);
 
   return null;
 }

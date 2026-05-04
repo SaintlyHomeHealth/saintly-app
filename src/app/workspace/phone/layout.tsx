@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 
+import { WorkspaceGlobalSoftphoneShell } from "../WorkspaceGlobalSoftphoneShell";
 import { NursePhoneBottomNav } from "./_components/NursePhoneBottomNav";
 import { WorkspacePhoneHeaderActions } from "./_components/WorkspacePhoneHeaderActions";
 import { WorkspacePhoneHeaderBranding } from "./_components/WorkspacePhoneHeaderBranding";
@@ -42,23 +43,25 @@ export default async function WorkspacePhoneLayout({ children }: { children: Rea
      */
 
     return (
-      <div className="ws-phone-page-shell flex h-[100dvh] max-h-[100dvh] min-h-0 flex-col overflow-x-hidden text-slate-900">
-        <WorkspacePhoneHeaderChrome>
-          <div className="mx-auto flex w-full max-w-none items-center justify-between gap-2 lg:gap-2">
-            <WorkspacePhoneHeaderBranding displayName={displayName} />
-            <WorkspacePhoneHeaderActions showAdminLink={showAdminLink} />
-          </div>
-        </WorkspacePhoneHeaderChrome>
+      <WorkspaceGlobalSoftphoneShell>
+        <div className="ws-phone-page-shell flex h-[100dvh] max-h-[100dvh] min-h-0 flex-col overflow-x-hidden text-slate-900">
+          <WorkspacePhoneHeaderChrome>
+            <div className="mx-auto flex w-full max-w-none items-center justify-between gap-2 lg:gap-2">
+              <WorkspacePhoneHeaderBranding displayName={displayName} />
+              <WorkspacePhoneHeaderActions showAdminLink={showAdminLink} />
+            </div>
+          </WorkspacePhoneHeaderChrome>
 
-        <WorkspacePhoneTopStatusStrip
-          displayName={displayName}
-          inboundRingEnabled={staff.inbound_ring_enabled}
-        />
+          <WorkspacePhoneTopStatusStrip
+            displayName={displayName}
+            inboundRingEnabled={staff.inbound_ring_enabled}
+          />
 
-        <WorkspacePhoneMainPad>{children}</WorkspacePhoneMainPad>
+          <WorkspacePhoneMainPad>{children}</WorkspacePhoneMainPad>
 
-        <NursePhoneBottomNav showLeadsNav={showAdminLink} allowedTabHrefs={allowedTabs} initialInboxHasUnread={false} />
-      </div>
+          <NursePhoneBottomNav showLeadsNav={showAdminLink} allowedTabHrefs={allowedTabs} initialInboxHasUnread={false} />
+        </div>
+      </WorkspaceGlobalSoftphoneShell>
     );
   } finally {
     if (perfStart) {

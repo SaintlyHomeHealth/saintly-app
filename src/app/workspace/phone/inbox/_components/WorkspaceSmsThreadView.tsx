@@ -523,6 +523,7 @@ const WorkspaceSmsThreadViewInner = memo(function WorkspaceSmsThreadViewInner({
   useEffect(() => {
     if (!supabaseRef.current) supabaseRef.current = createBrowserSupabaseClient();
     const supabase = supabaseRef.current;
+    const pendingMmsHydrationTimeouts: ReturnType<typeof setTimeout>[] = [];
     const channel = supabase
       .channel(`workspace_sms_thread:${conversationId}`)
       .on(
@@ -548,8 +549,8 @@ const WorkspaceSmsThreadViewInner = memo(function WorkspaceSmsThreadViewInner({
             const idSet = mmsHydrationKickIdsRef.current;
             if (!idSet.has(row.id)) {
               idSet.add(row.id);
-              window.setTimeout(() => void fetchLatestMessages(), 650);
-              window.setTimeout(() => void fetchLatestMessages(), 2900);
+              pendingMmsHydrationTimeouts.push(window.setTimeout(() => void fetchLatestMessages(), 650));
+              pendingMmsHydrationTimeouts.push(window.setTimeout(() => void fetchLatestMessages(), 2900));
             }
           }
         }
@@ -629,6 +630,7 @@ const WorkspaceSmsThreadViewInner = memo(function WorkspaceSmsThreadViewInner({
       .subscribe();
 
     return () => {
+      for (const t of pendingMmsHydrationTimeouts) window.clearTimeout(t);
       void supabase.removeChannel(channel);
     };
   }, [applyIncomingRows, conversationId, fetchLatestMessages, isNearBottom, scrollToBottom]);

@@ -1,9 +1,10 @@
 import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 
-import { WorkspaceGlobalSoftphoneShell } from "./WorkspaceGlobalSoftphoneShell";
 import { adminPerfTimed, routePerfLog, routePerfStart } from "@/lib/perf/route-perf";
 import { canAccessWorkspaceShell, getStaffProfile } from "@/lib/staff-profile";
+
+/** Twilio/inbound polling live only under `/workspace/phone/*` — see {@link WorkspaceGlobalSoftphoneShell} in phone/layout. */
 
 export default async function WorkspaceLayout({ children }: { children: ReactNode }) {
   const perfStart = routePerfStart();
@@ -16,7 +17,7 @@ export default async function WorkspaceLayout({ children }: { children: ReactNod
       redirect("/unauthorized?reason=forbidden");
     }
 
-    return <WorkspaceGlobalSoftphoneShell>{children}</WorkspaceGlobalSoftphoneShell>;
+    return <>{children}</>;
   } finally {
     routePerfLog("workspace/layout", perfStart);
   }

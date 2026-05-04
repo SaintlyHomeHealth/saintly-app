@@ -9,7 +9,9 @@ import { WorkspacePhoneCallDock } from "./phone/_components/WorkspacePhoneCallDo
 import { WorkspaceSoftphoneProvider } from "@/components/softphone/WorkspaceSoftphoneProvider";
 
 /**
- * Single Twilio Device + global incoming UI for all `/workspace/*` routes.
+ * Twilio Device, inbound polling, and in-call UI — mounted only from `workspace/phone/layout.tsx`
+ * so `/workspace/pay` avoids phone timers and Supabase-adjacent polling. Direct navigation to Pay
+ * while a browser call is active is not supported (bottom nav is hidden during calls).
  */
 export function WorkspaceGlobalSoftphoneShell({ children }: { children: React.ReactNode }) {
   return (
