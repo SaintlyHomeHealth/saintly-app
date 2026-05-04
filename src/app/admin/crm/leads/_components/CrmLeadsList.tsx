@@ -44,6 +44,10 @@ import {
   buildWorkspaceSmsToContactHref,
   pickOutboundE164ForDial,
 } from "@/lib/workspace-phone/launch-urls";
+import {
+  ADMIN_CRM_LEADS_LIST_PATH_PREFIX,
+  buildAdminCrmLeadDetailHref,
+} from "@/lib/crm/admin-crm-leads-list-url";
 
 const pillBase = "inline-flex max-w-full shrink-0 rounded-full px-1 py-[1px] text-[9px] font-semibold ring-1";
 
@@ -114,14 +118,16 @@ function LeadActionButtonRow({
   keypadHref,
   smsHref,
   compact,
+  leadsListContextHref,
 }: {
   leadId: string;
   phone: string;
   keypadHref: string | null;
   smsHref: string | null;
   compact?: boolean;
+  leadsListContextHref: string;
 }) {
-  const detailHref = `/admin/crm/leads/${leadId}`;
+  const detailHref = buildAdminCrmLeadDetailHref(leadId, leadsListContextHref);
   const pad = compact ? "px-1.5 py-0.5 text-[9px]" : "px-2 py-1 text-[10px]";
   const primary =
     `inline-flex items-center justify-center rounded-md border ${pad} font-semibold shadow-sm transition hover:shadow`;
@@ -235,6 +241,8 @@ type Props = {
   smsConversationIdByContactId?: Record<string, string>;
   /** Mirrors URL `density` — default Compact for admins. Does not alter server filtering. */
   initialDensity?: "compact" | "comfortable";
+  /** Current list URL (pathname + filters) for lead detail `returnTo`. */
+  leadsListContextHref?: string;
   emptyState?: {
     narrowFiltersActive: boolean;
     clearHref: string;
@@ -404,6 +412,7 @@ export function CrmLeadsList({
   todayIso,
   smsConversationIdByContactId = {},
   initialDensity = "compact",
+  leadsListContextHref = ADMIN_CRM_LEADS_LIST_PATH_PREFIX,
   emptyState,
 }: Props) {
   const router = useRouter();
@@ -601,7 +610,7 @@ export function CrmLeadsList({
                 const exp = (emp?.years_experience ?? "").trim() || "—";
                 const resume = (emp?.resume_url ?? "").trim();
                 const nextActionLabel = formatLeadNextActionLabel(r.next_action);
-                const detailHref = `/admin/crm/leads/${r.id}`;
+                const detailHref = buildAdminCrmLeadDetailHref(r.id, leadsListContextHref);
                 const fu = followUpUrgency(r.follow_up_date, todayIso);
                 const lcHuman = lastContactHumanLine(r.last_contact_at, r.last_outcome, todayIso, r.status);
                 const contactStage = contactStageBadgeLabel(r);
@@ -721,7 +730,14 @@ export function CrmLeadsList({
                     </div>
                     <div className={`flex min-w-0 flex-col md:items-end ${compact ? "gap-1" : "gap-2"}`}>
                       <CompactContactLines dense={compact} phoneDisplay={phone ? formatPhoneForDisplay(phone) : null} email={email || null} />
-                      <LeadActionButtonRow compact={compact} leadId={r.id} phone={phone} keypadHref={keypadHref} smsHref={smsHref} />
+                      <LeadActionButtonRow
+                        compact={compact}
+                        leadId={r.id}
+                        phone={phone}
+                        keypadHref={keypadHref}
+                        smsHref={smsHref}
+                        leadsListContextHref={leadsListContextHref}
+                      />
                     </div>
                     <div
                       className={`text-right tabular-nums text-slate-500 ${compact ? "text-[10px] leading-tight md:max-w-none" : "whitespace-nowrap text-[11px] md:pt-1"}`}
@@ -804,7 +820,7 @@ export function CrmLeadsList({
                 const role = (emp?.position ?? "").trim();
                 const exp = (emp?.years_experience ?? "").trim();
                 const resume = (emp?.resume_url ?? "").trim();
-                const detailHref = `/admin/crm/leads/${r.id}`;
+                const detailHref = buildAdminCrmLeadDetailHref(r.id, leadsListContextHref);
                 const nextActionLabel = formatLeadNextActionLabel(r.next_action);
                 const fu = followUpUrgency(r.follow_up_date, todayIso);
                 const lcHuman = lastContactHumanLine(r.last_contact_at, r.last_outcome, todayIso, r.status);
@@ -935,7 +951,14 @@ export function CrmLeadsList({
                     </div>
                     <div className={`flex min-w-0 flex-col md:items-end ${compact ? "gap-1" : "gap-2"}`}>
                       <CompactContactLines dense={compact} phoneDisplay={phone ? formatPhoneForDisplay(phone) : null} email={email || null} />
-                      <LeadActionButtonRow compact={compact} leadId={r.id} phone={phone} keypadHref={keypadHref} smsHref={smsHref} />
+                      <LeadActionButtonRow
+                        compact={compact}
+                        leadId={r.id}
+                        phone={phone}
+                        keypadHref={keypadHref}
+                        smsHref={smsHref}
+                        leadsListContextHref={leadsListContextHref}
+                      />
                     </div>
                     <div
                       className={`text-right tabular-nums text-slate-500 ${compact ? "text-[10px] leading-tight md:max-w-none" : "whitespace-nowrap text-[11px] md:pt-1"}`}

@@ -25,6 +25,7 @@ import { pickOutboundE164ForDial } from "@/lib/workspace-phone/launch-urls";
 import { buildCrmCommunicationTimelineModel } from "@/lib/crm/build-crm-communication-timeline-model";
 import { resolveLeadCrmStage } from "@/lib/crm/crm-stage";
 import { loadAssignableLeadOwners } from "@/lib/crm/assignable-lead-owners";
+import { safeAdminCrmLeadsListReturnUrl } from "@/lib/crm/admin-crm-leads-list-url";
 
 function isNextControlFlowError(error: unknown): boolean {
   const digest = error && typeof error === "object" && "digest" in error ? String(error.digest) : "";
@@ -117,6 +118,9 @@ export default async function LeadIntakePage({
     }
 
   const sp = searchParams ? await searchParams : {};
+  const returnToRaw =
+    typeof sp.returnTo === "string" ? sp.returnTo : Array.isArray(sp.returnTo) ? sp.returnTo[0] : "";
+  const leadsListBackHref = safeAdminCrmLeadsListReturnUrl(returnToRaw);
   const convertErrRaw =
     typeof sp.convertError === "string" ? sp.convertError : Array.isArray(sp.convertError) ? sp.convertError[0] : "";
   let convertErr = "";
@@ -440,6 +444,7 @@ export default async function LeadIntakePage({
     return (
     <LeadWorkspace
       mode="existing"
+      leadsListBackHref={leadsListBackHref}
       leadId={String(L.id)}
       contactId={contactId}
       workspaceSmsConversationId={workspaceSmsConversationId}

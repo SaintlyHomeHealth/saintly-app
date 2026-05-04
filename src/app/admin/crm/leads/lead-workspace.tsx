@@ -43,6 +43,7 @@ import {
   pickOutboundE164ForDial,
 } from "@/lib/workspace-phone/launch-urls";
 import { routePerfRenderCount } from "@/lib/perf/route-perf";
+import { ADMIN_CRM_LEADS_LIST_PATH_PREFIX } from "@/lib/crm/admin-crm-leads-list-url";
 
 const CRM_ATTEMPT_TIME_ZONE = "America/Chicago";
 
@@ -173,6 +174,8 @@ export type LeadWorkspaceIntakeDefaults = {
 
 export type LeadWorkspaceExistingProps = {
   mode: "existing";
+  /** From list `returnTo` query — safe path prefix enforced on the server. */
+  leadsListBackHref?: string;
   leadId: string;
   contactId: string;
   displayName: string;
@@ -509,6 +512,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
     initialLeadQuality = null,
     communicationTimelineRows = [],
     crmStage,
+    leadsListBackHref = ADMIN_CRM_LEADS_LIST_PATH_PREFIX,
   } = props;
 
   const tomorrowIso = getCrmCalendarTomorrowIso();
@@ -539,7 +543,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
       <LeadPageScrollLock />
       <div className="mb-5 shrink-0">
         <Link
-          href="/admin/crm/leads"
+          href={leadsListBackHref}
           className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50"
         >
           <ArrowLeft className="h-4 w-4 shrink-0 text-slate-600" aria-hidden />
@@ -1339,7 +1343,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
       )}
         <div className="border-t border-slate-200 pt-6">
           <Link
-            href="/admin/crm/leads"
+            href={leadsListBackHref}
             className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50"
           >
             <ArrowLeft className="h-4 w-4 shrink-0 text-slate-600" aria-hidden />

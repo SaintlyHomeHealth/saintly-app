@@ -349,6 +349,14 @@ export default async function AdminCrmLeadsPage({
           : "No leads found."
         : `Showing ${rangeStart}–${rangeEnd} of ${totalFiltered} leads`;
 
+    const leadsListContextHref = buildAdminCrmLeadsHref({
+      ...f,
+      includeDead,
+      followUp: f.followUp,
+      page: safePage,
+      density,
+    });
+
     return (
       <div className="space-y-3 p-4 sm:space-y-4 sm:p-6">
         {toastBanner}
@@ -614,6 +622,7 @@ export default async function AdminCrmLeadsPage({
           todayIso={todayIso}
           smsConversationIdByContactId={smsConversationIdByContactId}
           initialDensity={density}
+          leadsListContextHref={leadsListContextHref}
           emptyState={{
             narrowFiltersActive: hasSearchOrColumnFilters || includeDead || safePage > 1,
             clearHref: clearAllFiltersHref,
