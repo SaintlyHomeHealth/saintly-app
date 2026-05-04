@@ -8,6 +8,7 @@ import {
   CONTRACT_ROLE_OPTIONS,
   ContractRoleKey,
   EmployeeContractRow,
+  EMPLOYEE_CONTRACT_ADMIN_LIST_COLUMNS,
   EmploymentClassification,
   EmploymentType,
   formatCurrency,
@@ -92,7 +93,7 @@ function nextVersionForAgreement(
   );
 }
 
-function displayContractVersion(row: ContractHistoryRow, allHistoryDesc: ContractHistoryRow[]) {
+function displayContractVersion(row: ContractHistoryRow, historySortedAsc: ContractHistoryRow[]) {
   const vn =
     typeof row.version_number === "number"
       ? row.version_number
@@ -100,11 +101,7 @@ function displayContractVersion(row: ContractHistoryRow, allHistoryDesc: Contrac
         ? Number(row.version_number)
         : NaN;
   if (Number.isFinite(vn) && vn > 0) return String(vn);
-  const sortedAsc = [...allHistoryDesc].sort(
-    (a, b) =>
-      new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()
-  );
-  const rank = sortedAsc.findIndex((c) => c.id === row.id);
+  const rank = historySortedAsc.findIndex((c) => c.id === row.id);
   return rank >= 0 ? String(rank + 1) : "—";
 }
 
@@ -166,6 +163,13 @@ export default function EmploymentContractCard({
   const [isEditingNewVersion, setIsEditingNewVersion] = useState(false);
   const [expandedContractId, setExpandedContractId] = useState<string | null>(null);
 
+  const contractHistorySortedAsc = useMemo(() => {
+    return [...contractHistory].sort(
+      (a, b) =>
+        new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()
+    );
+  }, [contractHistory]);
+
   const isSigned = contract?.contract_status === "signed";
   const isLocked =
     contract?.contract_status === "sent" || contract?.contract_status === "signed";
@@ -211,13 +215,31 @@ export default function EmploymentContractCard({
   const loadContractHistory = async () => {
     const { data, error } = await supabase
       .from("employee_contracts")
-      .select("*")
+      .select(EMPLOYEE_CONTRACT_ADMIN_LIST_COLUMNS)
       .eq("applicant_id", applicantId)
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: false })
+      .limit(60);
 
-    if (!error) {
+    if (!error && data) {
       setContractHistory((data as ContractHistoryRow[]) || []);
     }
+  };
+
+  const mergeHistoryAfterRowUpdate = (saved: ContractHistoryRow, demoteOthersCurrent: boolean) => {
+    setContractHistory((prev) => {
+      let next = prev.map((r) => {
+        if (r.id === saved.id) return { ...saved };
+        if (demoteOthersCurrent) return { ...r, is_current: false };
+        return r;
+      });
+      if (!next.some((r) => r.id === saved.id)) {
+        next = [...next, saved];
+      }
+      return next.sort(
+        (a, b) =>
+          new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+      );
+    });
   };
 
   useEffect(() => {
@@ -272,7 +294,7 @@ export default function EmploymentContractCard({
     return supabase
       .from("employee_contracts")
       .insert(insertPayload)
-      .select("*")
+      .select(EMPLOYEE_CONTRACT_ADMIN_LIST_COLUMNS)
       .maybeSingle<ContractHistoryRow>();
   };
 
@@ -383,7 +405,7 @@ export default function EmploymentContractCard({
         .from("employee_contracts")
         .update(updatePayload)
         .eq("id", contract.id)
-        .select("*")
+        .select(EMPLOYEE_CONTRACT_ADMIN_LIST_COLUMNS)
         .maybeSingle<ContractHistoryRow>();
 
       data = res.data;
@@ -398,12 +420,12 @@ export default function EmploymentContractCard({
     setIsSaving(false);
 
     if (error) {
-      if (shouldUpdateExistingRow) {
-        console.error("EMPLOYEE CONTRACT UPDATE ERROR:", error);
-      } else {
-        console.error("EMPLOYEE CONTRACT INSERT ERROR:", error);
-        console.error("EMPLOYEE CONTRACT INSERT PAYLOAD:", payload);
-      }
+      console.error(
+        shouldUpdateExistingRow
+          ? "[EmploymentContractCard] contract update failed"
+          : "[EmploymentContractCard] contract insert failed",
+        error
+      );
       setErrorMessage(employeeContractUserMessage(error));
       return;
     }
@@ -412,7 +434,11 @@ export default function EmploymentContractCard({
     setForm(getInitialFormState(data || null, suggestedRoleKey));
     setIsEditingNewVersion(false);
     onPreviewEmploymentClassificationChange?.(null);
-    await loadContractHistory();
+    if (shouldUpdateExistingRow && data) {
+      mergeHistoryAfterRowUpdate(data, false);
+    } else {
+      await loadContractHistory();
+    }
     setSuccessMessage(nextStatus === "sent" ? "Contract sent to employee." : "Draft saved.");
     router.refresh();
   };
@@ -447,7 +473,7 @@ export default function EmploymentContractCard({
     setIsSaving(false);
 
     if (error) {
-      console.error("EMPLOYEE CONTRACT RESEND ERROR:", error);
+      console.error("[EmploymentContractCard] contract resend failed", error);
       setErrorMessage(employeeContractUserMessage(error));
       return;
     }
@@ -456,7 +482,9 @@ export default function EmploymentContractCard({
     setForm(getInitialFormState(data || null, suggestedRoleKey));
     setIsEditingNewVersion(false);
     onPreviewEmploymentClassificationChange?.(null);
-    await loadContractHistory();
+    if (data) {
+      mergeHistoryAfterRowUpdate(data, true);
+    }
     setSuccessMessage("Contract sent to employee.");
     router.refresh();
   };
@@ -807,7 +835,7 @@ export default function EmploymentContractCard({
                           Version
                         </p>
                         <p className="mt-1 text-sm font-medium text-slate-900">
-                          {displayContractVersion(historyContract, contractHistory)}
+                          {displayContractVersion(historyContract, contractHistorySortedAsc)}
                         </p>
                       </div>
                       <div>

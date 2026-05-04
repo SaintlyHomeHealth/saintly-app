@@ -117,7 +117,7 @@ export default function EmployeeContractTaxWorkflow({
           <p className="font-semibold">Employment contract data could not be loaded completely</p>
           <p className="mt-1 text-amber-950/90">{contractLoadError}</p>
           <p className="mt-2 text-xs text-amber-900/80">
-            Other employee sections should still work. Check Vercel logs for{" "}
+            Other employee sections should still work. If the problem continues, check server logs for{" "}
             <code className="rounded bg-amber-100/80 px-1">admin_employee_detail.employee_contracts</code>.
           </p>
         </div>

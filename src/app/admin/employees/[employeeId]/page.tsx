@@ -1265,7 +1265,7 @@ export default async function EmployeeDetailPage({
 
   const applicantRowResult = await adminPerfTimed("admin_employee_detail.applicant_row", () =>
       devTimedSupabaseQuery("admin_employee_detail.applicant_row", () =>
-      supabase.from("applicants").select("*").eq("id", employeeId).maybeSingle()
+      supabase.from("applicants").select(APPLICANTS_ADMIN_DETAIL_COLUMNS).eq("id", employeeId).maybeSingle()
     )
   );
 
@@ -1300,11 +1300,17 @@ export default async function EmployeeDetailPage({
     return <div className="p-6">Employee not found</div>;
   }
 
-  const [
-    { data: applicationWorkHistoryRaw },
-    { data: applicationReferencesRaw },
-    { data: onboardingEmergencySnapshot },
-  ] = await adminPerfTimed("admin_employee_detail.parallel_misc", () =>
+  const supabaseAuthedForBatch = await createServerSupabaseClient();
+
+  const ADMIN_EMPLOYEE_MAIN_BATCH_LEN = 23;
+  const ADMIN_COMPLIANCE_PROGRAM_HISTORY_LIMIT = 80;
+
+  const contractPromise = adminPerfTimed(
+    "admin_employee_detail.employee_contract_isolated",
+    () => fetchEmployeeContractForAdminDetail(employeeId)
+  );
+
+  const miscPromise = adminPerfTimed("admin_employee_detail.parallel_misc", () =>
     Promise.all([
     supabaseAdmin
       .from("applicant_work_history")
@@ -1318,47 +1324,24 @@ export default async function EmployeeDetailPage({
       .select("name, relationship, phone, email, sort_order")
       .eq("applicant_id", employeeId)
       .order("sort_order", { ascending: true }),
-    supabase
-      .from("onboarding_contracts")
-      .select(
-        "emergency_contact_name, emergency_contact_relationship, emergency_contact_phone, emergency_contact_secondary, emergency_medical_conditions, emergency_allergies, emergency_acknowledged, emergency_full_name, emergency_signed_at"
-      )
-      .eq("applicant_id", employeeId)
-      .maybeSingle(),
     ])
   );
 
-  const applicationWorkHistory = (applicationWorkHistoryRaw || []) as Array<{
-    employer_name?: string | null;
-    job_title?: string | null;
-    city_state?: string | null;
-    dates_employed?: string | null;
-    primary_duties?: string | null;
-    reason_for_leaving?: string | null;
-  }>;
-  const applicationReferences = (applicationReferencesRaw || []) as Array<{
-    name?: string | null;
-    relationship?: string | null;
-    phone?: string | null;
-    email?: string | null;
-  }>;
-
-  const supabaseAuthedForBatch = await createServerSupabaseClient();
-
-  const employeeContractFetchRaw = await adminPerfTimed(
-    "admin_employee_detail.employee_contract_isolated",
-    () => fetchEmployeeContractForAdminDetail(employeeId)
-  );
-
-  const ADMIN_EMPLOYEE_MAIN_BATCH_LEN = 23;
-  let mainBatchResults: any;
-  try {
-    mainBatchResults = await adminPerfTimed("admin_employee_detail.parallel_main_batch", () =>
+  const mainBatchPromise = adminPerfTimed("admin_employee_detail.parallel_main_batch", () =>
       Promise.all([
     supabase
       .from("onboarding_contracts")
       .select(`
         completed,
+        emergency_contact_name,
+        emergency_contact_relationship,
+        emergency_contact_phone,
+        emergency_contact_secondary,
+        emergency_medical_conditions,
+        emergency_allergies,
+        emergency_acknowledged,
+        emergency_full_name,
+        emergency_signed_at,
         selected_role,
         role_title,
         role_description,
@@ -1406,6 +1389,15 @@ export default async function EmployeeDetailPage({
       .maybeSingle<
         OnboardingPortalFormsRecord & {
           completed?: boolean | null;
+          emergency_contact_name?: string | null;
+          emergency_contact_relationship?: string | null;
+          emergency_contact_phone?: string | null;
+          emergency_contact_secondary?: string | null;
+          emergency_medical_conditions?: string | null;
+          emergency_allergies?: string | null;
+          emergency_acknowledged?: boolean | null;
+          emergency_full_name?: string | null;
+          emergency_signed_at?: string | null;
           selected_role?: string | null;
           role_title?: string | null;
           role_description?: string | null;
@@ -1515,7 +1507,9 @@ export default async function EmployeeDetailPage({
       .select("compliance_event_id, finalized_at, created_at")
       .eq("employee_id", employeeId)
       .eq("form_type", "skills_competency")
-      .eq("status", "finalized"),
+      .eq("status", "finalized")
+      .order("finalized_at", { ascending: false })
+      .limit(12),
     supabase
       .from("admin_compliance_events")
       .select("id, status, event_title, due_date, completed_at, event_type, created_at")
@@ -1528,7 +1522,9 @@ export default async function EmployeeDetailPage({
       .select("compliance_event_id, finalized_at, created_at")
       .eq("employee_id", employeeId)
       .eq("form_type", "performance_evaluation")
-      .eq("status", "finalized"),
+      .eq("status", "finalized")
+      .order("finalized_at", { ascending: false })
+      .limit(12),
     supabase
       .from("admin_compliance_events")
       .select("id, status, event_title, due_date, completed_at, event_type, created_at")
@@ -1589,7 +1585,8 @@ export default async function EmployeeDetailPage({
         "annual_training",
         "annual_tb_statement",
       ])
-      .order("due_date", { ascending: false }),
+      .order("due_date", { ascending: false })
+      .limit(ADMIN_COMPLIANCE_PROGRAM_HISTORY_LIMIT),
     supabaseAuthedForBatch
       .from("employee_credentials")
       .select(
@@ -1603,18 +1600,42 @@ export default async function EmployeeDetailPage({
       .select("id, credential_type, reminder_stage, created_at, expiration_anchor, metadata")
       .eq("applicant_id", employeeId)
       .order("created_at", { ascending: false })
-      .limit(500),
-    ])
-    );
-  } catch (fatal) {
-    console.error("[admin_employee_detail] parallel_main_batch fatal — correlate with error digest in Vercel logs", {
+      .limit(120),
+    ]).catch((fatal) => {
+    console.error("[admin_employee_detail] parallel_main_batch fatal", {
       employeeId,
-      digestExamples: ["3753892406"],
       message: fatal instanceof Error ? fatal.message : String(fatal),
       stack: fatal instanceof Error ? fatal.stack : undefined,
     });
-    mainBatchResults = Array.from({ length: ADMIN_EMPLOYEE_MAIN_BATCH_LEN }, () => ({ data: null }));
-  }
+    return Array.from({ length: ADMIN_EMPLOYEE_MAIN_BATCH_LEN }, () => ({ data: null }));
+  })
+    );
+
+  const [employeeContractFetchRaw, miscResults, mainBatchResults] = await Promise.all([
+    contractPromise,
+    miscPromise,
+    mainBatchPromise,
+  ]);
+
+  const [
+    { data: applicationWorkHistoryRaw },
+    { data: applicationReferencesRaw },
+  ] = miscResults;
+
+  const applicationWorkHistory = (applicationWorkHistoryRaw || []) as Array<{
+    employer_name?: string | null;
+    job_title?: string | null;
+    city_state?: string | null;
+    dates_employed?: string | null;
+    primary_duties?: string | null;
+    reason_for_leaving?: string | null;
+  }>;
+  const applicationReferences = (applicationReferencesRaw || []) as Array<{
+    name?: string | null;
+    relationship?: string | null;
+    phone?: string | null;
+    email?: string | null;
+  }>;
 
   const [
     { data: onboardingContractStatus },
@@ -1642,6 +1663,32 @@ export default async function EmployeeDetailPage({
     { data: credentialReminderLogRaw },
   ] = mainBatchResults;
 
+  const obContracts = onboardingContractStatus as {
+    emergency_contact_name?: string | null;
+    emergency_contact_relationship?: string | null;
+    emergency_contact_phone?: string | null;
+    emergency_contact_secondary?: string | null;
+    emergency_medical_conditions?: string | null;
+    emergency_allergies?: string | null;
+    emergency_acknowledged?: boolean | null;
+    emergency_full_name?: string | null;
+    emergency_signed_at?: string | null;
+  } | null;
+
+  const onboardingEmergencySnapshot = obContracts
+    ? {
+        emergency_contact_name: obContracts.emergency_contact_name ?? null,
+        emergency_contact_relationship: obContracts.emergency_contact_relationship ?? null,
+        emergency_contact_phone: obContracts.emergency_contact_phone ?? null,
+        emergency_contact_secondary: obContracts.emergency_contact_secondary ?? null,
+        emergency_medical_conditions: obContracts.emergency_medical_conditions ?? null,
+        emergency_allergies: obContracts.emergency_allergies ?? null,
+        emergency_acknowledged: obContracts.emergency_acknowledged ?? null,
+        emergency_full_name: obContracts.emergency_full_name ?? null,
+        emergency_signed_at: obContracts.emergency_signed_at ?? null,
+      }
+    : null;
+
   const employeeContract = serializeEmployeeContractForClient(employeeContractFetchRaw.data);
   const employeeContractLoadError =
     employeeContractFetchRaw.loadError ||
@@ -1649,7 +1696,7 @@ export default async function EmployeeDetailPage({
       ? "Contract row could not be serialized for the admin UI."
       : null);
 
-  if (employeeContractLoadError) {
+  if (employeeContractLoadError && process.env.NODE_ENV === "development") {
     console.warn("[admin_employee_detail] employee contract load warning", {
       employeeId,
       employeeContractLoadError,
@@ -4159,9 +4206,8 @@ export default async function EmployeeDetailPage({
   );
   } catch (fatal) {
     unstable_rethrow(fatal);
-    console.error("[admin_employee_detail] uncaught page error — Next digest may reference this log", {
+    console.error("[admin_employee_detail] uncaught page error", {
       employeeId: employeeId || null,
-      digestExamples: ["3753892406"],
       message: fatal instanceof Error ? fatal.message : String(fatal),
       stack: fatal instanceof Error ? fatal.stack : undefined,
     });
@@ -4173,7 +4219,7 @@ export default async function EmployeeDetailPage({
           <a className="font-semibold text-sky-700 underline" href="/admin/employees">
             employee list
           </a>
-          . Staff can check Vercel function logs for{" "}
+          . Staff can check server logs for{" "}
           <code className="rounded bg-slate-100 px-1 text-xs">admin_employee_detail</code>.
         </p>
       </div>

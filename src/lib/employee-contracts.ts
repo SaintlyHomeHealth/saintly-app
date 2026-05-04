@@ -30,6 +30,10 @@ export type EmployeeContractRow = {
   updated_at: string;
 };
 
+/** PostgREST select for admin contract lists and client history fetches (avoid `select("*")`). */
+export const EMPLOYEE_CONTRACT_ADMIN_LIST_COLUMNS =
+  "id, applicant_id, role_key, role_label, employment_classification, employment_type, pay_type, pay_rate, mileage_type, mileage_rate, effective_date, contract_status, contract_text_snapshot, admin_prepared_by, admin_prepared_at, employee_signed_name, employee_signed_at, created_at, updated_at, version_number, is_current";
+
 type ContractRoleConfig = {
   key: ContractRoleKey;
   label: string;

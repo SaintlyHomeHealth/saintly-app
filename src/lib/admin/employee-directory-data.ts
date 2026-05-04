@@ -663,6 +663,8 @@ export type EmployeeDirectoryRow = {
   onboardingTrackLabel: string;
   onboardingTrackBadgeClass: string;
   onboardingTrackPercent: number | null;
+  /** Fast lookup for credential/program cells in the directory table. */
+  complianceItemByKey: Record<string, ComplianceItemSnapshot>;
 };
 
 /** Maps a canonical employment bucket to pill + sort key. */
@@ -750,7 +752,9 @@ async function loadCredentialReminderSummaryByApplicant(
       .range(from, from + pageSize - 1);
 
     if (error) {
-      console.warn("[loadEmployeeDirectoryRows] credential reminder history:", error.message);
+      if (process.env.NODE_ENV === "development") {
+        console.warn("[loadEmployeeDirectoryRows] credential reminder history:", error.message);
+      }
       break;
     }
 
@@ -860,10 +864,6 @@ export async function loadEmployeeDirectoryRows(options?: {
   applicantFetchTruncated: boolean;
 }> {
   const maxApplicants = options?.maxApplicants ?? EMPLOYEE_DIRECTORY_FULL_MAX_APPLICANTS;
-  const timingLabel = "[employee-directory] loadEmployeeDirectoryRows";
-  if (process.env.NODE_ENV === "development") {
-    console.time(timingLabel);
-  }
 
   const { data: applicantsRaw, error: applicantsError } = await supabaseAdmin
     .from("applicants")
@@ -874,9 +874,6 @@ export async function loadEmployeeDirectoryRows(options?: {
 
   if (applicantsError) {
     console.error("EMPLOYEE LOAD ERROR", applicantsError);
-    if (process.env.NODE_ENV === "development") {
-      console.timeEnd(timingLabel);
-    }
     return {
       rows: [],
       loadError: applicantsError.message,
@@ -889,7 +886,9 @@ export async function loadEmployeeDirectoryRows(options?: {
   const applicants: ApplicantRecord[] = [];
   for (const row of applicantsRaw ?? []) {
     if (!isApplicantRecord(row)) {
-      console.error("INVALID_APPLICANT_RECORD", row);
+      if (process.env.NODE_ENV === "development") {
+        console.error("[employee-directory] INVALID_APPLICANT_RECORD", row);
+      }
       continue;
     }
     applicants.push(row);
@@ -1622,12 +1621,9 @@ export async function loadEmployeeDirectoryRows(options?: {
       onboardingTrackLabel: obPres.label,
       onboardingTrackBadgeClass: obPres.badgeClass,
       onboardingTrackPercent: obPres.percent,
+      complianceItemByKey: Object.fromEntries(aug.complianceItems.map((i) => [i.key, i])),
     };
   });
-
-  if (process.env.NODE_ENV === "development") {
-    console.timeEnd(timingLabel);
-  }
 
   return { rows: rowsUncached, loadError: null, applicantFetchTruncated };
 }

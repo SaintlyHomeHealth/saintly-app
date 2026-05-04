@@ -63,6 +63,18 @@ export function sanitizeDateTimeFormatOptions(
   return out;
 }
 
+const dateTimeFormatterCache = new Map<string, Intl.DateTimeFormat>();
+
+function getCachedDateTimeFormat(locale: string, merged: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
+  const key = `${locale}\u0000${JSON.stringify(merged)}`;
+  let fmt = dateTimeFormatterCache.get(key);
+  if (!fmt) {
+    fmt = new Intl.DateTimeFormat(locale, merged);
+    dateTimeFormatterCache.set(key, fmt);
+  }
+  return fmt;
+}
+
 function safeDateTimeFormat(
   locale: string,
   options: Intl.DateTimeFormatOptions,
@@ -72,12 +84,18 @@ function safeDateTimeFormat(
   let merged: Intl.DateTimeFormatOptions;
   try {
     merged = sanitizeDateTimeFormatOptions(options);
-  } catch {
+  } catch (err) {
+    if (process.env.NODE_ENV === "development") {
+      console.error("[app-timezone] sanitizeDateTimeFormatOptions failed", err);
+    }
     return empty;
   }
   try {
-    return new Intl.DateTimeFormat(locale, merged).format(d);
-  } catch {
+    return getCachedDateTimeFormat(locale, merged).format(d);
+  } catch (err) {
+    if (process.env.NODE_ENV === "development") {
+      console.warn("[app-timezone] DateTimeFormat.format failed", err);
+    }
     return empty;
   }
 }
@@ -129,15 +147,23 @@ export function formatAppDate(
   );
 }
 
-/** `YYYY-MM-DD` for Phoenix calendar corresponding to instant `d`. */
-export function formatAppCalendarYmd(d: Date): string {
-  try {
-    return new Intl.DateTimeFormat("en-CA", {
+let calendarYmdFormatter: Intl.DateTimeFormat | null = null;
+function getAppCalendarYmdFormatter(): Intl.DateTimeFormat {
+  if (!calendarYmdFormatter) {
+    calendarYmdFormatter = new Intl.DateTimeFormat("en-CA", {
       timeZone: APP_TIME_ZONE,
       year: "numeric",
       month: "2-digit",
       day: "2-digit",
-    }).format(d);
+    });
+  }
+  return calendarYmdFormatter;
+}
+
+/** `YYYY-MM-DD` for Phoenix calendar corresponding to instant `d`. */
+export function formatAppCalendarYmd(d: Date): string {
+  try {
+    return getAppCalendarYmdFormatter().format(d);
   } catch {
     return "";
   }
@@ -153,14 +179,10 @@ export function appCalendarMidnightUtc(ymd: string): Date | null {
   return Number.isFinite(ms) ? new Date(ms) : null;
 }
 
-/** `YYYY-MM-DDTHH:mm` suitable for `<input type="datetime-local" />` (Phoenix wall time). */
-export function isoInstantToDatetimeLocalInput(iso: string | null | undefined): string {
-  if (!iso?.trim()) return "";
-  const d = new Date(iso.trim());
-  if (Number.isNaN(d.getTime())) return "";
-  let parts: Intl.DateTimeFormatPart[];
-  try {
-    parts = new Intl.DateTimeFormat("en-US", {
+let datetimeLocalPartsFormatter: Intl.DateTimeFormat | null = null;
+function getDatetimeLocalPartsFormatter(): Intl.DateTimeFormat {
+  if (!datetimeLocalPartsFormatter) {
+    datetimeLocalPartsFormatter = new Intl.DateTimeFormat("en-US", {
       timeZone: APP_TIME_ZONE,
       year: "numeric",
       month: "2-digit",
@@ -168,7 +190,19 @@ export function isoInstantToDatetimeLocalInput(iso: string | null | undefined): 
       hour: "2-digit",
       minute: "2-digit",
       hour12: false,
-    }).formatToParts(d);
+    });
+  }
+  return datetimeLocalPartsFormatter;
+}
+
+/** `YYYY-MM-DDTHH:mm` suitable for `<input type="datetime-local" />` (Phoenix wall time). */
+export function isoInstantToDatetimeLocalInput(iso: string | null | undefined): string {
+  if (!iso?.trim()) return "";
+  const d = new Date(iso.trim());
+  if (Number.isNaN(d.getTime())) return "";
+  let parts: Intl.DateTimeFormatPart[];
+  try {
+    parts = getDatetimeLocalPartsFormatter().formatToParts(d);
   } catch {
     return "";
   }

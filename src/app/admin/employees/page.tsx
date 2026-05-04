@@ -536,17 +536,10 @@ export default async function AdminEmployeesDirectoryPage({
                 const callHref = employeeDirectoryCallHref(staff, r.e164, r.nameDisplay);
                 const updatedLabel =
                   r.lastUpdatedMs > 0
-                    ? formatAppDate(new Date(r.lastUpdatedMs), "—", {
-                        month: "short",
-                        day: "numeric",
-                        year: "numeric",
-                      })
+                    ? formatAppDate(new Date(r.lastUpdatedMs))
                     : "—";
 
-                const byKey = Object.fromEntries(r.complianceItems.map((i) => [i.key, i])) as Record<
-                  string,
-                  (typeof r.complianceItems)[0]
-                >;
+                const byKey = r.complianceItemByKey;
 
                 const itemCellHref = (key: string) =>
                   isEmployeeDirectoryItemKey(key)
@@ -758,11 +751,7 @@ export default async function AdminEmployeesDirectoryPage({
                           title="Open full reminder log on employee record"
                         >
                           Last SMS:{" "}
-                          {formatAppDate(r.credentialReminderLastSentAt, "—", {
-                            month: "short",
-                            day: "numeric",
-                            year: "numeric",
-                          })}
+                          {formatAppDate(r.credentialReminderLastSentAt)}
                         </Link>
                       ) : (
                         <p className="mt-1.5 text-[9px] leading-snug text-slate-400">No reminders logged</p>

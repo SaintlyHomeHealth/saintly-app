@@ -1,13 +1,14 @@
 import "server-only";
 
 import { supabaseAdmin } from "@/lib/admin";
-import type { EmployeeContractRow } from "@/lib/employee-contracts";
+import {
+  EMPLOYEE_CONTRACT_ADMIN_LIST_COLUMNS,
+  type EmployeeContractRow,
+} from "@/lib/employee-contracts";
 
 const LOG_PREFIX = "[admin_employee_detail.employee_contracts]";
 
-/** Columns that exist after contract versioning migration (20260504120000). */
-const EXTENDED_COLUMNS =
-  "id, applicant_id, role_key, role_label, employment_classification, employment_type, pay_type, pay_rate, mileage_type, mileage_rate, effective_date, contract_status, contract_text_snapshot, admin_prepared_by, admin_prepared_at, employee_signed_name, employee_signed_at, created_at, updated_at, version_number, is_current";
+const EXTENDED_COLUMNS = EMPLOYEE_CONTRACT_ADMIN_LIST_COLUMNS;
 
 const MINIMAL_COLUMNS =
   "id, applicant_id, role_key, role_label, employment_classification, employment_type, pay_type, pay_rate, mileage_type, mileage_rate, effective_date, contract_status, contract_text_snapshot, admin_prepared_by, admin_prepared_at, employee_signed_name, employee_signed_at, created_at, updated_at";
