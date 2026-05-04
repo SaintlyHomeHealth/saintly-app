@@ -9,7 +9,7 @@ import {
   type SoftphoneServerCapabilities,
 } from "@/components/softphone/WorkspaceSoftphoneProvider";
 import { formatPhoneNumber } from "@/lib/phone/us-phone-format";
-import { isValidE164, normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
+import { parseWorkspaceOutboundDialInput } from "@/lib/softphone/phone-number";
 import { isPlausiblePstnCallerRawForSubline } from "@/lib/softphone/twilio-incoming-caller-display";
 import { openSoftphoneAppSettings } from "@/lib/softphone/open-app-settings";
 import { isReactNativeWebViewShell } from "@/lib/softphone/native-speaker-bridge";
@@ -157,7 +157,7 @@ export function SoftphoneDialer({
     setTranscriptPanelOpen,
     sendDtmfDigits,
   } = useWorkspaceSoftphone();
-  const autoPlaceStartedRef = useRef(false);
+  const autoPlaceAttemptedSeedRef = useRef<string | null>(null);
   const [actionBusy, setActionBusy] = useState<"xfer" | "add" | "tx" | null>(null);
   const [xferTo, setXferTo] = useState("");
   const [addTo, setAddTo] = useState("");
@@ -180,12 +180,13 @@ export function SoftphoneDialer({
   }, [initialDigits, setDigits]);
 
   useEffect(() => {
-    if (!autoPlaceCall || autoPlaceStartedRef.current) return;
+    if (!autoPlaceCall) return;
     if (listenState !== "ready") return;
     if (status !== "idle" || incoming) return;
     const seed = (initialDigits ?? "").trim();
     if (!seed) return;
-    autoPlaceStartedRef.current = true;
+    if (autoPlaceAttemptedSeedRef.current === seed) return;
+    autoPlaceAttemptedSeedRef.current = seed;
     queueMicrotask(() => {
       void startCall(seed);
     });
@@ -251,14 +252,16 @@ export function SoftphoneDialer({
       return;
     }
     const handle = window.setTimeout(() => {
-      const e164 = isValidE164(raw) ? raw : normalizeDialInputToE164(raw);
-      if (!e164 || !isValidE164(e164)) {
+      const parsed = parseWorkspaceOutboundDialInput(raw);
+      if (!parsed.ok) {
         setKeypadShowSaveCta(false);
         setKeypadSaveE164("");
         return;
       }
-      setKeypadSaveE164(e164);
-      void fetch(`/api/workspace/phone/contact-by-phone?phone=${encodeURIComponent(e164)}`, { credentials: "include" })
+      setKeypadSaveE164(parsed.e164);
+      void fetch(`/api/workspace/phone/contact-by-phone?phone=${encodeURIComponent(parsed.e164)}`, {
+        credentials: "include",
+      })
         .then((r) => r.json() as Promise<{ match?: unknown }>)
         .then((j) => {
           setKeypadShowSaveCta(!j?.match);
@@ -682,9 +685,9 @@ export function SoftphoneDialer({
                 type="button"
                 onClick={() => {
                   const raw = digits.trim();
-                  const e164 = isValidE164(raw) ? raw : normalizeDialInputToE164(raw);
-                  if (e164 && isValidE164(e164)) {
-                    setKeypadSaveE164(e164);
+                  const parsedSave = parseWorkspaceOutboundDialInput(raw);
+                  if (parsedSave.ok) {
+                    setKeypadSaveE164(parsedSave.e164);
                   }
                   setKeypadSaveResetKey((k) => k + 1);
                   setKeypadSaveSheetOpen(true);
@@ -814,14 +817,14 @@ export function SoftphoneDialer({
                             setSoftphoneNotice({ kind: "error", message: "Enter a number to transfer." });
                             return;
                           }
-                          const e164 = isValidE164(raw) ? raw : normalizeDialInputToE164(raw);
-                          if (!e164 || !isValidE164(e164)) {
+                          const parsedXfer = parseWorkspaceOutboundDialInput(raw);
+                          if (!parsedXfer.ok) {
                             setSoftphoneNotice({ kind: "error", message: "Enter a valid US number (10 digits or +1…)." });
                             return;
                           }
                           setActionBusy("xfer");
                           try {
-                            const r = await coldTransferTo(e164);
+                            const r = await coldTransferTo(parsedXfer.e164);
                             if (!r.ok) {
                               setSoftphoneNotice({
                                 kind: "error",
@@ -870,14 +873,14 @@ export function SoftphoneDialer({
                             setSoftphoneNotice({ kind: "error", message: "Enter a number to add." });
                             return;
                           }
-                          const e164 = isValidE164(raw) ? raw : normalizeDialInputToE164(raw);
-                          if (!e164 || !isValidE164(e164)) {
+                          const parsedAdd = parseWorkspaceOutboundDialInput(raw);
+                          if (!parsedAdd.ok) {
                             setSoftphoneNotice({ kind: "error", message: "Enter a valid number to add." });
                             return;
                           }
                           setActionBusy("add");
                           try {
-                            const r = await addConferenceParticipant(e164);
+                            const r = await addConferenceParticipant(parsedAdd.e164);
                             if (!r.ok) {
                               setSoftphoneNotice({
                                 kind: "error",

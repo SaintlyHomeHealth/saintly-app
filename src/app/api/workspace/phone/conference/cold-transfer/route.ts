@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import twilio from "twilio";
 
 import { supabaseAdmin } from "@/lib/admin";
-import { isValidE164 } from "@/lib/softphone/phone-number";
+import { isValidE164, isValidWorkspaceOutboundDestinationE164 } from "@/lib/softphone/phone-number";
 import { canAccessWorkspacePhone, getStaffProfile } from "@/lib/staff-profile";
 import { escapeXml } from "@/lib/twilio/softphone-conference";
 import type { SoftphoneConferenceMeta } from "@/lib/twilio/softphone-conference";
@@ -25,8 +25,8 @@ export async function POST(req: Request) {
   }
 
   const toE164 = typeof body.toE164 === "string" ? body.toE164.trim() : "";
-  if (!isValidE164(toE164)) {
-    return NextResponse.json({ error: "toE164 must be valid E.164" }, { status: 400 });
+  if (!isValidWorkspaceOutboundDestinationE164(toE164)) {
+    return NextResponse.json({ error: "Invalid phone number" }, { status: 400 });
   }
 
   let pstnCallSid = typeof body.pstnCallSid === "string" && body.pstnCallSid.startsWith("CA") ? body.pstnCallSid.trim() : "";

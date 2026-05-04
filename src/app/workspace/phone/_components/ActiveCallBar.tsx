@@ -30,7 +30,7 @@ import { useWorkspaceCallDuration, useWorkspaceSoftphone } from "@/components/so
 
 import { LiveCallContextPanel } from "@/components/softphone/LiveCallContextPanel";
 import { softphoneDevLog } from "@/lib/softphone/softphone-client-debug";
-import { isValidE164, normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
+import { parseWorkspaceOutboundDialInput } from "@/lib/softphone/phone-number";
 
 function formatDuration(totalSec: number): string {
   const sec = Math.max(0, totalSec);
@@ -204,14 +204,14 @@ export function ActiveCallBar() {
       setNotice({ kind: "error", message: "Enter a number to transfer." });
       return;
     }
-    const e164 = isValidE164(raw) ? raw : normalizeDialInputToE164(raw);
-    if (!e164 || !isValidE164(e164)) {
+    const parsed = parseWorkspaceOutboundDialInput(raw);
+    if (!parsed.ok) {
       setNotice({ kind: "error", message: "Enter a valid US number (10 digits or +1…)." });
       return;
     }
     setActionBusy("xfer");
     try {
-      const r = await coldTransferTo(e164);
+      const r = await coldTransferTo(parsed.e164);
       if (!r.ok) {
         setNotice({ kind: "error", message: r.error ?? "Transfer could not be completed." });
         return;
@@ -234,14 +234,14 @@ export function ActiveCallBar() {
       setNotice({ kind: "error", message: "Enter a number to add." });
       return;
     }
-    const e164 = isValidE164(raw) ? raw : normalizeDialInputToE164(raw);
-    if (!e164 || !isValidE164(e164)) {
+    const parsed = parseWorkspaceOutboundDialInput(raw);
+    if (!parsed.ok) {
       setNotice({ kind: "error", message: "Enter a valid number to add." });
       return;
     }
     setActionBusy("add");
     try {
-      const r = await addConferenceParticipant(e164);
+      const r = await addConferenceParticipant(parsed.e164);
       if (!r.ok) {
         setNotice({ kind: "error", message: r.error ?? "Could not add participant." });
         return;

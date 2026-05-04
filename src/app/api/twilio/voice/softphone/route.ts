@@ -9,7 +9,7 @@ import {
   loadSoftphoneOutboundCallerConfigFromEnv,
   resolveSoftphoneOutboundFromE164,
 } from "@/lib/softphone/outbound-caller-ids";
-import { isValidE164 } from "@/lib/softphone/phone-number";
+import { isValidE164, isValidWorkspaceOutboundDestinationE164 } from "@/lib/softphone/phone-number";
 import { parseStaffUserIdFromTwilioClientFrom } from "@/lib/softphone/twilio-client-identity";
 import { escapeXml, softphoneConferenceRoomName } from "@/lib/twilio/softphone-conference";
 import { loadAssignedTwilioNumberForUser } from "@/lib/twilio/twilio-phone-number-repo";
@@ -23,6 +23,8 @@ import { parseVerifiedTwilioFormBody } from "@/lib/twilio/verify-form-post";
 function softphoneUsesConferenceOutbound(): boolean {
   return process.env.TWILIO_SOFTPHONE_USE_CONFERENCE === "true";
 }
+
+const TWILIO_CALLS_CREATE_TIMEOUT_MS = 12_000;
 
 /**
  * Creates the REST outbound leg into the conference room. Returns the PSTN CallSid from Twilio (authoritative).
@@ -43,20 +45,32 @@ async function createPstnLegIntoConference(input: {
   const joinUrl = `${publicBase}/api/twilio/voice/softphone-pstn-join/${encodeURIComponent(input.roomName)}`;
   try {
     const client = twilio(accountSid, authToken);
-    const call = await client.calls.create({
+    const createPromise = client.calls.create({
       to: input.toE164,
       from: input.fromE164,
       url: joinUrl,
       method: "POST",
     });
-    const pstnSid = typeof call.sid === "string" && call.sid.startsWith("CA") ? call.sid : null;
-    if (pstnSid) {
-      console.log("[twilio/voice/softphone] PSTN leg created via REST (calls.create)", {
-        pstnLeg: `${pstnSid.slice(0, 10)}…`,
-        room: input.roomName.slice(0, 24),
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(
+          () => reject(new Error("twilio_calls_create_timeout")),
+          TWILIO_CALLS_CREATE_TIMEOUT_MS
+        );
       });
+      const call = await Promise.race([createPromise, timeoutPromise]);
+      const pstnSid = typeof call.sid === "string" && call.sid.startsWith("CA") ? call.sid : null;
+      if (pstnSid) {
+        console.log("[twilio/voice/softphone] PSTN leg created via REST (calls.create)", {
+          pstnLeg: `${pstnSid.slice(0, 10)}…`,
+          room: input.roomName.slice(0, 24),
+        });
+      }
+      return pstnSid;
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
     }
-    return pstnSid;
   } catch (e) {
     console.error("[twilio/voice/softphone] PSTN conference leg create failed", e);
     return null;
@@ -162,8 +176,11 @@ export async function POST(req: NextRequest) {
     return new NextResponse(xml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
   }
 
-  if (toRaw?.toLowerCase().startsWith("client:")) {
-    const xml = `<?xml version="1.0" encoding="UTF-8"?><Response></Response>`;
+  const pstnTo = (toRaw ?? "").trim();
+  if (!pstnTo) {
+    const xml = `<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna">${escapeXml(
+      INVALID_NUMBER
+    )}</Say><Hangup/></Response>`;
     logTwilioVoiceTrace({
       route: "POST /api/twilio/voice/softphone",
       client_call_sid: callSid,
@@ -171,26 +188,41 @@ export async function POST(req: NextRequest) {
       ai_path_entered: false,
       softphone_bypass_path_entered: true,
       twiml_summary: summarizeTwimlResponse(xml),
-      branch: "empty_response_to_client_uri_late",
+      branch: "missing_outbound_to",
       parent_call_sid: parentCallSid,
       from_raw: fromRaw,
       to_raw: toRaw,
     });
-    return new NextResponse(xml, {
-      status: 200,
-      headers: { "Content-Type": "text/xml; charset=utf-8" },
+    return new NextResponse(xml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
+  }
+  if (!isValidWorkspaceOutboundDestinationE164(pstnTo)) {
+    const xml = `<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna">${escapeXml(
+      INVALID_NUMBER
+    )}</Say><Hangup/></Response>`;
+    logTwilioVoiceTrace({
+      route: "POST /api/twilio/voice/softphone",
+      client_call_sid: callSid,
+      pstn_call_sid: null,
+      ai_path_entered: false,
+      softphone_bypass_path_entered: true,
+      twiml_summary: summarizeTwimlResponse(xml),
+      branch: "invalid_outbound_destination",
+      parent_call_sid: parentCallSid,
+      from_raw: fromRaw,
+      to_raw: toRaw,
     });
+    return new NextResponse(xml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
   }
 
   const startedAt = new Date().toISOString();
-  const conferenceMode = softphoneUsesConferenceOutbound() && Boolean(toRaw && isValidE164(toRaw));
+  const conferenceMode = softphoneUsesConferenceOutbound();
   const roomName = conferenceMode ? softphoneConferenceRoomName(callSid) : "";
 
   const logResult = await upsertPhoneCallFromWebhook(supabaseAdmin, {
     external_call_id: callSid,
     direction: "outbound",
     from_e164: callerId,
-    to_e164: toRaw,
+    to_e164: pstnTo,
     status: "initiated",
     event_type: "softphone.outbound_twiml",
     started_at: startedAt,
@@ -223,7 +255,7 @@ export async function POST(req: NextRequest) {
   const statusCallbackUrl = publicBase ? `${publicBase}/api/twilio/voice/status` : "";
   const dialActionUrl = publicBase ? `${publicBase}/api/twilio/voice/softphone-dial-result` : "";
 
-  if (conferenceMode && toRaw && isValidE164(toRaw)) {
+  if (conferenceMode) {
     const confStatus = publicBase
       ? ` statusCallback="${escapeXml(`${publicBase}/api/twilio/voice/softphone-conference-events`)}" statusCallbackMethod="POST" statusCallbackEvent="join leave mute hold start end"`
       : "";
@@ -241,7 +273,7 @@ export async function POST(req: NextRequest) {
 </Response>`.trim();
 
     const pstnLegSid = await createPstnLegIntoConference({
-      toE164: toRaw,
+      toE164: pstnTo,
       fromE164: callerId,
       roomName,
     });
@@ -287,7 +319,7 @@ export async function POST(req: NextRequest) {
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Dial${dialAttrs}>
-    <Number>${escapeXml(toRaw)}</Number>
+    <Number>${escapeXml(pstnTo)}</Number>
   </Dial>
 </Response>`.trim();
 

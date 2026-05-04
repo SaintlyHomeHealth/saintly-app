@@ -233,7 +233,8 @@ export const config = {
     /*
      * Run on all paths except static assets and images.
      * Needed so Supabase can refresh the auth session on navigation.
+     * Exclude Twilio voice/SMS webhooks — they must not wait on session refresh or staff gate work.
      */
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|api/twilio|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };
