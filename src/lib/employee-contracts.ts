@@ -23,6 +23,9 @@ export type EmployeeContractRow = {
   admin_prepared_at: string | null;
   employee_signed_name: string | null;
   employee_signed_at: string | null;
+  /** Per (applicant_id, employment_classification); see migration employee_contracts_applicant_agreement_version_unique */
+  version_number?: number | null;
+  is_current?: boolean | null;
   created_at: string;
   updated_at: string;
 };

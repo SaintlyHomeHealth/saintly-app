@@ -43,7 +43,6 @@ type FormState = {
 
 type ContractHistoryRow = EmployeeContractRow & {
   version_number?: number | string | null;
-  is_current?: boolean | null;
 };
 
 function formatDateTime(value?: string | null) {
@@ -55,6 +54,38 @@ function formatDateTime(value?: string | null) {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+function employeeContractUserMessage(error: { code?: string; message?: string } | null) {
+  const code = error?.code;
+  const msg = (error?.message || "").toLowerCase();
+  if (
+    code === "23505" ||
+    msg.includes("employee_contracts_applicant_agreement_version_unique") ||
+    msg.includes("employee_contracts_applicant_effective_unique")
+  ) {
+    return "A contract with this effective date already exists. Use Resend from Contract History or create a new version.";
+  }
+  return error?.message || "We could not save the employment contract right now. Please try again.";
+}
+
+function nextVersionForAgreement(
+  rows: ContractHistoryRow[],
+  applicantId: string,
+  employmentClassification: EmploymentClassification
+) {
+  return (
+    rows.reduce((maxVersion, contractRow) => {
+      if (contractRow.applicant_id !== applicantId) return maxVersion;
+      if (contractRow.employment_classification !== employmentClassification) return maxVersion;
+      const versionNumber =
+        typeof contractRow.version_number === "number"
+          ? contractRow.version_number
+          : Number(contractRow.version_number || 0);
+
+      return Number.isFinite(versionNumber) ? Math.max(maxVersion, versionNumber) : maxVersion;
+    }, 0) + 1
+  );
 }
 
 function getInitialFormState(
@@ -165,19 +196,13 @@ export default function EmploymentContractCard({
     }
   ) => {
     const insertTimestamp = new Date().toISOString();
-    const nextVersionNumber =
-      contractHistory.reduce((maxVersion, contractRow) => {
-        const versionNumber =
-          typeof contractRow.version_number === "number"
-            ? contractRow.version_number
-            : Number(contractRow.version_number || 0);
+    const nextVersionNumber = nextVersionForAgreement(
+      contractHistory,
+      applicantId,
+      payload.employment_classification
+    );
 
-        return Number.isFinite(versionNumber) ? Math.max(maxVersion, versionNumber) : maxVersion;
-      }, 0) + 1;
-    const { error: clearCurrentError } = await supabase
-      .from("employee_contracts")
-      .update({ is_current: false })
-      .eq("applicant_id", applicantId);
+    await supabase.from("employee_contracts").update({ is_current: false }).eq("applicant_id", applicantId);
 
     const insertPayload = {
       applicant_id: payload.applicant_id,
@@ -291,18 +316,60 @@ export default function EmploymentContractCard({
       employee_signed_at: contract?.employee_signed_at || null,
     };
 
+    const shouldUpdateExistingRow =
+      Boolean(contract?.id) &&
+      !isEditingNewVersion &&
+      contract?.contract_status !== "sent" &&
+      contract?.contract_status !== "signed";
+
     setIsSaving(true);
 
-    const { data, error } = await insertContractVersion(payload);
+    let data: ContractHistoryRow | null = null;
+    let error: { code?: string; message?: string } | null = null;
+
+    if (shouldUpdateExistingRow && contract?.id) {
+      const updatePayload = {
+        updated_at: timestamp,
+        contract_status: (nextStatus === "sent" ? "sent" : "draft") as "draft" | "sent",
+        contract_text_snapshot: payload.contract_text_snapshot,
+        role_key: payload.role_key,
+        role_label: payload.role_label,
+        employment_classification: payload.employment_classification,
+        employment_type: payload.employment_type,
+        pay_type: payload.pay_type,
+        pay_rate: payload.pay_rate,
+        mileage_type: payload.mileage_type,
+        mileage_rate: payload.mileage_rate,
+        effective_date: payload.effective_date,
+        admin_prepared_by: payload.admin_prepared_by,
+        admin_prepared_at: payload.admin_prepared_at,
+      };
+
+      const res = await supabase
+        .from("employee_contracts")
+        .update(updatePayload)
+        .eq("id", contract.id)
+        .select("*")
+        .single<ContractHistoryRow>();
+
+      data = res.data;
+      error = res.error;
+    } else {
+      const res = await insertContractVersion(payload);
+      data = res.data;
+      error = res.error;
+    }
 
     setIsSaving(false);
 
     if (error) {
-      console.error("EMPLOYEE CONTRACT INSERT ERROR:", error);
-      console.error("EMPLOYEE CONTRACT INSERT PAYLOAD:", payload);
-      setErrorMessage(
-        error?.message || "We could not save the employment contract right now. Please try again."
-      );
+      if (shouldUpdateExistingRow) {
+        console.error("EMPLOYEE CONTRACT UPDATE ERROR:", error);
+      } else {
+        console.error("EMPLOYEE CONTRACT INSERT ERROR:", error);
+        console.error("EMPLOYEE CONTRACT INSERT PAYLOAD:", payload);
+      }
+      setErrorMessage(employeeContractUserMessage(error));
       return;
     }
 
@@ -325,34 +392,26 @@ export default function EmploymentContractCard({
     setSuccessMessage("");
 
     const timestamp = new Date().toISOString();
-    const { data, error } = await insertContractVersion({
-      applicant_id: historyContract.applicant_id,
-      role_key: historyContract.role_key,
-      role_label: historyContract.role_label,
-      employment_classification: historyContract.employment_classification,
-      employment_type: historyContract.employment_type,
-      pay_type: historyContract.pay_type,
-      pay_rate: historyContract.pay_rate,
-      mileage_type: historyContract.mileage_type,
-      mileage_rate: historyContract.mileage_rate,
-      effective_date: historyContract.effective_date,
-      contract_status: "sent",
-      contract_text_snapshot: historyContract.contract_text_snapshot,
-      admin_prepared_by: historyContract.admin_prepared_by,
-      admin_prepared_at: timestamp,
-      employee_signed_name: null,
-      employee_signed_at: null,
-      is_current: true,
-    });
+
+    await supabase.from("employee_contracts").update({ is_current: false }).eq("applicant_id", applicantId);
+
+    const { data, error } = await supabase
+      .from("employee_contracts")
+      .update({
+        contract_status: "sent",
+        admin_prepared_at: timestamp,
+        updated_at: timestamp,
+        is_current: true,
+      })
+      .eq("id", historyContract.id)
+      .select("*")
+      .single<ContractHistoryRow>();
 
     setIsSaving(false);
 
     if (error) {
-      console.error("EMPLOYEE CONTRACT INSERT ERROR:", error);
-      console.error("EMPLOYEE CONTRACT INSERT PAYLOAD:", historyContract);
-      setErrorMessage(
-        error?.message || "We could not save the employment contract right now. Please try again."
-      );
+      console.error("EMPLOYEE CONTRACT RESEND ERROR:", error);
+      setErrorMessage(employeeContractUserMessage(error));
       return;
     }
 
