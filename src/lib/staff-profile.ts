@@ -342,3 +342,37 @@ export async function getStaffProfileUsingSupabaseUserJwt(accessToken: string): 
 
   return mapStaffRow(data as Record<string, unknown>);
 }
+
+/**
+ * Workspace phone API routes: resolve staff without React `cache`, with optional `Authorization: Bearer`
+ * (same as GET `/api/softphone/token`). Avoids rare stale cached `null` in Route Handlers when placing calls.
+ */
+export async function resolveStaffProfileForWorkspacePhoneApi(req: { headers: Headers }): Promise<StaffProfile | null> {
+  const auth = req.headers.get("authorization");
+  if (auth?.startsWith("Bearer ")) {
+    const jwt = auth.slice(7).trim();
+    if (jwt) {
+      return getStaffProfileUsingSupabaseUserJwt(jwt);
+    }
+  }
+
+  const supabase = await createServerSupabaseClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return null;
+  }
+
+  const { data, error } = await supabase
+    .from("staff_profiles")
+    .select(STAFF_PROFILE_SELECT)
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (error || !data) {
+    return null;
+  }
+
+  return mapStaffRow(data as Record<string, unknown>);
+}

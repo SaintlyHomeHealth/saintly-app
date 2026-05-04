@@ -19,6 +19,7 @@ import {
 } from "@/components/softphone/WorkspaceSoftphoneContext";
 
 import { formatPhoneNumber, normalizePhone } from "@/lib/phone/us-phone-format";
+import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
 import { parseOutboundLinesFromCapabilitiesPayload } from "@/lib/phone/softphone-outbound-lines";
 import type { ConferenceGatingSnapshot } from "@/lib/phone/conference-gating";
 import type { LiveTranscriptEntry } from "@/lib/phone/live-transcript-entries";
@@ -133,8 +134,8 @@ type InboundAiAssistState = {
 const SAINTLY_INBOUND_DEBUG_PREFIX = "[SAINTLY-INBOUND-DEBUG]";
 
 const OUTBOUND_CALL_FAILED_HINT = "Call could not be started. Check the number and try again.";
-const OUTBOUND_DIAL_INLINE_ERROR =
-  "Enter a valid US number (10 digits) or international number in E.164 format (e.g. +44…).";
+const OUTBOUND_DIAL_INLINE_ERROR = "Invalid phone number.";
+const OUTBOUND_PREPARE_LINE_HINT = "Could not prepare phone line.";
 const OUTBOUND_DIAL_PREFLIGHT_TIMEOUT_MS = 12_000;
 
 /** Incoming-caller-lookup JSON (browser only) — gated by NEXT_PUBLIC_SOFTPHONE_DEBUG. */
@@ -1847,12 +1848,21 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
 
       let e164 = parsedLocal.e164;
       try {
+        const headers: Record<string, string> = { "Content-Type": "application/json" };
+        try {
+          const { data: sessionData } = await createBrowserSupabaseClient().auth.getSession();
+          const tok = sessionData.session?.access_token;
+          if (tok) headers.Authorization = `Bearer ${tok}`;
+        } catch {
+          /* optional bearer for RN / cookie edge cases */
+        }
+
         const controller = new AbortController();
         const timer = window.setTimeout(() => controller.abort(), OUTBOUND_DIAL_PREFLIGHT_TIMEOUT_MS);
         const res = await fetch("/api/workspace/phone/outbound-dial", {
           method: "POST",
           credentials: "include",
-          headers: { "Content-Type": "application/json" },
+          headers,
           body: JSON.stringify({ to: trimmed }),
           signal: controller.signal,
         });
@@ -1862,6 +1872,30 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
           e164?: string;
           error?: string;
         };
+        if (res.status === 400) {
+          setStatus("idle");
+          if (j.error === "Invalid phone number") {
+            setHint(OUTBOUND_DIAL_INLINE_ERROR);
+          } else if (typeof j.error === "string" && j.error.trim()) {
+            setHint(j.error);
+          } else {
+            setHint(OUTBOUND_DIAL_INLINE_ERROR);
+          }
+          setHintMeta(null);
+          return;
+        }
+        if (res.status === 401) {
+          setStatus("idle");
+          setHint(typeof j.error === "string" && j.error.trim() ? j.error : "You are not signed in or lack phone access.");
+          setHintMeta(null);
+          return;
+        }
+        if (res.status === 403) {
+          setStatus("idle");
+          setHint(typeof j.error === "string" && j.error.trim() ? j.error : OUTBOUND_PREPARE_LINE_HINT);
+          setHintMeta(null);
+          return;
+        }
         if (!res.ok || !j.ok || typeof j.e164 !== "string") {
           setStatus("idle");
           setHint(OUTBOUND_CALL_FAILED_HINT);
@@ -1889,8 +1923,10 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
           setStatus("idle");
           if (res.status === 401) {
             setHint(tokenJson.error ?? "You are not signed in or lack phone access.");
+          } else if (res.status === 403 || res.status === 503) {
+            setHint(tokenJson.error ?? OUTBOUND_PREPARE_LINE_HINT);
           } else {
-            setHint(tokenJson.error ?? OUTBOUND_CALL_FAILED_HINT);
+            setHint(OUTBOUND_PREPARE_LINE_HINT);
           }
           setHintMeta(null);
           return;
@@ -1898,7 +1934,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
         if (typeof tokenJson.identity === "string") setTokenIdentity(tokenJson.identity);
       } catch {
         setStatus("idle");
-        setHint(OUTBOUND_CALL_FAILED_HINT);
+        setHint(OUTBOUND_PREPARE_LINE_HINT);
         setHintMeta(null);
         return;
       }
@@ -1947,8 +1983,9 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       } catch (e) {
         console.error("[softphone] startCall failed", e);
         setStatus("idle");
-        setHint(OUTBOUND_CALL_FAILED_HINT);
-        setHintMeta(null);
+        const friendly = twilioErrorToFriendly(e);
+        setHint(friendly.userMessage);
+        setHintMeta({ suggestSettings: friendly.suggestOpenSettings, canRetry: friendly.canRetry });
       }
     },
     [attachActiveCallHandlers, bindDeviceLifecycle, nativeVoiceCallShell]

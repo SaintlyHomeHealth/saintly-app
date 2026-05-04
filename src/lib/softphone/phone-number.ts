@@ -14,6 +14,9 @@ export function isPlausibleNanpNational10(digits10: string): boolean {
   const ex = digits10.slice(3, 6);
   if (area[0] === "0" || area[0] === "1") return false;
   if (ex[0] === "0" || ex[0] === "1") return false;
+  const sub = digits10.slice(6);
+  /** Fictional / reserved 555-01XX (any NPA). */
+  if (ex === "555" && sub.startsWith("01")) return false;
   if (area === "555" && ex.startsWith("01")) return false;
   return true;
 }
@@ -33,41 +36,57 @@ export function isValidWorkspaceOutboundDestinationE164(e164: string): boolean {
 }
 
 /**
+ * Trim, Unicode-normalize, and strip zero-width characters so pasted phones parse reliably.
+ */
+export function sanitizeWorkspaceDialInput(raw: string): string {
+  return raw
+    .trim()
+    .normalize("NFC")
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .trim();
+}
+
+export type ParseWorkspaceOutboundResult =
+  | { ok: true; e164: string }
+  | { ok: false; reason: string };
+
+/**
  * Parse keypad / CRM input into a dialable E.164 for workspace outbound calls.
  * - US/CA: 10-digit NANP, optional leading 1, or +1…
  * - Other countries: full international E.164 (after stripping formatting inside `+…`).
  */
-export function parseWorkspaceOutboundDialInput(raw: string): { ok: true; e164: string } | { ok: false } {
-  const trimmed = raw.trim();
+export function parseWorkspaceOutboundDialInput(raw: string): ParseWorkspaceOutboundResult {
+  const trimmed = sanitizeWorkspaceDialInput(raw);
   if (!trimmed || /[*#]/.test(trimmed)) {
-    return { ok: false };
+    return { ok: false, reason: "empty_or_contains_keypad_symbols" };
   }
 
   if (trimmed.startsWith("+")) {
     const d = trimmed.slice(1).replace(/\D/g, "");
-    if (!d.length) return { ok: false };
+    if (!d.length) return { ok: false, reason: "plus_without_digits" };
     if (d.startsWith("1") && d.length === 11) {
       const n10 = d.slice(1);
-      if (!isPlausibleNanpNational10(n10)) return { ok: false };
+      if (!isPlausibleNanpNational10(n10)) return { ok: false, reason: "nanp_invalid_11_digit_us" };
       return { ok: true, e164: `+1${n10}` };
     }
     const compact = `+${d}`;
-    if (!isValidE164(compact)) return { ok: false };
+    if (!isValidE164(compact)) return { ok: false, reason: "e164_invalid" };
     return { ok: true, e164: compact };
   }
 
   const digits = trimmed.replace(/\D/g, "");
   if (digits.length === 10) {
-    if (!isPlausibleNanpNational10(digits)) return { ok: false };
+    if (!isPlausibleNanpNational10(digits)) return { ok: false, reason: "nanp_invalid_10_digit" };
     return { ok: true, e164: `+1${digits}` };
   }
   if (digits.length === 11 && digits.startsWith("1")) {
     const n10 = digits.slice(1);
-    if (!isPlausibleNanpNational10(n10)) return { ok: false };
+    if (!isPlausibleNanpNational10(n10)) return { ok: false, reason: "nanp_invalid_11_digit_domestic" };
     return { ok: true, e164: `+1${n10}` };
   }
 
-  return { ok: false };
+  if (digits.length < 10) return { ok: false, reason: "too_few_digits" };
+  return { ok: false, reason: "digit_count_not_usable" };
 }
 
 /**
