@@ -21,6 +21,67 @@ function coerceInstant(input: Date | string | number): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+const ALLOWED_DATE_TIME_STYLE = new Set<string>(["full", "long", "medium", "short"]);
+
+/** Fields that cannot be combined with `dateStyle` / `timeStyle` (ECMA-402 / V8 throws). */
+const GRANULAR_DATE_TIME_OPTION_KEYS: (keyof Intl.DateTimeFormatOptions)[] = [
+  "weekday",
+  "era",
+  "year",
+  "month",
+  "day",
+  "dayPeriod",
+  "hour",
+  "minute",
+  "second",
+  "fractionalSecondDigits",
+  "hourCycle",
+  "timeZoneName",
+];
+
+function optionsHasGranularDateTimeFields(opts: Intl.DateTimeFormatOptions): boolean {
+  return GRANULAR_DATE_TIME_OPTION_KEYS.some((k) => opts[k] !== undefined);
+}
+
+/**
+ * Remove impossible Intl option combinations and stray invalid style tokens so SSR never throws.
+ */
+export function sanitizeDateTimeFormatOptions(
+  opts: Intl.DateTimeFormatOptions
+): Intl.DateTimeFormatOptions {
+  const out: Intl.DateTimeFormatOptions = { ...opts };
+  if (out.dateStyle !== undefined && !ALLOWED_DATE_TIME_STYLE.has(String(out.dateStyle))) {
+    delete out.dateStyle;
+  }
+  if (out.timeStyle !== undefined && !ALLOWED_DATE_TIME_STYLE.has(String(out.timeStyle))) {
+    delete out.timeStyle;
+  }
+  if (optionsHasGranularDateTimeFields(out)) {
+    delete out.dateStyle;
+    delete out.timeStyle;
+  }
+  return out;
+}
+
+function safeDateTimeFormat(
+  locale: string,
+  options: Intl.DateTimeFormatOptions,
+  d: Date,
+  empty: string
+): string {
+  let merged: Intl.DateTimeFormatOptions;
+  try {
+    merged = sanitizeDateTimeFormatOptions(options);
+  } catch {
+    return empty;
+  }
+  try {
+    return new Intl.DateTimeFormat(locale, merged).format(d);
+  } catch {
+    return empty;
+  }
+}
+
 /**
  * Compact date + time for tables and admin UI (`M/D/YY, H:MM AM` style).
  */
@@ -32,12 +93,17 @@ export function formatAppDateTime(
   if (input === null || input === undefined || input === "") return empty;
   const d = coerceInstant(input);
   if (!d) return empty;
-  return new Intl.DateTimeFormat("en-US", {
-    dateStyle: "short",
-    timeStyle: "short",
-    timeZone: APP_TIME_ZONE,
-    ...(options ?? {}),
-  }).format(d);
+  return safeDateTimeFormat(
+    "en-US",
+    {
+      dateStyle: "short",
+      timeStyle: "short",
+      timeZone: APP_TIME_ZONE,
+      ...(options ?? {}),
+    },
+    d,
+    empty
+  );
 }
 
 /**
@@ -51,21 +117,30 @@ export function formatAppDate(
   if (input === null || input === undefined || input === "") return empty;
   const d = coerceInstant(input);
   if (!d) return empty;
-  return new Intl.DateTimeFormat("en-US", {
-    dateStyle: "medium",
-    timeZone: APP_TIME_ZONE,
-    ...(options ?? {}),
-  }).format(d);
+  return safeDateTimeFormat(
+    "en-US",
+    {
+      dateStyle: "medium",
+      timeZone: APP_TIME_ZONE,
+      ...(options ?? {}),
+    },
+    d,
+    empty
+  );
 }
 
 /** `YYYY-MM-DD` for Phoenix calendar corresponding to instant `d`. */
 export function formatAppCalendarYmd(d: Date): string {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: APP_TIME_ZONE,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(d);
+  try {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: APP_TIME_ZONE,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(d);
+  } catch {
+    return "";
+  }
 }
 
 /**
@@ -83,15 +158,20 @@ export function isoInstantToDatetimeLocalInput(iso: string | null | undefined): 
   if (!iso?.trim()) return "";
   const d = new Date(iso.trim());
   if (Number.isNaN(d.getTime())) return "";
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: APP_TIME_ZONE,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).formatToParts(d);
+  let parts: Intl.DateTimeFormatPart[];
+  try {
+    parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: APP_TIME_ZONE,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).formatToParts(d);
+  } catch {
+    return "";
+  }
   const pick = (type: Intl.DateTimeFormatPart["type"]) =>
     parts.find((p) => p.type === type)?.value ?? "";
   const year = pick("year");
