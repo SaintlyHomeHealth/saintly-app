@@ -10,14 +10,18 @@ import {
   crmPrimaryCtaCls,
 } from "@/components/admin/crm-admin-list-styles";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
-import { isPhoenixSameCalendarDay, phoenixEndOfTodayIso, phoenixYmdEndIso, phoenixYmdStartIso } from "@/lib/recruiting/phoenix-time";
+import { isPhoenixSameCalendarDay, phoenixEndOfTodayIso } from "@/lib/recruiting/phoenix-time";
 import {
   RECRUITING_DISCIPLINE_OPTIONS,
   RECRUITING_INTEREST_LEVEL_OPTIONS,
   RECRUITING_SOURCE_OPTIONS,
   RECRUITING_STATUS_OPTIONS,
 } from "@/lib/recruiting/recruiting-options";
-import { escapeForIlike } from "@/lib/crm/crm-leads-search";
+import { ExportMarketingEmailsButton } from "@/components/admin/ExportMarketingEmailsButton";
+import {
+  attachAdminRecruitingListPredicates,
+  parseAdminRecruitingListSearchParams,
+} from "@/lib/recruiting/admin-recruiting-list-filters";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import { supabaseAdmin } from "@/lib/admin";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
@@ -126,77 +130,11 @@ export default async function AdminRecruitingListPage({
   }
 
   const rawSp = await searchParams;
-  const one = (k: string) => {
-    const v = rawSp[k];
-    return typeof v === "string" ? v : Array.isArray(v) ? v[0] : "";
-  };
 
-  const f = {
-    status: one("status").trim(),
-    discipline: one("discipline").trim(),
-    area: one("area").trim(),
-    city: one("city").trim(),
-    coverage: one("coverage").trim(),
-    name: one("name").trim(),
-    source: one("source").trim(),
-    followUp: one("followUp").trim(),
-    interest: one("interest").trim(),
-    tags: one("tags").trim(),
-    lastContactFrom: one("lastContactFrom").trim(),
-    lastContactTo: one("lastContactTo").trim(),
-  };
+  const f = parseAdminRecruitingListSearchParams(rawSp);
 
-  let query = supabaseAdmin
-    .from("recruiting_candidates")
-    .select(RECRUITING_LIST_SELECT)
-    .order("updated_at", { ascending: false })
-    .limit(2000);
-
-  if (f.status) {
-    query = query.eq("status", f.status);
-  }
-  if (f.discipline) {
-    query = query.eq("discipline", f.discipline);
-  }
-  if (f.name) {
-    const esc = escapeForIlike(f.name);
-    const pattern = `%${esc}%`;
-    query = query.or(`first_name.ilike.${pattern},last_name.ilike.${pattern}`);
-  }
-  if (f.source) {
-    query = query.eq("source", f.source);
-  }
-  if (f.interest) {
-    query = query.eq("interest_level", f.interest);
-  }
-  if (f.tags) {
-    const t = `%${f.tags}%`;
-    query = query.ilike("recruiting_tags", t);
-  }
-  if (f.city) {
-    const c = `%${f.city}%`;
-    query = query.ilike("city", c);
-  }
-  if (f.coverage) {
-    const c = `%${f.coverage}%`;
-    query = query.ilike("coverage_area", c);
-  }
-  if (!f.city && !f.coverage && f.area) {
-    const a = `%${f.area}%`;
-    query = query.or(`coverage_area.ilike.${a},city.ilike.${a}`);
-  }
-  if (f.lastContactFrom) {
-    const iso = phoenixYmdStartIso(f.lastContactFrom);
-    if (iso) query = query.gte("last_contact_at", iso);
-  }
-  if (f.lastContactTo) {
-    const iso = phoenixYmdEndIso(f.lastContactTo);
-    if (iso) query = query.lte("last_contact_at", iso);
-  }
-  if (f.followUp === "due") {
-    const end = phoenixEndOfTodayIso();
-    query = query.not("next_follow_up_at", "is", null).lte("next_follow_up_at", end);
-  }
+  let query = supabaseAdmin.from("recruiting_candidates").select(RECRUITING_LIST_SELECT).order("updated_at", { ascending: false }).limit(2000);
+  query = attachAdminRecruitingListPredicates(query, f) as typeof query;
 
   const { data: rows, error } = await query;
 
@@ -266,6 +204,7 @@ export default async function AdminRecruitingListPage({
         description="Track Indeed candidates with a fast call/text workflow and a permanent activity history."
         actions={
           <div className="flex flex-wrap items-center justify-end gap-2">
+            <ExportMarketingEmailsButton exportPath="/admin/recruiting/export-emails" omitSearchKeys={[]} />
             <Link
               href="/admin/recruiting/bulk-upload"
               className="inline-flex items-center justify-center rounded-[20px] border border-violet-200 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-900 shadow-sm hover:bg-violet-100"

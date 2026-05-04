@@ -21,6 +21,7 @@ import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { LEAD_TEMPERATURE_VALUES, isValidLeadTemperature, leadTemperatureLabel } from "@/lib/crm/lead-temperature";
 import { supabaseAdmin } from "@/lib/admin";
 import { buildContactSearchOrClause } from "@/lib/crm/crm-leads-search";
+import { ExportMarketingEmailsButton } from "@/components/admin/ExportMarketingEmailsButton";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { crmFilterInputCls, crmPrimaryCtaCls } from "@/components/admin/crm-admin-list-styles";
 import { staffPrimaryLabel, type CrmLeadRow } from "@/lib/crm/crm-leads-table-helpers";
@@ -368,6 +369,7 @@ export default async function AdminCrmLeadsPage({
           }
           actions={
             <div className="flex flex-wrap items-center gap-2">
+              <ExportMarketingEmailsButton exportPath="/admin/crm/leads/export-emails" />
               <Link
                 href="/admin/crm/leads/import"
                 className="inline-flex rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50"
