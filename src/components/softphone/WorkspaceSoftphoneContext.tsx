@@ -137,6 +137,8 @@ export type WorkspaceSoftphoneContextValue = {
   sendDtmfDigits: (digits: string) => void;
   /** Last call-context fetch failed (for transcript empty state). */
   callContextLoadError: boolean;
+  /** Soft warning when call-context is slow/degraded; keypad and nav stay usable. */
+  callContextSoftNotice: string | null;
   clearCallError: () => void;
   startCall: (toOverride?: string) => Promise<void>;
   /** Outbound "Call as" (caller ID); `null` before capabilities hydrate. */

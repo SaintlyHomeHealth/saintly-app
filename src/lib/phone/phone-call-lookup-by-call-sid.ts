@@ -87,6 +87,8 @@ function rowFromData(data: Record<string, unknown>, lookupSid: string): {
 export type FindPhoneCallLookupOptions = {
   /** Verbose `[phone_call_lookup]` logs (use from start-transcript / support). Default false for hot paths (transcript chunks). */
   logLookup?: boolean;
+  /** Skip Twilio REST parent lookup (call-context polling — avoid extra latency / timeouts). */
+  skipTwilioRestFallback?: boolean;
 };
 
 export async function findPhoneCallRowByTwilioCallSidDetailed(
@@ -149,7 +151,7 @@ export async function findPhoneCallRowByTwilioCallSidDetailed(
 
   const accountSid = process.env.TWILIO_ACCOUNT_SID?.trim();
   const authToken = process.env.TWILIO_AUTH_TOKEN?.trim();
-  if (accountSid && authToken) {
+  if (!options?.skipTwilioRestFallback && accountSid && authToken) {
     try {
       const client = twilio(accountSid, authToken);
       const callResource = await client.calls(sid).fetch();
@@ -224,8 +226,12 @@ export async function findPhoneCallRowByTwilioCallSidDetailed(
  */
 export async function findPhoneCallRowByTwilioCallSid(
   supabase: SupabaseClient,
-  callSid: string
+  callSid: string,
+  options?: FindPhoneCallLookupOptions
 ): Promise<PhoneCallRowLookup | null> {
-  const { row } = await findPhoneCallRowByTwilioCallSidDetailed(supabase, callSid, { logLookup: false });
+  const { row } = await findPhoneCallRowByTwilioCallSidDetailed(supabase, callSid, {
+    logLookup: false,
+    ...options,
+  });
   return row;
 }

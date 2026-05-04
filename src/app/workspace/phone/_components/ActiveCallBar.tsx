@@ -121,6 +121,7 @@ export function ActiveCallBar() {
     recordingActionError,
     toggleCallRecording,
     sendDtmfDigits,
+    callContextSoftNotice,
   } = useWorkspaceSoftphone();
   const durationSec = useWorkspaceCallDuration();
 
@@ -271,6 +272,14 @@ export function ActiveCallBar() {
         {RECORDING_DISCLOSURE ? (
           <p className="mb-3 rounded-xl border border-amber-400/25 bg-amber-500/10 px-3 py-2 text-center text-[11px] leading-snug text-amber-50/95 sm:mb-2">
             {RECORDING_DISCLOSURE}
+          </p>
+        ) : null}
+        {callContextSoftNotice ? (
+          <p
+            className="mb-3 rounded-xl border border-amber-400/20 bg-amber-950/35 px-3 py-2 text-center text-[11px] leading-snug text-amber-50/95 sm:mb-2"
+            role="status"
+          >
+            {callContextSoftNotice}
           </p>
         ) : null}
 

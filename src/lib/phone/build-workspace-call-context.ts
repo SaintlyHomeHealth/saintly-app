@@ -54,14 +54,22 @@ export type WorkspaceCallContextPayload = {
   conference_gating: ConferenceGatingSnapshot;
 };
 
+export type BuildWorkspaceCallContextOptions = {
+  /** Hot path (call-context poller): no Twilio REST parent fallback. */
+  skipTwilioRestFallback?: boolean;
+};
+
 /**
  * Shared payload for `/api/workspace/phone/call-context` and `/api/workspace/phone/conference/diagnostics`.
  */
 export async function buildWorkspaceCallContextPayload(
   supabase: SupabaseClient,
-  callSid: string
+  callSid: string,
+  options?: BuildWorkspaceCallContextOptions
 ): Promise<{ found: false } | { found: true; payload: WorkspaceCallContextPayload }> {
-  const row = await findPhoneCallRowByTwilioCallSid(supabase, callSid);
+  const row = await findPhoneCallRowByTwilioCallSid(supabase, callSid, {
+    skipTwilioRestFallback: options?.skipTwilioRestFallback === true,
+  });
   if (!row) {
     return { found: false };
   }

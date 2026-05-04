@@ -139,6 +139,7 @@ export function ActiveCallTranscriptSheet() {
     clearTranscriptStartError,
     stopLiveTranscriptStream,
     callContextLoadError,
+    callContextSoftNotice,
   } = useWorkspaceSoftphone();
 
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -393,6 +394,14 @@ export function ActiveCallTranscriptSheet() {
         className="relative z-[52] flex min-h-0 flex-1 flex-col overflow-hidden"
       >
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-5 pb-2">
+          {showLiveFlow && callContextSoftNotice ? (
+            <div
+              role="status"
+              className="mx-auto mb-4 max-w-xl rounded-xl border border-amber-500/25 bg-amber-950/35 px-4 py-3 text-center text-sm font-medium leading-snug text-amber-50/95"
+            >
+              {callContextSoftNotice}
+            </div>
+          ) : null}
           {showLiveFlow && transcriptStartError && !transcriptEnabled ? (
             <div className="mx-auto flex max-w-md flex-col items-center justify-center px-2 py-14 text-center">
               <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-red-500/10 text-red-300">

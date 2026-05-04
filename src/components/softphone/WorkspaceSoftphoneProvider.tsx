@@ -71,6 +71,12 @@ let lastSuccessfulNativeSoftphonePayload: string | null = null;
 let lastSuccessfulNativeSoftphoneAt = 0;
 const NATIVE_SOFTPHONE_BRIDGE_DEDUPE_MS = 60_000;
 
+/** Call-context poller: avoid hammering `/api/workspace/phone/call-context` (was sub‑2s during calls). */
+const CALL_CONTEXT_POLL_MS_DEFAULT = 20_000;
+const CALL_CONTEXT_POLL_TRANSCRIPT_MS = 12_000;
+const CALL_CONTEXT_FAILURE_BACKOFF_MS = 35_000;
+const CALL_CONTEXT_SOFT_NOTICE = "Phone status is delayed. You can still try again.";
+
 /** Lets the Saintly iOS/Android shell register Twilio Voice native (CallKit / ConnectionService) with the same access token as the web Device. */
 function postSoftphoneTokenToNativeBridge(token: string, identity?: string | null) {
   if (typeof window === "undefined") return;
@@ -337,6 +343,9 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     null
   );
   const [callContextLoadError, setCallContextLoadError] = useState(false);
+  const [callContextSoftNotice, setCallContextSoftNotice] = useState<string | null>(null);
+  const callContextPollInFlightRef = useRef(false);
+  const callContextBackoffUntilRef = useRef(0);
   const [recordingBusy, setRecordingBusy] = useState(false);
   const [recordingActionError, setRecordingActionError] = useState<string | null>(null);
 
@@ -557,12 +566,18 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
   useEffect(() => {
     if (status !== "in_call") {
       setCallContext(null);
+      setCallContextSoftNotice(null);
       lastPollCallSidRef.current = null;
       prevTranscriptLenRef.current = 0;
+      callContextPollInFlightRef.current = false;
+      callContextBackoffUntilRef.current = 0;
       return;
     }
     let cancelled = false;
-    const poll = async () => {
+    const intervalMs =
+      transcriptEnabled && transcriptPanelOpen ? CALL_CONTEXT_POLL_TRANSCRIPT_MS : CALL_CONTEXT_POLL_MS_DEFAULT;
+
+    const pollOnce = async () => {
       const sid = readCallSid(activeCallRef.current);
       if (!sid) {
         if (!cancelled) setCallContext(null);
@@ -571,19 +586,50 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       if (sid !== lastPollCallSidRef.current) {
         lastPollCallSidRef.current = sid;
         prevTranscriptLenRef.current = 0;
+        callContextBackoffUntilRef.current = 0;
       }
+      if (callContextPollInFlightRef.current) return;
+      if (Date.now() < callContextBackoffUntilRef.current) return;
+
+      callContextPollInFlightRef.current = true;
       try {
+        const headers: Record<string, string> = {};
+        try {
+          const { data: sessionData } = await createBrowserSupabaseClient().auth.getSession();
+          const tok = sessionData.session?.access_token;
+          if (tok) headers.Authorization = `Bearer ${tok}`;
+        } catch {
+          /* optional bearer for RN / cookie edge cases */
+        }
+
         const res = await fetch(`/api/workspace/phone/call-context?call_sid=${encodeURIComponent(sid)}`, {
           credentials: "include",
+          headers: Object.keys(headers).length ? headers : undefined,
         });
         if (cancelled) return;
+
         if (!res.ok) {
-          if (!cancelled) setCallContextLoadError(true);
+          if (res.status === 401) {
+            if (!cancelled) {
+              setCallContextLoadError(true);
+              setCallContextSoftNotice(null);
+            }
+          } else {
+            if (!cancelled) {
+              setCallContextLoadError(false);
+              setCallContextSoftNotice(CALL_CONTEXT_SOFT_NOTICE);
+              callContextBackoffUntilRef.current = Date.now() + CALL_CONTEXT_FAILURE_BACKOFF_MS;
+            }
+          }
           return;
         }
+
         const currentSid = readCallSid(activeCallRef.current);
         if (currentSid !== sid) return;
         const j = (await res.json()) as {
+          ok?: boolean;
+          degraded?: boolean;
+          reason?: string;
           found?: boolean;
           phone_call_id?: string;
           external_call_id?: string;
@@ -594,43 +640,62 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
           softphone_recording?: SoftphoneRecordingMeta | null;
         };
         if (cancelled) return;
-        if (!cancelled) setCallContextLoadError(false);
-        if (j.found) {
-          const inboundTs = j.voice_ai?.inbound_transcript_stream_started_at;
-          /** Inbound browser sessions are `twilio_voice_softphone` — still auto-enable when server started PSTN transcript. */
-          const serverInboundStarted = typeof inboundTs === "string";
-          if (serverInboundStarted) {
-            const key = `${sid}:${inboundTs}`;
-            if (inboundServerTranscriptUiKeyRef.current !== key) {
-              inboundServerTranscriptUiKeyRef.current = key;
-              setTranscriptPanelOpen(true);
-              void (async () => {
-                setTranscriptStartError(null);
-                setTranscriptStartPending(true);
-                try {
-                  const r = await startLiveTranscriptStream();
-                  if (r.ok) {
-                    setTranscriptEnabled(true);
-                  } else {
-                    setTranscriptStartError(r.error ?? "Live transcription failed to start.");
-                  }
-                } catch (e) {
-                  setTranscriptStartError(e instanceof Error ? e.message : "Network error starting transcription.");
-                } finally {
-                  setTranscriptStartPending(false);
+
+        if (j.degraded) {
+          if (!cancelled) {
+            setCallContextLoadError(false);
+            setCallContextSoftNotice(CALL_CONTEXT_SOFT_NOTICE);
+            callContextBackoffUntilRef.current = Date.now() + CALL_CONTEXT_FAILURE_BACKOFF_MS;
+          }
+          return;
+        }
+
+        if (!cancelled) {
+          setCallContextSoftNotice(null);
+          setCallContextLoadError(false);
+        }
+
+        if (!j.found) {
+          if (!cancelled) setCallContext(null);
+          return;
+        }
+
+        const inboundTs = j.voice_ai?.inbound_transcript_stream_started_at;
+        /** Inbound browser sessions are `twilio_voice_softphone` — still auto-enable when server started PSTN transcript. */
+        const serverInboundStarted = typeof inboundTs === "string";
+        if (serverInboundStarted) {
+          const key = `${sid}:${inboundTs}`;
+          if (inboundServerTranscriptUiKeyRef.current !== key) {
+            inboundServerTranscriptUiKeyRef.current = key;
+            setTranscriptPanelOpen(true);
+            void (async () => {
+              setTranscriptStartError(null);
+              setTranscriptStartPending(true);
+              try {
+                const r = await startLiveTranscriptStream();
+                if (r.ok) {
+                  setTranscriptEnabled(true);
+                } else {
+                  setTranscriptStartError(r.error ?? "Live transcription failed to start.");
                 }
-              })();
-            }
+              } catch (e) {
+                setTranscriptStartError(e instanceof Error ? e.message : "Network error starting transcription.");
+              } finally {
+                setTranscriptStartPending(false);
+              }
+            })();
           }
-          const entries = j.voice_ai?.live_transcript_entries;
-          const entryLen = Array.isArray(entries) ? entries.length : 0;
-          const excerpt = j.voice_ai?.live_transcript_excerpt;
-          const excerptLen = typeof excerpt === "string" ? excerpt.length : 0;
-          const tick = entryLen > 0 ? entryLen * 1_000_000 + excerptLen : excerptLen;
-          if (tick !== prevTranscriptLenRef.current) {
-            prevTranscriptLenRef.current = tick;
-          }
-          const va = j.voice_ai;
+        }
+        const entries = j.voice_ai?.live_transcript_entries;
+        const entryLen = Array.isArray(entries) ? entries.length : 0;
+        const excerpt = j.voice_ai?.live_transcript_excerpt;
+        const excerptLen = typeof excerpt === "string" ? excerpt.length : 0;
+        const tick = entryLen > 0 ? entryLen * 1_000_000 + excerptLen : excerptLen;
+        if (tick !== prevTranscriptLenRef.current) {
+          prevTranscriptLenRef.current = tick;
+        }
+        const va = j.voice_ai;
+        if (!cancelled) {
           setCallContext({
             external_call_id: typeof j.external_call_id === "string" ? j.external_call_id : null,
             phone_call_id: typeof j.phone_call_id === "string" ? j.phone_call_id : null,
@@ -655,29 +720,25 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
             softphone_recording: j.softphone_recording ?? null,
             workspace_softphone_session: Boolean(j.workspace_softphone_session),
           });
-          if (typeof j.softphone_conference?.pstn_on_hold === "boolean") {
-            setIsPstnHold(j.softphone_conference.pstn_on_hold);
-          }
-        } else {
-          setCallContext(null);
+        }
+        if (typeof j.softphone_conference?.pstn_on_hold === "boolean") {
+          setIsPstnHold(j.softphone_conference.pstn_on_hold);
         }
       } catch {
         if (!cancelled) {
-          setCallContext(null);
-          setCallContextLoadError(true);
+          setCallContextLoadError(false);
+          setCallContextSoftNotice(CALL_CONTEXT_SOFT_NOTICE);
+          callContextBackoffUntilRef.current = Date.now() + CALL_CONTEXT_FAILURE_BACKOFF_MS;
         }
+      } finally {
+        callContextPollInFlightRef.current = false;
       }
     };
-    void poll();
-    const intervalMs =
-      status === "in_call" && !transcriptEnabled
-        ? 800
-        : transcriptEnabled && transcriptPanelOpen
-          ? 700
-          : transcriptEnabled
-            ? 1400
-            : 2200;
-    const id = window.setInterval(poll, intervalMs);
+
+    void pollOnce();
+    const id = window.setInterval(() => {
+      void pollOnce();
+    }, intervalMs);
     return () => {
       cancelled = true;
       window.clearInterval(id);
@@ -800,6 +861,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       setTranscriptStartPending(false);
       setTranscriptStartError(null);
       setCallContextLoadError(false);
+      setCallContextSoftNotice(null);
       setRecordingBusy(false);
       setRecordingActionError(null);
       transcriptStreamStartedRef.current = false;
@@ -1010,6 +1072,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       setTranscriptPanelOpen(false);
       setPostCallTranscriptSnapshot(null);
       setCallContextLoadError(false);
+      setCallContextSoftNotice(null);
       transcriptStreamStartedRef.current = false;
       transcriptStartInFlightRef.current = false;
       setStatus("in_call");
@@ -1621,6 +1684,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     setHint(null);
     setHintMeta(null);
     setStatus("idle");
+    setCallContextSoftNotice(null);
   }, []);
 
   const toggleMute = useCallback(() => {
@@ -2086,6 +2150,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       toggleCallRecording,
       sendDtmfDigits,
       callContextLoadError,
+      callContextSoftNotice,
       clearCallError,
       startCall,
       outboundCliSelection,
@@ -2137,6 +2202,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     toggleCallRecording,
     sendDtmfDigits,
     callContextLoadError,
+    callContextSoftNotice,
     answerCallWaitingEndAndAccept,
     declineCallWaiting,
     softphoneCapabilities,
