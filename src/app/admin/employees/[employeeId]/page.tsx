@@ -5,7 +5,7 @@ import {
   serializeEmployeeContractForClient,
 } from "@/lib/admin/employee-contract-admin-fetch";
 import Link from "next/link";
-import { redirect } from "next/navigation";
+import { redirect, unstable_rethrow } from "next/navigation";
 import { getStaffProfile, isAdminOrHigher, isManagerOrHigher } from "@/lib/staff-profile";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { insertAuditLog } from "@/lib/audit-log";
@@ -4158,6 +4158,7 @@ export default async function EmployeeDetailPage({
     </div>
   );
   } catch (fatal) {
+    unstable_rethrow(fatal);
     console.error("[admin_employee_detail] uncaught page error — Next digest may reference this log", {
       employeeId: employeeId || null,
       digestExamples: ["3753892406"],
