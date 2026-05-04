@@ -1344,8 +1344,14 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       return;
     }
     let cancelled = false;
+    let failureBackoffUntil = 0;
+    const POLL_MS = 3500;
+    const FAILURE_BACKOFF_MS = 30_000;
     const poll = async () => {
       if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        return;
+      }
+      if (Date.now() < failureBackoffUntil) {
         return;
       }
       try {
@@ -1353,6 +1359,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
         if (cancelled) return;
         if (!res.ok) {
           setInboundAiAssist(null);
+          failureBackoffUntil = Date.now() + FAILURE_BACKOFF_MS;
           return;
         }
         const j = (await res.json()) as {
@@ -1388,12 +1395,14 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
           pollSuppressedSidRef.current = null;
           setInboundAiAssist(null);
         }
+        failureBackoffUntil = 0;
       } catch {
         if (!cancelled) setInboundAiAssist(null);
+        failureBackoffUntil = Date.now() + FAILURE_BACKOFF_MS;
       }
     };
     void poll();
-    const id = window.setInterval(poll, 3500);
+    const id = window.setInterval(poll, POLL_MS);
     return () => {
       cancelled = true;
       window.clearInterval(id);

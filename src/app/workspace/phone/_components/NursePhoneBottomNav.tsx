@@ -189,7 +189,7 @@ const NavTabLink = memo(function NavTabLink({
   return (
     <Link
       href={tab.href}
-      prefetch
+      prefetch={false}
       aria-current={active ? "page" : undefined}
       className={`${navLinkClass} ${surfaceClass}`}
       onClick={() => {
