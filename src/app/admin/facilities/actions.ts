@@ -14,6 +14,7 @@ import {
 import { supabaseAdmin } from "@/lib/admin";
 import { getAuthenticatedUser } from "@/lib/supabase/server";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
+import { parseFormDatetimeToUtcIso } from "@/lib/datetime/app-timezone";
 
 function str(formData: FormData, key: string): string {
   const v = formData.get(key);
@@ -31,10 +32,7 @@ function readBool(formData: FormData, key: string): boolean {
 }
 
 function parseIsoDatetime(raw: string | null): string | null {
-  if (!raw || !raw.trim()) return null;
-  const d = new Date(raw.trim());
-  if (Number.isNaN(d.getTime())) return null;
-  return d.toISOString();
+  return parseFormDatetimeToUtcIso(raw);
 }
 
 async function requireManager() {

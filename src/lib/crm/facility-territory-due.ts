@@ -16,7 +16,7 @@ export function daysForVisitFrequency(f: VisitFrequencyOption): number {
 
 export type FacilityDueInfo = {
   band: FacilityDueBand;
-  /** Next due date as YYYY-MM-DD in CRM calendar (America/Chicago). */
+  /** Next due date as YYYY-MM-DD in CRM calendar (America/Phoenix). */
   effectiveNextDueYmd: string | null;
   /** True when `next_follow_up_at` drove the due date (vs cadence from last visit). */
   usesExplicitFollowUp: boolean;

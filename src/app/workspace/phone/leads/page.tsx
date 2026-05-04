@@ -21,6 +21,7 @@ import {
 } from "@/lib/perf/route-perf";
 import { staffMayAccessWorkspaceSms } from "@/lib/phone/staff-phone-policy";
 import { canAccessWorkspacePhone, getStaffProfile, isWorkspaceEmployeeRole } from "@/lib/staff-profile";
+import { formatAppDate } from "@/lib/datetime/app-timezone";
 
 type ContactEmb = {
   id?: string;
@@ -40,9 +41,13 @@ function formatFollowUpDate(iso: string | null | undefined): string {
   if (!iso || typeof iso !== "string") return "—";
   const d = iso.slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return "—";
-  const parsed = new Date(`${d}T12:00:00`);
-  if (Number.isNaN(parsed.getTime())) return d;
-  return parsed.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  const parsedMs = Date.parse(`${d}T12:00:00-07:00`);
+  if (!Number.isFinite(parsedMs)) return d;
+  return formatAppDate(parsedMs, "—", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
 }
 
 function hasSmsCapablePhone(raw: string | null | undefined): boolean {

@@ -7,6 +7,7 @@ import {
   formatCredentialReminderStage,
 } from "@/lib/admin/credential-reminder-display";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
+import { formatAppDateTime } from "@/lib/datetime/app-timezone";
 
 import { DocumentColumnsSkeleton } from "./onboarding-deferred-skeletons";
 
@@ -35,9 +36,7 @@ type Props = {
 const VISIBLE = 20;
 
 function formatDateTimeClient(dateString: string) {
-  const date = new Date(dateString);
-  if (Number.isNaN(date.getTime())) return dateString;
-  return date.toLocaleString("en-US", {
+  return formatAppDateTime(dateString, dateString, {
     month: "short",
     day: "numeric",
     year: "numeric",

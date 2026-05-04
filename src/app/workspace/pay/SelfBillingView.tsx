@@ -17,6 +17,7 @@ import {
   updateSelfBillingLineAction,
 } from "./self-billing-actions";
 import { BILLING_LINE_TYPES, billingLineLabel, type BillingLineType } from "./self-billing-types";
+import { formatAppDateTime } from "@/lib/datetime/app-timezone";
 
 function money(n: number) {
   return n.toLocaleString(undefined, { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -445,7 +446,7 @@ export function SelfBillingView({
             <p className="mt-3 text-xs text-slate-600">
               Submit deadline:{" "}
               <span className="font-medium text-slate-800">
-                {new Date(deadlineIso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}
+                {formatAppDateTime(deadlineIso, "—", { dateStyle: "medium", timeStyle: "short" })}
               </span>
             </p>
           </div>

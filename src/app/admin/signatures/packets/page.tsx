@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { supabaseAdmin } from "@/lib/admin";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
+import { formatAppDateTime } from "@/lib/datetime/app-timezone";
 import { redirect } from "next/navigation";
 
 export default async function AdminPdfSignPacketsPage() {
@@ -51,7 +52,7 @@ export default async function AdminPdfSignPacketsPage() {
               return (
                 <tr key={row.id} className="border-b border-slate-100">
                   <td className="px-3 py-2 text-slate-700">
-                    {row.created_at ? new Date(row.created_at).toLocaleString() : "—"}
+                    {row.created_at ? formatAppDateTime(row.created_at) : "—"}
                   </td>
                   <td className="px-3 py-2">{row.primary_document_type}</td>
                   <td className="px-3 py-2">{row.status}</td>

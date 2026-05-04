@@ -1,5 +1,7 @@
 /** Shared types + pure helpers for the admin CRM leads table (server + client). */
 
+import { formatAppDate } from "@/lib/datetime/app-timezone";
+
 export type CrmLeadsContactEmb = {
   full_name?: string | null;
   first_name?: string | null;
@@ -28,7 +30,7 @@ export type CrmLeadRow = {
   referring_provider_name: string | null;
   next_action: string | null;
   follow_up_date: string | null;
-  /** ISO instant; paired with `follow_up_date` for list display with time (Central). */
+  /** ISO instant; paired with `follow_up_date` for list display with time (Phoenix). */
   follow_up_at?: string | null;
   last_contact_at: string | null;
   last_outcome: string | null;
@@ -69,12 +71,16 @@ export function formatFollowUpDate(iso: string | null | undefined): string {
   if (!iso || typeof iso !== "string") return "—";
   const d = iso.slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return "—";
-  const parsed = new Date(`${d}T12:00:00`);
-  if (Number.isNaN(parsed.getTime())) return d;
-  return parsed.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  const parsed = Date.parse(`${d}T12:00:00-07:00`);
+  if (!Number.isFinite(parsed)) return d;
+  return formatAppDate(parsed, "—", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
 }
 
-const CRM_LIST_FU_TZ = "America/Chicago";
+const CRM_LIST_FU_TZ = "America/Phoenix";
 
 /** Compact follow-up for leads list: date + time when `follow_up_at` is present. */
 export function formatFollowUpListLabel(followUpDate: string | null | undefined, followUpAt: string | null | undefined): string {

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { skillsCompetencyDisciplines } from "@/lib/skills-competency";
 import PrintButton from "@/components/admin/print-button";
+import { formatAppDate, formatAppDateTime } from "@/lib/datetime/app-timezone";
 
 type PageProps = {
   params: Promise<{ employeeId: string }>;
@@ -33,8 +34,7 @@ type AdminFormRecord = {
 
 function formatDate(dateString?: string | null) {
   if (!dateString) return "—";
-  const date = new Date(dateString);
-  return date.toLocaleDateString("en-US", {
+  return formatAppDate(dateString, "—", {
     month: "long",
     day: "numeric",
     year: "numeric",
@@ -43,8 +43,7 @@ function formatDate(dateString?: string | null) {
 
 function formatDateTime(dateString?: string | null) {
   if (!dateString) return "—";
-  const date = new Date(dateString);
-  return date.toLocaleString("en-US");
+  return formatAppDateTime(dateString, "—");
 }
 
 function getRatingLabel(selectedDiscipline: any, value?: string) {

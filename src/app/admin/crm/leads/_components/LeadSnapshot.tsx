@@ -18,21 +18,25 @@ import {
 import type { LeadWorkspaceContactProfileDefaults, LeadWorkspaceIntakeDefaults, LeadWorkspaceStaffOption } from "../lead-workspace";
 import { leadTemperatureLabel, normalizeLeadTemperature } from "@/lib/crm/lead-temperature";
 import { setLeadWaitingOnDoctorsOrders } from "@/app/admin/crm/actions";
+import { formatAppDate, formatAppDateTime } from "@/lib/datetime/app-timezone";
 import { LeadSnapshotCopyButton, LeadSnapshotMedicareReveal } from "./lead-snapshot-client";
 import { LeadDeleteButton } from "./LeadDeleteButton";
 
 function fmtIsoDate(iso: string | null | undefined): string {
   if (!iso || !/^\d{4}-\d{2}-\d{2}/.test(iso)) return "";
-  const d = new Date(`${iso.slice(0, 10)}T12:00:00`);
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  const ms = Date.parse(`${iso.slice(0, 10)}T12:00:00-07:00`);
+  if (!Number.isFinite(ms)) return "";
+  return formatAppDate(ms, "", { month: "short", day: "numeric", year: "numeric" });
 }
 
 function fmtMaybeTime(iso: string | null | undefined): string {
   if (!iso || typeof iso !== "string" || !iso.trim()) return "";
-  const d = new Date(iso.trim());
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  return formatAppDateTime(iso.trim(), "", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 function staffLabel(staffOptions: LeadWorkspaceStaffOption[], ownerUid: string): string {

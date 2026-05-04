@@ -2,6 +2,7 @@ import { formatFollowUpDate } from "@/lib/crm/crm-leads-table-helpers";
 import { getCrmCalendarDateIsoFromInstant, getCrmCalendarTodayIso } from "@/lib/crm/crm-local-date";
 import { formatLeadNextActionLabel } from "@/lib/crm/lead-follow-up-options";
 import { buildUnifiedLeadTimeline, type LeadActivityRow } from "@/lib/crm/lead-activities-timeline";
+import { formatAppDateTime } from "@/lib/datetime/app-timezone";
 
 import { LeadActivityThread } from "./LeadActivityThread";
 import { LeadQuickNoteForm } from "./LeadQuickNoteForm";
@@ -9,9 +10,7 @@ import { LeadQuickNoteForm } from "./LeadQuickNoteForm";
 function formatFollowUpDateTime(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  const datePart = d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-  const timePart = d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
-  return `${datePart} at ${timePart}`;
+  return formatAppDateTime(d, iso, { dateStyle: "medium", timeStyle: "short" });
 }
 
 type StaffOpt = {

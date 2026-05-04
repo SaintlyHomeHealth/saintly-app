@@ -1,8 +1,8 @@
 /**
- * "Today" for CRM follow-up filters and dashboard counts.
- * Uses America/Chicago so daily cutoffs align with typical Saintly ops (US Central).
+ * CRM calendar-day boundaries (`follow_up_date`, “today” filters, visit boards).
+ * Aligned with agency operations in America/Phoenix (no DST).
  */
-const CRM_CALENDAR_TZ = "America/Chicago";
+const CRM_CALENDAR_TZ = "America/Phoenix";
 
 export function getCrmCalendarTodayIso(): string {
   return new Intl.DateTimeFormat("en-CA", {

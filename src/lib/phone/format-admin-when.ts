@@ -1,5 +1,7 @@
-/** Fixed IANA zone so SSR and browser match for admin phone UI. */
-export const ADMIN_PHONE_DISPLAY_TIMEZONE = "America/Los_Angeles";
+import { APP_TIME_ZONE } from "@/lib/datetime/app-timezone";
+
+/** Fixed IANA zone so SSR and browser match for admin / workspace phone UI. */
+export const ADMIN_PHONE_DISPLAY_TIMEZONE = APP_TIME_ZONE;
 
 /**
  * Same wall-clock instant everywhere: assemble from `formatToParts` so we never depend on

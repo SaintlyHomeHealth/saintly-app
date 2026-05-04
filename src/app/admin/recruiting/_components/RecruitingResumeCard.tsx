@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import type { ParsedResumeSuggestions, ResumeParseQuality } from "@/lib/recruiting/resume-parse-types";
 import { RESUME_HARD_ERROR_INVALID_FILE, RESUME_SOFT_MANUAL_PARSE_PROFILE } from "@/lib/recruiting/resume-upload-mime";
 import { crmPrimaryCtaCls } from "@/components/admin/crm-admin-list-styles";
+import { formatAppDateTime } from "@/lib/datetime/app-timezone";
 
 import { RecruitingResumeSuggestionsPanel } from "./RecruitingResumeSuggestionsPanel";
 
@@ -14,10 +15,7 @@ const btnGhost =
 
 function formatResumeDate(iso: string | null | undefined): string {
   if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleString("en-US", {
-    timeZone: "America/Phoenix",
+  return formatAppDateTime(iso, "—", {
     month: "short",
     day: "numeric",
     year: "numeric",

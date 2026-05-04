@@ -1,3 +1,9 @@
+import {
+  formatAppDate,
+  formatAppDateTime,
+  isoInstantToDatetimeLocalInput,
+} from "@/lib/datetime/app-timezone";
+
 /**
  * Build a single-line postal address and Google Maps search URL for field reps.
  */
@@ -27,24 +33,17 @@ export function googleMapsSearchUrlForAddress(fullAddress: string): string | nul
 }
 
 export function formatFacilityDateTime(iso: string | null | undefined, empty = "—"): string {
-  if (!iso) return empty;
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return empty;
-  return d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+  return formatAppDateTime(iso ?? null, empty, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
 }
 
 export function formatFacilityDate(iso: string | null | undefined, empty = "—"): string {
-  if (!iso) return empty;
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return empty;
-  return d.toLocaleDateString(undefined, { dateStyle: "medium" });
+  return formatAppDate(iso ?? null, empty, { dateStyle: "medium" });
 }
 
-/** Value for `<input type="datetime-local" />` in the user's local timezone. */
+/** Value for `<input type="datetime-local" />` in America/Phoenix (agency time). */
 export function toDatetimeLocalValue(iso: string | null | undefined): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return isoInstantToDatetimeLocalInput(iso ?? null);
 }

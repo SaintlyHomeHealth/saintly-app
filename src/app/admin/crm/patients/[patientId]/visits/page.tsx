@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
 import { createPatientVisit, setPatientVisitStatus } from "../../../actions";
+import { formatAppDateTime } from "@/lib/datetime/app-timezone";
 import { supabaseAdmin } from "@/lib/admin";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
@@ -25,9 +26,7 @@ type VisitRow = {
 
 function fmtWhen(iso: string | null): string {
   if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString("en-US", {
+  return formatAppDateTime(iso, iso, {
     month: "short",
     day: "numeric",
     year: "numeric",

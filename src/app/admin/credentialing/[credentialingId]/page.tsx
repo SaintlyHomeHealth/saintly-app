@@ -30,6 +30,7 @@ import type { PayerCredentialingRecordEmail } from "@/lib/crm/payer-credentialin
 import { PayerCredentialingEmailsQuick } from "@/components/credentialing/PayerCredentialingEmailsQuick";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { appCalendarMidnightUtc, formatAppDate } from "@/lib/datetime/app-timezone";
 
 const inp =
   "mt-0.5 w-full min-w-0 rounded border border-slate-200 px-2 py-1.5 text-sm text-slate-800 sm:max-w-md";
@@ -134,14 +135,11 @@ export default async function AdminCredentialingDetailPage({
   const submittedTargets = getSimplifiedCredentialingPipelineTargets(2);
   const activeTargets = getSimplifiedCredentialingPipelineTargets(4);
 
-  const followUpLabel = next_action_due_date.trim()
+  const followUpYmd = next_action_due_date.trim();
+  const followUpLabel = followUpYmd
     ? (() => {
-        try {
-          const d = new Date(`${next_action_due_date.trim()}T12:00:00`);
-          return Number.isNaN(d.getTime()) ? next_action_due_date : d.toLocaleDateString(undefined, { dateStyle: "medium" });
-        } catch {
-          return next_action_due_date;
-        }
+        const mid = appCalendarMidnightUtc(followUpYmd);
+        return mid ? formatAppDate(mid, followUpYmd) : followUpYmd;
       })()
     : "—";
 

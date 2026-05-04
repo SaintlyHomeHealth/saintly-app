@@ -6,7 +6,7 @@
 export type WeekendBehavior = "use_after_hours_rules" | "treat_as_closed";
 
 export type BusinessHoursSchedule = {
-  /** IANA timezone, e.g. America/Chicago */
+  /** IANA timezone, e.g. America/Phoenix */
   timezone: string;
   /** Weekdays that follow `open` / `close` (0 = Sunday … 6 = Saturday). Default Mon–Fri. */
   businessWeekdays: readonly number[];
@@ -21,11 +21,11 @@ export type BusinessHoursSchedule = {
 export const BUSINESS_HOLIDAY_DATES_YYYY_MM_DD: readonly string[] = [];
 
 /**
- * Default: Monday–Friday 8:00–17:00, America/Chicago.
+ * Default: Monday–Friday 8:00–17:00, America/Phoenix.
  * Tune later via env without schema changes (see {@link resolveBusinessHoursScheduleFromEnv}).
  */
 export const DEFAULT_BUSINESS_HOURS_SCHEDULE: BusinessHoursSchedule = {
-  timezone: "America/Chicago",
+  timezone: "America/Phoenix",
   businessWeekdays: [1, 2, 3, 4, 5],
   openLocal: "08:00",
   closeLocal: "17:00",

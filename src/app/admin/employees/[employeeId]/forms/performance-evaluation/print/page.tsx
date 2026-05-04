@@ -2,6 +2,11 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { performanceEvaluationDisciplines } from "@/lib/performance-evaluation";
 import PrintButton from "@/components/admin/print-button";
+import {
+  appCalendarMidnightUtc,
+  formatAppDate,
+  formatAppDateTime,
+} from "@/lib/datetime/app-timezone";
 
 type PageProps = {
   params: Promise<{ employeeId: string }>;
@@ -34,10 +39,18 @@ type AdminFormRecord = {
 function formatDate(dateString?: string | null) {
   if (!dateString) return "—";
 
-  const date = new Date(dateString);
-  if (Number.isNaN(date.getTime())) return dateString;
+  const raw = dateString.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    const mid = appCalendarMidnightUtc(raw);
+    if (!mid) return dateString;
+    return formatAppDate(mid, dateString, {
+      month: "long",
+      day: "numeric",
+      year: "numeric",
+    });
+  }
 
-  return date.toLocaleDateString("en-US", {
+  return formatAppDate(raw, raw, {
     month: "long",
     day: "numeric",
     year: "numeric",
@@ -47,10 +60,7 @@ function formatDate(dateString?: string | null) {
 function formatDateTime(dateString?: string | null) {
   if (!dateString) return "—";
 
-  const date = new Date(dateString);
-  if (Number.isNaN(date.getTime())) return dateString;
-
-  return date.toLocaleString("en-US", {
+  return formatAppDateTime(dateString, dateString, {
     month: "long",
     day: "numeric",
     year: "numeric",

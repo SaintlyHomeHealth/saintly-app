@@ -23,6 +23,7 @@ import {
   mapStaffRow,
   type StaffRole,
 } from "@/lib/staff-profile";
+import { formatAppDateTime } from "@/lib/datetime/app-timezone";
 
 import {
   updateStaffAccessToggles,
@@ -556,7 +557,7 @@ export default async function StaffAccessDetailPage({
             <p className="mt-1">
               Last sign-in:{" "}
               <span className="font-semibold text-slate-800">
-                {new Date(lastSignIn).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}
+                {formatAppDateTime(lastSignIn, "—", { dateStyle: "medium", timeStyle: "short" })}
               </span>
             </p>
           ) : (

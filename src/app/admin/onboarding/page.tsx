@@ -3,6 +3,7 @@
 import { memo, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase/client";
+import { formatAppDate } from "@/lib/datetime/app-timezone";
 
 type Applicant = {
   id: string;
@@ -32,9 +33,7 @@ type DashboardRow = {
 
 function formatDate(value: string | null) {
   if (!value) return "—";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleDateString();
+  return formatAppDate(value, value);
 }
 
 function getStatusFromEvents(events: ComplianceEvent[]) {

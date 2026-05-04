@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { CPR_BLS_STATUS_LABELS, normalizeCprBlsStatusFromDb } from "@/lib/cpr-bls-status";
+import { formatAppDateTime } from "@/lib/datetime/app-timezone";
 
 type OnboardingStatusLite = {
   application_completed?: boolean | null;
@@ -40,9 +41,7 @@ type EmergencyRow = {
 
 function formatDateTime(iso?: string | null) {
   if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString(undefined, {
+  return formatAppDateTime(iso, iso, {
     month: "short",
     day: "numeric",
     year: "numeric",

@@ -28,6 +28,7 @@ import {
 } from "@/lib/admin/employee-directory-data";
 import { employeeDetailAdminTabUrl } from "@/lib/employee-requirements/employee-detail-work-areas";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
+import { formatAppDate } from "@/lib/datetime/app-timezone";
 import {
   buildAdminPhoneCallsSoftphoneHref,
   buildWorkspaceKeypadCallHref,
@@ -535,7 +536,7 @@ export default async function AdminEmployeesDirectoryPage({
                 const callHref = employeeDirectoryCallHref(staff, r.e164, r.nameDisplay);
                 const updatedLabel =
                   r.lastUpdatedMs > 0
-                    ? new Date(r.lastUpdatedMs).toLocaleDateString("en-US", {
+                    ? formatAppDate(new Date(r.lastUpdatedMs), "—", {
                         month: "short",
                         day: "numeric",
                         year: "numeric",
@@ -757,7 +758,7 @@ export default async function AdminEmployeesDirectoryPage({
                           title="Open full reminder log on employee record"
                         >
                           Last SMS:{" "}
-                          {new Date(r.credentialReminderLastSentAt).toLocaleDateString("en-US", {
+                          {formatAppDate(r.credentialReminderLastSentAt, "—", {
                             month: "short",
                             day: "numeric",
                             year: "numeric",

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
 import { getCredentialAnchorId } from "@/lib/credential-anchors";
+import { appCalendarMidnightUtc, formatAppDate } from "@/lib/datetime/app-timezone";
 
 type CredentialRecord = {
   id: string;
@@ -80,14 +81,18 @@ function formatCredentialType(type: string) {
 function formatDate(dateString?: string | null) {
   if (!dateString) return "—";
 
-  const normalized = /^\d{4}-\d{2}-\d{2}$/.test(dateString)
-    ? `${dateString}T00:00:00`
-    : dateString;
+  const raw = dateString.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    const mid = appCalendarMidnightUtc(raw);
+    if (!mid) return dateString;
+    return formatAppDate(mid, dateString, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  }
 
-  const date = new Date(normalized);
-  if (Number.isNaN(date.getTime())) return dateString;
-
-  return date.toLocaleDateString("en-US", {
+  return formatAppDate(raw, raw, {
     month: "short",
     day: "numeric",
     year: "numeric",

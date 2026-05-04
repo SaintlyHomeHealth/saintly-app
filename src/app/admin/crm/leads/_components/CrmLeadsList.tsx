@@ -48,12 +48,13 @@ import {
   ADMIN_CRM_LEADS_LIST_PATH_PREFIX,
   buildAdminCrmLeadDetailHref,
 } from "@/lib/crm/admin-crm-leads-list-url";
+import { formatAppDate, formatAppDateTime } from "@/lib/datetime/app-timezone";
 
 const pillBase = "inline-flex max-w-full shrink-0 rounded-full px-1 py-[1px] text-[9px] font-semibold ring-1";
 
 function relativeCreatedParts(iso: string): { short: string; full: string } {
   const d = new Date(iso);
-  const full = Number.isNaN(d.getTime()) ? String(iso) : d.toLocaleString();
+  const full = Number.isNaN(d.getTime()) ? String(iso) : formatAppDateTime(d);
   if (Number.isNaN(d.getTime())) return { short: "—", full };
   const diffMs = Date.now() - d.getTime();
   if (!Number.isFinite(diffMs)) return { short: "—", full };
@@ -64,7 +65,10 @@ function relativeCreatedParts(iso: string): { short: string; full: string } {
   if (hrs < 48) return { short: `${hrs}h ago`, full };
   const days = Math.round(hrs / 24);
   if (days < 14) return { short: `${days}d ago`, full };
-  return { short: d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }), full };
+  return {
+    short: formatAppDate(d, "—", { month: "short", day: "numeric", year: "numeric" }),
+    full,
+  };
 }
 
 function LeadTypeBadge({ leadType, status }: { leadType: string | null; status: string | null }) {

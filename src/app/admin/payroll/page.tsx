@@ -13,6 +13,7 @@ import {
 import { payrollComplianceFlags } from "@/lib/payroll/compliance";
 import { supabaseAdmin } from "@/lib/admin";
 import { getStaffProfile, isManagerOrHigher, isPayrollApprover } from "@/lib/staff-profile";
+import { formatAppDateTime } from "@/lib/datetime/app-timezone";
 
 import {
   createPayrollVisitAction,
@@ -235,7 +236,7 @@ export default async function AdminPayrollPage({
               {calendarPeriod.payPeriodStart} → {calendarPeriod.payPeriodEnd}
             </p>
             <p className="mt-1 text-xs text-slate-600">
-              Submit by {new Date(calendarPeriod.submissionDeadline).toLocaleString()} · Pay {calendarPeriod.payDate}
+              Submit by {formatAppDateTime(calendarPeriod.submissionDeadline, String(calendarPeriod.submissionDeadline))} · Pay {calendarPeriod.payDate}
             </p>
             {currentBatch ? (
               <p className="mt-3 text-sm font-semibold text-slate-800">
@@ -385,7 +386,7 @@ export default async function AdminPayrollPage({
                         {b.external_batch_id ? ` · ${b.external_batch_id}` : ""}
                       </td>
                       <td className="px-4 py-3 text-xs text-slate-600">
-                        {b.paid_at ? new Date(b.paid_at).toLocaleString() : "—"}
+                        {b.paid_at ? formatAppDateTime(b.paid_at) : "—"}
                       </td>
                     </tr>
                   ))
@@ -482,7 +483,7 @@ export default async function AdminPayrollPage({
                         </p>
                         <p className="text-xs text-slate-500">
                           {v.check_in_time && v.check_out_time
-                            ? `${new Date(v.check_in_time).toLocaleString()} → ${new Date(v.check_out_time).toLocaleString()}`
+                            ? `${formatAppDateTime(v.check_in_time)} → ${formatAppDateTime(v.check_out_time)}`
                             : "Times not set"}
                           {" · "}
                           Note: {v.note_completed ? "yes" : "no"}

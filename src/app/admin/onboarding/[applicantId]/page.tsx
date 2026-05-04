@@ -4,6 +4,7 @@ import { ChangeEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
+import { formatAppDate } from "@/lib/datetime/app-timezone";
 
 type Applicant = {
   id: string;
@@ -45,9 +46,7 @@ type ComplianceDocument = {
 
 function formatDate(value: string | null | undefined) {
   if (!value) return "—";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleDateString();
+  return formatAppDate(value, value);
 }
 
 function getEventStatus(event: ComplianceEvent) {

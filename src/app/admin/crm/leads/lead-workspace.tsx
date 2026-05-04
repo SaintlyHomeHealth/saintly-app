@@ -44,8 +44,7 @@ import {
 } from "@/lib/workspace-phone/launch-urls";
 import { routePerfRenderCount } from "@/lib/perf/route-perf";
 import { ADMIN_CRM_LEADS_LIST_PATH_PREFIX } from "@/lib/crm/admin-crm-leads-list-url";
-
-const CRM_ATTEMPT_TIME_ZONE = "America/Chicago";
+import { getAppNowForDateTimeInput } from "@/lib/datetime/app-timezone";
 
 const CrmCommunicationTimeline = dynamic(
   () =>
@@ -116,29 +115,6 @@ function createLeadErrorMessage(code: string): string {
     default:
       return "Something went wrong.";
   }
-}
-
-function currentCrmDatetimeLocal(): string {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: CRM_ATTEMPT_TIME_ZONE,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).formatToParts(new Date());
-
-  const pick = (type: Intl.DateTimeFormatPart["type"]) =>
-    parts.find((p) => p.type === type)?.value ?? "";
-
-  const year = pick("year");
-  const month = pick("month");
-  const day = pick("day");
-  const hour = pick("hour");
-  const minute = pick("minute");
-
-  return year && month && day && hour && minute ? `${year}-${month}-${day}T${hour}:${minute}` : "";
 }
 
 export type LeadWorkspaceContactProfileDefaults = {
@@ -517,7 +493,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
 
   const tomorrowIso = getCrmCalendarTomorrowIso();
   const voicemailSuggestedIso = addCalendarDaysToIsoDate(getCrmCalendarTodayIso(), 2);
-  const initialAttemptLocal = currentCrmDatetimeLocal();
+  const initialAttemptLocal = getAppNowForDateTimeInput();
 
   const dialE164 = pickOutboundE164ForDial(primaryPhone);
   const keypadHref = dialE164

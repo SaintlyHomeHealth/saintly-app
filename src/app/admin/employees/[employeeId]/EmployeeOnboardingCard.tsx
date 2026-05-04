@@ -8,6 +8,7 @@ import {
   resendOnboardingInviteEmailAction,
   resendOnboardingInviteSmsAction,
 } from "@/app/admin/employees/actions";
+import { formatAppDateTime } from "@/lib/datetime/app-timezone";
 
 type Props = {
   employeeId: string;
@@ -16,9 +17,7 @@ type Props = {
 
 function fmt(dt?: string | null) {
   if (!dt) return "—";
-  const d = new Date(dt);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleString("en-US", {
+  return formatAppDateTime(dt, "—", {
     month: "short",
     day: "numeric",
     year: "numeric",

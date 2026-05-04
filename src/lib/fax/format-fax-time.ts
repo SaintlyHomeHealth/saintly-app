@@ -1,5 +1,7 @@
+import { APP_TIME_ZONE } from "@/lib/datetime/app-timezone";
+
 /** Arizona — no DST; display matches Saintly office local time. */
-export const FAX_DISPLAY_TIMEZONE = "America/Phoenix";
+export const FAX_DISPLAY_TIMEZONE = APP_TIME_ZONE;
 
 const listFormatter = new Intl.DateTimeFormat("en-US", {
   timeZone: FAX_DISPLAY_TIMEZONE,

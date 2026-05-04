@@ -7,6 +7,7 @@ import { applicantRolePrimaryForCompliance } from "@/lib/applicant-role-for-comp
 import { supabase } from "@/lib/supabase";
 import { performanceEvaluationDisciplines } from "@/lib/performance-evaluation";
 import type { CompetencyDiscipline } from "@/lib/skills-competency/types";
+import { formatAppDateTime } from "@/lib/datetime/app-timezone";
 
 type Props = {
   employeeId: string;
@@ -65,11 +66,7 @@ function getApplicantRoleValue(applicant?: ApplicantPrefillRecord | null) {
 
 function formatDateTime(value?: string | null) {
   if (!value) return "—";
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-
-  return date.toLocaleString("en-US", {
+  return formatAppDateTime(value, value, {
     month: "short",
     day: "numeric",
     year: "numeric",

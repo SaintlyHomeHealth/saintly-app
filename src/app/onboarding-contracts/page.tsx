@@ -17,6 +17,7 @@ import {
 } from "@/lib/employee-tax-forms";
 import EmployeeContractReviewCard from "./EmployeeContractReviewCard";
 import EmployeeTaxFormCard from "./EmployeeTaxFormCard";
+import { appCalendarMidnightUtc, formatAppDate } from "@/lib/datetime/app-timezone";
 
 type RoleKey =
   | "registered_nurse"
@@ -405,10 +406,18 @@ function getSafePdfFileName(value: string): string {
 
 function formatPdfDate(value?: string | null): string {
   if (!value) return "—";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
+  const raw = value.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    const mid = appCalendarMidnightUtc(raw);
+    if (!mid) return value;
+    return formatAppDate(mid, raw, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  }
 
-  return date.toLocaleDateString("en-US", {
+  return formatAppDate(raw, raw, {
     month: "short",
     day: "numeric",
     year: "numeric",

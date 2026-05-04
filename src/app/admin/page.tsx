@@ -21,6 +21,7 @@ import {
 } from "@/lib/admin/employee-directory-data";
 import { employeeDetailAdminTabUrl } from "@/lib/employee-requirements/employee-detail-work-areas";
 import { getCrmCalendarTodayIso } from "@/lib/crm/crm-local-date";
+import { formatAppDate, formatAppDateTime } from "@/lib/datetime/app-timezone";
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import {
   routePerfLog,
@@ -179,7 +180,7 @@ function formatDate(dateString?: string | null) {
   const date = new Date(dateString);
   if (Number.isNaN(date.getTime())) return dateString;
 
-  return date.toLocaleDateString("en-US", {
+  return formatAppDate(date, dateString, {
     month: "short",
     day: "numeric",
     year: "numeric",
@@ -1819,7 +1820,7 @@ export default async function AdminDashboardPage({
                           {c.from_e164 ?? "—"}
                         </Link>
                         <span className="text-xs text-slate-500">
-                          {new Date(c.created_at).toLocaleString(undefined, {
+                          {formatAppDateTime(c.created_at, "—", {
                             month: "short",
                             day: "numeric",
                             hour: "numeric",
@@ -2363,7 +2364,7 @@ export default async function AdminDashboardPage({
                     {recentAuditRows.map((row) => (
                       <tr key={row.id} className="border-b border-slate-100 last:border-0">
                         <td className="whitespace-nowrap px-4 py-2 text-slate-700">
-                          {new Date(row.created_at).toLocaleString("en-US", {
+                          {formatAppDateTime(row.created_at, "—", {
                             month: "short",
                             day: "numeric",
                             year: "numeric",
@@ -2414,7 +2415,7 @@ export default async function AdminDashboardPage({
                 <>
                   {" "}
                   · Last sent/failed update{" "}
-                  {new Date(notificationQueueLastTerminalAt).toLocaleString("en-US", {
+                  {formatAppDateTime(notificationQueueLastTerminalAt, "—", {
                     month: "short",
                     day: "numeric",
                     year: "numeric",
@@ -2532,7 +2533,7 @@ export default async function AdminDashboardPage({
                           }`}
                         >
                           <td className="whitespace-nowrap px-4 py-2 text-slate-700">
-                            {new Date(row.created_at).toLocaleString("en-US", {
+                            {formatAppDateTime(row.created_at, "—", {
                               month: "short",
                               day: "numeric",
                               year: "numeric",
@@ -2541,7 +2542,7 @@ export default async function AdminDashboardPage({
                             })}
                           </td>
                           <td className="whitespace-nowrap px-4 py-2 text-slate-600">
-                            {new Date(row.updated_at).toLocaleString("en-US", {
+                            {formatAppDateTime(row.updated_at, "—", {
                               month: "short",
                               day: "numeric",
                               year: "numeric",

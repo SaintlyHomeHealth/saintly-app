@@ -14,6 +14,7 @@ import {
   adminUpdateNurseBillingLineAction,
 } from "@/app/admin/payroll/nurse-billing-actions";
 import { BILLING_LINE_TYPES, billingLineLabel, type BillingLineType } from "@/app/workspace/pay/self-billing-types";
+import { formatAppDateTime } from "@/lib/datetime/app-timezone";
 
 function money(n: number) {
   return n.toLocaleString(undefined, { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -181,17 +182,17 @@ export function NurseBillingDetail({
           <div>
             <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Submitted</dt>
             <dd className="mt-1 font-medium text-slate-800">
-              {submittedAt ? new Date(submittedAt).toLocaleString() : "—"}
+              {submittedAt ? formatAppDateTime(submittedAt) : "—"}
             </dd>
           </div>
           <div>
             <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Paid</dt>
-            <dd className="mt-1 font-medium text-slate-800">{paidAt ? new Date(paidAt).toLocaleString() : "—"}</dd>
+            <dd className="mt-1 font-medium text-slate-800">{paidAt ? formatAppDateTime(paidAt) : "—"}</dd>
           </div>
           <div>
             <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Returned to draft</dt>
             <dd className="mt-1 font-medium text-slate-800">
-              {returnedToDraftAt ? new Date(returnedToDraftAt).toLocaleString() : "—"}
+              {returnedToDraftAt ? formatAppDateTime(returnedToDraftAt) : "—"}
             </dd>
           </div>
         </dl>

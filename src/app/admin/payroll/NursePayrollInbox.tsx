@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 
 import { ChevronRight } from "lucide-react";
 
+import { formatAppDateTime } from "@/lib/datetime/app-timezone";
+
 function money(n: number) {
   return n.toLocaleString(undefined, { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
@@ -106,7 +108,7 @@ export function NursePayrollInbox({ selectedWeekStart, periodOptions, rows }: Pr
                   {row.submittedAt ? (
                     <span>
                       <span className="text-slate-500">Submitted:</span>{" "}
-                      {new Date(row.submittedAt).toLocaleString()}
+                      {formatAppDateTime(row.submittedAt)}
                     </span>
                   ) : (
                     <span className="text-slate-500">Not submitted</span>
@@ -114,7 +116,7 @@ export function NursePayrollInbox({ selectedWeekStart, periodOptions, rows }: Pr
                   {row.paidAt ? (
                     <span>
                       <span className="text-slate-500">Paid:</span>{" "}
-                      {new Date(row.paidAt).toLocaleString()}
+                      {formatAppDateTime(row.paidAt)}
                     </span>
                   ) : null}
                 </div>

@@ -16,6 +16,11 @@ import {
   RECRUITING_TEXT_TEMPLATES,
 } from "@/lib/recruiting/recruiting-options";
 import { isPhoenixSameCalendarDay, phoenixEndOfTodayIso } from "@/lib/recruiting/phoenix-time";
+import {
+  formatAppDateTime,
+  isoInstantToDatetimeLocalInput,
+  parseAppDateTimeInputToUtcIso,
+} from "@/lib/datetime/app-timezone";
 import { buildRecruitingTimelineEntries } from "@/lib/recruiting/recruiting-timeline";
 import { staffPrimaryLabel } from "@/lib/crm/crm-leads-table-helpers";
 
@@ -105,32 +110,16 @@ function splitRecruitingName(
 }
 
 function toDatetimeLocalValue(iso: string | null | undefined): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  const pad = (n: number) => String(n).padStart(2, "0");
-  const y = d.getFullYear();
-  const m = pad(d.getMonth() + 1);
-  const day = pad(d.getDate());
-  const hh = pad(d.getHours());
-  const mm = pad(d.getMinutes());
-  return `${y}-${m}-${day}T${hh}:${mm}`;
+  return isoInstantToDatetimeLocalInput(iso ?? undefined);
 }
 
 function fromDatetimeLocalValue(raw: string): string | null {
-  const t = raw.trim();
-  if (!t) return null;
-  const d = new Date(t);
-  if (Number.isNaN(d.getTime())) return null;
-  return d.toISOString();
+  return parseAppDateTimeInputToUtcIso(raw.trim());
 }
 
 function formatWhen(iso: string | null | undefined): string {
   if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleString("en-US", {
-    timeZone: "America/Phoenix",
+  return formatAppDateTime(iso, "—", {
     month: "short",
     day: "numeric",
     hour: "numeric",

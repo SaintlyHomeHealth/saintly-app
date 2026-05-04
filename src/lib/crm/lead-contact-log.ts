@@ -3,6 +3,8 @@
  * Blocks are separated by `\n\n---\n\n` (new) or `\n\n` before `[` (quick notes / legacy).
  */
 
+import { formatAppDateTime } from "@/lib/datetime/app-timezone";
+
 export const ATTEMPT_ACTION_KEYS = [
   "called",
   "left_voicemail",
@@ -43,20 +45,21 @@ export function formatContactAttemptLogBlock(input: {
   followUpAt: Date | null;
   note: string;
 }): string {
-  const header = `[Contact attempt ${input.attemptAt.toLocaleString("en-US", {
+  const stamp = formatAppDateTime(input.attemptAt, "—", {
     month: "short",
     day: "numeric",
     year: "numeric",
     hour: "numeric",
     minute: "2-digit",
-  })}]`;
+  });
+  const header = `[Contact attempt ${stamp}]`;
   const lines = [
     header,
     `Result: ${input.resultLabel}`,
     `Actions: ${formatAttemptActionsList(input.actionKeys)}`,
     `Next step: ${input.nextStepLabel}`,
     input.followUpAt
-      ? `Follow-up: ${input.followUpAt.toLocaleString("en-US", {
+      ? `Follow-up: ${formatAppDateTime(input.followUpAt, "—", {
           month: "short",
           day: "numeric",
           year: "numeric",

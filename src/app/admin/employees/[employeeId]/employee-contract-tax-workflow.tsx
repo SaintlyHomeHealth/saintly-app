@@ -9,12 +9,11 @@ import {
 } from "@/lib/employee-contracts";
 import { EmployeeTaxFormRow, getTaxFormLabel } from "@/lib/employee-tax-forms";
 import EmployeeContractTaxSection from "./EmployeeContractTaxSection";
+import { formatAppDateTime } from "@/lib/datetime/app-timezone";
 
 function formatDateTimeLocal(iso?: string | null) {
   if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString(undefined, {
+  return formatAppDateTime(iso, iso, {
     month: "short",
     day: "numeric",
     year: "numeric",

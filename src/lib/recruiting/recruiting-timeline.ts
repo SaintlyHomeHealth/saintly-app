@@ -2,6 +2,8 @@
  * Recruiting candidate activity → iMessage-style timeline (mirrors Credentialing/Leads patterns).
  */
 
+import { formatAppDateTime } from "@/lib/datetime/app-timezone";
+
 export type RecruitingActivityRow = {
   id: string;
   activity_type: string;
@@ -64,20 +66,17 @@ export function formatRecruitingActivityHeadline(a: Pick<RecruitingActivityRow, 
   return [t, o].filter(Boolean).join(" · ") || "Activity";
 }
 
-const phoenixWhen = new Intl.DateTimeFormat("en-US", {
-  timeZone: "America/Phoenix",
-  month: "short",
-  day: "numeric",
-  hour: "numeric",
-  minute: "2-digit",
-});
-
-/** Subtle timestamp for timeline rows (Phoenix, matches recruiting detail fields). */
+/** Subtle timestamp for timeline rows (agency timezone). */
 export function formatRecruitingTimelineTimestamp(iso: string | null | undefined): string {
   if (!iso?.trim()) return "—";
   const d = new Date(iso.trim());
   if (Number.isNaN(d.getTime())) return "—";
-  return phoenixWhen.format(d);
+  return formatAppDateTime(d, "—", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 /**

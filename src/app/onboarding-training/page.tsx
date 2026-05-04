@@ -15,6 +15,8 @@ import {
   type RequiredTrainingModuleKey,
 } from "@/lib/onboarding/training-status";
 import { supabase } from "@/lib/supabase/client";
+import { formatAppDate } from "@/lib/datetime/app-timezone";
+
 type TrainingModuleKey = RequiredTrainingModuleKey;
 
 type TrainingModuleRow = {
@@ -649,7 +651,7 @@ function isTrainingModuleKey(value: string): value is TrainingModuleKey {
 }
 
 function formatCertificateDate(value: string) {
-  return new Date(value).toLocaleDateString();
+  return formatAppDate(value, value);
 }
 
 async function generateTrainingCertificatePdf({
@@ -1426,7 +1428,7 @@ export default function OnboardingTrainingPage() {
                           {result?.completed_at && (
                             <p className="mt-3 text-xs font-medium uppercase tracking-[0.14em] text-slate-500">
                               {isCompleted ? "Passed on" : "Last attempted on"}{" "}
-                              {new Date(result.completed_at).toLocaleDateString()}
+                              {formatAppDate(result.completed_at, result.completed_at)}
                             </p>
                           )}
                         </div>

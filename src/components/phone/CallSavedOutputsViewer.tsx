@@ -4,6 +4,7 @@ import { useMemo } from "react";
 
 import { useCallOutputs } from "@/hooks/use-call-outputs";
 import type { SavedCallOutputRow } from "@/lib/phone/call-outputs-client";
+import { formatAppDateTime } from "@/lib/datetime/app-timezone";
 
 const SECTIONS = [
   { type: "soap" as const, title: "SOAP" },
@@ -12,9 +13,7 @@ const SECTIONS = [
 ];
 
 function formatSavedAt(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" });
+  return formatAppDateTime(iso, "—", { dateStyle: "medium", timeStyle: "short" });
 }
 
 function sortNewestFirst(rows: SavedCallOutputRow[]): SavedCallOutputRow[] {

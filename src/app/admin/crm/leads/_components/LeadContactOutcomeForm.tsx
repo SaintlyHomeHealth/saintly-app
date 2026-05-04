@@ -17,8 +17,11 @@ import {
 import { LEAD_NEXT_ACTION_OPTIONS } from "@/lib/crm/lead-follow-up-options";
 import { ATTEMPT_ACTION_KEYS, type AttemptActionKey } from "@/lib/crm/lead-contact-log";
 import { refreshPreservingWindowScroll } from "@/lib/navigation/scroll-preserving-refresh";
-
-const CRM_ATTEMPT_TIME_ZONE = "America/Chicago";
+import {
+  combineAppCalendarDateAndTimeToUtcIso,
+  isoInstantToDatetimeLocalInput,
+  parseAppDateTimeInputToUtcIso,
+} from "@/lib/datetime/app-timezone";
 
 type Props = {
   leadId: string;
@@ -68,31 +71,9 @@ function outcomeSelectValue(v: string | null, pipelineStatus?: string | null): s
   return "";
 }
 
-function toDatetimeLocalValueInCrmTimeZone(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: CRM_ATTEMPT_TIME_ZONE,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).formatToParts(d);
-  const pick = (type: Intl.DateTimeFormatPart["type"]) =>
-    parts.find((p) => p.type === type)?.value ?? "";
-  const year = pick("year");
-  const month = pick("month");
-  const day = pick("day");
-  const hour = pick("hour");
-  const minute = pick("minute");
-  return year && month && day && hour && minute ? `${year}-${month}-${day}T${hour}:${minute}` : "";
-}
-
 function defaultFollowUpParts(followIso: string, followAtIso: string | null): { date: string; time: string } {
   if (followAtIso) {
-    const local = toDatetimeLocalValueInCrmTimeZone(followAtIso);
+    const local = isoInstantToDatetimeLocalInput(followAtIso);
     if (local) {
       return { date: local.slice(0, 10), time: local.slice(11, 16) };
     }
@@ -152,16 +133,10 @@ export function LeadContactOutcomeForm({
   const followUpInstantIso = useMemo(() => {
     if (!followDate.trim()) return "";
     const t = followTime.trim() || "09:00";
-    const d = new Date(`${followDate.trim()}T${t}:00`);
-    if (Number.isNaN(d.getTime())) return "";
-    return d.toISOString();
+    return combineAppCalendarDateAndTimeToUtcIso(followDate.trim(), t) ?? "";
   }, [followDate, followTime]);
 
-  const attemptInstantIso = useMemo(() => {
-    const d = new Date(attemptLocal);
-    if (Number.isNaN(d.getTime())) return "";
-    return d.toISOString();
-  }, [attemptLocal]);
+  const attemptInstantIso = useMemo(() => parseAppDateTimeInputToUtcIso(attemptLocal) ?? "", [attemptLocal]);
 
   useEffect(() => {
     if (!toast || toast.type !== "ok") return;

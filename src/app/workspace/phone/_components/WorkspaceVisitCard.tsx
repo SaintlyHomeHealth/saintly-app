@@ -9,6 +9,8 @@ import {
   setWorkspaceVisitStatus,
 } from "@/app/workspace/phone/patients/actions";
 
+import { formatAppCalendarYmd } from "@/lib/datetime/app-timezone";
+
 function statusBadgeClass(statusKey: string): string {
   const s = statusKey.trim().toLowerCase();
   if (s === "confirmed") return "bg-indigo-50 text-indigo-950 ring-indigo-200/80";
@@ -77,7 +79,7 @@ function WorkspaceVisitCardInner(props: Props) {
   const [isPending, startTransition] = useTransition();
   const [showReschedule, setShowReschedule] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
-  const nowDate = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const nowDate = useMemo(() => formatAppCalendarYmd(new Date()), []);
 
   const runStatus = (nextStatus: string) => {
     setFeedback(null);

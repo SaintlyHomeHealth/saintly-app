@@ -41,6 +41,7 @@ import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { devTimedSupabaseQuery } from "@/lib/perf/supabase-dev-query-log";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { formatAppDateTime } from "@/lib/datetime/app-timezone";
 
 function staffPrimaryLabel(s: {
   user_id: string;
@@ -64,9 +65,8 @@ function staffPrimaryLabel(s: {
 
 function formatWhen(iso: string | null | undefined): string {
   if (!iso || typeof iso !== "string") return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso.slice(0, 16);
-  return d.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" });
+  const formatted = formatAppDateTime(iso, iso.slice(0, 16), { dateStyle: "medium", timeStyle: "short" });
+  return formatted !== "—" ? formatted : iso.slice(0, 16);
 }
 
 function contactInAppCallHref(

@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { supabaseAdmin } from "@/lib/admin";
 import { getStaffProfile, isAdminOrHigher, isManagerOrHigher } from "@/lib/staff-profile";
+import { formatAppDateTime } from "@/lib/datetime/app-timezone";
 import { redirect } from "next/navigation";
 
 import { EmployeePdfSignActions } from "./EmployeePdfSignActions";
@@ -68,7 +69,7 @@ export default async function EmployeePdfSignPage({
                 <div>
                   <div className="font-medium text-slate-900">{p.primary_document_type}</div>
                   <div className="text-xs text-slate-600">
-                    {p.status} · {p.created_at ? new Date(p.created_at).toLocaleString() : "—"}
+                    {p.status} · {p.created_at ? formatAppDateTime(p.created_at) : "—"}
                   </div>
                 </div>
                 {docId && (p.status === "completed" || p.status === "signed") ? (

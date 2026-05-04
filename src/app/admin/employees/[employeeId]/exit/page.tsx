@@ -6,6 +6,7 @@ import { supabaseAdmin } from "@/lib/admin";
 import { getAuthenticatedUser } from "@/lib/supabase/server";
 import { getStaffProfile, isAdminOrHigher } from "@/lib/staff-profile";
 import { insertAuditLog } from "@/lib/audit-log";
+import { formatAppDate } from "@/lib/datetime/app-timezone";
 
 function getExitInterviewPdfPath(employeeId: string) {
   return `exit-interviews/${employeeId}/exit-interview.pdf`;
@@ -20,9 +21,7 @@ function formatExitLabel(value: string) {
 
 function formatDateValue(value?: string | null) {
   if (!value) return "—";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleDateString("en-US", {
+  return formatAppDate(value, value, {
     month: "short",
     day: "numeric",
     year: "numeric",

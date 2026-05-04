@@ -11,6 +11,8 @@ import { Bell, BellOff, Camera, ChevronLeft, FileText, ImageIcon, Link2, Papercl
 import Link from "next/link";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { formatAppDateTime } from "@/lib/datetime/app-timezone";
+
 type RefCard = {
   kind: InternalChatRefKind;
   id: string;
@@ -941,7 +943,7 @@ export function ChatThreadClient({
                     mine ? "text-sky-200/90" : "text-slate-500"
                   }`}
                 >
-                  {new Date(m.createdAt).toLocaleString(undefined, {
+                  {formatAppDateTime(m.createdAt, "—", {
                     month: "short",
                     day: "numeric",
                     hour: "numeric",

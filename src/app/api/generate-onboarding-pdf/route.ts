@@ -10,6 +10,7 @@ import {
   downloadAttachmentBytesForZip,
   mergeSurveyPacketAttachmentSection,
 } from "@/lib/survey-packet/attachments";
+import { formatAppDateTime } from "@/lib/datetime/app-timezone";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -96,9 +97,9 @@ function formatValue(value: unknown): string {
 
 function formatDate(value: string | null | undefined): string {
   if (!value) return "—";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString();
+  const out = formatAppDateTime(value, value);
+  if (out !== "—") return out;
+  return value;
 }
 
 function parseRoleDescription(value: string | null | undefined): string[] {

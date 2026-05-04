@@ -12,6 +12,7 @@ import {
   getTaxFormLabel,
   getTaxFormTypeForClassification,
 } from "@/lib/employee-tax-forms";
+import { formatAppDateTime } from "@/lib/datetime/app-timezone";
 
 type Props = {
   applicantId: string;
@@ -22,11 +23,7 @@ type Props = {
 
 function formatDateTime(value?: string | null) {
   if (!value) return "—";
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-
-  return date.toLocaleString("en-US", {
+  return formatAppDateTime(value, value, {
     month: "short",
     day: "numeric",
     year: "numeric",

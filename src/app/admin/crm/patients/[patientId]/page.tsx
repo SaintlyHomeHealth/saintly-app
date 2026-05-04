@@ -36,6 +36,7 @@ import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 import { formatAdminPhoneWhen } from "@/app/workspace/phone/patients/_lib/patient-hub";
+import { formatAppDateTime } from "@/lib/datetime/app-timezone";
 
 type ContactEmb = {
   id?: string | null;
@@ -817,7 +818,7 @@ export default async function PatientIntakePage({
                     <td className="py-2 pr-3">{reminderRecipientLabel(v.reminder_recipient)}</td>
                     <td className="py-2 pr-3 text-slate-600">
                       {v.reminder_day_before_sent_at
-                        ? new Date(v.reminder_day_before_sent_at).toLocaleString("en-US", {
+                        ? formatAppDateTime(v.reminder_day_before_sent_at, "—", {
                             month: "short",
                             day: "numeric",
                             hour: "numeric",
@@ -827,7 +828,7 @@ export default async function PatientIntakePage({
                     </td>
                     <td className="py-2 pr-3 text-slate-600">
                       {v.reminder_day_of_sent_at
-                        ? new Date(v.reminder_day_of_sent_at).toLocaleString("en-US", {
+                        ? formatAppDateTime(v.reminder_day_of_sent_at, "—", {
                             month: "short",
                             day: "numeric",
                             hour: "numeric",
@@ -909,7 +910,7 @@ export default async function PatientIntakePage({
         <div className="rounded-[28px] border border-amber-200 bg-amber-50/80 p-5 shadow-sm">
           <h2 className="text-sm font-semibold text-amber-950">Latest nurse field edit (workspace)</h2>
           <p className="mt-1 text-xs text-amber-900/80">
-            {new Date(lastWorkspaceProfile.created_at).toLocaleString("en-US", {
+            {formatAppDateTime(lastWorkspaceProfile.created_at, "—", {
               dateStyle: "medium",
               timeStyle: "short",
             })}
@@ -1113,7 +1114,7 @@ export default async function PatientIntakePage({
                 <li key={a.id} className="rounded-xl border border-slate-200 bg-white p-3 text-sm">
                   <p className="font-medium text-slate-800">{formatAuditAction(a.action, meta as Record<string, unknown>)}</p>
                   <p className="text-xs text-slate-500">
-                    {new Date(a.created_at).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}
+                    {formatAppDateTime(a.created_at, "—", { dateStyle: "medium", timeStyle: "short" })}
                     {a.actor_email ? ` · ${a.actor_email}` : ""}
                   </p>
                   {meta.preset === "on_my_way" && typeof meta.nurse_label === "string" ? (

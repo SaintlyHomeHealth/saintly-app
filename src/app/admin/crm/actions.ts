@@ -39,6 +39,10 @@ import {
 } from "@/lib/crm/lead-temperature";
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import {
+  combineAppCalendarDateAndTimeToUtcIso,
+  parseFormDatetimeToUtcIso,
+} from "@/lib/datetime/app-timezone";
+import {
   isAllowedLeadInsuranceMime,
   LEAD_INSURANCE_BUCKET,
   LEAD_INSURANCE_MAX_BYTES,
@@ -490,7 +494,7 @@ export async function createPatientVisit(formData: FormData) {
   const uidRaw = formData.get("assignedUserId");
   const scheduledFor =
     typeof scheduledRaw === "string" && scheduledRaw.trim() !== ""
-      ? new Date(scheduledRaw.trim()).toISOString()
+      ? parseFormDatetimeToUtcIso(scheduledRaw.trim())
       : null;
   const assignedUserId =
     typeof uidRaw === "string" && uidRaw.trim() !== "" ? uidRaw.trim() : null;
@@ -719,23 +723,23 @@ export async function scheduleVisitFromDispatch(formData: FormData) {
       m2 = Number.parseInt(me[2], 10);
       timeWindowLabel = formatHmRangeToAmPm(ws, we);
     }
-    const start = new Date(`${visitDate}T${pad2(h1)}:${pad2(m1)}:00`);
-    const end = new Date(`${visitDate}T${pad2(h2)}:${pad2(m2)}:00`);
-    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end.getTime() <= start.getTime()) {
+    const startIso = combineAppCalendarDateAndTimeToUtcIso(visitDate, `${pad2(h1)}:${pad2(m1)}`);
+    const endIso = combineAppCalendarDateAndTimeToUtcIso(visitDate, `${pad2(h2)}:${pad2(m2)}`);
+    if (!startIso || !endIso || Date.parse(endIso) <= Date.parse(startIso)) {
       redirect("/admin/crm/dispatch?sched=window");
     }
-    scheduledFor = start.toISOString();
-    scheduledEndAt = end.toISOString();
+    scheduledFor = startIso;
+    scheduledEndAt = endIso;
   } else {
     const visitTime = String(formData.get("visitTime") ?? "").trim();
     if (!visitTime || !/^\d{1,2}:\d{2}$/.test(visitTime)) {
       redirect("/admin/crm/dispatch?sched=time");
     }
-    const d = new Date(`${visitDate}T${visitTime}:00`);
-    if (Number.isNaN(d.getTime())) {
+    const iso = combineAppCalendarDateAndTimeToUtcIso(visitDate, visitTime);
+    if (!iso) {
       redirect("/admin/crm/dispatch?sched=time");
     }
-    scheduledFor = d.toISOString();
+    scheduledFor = iso;
   }
 
   if (assignedUserId) {
@@ -867,8 +871,8 @@ export async function rescheduleDispatchVisit(formData: FormData) {
   const visitTime = String(formData.get("visitTime") ?? "").trim();
   if (!visitId || !visitDate || !visitTime) redirect("/admin/crm/dispatch?resched=invalid");
 
-  const scheduledFor = new Date(`${visitDate}T${visitTime}:00`);
-  if (Number.isNaN(scheduledFor.getTime())) redirect("/admin/crm/dispatch?resched=invalid");
+  const scheduledIso = combineAppCalendarDateAndTimeToUtcIso(visitDate, visitTime);
+  if (!scheduledIso) redirect("/admin/crm/dispatch?resched=invalid");
 
   const { data: row } = await supabaseAdmin
     .from("patient_visits")
@@ -883,7 +887,7 @@ export async function rescheduleDispatchVisit(formData: FormData) {
     .from("patient_visits")
     .update({
       status: "scheduled",
-      scheduled_for: scheduledFor.toISOString(),
+      scheduled_for: scheduledIso,
       scheduled_end_at: null,
       time_window_label: null,
       reminder_day_before_sent_at: null,

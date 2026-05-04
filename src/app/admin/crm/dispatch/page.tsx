@@ -16,6 +16,8 @@ import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 import { visitNeedsAttentionOperational } from "@/lib/crm/dispatch-needs-attention";
 import { buildDispatchVisitTimeSlots } from "@/lib/crm/dispatch-time-slots";
+import { addCalendarDaysToIsoDate } from "@/lib/crm/crm-local-date";
+import { appCalendarMidnightUtc, formatAppCalendarYmd } from "@/lib/datetime/app-timezone";
 import { CopyAddressButton } from "./CopyAddressButton";
 import { ScheduleVisitModal } from "./ScheduleVisitModal";
 
@@ -188,24 +190,6 @@ function primaryBucket(v: VisitRow, nowMs: number): BucketKey {
   if (v.status === "confirmed") return "confirmed";
   if (v.status === "scheduled") return "scheduled";
   return "needs_attention";
-}
-
-function parseLocalDateOnly(raw: string | null | undefined): Date | null {
-  if (!raw || !/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null;
-  const [y, m, d] = raw.split("-").map((x) => Number.parseInt(x, 10));
-  const dt = new Date(y, m - 1, d);
-  if (Number.isNaN(dt.getTime())) return null;
-  return dt;
-}
-
-function startOfLocalDay(d: Date): Date {
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
-}
-
-function addDays(d: Date, n: number): Date {
-  const x = new Date(d);
-  x.setDate(x.getDate() + n);
-  return x;
 }
 
 function VisitStatusActions({ visitId, status }: { visitId: string; status: string }) {
@@ -390,11 +374,27 @@ export default async function DispatchPage({
     typeof sp.patient === "string" ? sp.patient : Array.isArray(sp.patient) ? sp.patient[0] : undefined;
 
   const now = new Date();
-  const selectedDay = parseLocalDateOnly(dateRaw) ?? now;
-  const dayStart = startOfLocalDay(selectedDay);
-  const dayEnd = addDays(dayStart, 1);
-  const padLo = addDays(dayStart, -1);
-  const padHi = addDays(dayEnd, 1);
+  const selectedYmd =
+    dateRaw && typeof dateRaw === "string" && /^\d{4}-\d{2}-\d{2}$/.test(dateRaw.trim())
+      ? dateRaw.trim()
+      : formatAppCalendarYmd(now);
+
+  const dayStart = appCalendarMidnightUtc(selectedYmd);
+  if (!dayStart) {
+    redirect("/admin/crm/dispatch");
+  }
+  const nextYmd = addCalendarDaysToIsoDate(selectedYmd, 1);
+  const dayEnd = appCalendarMidnightUtc(nextYmd);
+  if (!dayEnd) {
+    redirect("/admin/crm/dispatch");
+  }
+  const padLoYmd = addCalendarDaysToIsoDate(selectedYmd, -1);
+  const padHiYmd = addCalendarDaysToIsoDate(selectedYmd, 2);
+  const padLo = appCalendarMidnightUtc(padLoYmd);
+  const padHi = appCalendarMidnightUtc(padHiYmd);
+  if (!padLo || !padHi) {
+    redirect("/admin/crm/dispatch");
+  }
   const padLoIso = padLo.toISOString();
   const padHiIso = padHi.toISOString();
   const dayStartIso = dayStart.toISOString();
@@ -556,7 +556,7 @@ export default async function DispatchPage({
     });
   }
 
-  const dateInputValue = `${selectedDay.getFullYear()}-${pad2(selectedDay.getMonth() + 1)}-${pad2(selectedDay.getDate())}`;
+  const dateInputValue = selectedYmd;
 
   return (
     <div className="space-y-6 bg-gradient-to-b from-slate-50/60 via-white to-slate-50/40 p-6">

@@ -60,6 +60,11 @@ import OnboardingWorkflowSectionCollapsible from "./onboarding-workflow-section-
 import PersonnelFileAuditDeferred from "./personnel-file-audit-loader";
 import EmployeeDetailTabScroll from "./employee-detail-tab-scroll";
 import { WorkflowStatusCard } from "./workflow-status-card";
+import {
+  appCalendarMidnightUtc,
+  formatAppDate,
+  formatAppDateTime,
+} from "@/lib/datetime/app-timezone";
 
 import CredentialReminderCappedTable from "./credential-reminder-capped-table";
 import EmployeeDocumentsComplianceDashboard, {
@@ -176,14 +181,18 @@ type ProgressSummary = {
 function formatDate(dateString?: string | null) {
   if (!dateString) return "—";
 
-  const normalized = /^\d{4}-\d{2}-\d{2}$/.test(dateString)
-    ? `${dateString}T00:00:00`
-    : dateString;
+  const raw = dateString.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    const mid = appCalendarMidnightUtc(raw);
+    if (!mid) return dateString;
+    return formatAppDate(mid, dateString, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  }
 
-  const date = new Date(normalized);
-  if (Number.isNaN(date.getTime())) return dateString;
-
-  return date.toLocaleDateString("en-US", {
+  return formatAppDate(raw, raw, {
     month: "short",
     day: "numeric",
     year: "numeric",
@@ -193,10 +202,7 @@ function formatDate(dateString?: string | null) {
 function formatDateTime(dateString?: string | null) {
   if (!dateString) return "Not completed";
 
-  const date = new Date(dateString);
-  if (Number.isNaN(date.getTime())) return dateString;
-
-  return date.toLocaleString("en-US", {
+  return formatAppDateTime(dateString, dateString, {
     month: "short",
     day: "numeric",
     year: "numeric",

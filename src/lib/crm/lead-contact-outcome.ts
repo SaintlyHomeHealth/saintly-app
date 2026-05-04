@@ -1,4 +1,5 @@
 import { isLegacyContactedOutcomeToken, normalizeContactOutcomeResult } from "@/lib/crm/lead-contact-outcome-normalize";
+import { formatAppDate } from "@/lib/datetime/app-timezone";
 
 /**
  * `leads.last_outcome` — logged result of a contact attempt (DB check constraint).
@@ -82,7 +83,7 @@ export function formatLeadLastContactSummary(
   if (!t) return "—";
   const d = new Date(t);
   if (Number.isNaN(d.getTime())) return "—";
-  const datePart = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const datePart = formatAppDate(d, "—", { month: "short", day: "numeric" });
   const out = formatLeadContactOutcomeLabel(lastOutcome, pipelineStatus);
   if (out === "—") return datePart;
   return `${datePart} – ${out}`;

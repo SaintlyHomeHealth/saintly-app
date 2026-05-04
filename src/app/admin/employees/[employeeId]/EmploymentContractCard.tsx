@@ -19,6 +19,7 @@ import {
   MileageType,
   PayType,
 } from "@/lib/employee-contracts";
+import { formatAppDateTime } from "@/lib/datetime/app-timezone";
 
 type Props = {
   applicantId: string;
@@ -47,11 +48,7 @@ type ContractHistoryRow = EmployeeContractRow & {
 
 function formatDateTime(value?: string | null) {
   if (!value) return "—";
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-
-  return date.toLocaleString("en-US", {
+  return formatAppDateTime(value, value, {
     month: "short",
     day: "numeric",
     year: "numeric",

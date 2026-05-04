@@ -11,6 +11,7 @@ import { buildVisitSnapshotsFromContact, type ContactSnapshotInput } from "@/lib
 import { sendOutboundSmsForPatient, type OutboundSmsRecipient } from "@/lib/crm/outbound-patient-sms";
 import { supabaseAdmin } from "@/lib/admin";
 import { normalizePhone } from "@/lib/phone/us-phone-format";
+import { combineAppCalendarDateAndTimeToUtcIso } from "@/lib/datetime/app-timezone";
 import { canAccessWorkspacePhone, getStaffProfile } from "@/lib/staff-profile";
 
 async function assertWorkspacePatientAccess(staffUserId: string, patientId: string): Promise<boolean> {
@@ -94,8 +95,8 @@ export async function scheduleWorkspacePatientVisit(formData: FormData): Promise
     return { ok: false, error: "Not assigned to this patient." };
   }
 
-  const scheduledFor = new Date(`${dateRaw}T${timeRaw}:00`);
-  if (Number.isNaN(scheduledFor.getTime())) {
+  const scheduledIsoSched = combineAppCalendarDateAndTimeToUtcIso(dateRaw, timeRaw);
+  if (!scheduledIsoSched) {
     return { ok: false, error: "Invalid date or time." };
   }
 
@@ -114,10 +115,9 @@ export async function scheduleWorkspacePatientVisit(formData: FormData): Promise
   const contactEmb = (Array.isArray(cRaw) ? cRaw[0] : cRaw) as ContactSnapshotInput | null;
   const snapshots = buildVisitSnapshotsFromContact(contactEmb);
 
-  const scheduledIso = scheduledFor.toISOString();
   const dupId = await findOpenDuplicatePatientVisitId({
     patientId,
-    scheduledForIso: scheduledIso,
+    scheduledForIso: scheduledIsoSched,
     scheduledEndAtIso: null,
     assignedUserId: staff.user_id,
   });
@@ -131,7 +131,7 @@ export async function scheduleWorkspacePatientVisit(formData: FormData): Promise
   const { error: insErr } = await supabaseAdmin.from("patient_visits").insert({
     patient_id: patientId,
     assigned_user_id: staff.user_id,
-    scheduled_for: scheduledIso,
+    scheduled_for: scheduledIsoSched,
     status: "scheduled",
     visit_note: noteRaw ? noteRaw : null,
     reminder_recipient: reminderRecipient,
@@ -421,8 +421,8 @@ export async function rescheduleWorkspaceVisit(
     return { ok: false, error: "Completed/canceled visits cannot be rescheduled." };
   }
 
-  const scheduledFor = new Date(`${dateRaw}T${timeRaw}:00`);
-  if (Number.isNaN(scheduledFor.getTime())) {
+  const scheduledIsoRS = combineAppCalendarDateAndTimeToUtcIso(dateRaw, timeRaw);
+  if (!scheduledIsoRS) {
     return { ok: false, error: "Invalid date or time." };
   }
 
@@ -430,7 +430,7 @@ export async function rescheduleWorkspaceVisit(
     .from("patient_visits")
     .update({
       status: "scheduled",
-      scheduled_for: scheduledFor.toISOString(),
+      scheduled_for: scheduledIsoRS,
       scheduled_end_at: null,
       time_window_label: null,
       reminder_day_before_sent_at: null,

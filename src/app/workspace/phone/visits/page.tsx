@@ -12,6 +12,8 @@ import {
   visitNeedsNurseAttentionStrict,
 } from "@/lib/crm/nurse-visits-board";
 import { formatDispatchScheduleLine } from "@/lib/crm/dispatch-visit";
+import { addCalendarDaysToIsoDate } from "@/lib/crm/crm-local-date";
+import { appCalendarMidnightUtc, formatAppCalendarYmd } from "@/lib/datetime/app-timezone";
 import { formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
 import { routePerfLog, routePerfStart } from "@/lib/perf/route-perf";
 import { supabaseAdmin } from "@/lib/admin";
@@ -232,8 +234,10 @@ export default async function WorkspaceVisitsPage() {
 
   const now = new Date();
   const nowMs = now.getTime();
-  const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  const dayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime();
+  const todayYmd = formatAppCalendarYmd(now);
+  const tomorrowYmd = addCalendarDaysToIsoDate(todayYmd, 1);
+  const dayStart = appCalendarMidnightUtc(todayYmd)?.getTime() ?? nowMs;
+  const dayEnd = appCalendarMidnightUtc(tomorrowYmd)?.getTime() ?? dayStart;
 
   visits = visits.filter((v) => !isStaleMissedOrRescheduledNurseVisit(v, nowMs));
 

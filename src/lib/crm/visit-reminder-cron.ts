@@ -51,7 +51,7 @@ export async function runVisitReminderCron(opts?: { timeZone?: string }): Promis
   skipped: number;
   errors: string[];
 }> {
-  const tz = (opts?.timeZone ?? process.env.VISIT_REMINDER_TIMEZONE)?.trim() || "America/Los_Angeles";
+  const tz = (opts?.timeZone ?? process.env.VISIT_REMINDER_TIMEZONE)?.trim() || "America/Phoenix";
   const errors: string[] = [];
   let dayBeforeSent = 0;
   let dayOfSent = 0;

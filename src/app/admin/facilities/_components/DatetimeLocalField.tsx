@@ -13,7 +13,7 @@ type DatetimeLocalFieldProps = {
 };
 
 /**
- * Renders `datetime-local` using the browser's local timezone (avoid SSR server-TZ mismatch).
+ * Renders `datetime-local` using America/Phoenix (agency wall time), regardless of device locale.
  */
 export function DatetimeLocalField({
   name,

@@ -25,6 +25,7 @@ import {
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import { supabaseAdmin } from "@/lib/admin";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
+import { formatAppDateTime } from "@/lib/datetime/app-timezone";
 
 import { recruitingInterestPillClass, recruitingStatusPillClass } from "./recruiting-status-styles";
 
@@ -56,10 +57,7 @@ type CandidateRow = {
 
 function formatListDate(iso: string | null | undefined): string {
   if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleString("en-US", {
-    timeZone: "America/Phoenix",
+  return formatAppDateTime(iso, "—", {
     month: "short",
     day: "numeric",
     year: "numeric",

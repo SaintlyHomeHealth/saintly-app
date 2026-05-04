@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { supabaseAdmin } from "@/lib/admin";
 import { getStaffProfile, isAdminOrHigher } from "@/lib/staff-profile";
+import { formatAppDateTime } from "@/lib/datetime/app-timezone";
 import { redirect } from "next/navigation";
 
 import { I9Section2JsonForm } from "./I9Section2JsonForm";
@@ -60,7 +61,7 @@ export default async function AdminI9CasesPage() {
                     Phase: {row.workflow_phase} · Review: {row.review_method || "—"}
                   </div>
                   <div className="text-xs text-slate-500">
-                    Created {row.created_at ? new Date(row.created_at).toLocaleString() : "—"}
+                    Created {row.created_at ? formatAppDateTime(row.created_at) : "—"}
                   </div>
                 </div>
                 {docId ? (
@@ -75,7 +76,7 @@ export default async function AdminI9CasesPage() {
               {row.workflow_phase === "section2" ? <I9Section2JsonForm i9CaseId={row.id} /> : null}
               {row.workflow_phase === "completed" && row.section2_completed_at ? (
                 <p className="mt-2 text-xs text-emerald-700">
-                  Completed {new Date(row.section2_completed_at).toLocaleString()}
+                  Completed {formatAppDateTime(row.section2_completed_at)}
                 </p>
               ) : null}
             </div>

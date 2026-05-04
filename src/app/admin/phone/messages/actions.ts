@@ -27,6 +27,7 @@ import {
 } from "@/lib/twilio/manual-inbox-sms-from";
 import { logSmsDebug } from "@/lib/twilio/sms-debug";
 import { sendSms } from "@/lib/twilio/send-sms";
+import { parseAppDateTimeInputToUtcIso } from "@/lib/datetime/app-timezone";
 import { resolveWorkspaceThreadOutboundSmsIdentity } from "@/lib/twilio/workspace-outbound-sms-identity";
 import {
   isSaintlyBackupSmsE164,
@@ -378,6 +379,8 @@ function datetimeLocalToIso(dueRaw: string | null | undefined): string | null {
   if (!dueRaw) return null;
   const trimmed = String(dueRaw).trim();
   if (!trimmed) return null;
+  const phoenix = parseAppDateTimeInputToUtcIso(trimmed);
+  if (phoenix) return phoenix;
   const d = new Date(trimmed);
   if (Number.isNaN(d.getTime())) return null;
   return d.toISOString();

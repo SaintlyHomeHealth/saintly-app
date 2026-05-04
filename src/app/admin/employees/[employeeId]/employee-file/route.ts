@@ -14,6 +14,11 @@ import { getTaxFormLabel, normalizeTaxFormData } from "@/lib/employee-tax-forms"
 import { insertAuditLog } from "@/lib/audit-log";
 import { calculateTrainingCompletionSummary } from "@/lib/onboarding/training-status";
 import { mergeSurveyPacketAttachmentSection } from "@/lib/survey-packet/attachments";
+import {
+  appCalendarMidnightUtc,
+  formatAppDate,
+  formatAppDateTime,
+} from "@/lib/datetime/app-timezone";
 
 type SupportedDocumentType =
   | "full"
@@ -240,14 +245,18 @@ function formatValue(value: unknown): string {
 function formatDate(value?: string | null) {
   if (!value) return "—";
 
-  const normalized = /^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T00:00:00` : value;
-  const date = new Date(normalized);
-
-  if (Number.isNaN(date.getTime())) {
-    return value;
+  const raw = value.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    const mid = appCalendarMidnightUtc(raw);
+    if (!mid) return value;
+    return formatAppDate(mid, value, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
   }
 
-  return date.toLocaleDateString("en-US", {
+  return formatAppDate(raw, raw, {
     month: "short",
     day: "numeric",
     year: "numeric",
@@ -257,12 +266,7 @@ function formatDate(value?: string | null) {
 function formatDateTime(value?: string | null) {
   if (!value) return "—";
 
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return date.toLocaleString("en-US", {
+  return formatAppDateTime(value, value, {
     month: "short",
     day: "numeric",
     year: "numeric",

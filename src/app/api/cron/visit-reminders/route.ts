@@ -8,7 +8,7 @@ import { runVisitReminderCron } from "@/lib/crm/visit-reminder-cron";
  * Authorization: `Authorization: Bearer <VISIT_REMINDER_CRON_SECRET>`
  * Schedule: e.g. hourly via Vercel cron or external scheduler.
  *
- * Env: `VISIT_REMINDER_CRON_SECRET` (required), optional `VISIT_REMINDER_TIMEZONE` (default America/Los_Angeles).
+ * Env: `VISIT_REMINDER_CRON_SECRET` (required), optional `VISIT_REMINDER_TIMEZONE` (default America/Phoenix).
  */
 export async function POST(req: NextRequest) {
   const secret = process.env.VISIT_REMINDER_CRON_SECRET?.trim();

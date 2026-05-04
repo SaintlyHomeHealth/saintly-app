@@ -1,5 +1,7 @@
+import { APP_TIME_ZONE } from "@/lib/datetime/app-timezone";
+
 /**
- * Shared dispatch visit display + day overlap (local browser/server timezone).
+ * Shared dispatch visit display + day overlap (America/Phoenix agency time).
  */
 
 export function visitOverlapsLocalDay(
@@ -18,18 +20,20 @@ export function visitOverlapsLocalDay(
 }
 
 const US_TIME: Intl.DateTimeFormatOptions = {
+  timeZone: APP_TIME_ZONE,
   hour: "numeric",
   minute: "2-digit",
   hour12: true,
 };
 
 const US_DATE_NO_YEAR: Intl.DateTimeFormatOptions = {
+  timeZone: APP_TIME_ZONE,
   month: "short",
   day: "numeric",
 };
 
 function formatDispatchClock(d: Date): string {
-  return d.toLocaleTimeString("en-US", US_TIME);
+  return new Intl.DateTimeFormat("en-US", US_TIME).format(d);
 }
 
 /** "HH:mm" / "H:mm" → "9:00 AM" (for window labels saved as 24h strings). */
@@ -39,8 +43,10 @@ export function formatHmToAmPm(hm: string): string {
   const h = Number.parseInt(m[1], 10);
   const min = Number.parseInt(m[2], 10);
   if (!Number.isFinite(h) || !Number.isFinite(min)) return hm.trim();
-  const d = new Date(2000, 0, 1, h, min, 0, 0);
-  return formatDispatchClock(d);
+  const pad = (n: number) => (n < 10 ? `0${n}` : String(n));
+  const epoch = Date.parse(`2000-01-01T${pad(h)}:${pad(min)}:00-07:00`);
+  if (!Number.isFinite(epoch)) return hm.trim();
+  return formatDispatchClock(new Date(epoch));
 }
 
 /** Custom window label in 12-hour form, e.g. "9:00 AM–11:45 PM". */
@@ -68,7 +74,7 @@ export function formatDispatchScheduleLine(
   const hasDistinctEnd =
     end != null && !Number.isNaN(end.getTime()) && end.getTime() > s.getTime();
 
-  const datePart = s.toLocaleString("en-US", US_DATE_NO_YEAR);
+  const datePart = new Intl.DateTimeFormat("en-US", US_DATE_NO_YEAR).format(s);
 
   if (hasDistinctEnd && end) {
     return `${datePart}, ${formatDispatchClock(s)}–${formatDispatchClock(end)}`;

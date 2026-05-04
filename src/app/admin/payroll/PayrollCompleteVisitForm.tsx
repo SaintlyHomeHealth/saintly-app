@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 
 import { recordVisitCompletionAction } from "./actions";
+import { parseAppDateTimeInputToUtcIso } from "@/lib/datetime/app-timezone";
 
 export function PayrollCompleteVisitForm({ visitId }: { visitId: string }) {
   const router = useRouter();
@@ -17,10 +18,13 @@ export function PayrollCompleteVisitForm({ visitId }: { visitId: string }) {
     if (!checkIn || !checkOut) return;
     setPending(true);
     try {
+      const ci = parseAppDateTimeInputToUtcIso(checkIn);
+      const co = parseAppDateTimeInputToUtcIso(checkOut);
+      if (!ci || !co) return;
       const fd = new FormData();
       fd.set("visitId", visitId);
-      fd.set("checkIn", new Date(checkIn).toISOString());
-      fd.set("checkOut", new Date(checkOut).toISOString());
+      fd.set("checkIn", ci);
+      fd.set("checkOut", co);
       if (note) fd.set("noteCompleted", "on");
       const r = await recordVisitCompletionAction(fd);
       if (r.ok) {
