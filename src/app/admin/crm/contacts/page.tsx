@@ -91,13 +91,13 @@ export default async function AdminCrmContactsPage({
         .order("created_at", { ascending: false })
         .limit(DIRECTORY_FETCH_LIMIT)
     ),
-    supabase.from("patients").select("id, contact_id, patient_status").limit(5000),
+    supabase.from("patients").select("id, contact_id, patient_status").limit(DIRECTORY_FETCH_LIMIT),
     leadRowsActiveOnly(
       supabase
         .from("leads")
         .select("id, contact_id, source, status, owner_user_id, created_at")
         .order("created_at", { ascending: false })
-        .limit(5000)
+        .limit(DIRECTORY_FETCH_LIMIT)
     ),
   ]);
 
@@ -216,8 +216,10 @@ export default async function AdminCrmContactsPage({
         </form>
         <p className="text-xs text-slate-500">
           Showing {list.length} of {totalMatched} match{totalMatched === 1 ? "" : "es"}
-          {contacts.length >= DIRECTORY_FETCH_LIMIT ? ` (scanning newest ${DIRECTORY_FETCH_LIMIT} contacts)` : ""}. Dup flags
-          compare primary phone digits and email within that same loaded set.
+          {contacts.length >= DIRECTORY_FETCH_LIMIT
+            ? ` (newest ${DIRECTORY_FETCH_LIMIT} contacts; patients & leads use the same recency window for badges)`
+            : ""}
+          . Dup flags compare primary phone digits and email within that same loaded set.
         </p>
       </div>
 
