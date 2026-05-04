@@ -53,10 +53,15 @@ export async function harvestLeadsPayerFilterSuggestions(supabase: SupabaseClien
     out.push(t);
   };
 
-  for (const col of PAYER_HARVEST_COLS) {
-    const { data } = await leadRowsActiveOnly(
-      supabase.from("leads").select(col).not(col, "is", null).neq(col, "").limit(350)
-    );
+  const harvested = await Promise.all(
+    PAYER_HARVEST_COLS.map((col) =>
+      leadRowsActiveOnly(supabase.from("leads").select(col).not(col, "is", null).neq(col, "").limit(350))
+    )
+  );
+
+  for (let i = 0; i < PAYER_HARVEST_COLS.length; i++) {
+    const col = PAYER_HARVEST_COLS[i];
+    const { data } = harvested[i];
     for (const row of data ?? []) push((row as Record<string, unknown>)[col]);
     if (out.length >= 160) break;
   }

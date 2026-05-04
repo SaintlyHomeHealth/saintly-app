@@ -36,8 +36,9 @@ import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+/** Omit `external_source_metadata` — large JSONB; hydrate only employee rows via a narrow follow-up query. */
 const CRM_LEADS_LIST_SELECT_BASE =
-  "id, contact_id, source, status, lead_type, owner_user_id, created_at, intake_status, referral_source, payer_name, payer_type, primary_payer_type, primary_payer_name, secondary_payer_type, secondary_payer_name, referring_provider_name, next_action, follow_up_date, follow_up_at, last_contact_at, last_outcome, service_disciplines, service_type, external_source_metadata, lead_temperature";
+  "id, contact_id, source, status, lead_type, owner_user_id, created_at, intake_status, referral_source, payer_name, payer_type, primary_payer_type, primary_payer_name, secondary_payer_type, secondary_payer_name, referring_provider_name, next_action, follow_up_date, follow_up_at, last_contact_at, last_outcome, service_disciplines, service_type, lead_temperature";
 
 const CRM_LEADS_LIST_CONTACTS_EMBED =
   "contacts ( full_name, first_name, last_name, primary_phone, secondary_phone, email )";
@@ -246,6 +247,43 @@ export default async function AdminCrmLeadsPage({
     }
 
     const list = (rows ?? []) as unknown as CrmLeadRow[];
+
+    const employeeLeadIdsForMeta = [
+      ...new Set(
+        list
+          .filter((r) => (r.lead_type ?? "").trim().toLowerCase() === "employee")
+          .map((r) => String(r.id).trim())
+          .filter((id) => id && UUID_RE.test(id))
+      ),
+    ];
+    if (employeeLeadIdsForMeta.length > 0) {
+      const { data: metaRows, error: metaErr } = routePerfStepsEnabled()
+        ? await routePerfTimed("admin_crm_leads.employee_external_metadata", () =>
+            leadRowsActiveOnly(
+              supabaseAdmin
+                .from("leads")
+                .select("id, external_source_metadata")
+                .in("id", employeeLeadIdsForMeta)
+            )
+          )
+        : await leadRowsActiveOnly(
+            supabaseAdmin.from("leads").select("id, external_source_metadata").in("id", employeeLeadIdsForMeta)
+          );
+      if (metaErr) {
+        console.warn("[crm/leads] employee metadata batch:", metaErr.message);
+      } else {
+        const byId = new Map<string, unknown>();
+        for (const mr of metaRows ?? []) {
+          const id = typeof (mr as { id?: unknown }).id === "string" ? String((mr as { id: string }).id).trim() : "";
+          if (id) byId.set(id, (mr as Record<string, unknown>).external_source_metadata ?? null);
+        }
+        for (const r of list) {
+          const lid = typeof r.id === "string" ? r.id.trim() : "";
+          if (!lid || !byId.has(lid)) continue;
+          (r as { external_source_metadata?: unknown }).external_source_metadata = byId.get(lid) ?? null;
+        }
+      }
+    }
 
     const contactIdsForSms = [
       ...new Set(

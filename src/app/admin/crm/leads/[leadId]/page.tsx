@@ -95,6 +95,9 @@ const LEAD_DETAIL_SELECT_WITH_MEDICARE_PRE_CONV = `${LEAD_DETAIL_CORE_WITH_WAITI
 const LEAD_DETAIL_SELECT_WITH_MEDICARE_NO_WAITING_PRE_CONV = `${LEAD_DETAIL_CORE_LEGACY_BASE}, medicare_number, medicare_effective_date, medicare_notes, ${LEAD_DETAIL_CONTACTS_EMBED}`;
 const LEAD_DETAIL_SELECT_LEGACY_PRE_CONV = `${LEAD_DETAIL_CORE_LEGACY_BASE}, ${LEAD_DETAIL_CONTACTS_EMBED}`;
 
+/** Cap timeline rows merged into lead workspace / communication timeline. */
+const LEAD_DETAIL_ACTIVITIES_CAP = 500;
+
 export default async function LeadIntakePage({
   params,
   searchParams,
@@ -102,7 +105,6 @@ export default async function LeadIntakePage({
   params: Promise<{ leadId: string }>;
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  console.log("SERVER RENDER");
   const perfStart = routePerfStart();
   try {
     const staff = routePerfStepsEnabled()
@@ -361,14 +363,16 @@ export default async function LeadIntakePage({
             .select("id, lead_id, event_type, body, metadata, created_at, created_by_user_id, deleted_at, deletable")
             .eq("lead_id", leadId.trim())
             .is("deleted_at", null)
-            .order("created_at", { ascending: true })
+            .order("created_at", { ascending: false })
+            .limit(LEAD_DETAIL_ACTIVITIES_CAP)
         )
       : await supabaseAdmin
           .from("lead_activities")
           .select("id, lead_id, event_type, body, metadata, created_at, created_by_user_id, deleted_at, deletable")
           .eq("lead_id", leadId.trim())
           .is("deleted_at", null)
-          .order("created_at", { ascending: true });
+          .order("created_at", { ascending: false })
+          .limit(LEAD_DETAIL_ACTIVITIES_CAP);
 
   let initialActivities: LeadActivityRow[] = [];
   if (activityRes.error) {
@@ -378,7 +382,8 @@ export default async function LeadIntakePage({
       console.warn("[crm/lead detail] lead_activities query failed:", activityRes.error.message);
     }
   } else {
-    initialActivities = (activityRes.data ?? []) as LeadActivityRow[];
+    /** Newest-first query → restore chronological order for the workspace + timeline merger. */
+    initialActivities = ([...(activityRes.data ?? [])] as LeadActivityRow[]).reverse();
   }
 
   const medicareNum = typeof L.medicare_number === "string" ? L.medicare_number : "";
