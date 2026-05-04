@@ -1,5 +1,6 @@
 import { supabase } from "@/lib/supabase";
 import { supabaseAdmin } from "@/lib/admin";
+import { fetchEmployeeContractForAdminDetail } from "@/lib/admin/employee-contract-admin-fetch";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getStaffProfile, isAdminOrHigher, isManagerOrHigher } from "@/lib/staff-profile";
@@ -1331,7 +1332,7 @@ export default async function EmployeeDetailPage({
   const supabaseAuthedForBatch = await createServerSupabaseClient();
 
   const [
-    { data: employeeContractRaw },
+    employeeContractFetch,
     { data: onboardingContractStatus },
     { data: employeeTaxFormRaw },
     { data: onboardingStatus },
@@ -1357,14 +1358,7 @@ export default async function EmployeeDetailPage({
     { data: credentialReminderLogRaw },
   ] = await adminPerfTimed("admin_employee_detail.parallel_main_batch", () =>
     Promise.all([
-    supabase
-      .from("employee_contracts")
-      .select(
-        "id, applicant_id, role_key, role_label, employment_classification, employment_type, pay_type, pay_rate, mileage_type, mileage_rate, effective_date, contract_status, contract_text_snapshot, admin_prepared_by, admin_prepared_at, employee_signed_name, employee_signed_at, created_at, updated_at"
-      )
-      .eq("applicant_id", employeeId)
-      .eq("is_current", true)
-      .single<EmployeeContractRow>(),
+    fetchEmployeeContractForAdminDetail(employeeId),
     supabase
       .from("onboarding_contracts")
       .select(`
@@ -1617,7 +1611,15 @@ export default async function EmployeeDetailPage({
     ])
   );
 
-  const employeeContract = employeeContractRaw || null;
+  const employeeContract = employeeContractFetch.data ?? null;
+  const employeeContractLoadError = employeeContractFetch.loadError;
+
+  if (employeeContractLoadError) {
+    console.warn("[admin_employee_detail] employee contract load warning", {
+      employeeId,
+      employeeContractLoadError,
+    });
+  }
   const employeeTaxForm = (employeeTaxFormRaw || null) as EmployeeTaxFormRow | null;
 
   const allApplicantFileRows = (allApplicantFilesRaw || []) as ApplicantFileRecord[];
@@ -3935,6 +3937,7 @@ export default async function EmployeeDetailPage({
           employeePageBase={employeePageBase}
           showWorkflowInitially={showContractsWorkflow}
           initialContract={employeeContract}
+          contractLoadError={employeeContractLoadError}
           suggestedRoleKey={suggestedContractRole}
           initialTaxForm={employeeTaxForm}
           contractPdfHref={contractPdfHref}

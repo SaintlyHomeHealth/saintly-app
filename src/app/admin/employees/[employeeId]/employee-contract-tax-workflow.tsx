@@ -49,6 +49,8 @@ type Props = {
   employeePageBase: string;
   showWorkflowInitially: boolean;
   initialContract: EmployeeContractRow | null;
+  /** Server-side load warning (contract fetch); page still renders. */
+  contractLoadError?: string | null;
   suggestedRoleKey: ContractRoleKey | "";
   initialTaxForm: EmployeeTaxFormRow | null;
   contractPdfHref: string | null;
@@ -62,6 +64,7 @@ export default function EmployeeContractTaxWorkflow({
   employeePageBase,
   showWorkflowInitially,
   initialContract,
+  contractLoadError = null,
   suggestedRoleKey,
   initialTaxForm,
   contractPdfHref,
@@ -106,6 +109,19 @@ export default function EmployeeContractTaxWorkflow({
 
   return (
     <div id="tax-forms-section" className="min-w-0 scroll-mt-24 space-y-3">
+      {contractLoadError ? (
+        <div
+          className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900"
+          role="alert"
+        >
+          <p className="font-semibold">Employment contract data could not be loaded completely</p>
+          <p className="mt-1 text-amber-950/90">{contractLoadError}</p>
+          <p className="mt-2 text-xs text-amber-900/80">
+            Other employee sections should still work. Check Vercel logs for{" "}
+            <code className="rounded bg-amber-100/80 px-1">admin_employee_detail.employee_contracts</code>.
+          </p>
+        </div>
+      ) : null}
       <div className="overflow-x-auto border border-slate-200 bg-white">
         <table className="w-full min-w-[640px] text-left text-sm">
           <thead>
@@ -218,6 +234,7 @@ export default function EmployeeContractTaxWorkflow({
               applicantId={employeeId}
               employeeName={employeeName}
               initialContract={initialContract}
+              contractLoadError={contractLoadError}
               suggestedRoleKey={suggestedRoleKey}
               initialTaxForm={initialTaxForm}
             />

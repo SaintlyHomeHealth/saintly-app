@@ -14,6 +14,7 @@ type Props = {
   applicantId: string;
   employeeName: string;
   initialContract: EmployeeContractRow | null;
+  contractLoadError?: string | null;
   suggestedRoleKey: ContractRoleKey | "";
   initialTaxForm: EmployeeTaxFormRow | null;
 };
@@ -22,6 +23,7 @@ export default function EmployeeContractTaxSection({
   applicantId,
   employeeName,
   initialContract,
+  contractLoadError = null,
   suggestedRoleKey,
   initialTaxForm,
 }: Props) {
@@ -34,6 +36,7 @@ export default function EmployeeContractTaxSection({
         applicantId={applicantId}
         employeeName={employeeName}
         initialContract={initialContract}
+        serverLoadError={contractLoadError}
         suggestedRoleKey={suggestedRoleKey}
         onPreviewEmploymentClassificationChange={setPreviewEmploymentClassification}
       />

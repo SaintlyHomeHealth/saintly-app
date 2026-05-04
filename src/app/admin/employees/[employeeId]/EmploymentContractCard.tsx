@@ -26,6 +26,8 @@ type Props = {
   employeeName: string;
   initialContract: EmployeeContractRow | null;
   suggestedRoleKey: ContractRoleKey | "";
+  /** Non-fatal server/RSC warning from admin detail fetch */
+  serverLoadError?: string | null;
   onPreviewEmploymentClassificationChange?: (value: EmploymentClassification | null) => void;
 };
 
@@ -83,9 +85,40 @@ function nextVersionForAgreement(
           ? contractRow.version_number
           : Number(contractRow.version_number || 0);
 
-      return Number.isFinite(versionNumber) ? Math.max(maxVersion, versionNumber) : maxVersion;
+      return Number.isFinite(versionNumber) && versionNumber > 0
+        ? Math.max(maxVersion, versionNumber)
+        : maxVersion;
     }, 0) + 1
   );
+}
+
+function displayContractVersion(row: ContractHistoryRow, allHistoryDesc: ContractHistoryRow[]) {
+  const vn =
+    typeof row.version_number === "number"
+      ? row.version_number
+      : row.version_number != null && String(row.version_number).trim() !== ""
+        ? Number(row.version_number)
+        : NaN;
+  if (Number.isFinite(vn) && vn > 0) return String(vn);
+  const sortedAsc = [...allHistoryDesc].sort(
+    (a, b) =>
+      new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()
+  );
+  const rank = sortedAsc.findIndex((c) => c.id === row.id);
+  return rank >= 0 ? String(rank + 1) : "—";
+}
+
+function isHistoryRowCurrent(
+  row: ContractHistoryRow,
+  allHistory: ContractHistoryRow[],
+  activeContractId: string | null | undefined
+): boolean {
+  if (row.is_current === true) return true;
+  if (row.is_current === false) return false;
+  const flagged = allHistory.filter((c) => c.is_current === true);
+  if (flagged.length === 1 && flagged[0]?.id === row.id) return true;
+  if (flagged.length === 0 && activeContractId && row.id === activeContractId) return true;
+  return false;
 }
 
 function getInitialFormState(
@@ -115,6 +148,7 @@ export default function EmploymentContractCard({
   applicantId,
   employeeName,
   initialContract,
+  serverLoadError = null,
   suggestedRoleKey,
   onPreviewEmploymentClassificationChange,
 }: Props) {
@@ -426,6 +460,15 @@ export default function EmploymentContractCard({
 
   return (
     <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
+      {serverLoadError ? (
+        <div
+          className="mb-4 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900"
+          role="alert"
+        >
+          <p className="font-semibold">Contract data from server</p>
+          <p className="mt-1">{serverLoadError}</p>
+        </div>
+      ) : null}
       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div>
           <h2 className="text-xl font-semibold text-slate-900">Employment Contract</h2>
@@ -746,7 +789,7 @@ export default function EmploymentContractCard({
           ) : (
             contractHistoryPreview.map((historyContract) => {
               const isExpanded = expandedContractId === historyContract.id;
-              const isCurrent = Boolean(historyContract.is_current);
+              const isCurrent = isHistoryRowCurrent(historyContract, contractHistory, contract?.id);
               const isHistorySigned = historyContract.contract_status === "signed";
 
               return (
@@ -761,7 +804,7 @@ export default function EmploymentContractCard({
                           Version
                         </p>
                         <p className="mt-1 text-sm font-medium text-slate-900">
-                          {historyContract.version_number || "—"}
+                          {displayContractVersion(historyContract, contractHistory)}
                         </p>
                       </div>
                       <div>

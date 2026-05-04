@@ -40,10 +40,11 @@ alter table public.employee_contracts
   alter column is_current set default true;
 
 -- Old rule: one row per (applicant_id, effective_date).
-drop index if exists public.employee_contracts_applicant_effective_unique;
-
+-- Drop table constraint first (when present); then drop freestanding unique index.
 alter table public.employee_contracts
   drop constraint if exists employee_contracts_applicant_effective_unique;
+
+drop index if exists public.employee_contracts_applicant_effective_unique;
 
 create unique index if not exists employee_contracts_applicant_agreement_version_unique
   on public.employee_contracts (applicant_id, employment_classification, version_number);
