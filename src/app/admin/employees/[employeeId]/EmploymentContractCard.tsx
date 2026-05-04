@@ -273,7 +273,7 @@ export default function EmploymentContractCard({
       .from("employee_contracts")
       .insert(insertPayload)
       .select("*")
-      .single<ContractHistoryRow>();
+      .maybeSingle<ContractHistoryRow>();
   };
 
   const handleSave = async (status: "draft" | "sent") => {
@@ -384,14 +384,15 @@ export default function EmploymentContractCard({
         .update(updatePayload)
         .eq("id", contract.id)
         .select("*")
-        .single<ContractHistoryRow>();
+        .maybeSingle<ContractHistoryRow>();
 
       data = res.data;
-      error = res.error;
+      error = res.error ?? (!res.data ? { message: "Update returned no contract row." } : null);
     } else {
       const res = await insertContractVersion(payload);
       data = res.data;
-      error = res.error;
+      error =
+        res.error ?? (!res.data ? { message: "Insert did not return a contract row." } : null);
     }
 
     setIsSaving(false);
@@ -429,7 +430,7 @@ export default function EmploymentContractCard({
 
     await supabase.from("employee_contracts").update({ is_current: false }).eq("applicant_id", applicantId);
 
-    const { data, error } = await supabase
+    const { data, error: rawError } = await supabase
       .from("employee_contracts")
       .update({
         contract_status: "sent",
@@ -439,7 +440,9 @@ export default function EmploymentContractCard({
       })
       .eq("id", historyContract.id)
       .select("*")
-      .single<ContractHistoryRow>();
+      .maybeSingle<ContractHistoryRow>();
+
+    const error = rawError ?? (!data ? { message: "Resend did not return a contract row." } : null);
 
     setIsSaving(false);
 

@@ -1,6 +1,9 @@
 import { supabase } from "@/lib/supabase";
 import { supabaseAdmin } from "@/lib/admin";
-import { fetchEmployeeContractForAdminDetail } from "@/lib/admin/employee-contract-admin-fetch";
+import {
+  fetchEmployeeContractForAdminDetail,
+  serializeEmployeeContractForClient,
+} from "@/lib/admin/employee-contract-admin-fetch";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getStaffProfile, isAdminOrHigher, isManagerOrHigher } from "@/lib/staff-profile";
@@ -48,7 +51,10 @@ import {
   type OnboardingPortalFormsRecord,
 } from "@/lib/onboarding/portal-documents-status";
 import { calculateTrainingCompletionSummary } from "@/lib/onboarding/training-status";
-import { buildUnifiedOnboardingState } from "@/lib/onboarding/unified-onboarding-state";
+import {
+  buildUnifiedOnboardingState,
+  fallbackUnifiedOnboardingSnapshot,
+} from "@/lib/onboarding/unified-onboarding-state";
 import AdminOnboardingCommandCenter from "./admin-onboarding-command-center";
 import EmployeeAdminActionRequiredTable from "./employee-admin-action-required-table";
 import EmployeeAdminSnapshotStrip from "./employee-admin-snapshot-strip";
@@ -925,12 +931,13 @@ export default async function EmployeeDetailPage({
   }>;
 }) {
   const perfStart = routePerfStart();
-  try {
-    const resolvedParams = await params;
+  const resolvedParams = await params;
   const resolvedSearchParams = searchParams ? await searchParams : undefined;
+  const employeeId = resolvedParams.employeeId || resolvedParams.id || "";
+
+  try {
   const detailTab = resolvedSearchParams?.tab?.trim() || null;
   const showContractsWorkflow = resolvedSearchParams?.contractsWorkflow === "1";
-  const employeeId = resolvedParams.employeeId || resolvedParams.id;
 
   if (!employeeId) {
     return <div className="p-6">Invalid employee ID</div>;
@@ -970,7 +977,7 @@ export default async function EmployeeDetailPage({
         redirect(`/admin/employees/${employeeId}`);
       }
 
-      const employeeStatusRecord = employeeForStatus as Record<string, unknown>;
+      const employeeStatusRecord = employeeForStatus as unknown as Record<string, unknown>;
 
       const { data: currentContract } = await supabase
         .from("employee_contracts")
@@ -1257,20 +1264,27 @@ export default async function EmployeeDetailPage({
   }
 
   const applicantRowResult = await adminPerfTimed("admin_employee_detail.applicant_row", () =>
-    devTimedSupabaseQuery("admin_employee_detail.applicant_row", () =>
-      supabase.from("applicants").select("*").eq("id", employeeId).single()
+      devTimedSupabaseQuery("admin_employee_detail.applicant_row", () =>
+      supabase.from("applicants").select("*").eq("id", employeeId).maybeSingle()
     )
   );
 
-  const employee = applicantRowResult.data;
+  const employee = applicantRowResult.data as (Record<string, unknown> & {
+    id?: string;
+    status?: string | null;
+    first_name?: string | null;
+    last_name?: string | null;
+    email?: string | null;
+    phone?: string | null;
+    position?: string | null;
+    primary_discipline?: string | null;
+  }) | null;
   const applicantLookupError = applicantRowResult.error;
 
   if (applicantLookupError) {
     console.error("[admin_employee_detail] applicant lookup failed", {
       employeeId,
-      code: applicantLookupError.code,
-      message: applicantLookupError.message,
-      details: applicantLookupError.details,
+      error: applicantLookupError,
     });
   }
 
@@ -1331,34 +1345,16 @@ export default async function EmployeeDetailPage({
 
   const supabaseAuthedForBatch = await createServerSupabaseClient();
 
-  const [
-    employeeContractFetch,
-    { data: onboardingContractStatus },
-    { data: employeeTaxFormRaw },
-    { data: onboardingStatus },
-    { data: allApplicantFilesRaw },
-    { data: documentsRowsRaw },
-    { data: trainingModulesData },
-    { data: employeeTrainingAttemptsData },
-    { data: employeeTrainingCompletionsData },
-    { data: exitInterviewRaw },
-    { data: skillsEventsRaw },
-    { data: skillsFinalizedFormsRows },
-    { data: performanceEventsRaw },
-    { data: performanceFinalizedFormsRows },
-    { data: oigEvent },
-    { data: contractReviewEventsRaw },
-    { data: contractReviewFinalizedFormsRows },
-    { data: trainingChecklistEventsRaw },
-    { data: trainingChecklistFinalizedFormsRows },
-    { data: tbStatementEventsRaw },
-    { data: tbStatementFinalizedFormsRows },
-    { data: historyEventsRaw },
-    { data: credentials },
-    { data: credentialReminderLogRaw },
-  ] = await adminPerfTimed("admin_employee_detail.parallel_main_batch", () =>
-    Promise.all([
-    fetchEmployeeContractForAdminDetail(employeeId),
+  const employeeContractFetchRaw = await adminPerfTimed(
+    "admin_employee_detail.employee_contract_isolated",
+    () => fetchEmployeeContractForAdminDetail(employeeId)
+  );
+
+  const ADMIN_EMPLOYEE_MAIN_BATCH_LEN = 23;
+  let mainBatchResults: any;
+  try {
+    mainBatchResults = await adminPerfTimed("admin_employee_detail.parallel_main_batch", () =>
+      Promise.all([
     supabase
       .from("onboarding_contracts")
       .select(`
@@ -1609,10 +1605,49 @@ export default async function EmployeeDetailPage({
       .order("created_at", { ascending: false })
       .limit(500),
     ])
-  );
+    );
+  } catch (fatal) {
+    console.error("[admin_employee_detail] parallel_main_batch fatal — correlate with error digest in Vercel logs", {
+      employeeId,
+      digestExamples: ["3753892406"],
+      message: fatal instanceof Error ? fatal.message : String(fatal),
+      stack: fatal instanceof Error ? fatal.stack : undefined,
+    });
+    mainBatchResults = Array.from({ length: ADMIN_EMPLOYEE_MAIN_BATCH_LEN }, () => ({ data: null }));
+  }
 
-  const employeeContract = employeeContractFetch.data ?? null;
-  const employeeContractLoadError = employeeContractFetch.loadError;
+  const [
+    { data: onboardingContractStatus },
+    { data: employeeTaxFormRaw },
+    { data: onboardingStatus },
+    { data: allApplicantFilesRaw },
+    { data: documentsRowsRaw },
+    { data: trainingModulesData },
+    { data: employeeTrainingAttemptsData },
+    { data: employeeTrainingCompletionsData },
+    { data: exitInterviewRaw },
+    { data: skillsEventsRaw },
+    { data: skillsFinalizedFormsRows },
+    { data: performanceEventsRaw },
+    { data: performanceFinalizedFormsRows },
+    { data: oigEvent },
+    { data: contractReviewEventsRaw },
+    { data: contractReviewFinalizedFormsRows },
+    { data: trainingChecklistEventsRaw },
+    { data: trainingChecklistFinalizedFormsRows },
+    { data: tbStatementEventsRaw },
+    { data: tbStatementFinalizedFormsRows },
+    { data: historyEventsRaw },
+    { data: credentials },
+    { data: credentialReminderLogRaw },
+  ] = mainBatchResults;
+
+  const employeeContract = serializeEmployeeContractForClient(employeeContractFetchRaw.data);
+  const employeeContractLoadError =
+    employeeContractFetchRaw.loadError ||
+    (employeeContractFetchRaw.data && !employeeContract
+      ? "Contract row could not be serialized for the admin UI."
+      : null);
 
   if (employeeContractLoadError) {
     console.warn("[admin_employee_detail] employee contract load warning", {
@@ -2396,7 +2431,9 @@ export default async function EmployeeDetailPage({
   const missingCredentialDisplayNames = missingCredentialTypes.map((t) => formatCredentialType(t));
 
   /* Pure sync derive from loaded rows — runs once per request (server), not per React render. */
-  const onboardingCommandSnapshot = buildUnifiedOnboardingState({
+  const onboardingCommandSnapshot = (() => {
+    try {
+      return buildUnifiedOnboardingState({
     applicantId: employeeId,
     onboardingStatus: onboardingStatus ?? null,
     isApplicationComplete,
@@ -2428,7 +2465,16 @@ export default async function EmployeeDetailPage({
     skillsCompetencyAdminHref: skillsHref,
     performanceEvaluationAdminHref: performanceHref,
     getAdminWorkAreaUrl,
-  });
+      });
+    } catch (e) {
+      console.error("[admin_employee_detail] buildUnifiedOnboardingState failed", {
+        employeeId,
+        message: e instanceof Error ? e.message : String(e),
+        stack: e instanceof Error ? e.stack : undefined,
+      });
+      return fallbackUnifiedOnboardingSnapshot();
+    }
+  })();
 
   const surveyMissingSummary =
     missingSurveyItems.length > 4
@@ -4111,6 +4157,26 @@ export default async function EmployeeDetailPage({
       </div>
     </div>
   );
+  } catch (fatal) {
+    console.error("[admin_employee_detail] uncaught page error — Next digest may reference this log", {
+      employeeId: employeeId || null,
+      digestExamples: ["3753892406"],
+      message: fatal instanceof Error ? fatal.message : String(fatal),
+      stack: fatal instanceof Error ? fatal.stack : undefined,
+    });
+    return (
+      <div className="mx-auto max-w-xl p-8">
+        <h1 className="text-lg font-semibold text-slate-900">Employee detail could not be loaded</h1>
+        <p className="mt-3 text-sm leading-relaxed text-slate-600">
+          An unexpected error occurred while rendering this page. Please reload or navigate back to the{" "}
+          <a className="font-semibold text-sky-700 underline" href="/admin/employees">
+            employee list
+          </a>
+          . Staff can check Vercel function logs for{" "}
+          <code className="rounded bg-slate-100 px-1 text-xs">admin_employee_detail</code>.
+        </p>
+      </div>
+    );
   } finally {
     routePerfLog("admin/employees/[employeeId]", perfStart);
   }

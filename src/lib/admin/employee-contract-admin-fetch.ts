@@ -23,6 +23,23 @@ function logSupabaseError(scope: string, employeeId: string, error: { code?: str
 }
 
 /**
+ * Strip non-JSON-safe values before RSC passes contract props to client components.
+ */
+export function serializeEmployeeContractForClient(
+  row: EmployeeContractRow | null
+): EmployeeContractRow | null {
+  if (!row) return null;
+  try {
+    return JSON.parse(JSON.stringify(row)) as EmployeeContractRow;
+  } catch (e) {
+    console.error(`${LOG_PREFIX} serializeEmployeeContractForClient failed`, {
+      error: e instanceof Error ? e.message : String(e),
+    });
+    return null;
+  }
+}
+
+/**
  * Loads the current employee contract for admin detail (service role; resilient to
  * is_current / version_number issues). Never throws — callers keep rendering the page.
  */

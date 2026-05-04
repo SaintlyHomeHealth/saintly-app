@@ -78,6 +78,23 @@ export type UnifiedOnboardingSnapshot = {
   blockingSteps: OnboardingStepRecord[];
 };
 
+/** Safe default when derive throws (avoid white-screening admin employee detail). */
+export function fallbackUnifiedOnboardingSnapshot(): UnifiedOnboardingSnapshot {
+  return {
+    overallStatus: "not_started",
+    percentComplete: 0,
+    lastActivityAt: null,
+    lastEmployeeActionLabel: "Unavailable",
+    adminActionRequired: true,
+    corePipelineComplete: false,
+    surveyPacketComplete: false,
+    serverReportsComplete: false,
+    hasSyncMismatch: false,
+    steps: [],
+    blockingSteps: [],
+  };
+}
+
 const EMPLOYEE_BASE = (applicantId: string, path: string) =>
   `${path}?applicant=${encodeURIComponent(applicantId)}`;
 
