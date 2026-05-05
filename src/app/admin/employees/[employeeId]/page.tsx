@@ -9,7 +9,7 @@ import { redirect, unstable_rethrow } from "next/navigation";
 import { getStaffProfile, isAdminOrHigher, isManagerOrHigher } from "@/lib/staff-profile";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { insertAuditLog } from "@/lib/audit-log";
-import { APPLICANTS_ADMIN_DETAIL_COLUMNS } from "@/lib/admin/applicant-admin-detail-select";
+import { APPLICANTS_ADMIN_PRIMARY_COLUMNS } from "@/lib/admin/applicant-admin-detail-select";
 import { skillsCompetencyDisciplines } from "@/lib/skills-competency";
 import { performanceEvaluationDisciplines } from "@/lib/performance-evaluation";
 import {
@@ -943,8 +943,6 @@ export default async function EmployeeDetailPage({
     return <div className="p-6">Invalid employee ID</div>;
   }
 
-  console.info("[admin_employee_detail] request", { employeeId });
-
   const staffProfileForActions = await adminPerfTimed(
     "admin_employee_detail.staff_profile",
     getStaffProfile
@@ -969,9 +967,9 @@ export default async function EmployeeDetailPage({
     }
 
     if (nextStatus === "active") {
-      const { data: employeeForStatus } = await supabase
+      const { data: employeeForStatus } = await supabaseAdmin
         .from("applicants")
-        .select(APPLICANTS_ADMIN_DETAIL_COLUMNS)
+        .select("*")
         .eq("id", employeeId)
         .maybeSingle();
 
@@ -1265,18 +1263,19 @@ export default async function EmployeeDetailPage({
     redirect(`/admin/employees/${employeeId}`);
   }
 
+  console.info("[admin_employee_detail] applicant_row select", { employeeId });
+
   const applicantRowResult = await adminPerfTimed("admin_employee_detail.applicant_row", () =>
-      devTimedSupabaseQuery("admin_employee_detail.applicant_row", () =>
-      /** Same admin client as `/admin/employees` directory; unauthenticated `supabase` (anon) hits RLS and yields no row. */
+    devTimedSupabaseQuery("admin_employee_detail.applicant_row", () =>
       supabaseAdmin
         .from("applicants")
-        .select(APPLICANTS_ADMIN_DETAIL_COLUMNS)
+        .select(APPLICANTS_ADMIN_PRIMARY_COLUMNS)
         .eq("id", employeeId)
         .maybeSingle()
     )
   );
 
-  const employee = applicantRowResult.data as (Record<string, unknown> & {
+  const primaryApplicant = applicantRowResult.data as (Record<string, unknown> & {
     id?: string;
     status?: string | null;
     first_name?: string | null;
@@ -1286,16 +1285,21 @@ export default async function EmployeeDetailPage({
     position?: string | null;
     primary_discipline?: string | null;
   }) | null;
-  const applicantLookupError = applicantRowResult.error;
+  const applicantRowError = applicantRowResult.error;
 
-  if (applicantLookupError) {
-    console.error("[admin_employee_detail] applicant lookup failed (Supabase error — not treated as missing row)", {
+  if (applicantRowError) {
+    const err = applicantRowError as {
+      message: string;
+      code?: string;
+      details?: string;
+      hint?: string;
+    };
+    console.error("[admin_employee_detail] applicant_row failed", {
       employeeId,
-      message: applicantLookupError.message,
-      code: applicantLookupError.code,
-      details: applicantLookupError.details,
-      hint: applicantLookupError.hint,
-      error: applicantLookupError,
+      message: err.message,
+      code: err.code,
+      details: err.details,
+      hint: err.hint,
     });
     return (
       <div className="p-6 text-sm text-red-800">
@@ -1307,16 +1311,51 @@ export default async function EmployeeDetailPage({
   }
 
   if (
-    employee &&
-    (typeof (employee as { id?: unknown }).id !== "string" ||
-      !(employee as { id: string }).id.trim())
+    primaryApplicant &&
+    (typeof (primaryApplicant as { id?: unknown }).id !== "string" ||
+      !(primaryApplicant as { id: string }).id.trim())
   ) {
     console.error("[admin_employee_detail] applicant row missing id", { employeeId });
   }
 
-  if (!employee) {
+  if (!primaryApplicant) {
     console.warn("[admin_employee_detail] no applicant row for id (query succeeded, zero rows)", { employeeId });
     return <div className="p-6">Employee not found</div>;
+  }
+
+  let employee: Record<string, unknown> & {
+    id?: string;
+    status?: string | null;
+    first_name?: string | null;
+    last_name?: string | null;
+    email?: string | null;
+    phone?: string | null;
+    position?: string | null;
+    primary_discipline?: string | null;
+  } = { ...primaryApplicant };
+
+  /**
+   * Full row for snapshot / role inference. `*` avoids a stale explicit column list breaking PostgREST.
+   */
+  const { data: applicantExtended, error: applicantExtendedError } = await supabaseAdmin
+    .from("applicants")
+    .select("*")
+    .eq("id", employeeId)
+    .maybeSingle();
+
+  if (applicantExtendedError) {
+    console.warn("[admin_employee_detail] applicant_row extended select failed", {
+      employeeId,
+      message: applicantExtendedError.message,
+      code: applicantExtendedError.code,
+      details: applicantExtendedError.details,
+      hint: applicantExtendedError.hint,
+    });
+  } else if (applicantExtended && typeof applicantExtended === "object") {
+    employee = {
+      ...employee,
+      ...(applicantExtended as Record<string, unknown>),
+    };
   }
 
   const supabaseAuthedForBatch = await createServerSupabaseClient();

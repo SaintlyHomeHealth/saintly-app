@@ -1,8 +1,27 @@
 import "server-only";
 
 /**
- * Columns needed by `/admin/employees/[id]` (snapshot UI, role inference, activation gates).
- * Keeps payloads smaller than `select("*")` while matching prior behavior for displayed fields.
+ * Minimal applicant columns for the **first** detail-page fetch.
+ * Must stay in sync with `EMPLOYEE_DIRECTORY_APPLICANT_SELECT` in `employee-directory-data.ts`
+ * (anything the directory can load, PostgREST accepts here).
+ */
+export const APPLICANTS_ADMIN_PRIMARY_COLUMNS = [
+  "id",
+  "first_name",
+  "last_name",
+  "email",
+  "phone",
+  "position",
+  "primary_discipline",
+  "type_of_position",
+  "status",
+  "created_at",
+  "updated_at",
+].join(", ");
+
+/**
+ * Narrow column list for secondary fetches / tooling. Prefer `select("*")` on the detail page
+ * after the primary row succeeds so a single renamed/dropped column cannot break the whole page.
  */
 export const APPLICANTS_ADMIN_DETAIL_COLUMNS = [
   "id",
