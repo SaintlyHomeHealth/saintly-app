@@ -196,7 +196,7 @@ export async function listCrmTasks(
 }
 
 /** Browser/server action payload — `source`, `completed_at`, and `created_by` are never accepted from callers. */
-export type CreateCrmTaskInput = {
+export type CrmTaskCreateInput = {
   title: string;
   description?: string | null;
   priority?: CrmTaskPriority;
@@ -210,7 +210,7 @@ export type CrmTaskCreateIntent = "manual" | "voice_review" | "realtime_bridge";
 
 /** Internal inserts only — maps to `manual`, `ai_voice_transcription`, or `ai_realtime`. */
 export async function createCrmTask(
-  input: CreateCrmTaskInput,
+  input: CrmTaskCreateInput,
   intent: CrmTaskCreateIntent,
   extras?: { voice_transcript?: string | null }
 ): Promise<{ ok: true; task: CrmTaskRow } | { ok: false; error: string }> {

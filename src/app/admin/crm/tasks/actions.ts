@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
-import type { CreateCrmTaskInput, StaffCrmTaskPatch } from "@/lib/crm/crm-tasks-operations";
+import type { StaffCrmTaskPatch } from "@/lib/crm/crm-tasks-operations";
 import { requireCrmTasksStaff } from "@/lib/crm/require-crm-tasks-staff";
 import { crmVoiceSaveUserFacingMessage } from "@/lib/crm/crm-voice-save-client-message.server";
 import { crmLogUserSuffix, logCrmVoiceSaveSafe } from "@/lib/crm/crm-voice-save-log.server";
@@ -16,6 +16,9 @@ import {
 } from "@/lib/crm/crm-tasks-operations";
 import type { CrmTaskListFilters } from "@/lib/crm/crm-task-types";
 import type { CrmTaskPriority, CrmTaskRelatedType } from "@/lib/crm/crm-task-types";
+
+/** First argument to {@link createCrmTask} — avoids importing a type alias into this server-actions module. */
+type ManualCreateCrmTaskPayload = Parameters<typeof createCrmTask>[0];
 
 async function gate() {
   const g = await requireCrmTasksStaff();
@@ -31,7 +34,7 @@ export async function listCrmTasksAction(filters: CrmTaskListFilters) {
   return listCrmTasks(filters);
 }
 
-export async function createCrmTaskAction(input: CreateCrmTaskInput) {
+export async function createCrmTaskAction(input: ManualCreateCrmTaskPayload) {
   const g = await gate();
   if (!g.ok) return { ok: false as const, error: g.error };
   const r = await createCrmTask(input, "manual");
