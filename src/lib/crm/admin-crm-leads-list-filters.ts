@@ -12,13 +12,15 @@ export const EMPTY_CONTACT_SENTINEL = "00000000-0000-0000-0000-000000000000";
 
 export const ADMIN_CRM_LEADS_PAGE_SIZE = 50;
 
-/** URL `contactStatus` — latest contact attempt outcome (`leads.last_outcome` / `last_contact_type` / pipeline infer). */
+/** URL `contactStatus` — latest contact outcome / call type, plus `waiting_on_doctors_orders` (boolean column, patient leads only). */
 export const ADMIN_CRM_LEADS_CONTACT_STATUS_URL_VALUES = [
   "spoke",
   "left_vm",
   "called",
   "no_answer",
   "no_response",
+  /** Same key as `leads.waiting_on_doctors_orders` (non-employee rows that show the red badge). */
+  "waiting_on_doctors_orders",
 ] as const;
 
 export type AdminCrmLeadsContactStatusFilter = (typeof ADMIN_CRM_LEADS_CONTACT_STATUS_URL_VALUES)[number];
@@ -39,6 +41,8 @@ export function formatAdminCrmLeadsContactStatusLabel(v: AdminCrmLeadsContactSta
       return "No answer";
     case "no_response":
       return "No response";
+    case "waiting_on_doctors_orders":
+      return "Waiting on doctor's orders";
   }
 }
 
@@ -106,6 +110,10 @@ export function attachAdminCrmLeadListPredicates(
       case "called":
         q = q.eq("last_contact_type", "call");
         q = q.or("last_outcome.is.null,last_outcome.eq.wrong_number,last_outcome.eq.not_interested");
+        break;
+      case "waiting_on_doctors_orders":
+        q = q.eq("waiting_on_doctors_orders", true);
+        q = q.or("lead_type.is.null,lead_type.neq.employee");
         break;
       default:
         break;
