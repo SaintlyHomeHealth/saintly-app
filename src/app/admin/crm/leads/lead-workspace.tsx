@@ -44,6 +44,7 @@ import {
 } from "@/lib/workspace-phone/launch-urls";
 import { routePerfRenderCount } from "@/lib/perf/route-perf";
 import { ADMIN_CRM_LEADS_LIST_PATH_PREFIX } from "@/lib/crm/admin-crm-leads-list-url";
+import type { InsurancePayerListItem } from "@/lib/crm/insurance-payers";
 import { getAppNowForDateTimeInput } from "@/lib/datetime/app-timezone";
 
 const CrmCommunicationTimeline = dynamic(
@@ -150,6 +151,8 @@ export type LeadWorkspaceIntakeDefaults = {
 
 export type LeadWorkspaceExistingProps = {
   mode: "existing";
+  /** Canonical payer names + quick-add; fetched once per lead page load. */
+  insurancePayersCatalog: InsurancePayerListItem[];
   /** From list `returnTo` query — safe path prefix enforced on the server. */
   leadsListBackHref?: string;
   leadId: string;
@@ -215,6 +218,7 @@ export type LeadWorkspaceExistingProps = {
 
 export type LeadWorkspaceNewProps = {
   mode: "new";
+  insurancePayersCatalog: InsurancePayerListItem[];
   createErrorCode: string;
   staffOptions: LeadWorkspaceStaffOption[];
   /** `fbclid` from landing URL (e.g. `?fbclid=…`) — stored on the new lead. */
@@ -228,7 +232,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
   const inp = leadWorkspaceInputCls;
 
   if (props.mode === "new") {
-    const { createErrorCode, staffOptions, initialFbclid = "" } = props;
+    const { createErrorCode, staffOptions, initialFbclid = "", insurancePayersCatalog } = props;
     const errMsg = createErrorCode ? createLeadErrorMessage(createErrorCode) : null;
 
     return (
@@ -365,6 +369,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
                 secondaryPayerType=""
                 secondaryPayerName=""
                 idPrefix="lead-workspace-new"
+                insurancePayersCatalog={insurancePayersCatalog}
               />
               <div className="grid max-w-2xl gap-3 sm:grid-cols-2">
               <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
@@ -489,6 +494,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
     communicationTimelineRows = [],
     crmStage,
     leadsListBackHref = ADMIN_CRM_LEADS_LIST_PATH_PREFIX,
+    insurancePayersCatalog,
   } = props;
 
   const tomorrowIso = getCrmCalendarTomorrowIso();
@@ -1087,6 +1093,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
                   secondaryPayerType={intakeDefaults.secondary_payer_type}
                   secondaryPayerName={intakeDefaults.secondary_payer_name}
                   idPrefix={`lead-${leadId}`}
+                  insurancePayersCatalog={insurancePayersCatalog}
                 />
               </div>
               <div className="mt-8 border-t border-slate-200/80 pt-8">

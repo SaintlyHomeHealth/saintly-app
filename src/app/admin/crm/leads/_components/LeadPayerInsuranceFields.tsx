@@ -2,7 +2,8 @@
 
 import { useMemo, useState } from "react";
 
-import { SearchablePayerSelect } from "@/components/crm/SearchablePayerSelect";
+import { LeadInsurancePayerCombobox } from "@/components/crm/LeadInsurancePayerCombobox";
+import type { InsurancePayerListItem } from "@/lib/crm/insurance-payers";
 import {
   LEAD_STRUCTURED_PAYER_TYPES,
   isValidLeadStructuredPayerType,
@@ -20,10 +21,22 @@ type Props = {
   secondaryPayerType: string;
   secondaryPayerName: string;
   idPrefix: string;
+  /** Loaded once on the server for this workspace; updated locally after quick-add. */
+  insurancePayersCatalog: InsurancePayerListItem[];
 };
 
 export function LeadPayerInsuranceFields(props: Props) {
-  const { inp, primaryPayerType, primaryPayerName, secondaryPayerType, secondaryPayerName, idPrefix } = props;
+  const {
+    inp,
+    primaryPayerType,
+    primaryPayerName,
+    secondaryPayerType,
+    secondaryPayerName,
+    idPrefix,
+    insurancePayersCatalog,
+  } = props;
+
+  const [catalog, setCatalog] = useState<InsurancePayerListItem[]>(() => insurancePayersCatalog);
 
   const [primaryType, setPrimaryType] = useState(() => primaryPayerType.trim());
   const [secondaryType, setSecondaryType] = useState(() => secondaryPayerType.trim());
@@ -84,14 +97,17 @@ export function LeadPayerInsuranceFields(props: Props) {
       </label>
       <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
         Primary payer name
-        <SearchablePayerSelect
+        <LeadInsurancePayerCombobox
           name="primary_payer_name"
+          id={`${idPrefix}-primary-name`}
+          className={inp}
+          placeholder={primaryNamePlaceholder}
           value={primaryName}
           onValueChange={setPrimaryName}
-          options={primaryOptions}
-          className={inp}
-          id={`${idPrefix}-primary-name`}
-          placeholder={primaryNamePlaceholder}
+          catalog={catalog}
+          onCatalogChange={setCatalog}
+          typeOptions={primaryOptions}
+          structuredPayerType={primaryType}
         />
       </label>
       {primaryType.trim() === "original_medicare" ? (
@@ -125,14 +141,17 @@ export function LeadPayerInsuranceFields(props: Props) {
       </label>
       <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
         Secondary payer name <span className="font-normal text-slate-400">(optional)</span>
-        <SearchablePayerSelect
+        <LeadInsurancePayerCombobox
           name="secondary_payer_name"
+          id={`${idPrefix}-secondary-name`}
+          className={inp}
+          placeholder="e.g. UnitedHealthcare"
           value={secondaryName}
           onValueChange={setSecondaryName}
-          options={secondaryOptions}
-          className={inp}
-          id={`${idPrefix}-secondary-name`}
-          placeholder="e.g. UnitedHealthcare"
+          catalog={catalog}
+          onCatalogChange={setCatalog}
+          typeOptions={secondaryOptions}
+          structuredPayerType={secondaryType}
         />
       </label>
     </div>

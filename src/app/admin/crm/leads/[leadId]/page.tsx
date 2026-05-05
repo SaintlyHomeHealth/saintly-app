@@ -25,6 +25,7 @@ import { pickOutboundE164ForDial } from "@/lib/workspace-phone/launch-urls";
 import { buildCrmCommunicationTimelineModel } from "@/lib/crm/build-crm-communication-timeline-model";
 import { resolveLeadCrmStage } from "@/lib/crm/crm-stage";
 import { loadAssignableLeadOwners } from "@/lib/crm/assignable-lead-owners";
+import { listInsurancePayers } from "@/lib/crm/insurance-payers";
 import { safeAdminCrmLeadsListReturnUrl } from "@/lib/crm/admin-crm-leads-list-url";
 
 function isNextControlFlowError(error: unknown): boolean {
@@ -249,11 +250,16 @@ export default async function LeadIntakePage({
   const ownerUid =
     typeof L.owner_user_id === "string" && L.owner_user_id.trim() ? L.owner_user_id.trim() : "";
 
-  const staffOptions = routePerfStepsEnabled()
-    ? await routePerfTimed("admin_crm_lead_detail.staff_options", () =>
-        loadAssignableLeadOwners({ preserveUserIds: ownerUid ? [ownerUid] : [] })
-      )
-    : await loadAssignableLeadOwners({ preserveUserIds: ownerUid ? [ownerUid] : [] });
+  const [staffOptions, insurancePayersCatalog] = await Promise.all([
+    routePerfStepsEnabled()
+      ? routePerfTimed("admin_crm_lead_detail.staff_options", () =>
+          loadAssignableLeadOwners({ preserveUserIds: ownerUid ? [ownerUid] : [] })
+        )
+      : loadAssignableLeadOwners({ preserveUserIds: ownerUid ? [ownerUid] : [] }),
+    routePerfStepsEnabled()
+      ? routePerfTimed("admin_crm_lead_detail.insurance_payers", () => listInsurancePayers())
+      : listInsurancePayers(),
+  ]);
 
   const nextActionVal = typeof L.next_action === "string" && L.next_action.trim() ? L.next_action.trim() : "";
   const followUpRaw = L.follow_up_date;
@@ -495,6 +501,7 @@ export default async function LeadIntakePage({
       initialLeadQuality={initialLeadQuality}
       communicationTimelineRows={communicationTimelineRows}
       crmStage={crmStageResolved}
+      insurancePayersCatalog={insurancePayersCatalog}
     />
     );
   } catch (e) {

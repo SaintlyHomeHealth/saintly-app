@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 
 import { LeadWorkspace } from "../lead-workspace";
 import { loadAssignableLeadOwners } from "@/lib/crm/assignable-lead-owners";
+import { listInsurancePayers } from "@/lib/crm/insurance-payers";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 
 export default async function AdminCrmLeadNewPage({
@@ -18,9 +19,18 @@ export default async function AdminCrmLeadNewPage({
   const manualErr = typeof params.manualError === "string" ? params.manualError.trim() : "";
   const fbclid = typeof params.fbclid === "string" ? params.fbclid.trim() : "";
 
-  const staffOptions = await loadAssignableLeadOwners();
+  const [staffOptions, insurancePayersCatalog] = await Promise.all([
+    loadAssignableLeadOwners(),
+    listInsurancePayers(),
+  ]);
 
   return (
-    <LeadWorkspace mode="new" createErrorCode={manualErr} staffOptions={staffOptions} initialFbclid={fbclid} />
+    <LeadWorkspace
+      mode="new"
+      createErrorCode={manualErr}
+      staffOptions={staffOptions}
+      initialFbclid={fbclid}
+      insurancePayersCatalog={insurancePayersCatalog}
+    />
   );
 }
