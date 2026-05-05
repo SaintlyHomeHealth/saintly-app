@@ -10,6 +10,7 @@
     "perf:routes": "tsx scripts/route-perf-capture.mts",
     "start": "next start",
     "lint": "eslint",
+    "typecheck": "tsc --noEmit",
     "icons:generate": "node scripts/generate-saintly-icons.mjs",
     "icons:generate-icons": "node scripts/generate-icons.mjs",
     "realtime-bridge": "tsx scripts/twilio-openai-realtime-bridge.ts",

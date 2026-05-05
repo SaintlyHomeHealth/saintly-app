@@ -170,6 +170,8 @@ export type LeadWorkspaceExistingProps = {
   primaryPhone: string;
   patientId: string | null;
   convertErr: string;
+  /** Lead hold toggle (server action) surfaced via `?holdError=` */
+  holdErr?: string;
   ownerUid: string;
   nextActionVal: string;
   followUpIso: string;
@@ -471,6 +473,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
     primaryPhone,
     patientId,
     convertErr,
+    holdErr = "",
     ownerUid,
     nextActionVal,
     followUpIso,
@@ -735,6 +738,12 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
       {convertErr ? (
         <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
           {convertErrorMessage(convertErr)}
+        </div>
+      ) : null}
+
+      {holdErr ? (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+          {holdErr}
         </div>
       ) : null}
 

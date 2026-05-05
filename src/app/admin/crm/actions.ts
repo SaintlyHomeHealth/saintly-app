@@ -2672,74 +2672,125 @@ function readTrimmedField(formData: FormData, key: string): string {
   return typeof v === "string" ? v.trim() : "";
 }
 
-export async function setLeadWaitingOnDoctorsOrders(formData: FormData) {
+/**
+ * Toggle doctor’s-orders hold. Bound from a `<form>` as
+ * `setLeadWaitingOnDoctorsOrders.bind(null, leadId, waiting)` — Next.js always
+ * passes `FormData` after bound args (unused here).
+ */
+export async function setLeadWaitingOnDoctorsOrders(
+  leadId: string,
+  waiting: boolean,
+  _formData: FormData
+): Promise<void> {
+  const id = (leadId ?? "").trim();
+  if (!id) {
+    redirect(`/admin/crm/leads?holdError=${encodeURIComponent("Missing lead id.")}`);
+  }
+
   const staff = await getStaffProfile();
   if (!staff || !isManagerOrHigher(staff)) {
-    return;
+    redirect(
+      `/admin/crm/leads/${encodeURIComponent(id)}?holdError=${encodeURIComponent("You do not have permission to update this hold.")}`
+    );
   }
-  const leadId = readTrimmedField(formData, "leadId");
-  if (!leadId) {
-    return;
-  }
-  const raw = formData.get("value");
-  const enabled = raw === "1" || raw === "true";
 
   const { error } = await supabaseAdmin
     .from("leads")
-    .update({ waiting_on_doctors_orders: enabled })
-    .eq("id", leadId)
+    .update({ waiting_on_doctors_orders: waiting })
+    .eq("id", id)
     .is("deleted_at", null);
 
   if (error) {
     if (isMissingSchemaObjectError(error)) {
-      console.warn(
-        "[admin/crm] setLeadWaitingOnDoctorsOrders: DB migration not applied (waiting_on_doctors_orders); toggle skipped."
+      console.error("Lead hold toggle failed", {
+        action: "setLeadWaitingOnDoctorsOrders",
+        leadId: id,
+        waiting,
+        error,
+      });
+      redirect(
+        `/admin/crm/leads/${encodeURIComponent(id)}?holdError=${encodeURIComponent(
+          "Database is missing the doctor's orders hold column. Apply migrations, then try again."
+        )}`
       );
-      return;
     }
-    console.warn("[admin/crm] setLeadWaitingOnDoctorsOrders:", error.message);
-    return;
+    console.error("Lead hold toggle failed", {
+      action: "setLeadWaitingOnDoctorsOrders",
+      leadId: id,
+      waiting,
+      error,
+    });
+    redirect(
+      `/admin/crm/leads/${encodeURIComponent(id)}?holdError=${encodeURIComponent(
+        "Could not save the doctor's orders hold. Please try again."
+      )}`
+    );
   }
 
   revalidatePath("/admin");
   revalidatePath("/admin/crm/leads");
-  revalidatePath(`/admin/crm/leads/${leadId}`);
+  revalidatePath(`/admin/crm/leads/${id}`);
   revalidatePath("/workspace/phone/leads");
   revalidatePath("/workspace/phone/chat");
 }
 
-export async function setLeadWaitingOnInsuranceVerification(formData: FormData) {
+/**
+ * Toggle insurance verification hold (separate column only).
+ * Same form/binding pattern as {@link setLeadWaitingOnDoctorsOrders}.
+ */
+export async function setLeadWaitingOnInsuranceVerification(
+  leadId: string,
+  waiting: boolean,
+  _formData: FormData
+): Promise<void> {
+  const id = (leadId ?? "").trim();
+  if (!id) {
+    redirect(`/admin/crm/leads?holdError=${encodeURIComponent("Missing lead id.")}`);
+  }
+
   const staff = await getStaffProfile();
   if (!staff || !isManagerOrHigher(staff)) {
-    return;
+    redirect(
+      `/admin/crm/leads/${encodeURIComponent(id)}?holdError=${encodeURIComponent("You do not have permission to update this hold.")}`
+    );
   }
-  const leadId = readTrimmedField(formData, "leadId");
-  if (!leadId) {
-    return;
-  }
-  const raw = formData.get("value");
-  const enabled = raw === "1" || raw === "true";
 
   const { error } = await supabaseAdmin
     .from("leads")
-    .update({ waiting_on_insurance_verification: enabled })
-    .eq("id", leadId)
+    .update({ waiting_on_insurance_verification: waiting })
+    .eq("id", id)
     .is("deleted_at", null);
 
   if (error) {
     if (isMissingSchemaObjectError(error)) {
-      console.warn(
-        "[admin/crm] setLeadWaitingOnInsuranceVerification: DB migration not applied (waiting_on_insurance_verification); toggle skipped."
+      console.error("Lead hold toggle failed", {
+        action: "setLeadWaitingOnInsuranceVerification",
+        leadId: id,
+        waiting,
+        error,
+      });
+      redirect(
+        `/admin/crm/leads/${encodeURIComponent(id)}?holdError=${encodeURIComponent(
+          "Database is missing the insurance verification hold column. Apply migrations (waiting_on_insurance_verification), then try again."
+        )}`
       );
-      return;
     }
-    console.warn("[admin/crm] setLeadWaitingOnInsuranceVerification:", error.message);
-    return;
+    console.error("Lead hold toggle failed", {
+      action: "setLeadWaitingOnInsuranceVerification",
+      leadId: id,
+      waiting,
+      error,
+    });
+    redirect(
+      `/admin/crm/leads/${encodeURIComponent(id)}?holdError=${encodeURIComponent(
+        "Could not save the insurance verification hold. Please try again."
+      )}`
+    );
   }
 
   revalidatePath("/admin");
   revalidatePath("/admin/crm/leads");
-  revalidatePath(`/admin/crm/leads/${leadId}`);
+  revalidatePath(`/admin/crm/leads/${id}`);
   revalidatePath("/workspace/phone/leads");
   revalidatePath("/workspace/phone/chat");
 }

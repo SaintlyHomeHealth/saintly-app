@@ -150,6 +150,18 @@ export default async function LeadIntakePage({
     }
   }
 
+  const holdErrRaw =
+    typeof sp.holdError === "string" ? sp.holdError : Array.isArray(sp.holdError) ? sp.holdError[0] : "";
+  let holdErr = "";
+  if (holdErrRaw) {
+    const t = holdErrRaw.trim();
+    try {
+      holdErr = decodeURIComponent(t);
+    } catch {
+      holdErr = t;
+    }
+  }
+
   const supabase = await createServerSupabaseClient();
 
     let rowRes = routePerfStepsEnabled()
@@ -519,6 +531,7 @@ export default async function LeadIntakePage({
       primaryPhone={primaryPhone}
       patientId={patientId}
       convertErr={convertErr}
+      holdErr={holdErr}
       ownerUid={ownerUid}
       nextActionVal={nextActionVal}
       followUpIso={followUpIso}

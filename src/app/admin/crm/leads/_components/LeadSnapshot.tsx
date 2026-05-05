@@ -356,9 +356,10 @@ export function LeadSnapshot(props: LeadSnapshotProps) {
       {!isEmployeeLead && !terminal ? (
         <div className="mt-4 space-y-3">
           <div className="flex flex-wrap items-center gap-3 rounded-xl border border-rose-200/90 bg-rose-50/40 px-4 py-3 ring-1 ring-rose-100/80">
-            <form action={setLeadWaitingOnDoctorsOrders} className="flex flex-wrap items-center gap-3">
-              <input type="hidden" name="leadId" value={leadId} />
-              <input type="hidden" name="value" value={waitingOnDoctorsOrders ? "0" : "1"} />
+            <form
+              action={setLeadWaitingOnDoctorsOrders.bind(null, leadId, !waitingOnDoctorsOrders)}
+              className="flex flex-wrap items-center gap-3"
+            >
               <span className="text-[11px] font-semibold uppercase tracking-wide text-rose-900/90">Orders hold</span>
               <button
                 type="submit"
@@ -375,9 +376,10 @@ export function LeadSnapshot(props: LeadSnapshotProps) {
             </form>
           </div>
           <div className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-300/90 bg-amber-50/50 px-4 py-3 ring-1 ring-amber-200/80">
-            <form action={setLeadWaitingOnInsuranceVerification} className="flex flex-wrap items-center gap-3">
-              <input type="hidden" name="leadId" value={leadId} />
-              <input type="hidden" name="value" value={waitingOnInsuranceVerification ? "0" : "1"} />
+            <form
+              action={setLeadWaitingOnInsuranceVerification.bind(null, leadId, !waitingOnInsuranceVerification)}
+              className="flex flex-wrap items-center gap-3"
+            >
               <span className="text-[11px] font-semibold uppercase tracking-wide text-amber-950/90">
                 {LEAD_HOLD_WAITING_ON_INSURANCE_VERIFICATION.bannerEyebrow}
               </span>
