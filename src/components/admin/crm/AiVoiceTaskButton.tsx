@@ -8,7 +8,7 @@ import {
   type VoiceReviewedDraftInput,
 } from "@/app/admin/crm/tasks/actions";
 import type { CrmTaskPriority, CrmTaskRelatedType } from "@/lib/crm/crm-task-types";
-import { SAINTLY_CRM_VOICE_PHI_OPENAI_NOTICE } from "@/lib/crm/crm-voice-phi-copy";
+import { SAINTLY_CRM_VOICE_PHI_NOTICE_DEFAULT } from "@/lib/crm/crm-voice-phi-copy";
 import { isoInstantToDatetimeLocalInput, parseAppDateTimeInputToUtcIso } from "@/lib/datetime/app-timezone";
 import type { VoiceExtractedTask } from "@/lib/crm/crm-voice-task-types";
 
@@ -18,6 +18,8 @@ export type AiVoiceTaskButtonProps = {
   variant?: "default" | "compact";
   relatedEntityType?: CrmTaskRelatedType | null;
   relatedEntityId?: string | null;
+  /** From server (`getSaintlyCrmVoicePhiNotice`). Defaults to strict copy if omitted (safe fallback). */
+  voicePhiNotice?: string;
   onAfterSave?: () => void;
   className?: string;
 };
@@ -39,6 +41,7 @@ export function AiVoiceTaskButton({
   variant = "default",
   relatedEntityType = null,
   relatedEntityId = null,
+  voicePhiNotice = SAINTLY_CRM_VOICE_PHI_NOTICE_DEFAULT,
   onAfterSave,
   className = "",
 }: AiVoiceTaskButtonProps) {
@@ -198,7 +201,7 @@ export function AiVoiceTaskButton({
       });
       if (!r.ok) {
         setUi("error");
-        setErr(r.error ?? "Save failed");
+        setErr(r.error || "Task could not be saved. Please try again.");
         return;
       }
       onAfterSave?.();
@@ -208,7 +211,7 @@ export function AiVoiceTaskButton({
     } catch (e) {
       console.warn("[AiVoiceTaskButton] save", e);
       setUi("error");
-      setErr("Save failed");
+      setErr("Task could not be saved. Please try again.");
     }
   };
 
@@ -239,7 +242,7 @@ export function AiVoiceTaskButton({
                       : "Voice task"}
             </h2>
             <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
-              {SAINTLY_CRM_VOICE_PHI_OPENAI_NOTICE} OpenAI API usage is metered separately from ChatGPT Plus.
+              {voicePhiNotice} OpenAI API usage is metered separately from ChatGPT Plus.
             </p>
 
             {ui === "recording" ? (

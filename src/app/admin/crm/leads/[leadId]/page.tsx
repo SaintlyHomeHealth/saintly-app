@@ -28,6 +28,7 @@ import { loadAssignableLeadOwners } from "@/lib/crm/assignable-lead-owners";
 import { listInsurancePayers } from "@/lib/crm/insurance-payers";
 import { listCrmTasks } from "@/lib/crm/crm-tasks-operations";
 import { safeAdminCrmLeadsListReturnUrl } from "@/lib/crm/admin-crm-leads-list-url";
+import { getSaintlyCrmVoicePhiNotice } from "@/lib/crm/crm-voice-phi-notice.server";
 import { getSaintlyRealtimeGatewayClientSnapshot } from "@/lib/crm/saintly-ai-voice-config";
 
 function isNextControlFlowError(error: unknown): boolean {
@@ -498,6 +499,7 @@ export default async function LeadIntakePage({
     : await listCrmTasks({ tab: "open", pinned_lead_id: leadId.trim(), result_limit: 10 });
   const initialLeadTasks = leadTasksRes.ok ? leadTasksRes.tasks : [];
   const crmRealtimeGateway = getSaintlyRealtimeGatewayClientSnapshot();
+  const voicePhiNotice = getSaintlyCrmVoicePhiNotice();
 
     return (
     <LeadWorkspace
@@ -552,6 +554,7 @@ export default async function LeadIntakePage({
       insurancePayersCatalog={insurancePayersCatalog}
       initialLeadTasks={initialLeadTasks}
       crmRealtimeGateway={crmRealtimeGateway}
+      voicePhiNotice={voicePhiNotice}
     />
     );
   } catch (e) {

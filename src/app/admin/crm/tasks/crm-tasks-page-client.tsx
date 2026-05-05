@@ -18,7 +18,6 @@ import {
 import { AiVoiceTaskButton } from "@/components/admin/crm/AiVoiceTaskButton";
 import { SaintlyRealtimeAssistant } from "@/components/admin/crm/SaintlyRealtimeAssistant";
 import type { SaintlyRealtimeGatewayClientSnapshot } from "@/lib/crm/saintly-ai-voice-config";
-import { SAINTLY_CRM_VOICE_PHI_OPENAI_NOTICE } from "@/lib/crm/crm-voice-phi-copy";
 
 function staffPickLabel(s: AssignableLeadOwnerRow): string {
   const name = (s.full_name ?? "").trim();
@@ -67,6 +66,8 @@ export function CrmTasksPageClient(input: {
   initialTasks: CrmTaskRow[];
   staffOptions: AssignableLeadOwnerRow[];
   realtimeGateway: SaintlyRealtimeGatewayClientSnapshot;
+  /** Server-resolved disclosure (`SAINTLY_OPENAI_API_BAA_CONFIRMED`); not read from public env in the browser. */
+  voicePhiNotice: string;
   tab: CrmTaskListTab;
   searchInitial: string;
   priorityInitial: CrmTaskPriority | "";
@@ -219,12 +220,15 @@ export function CrmTasksPageClient(input: {
               relatedEntityType="general"
               relatedEntityId={null}
               onAfterSave={refresh}
+              voicePhiNotice={input.voicePhiNotice}
             />
-            <SaintlyRealtimeAssistant gateway={input.realtimeGateway} sessionContext={{}} />
+            <SaintlyRealtimeAssistant
+              gateway={input.realtimeGateway}
+              sessionContext={{}}
+              voicePhiNotice={input.voicePhiNotice}
+            />
           </div>
-          <p className="max-w-sm text-[11px] leading-snug text-amber-950">
-            {SAINTLY_CRM_VOICE_PHI_OPENAI_NOTICE}
-          </p>
+          <p className="max-w-sm text-[11px] leading-snug text-amber-950">{input.voicePhiNotice}</p>
         </div>
       </header>
 

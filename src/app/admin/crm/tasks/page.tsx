@@ -5,6 +5,7 @@ import { loadAssignableLeadOwners } from "@/lib/crm/assignable-lead-owners";
 import type { CrmTaskListTab, CrmTaskPriority } from "@/lib/crm/crm-task-types";
 import { listCrmTasks } from "@/lib/crm/crm-tasks-operations";
 import { requireCrmTasksStaff } from "@/lib/crm/require-crm-tasks-staff";
+import { getSaintlyCrmVoicePhiNotice } from "@/lib/crm/crm-voice-phi-notice.server";
 import { getSaintlyRealtimeGatewayClientSnapshot } from "@/lib/crm/saintly-ai-voice-config";
 
 function parseTab(raw: string | undefined): CrmTaskListTab {
@@ -61,12 +62,14 @@ export default async function CrmTasksPage({
 
   const staffRows = await loadAssignableLeadOwners();
   const realtimeGateway = getSaintlyRealtimeGatewayClientSnapshot();
+  const voicePhiNotice = getSaintlyCrmVoicePhiNotice();
 
   return (
     <CrmTasksPageClient
       initialTasks={rows}
       staffOptions={staffRows}
       realtimeGateway={realtimeGateway}
+      voicePhiNotice={voicePhiNotice}
       tab={tab}
       searchInitial={typeof q === "string" ? q : ""}
       priorityInitial={priority}

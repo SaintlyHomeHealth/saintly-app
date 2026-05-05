@@ -3,12 +3,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { SAINTLY_CRM_VOICE_PHI_OPENAI_NOTICE } from "@/lib/crm/crm-voice-phi-copy";
+import { SAINTLY_CRM_VOICE_PHI_NOTICE_DEFAULT } from "@/lib/crm/crm-voice-phi-copy";
 import type { SaintlyRealtimeGatewayClientSnapshot } from "@/lib/crm/saintly-ai-voice-config";
 
 export type SaintlyRealtimeAssistantProps = {
   /** Server-evaluated realtime gateway + authoritative session timeouts. */
   gateway: SaintlyRealtimeGatewayClientSnapshot;
+  /** From server (`getSaintlyCrmVoicePhiNotice`). Defaults to strict copy if omitted. */
+  voicePhiNotice?: string;
   sessionContext: {
     lead_id?: string | null;
     recruit_id?: string | null;
@@ -66,6 +68,7 @@ function parseToolCall(evt: unknown): ToolCall | null {
 
 export function SaintlyRealtimeAssistant({
   gateway,
+  voicePhiNotice = SAINTLY_CRM_VOICE_PHI_NOTICE_DEFAULT,
   sessionContext,
   className = "",
 }: SaintlyRealtimeAssistantProps) {
@@ -312,7 +315,7 @@ export function SaintlyRealtimeAssistant({
       {conn === "live" ? (
         <p className="mt-1 text-xs text-slate-600">
           Auto-ends after {Math.round(gateway.inactivity_ms / 1000)}s quiet or {Math.round(gateway.max_session_ms / 1000)}s max.{" "}
-          {SAINTLY_CRM_VOICE_PHI_OPENAI_NOTICE} ChatGPT Plus does not cover API spend — this path uses ephemeral OpenAI credentials only
+          {voicePhiNotice} ChatGPT Plus does not cover API spend — this path uses ephemeral OpenAI credentials only
           (not your account API keys in the bundle).
         </p>
       ) : null}

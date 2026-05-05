@@ -11,6 +11,49 @@ import type {
   CrmTaskStatus,
 } from "@/lib/crm/crm-task-types";
 import { addCalendarDaysToIsoDate, getCrmCalendarTodayIso } from "@/lib/crm/crm-local-date";
+import { crmLogUserSuffix, logCrmVoiceSaveSafe } from "@/lib/crm/crm-voice-save-log.server";
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/** Strips empty / invalid UUID so Postgres `uuid` columns never receive `""` or junk. */
+export function normalizeCrmRelatedEntityId(raw: string | null | undefined): string | null {
+  const t = typeof raw === "string" ? raw.trim() : "";
+  if (!t) return null;
+  return UUID_RE.test(t) ? t : null;
+}
+
+const ALLOWED_RELATED: ReadonlySet<CrmTaskRelatedType> = new Set([
+  "lead",
+  "recruit",
+  "employee",
+  "facility",
+  "patient",
+  "insurance_payer",
+  "general",
+]);
+
+export function normalizeCrmRelatedEntityType(raw: unknown): CrmTaskRelatedType | null {
+  if (raw == null || raw === "") return null;
+  const s = String(raw).trim();
+  if (ALLOWED_RELATED.has(s as CrmTaskRelatedType)) return s as CrmTaskRelatedType;
+  return null;
+}
+
+export function normalizeCrmTaskPriority(raw: unknown): CrmTaskPriority {
+  if (raw === "low" || raw === "normal" || raw === "high" || raw === "urgent") return raw;
+  return "normal";
+}
+
+/** Null if missing, empty, or not parseable (protects Postgres `timestamptz`). */
+export function normalizeCrmDueAtIso(raw: string | null | undefined): string | null {
+  if (raw == null) return null;
+  const s = String(raw).trim();
+  if (!s) return null;
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString();
+}
 
 function sanitizeIlike(term: string): string {
   return term.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_").trim();
@@ -190,6 +233,24 @@ export async function createCrmTask(
     ai_transcript = tx.slice(0, 350_000);
   }
 
+  const related_entity_type = normalizeCrmRelatedEntityType(input.related_entity_type);
+  const related_entity_id = normalizeCrmRelatedEntityId(input.related_entity_id);
+  const priority = normalizeCrmTaskPriority(input.priority);
+  const due_at = normalizeCrmDueAtIso(input.due_at ?? null);
+
+  if (intent === "voice_review") {
+    logCrmVoiceSaveSafe("create_precheck", {
+      intent: "voice_review",
+      user_suffix: crmLogUserSuffix(user.id),
+      source_written: source,
+      rel_type: related_entity_type,
+      rel_id_present: Boolean(related_entity_id),
+      priority_label: priority,
+      due_present: Boolean(due_at),
+      transcript_chars: ai_transcript ? ai_transcript.length : 0,
+    });
+  }
+
   const supabase = await createServerSupabaseClient();
   const row = {
     title,
@@ -198,23 +259,69 @@ export async function createCrmTask(
         ? String(input.description)
         : null,
     status: "open" as CrmTaskStatus,
-    priority: input.priority ?? "normal",
-    due_at: input.due_at ?? null,
-    related_entity_type: input.related_entity_type ?? null,
-    related_entity_id: input.related_entity_id ?? null,
-    assigned_to: input.assigned_to ?? null,
+    priority,
+    due_at,
+    related_entity_type,
+    related_entity_id,
+    assigned_to: normalizeCrmRelatedEntityId(input.assigned_to),
     source,
     ai_transcript,
-    // Omit created_by — trigger sets auth.uid().
   };
 
-  const { data, error } = await supabase.from("crm_tasks").insert(row).select("*").single();
+  const { data: insertedRows, error } = await supabase.from("crm_tasks").insert(row).select("*");
   if (error) {
-    console.warn("[crm_tasks] create", error.message);
-    return { ok: false, error: error.message };
+    const payload = {
+      intent,
+      src: source,
+      user_suffix: crmLogUserSuffix(user.id),
+      supabase_message: error.message ?? "",
+      supabase_code: typeof (error as { code?: string }).code === "string" ? (error as { code?: string }).code : "",
+      supabase_details:
+        typeof (error as { details?: string }).details === "string" ? (error as { details?: string }).details : "",
+      supabase_hint:
+        typeof (error as { hint?: string }).hint === "string" ? (error as { hint?: string }).hint : "",
+      rel_type: related_entity_type,
+      rel_id_present: Boolean(related_entity_id),
+    };
+    console.warn("[crm_tasks] insert_error", JSON.stringify(payload));
+    if (intent === "voice_review") {
+      logCrmVoiceSaveSafe("supabase_insert_failed", payload);
+    }
+    return { ok: false, error: error.message || "Could not save task" };
   }
-  const task = mapRow(data as Record<string, unknown>);
-  if (!task) return { ok: false, error: "Invalid row" };
+
+  const raw = insertedRows?.[0] as Record<string, unknown> | undefined;
+  if (!raw) {
+    const orphan = {
+      intent,
+      user_suffix: crmLogUserSuffix(user.id),
+      note: "insert_ok_but_no_returned_row",
+      rel_type: related_entity_type,
+      rel_id_present: Boolean(related_entity_id),
+    };
+    console.warn("[crm_tasks] insert_no_row", JSON.stringify(orphan));
+    if (intent === "voice_review") {
+      logCrmVoiceSaveSafe("insert_empty_returning", orphan);
+    }
+    return {
+      ok: false,
+      error:
+        "Task may have saved but could not be read back. Ask an admin to verify RLS SELECT policies on crm_tasks.",
+    };
+  }
+
+  const task = mapRow(raw);
+  if (!task) {
+    if (intent === "voice_review") {
+      logCrmVoiceSaveSafe("map_row_failed", {
+        user_suffix: crmLogUserSuffix(user.id),
+        returned_source: typeof raw.source === "string" ? raw.source : "",
+        returned_status: typeof raw.status === "string" ? raw.status : "",
+        returned_priority: typeof raw.priority === "string" ? raw.priority : "",
+      });
+    }
+    return { ok: false, error: "Invalid row" };
+  }
   return { ok: true, task };
 }
 

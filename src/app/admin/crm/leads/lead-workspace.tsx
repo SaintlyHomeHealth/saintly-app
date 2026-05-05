@@ -223,6 +223,8 @@ export type LeadWorkspaceExistingProps = {
   initialLeadTasks: CrmTaskRow[];
   /** Server-evaluated CRM Realtime entitlement. */
   crmRealtimeGateway: SaintlyRealtimeGatewayClientSnapshot;
+  /** Server-resolved voice disclosure (`SAINTLY_OPENAI_API_BAA_CONFIRMED`). */
+  voicePhiNotice: string;
 };
 
 export type LeadWorkspaceNewProps = {
@@ -507,6 +509,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
   insurancePayersCatalog,
     initialLeadTasks,
     crmRealtimeGateway,
+    voicePhiNotice,
   } = props;
 
   const tomorrowIso = getCrmCalendarTomorrowIso();
@@ -1379,7 +1382,12 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
           followUpAtIso={followUpAtIso}
           nextActionVal={nextActionVal}
         />
-        <LeadTasksPanel leadId={leadId} tasks={initialLeadTasks} crmRealtimeGateway={crmRealtimeGateway} />
+        <LeadTasksPanel
+          leadId={leadId}
+          tasks={initialLeadTasks}
+          crmRealtimeGateway={crmRealtimeGateway}
+          voicePhiNotice={voicePhiNotice}
+        />
       </aside>
     </div>
     </div>

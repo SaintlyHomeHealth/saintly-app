@@ -8,7 +8,6 @@ import { buildCrmTasksListHref } from "@/app/admin/crm/tasks/crm-tasks-page-clie
 import { completeCrmTaskAction, reopenCrmTaskAction } from "@/app/admin/crm/tasks/actions";
 import type { CrmTaskRow } from "@/lib/crm/crm-task-types";
 import type { SaintlyRealtimeGatewayClientSnapshot } from "@/lib/crm/saintly-ai-voice-config";
-import { SAINTLY_CRM_VOICE_PHI_OPENAI_NOTICE } from "@/lib/crm/crm-voice-phi-copy";
 import { formatAppDateTime } from "@/lib/datetime/app-timezone";
 
 import { AiVoiceTaskButton } from "@/components/admin/crm/AiVoiceTaskButton";
@@ -18,6 +17,7 @@ export function LeadTasksPanel(input: {
   leadId: string;
   tasks: CrmTaskRow[];
   crmRealtimeGateway: SaintlyRealtimeGatewayClientSnapshot;
+  voicePhiNotice: string;
 }) {
   const router = useRouter();
   const [, start] = useTransition();
@@ -49,8 +49,18 @@ export function LeadTasksPanel(input: {
           >
             New Task
           </Link>
-          <AiVoiceTaskButton variant="compact" relatedEntityType="lead" relatedEntityId={input.leadId} onAfterSave={refresh} />
-          <SaintlyRealtimeAssistant gateway={input.crmRealtimeGateway} sessionContext={{ lead_id: input.leadId }} />
+          <AiVoiceTaskButton
+            variant="compact"
+            relatedEntityType="lead"
+            relatedEntityId={input.leadId}
+            onAfterSave={refresh}
+            voicePhiNotice={input.voicePhiNotice}
+          />
+          <SaintlyRealtimeAssistant
+            gateway={input.crmRealtimeGateway}
+            sessionContext={{ lead_id: input.leadId }}
+            voicePhiNotice={input.voicePhiNotice}
+          />
           <Link
             href={leadTasksHref}
             className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-50"
@@ -58,7 +68,7 @@ export function LeadTasksPanel(input: {
             View on Tasks page
           </Link>
         </div>
-        <p className="text-[11px] leading-snug text-amber-950">{SAINTLY_CRM_VOICE_PHI_OPENAI_NOTICE}</p>
+        <p className="text-[11px] leading-snug text-amber-950">{input.voicePhiNotice}</p>
       </div>
       <ul className="mt-3 divide-y divide-slate-100 text-sm">
         {input.tasks.length === 0 ? (
