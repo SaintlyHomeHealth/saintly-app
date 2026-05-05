@@ -258,7 +258,7 @@ export function LeadContactOutcomeForm({
               try {
                 result = (await res.json()) as SaveLeadOutcomeResult;
               } catch {
-                setToast({ type: "err", message: `Save failed (${res.status})` });
+                setToast({ type: "err", message: `Unable to save (${res.status}). Please try again.` });
                 return;
               }
 

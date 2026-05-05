@@ -24,6 +24,16 @@ export type AiVoiceTaskButtonProps = {
   className?: string;
 };
 
+/** Collapses legacy generic save-error wording from older builds or tooling; preserves CRM server-authored strings. */
+function voiceModalSaveUiMessage(raw: string | undefined | null): string {
+  const t = typeof raw === "string" ? raw.trim() : "";
+  if (!t) return "Task could not be saved. Please try again.";
+  if (/^save failed/i.test(t) && !/database save failed/i.test(t)) {
+    return "Task could not be saved. Please try again.";
+  }
+  return t;
+}
+
 function pickMime(): { mime: string; ext: string } {
   if (typeof MediaRecorder === "undefined") {
     return { mime: "audio/webm", ext: "webm" };
@@ -201,7 +211,7 @@ export function AiVoiceTaskButton({
       });
       if (!r.ok) {
         setUi("error");
-        setErr(r.error || "Task could not be saved. Please try again.");
+        setErr(voiceModalSaveUiMessage(r.error));
         return;
       }
       onAfterSave?.();

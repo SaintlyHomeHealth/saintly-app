@@ -109,7 +109,7 @@ export function CallDetailCallOutputsSection({
       });
       const j = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
       if (!res.ok || !j.ok) {
-        setSaveFeedback({ type: "err", message: j.error ?? `Save failed (${res.status})` });
+        setSaveFeedback({ type: "err", message: j.error ?? `Unable to save (${res.status}). Please try again.` });
         return;
       }
       setSaveFeedback({ type: "ok", message: "Saved to this call." });

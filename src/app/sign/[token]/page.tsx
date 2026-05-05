@@ -71,7 +71,7 @@ export default function PublicPdfSignPage() {
       body: JSON.stringify({ values, finalize: false }),
     });
     const j = (await res.json()) as { error?: string };
-    if (!res.ok) setErr(j.error || "Save failed.");
+    if (!res.ok) setErr(j.error || "Could not save. Please try again.");
     setBusy(false);
   }
 
