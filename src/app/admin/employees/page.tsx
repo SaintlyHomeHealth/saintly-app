@@ -532,6 +532,7 @@ export default async function AdminEmployeesDirectoryPage({
               </tr>
             ) : (
               filtered.map((r) => {
+                /** Directory primary key: `public.applicants.id` (same UUID used as `employee_id` / `applicant_id` in related tables). */
                 const id = r.applicant.id;
                 const callHref = employeeDirectoryCallHref(staff, r.e164, r.nameDisplay);
                 const updatedLabel =

@@ -943,6 +943,8 @@ export default async function EmployeeDetailPage({
     return <div className="p-6">Invalid employee ID</div>;
   }
 
+  console.info("[admin_employee_detail] request", { employeeId });
+
   const staffProfileForActions = await adminPerfTimed(
     "admin_employee_detail.staff_profile",
     getStaffProfile
@@ -1265,7 +1267,12 @@ export default async function EmployeeDetailPage({
 
   const applicantRowResult = await adminPerfTimed("admin_employee_detail.applicant_row", () =>
       devTimedSupabaseQuery("admin_employee_detail.applicant_row", () =>
-      supabase.from("applicants").select(APPLICANTS_ADMIN_DETAIL_COLUMNS).eq("id", employeeId).maybeSingle()
+      /** Same admin client as `/admin/employees` directory; unauthenticated `supabase` (anon) hits RLS and yields no row. */
+      supabaseAdmin
+        .from("applicants")
+        .select(APPLICANTS_ADMIN_DETAIL_COLUMNS)
+        .eq("id", employeeId)
+        .maybeSingle()
     )
   );
 
@@ -1282,10 +1289,21 @@ export default async function EmployeeDetailPage({
   const applicantLookupError = applicantRowResult.error;
 
   if (applicantLookupError) {
-    console.error("[admin_employee_detail] applicant lookup failed", {
+    console.error("[admin_employee_detail] applicant lookup failed (Supabase error — not treated as missing row)", {
       employeeId,
+      message: applicantLookupError.message,
+      code: applicantLookupError.code,
+      details: applicantLookupError.details,
+      hint: applicantLookupError.hint,
       error: applicantLookupError,
     });
+    return (
+      <div className="p-6 text-sm text-red-800">
+        Could not load this employee record (database error). Check server logs for{" "}
+        <code className="rounded bg-red-50 px-1">[admin_employee_detail]</code> and the{" "}
+        <code className="rounded bg-red-50 px-1">applicant_row</code> query.
+      </div>
+    );
   }
 
   if (
@@ -1297,6 +1315,7 @@ export default async function EmployeeDetailPage({
   }
 
   if (!employee) {
+    console.warn("[admin_employee_detail] no applicant row for id (query succeeded, zero rows)", { employeeId });
     return <div className="p-6">Employee not found</div>;
   }
 
