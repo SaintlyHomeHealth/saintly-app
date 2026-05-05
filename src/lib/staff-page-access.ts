@@ -274,6 +274,8 @@ export function adminNavIdToPageKey(id: string): StaffPageKey | null {
       return "contacts";
     case "leads":
       return "leads";
+    case "crm_tasks":
+      return "leads";
     case "recruiting":
       return "recruiting";
     case "facilities":

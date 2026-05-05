@@ -29,6 +29,7 @@ import {
   shouldShowPipelineStatusOnLeadRow,
 } from "@/lib/crm/crm-leads-list-visual";
 import { formatLeadPipelineStatusLabel } from "@/lib/crm/lead-pipeline-status";
+import { LEAD_HOLD_WAITING_ON_INSURANCE_VERIFICATION } from "@/lib/crm/lead-holds";
 import {
   contactDisplayName,
   contactEmail,
@@ -872,6 +873,14 @@ export function CrmLeadsList({
                             title="Unsigned physician orders — do not schedule"
                           >
                             WAITING ON DOCTOR&apos;S ORDERS
+                          </span>
+                        ) : null}
+                        {!isEmployee && r.waiting_on_insurance_verification === true ? (
+                          <span
+                            className={`${pillBase} max-w-[min(100%,22rem)] border border-amber-600/90 bg-amber-200/90 ${compact ? "px-1.5 py-[1px] text-[8px]" : "px-2 py-1 text-[10px]"} font-extrabold uppercase tracking-wide text-amber-950 shadow-sm ring-2 ring-amber-400/80`}
+                            title="Insurance eligibility or benefits verification pending"
+                          >
+                            {LEAD_HOLD_WAITING_ON_INSURANCE_VERIFICATION.badgeText}
                           </span>
                         ) : null}
                       </div>

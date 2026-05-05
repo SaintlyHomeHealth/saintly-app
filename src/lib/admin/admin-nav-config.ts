@@ -13,6 +13,7 @@ export const ADMIN_NAV_LABELS = {
   commandCenter: "Command Center",
   contacts: "Contacts",
   leads: "Leads",
+  tasks: "Tasks",
   recruiting: "Recruiting",
   facilities: "Facilities",
   faxCenter: "Fax Center",
@@ -32,6 +33,7 @@ export type AdminNavItemId =
   | "command_center"
   | "contacts"
   | "leads"
+  | "crm_tasks"
   | "recruiting"
   | "facilities"
   | "fax_center"
@@ -104,6 +106,12 @@ export function buildAdminNavItems(staff: StaffProfile | null): AdminNavItemReso
       label: ADMIN_NAV_LABELS.leads,
       href: "/admin/crm/leads",
       ...g("leads", false, ""),
+    },
+    {
+      id: "crm_tasks",
+      label: ADMIN_NAV_LABELS.tasks,
+      href: "/admin/crm/tasks",
+      ...g("crm_tasks", false, ""),
     },
     {
       id: "recruiting",

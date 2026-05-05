@@ -17,7 +17,8 @@ import {
 
 import type { LeadWorkspaceContactProfileDefaults, LeadWorkspaceIntakeDefaults, LeadWorkspaceStaffOption } from "../lead-workspace";
 import { leadTemperatureLabel, normalizeLeadTemperature } from "@/lib/crm/lead-temperature";
-import { setLeadWaitingOnDoctorsOrders } from "@/app/admin/crm/actions";
+import { setLeadWaitingOnDoctorsOrders, setLeadWaitingOnInsuranceVerification } from "@/app/admin/crm/actions";
+import { LEAD_HOLD_WAITING_ON_INSURANCE_VERIFICATION } from "@/lib/crm/lead-holds";
 import { formatAppDate, formatAppDateTime } from "@/lib/datetime/app-timezone";
 import { LeadSnapshotCopyButton, LeadSnapshotMedicareReveal } from "./lead-snapshot-client";
 import { LeadDeleteButton } from "./LeadDeleteButton";
@@ -144,6 +145,8 @@ export type LeadSnapshotProps = {
   terminal: boolean;
   /** `leads.waiting_on_doctors_orders` */
   waitingOnDoctorsOrders: boolean;
+  /** `leads.waiting_on_insurance_verification` */
+  waitingOnInsuranceVerification: boolean;
 };
 
 function buildSnapshotPlainText(p: LeadSnapshotProps): string {
@@ -178,6 +181,12 @@ function buildSnapshotPlainText(p: LeadSnapshotProps): string {
     L(
       "Waiting on doctor's orders",
       p.waitingOnDoctorsOrders ? "YES — do not schedule/start until signed orders are received" : "No"
+    );
+    L(
+      LEAD_HOLD_WAITING_ON_INSURANCE_VERIFICATION.label,
+      p.waitingOnInsuranceVerification
+        ? "YES — eligibility or benefits verification still pending"
+        : "No"
     );
     {
       const insLines = leadInsuranceDisplayLines(p.intakeDefaults);
@@ -239,6 +248,7 @@ export function LeadSnapshot(props: LeadSnapshotProps) {
     leadTemperature,
     terminal,
     waitingOnDoctorsOrders,
+    waitingOnInsuranceVerification,
   } = props;
 
   const addrParts = [
@@ -306,6 +316,22 @@ export function LeadSnapshot(props: LeadSnapshotProps) {
           </p>
         </div>
       ) : null}
+      {!isEmployeeLead && waitingOnInsuranceVerification ? (
+        <div
+          role="alert"
+          className="mb-5 rounded-xl border-2 border-amber-500 bg-gradient-to-r from-amber-100 via-amber-50 to-yellow-50 px-4 py-3 shadow-[0_4px_20px_rgba(217,119,6,0.18)]"
+        >
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-amber-950/90">
+            {LEAD_HOLD_WAITING_ON_INSURANCE_VERIFICATION.bannerEyebrow}
+          </p>
+          <div className="mt-2 inline-flex max-w-full items-center rounded-full border border-amber-600/80 bg-amber-200/80 px-3 py-1 text-sm font-semibold text-amber-950 shadow-sm">
+            {LEAD_HOLD_WAITING_ON_INSURANCE_VERIFICATION.label}
+          </div>
+          <p className="mt-1.5 text-sm font-medium leading-snug text-amber-950/95">
+            {LEAD_HOLD_WAITING_ON_INSURANCE_VERIFICATION.helperText}
+          </p>
+        </div>
+      ) : null}
 
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
@@ -328,24 +354,47 @@ export function LeadSnapshot(props: LeadSnapshotProps) {
       </div>
 
       {!isEmployeeLead && !terminal ? (
-        <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-rose-200/90 bg-rose-50/40 px-4 py-3 ring-1 ring-rose-100/80">
-          <form action={setLeadWaitingOnDoctorsOrders} className="flex flex-wrap items-center gap-3">
-            <input type="hidden" name="leadId" value={leadId} />
-            <input type="hidden" name="value" value={waitingOnDoctorsOrders ? "0" : "1"} />
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-rose-900/90">Orders hold</span>
-            <button
-              type="submit"
-              className={`inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold shadow-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-2 ${
-                waitingOnDoctorsOrders
-                  ? "bg-rose-600 text-white shadow-[0_2px_12px_rgba(190,24,93,0.35)] hover:bg-rose-700"
-                  : "border border-slate-300 bg-white text-slate-900 hover:bg-slate-50"
-              }`}
-              aria-pressed={waitingOnDoctorsOrders}
-            >
-              Waiting on Doctor&apos;s Orders
-            </button>
-            <span className="text-[11px] text-rose-900/80">Turn on when unsigned orders block scheduling.</span>
-          </form>
+        <div className="mt-4 space-y-3">
+          <div className="flex flex-wrap items-center gap-3 rounded-xl border border-rose-200/90 bg-rose-50/40 px-4 py-3 ring-1 ring-rose-100/80">
+            <form action={setLeadWaitingOnDoctorsOrders} className="flex flex-wrap items-center gap-3">
+              <input type="hidden" name="leadId" value={leadId} />
+              <input type="hidden" name="value" value={waitingOnDoctorsOrders ? "0" : "1"} />
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-rose-900/90">Orders hold</span>
+              <button
+                type="submit"
+                className={`inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold shadow-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-2 ${
+                  waitingOnDoctorsOrders
+                    ? "bg-rose-600 text-white shadow-[0_2px_12px_rgba(190,24,93,0.35)] hover:bg-rose-700"
+                    : "border border-slate-300 bg-white text-slate-900 hover:bg-slate-50"
+                }`}
+                aria-pressed={waitingOnDoctorsOrders}
+              >
+                Waiting on Doctor&apos;s Orders
+              </button>
+              <span className="text-[11px] text-rose-900/80">Turn on when unsigned orders block scheduling.</span>
+            </form>
+          </div>
+          <div className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-300/90 bg-amber-50/50 px-4 py-3 ring-1 ring-amber-200/80">
+            <form action={setLeadWaitingOnInsuranceVerification} className="flex flex-wrap items-center gap-3">
+              <input type="hidden" name="leadId" value={leadId} />
+              <input type="hidden" name="value" value={waitingOnInsuranceVerification ? "0" : "1"} />
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-amber-950/90">
+                {LEAD_HOLD_WAITING_ON_INSURANCE_VERIFICATION.bannerEyebrow}
+              </span>
+              <button
+                type="submit"
+                className={`inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold shadow-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 ${
+                  waitingOnInsuranceVerification
+                    ? "border border-amber-600 bg-amber-500 text-amber-950 shadow-[0_2px_12px_rgba(217,119,6,0.35)] hover:bg-amber-600"
+                    : "border border-slate-300 bg-white text-slate-900 hover:bg-slate-50"
+                }`}
+                aria-pressed={waitingOnInsuranceVerification}
+              >
+                {LEAD_HOLD_WAITING_ON_INSURANCE_VERIFICATION.label}
+              </button>
+              <span className="text-[11px] text-amber-950/85">{LEAD_HOLD_WAITING_ON_INSURANCE_VERIFICATION.helperText}</span>
+            </form>
+          </div>
         </div>
       ) : null}
 

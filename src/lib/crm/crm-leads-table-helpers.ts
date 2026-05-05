@@ -42,6 +42,8 @@ export type CrmLeadRow = {
   lead_temperature?: string | null;
   /** Blocks scheduling until signed physician orders are received. */
   waiting_on_doctors_orders?: boolean | null;
+  /** Insurance eligibility / benefits verification still pending. */
+  waiting_on_insurance_verification?: boolean | null;
   contacts: CrmLeadsContactEmb | CrmLeadsContactEmb[] | null;
 };
 

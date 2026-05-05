@@ -2708,6 +2708,42 @@ export async function setLeadWaitingOnDoctorsOrders(formData: FormData) {
   revalidatePath("/workspace/phone/chat");
 }
 
+export async function setLeadWaitingOnInsuranceVerification(formData: FormData) {
+  const staff = await getStaffProfile();
+  if (!staff || !isManagerOrHigher(staff)) {
+    return;
+  }
+  const leadId = readTrimmedField(formData, "leadId");
+  if (!leadId) {
+    return;
+  }
+  const raw = formData.get("value");
+  const enabled = raw === "1" || raw === "true";
+
+  const { error } = await supabaseAdmin
+    .from("leads")
+    .update({ waiting_on_insurance_verification: enabled })
+    .eq("id", leadId)
+    .is("deleted_at", null);
+
+  if (error) {
+    if (isMissingSchemaObjectError(error)) {
+      console.warn(
+        "[admin/crm] setLeadWaitingOnInsuranceVerification: DB migration not applied (waiting_on_insurance_verification); toggle skipped."
+      );
+      return;
+    }
+    console.warn("[admin/crm] setLeadWaitingOnInsuranceVerification:", error.message);
+    return;
+  }
+
+  revalidatePath("/admin");
+  revalidatePath("/admin/crm/leads");
+  revalidatePath(`/admin/crm/leads/${leadId}`);
+  revalidatePath("/workspace/phone/leads");
+  revalidatePath("/workspace/phone/chat");
+}
+
 export type CrmLeadListQuickActionResult =
   | { ok: true }
   | { ok: false; error: "forbidden" | "invalid_lead" | "save_failed" };

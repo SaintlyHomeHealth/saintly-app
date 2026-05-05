@@ -160,6 +160,9 @@ export function leadRowCardClass(row: CrmLeadRow, fu: FollowUpUrgency): string {
   if (row.waiting_on_doctors_orders === true && row.lead_type !== "employee") {
     return "border-l-[4px] border-l-rose-600 bg-rose-50/50 ring-1 ring-rose-200/90 shadow-[inset_4px_0_0_rgba(225,29,72,0.12)]";
   }
+  if (row.waiting_on_insurance_verification === true && row.lead_type !== "employee") {
+    return "border-l-[4px] border-l-amber-500 bg-amber-50/50 ring-1 ring-amber-200/90 shadow-[inset_4px_0_0_rgba(217,119,6,0.15)]";
+  }
   if (st === "dead_lead") {
     return "border-l-[3px] border-l-slate-400/70 bg-slate-50/35";
   }

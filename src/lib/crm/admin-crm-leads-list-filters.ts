@@ -3,6 +3,7 @@
  */
 
 import { escapeForIlike } from "@/lib/crm/crm-leads-search";
+import { LEAD_HOLD_WAITING_ON_INSURANCE_VERIFICATION_KEY } from "@/lib/crm/lead-holds";
 import { isValidLeadTemperature } from "@/lib/crm/lead-temperature";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -12,7 +13,7 @@ export const EMPTY_CONTACT_SENTINEL = "00000000-0000-0000-0000-000000000000";
 
 export const ADMIN_CRM_LEADS_PAGE_SIZE = 50;
 
-/** URL `contactStatus` — latest contact outcome / call type, plus `waiting_on_doctors_orders` (boolean column, patient leads only). */
+/** URL `contactStatus` — latest contact outcome / call type, plus boolean hold columns (patient leads only). */
 export const ADMIN_CRM_LEADS_CONTACT_STATUS_URL_VALUES = [
   "spoke",
   "left_vm",
@@ -21,6 +22,8 @@ export const ADMIN_CRM_LEADS_CONTACT_STATUS_URL_VALUES = [
   "no_response",
   /** Same key as `leads.waiting_on_doctors_orders` (non-employee rows that show the red badge). */
   "waiting_on_doctors_orders",
+  /** Same key as `leads.waiting_on_insurance_verification` (non-employee rows — amber badge). */
+  LEAD_HOLD_WAITING_ON_INSURANCE_VERIFICATION_KEY,
 ] as const;
 
 export type AdminCrmLeadsContactStatusFilter = (typeof ADMIN_CRM_LEADS_CONTACT_STATUS_URL_VALUES)[number];
@@ -43,6 +46,8 @@ export function formatAdminCrmLeadsContactStatusLabel(v: AdminCrmLeadsContactSta
       return "No response";
     case "waiting_on_doctors_orders":
       return "Waiting on doctor's orders";
+    case LEAD_HOLD_WAITING_ON_INSURANCE_VERIFICATION_KEY:
+      return "Waiting on Insurance Verification";
   }
 }
 
@@ -113,6 +118,10 @@ export function attachAdminCrmLeadListPredicates(
         break;
       case "waiting_on_doctors_orders":
         q = q.eq("waiting_on_doctors_orders", true);
+        q = q.or("lead_type.is.null,lead_type.neq.employee");
+        break;
+      case LEAD_HOLD_WAITING_ON_INSURANCE_VERIFICATION_KEY:
+        q = q.eq("waiting_on_insurance_verification", true);
         q = q.or("lead_type.is.null,lead_type.neq.employee");
         break;
       default:

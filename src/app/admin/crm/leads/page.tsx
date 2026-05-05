@@ -43,7 +43,8 @@ const CRM_LEADS_LIST_SELECT_BASE =
 const CRM_LEADS_LIST_CONTACTS_EMBED =
   "contacts ( full_name, first_name, last_name, primary_phone, secondary_phone, email )";
 
-const CRM_LEADS_LIST_SELECT_WITH_WAITING = `${CRM_LEADS_LIST_SELECT_BASE}, waiting_on_doctors_orders, ${CRM_LEADS_LIST_CONTACTS_EMBED}`;
+const CRM_LEADS_LIST_SELECT_WITH_WAITING = `${CRM_LEADS_LIST_SELECT_BASE}, waiting_on_doctors_orders, waiting_on_insurance_verification, ${CRM_LEADS_LIST_CONTACTS_EMBED}`;
+const CRM_LEADS_LIST_SELECT_DOCTORS_HOLD_ONLY = `${CRM_LEADS_LIST_SELECT_BASE}, waiting_on_doctors_orders, ${CRM_LEADS_LIST_CONTACTS_EMBED}`;
 const CRM_LEADS_LIST_SELECT_WITHOUT_WAITING = `${CRM_LEADS_LIST_SELECT_BASE}, ${CRM_LEADS_LIST_CONTACTS_EMBED}`;
 
 const chipMuted =
@@ -235,6 +236,13 @@ export default async function AdminCrmLeadsPage({
       ? await routePerfTimed("admin_crm_leads.leads_query", () => execRowsQuery(CRM_LEADS_LIST_SELECT_WITH_WAITING))
       : await execRowsQuery(CRM_LEADS_LIST_SELECT_WITH_WAITING);
 
+    if (error && isMissingSchemaObjectError(error)) {
+      ({ data: rows, error } = routePerfStepsEnabled()
+        ? await routePerfTimed("admin_crm_leads.leads_query_doctors_hold_only", () =>
+            execRowsQuery(CRM_LEADS_LIST_SELECT_DOCTORS_HOLD_ONLY)
+          )
+        : await execRowsQuery(CRM_LEADS_LIST_SELECT_DOCTORS_HOLD_ONLY));
+    }
     if (error && isMissingSchemaObjectError(error)) {
       ({ data: rows, error } = routePerfStepsEnabled()
         ? await routePerfTimed("admin_crm_leads.leads_query_legacy", () =>

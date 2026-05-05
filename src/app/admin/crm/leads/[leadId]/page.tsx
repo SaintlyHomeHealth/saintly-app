@@ -26,7 +26,9 @@ import { buildCrmCommunicationTimelineModel } from "@/lib/crm/build-crm-communic
 import { resolveLeadCrmStage } from "@/lib/crm/crm-stage";
 import { loadAssignableLeadOwners } from "@/lib/crm/assignable-lead-owners";
 import { listInsurancePayers } from "@/lib/crm/insurance-payers";
+import { listCrmTasks } from "@/lib/crm/crm-tasks-operations";
 import { safeAdminCrmLeadsListReturnUrl } from "@/lib/crm/admin-crm-leads-list-url";
+import { getSaintlyRealtimeGatewayClientSnapshot } from "@/lib/crm/saintly-ai-voice-config";
 
 function isNextControlFlowError(error: unknown): boolean {
   const digest = error && typeof error === "object" && "digest" in error ? String(error.digest) : "";
@@ -80,19 +82,30 @@ const LEAD_DETAIL_CORE_LEGACY_BASE =
 /** After migration `20260430230000_leads_facebook_conversion_tracking.sql`. */
 const LEAD_DETAIL_CORE_NO_WAITING = `${LEAD_DETAIL_CORE_LEGACY_BASE}, fbclid, lead_quality, lead_stage`;
 
-/** After migration `20260424120000_leads_waiting_on_doctors_orders.sql`. */
-const LEAD_DETAIL_CORE_WITH_WAITING = `${LEAD_DETAIL_CORE_NO_WAITING}, waiting_on_doctors_orders`;
+/** After migration `20260424120000_leads_waiting_on_doctors_orders.sql` + `20260505180000_leads_waiting_on_insurance_verification.sql`. */
+const LEAD_DETAIL_CORE_WITH_MISCELLANEOUS_HOLDS = `${LEAD_DETAIL_CORE_NO_WAITING}, waiting_on_doctors_orders, waiting_on_insurance_verification`;
+const LEAD_DETAIL_CORE_WITH_MISCELLANEOUS_HOLDS_LEGACY = `${LEAD_DETAIL_CORE_LEGACY_BASE}, waiting_on_doctors_orders, waiting_on_insurance_verification`;
 
-const LEAD_DETAIL_CORE_WITH_WAITING_LEGACY = `${LEAD_DETAIL_CORE_LEGACY_BASE}, waiting_on_doctors_orders`;
+/** Doctors-order hold only — if `waiting_on_insurance_verification` column is not migrated yet. */
+const LEAD_DETAIL_CORE_DOCTORS_HOLD_ONLY = `${LEAD_DETAIL_CORE_NO_WAITING}, waiting_on_doctors_orders`;
+const LEAD_DETAIL_CORE_DOCTORS_HOLD_ONLY_LEGACY = `${LEAD_DETAIL_CORE_LEGACY_BASE}, waiting_on_doctors_orders`;
+
+/** @deprecated Prefer {@link LEAD_DETAIL_CORE_WITH_MISCELLANEOUS_HOLDS} */
+const LEAD_DETAIL_CORE_WITH_WAITING = LEAD_DETAIL_CORE_WITH_MISCELLANEOUS_HOLDS;
+
+/** @deprecated Prefer {@link LEAD_DETAIL_CORE_WITH_MISCELLANEOUS_HOLDS_LEGACY} */
+const LEAD_DETAIL_CORE_WITH_WAITING_LEGACY = LEAD_DETAIL_CORE_WITH_MISCELLANEOUS_HOLDS_LEGACY;
 
 const LEAD_DETAIL_SELECT_WITH_MEDICARE = `${LEAD_DETAIL_CORE_WITH_WAITING}, medicare_number, medicare_effective_date, medicare_notes, ${LEAD_DETAIL_CONTACTS_EMBED}`;
-/** Same as WITH_MEDICARE but without `waiting_on_doctors_orders` (migration not applied yet). */
+const LEAD_DETAIL_SELECT_WITH_MEDICARE_DOCTORS_HOLD_ONLY = `${LEAD_DETAIL_CORE_DOCTORS_HOLD_ONLY}, medicare_number, medicare_effective_date, medicare_notes, ${LEAD_DETAIL_CONTACTS_EMBED}`;
+/** Same as WITH_MEDICARE but without hold columns (migration not applied yet). */
 const LEAD_DETAIL_SELECT_WITH_MEDICARE_NO_WAITING = `${LEAD_DETAIL_CORE_NO_WAITING}, medicare_number, medicare_effective_date, medicare_notes, ${LEAD_DETAIL_CONTACTS_EMBED}`;
 /** Without medicare_* — works before migration `20260413120000_lead_activities_medicare.sql`. */
 const LEAD_DETAIL_SELECT_LEGACY = `${LEAD_DETAIL_CORE_NO_WAITING}, ${LEAD_DETAIL_CONTACTS_EMBED}`;
 
 /** Same shapes as above when `fbclid` / `lead_quality` / `lead_stage` are not migrated yet. */
 const LEAD_DETAIL_SELECT_WITH_MEDICARE_PRE_CONV = `${LEAD_DETAIL_CORE_WITH_WAITING_LEGACY}, medicare_number, medicare_effective_date, medicare_notes, ${LEAD_DETAIL_CONTACTS_EMBED}`;
+const LEAD_DETAIL_SELECT_WITH_MEDICARE_PRE_CONV_DOCTORS_HOLD_ONLY = `${LEAD_DETAIL_CORE_DOCTORS_HOLD_ONLY_LEGACY}, medicare_number, medicare_effective_date, medicare_notes, ${LEAD_DETAIL_CONTACTS_EMBED}`;
 const LEAD_DETAIL_SELECT_WITH_MEDICARE_NO_WAITING_PRE_CONV = `${LEAD_DETAIL_CORE_LEGACY_BASE}, medicare_number, medicare_effective_date, medicare_notes, ${LEAD_DETAIL_CONTACTS_EMBED}`;
 const LEAD_DETAIL_SELECT_LEGACY_PRE_CONV = `${LEAD_DETAIL_CORE_LEGACY_BASE}, ${LEAD_DETAIL_CONTACTS_EMBED}`;
 
@@ -150,6 +163,18 @@ export default async function LeadIntakePage({
 
   if (rowRes.error && isMissingSchemaObjectError(rowRes.error)) {
     rowRes = routePerfStepsEnabled()
+      ? await routePerfTimed("admin_crm_lead_detail.lead_query_doctors_hold_only", () =>
+          leadRowsActiveOnly(
+            supabase.from("leads").select(LEAD_DETAIL_SELECT_WITH_MEDICARE_DOCTORS_HOLD_ONLY).eq("id", leadId.trim())
+          ).maybeSingle()
+        )
+      : await leadRowsActiveOnly(
+          supabase.from("leads").select(LEAD_DETAIL_SELECT_WITH_MEDICARE_DOCTORS_HOLD_ONLY).eq("id", leadId.trim())
+        ).maybeSingle();
+  }
+
+  if (rowRes.error && isMissingSchemaObjectError(rowRes.error)) {
+    rowRes = routePerfStepsEnabled()
       ? await routePerfTimed("admin_crm_lead_detail.lead_query_no_waiting", () =>
           leadRowsActiveOnly(
             supabase.from("leads").select(LEAD_DETAIL_SELECT_WITH_MEDICARE_NO_WAITING).eq("id", leadId.trim())
@@ -181,6 +206,18 @@ export default async function LeadIntakePage({
         )
       : await leadRowsActiveOnly(
           supabase.from("leads").select(LEAD_DETAIL_SELECT_WITH_MEDICARE_PRE_CONV).eq("id", leadId.trim())
+        ).maybeSingle();
+  }
+
+  if (rowRes.error && isMissingSchemaObjectError(rowRes.error)) {
+    rowRes = routePerfStepsEnabled()
+      ? await routePerfTimed("admin_crm_lead_detail.lead_query_pre_conv_doctors_hold_only", () =>
+          leadRowsActiveOnly(
+            supabase.from("leads").select(LEAD_DETAIL_SELECT_WITH_MEDICARE_PRE_CONV_DOCTORS_HOLD_ONLY).eq("id", leadId.trim())
+          ).maybeSingle()
+        )
+      : await leadRowsActiveOnly(
+          supabase.from("leads").select(LEAD_DETAIL_SELECT_WITH_MEDICARE_PRE_CONV_DOCTORS_HOLD_ONLY).eq("id", leadId.trim())
         ).maybeSingle();
   }
 
@@ -406,6 +443,8 @@ export default async function LeadIntakePage({
       : "";
 
   const waitingOnDoctorsOrders = (L as Record<string, unknown>).waiting_on_doctors_orders === true;
+  const waitingOnInsuranceVerification =
+    (L as Record<string, unknown>).waiting_on_insurance_verification === true;
 
   const leadQualityRaw = L.lead_quality;
   const initialLeadQuality =
@@ -451,6 +490,14 @@ export default async function LeadIntakePage({
           leadActivities: initialActivities,
         })
     : [];
+
+  const leadTasksRes = routePerfStepsEnabled()
+    ? await routePerfTimed("admin_crm_lead_detail.crm_tasks", () =>
+        listCrmTasks({ tab: "open", pinned_lead_id: leadId.trim(), result_limit: 10 })
+      )
+    : await listCrmTasks({ tab: "open", pinned_lead_id: leadId.trim(), result_limit: 10 });
+  const initialLeadTasks = leadTasksRes.ok ? leadTasksRes.tasks : [];
+  const crmRealtimeGateway = getSaintlyRealtimeGatewayClientSnapshot();
 
     return (
     <LeadWorkspace
@@ -498,10 +545,13 @@ export default async function LeadIntakePage({
       initialActivities={initialActivities}
       leadTemperature={leadTemperatureStr}
       waitingOnDoctorsOrders={waitingOnDoctorsOrders}
+      waitingOnInsuranceVerification={waitingOnInsuranceVerification}
       initialLeadQuality={initialLeadQuality}
       communicationTimelineRows={communicationTimelineRows}
       crmStage={crmStageResolved}
       insurancePayersCatalog={insurancePayersCatalog}
+      initialLeadTasks={initialLeadTasks}
+      crmRealtimeGateway={crmRealtimeGateway}
     />
     );
   } catch (e) {

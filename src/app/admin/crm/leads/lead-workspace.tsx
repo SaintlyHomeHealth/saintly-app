@@ -30,9 +30,11 @@ import {
 } from "../actions";
 import type { CommunicationTimelineRow } from "@/lib/crm/build-crm-communication-timeline-model";
 import type { CrmStage } from "@/lib/crm/crm-stage";
+import type { CrmTaskRow } from "@/lib/crm/crm-task-types";
 import { CrmStageBadge } from "@/app/admin/crm/_components/CrmStageBadge";
 import { MoveToPatientStageButton } from "@/app/admin/crm/leads/_components/MoveToPatientStageButton";
 import { LeadPageScrollLock } from "@/app/admin/crm/leads/_components/LeadPageScrollLock";
+import { LeadTasksPanel } from "@/app/admin/crm/leads/_components/LeadTasksPanel";
 import type { EmploymentApplicationMeta } from "@/lib/crm/lead-employment-meta";
 import { hasAnyIntakeRequestDetail, type LeadIntakeRequestDetails } from "@/lib/crm/lead-intake-request";
 import { addCalendarDaysToIsoDate, getCrmCalendarTodayIso, getCrmCalendarTomorrowIso } from "@/lib/crm/crm-local-date";
@@ -46,6 +48,7 @@ import { routePerfRenderCount } from "@/lib/perf/route-perf";
 import { ADMIN_CRM_LEADS_LIST_PATH_PREFIX } from "@/lib/crm/admin-crm-leads-list-url";
 import type { InsurancePayer } from "@/lib/crm/insurance-payer-types";
 import { getAppNowForDateTimeInput } from "@/lib/datetime/app-timezone";
+import type { SaintlyRealtimeGatewayClientSnapshot } from "@/lib/crm/saintly-ai-voice-config";
 
 const CrmCommunicationTimeline = dynamic(
   () =>
@@ -208,12 +211,18 @@ export type LeadWorkspaceExistingProps = {
   leadTemperature: string;
   /** `leads.waiting_on_doctors_orders` — patient intake only (not employee applicants). */
   waitingOnDoctorsOrders?: boolean;
+  /** `leads.waiting_on_insurance_verification` — patient intake only. */
+  waitingOnInsuranceVerification?: boolean;
   /** `leads.lead_quality` — Meta conversion qualification. */
   initialLeadQuality?: string | null;
   /** Shared CRM communication timeline (SMS, calls, notes, status). */
   communicationTimelineRows: CommunicationTimelineRow[];
   /** Pipeline CRM stage (Lead / Intake / Patient). */
   crmStage: CrmStage;
+  /** Open CRM tasks pinned to this lead. */
+  initialLeadTasks: CrmTaskRow[];
+  /** Server-evaluated CRM Realtime entitlement. */
+  crmRealtimeGateway: SaintlyRealtimeGatewayClientSnapshot;
 };
 
 export type LeadWorkspaceNewProps = {
@@ -490,11 +499,14 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
     canEmbedWorkspaceSms = false,
     leadTemperature,
     waitingOnDoctorsOrders = false,
+    waitingOnInsuranceVerification = false,
     initialLeadQuality = null,
     communicationTimelineRows = [],
     crmStage,
     leadsListBackHref = ADMIN_CRM_LEADS_LIST_PATH_PREFIX,
-    insurancePayersCatalog,
+  insurancePayersCatalog,
+    initialLeadTasks,
+    crmRealtimeGateway,
   } = props;
 
   const tomorrowIso = getCrmCalendarTomorrowIso();
@@ -641,6 +653,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
             patientId={patientId}
             terminal={terminal}
             waitingOnDoctorsOrders={waitingOnDoctorsOrders}
+            waitingOnInsuranceVerification={waitingOnInsuranceVerification}
           />
 
           {canEmbedWorkspaceSms && contactId.trim() ? (
@@ -1366,6 +1379,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
           followUpAtIso={followUpAtIso}
           nextActionVal={nextActionVal}
         />
+        <LeadTasksPanel leadId={leadId} tasks={initialLeadTasks} crmRealtimeGateway={crmRealtimeGateway} />
       </aside>
     </div>
     </div>
