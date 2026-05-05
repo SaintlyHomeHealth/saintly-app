@@ -3,8 +3,6 @@
 import { revalidatePath } from "next/cache";
 
 import type { CreateCrmTaskInput, StaffCrmTaskPatch } from "@/lib/crm/crm-tasks-operations";
-
-export type { CreateCrmTaskInput, StaffCrmTaskPatch as CrmTaskPatch };
 import { requireCrmTasksStaff } from "@/lib/crm/require-crm-tasks-staff";
 import { crmVoiceSaveUserFacingMessage } from "@/lib/crm/crm-voice-save-client-message.server";
 import { crmLogUserSuffix, logCrmVoiceSaveSafe } from "@/lib/crm/crm-voice-save-log.server";
