@@ -1,17 +1,9 @@
 import "server-only";
 
 import { supabaseAdmin } from "@/lib/admin";
+import type { InsurancePayer } from "@/lib/crm/insurance-payer-types";
 
-export type InsurancePayerListItem = {
-  id: string;
-  payer_name: string;
-  normalized_name: string;
-  payer_type: string | null;
-  sort_order: number | null;
-  is_active: boolean;
-};
-
-function mapRow(r: Record<string, unknown>): InsurancePayerListItem {
+function mapRow(r: Record<string, unknown>): InsurancePayer {
   return {
     id: String(r.id ?? ""),
     payer_name: String(r.payer_name ?? "").trim(),
@@ -26,7 +18,7 @@ function mapRow(r: Record<string, unknown>): InsurancePayerListItem {
  * Active payers for CRM comboboxes: sort_order ascending (nulls last), then payer_name.
  * Call from server after admin auth; uses service role.
  */
-export async function listInsurancePayers(): Promise<InsurancePayerListItem[]> {
+export async function listInsurancePayers(): Promise<InsurancePayer[]> {
   const { data, error } = await supabaseAdmin
     .from("insurance_payers")
     .select("id, payer_name, normalized_name, payer_type, sort_order, is_active")
@@ -53,7 +45,7 @@ export type QuickAddInsurancePayerOptions = {
 export async function quickAddInsurancePayer(
   payerName: string,
   options?: QuickAddInsurancePayerOptions
-): Promise<{ ok: true; payer: InsurancePayerListItem } | { ok: false; error: string }> {
+): Promise<{ ok: true; payer: InsurancePayer } | { ok: false; error: string }> {
   const trimmed = payerName.trim();
   if (!trimmed) {
     return { ok: false, error: "blank" };
@@ -111,43 +103,4 @@ export async function quickAddInsurancePayer(
   }
 
   return { ok: true, payer: mapRow(inserted as Record<string, unknown>) };
-}
-
-/** Keeps UX aligned with {@link listInsurancePayers}: non-null sort_order first (ascending), nulls last, then payer_name. */
-export function sortInsurancePayerListItems(items: InsurancePayerListItem[]): InsurancePayerListItem[] {
-  return [...items].sort((a, b) => {
-    const ao = a.sort_order;
-    const bo = b.sort_order;
-    if (ao != null && bo != null && ao !== bo) return ao - bo;
-    if (ao != null && bo == null) return -1;
-    if (ao == null && bo != null) return 1;
-    return a.payer_name.localeCompare(b.payer_name, undefined, { sensitivity: "base" });
-  });
-}
-
-/** Merge catalog order with type-specific suggestions (e.g. Medicare Advantage plan labels) without duplicate normalized names. */
-export function mergeInsurancePayerCatalogWithTypeOptions(
-  catalog: InsurancePayerListItem[],
-  typeOptions: readonly string[]
-): string[] {
-  const normSeen = new Set(catalog.map((c) => c.normalized_name));
-  const ordered = catalog.map((c) => c.payer_name.trim()).filter(Boolean);
-  const extras: string[] = [];
-  for (const opt of typeOptions) {
-    const d = opt.trim();
-    if (!d) continue;
-    const n = d.toLowerCase();
-    if (!normSeen.has(n)) {
-      normSeen.add(n);
-      extras.push(d);
-    }
-  }
-  extras.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
-  return [...ordered, ...extras];
-}
-
-export function insurancePayerOptionListHasNormalizedMatch(options: readonly string[], typed: string): boolean {
-  const t = typed.trim().toLowerCase();
-  if (!t) return false;
-  return options.some((o) => o.trim().toLowerCase() === t);
 }

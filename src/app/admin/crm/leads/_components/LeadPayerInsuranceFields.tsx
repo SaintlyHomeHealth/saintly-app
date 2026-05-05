@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 
 import { LeadInsurancePayerCombobox } from "@/components/crm/LeadInsurancePayerCombobox";
-import type { InsurancePayerListItem } from "@/lib/crm/insurance-payers";
+import type { InsurancePayer } from "@/lib/crm/insurance-payer-types";
 import {
   LEAD_STRUCTURED_PAYER_TYPES,
   isValidLeadStructuredPayerType,
@@ -22,7 +22,7 @@ type Props = {
   secondaryPayerName: string;
   idPrefix: string;
   /** Loaded once on the server for this workspace; updated locally after quick-add. */
-  insurancePayersCatalog: InsurancePayerListItem[];
+  insurancePayersCatalog: InsurancePayer[];
 };
 
 export function LeadPayerInsuranceFields(props: Props) {
@@ -36,7 +36,7 @@ export function LeadPayerInsuranceFields(props: Props) {
     insurancePayersCatalog,
   } = props;
 
-  const [catalog, setCatalog] = useState<InsurancePayerListItem[]>(() => insurancePayersCatalog);
+  const [catalog, setCatalog] = useState<InsurancePayer[]>(() => insurancePayersCatalog);
 
   const [primaryType, setPrimaryType] = useState(() => primaryPayerType.trim());
   const [secondaryType, setSecondaryType] = useState(() => secondaryPayerType.trim());

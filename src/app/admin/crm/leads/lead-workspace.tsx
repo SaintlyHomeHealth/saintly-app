@@ -44,7 +44,7 @@ import {
 } from "@/lib/workspace-phone/launch-urls";
 import { routePerfRenderCount } from "@/lib/perf/route-perf";
 import { ADMIN_CRM_LEADS_LIST_PATH_PREFIX } from "@/lib/crm/admin-crm-leads-list-url";
-import type { InsurancePayerListItem } from "@/lib/crm/insurance-payers";
+import type { InsurancePayer } from "@/lib/crm/insurance-payer-types";
 import { getAppNowForDateTimeInput } from "@/lib/datetime/app-timezone";
 
 const CrmCommunicationTimeline = dynamic(
@@ -152,7 +152,7 @@ export type LeadWorkspaceIntakeDefaults = {
 export type LeadWorkspaceExistingProps = {
   mode: "existing";
   /** Canonical payer names + quick-add; fetched once per lead page load. */
-  insurancePayersCatalog: InsurancePayerListItem[];
+  insurancePayersCatalog: InsurancePayer[];
   /** From list `returnTo` query — safe path prefix enforced on the server. */
   leadsListBackHref?: string;
   leadId: string;
@@ -218,7 +218,7 @@ export type LeadWorkspaceExistingProps = {
 
 export type LeadWorkspaceNewProps = {
   mode: "new";
-  insurancePayersCatalog: InsurancePayerListItem[];
+  insurancePayersCatalog: InsurancePayer[];
   createErrorCode: string;
   staffOptions: LeadWorkspaceStaffOption[];
   /** `fbclid` from landing URL (e.g. `?fbclid=…`) — stored on the new lead. */

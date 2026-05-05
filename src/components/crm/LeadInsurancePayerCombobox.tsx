@@ -4,11 +4,11 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 
 import { quickAddInsurancePayerAction } from "@/app/admin/crm/insurance-payer-actions";
 import {
-  type InsurancePayerListItem,
   insurancePayerOptionListHasNormalizedMatch,
   mergeInsurancePayerCatalogWithTypeOptions,
   sortInsurancePayerListItems,
-} from "@/lib/crm/insurance-payers";
+} from "@/lib/crm/insurance-payer-catalog";
+import type { InsurancePayer } from "@/lib/crm/insurance-payer-types";
 
 type Props = {
   name: string;
@@ -18,8 +18,8 @@ type Props = {
   value: string;
   onValueChange: (value: string) => void;
   /** Server-fetched catalog; updated locally after quick-add. */
-  catalog: InsurancePayerListItem[];
-  onCatalogChange: (next: InsurancePayerListItem[]) => void;
+  catalog: InsurancePayer[];
+  onCatalogChange: (next: InsurancePayer[]) => void;
   typeOptions: readonly string[];
   /** Optional `leads.primary_payer_type` / `secondary_payer_type` value stored on new catalog rows. */
   structuredPayerType: string;

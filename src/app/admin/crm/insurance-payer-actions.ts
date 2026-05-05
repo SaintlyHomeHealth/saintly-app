@@ -1,13 +1,14 @@
 "use server";
 
-import { quickAddInsurancePayer, type InsurancePayerListItem } from "@/lib/crm/insurance-payers";
+import { quickAddInsurancePayer } from "@/lib/crm/insurance-payers";
+import type { InsurancePayer } from "@/lib/crm/insurance-payer-types";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 
 export async function quickAddInsurancePayerAction(
   payerName: string,
-  structuredPayerType?: string | null
+  payerType?: string | null
 ): Promise<
-  | { ok: true; payer: InsurancePayerListItem }
+  | { ok: true; payer: InsurancePayer }
   | { ok: false; error: "forbidden" | "blank" | "lookup_failed" | "insert_failed" | "unknown" }
 > {
   const staff = await getStaffProfile();
@@ -16,7 +17,7 @@ export async function quickAddInsurancePayerAction(
   }
 
   const res = await quickAddInsurancePayer(payerName, {
-    payerType: structuredPayerType,
+    payerType: payerType ?? null,
     createdBy: staff.user_id,
   });
 
