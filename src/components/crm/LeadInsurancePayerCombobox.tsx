@@ -93,7 +93,7 @@ export function LeadInsurancePayerCombobox({
     close();
   };
 
-  const onQuickAdd = async () => {
+  const runQuickAdd = async () => {
     const label = value.trim();
     if (!label || adding) return;
     setAdding(true);
@@ -144,6 +144,14 @@ export function LeadInsurancePayerCombobox({
           if (e.key === "Escape") {
             e.preventDefault();
             close();
+            return;
+          }
+          if (e.key === "Enter") {
+            e.preventDefault();
+            e.stopPropagation();
+            if (adding) return;
+            if (showQuickAdd) void runQuickAdd();
+            else if (filtered.length > 0) pickOption(filtered[0]);
           }
         }}
       />
@@ -167,7 +175,11 @@ export function LeadInsurancePayerCombobox({
                   className="w-full px-3 py-2 text-left hover:bg-slate-50"
                   aria-selected={value.trim().toLowerCase() === opt.trim().toLowerCase()}
                   onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => pickOption(opt)}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    pickOption(opt);
+                  }}
                 >
                   {opt}
                 </button>
@@ -181,7 +193,11 @@ export function LeadInsurancePayerCombobox({
                 disabled={adding}
                 className="w-full px-3 py-2 text-left font-semibold text-sky-800 hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-60"
                 onMouseDown={(e) => e.preventDefault()}
-                onClick={() => void onQuickAdd()}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  void runQuickAdd();
+                }}
               >
                 {adding ? "Adding…" : `+ Add “${value.trim()}”`}
               </button>

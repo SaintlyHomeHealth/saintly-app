@@ -22,16 +22,13 @@ import { LeadQualityControls } from "@/app/admin/crm/leads/_components/LeadQuali
 import { LeadConversationSection } from "@/app/admin/crm/leads/_components/LeadConversationSection";
 import { LeadSectionCard } from "@/app/admin/crm/leads/_components/LeadSectionCard";
 import { LeadSnapshot } from "@/app/admin/crm/leads/_components/LeadSnapshot";
-import {
-  createLeadManualFromCrm,
-  markLeadDead,
-  updateLeadContactProfile,
-  updateLeadIntake,
-} from "../actions";
+import { createLeadManualFromCrm, updateLeadContactProfile, updateLeadIntake } from "../actions";
 import type { CommunicationTimelineRow } from "@/lib/crm/build-crm-communication-timeline-model";
 import type { CrmStage } from "@/lib/crm/crm-stage";
 import type { CrmTaskRow } from "@/lib/crm/crm-task-types";
 import { CrmStageBadge } from "@/app/admin/crm/_components/CrmStageBadge";
+import { LeadIntakeSaveForm } from "@/app/admin/crm/leads/_components/LeadIntakeSaveForm";
+import { MarkLeadDeadButton } from "@/app/admin/crm/leads/_components/MarkLeadDeadButton";
 import { MoveToPatientStageButton } from "@/app/admin/crm/leads/_components/MoveToPatientStageButton";
 import { LeadPageScrollLock } from "@/app/admin/crm/leads/_components/LeadPageScrollLock";
 import { LeadTasksPanel } from "@/app/admin/crm/leads/_components/LeadTasksPanel";
@@ -987,7 +984,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
       ) : null}
 
       {!terminal ? (
-        <form action={updateLeadIntake} id="form-lead-intake" className="space-y-10">
+        <LeadIntakeSaveForm action={updateLeadIntake}>
           <input type="hidden" name="leadId" value={leadId} />
           {isEmployeeLead ? (
             <>
@@ -1085,13 +1082,10 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
                     Open patient chart
                   </Link>
                 )}
-                <button
-                  type="submit"
-                  formAction={markLeadDead}
+                <MarkLeadDeadButton
+                  leadId={leadId}
                   className="rounded-lg border border-slate-400 bg-white px-3 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-50"
-                >
-                  Mark dead lead
-                </button>
+                />
               </div>
             </div>
           </LeadSectionCard>
@@ -1271,12 +1265,14 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
           <div className="flex flex-wrap items-center gap-3 pt-2">
             <button
               type="submit"
+              name="save_lead_intake"
+              value="1"
               className="rounded-lg border border-sky-600 bg-sky-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-sky-700"
             >
               Save intake
             </button>
           </div>
-        </form>
+        </LeadIntakeSaveForm>
       ) : (
         <div className="rounded-[28px] border border-slate-200 bg-slate-50/80 p-5 text-sm text-slate-700">
           <p className="font-semibold text-slate-900">Intake snapshot</p>
@@ -1371,6 +1367,8 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
             <button
               type="submit"
               form="form-lead-intake"
+              name="save_lead_intake"
+              value="1"
               className="pointer-events-auto rounded-lg border border-sky-600 bg-sky-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-sky-700"
             >
               Save intake
