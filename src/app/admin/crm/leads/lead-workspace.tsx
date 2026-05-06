@@ -559,7 +559,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
 
       <nav
         aria-label="Jump to section"
-        className="sticky top-[calc(var(--admin-header-height)+0.5rem)] z-30 mb-8 shrink-0 rounded-2xl border border-slate-200/90 bg-white/95 px-3 py-3 shadow-md backdrop-blur-md sm:px-5"
+        className="sticky top-[calc(var(--admin-header-height)+1.25rem)] z-30 mb-8 shrink-0 rounded-2xl border border-slate-200/90 bg-white/95 px-3 py-3 shadow-md backdrop-blur-md sm:px-5"
       >
         <ul className="flex flex-nowrap gap-x-4 gap-y-2 overflow-x-auto pb-0.5 text-sm font-medium text-slate-600 sm:flex-wrap">
           <li>

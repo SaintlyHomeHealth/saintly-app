@@ -14,24 +14,15 @@ import {
 import { supabaseAdmin } from "@/lib/admin";
 import { formatFaxSenderDisplay } from "@/lib/fax/format-fax-sender";
 import { formatFaxDateTimeList } from "@/lib/fax/format-fax-time";
-import { missingFaxSchema, type FaxMessageRow } from "@/lib/fax/fax-service";
+import { faxMatchesKeywordSearch, missingFaxSchema, type FaxMessageRow } from "@/lib/fax/fax-service";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import { getStaffProfile, isAdminOrHigher, isManagerOrHigher } from "@/lib/staff-profile";
 
 import { DeleteFaxButton } from "./_components/DeleteFaxButton";
+import { FaxNoteListCell } from "./_components/FaxNoteListCell";
 import { SendFaxButton } from "./_components/SendFaxButton";
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
-
-const CATEGORIES = [
-  ["", "All categories"],
-  ["referral", "Referral"],
-  ["orders", "Orders"],
-  ["signed_docs", "Signed Docs"],
-  ["insurance", "Insurance"],
-  ["marketing", "Marketing"],
-  ["misc", "Misc"],
-] as const;
 
 function one(raw: Record<string, string | string[] | undefined>, key: string): string {
   const value = raw[key];
@@ -43,39 +34,6 @@ function statusBadgeClass(status: string): string {
   if (s.includes("fail")) return "border-rose-200 bg-rose-50 text-rose-700";
   if (s.includes("delivered") || s.includes("received")) return "border-emerald-200 bg-emerald-50 text-emerald-700";
   return "border-sky-200 bg-sky-50 text-sky-700";
-}
-
-function categoryLabel(value: string): string {
-  return value
-    .split("_")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
-
-function matchedBadge(fax: FaxMessageRow): { label: string; className: string } {
-  if (fax.patient_id) return { label: "Patient", className: "border-indigo-200 bg-indigo-50 text-indigo-700" };
-  if (fax.lead_id) return { label: "Lead", className: "border-sky-200 bg-sky-50 text-sky-700" };
-  if (fax.facility_id) return { label: "Facility", className: "border-emerald-200 bg-emerald-50 text-emerald-700" };
-  return { label: "Unassigned", className: "border-amber-200 bg-amber-50 text-amber-800" };
-}
-
-function searchMatches(fax: FaxMessageRow, q: string): boolean {
-  if (!q) return true;
-  const hay = [
-    fax.from_number,
-    fax.to_number,
-    fax.sender_name,
-    fax.recipient_name,
-    fax.subject,
-    fax.fax_number_label,
-    fax.status,
-    fax.category,
-    fax.tags?.join(" "),
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
-  return hay.includes(q.toLowerCase());
 }
 
 function filterHref(tab: string): string {
@@ -92,8 +50,6 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
     tab: one(raw, "tab") || "inbox",
     q: one(raw, "q").trim(),
     unread: one(raw, "unread") === "1",
-    unassigned: one(raw, "unassigned") === "1",
-    category: one(raw, "category").trim(),
     from: one(raw, "from").trim(),
     to: one(raw, "to").trim(),
   };
@@ -101,8 +57,6 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
   if (f.tab) currentSearch.set("tab", f.tab);
   if (f.q) currentSearch.set("q", f.q);
   if (f.unread) currentSearch.set("unread", "1");
-  if (f.unassigned) currentSearch.set("unassigned", "1");
-  if (f.category) currentSearch.set("category", f.category);
   if (f.from) currentSearch.set("from", f.from);
   if (f.to) currentSearch.set("to", f.to);
   const currentListPath = `/admin/fax${currentSearch.size ? `?${currentSearch.toString()}` : ""}`;
@@ -111,40 +65,42 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
     .from("fax_messages")
     .select("*")
     .order("created_at", { ascending: false })
-    .limit(300);
+    .limit(400);
 
   if (f.tab === "sent") query = query.eq("direction", "outbound").not("status", "ilike", "%failed%");
   else if (f.tab === "failed") query = query.ilike("status", "%failed%");
   else if (f.tab === "archived") query = query.eq("is_archived", true);
   else query = query.eq("direction", "inbound").eq("is_archived", false);
   if (f.unread) query = query.eq("is_read", false);
-  if (f.category) query = query.eq("category", f.category);
   if (f.from) query = query.gte("created_at", `${f.from}T00:00:00.000Z`);
   if (f.to) query = query.lte("created_at", `${f.to}T23:59:59.999Z`);
 
   const { data, error } = await query;
   const schemaMissing = missingFaxSchema(error);
   let faxes = schemaMissing ? [] : ((data ?? []) as FaxMessageRow[]);
-  if (f.unassigned) {
-    faxes = faxes.filter((fax) => !fax.lead_id && !fax.patient_id && !fax.facility_id);
-  }
-  if (f.q) faxes = faxes.filter((fax) => searchMatches(fax, f.q));
+  if (f.q) faxes = faxes.filter((fax) => faxMatchesKeywordSearch(fax, f.q));
 
   const { data: metricRows } = schemaMissing
     ? { data: [] }
-    : await supabaseAdmin.from("fax_messages").select("direction, status, category, is_read, is_archived, lead_id, patient_id, facility_id, received_at, created_at").limit(1000);
-  const metrics = ((metricRows ?? []) as FaxMessageRow[]).reduce(
+    : await supabaseAdmin
+        .from("fax_messages")
+        .select("direction, status, is_read, is_archived, received_at, sent_at, created_at")
+        .limit(1500);
+  const weekAgo = new Date();
+  weekAgo.setDate(weekAgo.getDate() - 7);
+  const metrics = ((metricRows ?? []) as Pick<
+    FaxMessageRow,
+    "direction" | "status" | "is_read" | "is_archived" | "received_at" | "sent_at" | "created_at"
+  >[]).reduce(
     (acc, fax) => {
       if (fax.direction === "inbound" && !fax.is_read && !fax.is_archived) acc.unread += 1;
-      if (fax.direction === "inbound" && !fax.is_archived && !fax.lead_id && !fax.patient_id && !fax.facility_id) acc.unassigned += 1;
+      if (fax.direction === "inbound" && !fax.is_archived) acc.inbox += 1;
       if (fax.direction === "outbound" && fax.status.toLowerCase().includes("fail")) acc.failed += 1;
-      const received = fax.received_at ? new Date(fax.received_at) : null;
-      const weekAgo = new Date();
-      weekAgo.setDate(weekAgo.getDate() - 7);
-      if (fax.category === "referral" && received && received >= weekAgo) acc.referralsThisWeek += 1;
+      const ts = fax.received_at ?? fax.sent_at ?? fax.created_at;
+      if (ts && new Date(ts) >= weekAgo) acc.thisWeek += 1;
       return acc;
     },
-    { unread: 0, unassigned: 0, failed: 0, referralsThisWeek: 0 }
+    { unread: 0, inbox: 0, failed: 0, thisWeek: 0 }
   );
 
   return (
@@ -152,7 +108,7 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
       <AdminPageHeader
         eyebrow="Admin Fax"
         title="Fax Center"
-        description="Inbound referrals, orders, signatures, and fax history."
+        description="Inbound and outbound fax history with quick notes for every document."
         actions={
           <div className="flex flex-wrap gap-2">
             <SendFaxButton />
@@ -175,9 +131,9 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {[
           ["New unread faxes", metrics.unread],
-          ["Unassigned faxes", metrics.unassigned],
+          ["In inbox (active)", metrics.inbox],
           ["Failed outbound", metrics.failed],
-          ["Referrals received this week", metrics.referralsThisWeek],
+          ["Faxes (last 7 days)", metrics.thisWeek],
         ].map(([label, value]) => (
           <div key={label} className="rounded-[24px] border border-slate-200 bg-white p-4 shadow-sm">
             <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">{label}</p>
@@ -207,25 +163,15 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
 
       <form method="get" action="/admin/fax" className={crmFilterBarCls}>
         <input type="hidden" name="tab" value={f.tab} />
-        <label className="flex min-w-[14rem] flex-1 flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-          Search
+        <label className="flex min-w-[16rem] flex-[2] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+          Keyword search
           <input
             type="search"
             name="q"
             defaultValue={f.q}
-            placeholder="Fax number, sender, patient, lead, facility…"
-            className={`${crmFilterInputCls} min-w-[14rem]`}
+            placeholder="Notes, fax numbers, names, subject, status, inbound/outbound…"
+            className={`${crmFilterInputCls} min-w-[16rem]`}
           />
-        </label>
-        <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-          Category
-          <select name="category" defaultValue={f.category} className={crmFilterInputCls}>
-            {CATEGORIES.map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
         </label>
         <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
           From
@@ -239,33 +185,26 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
           <input type="checkbox" name="unread" value="1" defaultChecked={f.unread} />
           Unread
         </label>
-        <label className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700">
-          <input type="checkbox" name="unassigned" value="1" defaultChecked={f.unassigned} />
-          Unassigned
-        </label>
         <button type="submit" className={crmActionBtnSky}>
-          Apply filters
+          Apply
         </button>
       </form>
 
       <section className={crmListScrollOuterCls}>
-        <div className="min-w-[980px] divide-y divide-slate-100">
-          <div className="grid grid-cols-[90px_1.2fr_120px_120px_80px_110px_130px_120px_120px] gap-3 bg-slate-50 px-4 py-3 text-[11px] font-bold uppercase tracking-wide text-slate-500">
+        <div className="min-w-[1040px] divide-y divide-slate-100">
+          <div className="grid grid-cols-[92px_minmax(180px,1fr)_minmax(320px,2.2fr)_56px_104px_128px_132px] items-center gap-3 bg-slate-50 px-4 py-3 text-[11px] font-bold uppercase tracking-wide text-slate-500">
             <div>Direction</div>
             <div>Sender / recipient</div>
-            <div>Matched</div>
-            <div>Category</div>
+            <div>Note / description</div>
             <div>Pages</div>
             <div>Status</div>
             <div>Time</div>
-            <div>Assigned</div>
             <div>Actions</div>
           </div>
           {faxes.length === 0 ? (
             <div className="px-4 py-12 text-center text-sm text-slate-500">No faxes match these filters.</div>
           ) : (
             faxes.map((fax) => {
-              const match = matchedBadge(fax);
               const primaryPhone = fax.direction === "inbound" ? fax.from_number : fax.to_number;
               const primaryName = fax.direction === "inbound" ? fax.sender_name : fax.recipient_name;
               const primary = formatFaxSenderDisplay(primaryPhone, primaryName);
@@ -273,14 +212,18 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
               return (
                 <div
                   key={fax.id}
-                  className={`grid grid-cols-[90px_1.2fr_120px_120px_80px_110px_130px_120px_120px] gap-3 px-4 py-3 text-sm transition ${crmListRowHoverCls}`}
+                  className={`grid grid-cols-[92px_minmax(180px,1fr)_minmax(320px,2.2fr)_56px_104px_128px_132px] items-start gap-3 px-4 py-3 text-sm transition ${crmListRowHoverCls}`}
                 >
-                  <div>
-                    <span className={`rounded-full px-2 py-1 text-[11px] font-bold ${fax.direction === "inbound" ? "bg-emerald-50 text-emerald-700" : "bg-indigo-50 text-indigo-700"}`}>
+                  <div className="pt-0.5">
+                    <span
+                      className={`rounded-full px-2 py-1 text-[11px] font-bold ${
+                        fax.direction === "inbound" ? "bg-emerald-50 text-emerald-700" : "bg-indigo-50 text-indigo-700"
+                      }`}
+                    >
                       {fax.direction === "inbound" ? "Inbound" : "Outbound"}
                     </span>
                   </div>
-                  <div>
+                  <div className="min-w-0 pt-0.5">
                     <Link href={`/admin/fax/${fax.id}`} className="block">
                       <p className="font-semibold text-slate-900">{primary || "Unknown sender"}</p>
                     </Link>
@@ -288,32 +231,21 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
                     <p className="text-xs text-slate-500">{secondary ? `Via ${formatPhoneForDisplay(secondary)}` : "No secondary number"}</p>
                     {!fax.is_read && fax.direction === "inbound" ? <p className="mt-1 text-[11px] font-bold text-sky-700">Unread</p> : null}
                   </div>
-                  <div>
-                    <span className={`rounded-full border px-2 py-1 text-[11px] font-bold ${match.className}`}>{match.label}</span>
+                  <div className="min-w-0">
+                    <FaxNoteListCell faxId={fax.id} initialNote={fax.note ?? null} />
                   </div>
-                  <div>
-                    <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-700">
-                      {categoryLabel(fax.category)}
-                    </span>
-                  </div>
-                  <div className="text-slate-700">{fax.page_count ?? "—"}</div>
-                  <div>
+                  <div className="pt-2 text-slate-700">{fax.page_count ?? "—"}</div>
+                  <div className="pt-1.5">
                     <span className={`rounded-full border px-2 py-1 text-[11px] font-bold ${statusBadgeClass(fax.status)}`}>{fax.status}</span>
                   </div>
-                  <div className="text-xs text-slate-600">
+                  <div className="pt-2 text-xs text-slate-600">
                     {formatFaxDateTimeList(fax.received_at ?? fax.sent_at ?? fax.created_at)}
                   </div>
-                  <div className="text-xs text-slate-600">{fax.assigned_to_user_id ? "Assigned" : "Unassigned"}</div>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap gap-2 pt-1">
                     <Link href={`/admin/fax/${fax.id}`} className={crmActionBtnMuted}>
                       Open
                     </Link>
-                    <DeleteFaxButton
-                      faxId={fax.id}
-                      returnTo={currentListPath}
-                      allowHardDelete={allowHardDelete}
-                      compact
-                    />
+                    <DeleteFaxButton faxId={fax.id} returnTo={currentListPath} allowHardDelete={allowHardDelete} compact />
                   </div>
                 </div>
               );

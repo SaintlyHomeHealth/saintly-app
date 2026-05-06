@@ -4,17 +4,10 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { supabaseAdmin } from "@/lib/admin";
-import { createReferralLeadFromFax, recordFaxEvent, type FaxCategory } from "@/lib/fax/fax-service";
+import { recordFaxEvent } from "@/lib/fax/fax-service";
 import { getStaffProfile, isAdminOrHigher, isManagerOrHigher } from "@/lib/staff-profile";
 
-const VALID_CATEGORIES = new Set<FaxCategory>([
-  "referral",
-  "orders",
-  "signed_docs",
-  "insurance",
-  "marketing",
-  "misc",
-]);
+const NOTE_MAX_LEN = 4000;
 
 async function requireFaxAdmin() {
   const staff = await getStaffProfile();
@@ -129,83 +122,33 @@ export async function hardDeleteFaxAction(formData: FormData) {
   redirect(path);
 }
 
-export async function updateFaxCategoryAction(formData: FormData) {
-  const faxId = readString(formData, "faxId");
-  const raw = readString(formData, "category");
-  const category = VALID_CATEGORIES.has(raw as FaxCategory) ? (raw as FaxCategory) : "misc";
-  await updateFaxAndEvent({
-    faxId,
-    patch: { category },
-    eventType: "category_changed",
-    payload: { category },
-    returnToPath: returnTo(formData, `/admin/fax/${faxId}`),
-  });
-}
+export async function updateFaxNoteAction(formData: FormData): Promise<{ ok: true } | { ok: false; error: string }> {
+  const staff = await getStaffProfile();
+  if (!staff || !isManagerOrHigher(staff)) {
+    return { ok: false, error: "Unauthorized" };
+  }
 
-export async function updateFaxTagsAction(formData: FormData) {
   const faxId = readString(formData, "faxId");
-  const tags = readString(formData, "tags")
-    .split(",")
-    .map((tag) => tag.trim())
-    .filter(Boolean)
-    .slice(0, 16);
-  await updateFaxAndEvent({
-    faxId,
-    patch: { tags },
-    eventType: "tags_changed",
-    payload: { tags },
-    returnToPath: returnTo(formData, `/admin/fax/${faxId}`),
-  });
-}
+  const rawNote = typeof formData.get("note") === "string" ? formData.get("note") : "";
+  const note =
+    typeof rawNote === "string" ? rawNote.trim().slice(0, NOTE_MAX_LEN) || null : null;
 
-export async function assignFaxOwnerAction(formData: FormData) {
-  const faxId = readString(formData, "faxId");
-  const assignedTo = readString(formData, "assigned_to_user_id") || null;
-  await updateFaxAndEvent({
-    faxId,
-    patch: { assigned_to_user_id: assignedTo },
-    eventType: "assigned",
-    payload: { assigned_to_user_id: assignedTo },
-    returnToPath: returnTo(formData, `/admin/fax/${faxId}`),
-  });
-}
+  if (!faxId) return { ok: false, error: "Missing fax." };
 
-export async function attachFaxRecordAction(formData: FormData) {
-  const faxId = readString(formData, "faxId");
-  const selected = readString(formData, "match_id");
-  const [selectedKind, selectedId] = selected.includes(":") ? selected.split(":", 2) : ["", selected];
-  const kind = selectedKind || readString(formData, "match_kind");
-  const id = selectedId || null;
-  const patch: Record<string, unknown> = {};
-  if (kind === "lead") patch.lead_id = id;
-  if (kind === "patient") patch.patient_id = id;
-  if (kind === "facility") patch.facility_id = id;
-  await updateFaxAndEvent({
-    faxId,
-    patch,
-    eventType: "manual_match_attached",
-    payload: { kind, id },
-    returnToPath: returnTo(formData, `/admin/fax/${faxId}`),
-  });
-}
+  const { error } = await supabaseAdmin.from("fax_messages").update({ note }).eq("id", faxId);
+  if (error) {
+    if (error.message?.toLowerCase().includes("column") && error.message?.toLowerCase().includes("note")) {
+      return { ok: false, error: "Database migration missing: fax note column (note)." };
+    }
+    return { ok: false, error: error.message ?? "Update failed." };
+  }
 
-export async function createLeadFromFaxAction(formData: FormData) {
-  const staff = await requireFaxAdmin();
-  const faxId = readString(formData, "faxId");
-  const result = await createReferralLeadFromFax({
-    faxId,
-    firstName: readString(formData, "firstName"),
-    lastName: readString(formData, "lastName"),
-    dob: readString(formData, "dob") || null,
-    phone: readString(formData, "phone") || null,
-    address: readString(formData, "address") || null,
-    insurance: readString(formData, "insurance") || null,
-    doctor: readString(formData, "doctor") || null,
-    notes: readString(formData, "notes") || null,
-    actorUserId: staff.user_id,
+  await recordFaxEvent({
+    faxMessageId: faxId,
+    eventType: "note_updated",
+    payload: { actor_user_id: staff.user_id, has_note: Boolean(note) },
   });
   revalidatePath("/admin/fax");
   revalidatePath(`/admin/fax/${faxId}`);
-  if (result.ok && result.leadId) redirect(`/admin/crm/leads/${result.leadId}`);
-  redirect(`/admin/fax/${faxId}?leadError=${encodeURIComponent(result.error ?? "Lead creation failed")}`);
+  return { ok: true };
 }

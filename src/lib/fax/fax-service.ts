@@ -39,6 +39,8 @@ export type FaxMessageRow = {
   referral_source_id: string | null;
   contact_id: string | null;
   tags: string[];
+  /** Staff-entered label; independent of category / CRM matching. */
+  note: string | null;
   category: FaxCategory;
   priority: FaxPriority;
   is_read: boolean;
@@ -53,6 +55,36 @@ export type FaxMessageRow = {
   /** Set after HIPAA-safe inbound fax SMS/push alerts are dispatched (dedupes webhook retries). */
   inbound_alert_sent_at?: string | null;
 };
+
+/** Tokenized AND search across common fax fields (case-insensitive substring per token). */
+export function faxMatchesKeywordSearch(fax: FaxMessageRow, rawQuery: string): boolean {
+  const tokens = rawQuery
+    .toLowerCase()
+    .split(/\s+/)
+    .map((t) => t.trim())
+    .filter(Boolean);
+  if (tokens.length === 0) return true;
+
+  const hay = [
+    fax.note,
+    fax.from_number,
+    fax.to_number,
+    fax.sender_name,
+    fax.recipient_name,
+    fax.subject,
+    fax.fax_number_label,
+    fax.status,
+    fax.direction,
+    fax.category,
+    fax.failure_reason,
+    ...(fax.tags ?? []),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  return tokens.every((t) => hay.includes(t));
+}
 
 export type FaxMatch = {
   lead_id?: string | null;
