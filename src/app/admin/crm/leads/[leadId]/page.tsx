@@ -4,7 +4,7 @@ import { LeadWorkspace } from "../lead-workspace";
 import { parseEmploymentApplicationMeta, type EmploymentApplicationMeta } from "@/lib/crm/lead-employment-meta";
 import { parseLeadIntakeRequestFromMetadata } from "@/lib/crm/lead-intake-request";
 import { isLeadPipelineTerminal, isValidLeadPipelineStatus } from "@/lib/crm/lead-pipeline-status";
-import { canAccessWorkspacePhone, getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
+import { canAccessWorkspacePhone, getStaffProfile, isCrmLeadsRowPolicyRole } from "@/lib/staff-profile";
 import { supabaseAdmin } from "@/lib/admin";
 import type { LeadActivityRow } from "@/lib/crm/lead-activities-timeline";
 import { isMissingSchemaObjectError } from "@/lib/crm/supabase-migration-fallback";
@@ -27,6 +27,7 @@ import { resolveLeadCrmStage } from "@/lib/crm/crm-stage";
 import { loadAssignableLeadOwners } from "@/lib/crm/assignable-lead-owners";
 import { listInsurancePayers } from "@/lib/crm/insurance-payers";
 import { listCrmTasks } from "@/lib/crm/crm-tasks-operations";
+import { loadLeadAttachmentsForWorkspace } from "@/lib/crm/lead-attachments-load";
 import { safeAdminCrmLeadsListReturnUrl } from "@/lib/crm/admin-crm-leads-list-url";
 import { getSaintlyCrmVoicePhiNotice } from "@/lib/crm/crm-voice-phi-notice.server";
 import { getSaintlyRealtimeGatewayClientSnapshot } from "@/lib/crm/saintly-ai-voice-config";
@@ -125,7 +126,7 @@ export default async function LeadIntakePage({
     const staff = routePerfStepsEnabled()
       ? await routePerfTimed("admin_crm_lead_detail.staff_profile", getStaffProfile)
       : await getStaffProfile();
-    if (!staff || !isManagerOrHigher(staff)) {
+    if (!staff || !isCrmLeadsRowPolicyRole(staff)) {
       redirect("/admin");
     }
 
@@ -512,6 +513,7 @@ export default async function LeadIntakePage({
   const initialLeadTasks = leadTasksRes.ok ? leadTasksRes.tasks : [];
   const crmRealtimeGateway = getSaintlyRealtimeGatewayClientSnapshot();
   const voicePhiNotice = getSaintlyCrmVoicePhiNotice();
+  const initialLeadAttachments = await loadLeadAttachmentsForWorkspace(leadId.trim());
 
     return (
     <LeadWorkspace
@@ -568,6 +570,7 @@ export default async function LeadIntakePage({
       initialLeadTasks={initialLeadTasks}
       crmRealtimeGateway={crmRealtimeGateway}
       voicePhiNotice={voicePhiNotice}
+      initialLeadAttachments={initialLeadAttachments}
     />
     );
   } catch (e) {

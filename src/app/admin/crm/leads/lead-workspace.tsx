@@ -6,11 +6,7 @@ import { FormattedPhoneInput } from "@/components/phone/FormattedPhoneInput";
 import { LeadPayerInsuranceFields } from "@/app/admin/crm/leads/_components/LeadPayerInsuranceFields";
 import { leadDisplayPrimaryPayerName } from "@/lib/crm/lead-payer-structured";
 import { ServiceDisciplineCheckboxes } from "@/components/crm/ServiceDisciplineCheckboxes";
-import {
-  formatLeadPipelineStatusLabel,
-  isLeadPipelineTerminal,
-  LEAD_PIPELINE_STATUS_EDITABLE_OPTIONS,
-} from "@/lib/crm/lead-pipeline-status";
+import { formatLeadPipelineStatusLabel } from "@/lib/crm/lead-pipeline-status";
 import { LEAD_SOURCE_OPTIONS, formatLeadSourceLabel } from "@/lib/crm/lead-source-options";
 
 import { LeadContactOutcomeForm } from "@/app/admin/crm/leads/_components/LeadContactOutcomeForm";
@@ -32,6 +28,8 @@ import { MarkLeadDeadButton } from "@/app/admin/crm/leads/_components/MarkLeadDe
 import { MoveToPatientStageButton } from "@/app/admin/crm/leads/_components/MoveToPatientStageButton";
 import { ReopenLeadButton } from "@/app/admin/crm/leads/_components/ReopenLeadButton";
 import { LeadTasksPanel } from "@/app/admin/crm/leads/_components/LeadTasksPanel";
+import { LeadAttachmentsPanel } from "@/app/admin/crm/leads/_components/LeadAttachmentsPanel";
+import type { LeadAttachmentWorkspaceRow } from "@/lib/crm/lead-attachments-load";
 import type { EmploymentApplicationMeta } from "@/lib/crm/lead-employment-meta";
 import { hasAnyIntakeRequestDetail, type LeadIntakeRequestDetails } from "@/lib/crm/lead-intake-request";
 import { addCalendarDaysToIsoDate, getCrmCalendarTodayIso, getCrmCalendarTomorrowIso } from "@/lib/crm/crm-local-date";
@@ -224,6 +222,8 @@ export type LeadWorkspaceExistingProps = {
   crmRealtimeGateway: SaintlyRealtimeGatewayClientSnapshot;
   /** Server-resolved voice disclosure (`SAINTLY_OPENAI_API_BAA_CONFIRMED`). */
   voicePhiNotice: string;
+  /** Uploaded lead documents (Storage + `lead_attachments`). */
+  initialLeadAttachments?: LeadAttachmentWorkspaceRow[];
 };
 
 export type LeadWorkspaceNewProps = {
@@ -283,10 +283,10 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
         <form action={createLeadManualFromCrm} className="space-y-6">
           <input type="hidden" name="fbclid" value={initialFbclid} />
           <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
-            <h2 className="text-sm font-semibold text-slate-900">Pipeline &amp; ownership</h2>
+            <h2 className="text-sm font-semibold text-slate-900">Contact &amp; ownership</h2>
             <p className="mt-1 text-xs text-slate-500">
-              Pipeline status starts as <strong>New</strong> (change it after save like any other lead). Set next step
-              and follow-up from <strong>Contact outcome</strong> once the lead exists.
+              New leads start in <strong>New</strong>. Set next step and follow-up from <strong>Contact outcome</strong> once
+              the lead exists.
             </p>
             <div className="mt-4 grid max-w-2xl gap-3 sm:grid-cols-2">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 sm:col-span-2">Contact</p>
@@ -510,6 +510,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
     initialLeadTasks,
     crmRealtimeGateway,
     voicePhiNotice,
+    initialLeadAttachments = [],
   } = props;
 
   const tomorrowIso = getCrmCalendarTomorrowIso();
@@ -558,7 +559,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
 
       <nav
         aria-label="Jump to section"
-        className="z-30 mb-8 shrink-0 rounded-2xl border border-slate-200/90 bg-white/95 px-3 py-3 shadow-sm backdrop-blur-md sm:px-5"
+        className="sticky top-[calc(var(--admin-header-height)+0.5rem)] z-30 mb-8 shrink-0 rounded-2xl border border-slate-200/90 bg-white/95 px-3 py-3 shadow-md backdrop-blur-md sm:px-5"
       >
         <ul className="flex flex-nowrap gap-x-4 gap-y-2 overflow-x-auto pb-0.5 text-sm font-medium text-slate-600 sm:flex-wrap">
           <li>
@@ -583,11 +584,13 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
               Outcome
             </a>
           </li>
-          <li>
-            <a href="#section-pipeline" className="whitespace-nowrap hover:text-sky-800">
-              Pipeline
-            </a>
-          </li>
+          {!terminal ? (
+            <li>
+              <a href="#section-ownership" className="whitespace-nowrap hover:text-sky-800">
+                Ownership
+              </a>
+            </li>
+          ) : null}
           {!isEmployeeLead ? (
             <li>
               <a href="#section-insurance" className="whitespace-nowrap hover:text-sky-800">
@@ -616,6 +619,11 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
               </a>
             </li>
           ) : null}
+          <li>
+            <a href="#section-attachments" className="whitespace-nowrap hover:text-sky-800">
+              Attachments
+            </a>
+          </li>
         </ul>
       </nav>
 
@@ -866,8 +874,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
               </p>
             ) : (
               <p>
-                Pipeline status is <strong>{formatLeadPipelineStatusLabel(rawStatus)}</strong> (terminal). Insurance and
-                Medicare remain editable below for corrections.
+                This lead is in a closed pipeline stage. Insurance and Medicare remain editable below for corrections.
               </p>
             )}
           </div>
@@ -1050,6 +1057,8 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
       {!terminal ? (
         <LeadIntakeSaveForm action={updateLeadIntake}>
           <input type="hidden" name="leadId" value={leadId} />
+          {/* Keep `leads.status` unchanged on save: `updateLeadIntake` only applies status when pipeline_status is submitted. */}
+          <input type="hidden" name="pipeline_status" value={pipelineDefault} />
           {isEmployeeLead ? (
             <>
               <input type="hidden" name="referring_doctor_name" value={intakeDefaults.referring_doctor_name} />
@@ -1081,29 +1090,12 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
           ) : null}
 
           <LeadSectionCard
-            id="section-pipeline"
-            title="Pipeline & ownership"
-            description="Set the lead’s current pipeline stage and owner."
+            id="section-ownership"
+            title="Ownership & disposition"
+            description="Assign the lead owner and move the record to Patient stage or mark it dead."
             className="border-indigo-100/90 bg-indigo-50/20 ring-indigo-100/40"
           >
             <div className="grid max-w-2xl gap-4 sm:grid-cols-2">
-              <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
-                Pipeline status
-                <select name="pipeline_status" className={inp} defaultValue={pipelineDefault}>
-                  {LEAD_PIPELINE_STATUS_EDITABLE_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                  {rawStatus &&
-                  !LEAD_PIPELINE_STATUS_EDITABLE_OPTIONS.some((o) => o.value === rawStatus) &&
-                  !isLeadPipelineTerminal(rawStatus) ? (
-                    <option value={rawStatus}>
-                      {formatLeadPipelineStatusLabel(rawStatus)} (current)
-                    </option>
-                  ) : null}
-                </select>
-              </label>
               <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
                 Owner
                 <select name="owner_user_id" className={inp} defaultValue={ownerUid}>
@@ -1399,6 +1391,14 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
           </dl>
         </div>
       )}
+        <LeadSectionCard
+          id="section-attachments"
+          title="Attachments"
+          description="Upload referral packets, orders, authorizations, and other documents. Stored securely; links open with a time-limited signed URL."
+        >
+          <LeadAttachmentsPanel leadId={leadId} initialRows={initialLeadAttachments} />
+        </LeadSectionCard>
+
         <div className="border-t border-slate-200 pt-6">
           <Link
             href={leadsListBackHref}

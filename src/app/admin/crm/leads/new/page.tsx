@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { LeadWorkspace } from "../lead-workspace";
 import { loadAssignableLeadOwners } from "@/lib/crm/assignable-lead-owners";
 import { listInsurancePayers } from "@/lib/crm/insurance-payers";
-import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
+import { getStaffProfile, isCrmLeadsRowPolicyRole } from "@/lib/staff-profile";
 
 export default async function AdminCrmLeadNewPage({
   searchParams,
@@ -11,7 +11,7 @@ export default async function AdminCrmLeadNewPage({
   searchParams: Promise<{ manualError?: string; fbclid?: string }>;
 }) {
   const staff = await getStaffProfile();
-  if (!staff || !isManagerOrHigher(staff)) {
+  if (!staff || !isCrmLeadsRowPolicyRole(staff)) {
     redirect("/admin");
   }
 

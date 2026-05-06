@@ -94,6 +94,17 @@ export function isManagerOrHigher(profile: StaffProfile | null | undefined): boo
 }
 
 /**
+ * Matches `leads` / `lead_attachments` Postgres RLS (`manager`, `admin`, `super_admin`).
+ * Use for CRM lead APIs that should stay consistent with user-scoped lead queries (not `isManagerOrHigher`,
+ * which also includes recruiter / dispatch / billing / credentialing / DON).
+ */
+export function isCrmLeadsRowPolicyRole(profile: StaffProfile | null | undefined): boolean {
+  if (!profile || profile.is_active === false) return false;
+  const r = profile.role;
+  return r === "manager" || r === "admin" || r === "super_admin";
+}
+
+/**
  * Field / clinical staff who should use workspace phone first — not `/admin` unless `admin_shell_access`.
  */
 export function isWorkspaceEmployeeRole(role: string | null | undefined): boolean {

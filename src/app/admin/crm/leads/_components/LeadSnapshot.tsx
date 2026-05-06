@@ -3,7 +3,6 @@ import type { ReactNode } from "react";
 import type { EmploymentApplicationMeta } from "@/lib/crm/lead-employment-meta";
 import { formatLeadLastContactSummary } from "@/lib/crm/lead-contact-outcome";
 import { formatLeadNextActionLabel } from "@/lib/crm/lead-follow-up-options";
-import { formatLeadPipelineStatusLabel } from "@/lib/crm/lead-pipeline-status";
 import { formatLeadSourceLabel } from "@/lib/crm/lead-source-options";
 import type { LeadIntakeRequestDetails } from "@/lib/crm/lead-intake-request";
 import { hasAnyIntakeRequestDetail } from "@/lib/crm/lead-intake-request";
@@ -170,7 +169,6 @@ function buildSnapshotPlainText(p: LeadSnapshotProps): string {
     .join(" · ");
   L("Address", addr);
   L("Lead source", formatLeadSourceLabel(p.sourceRaw));
-  L("Pipeline status", formatLeadPipelineStatusLabel(p.rawStatus));
   L("Owner", staffLabel(p.staffOptions, p.ownerUid) || "—");
   L("Next action", formatLeadNextActionLabel(p.nextActionVal));
   L("Lead next follow-up", p.followUpIso ? fmtIsoDate(p.followUpIso) : "—");
@@ -301,7 +299,7 @@ export function LeadSnapshot(props: LeadSnapshotProps) {
   return (
     <section
       id="section-snapshot"
-      className="scroll-mt-28 rounded-[28px] border border-slate-200/90 bg-gradient-to-b from-white via-slate-50/40 to-slate-50/80 p-5 shadow-[0_8px_30px_rgba(15,23,42,0.06)] ring-1 ring-slate-200/60 sm:p-7"
+      className="scroll-mt-36 rounded-[28px] border border-slate-200/90 bg-gradient-to-b from-white via-slate-50/40 to-slate-50/80 p-5 shadow-[0_8px_30px_rgba(15,23,42,0.06)] ring-1 ring-slate-200/60 sm:p-7"
     >
       {!isEmployeeLead && waitingOnDoctorsOrders ? (
         <div
@@ -422,13 +420,10 @@ export function LeadSnapshot(props: LeadSnapshotProps) {
           </dl>
         </SubCard>
 
-        <SubCard title="Lead status & workflow">
+        <SubCard title="Workflow">
           <dl className="grid gap-3 sm:grid-cols-2">
             <Field label="Lead source" emphasis>
               {formatLeadSourceLabel(sourceRaw)}
-            </Field>
-            <Field label="Pipeline status" emphasis>
-              {formatLeadPipelineStatusLabel(rawStatus)}
             </Field>
             <Field label="Owner">{textOrMuted(staffLabel(staffOptions, ownerUid))}</Field>
             <Field label="Next action" emphasis>
