@@ -183,7 +183,7 @@ export async function sendWorkspacePatientSms(input: {
       action: "workspace_patient_sms_failed",
       entityType: "patient",
       entityId: pid,
-      metadata: { error: result.error.slice(0, 400), recipient: input.recipient, ...(input.auditExtra ?? {}) },
+      metadata: { recipient: input.recipient, failure: "sms_provider", ...(input.auditExtra ?? {}) },
     });
     return { ok: false, error: result.error };
   }

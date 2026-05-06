@@ -5,8 +5,32 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { SmsTextFromBar } from "@/app/workspace/phone/inbox/_components/SmsTextFromBar";
 import { ENABLE_SMS_AI_SUGGESTIONS } from "@/lib/phone/sms-ai-suggestions-flag";
+import { SMS_SEND_FRIENDLY_TRY_AGAIN, SMS_SEND_CLIENT_MAX_WAIT_MS, awaitWithTimeout } from "@/lib/phone/sms-send-user-copy";
+import { smsThreadComposerUserVisibleError } from "@/lib/phone/sms-ui-user-message";
 
 import { recordSmsSuggestionShown, sendConversationSms, type SendConversationSmsResult } from "../actions";
+
+async function sendConversationSmsWithClientBudget(
+  fd: FormData
+): Promise<SendConversationSmsResult> {
+  return awaitWithTimeout(
+    sendConversationSms(fd),
+    SMS_SEND_CLIENT_MAX_WAIT_MS,
+    () => ({ ok: false, error: SMS_SEND_FRIENDLY_TRY_AGAIN })
+  );
+}
+
+function shouldAutofocusSmsComposer(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    if (window.matchMedia("(pointer: coarse)").matches && window.matchMedia("(hover: none)").matches) {
+      return false;
+    }
+  } catch {
+    /* ignore */
+  }
+  return true;
+}
 
 type Props = {
   conversationId: string;
@@ -68,7 +92,10 @@ export function SmsReplyComposer({
   const shownRecordedForRef = useRef<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const sendInFlightRef = useRef(false);
+  const mountedRef = useRef(true);
   const [sendInFlight, setSendInFlight] = useState(false);
+  /** Inline error when `onInPlaceSendError` is not provided (admin / non-workspace thread). */
+  const [composerError, setComposerError] = useState<string | null>(null);
 
   useEffect(() => {
     if (lastSeedKeyRef.current === seedKey) return;
@@ -86,7 +113,15 @@ export function SmsReplyComposer({
   }, [conversationId, initialSuggestion, suggestionForMessageId]);
 
   useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
     if (!messagingUX) return;
+    if (!shouldAutofocusSmsComposer()) return;
     const t = window.setTimeout(() => {
       inputRef.current?.focus();
     }, 120);
@@ -108,14 +143,29 @@ export function SmsReplyComposer({
     if (sendInFlightRef.current) return;
     sendInFlightRef.current = true;
     setSendInFlight(true);
+    setComposerError(null);
     onOutboundOptimistic?.(trimmed);
     const fd = new FormData(e.currentTarget);
     try {
-      const result: SendConversationSmsResult = await sendConversationSms(fd);
+      let result: SendConversationSmsResult;
+      try {
+        result = await sendConversationSmsWithClientBudget(fd);
+      } catch (err) {
+        console.error("[sms-ui] sendConversationSms threw", err);
+        result = { ok: false, error: SMS_SEND_FRIENDLY_TRY_AGAIN };
+      }
       if (result.ok) {
         userEditedRef.current = false;
         setBody("");
-        window.setTimeout(() => inputRef.current?.focus(), 0);
+        if (shouldAutofocusSmsComposer()) {
+          window.setTimeout(() => inputRef.current?.focus(), 0);
+        } else {
+          try {
+            inputRef.current?.blur();
+          } catch {
+            /* ignore */
+          }
+        }
         if (onInPlaceSendComplete) {
           onInPlaceSendComplete();
         } else {
@@ -125,15 +175,18 @@ export function SmsReplyComposer({
         onRemoveLastOptimistic?.();
         userEditedRef.current = true;
         setBody(trimmed);
+        const displayErr = smsThreadComposerUserVisibleError(result.error);
         if (onInPlaceSendError) {
-          onInPlaceSendError(result.error);
+          onInPlaceSendError(displayErr);
         } else {
-          console.error(result.error);
+          setComposerError(displayErr);
         }
       }
     } finally {
       sendInFlightRef.current = false;
-      setSendInFlight(false);
+      if (mountedRef.current) {
+        setSendInFlight(false);
+      }
     }
   };
 
@@ -170,6 +223,15 @@ export function SmsReplyComposer({
         </p>
       ) : null}
 
+      {composerError && !onInPlaceSendError ? (
+        <div
+          role="alert"
+          className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-950"
+        >
+          {composerError}
+        </div>
+      ) : null}
+
       {workspaceThread && messagingUX ? (
         <SmsTextFromBar
           className="shadow-none"
@@ -198,6 +260,7 @@ export function SmsReplyComposer({
             value={body}
             onChange={(e) => {
               userEditedRef.current = true;
+              if (composerError) setComposerError(null);
               setBody(e.target.value);
             }}
             placeholder="Text message"
@@ -235,6 +298,7 @@ export function SmsReplyComposer({
             value={body}
             onChange={(e) => {
               userEditedRef.current = true;
+              if (composerError) setComposerError(null);
               setBody(e.target.value);
             }}
             placeholder="Type a message…"

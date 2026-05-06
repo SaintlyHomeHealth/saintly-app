@@ -1,8 +1,10 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 
 import { NURSE_ON_THE_WAY_MESSAGE } from "@/lib/crm/patient-sms";
+import { SMS_SEND_CLIENT_MAX_WAIT_MS, SMS_SEND_FRIENDLY_TRY_AGAIN, awaitWithTimeout } from "@/lib/phone/sms-send-user-copy";
+import { smsThreadComposerUserVisibleError } from "@/lib/phone/sms-ui-user-message";
 import { sendNurseOnTheWaySms, sendPatientSms } from "../actions";
 
 export function PatientSmsForm({ patientId, disabled }: { patientId: string; disabled?: boolean }) {
@@ -12,6 +14,7 @@ export function PatientSmsForm({ patientId, disabled }: { patientId: string; dis
   const [message, setMessage] = useState("");
   const [feedback, setFeedback] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const sendLockRef = useRef(false);
 
   const inputCls =
     "mt-1 w-full max-w-[220px] rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[11px] text-slate-800 shadow-sm placeholder:text-slate-400";
@@ -24,25 +27,57 @@ export function PatientSmsForm({ patientId, disabled }: { patientId: string; dis
 
   function sendNurseOnTheWay() {
     setFeedback(null);
+    if (sendLockRef.current) return;
+    sendLockRef.current = true;
     startTransition(async () => {
-      const r = await sendNurseOnTheWaySms(patientId);
-      if (r.ok) {
-        setFeedback("Sent.");
-      } else {
-        setFeedback(r.error);
+      try {
+        let r: { ok: true } | { ok: false; error: string };
+        try {
+          r = await awaitWithTimeout(
+            sendNurseOnTheWaySms(patientId),
+            SMS_SEND_CLIENT_MAX_WAIT_MS,
+            () => ({ ok: false, error: SMS_SEND_FRIENDLY_TRY_AGAIN })
+          );
+        } catch (err) {
+          console.error("[patient-sms-form] nurse OTW threw", err);
+          r = { ok: false, error: SMS_SEND_FRIENDLY_TRY_AGAIN };
+        }
+        if (r.ok) {
+          setFeedback("Sent.");
+        } else {
+          setFeedback(smsThreadComposerUserVisibleError(r.error));
+        }
+      } finally {
+        sendLockRef.current = false;
       }
     });
   }
 
   function send() {
     setFeedback(null);
+    if (sendLockRef.current) return;
+    sendLockRef.current = true;
     startTransition(async () => {
-      const r = await sendPatientSms(patientId, message);
-      if (r.ok) {
-        setFeedback("Sent.");
-        setMessage("");
-      } else {
-        setFeedback(r.error);
+      try {
+        let r: { ok: true } | { ok: false; error: string };
+        try {
+          r = await awaitWithTimeout(
+            sendPatientSms(patientId, message),
+            SMS_SEND_CLIENT_MAX_WAIT_MS,
+            () => ({ ok: false, error: SMS_SEND_FRIENDLY_TRY_AGAIN })
+          );
+        } catch (err) {
+          console.error("[patient-sms-form] send threw", err);
+          r = { ok: false, error: SMS_SEND_FRIENDLY_TRY_AGAIN };
+        }
+        if (r.ok) {
+          setFeedback("Sent.");
+          setMessage("");
+        } else {
+          setFeedback(smsThreadComposerUserVisibleError(r.error));
+        }
+      } finally {
+        sendLockRef.current = false;
       }
     });
   }

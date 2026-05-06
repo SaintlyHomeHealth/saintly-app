@@ -15,6 +15,7 @@ import { isMissingSchemaObjectError } from "@/lib/crm/supabase-migration-fallbac
 import { VISIT_STATUS_TRANSITIONS } from "@/lib/crm/patient-visit-status";
 import { normalizePhone } from "@/lib/phone/us-phone-format";
 import { phoneLookupCandidates } from "@/lib/crm/phone-lookup-candidates";
+import { SMS_SEND_FRIENDLY_TRY_AGAIN } from "@/lib/phone/sms-send-user-copy";
 import { sendSms } from "@/lib/twilio/send-sms";
 import {
   ATTEMPT_ACTION_KEYS,
@@ -404,10 +405,18 @@ export async function sendPatientSms(patientId: string, message: string): Promis
     return { ok: true };
   }
 
-  const reason =
-    result.error.includes("primary") || result.error.includes("Patient not found")
-      ? "no_valid_primary_phone"
-      : "twilio_error";
+  const isRecipientOrValidationIssue =
+    result.error.includes("primary") ||
+    result.error.includes("alternate") ||
+    result.error.includes("not found") ||
+    result.error.includes("Contact not found") ||
+    result.error.includes("Patient not found") ||
+    result.error.includes("Missing") ||
+    result.error === "Message is required." ||
+    result.error.includes("Message must be at most");
+
+  const reason = isRecipientOrValidationIssue ? "recipient_or_validation" : "provider_send_failed";
+
   await insertAuditLog({
     action: "crm_patient_sms_failed",
     entityType: "patient",
@@ -416,16 +425,12 @@ export async function sendPatientSms(patientId: string, message: string): Promis
       contact_id: contactId,
       body_length: body.length,
       reason,
-      detail: result.error.slice(0, 500),
     },
   });
-  console.warn("[admin/crm] sendPatientSms Twilio error", result.error.slice(0, 400));
+  console.warn("[admin/crm] sendPatientSms failed", { pid, reason });
   return {
     ok: false,
-    error:
-      reason === "no_valid_primary_phone"
-        ? "No valid primary phone on file."
-        : "SMS could not be sent. Try again or check Twilio logs.",
+    error: isRecipientOrValidationIssue ? result.error : SMS_SEND_FRIENDLY_TRY_AGAIN,
   };
 }
 
@@ -475,7 +480,7 @@ export async function sendNurseOnTheWaySms(patientId: string): Promise<SendPatie
 
   const out = await sendPatientSms(pid, message);
   if (!out.ok) {
-    console.warn("[admin/crm] sendNurseOnTheWaySms sendPatientSms failed", out.error);
+    console.warn("[admin/crm] sendNurseOnTheWaySms sendPatientSms failed", { pid });
   } else {
     console.warn("[admin/crm] sendNurseOnTheWaySms sendPatientSms ok");
   }
@@ -2448,21 +2453,30 @@ export async function sendLeadSms(leadId: string, message: string): Promise<Send
     return { ok: true };
   }
 
+  const isRecipientOrValidationIssue =
+    result.error.includes("primary") ||
+    result.error.includes("alternate") ||
+    result.error.includes("not found") ||
+    result.error.includes("Contact not found") ||
+    result.error.includes("Lead not found") ||
+    result.error.includes("Missing") ||
+    result.error === "Message is required." ||
+    result.error.includes("Message must be at most");
+
+  const reason = isRecipientOrValidationIssue ? "recipient_or_validation" : "provider_send_failed";
+
   await insertAuditLog({
     action: "crm_lead_sms_failed",
     entityType: "lead",
     entityId: lid,
     metadata: {
       contact_id: contactId,
-      detail: result.error.slice(0, 500),
+      reason,
     },
   });
   return {
     ok: false,
-    error:
-      result.error.includes("primary") || result.error.includes("Contact not found")
-        ? "No valid primary phone on file."
-        : "SMS could not be sent. Try again or check Twilio logs.",
+    error: isRecipientOrValidationIssue ? result.error : SMS_SEND_FRIENDLY_TRY_AGAIN,
   };
 }
 

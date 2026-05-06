@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, useTransition, type FormEvent } from "react";
+import { useRef, useState, useTransition, type FormEvent } from "react";
 
 import { DialSoftphoneButton } from "@/app/workspace/phone/patients/_components/DialSoftphoneButton";
 import {
@@ -11,6 +11,12 @@ import {
   sendWorkspacePatientSms,
 } from "@/app/workspace/phone/patients/actions";
 import type { OutboundSmsRecipient } from "@/lib/crm/outbound-patient-sms";
+import {
+  SMS_SEND_CLIENT_MAX_WAIT_MS,
+  SMS_SEND_FRIENDLY_TRY_AGAIN,
+  awaitWithTimeout,
+} from "@/lib/phone/sms-send-user-copy";
+import { smsThreadComposerUserVisibleError } from "@/lib/phone/sms-ui-user-message";
 
 const btnPrimary =
   "inline-flex flex-1 min-h-[40px] items-center justify-center rounded-2xl bg-gradient-to-r from-blue-950 via-blue-700 to-sky-500 px-3 py-2 text-xs font-semibold text-white shadow-sm shadow-blue-900/20 transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-40";
@@ -35,6 +41,7 @@ export function PatientHubClient({ patientId, primaryPhone, secondaryPhone, conv
   const [flash, setFlash] = useState<string | null>(null);
   const [smsRecipient, setSmsRecipient] = useState<OutboundSmsRecipient>("patient");
   const [smsBody, setSmsBody] = useState("");
+  const smsSendLockRef = useRef(false);
 
   const inboxHref = conversationId ? `/workspace/phone/inbox/${conversationId}` : null;
 
@@ -59,35 +66,56 @@ export function PatientHubClient({ patientId, primaryPhone, secondaryPhone, conv
     });
   };
 
-  const sendPreset = (body: string, recipient: OutboundSmsRecipient) => {
+  const runOutboundPatientSms = (
+    action: () => Promise<{ ok: true } | { ok: false; error: string }>,
+    okFlash: string,
+    clearCustomBody?: () => void
+  ) => {
+    if (smsSendLockRef.current) return;
+    smsSendLockRef.current = true;
     startTransition(async () => {
-      const r = await sendWorkspacePatientSms({ patientId, body, recipient });
-      if (r.ok) {
-        showFlash("Text sent.");
-        router.refresh();
-      } else {
-        showFlash(r.error);
+      try {
+        let r: { ok: true } | { ok: false; error: string };
+        try {
+          r = await awaitWithTimeout(
+            action(),
+            SMS_SEND_CLIENT_MAX_WAIT_MS,
+            () => ({ ok: false, error: SMS_SEND_FRIENDLY_TRY_AGAIN })
+          );
+        } catch (err) {
+          console.error("[patient-hub] sms action threw", err);
+          r = { ok: false, error: SMS_SEND_FRIENDLY_TRY_AGAIN };
+        }
+        if (r.ok) {
+          clearCustomBody?.();
+          showFlash(okFlash);
+          router.refresh();
+        } else {
+          showFlash(smsThreadComposerUserVisibleError(r.error));
+        }
+      } finally {
+        smsSendLockRef.current = false;
       }
     });
+  };
+
+  const sendPreset = (body: string, recipient: OutboundSmsRecipient, clearCustomOnSuccess = false) => {
+    runOutboundPatientSms(
+      () => sendWorkspacePatientSms({ patientId, body, recipient }),
+      "Text sent.",
+      clearCustomOnSuccess ? () => setSmsBody("") : undefined
+    );
   };
 
   const onCustomSms = (e: FormEvent) => {
     e.preventDefault();
-    if (!smsBody.trim()) return;
-    sendPreset(smsBody.trim(), smsRecipient);
-    setSmsBody("");
+    const t = smsBody.trim();
+    if (!t) return;
+    sendPreset(t, smsRecipient, true);
   };
 
   const onMyWay = () => {
-    startTransition(async () => {
-      const r = await sendWorkspaceOnMyWaySms(patientId);
-      if (r.ok) {
-        showFlash("On my way sent.");
-        router.refresh();
-      } else {
-        showFlash(r.error);
-      }
-    });
+    runOutboundPatientSms(() => sendWorkspaceOnMyWaySms(patientId), "On my way sent.");
   };
 
   return (

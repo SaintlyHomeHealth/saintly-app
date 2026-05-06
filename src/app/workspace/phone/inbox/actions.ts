@@ -38,6 +38,7 @@ import {
 import { canAccessWorkspacePhone, getStaffProfile } from "@/lib/staff-profile";
 import { supabaseAdmin } from "@/lib/admin";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { SMS_SEND_FRIENDLY_TRY_AGAIN } from "@/lib/phone/sms-send-user-copy";
 
 const SMS_BODY_MAX = 1600;
 
@@ -286,6 +287,17 @@ function mergeUniqueById<T extends { id: unknown }>(rows: T[]): T[] {
  * Start (or reuse) an SMS thread, send Twilio outbound, persist `messages`, then open the thread.
  */
 export async function sendWorkspaceNewSms(formData: FormData): Promise<WorkspaceSmsActionResult> {
+  try {
+    return await sendWorkspaceNewSmsImpl(formData);
+  } catch (e) {
+    console.error("[workspace-new-sms] unexpected exception", {
+      message: e instanceof Error ? e.message : String(e),
+    });
+    return { ok: false, error: SMS_SEND_FRIENDLY_TRY_AGAIN };
+  }
+}
+
+async function sendWorkspaceNewSmsImpl(formData: FormData): Promise<WorkspaceSmsActionResult> {
   const staff = await getStaffProfile();
   if (!staff || !canAccessWorkspacePhone(staff) || !staffMayAccessWorkspaceSms(staff)) {
     return { ok: false, error: "You do not have access to send messages." };
@@ -322,14 +334,10 @@ export async function sendWorkspaceNewSms(formData: FormData): Promise<Workspace
   const ensured = await ensureSmsConversationForPhone(supabaseAdmin, e164, contact);
 
   if (!ensured.ok) {
-    console.error("[workspace-new-sms] step=ensure_thread FAILED (before Twilio)", {
-      ensureError: ensured.error,
-      e164,
+    console.error("[workspace-new-sms] ensure_thread failed", {
+      recipientLast4: e164.length >= 4 ? e164.slice(-4) : null,
     });
-    return {
-      ok: false,
-      error: ensured.error ? `Could not create SMS thread: ${ensured.error.slice(0, 500)}` : "Could not create SMS thread.",
-    };
+    return { ok: false, error: SMS_SEND_FRIENDLY_TRY_AGAIN };
   }
 
   const conversationId = ensured.conversationId;
@@ -384,15 +392,11 @@ export async function sendWorkspaceNewSms(formData: FormData): Promise<Workspace
   });
 
   if (!sent.ok) {
-    console.error("[workspace-new-sms] step=twilio_send FAILED (after conversation row)", {
+    console.warn("[workspace-new-sms] twilio_send failed (generic user message)", {
       conversationId,
-      error: sent.error,
+      failure: "twilio_provider",
     });
-    const errShort = sent.error.slice(0, 600);
-    return {
-      ok: false,
-      error: errShort ? `SMS could not be sent: ${errShort}` : "SMS could not be sent. Try again.",
-    };
+    return { ok: false, error: SMS_SEND_FRIENDLY_TRY_AGAIN };
   }
 
   const now = new Date().toISOString();
@@ -425,11 +429,12 @@ export async function sendWorkspaceNewSms(formData: FormData): Promise<Workspace
   });
 
   if (insErr) {
-    console.warn("[workspace-new-sms] message insert:", insErr.message);
-    return {
-      ok: false,
-      error: insErr.message ? `Message could not be saved: ${insErr.message.slice(0, 400)}` : "Message could not be saved.",
-    };
+    console.warn("[workspace-new-sms] message insert failed (generic user message)", {
+      conversationId,
+      code: insErr.code,
+      failure: "messages_insert",
+    });
+    return { ok: false, error: SMS_SEND_FRIENDLY_TRY_AGAIN };
   }
 
   const { data: convBefore } = await supabaseAdmin

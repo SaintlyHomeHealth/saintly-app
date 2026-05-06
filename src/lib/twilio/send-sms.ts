@@ -1,6 +1,7 @@
 import { getTwilioSmsOutboundDiagnostics } from "@/lib/twilio/sms-outbound-diagnostics";
 import { resolveTwilioWebhookBaseUrl } from "@/lib/twilio/signature-url";
 import { isSmsDebugEnabled, logSmsDebug } from "@/lib/twilio/sms-debug";
+import { abortAfterMs } from "@/lib/net/abort-after-ms";
 import {
   isSaintlyBackupSmsE164,
   logAltSmsSenderUsed,
@@ -33,6 +34,27 @@ export type SendSmsResult =
   | { ok: false; error: string };
 
 export { resolveDefaultTwilioSmsFromOrMsid };
+
+/** Bound outbound POST time so Node fetch cannot hang indefinitely (mobile clients await the server action). */
+const TWILIO_MESSAGES_FETCH_TIMEOUT_MS = 28_000;
+
+function recipientLast4(e164: string): string {
+  return e164.length >= 4 ? e164.slice(-4) : e164 ? "****" : "";
+}
+
+function twilioHttpErrorLogMeta(
+  status: number,
+  rawBody: string
+): { httpStatus: number; twilioCode?: string } {
+  const slice = rawBody.trim().slice(0, 400);
+  try {
+    const j = JSON.parse(slice) as { code?: unknown };
+    if (j.code != null) return { httpStatus: status, twilioCode: String(j.code) };
+  } catch {
+    /* ignore */
+  }
+  return { httpStatus: status };
+}
 
 function formatTwilioRestError(status: number, rawBody: string): string {
   const trimmed = rawBody.trim().slice(0, 1200);
@@ -137,13 +159,15 @@ export async function sendSms(params: SendSmsParams): Promise<SendSmsResult> {
 
   if (isSmsDebugEnabled()) {
     console.log("[sms-twilio] REST Messages send (pre-POST)", {
-      to,
+      recipientLast4: recipientLast4(to),
       bodyLen: body.length,
       outboundMode: useMessagingService ? "MessagingServiceSid" : "From",
       fromMasked: diag.outboundSenderMasked,
       accountSidPrefix: accountSid ? `${accountSid.slice(0, 2)}…` : null,
     });
   }
+
+  const { signal, cancel } = abortAfterMs(TWILIO_MESSAGES_FETCH_TIMEOUT_MS);
 
   try {
     const res = await fetch(url, {
@@ -153,6 +177,7 @@ export async function sendSms(params: SendSmsParams): Promise<SendSmsResult> {
         "Content-Type": "application/x-www-form-urlencoded",
       },
       body: form.toString(),
+      signal,
     });
 
     const rawText = await res.text();
@@ -160,9 +185,8 @@ export async function sendSms(params: SendSmsParams): Promise<SendSmsResult> {
     if (!res.ok) {
       const errMsg = formatTwilioRestError(res.status, rawText);
       console.error("[sms-twilio] REST error (HTTP)", {
-        httpStatus: res.status,
-        errorMessage: errMsg,
-        to,
+        ...twilioHttpErrorLogMeta(res.status, rawText),
+        recipientLast4: recipientLast4(to),
         fromMasked: diag.outboundSenderMasked,
         outboundMode: useMessagingService ? "MessagingServiceSid" : "From",
       });
@@ -173,7 +197,7 @@ export async function sendSms(params: SendSmsParams): Promise<SendSmsResult> {
     try {
       json = JSON.parse(rawText) as { sid?: string; status?: string; account_sid?: string };
     } catch {
-      console.error("[sms-twilio] success response not JSON", rawText.slice(0, 400));
+      console.error("[sms-twilio] success response not JSON", { responseChars: rawText.length });
       return { ok: false, error: "Twilio response was not valid JSON" };
     }
 
@@ -197,11 +221,23 @@ export async function sendSms(params: SendSmsParams): Promise<SendSmsResult> {
     }
     return { ok: true, messageSid, twilioStatus, twilioAccountSid };
   } catch (e) {
+    const name = e instanceof Error ? e.name : "";
+    if (name === "AbortError" || name === "TimeoutError") {
+      console.error("[sms-twilio] REST aborted (timeout)", {
+        timeoutMs: TWILIO_MESSAGES_FETCH_TIMEOUT_MS,
+        fromMasked: diag.outboundSenderMasked,
+        recipientLast4: recipientLast4(to),
+      });
+      return { ok: false, error: "twilio_fetch_timeout" };
+    }
     console.error("[sms-twilio] REST exception (network/fetch)", {
-      err: e,
+      errorName: e instanceof Error ? e.name : typeof e,
+      errorMessage: e instanceof Error ? e.message.slice(0, 200) : String(e).slice(0, 200),
       fromMasked: diag.outboundSenderMasked,
-      to,
+      recipientLast4: recipientLast4(to),
     });
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  } finally {
+    cancel();
   }
 }

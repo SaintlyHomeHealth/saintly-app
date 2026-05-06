@@ -28,7 +28,9 @@ import {
 } from "@/lib/phone/workspace-sms-thread-messages";
 import { routePerfRenderCount } from "@/lib/perf/route-perf";
 import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
+import { smsThreadComposerUserVisibleError } from "@/lib/phone/sms-ui-user-message";
 import { mapNestedPhoneAttachmentsFromRpcRow } from "@/lib/phone/map-phone-message-attachments-row";
+import { abortAfterMs } from "@/lib/net/abort-after-ms";
 
 const SmsReplyComposer = dynamic(
   () => import("@/app/admin/phone/messages/_components/SmsReplyComposer").then((m) => m.SmsReplyComposer),
@@ -49,6 +51,9 @@ const INITIAL_WINDOW = 25;
 const WINDOW_STEP = 25;
 
 const VISIBILITY_REFETCH_DEBOUNCE_MS = 450;
+
+/** Avoid hung Supabase reads leaving optimistic UI stale after send. */
+const WORKSPACE_THREAD_MESSAGES_FETCH_TIMEOUT_MS = 22_000;
 
 /** If scroll is within this distance of the bottom, treat as “following” the thread (auto-scroll on new inbound). */
 const NEAR_BOTTOM_THRESHOLD_PX = 88;
@@ -312,6 +317,14 @@ const WorkspaceSmsThreadViewInner = memo(function WorkspaceSmsThreadViewInner({
   const visibilityFetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latestFetchInFlightRef = useRef<Promise<boolean> | null>(null);
   const mmsHydrationKickIdsRef = useRef<Set<string>>(new Set());
+  const threadMountedRef = useRef(true);
+
+  useEffect(() => {
+    threadMountedRef.current = true;
+    return () => {
+      threadMountedRef.current = false;
+    };
+  }, []);
 
   const visibleBase = useMemo(() => serverMessages.slice(windowStart), [serverMessages, windowStart]);
   const merged = useMemo(() => [...visibleBase, ...optimistic], [visibleBase, optimistic]);
@@ -428,48 +441,70 @@ const WorkspaceSmsThreadViewInner = memo(function WorkspaceSmsThreadViewInner({
     }
     if (!supabaseRef.current) supabaseRef.current = createBrowserSupabaseClient();
     const supabase = supabaseRef.current;
+    const baseQuery = supabase
+      .from("messages")
+      .select(
+        "id, created_at, direction, body, phone_call_id, message_type, metadata, phone_message_attachments ( id, content_type, file_name, provider_media_index )"
+      )
+      .eq("conversation_id", conversationId)
+      .is("deleted_at", null)
+      .order("created_at", { ascending: false })
+      .limit(WORKSPACE_SMS_THREAD_INITIAL_MESSAGE_LIMIT);
+
     const run = (async () => {
       try {
-        const { data, error } = await supabase
-          .from("messages")
-          .select(
-            "id, created_at, direction, body, phone_call_id, message_type, metadata, phone_message_attachments ( id, content_type, file_name, provider_media_index )"
-          )
-          .eq("conversation_id", conversationId)
-          .is("deleted_at", null)
-          .order("created_at", { ascending: false })
-          .limit(WORKSPACE_SMS_THREAD_INITIAL_MESSAGE_LIMIT);
+        const { signal, cancel } = abortAfterMs(WORKSPACE_THREAD_MESSAGES_FETCH_TIMEOUT_MS);
+        let res: {
+          data: unknown;
+          error: { message?: string } | null;
+        };
+        try {
+          res = await baseQuery.abortSignal(signal);
+        } catch (fetchErr) {
+          console.warn("[workspace-sms-thread] fetchLatestMessages aborted or failed", fetchErr);
+          return false;
+        } finally {
+          cancel();
+        }
+
+        if (!threadMountedRef.current) return false;
+        const { data, error } = res;
         if (error || !data) return false;
-        const rows: ThreadMessage[] = [...data].reverse().map((row) => {
-          const pid =
-            (row as { phone_call_id?: unknown }).phone_call_id != null &&
-            String((row as { phone_call_id?: unknown }).phone_call_id).trim() !== ""
-              ? String((row as { phone_call_id?: unknown }).phone_call_id).trim()
-              : null;
-          const mtRaw = (row as { message_type?: unknown }).message_type;
-          const message_type =
-            typeof mtRaw === "string" && mtRaw.trim() ? mtRaw.trim() : "sms";
-          const direction = typeof row.direction === "string" ? row.direction : "";
-          const outbound_status_raw =
-            String(direction).toLowerCase() === "outbound"
-              ? extractSmsProviderStatusRaw(row as { metadata?: unknown; direction?: string })
-              : null;
-          const attachmentsRaw = mapNestedPhoneAttachmentsFromRpcRow(
-            (row as { phone_message_attachments?: unknown }).phone_message_attachments
-          );
-          return {
-            id: String(row.id),
-            created_at: typeof row.created_at === "string" ? row.created_at : null,
-            direction,
-            body: typeof row.body === "string" ? row.body : null,
-            message_type,
-            phone_call_id: pid,
-            fax: readWorkspaceSmsThreadFax((row as { metadata?: unknown }).metadata),
-            attachments: attachmentsRaw,
-            outbound_status_raw,
-          };
-        });
-        applyIncomingRows(rows, { scroll: "auto-if-following" });
+        try {
+          const rows: ThreadMessage[] = [...data].reverse().map((row) => {
+            const pid =
+              (row as { phone_call_id?: unknown }).phone_call_id != null &&
+              String((row as { phone_call_id?: unknown }).phone_call_id).trim() !== ""
+                ? String((row as { phone_call_id?: unknown }).phone_call_id).trim()
+                : null;
+            const mtRaw = (row as { message_type?: unknown }).message_type;
+            const message_type =
+              typeof mtRaw === "string" && mtRaw.trim() ? mtRaw.trim() : "sms";
+            const direction = typeof row.direction === "string" ? row.direction : "";
+            const outbound_status_raw =
+              String(direction).toLowerCase() === "outbound"
+                ? extractSmsProviderStatusRaw(row as { metadata?: unknown; direction?: string })
+                : null;
+            const attachmentsRaw = mapNestedPhoneAttachmentsFromRpcRow(
+              (row as { phone_message_attachments?: unknown }).phone_message_attachments
+            );
+            return {
+              id: String(row.id),
+              created_at: typeof row.created_at === "string" ? row.created_at : null,
+              direction,
+              body: typeof row.body === "string" ? row.body : null,
+              message_type,
+              phone_call_id: pid,
+              fax: readWorkspaceSmsThreadFax((row as { metadata?: unknown }).metadata),
+              attachments: attachmentsRaw,
+              outbound_status_raw,
+            };
+          });
+          applyIncomingRows(rows, { scroll: "auto-if-following" });
+        } catch (mapErr) {
+          console.warn("[workspace-sms-thread] fetchLatestMessages map/apply failed", mapErr);
+          return false;
+        }
         return true;
       } finally {
         latestFetchInFlightRef.current = null;
@@ -549,8 +584,24 @@ const WorkspaceSmsThreadViewInner = memo(function WorkspaceSmsThreadViewInner({
             const idSet = mmsHydrationKickIdsRef.current;
             if (!idSet.has(row.id)) {
               idSet.add(row.id);
-              pendingMmsHydrationTimeouts.push(window.setTimeout(() => void fetchLatestMessages(), 650));
-              pendingMmsHydrationTimeouts.push(window.setTimeout(() => void fetchLatestMessages(), 2900));
+              pendingMmsHydrationTimeouts.push(
+                window.setTimeout(
+                  () =>
+                    void fetchLatestMessages().catch((err) =>
+                      console.warn("[workspace-sms-thread] fetchLatestMessages (mms kick)", err)
+                    ),
+                  650
+                )
+              );
+              pendingMmsHydrationTimeouts.push(
+                window.setTimeout(
+                  () =>
+                    void fetchLatestMessages().catch((err) =>
+                      console.warn("[workspace-sms-thread] fetchLatestMessages (mms kick delayed)", err)
+                    ),
+                  2900
+                )
+              );
             }
           }
         }
@@ -610,7 +661,9 @@ const WorkspaceSmsThreadViewInner = memo(function WorkspaceSmsThreadViewInner({
           setServerMessages((prev) => {
             const ix = prev.findIndex((m) => m.id === mid);
             if (ix === -1) {
-              void fetchLatestMessages();
+              void fetchLatestMessages().catch((err) =>
+                console.warn("[workspace-sms-thread] fetchLatestMessages (attachment orphan)", err)
+              );
               return prev;
             }
             const cur = prev[ix]!;
@@ -641,7 +694,9 @@ const WorkspaceSmsThreadViewInner = memo(function WorkspaceSmsThreadViewInner({
       if (visibilityFetchTimerRef.current) clearTimeout(visibilityFetchTimerRef.current);
       visibilityFetchTimerRef.current = setTimeout(() => {
         visibilityFetchTimerRef.current = null;
-        void fetchLatestMessages();
+        void fetchLatestMessages().catch((err) =>
+          console.warn("[workspace-sms-thread] fetchLatestMessages (visibility)", err)
+        );
       }, VISIBILITY_REFETCH_DEBOUNCE_MS);
     };
     window.addEventListener("focus", scheduleRefetch);
@@ -680,16 +735,16 @@ const WorkspaceSmsThreadViewInner = memo(function WorkspaceSmsThreadViewInner({
     });
   }, []);
 
-  const handleInPlaceSendComplete = useCallback(async () => {
+  const handleInPlaceSendComplete = useCallback(() => {
     setSendError((prev) => (prev === null ? prev : null));
-    const ok = await fetchLatestMessages();
-    if (ok) {
-      setOptimistic((prev) => prev.filter((m) => !m.id.startsWith("optimistic-")));
-    }
+    void fetchLatestMessages().catch((err) => {
+      console.warn("[workspace-sms-thread] fetchLatestMessages after send", err);
+    });
+    setOptimistic((prev) => prev.filter((m) => !m.id.startsWith("optimistic-")));
   }, [fetchLatestMessages]);
 
   const handleInPlaceSendError = useCallback((msg: string) => {
-    setSendError(msg);
+    setSendError(smsThreadComposerUserVisibleError(msg));
   }, []);
 
   return (

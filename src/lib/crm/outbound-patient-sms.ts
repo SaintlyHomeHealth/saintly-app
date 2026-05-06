@@ -1,5 +1,6 @@
 import { phoneLookupCandidates } from "@/lib/crm/phone-lookup-candidates";
 import { supabaseAdmin } from "@/lib/admin";
+import { SMS_SEND_FRIENDLY_TRY_AGAIN } from "@/lib/phone/sms-send-user-copy";
 import { sendSms } from "@/lib/twilio/send-sms";
 
 export const CRM_PATIENT_SMS_MAX_LEN = 1600;
@@ -53,7 +54,11 @@ async function sendSmsToContactPhones(
   for (const to of unique) {
     const result = await sendSms({ to, body });
     if (!result.ok) {
-      return { ok: false, error: result.error };
+      console.warn("[outbound-patient-sms] provider send failed", {
+        contactId,
+        recipientLast4: to.length >= 4 ? to.slice(-4) : null,
+      });
+      return { ok: false, error: SMS_SEND_FRIENDLY_TRY_AGAIN };
     }
   }
 

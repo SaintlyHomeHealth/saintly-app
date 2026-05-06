@@ -12,6 +12,12 @@ import {
 } from "../actions";
 
 import { SmsTextFromBar } from "./SmsTextFromBar";
+import {
+  SMS_SEND_CLIENT_MAX_WAIT_MS,
+  SMS_SEND_FRIENDLY_TRY_AGAIN,
+  awaitWithTimeout,
+} from "@/lib/phone/sms-send-user-copy";
+import { smsThreadComposerUserVisibleError } from "@/lib/phone/sms-ui-user-message";
 
 const inputCls =
   "ws-phone-input w-full rounded-2xl border border-sky-200/80 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm shadow-sky-950/5 placeholder:text-slate-400 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200/80";
@@ -53,6 +59,7 @@ export function NewWorkspaceSmsComposeClient({
   const [sendError, setSendError] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const sendInFlightRef = useRef(false);
 
   const hint = useMemo(() => {
     if (!initialNameHint?.trim()) return null;
@@ -113,24 +120,37 @@ export function NewWorkspaceSmsComposeClient({
     async (e: React.FormEvent<HTMLFormElement>) => {
       e.preventDefault();
       const trimmed = body.trim();
-      if (!trimmed || sendPending) return;
+      if (!trimmed) return;
+      if (sendInFlightRef.current) return;
+      sendInFlightRef.current = true;
       setSendPending(true);
       setSendError(null);
       const fd = new FormData(e.currentTarget);
       try {
-        const result: WorkspaceSmsActionResult = await sendWorkspaceNewSms(fd);
+        let result: WorkspaceSmsActionResult;
+        try {
+          result = await awaitWithTimeout(
+            sendWorkspaceNewSms(fd),
+            SMS_SEND_CLIENT_MAX_WAIT_MS,
+            () => ({ ok: false, error: SMS_SEND_FRIENDLY_TRY_AGAIN })
+          );
+        } catch (err) {
+          console.error("[ws-new-sms] sendWorkspaceNewSms threw", err);
+          result = { ok: false, error: SMS_SEND_FRIENDLY_TRY_AGAIN };
+        }
         if (result.ok) {
           setBody("");
           router.push("/workspace/phone/inbox");
           router.refresh();
         } else {
-          setSendError(result.error);
+          setSendError(smsThreadComposerUserVisibleError((result.error || SMS_SEND_FRIENDLY_TRY_AGAIN).trim()));
         }
       } finally {
+        sendInFlightRef.current = false;
         setSendPending(false);
       }
     },
-    [body, router, sendPending]
+    [body, router]
   );
 
   return (

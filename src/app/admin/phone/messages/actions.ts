@@ -42,6 +42,7 @@ import {
   isAdminOrHigher,
   type StaffProfile,
 } from "@/lib/staff-profile";
+import { SMS_SEND_FRIENDLY_TRY_AGAIN } from "@/lib/phone/sms-send-user-copy";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -531,6 +532,17 @@ export async function clearConversationFollowUp(formData: FormData): Promise<Mes
 export type SendConversationSmsResult = MessagingActionResult;
 
 export async function sendConversationSms(formData: FormData): Promise<SendConversationSmsResult> {
+  try {
+    return await sendConversationSmsImpl(formData);
+  } catch (e) {
+    console.error("[sms-send] sendConversationSms unexpected exception", {
+      message: e instanceof Error ? e.message : String(e),
+    });
+    return { ok: false, error: SMS_SEND_FRIENDLY_TRY_AGAIN };
+  }
+}
+
+async function sendConversationSmsImpl(formData: FormData): Promise<SendConversationSmsResult> {
   const staff = await getStaffProfile();
   const returnToRaw = String(formData.get("returnTo") ?? "").trim();
   const workspaceAny = returnToRaw === "workspace" || returnToRaw === "workspace_inbox";
@@ -567,8 +579,7 @@ export async function sendConversationSms(formData: FormData): Promise<SendConve
 
   logSmsDebug("[sms-send] resolved recipient", {
     conversationId,
-    rawRecipient,
-    normalizedRecipient: to,
+    recipientLast4: rawRecipient.length >= 4 ? rawRecipient.slice(-4) : null,
     conversationExists: Boolean(row?.id),
   });
 
@@ -587,7 +598,9 @@ export async function sendConversationSms(formData: FormData): Promise<SendConve
   }
 
   if (!to || !isValidE164(to)) {
-    console.warn("[sms-send] bad E.164 after normalize", { rawRecipient, to });
+    console.warn("[sms-send] bad E.164 after normalize", {
+      recipientLast4: rawRecipient.length >= 4 ? rawRecipient.slice(-4) : null,
+    });
     return { ok: false, error: "Phone number is invalid or missing." };
   }
 
@@ -632,7 +645,7 @@ export async function sendConversationSms(formData: FormData): Promise<SendConve
 
   const fromOverride = identity.fromOverride;
 
-  logSmsDebug("[sms-twilio] send start", { conversationId, to, bodyLen: body.length });
+  logSmsDebug("[sms-twilio] send start", { conversationId, recipientLast4: to.length >= 4 ? to.slice(-4) : null, bodyLen: body.length });
   const sent = await sendSms({
     to,
     body,
@@ -640,12 +653,11 @@ export async function sendConversationSms(formData: FormData): Promise<SendConve
     logManualInboxSend: workspaceAny,
   });
   if (!sent.ok) {
-    const errShort = sent.error.slice(0, 400);
-    console.warn("[sms-twilio] send failed", errShort);
-    return {
-      ok: false,
-      error: errShort ? `SMS could not be sent: ${errShort}` : "SMS could not be sent. Try again.",
-    };
+    console.warn("[sms-twilio] send failed (generic user message)", {
+      conversationId,
+      failure: "twilio_provider",
+    });
+    return { ok: false, error: SMS_SEND_FRIENDLY_TRY_AGAIN };
   }
   logSmsDebug("[sms-twilio] send ok", { conversationId, messageSid: sent.messageSid });
 
@@ -682,12 +694,12 @@ export async function sendConversationSms(formData: FormData): Promise<SendConve
     .single();
 
   if (insErr) {
-    console.warn("[sms-db] outbound insert failed", insErr.message);
-    const dbMsg = insErr.message.slice(0, 400);
-    return {
-      ok: false,
-      error: dbMsg ? `Message could not be saved: ${dbMsg}` : "Message could not be saved.",
-    };
+    console.warn("[sms-db] outbound insert failed (generic user message)", {
+      conversationId,
+      code: insErr.code,
+      failure: "messages_insert",
+    });
+    return { ok: false, error: SMS_SEND_FRIENDLY_TRY_AGAIN };
   }
   console.log("[sms-db] outbound insert ok", { conversationId });
 
@@ -734,7 +746,7 @@ export async function sendConversationSms(formData: FormData): Promise<SendConve
     .eq("id", conversationId);
 
   if (touchErr) {
-    console.warn("[sms-db] conversation touch after send:", touchErr.message);
+    console.warn("[sms-db] conversation touch after send:", { conversationId, failure: "conversation_touch" });
   }
 
   revalidateSmsConversationViews(conversationId);
