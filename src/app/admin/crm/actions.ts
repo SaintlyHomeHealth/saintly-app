@@ -27,7 +27,11 @@ import {
   formatLeadNextActionLabel,
   normalizeLeadNextActionInput,
 } from "@/lib/crm/lead-follow-up-options";
-import { formatLeadPipelineStatusLabel, isValidLeadPipelineStatus } from "@/lib/crm/lead-pipeline-status";
+import {
+  formatLeadPipelineStatusLabel,
+  isLeadPipelineTerminal,
+  isValidLeadPipelineStatus,
+} from "@/lib/crm/lead-pipeline-status";
 import {
   normalizeAttemptActionKeys,
   normalizeContactOutcomeResult,
@@ -1515,6 +1519,125 @@ export async function updateLeadIntake(formData: FormData) {
   revalidatePath("/workspace/phone/chat");
 }
 
+/** Payer + Medicare only; never changes `leads.status` (for terminal dead/converted leads). */
+export async function updateLeadInsuranceIntake(formData: FormData) {
+  const staff = await getStaffProfile();
+  if (!staff || !isManagerOrHigher(staff)) {
+    return;
+  }
+
+  const idRaw = formData.get("leadId");
+  const leadId = typeof idRaw === "string" ? idRaw.trim() : "";
+  if (!leadId) {
+    return;
+  }
+
+  const { data: beforeRow, error: beforeErr } = await leadRowsActiveOnly(
+    supabaseAdmin
+      .from("leads")
+      .select(
+        "id, payer_name, payer_type, primary_payer_type, primary_payer_name, secondary_payer_type, secondary_payer_name, medicare_number, medicare_effective_date, medicare_notes"
+      )
+      .eq("id", leadId)
+  ).maybeSingle();
+
+  if (beforeErr || !beforeRow?.id) {
+    console.warn("[admin/crm] updateLeadInsuranceIntake load:", beforeErr?.message);
+    return;
+  }
+
+  const primary_payer_type = readOptionalLeadStructuredPayerType(formData, "primary_payer_type");
+  const primary_payer_name = readOptionalIntakeText(formData, "primary_payer_name");
+  const secondary_payer_type = readOptionalLeadStructuredPayerType(formData, "secondary_payer_type");
+  const secondary_payer_name = readOptionalIntakeText(formData, "secondary_payer_name");
+
+  const payer_name = legacyPayerNameFromStructured(primary_payer_name, secondary_payer_name);
+  const payer_type =
+    legacyBroadPayerCategoryFromStructured(primary_payer_type) ??
+    legacyBroadPayerCategoryFromStructured(secondary_payer_type) ??
+    null;
+
+  const payload = {
+    primary_payer_type,
+    primary_payer_name,
+    secondary_payer_type,
+    secondary_payer_name,
+    payer_name,
+    payer_type,
+    medicare_number: readOptionalIntakeText(formData, "medicare_number"),
+    medicare_effective_date: readOptionalMedicareEffectiveDateIso(formData),
+    medicare_notes: readOptionalIntakeText(formData, "medicare_notes"),
+  };
+
+  const { error } = await supabaseAdmin.from("leads").update(payload).eq("id", leadId).is("deleted_at", null);
+  if (error) {
+    console.warn("[admin/crm] updateLeadInsuranceIntake:", error.message);
+    return;
+  }
+
+  const B = beforeRow as Record<string, unknown>;
+  const uid = staff.user_id;
+
+  if (
+    normStr(B.payer_name) !== normStr(payload.payer_name) ||
+    normStr(B.payer_type) !== normStr(payload.payer_type) ||
+    normStr(B.primary_payer_name) !== normStr(payload.primary_payer_name) ||
+    normStr(B.primary_payer_type) !== normStr(payload.primary_payer_type) ||
+    normStr(B.secondary_payer_name) !== normStr(payload.secondary_payer_name) ||
+    normStr(B.secondary_payer_type) !== normStr(payload.secondary_payer_type)
+  ) {
+    await insertLeadActivityRow({
+      leadId,
+      eventType: LEAD_ACTIVITY_EVENT.payer_updated,
+      body: `Payer updated (${normStr(payload.payer_type) ?? "—"} · ${normStr(payload.payer_name) ?? "—"})`,
+      metadata: {
+        payer_type_before: normStr(B.payer_type),
+        payer_type_after: normStr(payload.payer_type),
+        payer_name_before: normStr(B.payer_name),
+        payer_name_after: normStr(payload.payer_name),
+        primary_payer_type_before: normStr(B.primary_payer_type),
+        primary_payer_type_after: normStr(payload.primary_payer_type),
+        primary_payer_name_before: normStr(B.primary_payer_name),
+        primary_payer_name_after: normStr(payload.primary_payer_name),
+        secondary_payer_type_before: normStr(B.secondary_payer_type),
+        secondary_payer_type_after: normStr(payload.secondary_payer_type),
+        secondary_payer_name_before: normStr(B.secondary_payer_name),
+        secondary_payer_name_after: normStr(payload.secondary_payer_name),
+      },
+      createdByUserId: uid,
+    });
+  }
+
+  const medNum = normStr(B.medicare_number) !== normStr(payload.medicare_number);
+  const beforeMedDt =
+    typeof B.medicare_effective_date === "string"
+      ? B.medicare_effective_date.slice(0, 10)
+      : B.medicare_effective_date instanceof Date
+        ? B.medicare_effective_date.toISOString().slice(0, 10)
+        : "";
+  const afterMedDt = payload.medicare_effective_date ?? "";
+  const medDt = beforeMedDt !== afterMedDt;
+  const medNotes = normStr(B.medicare_notes) !== normStr(payload.medicare_notes);
+  if (medNum || medDt || medNotes) {
+    await insertLeadActivityRow({
+      leadId,
+      eventType: LEAD_ACTIVITY_EVENT.medicare_updated,
+      body: "Medicare fields were updated",
+      metadata: {
+        number_changed: medNum,
+        effective_date_changed: medDt,
+        notes_changed: medNotes,
+      },
+      createdByUserId: uid,
+    });
+  }
+
+  revalidatePath("/admin");
+  revalidatePath("/admin/crm/leads");
+  revalidatePath(`/admin/crm/leads/${leadId}`);
+  revalidatePath("/workspace/phone/leads");
+}
+
 export type SaveLeadOutcomeResult =
   | { ok: true }
   | {
@@ -2655,6 +2778,77 @@ export async function markLeadDead(formData: FormData) {
   revalidatePath("/admin/crm/leads");
   revalidatePath(`/admin/crm/leads/${leadId}`);
   redirect(`/admin/crm/leads/${leadId}`);
+}
+
+export async function reopenLeadFromDead(formData: FormData) {
+  const staff = await getStaffProfile();
+  if (!staff || !isManagerOrHigher(staff)) {
+    return;
+  }
+
+  const leadId = readTrimmedField(formData, "leadId");
+  if (!leadId) {
+    return;
+  }
+
+  const { data: row } = await leadRowsActiveOnly(
+    supabaseAdmin.from("leads").select("id, status").eq("id", leadId)
+  ).maybeSingle();
+
+  if (!row?.id) {
+    redirect(`/admin/crm/leads/${leadId}?toast=reopen_invalid`);
+  }
+
+  const current = typeof row.status === "string" ? row.status.trim().toLowerCase() : "";
+  if (current !== "dead_lead") {
+    redirect(`/admin/crm/leads/${leadId}?toast=reopen_not_dead`);
+  }
+
+  const { data: lastMarked } = await supabaseAdmin
+    .from("lead_activities")
+    .select("metadata")
+    .eq("lead_id", leadId)
+    .eq("event_type", LEAD_ACTIVITY_EVENT.marked_dead)
+    .is("deleted_at", null)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  let restored = "new";
+  const meta = lastMarked?.metadata as Record<string, unknown> | null | undefined;
+  const beforeRaw = typeof meta?.before === "string" ? meta.before.trim() : "";
+  if (
+    beforeRaw &&
+    isValidLeadPipelineStatus(beforeRaw) &&
+    !isLeadPipelineTerminal(beforeRaw)
+  ) {
+    restored = beforeRaw;
+  }
+
+  const { error } = await supabaseAdmin
+    .from("leads")
+    .update({ status: restored })
+    .eq("id", leadId)
+    .is("deleted_at", null);
+
+  if (error) {
+    console.warn("[admin/crm] reopenLeadFromDead:", error.message);
+    redirect(`/admin/crm/leads/${leadId}?toast=reopen_failed`);
+  }
+
+  await insertLeadActivityRow({
+    leadId,
+    eventType: LEAD_ACTIVITY_EVENT.status_changed,
+    body: `Lead reopened from dead — pipeline restored to ${formatLeadPipelineStatusLabel(restored)}`,
+    metadata: { before: "dead_lead", after: restored, reason: "reopen_admin" },
+    createdByUserId: staff.user_id,
+  });
+
+  revalidatePath("/admin");
+  revalidatePath("/admin/crm/leads");
+  revalidatePath(`/admin/crm/leads/${leadId}`);
+  revalidatePath("/workspace/phone/leads");
+  redirect(`/admin/crm/leads/${leadId}?toast=reopened`);
 }
 
 export async function convertLeadToPatientFromLeadDetail(formData: FormData) {

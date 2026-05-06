@@ -15,22 +15,21 @@ import { LEAD_SOURCE_OPTIONS, formatLeadSourceLabel } from "@/lib/crm/lead-sourc
 
 import { LeadContactOutcomeForm } from "@/app/admin/crm/leads/_components/LeadContactOutcomeForm";
 import { LeadFollowUpContextPanel } from "@/app/admin/crm/leads/_components/LeadFollowUpContextPanel";
-import { LeadInsuranceSection } from "@/app/admin/crm/leads/_components/LeadInsuranceSection";
-import { LeadMedicareFields } from "@/app/admin/crm/leads/_components/LeadMedicareFields";
+import { LeadInsuranceCoverageFields } from "@/app/admin/crm/leads/_components/LeadInsuranceCoverageFields";
 import type { LeadActivityRow } from "@/lib/crm/lead-activities-timeline";
 import { LeadQualityControls } from "@/app/admin/crm/leads/_components/LeadQualityControls";
 import { LeadConversationSection } from "@/app/admin/crm/leads/_components/LeadConversationSection";
 import { LeadSectionCard } from "@/app/admin/crm/leads/_components/LeadSectionCard";
 import { LeadSnapshot } from "@/app/admin/crm/leads/_components/LeadSnapshot";
-import { createLeadManualFromCrm, updateLeadContactProfile, updateLeadIntake } from "../actions";
+import { createLeadManualFromCrm, updateLeadContactProfile, updateLeadInsuranceIntake, updateLeadIntake } from "../actions";
 import type { CommunicationTimelineRow } from "@/lib/crm/build-crm-communication-timeline-model";
 import type { CrmStage } from "@/lib/crm/crm-stage";
 import type { CrmTaskRow } from "@/lib/crm/crm-task-types";
 import { CrmStageBadge } from "@/app/admin/crm/_components/CrmStageBadge";
-import { LeadIntakeSaveForm } from "@/app/admin/crm/leads/_components/LeadIntakeSaveForm";
+import { LeadIntakeSaveForm, LeadInsuranceIntakeSaveForm } from "@/app/admin/crm/leads/_components/LeadIntakeSaveForm";
 import { MarkLeadDeadButton } from "@/app/admin/crm/leads/_components/MarkLeadDeadButton";
 import { MoveToPatientStageButton } from "@/app/admin/crm/leads/_components/MoveToPatientStageButton";
-import { LeadPageScrollLock } from "@/app/admin/crm/leads/_components/LeadPageScrollLock";
+import { ReopenLeadButton } from "@/app/admin/crm/leads/_components/ReopenLeadButton";
 import { LeadTasksPanel } from "@/app/admin/crm/leads/_components/LeadTasksPanel";
 import type { EmploymentApplicationMeta } from "@/lib/crm/lead-employment-meta";
 import { hasAnyIntakeRequestDetail, type LeadIntakeRequestDetails } from "@/lib/crm/lead-intake-request";
@@ -835,8 +834,72 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
       {isDead ? (
         <div className="rounded-[28px] border border-slate-300 bg-slate-100 px-4 py-3 text-sm text-slate-800">
           <p className="font-semibold">Dead lead</p>
-          <p className="mt-1 text-slate-600">This record stays in CRM for reporting; intake editing is closed.</p>
+          <p className="mt-1 text-slate-600">
+            This record stays in CRM for reporting. If this was closed by mistake, reopen it — insurance and Medicare
+            stay editable below either way.
+          </p>
+          <div className="mt-3">
+            <ReopenLeadButton leadId={leadId} />
+          </div>
         </div>
+      ) : null}
+
+      {!isEmployeeLead && terminal ? (
+        <LeadSectionCard
+          id="section-insurance"
+          title="Insurance information"
+          description="Upload cards, payer selection, and typed Medicare (MBI). Shown for closed or converted leads so intake data can still be reviewed or corrected."
+        >
+          <div
+            className={`mb-6 rounded-lg border px-3 py-2.5 text-sm ${
+              isDead
+                ? "border-amber-300 bg-amber-50 text-amber-950"
+                : "border-slate-200 bg-slate-50 text-slate-800"
+            }`}
+            role="status"
+          >
+            {isDead ? (
+              <p>
+                This lead is currently <strong>closed / dead</strong>. Use <strong>Reopen lead</strong> above to restore
+                full intake workflow. You can still edit insurance and Medicare here without reopening.
+              </p>
+            ) : (
+              <p>
+                Pipeline status is <strong>{formatLeadPipelineStatusLabel(rawStatus)}</strong> (terminal). Insurance and
+                Medicare remain editable below for corrections.
+              </p>
+            )}
+          </div>
+          <LeadInsuranceIntakeSaveForm action={updateLeadInsuranceIntake}>
+            <input type="hidden" name="leadId" value={leadId} />
+            <LeadInsuranceCoverageFields
+              leadId={leadId}
+              inp={inp}
+              primaryPayerType={intakeDefaults.primary_payer_type}
+              primaryPayerName={intakeDefaults.primary_payer_name}
+              secondaryPayerType={intakeDefaults.secondary_payer_type}
+              secondaryPayerName={intakeDefaults.secondary_payer_name}
+              insurancePayersCatalog={insurancePayersCatalog}
+              primaryInsurancePath={primaryInsurancePath}
+              secondaryInsurancePath={secondaryInsurancePath}
+              primaryInsuranceViewUrl={primaryInsuranceViewUrl}
+              secondaryInsuranceViewUrl={secondaryInsuranceViewUrl}
+              medicareNumber={medicareNumber}
+              medicareEffectiveDateIso={medicareEffectiveDateIso}
+              medicareNotes={medicareNotes}
+            />
+            <div className="mt-8 flex flex-wrap items-center gap-3 border-t border-slate-200/80 pt-6">
+              <button
+                type="submit"
+                name="save_lead_insurance_intake"
+                value="1"
+                className="rounded-lg border border-sky-600 bg-sky-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-sky-700"
+              >
+                Save insurance &amp; Medicare
+              </button>
+            </div>
+          </LeadInsuranceIntakeSaveForm>
+        </LeadSectionCard>
       ) : null}
 
       <LeadSectionCard
@@ -1096,32 +1159,22 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
               title="Insurance information"
               description="Upload card files, set primary and secondary payer type and name (e.g. Original Medicare + supplement), and add typed Medicare (MBI) when you have it — these work together."
             >
-              <LeadInsuranceSection
+              <LeadInsuranceCoverageFields
                 leadId={leadId}
-                primaryPath={primaryInsurancePath}
-                secondaryPath={secondaryInsurancePath}
-                primaryViewUrl={primaryInsuranceViewUrl}
-                secondaryViewUrl={secondaryInsuranceViewUrl}
+                inp={inp}
+                primaryPayerType={intakeDefaults.primary_payer_type}
+                primaryPayerName={intakeDefaults.primary_payer_name}
+                secondaryPayerType={intakeDefaults.secondary_payer_type}
+                secondaryPayerName={intakeDefaults.secondary_payer_name}
+                insurancePayersCatalog={insurancePayersCatalog}
+                primaryInsurancePath={primaryInsurancePath}
+                secondaryInsurancePath={secondaryInsurancePath}
+                primaryInsuranceViewUrl={primaryInsuranceViewUrl}
+                secondaryInsuranceViewUrl={secondaryInsuranceViewUrl}
+                medicareNumber={medicareNumber}
+                medicareEffectiveDateIso={medicareEffectiveDateIso}
+                medicareNotes={medicareNotes}
               />
-              <div className="mt-8 border-t border-slate-200/80 pt-8">
-                <p className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Payer selection</p>
-                <LeadPayerInsuranceFields
-                  inp={inp}
-                  primaryPayerType={intakeDefaults.primary_payer_type}
-                  primaryPayerName={intakeDefaults.primary_payer_name}
-                  secondaryPayerType={intakeDefaults.secondary_payer_type}
-                  secondaryPayerName={intakeDefaults.secondary_payer_name}
-                  idPrefix={`lead-${leadId}`}
-                  insurancePayersCatalog={insurancePayersCatalog}
-                />
-              </div>
-              <div className="mt-8 border-t border-slate-200/80 pt-8">
-                <LeadMedicareFields
-                  defaultNumber={medicareNumber}
-                  defaultEffectiveDate={medicareEffectiveDateIso}
-                  defaultNotes={medicareNotes}
-                />
-              </div>
             </LeadSectionCard>
           ) : null}
 
@@ -1372,6 +1425,17 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
               className="pointer-events-auto rounded-lg border border-sky-600 bg-sky-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-sky-700"
             >
               Save intake
+            </button>
+          ) : null}
+          {terminal && !isEmployeeLead ? (
+            <button
+              type="submit"
+              form="form-lead-insurance-intake"
+              name="save_lead_insurance_intake"
+              value="1"
+              className="pointer-events-auto rounded-lg border border-teal-700 bg-teal-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-teal-700"
+            >
+              Save insurance &amp; Medicare
             </button>
           ) : null}
         </div>
