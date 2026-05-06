@@ -16,6 +16,7 @@ import { LEAD_SOURCE_OPTIONS, formatLeadSourceLabel } from "@/lib/crm/lead-sourc
 import { LeadContactOutcomeForm } from "@/app/admin/crm/leads/_components/LeadContactOutcomeForm";
 import { LeadFollowUpContextPanel } from "@/app/admin/crm/leads/_components/LeadFollowUpContextPanel";
 import { LeadInsuranceCoverageFields } from "@/app/admin/crm/leads/_components/LeadInsuranceCoverageFields";
+import { LeadPageScrollLock } from "@/app/admin/crm/leads/_components/LeadPageScrollLock";
 import type { LeadActivityRow } from "@/lib/crm/lead-activities-timeline";
 import { LeadQualityControls } from "@/app/admin/crm/leads/_components/LeadQualityControls";
 import { LeadConversationSection } from "@/app/admin/crm/leads/_components/LeadConversationSection";
