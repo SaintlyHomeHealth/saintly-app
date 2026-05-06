@@ -40,6 +40,13 @@ function filterHref(tab: string): string {
   return `/admin/fax?tab=${tab}`;
 }
 
+/** Preserve list filters/tab when opening a fax from the Fax Center grid. */
+function faxDetailHref(faxId: string, listReturnPath: string): string {
+  const q = new URLSearchParams();
+  q.set("returnTo", listReturnPath);
+  return `/admin/fax/${faxId}?${q.toString()}`;
+}
+
 export default async function AdminFaxCenterPage({ searchParams }: { searchParams: SearchParams }) {
   const staff = await getStaffProfile();
   if (!staff || !isManagerOrHigher(staff)) redirect("/admin");
@@ -224,7 +231,7 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
                     </span>
                   </div>
                   <div className="min-w-0 pt-0.5">
-                    <Link href={`/admin/fax/${fax.id}`} className="block">
+                    <Link href={faxDetailHref(fax.id, currentListPath)} className="block">
                       <p className="font-semibold text-slate-900">{primary || "Unknown sender"}</p>
                     </Link>
                     <p className="text-xs text-slate-500">{primaryPhone ? formatPhoneForDisplay(primaryPhone) : "No primary number"}</p>
@@ -242,7 +249,7 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
                     {formatFaxDateTimeList(fax.received_at ?? fax.sent_at ?? fax.created_at)}
                   </div>
                   <div className="flex flex-wrap gap-2 pt-1">
-                    <Link href={`/admin/fax/${fax.id}`} className={crmActionBtnMuted}>
+                    <Link href={faxDetailHref(fax.id, currentListPath)} className={crmActionBtnMuted}>
                       Open
                     </Link>
                     <DeleteFaxButton faxId={fax.id} returnTo={currentListPath} allowHardDelete={allowHardDelete} compact />

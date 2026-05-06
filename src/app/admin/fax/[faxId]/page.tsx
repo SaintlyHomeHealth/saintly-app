@@ -14,12 +14,30 @@ import { getStaffProfile, isAdminOrHigher, isManagerOrHigher } from "@/lib/staff
 
 import { DeleteFaxButton } from "../_components/DeleteFaxButton";
 
-export default async function AdminFaxDetailPage({ params }: { params: Promise<{ faxId: string }> }) {
+/** Only allow returning to Fax Center paths (avoid open redirects). */
+function safeFaxListReturnPath(raw: string | string[] | undefined): string {
+  const v = Array.isArray(raw) ? raw[0] : raw;
+  if (typeof v !== "string") return "/admin/fax";
+  const t = v.trim();
+  if (!t.startsWith("/admin/fax")) return "/admin/fax";
+  if (t.includes("..") || t.includes("//")) return "/admin/fax";
+  return t;
+}
+
+export default async function AdminFaxDetailPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ faxId: string }>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const staff = await getStaffProfile();
   if (!staff || !isManagerOrHigher(staff)) redirect("/admin");
   const allowHardDelete = isAdminOrHigher(staff);
 
   const { faxId } = await params;
+  const sp = searchParams ? await searchParams : {};
+  const listReturnPath = safeFaxListReturnPath(sp.returnTo);
   if (!faxId) notFound();
 
   const { data, error } = await supabaseAdmin.from("fax_messages").select("*").eq("id", faxId).maybeSingle();
@@ -41,7 +59,10 @@ export default async function AdminFaxDetailPage({ params }: { params: Promise<{
         description="Preview the PDF and add a short note so the team can recognize this fax in the list."
         actions={
           <div className="flex flex-wrap gap-2">
-            <Link href="/admin/fax" className={crmPrimaryCtaCls}>
+            <Link href={listReturnPath} className={crmPrimaryCtaCls}>
+              ← Back to faxes
+            </Link>
+            <Link href="/admin/fax" className={crmActionBtnMuted}>
               All faxes
             </Link>
             <form action={markFaxReadAction}>
