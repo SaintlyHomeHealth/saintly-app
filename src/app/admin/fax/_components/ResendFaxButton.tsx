@@ -4,8 +4,8 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
 
 import { resendFaxAction } from "@/app/admin/fax/actions";
-import { crmActionBtnMuted, crmActionBtnSky, crmFilterInputCls, crmPrimaryCtaCls } from "@/components/admin/crm-admin-list-styles";
-import { formatPhoneNumber } from "@/lib/phone/us-phone-format";
+import { crmActionBtnSky, crmFilterInputCls, crmPrimaryCtaCls } from "@/components/admin/crm-admin-list-styles";
+import { formatPhoneForDisplay, formatPhoneNumber } from "@/lib/phone/us-phone-format";
 
 type Toast = { type: "ok" | "err"; message: string };
 
@@ -31,12 +31,11 @@ export function ResendFaxButton({ faxId, initialRecipientNumber, note, compact }
     return () => window.clearTimeout(t);
   }, [toast]);
 
-  useEffect(() => {
-    if (open) {
-      setFaxTo(formatPhoneNumber(initialRecipientNumber ?? ""));
-      setLocalError(null);
-    }
-  }, [open, initialRecipientNumber]);
+  function openModal() {
+    setFaxTo(formatPhoneNumber(initialRecipientNumber ?? ""));
+    setLocalError(null);
+    setOpen(true);
+  }
 
   function closeModal() {
     if (!pending) {
@@ -59,6 +58,11 @@ export function ResendFaxButton({ faxId, initialRecipientNumber, note, compact }
     });
   }
 
+  const originalFormatted =
+    initialRecipientNumber && String(initialRecipientNumber).trim()
+      ? formatPhoneForDisplay(initialRecipientNumber)
+      : "—";
+
   return (
     <>
       {toast ? (
@@ -77,7 +81,8 @@ export function ResendFaxButton({ faxId, initialRecipientNumber, note, compact }
       <button
         type="button"
         className={compact ? crmActionBtnSky : crmPrimaryCtaCls}
-        onClick={() => setOpen(true)}
+        onClick={openModal}
+        aria-haspopup="dialog"
       >
         Resend
       </button>
@@ -95,15 +100,18 @@ export function ResendFaxButton({ faxId, initialRecipientNumber, note, compact }
                 <p id="resend-fax-title" className="text-base font-bold text-slate-900">
                   Resend Fax
                 </p>
-                <p className="mt-1 text-sm text-slate-500">Confirm the destination number. You can edit it to send elsewhere.</p>
+                <p className="mt-2 text-sm leading-relaxed text-slate-600">
+                  Send this same fax again. You can keep the same number or enter a different fax number.
+                </p>
               </div>
               <button
                 type="button"
                 className="rounded-full px-2 py-1 text-sm font-semibold text-slate-500 hover:bg-slate-100"
                 onClick={closeModal}
                 disabled={pending}
+                aria-label="Close dialog"
               >
-                Close
+                ×
               </button>
             </div>
 
@@ -114,25 +122,37 @@ export function ResendFaxButton({ faxId, initialRecipientNumber, note, compact }
                 </div>
               ) : null}
 
-              <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-700">
-                Fax number <span className="text-rose-600">*</span>
-                <input
-                  type="tel"
-                  name="faxTo"
-                  autoComplete="tel"
-                  value={faxTo}
-                  onChange={(e) => setFaxTo(e.target.value)}
-                  disabled={pending}
-                  placeholder="(480) 555-1212"
-                  className={crmFilterInputCls}
-                />
-              </label>
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
+                <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Original recipient</p>
+                <p className="mt-1 text-sm font-semibold text-slate-900">{originalFormatted}</p>
+              </div>
+
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Destination fax number</p>
+                <p className="mt-1 text-xs text-slate-600">
+                  <span className="sr-only">Send to another number: </span>
+                  Prefilled with the original number—edit below to send to someone else.
+                </p>
+                <label className="mt-2 flex flex-col gap-1 text-[11px] font-semibold text-slate-700">
+                  <span className="sr-only">Editable fax number</span>
+                  <input
+                    type="tel"
+                    name="faxTo"
+                    autoComplete="tel"
+                    value={faxTo}
+                    onChange={(e) => setFaxTo(e.target.value)}
+                    disabled={pending}
+                    placeholder="(480) 555-1212"
+                    className={`${crmFilterInputCls} mt-0`}
+                  />
+                </label>
+              </div>
 
               <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
                 <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Original note</p>
-                <p className="mt-2 whitespace-pre-wrap text-sm text-slate-800">
+                <div className="mt-2 whitespace-pre-wrap text-sm text-slate-800">
                   {note?.trim() ? note : <span className="text-slate-500">No note on this fax.</span>}
-                </p>
+                </div>
               </div>
 
               <div className="flex justify-end gap-2 pt-2">
