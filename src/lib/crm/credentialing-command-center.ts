@@ -132,7 +132,7 @@ export type PayerCredentialingListRow = {
   primary_contact_fax?: string | null;
   primary_contact_email: string | null;
   /** From nested select; used for reachability + search */
-  payer_credentialing_record_emails?: { email: string }[] | null;
+  payer_credentialing_record_contacts?: { email: string | null; phone: string | null; is_active: boolean }[] | null;
   notes: string | null;
   last_follow_up_at: string | null;
   updated_at: string;
@@ -182,6 +182,15 @@ function isTightFollowUpLane(r: PayerCredentialingListRow): boolean {
 }
 
 export function hasReachableContact(r: PayerCredentialingListRow): boolean {
+  const extras = r.payer_credentialing_record_contacts;
+  if (extras && extras.length > 0) {
+    const ok = extras.some(
+      (c) =>
+        c.is_active !== false &&
+        ((c.email ?? "").trim().length > 0 || (c.phone ?? "").trim().length > 0)
+    );
+    if (ok) return true;
+  }
   const phones = [
     r.primary_contact_phone,
     r.primary_contact_phone_direct,
@@ -190,10 +199,6 @@ export function hasReachableContact(r: PayerCredentialingListRow): boolean {
   if (phones.some((p) => (p ?? "").trim())) return true;
   const legacyEmail = (r.primary_contact_email ?? "").trim();
   if (legacyEmail) return true;
-  const extras = r.payer_credentialing_record_emails;
-  if (extras && extras.length > 0) {
-    return extras.some((e) => (e.email ?? "").trim());
-  }
   return false;
 }
 

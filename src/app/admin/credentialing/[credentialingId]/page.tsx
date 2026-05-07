@@ -13,21 +13,20 @@ import {
   CredentialingAttachmentsSectionFallback,
 } from "./CredentialingAttachmentsSection";
 import {
-  CredentialingChecklistSection,
-  CredentialingChecklistSectionFallback,
-} from "./CredentialingChecklistSection";
-import {
   CredentialingNotesSection,
   CredentialingNotesSectionFallback,
 } from "./CredentialingNotesSection";
+import { CredentialingContactsPanel, CredentialingContactsTopRibbon } from "@/components/credentialing/PayerCredentialingContacts";
 import { commandCenterStatusLabel } from "@/lib/crm/credentialing-command-center";
 import { formatCredentialingDateTime } from "@/lib/crm/credentialing-datetime";
 import { getSimplifiedCredentialingPipelineTargets } from "@/lib/crm/credentialing-pipeline-ui";
 import { PAYER_DENIAL_REASON_VALUES } from "@/lib/crm/credentialing-denial";
 import { PAYER_CREDENTIALING_RECORD_DETAIL_SELECT } from "@/lib/crm/payer-credentialing-record-select";
 import { PAYER_CREDENTIALING_MAX_ATTACHMENT_BYTES } from "@/lib/crm/payer-credentialing-storage";
-import type { PayerCredentialingRecordEmail } from "@/lib/crm/payer-credentialing-contact";
-import { PayerCredentialingEmailsQuick } from "@/components/credentialing/PayerCredentialingEmailsQuick";
+import {
+  type PayerCredentialingRecordContact,
+  mapPayerCredentialingContactRow,
+} from "@/lib/crm/payer-credentialing-contacts";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { appCalendarMidnightUtc, formatAppDate } from "@/lib/datetime/app-timezone";
@@ -99,9 +98,11 @@ export default async function AdminCredentialingDetailPage({
     notFound();
   }
 
-  const { data: rawEmailRows, error: emailFetchErr } = await supabase
-    .from("payer_credentialing_record_emails")
-    .select("id, email, label, is_primary, sort_order")
+  const { data: rawContactRows, error: contactFetchErr } = await supabase
+    .from("payer_credentialing_record_contacts")
+    .select(
+      "id, name, role, email, phone, extension, label, notes, is_primary, is_active, sort_order, created_at, updated_at"
+    )
     .eq("credentialing_record_id", id)
     .order("sort_order", { ascending: true });
 
@@ -114,22 +115,9 @@ export default async function AdminCredentialingDetailPage({
   const next_action_due_date =
     typeof r.next_action_due_date === "string" ? r.next_action_due_date.slice(0, 10) : "";
 
-  const emailRows: PayerCredentialingRecordEmail[] = !emailFetchErr
-    ? ((rawEmailRows ?? []) as PayerCredentialingRecordEmail[])
+  const contactRows: PayerCredentialingRecordContact[] = !contactFetchErr
+    ? ((rawContactRows ?? []) as Record<string, unknown>[]).map(mapPayerCredentialingContactRow)
     : [];
-
-  const primaryEmail = typeof r.primary_contact_email === "string" ? r.primary_contact_email.trim() : "";
-
-  const emailRowsForQuick =
-    emailRows.length > 0
-      ? emailRows.map((e) => ({
-          email: e.email,
-          label: e.label?.trim() ?? "",
-          is_primary: e.is_primary,
-        }))
-      : primaryEmail
-        ? [{ email: primaryEmail, label: "", is_primary: true }]
-        : [];
 
   const ccStatus = commandCenterStatusLabel(credentialing_status, contracting_status);
   const submittedTargets = getSimplifiedCredentialingPipelineTargets(2);
@@ -297,26 +285,31 @@ export default async function AdminCredentialingDetailPage({
           </p>
         ) : null}
 
+        {!contactFetchErr ? (
+          <CredentialingContactsTopRibbon credentialingRecordId={id} initialContacts={contactRows} />
+        ) : (
+          <p className="mt-4 text-sm text-amber-900">
+            Contacts list is unavailable until{" "}
+            <span className="font-mono text-xs">payer_credentialing_record_contacts</span> migration is applied.
+          </p>
+        )}
+
         <p className="mt-3 text-[11px] text-slate-500">
           Record updated{" "}
           {r.updated_at ? formatCredentialingDateTime(String(r.updated_at)) : "—"}
         </p>
       </header>
 
-      {emailFetchErr ? (
+      {contactFetchErr ? (
         <p className="text-sm text-amber-900">
-          Contact email list is unavailable until{" "}
-          <span className="font-mono text-xs">payer_credentialing_record_emails</span> is migrated.
+          Contacts CRUD requires <span className="font-mono text-xs">payer_credentialing_record_contacts</span> —
+          rerun Supabase migrations, then reload.
         </p>
       ) : (
         <section className={`${cardShell} bg-white p-5 sm:p-6`}>
-          <PayerCredentialingEmailsQuick credentialingId={id} initialRows={emailRowsForQuick} />
+          <CredentialingContactsPanel credentialingRecordId={id} initialContacts={contactRows} />
         </section>
       )}
-
-      <Suspense fallback={<CredentialingChecklistSectionFallback />}>
-        <CredentialingChecklistSection credentialingId={id} />
-      </Suspense>
 
       <Suspense fallback={<CredentialingAttachmentsSectionFallback />}>
         <CredentialingAttachmentsSection credentialingId={id} />

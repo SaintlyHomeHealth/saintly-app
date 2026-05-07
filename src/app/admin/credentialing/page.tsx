@@ -88,7 +88,10 @@ function matchesPriorityFilter(r: PayerCredentialingListRow, pf: PriorityFilter)
 function matchesSearch(r: PayerCredentialingListRow, q: string): boolean {
   const needle = q.trim().toLowerCase();
   if (!needle) return true;
-  const extraEmails = (r.payer_credentialing_record_emails ?? []).map((e) => e.email);
+  const extraContactBits = (r.payer_credentialing_record_contacts ?? []).flatMap((c) => [
+    c.email,
+    c.phone,
+  ]);
   const hay = [
     r.payer_name,
     r.primary_contact_name,
@@ -96,7 +99,7 @@ function matchesSearch(r: PayerCredentialingListRow, q: string): boolean {
     r.primary_contact_phone_direct,
     r.primary_contact_fax,
     r.primary_contact_email,
-    ...extraEmails,
+    ...extraContactBits,
     r.portal_url,
     r.next_action,
     r.denial_reason,
@@ -112,10 +115,14 @@ function normalizeCredentialingRows(raw: unknown[]): PayerCredentialingListRow[]
     const updated = typeof r.updated_at === "string" ? r.updated_at : "";
     const created = typeof r.created_at === "string" ? r.created_at : updated;
     const nested =
-      Array.isArray(r.payer_credentialing_record_emails) && r.payer_credentialing_record_emails.length > 0
-        ? (r.payer_credentialing_record_emails as { email?: string }[])
-            .map((e) => ({ email: typeof e.email === "string" ? e.email : "" }))
-            .filter((e) => e.email.trim())
+      Array.isArray(r.payer_credentialing_record_contacts) && r.payer_credentialing_record_contacts.length > 0
+        ? (r.payer_credentialing_record_contacts as { email?: unknown; phone?: unknown; is_active?: unknown }[]).map(
+            (row) => ({
+              email: typeof row.email === "string" ? row.email : null,
+              phone: typeof row.phone === "string" ? row.phone : null,
+              is_active: row.is_active !== false,
+            })
+          )
         : null;
     return {
       ...(row as PayerCredentialingListRow),
@@ -128,7 +135,7 @@ function normalizeCredentialingRows(raw: unknown[]): PayerCredentialingListRow[]
       primary_contact_phone_direct:
         typeof r.primary_contact_phone_direct === "string" ? r.primary_contact_phone_direct : null,
       primary_contact_fax: typeof r.primary_contact_fax === "string" ? r.primary_contact_fax : null,
-      payer_credentialing_record_emails: nested,
+      payer_credentialing_record_contacts: nested,
     };
   });
 }
@@ -174,7 +181,7 @@ export default async function AdminCredentialingPage({
        primary_contact_email,
        last_follow_up_at, updated_at, created_at, assigned_owner_user_id,
        next_action, next_action_due_date, priority, denial_reason,
-       payer_credentialing_record_emails ( email )`
+       payer_credentialing_record_contacts ( email, phone, is_active )`
         )
         .order("updated_at", { ascending: false })
         .limit(CREDENTIALING_LIST_FETCH_CAP)

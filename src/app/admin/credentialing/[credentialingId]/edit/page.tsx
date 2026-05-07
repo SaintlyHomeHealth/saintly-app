@@ -19,9 +19,12 @@ import {
   isCredentialingPriority,
 } from "@/lib/crm/credentialing-status-options";
 import { PAYER_CREDENTIALING_RECORD_DETAIL_SELECT } from "@/lib/crm/payer-credentialing-record-select";
-import type { PayerCredentialingRecordEmail } from "@/lib/crm/payer-credentialing-contact";
+import { CredentialingContactsPanel } from "@/components/credentialing/PayerCredentialingContacts";
+import {
+  type PayerCredentialingRecordContact,
+  mapPayerCredentialingContactRow,
+} from "@/lib/crm/payer-credentialing-contacts";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
-import { PayerCredentialingEmailsQuick } from "@/components/credentialing/PayerCredentialingEmailsQuick";
 import { credentialingStaffLabel, loadCredentialingStaffAssignees } from "@/lib/crm/credentialing-staff-directory";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
@@ -58,9 +61,11 @@ export default async function AdminCredentialingEditPage({
     notFound();
   }
 
-  const { data: rawEmailRows, error: emailFetchErr } = await supabase
-    .from("payer_credentialing_record_emails")
-    .select("id, email, label, is_primary, sort_order")
+  const { data: rawContactRows, error: contactFetchErr } = await supabase
+    .from("payer_credentialing_record_contacts")
+    .select(
+      "id, name, role, email, phone, extension, label, notes, is_primary, is_active, sort_order, created_at, updated_at"
+    )
     .eq("credentialing_record_id", id)
     .order("sort_order", { ascending: true });
 
@@ -99,22 +104,9 @@ export default async function AdminCredentialingEditPage({
   const lastContactedDate =
     primary_last_contacted && primary_last_contacted.length >= 10 ? primary_last_contacted.slice(0, 10) : "";
 
-  const emailRows: PayerCredentialingRecordEmail[] = !emailFetchErr
-    ? ((rawEmailRows ?? []) as PayerCredentialingRecordEmail[])
+  const contactRows: PayerCredentialingRecordContact[] = !contactFetchErr
+    ? ((rawContactRows ?? []) as Record<string, unknown>[]).map(mapPayerCredentialingContactRow)
     : [];
-
-  const primaryEmail = typeof r.primary_contact_email === "string" ? r.primary_contact_email.trim() : "";
-
-  const emailRowsForQuick =
-    emailRows.length > 0
-      ? emailRows.map((e) => ({
-          email: e.email,
-          label: e.label?.trim() ?? "",
-          is_primary: e.is_primary,
-        }))
-      : primaryEmail
-        ? [{ email: primaryEmail, label: "", is_primary: true }]
-        : [];
 
   const staffOptions = await loadCredentialingStaffAssignees();
 
@@ -135,20 +127,22 @@ export default async function AdminCredentialingEditPage({
         <p className="mt-1 text-sm text-slate-600">{payer_name}</p>
       </div>
 
-      {emailFetchErr ? (
+      {contactFetchErr ? (
         <p className="text-sm text-amber-900">
-          Contact email list is unavailable until{" "}
-          <span className="font-mono text-xs">payer_credentialing_record_emails</span> is migrated.
+          Contacts CRUD requires <span className="font-mono text-xs">payer_credentialing_record_contacts</span> —
+          rerun Supabase migrations, then reload.
         </p>
-      ) : null}
-
-      <section className={`${cardShell} p-5 sm:p-6`}>
-        <h2 className="text-sm font-semibold text-slate-900">Email addresses</h2>
-        <p className="mt-1 text-xs text-slate-500">Changes save automatically.</p>
-        <div className="mt-4">
-          <PayerCredentialingEmailsQuick credentialingId={id} initialRows={emailRowsForQuick} />
-        </div>
-      </section>
+      ) : (
+        <section className={`${cardShell} p-5 sm:p-6`}>
+          <h2 className="text-sm font-semibold text-slate-900">Contacts</h2>
+          <p className="mt-1 text-xs text-slate-500">
+            Multi-contact roster for this payer. For legacy bulk fields below, edits still merge with the payer row.
+          </p>
+          <div className="mt-4">
+            <CredentialingContactsPanel credentialingRecordId={id} initialContacts={contactRows} />
+          </div>
+        </section>
+      )}
 
       <form action={updatePayerCredentialingRecord} className={`space-y-6 ${cardShell} p-5 sm:p-6`}>
         <input type="hidden" name="id" value={id} />
