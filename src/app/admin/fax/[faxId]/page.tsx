@@ -13,6 +13,7 @@ import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import { getStaffProfile, isAdminOrHigher, isManagerOrHigher } from "@/lib/staff-profile";
 
 import { DeleteFaxButton } from "../_components/DeleteFaxButton";
+import { ResendFaxButton } from "../_components/ResendFaxButton";
 
 /** Only allow returning to Fax Center paths (avoid open redirects). */
 function safeFaxListReturnPath(raw: string | string[] | undefined): string {
@@ -85,6 +86,9 @@ export default async function AdminFaxDetailPage({
               <a href={pdfUrl} target="_blank" rel="noreferrer" className={crmActionBtnSky}>
                 Download / print PDF
               </a>
+            ) : null}
+            {fax.direction === "outbound" ? (
+              <ResendFaxButton faxId={fax.id} initialRecipientNumber={fax.to_number} note={fax.note ?? null} compact />
             ) : null}
             <DeleteFaxButton faxId={fax.id} returnTo="/admin/fax" allowHardDelete={allowHardDelete} />
           </div>

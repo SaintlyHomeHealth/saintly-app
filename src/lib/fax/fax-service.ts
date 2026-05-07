@@ -54,6 +54,8 @@ export type FaxMessageRow = {
   updated_at: string;
   /** Set after HIPAA-safe inbound fax SMS/push alerts are dispatched (dedupes webhook retries). */
   inbound_alert_sent_at?: string | null;
+  /** Outbound resend attempts reference the original fax row. */
+  resent_from_fax_message_id?: string | null;
 };
 
 /** Tokenized AND search across common fax fields (case-insensitive substring per token). */

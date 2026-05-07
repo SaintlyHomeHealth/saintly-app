@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 
 import { supabaseAdmin } from "@/lib/admin";
 import { recordFaxEvent } from "@/lib/fax/fax-service";
+import { resendOutboundFax } from "@/lib/fax/resend-outbound-fax";
 import { getStaffProfile, isAdminOrHigher, isManagerOrHigher } from "@/lib/staff-profile";
 
 const NOTE_MAX_LEN = 4000;
@@ -151,4 +152,36 @@ export async function updateFaxNoteAction(formData: FormData): Promise<{ ok: tru
   revalidatePath("/admin/fax");
   revalidatePath(`/admin/fax/${faxId}`);
   return { ok: true };
+}
+
+export async function resendFaxAction(
+  faxMessageId: string,
+  newRecipientFaxNumber: string
+): Promise<
+  | { ok: true; newFaxId: string }
+  | { ok: false; error: string; newFaxId?: string }
+> {
+  const staff = await getStaffProfile();
+  if (!staff || !isManagerOrHigher(staff)) {
+    return { ok: false, error: "Unauthorized" };
+  }
+
+  const fid = faxMessageId.trim();
+  if (!fid) {
+    return { ok: false, error: "Missing fax." };
+  }
+
+  const result = await resendOutboundFax({
+    originalFaxMessageId: fid,
+    newRecipientRaw: newRecipientFaxNumber,
+    actorUserId: staff.user_id,
+  });
+
+  revalidatePath("/admin/fax");
+  revalidatePath(`/admin/fax/${fid}`);
+  if (result.newFaxId) {
+    revalidatePath(`/admin/fax/${result.newFaxId}`);
+  }
+
+  return result;
 }

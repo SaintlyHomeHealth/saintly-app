@@ -20,6 +20,7 @@ import { getStaffProfile, isAdminOrHigher, isManagerOrHigher } from "@/lib/staff
 
 import { DeleteFaxButton } from "./_components/DeleteFaxButton";
 import { FaxNoteListCell } from "./_components/FaxNoteListCell";
+import { ResendFaxButton } from "./_components/ResendFaxButton";
 import { SendFaxButton } from "./_components/SendFaxButton";
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
@@ -252,6 +253,14 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
                     <Link href={faxDetailHref(fax.id, currentListPath)} className={crmActionBtnMuted}>
                       Open
                     </Link>
+                    {fax.direction === "outbound" ? (
+                      <ResendFaxButton
+                        faxId={fax.id}
+                        initialRecipientNumber={fax.to_number}
+                        note={fax.note ?? null}
+                        compact
+                      />
+                    ) : null}
                     <DeleteFaxButton faxId={fax.id} returnTo={currentListPath} allowHardDelete={allowHardDelete} compact />
                   </div>
                 </div>
