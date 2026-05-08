@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { supabaseAdmin } from "@/lib/admin";
+import { forwardInboundFaxAsOutbound } from "@/lib/fax/forward-inbound-fax";
 import { recordFaxEvent } from "@/lib/fax/fax-service";
 import { resendOutboundFax } from "@/lib/fax/resend-outbound-fax";
 import { getStaffProfile, isAdminOrHigher, isManagerOrHigher } from "@/lib/staff-profile";
@@ -175,6 +176,51 @@ export async function resendFaxAction(
     originalFaxMessageId: fid,
     newRecipientRaw: newRecipientFaxNumber,
     actorUserId: staff.user_id,
+  });
+
+  revalidatePath("/admin/fax");
+  revalidatePath(`/admin/fax/${fid}`);
+  if (result.newFaxId) {
+    revalidatePath(`/admin/fax/${result.newFaxId}`);
+  }
+
+  return result;
+}
+
+export async function forwardInboundFaxAction(input: {
+  inboundFaxId: string;
+  toNumber: string;
+  recipientName: string;
+  recipientOrganization: string;
+  subject: string;
+  coverNote: string;
+  includeCoverSheet: boolean;
+  originalFromDisplay: string;
+  originalReceivedDisplay: string;
+}): Promise<
+  { ok: true; newFaxId: string } | { ok: false; error: string; newFaxId?: string }
+> {
+  const staff = await getStaffProfile();
+  if (!staff || !isManagerOrHigher(staff)) {
+    return { ok: false, error: "Unauthorized" };
+  }
+
+  const fid = input.inboundFaxId.trim();
+  if (!fid) {
+    return { ok: false, error: "Missing fax." };
+  }
+
+  const result = await forwardInboundFaxAsOutbound({
+    inboundFaxMessageId: fid,
+    toNumberRaw: input.toNumber,
+    recipientName: input.recipientName.trim() || null,
+    recipientOrganization: input.recipientOrganization.trim() || null,
+    subject: input.subject.trim() || null,
+    coverNote: input.coverNote.trim() || null,
+    includeCoverSheet: input.includeCoverSheet,
+    actorUserId: staff.user_id,
+    originalFromDisplay: input.originalFromDisplay,
+    originalReceivedDisplay: input.originalReceivedDisplay,
   });
 
   revalidatePath("/admin/fax");

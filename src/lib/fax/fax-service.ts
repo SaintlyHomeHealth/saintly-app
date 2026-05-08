@@ -56,6 +56,8 @@ export type FaxMessageRow = {
   inbound_alert_sent_at?: string | null;
   /** Outbound resend attempts reference the original fax row. */
   resent_from_fax_message_id?: string | null;
+  /** Outbound send created by forwarding an inbound fax document. */
+  forwarded_from_fax_message_id?: string | null;
 };
 
 /** Tokenized AND search across common fax fields (case-insensitive substring per token). */

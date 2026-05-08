@@ -13,13 +13,15 @@ import {
 } from "@/components/admin/crm-admin-list-styles";
 import { supabaseAdmin } from "@/lib/admin";
 import { formatFaxSenderDisplay } from "@/lib/fax/format-fax-sender";
-import { formatFaxDateTimeList } from "@/lib/fax/format-fax-time";
+import { formatFaxDateTimeDetail, formatFaxDateTimeList } from "@/lib/fax/format-fax-time";
+import { inboundFaxHasDocumentForForward } from "@/lib/fax/forward-inbound-fax";
 import { faxMatchesKeywordSearch, missingFaxSchema, type FaxMessageRow } from "@/lib/fax/fax-service";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import { getStaffProfile, isAdminOrHigher, isManagerOrHigher } from "@/lib/staff-profile";
 
 import { DeleteFaxButton } from "./_components/DeleteFaxButton";
 import { FaxNoteListCell } from "./_components/FaxNoteListCell";
+import { ForwardInboundFaxButton } from "./_components/ForwardInboundFaxButton";
 import { ResendFaxButton } from "./_components/ResendFaxButton";
 import { SendFaxButton } from "./_components/SendFaxButton";
 
@@ -217,6 +219,13 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
               const primaryName = fax.direction === "inbound" ? fax.sender_name : fax.recipient_name;
               const primary = formatFaxSenderDisplay(primaryPhone, primaryName);
               const secondary = fax.direction === "inbound" ? fax.to_number : fax.from_number;
+              const originalFromDisplay = [
+                formatFaxSenderDisplay(fax.from_number, fax.sender_name) || null,
+                fax.from_number ? formatPhoneForDisplay(fax.from_number) : null,
+              ]
+                .filter(Boolean)
+                .join(" · ") || "Unknown";
+              const originalReceivedDisplay = formatFaxDateTimeDetail(fax.received_at ?? fax.created_at);
               return (
                 <div
                   key={fax.id}
@@ -259,6 +268,15 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
                         initialRecipientNumber={fax.to_number}
                         note={fax.note ?? null}
                         compact
+                      />
+                    ) : null}
+                    {fax.direction === "inbound" && inboundFaxHasDocumentForForward(fax) ? (
+                      <ForwardInboundFaxButton
+                        faxId={fax.id}
+                        originalFromDisplay={originalFromDisplay}
+                        originalReceivedDisplay={originalReceivedDisplay}
+                        pageCount={fax.page_count}
+                        variant="row"
                       />
                     ) : null}
                     <DeleteFaxButton faxId={fax.id} returnTo={currentListPath} allowHardDelete={allowHardDelete} compact />

@@ -8,11 +8,13 @@ import { crmActionBtnMuted, crmActionBtnSky, crmPrimaryCtaCls } from "@/componen
 import { supabaseAdmin } from "@/lib/admin";
 import { formatFaxSenderDisplay } from "@/lib/fax/format-fax-sender";
 import { formatFaxDateTimeDetail } from "@/lib/fax/format-fax-time";
+import { inboundFaxHasDocumentForForward } from "@/lib/fax/forward-inbound-fax";
 import { missingFaxSchema, signedFaxPdfUrl, type FaxMessageRow } from "@/lib/fax/fax-service";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import { getStaffProfile, isAdminOrHigher, isManagerOrHigher } from "@/lib/staff-profile";
 
 import { DeleteFaxButton } from "../_components/DeleteFaxButton";
+import { ForwardInboundFaxButton } from "../_components/ForwardInboundFaxButton";
 import { ResendFaxButton } from "../_components/ResendFaxButton";
 
 /** Only allow returning to Fax Center paths (avoid open redirects). */
@@ -50,6 +52,10 @@ export default async function AdminFaxDetailPage({
   const returnTo = `/admin/fax/${fax.id}`;
   const senderDisplay = formatFaxSenderDisplay(fax.from_number, fax.sender_name);
   const recipientDisplay = formatFaxSenderDisplay(fax.to_number, fax.recipient_name);
+  const originalFromDisplay = [senderDisplay || null, fax.from_number ? formatPhoneForDisplay(fax.from_number) : null]
+    .filter(Boolean)
+    .join(" · ") || "Unknown";
+  const originalReceivedDisplay = formatFaxDateTimeDetail(fax.received_at ?? fax.created_at);
 
   return (
     <div className="space-y-6 p-6">
@@ -89,6 +95,15 @@ export default async function AdminFaxDetailPage({
             ) : null}
             {fax.direction === "outbound" ? (
               <ResendFaxButton faxId={fax.id} initialRecipientNumber={fax.to_number} note={fax.note ?? null} compact />
+            ) : null}
+            {fax.direction === "inbound" && inboundFaxHasDocumentForForward(fax) ? (
+              <ForwardInboundFaxButton
+                faxId={fax.id}
+                originalFromDisplay={originalFromDisplay}
+                originalReceivedDisplay={originalReceivedDisplay}
+                pageCount={fax.page_count}
+                variant="detail"
+              />
             ) : null}
             <DeleteFaxButton faxId={fax.id} returnTo="/admin/fax" allowHardDelete={allowHardDelete} />
           </div>
