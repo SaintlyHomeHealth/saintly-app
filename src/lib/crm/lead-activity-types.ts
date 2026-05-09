@@ -26,6 +26,10 @@ export const LEAD_ACTIVITY_EVENT = {
   communication_phone_call: "communication_phone_call",
   /** SMS line item (preview only; full thread is in inbox). */
   communication_sms: "communication_sms",
+  /** CRM list: "+ Attempt" without changing last_outcome / pipeline. */
+  call_attempt_logged: "call_attempt_logged",
+  /** CRM list: manual correction of call_attempt_count. */
+  call_attempt_count_updated: "call_attempt_count_updated",
 } as const;
 
 export type LeadActivityEventType = (typeof LEAD_ACTIVITY_EVENT)[keyof typeof LEAD_ACTIVITY_EVENT];
@@ -77,6 +81,10 @@ export function leadActivityEventLabel(eventType: string): string {
       return "Call";
     case LEAD_ACTIVITY_EVENT.communication_sms:
       return "SMS";
+    case LEAD_ACTIVITY_EVENT.call_attempt_logged:
+      return "Call attempt";
+    case LEAD_ACTIVITY_EVENT.call_attempt_count_updated:
+      return "Call attempts";
     default:
       return eventType.replace(/_/g, " ");
   }
@@ -92,7 +100,11 @@ export function leadActivityThreadClasses(eventType: string): { rail: string; bu
       label: "text-slate-600",
     };
   }
-  if (t === LEAD_ACTIVITY_EVENT.contact_attempt) {
+  if (
+    t === LEAD_ACTIVITY_EVENT.contact_attempt ||
+    t === LEAD_ACTIVITY_EVENT.call_attempt_logged ||
+    t === LEAD_ACTIVITY_EVENT.call_attempt_count_updated
+  ) {
     return {
       rail: "bg-sky-400/90",
       bubble: "border-sky-200/90 bg-sky-50/80 text-slate-900",

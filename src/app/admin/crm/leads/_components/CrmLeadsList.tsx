@@ -13,6 +13,10 @@ import {
   quickMarkLeadSpoke,
   quickSetLeadTemperature,
 } from "@/app/admin/crm/actions";
+import {
+  LeadListRowCallAttempts,
+  LeadListRowQuickNote,
+} from "@/app/admin/crm/leads/_components/LeadListRowQuickNoteAndAttempts";
 import type { LeadTemperature } from "@/lib/crm/lead-temperature";
 import { leadTemperatureLabel, normalizeLeadTemperature } from "@/lib/crm/lead-temperature";
 import { LeadDeleteButton } from "@/app/admin/crm/leads/_components/LeadDeleteButton";
@@ -437,6 +441,19 @@ export function CrmLeadsList({
   const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false);
   const [pending, startTransition] = useTransition();
   const selectAllRef = useRef<HTMLInputElement>(null);
+  const [listToast, setListToast] = useState<null | { type: "ok" | "err"; message: string }>(null);
+
+  useEffect(() => {
+    if (!listToast) return;
+    const t = window.setTimeout(() => setListToast(null), 3200);
+    return () => window.clearTimeout(t);
+  }, [listToast]);
+
+  const patchLeadCallAttemptCount = useCallback((leadId: string, next: number) => {
+    setRows((prev) =>
+      prev.map((row) => (row.id === leadId ? { ...row, call_attempt_count: next } : row))
+    );
+  }, []);
 
   const staffById = useMemo(() => new Map(staffOptions.map((s) => [s.user_id, s])), [staffOptions]);
 
@@ -545,6 +562,18 @@ export function CrmLeadsList({
 
   return (
     <div className="space-y-3">
+      {listToast ? (
+        <div
+          role="status"
+          className={`pointer-events-none fixed bottom-4 right-4 z-[100] max-w-sm rounded-lg border px-4 py-3 text-sm font-medium shadow-lg ${
+            listToast.type === "ok"
+              ? "border-emerald-200 bg-emerald-50 text-emerald-950"
+              : "border-rose-200 bg-rose-50 text-rose-950"
+          }`}
+        >
+          {listToast.message}
+        </div>
+      ) : null}
       {bulkBar}
       <div className={crmListScrollOuterCls}>
         {employeeOnlyView ? (
@@ -703,7 +732,17 @@ export function CrmLeadsList({
                               <span className="text-slate-400">Owner:</span> {owner ? staffPrimaryLabel(owner) : "—"}
                             </p>
                           </div>
-                          <LeadQuickActions compact leadId={r.id} />
+                          <div className="flex flex-wrap items-end gap-x-1 gap-y-1">
+                            <LeadQuickActions compact leadId={r.id} />
+                            <LeadListRowQuickNote compact leadId={r.id} onToast={setListToast} />
+                            <LeadListRowCallAttempts
+                              compact
+                              leadId={r.id}
+                              row={r}
+                              onCountCommitted={patchLeadCallAttemptCount}
+                              onToast={setListToast}
+                            />
+                          </div>
                           <LeadTemperatureQuickSet compact leadId={r.id} value={r.lead_temperature ?? null} />
                         </>
                       ) : (
@@ -728,7 +767,16 @@ export function CrmLeadsList({
                             <span className="text-slate-500">Owner: </span>
                             {owner ? staffPrimaryLabel(owner) : "—"}
                           </div>
-                          <LeadQuickActions leadId={r.id} />
+                          <div className="flex flex-wrap items-end gap-x-1 gap-y-1">
+                            <LeadQuickActions leadId={r.id} />
+                            <LeadListRowQuickNote leadId={r.id} onToast={setListToast} />
+                            <LeadListRowCallAttempts
+                              leadId={r.id}
+                              row={r}
+                              onCountCommitted={patchLeadCallAttemptCount}
+                              onToast={setListToast}
+                            />
+                          </div>
                           <LeadTemperatureQuickSet leadId={r.id} value={r.lead_temperature ?? null} />
                         </>
                       )}
@@ -932,7 +980,17 @@ export function CrmLeadsList({
                               <span className="text-slate-400">Owner:</span> {owner ? staffPrimaryLabel(owner) : "—"}
                             </p>
                           </div>
-                          <LeadQuickActions compact leadId={r.id} />
+                          <div className="flex flex-wrap items-end gap-x-1 gap-y-1">
+                            <LeadQuickActions compact leadId={r.id} />
+                            <LeadListRowQuickNote compact leadId={r.id} onToast={setListToast} />
+                            <LeadListRowCallAttempts
+                              compact
+                              leadId={r.id}
+                              row={r}
+                              onCountCommitted={patchLeadCallAttemptCount}
+                              onToast={setListToast}
+                            />
+                          </div>
                           <LeadTemperatureQuickSet compact leadId={r.id} value={r.lead_temperature ?? null} />
                         </>
                       ) : (
@@ -957,7 +1015,16 @@ export function CrmLeadsList({
                             <span className="text-slate-500">Owner: </span>
                             {owner ? staffPrimaryLabel(owner) : "—"}
                           </div>
-                          <LeadQuickActions leadId={r.id} />
+                          <div className="flex flex-wrap items-end gap-x-1 gap-y-1">
+                            <LeadQuickActions leadId={r.id} />
+                            <LeadListRowQuickNote leadId={r.id} onToast={setListToast} />
+                            <LeadListRowCallAttempts
+                              leadId={r.id}
+                              row={r}
+                              onCountCommitted={patchLeadCallAttemptCount}
+                              onToast={setListToast}
+                            />
+                          </div>
                           <LeadTemperatureQuickSet leadId={r.id} value={r.lead_temperature ?? null} />
                         </>
                       )}

@@ -40,6 +40,9 @@ function classifyDbEvent(eventType: string): RowKind {
   const t = eventType.trim().toLowerCase();
   if (t === LEAD_ACTIVITY_EVENT.manual_note) return "note";
   if (t === LEAD_ACTIVITY_EVENT.contact_attempt) return "contact";
+  if (t === LEAD_ACTIVITY_EVENT.call_attempt_logged || t === LEAD_ACTIVITY_EVENT.call_attempt_count_updated) {
+    return "contact";
+  }
   return "system";
 }
 

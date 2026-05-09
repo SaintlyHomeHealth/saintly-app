@@ -44,6 +44,8 @@ export type CrmLeadRow = {
   waiting_on_doctors_orders?: boolean | null;
   /** Insurance eligibility / benefits verification still pending. */
   waiting_on_insurance_verification?: boolean | null;
+  /** Outbound call attempts tallied from CRM leads list (`+ Attempt`). */
+  call_attempt_count?: number | null;
   contacts: CrmLeadsContactEmb | CrmLeadsContactEmb[] | null;
 };
 

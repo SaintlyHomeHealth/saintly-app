@@ -2010,6 +2010,150 @@ export async function saveLeadQuickNote(formData: FormData): Promise<SaveLeadQui
   return { ok: true };
 }
 
+export type LeadCallAttemptMutationResult =
+  | { ok: true; call_attempt_count: number }
+  | { ok: false; error: "forbidden" | "invalid_lead" | "invalid_count" | "save_failed" };
+
+/** CRM leads list: +1 call attempt counter only (does not change last_outcome / pipeline). */
+export async function incrementLeadCallAttemptFromList(formData: FormData): Promise<LeadCallAttemptMutationResult> {
+  const staff = await getStaffProfile();
+  if (!staff || !isManagerOrHigher(staff)) {
+    return { ok: false, error: "forbidden" };
+  }
+  const leadId = readTrimmedField(formData, "leadId");
+  if (!leadId) {
+    return { ok: false, error: "invalid_lead" };
+  }
+
+  const { data: row, error: loadErr } = await leadRowsActiveOnly(
+    supabaseAdmin.from("leads").select("id, call_attempt_count").eq("id", leadId)
+  ).maybeSingle();
+
+  if (loadErr || !row?.id) {
+    return { ok: false, error: "invalid_lead" };
+  }
+
+  const prevRaw = row.call_attempt_count;
+  const prev =
+    typeof prevRaw === "number" && Number.isFinite(prevRaw) ? Math.max(0, Math.floor(prevRaw)) : 0;
+  const next = prev + 1;
+
+  const { error: updErr } = await supabaseAdmin
+    .from("leads")
+    .update({ call_attempt_count: next })
+    .eq("id", leadId)
+    .is("deleted_at", null);
+
+  if (updErr) {
+    console.warn("[admin/crm] incrementLeadCallAttemptFromList update:", updErr.message);
+    return { ok: false, error: "save_failed" };
+  }
+
+  const activityOk = await insertLeadActivityRow({
+    leadId,
+    eventType: LEAD_ACTIVITY_EVENT.call_attempt_logged,
+    body: "Call attempt logged",
+    metadata: { previous_count: prev, new_count: next },
+    createdByUserId: staff.user_id,
+    deletable: false,
+  });
+
+  if (!activityOk) {
+    await supabaseAdmin
+      .from("leads")
+      .update({ call_attempt_count: prev })
+      .eq("id", leadId)
+      .is("deleted_at", null);
+    return { ok: false, error: "save_failed" };
+  }
+
+  revalidatePath("/admin");
+  revalidatePath("/admin/crm/leads");
+  revalidatePath(`/admin/crm/leads/${leadId}`);
+  revalidatePath("/workspace/phone/leads");
+  revalidatePath("/workspace/phone/chat");
+
+  return { ok: true, call_attempt_count: next };
+}
+
+/**
+ * CRM leads list: set call attempt count (whole number ≥ 0). Logs when the stored value changes.
+ */
+export async function setLeadCallAttemptCountFromList(formData: FormData): Promise<LeadCallAttemptMutationResult> {
+  const staff = await getStaffProfile();
+  if (!staff || !isManagerOrHigher(staff)) {
+    return { ok: false, error: "forbidden" };
+  }
+  const leadId = readTrimmedField(formData, "leadId");
+  if (!leadId) {
+    return { ok: false, error: "invalid_lead" };
+  }
+
+  const countRaw = formData.get("call_attempt_count");
+  const countStr = typeof countRaw === "string" ? countRaw.trim() : "";
+  if (countStr === "" || !/^\d+$/.test(countStr)) {
+    return { ok: false, error: "invalid_count" };
+  }
+  const next = Number.parseInt(countStr, 10);
+  if (!Number.isInteger(next) || next < 0) {
+    return { ok: false, error: "invalid_count" };
+  }
+
+  const { data: row, error: loadErr } = await leadRowsActiveOnly(
+    supabaseAdmin.from("leads").select("id, call_attempt_count").eq("id", leadId)
+  ).maybeSingle();
+
+  if (loadErr || !row?.id) {
+    return { ok: false, error: "invalid_lead" };
+  }
+
+  const prevRaw = row.call_attempt_count;
+  const prev =
+    typeof prevRaw === "number" && Number.isFinite(prevRaw) ? Math.max(0, Math.floor(prevRaw)) : 0;
+
+  if (prev === next) {
+    return { ok: true, call_attempt_count: next };
+  }
+
+  const { error: updErr } = await supabaseAdmin
+    .from("leads")
+    .update({ call_attempt_count: next })
+    .eq("id", leadId)
+    .is("deleted_at", null);
+
+  if (updErr) {
+    console.warn("[admin/crm] setLeadCallAttemptCountFromList update:", updErr.message);
+    return { ok: false, error: "save_failed" };
+  }
+
+  const body = `Call attempt count updated from ${prev} to ${next}`;
+  const activityOk = await insertLeadActivityRow({
+    leadId,
+    eventType: LEAD_ACTIVITY_EVENT.call_attempt_count_updated,
+    body,
+    metadata: { previous_count: prev, new_count: next },
+    createdByUserId: staff.user_id,
+    deletable: false,
+  });
+
+  if (!activityOk) {
+    await supabaseAdmin
+      .from("leads")
+      .update({ call_attempt_count: prev })
+      .eq("id", leadId)
+      .is("deleted_at", null);
+    return { ok: false, error: "save_failed" };
+  }
+
+  revalidatePath("/admin");
+  revalidatePath("/admin/crm/leads");
+  revalidatePath(`/admin/crm/leads/${leadId}`);
+  revalidatePath("/workspace/phone/leads");
+  revalidatePath("/workspace/phone/chat");
+
+  return { ok: true, call_attempt_count: next };
+}
+
 export type DeleteLeadActivityResult =
   | { ok: true }
   | { ok: false; error: "forbidden" | "invalid" | "not_found" | "not_deletable" | "save_failed" };

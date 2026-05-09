@@ -37,8 +37,10 @@ import { getStaffProfile, isCrmLeadsRowPolicyRole } from "@/lib/staff-profile";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /** Omit `external_source_metadata` — large JSONB; hydrate only employee rows via a narrow follow-up query. */
-const CRM_LEADS_LIST_SELECT_BASE =
+const CRM_LEADS_LIST_SELECT_BASE_CORE =
   "id, contact_id, source, status, lead_type, owner_user_id, created_at, intake_status, referral_source, payer_name, payer_type, primary_payer_type, primary_payer_name, secondary_payer_type, secondary_payer_name, referring_provider_name, next_action, follow_up_date, follow_up_at, last_contact_at, last_outcome, service_disciplines, service_type, lead_temperature";
+
+const CRM_LEADS_LIST_SELECT_BASE = `${CRM_LEADS_LIST_SELECT_BASE_CORE}, call_attempt_count`;
 
 const CRM_LEADS_LIST_CONTACTS_EMBED =
   "contacts ( full_name, first_name, last_name, primary_phone, secondary_phone, email )";
@@ -46,6 +48,11 @@ const CRM_LEADS_LIST_CONTACTS_EMBED =
 const CRM_LEADS_LIST_SELECT_WITH_WAITING = `${CRM_LEADS_LIST_SELECT_BASE}, waiting_on_doctors_orders, waiting_on_insurance_verification, ${CRM_LEADS_LIST_CONTACTS_EMBED}`;
 const CRM_LEADS_LIST_SELECT_DOCTORS_HOLD_ONLY = `${CRM_LEADS_LIST_SELECT_BASE}, waiting_on_doctors_orders, ${CRM_LEADS_LIST_CONTACTS_EMBED}`;
 const CRM_LEADS_LIST_SELECT_WITHOUT_WAITING = `${CRM_LEADS_LIST_SELECT_BASE}, ${CRM_LEADS_LIST_CONTACTS_EMBED}`;
+
+/** Before migration `20260509120000_leads_call_attempt_count.sql`. */
+const CRM_LEADS_LIST_SELECT_WITH_WAITING_PRE_CALL_ATTEMPTS = `${CRM_LEADS_LIST_SELECT_BASE_CORE}, waiting_on_doctors_orders, waiting_on_insurance_verification, ${CRM_LEADS_LIST_CONTACTS_EMBED}`;
+const CRM_LEADS_LIST_SELECT_DOCTORS_HOLD_ONLY_PRE_CALL_ATTEMPTS = `${CRM_LEADS_LIST_SELECT_BASE_CORE}, waiting_on_doctors_orders, ${CRM_LEADS_LIST_CONTACTS_EMBED}`;
+const CRM_LEADS_LIST_SELECT_WITHOUT_WAITING_PRE_CALL_ATTEMPTS = `${CRM_LEADS_LIST_SELECT_BASE_CORE}, ${CRM_LEADS_LIST_CONTACTS_EMBED}`;
 
 const chipMuted =
   "inline-flex items-center gap-1 rounded-full border border-slate-200/90 bg-white px-2 py-0.5 text-[10px] font-medium text-slate-700 shadow-sm";
@@ -249,6 +256,27 @@ export default async function AdminCrmLeadsPage({
             execRowsQuery(CRM_LEADS_LIST_SELECT_WITHOUT_WAITING)
           )
         : await execRowsQuery(CRM_LEADS_LIST_SELECT_WITHOUT_WAITING));
+    }
+    if (error && isMissingSchemaObjectError(error)) {
+      ({ data: rows, error } = routePerfStepsEnabled()
+        ? await routePerfTimed("admin_crm_leads.leads_query_pre_call_attempts", () =>
+            execRowsQuery(CRM_LEADS_LIST_SELECT_WITH_WAITING_PRE_CALL_ATTEMPTS)
+          )
+        : await execRowsQuery(CRM_LEADS_LIST_SELECT_WITH_WAITING_PRE_CALL_ATTEMPTS));
+    }
+    if (error && isMissingSchemaObjectError(error)) {
+      ({ data: rows, error } = routePerfStepsEnabled()
+        ? await routePerfTimed("admin_crm_leads.leads_query_doctors_pre_call_attempts", () =>
+            execRowsQuery(CRM_LEADS_LIST_SELECT_DOCTORS_HOLD_ONLY_PRE_CALL_ATTEMPTS)
+          )
+        : await execRowsQuery(CRM_LEADS_LIST_SELECT_DOCTORS_HOLD_ONLY_PRE_CALL_ATTEMPTS));
+    }
+    if (error && isMissingSchemaObjectError(error)) {
+      ({ data: rows, error } = routePerfStepsEnabled()
+        ? await routePerfTimed("admin_crm_leads.leads_query_legacy_pre_call_attempts", () =>
+            execRowsQuery(CRM_LEADS_LIST_SELECT_WITHOUT_WAITING_PRE_CALL_ATTEMPTS)
+          )
+        : await execRowsQuery(CRM_LEADS_LIST_SELECT_WITHOUT_WAITING_PRE_CALL_ATTEMPTS));
     }
     if (error) {
       console.warn("[crm/leads] leads query failed:", error.message);
