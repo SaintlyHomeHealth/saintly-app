@@ -14,8 +14,7 @@ import {
   quickSetLeadTemperature,
 } from "@/app/admin/crm/actions";
 import {
-  LeadListRowCallAttempts,
-  LeadListRowQuickNote,
+  LeadListRowEngagementColumn,
 } from "@/app/admin/crm/leads/_components/LeadListRowQuickNoteAndAttempts";
 import type { LeadTemperature } from "@/lib/crm/lead-temperature";
 import { leadTemperatureLabel, normalizeLeadTemperature } from "@/lib/crm/lead-temperature";
@@ -558,7 +557,7 @@ export function CrmLeadsList({
   ) : null;
 
   const listGrid =
-    "md:grid-cols-[2rem_minmax(12rem,1.35fr)_minmax(11rem,1.05fr)_minmax(10.5rem,1fr)_minmax(4.25rem,auto)]";
+    "md:grid-cols-[2rem_minmax(11.5rem,1.22fr)_minmax(9.75rem,0.92fr)_minmax(10.25rem,0.72fr)_minmax(9.5rem,0.92fr)_minmax(3.85rem,auto)]";
 
   return (
     <div className="space-y-3">
@@ -577,7 +576,7 @@ export function CrmLeadsList({
       {bulkBar}
       <div className={crmListScrollOuterCls}>
         {employeeOnlyView ? (
-          <div className="min-w-[940px] text-sm">
+          <div className="min-w-[1080px] text-sm">
             <div
               className={`hidden border-b border-slate-100 bg-slate-50/90 ${hdrPad} text-[11px] font-semibold tracking-tight text-slate-600 md:grid ${listGrid}`}
             >
@@ -594,6 +593,7 @@ export function CrmLeadsList({
               </div>
               <div>Lead</div>
               <div>Pipeline</div>
+              <div>Engagement</div>
               <div className="text-right">Contact</div>
               <div className="text-right">Created</div>
             </div>
@@ -732,17 +732,7 @@ export function CrmLeadsList({
                               <span className="text-slate-400">Owner:</span> {owner ? staffPrimaryLabel(owner) : "—"}
                             </p>
                           </div>
-                          <div className="flex flex-wrap items-end gap-x-1 gap-y-1">
-                            <LeadQuickActions compact leadId={r.id} />
-                            <LeadListRowQuickNote compact leadId={r.id} onToast={setListToast} />
-                            <LeadListRowCallAttempts
-                              compact
-                              leadId={r.id}
-                              row={r}
-                              onCountCommitted={patchLeadCallAttemptCount}
-                              onToast={setListToast}
-                            />
-                          </div>
+                          <LeadQuickActions compact leadId={r.id} />
                           <LeadTemperatureQuickSet compact leadId={r.id} value={r.lead_temperature ?? null} />
                         </>
                       ) : (
@@ -767,20 +757,18 @@ export function CrmLeadsList({
                             <span className="text-slate-500">Owner: </span>
                             {owner ? staffPrimaryLabel(owner) : "—"}
                           </div>
-                          <div className="flex flex-wrap items-end gap-x-1 gap-y-1">
-                            <LeadQuickActions leadId={r.id} />
-                            <LeadListRowQuickNote leadId={r.id} onToast={setListToast} />
-                            <LeadListRowCallAttempts
-                              leadId={r.id}
-                              row={r}
-                              onCountCommitted={patchLeadCallAttemptCount}
-                              onToast={setListToast}
-                            />
-                          </div>
+                          <LeadQuickActions leadId={r.id} />
                           <LeadTemperatureQuickSet leadId={r.id} value={r.lead_temperature ?? null} />
                         </>
                       )}
                     </div>
+                    <LeadListRowEngagementColumn
+                      leadId={r.id}
+                      row={r}
+                      compact={compact}
+                      onCountCommitted={patchLeadCallAttemptCount}
+                      onToast={setListToast}
+                    />
                     <div className={`flex min-w-0 flex-col md:items-end ${compact ? "gap-1" : "gap-2"}`}>
                       <CompactContactLines dense={compact} phoneDisplay={phone ? formatPhoneForDisplay(phone) : null} email={email || null} />
                       <LeadActionButtonRow
@@ -806,7 +794,7 @@ export function CrmLeadsList({
             )}
           </div>
         ) : (
-          <div className="min-w-[940px] text-sm">
+          <div className="min-w-[1080px] text-sm">
             <div
               className={`hidden border-b border-slate-100 bg-slate-50/90 ${hdrPad} text-[11px] font-semibold tracking-tight text-slate-600 md:grid ${listGrid}`}
             >
@@ -823,6 +811,7 @@ export function CrmLeadsList({
               </div>
               <div>Lead</div>
               <div>Pipeline</div>
+              <div>Engagement</div>
               <div className="text-right">Contact</div>
               <div className="text-right">Created</div>
             </div>
@@ -980,17 +969,7 @@ export function CrmLeadsList({
                               <span className="text-slate-400">Owner:</span> {owner ? staffPrimaryLabel(owner) : "—"}
                             </p>
                           </div>
-                          <div className="flex flex-wrap items-end gap-x-1 gap-y-1">
-                            <LeadQuickActions compact leadId={r.id} />
-                            <LeadListRowQuickNote compact leadId={r.id} onToast={setListToast} />
-                            <LeadListRowCallAttempts
-                              compact
-                              leadId={r.id}
-                              row={r}
-                              onCountCommitted={patchLeadCallAttemptCount}
-                              onToast={setListToast}
-                            />
-                          </div>
+                          <LeadQuickActions compact leadId={r.id} />
                           <LeadTemperatureQuickSet compact leadId={r.id} value={r.lead_temperature ?? null} />
                         </>
                       ) : (
@@ -1015,20 +994,18 @@ export function CrmLeadsList({
                             <span className="text-slate-500">Owner: </span>
                             {owner ? staffPrimaryLabel(owner) : "—"}
                           </div>
-                          <div className="flex flex-wrap items-end gap-x-1 gap-y-1">
-                            <LeadQuickActions leadId={r.id} />
-                            <LeadListRowQuickNote leadId={r.id} onToast={setListToast} />
-                            <LeadListRowCallAttempts
-                              leadId={r.id}
-                              row={r}
-                              onCountCommitted={patchLeadCallAttemptCount}
-                              onToast={setListToast}
-                            />
-                          </div>
+                          <LeadQuickActions leadId={r.id} />
                           <LeadTemperatureQuickSet leadId={r.id} value={r.lead_temperature ?? null} />
                         </>
                       )}
                     </div>
+                    <LeadListRowEngagementColumn
+                      leadId={r.id}
+                      row={r}
+                      compact={compact}
+                      onCountCommitted={patchLeadCallAttemptCount}
+                      onToast={setListToast}
+                    />
                     <div className={`flex min-w-0 flex-col md:items-end ${compact ? "gap-1" : "gap-2"}`}>
                       <CompactContactLines dense={compact} phoneDisplay={phone ? formatPhoneForDisplay(phone) : null} email={email || null} />
                       <LeadActionButtonRow

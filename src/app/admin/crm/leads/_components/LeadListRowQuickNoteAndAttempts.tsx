@@ -24,10 +24,22 @@ function normalizeAttemptCount(v: unknown): number {
   return 0;
 }
 
-function listQuickBtnCls(compact?: boolean): string {
+function addNoteButtonCls(compact?: boolean): string {
   return compact
-    ? "inline-flex items-center justify-center rounded-md border border-slate-200 bg-white px-1 py-px text-[9px] font-medium text-slate-800 shadow-sm hover:border-slate-300 hover:bg-slate-50 disabled:opacity-50"
-    : "inline-flex items-center justify-center rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-medium text-slate-800 shadow-sm hover:border-slate-300 hover:bg-slate-50 disabled:opacity-50";
+    ? "inline-flex w-fit max-w-full items-center justify-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[9px] font-semibold text-slate-800 shadow-sm hover:border-slate-300 hover:bg-slate-50 disabled:opacity-50"
+    : "inline-flex w-fit max-w-full items-center justify-center rounded-full border border-slate-200 bg-white px-2.5 py-0.5 text-[10px] font-semibold text-slate-800 shadow-sm hover:border-slate-300 hover:bg-slate-50 disabled:opacity-50";
+}
+
+function attemptIncBtnCls(compact?: boolean): string {
+  return compact
+    ? "inline-flex shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white px-1.5 py-px text-[9px] font-semibold text-slate-800 shadow-sm hover:border-sky-300 hover:bg-sky-50/80 disabled:opacity-50"
+    : "inline-flex shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-800 shadow-sm hover:border-sky-300 hover:bg-sky-50/80 disabled:opacity-50";
+}
+
+function attemptsPillCls(compact?: boolean): string {
+  return compact
+    ? "inline-flex shrink-0 items-center rounded-full border border-slate-200/90 bg-slate-50 px-1.5 py-px text-[9px] font-semibold tabular-nums text-slate-800"
+    : "inline-flex shrink-0 items-center rounded-full border border-slate-200/90 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-slate-800";
 }
 
 export function LeadListRowQuickNote({
@@ -78,18 +90,15 @@ export function LeadListRowQuickNote({
 
   if (open) {
     return (
-      <div
-        className="flex min-w-0 max-w-full flex-col gap-1.5"
-        onClick={(e) => e.stopPropagation()}
-      >
+      <div className="flex min-w-0 w-full max-w-[16.5rem] flex-col gap-1.5" onClick={(e) => e.stopPropagation()}>
         <textarea
           value={text}
           maxLength={NOTE_MAX}
           onChange={(e) => setText(e.target.value)}
-          rows={compact ? 2 : 3}
+          rows={compact ? 2 : 2}
           placeholder="Add quick note…"
           disabled={pending}
-          className={`${crmFilterInputCls} min-h-[48px] w-full max-w-[min(100%,20rem)] resize-y ${compact ? "text-[10px]" : "text-[11px]"}`}
+          className={`${crmFilterInputCls} min-h-[44px] w-full resize-y ${compact ? "text-[10px]" : "text-[11px]"}`}
           aria-label="Quick note"
         />
         <div className="flex flex-wrap gap-1">
@@ -105,13 +114,13 @@ export function LeadListRowQuickNote({
   }
 
   return (
-    <button type="button" className={listQuickBtnCls(compact)} onClick={() => setOpen(true)} title="Add a quick note">
-      Note
+    <button type="button" className={addNoteButtonCls(compact)} onClick={() => setOpen(true)} title="Add a quick note">
+      Add note
     </button>
   );
 }
 
-export function LeadListRowCallAttempts({
+function LeadListRowCallAttempts({
   leadId,
   row,
   compact,
@@ -133,8 +142,8 @@ export function LeadListRowCallAttempts({
     setDraft(String(normalizeAttemptCount(row.call_attempt_count)));
   }, [row.call_attempt_count]);
 
-  const labelCls = compact ? "text-[9px] text-slate-600" : "text-[10px] text-slate-600";
-  const qcls = listQuickBtnCls(compact);
+  const incCls = attemptIncBtnCls(compact);
+  const pillCls = attemptsPillCls(compact);
 
   function bump() {
     startTransition(async () => {
@@ -195,7 +204,7 @@ export function LeadListRowCallAttempts({
             value={draft}
             onChange={(e) => setDraft(e.target.value.replace(/\D/g, ""))}
             disabled={pending}
-            className={`${crmFilterInputCls} w-14 tabular-nums ${compact ? "text-[10px]" : "text-[11px]"}`}
+            className={`${crmFilterInputCls} w-12 tabular-nums ${compact ? "text-[10px]" : "text-[11px]"}`}
             aria-label="Call attempt count"
           />
           <button type="button" className={crmActionBtnSky} onClick={saveEdit} disabled={pending}>
@@ -207,12 +216,13 @@ export function LeadListRowCallAttempts({
         </div>
       ) : (
         <>
-          <span className={`shrink-0 tabular-nums font-medium text-slate-800 ${labelCls}`}>
-            Attempts: {normalizeAttemptCount(row.call_attempt_count)}
-          </span>
+          <span className={pillCls}>Attempts: {normalizeAttemptCount(row.call_attempt_count)}</span>
+          <button type="button" className={incCls} onClick={bump} disabled={pending} title="Log one more call attempt">
+            + Attempt
+          </button>
           <button
             type="button"
-            className={`inline-flex items-center justify-center rounded border border-slate-200 bg-white p-0.5 text-slate-600 shadow-sm hover:bg-slate-50 disabled:opacity-50 ${compact ? "h-5 w-5" : "h-6 w-6"}`}
+            className="inline-flex shrink-0 items-center justify-center rounded-full p-0.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50"
             title="Edit attempt count"
             aria-label="Edit attempt count"
             onClick={() => {
@@ -220,13 +230,41 @@ export function LeadListRowCallAttempts({
               setEditing(true);
             }}
           >
-            <Pencil className={compact ? "h-2.5 w-2.5" : "h-3 w-3"} aria-hidden />
-          </button>
-          <button type="button" className={qcls} onClick={bump} disabled={pending} title="Log one more call attempt">
-            + Attempt
+            <Pencil className={compact ? "h-2.5 w-2.5" : "h-3 w-3"} aria-hidden strokeWidth={2} />
           </button>
         </>
       )}
+    </div>
+  );
+}
+
+/** CRM list row: attempts line + add-note — sits in the Engagement column between Pipeline and Contact. */
+export function LeadListRowEngagementColumn({
+  leadId,
+  row,
+  compact,
+  onCountCommitted,
+  onToast,
+}: {
+  leadId: string;
+  row: CrmLeadRow;
+  compact?: boolean;
+  onCountCommitted: (leadId: string, next: number) => void;
+  onToast: (t: { type: "ok" | "err"; message: string }) => void;
+}) {
+  return (
+    <div
+      className={`flex min-w-0 flex-col gap-1 md:self-center ${compact ? "text-[10px]" : "text-[11px]"}`}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <LeadListRowCallAttempts
+        leadId={leadId}
+        row={row}
+        compact={compact}
+        onCountCommitted={onCountCommitted}
+        onToast={onToast}
+      />
+      <LeadListRowQuickNote leadId={leadId} compact={compact} onToast={onToast} />
     </div>
   );
 }
