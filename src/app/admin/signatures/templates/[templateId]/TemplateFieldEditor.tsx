@@ -4,9 +4,11 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   type CSSProperties,
-  type MouseEvent as ReactMouseEvent,
+  forwardRef,
+  type PointerEvent as ReactPointerEvent,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -16,8 +18,8 @@ import { loadPdfFromUrl, type RenderedPdfPage } from "@/lib/pdf-sign/pdfjs-brows
 
 type PdfSignFieldType = "text" | "textarea" | "date" | "checkbox" | "signature" | "tin" | "select";
 
-/** Stored under `options.signer_role`. */
-type TemplateSignerRole = "recipient" | "employee" | "contractor" | "company" | "admin";
+/** Stored under `options.signer_role` (API persists any string; editor lists canonical + legacy). */
+type TemplateSignerRole = string;
 
 type PdfSignAutofillSource =
   | "none"
@@ -35,7 +37,7 @@ type EditorField = {
   field_type: PdfSignFieldType;
   validation_kind: string | null;
   autofill_source: PdfSignAutofillSource;
-  signer_role: TemplateSignerRole;
+  signer_role: string;
   required: boolean;
   page_index: number;
   page_width: number;
@@ -191,18 +193,45 @@ const PRESET_ORDER: FieldPreset[] = [
   "tin",
 ];
 
+/** Compact toolbar: common types first with friendly labels (API presets unchanged). */
+const MINI_TOOLBAR_PRESET_ORDER: FieldPreset[] = [
+  "signature",
+  "text",
+  "textarea",
+  "date",
+  "number_only",
+  "checkbox",
+  "select",
+  "tin",
+];
+
+const MINI_TOOLBAR_PRESET_LABELS: Record<FieldPreset, string> = {
+  signature: "Signature",
+  text: "Text field",
+  textarea: "Text area",
+  date: "Date",
+  checkbox: "Checkbox",
+  number_only: "Number only",
+  select: "Select",
+  tin: "TIN",
+};
+
 const PDF_SIGN_DOCUMENT_TYPE_SUGGESTIONS: { value: string; label: string }[] = [
   { value: "generic_contract", label: "Generic contract" },
   { value: "w9", label: "IRS Form W-9" },
   { value: "i9", label: "Form I-9" },
 ];
 
-const ASSIGNED_TO_OPTIONS: { value: TemplateSignerRole; label: string }[] = [
-  { value: "recipient", label: "Recipient (signer)" },
-  { value: "employee", label: "Employee" },
-  { value: "contractor", label: "Contractor" },
-  { value: "company", label: "Company" },
+const ASSIGNED_TO_OPTIONS: { value: string; label: string }[] = [
+  { value: "recipient", label: "Recipient / signer" },
+  { value: "sender", label: "Sender / Saintly" },
+  { value: "internal", label: "Internal" },
+  { value: "employee", label: "Employee (legacy)" },
+  { value: "contractor", label: "Contractor (legacy)" },
+  { value: "company", label: "Company (legacy)" },
   { value: "admin", label: "Admin / prefilled" },
+  { value: "recruit", label: "Recruit (legacy)" },
+  { value: "lead", label: "Lead (legacy)" },
 ];
 
 const AUTOFILL_OPTIONS: { value: PdfSignAutofillSource; label: string }[] = [
@@ -258,10 +287,14 @@ function presetShortLabel(p: FieldPreset): string {
   }
 }
 
-function rolePill(role: TemplateSignerRole): string {
-  switch (role) {
+function rolePill(role: string): string {
+  switch (role.toLowerCase()) {
     case "recipient":
       return "SIGNER";
+    case "sender":
+      return "SND";
+    case "internal":
+      return "INT";
     case "employee":
       return "EMPL";
     case "contractor":
@@ -270,6 +303,12 @@ function rolePill(role: TemplateSignerRole): string {
       return "CO";
     case "admin":
       return "ADM";
+    case "recruit":
+      return "REC";
+    case "lead":
+      return "LEAD";
+    default:
+      return role ? role.slice(0, 4).toUpperCase() : "ROLE";
   }
 }
 
@@ -301,34 +340,163 @@ function uniqueKey(base: string, used: Set<string>): string {
   return `${safe}_${i}`;
 }
 
-function normalizeSignerRole(v: string | null | undefined): TemplateSignerRole {
-  const x = (v || "").toLowerCase();
-  if (x === "employee") return "employee";
-  if (x === "contractor") return "contractor";
-  if (x === "company") return "company";
-  if (x === "admin") return "admin";
-  return "recipient";
+function normalizeSignerRole(v: string | null | undefined): string {
+  const x = (v || "").trim();
+  return x || "recipient";
 }
 
 function suggestAutofill(params: {
   label: string;
   fieldKey: string;
   fieldType: PdfSignFieldType;
-  role: TemplateSignerRole;
+  role: string;
 }): PdfSignAutofillSource {
   const { label, fieldKey, fieldType, role } = params;
+  const r = role.toLowerCase();
   const L = `${label} ${fieldKey}`.toLowerCase();
   if (fieldType === "date") return "today_date";
   if (fieldType === "tin") return "none";
   if (fieldType === "signature" || fieldType === "checkbox") return "none";
   if (L.includes("company") || L.includes("business")) return "company_name";
-  if (L.includes("email")) return role === "recipient" ? "recipient_email" : "none";
+  if (L.includes("email")) return r === "recipient" ? "recipient_email" : "none";
   if (L.includes("phone") || L.includes("mobile")) return "recipient_phone";
   if (L.includes("name") || L.includes("print")) {
-    return role === "recipient" || role === "employee" ? "recipient_name" : "sender_name";
+    return r === "recipient" || r === "employee" ? "recipient_name" : "sender_name";
   }
   return "none";
 }
+
+function FieldPresetTypeSelect({
+  value,
+  onChange,
+  selectClassName,
+  id,
+  "aria-label": ariaLabel,
+  presetOrder = PRESET_ORDER,
+  optionLabel = presetLabel,
+}: {
+  value: FieldPreset;
+  onChange: (newPreset: FieldPreset) => void;
+  selectClassName: string;
+  id?: string;
+  "aria-label"?: string;
+  presetOrder?: FieldPreset[];
+  optionLabel?: (p: FieldPreset) => string;
+}) {
+  return (
+    <select
+      id={id}
+      aria-label={ariaLabel}
+      value={value}
+      onChange={(e) => onChange(e.target.value as FieldPreset)}
+      className={selectClassName}
+    >
+      {presetOrder.map((p) => (
+        <option key={p} value={p}>
+          {optionLabel(p)}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+function AssignedToRoleSelect({
+  value,
+  onChange,
+  selectClassName,
+  id,
+  "aria-label": ariaLabel,
+}: {
+  value: string;
+  onChange: (assigned: string) => void;
+  selectClassName: string;
+  id?: string;
+  "aria-label"?: string;
+}) {
+  const options = useMemo(() => {
+    const base = [...ASSIGNED_TO_OPTIONS];
+    if (value && !base.some((o) => o.value === value)) {
+      base.push({ value, label: `${value} (stored)` });
+    }
+    return base;
+  }, [value]);
+  return (
+    <select
+      id={id}
+      aria-label={ariaLabel}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className={selectClassName}
+    >
+      {options.map((opt) => (
+        <option key={opt.value} value={opt.value}>
+          {opt.label}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+const FieldMiniToolbar = forwardRef<
+  HTMLDivElement,
+  {
+    field: EditorField;
+    onChange: (p: Partial<EditorField>) => void;
+    onChangePreset: (newPreset: FieldPreset) => void;
+    onChangeAssignedTo: (assigned: string) => void;
+    onDelete: () => void;
+    style?: CSSProperties;
+  }
+>(function FieldMiniToolbar(
+  { field, onChange, onChangePreset, onChangeAssignedTo, onDelete, style },
+  ref
+) {
+  const currentPreset = presetForField(field);
+  const miniSelect =
+    "max-w-[10rem] rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[11px] text-slate-900 shadow-sm";
+
+  return (
+    <div
+      ref={ref}
+      data-field-toolbar
+      className="pointer-events-auto flex max-w-[min(100vw-1rem,26rem)] flex-wrap items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 py-1 shadow-md ring-1 ring-slate-900/10"
+      style={style}
+      onPointerDownCapture={(e) => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <FieldPresetTypeSelect
+        value={currentPreset}
+        onChange={onChangePreset}
+        selectClassName={miniSelect}
+        presetOrder={MINI_TOOLBAR_PRESET_ORDER}
+        optionLabel={(p) => MINI_TOOLBAR_PRESET_LABELS[p]}
+        aria-label="Field type"
+      />
+      <AssignedToRoleSelect
+        value={field.signer_role}
+        onChange={onChangeAssignedTo}
+        selectClassName={`${miniSelect} max-w-[11rem]`}
+        aria-label="Assigned to"
+      />
+      <label className="flex shrink-0 cursor-pointer items-center gap-1 text-[11px] font-medium text-slate-700">
+        <input
+          type="checkbox"
+          checked={field.required}
+          onChange={(e) => onChange({ required: e.target.checked })}
+          className="rounded border-slate-300 text-indigo-600"
+        />
+        Req.
+      </label>
+      <button
+        type="button"
+        onClick={onDelete}
+        className="shrink-0 rounded border border-rose-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-rose-700 hover:bg-rose-50"
+      >
+        Delete
+      </button>
+    </div>
+  );
+});
 
 export function TemplateFieldEditor({ templateId }: { templateId: string }) {
   const [loaded, setLoaded] = useState<LoadedTemplate | null>(null);
@@ -366,6 +534,45 @@ export function TemplateFieldEditor({ templateId }: { templateId: string }) {
     moved: boolean;
   } | null>(null);
   const suppressPdfClickRef = useRef(false);
+
+  const selectedFieldOverlayRef = useRef<HTMLDivElement | null>(null);
+  const miniToolbarRef = useRef<HTMLDivElement | null>(null);
+  const [miniToolbarPos, setMiniToolbarPos] = useState<{ top: number; left: number } | null>(null);
+
+  const repositionMiniToolbar = useCallback(() => {
+    const fieldEl = selectedFieldOverlayRef.current;
+    const barEl = miniToolbarRef.current;
+    const clipEl = containerRef.current;
+    if (!fieldEl || !barEl || !clipEl) {
+      return;
+    }
+    const fr = fieldEl.getBoundingClientRect();
+    const tw = Math.max(barEl.offsetWidth, 1);
+    const th = Math.max(barEl.offsetHeight, 1);
+    const clip = clipEl.getBoundingClientRect();
+    setMiniToolbarPos(placeToolbarFixed(fr, tw, th, clip));
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!selectedId) {
+      setMiniToolbarPos(null);
+      return;
+    }
+    repositionMiniToolbar();
+    const raf = requestAnimationFrame(() => repositionMiniToolbar());
+    return () => cancelAnimationFrame(raf);
+  }, [selectedId, fields, pageDisplaySizes, pageDisplayWidth, repositionMiniToolbar]);
+
+  useEffect(() => {
+    if (!selectedId) return;
+    const onScrollOrResize = () => repositionMiniToolbar();
+    window.addEventListener("scroll", onScrollOrResize, true);
+    window.addEventListener("resize", onScrollOrResize);
+    return () => {
+      window.removeEventListener("scroll", onScrollOrResize, true);
+      window.removeEventListener("resize", onScrollOrResize);
+    };
+  }, [selectedId, repositionMiniToolbar]);
 
   useEffect(() => {
     let cancelled = false;
@@ -652,12 +859,17 @@ export function TemplateFieldEditor({ templateId }: { templateId: string }) {
 
   const onPointerDown = useCallback(
     (
-      e: ReactMouseEvent<HTMLDivElement>,
+      e: ReactPointerEvent<HTMLDivElement>,
       field: EditorField,
       mode: "move" | "resize"
     ) => {
-      e.preventDefault();
       e.stopPropagation();
+      // Resize uses preventDefault to avoid text selection while dragging the handle; move mode
+      // relies on select-none on the overlay so we do not suppress the following click (which
+      // would break selection + parent's background-click detection in some browsers).
+      if (mode === "resize") {
+        e.preventDefault();
+      }
       const display = pageDisplaySizes[field.page_index];
       const pdfSize = pageMap.get(field.page_index);
       if (!display || !pdfSize) return;
@@ -869,7 +1081,7 @@ export function TemplateFieldEditor({ templateId }: { templateId: string }) {
   const selected = fields.find((f) => f.id === selectedId) || null;
 
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start">
+    <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_340px] xl:items-start">
       <div ref={containerRef} className="min-w-0 flex flex-col gap-4">
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
           <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -951,6 +1163,14 @@ export function TemplateFieldEditor({ templateId }: { templateId: string }) {
           </div>
         ) : null}
 
+        <SelectedFieldQuickBar
+          field={selected}
+          onChange={(p) => selected && updateField(selected.id, p)}
+          onChangePreset={(np) => selected && changeFieldPreset(selected.id, np)}
+          onChangeAssignedTo={(a) => selected && changeFieldAssignedTo(selected.id, a)}
+          onDelete={() => selected && removeField(selected.id)}
+        />
+
         {pdfPages?.map((page) => (
           <div
             key={page.index}
@@ -965,6 +1185,10 @@ export function TemplateFieldEditor({ templateId }: { templateId: string }) {
               onClick={(e) => {
                 if (suppressPdfClickRef.current) return;
                 if (dragStateRef.current) return;
+                // Do not treat clicks on field overlays as "place new field" (avoids bubbling /
+                // synthetic click edge cases fighting selection).
+                const t = e.target as HTMLElement | null;
+                if (t?.closest?.("[data-field-id], [data-field-toolbar]")) return;
                 const rect = e.currentTarget.getBoundingClientRect();
                 const leftPx = e.clientX - rect.left;
                 const topPx = e.clientY - rect.top;
@@ -994,14 +1218,15 @@ export function TemplateFieldEditor({ templateId }: { templateId: string }) {
                     <div
                       key={field.id}
                       data-field-id={field.id}
+                      ref={isSelected ? selectedFieldOverlayRef : undefined}
                       style={style}
-                      onMouseDown={(e) => onPointerDown(e, field, "move")}
+                      onPointerDown={(e) => onPointerDown(e, field, "move")}
                       onClick={(e) => {
                         e.stopPropagation();
                         setSelectedId(field.id);
                       }}
                       className={
-                        "group cursor-move select-none rounded-md border-2 text-[10px] font-semibold transition " +
+                        "pointer-events-auto group cursor-move select-none rounded-md border-2 text-[10px] font-semibold transition " +
                         overlayClasses(field.is_suggestion, isSelected)
                       }
                     >
@@ -1022,6 +1247,7 @@ export function TemplateFieldEditor({ templateId }: { templateId: string }) {
                         </span>
                         <button
                           type="button"
+                          onPointerDown={(e) => e.stopPropagation()}
                           onClick={(e) => {
                             e.stopPropagation();
                             removeField(field.id);
@@ -1035,7 +1261,7 @@ export function TemplateFieldEditor({ templateId }: { templateId: string }) {
                       <div
                         role="presentation"
                         title="Resize from corner"
-                        onMouseDown={(e) => {
+                        onPointerDown={(e) => {
                           e.preventDefault();
                           e.stopPropagation();
                           onPointerDown(e, field, "resize");
@@ -1051,10 +1277,26 @@ export function TemplateFieldEditor({ templateId }: { templateId: string }) {
           </div>
         ))}
 
+        {selected ? (
+          <FieldMiniToolbar
+            ref={miniToolbarRef}
+            field={selected}
+            style={
+              miniToolbarPos
+                ? { position: "fixed", top: miniToolbarPos.top, left: miniToolbarPos.left, zIndex: 70 }
+                : { position: "fixed", left: 0, top: -9999, zIndex: 70, visibility: "hidden" }
+            }
+            onChange={(p) => updateField(selected.id, p)}
+            onChangePreset={(np) => changeFieldPreset(selected.id, np)}
+            onChangeAssignedTo={(a) => changeFieldAssignedTo(selected.id, a)}
+            onDelete={() => removeField(selected.id)}
+          />
+        ) : null}
+
         {!pdfPages ? <p className="text-sm text-slate-500">Loading PDF preview…</p> : null}
       </div>
 
-      <aside className="flex min-w-0 flex-col gap-4 lg:sticky lg:top-24 lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto">
+      <aside className="flex min-w-0 flex-col gap-4 xl:sticky xl:top-24 xl:max-h-[calc(100vh-6rem)] xl:overflow-y-auto">
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm ring-1 ring-slate-100">
           <h3 className="text-sm font-semibold text-slate-900">Field Settings</h3>
           {selected ? (
@@ -1203,6 +1445,81 @@ export function TemplateFieldEditor({ templateId }: { templateId: string }) {
   );
 }
 
+function SelectedFieldQuickBar({
+  field,
+  onChange,
+  onChangePreset,
+  onChangeAssignedTo,
+  onDelete,
+}: {
+  field: EditorField | null;
+  onChange: (p: Partial<EditorField>) => void;
+  onChangePreset: (newPreset: FieldPreset) => void;
+  onChangeAssignedTo: (assigned: TemplateSignerRole) => void;
+  onDelete: () => void;
+}) {
+  if (!field) {
+    return (
+      <div className="mb-3 rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-600 shadow-sm">
+        Select a field to edit.
+      </div>
+    );
+  }
+
+  const currentPreset = presetForField(field);
+  const compactSelect =
+    "min-w-[6.5rem] max-w-[12rem] rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-900";
+
+  return (
+    <div className="mb-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm xl:sticky xl:top-2 xl:z-[5]">
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+        <label className="flex min-w-[8rem] flex-1 flex-col gap-0.5 text-[11px] font-medium text-slate-700">
+          Label
+          <input
+            value={field.label}
+            onChange={(e) => onChange({ label: e.target.value })}
+            className="w-full min-w-0 rounded-lg border border-slate-200 px-2 py-1.5 text-sm"
+          />
+        </label>
+        <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-700">
+          Field type
+          <FieldPresetTypeSelect
+            value={currentPreset}
+            onChange={onChangePreset}
+            selectClassName={compactSelect}
+            aria-label="Field type"
+          />
+        </label>
+        <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-700">
+          Assigned to
+          <AssignedToRoleSelect
+            value={field.signer_role}
+            onChange={onChangeAssignedTo}
+            selectClassName={compactSelect}
+            aria-label="Assigned to"
+          />
+        </label>
+        <label className="flex items-center gap-2 pb-0.5 text-[11px] font-medium text-slate-700 sm:pb-1.5">
+          <input
+            type="checkbox"
+            checked={field.required}
+            onChange={(e) => onChange({ required: e.target.checked })}
+            className="rounded border-slate-300 text-indigo-600"
+          />
+          Required
+        </label>
+        <button
+          type="button"
+          onClick={onDelete}
+          className="rounded-full border border-rose-200 bg-white px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-50 sm:ml-auto"
+        >
+          Delete
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function FieldDetail({
   field,
   onChange,
@@ -1218,6 +1535,7 @@ function FieldDetail({
 }) {
   const currentPreset = presetForField(field);
   const isSignatureType = field.field_type === "signature";
+  const fullSelect = "mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm";
   return (
     <div className="mt-3 space-y-3 text-xs">
       <label className="block font-medium text-slate-700">
@@ -1232,31 +1550,19 @@ function FieldDetail({
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <label className="block font-medium text-slate-700">
           Field type
-          <select
+          <FieldPresetTypeSelect
             value={currentPreset}
-            onChange={(e) => onChangePreset(e.target.value as FieldPreset)}
-            className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm"
-          >
-            {PRESET_ORDER.map((p) => (
-              <option key={p} value={p}>
-                {presetLabel(p)}
-              </option>
-            ))}
-          </select>
+            onChange={onChangePreset}
+            selectClassName={fullSelect}
+          />
         </label>
         <label className="block font-medium text-slate-700">
           Assigned to
-          <select
+          <AssignedToRoleSelect
             value={field.signer_role}
-            onChange={(e) => onChangeAssignedTo(e.target.value as TemplateSignerRole)}
-            className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm"
-          >
-            {ASSIGNED_TO_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
+            onChange={onChangeAssignedTo}
+            selectClassName={fullSelect}
+          />
         </label>
       </div>
 
@@ -1466,6 +1772,64 @@ function FieldsOnTemplate({
 function clamp(n: number, min: number, max: number): number {
   if (max < min) return min;
   return Math.min(max, Math.max(min, n));
+}
+
+/** Fixed-position mini toolbar: prefer above the field, else below; stay inside clipRect (editor column); never overlap the field. */
+function placeToolbarFixed(
+  fieldRect: DOMRect,
+  toolbarW: number,
+  toolbarH: number,
+  clipRect: DOMRect
+): { top: number; left: number } {
+  const gap = 6;
+  const pad = 4;
+
+  let left = fieldRect.left + fieldRect.width / 2 - toolbarW / 2;
+  left = clamp(left, clipRect.left + pad, clipRect.right - toolbarW - pad);
+
+  const aboveTop = fieldRect.top - gap - toolbarH;
+  const belowTop = fieldRect.bottom + gap;
+
+  const aboveFullyVisible = aboveTop >= clipRect.top + pad;
+  const belowFullyVisible = belowTop + toolbarH <= clipRect.bottom - pad;
+
+  let top: number;
+  if (aboveFullyVisible && aboveTop + toolbarH <= fieldRect.top - gap / 2) {
+    top = aboveTop;
+  } else if (belowFullyVisible && belowTop >= fieldRect.bottom + gap / 2) {
+    top = belowTop;
+  } else if (aboveFullyVisible) {
+    top = aboveTop;
+  } else if (belowFullyVisible) {
+    top = belowTop;
+  } else {
+    const distAbove = fieldRect.top - clipRect.top;
+    const distBelow = clipRect.bottom - fieldRect.bottom;
+    top = distAbove >= distBelow ? clipRect.top + pad : clipRect.bottom - pad - toolbarH;
+  }
+
+  top = clamp(top, clipRect.top + pad, clipRect.bottom - pad - toolbarH);
+  left = clamp(left, clipRect.left + pad, clipRect.right - pad - toolbarW);
+
+  const tb = top + toolbarH;
+  const overlapsFieldVert = tb > fieldRect.top && top < fieldRect.bottom;
+  const overlapsFieldHorz = left + toolbarW > fieldRect.left && left < fieldRect.right;
+  if (overlapsFieldVert && overlapsFieldHorz) {
+    const tryBelow = fieldRect.bottom + gap;
+    if (tryBelow + toolbarH <= clipRect.bottom - pad) {
+      top = tryBelow;
+    } else {
+      const tryAbove = fieldRect.top - gap - toolbarH;
+      if (tryAbove >= clipRect.top + pad) {
+        top = tryAbove;
+      } else {
+        top = clamp(fieldRect.bottom + gap, clipRect.top + pad, clipRect.bottom - pad - toolbarH);
+      }
+    }
+    top = clamp(top, clipRect.top + pad, clipRect.bottom - pad - toolbarH);
+  }
+
+  return { top, left };
 }
 
 function mapStoredToEditor(f: LoadedTemplate["fields"][number]): EditorField {
