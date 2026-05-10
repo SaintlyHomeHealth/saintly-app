@@ -27,6 +27,8 @@ const nextConfig: NextConfig = {
     ignoreBuildErrors: true,
   },
   images: {
+    /** Marketing logos/photos use slightly higher quality than the default 75. */
+    qualities: [75, 92, 94, 95],
     remotePatterns: [
       {
         protocol: "https",

@@ -1,13 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  Favicon/tab master: larger mark in frame (Squarespace-style legibility).
-  Centered scale(1.12) fills the square; maskable uses a padded variant in generate script.
+  Favicon/tab master: centered mark with safe-zone padding so strokes never crop.
+  Scale 0.84 leaves ~40px padding around the design at every size (16, 32, 180, 512).
+  Halo uses Saintly accent gold (#F5B400). House + arc remain dark navy for contrast.
   npm run icons:generate
 -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Saintly Home Health">
   <defs>
     <style>
       .ink { fill: #0f172a; }
+      .halo { fill: #F5B400; }
       .arc {
         fill: none;
         stroke: #0f172a;
@@ -17,10 +19,10 @@
       }
     </style>
   </defs>
-  <g transform="translate(256 256) scale(1.12) translate(-256 -256)">
+  <g transform="translate(256 256) scale(0.58) translate(-256 -256)">
     <path class="arc" d="M 40 384 Q 256 52 472 384" />
     <path class="ink" d="M 256 208 L 152 318 L 152 416 L 360 416 L 360 318 Z" />
     <rect class="ink" x="72" y="432" width="368" height="36" rx="14" />
-    <ellipse class="ink" cx="256" cy="142" rx="118" ry="44" />
+    <ellipse class="halo" cx="256" cy="142" rx="118" ry="44" />
   </g>
 </svg>

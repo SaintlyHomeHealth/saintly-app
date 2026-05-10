@@ -4,7 +4,7 @@ import { MarketingHome } from "@/components/marketing/MarketingHome";
 export const metadata: Metadata = {
   title: "Saintly Home Health",
   description:
-    "Medicare-certified home health in Greater Phoenix—skilled nursing, wound care, and therapy at home.",
+    "Care That Goes Above — Medicare-certified skilled nursing, wound care, therapy, and home health aide support in Greater Phoenix.",
 };
 
 export default function HomePage() {

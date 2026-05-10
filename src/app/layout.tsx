@@ -42,15 +42,11 @@ export const metadata: Metadata = {
     statusBarStyle: "default",
     title: "Saintly Home Health",
   },
-  icons: {
-    icon: [
-      { url: "/favicon.ico" },
-      { url: "/favicon-32x32.png", sizes: "32x32", type: "image/png" },
-      { url: "/favicon-16x16.png", sizes: "16x16", type: "image/png" },
-    ],
-    apple: [{ url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
-    shortcut: ["/favicon.ico"],
-  },
+  /**
+   * Browser-tab icons are picked up automatically from `src/app/{icon,apple-icon,favicon.ico}`.
+   * Next.js emits the proper <link rel="icon"> tags with content-hash URLs, so any change to
+   * those files breaks browser cache without us needing to bump query params.
+   */
 };
 
 export const viewport: Viewport = {
