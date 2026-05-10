@@ -52,7 +52,15 @@ export default async function AdminPdfSignTemplatesPage() {
                   {row.document_type} · v{row.version} · {row.is_active ? "active" : "inactive"}
                 </div>
               </div>
-              <code className="rounded bg-slate-50 px-2 py-0.5 text-xs text-slate-700">{row.id}</code>
+              <div className="flex flex-wrap items-center gap-2">
+                <Link
+                  href={`/admin/signatures/templates/${encodeURIComponent(row.id)}`}
+                  className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-800 hover:bg-indigo-100"
+                >
+                  Edit fields
+                </Link>
+                <code className="rounded bg-slate-50 px-2 py-0.5 text-xs text-slate-700">{row.id}</code>
+              </div>
             </li>
           ))}
           {(!rows || rows.length === 0) && (
