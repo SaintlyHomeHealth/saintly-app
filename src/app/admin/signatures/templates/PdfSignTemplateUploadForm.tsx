@@ -38,50 +38,69 @@ export function PdfSignTemplateUploadForm() {
       setStatus(j.error || "Upload failed.");
       return;
     }
-    setStatus(`Saved template ${j.templateId || ""}.`);
+    setStatus(`Saved. You can open “Edit fields” from the list above.`);
     form.reset();
   }
 
   return (
-    <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-5">
       <div>
-        <label className="text-xs font-semibold uppercase text-slate-600">PDF file</label>
-        <input name="file" type="file" accept="application/pdf" className="mt-1 block w-full text-sm" required />
+        <label className="text-sm font-medium text-slate-800">PDF file</label>
+        <input
+          name="file"
+          type="file"
+          accept="application/pdf"
+          className="mt-1.5 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-sky-50 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-sky-900"
+          required
+        />
       </div>
-      <div className="grid gap-3 md:grid-cols-2">
+      <div className="grid gap-4 sm:grid-cols-2">
         <div>
-          <label className="text-xs font-semibold uppercase text-slate-600">Display name</label>
-          <input name="name" className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" required />
+          <label className="text-sm font-medium text-slate-800">Template name</label>
+          <input
+            name="name"
+            className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm shadow-sm"
+            placeholder="e.g. W-9 2024"
+            required
+          />
         </div>
         <div>
-          <label className="text-xs font-semibold uppercase text-slate-600">Document type</label>
+          <label className="text-sm font-medium text-slate-800">Document type</label>
           <select
             name="documentType"
-            className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm shadow-sm"
             required
           >
             <option value="w9">W-9</option>
-            <option value="generic_contract">Generic / IC agreement</option>
+            <option value="generic_contract">Contract / agreement</option>
             <option value="i9">I-9</option>
           </select>
         </div>
       </div>
-      <div>
-        <label className="text-xs font-semibold uppercase text-slate-600">Field map (JSON)</label>
-        <p className="mt-1 text-xs text-slate-500">
-          Map AcroForm field names via <code className="rounded bg-slate-100 px-1">pdf_acroform_field_name</code>, or
-          omit and use x/y from bottom-left once you measure coordinates.
+
+      <details className="group rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3 shadow-inner">
+        <summary className="cursor-pointer list-none text-sm font-semibold text-slate-800 [&::-webkit-details-marker]:hidden">
+          <span className="flex items-center justify-between gap-2">
+            Advanced upload options
+            <span className="text-xs font-normal text-slate-500">Field map JSON — optional</span>
+          </span>
+        </summary>
+        <p className="mt-3 text-xs leading-relaxed text-slate-600">
+          Most teams skip this and place fields visually after upload. Use only if you are mapping IRS AcroForm names
+          or importing coordinates.
         </p>
         <textarea
           value={fieldsJson}
           onChange={(e) => setFieldsJson(e.target.value)}
-          rows={14}
-          className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 font-mono text-xs"
+          rows={10}
+          className="mt-3 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 font-mono text-[11px] leading-relaxed text-slate-800 shadow-sm"
+          spellCheck={false}
         />
-      </div>
+      </details>
+
       <button
         type="submit"
-        className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
+        className="w-full rounded-2xl bg-gradient-to-r from-amber-400 to-amber-500 px-4 py-3 text-sm font-semibold text-amber-950 shadow-md shadow-amber-500/25 transition hover:from-amber-500 hover:to-amber-600 sm:w-auto sm:px-10"
       >
         Upload template
       </button>

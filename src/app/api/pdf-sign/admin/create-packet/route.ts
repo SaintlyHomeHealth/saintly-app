@@ -14,10 +14,16 @@ type Body = {
   crmEntityId?: string;
   recipientEmail?: string;
   recipientName?: string;
+  recipientPhone?: string;
   ttlDays?: number;
   sendEmail?: boolean;
   marksIcAgreement?: boolean;
   i9ReviewMethod?: string | null;
+  /** Stored in packet metadata JSON (no new DB columns). */
+  message?: string;
+  smsRequested?: boolean;
+  /** Draft staff/sender prefill; merged into metadata.sender_state until a dedicated column exists. */
+  senderState?: Record<string, unknown> | null;
 };
 
 export async function POST(request: Request) {
@@ -103,6 +109,14 @@ export async function POST(request: Request) {
   const expiresAt = new Date(Date.now() + ttlDays * 86400000).toISOString();
   const metadata: Record<string, unknown> = {};
   if (marksIcAgreement) metadata.marks_ic_agreement = true;
+  const msg = typeof body.message === "string" ? body.message.trim() : "";
+  if (msg) metadata.message = msg;
+  if (body.smsRequested === true) metadata.sms_requested = true;
+  const phone = body.recipientPhone?.trim();
+  if (phone) metadata.recipient_phone = phone;
+  if (body.senderState && typeof body.senderState === "object" && !Array.isArray(body.senderState)) {
+    metadata.sender_state = body.senderState;
+  }
 
   const { data: packet, error: pErr } = await supabaseAdmin
     .from("signature_packets")
