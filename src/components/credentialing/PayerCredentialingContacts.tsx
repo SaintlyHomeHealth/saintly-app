@@ -67,14 +67,14 @@ function ContactDetailLines({ contact: c }: { contact: PayerCredentialingRecordC
     <div className="mt-1 space-y-1.5 text-xs text-slate-800">
       {c.email?.trim() ? (
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 break-all">
-          <span className="shrink-0 font-medium text-slate-500">Email</span>
+          <span className="shrink-0 font-medium text-slate-500">Primary email</span>
           <span className="min-w-0">{c.email.trim()}</span>
           <CopyTextButton text={c.email.trim()} label="Copy" />
         </div>
       ) : null}
       {c.secondaryEmail?.trim() ? (
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 break-all">
-          <span className="shrink-0 font-medium text-slate-500">Secondary</span>
+          <span className="shrink-0 font-medium text-slate-500">Secondary email</span>
           <span className="min-w-0">{c.secondaryEmail.trim()}</span>
           <CopyTextButton text={c.secondaryEmail.trim()} label="Copy" />
         </div>
@@ -406,7 +406,7 @@ export function CredentialingContactsPanel({
                   <input name="role" className={inp} disabled={pending} defaultValue={c.role ?? ""} />
                 </label>
                 <label className="flex flex-col text-[11px] font-medium text-slate-600 sm:col-span-2">
-                  Email
+                  Primary email
                   <input name="email" type="email" className={inp} disabled={pending} defaultValue={c.email ?? ""} />
                 </label>
                 <label className="flex flex-col text-[11px] font-medium text-slate-600 sm:col-span-2">
@@ -554,7 +554,7 @@ export function CredentialingContactsPanel({
             <input name="role" className={inp} disabled={pending} />
           </label>
           <label className="flex flex-col text-[11px] font-medium text-slate-600 sm:col-span-2">
-            Email
+            Primary email
             <input name="email" type="email" className={inp} disabled={pending} />
           </label>
           <label className="flex flex-col text-[11px] font-medium text-slate-600 sm:col-span-2">

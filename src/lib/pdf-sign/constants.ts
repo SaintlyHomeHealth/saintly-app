@@ -1,4 +1,6 @@
-import "server-only";
+/**
+ * Shared PDF Sign constants and types. Safe for server and client bundles (no secrets).
+ */
 
 export const PDF_SIGN_BUCKETS = {
   templates: "signature-templates",
@@ -6,7 +8,25 @@ export const PDF_SIGN_BUCKETS = {
   i9: "i9-documents",
 } as const;
 
+/** Display / auto-fill branding for sender-side fields. */
+export const PDF_SIGN_COMPANY_NAME = "Saintly Home Health";
+
 export type PdfSignDocumentType = "generic_contract" | "w9" | "i9";
+
+/** Template editor + send flow: who completes a field in the 3-bucket model. */
+export type PdfSignAssignedTo = "recipient" | "sender" | "internal";
+
+/**
+ * Maps DB/editor `signer_role` to assigned-to bucket. Legacy CRM roles normalize to recipient
+ * when they represent the external signer; company/admin normalize to sender/internal.
+ */
+export function assignedToFromSignerRole(role: string): PdfSignAssignedTo {
+  const r = String(role ?? "").trim().toLowerCase();
+  if (!r) return "recipient";
+  if (r === "sender" || r === "company") return "sender";
+  if (r === "internal" || r === "admin") return "internal";
+  return "recipient";
+}
 
 export type PdfSignPacketStatus =
   | "draft"
@@ -17,6 +37,37 @@ export type PdfSignPacketStatus =
   | "completed"
   | "expired"
   | "voided";
+
+export type PdfSignFieldType =
+  | "text"
+  | "textarea"
+  | "date"
+  | "checkbox"
+  | "signature"
+  | "tin"
+  | "select"
+  | "initials"
+  | "number_only";
+
+export type PdfSignSignerRole =
+  | "recipient"
+  | "sender"
+  | "internal"
+  | "employee"
+  | "contractor"
+  | "recruit"
+  | "lead"
+  | "company"
+  | "admin";
+
+/** New-template upload UI: presets plus `custom` for a free-form slug. */
+export const PDF_SIGN_DOCUMENT_TYPE_SUGGESTIONS: { value: string; label: string }[] = [
+  { value: "territory_manager_contract", label: "Territory manager contract" },
+  { value: "generic_contract", label: "Generic contract" },
+  { value: "w9", label: "IRS Form W-9" },
+  { value: "i9", label: "Form I-9" },
+  { value: "custom", label: "Custom (enter slug)" },
+];
 
 /** Standard W-9 field keys for templates (IRS Form W-9 data). */
 export const W9_STANDARD_FIELD_KEYS = [

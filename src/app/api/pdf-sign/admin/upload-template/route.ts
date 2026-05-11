@@ -40,11 +40,8 @@ export async function POST(request: Request) {
 
   const file = multipart.get("file") as File | null;
   const name = multipart.get("name")?.toString().trim();
-  const documentType = multipart.get("documentType")?.toString().trim() as
-    | "generic_contract"
-    | "w9"
-    | "i9"
-    | undefined;
+  const documentType =
+    multipart.get("documentType")?.toString().trim().toLowerCase().replace(/\s+/g, "_") || "";
   const description = multipart.get("description")?.toString().trim() || null;
   const fieldsRaw = multipart.get("fieldsJson")?.toString().trim() || "[]";
 
@@ -52,8 +49,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Missing file, name, or documentType." }, { status: 400 });
   }
 
-  if (!["generic_contract", "w9", "i9"].includes(documentType)) {
-    return NextResponse.json({ error: "Invalid documentType." }, { status: 400 });
+  if (documentType.length > 80 || !/^[a-z][a-z0-9_]{0,79}$/.test(documentType)) {
+    return NextResponse.json(
+      { error: "documentType must be a short slug (letters, numbers, underscores)." },
+      { status: 400 }
+    );
   }
 
   if (file.type !== "application/pdf") {

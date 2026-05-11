@@ -31,6 +31,8 @@ import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { appCalendarMidnightUtc, formatAppDate } from "@/lib/datetime/app-timezone";
 
+export const dynamic = "force-dynamic";
+
 const inp =
   "mt-0.5 w-full min-w-0 rounded border border-slate-200 px-2 py-1.5 text-sm text-slate-800 sm:max-w-md";
 
