@@ -165,20 +165,40 @@ async function upsertPrimaryContactEmailFromLegacyField(recordId: string, primar
 
   const { data: primaryRow } = await supabaseAdmin
     .from("payer_credentialing_record_contacts")
-    .select("id, name, phone")
+    .select("id, name, phone, office_phone, mobile_phone, other_phone, fax, secondary_email")
     .eq("credentialing_record_id", recordId)
     .eq("is_primary", true)
     .maybeSingle();
 
   if (!emailVal) {
     if (primaryRow?.id) {
-      const nm = typeof (primaryRow as { name?: string }).name === "string" ? (primaryRow as { name: string }).name.trim() : "";
-      const ph = typeof (primaryRow as { phone?: string }).phone === "string" ? (primaryRow as { phone: string }).phone.trim() : "";
-      if (!nm && !ph) {
-        await supabaseAdmin.from("payer_credentialing_record_contacts").delete().eq("id", primaryRow.id);
+      const pr = primaryRow as {
+        id: string;
+        name?: string | null;
+        phone?: string | null;
+        office_phone?: string | null;
+        mobile_phone?: string | null;
+        other_phone?: string | null;
+        fax?: string | null;
+        secondary_email?: string | null;
+      };
+      const nm = typeof pr.name === "string" ? pr.name.trim() : "";
+      if (
+        !contactRowHasIdentifier({
+          name: nm || null,
+          email: null,
+          phone: pr.phone,
+          officePhone: pr.office_phone,
+          mobilePhone: pr.mobile_phone,
+          otherPhone: pr.other_phone,
+          fax: pr.fax,
+          secondaryEmail: pr.secondary_email,
+        })
+      ) {
+        await supabaseAdmin.from("payer_credentialing_record_contacts").delete().eq("id", pr.id);
         await promoteFallbackPrimary(recordId);
       } else {
-        await supabaseAdmin.from("payer_credentialing_record_contacts").update({ email: null }).eq("id", primaryRow.id);
+        await supabaseAdmin.from("payer_credentialing_record_contacts").update({ email: null }).eq("id", pr.id);
       }
     }
     await syncParentPrimaryEmailFromContacts(recordId);
@@ -1239,6 +1259,9 @@ export async function deletePayerCredentialingAttachment(
 
 const CONTACT_LABEL_MAX = 120;
 const CONTACT_NOTES_MAX = 6000;
+const CONTACT_PHONE_FAX_MAX = 40;
+const CONTACT_SECONDARY_EMAIL_MAX = 254;
+const CONTACT_OTHER_PHONE_LABEL_MAX = 80;
 
 function readIsActiveFromForm(formData: FormData): boolean {
   const v = formData.get("is_active");
@@ -1277,13 +1300,33 @@ export async function createCredentialingContactAction(formData: FormData): Prom
   const name = readTrimmed(formData, "name");
   const role = readTrimmed(formData, "role");
   const email = readTrimmed(formData, "email");
-  const phone = readTrimmed(formData, "phone");
+  const officePhone = clipText(
+    readTrimmed(formData, "office_phone") ?? readTrimmed(formData, "phone"),
+    CONTACT_PHONE_FAX_MAX
+  );
+  const mobilePhone = clipText(readTrimmed(formData, "mobile_phone"), CONTACT_PHONE_FAX_MAX);
+  const otherPhone = clipText(readTrimmed(formData, "other_phone"), CONTACT_PHONE_FAX_MAX);
+  const otherPhoneLabel = clipText(readTrimmed(formData, "other_phone_label"), CONTACT_OTHER_PHONE_LABEL_MAX);
+  const fax = clipText(readTrimmed(formData, "fax"), CONTACT_PHONE_FAX_MAX);
+  const secondaryEmail = clipText(readTrimmed(formData, "secondary_email"), CONTACT_SECONDARY_EMAIL_MAX);
   const extension = readTrimmed(formData, "extension");
   const label = clipText(readTrimmed(formData, "label"), CONTACT_LABEL_MAX);
   const notes = clipText(readTrimmed(formData, "notes"), CONTACT_NOTES_MAX);
   const is_active = readIsActiveFromForm(formData);
+  const phone = officePhone;
 
-  if (!contactRowHasIdentifier({ name, email, phone })) {
+  if (
+    !contactRowHasIdentifier({
+      name,
+      email,
+      phone,
+      officePhone,
+      mobilePhone,
+      otherPhone,
+      fax,
+      secondaryEmail,
+    })
+  ) {
     return { ok: false, error: "Add at least a name, email, or phone number." };
   }
 
@@ -1304,6 +1347,12 @@ export async function createCredentialingContactAction(formData: FormData): Prom
     role,
     email,
     phone,
+    office_phone: officePhone,
+    mobile_phone: mobilePhone,
+    other_phone: otherPhone,
+    other_phone_label: otherPhoneLabel,
+    fax,
+    secondary_email: secondaryEmail,
     extension,
     label,
     notes,
@@ -1324,7 +1373,11 @@ export async function createCredentialingContactAction(formData: FormData): Prom
     credentialingRecordId: recordId,
     activityType: PAYER_CREDENTIALING_ACTIVITY_TYPES.record_updated,
     summary: "Contact added",
-    details: [email, phone].filter(Boolean).join(" · ").slice(0, 450) || name || "",
+    details:
+      [email, secondaryEmail, officePhone, mobilePhone, otherPhone, fax]
+        .filter(Boolean)
+        .join(" · ")
+        .slice(0, 450) || name || "",
     createdByUserId: staff.user_id,
   });
 
@@ -1359,13 +1412,33 @@ export async function updateCredentialingContactAction(formData: FormData): Prom
   const name = readTrimmed(formData, "name");
   const role = readTrimmed(formData, "role");
   const email = readTrimmed(formData, "email");
-  const phone = readTrimmed(formData, "phone");
+  const officePhone = clipText(
+    readTrimmed(formData, "office_phone") ?? readTrimmed(formData, "phone"),
+    CONTACT_PHONE_FAX_MAX
+  );
+  const mobilePhone = clipText(readTrimmed(formData, "mobile_phone"), CONTACT_PHONE_FAX_MAX);
+  const otherPhone = clipText(readTrimmed(formData, "other_phone"), CONTACT_PHONE_FAX_MAX);
+  const otherPhoneLabel = clipText(readTrimmed(formData, "other_phone_label"), CONTACT_OTHER_PHONE_LABEL_MAX);
+  const fax = clipText(readTrimmed(formData, "fax"), CONTACT_PHONE_FAX_MAX);
+  const secondaryEmail = clipText(readTrimmed(formData, "secondary_email"), CONTACT_SECONDARY_EMAIL_MAX);
   const extension = readTrimmed(formData, "extension");
   const label = clipText(readTrimmed(formData, "label"), CONTACT_LABEL_MAX);
   const notes = clipText(readTrimmed(formData, "notes"), CONTACT_NOTES_MAX);
   const is_active = readIsActiveFromForm(formData);
+  const phone = officePhone;
 
-  if (!contactRowHasIdentifier({ name, email, phone })) {
+  if (
+    !contactRowHasIdentifier({
+      name,
+      email,
+      phone,
+      officePhone,
+      mobilePhone,
+      otherPhone,
+      fax,
+      secondaryEmail,
+    })
+  ) {
     return { ok: false, error: "Leave at least a name, email, or phone number." };
   }
 
@@ -1376,6 +1449,12 @@ export async function updateCredentialingContactAction(formData: FormData): Prom
       role,
       email,
       phone,
+      office_phone: officePhone,
+      mobile_phone: mobilePhone,
+      other_phone: otherPhone,
+      other_phone_label: otherPhoneLabel,
+      fax,
+      secondary_email: secondaryEmail,
       extension,
       label,
       notes,

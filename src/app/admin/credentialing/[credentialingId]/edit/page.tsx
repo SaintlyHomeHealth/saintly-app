@@ -64,7 +64,7 @@ export default async function AdminCredentialingEditPage({
   const { data: rawContactRows, error: contactFetchErr } = await supabase
     .from("payer_credentialing_record_contacts")
     .select(
-      "id, name, role, email, phone, extension, label, notes, is_primary, is_active, sort_order, created_at, updated_at"
+      "id, name, role, email, phone, office_phone, mobile_phone, other_phone, other_phone_label, fax, secondary_email, extension, label, notes, is_primary, is_active, sort_order, created_at, updated_at"
     )
     .eq("credentialing_record_id", id)
     .order("sort_order", { ascending: true });

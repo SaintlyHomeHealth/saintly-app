@@ -90,7 +90,12 @@ function matchesSearch(r: PayerCredentialingListRow, q: string): boolean {
   if (!needle) return true;
   const extraContactBits = (r.payer_credentialing_record_contacts ?? []).flatMap((c) => [
     c.email,
+    c.secondary_email,
     c.phone,
+    c.office_phone,
+    c.mobile_phone,
+    c.other_phone,
+    c.fax,
   ]);
   const hay = [
     r.payer_name,
@@ -116,13 +121,27 @@ function normalizeCredentialingRows(raw: unknown[]): PayerCredentialingListRow[]
     const created = typeof r.created_at === "string" ? r.created_at : updated;
     const nested =
       Array.isArray(r.payer_credentialing_record_contacts) && r.payer_credentialing_record_contacts.length > 0
-        ? (r.payer_credentialing_record_contacts as { email?: unknown; phone?: unknown; is_active?: unknown }[]).map(
-            (row) => ({
-              email: typeof row.email === "string" ? row.email : null,
-              phone: typeof row.phone === "string" ? row.phone : null,
-              is_active: row.is_active !== false,
-            })
-          )
+        ? (
+            r.payer_credentialing_record_contacts as {
+              email?: unknown;
+              secondary_email?: unknown;
+              phone?: unknown;
+              office_phone?: unknown;
+              mobile_phone?: unknown;
+              other_phone?: unknown;
+              fax?: unknown;
+              is_active?: unknown;
+            }[]
+          ).map((cRow) => ({
+            email: typeof cRow.email === "string" ? cRow.email : null,
+            secondary_email: typeof cRow.secondary_email === "string" ? cRow.secondary_email : null,
+            phone: typeof cRow.phone === "string" ? cRow.phone : null,
+            office_phone: typeof cRow.office_phone === "string" ? cRow.office_phone : null,
+            mobile_phone: typeof cRow.mobile_phone === "string" ? cRow.mobile_phone : null,
+            other_phone: typeof cRow.other_phone === "string" ? cRow.other_phone : null,
+            fax: typeof cRow.fax === "string" ? cRow.fax : null,
+            is_active: cRow.is_active !== false,
+          }))
         : null;
     return {
       ...(row as PayerCredentialingListRow),
@@ -181,7 +200,7 @@ export default async function AdminCredentialingPage({
        primary_contact_email,
        last_follow_up_at, updated_at, created_at, assigned_owner_user_id,
        next_action, next_action_due_date, priority, denial_reason,
-       payer_credentialing_record_contacts ( email, phone, is_active )`
+       payer_credentialing_record_contacts ( email, secondary_email, phone, office_phone, mobile_phone, other_phone, fax, is_active )`
         )
         .order("updated_at", { ascending: false })
         .limit(CREDENTIALING_LIST_FETCH_CAP)

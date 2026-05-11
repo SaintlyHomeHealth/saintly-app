@@ -132,7 +132,16 @@ export type PayerCredentialingListRow = {
   primary_contact_fax?: string | null;
   primary_contact_email: string | null;
   /** From nested select; used for reachability + search */
-  payer_credentialing_record_contacts?: { email: string | null; phone: string | null; is_active: boolean }[] | null;
+  payer_credentialing_record_contacts?: {
+    email: string | null;
+    secondary_email?: string | null;
+    phone: string | null;
+    office_phone?: string | null;
+    mobile_phone?: string | null;
+    other_phone?: string | null;
+    fax?: string | null;
+    is_active: boolean;
+  }[] | null;
   notes: string | null;
   last_follow_up_at: string | null;
   updated_at: string;
@@ -184,11 +193,17 @@ function isTightFollowUpLane(r: PayerCredentialingListRow): boolean {
 export function hasReachableContact(r: PayerCredentialingListRow): boolean {
   const extras = r.payer_credentialing_record_contacts;
   if (extras && extras.length > 0) {
-    const ok = extras.some(
-      (c) =>
-        c.is_active !== false &&
-        ((c.email ?? "").trim().length > 0 || (c.phone ?? "").trim().length > 0)
-    );
+    const ok = extras.some((c) => {
+      if (c.is_active === false) return false;
+      const em = (c.email ?? "").trim().length > 0;
+      const em2 = (c.secondary_email ?? "").trim().length > 0;
+      const ph = (c.phone ?? "").trim().length > 0;
+      const off = (c.office_phone ?? "").trim().length > 0;
+      const mob = (c.mobile_phone ?? "").trim().length > 0;
+      const oth = (c.other_phone ?? "").trim().length > 0;
+      const fx = (c.fax ?? "").trim().length > 0;
+      return em || em2 || ph || off || mob || oth || fx;
+    });
     if (ok) return true;
   }
   const phones = [

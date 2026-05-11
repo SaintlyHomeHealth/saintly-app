@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, ChevronRight, Copy, Mail, Phone, Star } from "lucide-react";
+import { ChevronDown, ChevronRight, Mail, Phone, Star } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 
@@ -11,28 +11,105 @@ import {
   markCredentialingContactPrimaryAction,
   updateCredentialingContactAction,
 } from "@/app/admin/credentialing/actions";
-import { phoneToTelHref, formatPhoneNumber } from "@/lib/phone/us-phone-format";
+import { CopyTextButton } from "@/components/credentialing/CopyTextButton";
 import {
+  contactEffectiveOfficePhone,
   type PayerCredentialingRecordContact,
   sortPayerCredentialingContactsForDisplay,
 } from "@/lib/crm/payer-credentialing-contacts";
+import { phoneToTelHref, formatPhoneNumber } from "@/lib/phone/us-phone-format";
 
 const inp =
   "mt-1 w-full min-w-0 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm text-slate-900 placeholder:text-slate-400";
 
-function displayPhone(contact: Pick<PayerCredentialingRecordContact, "phone" | "extension">): string {
-  const formatted = formatPhoneNumber(contact.phone ?? "");
-  const ext =
-    typeof contact.extension === "string" && contact.extension.trim()
-      ? ` ext. ${contact.extension.trim()}`
-      : "";
-  if (!formatted && !ext.trim()) return "—";
-  return `${formatted || "—"}${ext}`;
+const sectionHeading = "text-[11px] font-semibold uppercase tracking-wide text-slate-600";
+
+function extensionDisplay(ext: string | null | undefined): string {
+  return typeof ext === "string" && ext.trim() ? ` ext. ${ext.trim()}` : "";
 }
 
-function copyText(text: string) {
-  if (!text.trim()) return;
-  void navigator.clipboard.writeText(text.trim()).catch(() => {});
+function officeDisplayLine(c: PayerCredentialingRecordContact): string {
+  const office = contactEffectiveOfficePhone(c);
+  if (!office) return "";
+  return `${formatPhoneNumber(office)}${extensionDisplay(c.extension)}`;
+}
+
+function officeCopyPayload(c: PayerCredentialingRecordContact): string {
+  const office = contactEffectiveOfficePhone(c);
+  if (!office) return "";
+  return `${formatPhoneNumber(office)}${extensionDisplay(c.extension)}`.trim();
+}
+
+function hasAnyReachDetail(c: PayerCredentialingRecordContact): boolean {
+  return !!(
+    c.email?.trim() ||
+    c.secondaryEmail?.trim() ||
+    contactEffectiveOfficePhone(c) ||
+    c.mobilePhone?.trim() ||
+    c.otherPhone?.trim() ||
+    c.fax?.trim()
+  );
+}
+
+function ContactDetailLines({ contact: c }: { contact: PayerCredentialingRecordContact }) {
+  const office = contactEffectiveOfficePhone(c);
+  const officeLine = officeDisplayLine(c);
+  const officeCopy = officeCopyPayload(c);
+  const mobile = c.mobilePhone?.trim() ?? "";
+  const mobileFmt = mobile ? formatPhoneNumber(mobile) : "";
+  const other = c.otherPhone?.trim() ?? "";
+  const otherFmt = other ? formatPhoneNumber(other) : "";
+  const otherLbl = c.otherPhoneLabel?.trim() ?? "";
+  const fax = c.fax?.trim() ?? "";
+  const faxFmt = fax ? formatPhoneNumber(fax) : "";
+
+  return (
+    <div className="mt-1 space-y-1.5 text-xs text-slate-800">
+      {c.email?.trim() ? (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 break-all">
+          <span className="shrink-0 font-medium text-slate-500">Email</span>
+          <span className="min-w-0">{c.email.trim()}</span>
+          <CopyTextButton text={c.email.trim()} label="Copy" />
+        </div>
+      ) : null}
+      {c.secondaryEmail?.trim() ? (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 break-all">
+          <span className="shrink-0 font-medium text-slate-500">Secondary</span>
+          <span className="min-w-0">{c.secondaryEmail.trim()}</span>
+          <CopyTextButton text={c.secondaryEmail.trim()} label="Copy" />
+        </div>
+      ) : null}
+      {office ? (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="shrink-0 font-medium text-slate-500">Office</span>
+          <span className="tabular-nums text-slate-800">{officeLine}</span>
+          <CopyTextButton text={officeCopy} label="Copy" />
+        </div>
+      ) : null}
+      {mobile ? (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="shrink-0 font-medium text-slate-500">Mobile</span>
+          <span className="tabular-nums">{mobileFmt}</span>
+          <CopyTextButton text={mobileFmt} label="Copy" />
+        </div>
+      ) : null}
+      {other ? (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="shrink-0 font-medium text-slate-500">{otherLbl || "Other"}</span>
+          <span className="tabular-nums">{otherFmt}</span>
+          <CopyTextButton text={otherFmt} label="Copy" />
+        </div>
+      ) : null}
+      {fax ? (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="shrink-0 font-medium text-slate-500">Fax</span>
+          <span className="tabular-nums">{faxFmt}</span>
+          <CopyTextButton text={faxFmt} label="Copy" />
+        </div>
+      ) : null}
+      {!hasAnyReachDetail(c) ? <span className="text-slate-500">—</span> : null}
+    </div>
+  );
 }
 
 type ContactChipProps = {
@@ -40,12 +117,19 @@ type ContactChipProps = {
   credentialingRecordId: string;
 };
 
-function ContactActionBar({ contact, credentialingRecordId }: ContactChipProps) {
+function ContactActionBar({ contact: c, credentialingRecordId }: ContactChipProps) {
   const router = useRouter();
   const [, startTransition] = useTransition();
-  const email = contact.email?.trim() ?? "";
-  const phoneDial = phoneToTelHref(contact.phone ?? "");
-  const showPhoneDigits = formatPhoneNumber(contact.phone ?? "");
+  const email = c.email?.trim() ?? "";
+  const office = contactEffectiveOfficePhone(c);
+  const mobile = c.mobilePhone?.trim() ?? "";
+  const other = c.otherPhone?.trim() ?? "";
+  const officeDial = phoneToTelHref(office ?? "");
+  const mobileDial = phoneToTelHref(mobile);
+  const otherDial = phoneToTelHref(other);
+
+  const callBtn =
+    "inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-950 hover:bg-emerald-100";
 
   return (
     <div className="flex flex-wrap items-center gap-1.5">
@@ -63,47 +147,33 @@ function ContactActionBar({ contact, credentialingRecordId }: ContactChipProps) 
           Email
         </span>
       )}
-      {phoneDial ? (
-        <a
-          href={phoneDial}
-          className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-950 hover:bg-emerald-100"
-        >
+      {officeDial ? (
+        <a href={officeDial} className={callBtn}>
           <Phone className="h-3.5 w-3.5" aria-hidden />
-          Call
+          Office
         </a>
-      ) : (
-        <span className="inline-flex cursor-not-allowed items-center gap-1 rounded-lg border border-slate-100 px-2 py-1 text-[11px] text-slate-400">
+      ) : null}
+      {mobileDial ? (
+        <a href={mobileDial} className={callBtn}>
           <Phone className="h-3.5 w-3.5" aria-hidden />
-          Call
-        </span>
-      )}
-      <button
-        type="button"
-        disabled={!email}
-        onClick={() => copyText(email)}
-        className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-800 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        <Copy className="h-3.5 w-3.5" aria-hidden />
-        Copy mail
-      </button>
-      <button
-        type="button"
-        disabled={!showPhoneDigits.trim()}
-        onClick={() => copyText(showPhoneDigits)}
-        className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-800 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        <Copy className="h-3.5 w-3.5" aria-hidden />
-        Copy phone
-      </button>
-      {!contact.is_primary ? (
+          Mobile
+        </a>
+      ) : null}
+      {otherDial ? (
+        <a href={otherDial} className={callBtn}>
+          <Phone className="h-3.5 w-3.5" aria-hidden />
+          Other
+        </a>
+      ) : null}
+      {!c.is_primary ? (
         <button
           type="button"
-          disabled={contact.is_active !== true}
+          disabled={c.is_active !== true}
           onClick={() => {
             startTransition(async () => {
               const fd = new FormData();
               fd.append("credentialing_record_id", credentialingRecordId);
-              fd.append("contact_id", contact.id);
+              fd.append("contact_id", c.id);
               await markCredentialingContactPrimaryAction(fd);
               router.refresh();
             });
@@ -143,7 +213,7 @@ export function CredentialingContactsTopRibbon({
   if (!hasRows) {
     return (
       <div className="mt-6 border-t border-slate-100 pt-5">
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Contacts</p>
+        <p className={sectionHeading}>Contacts</p>
         <p className="mt-2 text-xs text-slate-600">
           No contacts yet — add them in the{" "}
           <a href="#credentialing-contacts-section" className="font-semibold text-sky-800 underline underline-offset-2">
@@ -158,7 +228,7 @@ export function CredentialingContactsTopRibbon({
   if (sorted.length === 0) {
     return (
       <div className="mt-6 border-t border-slate-100 pt-5">
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Contacts</p>
+        <p className={sectionHeading}>Contacts</p>
         <p className="mt-2 text-xs text-slate-600">
           All contacts are inactive — activate one below or add a new contact.
         </p>
@@ -169,7 +239,7 @@ export function CredentialingContactsTopRibbon({
   return (
     <div className="mt-6 border-t border-slate-100 pt-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Contacts</p>
+        <p className={sectionHeading}>Contacts</p>
         {showExpandControl ? (
           <button
             type="button"
@@ -204,13 +274,7 @@ export function CredentialingContactsTopRibbon({
                     {c.label.trim()}
                   </p>
                 ) : null}
-                <p className="mt-1 space-y-0.5 break-all text-xs text-slate-800">
-                  {c.email?.trim() ? <span className="block">{c.email.trim()}</span> : null}
-                  {c.phone?.trim() ? (
-                    <span className="block text-slate-700">{displayPhone(c)}</span>
-                  ) : null}
-                  {!c.email?.trim() && !c.phone?.trim() ? <span className="text-slate-500">—</span> : null}
-                </p>
+                <ContactDetailLines contact={c} />
               </div>
             </div>
             <div className="mt-2 flex flex-wrap">
@@ -266,8 +330,8 @@ export function CredentialingContactsPanel({
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">Contacts</p>
           <p className="mt-1 max-w-xl text-xs text-slate-500">
-            Unlimited contacts — name, phone, extension, roles, labels, notes. At least one of name, email, or phone per
-            contact.
+            Unlimited contacts — office, mobile, and alternate numbers, emails, labels, notes. At least one of name,
+            email, phone, or fax per contact.
           </p>
         </div>
       </div>
@@ -285,7 +349,7 @@ export function CredentialingContactsPanel({
             }`}
           >
             <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <p className="text-sm font-semibold text-slate-950">{c.name?.trim() || "(Unnamed)"}</p>
                   {c.is_primary ? (
@@ -307,8 +371,7 @@ export function CredentialingContactsPanel({
                     {c.label.trim()}
                   </p>
                 ) : null}
-                <p className="mt-2 break-all text-xs text-slate-800">{c.email?.trim() || "—"}</p>
-                {c.phone?.trim() ? <p className="mt-0.5 text-xs text-slate-700">{displayPhone(c)}</p> : null}
+                <ContactDetailLines contact={c} />
                 {c.notes?.trim() ? (
                   <p className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-slate-600">{c.notes.trim()}</p>
                 ) : null}
@@ -321,7 +384,7 @@ export function CredentialingContactsPanel({
                 Edit contact…
               </summary>
               <form
-                className="mt-3 grid gap-2 sm:grid-cols-2"
+                className="mt-3 grid gap-3 sm:grid-cols-2"
                 onSubmit={(e) => {
                   e.preventDefault();
                   const form = e.currentTarget;
@@ -342,17 +405,71 @@ export function CredentialingContactsPanel({
                   Title / role
                   <input name="role" className={inp} disabled={pending} defaultValue={c.role ?? ""} />
                 </label>
-                <label className="flex flex-col text-[11px] font-medium text-slate-600 sm:col-span-1">
+                <label className="flex flex-col text-[11px] font-medium text-slate-600 sm:col-span-2">
                   Email
                   <input name="email" type="email" className={inp} disabled={pending} defaultValue={c.email ?? ""} />
                 </label>
+                <label className="flex flex-col text-[11px] font-medium text-slate-600 sm:col-span-2">
+                  Secondary email <span className="font-normal normal-case text-slate-400">(optional)</span>
+                  <input
+                    name="secondary_email"
+                    type="email"
+                    className={inp}
+                    disabled={pending}
+                    defaultValue={c.secondaryEmail ?? ""}
+                  />
+                </label>
+                <p className={`${sectionHeading} sm:col-span-2`}>Phone numbers</p>
                 <label className="flex flex-col text-[11px] font-medium text-slate-600">
-                  Phone
-                  <input name="phone" className={inp} disabled={pending} defaultValue={c.phone ?? ""} />
+                  Office phone
+                  <input
+                    name="office_phone"
+                    className={inp}
+                    disabled={pending}
+                    defaultValue={contactEffectiveOfficePhone(c) ?? ""}
+                  />
                 </label>
                 <label className="flex flex-col text-[11px] font-medium text-slate-600">
                   Extension
-                  <input name="extension" className={inp} disabled={pending} defaultValue={c.extension ?? ""} />
+                  <input
+                    name="extension"
+                    className={inp}
+                    disabled={pending}
+                    defaultValue={c.extension ?? ""}
+                  />
+                </label>
+                <label className="flex flex-col text-[11px] font-medium text-slate-600">
+                  Mobile phone
+                  <input
+                    name="mobile_phone"
+                    className={inp}
+                    disabled={pending}
+                    defaultValue={c.mobilePhone ?? ""}
+                  />
+                </label>
+                <label className="flex flex-col text-[11px] font-medium text-slate-600">
+                  Other phone
+                  <input
+                    name="other_phone"
+                    className={inp}
+                    disabled={pending}
+                    defaultValue={c.otherPhone ?? ""}
+                  />
+                </label>
+                <label className="flex flex-col text-[11px] font-medium text-slate-600">
+                  Other phone label
+                  <input
+                    name="other_phone_label"
+                    maxLength={80}
+                    className={inp}
+                    disabled={pending}
+                    placeholder='e.g. Back line, Intake'
+                    defaultValue={c.otherPhoneLabel ?? ""}
+                  />
+                </label>
+                <label className="flex flex-col text-[11px] font-medium text-slate-600">
+                  Fax <span className="font-normal normal-case text-slate-400">(optional)</span>
+                  <input name="fax" className={inp} disabled={pending} defaultValue={c.fax ?? ""} />
                 </label>
                 <label className="flex flex-col text-[11px] font-medium text-slate-600 sm:col-span-2">
                   Label
@@ -360,7 +477,13 @@ export function CredentialingContactsPanel({
                 </label>
                 <label className="flex flex-col text-[11px] font-medium text-slate-600 sm:col-span-2">
                   Notes
-                  <textarea name="notes" rows={3} disabled={pending} className={`${inp} min-h-[76px]`} defaultValue={c.notes ?? ""} />
+                  <textarea
+                    name="notes"
+                    rows={3}
+                    disabled={pending}
+                    className={`${inp} min-h-[76px]`}
+                    defaultValue={c.notes ?? ""}
+                  />
                 </label>
 
                 <div className="flex flex-wrap items-center gap-3 sm:col-span-2">
@@ -410,7 +533,7 @@ export function CredentialingContactsPanel({
       <details className="rounded-2xl border border-dashed border-slate-200 bg-white/95 px-4 py-4 sm:px-5">
         <summary className="cursor-pointer text-sm font-semibold text-slate-900">Add contact</summary>
         <form
-          className="mt-4 grid gap-2 sm:grid-cols-2"
+          className="mt-4 grid gap-3 sm:grid-cols-2"
           onSubmit={(e) => {
             e.preventDefault();
             const fd = new FormData(e.currentTarget);
@@ -430,17 +553,44 @@ export function CredentialingContactsPanel({
             Title / role
             <input name="role" className={inp} disabled={pending} />
           </label>
-          <label className="flex flex-col text-[11px] font-medium text-slate-600">
+          <label className="flex flex-col text-[11px] font-medium text-slate-600 sm:col-span-2">
             Email
             <input name="email" type="email" className={inp} disabled={pending} />
           </label>
+          <label className="flex flex-col text-[11px] font-medium text-slate-600 sm:col-span-2">
+            Secondary email <span className="font-normal normal-case text-slate-400">(optional)</span>
+            <input name="secondary_email" type="email" className={inp} disabled={pending} />
+          </label>
+          <p className={`${sectionHeading} sm:col-span-2`}>Phone numbers</p>
           <label className="flex flex-col text-[11px] font-medium text-slate-600">
-            Phone
-            <input name="phone" className={inp} disabled={pending} />
+            Office phone
+            <input name="office_phone" className={inp} disabled={pending} placeholder="Main line" />
           </label>
           <label className="flex flex-col text-[11px] font-medium text-slate-600">
             Extension
-            <input name="extension" className={inp} disabled={pending} />
+            <input name="extension" className={inp} disabled={pending} placeholder="e.g. 4521" />
+          </label>
+          <label className="flex flex-col text-[11px] font-medium text-slate-600">
+            Mobile phone
+            <input name="mobile_phone" className={inp} disabled={pending} />
+          </label>
+          <label className="flex flex-col text-[11px] font-medium text-slate-600">
+            Other phone
+            <input name="other_phone" className={inp} disabled={pending} />
+          </label>
+          <label className="flex flex-col text-[11px] font-medium text-slate-600">
+            Other phone label
+            <input
+              name="other_phone_label"
+              maxLength={80}
+              className={inp}
+              disabled={pending}
+              placeholder='e.g. Back line, Intake, After hours'
+            />
+          </label>
+          <label className="flex flex-col text-[11px] font-medium text-slate-600">
+            Fax <span className="font-normal normal-case text-slate-400">(optional)</span>
+            <input name="fax" className={inp} disabled={pending} />
           </label>
           <label className="flex flex-col text-[11px] font-medium text-slate-600 sm:col-span-2">
             Label
