@@ -13,6 +13,8 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { formatAppDateTime } from "@/lib/datetime/app-timezone";
 
+import { WorkspaceImagePreviewOverlay } from "@/app/workspace/phone/_components/WorkspaceImagePreviewOverlay";
+
 type RefCard = {
   kind: InternalChatRefKind;
   id: string;
@@ -138,9 +140,10 @@ function bubbleStyleForSenderId(senderId: string): { background: string; border:
 type ChatAttachmentTileProps = {
   att: ChatAttachmentItem;
   mine: boolean;
+  openInlineImagePreview: (src: string, fileName: string) => void;
 };
 
-const ChatAttachmentTile = memo(function ChatAttachmentTile({ att, mine }: ChatAttachmentTileProps) {
+const ChatAttachmentTile = memo(function ChatAttachmentTile({ att, mine, openInlineImagePreview }: ChatAttachmentTileProps) {
   const [thumbFailed, setThumbFailed] = useState(false);
   const idNorm = typeof att.id === "string" ? att.id.trim().toLowerCase() : "";
   const idOk = Boolean(idNorm && CHAT_ATTACHMENT_UUID_RE.test(idNorm));
@@ -188,7 +191,7 @@ const ChatAttachmentTile = memo(function ChatAttachmentTile({ att, mine }: ChatA
     return (
       <button
         type="button"
-        onClick={openInNewTab}
+        onClick={() => openInlineImagePreview(srcPath, att.fileName)}
         className={`block max-w-full overflow-hidden rounded-lg text-left ${
           mine ? "ring-1 ring-white/25" : "ring-1 ring-slate-200/90"
         }`}
@@ -264,6 +267,7 @@ export function ChatThreadClient({
   const [membersPanelOpen, setMembersPanelOpen] = useState(false);
   const [pendingFiles, setPendingFiles] = useState<PendingAttachment[]>([]);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  const [inlineImagePreview, setInlineImagePreview] = useState<{ src: string; alt: string } | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
@@ -705,6 +709,12 @@ export function ChatThreadClient({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <WorkspaceImagePreviewOverlay
+        open={Boolean(inlineImagePreview?.src)}
+        src={inlineImagePreview?.src ?? ""}
+        alt={inlineImagePreview?.alt ?? ""}
+        onClose={() => setInlineImagePreview(null)}
+      />
       <header className="flex shrink-0 items-center gap-1.5 border-b border-slate-200 bg-white px-2 py-1.5 sm:gap-2 sm:px-3 sm:py-2">
         <Link
           href="/workspace/phone/chat"
@@ -925,7 +935,14 @@ export function ChatThreadClient({
                 {m.attachments && m.attachments.length > 0 ? (
                   <div className="mt-2 flex flex-col gap-2">
                     {m.attachments.map((att) => (
-                      <ChatAttachmentTile key={att.id} att={att} mine={mine} />
+                      <ChatAttachmentTile
+                        key={att.id}
+                        att={att}
+                        mine={mine}
+                        openInlineImagePreview={(src, fileName) =>
+                          setInlineImagePreview({ src, alt: fileName })
+                        }
+                      />
                     ))}
                   </div>
                 ) : null}

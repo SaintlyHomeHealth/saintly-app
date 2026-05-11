@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { WorkspacePhonePageHeader } from "../_components/WorkspacePhonePageHeader";
 import { WorkspaceLeadRowActions } from "@/app/workspace/phone/leads/_components/WorkspaceLeadRowActions";
+import { LeadsSearchBar } from "@/app/workspace/phone/leads/_components/LeadsSearchBar";
 import { displayNameFromContact } from "@/app/workspace/phone/patients/_lib/patient-hub";
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { pipelineStatusBadgeClass } from "@/lib/crm/crm-leads-list-visual";
@@ -29,6 +30,7 @@ type ContactEmb = {
   first_name?: string | null;
   last_name?: string | null;
   primary_phone?: string | null;
+  email?: string | null;
 };
 
 function normalizeContact(raw: ContactEmb | ContactEmb[] | null | undefined): ContactEmb | null {
@@ -60,6 +62,13 @@ type LeadRow = {
   id: string;
   contact_id: string | null;
   status: string | null;
+  source?: string | null;
+  notes?: string | null;
+  last_note?: string | null;
+  owner_user_id?: string | null;
+  primary_payer_name?: string | null;
+  secondary_payer_name?: string | null;
+  external_source_metadata?: unknown;
   follow_up_date: string | null;
   next_action: string | null;
   last_contact_at: string | null;
@@ -104,6 +113,59 @@ function smsErrMessage(code: string): string {
   }
 }
 
+function deepLeadMetaStrings(v: unknown, depth = 0): string[] {
+  if (depth > 10) return [];
+  if (v == null) return [];
+  if (typeof v === "string") return v.trim() ? [v] : [];
+  if (typeof v === "number" || typeof v === "boolean") return [String(v)];
+  if (Array.isArray(v)) return v.flatMap((x) => deepLeadMetaStrings(x, depth + 1));
+  if (typeof v === "object") {
+    return Object.values(v as Record<string, unknown>).flatMap((x) => deepLeadMetaStrings(x, depth + 1));
+  }
+  return [];
+}
+
+function ownerLabelForLead(row: LeadRow, ownerNameByUserId: Map<string, string>): string {
+  const uid = typeof row.owner_user_id === "string" ? row.owner_user_id.trim() : "";
+  if (!uid) return "";
+  return ownerNameByUserId.get(uid) ?? uid.replace(/-/g, "");
+}
+
+function workspaceLeadSearchHaystack(row: LeadRow, ownerLabel: string): string {
+  const c = normalizeContact(row.contacts as ContactEmb | ContactEmb[] | null);
+  const name = displayNameFromContact(c).trim();
+  const phoneRaw = typeof c?.primary_phone === "string" ? c.primary_phone : "";
+  const phoneFmt = phoneRaw ? formatPhoneForDisplay(phoneRaw).toLowerCase() : "";
+  const phoneDig = phoneRaw.replace(/\D/g, "");
+  const email = typeof c?.email === "string" ? c.email.trim().toLowerCase() : "";
+  const payer1 = typeof row.primary_payer_name === "string" ? row.primary_payer_name : "";
+  const payer2 = typeof row.secondary_payer_name === "string" ? row.secondary_payer_name : "";
+  const st = typeof row.status === "string" ? row.status : "";
+  const src = typeof row.source === "string" ? row.source : "";
+  const notes = `${typeof row.notes === "string" ? row.notes : ""} ${typeof row.last_note === "string" ? row.last_note : ""}`;
+
+  const parts = [
+    name,
+    phoneFmt,
+    phoneDig,
+    phoneRaw.trim().toLowerCase(),
+    email,
+    payer1,
+    payer2,
+    formatLeadPipelineStatusLabel(st),
+    st,
+    src,
+    ownerLabel,
+    typeof row.owner_user_id === "string" ? row.owner_user_id.toLowerCase() : "",
+    formatLeadLastContactSummary(row.last_contact_at, row.last_outcome, row.status).toLowerCase(),
+    notes,
+    formatLeadNextActionLabel(row.next_action).toLowerCase(),
+    row.next_action ?? "",
+    ...deepLeadMetaStrings(row.external_source_metadata),
+  ];
+  return parts.join(" ").toLowerCase();
+}
+
 export default async function WorkspacePhoneLeadsPage({
   searchParams,
 }: {
@@ -123,18 +185,22 @@ export default async function WorkspacePhoneLeadsPage({
 
   const sp = searchParams ? await searchParams : {};
   const smsErr = one(sp, "smsErr").trim();
+  const qRaw = one(sp, "q").trim();
+  const qLower = qRaw.toLowerCase();
 
   const todayIso = getCrmCalendarTodayIso();
+
+  const leadsFetchLimit = qLower.length > 0 ? 240 : WORKSPACE_LEADS_LIMIT;
 
   const leadsQuery = leadRowsActiveOnly(
     supabaseAdmin
       .from("leads")
       .select(
-        "id, contact_id, status, follow_up_date, next_action, last_contact_at, last_outcome, created_at, contacts ( id, full_name, first_name, last_name, primary_phone )"
+        "id, contact_id, status, source, notes, last_note, owner_user_id, primary_payer_name, secondary_payer_name, external_source_metadata, follow_up_date, next_action, last_contact_at, last_outcome, created_at, contacts ( id, full_name, first_name, last_name, primary_phone, email )"
       )
       .order("last_contact_at", { ascending: false, nullsFirst: false })
       .order("created_at", { ascending: false, nullsFirst: false })
-      .limit(WORKSPACE_LEADS_LIMIT)
+      .limit(leadsFetchLimit)
   );
   const { data: leadRows, error: leadsErr } = routePerfStepsEnabled()
     ? await routePerfTimed("workspace_phone_leads.leads_query", () => leadsQuery)
@@ -220,6 +286,33 @@ export default async function WorkspacePhoneLeadsPage({
     });
   });
 
+  const ownerIds = [
+    ...new Set(
+      openLeads
+        .map((r) => (typeof r.owner_user_id === "string" ? r.owner_user_id.trim() : ""))
+        .filter(Boolean)
+    ),
+  ];
+  const ownerNameByUserId = new Map<string, string>();
+  if (ownerIds.length > 0) {
+    const { data: staffRows } = await supabaseAdmin
+      .from("staff_profiles")
+      .select("user_id, full_name")
+      .in("user_id", ownerIds);
+    for (const s of staffRows ?? []) {
+      const uid = typeof s.user_id === "string" ? s.user_id.trim() : "";
+      const fnRaw = typeof s.full_name === "string" ? s.full_name.trim() : "";
+      if (uid && fnRaw) ownerNameByUserId.set(uid, fnRaw);
+    }
+  }
+
+  const filteredLeads =
+    qLower.length > 0
+      ? openLeads.filter((r) =>
+          workspaceLeadSearchHaystack(r, ownerLabelForLead(r, ownerNameByUserId)).includes(qLower)
+        )
+      : openLeads;
+
   if (perfStart) {
     routePerfLog("workspace/phone/leads", perfStart);
   }
@@ -237,6 +330,7 @@ export default async function WorkspacePhoneLeadsPage({
             .
           </>
         }
+        actions={<LeadsSearchBar defaultQuery={qRaw} />}
       />
 
       {smsErr ? (
@@ -246,12 +340,12 @@ export default async function WorkspacePhoneLeadsPage({
       ) : null}
 
       <ul className="mt-4 space-y-3">
-        {openLeads.length === 0 ? (
+        {filteredLeads.length === 0 ? (
           <li className="ws-phone-card px-4 py-6 text-center text-sm text-slate-600">
-            No open leads in the pipeline.
+            {qLower ? "No leads found." : "No open leads in the pipeline."}
           </li>
         ) : null}
-        {openLeads.map((row) => {
+        {filteredLeads.map((row) => {
           const c = normalizeContact(row.contacts as ContactEmb | ContactEmb[] | null);
           const name = displayNameFromContact(c);
           const contactId = typeof row.contact_id === "string" ? row.contact_id.trim() : "";

@@ -168,6 +168,8 @@ export function SoftphoneDialer({
   const isOnHold = isPstnHold || isClientHold;
   const gating = callContext?.conference_gating;
   const pstnConferenceReady = Boolean(gating?.can_cold_transfer);
+  const allowPstnConferenceActions =
+    pstnConferenceReady && (softphoneCapabilities?.conference_outbound_enabled ?? true);
   const mediaStreamOk = Boolean(gating?.media_stream_wss_configured);
   const transcriptWritebackOk = Boolean(gating?.transcript_writeback_configured);
   /** Live transcript can use Twilio native callbacks (preferred) or legacy Railway bridge writeback. */
@@ -808,7 +810,7 @@ export function SoftphoneDialer({
                     </button>
                     <button
                       type="button"
-                      disabled={actionBusy !== null || !pstnConferenceReady}
+                      disabled={actionBusy !== null || !allowPstnConferenceActions}
                       onClick={() => {
                         void (async () => {
                           setSoftphoneNotice(null);
@@ -857,14 +859,14 @@ export function SoftphoneDialer({
                     autoComplete="tel"
                     placeholder="+1 or 10-digit"
                     value={xferTo}
-                    disabled={!pstnConferenceReady}
+                    disabled={!allowPstnConferenceActions}
                     onChange={(e) => setXferTo(e.target.value)}
                     className="mt-1 w-full rounded-lg border border-slate-200/90 bg-white px-2.5 py-1.5 text-xs text-slate-900 outline-none ring-sky-500/25 focus:ring-2 disabled:bg-slate-50"
                   />
                   <div className="mt-2 grid grid-cols-1 gap-2">
                     <button
                       type="button"
-                      disabled={actionBusy !== null || !pstnConferenceReady}
+                      disabled={actionBusy !== null || !allowPstnConferenceActions}
                       onClick={() => {
                         void (async () => {
                           setSoftphoneNotice(null);
@@ -909,7 +911,7 @@ export function SoftphoneDialer({
                     autoComplete="tel"
                     placeholder="+1 or 10-digit"
                     value={addTo}
-                    disabled={!pstnConferenceReady}
+                    disabled={!allowPstnConferenceActions}
                     onChange={(e) => setAddTo(e.target.value)}
                     className="mt-1 w-full rounded-lg border border-slate-200/90 bg-white px-2.5 py-1.5 text-xs text-slate-900 outline-none ring-sky-500/25 focus:ring-2 disabled:bg-slate-50"
                   />

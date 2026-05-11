@@ -77,14 +77,16 @@ type ControlBtnProps = {
   disabled?: boolean;
   active?: boolean;
   variant?: "default" | "danger";
+  title?: string;
 };
 
-function ControlBtn({ label, icon, onClick, disabled, active, variant = "default" }: ControlBtnProps) {
+function ControlBtn({ label, icon, onClick, disabled, active, variant = "default", title }: ControlBtnProps) {
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
+      title={title}
       className={`flex flex-col items-center gap-1.5 rounded-2xl px-2 py-3 text-[11px] font-semibold transition ${
         variant === "danger"
           ? "bg-red-500/15 text-red-100 ring-1 ring-red-400/40"
@@ -122,6 +124,7 @@ export function ActiveCallBar() {
     toggleCallRecording,
     sendDtmfDigits,
     callContextSoftNotice,
+    softphoneCapabilities,
   } = useWorkspaceSoftphone();
   const durationSec = useWorkspaceCallDuration();
 
@@ -146,6 +149,13 @@ export function ActiveCallBar() {
   const initials = initialsFromTitle(title);
   const gating = callContext?.conference_gating ?? null;
   const pstnConferenceReady = Boolean(gating?.can_cold_transfer);
+  const allowPstnConferenceActions =
+    pstnConferenceReady && (softphoneCapabilities?.conference_outbound_enabled ?? true);
+  const pstnConferenceBlockedReason = allowPstnConferenceActions
+    ? undefined
+    : softphoneCapabilities && softphoneCapabilities.conference_outbound_enabled === false
+      ? "Three-way calling is not available yet."
+      : "Conference controls are not ready on this call yet.";
   const isOnHold = isPstnHold || isClientHold;
   const recordingOn = softphoneRecording?.status === "in-progress";
   const canUseRecording = Boolean(callContext) && status === "in_call";
@@ -211,6 +221,7 @@ export function ActiveCallBar() {
       return;
     }
     setActionBusy("xfer");
+    setNotice({ kind: "info", message: "Transferring…" });
     try {
       const r = await coldTransferTo(parsed.e164);
       if (!r.ok) {
@@ -241,6 +252,7 @@ export function ActiveCallBar() {
       return;
     }
     setActionBusy("add");
+    setNotice({ kind: "info", message: "Adding participant…" });
     try {
       const r = await addConferenceParticipant(parsed.e164);
       if (!r.ok) {
@@ -420,7 +432,8 @@ export function ActiveCallBar() {
             label="Transfer"
             icon={<PhoneForwarded className="h-5 w-5" strokeWidth={2} />}
             onClick={() => setXferOpen(true)}
-            disabled={!pstnConferenceReady || actionBusy !== null}
+            disabled={!allowPstnConferenceActions || actionBusy !== null}
+            title={pstnConferenceBlockedReason}
           />
           <ControlBtn
             label={holdBusy ? "…" : isOnHold ? "Resume" : "Hold"}
@@ -456,7 +469,8 @@ export function ActiveCallBar() {
             label="Add"
             icon={<Users className="h-5 w-5" strokeWidth={2} />}
             onClick={() => setAddOpen(true)}
-            disabled={!pstnConferenceReady || actionBusy !== null}
+            disabled={!allowPstnConferenceActions || actionBusy !== null}
+            title={pstnConferenceBlockedReason}
           />
           <ControlBtn
             label={recordingBusy ? "…" : recordingOn ? "Stop rec" : "Record"}
@@ -559,15 +573,27 @@ export function ActiveCallBar() {
       </div>
 
       {xferOpen ? (
-        <div className="fixed inset-0 z-[55] flex items-end justify-center bg-black/55 p-4 sm:items-center">
-          <div className="w-full max-w-sm rounded-2xl border border-white/15 bg-slate-900 p-4 shadow-2xl">
+        <div
+          role="presentation"
+          className="fixed inset-0 z-[55] flex items-end justify-center bg-black/55 p-4 sm:items-center"
+          onClick={() => {
+            if (actionBusy === "xfer") return;
+            setXferOpen(false);
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="w-full max-w-sm rounded-2xl border border-white/15 bg-slate-900 p-4 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
             <p className="text-sm font-semibold text-white">Transfer</p>
             <p className="mt-1 text-xs text-slate-400">Cold transfer moves the PSTN party to another number.</p>
             <input
               type="tel"
               inputMode="tel"
               value={xferTo}
-              disabled={!pstnConferenceReady}
+              disabled={!allowPstnConferenceActions}
               onChange={(e) => setXferTo(e.target.value)}
               placeholder="+1 or 10-digit"
               className="mt-3 w-full rounded-xl border border-white/15 bg-slate-950 px-3 py-2 text-sm text-white outline-none ring-indigo-500/30 focus:ring-2"
@@ -587,11 +613,11 @@ export function ActiveCallBar() {
               </button>
               <button
                 type="button"
-                disabled={actionBusy === "xfer" || !pstnConferenceReady}
+                disabled={actionBusy === "xfer" || !allowPstnConferenceActions}
                 onClick={() => void runTransfer()}
                 className="flex-1 rounded-xl bg-indigo-500 py-2.5 text-sm font-semibold text-white disabled:opacity-40"
               >
-                {actionBusy === "xfer" ? "…" : "Transfer"}
+                {actionBusy === "xfer" ? "Transferring…" : "Transfer"}
               </button>
             </div>
           </div>
@@ -599,15 +625,27 @@ export function ActiveCallBar() {
       ) : null}
 
       {addOpen ? (
-        <div className="fixed inset-0 z-[55] flex items-end justify-center bg-black/55 p-4 sm:items-center">
-          <div className="w-full max-w-sm rounded-2xl border border-white/15 bg-slate-900 p-4 shadow-2xl">
+        <div
+          role="presentation"
+          className="fixed inset-0 z-[55] flex items-end justify-center bg-black/55 p-4 sm:items-center"
+          onClick={() => {
+            if (actionBusy === "add") return;
+            setAddOpen(false);
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="w-full max-w-sm rounded-2xl border border-white/15 bg-slate-900 p-4 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
             <p className="text-sm font-semibold text-white">Add to call</p>
             <p className="mt-1 text-xs text-slate-400">Dial a third party into the conference.</p>
             <input
               type="tel"
               inputMode="tel"
               value={addTo}
-              disabled={!pstnConferenceReady}
+              disabled={!allowPstnConferenceActions}
               onChange={(e) => setAddTo(e.target.value)}
               placeholder="+1 or 10-digit"
               className="mt-3 w-full rounded-xl border border-white/15 bg-slate-950 px-3 py-2 text-sm text-white outline-none ring-indigo-500/30 focus:ring-2"
@@ -627,11 +665,11 @@ export function ActiveCallBar() {
               </button>
               <button
                 type="button"
-                disabled={actionBusy === "add" || !pstnConferenceReady}
+                disabled={actionBusy === "add" || !allowPstnConferenceActions}
                 onClick={() => void runAdd()}
                 className="flex-1 rounded-xl bg-indigo-500 py-2.5 text-sm font-semibold text-white disabled:opacity-40"
               >
-                {actionBusy === "add" ? "…" : "Add"}
+                {actionBusy === "add" ? "Adding…" : "Add"}
               </button>
             </div>
           </div>
@@ -639,8 +677,17 @@ export function ActiveCallBar() {
       ) : null}
 
       {keypadOpen ? (
-        <div className="fixed inset-0 z-[55] flex items-end justify-center bg-black/55 p-4 sm:items-center">
-          <div className="w-full max-w-sm rounded-2xl border border-white/15 bg-slate-900 p-4 shadow-2xl">
+        <div
+          role="presentation"
+          className="fixed inset-0 z-[55] flex items-end justify-center bg-black/55 p-4 sm:items-center"
+          onClick={() => setKeypadOpen(false)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="w-full max-w-sm rounded-2xl border border-white/15 bg-slate-900 p-4 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between">
               <p className="text-sm font-semibold text-white">Keypad</p>
               <button

@@ -991,6 +991,15 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
         return;
       }
       if (d.kind === "native_voice_error") {
+        if (nativeVoiceCallShell && d.scope === "call" && statusRef.current === "in_call") {
+          softphoneDevWarn("[softphone] native_voice_error (call scope) while in_call — preserving active session UI");
+          const msg =
+            d.message?.trim() ? `Phone: ${d.message.trim()}` : "Call warning — you should still be connected.";
+          setCallContextSoftNotice(msg);
+          setHint(d.message?.trim() ? msg : null);
+          setHintMeta(d.message?.trim() ? { suggestSettings: true, canRetry: false } : null);
+          return;
+        }
         const needsReset =
           statusRef.current !== "idle" ||
           nativeShellActiveSidRef.current != null ||

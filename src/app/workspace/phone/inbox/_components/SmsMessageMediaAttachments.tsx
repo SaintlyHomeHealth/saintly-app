@@ -1,7 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
 import { FileText, Loader2 } from "lucide-react";
+import { useMemo, useState } from "react";
+
+import { WorkspaceImagePreviewOverlay } from "@/app/workspace/phone/_components/WorkspaceImagePreviewOverlay";
 
 import { saveSmsMmsAttachmentToLeadInsurance } from "@/app/workspace/phone/inbox/actions";
 import type { WorkspaceSmsThreadAttachment } from "@/lib/phone/workspace-sms-thread-messages";
@@ -42,6 +44,7 @@ export function SmsMessageMediaAttachments(props: {
   const sorted = useMemo(() => sortThreadAttachments(attachments), [attachments]);
   const [busyAttachmentId, setBusyAttachmentId] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
+  const [imagePreview, setImagePreview] = useState<{ href: string; name: string } | null>(null);
 
   const lid = (smsLeadInsuranceTargetId ?? "").trim();
   const canSaveLead =
@@ -61,6 +64,13 @@ export function SmsMessageMediaAttachments(props: {
   }
 
   return (
+    <>
+    <WorkspaceImagePreviewOverlay
+      open={Boolean(imagePreview?.href)}
+      src={imagePreview?.href ?? ""}
+      alt={imagePreview?.name ?? ""}
+      onClose={() => setImagePreview(null)}
+    />
     <div className="mt-2 flex w-full flex-col gap-1">
       <div className="flex flex-wrap gap-2">
         {sorted.map((att) => {
@@ -77,15 +87,19 @@ export function SmsMessageMediaAttachments(props: {
               }`}
             >
               {isImg ? (
-                <a href={href} target="_blank" rel="noreferrer" className="relative block overflow-hidden rounded-lg">
-                  {/* eslint-disable-next-line @next/next/no-img-element -- signed URL gate needs native img */}
+                <button
+                  type="button"
+                  onClick={() => setImagePreview({ href, name })}
+                  className="relative block w-full overflow-hidden rounded-lg text-left outline-none ring-sky-500/40 focus-visible:ring-2"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element -- cookie-authenticated MMS proxy */}
                   <img
                     src={href}
                     alt={name}
                     loading="lazy"
                     className="h-28 w-full object-cover motion-safe:transition motion-safe:hover:brightness-[1.03]"
                   />
-                </a>
+                </button>
               ) : (
                 <a
                   href={href}
@@ -131,5 +145,6 @@ export function SmsMessageMediaAttachments(props: {
       </div>
       {flash ? <p className="text-[11px] text-slate-600">{flash}</p> : null}
     </div>
+    </>
   );
 }
