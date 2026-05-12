@@ -14,11 +14,12 @@ import {
 import type { PhoneCallRow } from "@/app/admin/phone/recent-calls-live";
 import { loadCallLogContactOpenTargets } from "@/lib/phone/call-log-contact-targets";
 import { applyPhoneCallLogScopeForStaff } from "@/lib/phone/phone-call-log-staff-scope";
-import { PHONE_CALL_LOG_LIST_SELECT } from "@/lib/phone/phone-call-log-select";
+import { PHONE_CALL_LOG_LIST_SELECT_BASE } from "@/lib/phone/phone-call-log-select";
 import { staffMayAccessWorkspaceCallHistory } from "@/lib/phone/staff-phone-policy";
 import {
   canAccessWorkspacePhone,
   getStaffProfile,
+  hasFullCallVisibility,
   isManagerOrHigher,
 } from "@/lib/staff-profile";
 import { displayNameFromContactsRelation } from "@/lib/crm/contact-relation-display-name";
@@ -34,6 +35,15 @@ export const dynamic = "force-dynamic";
 
 const LIST_LIMIT = 150;
 const LIST_LIMIT_SEARCH = 250;
+
+/** RLS-only smoke test (no app-side `.or` scope). Valid `phone_calls` columns only. */
+const WORKSPACE_CALLS_PROBE_SELECT =
+  "id, created_at, direction, status, owner_user_id, assigned_to_user_id, from_e164, to_e164";
+
+/** Set `WORKSPACE_CALLS_DEBUG=0` to silence structured diagnostics (defaults to on). */
+function workspaceCallsDiagLogs(): boolean {
+  return process.env.WORKSPACE_CALLS_DEBUG !== "0";
+}
 
 type PageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
@@ -215,10 +225,21 @@ export default async function WorkspaceCallsPage(props: PageProps) {
   const showAdminCallLogLink = isManagerOrHigher(staff);
   const supabase = await createServerSupabaseClient();
 
+  const {
+    data: { user: authUser },
+  } = await supabase.auth.getUser();
+
+  /** RLS-only: no `applyPhoneCallLogScopeForStaff` — distinguishes DB policy vs app filters. */
+  const probeRes = await supabase
+    .from("phone_calls")
+    .select(WORKSPACE_CALLS_PROBE_SELECT)
+    .order("created_at", { ascending: false })
+    .limit(25);
+
   const limit = searchActive ? LIST_LIMIT_SEARCH : LIST_LIMIT;
   let dbQuery = supabase
     .from("phone_calls")
-    .select(PHONE_CALL_LOG_LIST_SELECT)
+    .select(PHONE_CALL_LOG_LIST_SELECT_BASE)
     .order("updated_at", { ascending: false })
     .limit(limit);
 
@@ -232,8 +253,43 @@ export default async function WorkspaceCallsPage(props: PageProps) {
 
   const { data: rows, error } = await dbQuery;
 
+  if (workspaceCallsDiagLogs()) {
+    let supabaseUrlHost = "(unset)";
+    try {
+      supabaseUrlHost = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").host || supabaseUrlHost;
+    } catch {
+      supabaseUrlHost = "(invalid NEXT_PUBLIC_SUPABASE_URL)";
+    }
+
+    console.info(
+      "[workspace/phone/calls:diag]",
+      JSON.stringify({
+        phase: "query",
+        supabaseHost: supabaseUrlHost,
+        authUserId: authUser?.id ?? null,
+        authMatchesStaffProfile: authUser?.id === staff.user_id,
+        staffProfileUserId: staff.user_id,
+        staffRole: staff.role,
+        staffIsActive: staff.is_active,
+        hasFullCallVisibility: hasFullCallVisibility(staff),
+        filter,
+        searchQueryLen: qRaw.length,
+        searchActive,
+        probeRowCount: probeRes.data?.length ?? 0,
+        probeError: probeRes.error?.message ?? null,
+        probeErrorCode: probeRes.error?.code ?? null,
+        mainRowCountBeforeEnrichment: rows?.length ?? 0,
+        mainError: error?.message ?? null,
+        mainErrorCode: error?.code ?? null,
+      })
+    );
+  }
+
   if (error) {
     console.warn("[workspace/phone/calls]", error.message);
+  }
+  if (probeRes.error) {
+    console.warn("[workspace/phone/calls:probe]", probeRes.error.message);
   }
 
   const rawRows = (rows ?? []) as Record<string, unknown>[];
@@ -265,6 +321,17 @@ export default async function WorkspaceCallsPage(props: PageProps) {
 
   const filtered = searchActive ? merged.filter((r) => workspaceCallMatchesQuery(r, qLower)) : merged;
   const noSearchHits = searchActive && filtered.length === 0;
+
+  if (workspaceCallsDiagLogs()) {
+    console.info(
+      "[workspace/phone/calls:diag]",
+      JSON.stringify({
+        phase: "after_enrichment",
+        mergedRowCount: merged.length,
+        displayedRowCount: filtered.length,
+      })
+    );
+  }
 
   return (
     <div className="ws-phone-page-shell flex flex-1 flex-col px-4 pb-6 pt-5 sm:px-5">
