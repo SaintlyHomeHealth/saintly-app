@@ -46,6 +46,26 @@ export function sanitizeWorkspaceDialInput(raw: string): string {
     .trim();
 }
 
+/**
+ * Keypad / tel field: optional single leading `+`, then digits, `*`, and `#` only.
+ * Strips spaces, punctuation, letters, and any `+` not at the start (paste-safe).
+ */
+export function sanitizeKeypadDialValue(raw: string): string {
+  const t = sanitizeWorkspaceDialInput(raw);
+  let out = "";
+  for (let i = 0; i < t.length; i++) {
+    const c = t[i]!;
+    if (c === "+") {
+      if (out.length === 0) out += "+";
+      continue;
+    }
+    if (/\d/.test(c) || c === "*" || c === "#") {
+      out += c;
+    }
+  }
+  return out;
+}
+
 export type ParseWorkspaceOutboundResult =
   | { ok: true; e164: string }
   | { ok: false; reason: string };

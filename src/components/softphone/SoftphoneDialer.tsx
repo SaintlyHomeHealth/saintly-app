@@ -9,7 +9,7 @@ import {
   type SoftphoneServerCapabilities,
 } from "@/components/softphone/WorkspaceSoftphoneProvider";
 import { formatPhoneNumber } from "@/lib/phone/us-phone-format";
-import { parseWorkspaceOutboundDialInput } from "@/lib/softphone/phone-number";
+import { parseWorkspaceOutboundDialInput, sanitizeKeypadDialValue } from "@/lib/softphone/phone-number";
 import { isPlausiblePstnCallerRawForSubline } from "@/lib/softphone/twilio-incoming-caller-display";
 import { openSoftphoneAppSettings } from "@/lib/softphone/open-app-settings";
 import { isReactNativeWebViewShell } from "@/lib/softphone/native-speaker-bridge";
@@ -176,7 +176,7 @@ export function SoftphoneDialer({
   const liveStreamButtonEnabled = transcriptWritebackOk;
 
   useEffect(() => {
-    const seed = (initialDigits ?? "").trim();
+    const seed = sanitizeKeypadDialValue(initialDigits ?? "");
     if (!seed) return;
     setDigits(seed);
   }, [initialDigits, setDigits]);
@@ -185,7 +185,7 @@ export function SoftphoneDialer({
     if (!autoPlaceCall) return;
     if (listenState !== "ready") return;
     if (status !== "idle" || incoming) return;
-    const seed = (initialDigits ?? "").trim();
+    const seed = sanitizeKeypadDialValue(initialDigits ?? "");
     if (!seed) return;
     if (autoPlaceAttemptedSeedRef.current === seed) return;
     autoPlaceAttemptedSeedRef.current = seed;
@@ -210,6 +210,19 @@ export function SoftphoneDialer({
   const dialInputLocked = (busy && status !== "in_call") || Boolean(incoming);
   const showCallButton = !busy;
   const keypadDisabled = dialInputLocked;
+
+  const outboundDialReady = useMemo(
+    () => parseWorkspaceOutboundDialInput(digits.trim()).ok,
+    [digits]
+  );
+
+  const keypadTelInputRef = useRef<HTMLInputElement | null>(null);
+
+  const focusKeypadTelIfDesktop = useCallback(() => {
+    if (typeof window === "undefined") return;
+    if (!window.matchMedia("(hover: hover) and (pointer: fine)").matches) return;
+    queueMicrotask(() => keypadTelInputRef.current?.focus());
+  }, []);
 
   /** Press-and-hold backspace: one delete on press, then repeat after a short delay until release. */
   const backspaceHoldTimeoutRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
@@ -237,6 +250,17 @@ export function SoftphoneDialer({
     window.addEventListener("blur", onWinBlur);
     return () => window.removeEventListener("blur", onWinBlur);
   }, [clearBackspaceRepeat]);
+
+  useEffect(() => {
+    if (variant !== "keypad") return;
+    if (keypadDisabled) return;
+    /** Avoid pulling focus during outbound connect / active call (keyboard/shortcuts stay with in-call UI). */
+    if (status !== "idle" || incoming) return;
+    if (typeof window === "undefined") return;
+    if (!window.matchMedia("(hover: hover) and (pointer: fine)").matches) return;
+    const id = window.requestAnimationFrame(() => keypadTelInputRef.current?.focus());
+    return () => window.cancelAnimationFrame(id);
+  }, [variant, keypadDisabled, status, incoming]);
 
   useEffect(() => {
     if (variant !== "keypad") {
@@ -533,18 +557,36 @@ export function SoftphoneDialer({
       </div>
 
       <div
-        className="mt-[12px] flex min-h-[56px] w-full items-center border-b border-slate-200/80 bg-transparent px-1 lg:mt-2 lg:min-h-[48px]"
+        className="relative mt-[12px] flex min-h-[56px] w-full items-center border-b border-slate-200/80 bg-transparent px-1 lg:mt-2 lg:min-h-[48px]"
         aria-live="polite"
-        aria-label="Number entered"
       >
-        <p
+        <label htmlFor="workspace-keypad-dial-input" className="sr-only">
+          Phone number to dial
+        </label>
+        <input
+          id="workspace-keypad-dial-input"
+          ref={keypadTelInputRef}
+          type="tel"
+          inputMode="tel"
+          autoComplete="tel"
+          name="phone"
+          enterKeyHint="call"
+          placeholder="Enter number"
           title={digits.trim() ? formatDialpadDisplay(digits) : undefined}
-          className={`w-full min-w-0 text-center text-[34px] font-semibold leading-none tracking-tight tabular-nums sm:text-[34px] lg:text-[30px] ${
-            digits.trim() ? "truncate font-bold text-slate-950" : "font-medium text-slate-400"
+          disabled={keypadDisabled}
+          value={digits}
+          onChange={(e) => setDigits(sanitizeKeypadDialValue(e.target.value))}
+          onKeyDown={(e) => {
+            if (e.key !== "Enter") return;
+            if (keypadDisabled || !canDial || !outboundDialReady) return;
+            e.preventDefault();
+            void startCall();
+          }}
+          aria-label="Phone number to dial"
+          className={`w-full min-w-0 cursor-text appearance-none border-0 bg-transparent text-center text-[34px] font-semibold leading-none tracking-tight text-slate-950 outline-none ring-sky-500/40 placeholder:font-medium placeholder:text-slate-400 focus:ring-2 focus:ring-offset-0 disabled:cursor-not-allowed disabled:opacity-60 sm:text-[34px] lg:text-[30px] ${
+            digits.trim() ? "truncate font-bold tabular-nums" : "font-medium tabular-nums"
           }`}
-        >
-          {digits.trim() ? formatDialpadDisplay(digits) : <span className="font-medium text-slate-400">Enter number</span>}
-        </p>
+        />
       </div>
 
       {incoming ? (
@@ -602,13 +644,15 @@ export function SoftphoneDialer({
                   key={`${ri}-${digit}`}
                   type="button"
                   disabled={keypadDisabled}
+                  aria-label={status === "in_call" ? `Send ${digit} tone` : `Dial ${digit}`}
                   onClick={() => {
                     void unlockRingtoneFromGesture();
                     if (status === "in_call") {
                       sendDtmfDigits(digit);
                       return;
                     }
-                    setDigits((d) => d + digit);
+                    setDigits((d) => sanitizeKeypadDialValue(d + digit));
+                    focusKeypadTelIfDesktop();
                   }}
                   className="flex h-[84px] w-full touch-manipulation select-none flex-col items-center justify-center rounded-3xl border border-slate-200/85 bg-white text-slate-900 shadow-[0_1px_3px_-1px_rgba(15,23,42,0.08),0_2px_8px_-3px_rgba(15,23,42,0.05)] transition-[transform,box-shadow,background-color] duration-150 ease-out sm:h-[80px] lg:h-[68px] hover:bg-slate-50 active:scale-[0.97] active:border-sky-200/80 active:bg-sky-50/80 disabled:pointer-events-none disabled:opacity-40"
                 >
@@ -630,15 +674,15 @@ export function SoftphoneDialer({
               type="button"
               disabled={keypadDisabled || !digits.length}
               className="flex h-14 w-14 shrink-0 touch-manipulation select-none items-center rounded-full border border-slate-200/85 bg-white text-slate-600 shadow-[0_1px_3px_-1px_rgba(15,23,42,0.08)] transition-[transform,box-shadow] duration-150 ease-out hover:bg-slate-50 active:scale-[0.97] active:bg-sky-50/80 disabled:pointer-events-none disabled:opacity-25 lg:h-12 lg:w-12"
-              aria-label="Backspace"
+              aria-label="Delete last digit"
               onPointerDown={(e) => {
                 if (keypadDisabled || !digits.length) return;
                 if (e.button !== 0) return;
                 e.preventDefault();
-                const remainingAfterDelete = digits.length - 1;
-                setDigits((d) => d.slice(0, -1));
+                const lenBefore = digits.length;
                 clearBackspaceRepeat();
-                if (remainingAfterDelete <= 0) return;
+                setDigits((d) => d.slice(0, -1));
+                if (lenBefore <= 1) return;
                 backspaceHoldTimeoutRef.current = window.setTimeout(() => {
                   backspaceHoldTimeoutRef.current = null;
                   backspaceRepeatIntervalRef.current = window.setInterval(() => {
@@ -655,6 +699,7 @@ export function SoftphoneDialer({
               onPointerUp={clearBackspaceRepeat}
               onPointerCancel={clearBackspaceRepeat}
               onPointerLeave={clearBackspaceRepeat}
+              onLostPointerCapture={clearBackspaceRepeat}
             >
               <Delete className="m-auto h-6 w-6" strokeWidth={1.75} />
             </button>
@@ -663,7 +708,8 @@ export function SoftphoneDialer({
                 <button
                   type="button"
                   onClick={() => void startCall()}
-                  disabled={!digits.trim() || !canDial}
+                  disabled={keypadDisabled || !canDial || !outboundDialReady}
+                  aria-label="Place call"
                   className="group flex h-[72px] w-full touch-manipulation select-none items-center justify-center gap-2 rounded-full px-5 text-base font-bold transition-[transform,box-shadow,filter] duration-150 ease-out enabled:bg-gradient-to-r enabled:from-slate-950 enabled:via-blue-800 enabled:to-sky-500 enabled:text-white enabled:shadow-[0_6px_22px_-4px_rgba(15,23,42,0.55),0_4px_14px_-4px_rgba(2,132,199,0.45)] enabled:ring-1 enabled:ring-white/35 enabled:hover:brightness-[1.05] enabled:active:scale-[0.97] disabled:pointer-events-none disabled:bg-gradient-to-r disabled:from-slate-400/35 disabled:via-slate-300/25 disabled:to-sky-100/90 disabled:text-slate-600 disabled:shadow-sm disabled:ring-slate-300/40 sm:text-lg lg:h-[60px] lg:text-[15px]"
                 >
                   <Phone className="h-6 w-6 shrink-0 text-current group-disabled:opacity-90" strokeWidth={2.25} aria-hidden />
@@ -674,6 +720,7 @@ export function SoftphoneDialer({
                 <button
                   type="button"
                   onClick={hangUp}
+                  aria-label="Hang up"
                   className="flex h-[72px] w-full touch-manipulation select-none items-center justify-center rounded-full border-2 border-red-400/90 bg-white px-6 text-base font-bold text-red-900 shadow-sm transition-[transform,background-color] duration-150 ease-out hover:bg-red-50 active:scale-[0.97] sm:text-lg lg:h-[60px] lg:text-[15px]"
                 >
                   Hang up
