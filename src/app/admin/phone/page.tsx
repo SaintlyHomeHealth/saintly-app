@@ -1,14 +1,15 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { supabaseAdmin } from "@/lib/admin";
+import { loadCallLogContactOpenTargets } from "@/lib/phone/call-log-contact-targets";
 import { formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
 import { formatTimeAgo } from "@/lib/phone/format-time-ago";
+import { applyPhoneCallLogScopeForStaff } from "@/lib/phone/phone-call-log-staff-scope";
+import { PHONE_CALL_LOG_LIST_SELECT } from "@/lib/phone/phone-call-log-select";
 import {
   getStaffProfile,
-  hasFullCallVisibility,
   isPhoneWorkspaceUser,
 } from "@/lib/staff-profile";
 import { adminPerfTimed, routePerfLog, routePerfStart } from "@/lib/perf/route-perf";
@@ -35,59 +36,6 @@ import {
 import { getCallUrgency, getFollowUpStatus } from "./call-log-command-center";
 import { callLogSearchParamsToQuery, parseCallLogSearchParams } from "./call-log-params";
 
-type ContactOpenTarget = {
-  patientId: string | null;
-  activeLeadId: string | null;
-};
-
-async function loadContactOpenTargets(
-  supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,
-  contactIds: string[]
-): Promise<Record<string, ContactOpenTarget>> {
-  const out: Record<string, ContactOpenTarget> = {};
-  if (contactIds.length === 0) return out;
-  for (const id of contactIds) {
-    out[id] = { patientId: null, activeLeadId: null };
-  }
-
-  const { data: patientRows } = await supabase
-    .from("patients")
-    .select("id, contact_id")
-    .in("contact_id", contactIds);
-
-  for (const p of patientRows ?? []) {
-    const cid = typeof p.contact_id === "string" ? p.contact_id : null;
-    const pid = typeof p.id === "string" ? p.id : null;
-    if (!cid || !out[cid]) continue;
-    out[cid] = { patientId: pid, activeLeadId: null };
-  }
-
-  const { data: leadRows, error: leadsErr } = await leadRowsActiveOnly(
-    supabase
-      .from("leads")
-      .select("id, contact_id, status, created_at")
-      .in("contact_id", contactIds)
-      .order("created_at", { ascending: false })
-  );
-
-  if (leadsErr) {
-    console.warn("[admin/phone call log] leads:", leadsErr.message);
-  }
-
-  for (const L of leadRows ?? []) {
-    const cid = typeof L.contact_id === "string" ? L.contact_id : null;
-    if (!cid || !out[cid]) continue;
-    if (out[cid].patientId) continue;
-    const st = typeof L.status === "string" ? L.status.trim() : "";
-    if (st === "converted") continue;
-    if (!out[cid].activeLeadId) {
-      out[cid] = { ...out[cid], activeLeadId: String(L.id) };
-    }
-  }
-
-  return out;
-}
-
 function formatCallType(direction: string): string {
   const d = direction.trim().toLowerCase();
   if (d === "inbound") return "Inbound";
@@ -107,7 +55,6 @@ export default async function AdminPhoneCallLogPage({ searchParams }: PageProps)
       redirect("/admin");
     }
 
-  const hasFull = hasFullCallVisibility(staffProfile);
   const sp = (await searchParams) ?? {};
   let q = parseCallLogSearchParams(sp);
 
@@ -120,17 +67,11 @@ export default async function AdminPhoneCallLogPage({ searchParams }: PageProps)
 
   let dbQuery = supabase
     .from("phone_calls")
-    .select(
-      "id, created_at, updated_at, external_call_id, direction, from_e164, to_e164, status, started_at, ended_at, duration_seconds, voicemail_recording_sid, voicemail_duration_seconds, priority_sms_sent_at, priority_sms_reason, auto_reply_sms_sent_at, auto_reply_sms_body, assigned_to_user_id, assigned_at, assigned_to_label, primary_tag, contact_id, metadata, contacts ( full_name, first_name, last_name, organization_name )"
-    )
+    .select(PHONE_CALL_LOG_LIST_SELECT)
     .order("updated_at", { ascending: false })
     .limit(q.limit);
 
-  if (!hasFull) {
-    dbQuery = dbQuery.or(
-      `assigned_to_user_id.eq.${staffProfile.user_id},assigned_to_user_id.is.null`
-    );
-  }
+  dbQuery = applyPhoneCallLogScopeForStaff(dbQuery, staffProfile, "admin");
 
   if (q.view === "missed") {
     dbQuery = dbQuery.eq("status", "missed");
@@ -164,7 +105,7 @@ export default async function AdminPhoneCallLogPage({ searchParams }: PageProps)
       enrichedCalls.flatMap((c) => [c.contact_id, c.resolved_contact_id].filter((x): x is string => Boolean(x)))
     ),
   ];
-  const openByContactId = await loadContactOpenTargets(supabase, contactIds);
+  const openByContactId = await loadCallLogContactOpenTargets(supabase, contactIds);
 
   const assigneeIds = [
     ...new Set(calls.map((c) => c.assigned_to_user_id).filter((x): x is string => Boolean(x))),

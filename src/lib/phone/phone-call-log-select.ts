@@ -1,0 +1,6 @@
+/**
+ * Shared `phone_calls` column list for admin + workspace call logs.
+ * Keep in sync with `mapPhoneCallQueryRowForLog` in `app/admin/phone/call-log-display.ts`.
+ */
+export const PHONE_CALL_LOG_LIST_SELECT =
+  "id, created_at, updated_at, external_call_id, direction, from_e164, to_e164, status, started_at, ended_at, duration_seconds, voicemail_recording_sid, voicemail_duration_seconds, priority_sms_sent_at, priority_sms_reason, auto_reply_sms_sent_at, auto_reply_sms_body, assigned_to_user_id, assigned_at, assigned_to_label, primary_tag, contact_id, metadata, workspace_missed_followup_resolved_at, contacts ( full_name, first_name, last_name, organization_name )";

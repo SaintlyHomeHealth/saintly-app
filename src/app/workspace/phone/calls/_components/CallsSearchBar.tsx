@@ -2,15 +2,18 @@
 
 type Props = {
   defaultQuery: string;
+  /** Preserve non-default list filter when searching. */
+  filter?: "all" | "missed" | "me";
   className?: string;
 };
 
 /**
  * GET `/workspace/phone/calls?q=…` — same visual language as inbox search.
  */
-export function CallsSearchBar({ defaultQuery, className = "" }: Props) {
+export function CallsSearchBar({ defaultQuery, filter = "all", className = "" }: Props) {
   return (
     <form method="get" action="/workspace/phone/calls" className={`w-full min-[400px]:w-52 sm:w-60 ${className}`.trim()}>
+      {filter !== "all" ? <input type="hidden" name="filter" value={filter} /> : null}
       <input
         name="q"
         defaultValue={defaultQuery}

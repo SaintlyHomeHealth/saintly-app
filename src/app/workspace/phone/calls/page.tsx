@@ -1,43 +1,55 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import { WorkspaceCallInboxCard, type CallInboxRow } from "./_components/WorkspaceCallInboxCard";
-import { CallsSearchBar } from "./_components/CallsSearchBar";
-import { WorkspacePhonePageHeader } from "../_components/WorkspacePhonePageHeader";
+import {
+  enrichPhoneCallRowsWithResolvedIdentity,
+  formatCallLogStatus,
+  mapPhoneCallQueryRowForLog,
+} from "@/app/admin/phone/call-log-display";
+import { getFollowUpStatus } from "@/app/admin/phone/call-log-command-center";
+import {
+  formatVoiceAiCallerCategoryLabel,
+  readVoiceAiMetadataFromMetadata,
+} from "@/app/admin/phone/_lib/voice-ai-metadata";
+import type { PhoneCallRow } from "@/app/admin/phone/recent-calls-live";
+import { loadCallLogContactOpenTargets } from "@/lib/phone/call-log-contact-targets";
+import { applyPhoneCallLogScopeForStaff } from "@/lib/phone/phone-call-log-staff-scope";
+import { PHONE_CALL_LOG_LIST_SELECT } from "@/lib/phone/phone-call-log-select";
 import { staffMayAccessWorkspaceCallHistory } from "@/lib/phone/staff-phone-policy";
 import {
   canAccessWorkspacePhone,
   getStaffProfile,
-  hasFullCallVisibility,
   isManagerOrHigher,
 } from "@/lib/staff-profile";
-import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { displayNameFromContactsRelation } from "@/lib/crm/contact-relation-display-name";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
-import {
-  phoneRawToE164LookupKey,
-  resolvePhoneDisplayIdentityBatch,
-} from "@/lib/phone/resolve-phone-display-identity";
+import { phoneRawToE164LookupKey } from "@/lib/phone/resolve-phone-display-identity";
+import { createServerSupabaseClient } from "@/lib/supabase/server";
 
-const MISSED_LIMIT = 25;
-const RECENT_LIMIT = 40;
+import { WorkspaceCallInboxCard, type CallInboxRow } from "./_components/WorkspaceCallInboxCard";
+import { CallsSearchBar } from "./_components/CallsSearchBar";
+import { WorkspacePhonePageHeader } from "../_components/WorkspacePhonePageHeader";
 
-function activitySortKeyMs(row: CallInboxRow): number {
-  const u = row.updated_at;
-  const c = row.created_at;
-  const iso = typeof u === "string" && u.trim() ? u : typeof c === "string" ? c : null;
-  if (!iso) return 0;
-  const t = new Date(iso).getTime();
-  return Number.isNaN(t) ? 0 : t;
+export const dynamic = "force-dynamic";
+
+const LIST_LIMIT = 150;
+const LIST_LIMIT_SEARCH = 250;
+
+type PageProps = {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+};
+
+type WorkspaceCallFilter = "all" | "missed" | "me";
+
+function oneSearchParam(sp: Record<string, string | string[] | undefined>, key: string): string {
+  const v = sp[key];
+  return typeof v === "string" ? v : Array.isArray(v) ? (v[0] ?? "") : "";
 }
 
-/** Merge non-missed rows with missed-but-workspace-resolved rows; sort by latest activity. */
-function mergeRecentCalls(a: CallInboxRow[], b: CallInboxRow[], cap: number): CallInboxRow[] {
-  const map = new Map<string, CallInboxRow>();
-  for (const row of [...a, ...b]) {
-    if (!map.has(row.id)) map.set(row.id, row);
-  }
-  return [...map.values()].sort((x, y) => activitySortKeyMs(y) - activitySortKeyMs(x)).slice(0, cap);
+function parseWorkspaceCallFilter(sp: Record<string, string | string[] | undefined>): WorkspaceCallFilter {
+  const raw = oneSearchParam(sp, "filter").trim().toLowerCase();
+  if (raw === "missed" || raw === "me") return raw;
+  return "all";
 }
 
 function callbackNumber(direction: string | null, from: string | null, to: string | null): string | null {
@@ -48,39 +60,83 @@ function callbackNumber(direction: string | null, from: string | null, to: strin
   return f || null;
 }
 
-function enrichWorkspaceCallRow(
-  row: CallInboxRow,
-  idMap: Awaited<ReturnType<typeof resolvePhoneDisplayIdentityBatch>>
-): CallInboxRow {
-  const party = callbackNumber(row.direction, row.from_e164, row.to_e164);
-  const key = phoneRawToE164LookupKey(party ?? "");
-  const id = key ? idMap.get(key) : undefined;
-  const embed = displayNameFromContactsRelation(row.contacts);
-  const subtitlePhone = party ? formatPhoneForDisplay(party) : "—";
-
-  let title: string;
-  if (id?.resolvedFromEntity && id.displayTitle.trim()) {
-    title = id.displayTitle.trim();
-  } else if (embed) {
-    title = embed;
-  } else {
-    title = id?.displayTitle?.trim() || subtitlePhone;
-  }
-
-  const smsContactId = row.contact_id ?? id?.contactId ?? null;
-  const showQuickSave =
-    Boolean(party && phoneRawToE164LookupKey(party)) && !row.contact_id && !id?.suppressQuickSave;
-
-  return { ...row, call_log_display: { title, subtitlePhone, smsContactId, showQuickSave } };
+function formatCallDirection(direction: string | null): string {
+  const d = (direction ?? "").trim().toLowerCase();
+  if (d === "inbound") return "Inbound";
+  if (d === "outbound") return "Outbound";
+  return d ? d.charAt(0).toUpperCase() + d.slice(1) : "—";
 }
 
-type PageProps = {
-  searchParams?: Promise<Record<string, string | string[] | undefined>>;
-};
+function workspaceFollowUpLine(enriched: PhoneCallRow): string | null {
+  const hint = getFollowUpStatus(enriched).trim();
+  if (!hint || hint === "—") return null;
+  if (hint === "⚠️ Needed") return "Follow-up needed";
+  if (hint === "Pending") return "Follow-up suggested";
+  return hint;
+}
 
-function oneSearchParam(sp: Record<string, string | string[] | undefined>, key: string): string {
-  const v = sp[key];
-  return typeof v === "string" ? v : Array.isArray(v) ? (v[0] ?? "") : "";
+function workspaceTagLine(enriched: PhoneCallRow): string | null {
+  const tag = (enriched.primary_tag ?? "").trim().toLowerCase();
+  if (tag === "spam") return "Spam";
+  const voice = readVoiceAiMetadataFromMetadata(enriched.metadata);
+  const cat = (voice?.caller_category ?? "").trim().toLowerCase();
+  if (cat === "spam") return "Spam";
+  return null;
+}
+
+function buildCallInboxRowFromEnriched(
+  raw: Record<string, unknown>,
+  enriched: PhoneCallRow
+): CallInboxRow {
+  const party = callbackNumber(enriched.direction, enriched.from_e164, enriched.to_e164);
+  const subtitlePhone = party ? formatPhoneForDisplay(party) : "—";
+  const embed = displayNameFromContactsRelation(raw.contacts);
+  const title =
+    enriched.crm_contact_display_name?.trim() || embed?.trim() || subtitlePhone;
+  const cid = enriched.contact_id ?? enriched.resolved_contact_id ?? null;
+  const showQuickSave =
+    Boolean(party && phoneRawToE164LookupKey(party)) &&
+    !enriched.contact_id &&
+    !enriched.resolved_contact_id &&
+    !enriched.party_display_suppress_quick_save;
+
+  const voiceSlice = readVoiceAiMetadataFromMetadata(enriched.metadata);
+  const aiCategoryLabel =
+    voiceSlice?.caller_category?.trim() !== ""
+      ? formatVoiceAiCallerCategoryLabel(String(voiceSlice?.caller_category ?? ""))
+      : null;
+  const aiSummaryShort = (voiceSlice?.short_summary ?? "").trim() || null;
+
+  return {
+    id: enriched.id,
+    created_at: enriched.created_at,
+    updated_at: enriched.updated_at,
+    started_at: enriched.started_at,
+    ended_at: enriched.ended_at,
+    direction: enriched.direction,
+    from_e164: enriched.from_e164,
+    to_e164: enriched.to_e164,
+    status: enriched.status,
+    external_call_id: enriched.external_call_id,
+    contact_id: enriched.contact_id,
+    contacts: raw.contacts,
+    metadata: enriched.metadata,
+    primary_tag: enriched.primary_tag,
+    assigned_to_user_id: enriched.assigned_to_user_id,
+    workspace_missed_followup_resolved_at:
+      typeof raw.workspace_missed_followup_resolved_at === "string"
+        ? raw.workspace_missed_followup_resolved_at
+        : null,
+    call_log_display: { title, subtitlePhone, smsContactId: cid, showQuickSave },
+    workspace_ui: {
+      directionLabel: formatCallDirection(enriched.direction),
+      statusLabel: formatCallLogStatus(enriched.status),
+      aiCategoryLabel,
+      aiSummaryShort,
+      followUpLine: workspaceFollowUpLine(enriched),
+      tagLine: workspaceTagLine(enriched),
+    },
+  };
 }
 
 function deepWorkspaceCallMetadataStrings(v: unknown, depth = 0): string[] {
@@ -104,6 +160,11 @@ function workspaceCallSearchHaystack(row: CallInboxRow): string {
   if (d?.subtitlePhone) parts.push(d.subtitlePhone);
   if (row.direction) parts.push(row.direction);
   if (row.status) parts.push(row.status);
+  if (row.workspace_ui?.directionLabel) parts.push(row.workspace_ui.directionLabel);
+  if (row.workspace_ui?.statusLabel) parts.push(row.workspace_ui.statusLabel);
+  if (row.workspace_ui?.aiCategoryLabel) parts.push(row.workspace_ui.aiCategoryLabel);
+  if (row.workspace_ui?.aiSummaryShort) parts.push(row.workspace_ui.aiSummaryShort);
+  if (row.workspace_ui?.tagLine) parts.push(row.workspace_ui.tagLine);
   const f = typeof row.from_e164 === "string" ? row.from_e164 : "";
   const t = typeof row.to_e164 === "string" ? row.to_e164 : "";
   parts.push(f, t, f.replace(/\D/g, ""), t.replace(/\D/g, ""));
@@ -118,6 +179,27 @@ function workspaceCallMatchesQuery(row: CallInboxRow, qLower: string): boolean {
   return workspaceCallSearchHaystack(row).includes(qLower);
 }
 
+function callsFilterHref(preserveQ: string, filter: WorkspaceCallFilter): string {
+  const params = new URLSearchParams();
+  if (filter !== "all") params.set("filter", filter);
+  const qq = preserveQ.trim();
+  if (qq) params.set("q", qq);
+  const s = params.toString();
+  return s ? `/workspace/phone/calls?${s}` : "/workspace/phone/calls";
+}
+
+function filterChipClass(active: boolean, danger?: boolean): string {
+  const base = "shrink-0 rounded-full px-3 py-1.5 text-[11px] font-semibold transition";
+  if (active) {
+    return danger
+      ? `${base} bg-rose-700 text-white`
+      : `${base} bg-slate-900 text-white`;
+  }
+  return danger
+    ? `${base} border border-rose-200 bg-rose-50 text-rose-900 hover:bg-rose-100`
+    : `${base} border border-slate-200 bg-white text-slate-800 hover:bg-slate-50`;
+}
+
 export default async function WorkspaceCallsPage(props: PageProps) {
   const staff = await getStaffProfile();
   if (!staff || !canAccessWorkspacePhone(staff) || !staffMayAccessWorkspaceCallHistory(staff)) {
@@ -128,78 +210,61 @@ export default async function WorkspaceCallsPage(props: PageProps) {
   const qRaw = oneSearchParam(sp, "q").trim();
   const qLower = qRaw.toLowerCase();
   const searchActive = qLower.length > 0;
+  const filter = parseWorkspaceCallFilter(sp);
 
-  const hasFull = hasFullCallVisibility(staff);
   const showAdminCallLogLink = isManagerOrHigher(staff);
   const supabase = await createServerSupabaseClient();
 
-  const nurseScopeFilter = `assigned_to_user_id.eq.${staff.user_id},assigned_to_user_id.is.null,direction.eq.inbound`;
-
-  const selectRow =
-    "id, created_at, updated_at, started_at, ended_at, direction, from_e164, to_e164, status, external_call_id, contact_id, metadata, contacts ( full_name, first_name, last_name, organization_name )";
-
-  let missedQ = supabase
+  const limit = searchActive ? LIST_LIMIT_SEARCH : LIST_LIMIT;
+  let dbQuery = supabase
     .from("phone_calls")
-    .select(selectRow)
-    .eq("status", "missed")
-    .is("workspace_missed_followup_resolved_at", null)
+    .select(PHONE_CALL_LOG_LIST_SELECT)
     .order("updated_at", { ascending: false })
-    .limit(searchActive ? 120 : MISSED_LIMIT);
+    .limit(limit);
 
-  let recentNonMissedQ = supabase
-    .from("phone_calls")
-    .select(selectRow)
-    .neq("status", "missed")
-    .order("updated_at", { ascending: false })
-    .limit(searchActive ? 220 : RECENT_LIMIT);
+  dbQuery = applyPhoneCallLogScopeForStaff(dbQuery, staff, "workspace");
 
-  let recentResolvedMissedQ = supabase
-    .from("phone_calls")
-    .select(selectRow)
-    .eq("status", "missed")
-    .not("workspace_missed_followup_resolved_at", "is", null)
-    .order("updated_at", { ascending: false })
-    .limit(searchActive ? 220 : RECENT_LIMIT);
-
-  if (!hasFull) {
-    missedQ = missedQ.or(nurseScopeFilter);
-    recentNonMissedQ = recentNonMissedQ.or(nurseScopeFilter);
-    recentResolvedMissedQ = recentResolvedMissedQ.or(nurseScopeFilter);
+  if (filter === "missed") {
+    dbQuery = dbQuery.eq("status", "missed");
+  } else if (filter === "me") {
+    dbQuery = dbQuery.eq("assigned_to_user_id", staff.user_id);
   }
 
-  const [
-    { data: missedData, error: missedErr },
-    { data: recentNonMissedData, error: recentNonMissedErr },
-    { data: recentResolvedMissedData, error: recentResolvedMissedErr },
-  ] = await Promise.all([missedQ, recentNonMissedQ, recentResolvedMissedQ]);
+  const { data: rows, error } = await dbQuery;
 
-  if (missedErr) {
-    console.warn("[workspace/phone/calls] missed:", missedErr.message);
-  }
-  if (recentNonMissedErr) {
-    console.warn("[workspace/phone/calls] recent (non-missed):", recentNonMissedErr.message);
-  }
-  if (recentResolvedMissedErr) {
-    console.warn("[workspace/phone/calls] recent (resolved missed):", recentResolvedMissedErr.message);
+  if (error) {
+    console.warn("[workspace/phone/calls]", error.message);
   }
 
-  const recentMergeCap = searchActive ? 220 : RECENT_LIMIT;
-  const missed = (missedData ?? []) as CallInboxRow[];
-  const recent = mergeRecentCalls(
-    (recentNonMissedData ?? []) as CallInboxRow[],
-    (recentResolvedMissedData ?? []) as CallInboxRow[],
-    recentMergeCap
-  );
+  const rawRows = (rows ?? []) as Record<string, unknown>[];
+  const calls = rawRows.map((r) => mapPhoneCallQueryRowForLog(r));
+  const enriched = await enrichPhoneCallRowsWithResolvedIdentity(supabase, calls);
 
-  const forResolve = [...missed, ...recent];
-  const parties = forResolve.map((r) => callbackNumber(r.direction, r.from_e164, r.to_e164));
-  const identityByE164 = await resolvePhoneDisplayIdentityBatch(supabase, parties);
-  const missedDisplay = missed.map((r) => enrichWorkspaceCallRow(r, identityByE164));
-  const recentDisplay = recent.map((r) => enrichWorkspaceCallRow(r, identityByE164));
+  const contactIds = [
+    ...new Set(
+      enriched.flatMap((c) => [c.contact_id, c.resolved_contact_id].filter((x): x is string => Boolean(x)))
+    ),
+  ];
+  const openByContactId = await loadCallLogContactOpenTargets(supabase, contactIds);
 
-  const missedFiltered = searchActive ? missedDisplay.filter((r) => workspaceCallMatchesQuery(r, qLower)) : missedDisplay;
-  const recentFiltered = searchActive ? recentDisplay.filter((r) => workspaceCallMatchesQuery(r, qLower)) : recentDisplay;
-  const noSearchHits = searchActive && missedFiltered.length === 0 && recentFiltered.length === 0;
+  const merged: CallInboxRow[] = enriched.map((e, i) => {
+    const row = buildCallInboxRowFromEnriched(rawRows[i] ?? {}, e);
+    const contactId = e.contact_id ?? e.resolved_contact_id ?? null;
+    const targets = contactId ? openByContactId[contactId] : undefined;
+    return {
+      ...row,
+      workspace_ui: row.workspace_ui
+        ? {
+            ...row.workspace_ui,
+            openPatientId: targets?.patientId ?? null,
+            openLeadId: targets?.activeLeadId ?? null,
+          }
+        : undefined,
+    };
+  });
+
+  const filtered = searchActive ? merged.filter((r) => workspaceCallMatchesQuery(r, qLower)) : merged;
+  const noSearchHits = searchActive && filtered.length === 0;
 
   return (
     <div className="ws-phone-page-shell flex flex-1 flex-col px-4 pb-6 pt-5 sm:px-5">
@@ -207,7 +272,7 @@ export default async function WorkspaceCallsPage(props: PageProps) {
         title="Calls"
         actions={
           <>
-            <CallsSearchBar defaultQuery={qRaw} />
+            <CallsSearchBar defaultQuery={qRaw} filter={filter} />
             <span className="text-sm font-medium text-emerald-700" role="status">
               ● Ready
             </span>
@@ -215,58 +280,35 @@ export default async function WorkspaceCallsPage(props: PageProps) {
         }
       />
 
+      <nav
+        className="mt-3 flex flex-wrap items-center gap-2 border-b border-slate-200/80 pb-3"
+        aria-label="Call log filters"
+      >
+        <Link href={callsFilterHref(qRaw, "all")} className={filterChipClass(filter === "all")} prefetch={false}>
+          All
+        </Link>
+        <Link
+          href={callsFilterHref(qRaw, "missed")}
+          className={filterChipClass(filter === "missed", true)}
+          prefetch={false}
+        >
+          Missed
+        </Link>
+        <Link href={callsFilterHref(qRaw, "me")} className={filterChipClass(filter === "me")} prefetch={false}>
+          Assigned to me
+        </Link>
+      </nav>
+
       {noSearchHits ? (
         <p className="ws-phone-empty mt-4 px-4 py-12">No calls found.</p>
+      ) : filtered.length === 0 ? (
+        <p className="ws-phone-empty mt-4 px-4 py-12">No calls match this filter.</p>
       ) : (
-        <>
-          {missedFiltered.length > 0 ? (
-            <section className="mt-5" aria-labelledby="workspace-calls-missed-heading">
-              <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-rose-200/50 pb-2">
-                <div>
-                  <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-rose-800">Needs attention</p>
-                  <h2 id="workspace-calls-missed-heading" className="text-sm font-semibold text-phone-navy">
-                    Missed calls
-                  </h2>
-                </div>
-                <span className="rounded-full bg-rose-600 px-2.5 py-0.5 text-[11px] font-bold text-white tabular-nums">
-                  {missedFiltered.length}
-                </span>
-              </div>
-              <ul className="overflow-hidden rounded-xl border border-slate-200/80 bg-white">
-                {missedFiltered.map((row) => (
-                  <WorkspaceCallInboxCard key={row.id} row={row} variant="missed" />
-                ))}
-              </ul>
-            </section>
-          ) : null}
-
-          <section
-            className={missedFiltered.length > 0 ? "mt-8" : "mt-5"}
-            aria-labelledby="workspace-calls-recent-heading"
-          >
-            <div className="mb-3">
-              <h2
-                id="workspace-calls-recent-heading"
-                className="text-xs font-bold uppercase tracking-[0.18em] text-phone-ink"
-              >
-                Recent calls
-              </h2>
-            </div>
-            <div>
-              {recentFiltered.length === 0 ? (
-                <p className="ws-phone-empty px-4 py-8">
-                  {searchActive ? "No matching recent calls." : "No recent calls yet."}
-                </p>
-              ) : (
-                <ul className="overflow-hidden rounded-xl border border-slate-200/80 bg-white">
-                  {recentFiltered.map((row) => (
-                    <WorkspaceCallInboxCard key={row.id} row={row} variant="recent" />
-                  ))}
-                </ul>
-              )}
-            </div>
-          </section>
-        </>
+        <ul className="mt-4 overflow-hidden rounded-xl border border-slate-200/80 bg-white">
+          {filtered.map((row) => (
+            <WorkspaceCallInboxCard key={row.id} row={row} />
+          ))}
+        </ul>
       )}
 
       {showAdminCallLogLink ? (
