@@ -10,6 +10,7 @@ import {
 } from "@/lib/pdf-sign/normalize";
 import { renderSignedPdf, type RenderFieldInput } from "@/lib/pdf-sign/render-pdf";
 import { parsePdfSignSenderState } from "@/lib/pdf-sign/sender-state";
+import { decodeSignPngDataUrl, uploadPdfSignRecipientSignaturePng } from "@/lib/pdf-sign/upload-sender-signature-png";
 import { hashSignToken } from "@/lib/pdf-sign/token";
 
 function isOptionalField(options: unknown): boolean {
@@ -89,11 +90,18 @@ export async function saveRecipientFieldDraft(input: {
 
   const recipientPartyFields = fields.filter((f) => signerPartyFromField(f) === "recipient");
 
+  const draftValues = { ...input.values };
+  for (const f of recipientPartyFields) {
+    if (f.field_type === "signature" || f.field_type === "initials") {
+      delete draftValues[f.field_key];
+    }
+  }
+
   await persistFieldValues({
     recipientId: recipient.id,
     packetDocumentId: packetDocument.id,
     templateFields: recipientPartyFields,
-    values: input.values,
+    values: draftValues,
   });
 
   const nextStatus =
@@ -134,7 +142,7 @@ export type RecipientTemplateFieldRow = {
   required_order: number;
 };
 
-type LoadedRecipientContext = {
+export type RecipientSigningLoadedContext = {
   recipient: {
     id: string;
     email: string;
@@ -155,10 +163,17 @@ type LoadedRecipientContext = {
     i9_section: string | null;
     sender_state: unknown;
   };
-  packetDocument: { id: string; template_id: string; template_version_snapshot: number };
+  packetDocument: {
+    id: string;
+    template_id: string;
+    template_version_snapshot: number;
+    completed_storage_bucket: string | null;
+    completed_storage_path: string | null;
+  };
   template: {
     id: string;
     document_type: string;
+    name?: string | null;
     storage_bucket: string;
     storage_object_path: string;
     version: number;
@@ -168,7 +183,7 @@ type LoadedRecipientContext = {
 
 export async function loadRecipientContextByTokenHash(
   tokenHash: string
-): Promise<LoadedRecipientContext | null> {
+): Promise<RecipientSigningLoadedContext | null> {
   const { data: recipient, error: rErr } = await supabaseAdmin
     .from("signature_recipients")
     .select("id, email, display_name, token_expires_at, signed_at, packet_id")
@@ -187,7 +202,7 @@ export async function loadRecipientContextByTokenHash(
 
   const { data: packetDocument, error: dErr } = await supabaseAdmin
     .from("signature_packet_documents")
-    .select("id, template_id, template_version_snapshot")
+    .select("id, template_id, template_version_snapshot, completed_storage_bucket, completed_storage_path")
     .eq("packet_id", packet.id)
     .order("sort_order", { ascending: true })
     .limit(1)
@@ -196,7 +211,7 @@ export async function loadRecipientContextByTokenHash(
 
   const { data: template, error: tErr } = await supabaseAdmin
     .from("signature_templates")
-    .select("id, document_type, storage_bucket, storage_object_path, version")
+    .select("id, document_type, name, storage_bucket, storage_object_path, version")
     .eq("id", packetDocument.template_id)
     .maybeSingle();
   if (tErr || !template) return null;
@@ -283,10 +298,27 @@ async function persistFieldValues(input: {
   }
 }
 
+function recipientSigPngDecodedKeys(input: {
+  recipientPartyFields: RecipientTemplateFieldRow[];
+  recipientSignatureImages?: Record<string, string> | null;
+}): Set<string> {
+  const set = new Set<string>();
+  const imgs = input.recipientSignatureImages;
+  if (!imgs) return set;
+  for (const f of input.recipientPartyFields) {
+    if (f.field_type !== "signature" && f.field_type !== "initials") continue;
+    const raw = imgs[f.field_key];
+    if (typeof raw !== "string" || !decodeSignPngDataUrl(raw)) continue;
+    set.add(f.field_key);
+  }
+  return set;
+}
+
 function validateRequired(
   fields: RecipientTemplateFieldRow[],
   values: Record<string, string | boolean>,
-  hasTin: (key: string) => boolean
+  hasTin: (key: string) => boolean,
+  recipientSigPngKeys: ReadonlySet<string>
 ): string | null {
   for (const f of fields) {
     if (fieldSkipsRequirement(f)) continue;
@@ -303,6 +335,14 @@ function validateRequired(
       }
       continue;
     }
+    if (f.field_type === "signature" || f.field_type === "initials") {
+      if (!fieldSkipsRequirement(f)) {
+        const pngOk = recipientSigPngKeys.has(f.field_key);
+        const txt = String(v ?? "").trim();
+        if (!pngOk && txt === "") return `Field required: ${f.label}`;
+      }
+      continue;
+    }
     if (v == null || String(v).trim() === "") {
       return `Field required: ${f.label}`;
     }
@@ -310,9 +350,92 @@ function validateRequired(
   return null;
 }
 
+function pdfSignMergedRenderInputs(input: {
+  fields: RecipientTemplateFieldRow[];
+  mergedRecipient: Record<string, string | boolean>;
+  tinCipherByKey: Map<string, string>;
+  senderVals: Record<string, string | boolean>;
+  senderPngByKey: Map<string, Uint8Array>;
+  recipientPngByKey: Map<string, Uint8Array>;
+}): RenderFieldInput[] {
+  const { fields, mergedRecipient, tinCipherByKey, senderVals, senderPngByKey, recipientPngByKey } =
+    input;
+
+  function renderMergeText(f: RecipientTemplateFieldRow, party: "recipient" | "sender"): string | null {
+    if (
+      party === "recipient" &&
+      (f.field_type === "signature" || f.field_type === "initials") &&
+      recipientPngByKey.has(f.field_key)
+    ) {
+      return null;
+    }
+    if (
+      party === "sender" &&
+      (f.field_type === "signature" || f.field_type === "initials") &&
+      senderPngByKey.has(f.field_key)
+    ) {
+      return null;
+    }
+    if (f.field_type === "tin") {
+      if (party === "recipient") {
+        return null;
+      }
+      return String(senderVals[f.field_key] ?? "").trim() || null;
+    }
+    if (f.field_type === "checkbox") {
+      const raw = party === "recipient" ? mergedRecipient[f.field_key] : senderVals[f.field_key];
+      const b = raw === true || raw === "true" || raw === "yes";
+      return b ? "true" : "false";
+    }
+    const s =
+      party === "recipient"
+        ? String(mergedRecipient[f.field_key] ?? "").trim()
+        : String(senderVals[f.field_key] ?? "").trim();
+    return s || null;
+  }
+
+  return fields.map((f) => {
+    const party = signerPartyFromField(f);
+    const sigSenderPng =
+      party === "sender" &&
+      (f.field_type === "signature" || f.field_type === "initials") &&
+      senderPngByKey.get(f.field_key)
+        ? senderPngByKey.get(f.field_key) ?? null
+        : null;
+    const sigRecipientPng =
+      party === "recipient" &&
+      (f.field_type === "signature" || f.field_type === "initials") &&
+      recipientPngByKey.get(f.field_key)
+        ? recipientPngByKey.get(f.field_key) ?? null
+        : null;
+    const sigPng = sigSenderPng || sigRecipientPng;
+
+    const textVal = renderMergeText(f, party);
+
+    return {
+      field_key: f.field_key,
+      field_type: f.field_type,
+      pdf_acroform_field_name: f.pdf_acroform_field_name,
+      page_index: f.page_index,
+      x: f.x,
+      y: f.y,
+      width: f.width,
+      height: f.height,
+      font_size: f.font_size,
+      text_value: f.field_type === "tin" && party === "recipient" ? null : textVal,
+      tin_ciphertext:
+        f.field_type === "tin" && party === "recipient"
+          ? tinCipherByKey.get(f.field_key) ?? null
+          : null,
+      signature_png_bytes: sigPng,
+    };
+  });
+}
+
 export async function finalizeRecipientSigning(input: {
   rawToken: string;
   values: Record<string, string | boolean>;
+  recipientSignatureImages?: Record<string, string>;
   ipAddress: string | null;
   userAgent: string | null;
 }): Promise<{ ok: true } | { ok: false; error: string; status: number }> {
@@ -330,11 +453,97 @@ export async function finalizeRecipientSigning(input: {
 
   const recipientPartyFields = fields.filter((f) => signerPartyFromField(f) === "recipient");
 
+  const { data: sensRowsDraft } = await supabaseAdmin
+    .from("sensitive_document_values")
+    .select("field_key")
+    .eq("packet_document_id", packetDocument.id)
+    .eq("recipient_id", recipient.id);
+  const tinKeysDraft = new Set((sensRowsDraft || []).map((r) => r.field_key));
+
+  const { data: valueRowsDraft } = await supabaseAdmin
+    .from("signature_field_values")
+    .select("template_field_id, text_value")
+    .eq("packet_document_id", packetDocument.id)
+    .eq("recipient_id", recipient.id);
+  const byFieldIdDraft = new Map<string, string | null>(
+    (valueRowsDraft || []).map((r) => [r.template_field_id, r.text_value])
+  );
+
+  let mergedSubmission: Record<string, string | boolean> = { ...input.values };
+  for (const f of recipientPartyFields) {
+    const existing = byFieldIdDraft.get(f.id);
+    if (existing != null && !(f.field_key in mergedSubmission)) {
+      if (f.field_type === "checkbox") {
+        mergedSubmission[f.field_key] = existing === "true";
+      } else {
+        mergedSubmission[f.field_key] = existing;
+      }
+    }
+  }
+
+  const sigPngDecodedKeys = recipientSigPngDecodedKeys({
+    recipientPartyFields,
+    recipientSignatureImages: input.recipientSignatureImages,
+  });
+
+  const reqErr = validateRequired(recipientPartyFields, mergedSubmission, (k) => tinKeysDraft.has(k), sigPngDecodedKeys);
+  if (reqErr) return { ok: false, error: reqErr, status: 400 };
+
+  const anyCertField = recipientPartyFields.find(
+    (f) =>
+      f.field_type === "checkbox" &&
+      (f.field_key.toLowerCase().includes("cert") ||
+        f.label.toLowerCase().includes("perjury") ||
+        f.label.toLowerCase().includes("certif"))
+  );
+  if (template.document_type === "w9" && anyCertField) {
+    const ck = mergedSubmission[anyCertField.field_key];
+    if (ck !== true && ck !== "true" && ck !== "yes") {
+      return {
+        ok: false,
+        error: "You must certify under penalties of perjury before signing.",
+        status: 400,
+      };
+    }
+  }
+
+  const recipientPngByKey = new Map<string, Uint8Array>();
+  const imgsIn = input.recipientSignatureImages || {};
+  for (const f of recipientPartyFields) {
+    if (f.field_type !== "signature" && f.field_type !== "initials") continue;
+    const du = imgsIn[f.field_key];
+    if (!du?.trim()) continue;
+    const bytes = decodeSignPngDataUrl(du);
+    if (!bytes) continue;
+    const uploaded = await uploadPdfSignRecipientSignaturePng({
+      packetId: packet.id,
+      recipientId: recipient.id,
+      fieldKey: f.field_key,
+      dataUrl: du,
+    });
+    if (!uploaded) {
+      return {
+        ok: false,
+        error: "Could not save your signature. Please try again.",
+        status: 500,
+      };
+    }
+    recipientPngByKey.set(f.field_key, bytes);
+  }
+
+  const persistVals: Record<string, string | boolean> = { ...input.values };
+  for (const f of recipientPartyFields) {
+    if (f.field_type === "signature" || f.field_type === "initials") {
+      const v = persistVals[f.field_key];
+      if (typeof v === "string" && /^data:image\/png;base64,/i.test(v.trim())) persistVals[f.field_key] = "";
+    }
+  }
+
   await persistFieldValues({
     recipientId: recipient.id,
     packetDocumentId: packetDocument.id,
     templateFields: recipientPartyFields,
-    values: input.values,
+    values: persistVals,
   });
 
   const { data: sensRows } = await supabaseAdmin
@@ -353,7 +562,7 @@ export async function finalizeRecipientSigning(input: {
     (valueRows || []).map((r) => [r.template_field_id, r.text_value])
   );
 
-  const merged: Record<string, string | boolean> = { ...input.values };
+  let merged: Record<string, string | boolean> = { ...persistVals };
   for (const f of recipientPartyFields) {
     const existing = byFieldId.get(f.id);
     if (existing != null && !(f.field_key in merged)) {
@@ -365,26 +574,8 @@ export async function finalizeRecipientSigning(input: {
     }
   }
 
-  const reqErr = validateRequired(recipientPartyFields, merged, (k) => tinKeys.has(k));
-  if (reqErr) return { ok: false, error: reqErr, status: 400 };
-
-  const anyCertField = recipientPartyFields.find(
-    (f) =>
-      f.field_type === "checkbox" &&
-      (f.field_key.toLowerCase().includes("cert") ||
-        f.label.toLowerCase().includes("perjury") ||
-        f.label.toLowerCase().includes("certif"))
-  );
-  if (template.document_type === "w9" && anyCertField) {
-    const ck = merged[anyCertField.field_key];
-    if (ck !== true && ck !== "true" && ck !== "yes") {
-      return {
-        ok: false,
-        error: "You must certify under penalties of perjury before signing.",
-        status: 400,
-      };
-    }
-  }
+  const postPersistErr = validateRequired(recipientPartyFields, merged, (k) => tinKeys.has(k), sigPngDecodedKeys);
+  if (postPersistErr) return { ok: false, error: postPersistErr, status: 400 };
 
   const { data: sensFull } = await supabaseAdmin
     .from("sensitive_document_values")
@@ -397,60 +588,21 @@ export async function finalizeRecipientSigning(input: {
   const senderVals = senderParsedNull?.values ?? {};
 
   const signaturePaths = senderParsedNull?.signaturePaths ?? {};
-  const pngByFieldKey = new Map<string, Uint8Array>();
+  const senderPngByKey = new Map<string, Uint8Array>();
   await Promise.all(
     Object.entries(signaturePaths).map(async ([fk, meta]) => {
       const loadedPng = await fetchStorageObjectBytes(meta.bucket, meta.path);
-      if (loadedPng && loadedPng.length > 0) pngByFieldKey.set(fk, loadedPng);
+      if (loadedPng && loadedPng.length > 0) senderPngByKey.set(fk, loadedPng);
     })
   );
 
-  function renderMergeText(f: RecipientTemplateFieldRow, party: "recipient" | "sender"): string | null {
-    if (f.field_type === "tin") {
-      if (party === "recipient") {
-        return null;
-      }
-      return String(senderVals[f.field_key] ?? "").trim() || null;
-    }
-    if (f.field_type === "checkbox") {
-      const raw =
-        party === "recipient" ? merged[f.field_key] : senderVals[f.field_key];
-      const b = raw === true || raw === "true" || raw === "yes";
-      return b ? "true" : "false";
-    }
-    const s =
-      party === "recipient"
-        ? String(merged[f.field_key] ?? "").trim()
-        : String(senderVals[f.field_key] ?? "").trim();
-    return s || null;
-  }
-
-  const renderFields: RenderFieldInput[] = fields.map((f) => {
-    const party = signerPartyFromField(f);
-    const sigPng =
-      party === "sender" &&
-      (f.field_type === "signature" || f.field_type === "initials") &&
-      pngByFieldKey.get(f.field_key)
-        ? pngByFieldKey.get(f.field_key) ?? null
-        : null;
-
-    const textVal = renderMergeText(f, party);
-
-    return {
-      field_key: f.field_key,
-      field_type: f.field_type,
-      pdf_acroform_field_name: f.pdf_acroform_field_name,
-      page_index: f.page_index,
-      x: f.x,
-      y: f.y,
-      width: f.width,
-      height: f.height,
-      font_size: f.font_size,
-      text_value: f.field_type === "tin" && party === "recipient" ? null : textVal,
-      tin_ciphertext:
-        f.field_type === "tin" && party === "recipient" ? tinCipherByKey.get(f.field_key) ?? null : null,
-      signature_png_bytes: sigPng,
-    };
+  const renderFields = pdfSignMergedRenderInputs({
+    fields,
+    mergedRecipient: merged,
+    tinCipherByKey,
+    senderVals,
+    senderPngByKey,
+    recipientPngByKey,
   });
 
   const { data: templateFile, error: dlErr } = await supabaseAdmin.storage
@@ -574,6 +726,98 @@ export async function finalizeRecipientSigning(input: {
   });
 
   return { ok: true };
+}
+
+export async function renderRecipientSigningPreviewPdf(
+  loaded: RecipientSigningLoadedContext
+): Promise<{ pdfBytes: Uint8Array } | { error: string; status: number }> {
+  const { packet, packetDocument, template, fields } = loaded;
+  const recipientId = loaded.recipient.id;
+
+  const recipientPartyFields = fields.filter((f) => signerPartyFromField(f) === "recipient");
+
+  const { data: sensFull } = await supabaseAdmin
+    .from("sensitive_document_values")
+    .select("field_key, ciphertext")
+    .eq("packet_document_id", packetDocument.id)
+    .eq("recipient_id", recipientId);
+  const tinCipherByKey = new Map((sensFull || []).map((r) => [r.field_key, r.ciphertext]));
+
+  const { data: valueRows } = await supabaseAdmin
+    .from("signature_field_values")
+    .select("template_field_id, text_value, bool_value")
+    .eq("packet_document_id", packetDocument.id)
+    .eq("recipient_id", recipientId);
+  const valueByFieldId = new Map((valueRows || []).map((r) => [r.template_field_id, r]));
+
+  const mergedRecipient: Record<string, string | boolean> = {};
+  for (const f of recipientPartyFields) {
+    const stored = valueByFieldId.get(f.id);
+    if (!stored) continue;
+    if (f.field_type === "checkbox") {
+      mergedRecipient[f.field_key] =
+        Boolean(stored.bool_value === true || stored.text_value === "true");
+      continue;
+    }
+    if (
+      f.field_type === "tin" ||
+      f.field_type === "signature" ||
+      f.field_type === "initials"
+    ) {
+      continue;
+    }
+    mergedRecipient[f.field_key] = (stored.text_value ?? "").trim();
+  }
+
+  const senderParsedNull = parsePdfSignSenderState(packet.sender_state);
+  const senderVals = senderParsedNull?.values ?? {};
+
+  const signaturePaths = senderParsedNull?.signaturePaths ?? {};
+  const senderPngByKey = new Map<string, Uint8Array>();
+  await Promise.all(
+    Object.entries(signaturePaths).map(async ([fk, meta]) => {
+      const loadedPng = await fetchStorageObjectBytes(meta.bucket, meta.path);
+      if (loadedPng && loadedPng.length > 0) senderPngByKey.set(fk, loadedPng);
+    })
+  );
+
+  const recipientPngByKey = new Map<string, Uint8Array>();
+
+  const renderFields = pdfSignMergedRenderInputs({
+    fields,
+    mergedRecipient,
+    tinCipherByKey,
+    senderVals,
+    senderPngByKey,
+    recipientPngByKey,
+  });
+
+  const { data: templateFile, error: dlErr } = await supabaseAdmin.storage
+    .from(template.storage_bucket || PDF_SIGN_BUCKETS.templates)
+    .download(template.storage_object_path);
+  if (dlErr || !templateFile) {
+    return { error: "Document file unavailable.", status: 500 };
+  }
+
+  const templateBytes = new Uint8Array(await templateFile.arrayBuffer());
+  const { pdfBytes } = await renderSignedPdf({ templateBytes, fields: renderFields });
+  return { pdfBytes };
+}
+
+export async function fetchRecipientCompletedPdfBytes(
+  loaded: RecipientSigningLoadedContext
+): Promise<{ pdfBytes: Uint8Array } | { error: string; status: number }> {
+  if (!loaded.recipient.signed_at) {
+    return { error: "Document has not been signed yet.", status: 409 };
+  }
+  const b = loaded.packetDocument.completed_storage_bucket?.trim();
+  const p = loaded.packetDocument.completed_storage_path?.trim();
+  if (!b || !p) return { error: "Signed PDF is not available yet.", status: 404 };
+
+  const bytes = await fetchStorageObjectBytes(b, p);
+  if (!bytes?.length) return { error: "Signed PDF is not available yet.", status: 404 };
+
+  return { pdfBytes: bytes };
 }
 
 export async function markRecipientViewed(tokenHash: string): Promise<void> {

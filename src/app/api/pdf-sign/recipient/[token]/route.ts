@@ -24,7 +24,7 @@ export async function GET(
   context: { params: Promise<{ token: string }> }
 ) {
   const { token: raw } = await context.params;
-  const token = decodeURIComponent(raw || "").trim();
+  const token = decodeURIComponent(raw ?? "").trim();
   if (!token) {
     return NextResponse.json({ error: "Missing token" }, { status: 400 });
   }
@@ -34,7 +34,7 @@ export async function GET(
     return NextResponse.json({ error: "Invalid or expired link." }, { status: 404 });
   }
   await markRecipientViewed(hash);
-  const { recipient, packet, template, fields } = loaded;
+  const { recipient, packet, packetDocument, template, fields } = loaded;
   if (packet.voided_at) {
     return NextResponse.json({ error: "This request was voided." }, { status: 410 });
   }
@@ -45,15 +45,17 @@ export async function GET(
   const { data: values } = await supabaseAdmin
     .from("signature_field_values")
     .select("template_field_id, text_value, bool_value")
-    .eq("recipient_id", recipient.id);
+    .eq("recipient_id", recipient.id)
+    .eq("packet_document_id", packetDocument.id);
 
   const { data: sens } = await supabaseAdmin
     .from("sensitive_document_values")
     .select("field_key, last4")
-    .eq("recipient_id", recipient.id);
+    .eq("recipient_id", recipient.id)
+    .eq("packet_document_id", packetDocument.id);
 
-  const sensByKey = new Map((sens || []).map((r) => [r.field_key, r.last4]));
-  const valueByFieldId = new Map((values || []).map((r) => [r.template_field_id, r]));
+  const sensByKey = new Map((sens ?? []).map((r) => [r.field_key, r.last4]));
+  const valueByFieldId = new Map((values ?? []).map((r) => [r.template_field_id, r]));
 
   const signerFields = fields.filter((f) => signerPartyFromField(f) === "recipient");
 
@@ -80,12 +82,27 @@ export async function GET(
     };
   });
 
+  const templateName = (template.name ?? "").trim();
+  const documentTitle =
+    template.document_type === "w9"
+      ? "IRS Form W-9"
+      : template.document_type === "i9"
+        ? "Form I-9"
+        : templateName || "Agreement";
+
+  const bucket = packetDocument.completed_storage_bucket?.trim();
+  const path = packetDocument.completed_storage_path?.trim();
+
+  const hasCompletedPdf = Boolean(bucket && path && recipient.signed_at);
+
   return NextResponse.json({
-    documentLabel: template.document_type === "w9" ? "IRS Form W-9" : template.document_type === "i9" ? "Form I-9" : "Sign document",
+    documentTitle,
     documentType: template.document_type,
     packetStatus: packet.status,
     recipientEmail: recipient.email,
+    recipientDisplayName: recipient.display_name,
     signedAt: recipient.signed_at,
+    hasCompletedPdf,
     fields: fieldPayload,
     w9CertificationText: template.document_type === "w9" ? W9_PERJURY_CERTIFICATION_BLOCK : null,
     i9Section: packet.i9_section,
@@ -97,7 +114,7 @@ export async function POST(
   context: { params: Promise<{ token: string }> }
 ) {
   const { token: raw } = await context.params;
-  const token = decodeURIComponent(raw || "").trim();
+  const token = decodeURIComponent(raw ?? "").trim();
   if (!token) {
     return NextResponse.json({ error: "Missing token" }, { status: 400 });
   }
@@ -105,7 +122,11 @@ export async function POST(
   const ip = clientIp(request);
   const userAgent = request.headers.get("user-agent");
 
-  let body: { values?: Record<string, string | boolean>; finalize?: boolean };
+  let body: {
+    values?: Record<string, string | boolean>;
+    finalize?: boolean;
+    recipientSignatureImages?: Record<string, string>;
+  };
   try {
     body = (await request.json()) as typeof body;
   } catch {
@@ -114,12 +135,19 @@ export async function POST(
   const values = body.values && typeof body.values === "object" ? body.values : {};
   const finalize = body.finalize === true;
 
+  let recipientSignatureImages: Record<string, string> | undefined;
+  if (finalize && body.recipientSignatureImages && typeof body.recipientSignatureImages === "object") {
+    recipientSignatureImages = Object.fromEntries(
+      Object.entries(body.recipientSignatureImages).filter(([, v]) => typeof v === "string")
+    );
+  }
+
   if (!finalize) {
     const draft = await saveRecipientFieldDraft({
       tokenHash: hash,
       values,
       ipAddress: ip,
-      userAgent: userAgent,
+      userAgent,
     });
     if (!draft.ok) {
       return NextResponse.json({ error: draft.error }, { status: draft.status });
@@ -130,8 +158,9 @@ export async function POST(
   const done = await finalizeRecipientSigning({
     rawToken: token,
     values,
+    recipientSignatureImages,
     ipAddress: ip,
-    userAgent: userAgent,
+    userAgent,
   });
   if (!done.ok) {
     return NextResponse.json({ error: done.error }, { status: done.status });

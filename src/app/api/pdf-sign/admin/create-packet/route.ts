@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 
 import { PDF_SIGN_MANUAL_SEND_CRM_ENTITY_ID } from "@/lib/pdf-sign/crm-link-display";
+import {
+  pdfSignDefaultFromEmail,
+  sanitizePdfSignSelectedFromEmail,
+} from "@/lib/pdf-sign/pdf-sign-from-email";
 import { insertAuditLogTrusted } from "@/lib/audit-log";
 import { sendPdfSignLinkEmail } from "@/lib/email/send-pdf-sign-email";
 import { buildPdfSignRecipientUrl } from "@/lib/pdf-sign/app-url";
@@ -36,6 +40,8 @@ type Body = {
   senderState?: Record<string, unknown> | null;
   senderValues?: Record<string, string | boolean>;
   senderSignatureImages?: Record<string, string>;
+  /** Allow-listed “Send from” / Reply-To for the signing invitation email. */
+  notifyFromEmail?: string | null;
 };
 
 function normalizeRecipientRows(body: Body): RecipientInput[] {
@@ -210,7 +216,12 @@ export async function POST(request: Request) {
   }
 
   const expiresAt = new Date(Date.now() + ttlDays * 86400000).toISOString();
-  const metadata: Record<string, unknown> = {};
+  const pdfSignStoredFromEmail =
+    sanitizePdfSignSelectedFromEmail(body.notifyFromEmail) ?? pdfSignDefaultFromEmail();
+
+  const metadata: Record<string, unknown> = {
+    pdf_sign_from_email: pdfSignStoredFromEmail,
+  };
   if (marksIcAgreement) metadata.marks_ic_agreement = true;
   const msg = typeof body.message === "string" ? body.message.trim() : "";
   if (msg) metadata.message = msg;
@@ -337,6 +348,7 @@ export async function POST(request: Request) {
       recipientName,
       link: signUrl,
       documentLabel: template.name,
+      pdfSignReplyToEmail: pdfSignStoredFromEmail,
     });
   }
 

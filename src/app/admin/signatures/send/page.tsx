@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Suspense } from "react";
 
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
+import { pdfSignAllowedFromEmailList } from "@/lib/pdf-sign/pdf-sign-from-email";
 import { redirect } from "next/navigation";
 
 import { SendPacketForm } from "./SendPacketForm";
@@ -16,7 +17,9 @@ export default async function AdminSendPacketPage({
     redirect("/unauthorized?reason=forbidden");
   }
   const sp = await searchParams;
-  const initialTemplateId = sp.templateId?.trim() || null;
+  const initialTemplateId = sp.templateId?.trim() ?? null;
+
+  const pdfSignAllowedFromEmails = pdfSignAllowedFromEmailList();
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-sky-50/40">
@@ -44,6 +47,7 @@ export default async function AdminSendPacketPage({
         <SendPacketForm
           initialTemplateId={initialTemplateId}
           senderDisplayName={staff.full_name?.trim() || staff.email?.trim() || "Saintly representative"}
+          pdfSignAllowedFromEmails={pdfSignAllowedFromEmails}
         />
         </Suspense>
       </main>

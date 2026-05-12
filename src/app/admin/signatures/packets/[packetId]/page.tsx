@@ -128,6 +128,10 @@ export default async function PacketDetailPage({ params }: { params: Promise<{ p
   const tpl = doc?.signature_templates;
   const meta = row.metadata || {};
   const message = typeof meta.message === "string" ? meta.message : null;
+  const invitationReplyTo =
+    typeof meta.pdf_sign_from_email === "string" && meta.pdf_sign_from_email.includes("@")
+      ? meta.pdf_sign_from_email.trim().toLowerCase()
+      : null;
   const canDownload =
     doc?.id && (row.status === "completed" || row.status === "signed");
   const crmLinked = hasPdfSignCrmLinkage(row.crm_entity_id);
@@ -206,6 +210,20 @@ export default async function PacketDetailPage({ params }: { params: Promise<{ p
                 <span className="font-medium text-slate-900">{recipient.display_name}</span>
               ) : null}
               {recipient?.email ? <div className="text-slate-700">{recipient.email}</div> : "—"}
+            </dd>
+          </div>
+          <div className="flex flex-wrap justify-between gap-3 border-b border-slate-100 px-5 py-4">
+            <dt className="text-slate-500">Invitation email (Reply-To)</dt>
+            <dd className="max-w-xl text-right text-slate-900">
+              {invitationReplyTo ? (
+                <span className="font-mono text-sm">{invitationReplyTo}</span>
+              ) : (
+                <span className="text-sm text-slate-500">Not recorded (defaults apply)</span>
+              )}
+              <div className="mt-1 text-xs text-slate-500">
+                Stored when the packet was sent. Messages use Saintly&apos;s verified sender;
+                signer replies route to this address.
+              </div>
             </dd>
           </div>
           <div className="flex flex-wrap justify-between gap-3 border-b border-slate-100 px-5 py-4">

@@ -9,6 +9,10 @@ import { logSignatureEvent } from "@/lib/pdf-sign/log-event";
 import { sendSignLinkSms } from "@/lib/pdf-sign/send-sign-sms";
 import { uploadPdfSignSenderSignaturePng } from "@/lib/pdf-sign/upload-sender-signature-png";
 import { createRawSignToken, hashSignToken } from "@/lib/pdf-sign/token";
+import {
+  pdfSignDefaultFromEmail,
+  sanitizePdfSignSelectedFromEmail,
+} from "@/lib/pdf-sign/pdf-sign-from-email";
 import { supabaseAdmin } from "@/lib/admin";
 import { getAuthenticatedUser } from "@/lib/supabase/server";
 import { getStaffProfile, isAdminOrHigher, isManagerOrHigher } from "@/lib/staff-profile";
@@ -49,6 +53,8 @@ type SendPacketBody = {
    * signature-images bucket.
    */
   senderSignatureImages?: Record<string, string>;
+  /** Allow-listed “Send from” / Reply-To for the signing invitation email. */
+  pdfSignFromEmail?: string | null;
 };
 
 export async function GET(request: Request) {
@@ -239,6 +245,20 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: docErr.message }, { status: 500 });
   }
 
+  const pdfSignStoredFromEmail =
+    sanitizePdfSignSelectedFromEmail(body.pdfSignFromEmail ?? null) ?? pdfSignDefaultFromEmail();
+
+  const { error: metaPackErr } = await supabaseAdmin
+    .from("signature_packets")
+    .update({
+      metadata: { pdf_sign_from_email: pdfSignStoredFromEmail },
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", packet.id);
+  if (metaPackErr) {
+    console.error("[packets POST] pdf_sign metadata", metaPackErr);
+  }
+
   // Upload any sender-side drawn signatures and persist sender_state on the
   // packet so it can be flattened into the final PDF when the recipient signs.
   if (senderAssignable.length > 0) {
@@ -305,6 +325,7 @@ export async function POST(request: Request) {
       recipientName,
       link: signUrl,
       documentLabel: title,
+      pdfSignReplyToEmail: pdfSignStoredFromEmail,
     });
     if (r.ok) emailSent = true;
     else emailError = r.error;

@@ -92,9 +92,11 @@ function applyAutofillForSenderField(field: TemplateFieldRow, ctx: { senderName:
 export function SendPacketForm({
   initialTemplateId,
   senderDisplayName,
+  pdfSignAllowedFromEmails,
 }: {
   initialTemplateId: string | null;
   senderDisplayName: string;
+  pdfSignAllowedFromEmails: string[];
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -117,6 +119,16 @@ export function SendPacketForm({
   const [smsRequested, setSmsRequested] = useState(false);
   const [i9ReviewMethod, setI9ReviewMethod] = useState<string>("");
   const [marksIc, setMarksIc] = useState(false);
+  const [notifyFromEmail, setNotifyFromEmail] = useState(
+    () => (pdfSignAllowedFromEmails[0] ?? "").trim().toLowerCase()
+  );
+
+  useEffect(() => {
+    const first = (pdfSignAllowedFromEmails[0] ?? "").trim().toLowerCase();
+    if (first && !pdfSignAllowedFromEmails.map((x) => x.trim().toLowerCase()).includes(notifyFromEmail)) {
+      setNotifyFromEmail(first);
+    }
+  }, [pdfSignAllowedFromEmails, notifyFromEmail]);
 
   const [senderValues, setSenderValues] = useState<Record<string, string | boolean>>({});
   const [senderSignatures, setSenderSignatures] = useState<Record<string, string>>({});
@@ -339,6 +351,10 @@ export function SendPacketForm({
           smsRequested,
           senderValues,
           senderSignatureImages: senderSignatures,
+          notifyFromEmail:
+            pdfSignAllowedFromEmails.includes(notifyFromEmail.trim().toLowerCase())
+              ? notifyFromEmail.trim().toLowerCase()
+              : pdfSignAllowedFromEmails[0] ?? "",
         }),
       });
       const j = (await res.json()) as {
@@ -644,6 +660,28 @@ export function SendPacketForm({
                 className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm shadow-sm"
                 placeholder="Short note included with the request (optional)."
               />
+            </label>
+
+            <label className="mt-5 block text-sm font-medium text-slate-800">
+              Reply-to email
+              <select
+                value={notifyFromEmail}
+                onChange={(e) => setNotifyFromEmail(e.target.value.trim().toLowerCase())}
+                className="mt-2 w-full max-w-xl rounded-xl border border-slate-200 px-3 py-2.5 text-sm shadow-sm"
+              >
+                {(pdfSignAllowedFromEmails.length > 0
+                  ? pdfSignAllowedFromEmails
+                  : ["info@saintlyhomehealth.com"]
+                ).map((addr) => (
+                  <option key={addr} value={addr}>
+                    {addr}
+                  </option>
+                ))}
+              </select>
+              <span className="mt-2 block text-xs font-normal leading-relaxed text-slate-500">
+                Signing emails are sent from Saintly&apos;s verified email service. Replies will go to
+                the selected inbox.
+              </span>
             </label>
 
             <label className="mt-5 flex items-start gap-3 rounded-xl border border-slate-100 bg-slate-50/80 px-4 py-3 text-sm font-medium text-slate-800">

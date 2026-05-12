@@ -4,7 +4,10 @@ import { supabaseAdmin } from "@/lib/admin";
 import { sendPdfSignLinkEmail } from "@/lib/email/send-pdf-sign-email";
 import { buildPdfSignRecipientUrl } from "@/lib/pdf-sign/app-url";
 import { logSignatureEvent } from "@/lib/pdf-sign/log-event";
-import { sendSignLinkSms } from "@/lib/pdf-sign/send-sign-sms";
+import {
+  pdfSignDefaultFromEmail,
+  sanitizePdfSignSelectedFromEmail,
+} from "@/lib/pdf-sign/pdf-sign-from-email";
 import { createRawSignToken, hashSignToken } from "@/lib/pdf-sign/token";
 import { getAuthenticatedUser } from "@/lib/supabase/server";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
@@ -48,7 +51,7 @@ export async function POST(
   const { data: packet, error } = await supabaseAdmin
     .from("signature_packets")
     .select(
-      "id, status, title, recipient_email, recipient_name, recipient_phone, voided_at, expires_at, completed_at"
+      "id, status, title, recipient_email, recipient_name, recipient_phone, voided_at, expires_at, completed_at, metadata"
     )
     .eq("id", packetId)
     .maybeSingle();
@@ -84,6 +87,11 @@ export async function POST(
 
   const link = buildPdfSignRecipientUrl(rawToken);
   const docLabel = packet.title || "Saintly document";
+  const metaRecord = packet.metadata as Record<string, unknown> | null;
+  const pdfSignReply =
+    sanitizePdfSignSelectedFromEmail(
+      typeof metaRecord?.pdf_sign_from_email === "string" ? metaRecord.pdf_sign_from_email : null
+    ) ?? pdfSignDefaultFromEmail();
 
   if (copyOnly) {
     await logSignatureEvent({
@@ -105,6 +113,7 @@ export async function POST(
       recipientName: packet.recipient_name,
       link,
       documentLabel: docLabel,
+      pdfSignReplyToEmail: pdfSignReply,
     });
     await logSignatureEvent({
       packetId,

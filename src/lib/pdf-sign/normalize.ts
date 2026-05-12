@@ -72,6 +72,7 @@ export const PDF_SIGN_EDITABLE_FIELD_TYPES = [
   "date",
   "checkbox",
   "signature",
+  "initials",
   "name",
   "tin",
   "select",
