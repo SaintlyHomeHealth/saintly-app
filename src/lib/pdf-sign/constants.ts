@@ -2,7 +2,13 @@
  * Shared PDF Sign constants and types. Safe for server and client bundles (no secrets).
  */
 
+import {
+  PDF_SIGN_DOCUMENT_TYPE_ADMIN_OPTIONS,
+  type PdfSignDocumentType,
+} from "@/lib/pdf-sign/document-type";
 import { normalizeSignerRole } from "@/lib/pdf-sign/normalize";
+
+export type { PdfSignDocumentType };
 
 export const PDF_SIGN_BUCKETS = {
   templates: "signature-templates",
@@ -14,8 +20,6 @@ export const PDF_SIGN_BUCKETS = {
 
 /** Display / auto-fill branding for sender-side fields. */
 export const PDF_SIGN_COMPANY_NAME = "Saintly Home Health";
-
-export type PdfSignDocumentType = "generic_contract" | "w9" | "i9";
 
 /** Recipient vs Saintly-side buckets (legacy admin/internal/group roles fold into sender). */
 export type PdfSignAssignedTo = "recipient" | "sender";
@@ -58,14 +62,14 @@ export type PdfSignSignerRole =
   | "company"
   | "admin";
 
-/** New-template upload UI: presets plus `custom` for a free-form slug. */
-export const PDF_SIGN_DOCUMENT_TYPE_SUGGESTIONS: { value: string; label: string }[] = [
-  { value: "territory_manager_contract", label: "Territory manager contract" },
-  { value: "generic_contract", label: "Generic contract" },
-  { value: "w9", label: "IRS Form W-9" },
-  { value: "i9", label: "Form I-9" },
-  { value: "custom", label: "Custom (enter slug)" },
-];
+/** New-template upload UI: canonical `document_type` values with admin-facing labels only. */
+export const PDF_SIGN_DOCUMENT_TYPE_SUGGESTIONS: {
+  value: PdfSignDocumentType;
+  label: string;
+}[] = PDF_SIGN_DOCUMENT_TYPE_ADMIN_OPTIONS.map(({ value, adminLabel }) => ({
+  value,
+  label: adminLabel,
+}));
 
 /** Standard W-9 field keys for templates (IRS Form W-9 data). */
 export const W9_STANDARD_FIELD_KEYS = [

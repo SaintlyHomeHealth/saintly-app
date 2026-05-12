@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/admin";
 import { insertAuditLogTrusted } from "@/lib/audit-log";
 import { PDF_SIGN_BUCKETS } from "@/lib/pdf-sign/constants";
+import { normalizePdfSignDocumentType } from "@/lib/pdf-sign/document-type";
 import { getAuthenticatedUser } from "@/lib/supabase/server";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 
@@ -40,18 +41,19 @@ export async function POST(request: Request) {
 
   const file = multipart.get("file") as File | null;
   const name = multipart.get("name")?.toString().trim();
-  const documentType =
+  const documentTypeRaw =
     multipart.get("documentType")?.toString().trim().toLowerCase().replace(/\s+/g, "_") || "";
   const description = multipart.get("description")?.toString().trim() || null;
   const fieldsRaw = multipart.get("fieldsJson")?.toString().trim() || "[]";
 
-  if (!file || !name || !documentType) {
+  if (!file || !name || !documentTypeRaw) {
     return NextResponse.json({ error: "Missing file, name, or documentType." }, { status: 400 });
   }
 
-  if (documentType.length > 80 || !/^[a-z][a-z0-9_]{0,79}$/.test(documentType)) {
+  const documentType = normalizePdfSignDocumentType(documentTypeRaw);
+  if (!documentType) {
     return NextResponse.json(
-      { error: "documentType must be a short slug (letters, numbers, underscores)." },
+      { error: "Please enter a template name and choose a valid document type." },
       { status: 400 }
     );
   }

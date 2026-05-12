@@ -71,9 +71,9 @@ export function PdfSignTemplateUploadForm() {
             className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm shadow-sm"
             required
           >
-            <option value="w9">W-9</option>
-            <option value="generic_contract">Contract / agreement</option>
-            <option value="i9">I-9</option>
+            <option value="generic_contract">Agreement / Contract</option>
+            <option value="w9">IRS Form W-9</option>
+            <option value="i9">Form I-9</option>
           </select>
         </div>
       </div>

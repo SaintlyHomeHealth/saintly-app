@@ -15,6 +15,11 @@ import {
 } from "react";
 
 import { loadPdfFromUrl, type RenderedPdfPage } from "@/lib/pdf-sign/pdfjs-browser";
+import {
+  normalizePdfSignDocumentType,
+  PDF_SIGN_DOCUMENT_TYPE_ADMIN_OPTIONS,
+  type PdfSignDocumentType,
+} from "@/lib/pdf-sign/document-type";
 import { normalizeSignerRole, type PdfSignCanonicalSignerRole } from "@/lib/pdf-sign/normalize";
 import {
   pdfSignTemplateFieldOverlayClassNames,
@@ -186,24 +191,24 @@ const FIELD_PRESETS: Record<FieldPreset, PresetSpec> = {
 };
 
 const PRESET_ORDER: FieldPreset[] = [
-  "signature",
   "text",
-  "textarea",
   "name",
+  "signature",
   "date",
-  "number_only",
   "checkbox",
+  "textarea",
+  "number_only",
 ];
 
 /** Compact toolbar presets */
 const MINI_TOOLBAR_PRESET_ORDER: FieldPreset[] = [
-  "signature",
   "text",
-  "textarea",
   "name",
+  "signature",
   "date",
-  "number_only",
   "checkbox",
+  "textarea",
+  "number_only",
 ];
 
 const MINI_TOOLBAR_PRESET_LABELS: Record<FieldPreset, string> = {
@@ -215,12 +220,6 @@ const MINI_TOOLBAR_PRESET_LABELS: Record<FieldPreset, string> = {
   checkbox: "Checkbox",
   number_only: "Number only",
 };
-
-const PDF_SIGN_DOCUMENT_TYPE_SUGGESTIONS: { value: string; label: string }[] = [
-  { value: "generic_contract", label: "Generic contract" },
-  { value: "w9", label: "IRS Form W-9" },
-  { value: "i9", label: "Form I-9" },
-];
 
 const ASSIGNED_TO_OPTIONS: { value: string; label: string }[] = [
   { value: "recipient", label: "Recipient / signer" },
@@ -470,7 +469,7 @@ export function TemplateFieldEditor({ templateId }: { templateId: string }) {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [jsonText, setJsonText] = useState("[]");
   const [name, setName] = useState("");
-  const [docType, setDocType] = useState("");
+  const [docType, setDocType] = useState<PdfSignDocumentType>("generic_contract");
   const [description, setDescription] = useState("");
   const [pageDisplayWidth, setPageDisplayWidth] = useState(720);
   const [selectedAddPreset, setSelectedAddPreset] = useState<FieldPreset | null>(null);
@@ -550,7 +549,7 @@ export function TemplateFieldEditor({ templateId }: { templateId: string }) {
       if (cancelled) return;
       setLoaded(j);
       setName(j.template.name);
-      setDocType(j.template.document_type);
+      setDocType(normalizePdfSignDocumentType(j.template.document_type) ?? "generic_contract");
       setDescription(j.template.description || "");
       setFields(j.fields.map(mapStoredToEditor));
       setIsDirty(false);
@@ -941,7 +940,7 @@ export function TemplateFieldEditor({ templateId }: { templateId: string }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name,
-          document_type: docType,
+          document_type: normalizePdfSignDocumentType(docType) ?? "generic_contract",
           description,
           fields: payloadFields,
         }),
@@ -1185,7 +1184,7 @@ export function TemplateFieldEditor({ templateId }: { templateId: string }) {
                 const rect = e.currentTarget.getBoundingClientRect();
                 const leftPx = e.clientX - rect.left;
                 const topPx = e.clientY - rect.top;
-                addFieldAtPoint(page.index, leftPx, topPx, selectedAddPreset ?? "signature");
+                addFieldAtPoint(page.index, leftPx, topPx, selectedAddPreset ?? "text");
               }}
             >
               <canvas
@@ -1323,54 +1322,6 @@ export function TemplateFieldEditor({ templateId }: { templateId: string }) {
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-          <h3 className="text-sm font-semibold text-slate-900">Template details</h3>
-          <label className="mt-3 block text-xs text-slate-600">
-            Template name
-            <input
-              value={name}
-              onChange={(e) => {
-                setName(e.target.value);
-                setIsDirty(true);
-              }}
-              className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm"
-            />
-          </label>
-          <label className="mt-3 block text-xs text-slate-600">
-            Document type
-            <select
-              value={
-                PDF_SIGN_DOCUMENT_TYPE_SUGGESTIONS.find((o) => o.value === docType)
-                  ? docType
-                  : "generic_contract"
-              }
-              onChange={(e) => {
-                setDocType(e.target.value);
-                setIsDirty(true);
-              }}
-              className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm"
-            >
-              {PDF_SIGN_DOCUMENT_TYPE_SUGGESTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="mt-3 block text-xs text-slate-600">
-            Description (optional)
-            <textarea
-              value={description}
-              onChange={(e) => {
-                setDescription(e.target.value);
-                setIsDirty(true);
-              }}
-              rows={2}
-              className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm"
-            />
-          </label>
-        </div>
-
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold text-slate-900">Add field</h3>
             <span className="text-[10px] uppercase tracking-wide text-slate-500">
@@ -1379,6 +1330,10 @@ export function TemplateFieldEditor({ templateId }: { templateId: string }) {
           </div>
           <p className="mt-1 text-xs text-slate-500">
             Choose a field type, then click on the PDF to place it.
+          </p>
+          <p className="mt-1.5 text-[11px] leading-snug text-slate-500">
+            Start with Text field, Name, Signature, Date, or Checkbox. Use Text area only for longer
+            paragraph responses.
           </p>
           <div className="mt-3 grid grid-cols-3 gap-1.5 text-xs">
             {PRESET_ORDER.map((p) => {
@@ -1421,6 +1376,55 @@ export function TemplateFieldEditor({ templateId }: { templateId: string }) {
             });
           }}
         />
+
+        <details className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <summary className="cursor-pointer text-sm font-semibold text-slate-900">
+            Template details
+          </summary>
+          <p className="mt-2 text-xs text-slate-500">
+            Name and document type are saved with your fields — expand if you need to change them.
+          </p>
+          <label className="mt-3 block text-xs text-slate-600">
+            Template name
+            <input
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value);
+                setIsDirty(true);
+              }}
+              className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm"
+            />
+          </label>
+          <label className="mt-3 block text-xs text-slate-600">
+            Document type
+            <select
+              value={docType}
+              onChange={(e) => {
+                setDocType(normalizePdfSignDocumentType(e.target.value) ?? "generic_contract");
+                setIsDirty(true);
+              }}
+              className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm"
+            >
+              {PDF_SIGN_DOCUMENT_TYPE_ADMIN_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.adminLabel}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="mt-3 block text-xs text-slate-600">
+            Description (optional)
+            <textarea
+              value={description}
+              onChange={(e) => {
+                setDescription(e.target.value);
+                setIsDirty(true);
+              }}
+              rows={2}
+              className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm"
+            />
+          </label>
+        </details>
 
         <details className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <summary className="cursor-pointer text-sm font-semibold text-slate-900">

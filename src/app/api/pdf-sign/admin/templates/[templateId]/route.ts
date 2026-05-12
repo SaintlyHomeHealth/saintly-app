@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 
+import { normalizePdfSignDocumentType } from "@/lib/pdf-sign/document-type";
 import { normalizeSignerRole } from "@/lib/pdf-sign/normalize";
 
 import { supabaseAdmin } from "@/lib/admin";
 import { getAuthenticatedUser } from "@/lib/supabase/server";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 
-const ALLOWED_DOC_TYPES = new Set(["generic_contract", "w9", "i9"]);
 const ALLOWED_FIELD_TYPES = new Set([
   "text",
   "textarea",
@@ -166,7 +166,9 @@ export async function PATCH(
   }
 
   const name = typeof body.name === "string" ? body.name.trim() : "";
-  const documentType = typeof body.document_type === "string" ? body.document_type.trim() : "";
+  const documentTypeRaw =
+    typeof body.document_type === "string" ? body.document_type.trim() : "";
+  const documentType = normalizePdfSignDocumentType(documentTypeRaw);
   const description =
     typeof body.description === "string"
       ? body.description.trim() || null
@@ -174,9 +176,9 @@ export async function PATCH(
         ? null
         : undefined;
 
-  if (!name || !documentType || !ALLOWED_DOC_TYPES.has(documentType)) {
+  if (!name || !documentType) {
     return NextResponse.json(
-      { error: "Invalid name or document_type (use generic_contract, w9, or i9)." },
+      { error: "Please enter a template name and choose a valid document type." },
       { status: 400 }
     );
   }
