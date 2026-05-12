@@ -23,7 +23,7 @@ export default async function AdminSendPacketPage({
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-sky-50/40">
-      <main className="mx-auto w-full max-w-4xl px-4 py-10">
+      <main className="mx-auto w-full max-w-6xl px-4 py-10">
         <div className="mb-8 rounded-2xl border border-slate-200/90 bg-white p-8 shadow-md shadow-slate-200/30">
           <Link
             href="/admin/signatures"

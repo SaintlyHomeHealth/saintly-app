@@ -2,14 +2,15 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { SignaturePadModal } from "@/app/sign/[token]/SignaturePadModal";
 import { PDF_SIGN_COMPANY_NAME } from "@/lib/pdf-sign/constants";
 import { hasPdfSignCrmLinkage } from "@/lib/pdf-sign/crm-link-display";
 import {
+  collectSaintlySenderPrefillIssues,
+  formatSaintlySendFieldHeading,
   senderAssignableTemplateFields,
-  validateSenderPrefillAgainstTemplate,
 } from "@/lib/pdf-sign/validate-sender-prefill";
 
 type TemplateRow = {
@@ -29,6 +30,7 @@ type TemplateFieldRow = {
   required: boolean | null;
   options: Record<string, unknown> | null;
   prefill_value: string | null;
+  page_index: number | null | undefined;
 };
 
 type RecipientRow = {
@@ -137,6 +139,12 @@ export function SendPacketForm({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [previewNonce, setPreviewNonce] = useState(0);
+  const [mobilePdfExpanded, setMobilePdfExpanded] = useState(true);
+  const [pulseFieldKey, setPulseFieldKey] = useState<string | null>(null);
+  const senderFieldAnchorsRef = useRef<Record<string, HTMLDivElement | null>>({});
+  const pdfPreviewSectionRef = useRef<HTMLDivElement | null>(null);
+
   const selectedTemplate = useMemo(
     () => templates.find((t) => t.id === templateId) ?? null,
     [templates, templateId]
@@ -151,11 +159,22 @@ export function SendPacketForm({
         signer_role: f.signer_role,
         options: f.options,
         required: f.required,
+        page_index: typeof f.page_index === "number" ? f.page_index : null,
       })),
     [templateFields]
   );
 
   const senderSideFields = useMemo(() => senderAssignableTemplateFields(templateModels), [templateModels]);
+
+  const documentPreviewEmbedUrl = useMemo(() => {
+    if (!templateId) return "";
+    return `/api/pdf-sign/admin/templates/${encodeURIComponent(templateId)}/document-preview?_=${previewNonce}`;
+  }, [templateId, previewNonce]);
+
+  const documentPreviewDownloadUrl = useMemo(() => {
+    if (!templateId) return "";
+    return `/api/pdf-sign/admin/templates/${encodeURIComponent(templateId)}/document-preview?download=1&_=${previewNonce}`;
+  }, [templateId, previewNonce]);
 
   useEffect(() => {
     let cancelled = false;
@@ -219,6 +238,10 @@ export function SendPacketForm({
       return next;
     });
   }, [senderSideFields, senderDisplayName]);
+
+  useEffect(() => {
+    setPulseFieldKey(null);
+  }, [senderValues, senderSignatures]);
 
   const applyInitial = useCallback(() => {
     const q =
@@ -314,13 +337,23 @@ export function SendPacketForm({
       return;
     }
 
-    const precheck = validateSenderPrefillAgainstTemplate({
+    const saintlyIssues = collectSaintlySenderPrefillIssues({
       templateFields: templateModels,
       senderValues,
       senderSignatureImages: senderSignatures,
     });
-    if (precheck) {
-      setError(precheck);
+    if (saintlyIssues.length > 0) {
+      setError(saintlyIssues[0].message);
+      const fk = saintlyIssues[0].field_key;
+      setPulseFieldKey(fk);
+      requestAnimationFrame(() => {
+        const wrap = senderFieldAnchorsRef.current[fk];
+        wrap?.scrollIntoView({ behavior: "smooth", block: "center" });
+        const focusable = wrap?.querySelector<HTMLElement>(
+          "input:not([type=hidden]), textarea, button, select"
+        );
+        focusable?.focus({ preventScroll: true });
+      });
       return;
     }
 
@@ -377,6 +410,7 @@ export function SendPacketForm({
 
   const recordTypeLabel = CRM_OPTIONS.find((o) => o.value === crmEntityType)?.label ?? crmEntityType;
   const hasLinkedProfile = hasPdfSignCrmLinkage(crmEntityId);
+  const hasSaintlySenderFields = senderSideFields.length > 0;
 
   return (
     <>
@@ -723,94 +757,207 @@ export function SendPacketForm({
           <section className="rounded-2xl border border-slate-200/90 bg-white p-6 md:p-8 shadow-md shadow-slate-200/40 ring-1 ring-slate-100/80">
             <h2 className="text-lg font-semibold text-slate-900">Step 4 · Review & send</h2>
             <p className="mt-1 text-sm text-slate-600">
-              Double-check the summary, finish any Saintly fields, then send the packet.
+              Review the actual document below while you finish any Saintly fields. The preview shows your
+              template PDF; prefilled Saintly answers are burned into the final packet when you send it.
             </p>
 
-            {senderSideFields.length > 0 ? (
-              <div className="mt-6 rounded-2xl border border-amber-200/90 bg-gradient-to-br from-amber-50/80 to-white p-5 shadow-sm ring-1 ring-amber-100/70">
-                <h3 className="text-base font-semibold text-slate-900">Saintly fields</h3>
-                <p className="mt-2 text-sm leading-relaxed text-slate-700">
-                  Complete Saintly&apos;s fields before sending so the recipient only signs their part. You&apos;re
-                  filling these in here on this screen—they are not emailed to Saintly separately.
-                </p>
-                <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-amber-900/80">
-                  Sign Saintly side before sending
-                </p>
-                <div className="mt-4 space-y-4">
-                  {senderSideFields.map((f) => {
-                    const label = f.label || f.field_key;
-                    if (f.field_type === "signature" || f.field_type === "initials") {
-                      return (
-                        <div key={f.id}>
-                          <p className="text-xs font-semibold text-slate-700">{label}</p>
-                          <div className="mt-1 flex flex-wrap items-center gap-2">
-                            {senderSignatures[f.field_key] ? (
-                              /* eslint-disable-next-line @next/next/no-img-element */
-                              <img
-                                src={senderSignatures[f.field_key]}
-                                alt=""
-                                className="h-12 max-w-full rounded-md border border-slate-200 bg-white"
-                              />
-                            ) : null}
-                            <button
-                              type="button"
-                              onClick={() => setActiveSenderSigField(f)}
-                              className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-950 hover:bg-amber-50"
-                            >
-                              {senderSignatures[f.field_key]
-                                ? "Redo Saintly signature (in app)"
-                                : "Sign Saintly fields (in app)"}
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    }
-                    if (f.field_type === "checkbox") {
-                      return (
-                        <label key={f.id} className="flex items-start gap-2 text-sm text-slate-800">
-                          <input
-                            type="checkbox"
-                            className="mt-1"
-                            checked={Boolean(senderValues[f.field_key])}
-                            onChange={(e) =>
-                              setSenderValues((v) => ({ ...v, [f.field_key]: e.target.checked }))
-                            }
-                          />
-                          <span>{label}</span>
-                        </label>
-                      );
-                    }
-                    if (f.field_type === "textarea") {
-                      return (
-                        <label key={f.id} className="block text-sm text-slate-800">
-                          <span className="text-xs font-semibold text-slate-700">{label}</span>
-                          <textarea
-                            className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
-                            rows={3}
-                            value={String(senderValues[f.field_key] ?? "")}
-                            onChange={(e) =>
-                              setSenderValues((v) => ({ ...v, [f.field_key]: e.target.value }))
-                            }
-                          />
-                        </label>
-                      );
-                    }
-                    const inputType = f.field_type === "date" ? "date" : "text";
-                    return (
-                      <label key={f.id} className="block text-sm text-slate-800">
-                        <span className="text-xs font-semibold text-slate-700">{label}</span>
-                        <input
-                          type={inputType}
-                          className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
-                          value={String(senderValues[f.field_key] ?? "")}
-                          onChange={(e) =>
-                            setSenderValues((v) => ({ ...v, [f.field_key]: e.target.value }))
-                          }
-                        />
-                      </label>
-                    );
-                  })}
+            {templateId ? (
+              <div
+                className={
+                  hasSaintlySenderFields
+                    ? "mt-6 grid gap-6 lg:grid-cols-[minmax(0,1.08fr)_minmax(300px,.42fr)] lg:items-start"
+                    : "mt-6"
+                }
+              >
+                <div ref={pdfPreviewSectionRef} className="min-w-0 space-y-3 lg:sticky lg:top-4 lg:self-start">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMobilePdfExpanded(true);
+                        pdfPreviewSectionRef.current?.scrollIntoView({
+                          behavior: "smooth",
+                          block: "start",
+                        });
+                      }}
+                      className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-900 shadow-sm hover:bg-slate-50"
+                    >
+                      View document
+                    </button>
+                    <a
+                      href={documentPreviewDownloadUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-900 shadow-sm hover:bg-slate-50"
+                    >
+                      Download document
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => setPreviewNonce((n) => n + 1)}
+                      className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-900 shadow-sm hover:bg-slate-50"
+                    >
+                      Refresh preview
+                    </button>
+                    <button
+                      type="button"
+                      className="inline-flex lg:hidden rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-950 hover:bg-amber-100"
+                      onClick={() => setMobilePdfExpanded((o) => !o)}
+                    >
+                      {mobilePdfExpanded ? "Hide document" : "View document"}
+                    </button>
+                  </div>
+                  <p className="text-[11px] leading-relaxed text-slate-500">
+                    Opens the stored template PDF (admin-only). Recipient fields remain empty until signing.
+                  </p>
+                  <iframe
+                    key={previewNonce}
+                    title="Template PDF preview"
+                    src={documentPreviewEmbedUrl}
+                    className={`h-[min(70vh,680px)] w-full rounded-xl border border-slate-200 bg-slate-100 shadow-inner ${mobilePdfExpanded ? "" : "hidden"} lg:block`}
+                  />
                 </div>
+
+                {hasSaintlySenderFields ? (
+                  <div className="min-w-0 rounded-2xl border border-amber-200/90 bg-gradient-to-br from-amber-50/90 to-white p-5 shadow-sm ring-1 ring-amber-100/70">
+                    <h3 className="text-base font-semibold text-slate-900">Saintly fields</h3>
+                    <p className="mt-2 text-sm leading-relaxed text-slate-700">
+                      Complete Saintly&apos;s boxes before sending so the recipient signs only what&apos;s theirs.
+                      Use the lines below to match spots on the PDF (page · label · field type · required status).
+                    </p>
+                    <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-amber-900/80">
+                      Sign Saintly side before sending
+                    </p>
+                    <div className="mt-4 space-y-4">
+                      {senderSideFields.map((f) => {
+                        const saintlyHeading = formatSaintlySendFieldHeading({
+                          field_key: f.field_key,
+                          label: f.label,
+                          field_type: f.field_type,
+                          signer_role: f.signer_role,
+                          options: f.options,
+                          required: f.required,
+                          page_index: typeof f.page_index === "number" ? f.page_index : null,
+                        });
+                        const pulse = pulseFieldKey === f.field_key;
+                        const rowFrame =
+                          "rounded-xl border border-slate-200/95 bg-white/95 p-3 shadow-sm " +
+                          (pulse ? "ring-2 ring-amber-500 ring-offset-2 ring-offset-amber-50/80" : "");
+                        if (f.field_type === "signature" || f.field_type === "initials") {
+                          return (
+                            <div
+                              key={f.id}
+                              ref={(el) => {
+                                senderFieldAnchorsRef.current[f.field_key] = el;
+                              }}
+                              className={rowFrame}
+                            >
+                              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-700">
+                                {saintlyHeading}
+                              </p>
+                              <div className="flex flex-wrap items-center gap-2">
+                                {senderSignatures[f.field_key] ? (
+                                  /* eslint-disable-next-line @next/next/no-img-element */
+                                  <img
+                                    src={senderSignatures[f.field_key]}
+                                    alt=""
+                                    className="h-12 max-w-full rounded-md border border-slate-200 bg-white"
+                                  />
+                                ) : null}
+                                <button
+                                  type="button"
+                                  onClick={() => setActiveSenderSigField(f)}
+                                  className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-950 hover:bg-amber-50"
+                                >
+                                  {senderSignatures[f.field_key]
+                                    ? "Redraw signature"
+                                    : f.field_type === "initials"
+                                      ? "Add initials"
+                                      : "Add Saintly signature"}
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        }
+                        if (f.field_type === "checkbox") {
+                          return (
+                            <div
+                              key={f.id}
+                              ref={(el) => {
+                                senderFieldAnchorsRef.current[f.field_key] = el;
+                              }}
+                              className={rowFrame}
+                            >
+                              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-700">
+                                {saintlyHeading}
+                              </p>
+                              <label className="flex cursor-pointer items-start gap-2 text-sm text-slate-800">
+                                <input
+                                  type="checkbox"
+                                  className="mt-1 rounded border-slate-300 text-amber-600"
+                                  checked={Boolean(senderValues[f.field_key])}
+                                  onChange={(e) =>
+                                    setSenderValues((v) => ({ ...v, [f.field_key]: e.target.checked }))
+                                  }
+                                />
+                                <span className="font-medium">{f.label || f.field_key}</span>
+                              </label>
+                            </div>
+                          );
+                        }
+                        if (f.field_type === "textarea") {
+                          return (
+                            <div
+                              key={f.id}
+                              ref={(el) => {
+                                senderFieldAnchorsRef.current[f.field_key] = el;
+                              }}
+                              className={rowFrame}
+                            >
+                              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-700">
+                                {saintlyHeading}
+                              </p>
+                              <label className="block text-sm text-slate-800">
+                                <textarea
+                                  className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
+                                  rows={3}
+                                  value={String(senderValues[f.field_key] ?? "")}
+                                  onChange={(e) =>
+                                    setSenderValues((v) => ({ ...v, [f.field_key]: e.target.value }))
+                                  }
+                                />
+                              </label>
+                            </div>
+                          );
+                        }
+                        const inputType = f.field_type === "date" ? "date" : "text";
+                        return (
+                          <div
+                            key={f.id}
+                            ref={(el) => {
+                              senderFieldAnchorsRef.current[f.field_key] = el;
+                            }}
+                            className={rowFrame}
+                          >
+                            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-700">
+                              {saintlyHeading}
+                            </p>
+                            <label className="block text-sm text-slate-800">
+                              <input
+                                type={inputType}
+                                className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
+                                value={String(senderValues[f.field_key] ?? "")}
+                                onChange={(e) =>
+                                  setSenderValues((v) => ({ ...v, [f.field_key]: e.target.value }))
+                                }
+                              />
+                            </label>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : null}
               </div>
             ) : null}
 

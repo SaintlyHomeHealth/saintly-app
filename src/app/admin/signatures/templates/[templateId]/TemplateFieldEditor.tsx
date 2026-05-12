@@ -16,6 +16,9 @@ import {
 
 import { loadPdfFromUrl, type RenderedPdfPage } from "@/lib/pdf-sign/pdfjs-browser";
 import {
+  GENERIC_PDF_SIGN_PLACEHOLDER_LABELS_LOWER,
+} from "@/lib/pdf-sign/validate-sender-prefill";
+import {
   normalizePdfSignDocumentType,
   PDF_SIGN_DOCUMENT_TYPE_ADMIN_OPTIONS,
   type PdfSignDocumentType,
@@ -1309,6 +1312,7 @@ export function TemplateFieldEditor({ templateId }: { templateId: string }) {
                 Edit the selected field. Changes apply in the editor; save when you are done.
               </p>
               <FieldDetail
+                allFields={fields}
                 field={selected}
                 onChange={(p) => updateField(selected.id, p)}
                 onChangePreset={(np) => changeFieldPreset(selected.id, np)}
@@ -1533,13 +1537,25 @@ function SelectedFieldQuickBar({
   );
 }
 
+function fieldNeedsDuplicateGenericLabelHint(field: EditorField, allFields: EditorField[]): boolean {
+  const L = field.label.trim().toLowerCase();
+  if (!GENERIC_PDF_SIGN_PLACEHOLDER_LABELS_LOWER.has(L)) return false;
+  if (!field.required) return false;
+  return allFields.some(
+    (o) =>
+      o.id !== field.id && o.required && o.label.trim().toLowerCase() === L
+  );
+}
+
 function FieldDetail({
+  allFields,
   field,
   onChange,
   onChangePreset,
   onChangeAssignedTo,
   onDelete,
 }: {
+  allFields: EditorField[];
   field: EditorField;
   onChange: (p: Partial<EditorField>) => void;
   onChangePreset: (newPreset: FieldPreset) => void;
@@ -1559,6 +1575,12 @@ function FieldDetail({
           className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm"
         />
       </label>
+      {fieldNeedsDuplicateGenericLabelHint(field, allFields) ? (
+        <p className="rounded-lg border border-amber-200 bg-amber-50/95 px-2 py-1.5 text-[11px] leading-snug text-amber-950">
+          Another required field shares this generic label. Rename this field so staff can identify it
+          when sending packets or signing Saintly-side fields.
+        </p>
+      ) : null}
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <label className="block font-medium text-slate-700">

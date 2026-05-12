@@ -156,7 +156,7 @@ export async function POST(request: Request) {
   // "no fields mapped" error early.
   const { data: templateFields } = await supabaseAdmin
     .from("signature_template_fields")
-    .select("field_key, label, field_type, signer_role, required, options")
+    .select("field_key, label, field_type, signer_role, required, options, page_index")
     .eq("template_id", template.id);
   const allFields = templateFields || [];
   if (allFields.length === 0) {
@@ -172,6 +172,9 @@ export async function POST(request: Request) {
     signer_role: f.signer_role,
     options: f.options,
     required: f.required,
+    page_index: typeof (f as { page_index?: number }).page_index === "number"
+      ? (f as { page_index: number }).page_index
+      : null,
   }));
   const prefillErr = validateSenderPrefillAgainstTemplate({
     templateFields: templateFieldModels,
