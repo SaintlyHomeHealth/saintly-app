@@ -13,6 +13,7 @@ import {
 } from "@/lib/staff-profile";
 
 import { StaffDirectoryRowActions } from "./staff-directory-row-actions";
+import { StaffAccessUserIdField } from "./StaffAccessUserIdField";
 
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 
@@ -203,6 +204,7 @@ export default async function AdminStaffPage({
 
   const canAssignSuperAdmin = isSuperAdmin(viewer);
   const viewerStaffProfileId = viewer.id;
+  const showAuthUserIds = isAdminOrHigher(viewer);
 
   return (
     <div className="space-y-6 bg-gradient-to-b from-slate-50/60 via-white to-slate-50/40 p-6">
@@ -210,7 +212,7 @@ export default async function AdminStaffPage({
         accent="indigo"
         eyebrow="Administration"
         title="Staff Access"
-        description="Create logins, roles, and phone permissions. Link each login to an employee (applicant) record under Payroll for visit pay — no SQL required. Accounts are provisioned automatically — you never need Supabase user IDs."
+        description="Create logins, roles, and phone permissions. Link each login to an employee (applicant) record under Payroll for visit pay — no SQL required. Auth User IDs (Supabase) are shown below for admin debugging (RLS, phone rows, logs)."
       />
 
       <div className="overflow-hidden rounded-[32px] border border-indigo-100/90 bg-gradient-to-br from-indigo-50/45 via-white to-sky-50/30 shadow-sm">
@@ -276,6 +278,17 @@ export default async function AdminStaffPage({
             <p className="mb-4 rounded-[16px] border border-emerald-200 bg-emerald-50/90 px-4 py-3 text-sm text-emerald-900">
               {okMsg}
             </p>
+          ) : null}
+
+          {showAuthUserIds ? (
+            <div className="mb-4 rounded-[16px] border border-slate-200 bg-slate-50/90 px-4 py-3 shadow-sm">
+              <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Diagnostic</p>
+              <StaffAccessUserIdField userId={viewer.user_id} label="Your User ID" />
+              <p className="mt-2 text-[10px] leading-relaxed text-slate-500">
+                Same value as <span className="font-mono">auth.uid()</span> for your signed-in session; use for RLS
+                policies, <span className="font-mono">phone_calls</span> ownership fields, and log correlation.
+              </p>
+            </div>
           ) : null}
 
           <div className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
@@ -550,9 +563,17 @@ export default async function AdminStaffPage({
                           <p className="mt-0.5 truncate text-[10px] text-slate-500 md:hidden" title={row.email ?? ""}>
                             {row.email ?? "—"}
                           </p>
+                          {showAuthUserIds ? (
+                            <div className="md:hidden">
+                              <StaffAccessUserIdField userId={row.user_id} />
+                            </div>
+                          ) : null}
                         </td>
-                        <td className="hidden max-w-[10rem] truncate px-3 py-3 text-slate-700 md:table-cell">
-                          {row.email ?? "—"}
+                        <td className="hidden max-w-[14rem] px-3 py-3 text-slate-700 md:table-cell">
+                          <div className="truncate" title={row.email ?? ""}>
+                            {row.email ?? "—"}
+                          </div>
+                          {showAuthUserIds ? <StaffAccessUserIdField userId={row.user_id} /> : null}
                         </td>
                         <td className="px-3 py-3">
                           {!canAssignSuperAdmin && row.role === "super_admin" ? (

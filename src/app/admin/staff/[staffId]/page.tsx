@@ -43,6 +43,7 @@ import { RepairLoginLinkButton } from "../repair-login-link-button";
 import { ResetPasswordDialog } from "../reset-password-dialog";
 import { PhoneAssignmentModeFields } from "./PhoneAssignmentModeFields";
 import { StaffCommunicationBar } from "./staff-communication-bar";
+import { StaffAccessUserIdField } from "../StaffAccessUserIdField";
 
 function roleLabel(role: StaffRole): string {
   const m: Record<string, string> = {
@@ -549,10 +550,7 @@ export default async function StaffAccessDetailPage({
         </div>
         <StaffCommunicationBar staffProfileId={profile.id} loginUrl={loginUrl} />
         <div className="text-xs text-slate-600">
-          <p>
-            Auth linkage:{" "}
-            <span className="font-semibold text-slate-800">{hasLogin ? profile.user_id.slice(0, 8) + "…" : "—"}</span>
-          </p>
+          <StaffAccessUserIdField userId={hasLogin ? profile.user_id : null} />
           {lastSignIn ? (
             <p className="mt-1">
               Last sign-in:{" "}
