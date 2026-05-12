@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { PDF_SIGN_MANUAL_SEND_CRM_ENTITY_ID } from "@/lib/pdf-sign/crm-link-display";
 import { insertAuditLogTrusted } from "@/lib/audit-log";
 import { sendPdfSignLinkEmail } from "@/lib/email/send-pdf-sign-email";
 import { buildPdfSignRecipientUrl } from "@/lib/pdf-sign/app-url";
@@ -197,7 +198,7 @@ export async function POST(request: Request) {
   // For manual recipients we still need a non-null crm_entity_id (UUID) for the
   // existing schema. We synthesise a stable null UUID and rely on
   // recipient_record_id / recipient_type for the real linkage.
-  const fallbackCrmId = "00000000-0000-0000-0000-000000000000";
+  const fallbackCrmId = PDF_SIGN_MANUAL_SEND_CRM_ENTITY_ID;
   const crmEntityId = recipientRecordId || fallbackCrmId;
 
   const expiresAt = new Date(Date.now() + ttlDays * 86400000).toISOString();

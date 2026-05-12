@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { supabaseAdmin } from "@/lib/admin";
 import { formatAppDateTime } from "@/lib/datetime/app-timezone";
+import { hasPdfSignCrmLinkage } from "@/lib/pdf-sign/crm-link-display";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 import { redirect, notFound } from "next/navigation";
 
@@ -67,6 +68,21 @@ function formatStatus(status: string) {
   return status.replace(/_/g, " ");
 }
 
+function linkedCrmTypeLabel(entityType: string) {
+  switch (entityType) {
+    case "applicant":
+      return "Applicant / employee";
+    case "lead":
+      return "Lead";
+    case "contact":
+      return "Patient / contact";
+    case "vendor":
+      return "Vendor / other";
+    default:
+      return entityType.replace(/_/g, " ");
+  }
+}
+
 export default async function PacketDetailPage({ params }: { params: Promise<{ packetId: string }> }) {
   const staff = await getStaffProfile();
   if (!staff || !isManagerOrHigher(staff)) {
@@ -114,6 +130,7 @@ export default async function PacketDetailPage({ params }: { params: Promise<{ p
   const message = typeof meta.message === "string" ? meta.message : null;
   const canDownload =
     doc?.id && (row.status === "completed" || row.status === "signed");
+  const crmLinked = hasPdfSignCrmLinkage(row.crm_entity_id);
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-sky-50/40">
@@ -128,7 +145,7 @@ export default async function PacketDetailPage({ params }: { params: Promise<{ p
         <div className="mt-4 flex flex-wrap items-start justify-between gap-4">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Packet details</h1>
-            <p className="mt-1 font-mono text-xs text-slate-400">{row.id}</p>
+            <p className="mt-1 text-sm text-slate-600">Status and downloads for this signature request.</p>
           </div>
           <span
             className={
@@ -139,6 +156,28 @@ export default async function PacketDetailPage({ params }: { params: Promise<{ p
             {formatStatus(row.status)}
           </span>
         </div>
+
+        <details className="mt-4 rounded-xl border border-dashed border-slate-200 bg-slate-50/60 px-4 py-3 text-xs">
+          <summary className="cursor-pointer font-semibold text-slate-600">Admin · technical details</summary>
+          <dl className="mt-3 space-y-2 font-mono text-[11px] text-slate-600">
+            <div>
+              <dt className="inline text-slate-500">Packet: </dt>
+              <dd className="inline break-all">{row.id}</dd>
+            </div>
+            {doc?.template_id ? (
+              <div>
+                <dt className="inline text-slate-500">Template: </dt>
+                <dd className="inline break-all">{doc.template_id}</dd>
+              </div>
+            ) : null}
+            {crmLinked ? (
+              <div>
+                <dt className="inline text-slate-500">Linked profile id: </dt>
+                <dd className="inline break-all">{row.crm_entity_id}</dd>
+              </div>
+            ) : null}
+          </dl>
+        </details>
 
         <dl className="mt-8 space-y-0 overflow-hidden rounded-2xl border border-slate-200/90 bg-white text-sm shadow-md shadow-slate-200/40">
           <div className="flex flex-wrap justify-between gap-3 border-b border-slate-100 px-5 py-4">
@@ -152,7 +191,7 @@ export default async function PacketDetailPage({ params }: { params: Promise<{ p
                   </span>
                 </>
               ) : (
-                <span className="font-mono text-xs">{doc?.template_id || "—"}</span>
+                <span className="text-sm font-normal text-slate-600">Linked template name not loaded — see admin details.</span>
               )}
             </dd>
           </div>
@@ -170,10 +209,19 @@ export default async function PacketDetailPage({ params }: { params: Promise<{ p
             </dd>
           </div>
           <div className="flex flex-wrap justify-between gap-3 border-b border-slate-100 px-5 py-4">
-            <dt className="text-slate-500">Linked record</dt>
-            <dd className="text-right text-slate-900">
-              <div className="capitalize text-slate-700">{row.crm_entity_type.replace(/_/g, " ")}</div>
-              <div className="font-mono text-xs text-slate-500">{row.crm_entity_id}</div>
+            <dt className="text-slate-500">CRM / profile</dt>
+            <dd className="max-w-xl text-right text-slate-900">
+              {crmLinked ? (
+                <>
+                  <div className="font-medium">{linkedCrmTypeLabel(row.crm_entity_type)}</div>
+                  <div className="mt-1 break-all text-xs text-slate-600">{row.crm_entity_id}</div>
+                </>
+              ) : (
+                <>
+                  <div className="font-medium">Manual send</div>
+                  <div className="mt-1 text-sm text-slate-600">Not attached to a CRM record</div>
+                </>
+              )}
             </dd>
           </div>
           <div className="flex flex-wrap justify-between gap-3 border-b border-slate-100 px-5 py-4">

@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { SignaturePadModal } from "@/app/sign/[token]/SignaturePadModal";
 import { PDF_SIGN_COMPANY_NAME } from "@/lib/pdf-sign/constants";
+import { hasPdfSignCrmLinkage } from "@/lib/pdf-sign/crm-link-display";
 import {
   senderAssignableTemplateFields,
   validateSenderPrefillAgainstTemplate,
@@ -44,18 +45,25 @@ const DOC_LABEL: Record<string, string> = {
 };
 
 const CRM_OPTIONS: { value: string; label: string; hint: string }[] = [
-  { value: "applicant", label: "Applicant / new hire", hint: "Use the UUID from hiring / onboarding." },
-  { value: "lead", label: "Lead", hint: "Lead record in CRM." },
-  { value: "contact", label: "Patient / contact", hint: "Contact record UUID." },
-  { value: "vendor", label: "Vendor", hint: "Vendor record when applicable." },
+  {
+    value: "applicant",
+    label: "Applicant / employee",
+    hint: "Onboarding or recruiting profiles.",
+  },
+  { value: "lead", label: "Lead", hint: "" },
+  { value: "contact", label: "Patient / contact", hint: "" },
+  { value: "vendor", label: "Vendor / other", hint: "" },
 ];
 
 const STEPS = [
-  { n: 1, title: "Choose template", subtitle: "Pick the PDF to send." },
-  { n: 2, title: "Recipient information", subtitle: "Who will sign and which record to attach." },
-  { n: 3, title: "Message & options", subtitle: "Optional note and internal settings." },
-  { n: 4, title: "Review & send", subtitle: "Confirm and issue the signing link." },
+  { n: 1, title: "Pick a document", subtitle: "Choose what to send for signature." },
+  { n: 2, title: "Who needs to sign?", subtitle: "Add the signer’s contact info." },
+  { n: 3, title: "Note & options", subtitle: "Optional message and delivery settings." },
+  { n: 4, title: "Review & send", subtitle: "Saintly fields, then confirm and send." },
 ] as const;
+
+const BTN_GOLD_PRIMARY =
+  "inline-flex rounded-2xl bg-gradient-to-r from-amber-400 to-amber-500 px-6 py-2.5 text-sm font-semibold text-amber-950 shadow-md shadow-amber-500/20 hover:from-amber-500 hover:to-amber-600 disabled:opacity-50";
 
 function genRowId() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
@@ -211,6 +219,20 @@ export function SendPacketForm({
     applyInitial();
   }, [applyInitial]);
 
+  useEffect(() => {
+    const id =
+      typeof searchParams.get === "function"
+        ? (searchParams.get("crmEntityId") ?? searchParams.get("recordId"))?.trim() || ""
+        : "";
+    const tRaw =
+      typeof searchParams.get === "function"
+        ? (searchParams.get("crmEntityType") ?? searchParams.get("entityType"))?.trim() || ""
+        : "";
+    if (!id) return;
+    setCrmEntityId(id);
+    if (tRaw && CRM_OPTIONS.some((o) => o.value === tRaw)) setCrmEntityType(tRaw);
+  }, [searchParams]);
+
   const primarySigningRecipients = useMemo(
     () => recipients.filter((r) => r.email.trim().includes("@")),
     [recipients]
@@ -222,7 +244,14 @@ export function SendPacketForm({
       return null;
     }
     if (cur === 2) {
-      if (!crmEntityId.trim()) return "Record ID is required.";
+      if (selectedTemplate?.document_type === "i9") {
+        if (!crmEntityId.trim()) {
+          return "Form I-9 must be linked to an applicant. Open Advanced and choose the applicant record.";
+        }
+        if (crmEntityType !== "applicant") {
+          return "Form I-9 uses the applicant profile only. Pick “Applicant / employee” in Advanced.";
+        }
+      }
       const filled = recipients.filter((r) => r.email.trim());
       if (filled.length === 0) return "At least one recipient email is required.";
       for (const r of filled) {
@@ -267,9 +296,9 @@ export function SendPacketForm({
     e.preventDefault();
     if (step !== 4) return;
     setError(null);
-    const v = validateStep(2);
-    if (v || !templateId) {
-      setError(v || "Select a template.");
+    const v2 = validateStep(2);
+    if (v2 || !templateId) {
+      setError(v2 || "Select a template.");
       return;
     }
 
@@ -296,10 +325,11 @@ export function SendPacketForm({
       const res = await fetch("/api/pdf-sign/admin/create-packet", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+          body: JSON.stringify({
           templateId,
-          crmEntityType,
-          crmEntityId: crmEntityId.trim(),
+          ...(crmEntityId.trim()
+            ? { crmEntityType, crmEntityId: crmEntityId.trim() }
+            : {}),
           recipients: filledRecipients,
           ttlDays,
           sendEmail,
@@ -330,6 +360,7 @@ export function SendPacketForm({
   }
 
   const recordTypeLabel = CRM_OPTIONS.find((o) => o.value === crmEntityType)?.label ?? crmEntityType;
+  const hasLinkedProfile = hasPdfSignCrmLinkage(crmEntityId);
 
   return (
     <>
@@ -340,7 +371,7 @@ export function SendPacketForm({
           </div>
         ) : null}
 
-        <nav aria-label="Progress" className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm">
+        <nav aria-label="Progress" className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-md shadow-slate-200/30 ring-1 ring-slate-100/80">
           <ol className="grid gap-3 sm:grid-cols-4">
             {STEPS.map((s) => {
               const active = step === s.n;
@@ -376,10 +407,10 @@ export function SendPacketForm({
         </nav>
 
         {step === 1 ? (
-          <section className="rounded-2xl border border-slate-200/90 bg-white p-6 shadow-md shadow-slate-200/40">
-            <h2 className="text-lg font-semibold text-slate-900">Step 1 · Choose template</h2>
+          <section className="rounded-2xl border border-slate-200/90 bg-white p-6 md:p-8 shadow-md shadow-slate-200/40 ring-1 ring-slate-100/80">
+            <h2 className="text-lg font-semibold text-slate-900">Step 1 · Pick a document</h2>
             <p className="mt-1 text-sm text-slate-600">
-              Templates are managed in{" "}
+              Need a different layout? Manage templates from{" "}
               <Link
                 className="font-semibold text-sky-800 underline-offset-2 hover:underline"
                 href="/admin/signatures/templates"
@@ -389,7 +420,7 @@ export function SendPacketForm({
               .
             </p>
             <label className="mt-5 block text-sm font-medium text-slate-800">
-              Template
+              Document template
               <select
                 required
                 value={templateId}
@@ -406,7 +437,7 @@ export function SendPacketForm({
               </select>
             </label>
             {fieldsBusy ? (
-              <p className="mt-3 text-xs text-slate-500">Loading template field metadata…</p>
+              <p className="mt-3 text-xs text-slate-500">Loading fields for this template…</p>
             ) : null}
 
             {selectedTemplate?.document_type === "i9" ? (
@@ -427,11 +458,7 @@ export function SendPacketForm({
             ) : null}
 
             <div className="mt-8 flex flex-wrap gap-3">
-              <button
-                type="button"
-                onClick={goNext}
-                className="inline-flex rounded-2xl bg-gradient-to-r from-amber-400 to-amber-500 px-6 py-2.5 text-sm font-semibold text-amber-950 shadow-md shadow-amber-500/20 hover:from-amber-500 hover:to-amber-600"
-              >
+              <button type="button" onClick={goNext} className={BTN_GOLD_PRIMARY}>
                 Continue
               </button>
             </div>
@@ -439,14 +466,14 @@ export function SendPacketForm({
         ) : null}
 
         {step === 2 ? (
-          <section className="rounded-2xl border border-slate-200/90 bg-white p-6 shadow-md shadow-slate-200/40">
-            <h2 className="text-lg font-semibold text-slate-900">Step 2 · Recipient information</h2>
-            <p className="mt-1 text-sm text-slate-600">
-              The signing email goes to Recipient 1. Additional recipients are stored on the packet for your records
-              (they do not receive a separate signing link yet).
+          <section className="rounded-2xl border border-slate-200/90 bg-white p-6 md:p-8 shadow-md shadow-slate-200/40 ring-1 ring-slate-100/80">
+            <h2 className="text-lg font-semibold text-slate-900">Step 2 · Who needs to sign?</h2>
+            <p className="mt-1 max-w-xl text-sm leading-relaxed text-slate-600">
+              Recipient 1 will receive the signing link. Additional recipients are saved on the packet for your
+              records.
             </p>
 
-            <div className="mt-6 space-y-6 max-w-3xl">
+            <div className="mt-6 max-w-3xl space-y-6">
               {recipients.map((r, idx) => (
                 <div
                   key={r.id}
@@ -469,13 +496,13 @@ export function SendPacketForm({
                   </div>
                   <div className="mt-4 grid gap-4 sm:grid-cols-2">
                     <label className="block text-sm font-medium text-slate-800 sm:col-span-2">
-                      Full name
+                      Name
                       <input
                         value={r.name}
                         onChange={(e) => updateRecipient(r.id, { name: e.target.value })}
                         autoComplete="name"
                         className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm shadow-sm"
-                        placeholder={idx === 0 ? "Primary signer" : ""}
+                        placeholder="Recipient full name"
                       />
                     </label>
                     <label className="block text-sm font-medium text-slate-800 sm:col-span-2">
@@ -487,20 +514,21 @@ export function SendPacketForm({
                         onChange={(e) => updateRecipient(r.id, { email: e.target.value })}
                         autoComplete="email"
                         className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm shadow-sm"
+                        placeholder={
+                          idx === 0 ? "signer@email.com" : "additional@email.com"
+                        }
                       />
                     </label>
                     <label className="block text-sm font-medium text-slate-800 sm:col-span-2">
                       Phone{" "}
-                      <span className="font-normal text-slate-500">
-                        ({idx === 0 ? "used for SMS when enabled" : "optional"})
-                      </span>
+                      <span className="font-normal text-slate-500">(optional)</span>
                       <input
                         value={r.phone}
                         onChange={(e) => updateRecipient(r.id, { phone: e.target.value })}
                         type="tel"
                         autoComplete="tel"
                         className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm shadow-sm"
-                        placeholder="+1 ..."
+                        placeholder="For text message if you turn that on later"
                       />
                     </label>
                   </div>
@@ -511,65 +539,81 @@ export function SendPacketForm({
                 onClick={addRecipient}
                 className="rounded-xl border border-dashed border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50"
               >
-                + Add recipient
+                + Add another recipient
               </button>
             </div>
 
-            <div className="mt-8 border-t border-slate-100 pt-6">
-              <p className="text-sm font-medium text-slate-900">Link to your record</p>
-              <p className="mt-1 text-sm text-slate-600">
-                Paste the UUID from the correct record so this packet stays tied to the right profile.
-              </p>
-              <div className="mt-4 grid max-w-3xl gap-5 sm:grid-cols-2">
-                <label className="block text-sm font-medium text-slate-800 sm:col-span-2">
-                  Record type
-                  <select
-                    value={crmEntityType}
-                    onChange={(e) => setCrmEntityType(e.target.value)}
-                    className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm shadow-sm"
-                  >
-                    {CRM_OPTIONS.map((o) => (
-                      <option key={o.value} value={o.value}>
-                        {o.label}
-                      </option>
-                    ))}
-                  </select>
-                  <span className="mt-1.5 block text-xs font-normal text-slate-500">
-                    {CRM_OPTIONS.find((o) => o.value === crmEntityType)?.hint}
-                  </span>
-                </label>
-                <label className="block text-sm font-medium text-slate-800 sm:col-span-2">
-                  Record ID (UUID)
-                  <input
-                    required
-                    value={crmEntityId}
-                    onChange={(e) => setCrmEntityId(e.target.value)}
-                    placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-                    className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2.5 font-mono text-sm shadow-sm"
-                  />
-                </label>
-                <label className="block text-sm font-medium text-slate-800">
-                  Signing link expires after (days)
-                  <input
-                    type="number"
-                    min={1}
-                    max={90}
-                    value={ttlDays}
-                    onChange={(e) => setTtlDays(Number(e.target.value))}
-                    className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm shadow-sm"
-                  />
-                </label>
-                <label className="flex items-start gap-3 rounded-xl border border-slate-100 bg-slate-50/80 px-4 py-3 text-sm font-medium text-slate-800 sm:col-span-2">
-                  <input
-                    type="checkbox"
-                    checked={sendEmail}
-                    onChange={(e) => setSendEmail(e.target.checked)}
-                    className="mt-1 rounded border-slate-300 text-sky-700"
-                  />
-                  <span>Email the signing link to Recipient 1 now</span>
-                </label>
-              </div>
+            <div className="mt-8 max-w-3xl space-y-4 rounded-2xl border border-slate-100 bg-slate-50/60 p-5 ring-1 ring-slate-100/70">
+              <label className="block text-sm font-medium text-slate-800">
+                Signing link expires after (days)
+                <input
+                  type="number"
+                  min={1}
+                  max={90}
+                  value={ttlDays}
+                  onChange={(e) => setTtlDays(Number(e.target.value))}
+                  className="mt-2 w-full max-w-xs rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm shadow-sm"
+                />
+              </label>
+              <label className="flex items-start gap-3 rounded-xl border border-white/80 bg-white px-4 py-3 text-sm font-medium text-slate-800 shadow-sm">
+                <input
+                  type="checkbox"
+                  checked={sendEmail}
+                  onChange={(e) => setSendEmail(e.target.checked)}
+                  className="mt-1 rounded border-slate-300 text-amber-600"
+                />
+                <span>Email signing link now</span>
+              </label>
             </div>
+
+            <details
+              key={`crm-link-${templateId}`}
+              className="group mt-8 rounded-2xl border border-slate-200 bg-white ring-1 ring-slate-100/80 [&_summary::-webkit-details-marker]:hidden open:shadow-md"
+              defaultOpen={selectedTemplate?.document_type === "i9"}
+            >
+              <summary className="cursor-pointer list-none rounded-2xl px-5 py-4 text-sm font-semibold text-slate-900 outline-none">
+                Advanced: attach this packet to a CRM record
+                <span className="mt-1 block font-normal text-slate-500">
+                  Optional. Use this only when sending from a specific applicant, employee, lead, or patient record.
+                </span>
+              </summary>
+              <div className="space-y-5 border-t border-slate-100 px-5 pb-5 pt-4">
+                <p className="text-sm text-slate-600">
+                  Linking stays internal—your signer doesn&apos;t see this. Form I‑9 packets must stay linked to an
+                  applicant.
+                </p>
+                <div className="grid max-w-3xl gap-5 sm:grid-cols-2">
+                  <label className="block text-sm font-medium text-slate-800 sm:col-span-2">
+                    Profile type
+                    <select
+                      value={crmEntityType}
+                      onChange={(e) => setCrmEntityType(e.target.value)}
+                      className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm shadow-sm"
+                    >
+                      {CRM_OPTIONS.map((o) => (
+                        <option key={o.value} value={o.value}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                    {CRM_OPTIONS.find((o) => o.value === crmEntityType)?.hint ? (
+                      <span className="mt-1.5 block text-xs font-normal text-slate-500">
+                        {CRM_OPTIONS.find((o) => o.value === crmEntityType)?.hint}
+                      </span>
+                    ) : null}
+                  </label>
+                  <label className="block text-sm font-medium text-slate-800 sm:col-span-2">
+                    Profile record identifier
+                    <input
+                      value={crmEntityId}
+                      onChange={(e) => setCrmEntityId(e.target.value)}
+                      className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm shadow-sm"
+                      placeholder="From the CRM record URL or detail page"
+                    />
+                  </label>
+                </div>
+              </div>
+            </details>
 
             <div className="mt-8 flex flex-wrap gap-3">
               <button
@@ -579,11 +623,7 @@ export function SendPacketForm({
               >
                 Back
               </button>
-              <button
-                type="button"
-                onClick={goNext}
-                className="inline-flex rounded-2xl bg-gradient-to-r from-amber-400 to-amber-500 px-6 py-2.5 text-sm font-semibold text-amber-950 shadow-md shadow-amber-500/20 hover:from-amber-500 hover:to-amber-600"
-              >
+              <button type="button" onClick={goNext} className={BTN_GOLD_PRIMARY}>
                 Continue
               </button>
             </div>
@@ -591,9 +631,9 @@ export function SendPacketForm({
         ) : null}
 
         {step === 3 ? (
-          <section className="rounded-2xl border border-slate-200/90 bg-white p-6 shadow-md shadow-slate-200/40">
-            <h2 className="text-lg font-semibold text-slate-900">Step 3 · Message & options</h2>
-            <p className="mt-1 text-sm text-slate-600">Optional — add context for your team or the signer.</p>
+          <section className="rounded-2xl border border-slate-200/90 bg-white p-6 md:p-8 shadow-md shadow-slate-200/40 ring-1 ring-slate-100/80">
+            <h2 className="text-lg font-semibold text-slate-900">Step 3 · Note & options</h2>
+            <p className="mt-1 text-sm text-slate-600">Optional—a short note or extra delivery choices.</p>
 
             <label className="mt-6 block text-sm font-medium text-slate-800">
               Message to signer
@@ -611,11 +651,9 @@ export function SendPacketForm({
                 type="checkbox"
                 checked={smsRequested}
                 onChange={(e) => setSmsRequested(e.target.checked)}
-                className="mt-1 rounded border-slate-300 text-sky-700"
+                className="mt-1 rounded border-slate-300 text-amber-600"
               />
-              <span>
-                Also text the signing link to <strong>Recipient 1&apos;s phone</strong> when SMS delivery is enabled
-              </span>
+              <span>Also send a text with the signing link to the primary recipient&apos;s phone (if SMS is configured)</span>
             </label>
 
             <label className="mt-4 flex items-start gap-3 rounded-xl border border-slate-100 bg-slate-50/80 px-4 py-3 text-sm font-medium text-slate-800">
@@ -623,7 +661,7 @@ export function SendPacketForm({
                 type="checkbox"
                 checked={marksIc}
                 onChange={(e) => setMarksIc(e.target.checked)}
-                className="mt-1 rounded border-slate-300 text-sky-700"
+                className="mt-1 rounded border-slate-300 text-amber-600"
               />
               <span>This packet is for an independent contractor agreement</span>
             </label>
@@ -636,28 +674,29 @@ export function SendPacketForm({
               >
                 Back
               </button>
-              <button
-                type="button"
-                onClick={goNext}
-                className="inline-flex rounded-2xl bg-gradient-to-r from-amber-400 to-amber-500 px-6 py-2.5 text-sm font-semibold text-amber-950 shadow-md shadow-amber-500/20 hover:from-amber-500 hover:to-amber-600"
-              >
-                Review
+              <button type="button" onClick={goNext} className={BTN_GOLD_PRIMARY}>
+                Review & send
               </button>
             </div>
           </section>
         ) : null}
 
         {step === 4 ? (
-          <section className="rounded-2xl border border-slate-200/90 bg-white p-6 shadow-md shadow-slate-200/40">
+          <section className="rounded-2xl border border-slate-200/90 bg-white p-6 md:p-8 shadow-md shadow-slate-200/40 ring-1 ring-slate-100/80">
             <h2 className="text-lg font-semibold text-slate-900">Step 4 · Review & send</h2>
-            <p className="mt-1 text-sm text-slate-600">Confirm everything looks correct before sending.</p>
+            <p className="mt-1 text-sm text-slate-600">
+              Double-check the summary, finish any Saintly fields, then send the packet.
+            </p>
 
             {senderSideFields.length > 0 ? (
-              <div className="mt-6 rounded-2xl border border-indigo-100 bg-indigo-50/60 p-4">
-                <h3 className="text-sm font-semibold text-indigo-950">Sender fields</h3>
-                <p className="mt-1 text-xs text-indigo-900/90">
-                  Complete Saintly-side fields before sending. These values are flattened into the PDF so the signer
-                  only finishes their sections.
+              <div className="mt-6 rounded-2xl border border-amber-200/90 bg-gradient-to-br from-amber-50/80 to-white p-5 shadow-sm ring-1 ring-amber-100/70">
+                <h3 className="text-base font-semibold text-slate-900">Saintly fields</h3>
+                <p className="mt-2 text-sm leading-relaxed text-slate-700">
+                  Complete Saintly&apos;s fields before sending so the recipient only signs their part. You&apos;re
+                  filling these in here on this screen—they are not emailed to Saintly separately.
+                </p>
+                <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-amber-900/80">
+                  Sign Saintly side before sending
                 </p>
                 <div className="mt-4 space-y-4">
                   {senderSideFields.map((f) => {
@@ -678,9 +717,11 @@ export function SendPacketForm({
                             <button
                               type="button"
                               onClick={() => setActiveSenderSigField(f)}
-                              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-900 hover:bg-slate-50"
+                              className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-950 hover:bg-amber-50"
                             >
-                              {senderSignatures[f.field_key] ? "Redraw signature" : "Sign"}
+                              {senderSignatures[f.field_key]
+                                ? "Redo Saintly signature (in app)"
+                                : "Sign Saintly fields (in app)"}
                             </button>
                           </div>
                         </div>
@@ -759,16 +800,25 @@ export function SendPacketForm({
                 </dd>
               </div>
               <div className="flex flex-wrap justify-between gap-2 border-b border-slate-100 pb-3">
-                <dt className="text-slate-500">Linked record</dt>
+                <dt className="text-slate-500">Internal profile link</dt>
                 <dd className="max-w-md text-right text-slate-900">
-                  {recordTypeLabel}
-                  <div className="font-mono text-xs text-slate-600">{crmEntityId || "—"}</div>
+                  {hasLinkedProfile ? (
+                    <>
+                      {recordTypeLabel}
+                      <div className="text-xs text-slate-600">{crmEntityId.trim()}</div>
+                    </>
+                  ) : (
+                    <>
+                      <span className="font-medium text-slate-900">Manual send</span>
+                      <div className="text-sm text-slate-600">Not attached to a CRM record</div>
+                    </>
+                  )}
                 </dd>
               </div>
               <div className="flex flex-wrap justify-between gap-2 border-b border-slate-100 pb-3">
                 <dt className="text-slate-500">Signing link</dt>
                 <dd className="text-right text-slate-900">
-                  Expires in {ttlDays} days · {sendEmail ? "Email Recipient 1" : "Do not email yet"}
+                  Expires in {ttlDays} days · {sendEmail ? "Email now" : "Hold (no email yet)"}
                 </dd>
               </div>
               {message.trim() ? (
@@ -779,7 +829,7 @@ export function SendPacketForm({
               ) : null}
               {(smsRequested || marksIc) && (
                 <div className="text-xs text-slate-600">
-                  {smsRequested ? <span className="mr-3">SMS requested (Recipient 1)</span> : null}
+                  {smsRequested ? <span className="mr-3">Text message to signer requested</span> : null}
                   {marksIc ? <span>Independent contractor packet</span> : null}
                 </div>
               )}
@@ -796,7 +846,7 @@ export function SendPacketForm({
               <button
                 type="submit"
                 disabled={busy || !templateId}
-                className="inline-flex rounded-2xl bg-gradient-to-r from-amber-400 to-amber-500 px-7 py-2.5 text-sm font-semibold text-amber-950 shadow-md shadow-amber-500/20 hover:from-amber-500 hover:to-amber-600 disabled:opacity-50"
+                className={`${BTN_GOLD_PRIMARY} px-8 py-3 text-base`}
               >
                 {busy ? "Sending…" : "Send packet"}
               </button>

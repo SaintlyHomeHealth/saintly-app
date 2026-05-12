@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { PDF_SIGN_MANUAL_SEND_CRM_ENTITY_ID } from "@/lib/pdf-sign/crm-link-display";
 import { insertAuditLogTrusted } from "@/lib/audit-log";
 import { sendPdfSignLinkEmail } from "@/lib/email/send-pdf-sign-email";
 import { buildPdfSignRecipientUrl } from "@/lib/pdf-sign/app-url";
@@ -71,8 +72,8 @@ export async function POST(request: Request) {
   }
 
   const templateId = body.templateId?.trim();
-  const crmEntityType = body.crmEntityType?.trim();
-  const crmEntityId = body.crmEntityId?.trim();
+  const crmEntityTypeInput = body.crmEntityType?.trim() || "";
+  const crmEntityIdInput = body.crmEntityId?.trim() || "";
   const recipientRowsRaw = normalizeRecipientRows(body);
 
   const ttlDays =
@@ -93,17 +94,8 @@ export async function POST(request: Request) {
   } as Record<string, string | boolean>;
   const senderImagesIn = (body.senderSignatureImages || {}) as Record<string, string>;
 
-  if (
-    !templateId ||
-    !crmEntityType ||
-    !crmEntityId ||
-    recipientRowsRaw.length === 0 ||
-    !recipientRowsRaw[0]?.email?.trim()
-  ) {
-    return NextResponse.json(
-      { error: "Missing template, CRM entity, or primary recipient email." },
-      { status: 400 }
-    );
+  if (!templateId || recipientRowsRaw.length === 0 || !recipientRowsRaw[0]?.email?.trim()) {
+    return NextResponse.json({ error: "Missing template or primary recipient email." }, { status: 400 });
   }
 
   const recipientRows = recipientRowsRaw
@@ -125,10 +117,6 @@ export async function POST(request: Request) {
   const recipientName = primary.name || null;
   const primaryPhone = primary.phone?.trim() || null;
 
-  if (!["applicant", "lead", "contact", "vendor"].includes(crmEntityType)) {
-    return NextResponse.json({ error: "Invalid CRM entity type." }, { status: 400 });
-  }
-
   const { data: template, error: tErr } = await supabaseAdmin
     .from("signature_templates")
     .select("id, document_type, name, version, is_active, storage_bucket, storage_object_path")
@@ -142,9 +130,26 @@ export async function POST(request: Request) {
     if (!isAdminOrHigher(staff)) {
       return NextResponse.json({ error: "Only admins can create I-9 packets." }, { status: 403 });
     }
-    if (crmEntityType !== "applicant") {
-      return NextResponse.json({ error: "I-9 is limited to employee (applicant) records." }, { status: 400 });
+    if (crmEntityTypeInput !== "applicant" || !crmEntityIdInput) {
+      return NextResponse.json(
+        { error: "I-9 packets must be linked to an applicant record." },
+        { status: 400 }
+      );
     }
+  }
+
+  let crmEntityType: string;
+  let crmEntityId: string;
+
+  if (crmEntityIdInput) {
+    if (!["applicant", "lead", "contact", "vendor"].includes(crmEntityTypeInput)) {
+      return NextResponse.json({ error: "Invalid CRM record type." }, { status: 400 });
+    }
+    crmEntityType = crmEntityTypeInput;
+    crmEntityId = crmEntityIdInput;
+  } else {
+    crmEntityType = "vendor";
+    crmEntityId = PDF_SIGN_MANUAL_SEND_CRM_ENTITY_ID;
   }
 
   const i9ReviewMethod = body.i9ReviewMethod?.trim() || null;

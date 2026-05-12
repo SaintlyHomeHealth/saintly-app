@@ -21,7 +21,7 @@ export default async function AdminSendPacketPage({
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-sky-50/40">
       <main className="mx-auto w-full max-w-4xl px-4 py-10">
-        <div className="mb-10">
+        <div className="mb-8 rounded-2xl border border-slate-200/90 bg-white p-8 shadow-md shadow-slate-200/30">
           <Link
             href="/admin/signatures"
             className="text-xs font-semibold uppercase tracking-wide text-sky-800/90 hover:underline"
@@ -29,8 +29,8 @@ export default async function AdminSendPacketPage({
             ← Saintly PDF Sign
           </Link>
           <h1 className="mt-3 text-3xl font-semibold tracking-tight text-slate-900">Send a packet</h1>
-          <p className="mt-2 max-w-2xl text-base text-slate-600">
-            Walk through four quick steps: pick the document, add the signer, set options, and send the secure link.
+          <p className="mt-2 text-base leading-relaxed text-slate-600">
+            Send a document for secure signature.
           </p>
         </div>
 

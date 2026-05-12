@@ -60,24 +60,32 @@ export default function AdminPdfSignHomePage() {
           </Link>
         </div>
 
-        {/* Advanced: I-9 */}
-        <section className="mt-14 rounded-2xl border border-dashed border-slate-200 bg-white/60 px-5 py-4 text-sm text-slate-600">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Advanced</p>
-          <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <p className="font-medium text-slate-800">I-9 workspace</p>
-              <p className="mt-0.5 text-xs text-slate-500">
-                Section 2 review, case files, and restricted downloads.
-              </p>
+        <details className="group mt-14 rounded-2xl border border-slate-200/90 bg-white/80 px-5 py-3 shadow-sm ring-1 ring-slate-100">
+          <summary className="cursor-pointer list-none text-sm font-semibold text-slate-800 outline-none marker:content-none [&::-webkit-details-marker]:hidden [&::after]:hidden">
+            <span className="underline decoration-slate-300 decoration-dotted underline-offset-4 group-open:decoration-transparent">
+              Advanced tools
+            </span>
+            <span className="mt-1 block text-xs font-normal text-slate-500 group-open:hidden">
+              For compliance workflows (I-9) and admins who already know they need these.
+            </span>
+          </summary>
+          <div className="mt-4 border-t border-slate-100 pt-4 text-sm">
+            <div className="flex flex-wrap items-start justify-between gap-3 rounded-xl bg-slate-50/90 px-4 py-3">
+              <div>
+                <p className="font-medium text-slate-900">I-9 workspace</p>
+                <p className="mt-1 text-xs text-slate-600">
+                  Section 2 review, case files, and restricted downloads.
+                </p>
+              </div>
+              <Link
+                href="/admin/signatures/i9"
+                className="shrink-0 rounded-xl border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-50"
+              >
+                Open I-9 workspace
+              </Link>
             </div>
-            <Link
-              href="/admin/signatures/i9"
-              className="shrink-0 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-100"
-            >
-              Open I-9
-            </Link>
           </div>
-        </section>
+        </details>
       </main>
     </div>
   );
