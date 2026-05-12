@@ -6,6 +6,11 @@ export const PDF_SIGN_CANONICAL_SIGNER_ROLES = ["sender", "recipient"] as const;
 export type PdfSignCanonicalSignerRole = (typeof PDF_SIGN_CANONICAL_SIGNER_ROLES)[number];
 
 /**
+ * Template editor colors (SIGN vs SND) live in `./template-field-role-styles.ts`
+ * — always pass `normalizeSignerRole(...)` there, never raw CRM role strings.
+ */
+
+/**
  * Persisted signer roles for new templates — only sender / recipient.
  * Legacy CRM-style roles normalize into these buckets.
  */

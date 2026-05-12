@@ -15,7 +15,11 @@ import {
 } from "react";
 
 import { loadPdfFromUrl, type RenderedPdfPage } from "@/lib/pdf-sign/pdfjs-browser";
-import { normalizeSignerRole } from "@/lib/pdf-sign/normalize";
+import { normalizeSignerRole, type PdfSignCanonicalSignerRole } from "@/lib/pdf-sign/normalize";
+import {
+  pdfSignTemplateFieldOverlayClassNames,
+  pdfSignTemplateFieldRoleChrome,
+} from "@/lib/pdf-sign/template-field-role-styles";
 
 type PdfSignFieldType =
   | "text"
@@ -279,18 +283,9 @@ function presetShortLabel(p: FieldPreset): string {
   }
 }
 
-function rolePill(role: string): string {
-  const r = normalizeSignerRole(role || undefined);
-  if (r === "recipient") return "SIGN";
-  return "SND";
-}
-
-function overlayClasses(isSuggestion: boolean, isSelected: boolean): string {
-  const ring = isSelected ? "ring-2 ring-indigo-400 " : "";
-  if (isSuggestion) {
-    return `${ring}border-2 border-dashed border-amber-500 bg-amber-50/50 text-amber-950`;
-  }
-  return `${ring}border-2 border-emerald-500 bg-emerald-50/40 text-emerald-950`;
+/** Recipient → SIGN; sender / Saintly → SND (canonical input only — normalize at call site if needed). */
+function roleAbbrev(canonicalRole: PdfSignCanonicalSignerRole): "SIGN" | "SND" {
+  return canonicalRole === "recipient" ? "SIGN" : "SND";
 }
 
 function genId() {
@@ -417,6 +412,7 @@ const FieldMiniToolbar = forwardRef<
   ref
 ) {
   const currentPreset = presetForField(field);
+  const canonRole = normalizeSignerRole(field.signer_role);
   const miniSelect =
     "max-w-[10rem] rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[11px] text-slate-900 shadow-sm";
 
@@ -424,7 +420,7 @@ const FieldMiniToolbar = forwardRef<
     <div
       ref={ref}
       data-field-toolbar
-      className="pointer-events-auto flex max-w-[min(100vw-1rem,26rem)] flex-wrap items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 py-1 shadow-md ring-1 ring-slate-900/10"
+      className={`pointer-events-auto flex max-w-[min(100vw-1rem,26rem)] flex-wrap items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 py-1 pl-2.5 shadow-md ring-1 ring-slate-900/10 ${pdfSignTemplateFieldRoleChrome(canonRole).panelAccentBorder}`}
       style={style}
       onPointerDownCapture={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
@@ -755,7 +751,7 @@ export function TemplateFieldEditor({ templateId }: { templateId: string }) {
         label: nextLabel,
         fieldKey: nextKey,
         fieldType: spec.fieldType,
-        role: target.signer_role,
+        role: normalizeSignerRole(target.signer_role),
       });
       return prev.map((f) => (f.id === id ? { ...f, ...update } : f));
     });
@@ -763,15 +759,16 @@ export function TemplateFieldEditor({ templateId }: { templateId: string }) {
   }
 
   function changeFieldAssignedTo(id: string, role: TemplateSignerRole) {
+    const canon = normalizeSignerRole(role);
     setFields((prev) =>
       prev.map((f) => {
         if (f.id !== id) return f;
-        const next = { ...f, signer_role: role };
+        const next = { ...f, signer_role: canon };
         next.autofill_source = suggestAutofill({
           label: f.label,
           fieldKey: f.field_key,
           fieldType: f.field_type,
-          role,
+          role: canon,
         });
         return next;
       })
@@ -1202,7 +1199,9 @@ export function TemplateFieldEditor({ templateId }: { templateId: string }) {
                   const screen = pdfToScreen(field.page_index, field.x, field.y, field.width, field.height);
                   if (!screen) return null;
                   const isSelected = selectedId === field.id;
+                  const canonRole = normalizeSignerRole(field.signer_role);
                   const preset = presetForField(field);
+                  const roleChrome = pdfSignTemplateFieldRoleChrome(canonRole);
                   const style: CSSProperties = {
                     position: "absolute",
                     left: screen.left,
@@ -1222,8 +1221,12 @@ export function TemplateFieldEditor({ templateId }: { templateId: string }) {
                         setSelectedId(field.id);
                       }}
                       className={
-                        "pointer-events-auto group cursor-move select-none rounded-md border-2 text-[10px] font-semibold transition " +
-                        overlayClasses(field.is_suggestion, isSelected)
+                        "pointer-events-auto group cursor-move select-none rounded-md text-[10px] font-semibold transition " +
+                        pdfSignTemplateFieldOverlayClassNames({
+                          canonicalRole: canonRole,
+                          isSuggestion: field.is_suggestion,
+                          isSelected,
+                        })
                       }
                     >
                       <div className="flex items-center justify-between gap-1 px-1.5 py-0.5">
@@ -1233,8 +1236,10 @@ export function TemplateFieldEditor({ templateId }: { templateId: string }) {
                               Suggested
                             </span>
                           ) : null}
-                          <span className="rounded bg-white/80 px-1 text-[8px] font-bold uppercase text-slate-800">
-                            {rolePill(field.signer_role)}
+                          <span
+                            className={`rounded px-1 text-[8px] font-bold uppercase ${roleChrome.rolePill}`}
+                          >
+                            {roleAbbrev(canonRole)}
                           </span>
                           <span className="font-bold uppercase opacity-90">
                             {presetShortLabel(preset)}
@@ -1264,7 +1269,9 @@ export function TemplateFieldEditor({ templateId }: { templateId: string }) {
                         }}
                         className="absolute bottom-0.5 right-0.5 z-10 flex h-5 w-5 cursor-nwse-resize items-end justify-end p-0.5"
                       >
-                        <span className="pointer-events-none inline-block h-3.5 w-3.5 rounded-sm border-2 border-emerald-600 bg-white shadow ring-1 ring-emerald-300" />
+                        <span
+                          className={`pointer-events-none inline-block h-3.5 w-3.5 rounded-sm border-2 bg-white shadow ring-1 ${roleChrome.resizeHandleBorder} ${roleChrome.resizeHandleRing}`}
+                        />
                       </div>
                     </div>
                   );
@@ -1293,7 +1300,9 @@ export function TemplateFieldEditor({ templateId }: { templateId: string }) {
       </div>
 
       <aside className="flex min-w-0 flex-col gap-4 xl:sticky xl:top-24 xl:max-h-[calc(100vh-6rem)] xl:overflow-y-auto">
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm ring-1 ring-slate-100">
+        <div
+          className={`rounded-2xl border border-slate-200 bg-white p-4 shadow-sm ring-1 ring-slate-100 ${selected ? pdfSignTemplateFieldRoleChrome(normalizeSignerRole(selected.signer_role)).panelAccentBorder + " pl-5" : ""}`}
+        >
           <h3 className="text-sm font-semibold text-slate-900">Field Settings</h3>
           {selected ? (
             <>
@@ -1462,12 +1471,16 @@ function SelectedFieldQuickBar({
     );
   }
 
+  const canonRole = normalizeSignerRole(field.signer_role);
+  const chrome = pdfSignTemplateFieldRoleChrome(canonRole);
   const currentPreset = presetForField(field);
   const compactSelect =
     "min-w-[6.5rem] max-w-[12rem] rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-900";
 
   return (
-    <div className="mb-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm xl:sticky xl:top-2 xl:z-[5]">
+    <div
+      className={`mb-3 rounded-xl border border-slate-200 bg-white p-3 pl-4 shadow-sm xl:sticky xl:top-2 xl:z-[5] ${chrome.panelAccentBorder}`}
+    >
       <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
         <label className="flex min-w-[8rem] flex-1 flex-col gap-0.5 text-[11px] font-medium text-slate-700">
           Label
@@ -1735,6 +1748,8 @@ function FieldsOnTemplate({
         <ul className="mt-2 max-h-72 divide-y divide-slate-100 overflow-y-auto">
           {sorted.map((f) => {
             const isSelected = selectedId === f.id;
+            const party = normalizeSignerRole(f.signer_role);
+            const rowChrome = pdfSignTemplateFieldRoleChrome(party);
             return (
               <li key={f.id}>
                 <button
@@ -1743,13 +1758,20 @@ function FieldsOnTemplate({
                   className={
                     "flex w-full flex-col gap-1 border-l-4 px-2 py-2 text-left text-xs transition " +
                     (isSelected
-                      ? "border-l-indigo-600 bg-indigo-50 text-slate-900 ring-1 ring-inset ring-slate-200/80"
-                      : "border-l-slate-300 text-slate-800 hover:bg-slate-50")
+                      ? `${rowChrome.listAccentBorder} bg-indigo-50/80 text-slate-900 shadow-sm ring-2 ring-indigo-400 ring-inset`
+                      : `${rowChrome.listAccentBorder} text-slate-800 hover:bg-slate-50`)
                   }
                 >
                   <div className="flex w-full items-start justify-between gap-2">
-                    <span className="min-w-0 flex-1 truncate font-medium text-slate-900">
-                      {f.label || <em className="text-slate-400">Untitled</em>}
+                    <span className="flex min-w-0 flex-1 items-center gap-2">
+                      <span
+                        className={`shrink-0 rounded px-1.5 py-0.5 text-[9px] font-bold uppercase ${rowChrome.rolePill}`}
+                      >
+                        {roleAbbrev(party)}
+                      </span>
+                      <span className="min-w-0 truncate font-medium text-slate-900">
+                        {f.label || <em className="text-slate-400">Untitled</em>}
+                      </span>
                     </span>
                     <span className="shrink-0 text-[10px] font-medium text-slate-500">
                       Page {f.page_index + 1}
