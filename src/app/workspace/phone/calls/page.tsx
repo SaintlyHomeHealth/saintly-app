@@ -32,16 +32,16 @@ import { WorkspacePhonePageHeader } from "../_components/WorkspacePhonePageHeade
 
 export const dynamic = "force-dynamic";
 
-const LIST_LIMIT = 150;
-const LIST_LIMIT_SEARCH = 250;
+/** Default list size tuned for mobile WebView; search allows a deeper slice. */
+const LIST_LIMIT = 100;
+const LIST_LIMIT_SEARCH = 180;
 
-/** RLS-only smoke test (no app-side `.or` scope). Valid `phone_calls` columns only. */
+/** RLS-only probe when WORKSPACE_CALLS_DEBUG=1. */
 const WORKSPACE_CALLS_PROBE_SELECT =
   "id, created_at, direction, status, owner_user_id, assigned_to_user_id, from_e164, to_e164";
 
-/** Set `WORKSPACE_CALLS_DEBUG=0` to silence structured diagnostics (defaults to on). */
-function workspaceCallsDiagLogs(): boolean {
-  return process.env.WORKSPACE_CALLS_DEBUG !== "0";
+function workspaceCallsDebugEnabled(): boolean {
+  return process.env.WORKSPACE_CALLS_DEBUG === "1";
 }
 
 type PageProps = {
@@ -99,7 +99,7 @@ function buildCallInboxRowFromEnriched(
 ): CallInboxRow {
   const party = callbackNumber(enriched.direction, enriched.from_e164, enriched.to_e164);
   const subtitlePhone = party ? formatPhoneForDisplay(party) : "—";
-  const embed = displayNameFromContactsRelation(raw.contacts);
+  const embed = raw.contacts != null ? displayNameFromContactsRelation(raw.contacts) : null;
   const title =
     enriched.crm_contact_display_name?.trim() || embed?.trim() || subtitlePhone;
   const cid = enriched.contact_id ?? enriched.resolved_contact_id ?? null;
@@ -149,7 +149,7 @@ function buildCallInboxRowFromEnriched(
 }
 
 function deepWorkspaceCallMetadataStrings(v: unknown, depth = 0): string[] {
-  if (depth > 10) return [];
+  if (depth > 8) return [];
   if (v == null) return [];
   if (typeof v === "string") return v.trim() ? [v] : [];
   if (typeof v === "number" || typeof v === "boolean") return [String(v)];
@@ -177,8 +177,10 @@ function workspaceCallSearchHaystack(row: CallInboxRow): string {
   const f = typeof row.from_e164 === "string" ? row.from_e164 : "";
   const t = typeof row.to_e164 === "string" ? row.to_e164 : "";
   parts.push(f, t, f.replace(/\D/g, ""), t.replace(/\D/g, ""));
-  const emb = displayNameFromContactsRelation(row.contacts);
-  if (emb) parts.push(emb);
+  if (row.contacts != null) {
+    const emb = displayNameFromContactsRelation(row.contacts);
+    if (emb) parts.push(emb);
+  }
   parts.push(...deepWorkspaceCallMetadataStrings(row.metadata));
   return parts.join(" ").toLowerCase();
 }
@@ -223,17 +225,32 @@ export default async function WorkspaceCallsPage(props: PageProps) {
 
   const showAdminCallLogLink = isManagerOrHigher(staff);
   const supabase = await createServerSupabaseClient();
+  const debug = workspaceCallsDebugEnabled();
 
-  const {
-    data: { user: authUser },
-  } = await supabase.auth.getUser();
+  let authUserId: string | null = null;
+  let probeRowCount: number | null = null;
+  let probeError: string | null = null;
+  let probeErrorCode: string | null = null;
 
-  /** RLS-only: no `applyPhoneCallLogScopeForStaff` — distinguishes DB policy vs app filters. */
-  const probeRes = await supabase
-    .from("phone_calls")
-    .select(WORKSPACE_CALLS_PROBE_SELECT)
-    .order("created_at", { ascending: false })
-    .limit(25);
+  if (debug) {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    authUserId = user?.id ?? null;
+
+    const probeRes = await supabase
+      .from("phone_calls")
+      .select(WORKSPACE_CALLS_PROBE_SELECT)
+      .order("created_at", { ascending: false })
+      .limit(25);
+
+    probeRowCount = probeRes.data?.length ?? 0;
+    probeError = probeRes.error?.message ?? null;
+    probeErrorCode = probeRes.error?.code ?? null;
+    if (probeRes.error) {
+      console.warn("[workspace/phone/calls:probe]", probeRes.error.message);
+    }
+  }
 
   const limit = searchActive ? LIST_LIMIT_SEARCH : LIST_LIMIT;
   let dbQuery = supabase
@@ -241,12 +258,6 @@ export default async function WorkspaceCallsPage(props: PageProps) {
     .select(PHONE_CALL_LOG_LIST_SELECT_BASE)
     .order("updated_at", { ascending: false })
     .limit(limit);
-
-  /**
-   * Visibility is enforced only by `phone_calls` RLS + optional filter chips below.
-   * Do not duplicate a PostgREST `.or()` “scope” here: it can over-filter or interact badly
-   * with RLS; `/admin/phone` keeps its own scope for non–full-visibility staff.
-   */
 
   if (filter === "missed") {
     dbQuery = dbQuery.eq("status", "missed");
@@ -256,7 +267,7 @@ export default async function WorkspaceCallsPage(props: PageProps) {
 
   const { data: rows, error } = await dbQuery;
 
-  if (workspaceCallsDiagLogs()) {
+  if (debug) {
     let supabaseUrlHost = "(unset)";
     try {
       supabaseUrlHost = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").host || supabaseUrlHost;
@@ -269,19 +280,18 @@ export default async function WorkspaceCallsPage(props: PageProps) {
       JSON.stringify({
         phase: "query",
         supabaseHost: supabaseUrlHost,
-        authUserId: authUser?.id ?? null,
-        authMatchesStaffProfile: authUser?.id === staff.user_id,
+        authUserId,
+        authMatchesStaffProfile: authUserId === staff.user_id,
         staffProfileUserId: staff.user_id,
         staffRole: staff.role,
         staffIsActive: staff.is_active,
         hasFullCallVisibility: hasFullCallVisibility(staff),
-        workspaceAppOrScope: "off (RLS only)",
         filter,
         searchQueryLen: qRaw.length,
         searchActive,
-        probeRowCount: probeRes.data?.length ?? 0,
-        probeError: probeRes.error?.message ?? null,
-        probeErrorCode: probeRes.error?.code ?? null,
+        probeRowCount,
+        probeError,
+        probeErrorCode,
         mainRowCountBeforeEnrichment: rows?.length ?? 0,
         mainError: error?.message ?? null,
         mainErrorCode: error?.code ?? null,
@@ -291,9 +301,6 @@ export default async function WorkspaceCallsPage(props: PageProps) {
 
   if (error) {
     console.warn("[workspace/phone/calls]", error.message);
-  }
-  if (probeRes.error) {
-    console.warn("[workspace/phone/calls:probe]", probeRes.error.message);
   }
 
   const rawRows = (rows ?? []) as Record<string, unknown>[];
@@ -305,7 +312,7 @@ export default async function WorkspaceCallsPage(props: PageProps) {
       enriched.flatMap((c) => [c.contact_id, c.resolved_contact_id].filter((x): x is string => Boolean(x)))
     ),
   ];
-  const openByContactId = await loadCallLogContactOpenTargets(supabase, contactIds);
+  const openByContactId = contactIds.length > 0 ? await loadCallLogContactOpenTargets(supabase, contactIds) : {};
 
   const merged: CallInboxRow[] = enriched.map((e, i) => {
     const row = buildCallInboxRowFromEnriched(rawRows[i] ?? {}, e);
@@ -326,7 +333,7 @@ export default async function WorkspaceCallsPage(props: PageProps) {
   const filtered = searchActive ? merged.filter((r) => workspaceCallMatchesQuery(r, qLower)) : merged;
   const noSearchHits = searchActive && filtered.length === 0;
 
-  if (workspaceCallsDiagLogs()) {
+  if (debug) {
     console.info(
       "[workspace/phone/calls:diag]",
       JSON.stringify({
@@ -337,85 +344,8 @@ export default async function WorkspaceCallsPage(props: PageProps) {
     );
   }
 
-  const showCallsDebugPanel = showAdminCallLogLink;
-
   return (
     <div className="ws-phone-page-shell flex flex-1 flex-col px-4 pb-6 pt-5 sm:px-5">
-      {showCallsDebugPanel ? (
-        <aside
-          className="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] text-amber-950 shadow-sm"
-          aria-label="Call log diagnostics (staff only)"
-        >
-          <p className="font-bold uppercase tracking-wide text-amber-900">Calls debug (manager+)</p>
-          <dl className="mt-1 space-y-0.5 font-mono leading-snug">
-            <div>
-              <dt className="inline text-amber-800">auth user id: </dt>
-              <dd className="inline break-all">{authUser?.id ?? "—"}</dd>
-            </div>
-            <div>
-              <dt className="inline text-amber-800">staff profile: </dt>
-              <dd className="inline">found (page loaded)</dd>
-            </div>
-            <div>
-              <dt className="inline text-amber-800">staff role: </dt>
-              <dd className="inline">{staff.role}</dd>
-            </div>
-            <div>
-              <dt className="inline text-amber-800">hasFullCallVisibility (app): </dt>
-              <dd className="inline">{String(hasFullCallVisibility(staff))}</dd>
-            </div>
-            <div>
-              <dt className="inline text-amber-800">filter: </dt>
-              <dd className="inline">{filter}</dd>
-            </div>
-            <div>
-              <dt className="inline text-amber-800">search (q): </dt>
-              <dd className="inline break-all">{qRaw === "" ? "(empty)" : qRaw}</dd>
-            </div>
-            <div>
-              <dt className="inline text-amber-800">Supabase host: </dt>
-              <dd className="inline break-all">
-                {(() => {
-                  try {
-                    return new URL(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").host || "(unset)";
-                  } catch {
-                    return "(invalid url)";
-                  }
-                })()}
-              </dd>
-            </div>
-            <div>
-              <dt className="inline text-amber-800">probe rows (RLS only, no chip filter): </dt>
-              <dd className="inline">{probeRes.data?.length ?? 0}</dd>
-            </div>
-            <div>
-              <dt className="inline text-amber-800">probe error: </dt>
-              <dd className="inline break-all">{probeRes.error?.message ?? "—"}</dd>
-            </div>
-            <div>
-              <dt className="inline text-amber-800">base phone_calls rows (before enrichment): </dt>
-              <dd className="inline">{rows?.length ?? 0}</dd>
-            </div>
-            <div>
-              <dt className="inline text-amber-800">base query error: </dt>
-              <dd className="inline break-all">{error?.message ?? "—"}</dd>
-            </div>
-            <div>
-              <dt className="inline text-amber-800">after enrichment (merged): </dt>
-              <dd className="inline">{merged.length}</dd>
-            </div>
-            <div>
-              <dt className="inline text-amber-800">final rendered rows: </dt>
-              <dd className="inline">{filtered.length}</dd>
-            </div>
-          </dl>
-          <p className="mt-2 text-[10px] text-amber-900/90">
-            If probe and base are 0: check this Supabase project has migration{" "}
-            <code className="rounded bg-amber-100/80 px-0.5">20260512180000_phone_calls_select_shared_line_inbound</code>{" "}
-            applied and that your role passes RLS. If base &gt; 0 but final 0, search filter is excluding all rows.
-          </p>
-        </aside>
-      ) : null}
       <WorkspacePhonePageHeader
         title="Calls"
         actions={

@@ -86,7 +86,8 @@ export function WorkspaceCallInboxCard({ row }: Props) {
   const [saveOpen, setSaveOpen] = useState(false);
   const [saveE164, setSaveE164] = useState("");
   const [saveResetKey, setSaveResetKey] = useState(0);
-  const label = displayNameFromContactsRelation(row.contacts);
+  const label =
+    row.contacts != null ? displayNameFromContactsRelation(row.contacts) : null;
   const activityIsoForDisplay =
     typeof row.updated_at === "string" && row.updated_at.trim()
       ? row.updated_at
