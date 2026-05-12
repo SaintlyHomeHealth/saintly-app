@@ -13,7 +13,6 @@ import {
 } from "@/app/admin/phone/_lib/voice-ai-metadata";
 import type { PhoneCallRow } from "@/app/admin/phone/recent-calls-live";
 import { loadCallLogContactOpenTargets } from "@/lib/phone/call-log-contact-targets";
-import { applyPhoneCallLogScopeForStaff } from "@/lib/phone/phone-call-log-staff-scope";
 import { PHONE_CALL_LOG_LIST_SELECT_BASE } from "@/lib/phone/phone-call-log-select";
 import { staffMayAccessWorkspaceCallHistory } from "@/lib/phone/staff-phone-policy";
 import {
@@ -243,7 +242,11 @@ export default async function WorkspaceCallsPage(props: PageProps) {
     .order("updated_at", { ascending: false })
     .limit(limit);
 
-  dbQuery = applyPhoneCallLogScopeForStaff(dbQuery, staff, "workspace");
+  /**
+   * Visibility is enforced only by `phone_calls` RLS + optional filter chips below.
+   * Do not duplicate a PostgREST `.or()` “scope” here: it can over-filter or interact badly
+   * with RLS; `/admin/phone` keeps its own scope for non–full-visibility staff.
+   */
 
   if (filter === "missed") {
     dbQuery = dbQuery.eq("status", "missed");
@@ -272,6 +275,7 @@ export default async function WorkspaceCallsPage(props: PageProps) {
         staffRole: staff.role,
         staffIsActive: staff.is_active,
         hasFullCallVisibility: hasFullCallVisibility(staff),
+        workspaceAppOrScope: "off (RLS only)",
         filter,
         searchQueryLen: qRaw.length,
         searchActive,
@@ -333,8 +337,85 @@ export default async function WorkspaceCallsPage(props: PageProps) {
     );
   }
 
+  const showCallsDebugPanel = showAdminCallLogLink;
+
   return (
     <div className="ws-phone-page-shell flex flex-1 flex-col px-4 pb-6 pt-5 sm:px-5">
+      {showCallsDebugPanel ? (
+        <aside
+          className="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] text-amber-950 shadow-sm"
+          aria-label="Call log diagnostics (staff only)"
+        >
+          <p className="font-bold uppercase tracking-wide text-amber-900">Calls debug (manager+)</p>
+          <dl className="mt-1 space-y-0.5 font-mono leading-snug">
+            <div>
+              <dt className="inline text-amber-800">auth user id: </dt>
+              <dd className="inline break-all">{authUser?.id ?? "—"}</dd>
+            </div>
+            <div>
+              <dt className="inline text-amber-800">staff profile: </dt>
+              <dd className="inline">found (page loaded)</dd>
+            </div>
+            <div>
+              <dt className="inline text-amber-800">staff role: </dt>
+              <dd className="inline">{staff.role}</dd>
+            </div>
+            <div>
+              <dt className="inline text-amber-800">hasFullCallVisibility (app): </dt>
+              <dd className="inline">{String(hasFullCallVisibility(staff))}</dd>
+            </div>
+            <div>
+              <dt className="inline text-amber-800">filter: </dt>
+              <dd className="inline">{filter}</dd>
+            </div>
+            <div>
+              <dt className="inline text-amber-800">search (q): </dt>
+              <dd className="inline break-all">{qRaw === "" ? "(empty)" : qRaw}</dd>
+            </div>
+            <div>
+              <dt className="inline text-amber-800">Supabase host: </dt>
+              <dd className="inline break-all">
+                {(() => {
+                  try {
+                    return new URL(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").host || "(unset)";
+                  } catch {
+                    return "(invalid url)";
+                  }
+                })()}
+              </dd>
+            </div>
+            <div>
+              <dt className="inline text-amber-800">probe rows (RLS only, no chip filter): </dt>
+              <dd className="inline">{probeRes.data?.length ?? 0}</dd>
+            </div>
+            <div>
+              <dt className="inline text-amber-800">probe error: </dt>
+              <dd className="inline break-all">{probeRes.error?.message ?? "—"}</dd>
+            </div>
+            <div>
+              <dt className="inline text-amber-800">base phone_calls rows (before enrichment): </dt>
+              <dd className="inline">{rows?.length ?? 0}</dd>
+            </div>
+            <div>
+              <dt className="inline text-amber-800">base query error: </dt>
+              <dd className="inline break-all">{error?.message ?? "—"}</dd>
+            </div>
+            <div>
+              <dt className="inline text-amber-800">after enrichment (merged): </dt>
+              <dd className="inline">{merged.length}</dd>
+            </div>
+            <div>
+              <dt className="inline text-amber-800">final rendered rows: </dt>
+              <dd className="inline">{filtered.length}</dd>
+            </div>
+          </dl>
+          <p className="mt-2 text-[10px] text-amber-900/90">
+            If probe and base are 0: check this Supabase project has migration{" "}
+            <code className="rounded bg-amber-100/80 px-0.5">20260512180000_phone_calls_select_shared_line_inbound</code>{" "}
+            applied and that your role passes RLS. If base &gt; 0 but final 0, search filter is excluding all rows.
+          </p>
+        </aside>
+      ) : null}
       <WorkspacePhonePageHeader
         title="Calls"
         actions={
