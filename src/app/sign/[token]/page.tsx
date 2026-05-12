@@ -114,7 +114,7 @@ export default function PublicPdfSignPage() {
     <div className="mx-auto min-h-screen max-w-xl bg-slate-50 px-4 py-10">
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <h1 className="text-lg font-semibold text-slate-900">{data.documentLabel}</h1>
-        <p className="mt-1 text-xs text-slate-500">Sign in order. TIN/SSN is encrypted when saved.</p>
+        <p className="mt-1 text-xs text-slate-500">Sign in order. Sensitive tax IDs are encrypted when saved.</p>
 
         <form onSubmit={finalize} className="mt-6 space-y-4">
           {sortedFields.map((f) => {
@@ -145,8 +145,7 @@ export default function PublicPdfSignPage() {
                 </label>
               );
             }
-            const type =
-              f.fieldType === "date" ? "date" : f.fieldType === "tin" ? "password" : "text";
+            const type = f.fieldType === "date" ? "date" : "text";
             return (
               <label key={f.fieldKey} className="block text-sm text-slate-800">
                 <span className="text-xs font-semibold text-slate-600">{f.label}</span>
@@ -154,7 +153,7 @@ export default function PublicPdfSignPage() {
                   type={type}
                   className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
                   value={String(values[f.fieldKey] ?? "")}
-                  autoComplete={f.fieldType === "tin" ? "off" : undefined}
+                  autoComplete="off"
                   onChange={(e) => setValues((v) => ({ ...v, [f.fieldKey]: e.target.value }))}
                 />
               </label>

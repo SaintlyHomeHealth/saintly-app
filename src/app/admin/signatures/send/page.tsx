@@ -41,7 +41,10 @@ export default async function AdminSendPacketPage({
             </div>
           }
         >
-          <SendPacketForm initialTemplateId={initialTemplateId} />
+        <SendPacketForm
+          initialTemplateId={initialTemplateId}
+          senderDisplayName={staff.full_name?.trim() || staff.email?.trim() || "Saintly representative"}
+        />
         </Suspense>
       </main>
     </div>

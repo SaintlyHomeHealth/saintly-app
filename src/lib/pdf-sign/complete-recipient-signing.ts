@@ -5,7 +5,11 @@ import { insertAuditLogTrusted } from "@/lib/audit-log";
 import { PDF_SIGN_BUCKETS } from "@/lib/pdf-sign/constants";
 import { encryptSensitiveField } from "@/lib/pdf-sign/field-crypto";
 import { logSignatureEvent } from "@/lib/pdf-sign/log-event";
+import {
+  signerPartyFromField,
+} from "@/lib/pdf-sign/normalize";
 import { renderSignedPdf, type RenderFieldInput } from "@/lib/pdf-sign/render-pdf";
+import { parsePdfSignSenderState } from "@/lib/pdf-sign/sender-state";
 import { hashSignToken } from "@/lib/pdf-sign/token";
 
 function isOptionalField(options: unknown): boolean {
@@ -13,8 +17,22 @@ function isOptionalField(options: unknown): boolean {
   return (options as { optional?: boolean }).optional === true;
 }
 
+function fieldSkipsRequirement(f: {
+  required?: boolean | null;
+  options: unknown;
+}): boolean {
+  if (f.required === false) return true;
+  return isOptionalField(f.options);
+}
+
 function publicPacketDocumentPath(packetId: string, docId: string) {
   return `packets/${packetId}/doc-${docId}.pdf`;
+}
+
+async function fetchStorageObjectBytes(bucket: string, path: string): Promise<Uint8Array | null> {
+  const { data: file, error } = await supabaseAdmin.storage.from(bucket).download(path);
+  if (error || !file) return null;
+  return new Uint8Array(await file.arrayBuffer());
 }
 
 export async function attachCompletedPdfToApplicant(input: {
@@ -69,10 +87,12 @@ export async function saveRecipientFieldDraft(input: {
     return { ok: false, error: "This link has expired.", status: 410 };
   }
 
+  const recipientPartyFields = fields.filter((f) => signerPartyFromField(f) === "recipient");
+
   await persistFieldValues({
     recipientId: recipient.id,
     packetDocumentId: packetDocument.id,
-    templateFields: fields,
+    templateFields: recipientPartyFields,
     values: input.values,
   });
 
@@ -96,6 +116,24 @@ export async function saveRecipientFieldDraft(input: {
   return { ok: true };
 }
 
+export type RecipientTemplateFieldRow = {
+  id: string;
+  field_key: string;
+  label: string;
+  field_type: string;
+  signer_role?: string | null;
+  pdf_acroform_field_name: string | null;
+  page_index: number;
+  x: number | null;
+  y: number | null;
+  width: number | null;
+  height: number | null;
+  font_size: number;
+  required: boolean | null;
+  options: unknown;
+  required_order: number;
+};
+
 type LoadedRecipientContext = {
   recipient: {
     id: string;
@@ -115,6 +153,7 @@ type LoadedRecipientContext = {
     metadata: Record<string, unknown>;
     i9_case_id: string | null;
     i9_section: string | null;
+    sender_state: unknown;
   };
   packetDocument: { id: string; template_id: string; template_version_snapshot: number };
   template: {
@@ -124,19 +163,7 @@ type LoadedRecipientContext = {
     storage_object_path: string;
     version: number;
   };
-  fields: Array<{
-    id: string;
-    field_key: string;
-    label: string;
-    field_type: string;
-    pdf_acroform_field_name: string | null;
-    page_index: number;
-    x: number | null;
-    y: number | null;
-    font_size: number;
-    options: unknown;
-    required_order: number;
-  }>;
+  fields: RecipientTemplateFieldRow[];
 };
 
 export async function loadRecipientContextByTokenHash(
@@ -152,7 +179,7 @@ export async function loadRecipientContextByTokenHash(
   const { data: packet, error: pErr } = await supabaseAdmin
     .from("signature_packets")
     .select(
-      "id, status, primary_document_type, voided_at, crm_entity_type, crm_entity_id, metadata, i9_case_id, i9_section"
+      "id, status, primary_document_type, voided_at, crm_entity_type, crm_entity_id, metadata, i9_case_id, i9_section, sender_state"
     )
     .eq("id", recipient.packet_id)
     .maybeSingle();
@@ -177,7 +204,7 @@ export async function loadRecipientContextByTokenHash(
   const { data: fields, error: fErr } = await supabaseAdmin
     .from("signature_template_fields")
     .select(
-      "id, field_key, label, field_type, pdf_acroform_field_name, page_index, x, y, font_size, options, required_order"
+      "id, field_key, label, field_type, signer_role, pdf_acroform_field_name, page_index, x, y, width, height, font_size, options, required_order, required"
     )
     .eq("template_id", template.id)
     .order("required_order", { ascending: true });
@@ -188,6 +215,7 @@ export async function loadRecipientContextByTokenHash(
     packet: {
       ...packet,
       metadata: (packet.metadata as Record<string, unknown>) || {},
+      sender_state: packet.sender_state,
     },
     packetDocument,
     template,
@@ -198,7 +226,7 @@ export async function loadRecipientContextByTokenHash(
 async function persistFieldValues(input: {
   recipientId: string;
   packetDocumentId: string;
-  templateFields: LoadedRecipientContext["fields"];
+  templateFields: RecipientTemplateFieldRow[];
   values: Record<string, string | boolean>;
 }) {
   for (const f of input.templateFields) {
@@ -256,12 +284,12 @@ async function persistFieldValues(input: {
 }
 
 function validateRequired(
-  fields: LoadedRecipientContext["fields"],
+  fields: RecipientTemplateFieldRow[],
   values: Record<string, string | boolean>,
   hasTin: (key: string) => boolean
 ): string | null {
   for (const f of fields) {
-    if (isOptionalField(f.options)) continue;
+    if (fieldSkipsRequirement(f)) continue;
     const v = values[f.field_key];
     if (f.field_type === "tin") {
       if (!hasTin(f.field_key) && (v == null || String(v).replace(/\D/g, "").length < 9)) {
@@ -300,10 +328,12 @@ export async function finalizeRecipientSigning(input: {
   }
   if (recipient.signed_at) return { ok: false, error: "Already signed.", status: 409 };
 
+  const recipientPartyFields = fields.filter((f) => signerPartyFromField(f) === "recipient");
+
   await persistFieldValues({
     recipientId: recipient.id,
     packetDocumentId: packetDocument.id,
-    templateFields: fields,
+    templateFields: recipientPartyFields,
     values: input.values,
   });
 
@@ -324,7 +354,7 @@ export async function finalizeRecipientSigning(input: {
   );
 
   const merged: Record<string, string | boolean> = { ...input.values };
-  for (const f of fields) {
+  for (const f of recipientPartyFields) {
     const existing = byFieldId.get(f.id);
     if (existing != null && !(f.field_key in merged)) {
       if (f.field_type === "checkbox") {
@@ -335,10 +365,10 @@ export async function finalizeRecipientSigning(input: {
     }
   }
 
-  const reqErr = validateRequired(fields, merged, (k) => tinKeys.has(k));
+  const reqErr = validateRequired(recipientPartyFields, merged, (k) => tinKeys.has(k));
   if (reqErr) return { ok: false, error: reqErr, status: 400 };
 
-  const anyCertField = fields.find(
+  const anyCertField = recipientPartyFields.find(
     (f) =>
       f.field_type === "checkbox" &&
       (f.field_key.toLowerCase().includes("cert") ||
@@ -363,24 +393,65 @@ export async function finalizeRecipientSigning(input: {
     .eq("recipient_id", recipient.id);
   const tinCipherByKey = new Map((sensFull || []).map((r) => [r.field_key, r.ciphertext]));
 
-  const renderFields: RenderFieldInput[] = fields.map((f) => ({
-    field_key: f.field_key,
-    field_type: f.field_type,
-    pdf_acroform_field_name: f.pdf_acroform_field_name,
-    page_index: f.page_index,
-    x: f.x,
-    y: f.y,
-    font_size: f.font_size,
-    text_value:
-      f.field_type === "tin"
-        ? null
-        : typeof merged[f.field_key] === "boolean"
-          ? merged[f.field_key]
-            ? "true"
-            : "false"
-          : String(merged[f.field_key] ?? "").trim(),
-    tin_ciphertext: f.field_type === "tin" ? tinCipherByKey.get(f.field_key) ?? null : null,
-  }));
+  const senderParsedNull = parsePdfSignSenderState(packet.sender_state);
+  const senderVals = senderParsedNull?.values ?? {};
+
+  const signaturePaths = senderParsedNull?.signaturePaths ?? {};
+  const pngByFieldKey = new Map<string, Uint8Array>();
+  await Promise.all(
+    Object.entries(signaturePaths).map(async ([fk, meta]) => {
+      const loadedPng = await fetchStorageObjectBytes(meta.bucket, meta.path);
+      if (loadedPng && loadedPng.length > 0) pngByFieldKey.set(fk, loadedPng);
+    })
+  );
+
+  function renderMergeText(f: RecipientTemplateFieldRow, party: "recipient" | "sender"): string | null {
+    if (f.field_type === "tin") {
+      if (party === "recipient") {
+        return null;
+      }
+      return String(senderVals[f.field_key] ?? "").trim() || null;
+    }
+    if (f.field_type === "checkbox") {
+      const raw =
+        party === "recipient" ? merged[f.field_key] : senderVals[f.field_key];
+      const b = raw === true || raw === "true" || raw === "yes";
+      return b ? "true" : "false";
+    }
+    const s =
+      party === "recipient"
+        ? String(merged[f.field_key] ?? "").trim()
+        : String(senderVals[f.field_key] ?? "").trim();
+    return s || null;
+  }
+
+  const renderFields: RenderFieldInput[] = fields.map((f) => {
+    const party = signerPartyFromField(f);
+    const sigPng =
+      party === "sender" &&
+      (f.field_type === "signature" || f.field_type === "initials") &&
+      pngByFieldKey.get(f.field_key)
+        ? pngByFieldKey.get(f.field_key) ?? null
+        : null;
+
+    const textVal = renderMergeText(f, party);
+
+    return {
+      field_key: f.field_key,
+      field_type: f.field_type,
+      pdf_acroform_field_name: f.pdf_acroform_field_name,
+      page_index: f.page_index,
+      x: f.x,
+      y: f.y,
+      width: f.width,
+      height: f.height,
+      font_size: f.font_size,
+      text_value: f.field_type === "tin" && party === "recipient" ? null : textVal,
+      tin_ciphertext:
+        f.field_type === "tin" && party === "recipient" ? tinCipherByKey.get(f.field_key) ?? null : null,
+      signature_png_bytes: sigPng,
+    };
+  });
 
   const { data: templateFile, error: dlErr } = await supabaseAdmin.storage
     .from(template.storage_bucket || PDF_SIGN_BUCKETS.templates)

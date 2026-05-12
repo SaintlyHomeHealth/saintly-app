@@ -2,10 +2,14 @@
  * Shared PDF Sign constants and types. Safe for server and client bundles (no secrets).
  */
 
+import { normalizeSignerRole } from "@/lib/pdf-sign/normalize";
+
 export const PDF_SIGN_BUCKETS = {
   templates: "signature-templates",
   completed: "signature-completed",
   i9: "i9-documents",
+  /** Drawn PNG signatures from admin + recipient pads (Saintly PDF Sign phase 2). */
+  images: "signature-images",
 } as const;
 
 /** Display / auto-fill branding for sender-side fields. */
@@ -13,19 +17,12 @@ export const PDF_SIGN_COMPANY_NAME = "Saintly Home Health";
 
 export type PdfSignDocumentType = "generic_contract" | "w9" | "i9";
 
-/** Template editor + send flow: who completes a field in the 3-bucket model. */
-export type PdfSignAssignedTo = "recipient" | "sender" | "internal";
+/** Recipient vs Saintly-side buckets (legacy admin/internal/group roles fold into sender). */
+export type PdfSignAssignedTo = "recipient" | "sender";
 
-/**
- * Maps DB/editor `signer_role` to assigned-to bucket. Legacy CRM roles normalize to recipient
- * when they represent the external signer; company/admin normalize to sender/internal.
- */
+/** @deprecated Prefer `normalizeSignerRole` from `@/lib/pdf-sign/normalize` for clearer naming. */
 export function assignedToFromSignerRole(role: string): PdfSignAssignedTo {
-  const r = String(role ?? "").trim().toLowerCase();
-  if (!r) return "recipient";
-  if (r === "sender" || r === "company") return "sender";
-  if (r === "internal" || r === "admin") return "internal";
-  return "recipient";
+  return normalizeSignerRole(role);
 }
 
 export type PdfSignPacketStatus =
@@ -44,6 +41,7 @@ export type PdfSignFieldType =
   | "date"
   | "checkbox"
   | "signature"
+  | "name"
   | "tin"
   | "select"
   | "initials"

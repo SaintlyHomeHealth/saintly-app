@@ -8,6 +8,7 @@ import {
   markRecipientViewed,
   saveRecipientFieldDraft,
 } from "@/lib/pdf-sign/complete-recipient-signing";
+import { fieldTypeTreatAsText, signerPartyFromField } from "@/lib/pdf-sign/normalize";
 import { hashSignToken } from "@/lib/pdf-sign/token";
 
 function clientIp(req: Request) {
@@ -54,7 +55,9 @@ export async function GET(
   const sensByKey = new Map((sens || []).map((r) => [r.field_key, r.last4]));
   const valueByFieldId = new Map((values || []).map((r) => [r.template_field_id, r]));
 
-  const fieldPayload = fields.map((f) => {
+  const signerFields = fields.filter((f) => signerPartyFromField(f) === "recipient");
+
+  const fieldPayload = signerFields.map((f) => {
     const stored = valueByFieldId.get(f.id);
     let value: string | boolean | null =
       f.field_type === "checkbox"
@@ -64,10 +67,11 @@ export async function GET(
       const last4 = sensByKey.get(f.field_key);
       value = last4 ? `***-**-${last4}` : "";
     }
+    const clientFieldType = fieldTypeTreatAsText(f.field_type) ? "text" : f.field_type;
     return {
       fieldKey: f.field_key,
       label: f.label,
-      fieldType: f.field_type,
+      fieldType: clientFieldType,
       optional: Boolean(
         f.options && typeof f.options === "object" && (f.options as { optional?: boolean }).optional
       ),

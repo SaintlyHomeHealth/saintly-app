@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 
+import { normalizeSignerRole } from "@/lib/pdf-sign/normalize";
+
 import { supabaseAdmin } from "@/lib/admin";
 import { getAuthenticatedUser } from "@/lib/supabase/server";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
@@ -13,6 +15,7 @@ const ALLOWED_FIELD_TYPES = new Set([
   "signature",
   "tin",
   "select",
+  "name",
 ]);
 
 type FieldPayload = {
@@ -64,7 +67,7 @@ export async function GET(
   const { data: fieldRows, error: fErr } = await supabaseAdmin
     .from("signature_template_fields")
     .select(
-      "id, field_key, label, field_type, pdf_acroform_field_name, page_index, x, y, width, height, font_size, required_order, options"
+      "id, field_key, label, field_type, signer_role, pdf_acroform_field_name, page_index, x, y, width, height, font_size, required_order, required, options"
     )
     .eq("template_id", templateId)
     .order("required_order", { ascending: true });
@@ -82,16 +85,17 @@ export async function GET(
 
   const fields = (fieldRows || []).map((r) => {
     const opts = (r.options || {}) as Record<string, unknown>;
-    const optional = opts.optional === true;
+    const roleFromOpts = typeof opts.signer_role === "string" ? opts.signer_role : null;
+    const canonRole = normalizeSignerRole(roleFromOpts || r.signer_role || "recipient");
+    const optional =
+      opts.optional === true ||
+      (typeof r.required === "boolean" && r.required === false);
     return {
       id: r.id,
       field_key: r.field_key,
       label: r.label,
       field_type: r.field_type,
-      signer_role:
-        typeof opts.signer_role === "string"
-          ? opts.signer_role
-          : ("recipient" as string),
+      signer_role: canonRole,
       required: !optional,
       required_order: r.required_order ?? 0,
       page_index: r.page_index ?? 0,
@@ -234,9 +238,10 @@ export async function PATCH(
     const baseOptions = { ...(f.options || {}) };
     const required = f.required !== false;
     baseOptions.optional = !required;
-    if (typeof baseOptions.signer_role !== "string") {
-      baseOptions.signer_role = "recipient";
-    }
+    const canonSignerRole = normalizeSignerRole(
+      typeof baseOptions.signer_role === "string" ? baseOptions.signer_role : undefined
+    );
+    baseOptions.signer_role = canonSignerRole;
     baseOptions.page_width = f.page_width;
     baseOptions.page_height = f.page_height;
     if (f.prefill_value != null) {
@@ -248,6 +253,7 @@ export async function PATCH(
       field_key: f.field_key.trim(),
       label: (f.label || "").trim() || f.field_key.trim(),
       field_type: f.field_type,
+      signer_role: canonSignerRole,
       pdf_acroform_field_name: f.pdf_acroform_field_name?.trim() || null,
       page_index: f.page_index,
       x: f.x,

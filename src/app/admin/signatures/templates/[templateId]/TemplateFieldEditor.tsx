@@ -15,8 +15,17 @@ import {
 } from "react";
 
 import { loadPdfFromUrl, type RenderedPdfPage } from "@/lib/pdf-sign/pdfjs-browser";
+import { normalizeSignerRole } from "@/lib/pdf-sign/normalize";
 
-type PdfSignFieldType = "text" | "textarea" | "date" | "checkbox" | "signature" | "tin" | "select";
+type PdfSignFieldType =
+  | "text"
+  | "textarea"
+  | "date"
+  | "checkbox"
+  | "signature"
+  | "tin"
+  | "select"
+  | "name";
 
 /** Stored under `options.signer_role` (API persists any string; editor lists canonical + legacy). */
 type TemplateSignerRole = string;
@@ -94,8 +103,7 @@ type FieldPreset =
   | "checkbox"
   | "signature"
   | "number_only"
-  | "select"
-  | "tin";
+  | "name";
 
 type PresetSpec = {
   label: string;
@@ -118,8 +126,8 @@ const FIELD_PRESETS: Record<FieldPreset, PresetSpec> = {
     fontSize: 11,
   },
   textarea: {
-    label: "Text field",
-    keyBase: "text_field",
+    label: "Text area",
+    keyBase: "textarea_field",
     fieldType: "textarea",
     validationKind: null,
     width: 280,
@@ -162,58 +170,46 @@ const FIELD_PRESETS: Record<FieldPreset, PresetSpec> = {
     height: 22,
     fontSize: 11,
   },
-  select: {
-    label: "Select",
-    keyBase: "select_field",
-    fieldType: "select",
+  name: {
+    label: "Name",
+    keyBase: "name_field",
+    fieldType: "name",
     validationKind: null,
-    width: 180,
+    width: 220,
     height: 24,
-    fontSize: 11,
-  },
-  tin: {
-    label: "TIN",
-    keyBase: "tin_field",
-    fieldType: "tin",
-    validationKind: null,
-    width: 160,
-    height: 22,
     fontSize: 11,
   },
 };
 
 const PRESET_ORDER: FieldPreset[] = [
+  "signature",
   "text",
   "textarea",
+  "name",
   "date",
-  "checkbox",
-  "signature",
   "number_only",
-  "select",
-  "tin",
+  "checkbox",
 ];
 
-/** Compact toolbar: common types first with friendly labels (API presets unchanged). */
+/** Compact toolbar presets */
 const MINI_TOOLBAR_PRESET_ORDER: FieldPreset[] = [
   "signature",
   "text",
   "textarea",
+  "name",
   "date",
   "number_only",
   "checkbox",
-  "select",
-  "tin",
 ];
 
 const MINI_TOOLBAR_PRESET_LABELS: Record<FieldPreset, string> = {
   signature: "Signature",
   text: "Text field",
   textarea: "Text area",
+  name: "Name",
   date: "Date",
   checkbox: "Checkbox",
   number_only: "Number only",
-  select: "Select",
-  tin: "TIN",
 };
 
 const PDF_SIGN_DOCUMENT_TYPE_SUGGESTIONS: { value: string; label: string }[] = [
@@ -225,13 +221,6 @@ const PDF_SIGN_DOCUMENT_TYPE_SUGGESTIONS: { value: string; label: string }[] = [
 const ASSIGNED_TO_OPTIONS: { value: string; label: string }[] = [
   { value: "recipient", label: "Recipient / signer" },
   { value: "sender", label: "Sender / Saintly" },
-  { value: "internal", label: "Internal" },
-  { value: "employee", label: "Employee (legacy)" },
-  { value: "contractor", label: "Contractor (legacy)" },
-  { value: "company", label: "Company (legacy)" },
-  { value: "admin", label: "Admin / prefilled" },
-  { value: "recruit", label: "Recruit (legacy)" },
-  { value: "lead", label: "Lead (legacy)" },
 ];
 
 const AUTOFILL_OPTIONS: { value: PdfSignAutofillSource; label: string }[] = [
@@ -258,9 +247,14 @@ function isDefaultKey(key: string): boolean {
 
 function presetForField(f: EditorField): FieldPreset {
   if (f.validation_kind === "number_only") return "number_only";
-  if (f.field_type === "tin") return "tin";
+  if (f.field_type === "name") return "name";
+  if (f.field_type === "tin" || f.field_type === "select") return "text";
   if (f.field_type === "text") return "text";
-  return f.field_type as FieldPreset;
+  if (f.field_type === "textarea") return "textarea";
+  if (f.field_type === "date") return "date";
+  if (f.field_type === "checkbox") return "checkbox";
+  if (f.field_type === "signature") return "signature";
+  return "text";
 }
 
 function presetLabel(p: FieldPreset): string {
@@ -280,36 +274,15 @@ function presetShortLabel(p: FieldPreset): string {
       return "SIG";
     case "number_only":
       return "NUM";
-    case "select":
-      return "SEL";
-    case "tin":
-      return "TIN";
+    case "name":
+      return "NAME";
   }
 }
 
 function rolePill(role: string): string {
-  switch (role.toLowerCase()) {
-    case "recipient":
-      return "SIGNER";
-    case "sender":
-      return "SND";
-    case "internal":
-      return "INT";
-    case "employee":
-      return "EMPL";
-    case "contractor":
-      return "CTR";
-    case "company":
-      return "CO";
-    case "admin":
-      return "ADM";
-    case "recruit":
-      return "REC";
-    case "lead":
-      return "LEAD";
-    default:
-      return role ? role.slice(0, 4).toUpperCase() : "ROLE";
-  }
+  const r = normalizeSignerRole(role || undefined);
+  if (r === "recipient") return "SIGN";
+  return "SND";
 }
 
 function overlayClasses(isSuggestion: boolean, isSelected: boolean): string {
@@ -340,11 +313,6 @@ function uniqueKey(base: string, used: Set<string>): string {
   return `${safe}_${i}`;
 }
 
-function normalizeSignerRole(v: string | null | undefined): string {
-  const x = (v || "").trim();
-  return x || "recipient";
-}
-
 function suggestAutofill(params: {
   label: string;
   fieldKey: string;
@@ -352,16 +320,19 @@ function suggestAutofill(params: {
   role: string;
 }): PdfSignAutofillSource {
   const { label, fieldKey, fieldType, role } = params;
-  const r = role.toLowerCase();
+  const party = normalizeSignerRole(role || undefined);
   const L = `${label} ${fieldKey}`.toLowerCase();
   if (fieldType === "date") return "today_date";
   if (fieldType === "tin") return "none";
   if (fieldType === "signature" || fieldType === "checkbox") return "none";
+  if (fieldType === "name") {
+    return party === "recipient" ? "recipient_name" : "sender_name";
+  }
   if (L.includes("company") || L.includes("business")) return "company_name";
-  if (L.includes("email")) return r === "recipient" ? "recipient_email" : "none";
+  if (L.includes("email")) return party === "recipient" ? "recipient_email" : "none";
   if (L.includes("phone") || L.includes("mobile")) return "recipient_phone";
   if (L.includes("name") || L.includes("print")) {
-    return r === "recipient" || r === "employee" ? "recipient_name" : "sender_name";
+    return party === "recipient" ? "recipient_name" : "sender_name";
   }
   return "none";
 }
@@ -413,22 +384,16 @@ function AssignedToRoleSelect({
   id?: string;
   "aria-label"?: string;
 }) {
-  const options = useMemo(() => {
-    const base = [...ASSIGNED_TO_OPTIONS];
-    if (value && !base.some((o) => o.value === value)) {
-      base.push({ value, label: `${value} (stored)` });
-    }
-    return base;
-  }, [value]);
+  const canon = normalizeSignerRole(value || undefined);
   return (
     <select
       id={id}
       aria-label={ariaLabel}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
+      value={canon}
+      onChange={(e) => onChange(normalizeSignerRole(e.target.value))}
       className={selectClassName}
     >
-      {options.map((opt) => (
+      {ASSIGNED_TO_OPTIONS.map((opt) => (
         <option key={opt.value} value={opt.value}>
           {opt.label}
         </option>
@@ -968,7 +933,7 @@ export function TemplateFieldEditor({ templateId }: { templateId: string }) {
           ...(f.autofill_source && f.autofill_source !== "none"
             ? { autofill_source: f.autofill_source }
             : {}),
-          signer_role: f.signer_role,
+          signer_role: normalizeSignerRole(f.signer_role),
           autofit_text: f.autofit_text,
           signer_editable: f.signer_editable,
         },
@@ -1016,8 +981,6 @@ export function TemplateFieldEditor({ templateId }: { templateId: string }) {
         const ft = (r.field_type as PdfSignFieldType) || "text";
         const pageIndex = typeof r.page_index === "number" ? r.page_index : 0;
         const pdfSize = pageMap.get(pageIndex);
-        const presetKey: FieldPreset = ft === "tin" ? "tin" : (ft as FieldPreset);
-        const spec = FIELD_PRESETS[presetKey] ?? FIELD_PRESETS.text;
         const optionsRaw =
           (r.options as {
             validation_kind?: string;
@@ -1026,7 +989,40 @@ export function TemplateFieldEditor({ templateId }: { templateId: string }) {
             signer_editable?: boolean;
             signer_role?: string;
           } | undefined) || {};
-        const role = normalizeSignerRole(optionsRaw.signer_role);
+        const vk =
+          typeof optionsRaw.validation_kind === "string" && optionsRaw.validation_kind
+            ? optionsRaw.validation_kind
+            : null;
+        const roleSource =
+          typeof (r as { signer_role?: string }).signer_role === "string"
+            ? (r as { signer_role: string }).signer_role
+            : optionsRaw.signer_role;
+        const role = normalizeSignerRole(roleSource);
+        const presetKey = presetForField({
+          id: "",
+          field_key: "",
+          label: "",
+          field_type: ft,
+          validation_kind: vk,
+          autofill_source: "none",
+          signer_role: role,
+          required: true,
+          page_index: 0,
+          page_width: 612,
+          page_height: 792,
+          x: 0,
+          y: 0,
+          width: FIELD_PRESETS.text.width,
+          height: FIELD_PRESETS.text.height,
+          font_size: FIELD_PRESETS.text.fontSize,
+          pdf_acroform_field_name: null,
+          prefill_value: null,
+          required_order: 0,
+          is_suggestion: false,
+          autofit_text: true,
+          signer_editable: true,
+        } as EditorField);
+        const spec = FIELD_PRESETS[presetKey] ?? FIELD_PRESETS.text;
         return {
           id: genId(),
           field_key: String(r.field_key || `field_${i}`),
@@ -1676,7 +1672,7 @@ function FieldDetail({
               className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 font-mono text-[11px]"
             />
           </label>
-          {field.signer_role === "admin" ? (
+          {normalizeSignerRole(field.signer_role) === "sender" ? (
             <label className="block text-slate-600">
               Prefill value (optional)
               <input
@@ -1841,7 +1837,12 @@ function mapStoredToEditor(f: LoadedTemplate["fields"][number]): EditorField {
     signer_editable?: boolean;
     signer_role?: string;
   };
-  const fallback = FIELD_PRESETS[ft === "tin" ? "tin" : (ft as FieldPreset)] ?? FIELD_PRESETS.text;
+  const fallbackPreset = presetForField({
+    field_type: ft,
+    validation_kind:
+      typeof opts.validation_kind === "string" && opts.validation_kind ? opts.validation_kind : null,
+  } as EditorField);
+  const fallback = FIELD_PRESETS[fallbackPreset] ?? FIELD_PRESETS.text;
   const validAf: PdfSignAutofillSource =
     AUTOFILL_OPTIONS.some((o) => o.value === opts.autofill_source) && opts.autofill_source
       ? (opts.autofill_source as PdfSignAutofillSource)
@@ -1897,7 +1898,7 @@ function toAdvancedJson(fields: EditorField[]) {
       ...(f.autofill_source && f.autofill_source !== "none"
         ? { autofill_source: f.autofill_source }
         : {}),
-      signer_role: f.signer_role,
+      signer_role: normalizeSignerRole(f.signer_role),
       autofit_text: f.autofit_text,
       signer_editable: f.signer_editable,
     },

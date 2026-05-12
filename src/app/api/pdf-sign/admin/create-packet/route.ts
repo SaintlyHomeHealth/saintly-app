@@ -4,14 +4,24 @@ import { insertAuditLogTrusted } from "@/lib/audit-log";
 import { sendPdfSignLinkEmail } from "@/lib/email/send-pdf-sign-email";
 import { buildPdfSignRecipientUrl } from "@/lib/pdf-sign/app-url";
 import { createRawSignToken, hashSignToken } from "@/lib/pdf-sign/token";
+import { senderAssignableTemplateFields, validateSenderPrefillAgainstTemplate } from "@/lib/pdf-sign/validate-sender-prefill";
+import { uploadPdfSignSenderSignaturePng } from "@/lib/pdf-sign/upload-sender-signature-png";
 import { supabaseAdmin } from "@/lib/admin";
 import { getAuthenticatedUser } from "@/lib/supabase/server";
 import { getStaffProfile, isAdminOrHigher, isManagerOrHigher } from "@/lib/staff-profile";
+
+type RecipientInput = {
+  email?: string;
+  name?: string;
+  phone?: string;
+};
 
 type Body = {
   templateId?: string;
   crmEntityType?: string;
   crmEntityId?: string;
+  /** Primary + optional additional contacts (only the first receives the signing link today). */
+  recipients?: RecipientInput[];
   recipientEmail?: string;
   recipientName?: string;
   recipientPhone?: string;
@@ -19,12 +29,29 @@ type Body = {
   sendEmail?: boolean;
   marksIcAgreement?: boolean;
   i9ReviewMethod?: string | null;
-  /** Stored in packet metadata JSON (no new DB columns). */
   message?: string;
   smsRequested?: boolean;
-  /** Draft staff/sender prefill; merged into metadata.sender_state until a dedicated column exists. */
+  /** @deprecated Legacy blob; prefer senderValues + senderSignatureImages. */
   senderState?: Record<string, unknown> | null;
+  senderValues?: Record<string, string | boolean>;
+  senderSignatureImages?: Record<string, string>;
 };
+
+function normalizeRecipientRows(body: Body): RecipientInput[] {
+  if (Array.isArray(body.recipients) && body.recipients.length > 0) {
+    return body.recipients;
+  }
+  if (body.recipientEmail?.trim()) {
+    return [
+      {
+        email: body.recipientEmail,
+        name: body.recipientName,
+        phone: body.recipientPhone,
+      },
+    ];
+  }
+  return [];
+}
 
 export async function POST(request: Request) {
   const user = await getAuthenticatedUser();
@@ -46,15 +73,57 @@ export async function POST(request: Request) {
   const templateId = body.templateId?.trim();
   const crmEntityType = body.crmEntityType?.trim();
   const crmEntityId = body.crmEntityId?.trim();
-  const recipientEmail = body.recipientEmail?.trim().toLowerCase();
-  const recipientName = body.recipientName?.trim() || null;
-  const ttlDays = typeof body.ttlDays === "number" && body.ttlDays > 0 ? Math.min(body.ttlDays, 90) : 14;
+  const recipientRowsRaw = normalizeRecipientRows(body);
+
+  const ttlDays =
+    typeof body.ttlDays === "number" && body.ttlDays > 0 ? Math.min(body.ttlDays, 90) : 14;
   const sendEmail = body.sendEmail === true;
   const marksIcAgreement = body.marksIcAgreement === true;
 
-  if (!templateId || !crmEntityType || !crmEntityId || !recipientEmail || !recipientEmail.includes("@")) {
-    return NextResponse.json({ error: "Missing template, CRM entity, or recipient email." }, { status: 400 });
+  const senderValuesIn = {
+    ...(typeof body.senderState === "object" &&
+    body.senderState &&
+    "values" in body.senderState &&
+    body.senderState.values &&
+    typeof body.senderState.values === "object" &&
+    !Array.isArray(body.senderState.values)
+      ? (body.senderState.values as Record<string, string | boolean>)
+      : {}),
+    ...(body.senderValues ?? {}),
+  } as Record<string, string | boolean>;
+  const senderImagesIn = (body.senderSignatureImages || {}) as Record<string, string>;
+
+  if (
+    !templateId ||
+    !crmEntityType ||
+    !crmEntityId ||
+    recipientRowsRaw.length === 0 ||
+    !recipientRowsRaw[0]?.email?.trim()
+  ) {
+    return NextResponse.json(
+      { error: "Missing template, CRM entity, or primary recipient email." },
+      { status: 400 }
+    );
   }
+
+  const recipientRows = recipientRowsRaw
+    .map((r) => ({
+      email: r.email?.trim().toLowerCase() || "",
+      name: r.name?.trim() || "",
+      phone: r.phone?.trim() || "",
+    }))
+    .filter((r) => r.email.includes("@"));
+
+  if (recipientRows.length === 0) {
+    return NextResponse.json({ error: "At least one valid recipient email is required." }, { status: 400 });
+  }
+
+  const primary = recipientRows[0];
+  const extras = recipientRows.slice(1);
+
+  const recipientEmail = primary.email;
+  const recipientName = primary.name || null;
+  const primaryPhone = primary.phone?.trim() || null;
 
   if (!["applicant", "lead", "contact", "vendor"].includes(crmEntityType)) {
     return NextResponse.json({ error: "Invalid CRM entity type." }, { status: 400 });
@@ -89,6 +158,35 @@ export async function POST(request: Request) {
     }
   }
 
+  const { data: templateFieldsRows } = await supabaseAdmin
+    .from("signature_template_fields")
+    .select("field_key, label, field_type, signer_role, required, options")
+    .eq("template_id", template.id);
+  const allFields = templateFieldsRows || [];
+  if (allFields.length === 0) {
+    return NextResponse.json(
+      { error: "This template has no saved fields yet. Edit fields before sending." },
+      { status: 400 }
+    );
+  }
+  const templateFieldModels = allFields.map((f) => ({
+    field_key: f.field_key,
+    label: f.label,
+    field_type: f.field_type,
+    signer_role: f.signer_role,
+    options: f.options,
+    required: f.required,
+  }));
+  const prefillErr = validateSenderPrefillAgainstTemplate({
+    templateFields: templateFieldModels,
+    senderValues: senderValuesIn,
+    senderSignatureImages: senderImagesIn,
+  });
+  if (prefillErr) {
+    return NextResponse.json({ error: prefillErr }, { status: 400 });
+  }
+  const senderAssignable = senderAssignableTemplateFields(templateFieldModels);
+
   let i9CaseId: string | null = null;
   if (template.document_type === "i9") {
     const { data: i9Row, error: i9Err } = await supabaseAdmin
@@ -112,10 +210,13 @@ export async function POST(request: Request) {
   const msg = typeof body.message === "string" ? body.message.trim() : "";
   if (msg) metadata.message = msg;
   if (body.smsRequested === true) metadata.sms_requested = true;
-  const phone = body.recipientPhone?.trim();
-  if (phone) metadata.recipient_phone = phone;
-  if (body.senderState && typeof body.senderState === "object" && !Array.isArray(body.senderState)) {
-    metadata.sender_state = body.senderState;
+  if (primaryPhone) metadata.recipient_phone = primaryPhone;
+  if (extras.length > 0) {
+    metadata.pdf_sign_additional_recipients = extras.map((r) => ({
+      display_name: r.name || null,
+      email: r.email,
+      phone: r.phone || null,
+    }));
   }
 
   const { data: packet, error: pErr } = await supabaseAdmin
@@ -162,6 +263,39 @@ export async function POST(request: Request) {
     }
   }
 
+  if (senderAssignable.length > 0) {
+    const senderByKey = new Map(senderAssignable.map((f) => [f.field_key, f]));
+    const senderSignaturePaths: Record<string, { bucket: string; path: string }> = {};
+    const sanitisedValues: Record<string, string | boolean> = {};
+    for (const [key, raw] of Object.entries(senderValuesIn)) {
+      if (!senderByKey.has(key)) continue;
+      sanitisedValues[key] = raw;
+    }
+    for (const [key, dataUrl] of Object.entries(senderImagesIn)) {
+      const meta = senderByKey.get(key);
+      if (!meta) continue;
+      if (meta.field_type !== "signature" && meta.field_type !== "initials") continue;
+      const uploaded = await uploadPdfSignSenderSignaturePng({
+        packetId: packet.id,
+        fieldKey: key,
+        dataUrl,
+      });
+      if (uploaded) senderSignaturePaths[key] = uploaded;
+    }
+    await supabaseAdmin
+      .from("signature_packets")
+      .update({
+        sender_state: {
+          values: sanitisedValues,
+          signaturePaths: senderSignaturePaths,
+          completedAt: new Date().toISOString(),
+          completedByStaffUserId: user.id,
+        },
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", packet.id);
+  }
+
   const rawToken = createRawSignToken();
   const tokenHash = hashSignToken(rawToken);
 
@@ -169,6 +303,7 @@ export async function POST(request: Request) {
     packet_id: packet.id,
     email: recipientEmail,
     display_name: recipientName,
+    phone: primaryPhone,
     token_hash: tokenHash,
     token_expires_at: expiresAt,
   });
@@ -210,6 +345,7 @@ export async function POST(request: Request) {
       crm_entity_type: crmEntityType,
       crm_entity_id: crmEntityId,
       send_email: sendEmail,
+      additional_recipient_count: extras.length,
     },
   });
 

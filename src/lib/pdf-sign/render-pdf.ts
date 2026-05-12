@@ -12,10 +12,14 @@ export type RenderFieldInput = {
   page_index: number;
   x: number | null;
   y: number | null;
+  width: number | null;
+  height: number | null;
   font_size: number;
   /** Raw display value; optional cipher for tin fields */
   text_value: string | null;
   tin_ciphertext?: string | null;
+  /** Drawn PNG (sender / typed capture) flattened onto absolute boxes */
+  signature_png_bytes?: Uint8Array | null;
 };
 
 function decodeValue(f: RenderFieldInput): string {
@@ -78,31 +82,85 @@ export async function renderSignedPdf(input: {
     }
   }
 
-  const byPage = new Map<number, RenderFieldInput[]>();
+  type DrawOp =
+    | { kind: "text"; pageIndex: number; f: RenderFieldInput }
+    | {
+        kind: "png";
+        pageIndex: number;
+        f: RenderFieldInput;
+        png: Uint8Array;
+      };
+
+  const drawOps: DrawOp[] = [];
+
   for (const f of input.fields) {
     if (f.pdf_acroform_field_name?.trim()) continue;
     if (f.x == null || f.y == null) continue;
+    const pageIndex = Math.max(0, f.page_index);
+
+    const isSigKind =
+      (f.field_type === "signature" || f.field_type === "initials") &&
+      f.signature_png_bytes &&
+      f.signature_png_bytes.length > 0;
+
+    if (isSigKind) {
+      drawOps.push({
+        kind: "png",
+        pageIndex,
+        f,
+        png: f.signature_png_bytes as Uint8Array,
+      });
+      continue;
+    }
+
     const v = decodeValue(f);
     if (!v) continue;
-    const pageIndex = Math.max(0, f.page_index);
-    const list = byPage.get(pageIndex) ?? [];
-    list.push(f);
-    byPage.set(pageIndex, list);
+    drawOps.push({ kind: "text", pageIndex, f });
+  }
+
+  const byPage = new Map<number, DrawOp[]>();
+  for (const op of drawOps) {
+    const list = byPage.get(op.pageIndex) ?? [];
+    list.push(op);
+    byPage.set(op.pageIndex, list);
   }
 
   for (const [pageIndex, list] of byPage) {
     const page = pdfDoc.getPage(pageIndex);
     const { height } = page.getSize();
-    for (const f of list) {
+    for (const op of list) {
+      const f = op.f;
+      const x = f.x ?? 0;
+      const yRaw = f.y ?? 0;
+      const yPdf = yRaw <= height + 1 ? yRaw : height - yRaw;
+
+      if (op.kind === "png") {
+        try {
+          const img = await pdfDoc.embedPng(op.png);
+          const boxW =
+            typeof f.width === "number" && f.width > 4 ? f.width : Math.max(img.width * 0.15, 80);
+          const boxH =
+            typeof f.height === "number" && f.height > 4 ? f.height : Math.max(img.height * 0.15, 36);
+          const iw = img.width;
+          const ih = img.height;
+          const sx = Math.min(boxW / iw, boxH / ih);
+          const dw = iw * sx;
+          const dh = ih * sx;
+          const dy = Math.max(yPdf + (boxH - dh) / 2, 4);
+          const dx = x;
+          page.drawImage(img, { x: dx, y: dy, width: dw, height: dh });
+        } catch {
+          /* ignore malformed png */
+        }
+        continue;
+      }
+
       const v = decodeValue(f);
       if (!v) continue;
       const size = f.font_size > 4 && f.font_size < 48 ? f.font_size : 10;
-      const x = f.x ?? 0;
-      const yRaw = f.y ?? 0;
-      const y = yRaw <= height + 1 ? yRaw : height - yRaw;
       page.drawText(v, {
         x,
-        y,
+        y: yPdf,
         size,
         font,
         color: rgb(0, 0, 0),

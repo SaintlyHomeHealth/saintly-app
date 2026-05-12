@@ -29,7 +29,7 @@ export async function renderPacketDocumentPreview(packetDocumentId: string): Pro
   const { data: fields, error: fErr } = await supabaseAdmin
     .from("signature_template_fields")
     .select(
-      "id, field_key, field_type, pdf_acroform_field_name, page_index, x, y, font_size"
+      "id, field_key, field_type, pdf_acroform_field_name, page_index, x, y, width, height, font_size"
     )
     .eq("template_id", template.id);
   if (fErr || !fields?.length) throw new Error("No template fields.");
@@ -79,6 +79,8 @@ export async function renderPacketDocumentPreview(packetDocumentId: string): Pro
       page_index: f.page_index,
       x: f.x,
       y: f.y,
+      width: f.width,
+      height: f.height,
       font_size: f.font_size,
       text_value: f.field_type === "tin" ? null : text,
       tin_ciphertext: f.field_type === "tin" ? sensMap.get(f.field_key) ?? null : null,
