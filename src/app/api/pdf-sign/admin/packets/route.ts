@@ -318,13 +318,20 @@ export async function POST(request: Request) {
   let smsSent = false;
   let smsError: string | null = null;
   if (wantsSms && recipientPhoneRaw) {
-    const r = await sendSignLinkSms({
-      toRaw: recipientPhoneRaw,
-      documentLabel: title,
-      link: signUrl,
-    });
-    if (r.ok) smsSent = true;
-    else smsError = r.error;
+    try {
+      const r = await sendSignLinkSms({
+        to: recipientPhoneRaw,
+        signUrl,
+        packetName: title,
+        recipientName,
+      });
+      if (r.kind === "sent") smsSent = true;
+      else if (r.kind === "failed") smsError = r.error;
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.warn("[pdf-sign] packet POST SMS unexpected error:", msg);
+      smsError = msg;
+    }
     await supabaseAdmin
       .from("signature_packets")
       .update({
