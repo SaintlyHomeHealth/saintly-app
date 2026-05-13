@@ -1,6 +1,8 @@
 /**
  * Shared PDF field ↔ screen overlay math for template editor, admin send, and recipient signing.
  * PDF storage uses bottom-left origin (pdf-lib / PDF user space). Overlays use top-left CSS.
+ * Final flattened positions for server-side renders use `pdf-render-field-placement.ts` + `render-pdf.ts`
+ * — keep rects consistent with `{ x, y, width, height }` here.
  */
 
 export type PdfRectPdfSpace = {

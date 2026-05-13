@@ -5,6 +5,8 @@ import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 import { formatAppDateTime } from "@/lib/datetime/app-timezone";
 import { redirect } from "next/navigation";
 
+import { PacketRowActions } from "./PacketRowActions";
+
 type PacketListRow = {
   id: string;
   status: string;
@@ -58,6 +60,8 @@ function statusBadgeClasses(status: string) {
       return "bg-orange-50 text-orange-900 ring-orange-200/70";
     case "voided":
       return "bg-rose-100 text-rose-900 ring-rose-200/80";
+    case "canceled":
+      return "bg-rose-50 text-rose-950 ring-rose-300/90";
     default:
       return "bg-slate-100 text-slate-600 ring-slate-200/80";
   }
@@ -97,6 +101,7 @@ export default async function AdminPdfSignPacketsPage() {
       )
     `
     )
+    .is("deleted_at", null)
     .order("created_at", { ascending: false })
     .limit(100);
 
@@ -171,8 +176,7 @@ export default async function AdminPdfSignPacketsPage() {
                 const typeLabel = tplName || metaTitle || "Packet";
                 const docType = doc?.signature_templates?.document_type ?? row.primary_document_type;
                 const docId = doc?.id;
-                const canDownload =
-                  docId && (row.status === "completed" || row.status === "signed");
+                const hasCompletedPdfFile = Boolean(doc?.completed_storage_path?.trim());
                 return (
                   <tr key={row.id} className="bg-white transition hover:bg-sky-50/40">
                     <td className="max-w-[15rem] px-4 py-3">
@@ -203,26 +207,12 @@ export default async function AdminPdfSignPacketsPage() {
                       {row.completed_at ? formatAppDateTime(row.completed_at) : "—"}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <div className="flex flex-wrap justify-end gap-2">
-                        <Link
-                          href={`/admin/signatures/packets/${encodeURIComponent(row.id)}`}
-                          className="inline-flex rounded-xl bg-sky-700 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-sky-800"
-                        >
-                          Details
-                        </Link>
-                        {canDownload ? (
-                          <a
-                            className="inline-flex rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 hover:bg-slate-50"
-                            href={`/api/pdf-sign/admin/download?packetDocumentId=${encodeURIComponent(docId)}`}
-                          >
-                            Download
-                          </a>
-                        ) : (
-                          <span className="inline-flex cursor-not-allowed rounded-xl border border-slate-100 px-3 py-1.5 text-xs font-medium text-slate-400">
-                            Download
-                          </span>
-                        )}
-                      </div>
+                      <PacketRowActions
+                        packetId={row.id}
+                        status={row.status}
+                        documentId={docId}
+                        hasCompletedPdfFile={hasCompletedPdfFile}
+                      />
                     </td>
                   </tr>
                 );

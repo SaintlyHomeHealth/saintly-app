@@ -51,13 +51,19 @@ export async function POST(
   const { data: packet, error } = await supabaseAdmin
     .from("signature_packets")
     .select(
-      "id, status, title, recipient_email, recipient_name, recipient_phone, voided_at, expires_at, completed_at, metadata"
+      "id, status, title, recipient_email, recipient_name, recipient_phone, voided_at, canceled_at, deleted_at, expires_at, completed_at, metadata"
     )
     .eq("id", packetId)
     .maybeSingle();
   if (error || !packet) return NextResponse.json({ error: "Packet not found." }, { status: 404 });
+  if (packet.deleted_at) {
+    return NextResponse.json({ error: "This packet has been removed from the list." }, { status: 409 });
+  }
   if (packet.voided_at) {
     return NextResponse.json({ error: "Packet has been voided." }, { status: 409 });
+  }
+  if (packet.status === "canceled" || packet.canceled_at) {
+    return NextResponse.json({ error: "Packet has been canceled." }, { status: 409 });
   }
   if (packet.completed_at || packet.status === "completed" || packet.status === "signed") {
     return NextResponse.json({ error: "Packet already completed." }, { status: 409 });

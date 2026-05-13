@@ -4,6 +4,11 @@ import { createHash } from "crypto";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 
 import { decryptSensitiveField } from "@/lib/pdf-sign/field-crypto";
+import {
+  getSingleLineFontSize,
+  signatureImageDrawRectPdf,
+  textBaselinePdfY,
+} from "@/lib/pdf-sign/pdf-render-field-placement";
 
 export type RenderFieldInput = {
   field_key: string;
@@ -83,7 +88,7 @@ export async function renderSignedPdf(input: {
   }
 
   type DrawOp =
-    | { kind: "text"; pageIndex: number; f: RenderFieldInput }
+    | { kind: "text"; pageIndex: number; f: RenderFieldInput; lines: string[] }
     | {
         kind: "png";
         pageIndex: number;
@@ -115,7 +120,14 @@ export async function renderSignedPdf(input: {
 
     const v = decodeValue(f);
     if (!v) continue;
-    drawOps.push({ kind: "text", pageIndex, f });
+    const lines =
+      f.field_type === "textarea"
+        ? v.split(/\r?\n/).flatMap((line) =>
+            line.length ? [line.slice(0, 500)] : []
+          )
+        : [v.slice(0, 500)];
+    if (lines.length === 0) continue;
+    drawOps.push({ kind: "text", pageIndex, f, lines });
   }
 
   const byPage = new Map<number, DrawOp[]>();
@@ -125,29 +137,29 @@ export async function renderSignedPdf(input: {
     byPage.set(op.pageIndex, list);
   }
 
-  for (const [pageIndex, list] of byPage) {
-    const page = pdfDoc.getPage(pageIndex);
-    const { height } = page.getSize();
+  for (const [, list] of byPage) {
     for (const op of list) {
+      const page = pdfDoc.getPage(op.pageIndex);
       const f = op.f;
-      const x = f.x ?? 0;
-      const yRaw = f.y ?? 0;
-      const yPdf = yRaw <= height + 1 ? yRaw : height - yRaw;
+      /** Stored x,y,width,height are PDF user-space coords (bottom-left rect origin). */
+      const fieldXLl = f.x ?? 0;
+      const fieldYLl = f.y ?? 0;
+      const fieldW = typeof f.width === "number" && f.width > 2 ? f.width : 140;
+      const fieldH = typeof f.height === "number" && f.height > 2 ? f.height : 24;
 
       if (op.kind === "png") {
         try {
           const img = await pdfDoc.embedPng(op.png);
-          const boxW =
-            typeof f.width === "number" && f.width > 4 ? f.width : Math.max(img.width * 0.15, 80);
-          const boxH =
-            typeof f.height === "number" && f.height > 4 ? f.height : Math.max(img.height * 0.15, 36);
-          const iw = img.width;
-          const ih = img.height;
-          const sx = Math.min(boxW / iw, boxH / ih);
-          const dw = iw * sx;
-          const dh = ih * sx;
-          const dy = Math.max(yPdf + (boxH - dh) / 2, 4);
-          const dx = x;
+          const boxW = typeof f.width === "number" && f.width > 4 ? f.width : Math.max(img.width * 0.15, 80);
+          const boxH = typeof f.height === "number" && f.height > 4 ? f.height : Math.max(img.height * 0.15, 36);
+          const { x: dx, y: dy, width: dw, height: dh } = signatureImageDrawRectPdf({
+            fieldXPdf: fieldXLl,
+            fieldYPdf: fieldYLl,
+            fieldWidthPdf: boxW,
+            fieldHeightPdf: boxH,
+            imageWidthPx: img.width,
+            imageHeightPx: img.height,
+          });
           page.drawImage(img, { x: dx, y: dy, width: dw, height: dh });
         } catch {
           /* ignore malformed png */
@@ -155,16 +167,52 @@ export async function renderSignedPdf(input: {
         continue;
       }
 
-      const v = decodeValue(f);
-      if (!v) continue;
-      const size = f.font_size > 4 && f.font_size < 48 ? f.font_size : 10;
-      page.drawText(v, {
-        x,
-        y: yPdf,
-        size,
-        font,
-        color: rgb(0, 0, 0),
-      });
+      const fullText = op.lines.join(" ");
+      const singleLineFs = getSingleLineFontSize(fieldH, fullText.length);
+      const cappedTemplate =
+        f.font_size > 4 && f.font_size < 48 ? Math.min(f.font_size, 12) : 11;
+      let fontSize = Math.min(singleLineFs, cappedTemplate);
+      fontSize = Math.max(8, Math.min(11, fontSize));
+
+      if (op.lines.length <= 1) {
+        const v = fullText;
+        const baseline = textBaselinePdfY({
+          fieldBottomYPdf: fieldYLl,
+          fieldHeightPdf: fieldH,
+          fontSize,
+        });
+
+        page.drawText(v, {
+          x: fieldXLl + Math.max(2, fieldW * 0.03),
+          y: baseline,
+          size: fontSize,
+          font,
+          color: rgb(0, 0, 0),
+        });
+      } else {
+        const padX = Math.max(2, fieldW * 0.03);
+        const lineFs = Math.max(
+          8,
+          Math.min(fontSize, (fieldH - 14) / Math.max(op.lines.length, 5))
+        );
+        const lineLeading = lineFs + 3;
+        const padTop = Math.max(4, Math.min(fieldH * 0.1, 12));
+        let lineY = fieldYLl + fieldH - padTop;
+        const floorY = fieldYLl + Math.max(lineFs * 0.35, 4);
+        for (const lnRaw of op.lines) {
+          const ln = lnRaw.trim().slice(0, 480);
+          if (!ln) continue;
+          if (lineY < floorY) break;
+          page.drawText(ln, {
+            x: fieldXLl + padX,
+            y: lineY,
+            size: lineFs,
+            font,
+            color: rgb(0, 0, 0),
+          });
+          lineY -= lineLeading;
+        }
+      }
     }
   }
 

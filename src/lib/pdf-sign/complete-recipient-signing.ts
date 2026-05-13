@@ -12,6 +12,7 @@ import { renderSignedPdf, type RenderFieldInput } from "@/lib/pdf-sign/render-pd
 import { parsePdfSignSenderState } from "@/lib/pdf-sign/sender-state";
 import { decodeSignPngDataUrl, uploadPdfSignRecipientSignaturePng } from "@/lib/pdf-sign/upload-sender-signature-png";
 import { hashSignToken } from "@/lib/pdf-sign/token";
+import { PDF_SIGN_UNAVAILABLE_MESSAGE, isSigningRequestUnavailable } from "@/lib/pdf-sign/signing-unavailable";
 
 function isOptionalField(options: unknown): boolean {
   if (!options || typeof options !== "object") return false;
@@ -79,7 +80,9 @@ export async function saveRecipientFieldDraft(input: {
   if (!loaded) return { ok: false, error: "Invalid or expired link.", status: 404 };
   const { recipient, packet, packetDocument, template, fields } = loaded;
 
-  if (packet.voided_at) return { ok: false, error: "This packet was voided.", status: 410 };
+  if (isSigningRequestUnavailable(packet)) {
+    return { ok: false, error: PDF_SIGN_UNAVAILABLE_MESSAGE, status: 410 };
+  }
   if (packet.status === "completed" || packet.status === "signed") {
     return { ok: false, error: "This document is already signed.", status: 409 };
   }
@@ -156,6 +159,8 @@ export type RecipientSigningLoadedContext = {
     status: string;
     primary_document_type: string;
     voided_at: string | null;
+    deleted_at: string | null;
+    canceled_at: string | null;
     crm_entity_type: string;
     crm_entity_id: string;
     metadata: Record<string, unknown>;
@@ -194,7 +199,7 @@ export async function loadRecipientContextByTokenHash(
   const { data: packet, error: pErr } = await supabaseAdmin
     .from("signature_packets")
     .select(
-      "id, status, primary_document_type, voided_at, crm_entity_type, crm_entity_id, metadata, i9_case_id, i9_section, sender_state"
+      "id, status, primary_document_type, voided_at, deleted_at, canceled_at, crm_entity_type, crm_entity_id, metadata, i9_case_id, i9_section, sender_state"
     )
     .eq("id", recipient.packet_id)
     .maybeSingle();
@@ -444,7 +449,9 @@ export async function finalizeRecipientSigning(input: {
   if (!loaded) return { ok: false, error: "Invalid or expired link.", status: 404 };
   const { recipient, packet, packetDocument, template, fields } = loaded;
 
-  if (packet.voided_at) return { ok: false, error: "This packet was voided.", status: 410 };
+  if (isSigningRequestUnavailable(packet)) {
+    return { ok: false, error: PDF_SIGN_UNAVAILABLE_MESSAGE, status: 410 };
+  }
   if (new Date(recipient.token_expires_at).getTime() < Date.now()) {
     await supabaseAdmin.from("signature_packets").update({ status: "expired" }).eq("id", packet.id);
     return { ok: false, error: "This link has expired.", status: 410 };
@@ -824,6 +831,7 @@ export async function markRecipientViewed(tokenHash: string): Promise<void> {
   const loaded = await loadRecipientContextByTokenHash(tokenHash);
   if (!loaded) return;
   const { recipient, packet, template } = loaded;
+  if (isSigningRequestUnavailable(packet)) return;
   const now = new Date().toISOString();
   await supabaseAdmin
     .from("signature_recipients")

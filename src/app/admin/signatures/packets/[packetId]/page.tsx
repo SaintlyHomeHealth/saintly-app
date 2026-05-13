@@ -6,6 +6,8 @@ import { hasPdfSignCrmLinkage } from "@/lib/pdf-sign/crm-link-display";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 import { redirect, notFound } from "next/navigation";
 
+import { PacketDetailActions } from "./PacketDetailActions";
+
 type PacketRow = {
   id: string;
   status: string;
@@ -59,6 +61,8 @@ function statusBadgeClasses(status: string) {
       return "bg-orange-50 text-orange-900 ring-orange-200/70";
     case "voided":
       return "bg-rose-100 text-rose-900 ring-rose-200/80";
+    case "canceled":
+      return "bg-rose-50 text-rose-950 ring-rose-300/90";
     default:
       return "bg-slate-100 text-slate-600 ring-slate-200/80";
   }
@@ -132,8 +136,7 @@ export default async function PacketDetailPage({ params }: { params: Promise<{ p
     typeof meta.pdf_sign_from_email === "string" && meta.pdf_sign_from_email.includes("@")
       ? meta.pdf_sign_from_email.trim().toLowerCase()
       : null;
-  const canDownload =
-    doc?.id && (row.status === "completed" || row.status === "signed");
+  const hasCompletedPdfFile = Boolean(doc?.completed_storage_path?.trim());
   const crmLinked = hasPdfSignCrmLinkage(row.crm_entity_id);
 
   return (
@@ -268,18 +271,12 @@ export default async function PacketDetailPage({ params }: { params: Promise<{ p
           ) : null}
         </dl>
 
-        <div className="mt-8 flex flex-wrap gap-3">
-          {canDownload ? (
-            <a
-              className="inline-flex rounded-2xl bg-gradient-to-r from-amber-400 to-amber-500 px-6 py-2.5 text-sm font-semibold text-amber-950 shadow-md shadow-amber-500/20 hover:from-amber-500 hover:to-amber-600"
-              href={`/api/pdf-sign/admin/download?packetDocumentId=${encodeURIComponent(doc!.id)}`}
-            >
-              Download signed PDF
-            </a>
-          ) : (
-            <p className="text-sm text-slate-500">The signed PDF will appear here when signing is complete.</p>
-          )}
-        </div>
+        <PacketDetailActions
+          packetId={row.id}
+          status={row.status}
+          completedDocId={doc?.id ?? null}
+          hasCompletedPdfFile={hasCompletedPdfFile}
+        />
       </main>
     </div>
   );

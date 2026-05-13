@@ -46,8 +46,7 @@ export function SignaturePadModal({
     const ctx = c.getContext("2d");
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, PAD_WIDTH, PAD_HEIGHT);
+    ctx.clearRect(0, 0, PAD_WIDTH, PAD_HEIGHT);
     ctx.strokeStyle = "#0f172a";
     ctx.lineWidth = 2.4;
     ctx.lineCap = "round";
@@ -132,8 +131,7 @@ export function SignaturePadModal({
       return;
     }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, PAD_WIDTH, PAD_HEIGHT);
+    ctx.clearRect(0, 0, PAD_WIDTH, PAD_HEIGHT);
     ctx.fillStyle = "#0f172a";
     ctx.font = '64px "Brush Script MT", "Snell Roundhand", cursive';
     ctx.textBaseline = "middle";
@@ -194,14 +192,14 @@ export function SignaturePadModal({
         <div className="mt-4">
           {tab === "draw" ? (
             <div>
-              <div className="rounded-xl border border-slate-200 bg-white p-2">
+              <div className="rounded-xl border border-slate-200 bg-slate-100 p-2">
                 <canvas
                   ref={canvasRef}
                   onPointerDown={handlePointerDown}
                   onPointerMove={handlePointerMove}
                   onPointerUp={handlePointerUp}
                   onPointerCancel={handlePointerUp}
-                  className="block w-full touch-none rounded-lg bg-white"
+                  className="block w-full touch-none rounded-lg bg-transparent"
                 />
               </div>
               <div className="mt-2 flex items-center justify-between">

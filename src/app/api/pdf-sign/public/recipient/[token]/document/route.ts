@@ -5,6 +5,7 @@ import {
   loadRecipientContextByTokenHash,
   renderRecipientSigningPreviewPdf,
 } from "@/lib/pdf-sign/complete-recipient-signing";
+import { PDF_SIGN_UNAVAILABLE_MESSAGE, isSigningRequestUnavailable } from "@/lib/pdf-sign/signing-unavailable";
 import { hashSignToken } from "@/lib/pdf-sign/token";
 
 function asciiFilename(raw: string | null | undefined): string {
@@ -30,7 +31,9 @@ export async function GET(
 
   const { recipient, packet, template } = loaded;
 
-  if (packet.voided_at) return new NextResponse("This packet was voided.", { status: 410 });
+  if (isSigningRequestUnavailable(packet)) {
+    return new NextResponse(PDF_SIGN_UNAVAILABLE_MESSAGE, { status: 410 });
+  }
   if (new Date(recipient.token_expires_at).getTime() < Date.now()) {
     return new NextResponse("This link has expired.", { status: 410 });
   }

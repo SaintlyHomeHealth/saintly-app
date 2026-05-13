@@ -9,6 +9,7 @@ import {
   saveRecipientFieldDraft,
 } from "@/lib/pdf-sign/complete-recipient-signing";
 import { fieldTypeTreatAsText, signerPartyFromField } from "@/lib/pdf-sign/normalize";
+import { PDF_SIGN_UNAVAILABLE_MESSAGE, isSigningRequestUnavailable } from "@/lib/pdf-sign/signing-unavailable";
 import { hashSignToken } from "@/lib/pdf-sign/token";
 
 function clientIp(req: Request) {
@@ -33,14 +34,14 @@ export async function GET(
   if (!loaded) {
     return NextResponse.json({ error: "Invalid or expired link." }, { status: 404 });
   }
-  await markRecipientViewed(hash);
-  const { recipient, packet, packetDocument, template, fields } = loaded;
-  if (packet.voided_at) {
-    return NextResponse.json({ error: "This request was voided." }, { status: 410 });
+  if (isSigningRequestUnavailable(loaded.packet)) {
+    return NextResponse.json({ error: PDF_SIGN_UNAVAILABLE_MESSAGE }, { status: 410 });
   }
+  const { recipient, packet, packetDocument, template, fields } = loaded;
   if (new Date(recipient.token_expires_at).getTime() < Date.now()) {
     return NextResponse.json({ error: "This link has expired." }, { status: 410 });
   }
+  await markRecipientViewed(hash);
 
   const { data: values } = await supabaseAdmin
     .from("signature_field_values")
