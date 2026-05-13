@@ -426,14 +426,25 @@ export function SendPacketForm({
 
   return (
     <>
-      <form onSubmit={(e) => void handleSubmit(e)} className="space-y-8">
+      <form
+        onSubmit={(e) => void handleSubmit(e)}
+        className={
+          step === 4
+            ? "flex min-h-[calc(100dvh-10rem)] flex-col gap-0"
+            : "mx-auto max-w-6xl space-y-8"
+        }
+      >
         {error ? (
           <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900 shadow-sm">
             {error}
           </div>
         ) : null}
 
-        <nav aria-label="Progress" className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-md shadow-slate-200/30 ring-1 ring-slate-100/80">
+        <div className="mx-auto w-full max-w-6xl shrink-0">
+          <nav
+            aria-label="Progress"
+            className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-md shadow-slate-200/30 ring-1 ring-slate-100/80"
+          >
           <ol className="grid gap-3 sm:grid-cols-4">
             {STEPS.map((s) => {
               const active = step === s.n;
@@ -467,6 +478,7 @@ export function SendPacketForm({
             })}
           </ol>
         </nav>
+        </div>
 
         {step === 1 ? (
           <section className="rounded-2xl border border-slate-200/90 bg-white p-6 md:p-8 shadow-md shadow-slate-200/40 ring-1 ring-slate-100/80">
@@ -767,6 +779,7 @@ export function SendPacketForm({
         ) : null}
 
         {step === 4 && templateId ? (
+          <div className="mt-4 flex min-h-0 min-w-0 flex-1 flex-col px-1 sm:px-3 lg:px-4">
           <SendPacketStep4Review
             templateName={selectedTemplate?.name ?? "Template"}
             documentLabel={
@@ -799,6 +812,7 @@ export function SendPacketForm({
               void refreshTemplatePdf();
             }}
           />
+          </div>
         ) : null}
       </form>
     </>

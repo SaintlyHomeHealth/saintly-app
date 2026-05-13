@@ -103,12 +103,12 @@ export const PdfSigningCanvas = forwardRef<PdfSigningCanvasHandle, Props>(
     },
     ref
   ) {
-  const containerRef = useRef<HTMLDivElement | null>(null);
+  const viewerMeasureRef = useRef<HTMLDivElement | null>(null);
   const pageRefs = useRef<Record<number, HTMLDivElement | null>>({});
   const canvasRefs = useRef<Array<HTMLCanvasElement | null>>([]);
   const [pdfPages, setPdfPages] = useState<RenderedPdfPage[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [containerWidth, setContainerWidth] = useState(720);
+  const [viewerInnerWidth, setViewerInnerWidth] = useState(920);
   const [pageDisplaySizes, setPageDisplaySizes] = useState<
     Record<number, { width: number; height: number }>
   >({});
@@ -145,7 +145,17 @@ export const PdfSigningCanvas = forwardRef<PdfSigningCanvasHandle, Props>(
     [progressFields, mode, textValues, signatureImages]
   );
 
-  const displayBaseWidth = Math.max(240, containerWidth * zoom);
+  const fitWidthCssPx = useMemo(() => {
+    const pad = 0;
+    const avail = Math.max(0, viewerInnerWidth - pad);
+    if (typeof window === "undefined") return Math.max(320, avail);
+    const narrow = window.matchMedia("(max-width:639px)").matches;
+    /** Mobile: true fit-width; md+: enforce minimum readable width and allow horizontal scroll if needed */
+    if (narrow) return Math.max(280, Math.min(avail, 1200));
+    return Math.max(720, Math.min(avail, 1400));
+  }, [viewerInnerWidth]);
+
+  const displayBaseWidth = Math.min(1600, Math.max(280, fitWidthCssPx * zoom));
   const pageMap = useMemo(() => {
     const m = new Map<number, { width: number; height: number }>();
     if (pdfPages) for (const p of pdfPages) m.set(p.index, { width: p.width, height: p.height });
@@ -153,13 +163,14 @@ export const PdfSigningCanvas = forwardRef<PdfSigningCanvasHandle, Props>(
   }, [pdfPages]);
 
   useEffect(() => {
-    const el = containerRef.current;
+    const el = viewerMeasureRef.current;
     if (!el || typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(() => {
-      setContainerWidth(el.clientWidth || 720);
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect?.width;
+      if (typeof w === "number" && w > 0) setViewerInnerWidth(w);
     });
     ro.observe(el);
-    setContainerWidth(el.clientWidth || 720);
+    setViewerInnerWidth(el.clientWidth || 920);
     return () => ro.disconnect();
   }, []);
 
@@ -275,8 +286,8 @@ export const PdfSigningCanvas = forwardRef<PdfSigningCanvasHandle, Props>(
   }
 
   return (
-    <div ref={containerRef} className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600">
+    <div className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col">
+      <div className="mb-3 flex shrink-0 flex-wrap items-center justify-between gap-2 text-xs text-slate-600">
         <span className="font-semibold text-slate-800">
           {complete} of {total} required {mode === "admin_sender" ? "Saintly" : "your"} fields complete
         </span>
@@ -289,8 +300,13 @@ export const PdfSigningCanvas = forwardRef<PdfSigningCanvasHandle, Props>(
         </button>
       </div>
 
-      <div className="custom-scrollbar min-h-0 flex-1 overflow-auto rounded-xl border border-slate-200/90 bg-gradient-to-b from-slate-100 to-slate-50 p-3 shadow-inner">
-        <div className="mx-auto flex max-w-full flex-col items-center gap-6 pb-8">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        {/* Measure the actual scroll viewport so fit-width matches the readable area */}
+        <div
+          ref={viewerMeasureRef}
+          className="custom-scrollbar min-h-0 flex-1 overflow-y-auto overflow-x-auto rounded-xl border border-slate-200/90 bg-gradient-to-b from-slate-100 to-slate-50 p-4 shadow-inner sm:p-5"
+        >
+          <div className="mx-auto flex w-max min-w-full flex-col items-center gap-10 pb-10 pt-1">
           {pdfPages.map((page) => {
             const i = page.index;
             const box = pageDisplaySizes[i];
@@ -302,11 +318,11 @@ export const PdfSigningCanvas = forwardRef<PdfSigningCanvasHandle, Props>(
                 ref={(el) => {
                   pageRefs.current[i] = el;
                 }}
-                className="relative inline-block max-w-full overflow-hidden rounded-lg bg-white shadow-md ring-1 ring-slate-200/80"
+                className="relative inline-block max-w-full overflow-hidden rounded-lg bg-white shadow-lg ring-1 ring-slate-300/50"
                 style={{ width: box?.width || displayBaseWidth }}
                 data-pdf-page-index={i}
               >
-                <div className="absolute left-2 top-2 z-20 rounded-full bg-slate-900/75 px-2 py-0.5 text-[10px] font-semibold text-white">
+                <div className="absolute left-3 top-3 z-20 rounded-full bg-slate-900/80 px-2.5 py-1 text-[11px] font-semibold text-white shadow-sm">
                   Page {i + 1}
                 </div>
                 <div className="relative">
@@ -417,6 +433,7 @@ export const PdfSigningCanvas = forwardRef<PdfSigningCanvasHandle, Props>(
             );
           })}
         </div>
+      </div>
       </div>
 
       {sigFieldKey ? (

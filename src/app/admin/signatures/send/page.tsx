@@ -22,9 +22,9 @@ export default async function AdminSendPacketPage({
   const pdfSignAllowedFromEmails = pdfSignAllowedFromEmailList();
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-sky-50/40">
-      <main className="mx-auto w-full max-w-6xl px-4 py-10">
-        <div className="mb-8 rounded-2xl border border-slate-200/90 bg-white p-8 shadow-md shadow-slate-200/30">
+    <div className="flex min-h-screen flex-col bg-gradient-to-b from-slate-50 via-white to-sky-50/40">
+      <main className="flex w-full flex-1 flex-col px-4 py-6 sm:px-5 lg:px-6">
+        <div className="mx-auto mb-8 max-w-6xl rounded-2xl border border-slate-200/90 bg-white p-6 shadow-md shadow-slate-200/30 md:p-8">
           <Link
             href="/admin/signatures"
             className="text-xs font-semibold uppercase tracking-wide text-sky-800/90 hover:underline"
@@ -39,7 +39,7 @@ export default async function AdminSendPacketPage({
 
         <Suspense
           fallback={
-            <div className="rounded-2xl border border-slate-200 bg-white p-8 text-sm text-slate-500 shadow-sm">
+            <div className="mx-auto max-w-6xl rounded-2xl border border-slate-200 bg-white p-8 text-sm text-slate-500 shadow-sm">
               Loading…
             </div>
           }

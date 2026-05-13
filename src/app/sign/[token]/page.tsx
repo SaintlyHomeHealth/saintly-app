@@ -31,6 +31,8 @@ type LoadPayload = {
   hasCompletedPdf: boolean;
 };
 
+const ZOOM_PRESETS = [0.75, 0.9, 1, 1.25, 1.5] as const;
+
 export default function PublicPdfSignPage() {
   const params = useParams();
   const token = decodeURIComponent(String(params?.token ?? "")).trim();
@@ -44,6 +46,7 @@ export default function PublicPdfSignPage() {
   >({});
   /** Bumps after successful draft save so the PDF reloads merged preview. */
   const [previewRev, setPreviewRev] = useState(0);
+  const [zoom, setZoom] = useState(1);
   const canvasRef = useRef<PdfSigningCanvasHandle | null>(null);
 
   const docUrl = token
@@ -207,38 +210,71 @@ export default function PublicPdfSignPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-100 via-white to-sky-50/50">
-      <div className="mx-auto flex max-w-5xl flex-col gap-4 px-3 py-6 sm:px-4">
-        <header className="rounded-2xl border border-slate-200/80 bg-white/90 px-4 py-4 shadow-sm sm:px-6">
-          <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">
-            Sign your document
-          </h1>
-          <p className="mt-2 text-sm leading-relaxed text-slate-600">
-            Complete the highlighted fields directly on the PDF.{data.documentTitle ? (
-              <>
-                {" "}
-                <span className="font-medium text-slate-800">{data.documentTitle}</span>.
-              </>
-            ) : null}
-          </p>
-          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+    <div className="flex min-h-[100dvh] flex-col bg-gradient-to-b from-slate-100 via-white to-sky-50/50">
+      {/* Sticky signing toolbar — document-first workspace */}
+      <header className="sticky top-0 z-40 border-b border-slate-200/90 bg-white/95 px-3 py-3 shadow-sm backdrop-blur-md sm:px-5 lg:px-8">
+        <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="min-w-0">
+            <h1 className="text-lg font-semibold tracking-tight text-slate-900 sm:text-2xl">
+              Sign your document
+            </h1>
+            <p className="mt-1 text-sm leading-relaxed text-slate-600">
+              Complete fields on the PDF below.
+              {data.documentTitle ? (
+                <>
+                  {" "}
+                  <span className="font-medium text-slate-800">{data.documentTitle}</span>.
+                </>
+              ) : null}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex max-w-full flex-wrap items-center gap-1 rounded-xl border border-slate-200 bg-slate-50 px-2 py-1">
+              <span className="text-[10px] font-semibold uppercase text-slate-500">Zoom</span>
+              {ZOOM_PRESETS.map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  className={
+                    "rounded-md px-2 py-1 text-xs font-semibold " +
+                    (Math.abs(zoom - p) < 0.02
+                      ? "bg-indigo-100 text-indigo-950"
+                      : "text-slate-700 hover:bg-white")
+                  }
+                  onClick={() => setZoom(p)}
+                >
+                  {Math.round(p * 100)}%
+                </button>
+              ))}
+              <button
+                type="button"
+                className="ml-1 rounded-md px-2 py-1 text-xs font-semibold text-sky-800 hover:bg-white"
+                onClick={() => setZoom(1)}
+              >
+                Fit width
+              </button>
+            </div>
             <a
               href={unsignedDownloadHref}
-              className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 font-semibold text-slate-800 hover:bg-slate-50"
+              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-800 shadow-sm hover:bg-slate-50"
             >
               Download draft
             </a>
             <button
               type="button"
               onClick={() => canvasRef.current?.goToNextRequired()}
-              className="rounded-lg bg-indigo-600 px-3 py-1.5 font-semibold text-white shadow-sm hover:bg-indigo-700 lg:hidden"
+              className="rounded-xl bg-indigo-600 px-3 py-2 text-xs font-semibold text-white shadow-sm hover:bg-indigo-700"
             >
-              Next required field
+              Next required
             </button>
           </div>
-        </header>
+        </div>
+      </header>
 
-        <div className="min-h-0 flex-1 rounded-2xl border border-slate-200 bg-white p-3 shadow-md sm:p-5">
+      <div className="mx-auto flex w-full max-w-none flex-1 flex-col px-2 py-4 sm:px-4 lg:max-w-[min(1600px,100%)] lg:px-6">
+        <div
+          className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-slate-100/40 p-2 shadow-inner sm:p-4 lg:min-h-[min(calc(100dvh-11rem),900px)] lg:max-h-[calc(100dvh-9rem)]"
+        >
           {pdfSrc && canvasFieldList.length > 0 ? (
             <PdfSigningCanvas
               ref={canvasRef}
@@ -266,24 +302,27 @@ export default function PublicPdfSignPage() {
                   setValues((prev) => ({ ...prev, [fieldKey]: payload.typed as string }));
                 }
               }}
+              zoom={zoom}
             />
           ) : (
-            <p className="p-6 text-center text-sm text-slate-600">Preparing document…</p>
+            <p className="flex flex-1 items-center justify-center p-6 text-center text-sm text-slate-600">
+              Preparing document…
+            </p>
           )}
         </div>
 
         {data.documentType === "w9" && data.w9CertificationText ? (
-          <section className="rounded-2xl border border-amber-200 bg-amber-50/90 p-4 text-xs text-amber-950 shadow-sm sm:p-5">
+          <section className="mt-4 rounded-2xl border border-amber-200 bg-amber-50/90 p-4 text-xs text-amber-950 shadow-sm sm:p-5">
             <div className="font-semibold">Certification (read carefully)</div>
             <p className="mt-2 whitespace-pre-wrap leading-relaxed">{data.w9CertificationText}</p>
           </section>
         ) : null}
 
-        {err ? <p className="text-center text-sm text-rose-700">{err}</p> : null}
+        {err ? <p className="mt-3 text-center text-sm text-rose-700">{err}</p> : null}
 
         <form
           onSubmit={finalize}
-          className="sticky bottom-0 z-10 flex flex-col gap-3 border-t border-slate-200 bg-white/95 py-4 backdrop-blur-sm sm:flex-row sm:flex-wrap sm:items-center sm:justify-between"
+          className="sticky bottom-0 z-30 mt-4 flex flex-col gap-3 border-t border-slate-200/90 bg-white/95 py-4 backdrop-blur-md sm:flex-row sm:flex-wrap sm:items-center sm:justify-between"
         >
           <button
             type="button"

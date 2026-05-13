@@ -18,6 +18,9 @@ import { signerPartyFromField } from "@/lib/pdf-sign/normalize";
 const BTN_GOLD_PRIMARY =
   "inline-flex rounded-2xl bg-gradient-to-r from-amber-400 to-amber-500 px-6 py-2.5 text-sm font-semibold text-amber-950 shadow-md shadow-amber-500/20 hover:from-amber-500 hover:to-amber-600 disabled:opacity-50";
 
+/** Zoom multiplies “fit width” inside the viewer (1 = fit width). */
+const ZOOM_PRESETS = [0.75, 0.9, 1, 1.25, 1.5] as const;
+
 export type Step4TemplateField = {
   id: string;
   field_key: string;
@@ -110,6 +113,7 @@ export function SendPacketStep4Review({
   const canvasRef = useRef<PdfSigningCanvasHandle | null>(null);
   const [zoom, setZoom] = useState(1);
   const [mobileSummaryOpen, setMobileSummaryOpen] = useState(false);
+  const [mobileChecklistOpen, setMobileChecklistOpen] = useState(false);
 
   const templateModels = useMemo(
     () =>
@@ -175,10 +179,99 @@ export function SendPacketStep4Review({
   );
   const sendBlocked = saintlyBlockers.length > 0;
 
+  const summaryCard = (
+    <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm shadow-sm">
+      <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Packet summary</p>
+      <dl className="mt-3 space-y-2">
+        <div className="flex justify-between gap-2">
+          <dt className="text-slate-500">Document</dt>
+          <dd className="text-right font-medium text-slate-900">{documentLabel}</dd>
+        </div>
+        <div>
+          <dt className="text-slate-500">Recipients</dt>
+          <dd className="mt-1 text-right text-slate-900">
+            {primaryRecipients.map((r) => (
+              <div key={r.id} className="leading-snug">
+                <div className="font-medium">{r.name || "—"}</div>
+                <div className="text-xs text-slate-600">{r.email}</div>
+              </div>
+            ))}
+          </dd>
+        </div>
+        <div className="flex justify-between gap-2 border-t border-slate-100 pt-2">
+          <dt className="text-slate-500">CRM</dt>
+          <dd className="text-right text-slate-900">
+            {hasLinkedProfile ? (
+              <>
+                {recordTypeLabel}
+                <div className="text-xs text-slate-600">{crmEntityId.trim()}</div>
+              </>
+            ) : (
+              <span>Manual send</span>
+            )}
+          </dd>
+        </div>
+        <div className="flex justify-between gap-2">
+          <dt className="text-slate-500">Link</dt>
+          <dd className="text-right text-slate-900">
+            Expires {ttlDays}d · {sendEmail ? "Email now" : "Hold"}
+          </dd>
+        </div>
+      </dl>
+      {message.trim() ? (
+        <p className="mt-3 border-t border-slate-100 pt-3 text-xs text-slate-600">
+          <span className="font-semibold text-slate-800">Note: </span>
+          {message}
+        </p>
+      ) : null}
+      {(smsRequested || marksIc) && (
+        <p className="mt-2 text-xs text-slate-500">
+          {smsRequested ? "SMS requested · " : null}
+          {marksIc ? "IC agreement" : null}
+        </p>
+      )}
+    </div>
+  );
+
+  const checklistCard = (
+    <div className="rounded-xl border border-slate-200 bg-slate-50/90 p-3 lg:sticky lg:top-24 lg:max-h-[min(calc(100dvh-10rem),520px)] lg:self-start lg:overflow-y-auto">
+      <p className="text-xs font-bold uppercase tracking-wide text-slate-600">Saintly checklist</p>
+      <ul className="mt-2 space-y-2 text-xs text-slate-800 lg:max-h-none">
+        {checklist.length === 0 ? (
+          <li className="text-slate-500">No Saintly fields on this template.</li>
+        ) : (
+          checklist.map((c) => (
+            <li key={c.key}>
+              <button
+                type="button"
+                onClick={() => {
+                  canvasRef.current?.scrollToField(c.key);
+                  setMobileChecklistOpen(false);
+                }}
+                className="w-full rounded-lg border border-transparent px-2 py-1.5 text-left hover:border-amber-200 hover:bg-white"
+              >
+                {c.heading}
+              </button>
+            </li>
+          ))
+        )}
+      </ul>
+      {hasSaintlySenderFields ? (
+        <button
+          type="button"
+          onClick={resetSenderFields}
+          className="mt-3 w-full rounded-xl border border-rose-200 bg-rose-50/60 px-3 py-2 text-xs font-semibold text-rose-900 hover:bg-rose-100"
+        >
+          Reset Saintly answers
+        </button>
+      ) : null}
+    </div>
+  );
+
   return (
-    <section className="flex min-h-[70vh] flex-col rounded-2xl border border-slate-200/90 bg-white p-4 shadow-md shadow-slate-200/40 ring-1 ring-slate-100/80 md:p-6">
-      {/* Top toolbar */}
-      <div className="mb-4 flex flex-col gap-3 border-b border-slate-100 pb-4 lg:flex-row lg:flex-wrap lg:items-center lg:justify-between">
+    <section className="flex min-h-0 w-full max-w-none flex-1 flex-col 2xl:mx-auto 2xl:max-w-[1600px]">
+      {/* Sticky top toolbar */}
+      <div className="sticky top-0 z-40 flex shrink-0 flex-col gap-3 border-b border-slate-200/90 bg-white/95 px-1 py-3 backdrop-blur-md sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:px-2">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           <button
             type="button"
@@ -194,28 +287,28 @@ export function SendPacketStep4Review({
             </p>
           </div>
         </div>
+
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-1 rounded-xl border border-slate-200 bg-slate-50 px-1 py-1">
+          <div className="flex max-w-full flex-wrap items-center gap-1 rounded-xl border border-slate-200 bg-slate-50 px-2 py-1">
+            <span className="text-[10px] font-semibold uppercase text-slate-500">Zoom</span>
+            {ZOOM_PRESETS.map((p) => (
+              <button
+                key={p}
+                type="button"
+                className={
+                  "rounded-md px-2 py-1 text-xs font-semibold " +
+                  (Math.abs(zoom - p) < 0.02
+                    ? "bg-amber-100 text-amber-950"
+                    : "text-slate-700 hover:bg-white")
+                }
+                onClick={() => setZoom(p)}
+              >
+                {Math.round(p * 100)}%
+              </button>
+            ))}
             <button
               type="button"
-              className="rounded-lg px-2 py-1 text-sm font-semibold text-slate-700 hover:bg-white"
-              onClick={() => setZoom((z) => Math.max(0.5, Math.round((z - 0.1) * 10) / 10))}
-            >
-              −
-            </button>
-            <span className="min-w-[3.25rem] text-center text-xs font-semibold text-slate-600">
-              {Math.round(zoom * 100)}%
-            </span>
-            <button
-              type="button"
-              className="rounded-lg px-2 py-1 text-sm font-semibold text-slate-700 hover:bg-white"
-              onClick={() => setZoom((z) => Math.min(2.5, Math.round((z + 0.1) * 10) / 10))}
-            >
-              +
-            </button>
-            <button
-              type="button"
-              className="ml-1 rounded-lg px-2 py-1 text-xs font-semibold text-sky-800 hover:bg-white"
+              className="ml-1 rounded-md px-2 py-1 text-xs font-semibold text-sky-800 hover:bg-white"
               onClick={() => setZoom(1)}
             >
               Fit width
@@ -239,64 +332,29 @@ export function SendPacketStep4Review({
         </div>
       </div>
 
-      <div className="mb-3 lg:hidden">
-        <button
-          type="button"
-          onClick={() => canvasRef.current?.goToNextRequired()}
-          className="w-full rounded-xl bg-indigo-600 px-4 py-3 text-sm font-semibold text-white shadow-md"
-        >
-          Next required Saintly field
-        </button>
-        <button
-          type="button"
-          onClick={() => setMobileSummaryOpen((o) => !o)}
-          className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-semibold text-slate-800"
-        >
-          {mobileSummaryOpen ? "Hide details" : "Packet summary & settings"}
-        </button>
-      </div>
-
-      <p className="mb-4 text-sm leading-relaxed text-slate-700">
+      <p className="mt-2 hidden shrink-0 px-1 text-sm leading-relaxed text-slate-700 lg:block">
         <span className="font-semibold text-slate-900">Complete Saintly fields directly on the document.</span>{" "}
         Recipient fields stay marked for the signer—they are not editable here.
       </p>
 
-      <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[240px_minmax(0,1fr)_minmax(260px,320px)] lg:items-stretch">
-        {/* Left rail */}
-        <aside className="hidden min-h-0 flex-col gap-3 lg:flex">
-          <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-3">
-            <p className="text-xs font-bold uppercase tracking-wide text-slate-600">Saintly checklist</p>
-            <ul className="mt-2 max-h-[45vh] space-y-2 overflow-auto text-xs text-slate-800">
-              {checklist.length === 0 ? (
-                <li className="text-slate-500">No Saintly fields on this template.</li>
-              ) : (
-                checklist.map((c) => (
-                  <li key={c.key}>
-                    <button
-                      type="button"
-                      onClick={() => canvasRef.current?.scrollToField(c.key)}
-                      className="w-full rounded-lg border border-transparent px-2 py-1.5 text-left hover:border-amber-200 hover:bg-white"
-                    >
-                      {c.heading}
-                    </button>
-                  </li>
-                ))
-              )}
-            </ul>
-          </div>
-          {hasSaintlySenderFields ? (
-            <button
-              type="button"
-              onClick={resetSenderFields}
-              className="rounded-xl border border-rose-200 bg-rose-50/60 px-3 py-2 text-xs font-semibold text-rose-900 hover:bg-rose-100"
-            >
-              Reset Saintly field answers
-            </button>
-          ) : null}
-        </aside>
+      {/* Workspace: 1 col mobile · 2 col lg (checklist + PDF) · 3 col xl */}
+      <div
+        className={
+          "mt-3 grid min-h-0 min-w-0 flex-1 grid-cols-1 gap-4 pb-2 " +
+          "max-lg:auto-rows-min " +
+          "lg:min-h-[min(calc(100dvh-14rem),880px)] lg:max-h-[calc(100dvh-11rem)] lg:grid-cols-[minmax(220px,260px)_minmax(0,1fr)] lg:gap-4 lg:overflow-hidden " +
+          "xl:min-h-[min(calc(100dvh-13rem),900px)] xl:max-h-[calc(100dvh-10rem)] xl:grid-cols-[240px_minmax(760px,1fr)_300px] xl:gap-6"
+        }
+      >
+        <aside className="hidden min-h-0 min-w-0 lg:block">{checklistCard}</aside>
 
-        {/* Center — PDF */}
-        <div className="flex min-h-[420px] min-w-0 flex-col lg:min-h-[560px]">
+        <div
+          className={
+            "order-first flex min-h-[min(85dvh,820px)] min-w-0 flex-col overflow-hidden rounded-xl border border-slate-200/80 bg-slate-100/40 shadow-inner " +
+            "lg:order-none lg:min-h-0 lg:flex-1 " +
+            "xl:min-h-0"
+          }
+        >
           {templatePdfUrl ? (
             <PdfSigningCanvas
               key={`${previewNonce}-${templatePdfUrl}`}
@@ -334,69 +392,42 @@ export function SendPacketStep4Review({
           )}
         </div>
 
-        {/* Right summary */}
-        <aside
-          className={
-            "min-h-0 space-y-3 lg:flex lg:flex-col " +
-            (mobileSummaryOpen ? "flex" : "hidden lg:flex")
-          }
-        >
-          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Packet summary</p>
-            <dl className="mt-3 space-y-2 text-sm">
-              <div className="flex justify-between gap-2">
-                <dt className="text-slate-500">Document</dt>
-                <dd className="text-right font-medium text-slate-900">{documentLabel}</dd>
-              </div>
-              <div>
-                <dt className="text-slate-500">Recipients</dt>
-                <dd className="mt-1 text-right text-slate-900">
-                  {primaryRecipients.map((r) => (
-                    <div key={r.id} className="leading-snug">
-                      <div className="font-medium">{r.name || "—"}</div>
-                      <div className="text-xs text-slate-600">{r.email}</div>
-                    </div>
-                  ))}
-                </dd>
-              </div>
-              <div className="flex justify-between gap-2 border-t border-slate-100 pt-2">
-                <dt className="text-slate-500">CRM</dt>
-                <dd className="text-right text-slate-900">
-                  {hasLinkedProfile ? (
-                    <>
-                      {recordTypeLabel}
-                      <div className="text-xs text-slate-600">{crmEntityId.trim()}</div>
-                    </>
-                  ) : (
-                    <span>Manual send</span>
-                  )}
-                </dd>
-              </div>
-              <div className="flex justify-between gap-2">
-                <dt className="text-slate-500">Link</dt>
-                <dd className="text-right text-slate-900">
-                  Expires {ttlDays}d · {sendEmail ? "Email now" : "Hold"}
-                </dd>
-              </div>
-            </dl>
-            {message.trim() ? (
-              <p className="mt-3 border-t border-slate-100 pt-3 text-xs text-slate-600">
-                <span className="font-semibold text-slate-800">Note: </span>
-                {message}
-              </p>
-            ) : null}
-            {(smsRequested || marksIc) && (
-              <p className="mt-2 text-xs text-slate-500">
-                {smsRequested ? "SMS requested · " : null}
-                {marksIc ? "IC agreement" : null}
-              </p>
-            )}
-          </div>
-        </aside>
+        <aside className="hidden min-h-0 min-w-0 overflow-y-auto xl:block">{summaryCard}</aside>
       </div>
 
-      {/* Bottom bar */}
-      <div className="sticky bottom-0 z-20 mt-6 flex flex-col gap-3 border-t border-slate-200/90 bg-white/95 pt-4 backdrop-blur-sm sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+      {/* Mobile / narrow: drawers */}
+      <div className="mt-3 flex flex-col gap-2 lg:hidden">
+        <button
+          type="button"
+          onClick={() => canvasRef.current?.goToNextRequired()}
+          className="w-full rounded-xl bg-indigo-600 px-4 py-3 text-sm font-semibold text-white shadow-md"
+        >
+          Next required
+        </button>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => setMobileChecklistOpen((o) => !o)}
+            className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 shadow-sm"
+          >
+            {mobileChecklistOpen ? "Hide" : "Checklist"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setMobileSummaryOpen((o) => !o)}
+            className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-semibold text-slate-800"
+          >
+            {mobileSummaryOpen ? "Hide" : "Summary"}
+          </button>
+        </div>
+        {mobileChecklistOpen ? (
+          <div className="rounded-xl border border-slate-200 bg-white p-2 shadow-sm">{checklistCard}</div>
+        ) : null}
+        {mobileSummaryOpen ? summaryCard : null}
+      </div>
+
+      {/* Sticky bottom send */}
+      <div className="sticky bottom-0 z-30 mt-4 flex shrink-0 flex-col gap-3 border-t border-slate-200/90 bg-white/95 py-3 backdrop-blur-md sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:py-4">
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
