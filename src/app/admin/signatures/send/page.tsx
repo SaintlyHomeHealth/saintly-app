@@ -23,7 +23,7 @@ export default async function AdminSendPacketPage({
 
   return (
     <div className="flex min-h-screen flex-col bg-gradient-to-b from-slate-50 via-white to-sky-50/40">
-      <main className="flex w-full flex-1 flex-col px-4 py-6 sm:px-5 lg:px-6">
+      <main className="flex min-h-0 w-full flex-1 flex-col px-4 py-6 sm:px-5 lg:px-6">
         <div className="mx-auto mb-8 max-w-6xl rounded-2xl border border-slate-200/90 bg-white p-6 shadow-md shadow-slate-200/30 md:p-8">
           <Link
             href="/admin/signatures"
@@ -37,19 +37,21 @@ export default async function AdminSendPacketPage({
           </p>
         </div>
 
-        <Suspense
-          fallback={
-            <div className="mx-auto max-w-6xl rounded-2xl border border-slate-200 bg-white p-8 text-sm text-slate-500 shadow-sm">
-              Loading…
-            </div>
-          }
-        >
-        <SendPacketForm
-          initialTemplateId={initialTemplateId}
-          senderDisplayName={staff.full_name?.trim() || staff.email?.trim() || "Saintly representative"}
-          pdfSignAllowedFromEmails={pdfSignAllowedFromEmails}
-        />
-        </Suspense>
+        <div className="flex min-h-0 w-full flex-1 flex-col">
+          <Suspense
+            fallback={
+              <div className="mx-auto max-w-6xl rounded-2xl border border-slate-200 bg-white p-8 text-sm text-slate-500 shadow-sm">
+                Loading…
+              </div>
+            }
+          >
+            <SendPacketForm
+              initialTemplateId={initialTemplateId}
+              senderDisplayName={staff.full_name?.trim() || staff.email?.trim() || "Saintly representative"}
+              pdfSignAllowedFromEmails={pdfSignAllowedFromEmails}
+            />
+          </Suspense>
+        </div>
       </main>
     </div>
   );

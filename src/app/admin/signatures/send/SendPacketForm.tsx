@@ -430,7 +430,7 @@ export function SendPacketForm({
         onSubmit={(e) => void handleSubmit(e)}
         className={
           step === 4
-            ? "flex min-h-[calc(100dvh-10rem)] flex-col gap-0"
+            ? "flex min-h-0 w-full flex-1 flex-col gap-0 overflow-hidden"
             : "mx-auto max-w-6xl space-y-8"
         }
       >
@@ -779,7 +779,7 @@ export function SendPacketForm({
         ) : null}
 
         {step === 4 && templateId ? (
-          <div className="mt-4 flex min-h-0 min-w-0 flex-1 flex-col px-1 sm:px-3 lg:px-4">
+          <div className="mt-4 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden px-1 sm:px-3 lg:px-4">
           <SendPacketStep4Review
             templateName={selectedTemplate?.name ?? "Template"}
             documentLabel={

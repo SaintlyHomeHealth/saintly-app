@@ -13,7 +13,7 @@ import {
 import { SignaturePadModal } from "@/app/sign/[token]/SignaturePadModal";
 import { pdfFieldRectToOverlayCssPx } from "@/lib/pdf-sign/pdf-field-geometry";
 import { loadPdfFromUrl, type RenderedPdfPage } from "@/lib/pdf-sign/pdfjs-browser";
-import { fieldTypeTreatAsText, signerPartyFromField } from "@/lib/pdf-sign/normalize";
+import { signerPartyFromField } from "@/lib/pdf-sign/normalize";
 import { fieldIsEffectivelyOptional } from "@/lib/pdf-sign/validate-sender-prefill";
 
 import {
@@ -77,7 +77,7 @@ function overlayClass(args: {
   if (args.inactive) extra += " opacity-70 saturate-75";
   if (args.done) extra += " ring-2 ring-emerald-500/70 border-emerald-600/80 bg-emerald-50/35";
   if (args.missing) extra += " ring-2 ring-rose-500 border-rose-600";
-  if (args.pulse) extra += " ring-2 ring-amber-500 ring-offset-2 ring-offset-white z-10";
+  if (args.pulse) extra += " z-[35] ring-2 ring-amber-500 ring-offset-2 ring-offset-white";
   return `${base}${extra} rounded-md transition-shadow`;
 }
 
@@ -304,35 +304,45 @@ export const PdfSigningCanvas = forwardRef<PdfSigningCanvasHandle, Props>(
         {/* Measure the actual scroll viewport so fit-width matches the readable area */}
         <div
           ref={viewerMeasureRef}
-          className="custom-scrollbar min-h-0 flex-1 overflow-y-auto overflow-x-auto rounded-xl border border-slate-200/90 bg-gradient-to-b from-slate-100 to-slate-50 p-4 shadow-inner sm:p-5"
+          className="custom-scrollbar min-h-0 flex-1 overflow-y-auto overflow-x-auto rounded-xl border border-slate-200/90 bg-gradient-to-b from-slate-100 to-slate-50 p-4 pb-32 shadow-inner sm:p-5 sm:pb-32"
         >
-          <div className="mx-auto flex w-max min-w-full flex-col items-center gap-10 pb-10 pt-1">
+          <div className="mx-auto flex w-max min-w-full flex-col items-center gap-10 pb-16 pt-1">
           {pdfPages.map((page) => {
             const i = page.index;
             const box = pageDisplaySizes[i];
             const fieldsHere = fieldsByPage.get(i) ?? [];
             const pdfSize = pageMap.get(i);
+            const sortedHere =
+              box && pdfSize
+                ? [...fieldsHere].sort((a, b) => {
+                    const rank = (f: (typeof fields)[number]) =>
+                      signerPartyFromField(f) === "recipient" ? 0 : 1;
+                    return rank(a) - rank(b);
+                  })
+                : [];
             return (
               <div
                 key={i}
                 ref={(el) => {
                   pageRefs.current[i] = el;
                 }}
-                className="relative inline-block max-w-full overflow-hidden rounded-lg bg-white shadow-lg ring-1 ring-slate-300/50"
+                className="relative inline-block max-w-full overflow-visible rounded-lg bg-white shadow-lg ring-1 ring-slate-300/50"
                 style={{ width: box?.width || displayBaseWidth }}
                 data-pdf-page-index={i}
               >
-                <div className="absolute left-3 top-3 z-20 rounded-full bg-slate-900/80 px-2.5 py-1 text-[11px] font-semibold text-white shadow-sm">
+                <div className="absolute left-3 top-3 z-30 rounded-full bg-slate-900/80 px-2.5 py-1 text-[11px] font-semibold text-white shadow-sm">
                   Page {i + 1}
                 </div>
                 <div className="relative">
                   <canvas
+                    className="pointer-events-none block h-auto max-w-full"
                     ref={(el) => {
                       canvasRefs.current[i] = el;
                     }}
                   />
-                  {box && pdfSize
-                    ? fieldsHere.map((f) => {
+                  {box && pdfSize ? (
+                    <div className="pointer-events-none absolute inset-0 z-[5]">
+                      {sortedHere.map((f) => {
                         if (
                           f.x == null ||
                           f.y == null ||
@@ -376,22 +386,20 @@ export const PdfSigningCanvas = forwardRef<PdfSigningCanvasHandle, Props>(
                           inactive: readOnlyForeign,
                         });
 
+                        const pe = readOnlyForeign
+                          ? "pointer-events-none z-[6]"
+                          : "pointer-events-auto z-20";
+
                         return (
                           <div
                             key={f.id}
-                            className={`absolute box-border ${readOnlyForeign ? "pointer-events-none" : ""} ${oc}`}
+                            className={`absolute box-border ${pe} ${oc}`}
                             style={{
                               left: rect.left,
                               top: rect.top,
                               width: Math.max(rect.width, 28),
                               height: Math.max(rect.height, 22),
                               fontSize: Math.min(Math.max(f.font_size ?? 11, 9), 18),
-                            }}
-                            onClick={() => {
-                              if (!editableHere) return;
-                              if (f.field_type === "signature" || f.field_type === "initials") {
-                                setSigFieldKey(f.field_key);
-                              }
                             }}
                           >
                             <div className="pointer-events-none absolute left-0 right-0 top-0 flex justify-between gap-1 px-0.5 text-[9px] font-semibold leading-tight">
@@ -410,7 +418,7 @@ export const PdfSigningCanvas = forwardRef<PdfSigningCanvasHandle, Props>(
                                   : "Completed in document"}
                               </div>
                             ) : editableHere ? (
-                              <div className="mt-3 h-[calc(100%-12px)] w-full px-0.5">
+                              <div className="mt-3 h-[calc(100%-12px)] w-full px-0.5 [&_button]:pointer-events-auto [&_input]:pointer-events-auto [&_label]:pointer-events-auto [&_textarea]:pointer-events-auto">
                                 <FieldEditor
                                   f={f}
                                   textValue={tv}
@@ -426,8 +434,9 @@ export const PdfSigningCanvas = forwardRef<PdfSigningCanvasHandle, Props>(
                             )}
                           </div>
                         );
-                      })
-                    : null}
+                      })}
+                    </div>
+                  ) : null}
                 </div>
               </div>
             );
@@ -504,13 +513,14 @@ function FieldEditor({
   onOpenSignature: () => void;
 }) {
   const fk = f.field_key;
+  const ft = String(f.field_type ?? "").toLowerCase();
 
-  if (f.field_type === "checkbox") {
+  if (ft === "checkbox") {
     return (
-      <label className="flex h-full cursor-pointer items-center justify-center gap-1">
+      <label className="pointer-events-auto flex h-full cursor-pointer items-center justify-center gap-1">
         <input
           type="checkbox"
-          className="h-4 w-4 rounded border-slate-400 text-amber-600"
+          className="pointer-events-auto h-4 w-4 rounded border-slate-400 text-amber-600"
           checked={Boolean(textValue === true || textValue === "true")}
           onChange={(e) => onTextChange(fk, e.target.checked)}
         />
@@ -518,12 +528,12 @@ function FieldEditor({
     );
   }
 
-  if (f.field_type === "signature" || f.field_type === "initials") {
+  if (ft === "signature" || ft === "initials") {
     return (
       <button
         type="button"
         onClick={onOpenSignature}
-        className="flex h-full w-full items-center justify-center overflow-hidden rounded bg-white/70 hover:bg-white"
+        className="pointer-events-auto flex h-full w-full items-center justify-center overflow-hidden rounded bg-white/80 shadow-sm hover:bg-white"
       >
         {sigImg ? (
           /* eslint-disable-next-line @next/next/no-img-element */
@@ -535,21 +545,35 @@ function FieldEditor({
     );
   }
 
-  if (f.field_type === "textarea") {
+  if (ft === "textarea") {
     return (
       <textarea
-        className="h-full w-full resize-none rounded border-0 bg-white/75 px-1 py-0.5 text-inherit leading-tight text-slate-900 shadow-none outline-none ring-0 focus:bg-white"
+        className="pointer-events-auto h-full w-full resize-none rounded border-0 bg-white/90 px-1 py-0.5 text-inherit leading-tight text-slate-900 shadow-none outline-none ring-0 focus:bg-white"
         value={String(textValue ?? "")}
         onChange={(e) => onTextChange(fk, e.target.value)}
       />
     );
   }
 
-  const inputType = f.field_type === "date" ? "date" : "text";
+  if (ft === "number") {
+    return (
+      <input
+        type="text"
+        inputMode="decimal"
+        autoComplete="off"
+        className="pointer-events-auto h-full w-full rounded border-0 bg-white/90 px-1 py-0.5 text-inherit leading-tight text-slate-900 outline-none focus:bg-white"
+        value={String(textValue ?? "")}
+        onChange={(e) => onTextChange(fk, e.target.value)}
+      />
+    );
+  }
+
+  const inputType = ft === "date" ? "date" : "text";
   return (
     <input
       type={inputType}
-      className="h-full w-full rounded border-0 bg-white/75 px-1 py-0.5 text-inherit leading-tight text-slate-900 outline-none focus:bg-white"
+      autoComplete="off"
+      className="pointer-events-auto h-full w-full rounded border-0 bg-white/90 px-1 py-0.5 text-inherit leading-tight text-slate-900 outline-none focus:bg-white"
       value={String(textValue ?? "")}
       onChange={(e) => onTextChange(fk, e.target.value)}
     />

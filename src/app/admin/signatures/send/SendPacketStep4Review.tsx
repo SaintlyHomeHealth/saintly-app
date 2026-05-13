@@ -269,7 +269,7 @@ export function SendPacketStep4Review({
   );
 
   return (
-    <section className="flex min-h-0 w-full max-w-none flex-1 flex-col 2xl:mx-auto 2xl:max-w-[1600px]">
+    <section className="flex min-h-0 w-full max-w-none flex-1 flex-col overflow-hidden 2xl:mx-auto 2xl:max-w-[1600px]">
       {/* Sticky top toolbar */}
       <div className="sticky top-0 z-40 flex shrink-0 flex-col gap-3 border-b border-slate-200/90 bg-white/95 px-1 py-3 backdrop-blur-md sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:px-2">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -337,22 +337,22 @@ export function SendPacketStep4Review({
         Recipient fields stay marked for the signer—they are not editable here.
       </p>
 
-      {/* Workspace: 1 col mobile · 2 col lg (checklist + PDF) · 3 col xl */}
+      {/* Workspace: height-constrained so PdfSigningCanvas inner scroller gets overflow-y */}
       <div
         className={
-          "mt-3 grid min-h-0 min-w-0 flex-1 grid-cols-1 gap-4 pb-2 " +
+          "mt-3 grid min-h-0 min-w-0 flex-1 grid-cols-1 gap-4 " +
           "max-lg:auto-rows-min " +
-          "lg:min-h-[min(calc(100dvh-14rem),880px)] lg:max-h-[calc(100dvh-11rem)] lg:grid-cols-[minmax(220px,260px)_minmax(0,1fr)] lg:gap-4 lg:overflow-hidden " +
-          "xl:min-h-[min(calc(100dvh-13rem),900px)] xl:max-h-[calc(100dvh-10rem)] xl:grid-cols-[240px_minmax(760px,1fr)_300px] xl:gap-6"
+          "lg:grid-cols-[minmax(220px,260px)_minmax(0,1fr)] lg:gap-4 lg:overflow-hidden " +
+          "xl:grid-cols-[240px_minmax(760px,1fr)_300px] xl:gap-6"
         }
       >
-        <aside className="hidden min-h-0 min-w-0 lg:block">{checklistCard}</aside>
+        <aside className="hidden min-h-0 min-w-0 overflow-y-auto lg:block">{checklistCard}</aside>
 
         <div
           className={
-            "order-first flex min-h-[min(85dvh,820px)] min-w-0 flex-col overflow-hidden rounded-xl border border-slate-200/80 bg-slate-100/40 shadow-inner " +
-            "lg:order-none lg:min-h-0 lg:flex-1 " +
-            "xl:min-h-0"
+            "order-first flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border border-slate-200/80 bg-slate-100/40 shadow-inner " +
+            "max-lg:min-h-[min(70dvh,600px)] " +
+            "lg:order-none lg:min-h-0 lg:flex-1"
           }
         >
           {templatePdfUrl ? (
@@ -426,8 +426,8 @@ export function SendPacketStep4Review({
         {mobileSummaryOpen ? summaryCard : null}
       </div>
 
-      {/* Sticky bottom send */}
-      <div className="sticky bottom-0 z-30 mt-4 flex shrink-0 flex-col gap-3 border-t border-slate-200/90 bg-white/95 py-3 backdrop-blur-md sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:py-4">
+      {/* Bottom bar: in document flow (not position:fixed) so it does not cover the PDF scroller */}
+      <div className="mt-auto flex shrink-0 flex-col gap-3 border-t border-slate-200/90 bg-white/95 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:py-4">
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
