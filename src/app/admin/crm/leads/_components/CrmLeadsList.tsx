@@ -454,6 +454,16 @@ export function CrmLeadsList({
     );
   }, []);
 
+  /** "+ Attempt" bumps count and last_contact_at together (matches server). */
+  const patchLeadAfterAttemptBump = useCallback((leadId: string, next: number) => {
+    const lastContactAt = new Date().toISOString();
+    setRows((prev) =>
+      prev.map((row) =>
+        row.id === leadId ? { ...row, call_attempt_count: next, last_contact_at: lastContactAt } : row
+      )
+    );
+  }, []);
+
   const staffById = useMemo(() => new Map(staffOptions.map((s) => [s.user_id, s])), [staffOptions]);
 
   const rowIds = useMemo(() => rows.map((r) => r.id), [rows]);
@@ -766,6 +776,7 @@ export function CrmLeadsList({
                       leadId={r.id}
                       row={r}
                       compact={compact}
+                      onIncrementCommitted={patchLeadAfterAttemptBump}
                       onCountCommitted={patchLeadCallAttemptCount}
                       onToast={setListToast}
                     />
@@ -1003,6 +1014,7 @@ export function CrmLeadsList({
                       leadId={r.id}
                       row={r}
                       compact={compact}
+                      onIncrementCommitted={patchLeadAfterAttemptBump}
                       onCountCommitted={patchLeadCallAttemptCount}
                       onToast={setListToast}
                     />

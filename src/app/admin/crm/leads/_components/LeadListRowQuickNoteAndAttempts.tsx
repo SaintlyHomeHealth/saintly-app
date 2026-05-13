@@ -124,15 +124,20 @@ function LeadListRowCallAttempts({
   leadId,
   row,
   compact,
+  onIncrementCommitted,
   onCountCommitted,
   onToast,
 }: {
   leadId: string;
   row: CrmLeadRow;
   compact?: boolean;
+  /** After "+ Attempt" — sync count + last_contact_at for list "Last:" line. */
+  onIncrementCommitted: (leadId: string, next: number) => void;
+  /** After pencil-edit OK — count only (does not imply a new contact touch). */
   onCountCommitted: (leadId: string, next: number) => void;
   onToast: (t: { type: "ok" | "err"; message: string }) => void;
 }) {
+  const router = useRouter();
   const initial = normalizeAttemptCount(row.call_attempt_count);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(String(initial));
@@ -157,8 +162,9 @@ function LeadListRowCallAttempts({
         });
         return;
       }
-      onCountCommitted(leadId, r.call_attempt_count);
+      onIncrementCommitted(leadId, r.call_attempt_count);
       onToast({ type: "ok", message: "Attempt logged" });
+      router.refresh();
     });
   }
 
@@ -243,12 +249,14 @@ export function LeadListRowEngagementColumn({
   leadId,
   row,
   compact,
+  onIncrementCommitted,
   onCountCommitted,
   onToast,
 }: {
   leadId: string;
   row: CrmLeadRow;
   compact?: boolean;
+  onIncrementCommitted: (leadId: string, next: number) => void;
   onCountCommitted: (leadId: string, next: number) => void;
   onToast: (t: { type: "ok" | "err"; message: string }) => void;
 }) {
@@ -261,6 +269,7 @@ export function LeadListRowEngagementColumn({
         leadId={leadId}
         row={row}
         compact={compact}
+        onIncrementCommitted={onIncrementCommitted}
         onCountCommitted={onCountCommitted}
         onToast={onToast}
       />

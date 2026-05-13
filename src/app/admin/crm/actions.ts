@@ -2014,7 +2014,7 @@ export type LeadCallAttemptMutationResult =
   | { ok: true; call_attempt_count: number }
   | { ok: false; error: "forbidden" | "invalid_lead" | "invalid_count" | "save_failed" };
 
-/** CRM leads list: +1 call attempt counter only (does not change last_outcome / pipeline). */
+/** CRM leads list: +1 call attempt counter; refreshes `last_contact_at` (does not change last_outcome / pipeline). */
 export async function incrementLeadCallAttemptFromList(formData: FormData): Promise<LeadCallAttemptMutationResult> {
   const staff = await getStaffProfile();
   if (!staff || !isManagerOrHigher(staff)) {
@@ -2026,7 +2026,7 @@ export async function incrementLeadCallAttemptFromList(formData: FormData): Prom
   }
 
   const { data: row, error: loadErr } = await leadRowsActiveOnly(
-    supabaseAdmin.from("leads").select("id, call_attempt_count").eq("id", leadId)
+    supabaseAdmin.from("leads").select("id, call_attempt_count, last_contact_at").eq("id", leadId)
   ).maybeSingle();
 
   if (loadErr || !row?.id) {
@@ -2037,10 +2037,13 @@ export async function incrementLeadCallAttemptFromList(formData: FormData): Prom
   const prev =
     typeof prevRaw === "number" && Number.isFinite(prevRaw) ? Math.max(0, Math.floor(prevRaw)) : 0;
   const next = prev + 1;
+  const prevLastContactAt =
+    typeof row.last_contact_at === "string" && row.last_contact_at.trim() ? row.last_contact_at.trim() : null;
+  const nowIso = new Date().toISOString();
 
   const { error: updErr } = await supabaseAdmin
     .from("leads")
-    .update({ call_attempt_count: next })
+    .update({ call_attempt_count: next, last_contact_at: nowIso })
     .eq("id", leadId)
     .is("deleted_at", null);
 
@@ -2061,7 +2064,7 @@ export async function incrementLeadCallAttemptFromList(formData: FormData): Prom
   if (!activityOk) {
     await supabaseAdmin
       .from("leads")
-      .update({ call_attempt_count: prev })
+      .update({ call_attempt_count: prev, last_contact_at: prevLastContactAt })
       .eq("id", leadId)
       .is("deleted_at", null);
     return { ok: false, error: "save_failed" };
