@@ -1,6 +1,6 @@
 import { signerPartyFromField } from "@/lib/pdf-sign/normalize";
 
-type TemplateLike = {
+export type TemplateLike = {
   field_key: string;
   label: string;
   field_type: string;
@@ -39,7 +39,8 @@ const FIELD_TYPE_DISPLAY: Record<string, string> = {
 
 export type SaintlyPrefillIssue = { field_key: string; message: string };
 
-function fieldIsEffectivelyOptional(f: TemplateLike): boolean {
+/** Same rules as send validation — also used by PDF overlay UI. */
+export function fieldIsEffectivelyOptional(f: TemplateLike): boolean {
   if (f.required === false) return true;
   return !!(
     f.options &&

@@ -59,6 +59,23 @@ export async function GET(
 
   const signerFields = fields.filter((f) => signerPartyFromField(f) === "recipient");
 
+  const canvasFields = fields.map((f) => ({
+    id: f.id,
+    field_key: f.field_key,
+    label: f.label ?? "",
+    field_type: f.field_type,
+    signer_role: f.signer_role,
+    required: f.required,
+    options: f.options,
+    page_index: typeof f.page_index === "number" ? f.page_index : 0,
+    x: f.x,
+    y: f.y,
+    width: f.width,
+    height: f.height,
+    font_size: f.font_size ?? 10,
+    required_order: f.required_order ?? 0,
+  }));
+
   const fieldPayload = signerFields.map((f) => {
     const stored = valueByFieldId.get(f.id);
     let value: string | boolean | null =
@@ -104,6 +121,7 @@ export async function GET(
     signedAt: recipient.signed_at,
     hasCompletedPdf,
     fields: fieldPayload,
+    canvasFields,
     w9CertificationText: template.document_type === "w9" ? W9_PERJURY_CERTIFICATION_BLOCK : null,
     i9Section: packet.i9_section,
   });

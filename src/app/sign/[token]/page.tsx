@@ -1,9 +1,13 @@
 "use client";
 
-import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 
-import { SignaturePadModal } from "./SignaturePadModal";
+import {
+  PdfSigningCanvas,
+  type PdfSigningCanvasField,
+  type PdfSigningCanvasHandle,
+} from "@/components/pdf-sign/PdfSigningCanvas";
 
 type Field = {
   fieldKey: string;
@@ -19,6 +23,7 @@ type LoadPayload = {
   documentType: string;
   packetStatus: string;
   fields: Field[];
+  canvasFields: PdfSigningCanvasField[];
   w9CertificationText: string | null;
   signedAt: string | null;
   recipientEmail: string;
@@ -37,17 +42,15 @@ export default function PublicPdfSignPage() {
   const [recipientSignatureImages, setRecipientSignatureImages] = useState<
     Record<string, string | undefined>
   >({});
-  const [sigModalField, setSigModalField] = useState<Field | null>(null);
-  const [docPreviewOpenMobile, setDocPreviewOpenMobile] = useState(true);
-  /** Bumps after successful draft save so the iframe reloads merged preview PDF. */
+  /** Bumps after successful draft save so the PDF reloads merged preview. */
   const [previewRev, setPreviewRev] = useState(0);
+  const canvasRef = useRef<PdfSigningCanvasHandle | null>(null);
 
   const docUrl = token
     ? `/api/pdf-sign/public/recipient/${encodeURIComponent(token)}/document`
     : "";
-  /** Cache-busting param; handlers ignore unknown query keys. */
-  const previewIframeSrc =
-    docUrl === "" ? "" : `${docUrl}?previewRev=${encodeURIComponent(String(previewRev))}`;
+  const pdfSrc = docUrl ? `${docUrl}?previewRev=${encodeURIComponent(String(previewRev))}` : "";
+
   useEffect(() => {
     if (!token) return;
     let cancelled = false;
@@ -80,6 +83,8 @@ export default function PublicPdfSignPage() {
     if (!data) return [];
     return [...data.fields].sort((a, b) => a.order - b.order);
   }, [data]);
+
+  const canvasFieldList = useMemo(() => data?.canvasFields ?? [], [data?.canvasFields]);
 
   const signerNameHint =
     typeof data?.recipientDisplayName === "string" ? data.recipientDisplayName.trim() : "";
@@ -154,18 +159,6 @@ export default function PublicPdfSignPage() {
     setBusy(false);
   }
 
-  function applySignature(payload: {
-    fieldKey: string;
-    typed: string | null;
-    imageDataUrl: string | null;
-  }) {
-    setRecipientSignatureImages((prev) =>
-      payload.imageDataUrl ? { ...prev, [payload.fieldKey]: payload.imageDataUrl } : prev
-    );
-    if (payload.typed?.trim())
-      setValues((v) => ({ ...v, [payload.fieldKey]: payload.typed!.trim() }));
-  }
-
   if (!token)
     return <div className="p-8 text-center text-slate-600">Invalid link.</div>;
   if (err && !data) return <div className="p-8 text-center text-red-700">{err}</div>;
@@ -173,7 +166,7 @@ export default function PublicPdfSignPage() {
     return <div className="p-8 text-center text-slate-600">Loading…</div>;
 
   const isDone = Boolean(data.signedAt || data.packetStatus === "completed" || data.packetStatus === "signed");
-  const unsignedDownloadHref = previewIframeSrc ? `${previewIframeSrc}&download=1` : "";
+  const unsignedDownloadHref = pdfSrc ? `${pdfSrc}&download=1` : "";
   const signedViewHref = `${docUrl}?completed=1`;
   const signedDownloadHref = `${docUrl}?completed=1&download=1`;
 
@@ -214,206 +207,101 @@ export default function PublicPdfSignPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-100">
-      <div className="mx-auto max-w-6xl px-4 py-8">
-        <header className="mb-6 max-w-xl lg:max-w-none">
-          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
-            Review and sign document
+    <div className="min-h-screen bg-gradient-to-b from-slate-100 via-white to-sky-50/50">
+      <div className="mx-auto flex max-w-5xl flex-col gap-4 px-3 py-6 sm:px-4">
+        <header className="rounded-2xl border border-slate-200/80 bg-white/90 px-4 py-4 shadow-sm sm:px-6">
+          <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">
+            Sign your document
           </h1>
-          <p className="mt-2 text-sm text-slate-600">
-            Please review the document before signing.
-            {data.documentTitle ? (
+          <p className="mt-2 text-sm leading-relaxed text-slate-600">
+            Complete the highlighted fields directly on the PDF.{data.documentTitle ? (
               <>
                 {" "}
                 <span className="font-medium text-slate-800">{data.documentTitle}</span>.
               </>
             ) : null}
           </p>
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+            <a
+              href={unsignedDownloadHref}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 font-semibold text-slate-800 hover:bg-slate-50"
+            >
+              Download draft
+            </a>
+            <button
+              type="button"
+              onClick={() => canvasRef.current?.goToNextRequired()}
+              className="rounded-lg bg-indigo-600 px-3 py-1.5 font-semibold text-white shadow-sm hover:bg-indigo-700 lg:hidden"
+            >
+              Next required field
+            </button>
+          </div>
         </header>
 
-        <div className="flex flex-col gap-6 lg:grid lg:grid-cols-2 lg:items-start lg:gap-8">
-          <section className="order-first flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-            <div className="flex flex-wrap items-center justify-between gap-2 lg:flex-nowrap">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Document preview
-              </p>
-              <div className="flex flex-wrap items-center gap-2">
-                <a
-                  href={unsignedDownloadHref}
-                  className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 hover:bg-slate-50"
-                >
-                  Download document
-                </a>
-                <button
-                  type="button"
-                  className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 lg:hidden"
-                  onClick={() => setDocPreviewOpenMobile((o) => !o)}
-                  aria-expanded={docPreviewOpenMobile}
-                >
-                  {docPreviewOpenMobile ? "Hide document" : "View document"}
-                </button>
-              </div>
-            </div>
-
-            <div
-              className={
-                "relative w-full overflow-hidden rounded-xl bg-slate-50 ring-1 ring-slate-200 " +
-                (docPreviewOpenMobile ? "block" : "hidden lg:block") +
-                " lg:min-h-[min(640px,75vh)]"
+        <div className="min-h-0 flex-1 rounded-2xl border border-slate-200 bg-white p-3 shadow-md sm:p-5">
+          {pdfSrc && canvasFieldList.length > 0 ? (
+            <PdfSigningCanvas
+              ref={canvasRef}
+              pdfUrl={pdfSrc}
+              fields={canvasFieldList}
+              mode="recipient"
+              recipientDisplayName={signerNameHint}
+              textValues={values}
+              onTextChange={(k, v) =>
+                setValues((prev) => {
+                  const cf = canvasFieldList.find((x) => x.field_key === k);
+                  if (!cf) return prev;
+                  return { ...prev, [k]: v };
+                })
               }
-            >
-              <iframe
-                title="PDF preview"
-                src={previewIframeSrc}
-                className={
-                  "h-[min(520px,70vh)] w-full border-0 lg:h-[min(640px,75vh)]"
+              signatureImages={recipientSignatureImages}
+              onSignatureApply={(fieldKey, payload) => {
+                if (payload.imageDataUrl) {
+                  setRecipientSignatureImages((prev) => ({
+                    ...prev,
+                    [fieldKey]: payload.imageDataUrl as string,
+                  }));
                 }
-              />
-            </div>
-            <p className="text-xs leading-relaxed text-slate-500">
-              Showing Saintly‑completed fields plus your edits so far (signatures appear after you
-              apply them).
-            </p>
-          </section>
-
-          <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <form onSubmit={finalize} className="space-y-4">
-              {sortedFields.map((f) => {
-                if (f.fieldType === "checkbox") {
-                  return (
-                    <label key={f.fieldKey} className="flex items-start gap-2 text-sm text-slate-800">
-                      <input
-                        type="checkbox"
-                        className="mt-1 rounded border-slate-300 text-slate-900"
-                        checked={Boolean(values[f.fieldKey])}
-                        onChange={(e) =>
-                          setValues((v) => ({ ...v, [f.fieldKey]: e.target.checked }))
-                        }
-                      />
-                      <span>{f.label}</span>
-                    </label>
-                  );
+                if (payload.typed) {
+                  setValues((prev) => ({ ...prev, [fieldKey]: payload.typed as string }));
                 }
-                if (f.fieldType === "signature" || f.fieldType === "initials") {
-                  const png = recipientSignatureImages[f.fieldKey];
-                  const typed = typeof values[f.fieldKey] === "string" ? String(values[f.fieldKey]) : "";
-                  return (
-                    <div key={f.fieldKey} className="text-sm">
-                      <p className="text-xs font-semibold text-slate-600">{f.label}</p>
-                      <div className="mt-2 flex flex-wrap items-center gap-3">
-                        {png ? (
-                          /* eslint-disable-next-line @next/next/no-img-element */
-                          <img
-                            src={png}
-                            alt=""
-                            className="h-14 max-w-full rounded-lg border border-slate-200 bg-white"
-                          />
-                        ) : (
-                          <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-xs text-slate-500">
-                            No signature captured yet.
-                          </div>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => setSigModalField(f)}
-                          className="rounded-lg bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-700"
-                        >
-                          {png || typed.trim() ? "Edit signature" : "Click to sign"}
-                        </button>
-                      </div>
-                    </div>
-                  );
-                }
-                if (f.fieldType === "textarea") {
-                  return (
-                    <label key={f.fieldKey} className="block text-sm text-slate-800">
-                      <span className="text-xs font-semibold text-slate-600">{f.label}</span>
-                      <textarea
-                        className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-                        rows={3}
-                        value={String(values[f.fieldKey] ?? "")}
-                        autoComplete="off"
-                        onChange={(e) =>
-                          setValues((v) => ({ ...v, [f.fieldKey]: e.target.value }))
-                        }
-                      />
-                    </label>
-                  );
-                }
-                const type = f.fieldType === "date" ? "date" : "text";
-                return (
-                  <label key={f.fieldKey} className="block text-sm text-slate-800">
-                    <span className="text-xs font-semibold text-slate-600">{f.label}</span>
-                    <input
-                      type={type}
-                      className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-                      value={String(values[f.fieldKey] ?? "")}
-                      autoComplete="off"
-                      onChange={(e) =>
-                        setValues((v) => ({ ...v, [f.fieldKey]: e.target.value }))
-                      }
-                    />
-                  </label>
-                );
-              })}
-
-              {data.documentType === "w9" && data.w9CertificationText ? (
-                <section className="rounded-lg border border-amber-200 bg-amber-50/80 p-3 text-xs text-amber-950">
-                  <div className="font-semibold">Certification (read carefully)</div>
-                  <p className="mt-2 whitespace-pre-wrap">{data.w9CertificationText}</p>
-                </section>
-              ) : null}
-
-              {err ? <p className="text-sm text-red-700">{err}</p> : null}
-
-              <div className="flex flex-wrap gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => void saveDraft()}
-                  disabled={busy}
-                  className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
-                >
-                  Save progress
-                </button>
-                <button
-                  type="submit"
-                  disabled={busy}
-                  className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
-                >
-                  Sign & submit
-                </button>
-              </div>
-            </form>
-          </section>
+              }}
+            />
+          ) : (
+            <p className="p-6 text-center text-sm text-slate-600">Preparing document…</p>
+          )}
         </div>
-      </div>
 
-      {sigModalField ? (
-        <SignaturePadModal
-          field={{
-            fieldKey: sigModalField.fieldKey,
-            label: sigModalField.label,
-            fieldType: sigModalField.fieldType,
-          }}
-          recipientName={signerNameHint}
-          onCancel={() => setSigModalField(null)}
-          onApply={(payload) => {
-            const f = sigModalField;
-            setSigModalField(null);
-            if (!f) return;
-            if (payload.imageDataUrl) {
-              applySignature({
-                fieldKey: f.fieldKey,
-                typed: payload.typed ?? null,
-                imageDataUrl: payload.imageDataUrl,
-              });
-            }
-            if (payload.typed && !payload.imageDataUrl) {
-              setValues((v) => ({ ...v, [f.fieldKey]: payload.typed!.trim() }));
-            }
-          }}
-        />
-      ) : null}
+        {data.documentType === "w9" && data.w9CertificationText ? (
+          <section className="rounded-2xl border border-amber-200 bg-amber-50/90 p-4 text-xs text-amber-950 shadow-sm sm:p-5">
+            <div className="font-semibold">Certification (read carefully)</div>
+            <p className="mt-2 whitespace-pre-wrap leading-relaxed">{data.w9CertificationText}</p>
+          </section>
+        ) : null}
+
+        {err ? <p className="text-center text-sm text-rose-700">{err}</p> : null}
+
+        <form
+          onSubmit={finalize}
+          className="sticky bottom-0 z-10 flex flex-col gap-3 border-t border-slate-200 bg-white/95 py-4 backdrop-blur-sm sm:flex-row sm:flex-wrap sm:items-center sm:justify-between"
+        >
+          <button
+            type="button"
+            onClick={() => void saveDraft()}
+            disabled={busy}
+            className="rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-50"
+          >
+            Save progress
+          </button>
+          <button
+            type="submit"
+            disabled={busy}
+            className="rounded-xl bg-slate-900 px-6 py-3 text-sm font-semibold text-white shadow-md hover:bg-slate-800 disabled:opacity-50"
+          >
+            {busy ? "Submitting…" : "Sign & submit"}
+          </button>
+        </form>
+      </div>
     </div>
   );
 }
