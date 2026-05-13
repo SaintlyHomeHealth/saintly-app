@@ -60,13 +60,55 @@ export type FaxMessageRow = {
   forwarded_from_fax_message_id?: string | null;
 };
 
-/** Tokenized AND search across common fax fields (case-insensitive substring per token). */
-export function faxMatchesKeywordSearch(fax: FaxMessageRow, rawQuery: string): boolean {
-  const tokens = rawQuery
+/** Same tokenization as {@link faxMatchesKeywordSearch} for list queries (AND across tokens). */
+export function tokenizeFaxKeywordQuery(rawQuery: string): string[] {
+  return rawQuery
     .toLowerCase()
     .split(/\s+/)
     .map((t) => t.trim())
     .filter(Boolean);
+}
+
+const FAX_LIST_SEARCH_COLUMNS = [
+  "note",
+  "from_number",
+  "to_number",
+  "sender_name",
+  "recipient_name",
+  "subject",
+  "fax_number_label",
+  "status",
+  "direction",
+  "category",
+  "failure_reason",
+] as const;
+
+/**
+ * PostgREST `.or()` filter: each token must match at least one column (tokens are ANDed by chaining `.or()` groups).
+ * Mirrors {@link faxMatchesKeywordSearch} on text columns using ilike. (Array `tags` are not included because
+ * PostgREST does not allow casts in horizontal filters; tag-only substring matches remain a rare edge case.)
+ */
+function faxKeywordTokenOrClause(token: string): string {
+  const escaped = token.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\*/g, "\\*");
+  const pattern = `*${escaped}*`;
+  const parts = FAX_LIST_SEARCH_COLUMNS.map((col) => `${col}.ilike."${pattern}"`);
+  return parts.join(",");
+}
+
+export function applyFaxListKeywordOrFilters<Q extends { or: (filters: string) => Q }>(
+  query: Q,
+  rawQuery: string
+): Q {
+  let q = query;
+  for (const token of tokenizeFaxKeywordQuery(rawQuery)) {
+    q = q.or(faxKeywordTokenOrClause(token));
+  }
+  return q;
+}
+
+/** Tokenized AND search across common fax fields (case-insensitive substring per token). */
+export function faxMatchesKeywordSearch(fax: FaxMessageRow, rawQuery: string): boolean {
+  const tokens = tokenizeFaxKeywordQuery(rawQuery);
   if (tokens.length === 0) return true;
 
   const hay = [

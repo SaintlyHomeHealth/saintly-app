@@ -15,7 +15,7 @@ import { supabaseAdmin } from "@/lib/admin";
 import { formatFaxSenderDisplay } from "@/lib/fax/format-fax-sender";
 import { formatFaxDateTimeDetail, formatFaxDateTimeList } from "@/lib/fax/format-fax-time";
 import { inboundFaxHasDocumentForForward } from "@/lib/fax/forward-inbound-fax";
-import { faxMatchesKeywordSearch, missingFaxSchema, type FaxMessageRow } from "@/lib/fax/fax-service";
+import { applyFaxListKeywordOrFilters, missingFaxSchema, type FaxMessageRow } from "@/lib/fax/fax-service";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import { getStaffProfile, isAdminOrHigher, isManagerOrHigher } from "@/lib/staff-profile";
 
@@ -24,6 +24,30 @@ import { FaxNoteListCell } from "./_components/FaxNoteListCell";
 import { ForwardInboundFaxButton } from "./_components/ForwardInboundFaxButton";
 import { ResendFaxButton } from "./_components/ResendFaxButton";
 import { SendFaxButton } from "./_components/SendFaxButton";
+
+export const dynamic = "force-dynamic";
+
+const FAX_LIST_PAGE_SIZE = 20;
+
+type FaxListFilters = {
+  tab: string;
+  q: string;
+  unread: boolean;
+  from: string;
+  to: string;
+};
+
+function faxCenterListPath(filters: FaxListFilters, page: number): string {
+  const p = new URLSearchParams();
+  p.set("tab", filters.tab);
+  if (filters.q) p.set("q", filters.q);
+  if (filters.unread) p.set("unread", "1");
+  if (filters.from) p.set("from", filters.from);
+  if (filters.to) p.set("to", filters.to);
+  if (page > 1) p.set("page", String(page));
+  const qs = p.toString();
+  return `/admin/fax${qs ? `?${qs}` : ""}`;
+}
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
@@ -56,39 +80,41 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
   const allowHardDelete = isAdminOrHigher(staff);
 
   const raw = await searchParams;
-  const f = {
+  const pageRaw = one(raw, "page");
+  const pageParsed = Number.parseInt(pageRaw, 10);
+  const page = Number.isFinite(pageParsed) && pageParsed > 0 ? pageParsed : 1;
+
+  const f: FaxListFilters = {
     tab: one(raw, "tab") || "inbox",
     q: one(raw, "q").trim(),
     unread: one(raw, "unread") === "1",
     from: one(raw, "from").trim(),
     to: one(raw, "to").trim(),
   };
-  const currentSearch = new URLSearchParams();
-  if (f.tab) currentSearch.set("tab", f.tab);
-  if (f.q) currentSearch.set("q", f.q);
-  if (f.unread) currentSearch.set("unread", "1");
-  if (f.from) currentSearch.set("from", f.from);
-  if (f.to) currentSearch.set("to", f.to);
-  const currentListPath = `/admin/fax${currentSearch.size ? `?${currentSearch.toString()}` : ""}`;
+  const currentListPath = faxCenterListPath(f, page);
 
-  let query = supabaseAdmin
-    .from("fax_messages")
-    .select("*")
-    .order("created_at", { ascending: false })
-    .limit(400);
+  let listQuery = supabaseAdmin.from("fax_messages").select("*").order("created_at", { ascending: false });
 
-  if (f.tab === "sent") query = query.eq("direction", "outbound").not("status", "ilike", "%failed%");
-  else if (f.tab === "failed") query = query.ilike("status", "%failed%");
-  else if (f.tab === "archived") query = query.eq("is_archived", true);
-  else query = query.eq("direction", "inbound").eq("is_archived", false);
-  if (f.unread) query = query.eq("is_read", false);
-  if (f.from) query = query.gte("created_at", `${f.from}T00:00:00.000Z`);
-  if (f.to) query = query.lte("created_at", `${f.to}T23:59:59.999Z`);
+  if (f.tab === "sent") listQuery = listQuery.eq("direction", "outbound").not("status", "ilike", "%failed%");
+  else if (f.tab === "failed") listQuery = listQuery.ilike("status", "%failed%");
+  else if (f.tab === "archived") listQuery = listQuery.eq("is_archived", true);
+  else listQuery = listQuery.eq("direction", "inbound").eq("is_archived", false);
+  if (f.unread) listQuery = listQuery.eq("is_read", false);
+  if (f.from) listQuery = listQuery.gte("created_at", `${f.from}T00:00:00.000Z`);
+  if (f.to) listQuery = listQuery.lte("created_at", `${f.to}T23:59:59.999Z`);
+  if (f.q) listQuery = applyFaxListKeywordOrFilters(listQuery, f.q);
 
-  const { data, error } = await query;
+  const rangeFrom = (page - 1) * FAX_LIST_PAGE_SIZE;
+  const rangeTo = rangeFrom + FAX_LIST_PAGE_SIZE; // fetch pageSize + 1 rows (inclusive end index)
+  listQuery = listQuery.range(rangeFrom, rangeTo);
+
+  const { data, error } = await listQuery;
   const schemaMissing = missingFaxSchema(error);
-  let faxes = schemaMissing ? [] : ((data ?? []) as FaxMessageRow[]);
-  if (f.q) faxes = faxes.filter((fax) => faxMatchesKeywordSearch(fax, f.q));
+  const pageSlice = schemaMissing ? [] : ((data ?? []) as FaxMessageRow[]);
+  const hasNextPage = pageSlice.length > FAX_LIST_PAGE_SIZE;
+  const faxes = hasNextPage ? pageSlice.slice(0, FAX_LIST_PAGE_SIZE) : pageSlice;
+  const rangeStart = faxes.length === 0 ? 0 : rangeFrom + 1;
+  const rangeEnd = rangeFrom + faxes.length;
 
   const { data: metricRows } = schemaMissing
     ? { data: [] }
@@ -285,6 +311,41 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
               );
             })
           )}
+        </div>
+        <div className="flex flex-col gap-2 border-t border-slate-100 px-4 py-3 text-xs text-slate-600 sm:flex-row sm:items-center sm:justify-between">
+          <span className="font-medium">
+            {schemaMissing
+              ? "—"
+              : faxes.length === 0
+                ? "No results"
+                : `Showing ${rangeStart}–${rangeEnd}`}
+          </span>
+          <div className="flex flex-wrap items-center gap-2">
+            {page <= 1 ? (
+              <span
+                className={`${crmActionBtnMuted} pointer-events-none cursor-not-allowed opacity-45 shadow-none hover:shadow-none`}
+                aria-disabled="true"
+              >
+                Previous
+              </span>
+            ) : (
+              <Link href={faxCenterListPath(f, page - 1)} className={crmActionBtnMuted}>
+                Previous
+              </Link>
+            )}
+            {hasNextPage ? (
+              <Link href={faxCenterListPath(f, page + 1)} className={crmActionBtnMuted}>
+                Next
+              </Link>
+            ) : (
+              <span
+                className={`${crmActionBtnMuted} pointer-events-none cursor-not-allowed opacity-45 shadow-none hover:shadow-none`}
+                aria-disabled="true"
+              >
+                Next
+              </span>
+            )}
+          </div>
         </div>
       </section>
     </div>
