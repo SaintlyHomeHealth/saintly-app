@@ -45,6 +45,17 @@ import {
 import { isReactNativeWebViewShell } from "@/lib/softphone/native-speaker-bridge";
 import { softphoneDevLog, softphoneDevWarn } from "@/lib/softphone/softphone-client-debug";
 import { twilioErrorToFriendly } from "@/lib/softphone/twilio-user-friendly-errors";
+import {
+  createEmptySampleAggregate,
+  foldRtcSample,
+  sandboxWarningDetail,
+  shouldConsoleWarnForTwilioVoiceWarning,
+  snapshotMediaDevices,
+  type CallQualityMediaDeviceSnapshot,
+  type CallQualitySampleAggregate,
+  type CallQualityWarningRecord,
+} from "@/lib/softphone/call-quality-browser-report";
+import { buildTwilioVoiceJsDeviceOptions, readTwilioVoiceJsEdgeLabel } from "@/lib/softphone/twilio-voice-js-device-options";
 export type {
   CallContextVoiceAi,
   CallDeskContext,
@@ -135,6 +146,19 @@ type InboundAiAssistState = {
   formattedNumber: string | null;
   contactName: string | null;
   subtitle: string | null;
+};
+
+type CallQualityBrowserSession = {
+  posted: boolean;
+  callSid: string | null;
+  direction: "inbound" | "outbound";
+  fromRaw: string | null;
+  toRaw: string | null;
+  samples: CallQualitySampleAggregate;
+  warnings: CallQualityWarningRecord[];
+  media_devices: CallQualityMediaDeviceSnapshot | null;
+  answeredAtMs: number | null;
+  startedAtMs: number;
 };
 
 const SAINTLY_INBOUND_DEBUG_PREFIX = "[SAINTLY-INBOUND-DEBUG]";
@@ -280,6 +304,8 @@ function isNativeVoiceCallShell(): boolean {
 
 export function WorkspaceSoftphoneProvider({ children }: { children: React.ReactNode }) {
   const nativeVoiceCallShell = isNativeVoiceCallShell();
+  const nativeVoiceCallShellRef = useRef(nativeVoiceCallShell);
+  nativeVoiceCallShellRef.current = nativeVoiceCallShell;
   const [nativeShellIncomingCallId, setNativeShellIncomingCallId] = useState<string | null>(null);
   const nativeShellActiveSidRef = useRef<string | null>(null);
   /** Mirrors `nativeShellIncomingCallId` for handlers that must not rely on stale render state (e.g. Voice.Error). */
@@ -321,6 +347,8 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     setRingtoneUnlocked(true);
   }, [nativeVoiceCallShell]);
   const deviceRef = useRef<Device | null>(null);
+  const callQualitySessionRef = useRef<CallQualityBrowserSession | null>(null);
+  const softphoneCapabilitiesRef = useRef<SoftphoneServerCapabilities | null>(null);
   const activeCallRef = useRef<CallHandle | null>(null);
   const ringtoneAudioRef = useRef<HTMLAudioElement | null>(null);
   const testRingtoneStopRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -503,6 +531,10 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
   useEffect(() => {
     outboundCliSelectionRef.current = outboundCliSelection;
   }, [outboundCliSelection]);
+
+  useEffect(() => {
+    softphoneCapabilitiesRef.current = softphoneCapabilities;
+  }, [softphoneCapabilities]);
 
   useEffect(() => {
     const cap = softphoneCapabilities;
@@ -798,6 +830,45 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       softphoneDevLog("[softphone] finalizeCallCleanup", reason);
 
       const call = activeCallRef.current;
+      const endedSid = options?.endedCallSid ?? readCallSid(call);
+      if (!nativeVoiceCallShellRef.current) {
+        const sess = callQualitySessionRef.current;
+        if (sess && !sess.posted && endedSid?.startsWith("CA")) {
+          sess.posted = true;
+          const disconnectedAtMs = Date.now();
+          const staffId = softphoneCapabilitiesRef.current?.staff_user_id;
+          const body = {
+            twilio_call_sid: endedSid,
+            direction: sess.direction,
+            answered_by: "browser" as const,
+            staff_user_id: staffId ?? "",
+            from_e164: sess.fromRaw,
+            to_e164: sess.toRaw,
+            user_agent: typeof navigator !== "undefined" ? navigator.userAgent : null,
+            twilio_voice_js_edge: readTwilioVoiceJsEdgeLabel(),
+            timeline: {
+              started_at_ms: sess.startedAtMs,
+              answered_at_ms: sess.answeredAtMs,
+              disconnected_at_ms: disconnectedAtMs,
+            },
+            samples_aggregate: sess.samples,
+            webrtc_warnings: sess.warnings.slice(-40),
+            media_devices: sess.media_devices,
+          };
+          if (staffId) {
+            void fetch("/api/workspace/phone/call-quality-report", {
+              method: "POST",
+              credentials: "include",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(body),
+            }).catch((e) => {
+              console.warn("[call-quality] browser report failed", e);
+            });
+          }
+        }
+        callQualitySessionRef.current = null;
+      }
+
       const prevDesk = callContextRef.current;
       let remoteLabel: string | null = null;
       if (call) {
@@ -1073,6 +1144,78 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
   const attachActiveCallHandlers = useCallback(
     (call: Call | CallHandle) => {
       const sidAtStart = readCallSid(call);
+      const rawDir =
+        call && typeof call === "object" && "direction" in call
+          ? String((call as Call).direction).toLowerCase()
+          : "outbound";
+      const direction: "inbound" | "outbound" = rawDir === "incoming" ? "inbound" : "outbound";
+      let codecStr: string | null = null;
+      if ("codec" in call) {
+        try {
+          const c = (call as Call).codec;
+          codecStr = typeof c === "string" && c.trim() ? c.trim() : null;
+        } catch {
+          codecStr = null;
+        }
+      }
+      callQualitySessionRef.current = {
+        posted: false,
+        callSid: sidAtStart,
+        direction,
+        fromRaw: readTwilioParam(call, ["From"]),
+        toRaw: readTwilioParam(call, ["To"]),
+        samples: createEmptySampleAggregate(),
+        warnings: [],
+        media_devices: null,
+        answeredAtMs: null,
+        startedAtMs: Date.now(),
+      };
+      call.on("sample", (sample: unknown) => {
+        const s = callQualitySessionRef.current;
+        if (!s) return;
+        const o = typeof sample === "object" && sample !== null ? (sample as Record<string, unknown>) : {};
+        s.samples = foldRtcSample(s.samples, o, codecStr);
+      });
+      call.on("warning", (name: string, data?: unknown) => {
+        if (shouldConsoleWarnForTwilioVoiceWarning(name)) {
+          console.warn("[call-quality][twilio-sdk]", name, sandboxWarningDetail(data));
+        }
+        const s = callQualitySessionRef.current;
+        if (s) {
+          s.warnings.push({ name, at: new Date().toISOString(), detail: sandboxWarningDetail(data) });
+        }
+      });
+      call.on("warning-cleared", (name: string) => {
+        const s = callQualitySessionRef.current;
+        if (s) {
+          s.warnings.push({ name: `${name}:cleared`, at: new Date().toISOString() });
+        }
+      });
+      call.on("reconnecting", () => {
+        console.warn("[call-quality][twilio-sdk] reconnecting", {
+          callSid: readCallSid(call) ?? null,
+        });
+      });
+      call.on("accept", () => {
+        const s = callQualitySessionRef.current;
+        if (s) {
+          s.answeredAtMs = Date.now();
+          if (!s.callSid) {
+            s.callSid = readCallSid(call);
+          }
+        }
+        void snapshotMediaDevices().then((devs) => {
+          const ss = callQualitySessionRef.current;
+          if (ss) ss.media_devices = devs ?? ss.media_devices;
+        });
+      });
+      call.on("audio", () => {
+        void snapshotMediaDevices().then((devs) => {
+          const ss = callQualitySessionRef.current;
+          if (ss && !ss.media_devices) ss.media_devices = devs;
+        });
+      });
+
       softphoneDevLog("[softphone] active call created", sidAtStart ? `${sidAtStart.slice(0, 10)}…` : "(no CallSid yet)");
       activeCallRef.current = call;
       setTranscriptEnabled(false);
@@ -1533,7 +1676,18 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
         setTokenIdentity(typeof body.identity === "string" ? body.identity : null);
         const twilioLoadStart = routePerfStart();
         const { Device: TwilioDevice } = await loadTwilioVoiceSdk();
-        const device = new TwilioDevice(body.token, { logLevel: "error" });
+        if (deviceRef.current) {
+          console.warn(
+            "[call-quality] Twilio Device already registered — destroying the previous instance to avoid duplicate Client registrations (can ring browser + mobile twice)."
+          );
+          try {
+            deviceRef.current.destroy();
+          } catch {
+            /* ignore */
+          }
+          deviceRef.current = null;
+        }
+        const device = new TwilioDevice(body.token, buildTwilioVoiceJsDeviceOptions() as Device.Options);
         bindDeviceLifecycle(device);
         await device.register();
         if (twilioLoadStart) {
@@ -2042,7 +2196,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
         let device = deviceRef.current;
         if (!device) {
           const { Device: TwilioDevice } = await loadTwilioVoiceSdk();
-          device = new TwilioDevice(tokenJson.token!, { logLevel: "error" });
+          device = new TwilioDevice(tokenJson.token!, buildTwilioVoiceJsDeviceOptions() as Device.Options);
           bindDeviceLifecycle(device);
           await device.register();
           postSoftphoneTokenToNativeBridge(tokenJson.token!, tokenJson.identity);

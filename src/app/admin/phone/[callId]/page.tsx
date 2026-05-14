@@ -6,6 +6,8 @@ import {
   claimPhoneCallFormAction,
   createContactIntakeFromPhoneCall,
   createPhoneCallNote,
+  clearPhoneCallBadAudioFlagFormAction,
+  flagPhoneCallBadAudioFormAction,
   unassignPhoneCallFormAction,
 } from "../actions";
 import { supabaseAdmin } from "@/lib/admin";
@@ -277,6 +279,31 @@ export default async function AdminPhoneCallDetailPage({ params, searchParams }:
   /** Same builder as softphone post-call review: entries first, else excerpt split into lines. */
   const transcriptBubbles = buildTranscriptMessages(voiceAiForTranscript, { humanSpeechOnly: false });
 
+  const callQualityMeta =
+    c.metadata && typeof c.metadata === "object" && !Array.isArray(c.metadata)
+      ? (c.metadata as Record<string, unknown>).call_quality
+      : null;
+  const cq =
+    callQualityMeta && typeof callQualityMeta === "object" && !Array.isArray(callQualityMeta)
+      ? (callQualityMeta as Record<string, unknown>)
+      : null;
+  const badFlagRaw = cq?.staff_bad_audio_flag;
+  const badFlag =
+    badFlagRaw && typeof badFlagRaw === "object" && !Array.isArray(badFlagRaw)
+      ? (badFlagRaw as Record<string, unknown>)
+      : null;
+  const badFlagged = Boolean(badFlag?.flagged);
+  const answeredByInferred =
+    typeof cq?.answered_by_inferred === "string" && cq.answered_by_inferred.trim()
+      ? cq.answered_by_inferred.trim()
+      : null;
+  const browserReports = Array.isArray(cq?.client_browser_reports) ? cq.client_browser_reports : [];
+  const lastBrowserReport =
+    browserReports.length > 0 ? (browserReports[browserReports.length - 1] as Record<string, unknown>) : null;
+  const twilioHints = Array.isArray(cq?.twilio_leg_hints) ? cq.twilio_leg_hints : [];
+  const lastTwilioHint =
+    twilioHints.length > 0 ? (twilioHints[twilioHints.length - 1] as Record<string, unknown>) : null;
+
   return (
     <div className="space-y-8 p-6">
       <div>
@@ -399,6 +426,80 @@ export default async function AdminPhoneCallDetailPage({ params, searchParams }:
             </dd>
           </div>
         </dl>
+      </section>
+
+      <section className="rounded-[28px] border border-amber-100 bg-amber-50/30 p-6 shadow-sm">
+        <h2 className="text-sm font-semibold text-slate-900">Call audio diagnostics</h2>
+        <p className="mt-1 text-xs leading-relaxed text-slate-600">
+          Browser WebRTC sessions post end-of-call metrics to{" "}
+          <code className="rounded bg-white/80 px-1">metadata.call_quality</code>. Twilio status callbacks add leg hints
+          (client vs PSTN). If staff use the mobile app and browser softphone at the same time on the same login, Twilio
+          may ring <span className="font-medium">both</span> — pickup races can confuse where audio was anchored.
+        </p>
+
+        {badFlagged ? (
+          <p className="mt-4 rounded-xl border border-amber-300 bg-amber-100/60 px-3 py-2 text-sm font-medium text-amber-950">
+            Flagged as bad audio
+            {typeof badFlag?.flagged_at === "string" ? ` · ${formatAdminPhoneWhen(badFlag.flagged_at as string)}` : ""}
+          </p>
+        ) : null}
+
+        <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <dt className="text-xs font-medium text-slate-500">Answer path (inferred from Twilio legs)</dt>
+            <dd className="mt-0.5 text-slate-900">
+              {answeredByInferred === "browser"
+                ? "Browser / WebRTC (client leg)"
+                : answeredByInferred === "mobile_forward"
+                  ? "PSTN leg (often cell after browser timeout — not WebRTC)"
+                  : answeredByInferred === "unknown"
+                    ? "Unknown (insufficient status hints yet)"
+                    : "—"}
+            </dd>
+          </div>
+          <div className="sm:col-span-2">
+            <dt className="text-xs font-medium text-slate-500">Last Twilio leg hint</dt>
+            <dd className="mt-0.5 font-mono text-[11px] text-slate-700">
+              {lastTwilioHint
+                ? `${String(lastTwilioHint.to_kind ?? "—")} · to=${String(lastTwilioHint.to_raw ?? "—")} · dial=${String(
+                    lastTwilioHint.dial_call_status ?? "—"
+                  )} · call=${String(lastTwilioHint.call_status ?? "—")}`
+                : "—"}
+            </dd>
+          </div>
+          <div className="sm:col-span-2">
+            <dt className="text-xs font-medium text-slate-500">Last browser quality report</dt>
+            <dd className="mt-0.5 font-mono text-[11px] text-slate-700">
+              {lastBrowserReport
+                ? `samples=${String((lastBrowserReport.samples_aggregate as Record<string, unknown> | undefined)?.sample_count ?? "—")} · plf_max=${String((lastBrowserReport.samples_aggregate as Record<string, unknown> | undefined)?.max_packets_lost_fraction ?? "—")} · jitter_max=${String((lastBrowserReport.samples_aggregate as Record<string, unknown> | undefined)?.max_jitter_ms ?? "—")} · rtt_max=${String((lastBrowserReport.samples_aggregate as Record<string, unknown> | undefined)?.max_rtt_ms ?? "—")} · warnings=${Array.isArray(lastBrowserReport.webrtc_warnings) ? lastBrowserReport.webrtc_warnings.length : 0}`
+                : "—"}
+            </dd>
+          </div>
+        </dl>
+
+        <div className="mt-4 flex flex-wrap gap-2">
+          <form action={flagPhoneCallBadAudioFormAction}>
+            <input type="hidden" name="callId" value={c.id} />
+            <button
+              type="submit"
+              className="rounded-lg bg-amber-700 px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-amber-800 disabled:opacity-50"
+              disabled={badFlagged}
+            >
+              Mark bad audio
+            </button>
+          </form>
+          {badFlagged ? (
+            <form action={clearPhoneCallBadAudioFlagFormAction}>
+              <input type="hidden" name="callId" value={c.id} />
+              <button
+                type="submit"
+                className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 hover:bg-slate-50"
+              >
+                Clear bad-audio flag
+              </button>
+            </form>
+          ) : null}
+        </div>
       </section>
 
       <section className="rounded-[28px] border border-indigo-100 bg-gradient-to-b from-indigo-50/40 to-white p-6 shadow-sm">

@@ -13,6 +13,11 @@ import {
 import { triggerAutoFollowUp } from "@/lib/phone/auto-followup";
 import { normalizeTwilioRecordingMediaUrl } from "@/lib/phone/twilio-recording-media";
 import { scheduleSaintlyVoicemailProcessing } from "@/lib/phone/voicemail-saintly-process";
+import {
+  maybeLogCallQualityPathMismatch,
+  mergePhoneCallMetadataWithTwilioLegHint,
+  type CallQualityAnsweredBy,
+} from "@/lib/phone/call-quality-twilio-hint";
 import { maybeStartInboundTranscriptStreamIfEligible } from "@/lib/phone/maybe-start-inbound-transcript-stream";
 import { awaitVoiceAiClassificationForWebhook } from "@/lib/phone/voice-ai-background";
 import { CALLBACK_PRIORITY_VOICEMAIL, computeCallbackPriority } from "@/lib/phone/callback-priority";
@@ -1007,7 +1012,6 @@ export async function applyTwilioVoiceStatusCallback(
     answeredBy: payload.AnsweredBy ?? null,
   });
 
-  const prevMeta = mergeTwilioLegMapMetadata(rowMetaBeforeMerge, payload.raw);
   const direction = asOptionalString(row.direction) === "outbound" ? "outbound" : "inbound";
   const hadAssignee = row.assigned_to_user_id != null && String(row.assigned_to_user_id).trim() !== "";
   const vmSid = asOptionalString(row.voicemail_recording_sid);
@@ -1031,6 +1035,19 @@ export async function applyTwilioVoiceStatusCallback(
     answeredBy: payload.AnsweredBy ?? null,
     dialCallStatus: effectiveDialForRefine,
   });
+
+  const prevMeta = mergePhoneCallMetadataWithTwilioLegHint(
+    mergeTwilioLegMapMetadata(rowMetaBeforeMerge, payload.raw),
+    payload.raw
+  );
+  const answeredByInferred = prevMeta.call_quality as Record<string, unknown> | undefined;
+  const inferredGuess =
+    typeof answeredByInferred?.answered_by_inferred === "string"
+      ? (answeredByInferred.answered_by_inferred as CallQualityAnsweredBy)
+      : null;
+  if (inferredGuess === "mobile_forward") {
+    maybeLogCallQualityPathMismatch(rowMetaBeforeMerge, inferredGuess);
+  }
 
   const finalStatus = guardInboundMissedAfterBridgeSignals({
     phone_calls_id: callId,

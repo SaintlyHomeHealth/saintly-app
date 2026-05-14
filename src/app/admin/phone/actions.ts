@@ -1356,6 +1356,132 @@ export async function unassignPhoneCall(
 }
 
 /** Native `<form action>` requires `Promise<void>`; mutation outcomes are unchanged (see claim/assign/unassign). */
+export async function flagPhoneCallBadAudioFormAction(formData: FormData): Promise<void> {
+  const staff = await getStaffProfile();
+  if (!staff || !isPhoneWorkspaceUser(staff)) {
+    return;
+  }
+
+  const raw = formData.get("callId");
+  const callId = typeof raw === "string" ? raw.trim() : "";
+  if (!UUID_RE.test(callId)) {
+    return;
+  }
+
+  const { data: row, error: loadErr } = await supabaseAdmin
+    .from("phone_calls")
+    .select("metadata, assigned_to_user_id")
+    .eq("id", callId)
+    .maybeSingle();
+
+  if (loadErr || !row) {
+    console.warn("[admin/phone] flag bad audio load:", loadErr?.message);
+    return;
+  }
+
+  if (
+    !canStaffAccessPhoneCallRow(staff, {
+      assigned_to_user_id:
+        typeof row.assigned_to_user_id === "string" ? row.assigned_to_user_id : null,
+    })
+  ) {
+    return;
+  }
+
+  const prevMeta =
+    row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata)
+      ? (row.metadata as Record<string, unknown>)
+      : {};
+  const prevCq =
+    prevMeta.call_quality && typeof prevMeta.call_quality === "object" && !Array.isArray(prevMeta.call_quality)
+      ? (prevMeta.call_quality as Record<string, unknown>)
+      : {};
+  const nextMeta = {
+    ...prevMeta,
+    call_quality: {
+      ...prevCq,
+      staff_bad_audio_flag: {
+        flagged: true,
+        flagged_at: new Date().toISOString(),
+        flagged_by_user_id: staff.user_id,
+      },
+    },
+  };
+
+  const { error: upErr } = await supabaseAdmin.from("phone_calls").update({ metadata: nextMeta }).eq("id", callId);
+
+  if (upErr) {
+    console.warn("[admin/phone] flag bad_audio:", upErr.message);
+    return;
+  }
+
+  await supabaseAdmin.from("phone_call_events").insert({
+    call_id: callId,
+    event_type: "call_quality.bad_audio_flagged",
+    payload: { flagged_by_user_id: staff.user_id },
+  });
+
+  revalidatePath("/admin/phone");
+  revalidatePath("/admin/phone/calls");
+  revalidatePath(`/admin/phone/${callId}`);
+}
+
+export async function clearPhoneCallBadAudioFlagFormAction(formData: FormData): Promise<void> {
+  const staff = await getStaffProfile();
+  if (!staff || !isPhoneWorkspaceUser(staff)) {
+    return;
+  }
+
+  const raw = formData.get("callId");
+  const callId = typeof raw === "string" ? raw.trim() : "";
+  if (!UUID_RE.test(callId)) {
+    return;
+  }
+
+  const { data: row, error: loadErr } = await supabaseAdmin
+    .from("phone_calls")
+    .select("metadata, assigned_to_user_id")
+    .eq("id", callId)
+    .maybeSingle();
+
+  if (loadErr || !row) {
+    console.warn("[admin/phone] clear bad audio load:", loadErr?.message);
+    return;
+  }
+
+  if (
+    !canStaffAccessPhoneCallRow(staff, {
+      assigned_to_user_id:
+        typeof row.assigned_to_user_id === "string" ? row.assigned_to_user_id : null,
+    })
+  ) {
+    return;
+  }
+
+  const prevMeta =
+    row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata)
+      ? (row.metadata as Record<string, unknown>)
+      : {};
+  const prevCq =
+    prevMeta.call_quality && typeof prevMeta.call_quality === "object" && !Array.isArray(prevMeta.call_quality)
+      ? (prevMeta.call_quality as Record<string, unknown>)
+      : {};
+  const nextCq = { ...prevCq };
+  delete nextCq.staff_bad_audio_flag;
+  const nextMeta = { ...prevMeta, call_quality: nextCq };
+
+  const { error: upErr } = await supabaseAdmin.from("phone_calls").update({ metadata: nextMeta }).eq("id", callId);
+
+  if (upErr) {
+    console.warn("[admin/phone] clear bad_audio:", upErr.message);
+    return;
+  }
+
+  revalidatePath("/admin/phone");
+  revalidatePath("/admin/phone/calls");
+  revalidatePath(`/admin/phone/${callId}`);
+}
+
 export async function claimPhoneCallFormAction(formData: FormData): Promise<void> {
   await claimPhoneCall(formData);
 }
