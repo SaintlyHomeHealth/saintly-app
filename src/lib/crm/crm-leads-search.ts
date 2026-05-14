@@ -29,6 +29,7 @@ export function buildContactSearchOrClause(qRaw: string): string | null {
   const parts: string[] = [
     `full_name.ilike.%${esc}%`,
     `email.ilike.%${esc}%`,
+    `notes.ilike.%${esc}%`,
     `primary_phone.ilike.%${esc}%`,
     `secondary_phone.ilike.%${esc}%`,
   ];
@@ -54,6 +55,26 @@ export function buildContactSearchOrClause(qRaw: string): string | null {
   }
 
   return parts.join(",");
+}
+
+/**
+ * Merge {@link buildContactSearchOrClause} across several needles (e.g. payer synonym expansion).
+ * Dedupes identical `.or(...)` fragments.
+ */
+export function buildContactSearchOrClauseMulti(termsRaw: readonly string[]): string | null {
+  const seen = new Set<string>();
+  const parts: string[] = [];
+  for (const raw of termsRaw) {
+    const clause = buildContactSearchOrClause(raw);
+    if (!clause) continue;
+    for (const frag of clause.split(",")) {
+      const f = frag.trim();
+      if (!f || seen.has(f)) continue;
+      seen.add(f);
+      parts.push(f);
+    }
+  }
+  return parts.length > 0 ? parts.join(",") : null;
 }
 
 export function matchesLeadSearchRow(contact: CrmLeadsContactEmb | null, qRaw: string): boolean {

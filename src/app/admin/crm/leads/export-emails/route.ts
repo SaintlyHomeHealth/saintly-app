@@ -3,11 +3,10 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/admin";
 import {
   attachAdminCrmLeadListPredicates,
-  EMPTY_CONTACT_SENTINEL,
   parseAdminCrmLeadsListSearchParams,
   type AdminCrmLeadListUrlFilters,
 } from "@/lib/crm/admin-crm-leads-list-filters";
-import { buildContactSearchOrClause } from "@/lib/crm/crm-leads-search";
+import { resolveAdminCrmLeadsKeywordLeadSearchOr } from "@/lib/crm/admin-crm-leads-keyword-search";
 import { getCrmCalendarTodayIso } from "@/lib/crm/crm-local-date";
 import {
   contactDisplayName,
@@ -15,7 +14,6 @@ import {
   normalizeContact,
   type CrmLeadRow,
 } from "@/lib/crm/crm-leads-table-helpers";
-import { contactRowsActiveOnly } from "@/lib/crm/contacts-active";
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { formatLeadPipelineStatusLabel } from "@/lib/crm/lead-pipeline-status";
 import { csvRow, isMarketingEmailValid, normalizeMarketingEmail } from "@/lib/export/marketing-email-csv";
@@ -70,17 +68,11 @@ export async function GET(request: Request) {
     includeDead: parsed.includeDead,
   };
 
-  let contactIdFilter: string[] | null = null;
-  const contactOr = buildContactSearchOrClause(parsed.q);
-  if (contactOr) {
-    const { data: hits } = await contactRowsActiveOnly(supabaseAdmin.from("contacts").select("id").or(contactOr).limit(300));
-    contactIdFilter = [...new Set((hits ?? []).map((h) => String(h.id)).filter(Boolean))];
-    if (contactIdFilter.length === 0) {
-      contactIdFilter = [EMPTY_CONTACT_SENTINEL];
-    }
-  }
+  const keywordLeadSearchOr = parsed.q.trim()
+    ? await resolveAdminCrmLeadsKeywordLeadSearchOr(supabaseAdmin, parsed.q)
+    : null;
 
-  const deps = { contactIdFilter, todayIso: getCrmCalendarTodayIso() };
+  const deps = { todayIso: getCrmCalendarTodayIso(), keywordLeadSearchOr };
 
   const seenEmails = new Set<string>();
   const bodyCsvParts: string[] = [];

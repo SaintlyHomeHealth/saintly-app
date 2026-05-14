@@ -8,9 +8,6 @@ import { isValidLeadTemperature } from "@/lib/crm/lead-temperature";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-/** Contacts search returned no hits — impossible id constrains list/count to zero. */
-export const EMPTY_CONTACT_SENTINEL = "00000000-0000-0000-0000-000000000000";
-
 export const ADMIN_CRM_LEADS_PAGE_SIZE = 50;
 
 /** URL `contactStatus` — latest contact outcome / call type, plus boolean hold columns (patient leads only). */
@@ -61,6 +58,21 @@ export type AdminCrmLeadListUrlFilters = {
   includeDead: boolean;
 };
 
+export type AdminCrmLeadListQueryDeps = {
+  todayIso: string;
+  /** From {@link resolveAdminCrmLeadsKeywordLeadSearchOr} — omit keyword constraint when null (empty `q`). */
+  keywordLeadSearchOr: string | null;
+};
+
+/** Narrow chaining surface for Supabase lead queries without importing heavy generics (TS2589). */
+type LeadListFilterQB = {
+  eq(c: string, v: unknown): LeadListFilterQB;
+  neq(c: string, v: unknown): LeadListFilterQB;
+  in(c: string, vals: unknown[]): LeadListFilterQB;
+  is(c: string, v: unknown): LeadListFilterQB;
+  or(expr: string): LeadListFilterQB;
+};
+
 /**
  * Apply URL-driven filters shared by row `.select(...)` and `{ count: "exact", head: true }` chains.
  * Prefix with `leadRowsActiveOnly(...)`. Returned value is loosely typed so Supabase generics do not recurse (TS2589).
@@ -68,17 +80,11 @@ export type AdminCrmLeadListUrlFilters = {
 export function attachAdminCrmLeadListPredicates(
   qb: unknown,
   f: AdminCrmLeadListUrlFilters,
-  deps: { contactIdFilter: string[] | null; todayIso: string }
+  deps: AdminCrmLeadListQueryDeps
 ): unknown {
-  let q = qb as {
-    eq(c: string, v: unknown): unknown;
-    neq(c: string, v: unknown): unknown;
-    in(c: string, vals: unknown[]): unknown;
-    is(c: string, v: unknown): unknown;
-    or(expr: string): unknown;
-  };
+  let q = qb as LeadListFilterQB;
 
-  if (deps.contactIdFilter) q = q.in("contact_id", deps.contactIdFilter);
+  if (deps.keywordLeadSearchOr) q = q.or(deps.keywordLeadSearchOr);
 
   if (UUID_RE.test(f.owner)) q = q.eq("owner_user_id", f.owner);
 

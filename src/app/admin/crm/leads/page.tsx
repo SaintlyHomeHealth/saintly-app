@@ -7,20 +7,18 @@ import {
   ADMIN_CRM_LEADS_PAGE_SIZE,
   ADMIN_CRM_LEADS_CONTACT_STATUS_URL_VALUES,
   attachAdminCrmLeadListPredicates,
-  EMPTY_CONTACT_SENTINEL,
   formatAdminCrmLeadsContactStatusLabel,
   isValidAdminCrmLeadsContactStatusFilter,
   parseAdminCrmLeadsListSearchParams,
   type AdminCrmLeadListUrlFilters,
 } from "@/lib/crm/admin-crm-leads-list-filters";
+import { resolveAdminCrmLeadsKeywordLeadSearchOr } from "@/lib/crm/admin-crm-leads-keyword-search";
 import { harvestLeadsPayerFilterSuggestions } from "@/lib/crm/admin-crm-leads-payer-suggestions";
 import { buildAdminCrmLeadsHref, type AdminCrmLeadListHrefState } from "@/lib/crm/admin-crm-leads-list-url";
 import { getCrmCalendarTodayIso } from "@/lib/crm/crm-local-date";
-import { contactRowsActiveOnly } from "@/lib/crm/contacts-active";
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { LEAD_TEMPERATURE_VALUES, isValidLeadTemperature, leadTemperatureLabel } from "@/lib/crm/lead-temperature";
 import { supabaseAdmin } from "@/lib/admin";
-import { buildContactSearchOrClause } from "@/lib/crm/crm-leads-search";
 import { ExportMarketingEmailsButton } from "@/components/admin/ExportMarketingEmailsButton";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { crmFilterInputCls, crmPrimaryCtaCls } from "@/components/admin/crm-admin-list-styles";
@@ -157,21 +155,16 @@ export default async function AdminCrmLeadsPage({
       ? await routePerfTimed("admin_crm_leads.payer_suggestions", () => harvestLeadsPayerFilterSuggestions(supabaseAdmin))
       : await harvestLeadsPayerFilterSuggestions(supabaseAdmin);
 
-    let contactIdFilter: string[] | null = null;
-    const contactOr = buildContactSearchOrClause(f.q);
-    if (contactOr) {
-      const { data: hits } = routePerfStepsEnabled()
-        ? await routePerfTimed("admin_crm_leads.contact_search", () =>
-            contactRowsActiveOnly(supabaseAdmin.from("contacts").select("id").or(contactOr).limit(300))
-          )
-        : await contactRowsActiveOnly(supabaseAdmin.from("contacts").select("id").or(contactOr).limit(300));
-      contactIdFilter = [...new Set((hits ?? []).map((h) => String(h.id)).filter(Boolean))];
-      if (contactIdFilter.length === 0) {
-        contactIdFilter = [EMPTY_CONTACT_SENTINEL];
-      }
-    }
+    const keywordLeadSearchOr =
+      f.q.trim().length > 0
+        ? routePerfStepsEnabled()
+          ? await routePerfTimed("admin_crm_leads.keyword_search", () =>
+              resolveAdminCrmLeadsKeywordLeadSearchOr(supabaseAdmin, f.q)
+            )
+          : await resolveAdminCrmLeadsKeywordLeadSearchOr(supabaseAdmin, f.q)
+        : null;
 
-    const deps = { contactIdFilter, todayIso };
+    const deps = { todayIso, keywordLeadSearchOr };
 
     const execFilteredExactCount = () => {
       let q = leadRowsActiveOnly(supabaseAdmin.from("leads").select("id", { count: "exact", head: true }));
@@ -656,14 +649,18 @@ export default async function AdminCrmLeadsPage({
             </datalist>
           </label>
           <label className="flex min-w-[min(100%,12rem)] flex-1 flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:min-w-[12rem]">
-            Search name, phone, or email
+            Keyword search
             <input
               type="search"
               name="q"
               defaultValue={f.q}
-              placeholder="Name, phone, or email…"
+              placeholder="Search name, phone, email, payer, or notes…"
               className={`${crmFilterInputCls} min-h-[2rem]`}
+              aria-describedby="crm-leads-q-hint"
             />
+            <span id="crm-leads-q-hint" className="text-[10px] font-normal text-slate-500">
+              Search name, phone, email, payer, or notes
+            </span>
           </label>
           <label className="flex min-h-[2rem] cursor-pointer items-center gap-1 rounded-md border border-slate-200/90 bg-slate-50/60 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
             <input
