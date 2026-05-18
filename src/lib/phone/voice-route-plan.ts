@@ -17,6 +17,7 @@ import {
   readAfterHoursPstnE164FromEnv,
   readEscalationPstnFallbackE164FromEnv,
 } from "@/lib/phone/voice-escalation-config";
+import { resolveVoiceInboundRingStrategy } from "@/lib/phone/voice-inbound-ring-strategy";
 import {
   resolveBackupInboundStaffUserIdsAsync,
   resolveInboundBrowserStaffUserIdsAsync,
@@ -142,6 +143,7 @@ export async function buildVoiceInboundRoutePlan(now: Date = new Date()): Promis
   backupUserIds = await filterUserIdsWithActiveVoiceDevices(backupUserIds);
 
   logInboundVoiceDebug("business_route_plan", {
+    inbound_ring_strategy: resolveVoiceInboundRingStrategy(),
     route_type: routeType,
     after_hours: afterHours,
     primary_ring_group_label: primaryLabel,
@@ -205,26 +207,52 @@ export type VoiceRoutingJsonV1 = {
 };
 
 export function buildCascadeStepsFromPlan(plan: VoiceInboundRoutePlan): CascadeStep[] {
-  const steps: CascadeStep[] = [];
-
-  if (plan.primaryUserIds.length > 0) {
-    steps.push({ kind: "browser", userIds: plan.primaryUserIds, label: "primary" });
-  }
-  if (plan.backupUserIds.length > 0) {
-    steps.push({ kind: "browser", userIds: plan.backupUserIds, label: "backup" });
-  }
+  const strategy = resolveVoiceInboundRingStrategy();
 
   const pstnChain: string[] = plan.afterHours
     ? dedupePstnChain([plan.afterHoursPstnE164, plan.escalationPstnE164, plan.officePstnE164])
     : dedupePstnChain([plan.officePstnE164, plan.escalationPstnE164, plan.afterHoursPstnE164]);
 
+  if (strategy === "pstn_only") {
+    const steps: CascadeStep[] = [];
+    if (pstnChain.length > 0) {
+      steps.push({
+        kind: "pstn",
+        e164: pstnChain[0],
+        label: plan.afterHours ? "after_hours_pstn" : "office_pstn",
+      });
+    }
+    steps.push({ kind: "voicemail" });
+    return steps;
+  }
+
+  const browserSteps: CascadeStep[] = [];
+
+  if (plan.primaryUserIds.length > 0) {
+    browserSteps.push({ kind: "browser", userIds: plan.primaryUserIds, label: "primary" });
+  }
+  if (plan.backupUserIds.length > 0) {
+    browserSteps.push({ kind: "browser", userIds: plan.backupUserIds, label: "backup" });
+  }
+
+  const pstnSteps: CascadeStep[] = [];
   for (let i = 0; i < pstnChain.length; i++) {
     const e164 = pstnChain[i];
-    steps.push({
+    pstnSteps.push({
       kind: "pstn",
       e164,
       label: i === 0 && plan.afterHours ? "after_hours_pstn" : i === 0 ? "office_pstn" : `pstn_${i + 1}`,
     });
+  }
+
+  const steps: CascadeStep[] = [];
+
+  if (strategy === "pstn_first") {
+    for (const s of pstnSteps) steps.push(s);
+    for (const s of browserSteps) steps.push(s);
+  } else {
+    for (const s of browserSteps) steps.push(s);
+    for (const s of pstnSteps) steps.push(s);
   }
 
   steps.push({ kind: "voicemail" });

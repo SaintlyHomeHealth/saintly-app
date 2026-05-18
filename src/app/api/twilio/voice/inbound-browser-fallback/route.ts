@@ -58,6 +58,17 @@ export async function POST(req: NextRequest) {
     return new NextResponse(xml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
   }
 
+  console.log(
+    JSON.stringify({
+      tag: "inbound-voice-flow",
+      event: "browser_client_ring_no_answer_or_failed",
+      handler: "inbound-browser-fallback",
+      dial_call_status: dialStatus,
+      call_sid: params.CallSid ?? null,
+      note: "Twilio invoked Dial action after full_timeout_or_error; next is PSTN fallback or cascade",
+    })
+  );
+
   const publicBase = resolveTwilioVoicePublicBase();
   if (!publicBase) {
     const xml = `<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna">${escapeXml(
@@ -91,6 +102,15 @@ export async function POST(req: NextRequest) {
   if (pstnTwiml) {
     console.log(
       JSON.stringify({
+        tag: "inbound-voice-flow",
+        event: "pstn_cell_fallback_ring_started",
+        handler: "inbound-browser-fallback",
+        prior_stage: "browser_clients_timed_out",
+        ring_env_nonempty: ringRaw.length > 0,
+      })
+    );
+    console.log(
+      JSON.stringify({
         tag: "inbound-browser-fallback-diag",
         outcome: "pstn_fallback_after_browser_no_answer",
         caller_id_for_pstn_leg: callerId.slice(0, 6) + "…",
@@ -100,6 +120,15 @@ export async function POST(req: NextRequest) {
     return new NextResponse(pstnTwiml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
   }
 
+  console.warn(
+    JSON.stringify({
+      tag: "inbound-voice-flow",
+      event: "voicemail_fallback_triggered",
+      handler: "inbound-browser-fallback",
+      reason: "no_pstn_fallback_configured_after_browser_timeout",
+      dial_call_status: dialStatus,
+    })
+  );
   console.warn(
     JSON.stringify({
       tag: "inbound-browser-fallback-diag",

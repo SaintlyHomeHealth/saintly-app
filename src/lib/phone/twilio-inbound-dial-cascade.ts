@@ -19,7 +19,10 @@ import {
   resolveEscalationPrimaryRingTimeoutSeconds,
   resolveEscalationPstnRingTimeoutSeconds,
 } from "@/lib/phone/voice-escalation-config";
-import type { CascadeStep, VoiceRoutingJsonV1 } from "@/lib/phone/voice-route-plan";
+import {
+  resolvePstnOnlyInboundDialTimeoutSeconds,
+  resolveVoiceInboundRingStrategy,
+} from "@/lib/phone/voice-inbound-ring-strategy";
 import { softphoneTwilioClientIdentity } from "@/lib/softphone/twilio-client-identity";
 import { updateVoiceCallSessionEscalation, updateVoiceCallSessionRoutingJson } from "@/lib/phone/voice-call-sessions";
 import {
@@ -76,8 +79,10 @@ function browserRingSecondsForStep(step: CascadeStep): number {
   return resolveEscalationPrimaryRingTimeoutSeconds();
 }
 
-function pstnRingSecondsForStep(step: CascadeStep): number {
-  if (step.kind !== "pstn") return resolveEscalationPstnRingTimeoutSeconds();
+function pstnRingSecondsForStep(): number {
+  if (resolveVoiceInboundRingStrategy() === "pstn_only") {
+    return resolvePstnOnlyInboundDialTimeoutSeconds();
+  }
   return resolveEscalationPstnRingTimeoutSeconds();
 }
 
@@ -113,6 +118,15 @@ export function buildTwimlForCascadeStep(input: {
       user_id_tails: step.userIds.map((id) => uuidTail(id)),
       ring_timeout_sec: browserRingSecondsForStep(step),
     });
+    console.log(
+      JSON.stringify({
+        tag: "inbound-voice-flow",
+        event: "cascade_browser_client_ring_started",
+        step_label: step.label,
+        dial_timeout_sec: browserRingSecondsForStep(step),
+        client_leg_count: step.userIds.length,
+      })
+    );
     const browserRingSec = browserRingSecondsForStep(step);
     const browserDialAttrs = publicBase
       ? ` answerOnBridge="true" timeout="${browserRingSec}" callerId="${escapeXml(
@@ -139,6 +153,15 @@ export function buildTwimlForCascadeStep(input: {
   }
 
   if (step.kind === "pstn") {
+    console.log(
+      JSON.stringify({
+        tag: "inbound-voice-flow",
+        event: "cascade_pstn_ring_twiml_built",
+        label: step.label,
+        dial_timeout_sec: pstnRingSecondsForStep(),
+        pstn_key_tail: step.e164.replace(/\D/g, "").slice(-4),
+      })
+    );
     logInboundVoiceDebug("cascade_pstn_dial_start", {
       label: step.label,
       pstn_key_tail: step.e164.replace(/\D/g, "").slice(-4),
@@ -147,7 +170,7 @@ export function buildTwimlForCascadeStep(input: {
       publicBase,
       callerId: callerIdForPstnDial,
       pstnRingNormalized: step.e164,
-      dialTimeoutSeconds: pstnRingSecondsForStep(step),
+      dialTimeoutSeconds: pstnRingSecondsForStep(),
     });
   }
 
@@ -207,6 +230,16 @@ export async function handleInboundDialCascadePost(input: {
     return `<?xml version="1.0" encoding="UTF-8"?><Response></Response>`;
   }
 
+  console.log(
+    JSON.stringify({
+      tag: "inbound-voice-flow",
+      event: "cascade_prior_dial_no_answer_or_failed",
+      handler: "inbound-dial-cascade",
+      dial_call_status: dialStatus,
+      parent_or_call_sid: externalCallId,
+    })
+  );
+
   if (!input.publicBase.trim()) {
     return `<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna">${escapeXml(
       "Please try your call again later."
@@ -215,12 +248,29 @@ export async function handleInboundDialCascadePost(input: {
 
   const routing = await loadVoiceRoutingJsonV1ByExternalCallId(externalCallId);
   if (!routing) {
+    console.log(
+      JSON.stringify({
+        tag: "inbound-voice-flow",
+        event: "voicemail_fallback_triggered",
+        handler: "inbound-dial-cascade",
+        reason: "routing_json_missing",
+      })
+    );
     const vm = buildSaintlyVoicemailRecordTwiml(input.publicBase, { greeting: "default" });
     return vm;
   }
 
   const nextIndex = routing.active_step_index + 1;
   if (nextIndex >= routing.steps.length) {
+    console.log(
+      JSON.stringify({
+        tag: "inbound-voice-flow",
+        event: "voicemail_fallback_triggered",
+        handler: "inbound-dial-cascade",
+        reason: "cascade_exhausted",
+        dial_call_status: dialStatus,
+      })
+    );
     return buildSaintlyVoicemailRecordTwiml(input.publicBase, { greeting: voicemailGreetingFromRouting(routing) });
   }
 
@@ -277,6 +327,15 @@ export async function handleInboundDialCascadePost(input: {
   });
 
   if (!twiml) {
+    console.log(
+      JSON.stringify({
+        tag: "inbound-voice-flow",
+        event: "voicemail_fallback_triggered",
+        handler: "inbound-dial-cascade",
+        reason: "next_step_twiml_null",
+        next_step_kind: nextStep?.kind ?? null,
+      })
+    );
     return buildSaintlyVoicemailRecordTwiml(input.publicBase, { greeting: voicemailGreetingFromRouting(updated) });
   }
   return twiml;

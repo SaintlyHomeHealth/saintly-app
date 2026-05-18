@@ -269,8 +269,8 @@ export async function resolveInboundBrowserStaffUserIdsAsync(): Promise<string[]
   return resolveInboundBrowserStaffUserIdsAsyncCached();
 }
 
-const DEFAULT_BROWSER_RING_SECONDS = 20;
-const MIN_BROWSER_RING_SECONDS = 8;
+const DEFAULT_BROWSER_RING_SECONDS = 30;
+const MIN_BROWSER_RING_SECONDS = 15;
 const MAX_BROWSER_RING_SECONDS = 45;
 
 export function resolveBrowserFirstRingTimeoutSeconds(): number {

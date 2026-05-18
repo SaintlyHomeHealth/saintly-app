@@ -5,12 +5,13 @@
 
 import { resolveBusinessHoursContext, resolveBusinessHoursScheduleFromEnv } from "@/lib/phone/business-hours";
 
-const DEFAULT_PRIMARY_RING_SECONDS = 10;
-const MAX_PRIMARY_RING_SECONDS = 12;
-const MIN_PRIMARY_RING_SECONDS = 8;
+/** Twilio `<Dial timeout>` (seconds). Defaults ~30s so PSTN/cell hears ~5–6 rings before cascade/voicemail. */
+const DEFAULT_PRIMARY_RING_SECONDS = 30;
+const MAX_PRIMARY_RING_SECONDS = 45;
+const MIN_PRIMARY_RING_SECONDS = 15;
 
-const DEFAULT_BACKUP_RING_SECONDS = 10;
-const DEFAULT_ESCALATION_PSTN_RING_SECONDS = 10;
+const DEFAULT_BACKUP_RING_SECONDS = 30;
+const DEFAULT_ESCALATION_PSTN_RING_SECONDS = 30;
 
 /** When unset or not `0`, multi-step escalation (primary → backup → PSTN → voicemail) is active. */
 export function isVoiceEscalationPipelineEnabled(): boolean {
@@ -37,7 +38,7 @@ export function resolveEscalationBackupRingTimeoutSeconds(): number {
   }
   const n = Number.parseInt(raw, 10);
   if (!Number.isFinite(n)) return DEFAULT_BACKUP_RING_SECONDS;
-  return Math.min(45, Math.max(8, n));
+  return Math.min(45, Math.max(15, n));
 }
 
 /** PSTN leg during escalation chain (after browser rings). */
@@ -48,7 +49,7 @@ export function resolveEscalationPstnRingTimeoutSeconds(): number {
   }
   const n = Number.parseInt(raw, 10);
   if (!Number.isFinite(n)) return DEFAULT_ESCALATION_PSTN_RING_SECONDS;
-  return Math.min(45, Math.max(8, n));
+  return Math.min(45, Math.max(15, n));
 }
 
 /**

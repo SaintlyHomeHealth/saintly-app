@@ -48,6 +48,17 @@ export async function POST(req: NextRequest) {
     return new NextResponse(xml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
   }
 
+  console.log(
+    JSON.stringify({
+      tag: "inbound-voice-flow",
+      event: "voicemail_fallback_triggered",
+      handler: "dial-result",
+      reason: "pstn_dial_ended_without_bridge",
+      dial_call_status: dialStatus,
+      call_sid: params.CallSid ?? null,
+    })
+  );
+
   const xml = buildSaintlyVoicemailRecordTwiml(publicBase);
   return new NextResponse(xml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
 }

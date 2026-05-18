@@ -7,18 +7,20 @@ import {
   buildInboundPstnOnlyDialTwiml,
   clientDialNounXml,
   readTwilioVoiceRingE164FromEnv,
+  resolveInboundCallerIdForClientDial,
   resolveInboundPstnFallbackCallerId,
 } from "@/lib/phone/twilio-voice-handoff";
 import {
   readEscalationPstnFallbackE164FromEnv,
   resolveEscalationBackupRingTimeoutSeconds,
   resolveEscalationPstnRingTimeoutSeconds,
+  resolveEscalationPrimaryRingTimeoutSeconds,
 } from "@/lib/phone/voice-escalation-config";
 import { inferTwilioDialAnswerPath, logInboundVoiceDebug } from "@/lib/phone/twilio-voice-debug";
 import { buildSaintlyVoicemailRecordTwiml, resolveTwilioVoicePublicBase } from "@/lib/phone/twilio-voicemail-twiml";
 import { updateVoiceCallSessionEscalation } from "@/lib/phone/voice-call-sessions";
 import { normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
-import { resolveBackupInboundStaffUserIdsAsync } from "@/lib/softphone/inbound-staff-ids";
+import { resolveBackupInboundStaffUserIdsAsync, resolveInboundBrowserStaffUserIdsAsync } from "@/lib/softphone/inbound-staff-ids";
 import { softphoneTwilioClientIdentity } from "@/lib/softphone/twilio-client-identity";
 import { logTwilioVoiceTrace, summarizeTwimlResponse } from "@/lib/twilio/twilio-voice-trace-log";
 import { parseVerifiedTwilioFormBody } from "@/lib/twilio/verify-form-post";
@@ -77,6 +79,18 @@ export async function POST(req: NextRequest) {
     return new NextResponse(xml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
   }
 
+  console.log(
+    JSON.stringify({
+      tag: "inbound-voice-flow",
+      event: "escalation_prior_dial_ended_without_bridge",
+      handler: "inbound-escalation",
+      escalation_step: step,
+      dial_call_status: dialStatus,
+      call_sid: callSid ?? null,
+      note: "Advancing escalation ladder after Twilio Dial timeout or non-complete status",
+    })
+  );
+
   if (!publicBase) {
     const say = `<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna">Please try your call again later.</Say></Response>`;
     return new NextResponse(say, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
@@ -100,6 +114,7 @@ export async function POST(req: NextRequest) {
   }
 
   const callerId = resolveInboundPstnFallbackCallerId(params);
+  const skipPstn = url.searchParams.get("skip_pstn") === "1";
 
   const { data: phoneRow } =
     externalCallId.length > 0
@@ -111,6 +126,80 @@ export async function POST(req: NextRequest) {
       : { data: null };
 
   const phoneCallId = typeof phoneRow?.id === "string" ? phoneRow.id : null;
+
+  if (step === "after_pstn_primary") {
+    const primaryIds = await resolveInboundBrowserStaffUserIdsAsync();
+    const base = publicBase.replace(/\/$/, "");
+    const statusCallbackUrl = `${base}/api/twilio/voice/status`;
+    const afterPrimaryUrl = `${base}/api/twilio/voice/inbound-escalation?step=after_primary&skip_pstn=1`;
+    const primaryRingSec = resolveEscalationPrimaryRingTimeoutSeconds();
+    const clientRingCallerId = resolveInboundCallerIdForClientDial(
+      (params.From ?? "").trim(),
+      (params.To ?? "").trim()
+    );
+
+    if (primaryIds.length > 0) {
+      const browserDialAttrs = ` answerOnBridge="true" timeout="${primaryRingSec}" callerId="${escapeXml(
+        clientRingCallerId
+      )}" action="${escapeXml(
+        afterPrimaryUrl
+      )}" method="POST" statusCallback="${escapeXml(
+        statusCallbackUrl
+      )}" statusCallbackMethod="POST" statusCallbackEvent="initiated ringing answered completed"`;
+
+      const clientBodies = primaryIds
+        .map((id) => clientDialNounXml(softphoneTwilioClientIdentity(id), clientRingCallerId))
+        .join("");
+
+      const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Dial${browserDialAttrs}>
+    ${clientBodies}
+  </Dial>
+</Response>`.trim();
+
+      console.log(
+        JSON.stringify({
+          tag: "inbound-voice-flow",
+          event: "escalation_browser_ring_after_pstn_timeout",
+          primary_client_count: primaryIds.length,
+          dial_timeout_sec: primaryRingSec,
+        })
+      );
+
+      logTwilioVoiceTrace({
+        route: "POST /api/twilio/voice/inbound-escalation",
+        client_call_sid: callSid ?? null,
+        pstn_call_sid: null,
+        ai_path_entered: false,
+        softphone_bypass_path_entered: false,
+        twiml_summary: summarizeTwimlResponse(xml),
+        branch: "escalation_after_pstn_primary_browser",
+        parent_call_sid: parentCallSid || null,
+        from_raw: params.From,
+        to_raw: params.To,
+      });
+      return new NextResponse(xml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
+    }
+
+    const redirectTarget = `${base}/api/twilio/voice/inbound-escalation?step=after_primary&primary_skipped=1&skip_pstn=1`;
+    const redirXml = `<?xml version="1.0" encoding="UTF-8"?><Response><Redirect method="POST">${escapeXml(
+      redirectTarget
+    )}</Redirect></Response>`;
+    logTwilioVoiceTrace({
+      route: "POST /api/twilio/voice/inbound-escalation",
+      client_call_sid: callSid ?? null,
+      pstn_call_sid: null,
+      ai_path_entered: false,
+      softphone_bypass_path_entered: false,
+      twiml_summary: summarizeTwimlResponse(redirXml),
+      branch: "escalation_after_pstn_primary_redirect_backup",
+      parent_call_sid: parentCallSid || null,
+      from_raw: params.From,
+      to_raw: params.To,
+    });
+    return new NextResponse(redirXml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
+  }
 
   if (step === "after_primary") {
     const backupIds = await resolveBackupInboundStaffUserIdsAsync();
@@ -129,8 +218,17 @@ export async function POST(req: NextRequest) {
       }
 
       const statusCallbackUrl = `${publicBase}/api/twilio/voice/status`;
-      const afterBackupUrl = `${publicBase}/api/twilio/voice/inbound-escalation?step=after_backup`;
+      const afterBackupUrl = `${publicBase}/api/twilio/voice/inbound-escalation?step=after_backup${skipPstn ? "&skip_pstn=1" : ""}`;
       const backupRingSec = resolveEscalationBackupRingTimeoutSeconds();
+
+      console.log(
+        JSON.stringify({
+          tag: "inbound-voice-flow",
+          event: "escalation_backup_browser_ring_started",
+          dial_timeout_sec: backupRingSec,
+          backup_client_count: backupIds.length,
+        })
+      );
 
       const browserDialAttrs = ` answerOnBridge="true" timeout="${backupRingSec}" callerId="${escapeXml(
         callerId
@@ -168,7 +266,7 @@ export async function POST(req: NextRequest) {
 
     const ringRaw = readEscalationPstnFallbackE164FromEnv() || readTwilioVoiceRingE164FromEnv();
     const pstnNorm = ringRaw.trim().length > 0 ? normalizeDialInputToE164(ringRaw.trim()) : null;
-    if (pstnNorm) {
+    if (pstnNorm && !skipPstn) {
       await updateVoiceCallSessionEscalation(supabaseAdmin, {
         externalCallId,
         escalationLevel: 3,
@@ -181,6 +279,15 @@ export async function POST(req: NextRequest) {
         dialTimeoutSeconds: resolveEscalationPstnRingTimeoutSeconds(),
       });
       if (pstnTwiml) {
+        const pstnSec = resolveEscalationPstnRingTimeoutSeconds();
+        console.log(
+          JSON.stringify({
+            tag: "inbound-voice-flow",
+            event: "escalation_pstn_cell_ring_started",
+            path: "after_primary",
+            pstn_timeout_sec: pstnSec,
+          })
+        );
         logTwilioVoiceTrace({
           route: "POST /api/twilio/voice/inbound-escalation",
           client_call_sid: callSid ?? null,
@@ -198,6 +305,15 @@ export async function POST(req: NextRequest) {
     }
 
     const vm = buildSaintlyVoicemailRecordTwiml(publicBase);
+    console.log(
+      JSON.stringify({
+        tag: "inbound-voice-flow",
+        event: "voicemail_fallback_triggered",
+        handler: "inbound-escalation",
+        path: "after_primary",
+        reason: "no_backup_no_pstn",
+      })
+    );
     logTwilioVoiceTrace({
       route: "POST /api/twilio/voice/inbound-escalation",
       client_call_sid: callSid ?? null,
@@ -216,7 +332,7 @@ export async function POST(req: NextRequest) {
   if (step === "after_backup") {
     const ringRaw = readEscalationPstnFallbackE164FromEnv() || readTwilioVoiceRingE164FromEnv();
     const pstnNorm = ringRaw.trim().length > 0 ? normalizeDialInputToE164(ringRaw.trim()) : null;
-    if (pstnNorm) {
+    if (pstnNorm && !skipPstn) {
       await updateVoiceCallSessionEscalation(supabaseAdmin, {
         externalCallId,
         escalationLevel: 3,
@@ -229,6 +345,15 @@ export async function POST(req: NextRequest) {
         dialTimeoutSeconds: resolveEscalationPstnRingTimeoutSeconds(),
       });
       if (pstnTwiml) {
+        const pstnSec = resolveEscalationPstnRingTimeoutSeconds();
+        console.log(
+          JSON.stringify({
+            tag: "inbound-voice-flow",
+            event: "escalation_pstn_cell_ring_started",
+            path: "after_backup",
+            pstn_timeout_sec: pstnSec,
+          })
+        );
         logTwilioVoiceTrace({
           route: "POST /api/twilio/voice/inbound-escalation",
           client_call_sid: callSid ?? null,
@@ -246,6 +371,15 @@ export async function POST(req: NextRequest) {
     }
 
     const vm = buildSaintlyVoicemailRecordTwiml(publicBase);
+    console.log(
+      JSON.stringify({
+        tag: "inbound-voice-flow",
+        event: "voicemail_fallback_triggered",
+        handler: "inbound-escalation",
+        path: "after_backup",
+        reason: "pstn_unavailable_or_blocked",
+      })
+    );
     logTwilioVoiceTrace({
       route: "POST /api/twilio/voice/inbound-escalation",
       client_call_sid: callSid ?? null,

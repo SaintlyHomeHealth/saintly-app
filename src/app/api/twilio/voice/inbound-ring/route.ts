@@ -23,7 +23,8 @@ import {
   resolveEscalationPstnRingTimeoutSeconds,
 } from "@/lib/phone/voice-escalation-config";
 import { buildSaintlyVoicemailRecordTwiml } from "@/lib/phone/twilio-voicemail-twiml";
-import { phoneKeyForLoopCompare } from "@/lib/phone/twilio-voice-pstn-loop-guard";
+import { isPstnHandoffAiLoopRisk, phoneKeyForLoopCompare } from "@/lib/phone/twilio-voice-pstn-loop-guard";
+import { readTwilioVoiceTeamRingE164sFromEnv } from "@/lib/phone/twilio-team-pstn-ring";
 import {
   buildEscalationInboundVoiceTwiml,
   buildInboundPstnOnlyDialTwiml,
@@ -32,11 +33,15 @@ import {
   buildVoiceHandoffTwiml,
   readTwilioVoiceRingE164FromEnv,
   resolveInboundCallerIdForClientDial,
+  resolvePstnDialTimeoutSeconds,
 } from "@/lib/phone/twilio-voice-handoff";
+import { resolvePstnOnlyInboundDialTimeoutSeconds, resolveVoiceInboundRingStrategy } from "@/lib/phone/voice-inbound-ring-strategy";
+import { loadStaffSmsNotifyPhoneRawForUserId } from "@/lib/phone/staff-inbound-pstn";
 import { isTwilioVoiceJsClientFrom, isTwilioVoiceJsClientTo } from "@/lib/twilio/twilio-voice-client-leg";
 import { logTwilioVoiceTrace, summarizeTwimlResponse } from "@/lib/twilio/twilio-voice-trace-log";
 import { parseVerifiedTwilioFormBody } from "@/lib/twilio/verify-form-post";
 import { findTwilioPhoneNumberByToE164 } from "@/lib/twilio/twilio-phone-number-repo";
+import { normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
 
 function escapeXml(text: string): string {
   return text
@@ -69,6 +74,19 @@ export async function POST(req: NextRequest) {
   const from = params.From?.trim();
   const to = params.To?.trim();
   const parentCallSid = typeof params.ParentCallSid === "string" ? params.ParentCallSid.trim() : null;
+
+  if (callSid && from && to) {
+    console.log(
+      JSON.stringify({
+        tag: "inbound-voice-flow",
+        event: "inbound_call_received",
+        handler: "inbound-ring",
+        call_sid: callSid,
+        from_e164_tail: from.replace(/\D/g, "").slice(-4),
+        to_e164_tail: to.replace(/\D/g, "").slice(-4),
+      })
+    );
+  }
 
   if (!callSid || !from || !to) {
     const errXml = `<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna">We are sorry, this call could not be connected.</Say></Response>`;
@@ -199,6 +217,109 @@ export async function POST(req: NextRequest) {
     : routingJson;
 
   if (staffVoiceUserId && publicBase && logResult.ok) {
+    const ringStrategy = resolveVoiceInboundRingStrategy();
+
+    if (ringStrategy === "pstn_only") {
+      const staffPhoneRaw = await loadStaffSmsNotifyPhoneRawForUserId(supabaseAdmin, staffVoiceUserId);
+      const staffNorm = staffPhoneRaw ? normalizeDialInputToE164(staffPhoneRaw) : null;
+      const loopRisk =
+        staffNorm != null ? isPstnHandoffAiLoopRisk(staffNorm, resolveInboundCallerIdForClientDial(from, to)) : false;
+      const pstnOnlySec = resolvePstnOnlyInboundDialTimeoutSeconds();
+      if (staffPhoneRaw && staffNorm && !loopRisk) {
+        const twimlPstnOnly = buildInboundPstnOnlyDialTwiml({
+          publicBase,
+          callerId: resolveInboundCallerIdForClientDial(from, to),
+          ringE164Raw: staffPhoneRaw,
+          dialTimeoutSeconds: pstnOnlySec,
+        });
+        if (twimlPstnOnly) {
+          console.log(
+            JSON.stringify({
+              tag: "inbound-voice-flow",
+              event: "staff_did_pstn_only_leg",
+              staff_user_tail: staffVoiceUserId.slice(-8),
+              pstn_dest_tail: staffNorm.replace(/\D/g, "").slice(-4),
+              dial_timeout_sec: pstnOnlySec,
+            })
+          );
+          logTwilioVoiceTrace({
+            route: "POST /api/twilio/voice/inbound-ring",
+            client_call_sid: callSid,
+            pstn_call_sid: null,
+            ai_path_entered: false,
+            softphone_bypass_path_entered: false,
+            twiml_summary: summarizeTwimlResponse(twimlPstnOnly),
+            branch: "staff_twilio_number_pstn_only_no_browser",
+            parent_call_sid: parentCallSid,
+            from_raw: from,
+            to_raw: to,
+          });
+          return new NextResponse(twimlPstnOnly, {
+            status: 200,
+            headers: { "Content-Type": "text/xml; charset=utf-8" },
+          });
+        }
+      }
+      const vm = buildSaintlyVoicemailRecordTwiml(publicBase, { greeting: "business_hours" });
+      logTwilioVoiceTrace({
+        route: "POST /api/twilio/voice/inbound-ring",
+        client_call_sid: callSid,
+        pstn_call_sid: null,
+        ai_path_entered: false,
+        softphone_bypass_path_entered: false,
+        twiml_summary: summarizeTwimlResponse(vm),
+        branch: "staff_did_pstn_only_no_staff_phone_voicemail",
+        parent_call_sid: parentCallSid,
+        from_raw: from,
+        to_raw: to,
+      });
+      return new NextResponse(vm, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
+    }
+
+    if (ringStrategy === "pstn_first") {
+      const staffPhoneRaw = await loadStaffSmsNotifyPhoneRawForUserId(supabaseAdmin, staffVoiceUserId);
+      const staffNorm = staffPhoneRaw ? normalizeDialInputToE164(staffPhoneRaw) : null;
+      const loopRisk =
+        staffNorm != null ? isPstnHandoffAiLoopRisk(staffNorm, resolveInboundCallerIdForClientDial(from, to)) : false;
+      if (staffPhoneRaw && staffNorm && !loopRisk) {
+        const afterPstn = `${publicBase.replace(/\/$/, "")}/api/twilio/voice/inbound-staff-after-pstn?staff_user_id=${encodeURIComponent(staffVoiceUserId)}`;
+        const twimlCellFirst = buildInboundPstnOnlyDialTwiml({
+          publicBase,
+          callerId: resolveInboundCallerIdForClientDial(from, to),
+          ringE164Raw: staffPhoneRaw,
+          dialTimeoutSeconds: resolvePstnDialTimeoutSeconds(),
+          dialActionUrlOverride: afterPstn,
+        });
+        if (twimlCellFirst) {
+          console.log(
+            JSON.stringify({
+              tag: "inbound-voice-flow",
+              event: "staff_did_pstn_first_leg",
+              staff_user_tail: staffVoiceUserId.slice(-8),
+              pstn_dest_tail: staffNorm.replace(/\D/g, "").slice(-4),
+              dial_timeout_sec: resolvePstnDialTimeoutSeconds(),
+            })
+          );
+          logTwilioVoiceTrace({
+            route: "POST /api/twilio/voice/inbound-ring",
+            client_call_sid: callSid,
+            pstn_call_sid: null,
+            ai_path_entered: false,
+            softphone_bypass_path_entered: false,
+            twiml_summary: summarizeTwimlResponse(twimlCellFirst),
+            branch: "staff_twilio_number_pstn_then_client",
+            parent_call_sid: parentCallSid,
+            from_raw: from,
+            to_raw: to,
+          });
+          return new NextResponse(twimlCellFirst, {
+            status: 200,
+            headers: { "Content-Type": "text/xml; charset=utf-8" },
+          });
+        }
+      }
+    }
+
     const twimlStaff = buildStaffAssignedInboundDialTwiml({
       publicBase,
       pstnCallerE164: from,
@@ -296,6 +417,7 @@ export async function POST(req: NextRequest) {
     JSON.stringify({
       tag: "inbound-ring-diag",
       step: "inbound_ring_route",
+      inbound_ring_strategy: resolveVoiceInboundRingStrategy(),
       inbound_did_key_tail: phoneKeyForLoopCompare(to)?.slice(-4) ?? null,
       from_key_tail: phoneKeyForLoopCompare(from)?.slice(-4) ?? null,
       call_sid_short: callSid.length > 8 ? `${callSid.slice(0, 6)}…` : callSid,
@@ -308,7 +430,13 @@ export async function POST(req: NextRequest) {
     })
   );
 
-  if (useBusinessRouting && routePlan && routingJson) {
+  if (
+    useBusinessRouting &&
+    routePlan &&
+    routingJson &&
+    resolveVoiceInboundRingStrategy() !== "pstn_only" &&
+    readTwilioVoiceTeamRingE164sFromEnv().length === 0
+  ) {
     const twimlBiz = buildFirstInboundCascadeTwiml({
       publicBase,
       from,
@@ -355,7 +483,10 @@ export async function POST(req: NextRequest) {
         publicBase,
         callerId,
         ringE164Raw: afterPstn,
-        dialTimeoutSeconds: resolveEscalationPstnRingTimeoutSeconds(),
+        dialTimeoutSeconds:
+          resolveVoiceInboundRingStrategy() === "pstn_only"
+            ? resolvePstnOnlyInboundDialTimeoutSeconds()
+            : resolveEscalationPstnRingTimeoutSeconds(),
       });
       if (pstnTwiml) {
         logTwilioVoiceTrace({

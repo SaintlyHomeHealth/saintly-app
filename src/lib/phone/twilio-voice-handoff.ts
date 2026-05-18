@@ -3,11 +3,16 @@ import {
   isWithinBusinessHoursNow,
   isVoiceEscalationPipelineEnabled,
   readEscalationPstnFallbackE164FromEnv,
-  resolveEscalationBackupRingTimeoutSeconds,
   resolveEscalationPstnRingTimeoutSeconds,
   resolveEscalationPrimaryRingTimeoutSeconds,
 } from "@/lib/phone/voice-escalation-config";
+import { resolvePstnOnlyInboundDialTimeoutSeconds, resolveVoiceInboundRingStrategy } from "@/lib/phone/voice-inbound-ring-strategy";
 import { isPstnHandoffAiLoopRisk, phoneKeyForLoopCompare } from "@/lib/phone/twilio-voice-pstn-loop-guard";
+import {
+  buildSimultaneousTeamPstnDialTwiml,
+  readTwilioVoiceTeamRingE164sFromEnv,
+  resolveTeamRingConfirmEnabled,
+} from "@/lib/phone/twilio-team-pstn-ring";
 import {
   resolveBackupInboundStaffUserIdsAsync,
   resolveBrowserFirstRingTimeoutSeconds,
@@ -113,8 +118,8 @@ export function clientDialNounXml(
   return `<Client><Identity>${idEsc}</Identity>${param}${extra}</Client>`;
 }
 
-const DEFAULT_TWILIO_VOICE_RING_TIMEOUT_SECONDS = 22;
-const MIN_TWILIO_VOICE_RING_TIMEOUT_SECONDS = 10;
+const DEFAULT_TWILIO_VOICE_RING_TIMEOUT_SECONDS = 30;
+const MIN_TWILIO_VOICE_RING_TIMEOUT_SECONDS = 15;
 const MAX_TWILIO_VOICE_RING_TIMEOUT_SECONDS = 45;
 
 export function resolvePstnDialTimeoutSeconds(): number {
@@ -135,6 +140,8 @@ export function resolvePstnDialTimeoutSeconds(): number {
  * `/inbound-browser-fallback` after browser no-answer.
  */
 export function buildInboundPstnOnlyDialTwiml(input: {
+  /** Optional TwiML before &lt;Dial&gt; (e.g. closing message). */
+  openingSay?: string;
   publicBase: string;
   callerId: string;
   ringE164Raw: string;
@@ -173,7 +180,7 @@ export function buildInboundPstnOnlyDialTwiml(input: {
     return null;
   }
   return buildPstnNumberDialOpeningResponseXml({
-    openingSay: "",
+    openingSay: input.openingSay ?? "",
     publicBase: input.publicBase,
     callerId: input.callerId,
     pstnRingNormalized,
@@ -230,6 +237,15 @@ function buildPstnNumberDialOpeningResponseXml(input: {
     input.dialActionUrlOverride?.trim() ||
     (publicBase ? `${publicBase}/api/twilio/voice/dial-result` : "");
   const pstnDialSec = input.dialTimeoutSeconds ?? resolvePstnDialTimeoutSeconds();
+  console.log(
+    JSON.stringify({
+      tag: "inbound-voice-flow",
+      event: "pstn_ring_twiml_built",
+      dial_timeout_sec: pstnDialSec,
+      pstn_key_tail: pstnRingNormalized.replace(/\D/g, "").slice(-4) ?? null,
+      dial_action_url: dialActionUrl || null,
+    })
+  );
   const numberAmdAttrs = ` machineDetection="Enable"`;
   const pstnDialAttrs = publicBase
     ? ` answerOnBridge="true" timeout="${pstnDialSec}" callerId="${escapeXml(
@@ -251,7 +267,8 @@ function buildPstnNumberDialOpeningResponseXml(input: {
 }
 
 /**
- * Browser-first softphone handoff, then PSTN ring number — same behavior as main inbound voice route.
+ * Inbound softphone handoff order is controlled by {@link resolveVoiceInboundRingStrategy}:
+ * default PSTN/cell first, then optional browser ring (`browser_first` restores legacy order).
  */
 export async function buildVoiceHandoffTwiml(input: {
   closing: string;
@@ -262,6 +279,8 @@ export async function buildVoiceHandoffTwiml(input: {
   clientDialExtras?: InboundCallerClientDialExtras | null;
 }): Promise<string | null> {
   const { closing, publicBase, callerId, ringE164, clientDialExtras } = input;
+  const ringStrategy = resolveVoiceInboundRingStrategy();
+  const teamRingList = readTwilioVoiceTeamRingE164sFromEnv();
   const inboundBrowserStaffIds = await resolveInboundBrowserStaffUserIdsAsync();
   const pstnRingNormalized =
     ringE164.trim().length > 0 ? normalizeDialInputToE164(ringE164.trim()) : null;
@@ -278,14 +297,19 @@ export async function buildVoiceHandoffTwiml(input: {
     JSON.stringify({
       tag: "inbound-ring-diag",
       step: "buildVoiceHandoffTwiml",
+      ring_strategy: ringStrategy,
       inbound_did_key_tail: phoneKeyForLoopCompare(callerId)?.slice(-4) ?? null,
       raw_ring_env_nonempty: ringE164.trim().length > 0,
       pstn_ring_normalized_ok: Boolean(pstnRingNormalized),
       browser_staff_count: inboundBrowserStaffIds.length,
+      team_ring_env_count: teamRingList.length,
       browser_staff_id_tails: inboundBrowserStaffIds.map((id) =>
         id.length >= 8 ? `${id.slice(0, 4)}…${id.slice(-4)}` : `${id.slice(0, 4)}…`
       ),
-      will_dial_browser: inboundBrowserStaffIds.length > 0 && Boolean(browserFallbackActionUrl),
+      will_dial_browser:
+        ringStrategy !== "pstn_only" &&
+        inboundBrowserStaffIds.length > 0 &&
+        Boolean(browserFallbackActionUrl),
       pstn_loop_guard_blocked: loopBlocked,
       public_base_ok: Boolean(publicBase?.trim()),
     })
@@ -296,7 +320,86 @@ export async function buildVoiceHandoffTwiml(input: {
       ? `<Say voice="Polly.Joanna">${escapeXml(closing)}</Say>`
       : "";
 
-  if (inboundBrowserStaffIds.length > 0 && browserFallbackActionUrl) {
+  if (teamRingList.length > 0 && publicBase?.trim() && !isTwilioVoiceDebugPstnFallbackDisabled()) {
+    const teamTwiml = buildSimultaneousTeamPstnDialTwiml({
+      openingSay,
+      publicBase,
+      callerId,
+      teamE164s: teamRingList,
+      dialTimeoutSeconds: resolvePstnOnlyInboundDialTimeoutSeconds(),
+      confirmEnabled: resolveTeamRingConfirmEnabled(),
+    });
+    if (teamTwiml) {
+      return teamTwiml;
+    }
+  }
+
+  if (ringStrategy === "pstn_only") {
+    if (!pstnRingNormalized || loopBlocked || !publicBase?.trim() || isTwilioVoiceDebugPstnFallbackDisabled()) {
+      console.warn(
+        JSON.stringify({
+          tag: "inbound-ring-diag",
+          step: "buildVoiceHandoffTwiml",
+          outcome: "pstn_only_unavailable",
+          ring_strategy: "pstn_only",
+          pstn_ring_ok: Boolean(pstnRingNormalized),
+          pstn_loop_guard_blocked: loopBlocked,
+        })
+      );
+      return null;
+    }
+    const pstnOnlySec = resolvePstnOnlyInboundDialTimeoutSeconds();
+    console.log(
+      JSON.stringify({
+        tag: "inbound-voice-flow",
+        event: "pstn_only_main_leg",
+        path: "legacy_handoff",
+        dial_timeout_sec: pstnOnlySec,
+        pstn_key_tail: pstnRingNormalized.replace(/\D/g, "").slice(-4),
+        dial_action: "dial-result_direct_no_browser",
+      })
+    );
+    return buildInboundPstnOnlyDialTwiml({
+      openingSay,
+      publicBase,
+      callerId,
+      ringE164Raw: ringE164,
+      dialTimeoutSeconds: pstnOnlySec,
+    });
+  }
+
+  if (
+    ringStrategy === "pstn_first" &&
+    pstnRingNormalized &&
+    !loopBlocked &&
+    publicBase?.trim() &&
+    !isTwilioVoiceDebugPstnFallbackDisabled()
+  ) {
+    const continueUrl = `${publicBase.trim().replace(/\/$/, "")}/api/twilio/voice/inbound-pstn-first-continue`;
+    const pstnFirst = buildInboundPstnOnlyDialTwiml({
+      openingSay,
+      publicBase,
+      callerId,
+      ringE164Raw: ringE164,
+      dialTimeoutSeconds: resolvePstnDialTimeoutSeconds(),
+      dialActionUrlOverride: continueUrl,
+    });
+    if (pstnFirst) {
+      console.log(
+        JSON.stringify({
+          tag: "inbound-voice-flow",
+          event: "pstn_first_leg_started",
+          path: "legacy_handoff",
+          ring_strategy: ringStrategy,
+          dial_timeout_sec: resolvePstnDialTimeoutSeconds(),
+          next_action: "inbound-pstn-first-continue",
+        })
+      );
+      return pstnFirst;
+    }
+  }
+
+  if (ringStrategy === "browser_first" && inboundBrowserStaffIds.length > 0 && browserFallbackActionUrl) {
     const browserDialAttrs = publicBase
       ? ` answerOnBridge="true" timeout="${browserRingSec}" callerId="${escapeXml(
           callerId
@@ -312,6 +415,15 @@ export async function buildVoiceHandoffTwiml(input: {
       .map((id) => clientDialNounXml(softphoneTwilioClientIdentity(id), callerId, clientDialExtras))
       .join("");
 
+    console.log(
+      JSON.stringify({
+        tag: "inbound-voice-flow",
+        event: "browser_client_ring_twiml_built",
+        dial_timeout_sec: browserRingSec,
+        client_leg_count: clientIdentitiesForTwilio.length,
+        dial_action: "inbound-browser-fallback_then_pstn_via_TWILIO_VOICE_RING_E164",
+      })
+    );
     console.log(
       JSON.stringify({
         tag: "inbound-ring-diag",
@@ -330,6 +442,42 @@ export async function buildVoiceHandoffTwiml(input: {
       dial_action_url: browserFallbackActionUrl,
       pstn_fallback_after_timeout: !isTwilioVoiceDebugPstnFallbackDisabled(),
     });
+
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  ${openingSay}
+  <Dial${browserDialAttrs}>
+    ${clientBodies}
+  </Dial>
+</Response>`.trim();
+  }
+
+  if (ringStrategy === "pstn_first" && inboundBrowserStaffIds.length > 0 && publicBase?.trim()) {
+    const dialResultUrl = `${publicBase.trim().replace(/\/$/, "")}/api/twilio/voice/dial-result`;
+    const browserDialAttrs = ` answerOnBridge="true" timeout="${browserRingSec}" callerId="${escapeXml(
+      callerId
+    )}" action="${escapeXml(
+      dialResultUrl
+    )}" method="POST" statusCallback="${escapeXml(
+      statusCallbackUrl
+    )}" statusCallbackMethod="POST" statusCallbackEvent="initiated ringing answered completed"`;
+
+    const clientIdentitiesForTwilio = inboundBrowserStaffIds.map((id) => softphoneTwilioClientIdentity(id));
+    const clientBodies = inboundBrowserStaffIds
+      .map((id) => clientDialNounXml(softphoneTwilioClientIdentity(id), callerId, clientDialExtras))
+      .join("");
+
+    console.log(
+      JSON.stringify({
+        tag: "inbound-voice-flow",
+        event: "browser_client_ring_twiml_built",
+        ring_strategy: "pstn_first",
+        note: "PSTN unavailable_or_skipped; browser_then_voicemail_no_second_pstn",
+        dial_timeout_sec: browserRingSec,
+        client_leg_count: clientIdentitiesForTwilio.length,
+        dial_action: "dial-result",
+      })
+    );
 
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
@@ -400,8 +548,8 @@ export async function buildVoiceHandoffTwiml(input: {
 }
 
 /**
- * Staged inbound: primary staff (server timer = &lt;Dial timeout&gt;), then `/inbound-escalation` runs
- * backup → PSTN → voicemail. Twilio enforces ring duration (no client timers).
+ * Staged inbound: order depends on {@link resolveVoiceInboundRingStrategy} — default PSTN first
+ * (`pstn_first`), then primary browsers → `/inbound-escalation` backup → optional PSTN → voicemail.
  */
 export async function buildEscalationInboundVoiceTwiml(input: {
   closing: string;
@@ -411,18 +559,29 @@ export async function buildEscalationInboundVoiceTwiml(input: {
   clientDialExtras?: InboundCallerClientDialExtras | null;
 }): Promise<string | null> {
   const { closing, publicBase, callerId, ringE164, clientDialExtras } = input;
+  const ringStrategy = resolveVoiceInboundRingStrategy();
+  const teamRingList = readTwilioVoiceTeamRingE164sFromEnv();
   const primaryIds = await resolveInboundBrowserStaffUserIdsAsync();
   const backupIds = await resolveBackupInboundStaffUserIdsAsync();
   const pstnFallbackRaw = readEscalationPstnFallbackE164FromEnv() || ringE164;
   const pstnRingNormalized =
     pstnFallbackRaw.trim().length > 0 ? normalizeDialInputToE164(pstnFallbackRaw.trim()) : null;
 
+  const baseTrim = publicBase.trim().replace(/\/$/, "");
   const escalationActionUrl = publicBase
-    ? `${publicBase.trim().replace(/\/$/, "")}/api/twilio/voice/inbound-escalation?step=after_primary`
+    ? `${baseTrim}/api/twilio/voice/inbound-escalation?step=after_primary`
     : "";
   const skipPrimaryRedirectUrl = publicBase
-    ? `${publicBase.trim().replace(/\/$/, "")}/api/twilio/voice/inbound-escalation?step=after_primary&primary_skipped=1`
+    ? `${baseTrim}/api/twilio/voice/inbound-escalation?step=after_primary&primary_skipped=1${
+        ringStrategy === "pstn_first" ? "&skip_pstn=1" : ""
+      }`
     : "";
+  const afterPstnPrimaryUrl = publicBase ? `${baseTrim}/api/twilio/voice/inbound-escalation?step=after_pstn_primary` : "";
+  const primaryBrowserDialActionUrl =
+    ringStrategy === "pstn_first" && publicBase
+      ? `${baseTrim}/api/twilio/voice/inbound-escalation?step=after_primary&skip_pstn=1`
+      : escalationActionUrl;
+
   const statusCallbackUrl = publicBase ? `${publicBase}/api/twilio/voice/status` : "";
   const primaryRingSec = resolveEscalationPrimaryRingTimeoutSeconds();
 
@@ -433,6 +592,8 @@ export async function buildEscalationInboundVoiceTwiml(input: {
     JSON.stringify({
       tag: "inbound-ring-diag",
       step: "buildEscalationInboundVoiceTwiml",
+      ring_strategy: ringStrategy,
+      team_ring_env_count: teamRingList.length,
       primary_count: primaryIds.length,
       backup_count: backupIds.length,
       pstn_ring_ok: Boolean(pstnRingNormalized),
@@ -441,6 +602,7 @@ export async function buildEscalationInboundVoiceTwiml(input: {
     })
   );
   logInboundVoiceDebug("escalation_client_targets", {
+    ring_strategy: ringStrategy,
     primary_identities: primaryIds.map((id) => softphoneTwilioClientIdentity(id)),
     backup_identities: backupIds.map((id) => softphoneTwilioClientIdentity(id)),
     primary_user_id_tails: primaryIds.map((id) => uuidTail(id)),
@@ -453,12 +615,82 @@ export async function buildEscalationInboundVoiceTwiml(input: {
       ? `<Say voice="Polly.Joanna">${escapeXml(closing)}</Say>`
       : "";
 
-  if (primaryIds.length > 0 && escalationActionUrl) {
+  if (teamRingList.length > 0 && publicBase?.trim() && !isTwilioVoiceDebugPstnFallbackDisabled()) {
+    const teamTwiml = buildSimultaneousTeamPstnDialTwiml({
+      openingSay,
+      publicBase,
+      callerId,
+      teamE164s: teamRingList,
+      dialTimeoutSeconds: resolvePstnOnlyInboundDialTimeoutSeconds(),
+      confirmEnabled: resolveTeamRingConfirmEnabled(),
+    });
+    if (teamTwiml) {
+      return teamTwiml;
+    }
+  }
+
+  if (ringStrategy === "pstn_only") {
+    if (!pstnRingNormalized || loopBlocked || !publicBase?.trim() || isTwilioVoiceDebugPstnFallbackDisabled()) {
+      logInboundVoiceDebug("escalation_pstn_only_unavailable", {
+        pstn_ring_ok: Boolean(pstnRingNormalized),
+        loop_blocked: loopBlocked,
+      });
+      return null;
+    }
+    const pstnOnlySec = resolvePstnOnlyInboundDialTimeoutSeconds();
+    console.log(
+      JSON.stringify({
+        tag: "inbound-voice-flow",
+        event: "pstn_only_escalation_pipeline_leg",
+        dial_timeout_sec: pstnOnlySec,
+        pstn_key_tail: pstnRingNormalized.replace(/\D/g, "").slice(-4),
+        dial_action: "dial-result_no_browser_escalation",
+      })
+    );
+    return buildPstnNumberDialOpeningResponseXml({
+      openingSay,
+      publicBase,
+      callerId,
+      pstnRingNormalized,
+      dialTimeoutSeconds: pstnOnlySec,
+    });
+  }
+
+  if (
+    ringStrategy === "pstn_first" &&
+    pstnRingNormalized &&
+    !loopBlocked &&
+    publicBase &&
+    !isTwilioVoiceDebugPstnFallbackDisabled() &&
+    afterPstnPrimaryUrl
+  ) {
+    const pstnFirstTwiml = buildInboundPstnOnlyDialTwiml({
+      openingSay,
+      publicBase,
+      callerId,
+      ringE164Raw: pstnFallbackRaw,
+      dialTimeoutSeconds: resolveEscalationPstnRingTimeoutSeconds(),
+      dialActionUrlOverride: afterPstnPrimaryUrl,
+    });
+    if (pstnFirstTwiml) {
+      console.log(
+        JSON.stringify({
+          tag: "inbound-voice-flow",
+          event: "escalation_pstn_first_leg_started",
+          dial_timeout_sec: resolveEscalationPstnRingTimeoutSeconds(),
+          next_action: "after_pstn_primary",
+        })
+      );
+      return pstnFirstTwiml;
+    }
+  }
+
+  if (primaryIds.length > 0 && primaryBrowserDialActionUrl) {
     const browserDialAttrs = publicBase
       ? ` answerOnBridge="true" timeout="${primaryRingSec}" callerId="${escapeXml(
           callerId
         )}" action="${escapeXml(
-          escalationActionUrl
+          primaryBrowserDialActionUrl
         )}" method="POST" statusCallback="${escapeXml(
           statusCallbackUrl
         )}" statusCallbackMethod="POST" statusCallbackEvent="initiated ringing answered completed"`
@@ -467,6 +699,18 @@ export async function buildEscalationInboundVoiceTwiml(input: {
     const clientBodies = primaryIds
       .map((id) => clientDialNounXml(softphoneTwilioClientIdentity(id), callerId, clientDialExtras))
       .join("");
+
+    console.log(
+      JSON.stringify({
+        tag: "inbound-voice-flow",
+        event: "browser_client_ring_twiml_built",
+        path: "escalation_primary",
+        ring_strategy: ringStrategy,
+        dial_timeout_sec: primaryRingSec,
+        client_leg_count: primaryIds.length,
+        dial_action: primaryBrowserDialActionUrl,
+      })
+    );
 
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
@@ -550,6 +794,17 @@ export function buildTwiMLAppIncomingClientRingTwiml(input: {
 
   const clientBody = clientDialNounXml(identity, pstn, input.clientDialExtras);
 
+  console.log(
+    JSON.stringify({
+      tag: "inbound-voice-flow",
+      event: "browser_client_ring_twiml_built",
+      path: "twiml_app_incoming_client",
+      dial_timeout_sec: browserRingSec,
+      client_identity_tail: identity.length > 8 ? identity.slice(-8) : identity,
+      dial_action: browserFallbackActionUrl.includes("inbound-escalation") ? "escalation" : "inbound-browser-fallback",
+    })
+  );
+
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Dial${browserDialAttrs}>
@@ -587,6 +842,17 @@ export function buildStaffAssignedInboundDialTwiml (input: {
   )}" statusCallbackMethod="POST" statusCallbackEvent="initiated ringing answered completed"`;
 
   const clientBody = clientDialNounXml(identity, pstn, input.clientDialExtras ?? null);
+
+  console.log(
+    JSON.stringify({
+      tag: "inbound-voice-flow",
+      event: "browser_client_ring_twiml_built",
+      path: "staff_assigned_did_first_leg",
+      dial_timeout_sec: browserRingSec,
+      staff_user_tail: uid.length > 8 ? uid.slice(-8) : uid,
+      dial_action: "inbound-browser-fallback",
+    })
+  );
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
