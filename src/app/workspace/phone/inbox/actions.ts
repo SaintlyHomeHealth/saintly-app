@@ -38,7 +38,6 @@ import {
 } from "@/lib/phone/staff-phone-policy";
 import { canAccessWorkspacePhone, getStaffProfile } from "@/lib/staff-profile";
 import { supabaseAdmin } from "@/lib/admin";
-import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { SMS_SEND_FRIENDLY_TRY_AGAIN } from "@/lib/phone/sms-send-user-copy";
 
 const SMS_BODY_MAX = 1600;
