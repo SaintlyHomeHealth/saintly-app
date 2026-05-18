@@ -1,21 +1,16 @@
 import "server-only";
 
+import { normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
 import { sendSms } from "@/lib/twilio/send-sms";
 
-function normalizeUsPhone(raw: string): string | null {
-  const digits = raw.replace(/\D/g, "");
-  if (!digits) return null;
-  if (digits.length === 10) return `+1${digits}`;
-  if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
-  if (raw.trim().startsWith("+")) return `+${digits}`;
-  return null;
-}
+const SMS_BODY_PREFIX =
+  "Saintly Home Health sent you a document to sign. Please complete it here:";
 
 export type SendSignLinkSmsArgs = {
   to?: string | null;
   signUrl: string;
-  recipientName?: string | null;
-  packetName?: string | null;
+  packetId?: string;
+  recipientId?: string;
 };
 
 /**
@@ -27,11 +22,8 @@ export type SendSignLinkSmsResult =
   | { kind: "sent"; messageSid: string }
   | { kind: "failed"; error: string };
 
-function buildBody(args: SendSignLinkSmsArgs): string {
-  const name = args.recipientName?.trim().slice(0, 40);
-  const doc = args.packetName?.trim().slice(0, 60) || "your document";
-  const prefix = name ? `Hi ${name}, ` : "";
-  return `${prefix}Saintly Home Health: Please review and sign ${doc}: ${args.signUrl}`;
+function buildBody(signUrl: string): string {
+  return `${SMS_BODY_PREFIX} ${signUrl}`;
 }
 
 /**
@@ -46,24 +38,30 @@ export async function sendSignLinkSms(args: SendSignLinkSmsArgs): Promise<SendSi
 
   const url = args.signUrl?.trim() ?? "";
   if (!url) {
-    console.warn("[pdf-sign] sendSignLinkSms: missing signUrl, skipping SMS");
+    const logCtx = {
+      packetId: args.packetId,
+      recipientId: args.recipientId,
+    };
+    console.warn("[pdf-sign] sendSignLinkSms: missing signUrl", logCtx);
     return { kind: "failed", error: "Missing signing link." };
   }
 
-  const e164 = normalizeUsPhone(raw);
+  const e164 = normalizeDialInputToE164(raw);
   if (!e164) return { kind: "failed", error: "Invalid phone number." };
 
+  const logCtx = { packetId: args.packetId, recipientId: args.recipientId };
+
   try {
-    const body = buildBody({ ...args, signUrl: url });
+    const body = buildBody(url);
     const res = await sendSms({ to: e164, body });
     if (!res.ok) {
-      console.warn("[pdf-sign] SMS send failed:", res.error);
+      console.warn("[pdf-sign] SMS send failed:", { ...logCtx, error: res.error });
       return { kind: "failed", error: res.error };
     }
     return { kind: "sent", messageSid: res.messageSid };
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
-    console.warn("[pdf-sign] SMS send threw:", msg);
+    console.warn("[pdf-sign] SMS send threw:", { ...logCtx, error: msg });
     return { kind: "failed", error: msg };
   }
 }

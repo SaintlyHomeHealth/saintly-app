@@ -4,7 +4,9 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { UsPhoneInput } from "@/components/forms/UsPhoneInput";
 import { SendPacketStep4Review } from "./SendPacketStep4Review";
+import { normalizeUsPhoneForSend } from "@/lib/phone/us-phone-format";
 import { PDF_SIGN_COMPANY_NAME } from "@/lib/pdf-sign/constants";
 import { hasPdfSignCrmLinkage } from "@/lib/pdf-sign/crm-link-display";
 import { signerPartyFromField } from "@/lib/pdf-sign/normalize";
@@ -124,7 +126,6 @@ export function SendPacketForm({
   const [ttlDays, setTtlDays] = useState(14);
   const [sendEmail, setSendEmail] = useState(true);
   const [message, setMessage] = useState("");
-  const [smsRequested, setSmsRequested] = useState(false);
   const [i9ReviewMethod, setI9ReviewMethod] = useState<string>("");
   const [marksIc, setMarksIc] = useState(false);
   const [notifyFromEmail, setNotifyFromEmail] = useState(
@@ -143,6 +144,11 @@ export function SendPacketForm({
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sendResult, setSendResult] = useState<{
+    packetId: string;
+    deliveryStatusMessage: string | null;
+    emailError: string | null;
+  } | null>(null);
 
   const [previewNonce, setPreviewNonce] = useState(0);
   const [templatePdfUrl, setTemplatePdfUrl] = useState<string | null>(null);
@@ -314,9 +320,6 @@ export function SendPacketForm({
       for (const r of filled) {
         if (!r.email.trim().includes("@")) return `Invalid email for ${r.name || r.email || "recipient"}.`;
       }
-      if (smsRequested && !filled[0]?.phone.trim()) {
-        return "Primary recipient phone is required when SMS delivery is requested.";
-      }
       return null;
     }
     return null;
@@ -374,7 +377,7 @@ export function SendPacketForm({
       .map((r) => ({
         name: r.name.trim() || undefined,
         email: r.email.trim().toLowerCase(),
-        phone: r.phone.trim() || undefined,
+        phone: normalizeUsPhoneForSend(r.phone) || undefined,
       }))
       .filter((r) => r.email.includes("@"));
 
@@ -394,7 +397,6 @@ export function SendPacketForm({
           marksIcAgreement: marksIc,
           i9ReviewMethod: selectedTemplate?.document_type === "i9" ? i9ReviewMethod || null : null,
           message: message.trim() || undefined,
-          smsRequested,
           senderValues,
           senderSignatureImages: senderSignatures,
           notifyFromEmail:
@@ -408,13 +410,19 @@ export function SendPacketForm({
         error?: string;
         signUrl?: string;
         packetId?: string;
+        deliveryStatusMessage?: string | null;
+        emailError?: string | null;
       };
       if (!res.ok) {
         setError(j.error || "Could not create packet.");
         return;
       }
       if (j.packetId) {
-        router.push(`/admin/signatures/packets/${encodeURIComponent(j.packetId)}`);
+        setSendResult({
+          packetId: j.packetId,
+          deliveryStatusMessage: j.deliveryStatusMessage ?? null,
+          emailError: j.emailError ?? null,
+        });
       }
     } finally {
       setBusy(false);
@@ -423,6 +431,43 @@ export function SendPacketForm({
 
   const recordTypeLabel = CRM_OPTIONS.find((o) => o.value === crmEntityType)?.label ?? crmEntityType;
   const hasLinkedProfile = hasPdfSignCrmLinkage(crmEntityId);
+  const willTextRecipient = Boolean(normalizeUsPhoneForSend(primarySigningRecipients[0]?.phone));
+
+  if (sendResult) {
+    return (
+      <div className="mx-auto max-w-2xl space-y-4 rounded-2xl border border-emerald-200 bg-emerald-50/80 p-6 text-sm text-emerald-950 shadow-sm">
+        <h2 className="text-lg font-semibold">Packet sent</h2>
+        {sendResult.emailError ? (
+          <p className="text-amber-950">
+            Packet created, but email failed to send: {sendResult.emailError}
+          </p>
+        ) : sendResult.deliveryStatusMessage ? (
+          <p>{sendResult.deliveryStatusMessage}</p>
+        ) : (
+          <p>Signing packet created successfully.</p>
+        )}
+        <div className="flex flex-wrap gap-3 pt-2">
+          <button
+            type="button"
+            onClick={() =>
+              router.push(
+                `/admin/signatures/packets/${encodeURIComponent(sendResult.packetId)}`
+              )
+            }
+            className={BTN_GOLD_PRIMARY}
+          >
+            View packet
+          </button>
+          <Link
+            href="/admin/signatures/packets"
+            className="inline-flex rounded-2xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-50"
+          >
+            All packets
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -594,15 +639,16 @@ export function SendPacketForm({
                       />
                     </label>
                     <label className="block text-sm font-medium text-slate-800 sm:col-span-2">
-                      Phone{" "}
-                      <span className="font-normal text-slate-500">(optional)</span>
-                      <input
+                      Phone <span className="font-normal text-slate-500">(optional)</span>
+                      <UsPhoneInput
+                        className="block"
                         value={r.phone}
-                        onChange={(e) => updateRecipient(r.id, { phone: e.target.value })}
-                        type="tel"
-                        autoComplete="tel"
-                        className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm shadow-sm"
-                        placeholder="For text message if you turn that on later"
+                        onChange={(phone) => updateRecipient(r.id, { phone })}
+                        helperText={
+                          idx === 0
+                            ? "Text signing link will be sent automatically when a phone number is entered."
+                            : undefined
+                        }
                       />
                     </label>
                   </div>
@@ -743,15 +789,10 @@ export function SendPacketForm({
               </span>
             </label>
 
-            <label className="mt-5 flex items-start gap-3 rounded-xl border border-slate-100 bg-slate-50/80 px-4 py-3 text-sm font-medium text-slate-800">
-              <input
-                type="checkbox"
-                checked={smsRequested}
-                onChange={(e) => setSmsRequested(e.target.checked)}
-                className="mt-1 rounded border-slate-300 text-amber-600"
-              />
-              <span>Also send a text with the signing link to the primary recipient&apos;s phone (if SMS is configured)</span>
-            </label>
+            <p className="mt-5 rounded-xl border border-slate-100 bg-slate-50/80 px-4 py-3 text-sm text-slate-700">
+              If the primary recipient has a phone number, Saintly will also text them the signing link (when SMS is
+              configured).
+            </p>
 
             <label className="mt-4 flex items-start gap-3 rounded-xl border border-slate-100 bg-slate-50/80 px-4 py-3 text-sm font-medium text-slate-800">
               <input
@@ -797,7 +838,7 @@ export function SendPacketForm({
             ttlDays={ttlDays}
             sendEmail={sendEmail}
             message={message}
-            smsRequested={smsRequested}
+            willTextRecipient={willTextRecipient}
             marksIc={marksIc}
             senderDisplayName={senderDisplayName}
             senderValues={senderValues}

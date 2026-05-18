@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { supabaseAdmin } from "@/lib/admin";
+import { findPhoneCallRowByTwilioCallSid } from "@/lib/phone/phone-call-lookup-by-call-sid";
 import { verifyOutboundPstnBridgeToken } from "@/lib/phone/outbound-pstn-bridge-token";
 import { parseVerifiedTwilioFormBody } from "@/lib/twilio/verify-form-post";
 
@@ -35,11 +37,14 @@ export async function POST(req: NextRequest) {
   const confirmUrl = `${publicBase}/api/twilio/voice/outbound-pstn-bridge/confirm?token=${encodeURIComponent(token ?? "")}`;
 
   const callSid = parsed.params.CallSid?.trim() ?? null;
+  const phoneCallRow = callSid?.startsWith("CA") ? await findPhoneCallRowByTwilioCallSid(supabaseAdmin, callSid) : null;
+
   console.log(
     JSON.stringify({
       tag: LOG_TAG,
       event: "staff_leg_answered_screen_started",
       call_sid: callSid,
+      phone_call_id: phoneCallRow?.id ?? null,
       patient_tail: payload.patient.replace(/\D/g, "").slice(-4),
     })
   );

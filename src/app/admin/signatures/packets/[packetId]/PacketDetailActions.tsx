@@ -22,13 +22,13 @@ export function PacketDetailActions({
       ? `/api/pdf-sign/admin/download?packetDocumentId=${encodeURIComponent(completedDocId)}`
       : null;
 
-  async function resend(channel: "email" | "sms") {
+  async function resendSigningLink() {
     setBusy(true);
     try {
       const res = await fetch(`/api/pdf-sign/admin/packets/${encodeURIComponent(packetId)}/resend`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ channel, rotateToken: true }),
+        body: JSON.stringify({}),
       });
       const j = (await res.json().catch(() => ({}))) as {
         error?: string;
@@ -36,18 +36,20 @@ export function PacketDetailActions({
         emailError?: string | null;
         smsSent?: boolean;
         smsError?: string | null;
+        deliveryStatusMessage?: string | null;
       };
       if (!res.ok) {
-        alert(j.error || `Could not ${channel === "email" ? "resend email" : "send SMS"}.`);
+        alert(j.error || "Could not resend signing link.");
         return;
       }
-      if (channel === "email" && j.emailSent === false && j.emailError) {
+      if (j.deliveryStatusMessage) {
+        alert(j.deliveryStatusMessage);
+      } else if (j.emailSent === false && j.emailError) {
         alert(
           `Email failed to send:\n${j.emailError}\n\nUse Copy signing link below to share the link manually.`
         );
-      }
-      if (channel === "sms" && j.smsSent === false && j.smsError) {
-        alert(`SMS failed:\n${j.smsError}\n\nUse Copy signing link if you need another channel.`);
+      } else if (j.smsSent === false && j.smsError) {
+        alert(`Text message failed:\n${j.smsError}\n\nUse Copy signing link if you need another channel.`);
       }
       router.refresh();
     } finally {
@@ -141,18 +143,10 @@ export function PacketDetailActions({
             <button
               type="button"
               disabled={busy}
-              onClick={() => void resend("email")}
+              onClick={() => void resendSigningLink()}
               className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
             >
-              Resend email
-            </button>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void resend("sms")}
-              className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
-            >
-              Send SMS link
+              Resend signing link
             </button>
             <button
               type="button"

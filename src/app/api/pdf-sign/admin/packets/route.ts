@@ -6,7 +6,8 @@ import { sendPdfSignLinkEmail } from "@/lib/email/send-pdf-sign-email";
 import { buildPdfSignRecipientUrl } from "@/lib/pdf-sign/app-url";
 import { senderAssignableTemplateFields, validateSenderPrefillAgainstTemplate } from "@/lib/pdf-sign/validate-sender-prefill";
 import { logSignatureEvent } from "@/lib/pdf-sign/log-event";
-import { sendSignLinkSms } from "@/lib/pdf-sign/send-sign-sms";
+import { deliverPdfSignLinkSms } from "@/lib/pdf-sign/deliver-sign-link-sms";
+import { pdfSignDeliveryStatusMessage } from "@/lib/pdf-sign/delivery-status-message";
 import { uploadPdfSignSenderSignaturePng } from "@/lib/pdf-sign/upload-sender-signature-png";
 import { createRawSignToken, hashSignToken } from "@/lib/pdf-sign/token";
 import {
@@ -131,12 +132,6 @@ export async function POST(request: Request) {
   if (!recipientEmail.includes("@")) {
     return NextResponse.json({ error: "Recipient email is required." }, { status: 400 });
   }
-  if (wantsSms && !recipientPhoneRaw) {
-    return NextResponse.json(
-      { error: "Phone number is required when SMS delivery is enabled." },
-      { status: 400 }
-    );
-  }
 
   const { data: template, error: tErr } = await supabaseAdmin
     .from("signature_templates")
@@ -227,7 +222,7 @@ export async function POST(request: Request) {
       recipient_email: recipientEmail,
       recipient_phone: recipientPhoneRaw,
       message,
-      sms_requested: wantsSms,
+      sms_requested: Boolean(recipientPhoneRaw) || wantsSms,
       created_by_staff_user_id: user.id,
       expires_at: expiresAt,
     })
@@ -299,17 +294,21 @@ export async function POST(request: Request) {
 
   const rawToken = createRawSignToken();
   const tokenHash = hashSignToken(rawToken);
-  const { error: recErr } = await supabaseAdmin.from("signature_recipients").insert({
-    packet_id: packet.id,
-    email: recipientEmail,
-    display_name: recipientName,
-    phone: recipientPhoneRaw,
-    token_hash: tokenHash,
-    token_expires_at: expiresAt,
-  });
-  if (recErr) {
+  const { data: recipientRow, error: recErr } = await supabaseAdmin
+    .from("signature_recipients")
+    .insert({
+      packet_id: packet.id,
+      email: recipientEmail,
+      display_name: recipientName,
+      phone: recipientPhoneRaw,
+      token_hash: tokenHash,
+      token_expires_at: expiresAt,
+    })
+    .select("id")
+    .single();
+  if (recErr || !recipientRow?.id) {
     await supabaseAdmin.from("signature_packets").delete().eq("id", packet.id);
-    return NextResponse.json({ error: recErr.message }, { status: 500 });
+    return NextResponse.json({ error: recErr?.message || "Could not create recipient." }, { status: 500 });
   }
 
   const sentAt = new Date().toISOString();
@@ -334,44 +333,31 @@ export async function POST(request: Request) {
     else emailError = r.error;
     await logSignatureEvent({
       packetId: packet.id,
+      recipientId: recipientRow.id,
       actor: "system",
       action: emailSent ? "email_sent" : "email_failed",
       metadata: { emailError },
     });
   }
 
-  let smsSent = false;
-  let smsError: string | null = null;
-  if (wantsSms && recipientPhoneRaw) {
-    try {
-      const r = await sendSignLinkSms({
-        to: recipientPhoneRaw,
+  const smsDelivery = recipientPhoneRaw
+    ? await deliverPdfSignLinkSms({
+        packetId: packet.id,
+        recipientId: recipientRow.id,
+        phone: recipientPhoneRaw,
         signUrl,
-        packetName: title,
-        recipientName,
-      });
-      if (r.kind === "sent") smsSent = true;
-      else if (r.kind === "failed") smsError = r.error;
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      console.warn("[pdf-sign] packet POST SMS unexpected error:", msg);
-      smsError = msg;
-    }
-    await supabaseAdmin
-      .from("signature_packets")
-      .update({
-        sms_sent_at: smsSent ? new Date().toISOString() : null,
-        sms_error: smsError,
-        updated_at: new Date().toISOString(),
       })
-      .eq("id", packet.id);
-    await logSignatureEvent({
-      packetId: packet.id,
-      actor: "system",
-      action: smsSent ? "sms_sent" : "sms_failed",
-      metadata: { smsError },
-    });
-  }
+    : { smsSent: false, smsError: null as string | null, skipped: true };
+  const smsSent = smsDelivery.smsSent;
+  const smsError = smsDelivery.smsError;
+
+  const deliveryStatusMessage = pdfSignDeliveryStatusMessage({
+    emailAttempted: wantsEmail,
+    emailSent,
+    hasPhone: Boolean(recipientPhoneRaw),
+    smsSent,
+    smsFailed: Boolean(recipientPhoneRaw && smsError),
+  });
 
   await insertAuditLogTrusted({
     action: "pdf_sign_packet_sent",
@@ -399,6 +385,7 @@ export async function POST(request: Request) {
     emailError,
     smsSent,
     smsError,
+    deliveryStatusMessage,
     expiresAt,
     documentTitle: title,
   });

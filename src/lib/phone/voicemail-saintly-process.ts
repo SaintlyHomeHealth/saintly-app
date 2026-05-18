@@ -4,6 +4,7 @@ import crypto from "node:crypto";
 
 import { supabaseAdmin } from "@/lib/admin";
 import { buildPhoneCallAiContextBlock, fetchOpenAiJsonObject } from "@/lib/phone/phone-call-ai-context";
+import { parseLiveTranscriptEntriesFromMetadata, trimEntries } from "@/lib/phone/live-transcript-entries";
 import { normalizeTwilioRecordingMediaUrl } from "@/lib/phone/twilio-recording-media";
 import {
   buildVoiceAiInputFingerprint,
@@ -15,6 +16,7 @@ import {
 const SID_RE = /^RE[0-9a-f]{32}$/i;
 
 const inflightByCallId = new Map<string, Promise<void>>();
+const pstnBridgeRecordingInflightByCallId = new Map<string, Promise<void>>();
 
 function asRecord(v: unknown): Record<string, unknown> | null {
   if (v && typeof v === "object" && !Array.isArray(v)) return v as Record<string, unknown>;
@@ -241,6 +243,214 @@ export function scheduleSaintlyVoicemailProcessing(callId: string): void {
   queueMicrotask(() => {
     void runSaintlyVoicemailProcessing(id).catch((e) => {
       console.warn("[voicemail-saintly] unhandled:", e);
+    });
+  });
+}
+
+async function mergePostCallRecordingTranscriptIntoVoiceAi(callId: string, transcript: string): Promise<void> {
+  const { data: row, error } = await supabaseAdmin.from("phone_calls").select("metadata").eq("id", callId).maybeSingle();
+  if (error || !row) return;
+  const meta = asRecord(row.metadata) ?? {};
+  const voiceAi = asRecord(meta.voice_ai) ?? {};
+  const entries = parseLiveTranscriptEntriesFromMetadata(voiceAi);
+  const maxFromEntries = entries.length > 0 ? Math.max(...entries.map((e) => e.seq)) : 0;
+  const storedNext =
+    typeof voiceAi.live_transcript_next_seq === "number" && Number.isFinite(voiceAi.live_transcript_next_seq)
+      ? voiceAi.live_transcript_next_seq
+      : 1;
+  const nextSeq = Math.max(storedNext, maxFromEntries + 1);
+  const block = transcript.trim().slice(0, 50_000);
+  const newEntry = {
+    seq: nextSeq,
+    speaker: "unknown" as const,
+    text: `— Post-call recording —\n${block}`,
+    ts: new Date().toISOString(),
+  };
+  const merged = trimEntries([...entries, newEntry]);
+  const prevEx = typeof voiceAi.live_transcript_excerpt === "string" ? voiceAi.live_transcript_excerpt.trim() : "";
+  const delim = "\n\n— Post-call recording transcript —\n\n";
+  const nextEx = prevEx ? `${prevEx}${delim}${block}` : `${delim.trimStart()}${block}`;
+  const clipped = nextEx.length > 100_000 ? nextEx.slice(-100_000) : nextEx;
+  await supabaseAdmin
+    .from("phone_calls")
+    .update({
+      metadata: {
+        ...meta,
+        voice_ai: {
+          ...voiceAi,
+          live_transcript_entries: merged,
+          live_transcript_next_seq: nextSeq + 1,
+          live_transcript_excerpt: clipped,
+          source: typeof voiceAi.source === "string" ? voiceAi.source : "live_receptionist",
+        },
+      },
+    })
+    .eq("id", callId);
+}
+
+async function mergePstnBridgeRecordingWhisperMeta(callId: string, patch: Record<string, unknown>): Promise<void> {
+  const { data: row, error } = await supabaseAdmin.from("phone_calls").select("metadata").eq("id", callId).maybeSingle();
+  if (error || !row) return;
+  const meta = asRecord(row.metadata) ?? {};
+  const voiceAi = asRecord(meta.voice_ai) ?? {};
+  const prev = asRecord(voiceAi.pstn_bridge_dual_recording) ?? {};
+  await supabaseAdmin
+    .from("phone_calls")
+    .update({
+      metadata: {
+        ...meta,
+        voice_ai: {
+          ...voiceAi,
+          pstn_bridge_dual_recording: { ...prev, ...patch },
+        },
+      },
+    })
+    .eq("id", callId);
+}
+
+async function executePstnBridgeDialRecordingWhisper(callId: string): Promise<void> {
+  if (process.env.SAINTLY_VOICEMAIL_AI_PROCESSING === "0") return;
+
+  const { data: raw, error } = await supabaseAdmin.from("phone_calls").select("id, metadata").eq("id", callId).maybeSingle();
+
+  if (error || !raw) {
+    console.warn("[pstn-bridge-recording] load row:", error?.message ?? "missing");
+    return;
+  }
+
+  const row = raw as Record<string, unknown>;
+  const meta = asRecord(row.metadata) ?? {};
+  const voiceAi = asRecord(meta.voice_ai) ?? {};
+  const pbr = asRecord(voiceAi.pstn_bridge_dual_recording) ?? {};
+  const sid = typeof pbr.recording_sid === "string" ? pbr.recording_sid.trim() : "";
+  if (!sid) {
+    return;
+  }
+
+  const ws = typeof pbr.whisper_status === "string" ? pbr.whisper_status.trim().toLowerCase() : "";
+  if (ws === "completed" || ws === "processing") {
+    return;
+  }
+
+  let mediaUrl: string | null = null;
+  const rawUrl = typeof pbr.recording_url === "string" ? pbr.recording_url.trim() : "";
+  if (rawUrl) {
+    mediaUrl = normalizeTwilioRecordingMediaUrl(rawUrl);
+  } else {
+    const accountSid = process.env.TWILIO_ACCOUNT_SID?.trim();
+    if (accountSid && SID_RE.test(sid)) {
+      mediaUrl = `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(accountSid)}/Recordings/${encodeURIComponent(
+        sid
+      )}.mp3`;
+    }
+  }
+
+  if (!mediaUrl) {
+    await mergePstnBridgeRecordingWhisperMeta(callId, {
+      whisper_status: "failed",
+      whisper_error: "No recording URL",
+      whisper_updated_at: new Date().toISOString(),
+    });
+    console.log(
+      JSON.stringify({
+        event: "transcript_failed",
+        reason: "pstn_bridge_recording_no_media_url",
+        source: "pstn_bridge_dial_recording_whisper",
+        phone_call_id: callId,
+      })
+    );
+    return;
+  }
+
+  await mergePstnBridgeRecordingWhisperMeta(callId, {
+    whisper_status: "processing",
+    whisper_updated_at: new Date().toISOString(),
+  });
+
+  const buf = await fetchTwilioRecordingBuffer(mediaUrl);
+  if (!buf || buf.length < 64) {
+    await mergePstnBridgeRecordingWhisperMeta(callId, {
+      whisper_status: "failed",
+      whisper_error: "Could not download recording",
+      whisper_updated_at: new Date().toISOString(),
+    });
+    console.log(
+      JSON.stringify({
+        event: "transcript_failed",
+        reason: "pstn_bridge_recording_download_failed",
+        source: "pstn_bridge_dial_recording_whisper",
+        phone_call_id: callId,
+      })
+    );
+    return;
+  }
+
+  const transcript = await openAiWhisperTranscribe(buf);
+  if (!transcript) {
+    await mergePstnBridgeRecordingWhisperMeta(callId, {
+      whisper_status: "failed",
+      whisper_error: "Whisper transcription failed",
+      whisper_updated_at: new Date().toISOString(),
+    });
+    console.log(
+      JSON.stringify({
+        event: "transcript_failed",
+        reason: "pstn_bridge_whisper_empty",
+        source: "pstn_bridge_dial_recording_whisper",
+        phone_call_id: callId,
+      })
+    );
+    return;
+  }
+
+  await mergePostCallRecordingTranscriptIntoVoiceAi(callId, transcript);
+  await mergePstnBridgeRecordingWhisperMeta(callId, {
+    whisper_status: "completed",
+    whisper_model: process.env.OPENAI_TRANSCRIPTION_MODEL?.trim() || "whisper-1",
+    whisper_updated_at: new Date().toISOString(),
+    whisper_error: null,
+  });
+
+  console.log(
+    JSON.stringify({
+      event: "transcript_completed",
+      source: "pstn_bridge_dial_recording_whisper",
+      phone_call_id: callId,
+      recording_sid_tail: sid.length > 8 ? sid.slice(-8) : sid,
+    })
+  );
+}
+
+export async function runPstnBridgeDialRecordingWhisper(callId: string): Promise<void> {
+  const id = callId.trim();
+  if (!id) return;
+
+  const prev = pstnBridgeRecordingInflightByCallId.get(id);
+  const chain = (async () => {
+    if (prev) await prev.catch(() => {});
+    await executePstnBridgeDialRecordingWhisper(id);
+  })();
+
+  pstnBridgeRecordingInflightByCallId.set(id, chain);
+  try {
+    await chain;
+  } finally {
+    if (pstnBridgeRecordingInflightByCallId.get(id) === chain) {
+      pstnBridgeRecordingInflightByCallId.delete(id);
+    }
+  }
+}
+
+/**
+ * After outbound PSTN bridge `Dial` completes recording: Whisper → merge into `live_transcript_*` (async).
+ */
+export function schedulePstnBridgeDialRecordingWhisper(callId: string): void {
+  if (process.env.SAINTLY_VOICEMAIL_AI_PROCESSING === "0") return;
+  const id = callId.trim();
+  if (!id) return;
+  queueMicrotask(() => {
+    void runPstnBridgeDialRecordingWhisper(id).catch((e) => {
+      console.warn("[pstn-bridge-recording] unhandled:", e);
     });
   });
 }

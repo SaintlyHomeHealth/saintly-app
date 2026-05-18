@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { resolveOutboundPatientRingSeconds } from "@/lib/phone/outbound-pstn-bridge-config";
+import { supabaseAdmin } from "@/lib/admin";
+import {
+  resolveOutboundPatientRingSeconds,
+  resolveOutboundPstnBridgeDialRecordingEnabled,
+} from "@/lib/phone/outbound-pstn-bridge-config";
 import { verifyOutboundPstnBridgeToken } from "@/lib/phone/outbound-pstn-bridge-token";
+import { startPstnRealtimeTranscriptionIfEligible } from "@/lib/phone/start-pstn-realtime-transcription";
 import { parseVerifiedTwilioFormBody } from "@/lib/twilio/verify-form-post";
 
 const LOG_TAG = "outbound-pstn-bridge";
@@ -61,11 +66,28 @@ export async function POST(req: NextRequest) {
     })
   );
 
+  if (callSid?.startsWith("CA")) {
+    void startPstnRealtimeTranscriptionIfEligible(supabaseAdmin, {
+      twilioCallSid: callSid,
+      kind: "outbound_pstn_bridge",
+      logSource: "outbound_pstn_bridge_confirm",
+    }).catch((e) => {
+      console.warn(`[${LOG_TAG}] start_transcript_unhandled`, e instanceof Error ? e.message : e);
+    });
+  }
+
+  const recordDial =
+    resolveOutboundPstnBridgeDialRecordingEnabled() && publicBase
+      ? ` record="record-from-answer" recordingChannels="dual" recordingStatusCallback="${escapeXml(
+          `${publicBase}/api/twilio/voice/outbound-pstn-bridge/dial-recording`
+        )}" recordingStatusCallbackMethod="POST"`
+      : "";
+
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Dial answerOnBridge="true" timeout="${patientTimeout}" callerId="${escapeXml(payload.cli)}" action="${escapeXml(
     actionUrl
-  )}" method="POST">
+  )}" method="POST"${recordDial}>
     <Number>${escapeXml(payload.patient)}</Number>
   </Dial>
 </Response>`.trim();

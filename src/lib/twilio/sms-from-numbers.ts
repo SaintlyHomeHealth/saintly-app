@@ -71,6 +71,10 @@ export function logAltSmsSenderUsed(
  * backup long code is normalized to the primary line.
  */
 export function resolveDefaultTwilioSmsFromOrMsid(): string {
+  const messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID?.trim() ?? "";
+  if (messagingServiceSid.startsWith("MG")) {
+    return messagingServiceSid;
+  }
   const env = process.env.TWILIO_SMS_FROM?.trim() ?? "";
   if (env.startsWith("MG")) {
     return env;

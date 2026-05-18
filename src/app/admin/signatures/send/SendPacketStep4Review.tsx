@@ -72,7 +72,7 @@ export function SendPacketStep4Review({
   ttlDays,
   sendEmail,
   message,
-  smsRequested,
+  willTextRecipient,
   marksIc,
   senderDisplayName,
   senderValues,
@@ -97,7 +97,7 @@ export function SendPacketStep4Review({
   ttlDays: number;
   sendEmail: boolean;
   message: string;
-  smsRequested: boolean;
+  willTextRecipient: boolean;
   marksIc: boolean;
   senderDisplayName: string;
   senderValues: Record<string, string | boolean>;
@@ -224,9 +224,9 @@ export function SendPacketStep4Review({
           {message}
         </p>
       ) : null}
-      {(smsRequested || marksIc) && (
+      {(willTextRecipient || marksIc) && (
         <p className="mt-2 text-xs text-slate-500">
-          {smsRequested ? "SMS requested · " : null}
+          {willTextRecipient ? "Text message · " : null}
           {marksIc ? "IC agreement" : null}
         </p>
       )}

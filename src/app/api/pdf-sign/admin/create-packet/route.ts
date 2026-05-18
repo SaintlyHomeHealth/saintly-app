@@ -8,6 +8,9 @@ import {
 import { insertAuditLogTrusted } from "@/lib/audit-log";
 import { sendPdfSignLinkEmail } from "@/lib/email/send-pdf-sign-email";
 import { buildPdfSignRecipientUrl } from "@/lib/pdf-sign/app-url";
+import { deliverPdfSignLinkSms } from "@/lib/pdf-sign/deliver-sign-link-sms";
+import { pdfSignDeliveryStatusMessage } from "@/lib/pdf-sign/delivery-status-message";
+import { logSignatureEvent } from "@/lib/pdf-sign/log-event";
 import { createRawSignToken, hashSignToken } from "@/lib/pdf-sign/token";
 import { senderAssignableTemplateFields, validateSenderPrefillAgainstTemplate } from "@/lib/pdf-sign/validate-sender-prefill";
 import { uploadPdfSignSenderSignaturePng } from "@/lib/pdf-sign/upload-sender-signature-png";
@@ -248,6 +251,10 @@ export async function POST(request: Request) {
       i9_case_id: i9CaseId,
       i9_section: template.document_type === "i9" ? "section1" : null,
       metadata,
+      recipient_name: recipientName,
+      recipient_email: recipientEmail,
+      recipient_phone: primaryPhone,
+      sms_requested: Boolean(primaryPhone),
       created_by_staff_user_id: user.id,
       expires_at: expiresAt,
     })
@@ -318,18 +325,22 @@ export async function POST(request: Request) {
   const rawToken = createRawSignToken();
   const tokenHash = hashSignToken(rawToken);
 
-  const { error: recErr } = await supabaseAdmin.from("signature_recipients").insert({
-    packet_id: packet.id,
-    email: recipientEmail,
-    display_name: recipientName,
-    phone: primaryPhone,
-    token_hash: tokenHash,
-    token_expires_at: expiresAt,
-  });
-  if (recErr) {
+  const { data: recipientRow, error: recErr } = await supabaseAdmin
+    .from("signature_recipients")
+    .insert({
+      packet_id: packet.id,
+      email: recipientEmail,
+      display_name: recipientName,
+      phone: primaryPhone,
+      token_hash: tokenHash,
+      token_expires_at: expiresAt,
+    })
+    .select("id")
+    .single();
+  if (recErr || !recipientRow?.id) {
     await supabaseAdmin.from("signature_packets").delete().eq("id", packet.id);
     if (i9CaseId) await supabaseAdmin.from("i9_cases").delete().eq("id", i9CaseId);
-    return NextResponse.json({ error: recErr.message }, { status: 500 });
+    return NextResponse.json({ error: recErr?.message || "Could not create recipient." }, { status: 500 });
   }
 
   const { error: upErr } = await supabaseAdmin
@@ -353,7 +364,31 @@ export async function POST(request: Request) {
       documentLabel: template.name,
       pdfSignReplyToEmail: pdfSignStoredFromEmail,
     });
+    await logSignatureEvent({
+      packetId: packet.id,
+      recipientId: recipientRow.id,
+      actor: "system",
+      action: emailResult.ok ? "email_sent" : "email_failed",
+      metadata: { emailError: emailResult.ok ? null : emailResult.error },
+    });
   }
+
+  const smsDelivery = primaryPhone
+    ? await deliverPdfSignLinkSms({
+        packetId: packet.id,
+        recipientId: recipientRow.id,
+        phone: primaryPhone,
+        signUrl,
+      })
+    : { smsSent: false, smsError: null as string | null, skipped: true };
+
+  const deliveryStatusMessage = pdfSignDeliveryStatusMessage({
+    emailAttempted: sendEmail,
+    emailSent: sendEmail && emailResult?.ok === true,
+    hasPhone: Boolean(primaryPhone),
+    smsSent: smsDelivery.smsSent,
+    smsFailed: Boolean(primaryPhone && smsDelivery.smsError),
+  });
 
   await insertAuditLogTrusted({
     action: "pdf_sign_packet_created",
@@ -375,5 +410,8 @@ export async function POST(request: Request) {
     signUrl,
     emailSent: sendEmail && emailResult?.ok === true,
     emailError: sendEmail && emailResult && !emailResult.ok ? emailResult.error : null,
+    smsSent: smsDelivery.smsSent,
+    smsError: smsDelivery.smsError,
+    deliveryStatusMessage,
   });
 }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { supabaseAdmin } from "@/lib/admin";
 import { applyTwilioVoiceStatusCallback } from "@/lib/phone/log-call";
+import { findPhoneCallRowByTwilioCallSid } from "@/lib/phone/phone-call-lookup-by-call-sid";
 import { parseVerifiedTwilioFormBody } from "@/lib/twilio/verify-form-post";
 
 const LOG_TAG = "outbound-pstn-bridge";
@@ -30,6 +31,8 @@ export async function POST(req: NextRequest) {
 
   const p = parsed.params;
   const callSid = p.CallSid?.trim() ?? null;
+
+  const phoneCallRow = callSid?.startsWith("CA") ? await findPhoneCallRowByTwilioCallSid(supabaseAdmin, callSid) : null;
   const callStatusRaw = (p.CallStatus ?? "").trim().toLowerCase();
 
   const milestone =
@@ -50,6 +53,7 @@ export async function POST(req: NextRequest) {
       tag: LOG_TAG,
       event: milestone,
       call_sid: callSid,
+      phone_call_id: phoneCallRow?.id ?? null,
       call_status: callStatusRaw || null,
       duration: p.CallDuration ?? p.Duration ?? null,
     })

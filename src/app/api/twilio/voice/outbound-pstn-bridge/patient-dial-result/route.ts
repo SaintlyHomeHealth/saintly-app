@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { supabaseAdmin } from "@/lib/admin";
+import { findPhoneCallRowByTwilioCallSid } from "@/lib/phone/phone-call-lookup-by-call-sid";
 import { verifyOutboundPstnBridgeToken } from "@/lib/phone/outbound-pstn-bridge-token";
 import { parseVerifiedTwilioFormBody } from "@/lib/twilio/verify-form-post";
 
@@ -34,12 +36,16 @@ export async function POST(req: NextRequest) {
     return new NextResponse(xml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
   }
 
+  const phoneCallRow = callSid?.startsWith("CA") ? await findPhoneCallRowByTwilioCallSid(supabaseAdmin, callSid) : null;
+  const phoneCallId = phoneCallRow?.id ?? null;
+
   if (dialStatus === "completed") {
     console.log(
       JSON.stringify({
         tag: LOG_TAG,
         event: "patient_answered_bridged",
         call_sid: callSid,
+        phone_call_id: phoneCallId,
         patient_tail: payload.patient.replace(/\D/g, "").slice(-4),
         dial_call_status: dialStatus,
       })
@@ -53,6 +59,7 @@ export async function POST(req: NextRequest) {
       tag: LOG_TAG,
       event: "patient_dial_failed_or_no_answer",
       call_sid: callSid,
+      phone_call_id: phoneCallId,
       patient_tail: payload.patient.replace(/\D/g, "").slice(-4),
       dial_call_status: dialStatus || null,
     })

@@ -3,6 +3,8 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/admin";
 import { sendPdfSignLinkEmail } from "@/lib/email/send-pdf-sign-email";
 import { buildPdfSignRecipientUrl } from "@/lib/pdf-sign/app-url";
+import { deliverPdfSignLinkSms } from "@/lib/pdf-sign/deliver-sign-link-sms";
+import { pdfSignResendDeliveryStatusMessage } from "@/lib/pdf-sign/delivery-status-message";
 import { logSignatureEvent } from "@/lib/pdf-sign/log-event";
 import {
   pdfSignDefaultFromEmail,
@@ -13,15 +15,14 @@ import { getAuthenticatedUser } from "@/lib/supabase/server";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 
 type Body = {
+  /** @deprecated Prefer omitting channel to resend email and SMS together. */
   channel?: "email" | "sms";
   /**
    * When true, only mint a fresh signing link and return it — do not send email
    * or SMS. Use for "Copy signing link" so admins don't trigger accidental resends.
    */
   copyOnly?: boolean;
-  /** When true, mints a new signing token (and invalidates the old one). Default true for resends; ignored when copyOnly (always rotates). */
-  rotateToken?: boolean;
-  /** Optional custom phone number for the SMS resend (defaults to packet phone). */
+  /** Optional custom phone number for the SMS resend (defaults to packet / recipient phone). */
   phone?: string;
 };
 
@@ -45,7 +46,7 @@ export async function POST(
   } catch {
     /* allow empty body */
   }
-  const channel = body.channel === "sms" ? "sms" : "email";
+  const channel = body.channel;
   const copyOnly = body.copyOnly === true;
 
   const { data: packet, error } = await supabaseAdmin
@@ -71,7 +72,7 @@ export async function POST(
 
   const { data: recipient } = await supabaseAdmin
     .from("signature_recipients")
-    .select("id, token_expires_at")
+    .select("id, phone, token_expires_at")
     .eq("packet_id", packetId)
     .order("created_at", { ascending: true })
     .limit(1)
@@ -82,7 +83,6 @@ export async function POST(
   }
 
   const expiresAt = packet.expires_at || recipient.token_expires_at;
-  // Raw tokens are never stored; we always mint a new token when generating a link.
   const rawToken = createRawSignToken();
   const tokenHash = hashSignToken(rawToken);
   const { error: rotateErr } = await supabaseAdmin
@@ -102,6 +102,7 @@ export async function POST(
   if (copyOnly) {
     await logSignatureEvent({
       packetId,
+      recipientId: recipient.id,
       actor: "staff",
       actorStaffUserId: user.id,
       action: "signing_link_copied",
@@ -110,7 +111,13 @@ export async function POST(
     return NextResponse.json({ ok: true, signUrl: link });
   }
 
-  if (channel === "email") {
+  const sendEmail = channel !== "sms";
+  const sendSms = channel !== "email";
+  const phone = (body.phone?.trim() || packet.recipient_phone || recipient.phone || "").trim();
+
+  let emailSent = false;
+  let emailError: string | null = null;
+  if (sendEmail) {
     if (!packet.recipient_email) {
       return NextResponse.json({ error: "Packet has no recipient email." }, { status: 400 });
     }
@@ -121,72 +128,45 @@ export async function POST(
       documentLabel: docLabel,
       pdfSignReplyToEmail: pdfSignReply,
     });
+    emailSent = r.ok;
+    emailError = r.ok ? null : r.error;
     await logSignatureEvent({
       packetId,
+      recipientId: recipient.id,
       actor: "staff",
       actorStaffUserId: user.id,
       action: r.ok ? "email_resent" : "email_resend_failed",
-      metadata: { error: r.ok ? null : r.error },
+      metadata: { error: emailError },
     });
-    if (!r.ok) {
-      return NextResponse.json({
-        ok: true,
-        signUrl: link,
-        emailSent: false,
-        emailError: r.error,
-      });
-    }
-    return NextResponse.json({ ok: true, signUrl: link, emailSent: true });
   }
 
-  // SMS channel
-  const phone = (body.phone?.trim() || packet.recipient_phone || "").trim();
-  if (!phone) {
-    return NextResponse.json(
-      { error: "Phone number is required for SMS." },
-      { status: 400 }
-    );
-  }
-  let smsOk = false;
-  let smsErr: string | null = null;
-  try {
-    const r = await sendSignLinkSms({
-      to: phone,
+  let smsSent = false;
+  let smsError: string | null = null;
+  if (sendSms && phone) {
+    const sms = await deliverPdfSignLinkSms({
+      packetId,
+      recipientId: recipient.id,
+      phone,
       signUrl: link,
-      packetName: docLabel,
-      recipientName: packet.recipient_name,
     });
-    if (r.kind === "sent") smsOk = true;
-    else if (r.kind === "failed") smsErr = r.error;
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
-    console.warn("[pdf-sign] resend SMS unexpected error:", msg);
-    smsErr = msg;
+    smsSent = sms.smsSent;
+    smsError = sms.smsError;
   }
-  await supabaseAdmin
-    .from("signature_packets")
-    .update({
-      recipient_phone: phone,
-      sms_sent_at: smsOk ? new Date().toISOString() : null,
-      sms_error: smsErr,
-      sms_requested: true,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", packetId);
-  await logSignatureEvent({
-    packetId,
-    actor: "staff",
-    actorStaffUserId: user.id,
-    action: smsOk ? "sms_resent" : "sms_failed",
-    metadata: { error: smsOk ? null : smsErr, phone_last4: phone.slice(-4) },
+
+  const deliveryStatusMessage = pdfSignResendDeliveryStatusMessage({
+    emailSent,
+    hasPhone: Boolean(phone),
+    smsSent,
+    smsFailed: Boolean(phone && smsError),
   });
-  if (!smsOk) {
-    return NextResponse.json({
-      ok: true,
-      signUrl: link,
-      smsSent: false,
-      smsError: smsErr,
-    });
-  }
-  return NextResponse.json({ ok: true, signUrl: link, smsSent: true });
+
+  return NextResponse.json({
+    ok: true,
+    signUrl: link,
+    emailSent: sendEmail ? emailSent : undefined,
+    emailError: sendEmail ? emailError : undefined,
+    smsSent: sendSms && phone ? smsSent : undefined,
+    smsError: sendSms && phone ? smsError : undefined,
+    deliveryStatusMessage,
+  });
 }

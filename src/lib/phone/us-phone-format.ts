@@ -16,6 +16,30 @@ function formatNanpProgressive(d: string): string {
   return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
 }
 
+/** Up to 10 NANP digits for controlled inputs (drops a leading US 1). */
+function nanpDigitsForInput(value: string): string {
+  let digits = normalizePhone(value);
+  if (digits.length >= 11 && digits.startsWith("1")) {
+    digits = digits.slice(1);
+  }
+  return digits.slice(0, 10);
+}
+
+/**
+ * Format US phone for controlled inputs while typing or pasting.
+ * Accepts raw digits, dashed, parenthesized, or +1… values; caps at 10 national digits.
+ */
+export function formatUsPhoneInput(value: string): string {
+  const digits = nanpDigitsForInput(value);
+  if (digits.length === 0) return "";
+  return formatNanpProgressive(digits);
+}
+
+/** Digits-only NANP (10 digits) for API payloads; empty when no usable number. */
+export function normalizeUsPhoneForSend(value: string | null | undefined): string {
+  return nanpDigitsForInput(String(value ?? ""));
+}
+
 /**
  * Pretty-print for display and controlled inputs.
  * - 10-digit NANP → (XXX) XXX-XXXX
