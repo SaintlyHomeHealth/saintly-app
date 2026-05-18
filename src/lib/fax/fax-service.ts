@@ -58,6 +58,8 @@ export type FaxMessageRow = {
   resent_from_fax_message_id?: string | null;
   /** Outbound send created by forwarding an inbound fax document. */
   forwarded_from_fax_message_id?: string | null;
+  cover_sheet_template_id?: string | null;
+  packet_metadata?: Record<string, unknown> | null;
 };
 
 /** Same tokenization as {@link faxMatchesKeywordSearch} for list queries (AND across tokens). */

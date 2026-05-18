@@ -23,6 +23,7 @@ import { DeleteFaxButton } from "./_components/DeleteFaxButton";
 import { FaxNoteListCell } from "./_components/FaxNoteListCell";
 import { ForwardInboundFaxButton } from "./_components/ForwardInboundFaxButton";
 import { ResendFaxButton } from "./_components/ResendFaxButton";
+import { NewFaxPacketButton } from "./_components/NewFaxPacketButton";
 import { SendFaxButton } from "./_components/SendFaxButton";
 
 export const dynamic = "force-dynamic";
@@ -147,7 +148,11 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
         description="Inbound and outbound fax history with quick notes for every document."
         actions={
           <div className="flex flex-wrap gap-2">
+            <NewFaxPacketButton />
             <SendFaxButton />
+            <Link href="/admin/fax/templates" className={crmActionBtnSky}>
+              Cover templates
+            </Link>
             <Link href="/admin/fax?tab=inbox&unread=1" className={crmPrimaryCtaCls}>
               Review unread
             </Link>

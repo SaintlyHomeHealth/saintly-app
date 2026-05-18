@@ -9,6 +9,7 @@ import { supabaseAdmin } from "@/lib/admin";
 import { formatFaxSenderDisplay } from "@/lib/fax/format-fax-sender";
 import { formatFaxDateTimeDetail } from "@/lib/fax/format-fax-time";
 import { inboundFaxHasDocumentForForward } from "@/lib/fax/forward-inbound-fax";
+import type { FaxPacketMetadata } from "@/lib/fax/fax-cover-template-types";
 import { missingFaxSchema, signedFaxPdfUrl, type FaxMessageRow } from "@/lib/fax/fax-service";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import { getStaffProfile, isAdminOrHigher, isManagerOrHigher } from "@/lib/staff-profile";
@@ -56,6 +57,7 @@ export default async function AdminFaxDetailPage({
     .filter(Boolean)
     .join(" · ") || "Unknown";
   const originalReceivedDisplay = formatFaxDateTimeDetail(fax.received_at ?? fax.created_at);
+  const packetMeta = (fax.packet_metadata ?? null) as FaxPacketMetadata | null;
 
   return (
     <div className="space-y-6 p-6">
@@ -145,7 +147,47 @@ export default async function AdminFaxDetailPage({
           )}
         </section>
 
-        <aside>
+        <aside className="space-y-4">
+          {packetMeta ? (
+            <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+              <p className="text-sm font-bold text-slate-900">Fax packet</p>
+              <dl className="mt-3 space-y-2 text-sm text-slate-700">
+                {packetMeta.cover_sheet_template_name ? (
+                  <div>
+                    <dt className="text-[11px] font-semibold uppercase text-slate-500">Template</dt>
+                    <dd>{packetMeta.cover_sheet_template_name}</dd>
+                  </div>
+                ) : null}
+                {packetMeta.patient_name ? (
+                  <div>
+                    <dt className="text-[11px] font-semibold uppercase text-slate-500">Patient</dt>
+                    <dd>
+                      {packetMeta.patient_name}
+                      {packetMeta.patient_dob ? ` · DOB ${packetMeta.patient_dob}` : ""}
+                    </dd>
+                  </div>
+                ) : null}
+                {packetMeta.recipient_organization ? (
+                  <div>
+                    <dt className="text-[11px] font-semibold uppercase text-slate-500">Organization</dt>
+                    <dd>{packetMeta.recipient_organization}</dd>
+                  </div>
+                ) : null}
+                {packetMeta.recipient_phone ? (
+                  <div>
+                    <dt className="text-[11px] font-semibold uppercase text-slate-500">Recipient phone</dt>
+                    <dd>{packetMeta.recipient_phone}</dd>
+                  </div>
+                ) : null}
+                {packetMeta.message ? (
+                  <div>
+                    <dt className="text-[11px] font-semibold uppercase text-slate-500">Message</dt>
+                    <dd className="whitespace-pre-wrap">{packetMeta.message}</dd>
+                  </div>
+                ) : null}
+              </dl>
+            </section>
+          ) : null}
           <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
             <div className="flex items-start justify-between gap-3">
               <p className="text-sm font-bold text-slate-900">Fax note</p>

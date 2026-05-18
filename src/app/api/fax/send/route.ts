@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { supabaseAdmin } from "@/lib/admin";
+import type { FaxPacketMetadata } from "@/lib/fax/fax-cover-template-types";
 import { SAINTLY_EXISTING_FAX_NUMBER, type FaxCategory } from "@/lib/fax/fax-service";
 import {
   callTelnyxSendFax,
@@ -38,6 +39,10 @@ type SendFaxInput = {
   referral_source_id: string | null;
   category: FaxCategory;
   tags: string[];
+  cover_sheet_template_id: string | null;
+  packet_metadata: FaxPacketMetadata | null;
+  page_count: number | null;
+  note: string | null;
 };
 
 type OutboundFaxDebug = {
@@ -59,6 +64,36 @@ function textOrNull(value: unknown): string | null {
 function parseCategory(value: unknown): FaxCategory {
   const raw = textOrNull(value);
   return raw && VALID_CATEGORIES.has(raw as FaxCategory) ? (raw as FaxCategory) : "misc";
+}
+
+function parsePacketMetadata(value: unknown): FaxPacketMetadata | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const o = value as Record<string, unknown>;
+  const pick = (key: keyof FaxPacketMetadata) => {
+    const v = o[key];
+    return typeof v === "string" && v.trim() ? v.trim() : null;
+  };
+  const meta: FaxPacketMetadata = {
+    recipient_organization: pick("recipient_organization"),
+    recipient_phone: pick("recipient_phone"),
+    recipient_fax: pick("recipient_fax"),
+    patient_name: pick("patient_name"),
+    patient_dob: pick("patient_dob"),
+    message: pick("message"),
+    cover_sheet_template_id: pick("cover_sheet_template_id"),
+    cover_sheet_template_name: pick("cover_sheet_template_name"),
+  };
+  const hasValue = Object.values(meta).some(Boolean);
+  return hasValue ? meta : null;
+}
+
+function parsePageCount(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) return Math.round(value);
+  if (typeof value === "string") {
+    const n = Number.parseInt(value, 10);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return null;
 }
 
 function parseTags(value: unknown): string[] {
@@ -114,6 +149,20 @@ async function parseInput(req: NextRequest): Promise<SendFaxInput> {
       referral_source_id: textOrNull(formData.get("referral_source_id")),
       category: parseCategory(formData.get("category")),
       tags: parseTags(formData.get("tags")),
+      cover_sheet_template_id: textOrNull(formData.get("cover_sheet_template_id")),
+      packet_metadata: parsePacketMetadata(
+        (() => {
+          const raw = formData.get("packet_metadata");
+          if (typeof raw !== "string" || !raw.trim()) return null;
+          try {
+            return JSON.parse(raw) as unknown;
+          } catch {
+            return null;
+          }
+        })()
+      ),
+      page_count: parsePageCount(formData.get("page_count")),
+      note: textOrNull(formData.get("note")),
     };
   }
 
@@ -132,6 +181,10 @@ async function parseInput(req: NextRequest): Promise<SendFaxInput> {
     referral_source_id: textOrNull(json.referral_source_id),
     category: parseCategory(json.category),
     tags: parseTags(json.tags),
+    cover_sheet_template_id: textOrNull(json.cover_sheet_template_id),
+    packet_metadata: parsePacketMetadata(json.packet_metadata),
+    page_count: parsePageCount(json.page_count),
+    note: textOrNull(json.note),
   };
 }
 
@@ -182,23 +235,35 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: message }, { status: 500 });
   }
 
+  const tags = [...new Set([...input.tags, ...(input.cover_sheet_template_id ? ["fax_packet"] : [])])];
+
+  const insertPayload: Record<string, unknown> = {
+    direction: "outbound",
+    status: "queued",
+    from_number: fromNumber,
+    to_number: toNumber,
+    subject: input.subject,
+    recipient_name: input.recipient_name,
+    lead_id: input.lead_id,
+    patient_id: input.patient_id,
+    facility_id: input.facility_id,
+    referral_source_id: input.referral_source_id,
+    category: input.category,
+    tags,
+    note: input.note,
+    page_count: input.page_count,
+    assigned_to_user_id: staff.user_id,
+  };
+  if (input.cover_sheet_template_id) {
+    insertPayload.cover_sheet_template_id = input.cover_sheet_template_id;
+  }
+  if (input.packet_metadata) {
+    insertPayload.packet_metadata = input.packet_metadata;
+  }
+
   const { data: faxRow, error: insertError } = await supabaseAdmin
     .from("fax_messages")
-    .insert({
-      direction: "outbound",
-      status: "queued",
-      from_number: fromNumber,
-      to_number: toNumber,
-      subject: input.subject,
-      recipient_name: input.recipient_name,
-      lead_id: input.lead_id,
-      patient_id: input.patient_id,
-      facility_id: input.facility_id,
-      referral_source_id: input.referral_source_id,
-      category: input.category,
-      tags: input.tags,
-      assigned_to_user_id: staff.user_id,
-    })
+    .insert(insertPayload)
     .select("id")
     .single();
   if (insertError || !faxRow?.id) {
@@ -232,12 +297,18 @@ export async function POST(req: NextRequest) {
         media_url: resolved.mediaUrl,
         storage_path: resolved.storagePath,
         sent_at: new Date().toISOString(),
+        page_count: input.page_count ?? undefined,
       })
       .eq("id", faxRow.id);
     await supabaseAdmin.from("fax_events").insert({
       fax_message_id: faxRow.id,
       event_type: "outbound_send_requested",
-      payload: { telnyx_fax_id: telnyx.telnyxFaxId, created_by_user_id: staff.user_id },
+      payload: {
+        telnyx_fax_id: telnyx.telnyxFaxId,
+        created_by_user_id: staff.user_id,
+        cover_sheet_template_id: input.cover_sheet_template_id,
+        packet_metadata: input.packet_metadata,
+      },
     });
     return NextResponse.json({ ok: true, fax_id: faxRow.id, telnyx_fax_id: telnyx.telnyxFaxId });
   } catch (err) {
