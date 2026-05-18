@@ -1,5 +1,6 @@
 import type { StaffProfile } from "@/lib/staff-profile";
 import { hasFullCallVisibility, isPhoneWorkspaceUser } from "@/lib/staff-profile";
+import { shouldUsePstnBridgeOutbound } from "@/lib/phone/outbound-pstn-bridge-config";
 
 export type StaffPhoneDialContext = {
   /** Voice-capable E.164 from twilio_phone_numbers when assigned to this user */
@@ -50,6 +51,31 @@ export function sharedLineAllowsCallHistory(profile: StaffProfile): boolean {
   return profile.shared_line_permissions.call_history === true;
 }
 
+/**
+ * Outbound via Twilio REST → staff cell → patient (no browser/WebRTC for the outbound path).
+ * Does not require `softphone_web_enabled` so teams can turn off web softphone but keep CRM click-to-call.
+ */
+export function staffMayDialOutboundPstnBridge(profile: StaffProfile, ctx: StaffPhoneDialContext): boolean {
+  if (!staffHasTelephonyAccess(profile)) return false;
+  if (profile.phone_calling_profile === "inbound_disabled") return false;
+
+  if (hasFullCallVisibility(profile) && profile.phone_assignment_mode === "organization_default") {
+    return true;
+  }
+
+  if (staffUsesDedicatedAssignment(profile)) {
+    if (ctx.crmAssignedVoiceE164) return true;
+    const manual = profile.dedicated_outbound_e164?.trim();
+    if (manual) return true;
+  }
+
+  if (staffUsesSharedCompanyLine(profile)) {
+    return sharedLineAllowsOutbound(profile);
+  }
+
+  return false;
+}
+
 export function staffMayDialOutbound(profile: StaffProfile, ctx: StaffPhoneDialContext): boolean {
   if (!staffHasTelephonyAccess(profile)) return false;
   if (profile.softphone_web_enabled === false) return false;
@@ -95,6 +121,24 @@ export function staffMayRegisterTwilioSoftphone(profile: StaffProfile, ctx: Staf
   if (!staffHasTelephonyAccess(profile)) return false;
   if (profile.softphone_web_enabled === false) return false;
   return staffMayDialOutbound(profile, ctx) || staffMayReceiveVoiceCalls(profile, ctx);
+}
+
+/** Browser fetches token for identity / native bridge; includes PSTN-bridge-only staff when web softphone is off. */
+export function staffMayMintTwilioVoiceToken(profile: StaffProfile, ctx: StaffPhoneDialContext): boolean {
+  if (!staffHasTelephonyAccess(profile)) return false;
+  if (staffMayRegisterTwilioSoftphone(profile, ctx)) return true;
+  return shouldUsePstnBridgeOutbound() && staffMayDialOutboundPstnBridge(profile, ctx);
+}
+
+/**
+ * Skip `Twilio.Device.register` in the browser when web softphone is disabled but PSTN bridge outbound is allowed.
+ */
+export function shouldSkipBrowserTwilioDeviceRegistration(
+  profile: StaffProfile,
+  ctx: StaffPhoneDialContext
+): boolean {
+  if (profile.softphone_web_enabled !== false) return false;
+  return shouldUsePstnBridgeOutbound() && staffMayDialOutboundPstnBridge(profile, ctx);
 }
 
 export function staffMayAccessWorkspaceSms(profile: StaffProfile): boolean {

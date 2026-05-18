@@ -10,8 +10,9 @@ import {
 } from "@/lib/staff-profile";
 import { supabaseAdmin } from "@/lib/admin";
 import {
+  staffMayMintTwilioVoiceToken,
   staffMayReceiveVoiceCalls,
-  staffMayRegisterTwilioSoftphone,
+  shouldSkipBrowserTwilioDeviceRegistration,
 } from "@/lib/phone/staff-phone-policy";
 import { computeIdentityInInboundRingListForStaff } from "@/lib/softphone/inbound-staff-ids";
 import { isValidE164 } from "@/lib/softphone/phone-number";
@@ -22,10 +23,11 @@ const AccessToken = twilio.jwt.AccessToken;
 const VoiceGrant = AccessToken.VoiceGrant;
 
 /**
- * Short-lived JWT for Twilio Voice JS SDK (outbound from browser).
- * Configure a TwiML App in Twilio Console with Voice URL:
- * POST {TWILIO_PUBLIC_BASE_URL}/api/twilio/voice/softphone
- * Outbound PSTN caller ID is set only via `TWILIO_SOFTPHONE_CALLER_ID_E164` on that route (not `TWILIO_VOICE_RING_E164`).
+ * Short-lived JWT for Twilio Voice JS SDK (browser inbound/optional client outbound).
+ * TwiML App Voice URL: `POST {TWILIO_PUBLIC_BASE_URL}/api/twilio/voice/softphone`.
+ * When `TWILIO_OUTBOUND_CALL_STRATEGY=pstn_bridge` (and staff may dial), keypad outbound uses
+ * `POST /api/workspace/phone/outbound-pstn-bridge` instead of `Device.connect`.
+ * Response may include `skip_twilio_device_registration: true` when web softphone is off but PSTN bridge is allowed.
  */
 export async function GET(request: NextRequest) {
   console.warn(
@@ -64,10 +66,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  if (staff.softphone_web_enabled === false) {
-    return NextResponse.json({ error: "Web softphone is disabled for this staff member." }, { status: 403 });
-  }
-
   let crmAssignedVoiceE164: string | null = null;
   try {
     const assignedRow = await loadAssignedTwilioNumberForUser(supabaseAdmin, staff.user_id);
@@ -80,7 +78,7 @@ export async function GET(request: NextRequest) {
   }
 
   const dialCtx = { crmAssignedVoiceE164 };
-  if (!staffMayRegisterTwilioSoftphone(staff, dialCtx)) {
+  if (!staffMayMintTwilioVoiceToken(staff, dialCtx)) {
     return NextResponse.json(
       {
         error:
@@ -89,6 +87,8 @@ export async function GET(request: NextRequest) {
       { status: 403 }
     );
   }
+
+  const skipTwilioDeviceRegistration = shouldSkipBrowserTwilioDeviceRegistration(staff, dialCtx);
 
   const accountSid = process.env.TWILIO_ACCOUNT_SID?.trim();
   const apiKeySid = process.env.TWILIO_VOICE_API_KEY_SID?.trim();
@@ -157,5 +157,6 @@ export async function GET(request: NextRequest) {
     staff_user_id: staff.user_id,
     identity_in_inbound_ring_list: identityInInboundRingList,
     expiresInSeconds: 3600,
+    skip_twilio_device_registration: skipTwilioDeviceRegistration,
   });
 }

@@ -58,6 +58,12 @@ export type OutboundLineInfo = { e164: string; label: string; is_default: boolea
 /** Server flags from `/api/workspace/phone/softphone-capabilities` (no secrets). */
 export type SoftphoneServerCapabilities = {
   conference_outbound_enabled: boolean;
+  /** When true, outbound calls use REST → staff cell → press 1 → patient (no Twilio Client for that path). */
+  outbound_use_pstn_bridge?: boolean;
+  /** Echo of TWILIO_OUTBOUND_DISABLE_CLIENT (for UI / diagnostics). */
+  outbound_client_disabled?: boolean;
+  /** Server: staff may place an outbound call from the keypad (classic and/or PSTN bridge). */
+  keypad_outbound_allowed?: boolean;
   media_stream_wss_configured: boolean;
   transcription_callback_configured?: boolean;
   legacy_bridge_transcript_configured?: boolean;

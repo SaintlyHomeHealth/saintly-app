@@ -506,6 +506,9 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
           const blockRaw = j.outbound_block_available ?? j.outboundBlockAvailable;
           setSoftphoneCapabilities({
             conference_outbound_enabled: Boolean(j.conference_outbound_enabled),
+            outbound_use_pstn_bridge: Boolean(j.outbound_use_pstn_bridge),
+            outbound_client_disabled: Boolean(j.outbound_client_disabled),
+            keypad_outbound_allowed: Boolean(j.keypad_outbound_allowed),
             media_stream_wss_configured: Boolean(j.media_stream_wss_configured),
             transcription_callback_configured: Boolean(j.transcription_callback_configured),
             legacy_bridge_transcript_configured: Boolean(j.legacy_bridge_transcript_configured),
@@ -1634,8 +1637,21 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       void (async () => {
         try {
           const res = await fetch("/api/softphone/token", { method: "GET", credentials: "include" });
-          const body = (await res.json()) as { identity?: string; error?: string };
+          const body = (await res.json()) as {
+            identity?: string;
+            token?: string;
+            error?: string;
+            skip_twilio_device_registration?: boolean;
+          };
           if (cancelled) return;
+          if (res.ok && body.skip_twilio_device_registration && body.token) {
+            if (typeof body.identity === "string") {
+              setTokenIdentity(body.identity);
+            }
+            postSoftphoneTokenToNativeBridge(body.token, body.identity);
+            setListenState("ready");
+            return;
+          }
           if (res.ok && typeof body.identity === "string") {
             setTokenIdentity(body.identity);
           }
@@ -1662,11 +1678,18 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
           token?: string;
           identity?: string;
           error?: string;
+          skip_twilio_device_registration?: boolean;
         };
         if (tokenFetchStart) {
           routePerfLog("softphone:token-fetch", tokenFetchStart);
         }
         if (cancelled) return;
+        if (res.ok && body.skip_twilio_device_registration && body.token) {
+          setTokenIdentity(typeof body.identity === "string" ? body.identity : null);
+          postSoftphoneTokenToNativeBridge(body.token, body.identity);
+          setListenState("ready");
+          return;
+        }
         if (!res.ok || !body.token) {
           setListenState("error");
           setHint(body.error ?? "Softphone token unavailable.");
@@ -2107,6 +2130,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
           ok?: boolean;
           e164?: string;
           error?: string;
+          outbound_use_pstn_bridge?: boolean;
         };
         if (res.status === 400) {
           setStatus("idle");
@@ -2139,6 +2163,41 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
           return;
         }
         e164 = j.e164;
+
+        if (j.outbound_use_pstn_bridge === true) {
+          setStatus("connecting");
+          const bridgeBody: { to: string; outboundCli?: string } = { to: trimmed };
+          const cliSelBridge = outboundCliSelectionRef.current;
+          if (cliSelBridge?.kind === "block") {
+            bridgeBody.outboundCli = "block";
+          } else if (cliSelBridge?.kind === "line" && cliSelBridge.e164) {
+            bridgeBody.outboundCli = cliSelBridge.e164;
+          }
+          const bridgeRes = await fetch("/api/workspace/phone/outbound-pstn-bridge", {
+            method: "POST",
+            credentials: "include",
+            headers,
+            body: JSON.stringify(bridgeBody),
+          });
+          const bj = (await bridgeRes.json().catch(() => ({}))) as {
+            ok?: boolean;
+            message?: string;
+            error?: string;
+          };
+          setStatus("idle");
+          if (!bridgeRes.ok || !bj.ok) {
+            setHint(typeof bj.error === "string" && bj.error.trim() ? bj.error : OUTBOUND_CALL_FAILED_HINT);
+            setHintMeta(null);
+            return;
+          }
+          setHint(
+            typeof bj.message === "string" && bj.message.trim()
+              ? bj.message
+              : "Calling your phone. Answer and press 1 to connect to the patient."
+          );
+          setHintMeta(null);
+          return;
+        }
       } catch {
         setStatus("idle");
         setHint(OUTBOUND_CALL_FAILED_HINT);

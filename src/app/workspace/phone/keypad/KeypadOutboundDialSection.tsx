@@ -1,6 +1,7 @@
 import { KeypadDialerLazy } from "./KeypadDialerLazy";
 import { supabaseAdmin } from "@/lib/admin";
-import { staffMayDialOutbound } from "@/lib/phone/staff-phone-policy";
+import { shouldUsePstnBridgeOutbound } from "@/lib/phone/outbound-pstn-bridge-config";
+import { staffMayDialOutbound, staffMayDialOutboundPstnBridge } from "@/lib/phone/staff-phone-policy";
 import { isValidE164 } from "@/lib/softphone/phone-number";
 import { loadAssignedTwilioNumberForUser } from "@/lib/twilio/twilio-phone-number-repo";
 import type { StaffProfile } from "@/lib/staff-profile";
@@ -32,7 +33,9 @@ export async function KeypadOutboundDialSection({
   }
   const dialCtx = { crmAssignedVoiceE164 };
 
-  const outboundOk = staffMayDialOutbound(staff, dialCtx);
+  const outboundOk =
+    staffMayDialOutbound(staff, dialCtx) ||
+    (shouldUsePstnBridgeOutbound() && staffMayDialOutboundPstnBridge(staff, dialCtx));
 
   return (
     <>

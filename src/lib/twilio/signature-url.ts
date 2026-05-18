@@ -19,22 +19,23 @@ export function resolveTwilioWebhookBaseUrl(): string | null {
  * to any Twilio route; only its origin is reused with the current pathname.
  */
 export function getTwilioWebhookSignatureUrl(req: NextRequest): string {
+  const pathWithSearch = `${req.nextUrl.pathname}${req.nextUrl.search}`;
   const base = process.env.TWILIO_WEBHOOK_BASE_URL?.trim().replace(/\/$/, "");
   if (base) {
-    return `${base}${req.nextUrl.pathname}`;
+    return `${base}${pathWithSearch}`;
   }
 
   /** Must match `resolveTranscriptionStatusCallbackUrl` / `resolveTwilioWebhookBaseUrl` before falling back to legacy. */
   const publicBase = process.env.TWILIO_PUBLIC_BASE_URL?.trim().replace(/\/$/, "");
   if (publicBase) {
-    return `${publicBase}${req.nextUrl.pathname}`;
+    return `${publicBase}${pathWithSearch}`;
   }
 
   const legacyFull = process.env.TWILIO_WEBHOOK_SIGNATURE_URL?.trim();
   if (legacyFull) {
     try {
       const u = new URL(legacyFull);
-      return `${u.origin}${req.nextUrl.pathname}`;
+      return `${u.origin}${pathWithSearch}`;
     } catch {
       /* fall through */
     }
@@ -47,7 +48,7 @@ export function getTwilioWebhookSignatureUrl(req: NextRequest): string {
   const proto =
     (req.headers.get("x-forwarded-proto")?.split(",")[0]?.trim() || req.nextUrl.protocol.replace(":", "")) ||
     "https";
-  return `${proto}://${host}${req.nextUrl.pathname}`;
+  return `${proto}://${host}${pathWithSearch}`;
 }
 
 /**

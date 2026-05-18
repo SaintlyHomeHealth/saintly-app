@@ -183,7 +183,9 @@ export function SoftphoneDialer({
 
   useEffect(() => {
     if (!autoPlaceCall) return;
-    if (listenState !== "ready") return;
+    if (softphoneCapabilities === null) return;
+    const bridgeOutbound = softphoneCapabilities.outbound_use_pstn_bridge === true;
+    if (!bridgeOutbound && listenState !== "ready") return;
     if (status !== "idle" || incoming) return;
     const seed = sanitizeKeypadDialValue(initialDigits ?? "");
     if (!seed) return;
@@ -192,7 +194,7 @@ export function SoftphoneDialer({
     queueMicrotask(() => {
       void startCall(seed);
     });
-  }, [autoPlaceCall, initialDigits, listenState, status, incoming, startCall]);
+  }, [autoPlaceCall, initialDigits, listenState, status, incoming, startCall, softphoneCapabilities]);
 
   const [callerPickerOpen, setCallerPickerOpen] = useState(false);
   /** Keypad variant: inline expandable list (no full-screen modal). */

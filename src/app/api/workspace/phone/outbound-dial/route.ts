@@ -2,7 +2,11 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
 import { supabaseAdmin } from "@/lib/admin";
-import { staffMayRegisterTwilioSoftphone } from "@/lib/phone/staff-phone-policy";
+import { shouldUsePstnBridgeOutbound } from "@/lib/phone/outbound-pstn-bridge-config";
+import {
+  staffMayDialOutbound,
+  staffMayDialOutboundPstnBridge,
+} from "@/lib/phone/staff-phone-policy";
 import {
   parseWorkspaceOutboundDialInput,
   sanitizeWorkspaceDialInput,
@@ -39,14 +43,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
 
-  if (staff.softphone_web_enabled === false) {
-    console.warn("[workspace/phone/outbound-dial] deny_softphone_web_disabled", { userId: staff.user_id });
-    return NextResponse.json(
-      { ok: false, error: "Web softphone is disabled for this staff member." },
-      { status: 403 }
-    );
-  }
-
   let crmAssignedVoiceE164: string | null = null;
   try {
     const assignedRow = await loadAssignedTwilioNumberForUser(supabaseAdmin, staff.user_id);
@@ -59,8 +55,11 @@ export async function POST(req: NextRequest) {
   }
 
   const dialCtx = { crmAssignedVoiceE164 };
-  if (!staffMayRegisterTwilioSoftphone(staff, dialCtx)) {
-    console.warn("[workspace/phone/outbound-dial] deny_staff_may_not_register_softphone", {
+  const pstnBridgeOk = shouldUsePstnBridgeOutbound() && staffMayDialOutboundPstnBridge(staff, dialCtx);
+  const classicOk = staffMayDialOutbound(staff, dialCtx);
+
+  if (!classicOk && !pstnBridgeOk) {
+    console.warn("[workspace/phone/outbound-dial] deny_staff_may_not_dial", {
       userId: staff.user_id,
       phone_calling_profile: staff.phone_calling_profile,
     });
@@ -70,6 +69,14 @@ export async function POST(req: NextRequest) {
         error:
           "Phone calling is not enabled for this account (Staff Access → Phone permissions). Contact an administrator.",
       },
+      { status: 403 }
+    );
+  }
+
+  if (staff.softphone_web_enabled === false && !pstnBridgeOk) {
+    console.warn("[workspace/phone/outbound-dial] deny_softphone_web_disabled", { userId: staff.user_id });
+    return NextResponse.json(
+      { ok: false, error: "Web softphone is disabled for this staff member." },
       { status: 403 }
     );
   }
@@ -96,5 +103,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(INVALID_NUMBER_BODY, { status: 400 });
   }
 
-  return NextResponse.json({ ok: true as const, e164: parsed.e164 });
+  return NextResponse.json({
+    ok: true as const,
+    e164: parsed.e164,
+    outbound_use_pstn_bridge: shouldUsePstnBridgeOutbound(),
+  });
 }

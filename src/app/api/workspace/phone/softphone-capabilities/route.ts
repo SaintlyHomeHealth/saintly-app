@@ -6,9 +6,11 @@ import {
   loadSoftphoneOutboundCallerConfigFromEnv,
 } from "@/lib/softphone/outbound-caller-ids";
 import { isValidE164 } from "@/lib/softphone/phone-number";
+import { shouldUsePstnBridgeOutbound } from "@/lib/phone/outbound-pstn-bridge-config";
 import {
   sharedLineAllowsOutbound,
   staffMayDialOutbound,
+  staffMayDialOutboundPstnBridge,
   staffUsesDedicatedAssignment,
   staffUsesSharedCompanyLine,
 } from "@/lib/phone/staff-phone-policy";
@@ -131,7 +133,9 @@ export async function GET() {
     }
   }
 
-  const keypadOutboundAllowed = staffMayDialOutbound(staff, dialCtx);
+  const keypadOutboundAllowed =
+    staffMayDialOutbound(staff, dialCtx) ||
+    (shouldUsePstnBridgeOutbound() && staffMayDialOutboundPstnBridge(staff, dialCtx));
   if (!keypadOutboundAllowed) {
     lines = [];
     defaultE164 = null;
@@ -139,6 +143,10 @@ export async function GET() {
 
   return NextResponse.json({
     conference_outbound_enabled: process.env.TWILIO_SOFTPHONE_USE_CONFERENCE === "true",
+    outbound_use_pstn_bridge: shouldUsePstnBridgeOutbound(),
+    outbound_client_disabled:
+      process.env.TWILIO_OUTBOUND_DISABLE_CLIENT?.trim() === "1" ||
+      process.env.TWILIO_OUTBOUND_DISABLE_CLIENT?.trim().toLowerCase() === "true",
     media_stream_wss_configured: wss.startsWith("wss://"),
     transcription_callback_configured: Boolean(callbackUrl),
     legacy_bridge_transcript_configured: legacyBridge,
