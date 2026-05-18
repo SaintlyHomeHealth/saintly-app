@@ -5,6 +5,8 @@ import { loadAssignableLeadOwners } from "@/lib/crm/assignable-lead-owners";
 import { supabaseAdmin } from "@/lib/admin";
 import { getStaffProfile, isAdminOrHigher } from "@/lib/staff-profile";
 
+import { enrichTwilioPhoneNumberRowsWithVoiceWebhookStatus } from "@/lib/twilio/twilio-incoming-voice-webhook";
+
 import { TwilioPhoneNumbersAdminClient } from "./_components/TwilioPhoneNumbersAdminClient";
 
 export const dynamic = "force-dynamic";
@@ -72,11 +74,21 @@ export default async function AdminPhoneNumbersPage() {
   }));
   assignableStaff.sort((a, b) => a.label.localeCompare(b.label, "en-US", { sensitivity: "base" }));
 
+  const inventoryRows = (rows ?? []).map((r) => ({
+    ...r,
+    is_primary_company_number: r.is_primary_company_number === true,
+    is_company_backup_number: r.is_company_backup_number === true,
+    voice_enabled: r.voice_enabled !== false,
+    number_type: typeof r.number_type === "string" ? r.number_type : "staff_direct",
+    twilio_sid: typeof r.twilio_sid === "string" ? r.twilio_sid : "",
+  }));
+  const numbersWithVoiceStatus = await enrichTwilioPhoneNumberRowsWithVoiceWebhookStatus(inventoryRows);
+
   return (
     <div className="mx-auto max-w-6xl space-y-6 p-6">
       <AdminPageHeader title="Twilio phone numbers" subtitle="Assign staff-owned lines and manage company inventory." />
       <TwilioPhoneNumbersAdminClient
-        initialNumbers={(rows ?? []) as never}
+        initialNumbers={numbersWithVoiceStatus as never}
         assignableStaff={assignableStaff}
         transferFromStaff={transferFromStaff}
         transferToStaff={transferToStaff}

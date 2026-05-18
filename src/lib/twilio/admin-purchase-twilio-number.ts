@@ -4,6 +4,10 @@ import twilio from "twilio";
 
 import { supabaseAdmin } from "@/lib/admin";
 import { isValidE164, normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
+import {
+  ensureTwilioInboundRingVoiceWebhook,
+  resolveTwilioInboundRingVoiceWebhookUrl,
+} from "@/lib/twilio/twilio-incoming-voice-webhook";
 
 export type PurchaseTwilioNumberResult =
   | { ok: true; id: string | null; phoneNumber: string; twilioSid: string }
@@ -53,16 +57,17 @@ export async function purchaseTwilioNumberAndSaveToInventory(input: {
   const accountSid = process.env.TWILIO_ACCOUNT_SID?.trim();
   const authToken = process.env.TWILIO_AUTH_TOKEN?.trim();
   const site = process.env.NEXT_PUBLIC_SITE_URL?.trim()?.replace(/\/$/, "");
-  if (!accountSid || !authToken || !site) {
+  const voiceUrl = resolveTwilioInboundRingVoiceWebhookUrl();
+  if (!accountSid || !authToken || !site || !voiceUrl) {
     return {
       ok: false,
-      error: "Missing TWilio credentials or NEXT_PUBLIC_SITE_URL for webhook URLs.",
+      error:
+        "Missing Twilio credentials or webhook base URL (TWILIO_WEBHOOK_BASE_URL / NEXT_PUBLIC_SITE_URL).",
       status: 500,
     };
   }
 
   const smsUrl = `${site}/api/twilio/sms/inbound`;
-  const voiceUrl = `${site}/api/twilio/voice/inbound`;
   const numberType =
     typeof input.numberType === "string" && input.numberType.trim()
       ? input.numberType.trim().slice(0, 64)
@@ -74,6 +79,7 @@ export async function purchaseTwilioNumberAndSaveToInventory(input: {
       phoneNumber: normalized,
       smsUrl,
       voiceUrl,
+      voiceMethod: "POST",
     });
 
     const sid = typeof created.sid === "string" ? created.sid.trim() : "";
@@ -83,6 +89,11 @@ export async function purchaseTwilioNumberAndSaveToInventory(input: {
         : normalized;
     if (!sid) {
       return { ok: false, error: "Twilio did not return a phone number SID.", status: 502 };
+    }
+
+    const voiceHook = await ensureTwilioInboundRingVoiceWebhook({ twilioSid: sid });
+    if (!voiceHook.ok) {
+      console.warn("[twilio-purchase] voice webhook:", voiceHook.error);
     }
 
     const { data: inserted, error: insErr } = await supabaseAdmin

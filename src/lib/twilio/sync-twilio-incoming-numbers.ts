@@ -8,9 +8,22 @@ import {
   isSaintlyBackupSmsE164,
   isSaintlyPrimarySmsE164,
 } from "@/lib/twilio/sms-from-numbers";
+import {
+  ensureTwilioInboundRingVoiceWebhook,
+  repairTwilioInboundRingVoiceWebhooksForInventory,
+  twilioPhoneNumberRowRequiresInboundRingVoiceWebhook,
+} from "@/lib/twilio/twilio-incoming-voice-webhook";
 
 export type SyncTwilioIncomingNumbersResult =
-  | { ok: true; scanned: number; inserted: number; updated: number }
+  | {
+      ok: true;
+      scanned: number;
+      inserted: number;
+      updated: number;
+      voiceWebhooksChecked: number;
+      voiceWebhooksRepaired: number;
+      voiceWebhookErrors: string[];
+    }
   | { ok: false; error: string };
 
 function classifySyncedRow(e164: string): {
@@ -88,6 +101,19 @@ export async function syncTwilioIncomingPhoneNumbersIntoDb(): Promise<SyncTwilio
         : null;
 
     const classified = classifySyncedRow(e164);
+
+    if (
+      twilioPhoneNumberRowRequiresInboundRingVoiceWebhook({
+        number_type: classified.number_type,
+        is_primary_company_number: classified.is_primary_company_number,
+        is_company_backup_number: classified.is_company_backup_number,
+      })
+    ) {
+      const voiceHook = await ensureTwilioInboundRingVoiceWebhook({ twilioSid: sid });
+      if (!voiceHook.ok) {
+        console.warn("[twilio-sync] voice webhook:", voiceHook.error, { sid, e164 });
+      }
+    }
 
     const { data: existing, error: selErr } = await supabaseAdmin
       .from("twilio_phone_numbers")
@@ -176,5 +202,44 @@ export async function syncTwilioIncomingPhoneNumbersIntoDb(): Promise<SyncTwilio
     }
   }
 
-  return { ok: true, scanned, inserted, updated };
+  const { data: inventoryRows, error: invErr } = await supabaseAdmin
+    .from("twilio_phone_numbers")
+    .select(
+      "id, twilio_sid, voice_enabled, number_type, is_primary_company_number, is_company_backup_number, status"
+    )
+    .neq("status", "retired");
+
+  if (invErr) {
+    console.warn("[twilio-sync] inventory for voice repair:", invErr.message);
+    return {
+      ok: true,
+      scanned,
+      inserted,
+      updated,
+      voiceWebhooksChecked: 0,
+      voiceWebhooksRepaired: 0,
+      voiceWebhookErrors: [],
+    };
+  }
+
+  const voiceRepair = await repairTwilioInboundRingVoiceWebhooksForInventory(
+    (inventoryRows ?? []).map((r) => ({
+      id: String(r.id),
+      twilio_sid: typeof r.twilio_sid === "string" ? r.twilio_sid : "",
+      voice_enabled: r.voice_enabled !== false,
+      number_type: typeof r.number_type === "string" ? r.number_type : "staff_direct",
+      is_primary_company_number: r.is_primary_company_number === true,
+      is_company_backup_number: r.is_company_backup_number === true,
+    }))
+  );
+
+  return {
+    ok: true,
+    scanned,
+    inserted,
+    updated,
+    voiceWebhooksChecked: voiceRepair.checked,
+    voiceWebhooksRepaired: voiceRepair.repaired,
+    voiceWebhookErrors: voiceRepair.errors,
+  };
 }

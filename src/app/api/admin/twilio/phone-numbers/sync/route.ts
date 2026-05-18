@@ -19,5 +19,8 @@ export async function POST() {
     scanned: result.scanned,
     inserted: result.inserted,
     updated: result.updated,
+    voiceWebhooksChecked: result.voiceWebhooksChecked,
+    voiceWebhooksRepaired: result.voiceWebhooksRepaired,
+    voiceWebhookErrors: result.voiceWebhookErrors,
   });
 }

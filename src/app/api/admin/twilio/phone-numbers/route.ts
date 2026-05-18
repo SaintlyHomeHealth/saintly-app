@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { requireAdminApiSession } from "@/lib/admin/require-admin-api";
 import { supabaseAdmin } from "@/lib/admin";
+import { enrichTwilioPhoneNumberRowsWithVoiceWebhookStatus } from "@/lib/twilio/twilio-incoming-voice-webhook";
 
 export async function GET() {
   const gate = await requireAdminApiSession();
@@ -43,7 +44,18 @@ export async function GET() {
     }
   }
 
-  const enriched = (rows ?? []).map((r) => {
+  const withVoice = await enrichTwilioPhoneNumberRowsWithVoiceWebhookStatus(
+    (rows ?? []).map((r) => ({
+      ...r,
+      is_primary_company_number: r.is_primary_company_number === true,
+      is_company_backup_number: r.is_company_backup_number === true,
+      voice_enabled: r.voice_enabled !== false,
+      number_type: typeof r.number_type === "string" ? r.number_type : "staff_direct",
+      twilio_sid: typeof r.twilio_sid === "string" ? r.twilio_sid : "",
+    }))
+  );
+
+  const enriched = withVoice.map((r) => {
     const spid =
       r.assigned_staff_profile_id != null && String(r.assigned_staff_profile_id).trim() !== ""
         ? String(r.assigned_staff_profile_id)

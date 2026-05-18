@@ -30,7 +30,30 @@ export type TwilioNumberRow = {
   is_company_backup_number?: boolean;
   sms_enabled: boolean;
   voice_enabled: boolean;
+  twilio_voice_url?: string | null;
+  twilio_voice_method?: string | null;
+  twilio_voice_webhook_issue?: string;
+  twilio_voice_webhook_ok?: boolean;
+  expected_voice_webhook_url?: string | null;
 };
+
+function voiceWebhookWarningMessage(row: TwilioNumberRow): string | null {
+  if (!row.voice_enabled || row.twilio_voice_webhook_ok !== false) return null;
+  const issue = row.twilio_voice_webhook_issue ?? "wrong";
+  const actual = (row.twilio_voice_url ?? "").trim();
+  if (issue === "missing") {
+    return "Twilio Voice webhook is not set. Inbound calls will not reach Saintly.";
+  }
+  if (issue === "demo") {
+    return "Twilio Voice webhook still points at demo.twilio.com. Inbound calls will not reach staff.";
+  }
+  if (issue === "expected_url_unset") {
+    return "Saintly cannot resolve the production inbound-ring URL (check TWILIO_WEBHOOK_BASE_URL).";
+  }
+  return actual
+    ? `Twilio Voice webhook is ${actual} — expected ${row.expected_voice_webhook_url ?? "inbound-ring"}.`
+    : "Twilio Voice webhook does not match Saintly inbound-ring.";
+}
 
 function isCompanySharedInventoryRow(row: TwilioNumberRow): boolean {
   return (
@@ -275,14 +298,21 @@ export function TwilioPhoneNumbersAdminClient(props: {
         scanned?: number;
         inserted?: number;
         updated?: number;
+        voiceWebhooksChecked?: number;
+        voiceWebhooksRepaired?: number;
+        voiceWebhookErrors?: string[];
       };
       if (!res.ok || !j.ok) {
         alert(j.error ?? "Sync failed");
         return;
       }
-      alert(
-        `Twilio sync complete: scanned ${j.scanned ?? 0}, inserted ${j.inserted ?? 0}, updated ${j.updated ?? 0}.`
-      );
+      const voiceRepaired = j.voiceWebhooksRepaired ?? 0;
+      const voiceErrors = Array.isArray(j.voiceWebhookErrors) ? j.voiceWebhookErrors : [];
+      let msg = `Twilio sync complete: scanned ${j.scanned ?? 0}, inserted ${j.inserted ?? 0}, updated ${j.updated ?? 0}. Voice webhooks checked ${j.voiceWebhooksChecked ?? 0}, repaired ${voiceRepaired}.`;
+      if (voiceErrors.length > 0) {
+        msg += `\n\nVoice webhook errors:\n${voiceErrors.slice(0, 5).join("\n")}`;
+      }
+      alert(msg);
       await refresh();
     } finally {
       setSyncBusy(false);
@@ -452,9 +482,10 @@ export function TwilioPhoneNumbersAdminClient(props: {
       <div className="rounded-lg border border-blue-200 bg-blue-50/50 p-4 shadow-sm">
         <h2 className="text-lg font-semibold text-neutral-900">Import existing Twilio numbers</h2>
         <p className="mt-1 text-sm text-neutral-700">
-          Pulls Incoming Phone Numbers from your Twilio account into this inventory (no purchase). Numbers{" "}
-          <span className="font-mono">+14803600008</span> and <span className="font-mono">+14805712062</span> are
-          tagged as company/shared lines when present.
+          Pulls Incoming Phone Numbers from your Twilio account into this inventory (no purchase) and repairs Voice
+          webhooks to <span className="font-mono text-xs">POST /api/twilio/voice/inbound-ring</span> for staff and
+          company lines. Numbers <span className="font-mono">+14803600008</span> and{" "}
+          <span className="font-mono">+14805712062</span> are tagged as company/shared lines when present.
         </p>
         <button
           type="button"
@@ -680,7 +711,8 @@ export function TwilioPhoneNumbersAdminClient(props: {
       <form onSubmit={onBuy} className="rounded-lg border border-neutral-200 bg-white p-4 shadow-sm">
         <h2 className="text-lg font-semibold text-neutral-900">Buy number (Twilio)</h2>
         <p className="mt-1 text-sm text-neutral-600">
-          Requires TWilio credentials and NEXT_PUBLIC_SITE_URL. Webhooks: SMS and voice point at Saintly inbound routes.
+          Requires Twilio credentials and webhook base URL. Voice is set to{" "}
+          <span className="font-mono text-xs">POST /api/twilio/voice/inbound-ring</span> (SMS unchanged).
         </p>
         <div className="mt-4 flex flex-wrap gap-3">
           <input
@@ -716,6 +748,7 @@ export function TwilioPhoneNumbersAdminClient(props: {
               <th className="px-3 py-2 text-left font-medium text-neutral-700">Status</th>
               <th className="px-3 py-2 text-left font-medium text-neutral-700">SMS</th>
               <th className="px-3 py-2 text-left font-medium text-neutral-700">Voice</th>
+              <th className="px-3 py-2 text-left font-medium text-neutral-700">Twilio Voice</th>
               <th className="px-3 py-2 text-left font-medium text-neutral-700">Actions</th>
             </tr>
           </thead>
@@ -751,6 +784,22 @@ export function TwilioPhoneNumbersAdminClient(props: {
                 <td className="px-3 py-2">{row.status}</td>
                 <td className="px-3 py-2">{row.sms_enabled ? "Yes" : "No"}</td>
                 <td className="px-3 py-2">{row.voice_enabled ? "Yes" : "No"}</td>
+                <td className="px-3 py-2 text-xs">
+                  {row.voice_enabled ? (
+                    row.twilio_voice_webhook_ok === false ? (
+                      <span
+                        className="inline-block max-w-[220px] rounded border border-amber-300 bg-amber-50 px-2 py-1 text-amber-950"
+                        title={voiceWebhookWarningMessage(row) ?? undefined}
+                      >
+                        Misconfigured
+                      </span>
+                    ) : (
+                      <span className="text-emerald-800">OK</span>
+                    )
+                  ) : (
+                    <span className="text-neutral-400">—</span>
+                  )}
+                </td>
                 <td className="px-3 py-2">
                   <div className="flex flex-col gap-2">
                     <select

@@ -3,6 +3,10 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { normalizeDialInputToE164, isValidE164 } from "@/lib/softphone/phone-number";
+import {
+  ensureTwilioInboundRingVoiceWebhook,
+  twilioPhoneNumberRowRequiresInboundRingVoiceWebhook,
+} from "@/lib/twilio/twilio-incoming-voice-webhook";
 
 export type TwilioPhoneNumberRow = {
   id: string;
@@ -136,7 +140,7 @@ export async function assignTwilioPhoneNumberToStaffUser (
   const { data: row, error: loadErr } = await supabase
     .from("twilio_phone_numbers")
     .select(
-      "id, phone_number, status, assigned_user_id, assigned_staff_profile_id, number_type, is_primary_company_number, is_company_backup_number"
+      "id, phone_number, twilio_sid, status, assigned_user_id, assigned_staff_profile_id, number_type, is_primary_company_number, is_company_backup_number, voice_enabled"
     )
     .eq("id", phoneNumberId)
     .maybeSingle();
@@ -230,6 +234,27 @@ export async function assignTwilioPhoneNumberToStaffUser (
   if (upErr) {
     console.warn("[twilio-phone-numbers] assign update:", upErr.message);
     return { ok: false, error: upErr.message, status: 500 };
+  }
+
+  const twilioSid = typeof row.twilio_sid === "string" ? row.twilio_sid.trim() : "";
+  if (
+    twilioSid &&
+    row.voice_enabled !== false &&
+    twilioPhoneNumberRowRequiresInboundRingVoiceWebhook({
+      number_type: nt,
+      is_primary_company_number: row.is_primary_company_number === true,
+      is_company_backup_number: row.is_company_backup_number === true,
+    })
+  ) {
+    const voiceHook = await ensureTwilioInboundRingVoiceWebhook({ twilioSid });
+    if (!voiceHook.ok) {
+      console.warn("[twilio-phone-numbers] assign voice webhook:", voiceHook.error);
+      return {
+        ok: false,
+        error: `Assigned in Saintly but Twilio Voice webhook could not be updated: ${voiceHook.error}`,
+        status: 502,
+      };
+    }
   }
 
   const phone_number =

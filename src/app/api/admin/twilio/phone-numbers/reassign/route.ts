@@ -3,6 +3,10 @@ import { NextResponse } from "next/server";
 import { requireAdminApiSession } from "@/lib/admin/require-admin-api";
 import { supabaseAdmin } from "@/lib/admin";
 import { logTwilioNumberAssignment } from "@/lib/twilio/twilio-phone-number-repo";
+import {
+  ensureTwilioInboundRingVoiceWebhook,
+  twilioPhoneNumberRowRequiresInboundRingVoiceWebhook,
+} from "@/lib/twilio/twilio-incoming-voice-webhook";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -27,7 +31,9 @@ export async function POST(req: Request) {
 
   const { data: row, error: loadErr } = await supabaseAdmin
     .from("twilio_phone_numbers")
-    .select("id, status, assigned_user_id")
+    .select(
+      "id, status, assigned_user_id, twilio_sid, voice_enabled, number_type, is_primary_company_number, is_company_backup_number"
+    )
     .eq("id", phoneNumberId)
     .maybeSingle();
 
@@ -95,6 +101,28 @@ export async function POST(req: Request) {
   if (upErr) {
     console.warn("[api/admin/twilio/phone-numbers/reassign]:", upErr.message);
     return NextResponse.json({ error: upErr.message }, { status: 500 });
+  }
+
+  const twilioSid = typeof row.twilio_sid === "string" ? row.twilio_sid.trim() : "";
+  if (
+    twilioSid &&
+    row.voice_enabled !== false &&
+    twilioPhoneNumberRowRequiresInboundRingVoiceWebhook({
+      number_type: row.number_type,
+      is_primary_company_number: row.is_primary_company_number === true,
+      is_company_backup_number: row.is_company_backup_number === true,
+    })
+  ) {
+    const voiceHook = await ensureTwilioInboundRingVoiceWebhook({ twilioSid });
+    if (!voiceHook.ok) {
+      console.warn("[api/admin/twilio/phone-numbers/reassign] voice webhook:", voiceHook.error);
+      return NextResponse.json(
+        {
+          error: `Reassigned in Saintly but Twilio Voice webhook could not be updated: ${voiceHook.error}`,
+        },
+        { status: 502 }
+      );
+    }
   }
 
   return NextResponse.json({ ok: true });
