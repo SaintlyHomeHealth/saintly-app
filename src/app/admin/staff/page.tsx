@@ -65,6 +65,7 @@ function roleLabel(role: StaffRole): string {
   if (role === "admin") return "Admin";
   if (role === "manager") return "Manager";
   if (role === "nurse") return "Nurse";
+  if (role === "staff") return "Staff";
   if (role === "don") return "DON";
   if (role === "recruiter") return "Recruiter";
   if (role === "billing") return "Billing";
@@ -327,6 +328,7 @@ export default async function AdminStaffPage({
                 >
                   <option value="admin">Admin</option>
                   <option value="manager">Manager</option>
+                  <option value="staff">Staff</option>
                   <option value="don">DON</option>
                   <option value="nurse">Nurse</option>
                   <option value="recruiter">Recruiter</option>
@@ -588,6 +590,7 @@ export default async function AdminStaffPage({
                               >
                                 <option value="admin">Admin</option>
                                 <option value="manager">Manager</option>
+                                <option value="staff">Staff</option>
                                 <option value="don">DON</option>
                                 <option value="nurse">Nurse</option>
                                 <option value="recruiter">Recruiter</option>

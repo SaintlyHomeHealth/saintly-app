@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { supabaseAdmin } from "@/lib/admin";
 import { normalizeTwilioRecordingMediaUrl } from "@/lib/phone/twilio-recording-media";
-import { canStaffAccessPhoneCallRow } from "@/lib/phone/staff-call-access";
+import { canStaffAccessPhoneCallRowAsync } from "@/lib/phone/staff-call-access";
+import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { canAccessWorkspacePhone, getStaffProfile } from "@/lib/staff-profile";
 
 const SID_RE = /^RE[0-9a-f]{32}$/i;
@@ -35,7 +36,9 @@ export async function GET(req: NextRequest, props: { params: Promise<{ callId: s
 
   const { data: row, error } = await supabaseAdmin
     .from("phone_calls")
-    .select("id, assigned_to_user_id, voicemail_recording_sid, voicemail_recording_url")
+    .select(
+      "id, assigned_to_user_id, owner_user_id, from_e164, to_e164, twilio_phone_number_id, voicemail_recording_sid, voicemail_recording_url"
+    )
     .eq("id", id)
     .maybeSingle();
 
@@ -43,10 +46,16 @@ export async function GET(req: NextRequest, props: { params: Promise<{ callId: s
     return new NextResponse("Not found", { status: 404 });
   }
 
+  const supabase = await createServerSupabaseClient();
   if (
-    !canStaffAccessPhoneCallRow(staff, {
+    !(await canStaffAccessPhoneCallRowAsync(supabase, staff, {
       assigned_to_user_id: typeof row.assigned_to_user_id === "string" ? row.assigned_to_user_id : null,
-    })
+      owner_user_id: typeof row.owner_user_id === "string" ? row.owner_user_id : null,
+      from_e164: typeof row.from_e164 === "string" ? row.from_e164 : null,
+      to_e164: typeof row.to_e164 === "string" ? row.to_e164 : null,
+      twilio_phone_number_id:
+        typeof row.twilio_phone_number_id === "string" ? row.twilio_phone_number_id : null,
+    }))
   ) {
     return new NextResponse("Not found", { status: 404 });
   }

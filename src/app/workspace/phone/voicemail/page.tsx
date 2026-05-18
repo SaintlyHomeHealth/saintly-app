@@ -11,8 +11,17 @@ import {
   resolvePhoneDisplayIdentityBatch,
 } from "@/lib/phone/resolve-phone-display-identity";
 import { voicemailTranscriptionUiFromMeta, voiceAiShortSummaryFromMeta } from "@/lib/phone/voicemail-display";
+import {
+  buildPhoneCallsAssignedScopeOrFilter,
+  loadStaffAssignedPhoneScope,
+} from "@/lib/phone/staff-assigned-phone-scope";
 import { staffMayAccessWorkspaceVoicemail } from "@/lib/phone/staff-phone-policy";
-import { canAccessWorkspacePhone, getStaffProfile, hasFullCallVisibility } from "@/lib/staff-profile";
+import {
+  canAccessWorkspacePhone,
+  getStaffProfile,
+  hasFullCallVisibility,
+  isAssignedPhoneScopedStaff,
+} from "@/lib/staff-profile";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 type ContactEmbed = { full_name?: unknown; first_name?: unknown; last_name?: unknown };
@@ -88,6 +97,22 @@ export default async function WorkspaceVoicemailPage(props: PageProps) {
       .limit(60);
     rows = (res.data ?? []) as VmCall[];
     error = res.error;
+  } else if (isAssignedPhoneScopedStaff(staff)) {
+    const scope = await loadStaffAssignedPhoneScope(supabase, staff.user_id);
+    const scopeOr = buildPhoneCallsAssignedScopeOrFilter(scope);
+    if (scopeOr) {
+      const res = await supabase
+        .from("phone_calls")
+        .select(
+          "id, created_at, started_at, direction, status, from_e164, to_e164, voicemail_duration_seconds, duration_seconds, contact_id, metadata, contacts ( full_name, first_name, last_name )"
+        )
+        .not("voicemail_recording_sid", "is", null)
+        .or(scopeOr)
+        .order("started_at", { ascending: false, nullsFirst: false })
+        .limit(60);
+      rows = (res.data ?? []) as VmCall[];
+      error = res.error;
+    }
   } else {
     const { data: assignedPatients, error: asnErr } = await supabase
       .from("patient_assignments")

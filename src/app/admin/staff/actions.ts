@@ -1277,7 +1277,7 @@ export async function updateStaffAccessToggles(formData: FormData) {
     .maybeSingle();
 
   let adminShell = cur?.admin_shell_access !== false;
-  if (cur?.role === "nurse") {
+  if (cur?.role === "nurse" || cur?.role === "staff") {
     adminShell = formData.has("adminShellAccess");
   }
 

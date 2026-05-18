@@ -8,7 +8,7 @@ import {
 import { countUnreadInboundByConversationIds } from "@/lib/phone/sms-inbound-unread";
 import { routePerfStepsEnabled, routePerfTimed } from "@/lib/perf/route-perf";
 import type { StaffProfile } from "@/lib/staff-profile";
-import { hasFullCallVisibility } from "@/lib/staff-profile";
+import { hasFullCallVisibility, isAssignedPhoneScopedStaff } from "@/lib/staff-profile";
 
 /**
  * Whether the staff member has at least one unread inbound SMS in their workspace inbox scope
@@ -19,6 +19,8 @@ export async function workspaceInboxHasUnreadInbound(
   supabase: SupabaseClient
 ): Promise<boolean> {
   const hasFull = hasFullCallVisibility(staff);
+  const restrictOwnerUserId =
+    hasFull || isAssignedPhoneScopedStaff(staff) ? undefined : staff.user_id;
   const q = supabase
     .from("conversations")
     .select("id")
@@ -50,11 +52,11 @@ export async function workspaceInboxHasUnreadInbound(
   const unreadByConvId = routePerfStepsEnabled()
     ? await routePerfTimed("workspace_inbox_unread.counts", () =>
         countUnreadInboundByConversationIds(supabase, ids, {
-          restrictOwnerUserId: hasFull ? undefined : staff.user_id,
+          restrictOwnerUserId,
         })
       )
     : await countUnreadInboundByConversationIds(supabase, ids, {
-        restrictOwnerUserId: hasFull ? undefined : staff.user_id,
+        restrictOwnerUserId,
       });
   return Object.values(unreadByConvId).some((n) => (n ?? 0) > 0);
 }

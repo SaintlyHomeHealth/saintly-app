@@ -14,7 +14,12 @@ import {
   staffUsesDedicatedAssignment,
   staffUsesSharedCompanyLine,
 } from "@/lib/phone/staff-phone-policy";
-import { canAccessWorkspacePhone, getStaffProfile, hasFullCallVisibility } from "@/lib/staff-profile";
+import {
+  canAccessWorkspacePhone,
+  getStaffProfile,
+  hasFullCallVisibility,
+  isAssignedPhoneScopedStaff,
+} from "@/lib/staff-profile";
 import { loadAssignedTwilioNumberForUser } from "@/lib/twilio/twilio-phone-number-repo";
 import { resolveTwilioMediaStreamWssUrl } from "@/lib/twilio/resolve-media-stream-wss-url";
 import { resolveTranscriptionStatusCallbackUrl } from "@/lib/twilio/resolve-transcription-callback-url";
@@ -63,7 +68,12 @@ export async function GET() {
   let lines: OutboundLinePayload[] = [];
   let defaultE164: string | null = null;
 
-  if (full && mode === "organization_default") {
+  if (isAssignedPhoneScopedStaff(staff)) {
+    if (assignedVoiceE164) {
+      lines = [{ e164: assignedVoiceE164, label: assignedVoiceLabel, is_default: true }];
+      defaultE164 = assignedVoiceE164;
+    }
+  } else if (full && mode === "organization_default") {
     if (outboundCfg) {
       lines = outboundCfg.lines.map((l) => ({
         e164: l.e164,

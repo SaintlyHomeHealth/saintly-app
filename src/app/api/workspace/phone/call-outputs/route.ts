@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 
 import { supabaseAdmin } from "@/lib/admin";
 import { findPhoneCallRowByTwilioCallSid } from "@/lib/phone/phone-call-lookup-by-call-sid";
-import { canStaffAccessPhoneCallRow } from "@/lib/phone/staff-call-access";
+import { staffCanAccessPhoneCallId } from "@/lib/phone/staff-call-access";
 import { getStaffProfile, isPhoneWorkspaceUser } from "@/lib/staff-profile";
+import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -19,18 +20,14 @@ export type CallOutputRow = {
   updated_at: string;
 };
 
-async function loadCallAssignment(phoneCallId: string): Promise<string | null | undefined> {
+async function loadCallAssignment(phoneCallId: string): Promise<boolean> {
   const { data: callRow, error } = await supabaseAdmin
     .from("phone_calls")
-    .select("id, assigned_to_user_id")
+    .select("id")
     .eq("id", phoneCallId)
     .maybeSingle();
 
-  if (error || !callRow?.id) {
-    return undefined;
-  }
-
-  return typeof callRow.assigned_to_user_id === "string" ? callRow.assigned_to_user_id : null;
+  return !error && Boolean(callRow?.id);
 }
 
 /**
@@ -53,12 +50,14 @@ export async function GET(req: Request) {
 
   let phoneCallId: string;
 
+  const userSupabase = await createServerSupabaseClient();
+
   if (callId && UUID_RE.test(callId)) {
-    const assigned = await loadCallAssignment(callId);
-    if (assigned === undefined) {
+    const exists = await loadCallAssignment(callId);
+    if (!exists) {
       return NextResponse.json({ error: "Call not found" }, { status: 404 });
     }
-    if (!canStaffAccessPhoneCallRow(staff, { assigned_to_user_id: assigned })) {
+    if (!(await staffCanAccessPhoneCallId(userSupabase, staff, supabaseAdmin, callId))) {
       return NextResponse.json({ error: "Call not found" }, { status: 404 });
     }
     phoneCallId = callId;
@@ -67,11 +66,11 @@ export async function GET(req: Request) {
     if (!row) {
       return NextResponse.json({ error: "Call not found" }, { status: 404 });
     }
-    const assigned = await loadCallAssignment(row.id);
-    if (assigned === undefined) {
+    const exists = await loadCallAssignment(row.id);
+    if (!exists) {
       return NextResponse.json({ error: "Call not found" }, { status: 404 });
     }
-    if (!canStaffAccessPhoneCallRow(staff, { assigned_to_user_id: assigned })) {
+    if (!(await staffCanAccessPhoneCallId(userSupabase, staff, supabaseAdmin, row.id))) {
       return NextResponse.json({ error: "Call not found" }, { status: 404 });
     }
     phoneCallId = row.id;
@@ -131,22 +130,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "content too large" }, { status: 400 });
   }
 
-  const { data: callRow, error: callErr } = await supabaseAdmin
-    .from("phone_calls")
-    .select("id, assigned_to_user_id")
-    .eq("id", phoneCallId)
-    .maybeSingle();
-
-  if (callErr || !callRow?.id) {
-    return NextResponse.json({ error: "Call not found" }, { status: 404 });
-  }
-
-  if (
-    !canStaffAccessPhoneCallRow(staff, {
-      assigned_to_user_id:
-        typeof callRow.assigned_to_user_id === "string" ? callRow.assigned_to_user_id : null,
-    })
-  ) {
+  const userSupabase = await createServerSupabaseClient();
+  if (!(await staffCanAccessPhoneCallId(userSupabase, staff, supabaseAdmin, phoneCallId))) {
     return NextResponse.json({ error: "Call not found" }, { status: 404 });
   }
 

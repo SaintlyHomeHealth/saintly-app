@@ -62,6 +62,7 @@ export const STAFF_PAGE_LABELS: Record<StaffPageKey, string> = {
 };
 
 export const STAFF_PAGE_PRESETS = [
+  "staff",
   "nurse",
   "admin",
   "manager",
@@ -72,6 +73,19 @@ export const STAFF_PAGE_PRESETS = [
   "read_only",
   "custom",
 ] as const;
+
+export const STAFF_PAGE_PRESET_LABELS: Record<StaffPagePreset, string> = {
+  staff: "Staff (manual workspace phone only)",
+  nurse: "Nurse",
+  admin: "Admin",
+  manager: "Manager",
+  recruiter: "Recruiter",
+  billing: "Billing",
+  dispatch: "Dispatch",
+  credentialing: "Credentialing",
+  read_only: "Read-only",
+  custom: "Custom",
+};
 
 export type StaffPagePreset = (typeof STAFF_PAGE_PRESETS)[number];
 
@@ -105,6 +119,11 @@ function allWorkspacePhoneTrue(): Record<StaffPageKey, boolean> {
 /** Default nurse: phone workspace only (no admin modules) unless toggles grant admin shell. */
 function presetNurse(): Record<StaffPageKey, boolean> {
   return allWorkspacePhoneTrue();
+}
+
+/** Limited staff: all modules off until an admin checks each permission manually. */
+function presetStaff(): Record<StaffPageKey, boolean> {
+  return allFalse();
 }
 
 /** Full admin nav + full workspace (managers often switch). */
@@ -161,6 +180,8 @@ function presetCredentialing(): Record<StaffPageKey, boolean> {
 
 export function defaultPagesForPreset(preset: StaffPagePreset): Record<StaffPageKey, boolean> {
   switch (preset) {
+    case "staff":
+      return presetStaff();
     case "nurse":
       return presetNurse();
     case "read_only":
@@ -185,6 +206,8 @@ export function defaultPagesForPreset(preset: StaffPagePreset): Record<StaffPage
 
 export function roleFallbackPreset(role: StaffRole): StaffPagePreset {
   switch (role) {
+    case "staff":
+      return "staff";
     case "nurse":
       return "nurse";
     case "read_only":
@@ -240,8 +263,11 @@ export function resolveEffectivePageAccess(staff: StaffForPageAccess): Record<St
     if (k in overrides) merged[k] = overrides[k]!;
   }
 
-  // Nurses without admin shell: hard-off all /admin modules (workspace tiles still apply).
-  if (staff.role === "nurse" && staff.admin_shell_access !== true) {
+  // Nurses/staff without admin shell: hard-off all /admin modules (workspace tiles still apply).
+  if (
+    (staff.role === "nurse" || staff.role === "staff") &&
+    staff.admin_shell_access !== true
+  ) {
     merged.command_center = false;
     merged.contacts = false;
     merged.leads = false;
@@ -255,7 +281,30 @@ export function resolveEffectivePageAccess(staff: StaffForPageAccess): Record<St
     merged.dispatch = false;
     merged.employees = false;
     merged.payroll = false;
+    merged.billing = false;
     merged.staff_access = false;
+  }
+
+  // Staff role never gets org-wide admin modules by default (even with admin shell).
+  if (staff.role === "staff") {
+    merged.command_center = false;
+    merged.contacts = false;
+    merged.leads = false;
+    merged.recruiting = false;
+    merged.facilities = false;
+    merged.fax_center = false;
+    merged.pdf_sign = false;
+    merged.patients = false;
+    merged.credentialing = false;
+    merged.call_log = false;
+    merged.dispatch = false;
+    merged.employees = false;
+    merged.payroll = false;
+    merged.billing = false;
+    merged.staff_access = false;
+    merged.workspace_leads = false;
+    merged.workspace_visits = false;
+    merged.workspace_patients = false;
   }
 
   if (isSuperAdmin({ role: staff.role } as StaffProfile)) {
@@ -350,10 +399,16 @@ export function fallbackPathAfterKeypadDenied(access: Record<StaffPageKey, boole
 }
 
 export function userCanReachAdminBackend(staff: StaffForPageAccess, access: Record<StaffPageKey, boolean>): boolean {
-  if (!isManagerOrHigher({ role: staff.role } as StaffProfile) && staff.role !== "nurse") {
+  if (
+    !isManagerOrHigher({ role: staff.role } as StaffProfile) &&
+    staff.role !== "nurse" &&
+    staff.role !== "staff"
+  ) {
     return true;
   }
-  if (staff.role === "nurse" && staff.admin_shell_access !== true) return false;
+  if ((staff.role === "nurse" || staff.role === "staff") && staff.admin_shell_access !== true) {
+    return false;
+  }
   return STAFF_PAGE_KEYS.some((k) => {
     if (k.startsWith("workspace_")) return false;
     return access[k] === true;

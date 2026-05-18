@@ -28,6 +28,7 @@ type Props = {
 const ROLE_OPTIONS: { value: StaffRole; label: string }[] = [
   { value: "admin", label: "Admin" },
   { value: "manager", label: "Manager" },
+  { value: "staff", label: "Staff" },
   { value: "don", label: "DON" },
   { value: "nurse", label: "Nurse" },
   { value: "recruiter", label: "Recruiter" },

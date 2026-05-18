@@ -10,7 +10,8 @@ import {
 import { fetchOpenAiJsonObject } from "@/lib/phone/phone-call-ai-context";
 import { findPhoneCallRowByTwilioCallSid } from "@/lib/phone/phone-call-lookup-by-call-sid";
 import { buildTranscriptPlainTextFromPhoneMetadata } from "@/lib/phone/post-call-transcript-text";
-import { canStaffAccessPhoneCallRow } from "@/lib/phone/staff-call-access";
+import { staffCanAccessPhoneCallId } from "@/lib/phone/staff-call-access";
+import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getStaffProfile, isPhoneWorkspaceUser } from "@/lib/staff-profile";
 
 const TYPES = new Set<string>(["soap", "summary", "intake"]);
@@ -44,19 +45,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Call not found" }, { status: 404 });
   }
 
-  const { data: accessRow } = await supabaseAdmin
-    .from("phone_calls")
-    .select("assigned_to_user_id")
-    .eq("id", row.id)
-    .maybeSingle();
-
-  if (
-    !accessRow ||
-    !canStaffAccessPhoneCallRow(staff, {
-      assigned_to_user_id:
-        typeof accessRow.assigned_to_user_id === "string" ? accessRow.assigned_to_user_id : null,
-    })
-  ) {
+  const userSupabase = await createServerSupabaseClient();
+  if (!(await staffCanAccessPhoneCallId(userSupabase, staff, supabaseAdmin, row.id))) {
     return NextResponse.json({ error: "Call not found" }, { status: 404 });
   }
 

@@ -1,5 +1,9 @@
 import type { StaffProfile } from "@/lib/staff-profile";
-import { hasFullCallVisibility, isPhoneWorkspaceUser } from "@/lib/staff-profile";
+import {
+  hasFullCallVisibility,
+  isAssignedPhoneScopedStaff,
+  isPhoneWorkspaceUser,
+} from "@/lib/staff-profile";
 import { shouldUsePstnBridgeOutbound } from "@/lib/phone/outbound-pstn-bridge-config";
 
 export type StaffPhoneDialContext = {
@@ -59,6 +63,10 @@ export function staffMayDialOutboundPstnBridge(profile: StaffProfile, ctx: Staff
   if (!staffHasTelephonyAccess(profile)) return false;
   if (profile.phone_calling_profile === "inbound_disabled") return false;
 
+  if (isAssignedPhoneScopedStaff(profile)) {
+    return Boolean(ctx.crmAssignedVoiceE164);
+  }
+
   if (hasFullCallVisibility(profile) && profile.phone_assignment_mode === "organization_default") {
     return true;
   }
@@ -81,6 +89,10 @@ export function staffMayDialOutbound(profile: StaffProfile, ctx: StaffPhoneDialC
   if (profile.softphone_web_enabled === false) return false;
   if (profile.phone_calling_profile === "inbound_disabled") return false;
 
+  if (isAssignedPhoneScopedStaff(profile)) {
+    return Boolean(ctx.crmAssignedVoiceE164);
+  }
+
   if (hasFullCallVisibility(profile) && profile.phone_assignment_mode === "organization_default") {
     return true;
   }
@@ -101,6 +113,10 @@ export function staffMayDialOutbound(profile: StaffProfile, ctx: StaffPhoneDialC
 export function staffMayReceiveVoiceCalls(profile: StaffProfile, ctx: StaffPhoneDialContext): boolean {
   if (!staffHasTelephonyAccess(profile)) return false;
   if (profile.phone_calling_profile !== "inbound_outbound") return false;
+
+  if (isAssignedPhoneScopedStaff(profile)) {
+    return Boolean(ctx.crmAssignedVoiceE164);
+  }
 
   if (hasFullCallVisibility(profile) && profile.phone_assignment_mode === "organization_default") {
     return true;
@@ -145,6 +161,13 @@ export function staffMayAccessWorkspaceSms(profile: StaffProfile): boolean {
   if (!staffHasTelephonyAccess(profile)) return false;
   if (profile.sms_messaging_enabled === false) return false;
 
+  if (isAssignedPhoneScopedStaff(profile)) {
+    return (
+      profile.phone_assignment_mode === "dedicated" ||
+      profile.phone_assignment_mode === "dedicated_and_shared"
+    );
+  }
+
   if (hasFullCallVisibility(profile) && profile.phone_assignment_mode === "organization_default") {
     return true;
   }
@@ -164,6 +187,13 @@ export function staffMayAccessWorkspaceVoicemail(profile: StaffProfile): boolean
   if (!staffHasTelephonyAccess(profile)) return false;
   if (profile.voicemail_access_enabled === false) return false;
 
+  if (isAssignedPhoneScopedStaff(profile)) {
+    return (
+      profile.phone_assignment_mode === "dedicated" ||
+      profile.phone_assignment_mode === "dedicated_and_shared"
+    );
+  }
+
   if (hasFullCallVisibility(profile) && profile.phone_assignment_mode === "organization_default") {
     return true;
   }
@@ -181,6 +211,13 @@ export function staffMayAccessWorkspaceVoicemail(profile: StaffProfile): boolean
 
 export function staffMayAccessWorkspaceCallHistory(profile: StaffProfile): boolean {
   if (!staffHasTelephonyAccess(profile)) return false;
+
+  if (isAssignedPhoneScopedStaff(profile)) {
+    return (
+      profile.phone_assignment_mode === "dedicated" ||
+      profile.phone_assignment_mode === "dedicated_and_shared"
+    );
+  }
 
   if (hasFullCallVisibility(profile) && profile.phone_assignment_mode === "organization_default") {
     return true;

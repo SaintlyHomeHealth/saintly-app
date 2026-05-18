@@ -2,7 +2,8 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
 import { supabaseAdmin } from "@/lib/admin";
-import { canStaffAccessPhoneCallRow } from "@/lib/phone/staff-call-access";
+import { staffCanAccessPhoneCallId } from "@/lib/phone/staff-call-access";
+import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { findPhoneCallRowByTwilioCallSid } from "@/lib/phone/phone-call-lookup-by-call-sid";
 import { canAccessWorkspacePhone, resolveStaffProfileForWorkspacePhoneApi } from "@/lib/staff-profile";
 
@@ -48,23 +49,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "Call not found" }, { status: 404 });
   }
 
-  const { data: gateRow, error: gateErr } = await supabaseAdmin
-    .from("phone_calls")
-    .select("assigned_to_user_id")
-    .eq("id", row.id)
-    .maybeSingle();
-
-  if (gateErr || !gateRow) {
-    console.warn("[call-quality-report] gate lookup:", gateErr?.message);
-    return NextResponse.json({ ok: false, error: "Call not found" }, { status: 404 });
-  }
-
-  if (
-    !canStaffAccessPhoneCallRow(staff, {
-      assigned_to_user_id:
-        typeof gateRow.assigned_to_user_id === "string" ? gateRow.assigned_to_user_id : null,
-    })
-  ) {
+  const userSupabase = await createServerSupabaseClient();
+  if (!(await staffCanAccessPhoneCallId(userSupabase, staff, supabaseAdmin, row.id))) {
     return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
   }
 

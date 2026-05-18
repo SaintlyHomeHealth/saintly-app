@@ -2,7 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 
-import { canStaffAccessPhoneCallRow } from "@/lib/phone/staff-call-access";
+import { staffCanAccessPhoneCallId } from "@/lib/phone/staff-call-access";
+import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { staffMayAccessWorkspaceCallHistory } from "@/lib/phone/staff-phone-policy";
 import { supabaseAdmin } from "@/lib/admin";
 import { canAccessWorkspacePhone, getStaffProfile } from "@/lib/staff-profile";
@@ -32,7 +33,9 @@ export async function markWorkspaceMissedCallResolved(
 
   const { data: row, error: loadErr } = await supabaseAdmin
     .from("phone_calls")
-    .select("id, status, assigned_to_user_id, workspace_missed_followup_resolved_at")
+    .select(
+      "id, status, assigned_to_user_id, owner_user_id, from_e164, to_e164, twilio_phone_number_id, workspace_missed_followup_resolved_at"
+    )
     .eq("id", id)
     .maybeSingle();
 
@@ -48,7 +51,8 @@ export async function markWorkspaceMissedCallResolved(
     return { ok: true };
   }
 
-  if (!canStaffAccessPhoneCallRow(staff, { assigned_to_user_id: row.assigned_to_user_id as string | null })) {
+  const userSupabase = await createServerSupabaseClient();
+  if (!(await staffCanAccessPhoneCallId(userSupabase, staff, supabaseAdmin, id))) {
     return { ok: false, error: "forbidden" };
   }
 

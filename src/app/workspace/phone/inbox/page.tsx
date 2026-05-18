@@ -41,6 +41,7 @@ import {
   canAccessWorkspacePhone,
   getStaffProfile,
   hasFullCallVisibility,
+  isAssignedPhoneScopedStaff,
 } from "@/lib/staff-profile";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
@@ -158,6 +159,8 @@ export default async function WorkspaceInboxPage(props: PageProps) {
   const selectedThreadValid = INBOX_UUID_RE.test(threadRaw);
 
   const hasFull = hasFullCallVisibility(staff);
+  const restrictOwnerUserId =
+    hasFull || isAssignedPhoneScopedStaff(staff) ? undefined : staff.user_id;
   const supabase = await createServerSupabaseClient();
 
   if (selectedThreadValid) {
@@ -251,11 +254,11 @@ export default async function WorkspaceInboxPage(props: PageProps) {
     routePerfStepsEnabled()
       ? routePerfTimed("unread_counts", () =>
           countUnreadInboundByConversationIds(supabase, ids, {
-            restrictOwnerUserId: hasFull ? undefined : staff.user_id,
+            restrictOwnerUserId,
           })
         )
       : countUnreadInboundByConversationIds(supabase, ids, {
-          restrictOwnerUserId: hasFull ? undefined : staff.user_id,
+          restrictOwnerUserId,
         }),
     ids.length === 0
       ? Promise.resolve({

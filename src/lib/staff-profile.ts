@@ -8,6 +8,7 @@ export type StaffRole =
   | "admin"
   | "manager"
   | "nurse"
+  | "staff"
   | "don"
   | "recruiter"
   | "billing"
@@ -58,6 +59,7 @@ export type StaffProfile = {
 const ROLE_RANK: Record<StaffRole, number> = {
   read_only: 0,
   nurse: 0,
+  staff: 0,
   recruiter: 1,
   billing: 1,
   dispatch: 1,
@@ -118,12 +120,18 @@ function staffMayUsePhoneWorkspaceRole(role: StaffRole): boolean {
     role === "admin" ||
     role === "manager" ||
     role === "nurse" ||
+    role === "staff" ||
     role === "don" ||
     role === "recruiter" ||
     role === "billing" ||
     role === "dispatch" ||
     role === "credentialing"
   );
+}
+
+/** Limited field staff: workspace phone only on assigned Twilio numbers (no org-wide phone data). */
+export function isAssignedPhoneScopedStaff(profile: StaffProfile | null | undefined): boolean {
+  return profile?.role === "staff";
 }
 
 /** Phone workspace: active staff who may use workspace softphone shell / Twilio workspace routes. */
@@ -143,10 +151,12 @@ export function canAccessWorkspaceShell(profile: StaffProfile | null | undefined
   return isStaffRole(profile.role);
 }
 
-/** See full org call list (not nurse-scoped). */
+/** See full org call list (not nurse/staff-scoped). */
 export function hasFullCallVisibility(profile: StaffProfile | null | undefined): boolean {
   if (!profile) return false;
-  if (profile.role === "read_only" || profile.role === "nurse") return false;
+  if (profile.role === "read_only" || profile.role === "nurse" || profile.role === "staff") {
+    return false;
+  }
   return ROLE_RANK[profile.role] >= ROLE_RANK.manager;
 }
 
@@ -216,6 +226,7 @@ export function isStaffRole(value: string): value is StaffRole {
     value === "admin" ||
     value === "manager" ||
     value === "nurse" ||
+    value === "staff" ||
     value === "don" ||
     value === "recruiter" ||
     value === "billing" ||

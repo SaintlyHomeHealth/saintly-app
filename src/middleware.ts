@@ -55,6 +55,7 @@ async function resolveStaffGate(
     "admin",
     "manager",
     "nurse",
+    "staff",
     "don",
     "recruiter",
     "billing",

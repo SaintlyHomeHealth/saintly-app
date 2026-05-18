@@ -2,7 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 
-import { canStaffAccessPhoneCallRow } from "@/lib/phone/staff-call-access";
+import { staffCanAccessPhoneCallId } from "@/lib/phone/staff-call-access";
+import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { mergeTelemetryOnSend } from "@/lib/phone/sms-suggestion-telemetry";
 import { softDeleteSmsConversation, softDeleteSmsMessage } from "@/lib/phone/sms-soft-delete";
 import { LEAD_ACTIVITY_EVENT } from "@/lib/crm/lead-activity-types";
@@ -118,22 +119,8 @@ export async function softDeleteWorkspaceVoicemailListItem(
     return { ok: false, error: "not_found" };
   }
 
-  const assignedTo =
-    callRow.assigned_to_user_id != null && String(callRow.assigned_to_user_id).trim() !== ""
-      ? String(callRow.assigned_to_user_id)
-      : null;
-
-  const ownerUid =
-    callRow.owner_user_id != null && String(callRow.owner_user_id).trim() !== ""
-      ? String(callRow.owner_user_id)
-      : null;
-
-  if (
-    !canStaffAccessPhoneCallRow(staff, {
-      assigned_to_user_id: assignedTo,
-      owner_user_id: ownerUid,
-    })
-  ) {
+  const userSupabase = await createServerSupabaseClient();
+  if (!(await staffCanAccessPhoneCallId(userSupabase, staff, supabaseAdmin, id))) {
     return { ok: false, error: "forbidden" };
   }
 

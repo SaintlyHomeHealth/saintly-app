@@ -12,6 +12,7 @@ import {
   roleFallbackPreset,
   STAFF_PAGE_KEYS,
   STAFF_PAGE_LABELS,
+  STAFF_PAGE_PRESET_LABELS,
   STAFF_PAGE_PRESETS,
 } from "@/lib/staff-page-access";
 import { formatPhoneNumber } from "@/lib/phone/us-phone-format";
@@ -51,6 +52,7 @@ function roleLabel(role: StaffRole): string {
     admin: "Admin",
     manager: "Manager",
     nurse: "Nurse",
+    staff: "Staff",
     don: "DON",
     recruiter: "Recruiter",
     billing: "Billing",
@@ -573,7 +575,7 @@ export default async function StaffAccessDetailPage({
             />
             Require password change on next login
           </label>
-          {profile.role === "nurse" ? (
+          {profile.role === "nurse" || profile.role === "staff" ? (
             <label className="mt-2 flex items-center gap-2 text-sm text-slate-800">
               <input
                 type="checkbox"
@@ -581,7 +583,7 @@ export default async function StaffAccessDetailPage({
                 defaultChecked={profile.admin_shell_access}
                 className="rounded border-slate-300"
               />
-              Allow Admin (backend) navigation for this nurse
+              Allow Admin (backend) navigation for this {profile.role === "staff" ? "staff member" : "nurse"}
             </label>
           ) : null}
           <button
@@ -609,7 +611,7 @@ export default async function StaffAccessDetailPage({
             >
               {STAFF_PAGE_PRESETS.map((p) => (
                 <option key={p} value={p}>
-                  {p}
+                  {STAFF_PAGE_PRESET_LABELS[p]}
                 </option>
               ))}
             </select>
