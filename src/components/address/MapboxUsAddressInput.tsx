@@ -27,6 +27,8 @@ export function MapboxUsAddressInput(props: {
   required?: boolean;
   className: string;
   defaultValue?: string;
+  value?: string;
+  onValueChange?: (address: string) => void;
   labelClassName?: string;
   helperClassName?: string;
 }) {
@@ -35,6 +37,8 @@ export function MapboxUsAddressInput(props: {
     required = false,
     className,
     defaultValue = "",
+    value: controlledValue,
+    onValueChange,
     labelClassName = "sm:col-span-2 flex flex-col text-xs font-medium text-slate-600",
     helperClassName = "mt-1 text-[10px] font-normal text-slate-500",
   } = props;
@@ -45,7 +49,9 @@ export function MapboxUsAddressInput(props: {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
-  const [value, setValue] = useState(defaultValue);
+  const [internalValue, setInternalValue] = useState(controlledValue ?? defaultValue);
+  const value = controlledValue ?? internalValue;
+  const setValue = onValueChange ?? setInternalValue;
   const [structured, setStructured] = useState({
     address_line_1: "",
     city: "",
@@ -118,7 +124,8 @@ export function MapboxUsAddressInput(props: {
   }, []);
 
   function applySuggestion(s: Suggestion) {
-    setValue(formatFullAddress(s));
+    const formatted = formatFullAddress(s);
+    setValue(formatted);
     setStructured({
       address_line_1: s.address_line_1,
       city: s.city,

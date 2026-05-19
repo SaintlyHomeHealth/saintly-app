@@ -4,11 +4,27 @@ type Props = {
   name?: string;
   /** Selected discipline codes */
   defaultSelected?: string[] | null;
+  selected?: string[] | null;
+  onSelectedChange?: (codes: string[]) => void;
   className?: string;
 };
 
-export function ServiceDisciplineCheckboxes({ name = "service_disciplines", defaultSelected, className }: Props) {
-  const selected = new Set((defaultSelected ?? []).map((s) => s.trim()).filter(Boolean));
+export function ServiceDisciplineCheckboxes({
+  name = "service_disciplines",
+  defaultSelected,
+  selected: controlledSelected,
+  onSelectedChange,
+  className,
+}: Props) {
+  const selected = new Set((controlledSelected ?? defaultSelected ?? []).map((s) => s.trim()).filter(Boolean));
+
+  function toggle(code: string, checked: boolean) {
+    if (!onSelectedChange) return;
+    const next = new Set(selected);
+    if (checked) next.add(code);
+    else next.delete(code);
+    onSelectedChange([...next]);
+  }
 
   return (
     <div className={className ?? "flex flex-wrap gap-3"}>
@@ -18,7 +34,9 @@ export function ServiceDisciplineCheckboxes({ name = "service_disciplines", defa
             type="checkbox"
             name={name}
             value={code}
-            defaultChecked={selected.has(code)}
+            defaultChecked={onSelectedChange ? undefined : selected.has(code)}
+            checked={onSelectedChange ? selected.has(code) : undefined}
+            onChange={(e) => toggle(code, e.target.checked)}
             className="rounded border-slate-300 text-sky-600 focus:ring-sky-500"
           />
           {disciplineLabel(code)}

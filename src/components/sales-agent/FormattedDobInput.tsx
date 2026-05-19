@@ -8,13 +8,19 @@ export function FormattedDobInput({
   required,
   className,
   id,
+  value: controlledDisplay,
+  onValueChange,
 }: {
   name: string;
   required?: boolean;
   className?: string;
   id?: string;
+  value?: string;
+  onValueChange?: (display: string) => void;
 }) {
-  const [display, setDisplay] = useState("");
+  const [internalDisplay, setInternalDisplay] = useState(controlledDisplay ?? "");
+  const display = controlledDisplay ?? internalDisplay;
+  const setDisplay = onValueChange ?? setInternalDisplay;
 
   const isoValue = parseDobDisplayToIso(display);
 

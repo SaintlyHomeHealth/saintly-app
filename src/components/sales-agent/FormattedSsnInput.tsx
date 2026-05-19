@@ -9,6 +9,8 @@ type Props = {
   required?: boolean;
   className?: string;
   defaultValue?: string;
+  value?: string;
+  onValueChange?: (display: string) => void;
 };
 
 export function FormattedSsnInput({
@@ -16,13 +18,21 @@ export function FormattedSsnInput({
   required,
   className,
   defaultValue = "",
+  value: controlledDisplay,
+  onValueChange,
 }: Props) {
-  const initial = formatSsnDisplay(defaultValue.replace(/\D/g, ""));
-  const [display, setDisplay] = useState(initial);
+  const initial = formatSsnDisplay((controlledDisplay ?? defaultValue).replace(/\D/g, ""));
+  const [internalDisplay, setInternalDisplay] = useState(initial);
+  const display = controlledDisplay ?? internalDisplay;
 
-  const onChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    setDisplay(formatSsnDisplay(e.target.value));
-  }, []);
+  const onChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const next = formatSsnDisplay(e.target.value);
+      if (onValueChange) onValueChange(next);
+      else setInternalDisplay(next);
+    },
+    [onValueChange]
+  );
 
   return (
     <>

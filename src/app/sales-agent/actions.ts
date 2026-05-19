@@ -27,6 +27,10 @@ import {
   salesAgentLeadDetailPath,
 } from "@/lib/sales-agent/sales-agent-workspace-paths";
 import {
+  parseSalesAgentDobIso,
+  validateSalesAgentCreateLeadFormData,
+} from "@/lib/sales-agent/sales-agent-create-lead-validation";
+import {
   findSalesAgentDuplicateLeads,
   type SalesAgentDuplicateHit,
 } from "@/lib/sales-agent/sales-agent-lead-duplicate-check";
@@ -43,13 +47,14 @@ function readCheckbox(formData: FormData, key: string): boolean {
   return v === "on" || v === "true" || v === "1";
 }
 
-function parseDobIso(raw: string): string | null {
-  const t = raw.trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return t;
-  const m = t.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
-  if (!m) return null;
-  return `${m[3]}-${m[1]}-${m[2]}`;
-}
+export type CreateSalesAgentLeadResult =
+  | { success: true; leadId: string }
+  | {
+      success: false;
+      code: string;
+      field?: string;
+      duplicates?: SalesAgentDuplicateHit[];
+    };
 
 function mapInsuranceTypeToStructured(type: string): string | null {
   const t = type.trim().toLowerCase();
@@ -167,7 +172,7 @@ export async function checkSalesAgentLeadDuplicates(formData: FormData): Promise
   const primary_phone = normalizePhone(phoneRaw);
   if (!primary_phone) return [];
 
-  const dob = parseDobIso(readTrimmed(formData, "date_of_birth"));
+  const dob = parseSalesAgentDobIso(readTrimmed(formData, "date_of_birth"));
   const medicare_number = readTrimmed(formData, "medicare_number") || null;
   const patientName = readTrimmed(formData, "patient_name") || null;
 
@@ -179,31 +184,28 @@ export async function checkSalesAgentLeadDuplicates(formData: FormData): Promise
   });
 }
 
-export async function createSalesAgentLead(formData: FormData) {
+export async function createSalesAgentLead(formData: FormData): Promise<CreateSalesAgentLeadResult> {
   const staff = await requireSalesAgent();
+
+  const validation = validateSalesAgentCreateLeadFormData(formData);
+  if (!validation.ok) {
+    return { success: false, code: validation.code, field: validation.field };
+  }
 
   const patientName = readTrimmed(formData, "patient_name");
   const phoneRaw = readTrimmed(formData, "phone_number");
-  const addressRaw = readTrimmed(formData, "address");
-  const dobRaw = readTrimmed(formData, "date_of_birth");
   const insuranceTypeRaw = readTrimmed(formData, "insurance_type");
   const insuranceNameRaw = readTrimmed(formData, "insurance_name");
-  const consent = readCheckbox(formData, "consent_to_contact");
   const confirmDuplicate = readCheckbox(formData, "confirm_duplicate");
 
-  if (!patientName) redirect(`${SALES_AGENT_ORDERS_NEW}?error=validation_name`);
-  if (!addressRaw) redirect(`${SALES_AGENT_ORDERS_NEW}?error=validation_address`);
-  if (!phoneRaw) redirect(`${SALES_AGENT_ORDERS_NEW}?error=validation_phone`);
-  if (!consent) redirect(`${SALES_AGENT_ORDERS_NEW}?error=validation_consent`);
-
   const primary_phone = normalizePhone(phoneRaw);
-  if (!primary_phone) redirect(`${SALES_AGENT_ORDERS_NEW}?error=validation_phone`);
+  if (!primary_phone) {
+    return { success: false, code: "validation_phone", field: "phone_number" };
+  }
 
-  const dob = parseDobIso(dobRaw);
-  if (!dob) redirect(`${SALES_AGENT_ORDERS_NEW}?error=validation_dob`);
-
-  if (!insuranceTypeRaw && !insuranceNameRaw) {
-    redirect(`${SALES_AGENT_ORDERS_NEW}?error=validation_insurance`);
+  const dob = parseSalesAgentDobIso(readTrimmed(formData, "date_of_birth"));
+  if (!dob) {
+    return { success: false, code: "validation_dob", field: "date_of_birth" };
   }
 
   if (!confirmDuplicate) {
@@ -214,7 +216,7 @@ export async function createSalesAgentLead(formData: FormData) {
       dobIso: dob,
     });
     if (duplicates.length > 0) {
-      redirect(`${SALES_AGENT_ORDERS_NEW}?error=duplicate_found`);
+      return { success: false, code: "duplicate_found", duplicates };
     }
   }
 
@@ -230,7 +232,7 @@ export async function createSalesAgentLead(formData: FormData) {
   const ssnRaw = readTrimmed(formData, "social_security_number");
   const social_security_number = ssnRaw ? normalizeSsnDigits(ssnRaw) : null;
   if (ssnRaw && !social_security_number) {
-    redirect(`${SALES_AGENT_ORDERS_NEW}?error=validation_ssn`);
+    return { success: false, code: "validation_ssn", field: "social_security_number" };
   }
 
   const { data: contactRow, error: cErr } = await supabaseAdmin
@@ -246,7 +248,7 @@ export async function createSalesAgentLead(formData: FormData) {
 
   if (cErr || !contactRow?.id) {
     console.warn("[sales-agent] contact insert failed");
-    redirect(`${SALES_AGENT_ORDERS_NEW}?error=contact_failed`);
+    return { success: false, code: "contact_failed" };
   }
 
   const contactId = contactRow.id as string;
@@ -287,7 +289,7 @@ export async function createSalesAgentLead(formData: FormData) {
   if (lErr || !leadRow?.id) {
     console.warn("[sales-agent] lead insert failed");
     await supabaseAdmin.from("contacts").delete().eq("id", contactId);
-    redirect(`${SALES_AGENT_ORDERS_NEW}?error=lead_failed`);
+    return { success: false, code: "lead_failed" };
   }
 
   const leadId = leadRow.id as string;
@@ -316,7 +318,7 @@ export async function createSalesAgentLead(formData: FormData) {
 
   revalidatePath(SALES_AGENT_ORDERS_BASE);
   revalidatePath("/admin/crm/leads");
-  redirect(`${salesAgentLeadDetailPath(leadId)}?created=1`);
+  return { success: true, leadId };
 }
 
 export async function uploadSalesAgentLeadDocument(formData: FormData) {

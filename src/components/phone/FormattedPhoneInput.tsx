@@ -7,6 +7,8 @@ import { formatPhoneNumber, normalizePhone } from "@/lib/phone/us-phone-format";
 type Props = {
   name: string;
   defaultValue?: string | null;
+  value?: string;
+  onValueChange?: (display: string) => void;
   required?: boolean;
   className?: string;
   id?: string;
@@ -20,17 +22,24 @@ type Props = {
 export function FormattedPhoneInput({
   name,
   defaultValue = "",
+  value: controlledDisplay,
+  onValueChange,
   required,
   className,
   id,
   autoComplete,
   placeholder = "(555) 555-1234",
 }: Props) {
-  const [display, setDisplay] = useState(() => formatPhoneNumber(defaultValue ?? ""));
+  const [internalDisplay, setInternalDisplay] = useState(() =>
+    formatPhoneNumber(controlledDisplay ?? defaultValue ?? "")
+  );
+  const display = controlledDisplay ?? internalDisplay;
+  const setDisplay = onValueChange ?? setInternalDisplay;
 
   useEffect(() => {
-    setDisplay(formatPhoneNumber(defaultValue ?? ""));
-  }, [defaultValue]);
+    if (controlledDisplay !== undefined) return;
+    setInternalDisplay(formatPhoneNumber(defaultValue ?? ""));
+  }, [controlledDisplay, defaultValue]);
 
   const digits = normalizePhone(display);
 

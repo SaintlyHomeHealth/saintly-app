@@ -10,6 +10,8 @@ export type SalesAgentDuplicateHit = {
   patientName: string;
   status: string | null;
   matchedBy: SalesAgentDuplicateMatchReason[];
+  /** Last 4 of matched phone — safe to show in duplicate UI. */
+  phoneLast4?: string | null;
 };
 
 function normalizeNameForMatch(raw: string | null | undefined): string {
@@ -40,6 +42,8 @@ export async function findSalesAgentDuplicateLeads(input: {
   const nameNorm = normalizeNameForMatch(input.patientName);
   const dob = (input.dobIso ?? "").trim().slice(0, 10);
 
+  const phoneLast4 = phone.length >= 4 ? phone.slice(-4) : null;
+
   const hitsByLeadId = new Map<string, SalesAgentDuplicateHit>();
 
   const addHit = (
@@ -51,9 +55,16 @@ export async function findSalesAgentDuplicateLeads(input: {
     const existing = hitsByLeadId.get(leadId);
     if (existing) {
       if (!existing.matchedBy.includes(reason)) existing.matchedBy.push(reason);
+      if (reason === "phone" && phoneLast4) existing.phoneLast4 = phoneLast4;
       return;
     }
-    hitsByLeadId.set(leadId, { leadId, patientName, status, matchedBy: [reason] });
+    hitsByLeadId.set(leadId, {
+      leadId,
+      patientName,
+      status,
+      matchedBy: [reason],
+      phoneLast4: reason === "phone" ? phoneLast4 : null,
+    });
   };
 
   if (phone.length >= 10) {
