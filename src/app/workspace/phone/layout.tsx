@@ -28,14 +28,19 @@ export default async function WorkspacePhoneLayout({ children }: { children: Rea
     }
 
     const isSalesAgent = isSalesAgentRole(staff);
+
+    /** Sales agents use their own shell under /workspace/phone/sales-agent/* */
+    if (isSalesAgent) {
+      return <>{children}</>;
+    }
+
     const displayName =
       (typeof staff.full_name === "string" && staff.full_name.trim()) ||
       (typeof staff.email === "string" && staff.email.trim()) ||
       "Staff";
 
     const showAdminLink =
-      !isSalesAgent &&
-      (isManagerOrHigher(staff) || (staff.role === "nurse" && staff.admin_shell_access === true));
+      isManagerOrHigher(staff) || (staff.role === "nurse" && staff.admin_shell_access === true);
     const access = resolveEffectivePageAccess(staff);
     const allowedTabs = allowedWorkspaceTabHrefs(access);
 
@@ -63,7 +68,7 @@ export default async function WorkspacePhoneLayout({ children }: { children: Rea
 
           <NursePhoneBottomNav
             showLeadsNav={showAdminLink}
-            isSalesAgentNav={isSalesAgent}
+            isSalesAgentNav={false}
             allowedTabHrefs={allowedTabs}
             initialInboxHasUnread={false}
           />

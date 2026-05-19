@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { LeadSsnRevealField } from "@/app/admin/crm/leads/_components/LeadSsnRevealField";
 import { LEAD_DOCUMENT_TYPE_LABELS } from "@/lib/crm/lead-documents-storage";
 import { formatPhoneNumber } from "@/lib/phone/us-phone-format";
 import type { LeadWorkspaceStaffOption } from "../lead-workspace";
@@ -24,6 +25,8 @@ export type LeadSalesAgentSectionProps = {
   caregiverRelationship: string;
   reasonForReferral: string;
   insuranceMemberId: string;
+  socialSecurityNumber: string;
+  salesAgentHiddenAt: string | null;
   documents: LeadDocumentAdminRow[];
 };
 
@@ -49,6 +52,8 @@ export function LeadSalesAgentSection({
   caregiverRelationship,
   reasonForReferral,
   insuranceMemberId,
+  socialSecurityNumber,
+  salesAgentHiddenAt,
   documents,
 }: LeadSalesAgentSectionProps) {
   if (!producedBySalesAgentId) return null;
@@ -63,6 +68,11 @@ export function LeadSalesAgentSection({
         <span className="inline-flex items-center gap-1 rounded-full bg-violet-100 px-2.5 py-1 text-[11px] font-semibold text-violet-950 ring-1 ring-violet-200">
           Source: Sales Agent
         </span>
+        {salesAgentHiddenAt ? (
+          <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-semibold text-amber-950 ring-1 ring-amber-200">
+            Hidden by Sales Agent
+          </span>
+        ) : null}
       </div>
 
       <div className="mt-4 grid gap-4 sm:grid-cols-2">
@@ -139,6 +149,12 @@ export function LeadSalesAgentSection({
               <dd className="mt-0.5 text-sm text-slate-900">{insuranceMemberId.trim()}</dd>
             </div>
           ) : null}
+        </dl>
+      ) : null}
+
+      {socialSecurityNumber.trim() ? (
+        <dl className="mt-4 grid gap-3 border-t border-violet-100 pt-4 sm:grid-cols-2">
+          <LeadSsnRevealField defaultValue={socialSecurityNumber} />
         </dl>
       ) : null}
 

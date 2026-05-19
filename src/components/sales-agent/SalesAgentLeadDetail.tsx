@@ -4,7 +4,9 @@ import { notFound } from "next/navigation";
 import { supabaseAdmin } from "@/lib/admin";
 import { LEAD_DOCUMENT_TYPE_LABELS } from "@/lib/crm/lead-documents-storage";
 import { maskMedicareIdentifier } from "@/lib/crm/medicare-mask";
+import { maskSsnIdentifier } from "@/lib/crm/ssn-mask";
 import { formatLeadSourceLabel } from "@/lib/crm/lead-source-options";
+import { SalesAgentRemoveFromListButton } from "@/components/sales-agent/SalesAgentRemoveFromListButton";
 import { formatSalesAgentStatus } from "@/lib/sales-agent/sales-agent-lead-metrics";
 import {
   DEFAULT_SALES_AGENT_PATHS,
@@ -47,13 +49,14 @@ export async function SalesAgentLeadDetail({
   const { data: lead, error } = await supabaseAdmin
     .from("leads")
     .select(
-      `id, status, source, created_at, converted_to_patient_at, medicare_number, insurance_name, insurance_type, insurance_member_id,
+      `id, status, source, created_at, converted_to_patient_at, medicare_number, social_security_number, insurance_name, insurance_type, insurance_member_id,
        caregiver_name, caregiver_phone_number, caregiver_relationship, reason_for_referral, service_disciplines, service_type,
-       referring_doctor_name, doctor_office_name, notes, dob, consent_to_contact,
+       referring_doctor_name, doctor_office_name, notes, dob, consent_to_contact, sales_agent_hidden_at,
        contacts ( full_name, primary_phone, email, address_line_1, city, state, zip )`
     )
     .eq("id", leadId)
     .eq("produced_by_sales_agent_id", staff.user_id)
+    .is("sales_agent_hidden_at", null)
     .is("deleted_at", null)
     .maybeSingle();
 
@@ -134,6 +137,9 @@ export async function SalesAgentLeadDetail({
             <Field label="Date of birth">
               {lead.dob ? formatAppDate(`${lead.dob}T12:00:00`, "—") : "—"}
             </Field>
+            <Field label="Social Security Number">
+              {maskSsnIdentifier(lead.social_security_number) || "—"}
+            </Field>
             <Field label="Address">{addressParts || "—"}</Field>
           </dl>
         </section>
@@ -198,6 +204,8 @@ export async function SalesAgentLeadDetail({
           </ul>
         </section>
       ) : null}
+
+      <SalesAgentRemoveFromListButton leadId={leadId} />
     </div>
   );
 }

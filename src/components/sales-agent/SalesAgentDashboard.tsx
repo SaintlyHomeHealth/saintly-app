@@ -44,6 +44,7 @@ export async function SalesAgentDashboard({ staff, paths = DEFAULT_SALES_AGENT_P
     .from("leads")
     .select(LEAD_LIST_SELECT)
     .eq("produced_by_sales_agent_id", staff.user_id)
+    .is("sales_agent_hidden_at", null)
     .is("deleted_at", null)
     .order("created_at", { ascending: false });
 
@@ -58,7 +59,7 @@ export async function SalesAgentDashboard({ staff, paths = DEFAULT_SALES_AGENT_P
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h2 className="text-xl font-semibold text-slate-900">My Orders</h2>
+          <h2 className="text-xl font-semibold text-slate-900">Saintly Orders</h2>
           <p className="mt-1 text-sm text-slate-600">Track submitted orders and conversion outcomes.</p>
         </div>
         <Link

@@ -11,6 +11,7 @@ import {
 import { ServiceDisciplineCheckboxes } from "@/components/crm/ServiceDisciplineCheckboxes";
 import { FormattedPhoneInput } from "@/components/phone/FormattedPhoneInput";
 import { FormattedDobInput } from "@/components/sales-agent/FormattedDobInput";
+import { FormattedSsnInput } from "@/components/sales-agent/FormattedSsnInput";
 import type { SalesAgentDuplicateHit } from "@/lib/sales-agent/sales-agent-lead-duplicate-check";
 import {
   DEFAULT_SALES_AGENT_PATHS,
@@ -36,6 +37,7 @@ function errorMessage(code: string | null): string | null {
     validation_phone: "A valid phone number is required.",
     validation_dob: "Date of birth is required (MM/DD/YYYY).",
     validation_insurance: "Insurance type or insurance name is required.",
+    validation_ssn: "Social Security Number must be 9 digits (XXX-XX-XXXX).",
     validation_consent: "Consent to contact is required.",
     duplicate_found: "Possible existing lead found. Review below and submit anyway, or contact admin.",
     contact_failed: "Could not save patient contact. Try again.",
@@ -166,6 +168,10 @@ export function SalesAgentCreateLeadForm({ paths = DEFAULT_SALES_AGENT_PATHS }: 
             <label className="flex flex-col text-xs font-medium text-slate-600">
               Date of birth *
               <FormattedDobInput name="date_of_birth" required className={inp} />
+            </label>
+            <label className="flex flex-col text-xs font-medium text-slate-600">
+              Social Security Number
+              <FormattedSsnInput className={inp} />
             </label>
           </div>
         </section>

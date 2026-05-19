@@ -3,6 +3,7 @@ import type { StaffProfile } from "@/lib/staff-profile";
 import {
   canUseWorkspacePhoneAppShell,
   isAdminOrHigher,
+  isManagerOrHigher,
   isPhoneWorkspaceUser,
 } from "@/lib/staff-profile";
 
@@ -27,6 +28,7 @@ export const ADMIN_NAV_LABELS = {
   payroll: "Payroll",
   staffAccess: "Staff Access",
   phoneNumbers: "Phone numbers",
+  salesAgentChat: "Sales Agent Chat",
 } as const;
 
 export type AdminNavItemId =
@@ -46,7 +48,8 @@ export type AdminNavItemId =
   | "employees"
   | "payroll"
   | "staff_access"
-  | "phone_numbers";
+  | "phone_numbers"
+  | "sales_agent_chat";
 
 export type AdminNavItemResolved = {
   id: AdminNavItemId;
@@ -107,6 +110,16 @@ export function buildAdminNavItems(staff: StaffProfile | null): AdminNavItemReso
       href: "/admin/crm/leads",
       ...g("leads", false, ""),
     },
+    ...(isManagerOrHigher(staff)
+      ? [
+          {
+            id: "sales_agent_chat" as const,
+            label: ADMIN_NAV_LABELS.salesAgentChat,
+            href: "/admin/sales-agent-chat",
+            ...g("sales_agent_chat", false, ""),
+          },
+        ]
+      : []),
     {
       id: "crm_tasks",
       label: ADMIN_NAV_LABELS.tasks,

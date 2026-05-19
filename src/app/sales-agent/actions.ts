@@ -31,6 +31,7 @@ import {
   type SalesAgentDuplicateHit,
 } from "@/lib/sales-agent/sales-agent-lead-duplicate-check";
 import { normalizePhone } from "@/lib/phone/us-phone-format";
+import { normalizeSsnDigits } from "@/lib/crm/ssn-mask";
 
 function readTrimmed(formData: FormData, key: string): string {
   const v = formData.get(key);
@@ -202,6 +203,11 @@ export async function createSalesAgentLead(formData: FormData) {
 
   const disciplines = parseServiceDisciplinesFromFormData(formData, "services_requested");
   const medicare_number = readTrimmed(formData, "medicare_number") || null;
+  const ssnRaw = readTrimmed(formData, "social_security_number");
+  const social_security_number = ssnRaw ? normalizeSsnDigits(ssnRaw) : null;
+  if (ssnRaw && !social_security_number) {
+    redirect(`${SALES_AGENT_ORDERS_NEW}?error=validation_ssn`);
+  }
 
   const { data: contactRow, error: cErr } = await supabaseAdmin
     .from("contacts")
@@ -249,6 +255,7 @@ export async function createSalesAgentLead(formData: FormData) {
       service_disciplines: disciplines,
       service_type: disciplines.length > 0 ? disciplines.join(", ") : null,
       notes: readTrimmed(formData, "notes") || null,
+      social_security_number,
     })
     .select("id")
     .single();
@@ -313,4 +320,45 @@ export async function uploadSalesAgentLeadDocument(formData: FormData) {
   revalidatePath(salesAgentLeadDetailPath(leadId));
   revalidatePath(`/admin/crm/leads/${leadId}`);
   redirect(`${salesAgentLeadDetailPath(leadId)}?uploaded=1`);
+}
+
+/** Hide lead from the sales agent Orders list only — admin CRM lead is unchanged. */
+export async function hideSalesAgentLeadFromList(formData: FormData) {
+  const staff = await requireSalesAgent();
+  const leadId = readTrimmed(formData, "leadId");
+  if (!leadId) {
+    redirect(`${SALES_AGENT_ORDERS_BASE}?error=invalid`);
+  }
+
+  const { data: lead } = await supabaseAdmin
+    .from("leads")
+    .select("id, produced_by_sales_agent_id")
+    .eq("id", leadId)
+    .is("deleted_at", null)
+    .maybeSingle();
+
+  if (!lead?.id || lead.produced_by_sales_agent_id !== staff.user_id) {
+    redirect(`${SALES_AGENT_ORDERS_BASE}?error=forbidden`);
+  }
+
+  const now = new Date().toISOString();
+  const { error } = await supabaseAdmin
+    .from("leads")
+    .update({
+      sales_agent_hidden_at: now,
+      sales_agent_hidden_by: staff.user_id,
+      updated_at: now,
+    })
+    .eq("id", leadId)
+    .eq("produced_by_sales_agent_id", staff.user_id);
+
+  if (error) {
+    console.warn("[sales-agent] hide from list failed");
+    redirect(`${salesAgentLeadDetailPath(leadId)}?error=hide_failed`);
+  }
+
+  revalidatePath(SALES_AGENT_ORDERS_BASE);
+  revalidatePath(salesAgentLeadDetailPath(leadId));
+  revalidatePath(`/admin/crm/leads/${leadId}`);
+  redirect(`${SALES_AGENT_ORDERS_BASE}?removed=1`);
 }

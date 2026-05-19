@@ -31,6 +31,7 @@ export const STAFF_PAGE_KEYS = [
   "workspace_pay",
   "workspace_leads",
   "workspace_sales_agent_orders",
+  "workspace_sales_agent_chat",
 ] as const;
 
 export type StaffPageKey = (typeof STAFF_PAGE_KEYS)[number];
@@ -61,6 +62,7 @@ export const STAFF_PAGE_LABELS: Record<StaffPageKey, string> = {
   workspace_pay: "Pay (workspace)",
   workspace_leads: "Leads (workspace)",
   workspace_sales_agent_orders: "Sales Agent Orders / Leads",
+  workspace_sales_agent_chat: "Sales Agent Chat",
 };
 
 export const STAFF_PAGE_PRESETS = [
@@ -182,13 +184,11 @@ function presetCredentialing(): Record<StaffPageKey, boolean> {
   return b;
 }
 
-/** Sales agents: workspace phone essentials + own orders only (no admin, no full workspace). */
+/** Sales agents: orders, create, and internal chat only (no phone tools by default). */
 function presetSalesAgent(): Record<StaffPageKey, boolean> {
   const b = allFalse();
-  b.workspace_keypad = true;
-  b.workspace_calls = true;
-  b.workspace_voicemail = true;
   b.workspace_sales_agent_orders = true;
+  b.workspace_sales_agent_chat = true;
   return b;
 }
 
@@ -326,6 +326,9 @@ export function resolveEffectivePageAccess(staff: StaffForPageAccess): Record<St
     merged.workspace_patients = false;
     merged.workspace_pay = false;
     merged.workspace_leads = false;
+    merged.workspace_keypad = false;
+    merged.workspace_calls = false;
+    merged.workspace_voicemail = false;
   }
 
   if (staff.role === "staff") {
@@ -391,6 +394,8 @@ export function adminNavIdToPageKey(id: string): StaffPageKey | null {
       return "payroll";
     case "staff_access":
       return "staff_access";
+    case "sales_agent_chat":
+      return "leads";
     default:
       return null;
   }
@@ -405,6 +410,7 @@ export function workspaceHrefToPageKey(href: string): StaffPageKey | null {
   if (href.startsWith("/workspace/phone/patients")) return "workspace_patients";
   if (href.startsWith("/workspace/phone/keypad")) return "workspace_keypad";
   if (href.startsWith("/workspace/phone/leads")) return "workspace_leads";
+  if (href.startsWith("/workspace/phone/sales-agent/chat")) return "workspace_sales_agent_chat";
   if (href.startsWith("/workspace/phone/sales-agent")) return "workspace_sales_agent_orders";
   if (href.startsWith("/workspace/pay")) return "workspace_pay";
   return null;
@@ -422,6 +428,7 @@ const WORKSPACE_TAB_HREFS: { key: StaffPageKey; href: string }[] = [
   { key: "workspace_leads", href: "/workspace/phone/leads" },
   { key: "workspace_sales_agent_orders", href: "/workspace/phone/sales-agent/leads" },
   { key: "workspace_sales_agent_orders", href: "/workspace/phone/sales-agent/leads/new" },
+  { key: "workspace_sales_agent_chat", href: "/workspace/phone/sales-agent/chat" },
 ];
 
 export function allowedWorkspaceTabHrefs(access: Record<StaffPageKey, boolean>): string[] | null {

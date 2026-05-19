@@ -13,6 +13,8 @@ export type LeadSalesAgentAdminContext = {
   caregiverRelationship: string;
   reasonForReferral: string;
   insuranceMemberId: string;
+  socialSecurityNumber: string;
+  salesAgentHiddenAt: string | null;
   documents: LeadDocumentAdminRow[];
 };
 
@@ -20,7 +22,7 @@ export async function loadLeadSalesAgentAdminContext(leadId: string): Promise<Le
   const { data: lead, error } = await supabaseAdmin
     .from("leads")
     .select(
-      "produced_by_sales_agent_id, ownership_locked, assigned_to_staff_id, converted_to_patient_at, converted_patient_id, caregiver_name, caregiver_phone_number, caregiver_relationship, reason_for_referral, insurance_member_id"
+      "produced_by_sales_agent_id, ownership_locked, assigned_to_staff_id, converted_to_patient_at, converted_patient_id, caregiver_name, caregiver_phone_number, caregiver_relationship, reason_for_referral, insurance_member_id, social_security_number, sales_agent_hidden_at"
     )
     .eq("id", leadId)
     .maybeSingle();
@@ -74,6 +76,10 @@ export async function loadLeadSalesAgentAdminContext(leadId: string): Promise<Le
       typeof lead?.caregiver_relationship === "string" ? lead.caregiver_relationship : "",
     reasonForReferral: typeof lead?.reason_for_referral === "string" ? lead.reason_for_referral : "",
     insuranceMemberId: typeof lead?.insurance_member_id === "string" ? lead.insurance_member_id : "",
+    socialSecurityNumber:
+      typeof lead?.social_security_number === "string" ? lead.social_security_number : "",
+    salesAgentHiddenAt:
+      typeof lead?.sales_agent_hidden_at === "string" ? lead.sales_agent_hidden_at : null,
     documents: (docs ?? []) as LeadDocumentAdminRow[],
   };
 }
