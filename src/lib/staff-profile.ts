@@ -14,7 +14,8 @@ export type StaffRole =
   | "billing"
   | "dispatch"
   | "credentialing"
-  | "read_only";
+  | "read_only"
+  | "sales_agent";
 
 export type PhoneAssignmentMode = "organization_default" | "dedicated" | "shared" | "dedicated_and_shared";
 
@@ -60,6 +61,7 @@ const ROLE_RANK: Record<StaffRole, number> = {
   read_only: 0,
   nurse: 0,
   staff: 0,
+  sales_agent: 0,
   recruiter: 1,
   billing: 1,
   dispatch: 1,
@@ -148,6 +150,7 @@ export function isPhoneWorkspaceUser(profile: StaffProfile | null | undefined): 
  */
 export function canAccessWorkspaceShell(profile: StaffProfile | null | undefined): boolean {
   if (!profile || profile.is_active === false) return false;
+  if (profile.role === "sales_agent") return false;
   return isStaffRole(profile.role);
 }
 
@@ -232,8 +235,13 @@ export function isStaffRole(value: string): value is StaffRole {
     value === "billing" ||
     value === "dispatch" ||
     value === "credentialing" ||
-    value === "read_only"
+    value === "read_only" ||
+    value === "sales_agent"
   );
+}
+
+export function isSalesAgentRole(profile: StaffProfile | null | undefined): boolean {
+  return profile?.role === "sales_agent" && profile.is_active !== false;
 }
 
 const STAFF_PROFILE_SELECT =

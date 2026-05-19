@@ -21,6 +21,7 @@ export type LeadIntakeNotifyChannel =
   | "employment_web"
   | "email_inquiry"
   | "email_referral"
+  | "sales_agent"
   | "other";
 
 function asMetaRecord(v: unknown): Record<string, unknown> {

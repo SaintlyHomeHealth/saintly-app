@@ -16,6 +16,7 @@ export const LEAD_PIPELINE_STATUS_OPTIONS = [
   { value: "ready_to_convert", label: "Scheduled / ready to admit" },
   { value: "admitted", label: "Admitted" },
   { value: "converted", label: "Converted" },
+  { value: "duplicate_lead", label: "Duplicate" },
   { value: "dead_lead", label: "Dead / not qualified" },
 ] as const;
 

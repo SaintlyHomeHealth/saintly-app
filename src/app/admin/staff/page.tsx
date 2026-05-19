@@ -72,6 +72,7 @@ function roleLabel(role: StaffRole): string {
   if (role === "dispatch") return "Dispatch";
   if (role === "credentialing") return "Credentialing";
   if (role === "read_only") return "Read-only";
+  if (role === "sales_agent") return "Sales agent";
   return role;
 }
 
@@ -598,6 +599,7 @@ export default async function AdminStaffPage({
                                 <option value="dispatch">Dispatch</option>
                                 <option value="credentialing">Credentialing</option>
                                 <option value="read_only">Read-only</option>
+                                <option value="sales_agent">Sales agent</option>
                                 {canAssignSuperAdmin ? <option value="super_admin">Super admin</option> : null}
                               </select>
                               <button

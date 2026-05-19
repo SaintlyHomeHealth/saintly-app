@@ -30,6 +30,10 @@ export const LEAD_ACTIVITY_EVENT = {
   call_attempt_logged: "call_attempt_logged",
   /** CRM list: manual correction of call_attempt_count. */
   call_attempt_count_updated: "call_attempt_count_updated",
+  /** Sales agent order: internal staff assignment changed. */
+  assigned_to_changed: "assigned_to_changed",
+  /** Sales agent submitted a new order/lead. */
+  sales_agent_submitted: "sales_agent_submitted",
 } as const;
 
 export type LeadActivityEventType = (typeof LEAD_ACTIVITY_EVENT)[keyof typeof LEAD_ACTIVITY_EVENT];
@@ -85,6 +89,10 @@ export function leadActivityEventLabel(eventType: string): string {
       return "Call attempt";
     case LEAD_ACTIVITY_EVENT.call_attempt_count_updated:
       return "Call attempts";
+    case LEAD_ACTIVITY_EVENT.assigned_to_changed:
+      return "Assigned to";
+    case LEAD_ACTIVITY_EVENT.sales_agent_submitted:
+      return "Sales agent submission";
     default:
       return eventType.replace(/_/g, " ");
   }

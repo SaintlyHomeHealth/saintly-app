@@ -59,6 +59,7 @@ function roleLabel(role: StaffRole): string {
     dispatch: "Dispatch",
     credentialing: "Credentialing",
     read_only: "Read-only",
+    sales_agent: "Sales agent",
   };
   return m[role] ?? role;
 }

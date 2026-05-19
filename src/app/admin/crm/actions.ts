@@ -1082,6 +1082,15 @@ function readOptionalOwnerUserId(formData: FormData): string | null {
   return t;
 }
 
+function readOptionalAssignedStaffId(formData: FormData): string | null {
+  const v = formData.get("assigned_to_staff_id");
+  if (typeof v !== "string") return null;
+  const t = v.trim();
+  if (!t) return null;
+  if (!LEAD_OWNER_UUID_RE.test(t)) return null;
+  return t;
+}
+
 function readOptionalFollowUpDateIso(formData: FormData): string | null {
   const v = formData.get("follow_up_date");
   if (typeof v !== "string") return null;
@@ -1207,7 +1216,7 @@ export async function updateLeadIntake(formData: FormData) {
     supabaseAdmin
       .from("leads")
       .select(
-        "id, status, fbclid, owner_user_id, next_action, follow_up_date, referring_doctor_name, doctor_office_name, doctor_office_phone, doctor_office_fax, doctor_office_contact_person, referring_provider_name, referring_provider_phone, payer_name, payer_type, primary_payer_type, primary_payer_name, secondary_payer_type, secondary_payer_name, referral_source, service_disciplines, service_type, intake_status, notes, external_source_metadata, medicare_number, medicare_effective_date, medicare_notes, lead_temperature"
+        "id, status, fbclid, owner_user_id, assigned_to_staff_id, produced_by_sales_agent_id, ownership_locked, next_action, follow_up_date, referring_doctor_name, doctor_office_name, doctor_office_phone, doctor_office_fax, doctor_office_contact_person, referring_provider_name, referring_provider_phone, payer_name, payer_type, primary_payer_type, primary_payer_name, secondary_payer_type, secondary_payer_name, referral_source, service_disciplines, service_type, intake_status, notes, external_source_metadata, medicare_number, medicare_effective_date, medicare_notes, lead_temperature"
       )
       .eq("id", leadId)
   ).maybeSingle();
@@ -1252,9 +1261,14 @@ export async function updateLeadIntake(formData: FormData) {
 
   const followUpDateUpdate = readFollowUpDateForIntakeUpdate(formData);
 
+  const beforeRec = beforeRow as Record<string, unknown>;
+  const salesAgentLocked = beforeRec.ownership_locked === true;
+
   const payload: Record<string, unknown> = {
     ...(pipelineStatus !== null ? { status: pipelineStatus } : {}),
-    owner_user_id: readOptionalOwnerUserId(formData),
+    ...(salesAgentLocked
+      ? { assigned_to_staff_id: readOptionalAssignedStaffId(formData) }
+      : { owner_user_id: readOptionalOwnerUserId(formData) }),
     referring_doctor_name: readOptionalIntakeText(formData, "referring_doctor_name"),
     doctor_office_name: readOptionalIntakeText(formData, "doctor_office_name"),
     doctor_office_phone: readOptionalNormalizedPhone(formData, "doctor_office_phone"),
@@ -1337,7 +1351,7 @@ export async function updateLeadIntake(formData: FormData) {
   const oldOwner = normStr(B.owner_user_id);
   const newOwner = readOptionalOwnerUserId(formData);
   const newOwnerNorm = newOwner == null ? null : newOwner;
-  if (oldOwner !== newOwnerNorm) {
+  if (!salesAgentLocked && oldOwner !== newOwnerNorm) {
     await insertLeadActivityRow({
       leadId,
       eventType: LEAD_ACTIVITY_EVENT.owner_changed,
@@ -1345,6 +1359,21 @@ export async function updateLeadIntake(formData: FormData) {
       metadata: { before: oldOwner, after: newOwnerNorm },
       createdByUserId: uid,
     });
+  }
+
+  if (salesAgentLocked && formData.has("assigned_to_staff_id")) {
+    const oldAssigned = normStr(B.assigned_to_staff_id);
+    const newAssigned = readOptionalAssignedStaffId(formData);
+    const newAssignedNorm = newAssigned == null ? null : newAssigned;
+    if (oldAssigned !== newAssignedNorm) {
+      await insertLeadActivityRow({
+        leadId,
+        eventType: LEAD_ACTIVITY_EVENT.assigned_to_changed,
+        body: `Assigned to ${staffShortLabel(newAssignedNorm, staffById)}.`,
+        metadata: { before: oldAssigned, after: newAssignedNorm },
+        createdByUserId: uid,
+      });
+    }
   }
 
   if (formData.has("next_action")) {

@@ -2,7 +2,7 @@ import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { NextResponse, type NextRequest } from "next/server";
 
-import { DEFAULT_POST_LOGIN_PATH, safeInternalPath } from "@/lib/auth/post-login-redirect";
+import { postLoginPathForRole, safeInternalPath } from "@/lib/auth/post-login-redirect";
 
 export type StaffDenyReason = "no_staff_profile" | "inactive" | "role_not_allowed";
 
@@ -62,6 +62,7 @@ async function resolveStaffGate(
     "dispatch",
     "credentialing",
     "read_only",
+    "sales_agent",
   ]);
   if (!allowedRoles.has(role)) {
     return { ok: false, reason: "role_not_allowed" };
@@ -132,6 +133,33 @@ export async function middleware(request: NextRequest) {
     }
   }
 
+  if (pathname.startsWith("/sales-agent") && !user) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/login";
+    url.searchParams.set("next", `${request.nextUrl.pathname}${request.nextUrl.search}`);
+    return NextResponse.redirect(url);
+  }
+
+  if (pathname.startsWith("/sales-agent") && user) {
+    const gate = await resolveStaffGate(supabase, user.id);
+    if (!gate.ok || gate.role !== "sales_agent") {
+      const url = request.nextUrl.clone();
+      url.pathname = "/unauthorized";
+      url.searchParams.set("reason", "forbidden");
+      return NextResponse.redirect(url);
+    }
+  }
+
+  if (pathname.startsWith("/workspace") && user) {
+    const gate = await resolveStaffGate(supabase, user.id);
+    if (gate.ok && gate.role === "sales_agent") {
+      const url = request.nextUrl.clone();
+      url.pathname = "/sales-agent/leads";
+      url.search = "";
+      return NextResponse.redirect(url);
+    }
+  }
+
   if (pathname.startsWith("/admin") && !user && !isPublicAdminSignIn) {
     if (shouldLogAdminPath(pathname)) {
       authDebug("admin:no_session", {
@@ -191,6 +219,13 @@ export async function middleware(request: NextRequest) {
     const role = gate.role.trim().toLowerCase();
     const workspaceFirst =
       role === "nurse" || role === "employee" || role === "staff";
+    const salesAgentOnly = role === "sales_agent";
+    if (salesAgentOnly) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/sales-agent/leads";
+      url.search = "";
+      return NextResponse.redirect(url);
+    }
     if (workspaceFirst && !gate.admin_shell_access) {
       const url = request.nextUrl.clone();
       url.pathname = "/workspace/phone/keypad";
@@ -219,10 +254,10 @@ export async function middleware(request: NextRequest) {
     if (gate.ok) {
       const nextParam = request.nextUrl.searchParams.get("next");
       if (nextParam) {
-        const next = safeInternalPath(nextParam);
+        const next = safeInternalPath(nextParam, gate.role);
         return NextResponse.redirect(new URL(next, request.url));
       }
-      return NextResponse.redirect(new URL(DEFAULT_POST_LOGIN_PATH, request.url));
+      return NextResponse.redirect(new URL(postLoginPathForRole(gate.role), request.url));
     }
   }
 

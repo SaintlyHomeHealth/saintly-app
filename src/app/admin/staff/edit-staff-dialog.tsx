@@ -36,6 +36,7 @@ const ROLE_OPTIONS: { value: StaffRole; label: string }[] = [
   { value: "dispatch", label: "Dispatch" },
   { value: "credentialing", label: "Credentialing" },
   { value: "read_only", label: "Read-only" },
+  { value: "sales_agent", label: "Sales agent" },
 ];
 
 export function EditStaffDialog({

@@ -25,6 +25,7 @@ import { pickOutboundE164ForDial } from "@/lib/workspace-phone/launch-urls";
 import { buildCrmCommunicationTimelineModel } from "@/lib/crm/build-crm-communication-timeline-model";
 import { resolveLeadCrmStage } from "@/lib/crm/crm-stage";
 import { loadAssignableLeadOwners } from "@/lib/crm/assignable-lead-owners";
+import { loadLeadSalesAgentAdminContext } from "@/lib/crm/load-lead-sales-agent-context";
 import { listInsurancePayers } from "@/lib/crm/insurance-payers";
 import { listCrmTasks } from "@/lib/crm/crm-tasks-operations";
 import { loadLeadAttachmentsForWorkspace } from "@/lib/crm/lead-attachments-load";
@@ -301,12 +302,24 @@ export default async function LeadIntakePage({
   const ownerUid =
     typeof L.owner_user_id === "string" && L.owner_user_id.trim() ? L.owner_user_id.trim() : "";
 
+  const salesAgentContext = routePerfStepsEnabled()
+    ? await routePerfTimed("admin_crm_lead_detail.sales_agent_context", () =>
+        loadLeadSalesAgentAdminContext(leadId.trim())
+      )
+    : await loadLeadSalesAgentAdminContext(leadId.trim());
+
+  const preserveUserIds = [
+    ...(ownerUid ? [ownerUid] : []),
+    ...(salesAgentContext?.assignedToStaffId ? [salesAgentContext.assignedToStaffId] : []),
+    ...(salesAgentContext?.producedBySalesAgentId ? [salesAgentContext.producedBySalesAgentId] : []),
+  ];
+
   const [staffOptions, insurancePayersCatalog] = await Promise.all([
     routePerfStepsEnabled()
       ? routePerfTimed("admin_crm_lead_detail.staff_options", () =>
-          loadAssignableLeadOwners({ preserveUserIds: ownerUid ? [ownerUid] : [] })
+          loadAssignableLeadOwners({ preserveUserIds })
         )
-      : loadAssignableLeadOwners({ preserveUserIds: ownerUid ? [ownerUid] : [] }),
+      : loadAssignableLeadOwners({ preserveUserIds }),
     routePerfStepsEnabled()
       ? routePerfTimed("admin_crm_lead_detail.insurance_payers", () => listInsurancePayers())
       : listInsurancePayers(),
@@ -571,6 +584,7 @@ export default async function LeadIntakePage({
       crmRealtimeGateway={crmRealtimeGateway}
       voicePhiNotice={voicePhiNotice}
       initialLeadAttachments={initialLeadAttachments}
+      salesAgentContext={salesAgentContext}
     />
     );
   } catch (e) {

@@ -278,8 +278,9 @@ export function LeadSnapshot(props: LeadSnapshotProps) {
   const flags: { key: string; node: ReactNode }[] = [];
   if (isEmployeeLead) flags.push({ key: "emp", node: <Badge tone="violet">New applicant</Badge> });
   if (rawStatus === "intake_in_progress") flags.push({ key: "hot", node: <Badge tone="amber">Hot</Badge> });
-  if (!isEmployeeLead && (rawStatus === "new" || rawStatus === "new_applicant"))
+  if (rawStatus === "new" || rawStatus === "new_applicant" || rawStatus === "new_lead")
     flags.push({ key: "new", node: <Badge tone="sky">New</Badge> });
+  if (sourceRaw === "sales_agent") flags.push({ key: "sa", node: <Badge tone="violet">Sales agent</Badge> });
   if (rawStatus === "waiting_on_documents") flags.push({ key: "docs", node: <Badge tone="amber">Need docs</Badge> });
   if (rawStatus === "verify_insurance") flags.push({ key: "ver", node: <Badge tone="violet">Verify insurance</Badge> });
   if (/humana/i.test(lowerPayer)) flags.push({ key: "humana", node: <Badge tone="emerald">Humana</Badge> });

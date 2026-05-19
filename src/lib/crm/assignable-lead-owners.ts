@@ -6,8 +6,8 @@ export type AssignableLeadOwnerRow = {
   full_name: string | null;
 };
 
-/** Roles that cannot be assigned CRM lead ownership (`read_only` has no CRM write UX). */
-const EXCLUDED_FROM_LEAD_OWNER_DROPDOWN = new Set<string>(["read_only"]);
+/** Roles that cannot be assigned CRM lead ownership (`read_only`, `sales_agent`). */
+const EXCLUDED_FROM_LEAD_OWNER_DROPDOWN = new Set<string>(["read_only", "sales_agent"]);
 
 export function assignableLeadOwnerSortKey(row: AssignableLeadOwnerRow): string {
   const name = (row.full_name ?? "").trim();

@@ -586,24 +586,53 @@ export async function convertLeadToPatient(leadId: string): Promise<ConvertLeadT
     patientId = String(newPatient.id);
   }
 
-  const { error: uErr } = await supabaseAdmin
+  const uid = staff.user_id;
+
+  const conversionFields = {
+    converted_to_patient_at: new Date().toISOString(),
+    converted_to_patient_by: uid,
+    converted_patient_id: patientId,
+  };
+
+  let { error: uErr } = await supabaseAdmin
     .from("leads")
-    .update({ status: "converted", crm_stage: "patient" })
+    .update({
+      status: "converted",
+      crm_stage: "patient",
+      ...conversionFields,
+    })
     .eq("id", id)
     .is("deleted_at", null);
+
+  if (uErr && /converted_to_patient/i.test(uErr.message)) {
+    ({ error: uErr } = await supabaseAdmin
+      .from("leads")
+      .update({ status: "converted", crm_stage: "patient" })
+      .eq("id", id)
+      .is("deleted_at", null));
+  }
 
   if (uErr) {
     console.warn("[admin/phone] convertLeadToPatient update lead:", uErr.message);
     return { ok: false, error: "update_failed" };
   }
 
-  const uid = staff.user_id;
   await auditCrmStageChange({ leadId: id, fromStage: prevStage, toStage: "patient", patientId });
   await appendLeadActivityRow({
     leadId: id,
     eventType: LEAD_ACTIVITY_EVENT.crm_stage_changed,
     body: `CRM stage: ${prevStage} → patient`,
     metadata: { from_stage: prevStage, to_stage: "patient", patient_id: patientId },
+    createdByUserId: uid,
+  });
+
+  const adminLabel =
+    (staff.full_name ?? "").trim() || (staff.email ?? "").trim() || "Admin";
+  await appendLeadActivityRow({
+    leadId: id,
+    eventType: LEAD_ACTIVITY_EVENT.converted,
+    body: `Lead converted to patient by ${adminLabel}.`,
+    metadata: { patient_id: patientId, converted_to_patient_by: uid },
     createdByUserId: uid,
   });
 
@@ -616,6 +645,8 @@ export async function convertLeadToPatient(leadId: string): Promise<ConvertLeadT
   revalidatePath(`/admin/crm/patients/${patientId}`);
   revalidatePath("/admin");
   revalidatePath("/workspace/phone/chat");
+  revalidatePath("/sales-agent/leads");
+  revalidatePath(`/sales-agent/leads/${id}`);
   return { ok: true, patientId, previousStage: prevStage };
 }
 

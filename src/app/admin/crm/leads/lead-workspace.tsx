@@ -29,6 +29,8 @@ import { MoveToPatientStageButton } from "@/app/admin/crm/leads/_components/Move
 import { ReopenLeadButton } from "@/app/admin/crm/leads/_components/ReopenLeadButton";
 import { LeadTasksPanel } from "@/app/admin/crm/leads/_components/LeadTasksPanel";
 import { LeadAttachmentsPanel } from "@/app/admin/crm/leads/_components/LeadAttachmentsPanel";
+import { LeadSalesAgentSection } from "@/app/admin/crm/leads/_components/LeadSalesAgentSection";
+import type { LeadSalesAgentAdminContext } from "@/lib/crm/load-lead-sales-agent-context";
 import type { LeadAttachmentWorkspaceRow } from "@/lib/crm/lead-attachments-load";
 import type { EmploymentApplicationMeta } from "@/lib/crm/lead-employment-meta";
 import { hasAnyIntakeRequestDetail, type LeadIntakeRequestDetails } from "@/lib/crm/lead-intake-request";
@@ -224,6 +226,8 @@ export type LeadWorkspaceExistingProps = {
   voicePhiNotice: string;
   /** Uploaded lead documents (Storage + `lead_attachments`). */
   initialLeadAttachments?: LeadAttachmentWorkspaceRow[];
+  /** Sales agent order context (produced-by credit, assigned-to, card uploads). */
+  salesAgentContext?: LeadSalesAgentAdminContext | null;
 };
 
 export type LeadWorkspaceNewProps = {
@@ -511,7 +515,10 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
     crmRealtimeGateway,
     voicePhiNotice,
     initialLeadAttachments = [],
+    salesAgentContext = null,
   } = props;
+
+  const isSalesAgentLead = Boolean(salesAgentContext?.producedBySalesAgentId);
 
   const tomorrowIso = getCrmCalendarTomorrowIso();
   const voicemailSuggestedIso = addCalendarDaysToIsoDate(getCrmCalendarTodayIso(), 2);
@@ -1089,24 +1096,39 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
             </>
           ) : null}
 
+          {salesAgentContext ? (
+            <LeadSalesAgentSection leadId={leadId} {...salesAgentContext} staffOptions={staffOptions} />
+          ) : null}
+
           <LeadSectionCard
             id="section-ownership"
             title="Ownership & disposition"
-            description="Assign the lead owner and move the record to Patient stage or mark it dead."
+            description={
+              isSalesAgentLead
+                ? "Operational assignment is managed via Assigned to above. Sales credit (Produced by) is locked."
+                : "Assign the lead owner and move the record to Patient stage or mark it dead."
+            }
             className="border-indigo-100/90 bg-indigo-50/20 ring-indigo-100/40"
           >
             <div className="grid max-w-2xl gap-4 sm:grid-cols-2">
-              <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
-                Owner
-                <select name="owner_user_id" className={inp} defaultValue={ownerUid}>
-                  <option value="">— Unassigned —</option>
-                  {staffOptions.map((s) => (
-                    <option key={s.user_id} value={s.user_id}>
-                      {staffOptionLabel(s)}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              {!isSalesAgentLead ? (
+                <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
+                  Owner
+                  <select name="owner_user_id" className={inp} defaultValue={ownerUid}>
+                    <option value="">— Unassigned —</option>
+                    {staffOptions.map((s) => (
+                      <option key={s.user_id} value={s.user_id}>
+                        {staffOptionLabel(s)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : (
+                <p className="sm:col-span-2 text-xs text-slate-600">
+                  Owner assignment for sales-agent orders uses <strong>Assigned to</strong> in the Sales agent section
+                  above. The producing agent cannot be changed.
+                </p>
+              )}
             </div>
             <div className="mt-8 border-t border-slate-200/80 pt-6">
               <h3 className="text-sm font-semibold text-slate-900">Disposition</h3>
