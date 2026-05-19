@@ -4,7 +4,9 @@ import { revalidatePath } from "next/cache";
 
 import { getStaffProfile, isManagerOrHigher, isSalesAgentRole } from "@/lib/staff-profile";
 import {
+  deleteSalesAgentMessage,
   insertSalesAgentMessage,
+  insertSalesAgentMessageAttachment,
   markSalesAgentMessagesRead,
 } from "@/lib/sales-agent/sales-agent-chat";
 import { requireSalesAgent } from "@/lib/sales-agent/sales-agent-auth";
@@ -18,19 +20,76 @@ function revalidateSalesAgentChatPaths(agentUserId?: string) {
   }
 }
 
+function fileFromFormData(formData: FormData): File | null {
+  const raw = formData.get("attachment");
+  if (raw instanceof File && raw.size > 0) {
+    return raw;
+  }
+  return null;
+}
+
+async function sendWithOptionalAttachment(input: {
+  salesAgentUserId: string;
+  senderUserId: string;
+  senderRole: string;
+  body: string;
+  attachment: File | null;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const body = input.body.trim();
+  if (!body && !input.attachment) {
+    return { ok: false, error: "Message or attachment is required." };
+  }
+
+  const inserted = await insertSalesAgentMessage({
+    salesAgentUserId: input.salesAgentUserId,
+    senderUserId: input.senderUserId,
+    senderRole: input.senderRole,
+    body,
+  });
+
+  if (!inserted.ok || !inserted.messageId) {
+    return { ok: false, error: "Could not send message." };
+  }
+
+  if (!input.attachment) {
+    return { ok: true };
+  }
+
+  const attached = await insertSalesAgentMessageAttachment({
+    messageId: inserted.messageId,
+    salesAgentUserId: input.salesAgentUserId,
+    uploadedBy: input.senderUserId,
+    file: input.attachment,
+  });
+
+  if (!attached.ok) {
+    await deleteSalesAgentMessage(inserted.messageId);
+    if (attached.error === "unsupported_type") {
+      return { ok: false, error: "That file type is not supported." };
+    }
+    if (attached.error === "too_large") {
+      return { ok: false, error: "File is too large." };
+    }
+    return { ok: false, error: "Message sent but attachment upload failed. Please try again." };
+  }
+
+  return { ok: true };
+}
+
 export async function sendSalesAgentChatMessage(formData: FormData) {
   const staff = await requireSalesAgent();
   const body = String(formData.get("body") ?? "").trim();
-  if (!body) return { ok: false as const, error: "Message is required." };
+  const attachment = fileFromFormData(formData);
 
-  const result = await insertSalesAgentMessage({
+  const result = await sendWithOptionalAttachment({
     salesAgentUserId: staff.user_id,
     senderUserId: staff.user_id,
     senderRole: "sales_agent",
     body,
+    attachment,
   });
 
-  if (!result.ok) return { ok: false as const, error: "Could not send message." };
+  if (!result.ok) return { ok: false as const, error: result.error };
 
   revalidateSalesAgentChatPaths(staff.user_id);
   return { ok: true as const };
@@ -51,18 +110,20 @@ export async function sendAdminToSalesAgentChatMessage(formData: FormData) {
 
   const agentUserId = String(formData.get("agentUserId") ?? "").trim();
   const body = String(formData.get("body") ?? "").trim();
-  if (!agentUserId || !body) {
-    return { ok: false as const, error: "Agent and message are required." };
+  const attachment = fileFromFormData(formData);
+  if (!agentUserId) {
+    return { ok: false as const, error: "Agent is required." };
   }
 
-  const result = await insertSalesAgentMessage({
+  const result = await sendWithOptionalAttachment({
     salesAgentUserId: agentUserId,
     senderUserId: staff.user_id,
     senderRole: staff.role,
     body,
+    attachment,
   });
 
-  if (!result.ok) return { ok: false as const, error: "Could not send message." };
+  if (!result.ok) return { ok: false as const, error: result.error };
 
   revalidatePath("/admin/sales-agent-chat");
   revalidateSalesAgentChatPaths(agentUserId);

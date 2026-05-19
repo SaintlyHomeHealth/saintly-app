@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft, FileText, Paperclip, X } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 
@@ -11,7 +11,7 @@ import {
   sendSalesAgentChatMessage,
 } from "@/app/sales-agent/chat-actions";
 import { formatAppDateTime } from "@/lib/datetime/app-timezone";
-import type { SalesAgentMessageView } from "@/lib/sales-agent/sales-agent-chat-types";
+import type { SalesAgentMessageAttachmentView, SalesAgentMessageView } from "@/lib/sales-agent/sales-agent-chat-types";
 
 type Props = {
   mode: "agent" | "manager";
@@ -25,6 +25,63 @@ type Props = {
   variant?: "card" | "workspace";
 };
 
+function formatFileSize(bytes: number | null | undefined): string {
+  if (bytes == null || bytes <= 0) return "";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function AttachmentBlock({
+  attachment,
+  mine,
+  mode,
+}: {
+  attachment: SalesAgentMessageAttachmentView;
+  mine: boolean;
+  mode: "agent" | "manager";
+}) {
+  const label = attachment.file_name?.trim() || (attachment.isImage ? "Photo" : "File");
+  const size = formatFileSize(attachment.file_size_bytes);
+
+  if (attachment.isImage) {
+    return (
+      <a
+        href={attachment.fileUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="mt-2 block overflow-hidden rounded-lg"
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={attachment.fileUrl}
+          alt=""
+          className="max-h-48 w-full max-w-[240px] rounded-lg object-cover"
+        />
+      </a>
+    );
+  }
+
+  return (
+    <a
+      href={attachment.fileUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={`mt-2 flex items-center gap-2 rounded-lg border px-2.5 py-2 text-xs ${
+        mine
+          ? mode === "manager"
+            ? "border-slate-600 bg-slate-800 text-white"
+            : "border-sky-500 bg-sky-700 text-white"
+          : "border-slate-200 bg-white text-slate-800"
+      }`}
+    >
+      <FileText className="h-4 w-4 shrink-0" />
+      <span className="min-w-0 flex-1 truncate font-medium">{label}</span>
+      {size ? <span className="shrink-0 opacity-70">{size}</span> : null}
+    </a>
+  );
+}
+
 export function SalesAgentThreadPanel({
   mode,
   agentUserId,
@@ -37,8 +94,12 @@ export function SalesAgentThreadPanel({
 }: Props) {
   const [messages, setMessages] = useState(initialMessages);
   const [body, setBody] = useState("");
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const bottomRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
 
   const messagesUrl =
     mode === "agent"
@@ -72,23 +133,37 @@ export function SalesAgentThreadPanel({
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages.length]);
 
+  function pickFile(file: File | null) {
+    setError(null);
+    setPendingFile(file);
+  }
+
   function handleSend(e: React.FormEvent) {
     e.preventDefault();
     const text = body.trim();
-    if (!text || pending) return;
+    if ((!text && !pendingFile) || pending) return;
+
     const fd = new FormData();
     fd.set("body", text);
+    if (pendingFile) {
+      fd.set("attachment", pendingFile);
+    }
     if (mode === "manager") {
       fd.set("agentUserId", agentUserId);
     }
+
     startTransition(async () => {
+      setError(null);
       const result =
         mode === "agent"
           ? await sendSalesAgentChatMessage(fd)
           : await sendAdminToSalesAgentChatMessage(fd);
       if (result.ok) {
         setBody("");
+        setPendingFile(null);
         await refresh();
+      } else {
+        setError(result.error ?? "Could not send message.");
       }
     });
   }
@@ -97,6 +172,8 @@ export function SalesAgentThreadPanel({
     variant === "workspace"
       ? "flex min-h-0 flex-1 flex-col overflow-hidden bg-white"
       : "flex min-h-[60vh] flex-col rounded-2xl border border-slate-200 bg-white shadow-sm";
+
+  const canSend = Boolean(body.trim() || pendingFile);
 
   return (
     <div className={shellClass}>
@@ -124,6 +201,7 @@ export function SalesAgentThreadPanel({
         ) : (
           messages.map((m) => {
             const mine = m.sender_user_id === viewerUserId;
+            const hasBody = Boolean(m.body.trim());
             return (
               <div key={m.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
                 <div
@@ -140,7 +218,12 @@ export function SalesAgentThreadPanel({
                       {m.senderLabel}
                     </p>
                   ) : null}
-                  <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">{m.body}</p>
+                  {hasBody ? (
+                    <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">{m.body}</p>
+                  ) : null}
+                  {m.attachments.map((a) => (
+                    <AttachmentBlock key={a.id} attachment={a} mine={mine} mode={mode} />
+                  ))}
                   <p
                     className={`mt-1 text-[10px] ${
                       mine
@@ -162,7 +245,40 @@ export function SalesAgentThreadPanel({
       </div>
 
       <form onSubmit={handleSend} className="shrink-0 border-t border-slate-100 p-3">
+        {pendingFile ? (
+          <div className="mb-2 flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2 text-xs text-slate-700">
+            <Paperclip className="h-3.5 w-3.5 shrink-0" />
+            <span className="min-w-0 flex-1 truncate">{pendingFile.name}</span>
+            <button
+              type="button"
+              onClick={() => pickFile(null)}
+              className="inline-flex h-6 w-6 items-center justify-center rounded-full text-slate-500 hover:bg-slate-200"
+              aria-label="Remove attachment"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        ) : null}
+        {error ? <p className="mb-2 text-xs text-red-600">{error}</p> : null}
         <div className="flex gap-2">
+          <div className="flex shrink-0 flex-col gap-1 self-end">
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 text-slate-600 hover:bg-slate-50"
+              aria-label="Attach file"
+            >
+              <Paperclip className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => photoInputRef.current?.click()}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-50 sm:hidden"
+              aria-label="Take photo"
+            >
+              📷
+            </button>
+          </div>
           <textarea
             value={body}
             onChange={(e) => setBody(e.target.value)}
@@ -172,7 +288,7 @@ export function SalesAgentThreadPanel({
           />
           <button
             type="submit"
-            disabled={pending || !body.trim()}
+            disabled={pending || !canSend}
             className={`shrink-0 self-end rounded-full px-4 py-2 text-sm font-semibold text-white disabled:opacity-60 ${
               mode === "manager" ? "bg-slate-900 hover:bg-slate-800" : "bg-sky-600 hover:bg-sky-700"
             }`}
@@ -180,6 +296,21 @@ export function SalesAgentThreadPanel({
             {pending ? "…" : "Send"}
           </button>
         </div>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*,.pdf,.doc,.docx,.heic,.jpeg,.jpg,.png"
+          className="hidden"
+          onChange={(e) => pickFile(e.target.files?.[0] ?? null)}
+        />
+        <input
+          ref={photoInputRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          className="hidden"
+          onChange={(e) => pickFile(e.target.files?.[0] ?? null)}
+        />
       </form>
     </div>
   );

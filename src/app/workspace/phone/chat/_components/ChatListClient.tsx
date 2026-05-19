@@ -180,36 +180,40 @@ export function ChatListClient({
   }
 
   function salesAgentSection(rows: SalesAgentWorkspaceChatListItem[]) {
-    if (!showSalesAgents || rows.length === 0) return null;
+    if (!showSalesAgents) return null;
     return (
       <div className="mt-6">
         <h2 className="text-xs font-bold uppercase tracking-wide text-slate-500">Sales Agents</h2>
-        <ul className="mt-2 space-y-1">
-          {rows.map((t) => (
-            <li key={t.agentUserId}>
-              <Link
-                href={salesAgentWorkspaceChatThreadPath(t.agentUserId)}
-                className={`flex flex-col rounded-xl border px-3 py-2.5 transition ${
-                  t.hasUnread
-                    ? "border-sky-200 bg-sky-50/80"
-                    : "border-slate-200/80 bg-white hover:border-slate-300"
-                }`}
-              >
-                <span className="flex items-center justify-between gap-2">
-                  <span className="text-sm font-semibold text-slate-900">{t.title}</span>
-                  {t.hasUnread ? (
-                    <span className="shrink-0 rounded-full bg-sky-600 px-2 py-0.5 text-[10px] font-bold text-white">
-                      New
-                    </span>
+        {rows.length === 0 ? (
+          <p className="mt-2 text-sm text-slate-500">No sales agent messages yet.</p>
+        ) : (
+          <ul className="mt-2 space-y-1">
+            {rows.map((t) => (
+              <li key={t.agentUserId}>
+                <Link
+                  href={salesAgentWorkspaceChatThreadPath(t.agentUserId)}
+                  className={`flex flex-col rounded-xl border px-3 py-2.5 transition ${
+                    t.hasUnread
+                      ? "border-sky-200 bg-sky-50/80"
+                      : "border-slate-200/80 bg-white hover:border-slate-300"
+                  }`}
+                >
+                  <span className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-semibold text-slate-900">{t.title}</span>
+                    {t.hasUnread ? (
+                      <span className="shrink-0 rounded-full bg-sky-600 px-2 py-0.5 text-[10px] font-bold text-white">
+                        New
+                      </span>
+                    ) : null}
+                  </span>
+                  {t.lastMessagePreview ? (
+                    <span className="mt-0.5 line-clamp-2 text-xs text-slate-600">{t.lastMessagePreview}</span>
                   ) : null}
-                </span>
-                {t.lastMessagePreview ? (
-                  <span className="mt-0.5 line-clamp-2 text-xs text-slate-600">{t.lastMessagePreview}</span>
-                ) : null}
-              </Link>
-            </li>
-          ))}
-        </ul>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     );
   }

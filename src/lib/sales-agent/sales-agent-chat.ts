@@ -1,15 +1,89 @@
+import { randomUUID } from "crypto";
+
 import { supabaseAdmin } from "@/lib/admin";
 
+import {
+  isAllowedSalesAgentChatAttachmentMime,
+  isSalesAgentChatImageMime,
+  maxBytesForSalesAgentChatAttachmentMime,
+  SALES_AGENT_CHAT_ATTACHMENTS_BUCKET,
+  salesAgentChatAttachmentFileRoute,
+} from "./sales-agent-chat-attachment-constants";
+import { salesAgentChatDebugLog } from "./sales-agent-chat-debug";
 import type {
   SalesAgentChatAgentOption,
+  SalesAgentMessageAttachmentView,
   SalesAgentMessageRow,
   SalesAgentMessageView,
   SalesAgentWorkspaceChatListItem,
 } from "./sales-agent-chat-types";
 import { salesAgentDisplayName } from "./sales-agent-chat-types";
 
-export type { SalesAgentChatAgentOption, SalesAgentMessageRow, SalesAgentMessageView, SalesAgentWorkspaceChatListItem } from "./sales-agent-chat-types";
+export type {
+  SalesAgentChatAgentOption,
+  SalesAgentMessageAttachmentView,
+  SalesAgentMessageRow,
+  SalesAgentMessageView,
+  SalesAgentWorkspaceChatListItem,
+} from "./sales-agent-chat-types";
 export { salesAgentDisplayName } from "./sales-agent-chat-types";
+
+type AttachmentRow = {
+  id: string;
+  message_id: string;
+  file_name: string | null;
+  mime_type: string | null;
+  file_size_bytes: number | null;
+};
+
+function safeFilename(name: string): string {
+  const base = name.replace(/[^\w.\-()+ ]/g, "_").trim() || "file";
+  return base.slice(0, 120);
+}
+
+function attachmentPreviewLabel(mime: string | null | undefined, fileName: string | null | undefined): string {
+  const t = (mime ?? "").toLowerCase();
+  if (t.startsWith("image/")) return "Photo";
+  if (t === "application/pdf" || (fileName ?? "").toLowerCase().endsWith(".pdf")) return "PDF";
+  return "File";
+}
+
+function mapAttachmentRows(rows: AttachmentRow[]): Map<string, SalesAgentMessageAttachmentView[]> {
+  const byMessage = new Map<string, SalesAgentMessageAttachmentView[]>();
+  for (const row of rows) {
+    const mime = typeof row.mime_type === "string" ? row.mime_type : null;
+    const view: SalesAgentMessageAttachmentView = {
+      id: row.id,
+      message_id: row.message_id,
+      file_name: typeof row.file_name === "string" ? row.file_name : null,
+      mime_type: mime,
+      file_size_bytes: typeof row.file_size_bytes === "number" ? row.file_size_bytes : null,
+      fileUrl: salesAgentChatAttachmentFileRoute(row.id),
+      isImage: isSalesAgentChatImageMime(mime),
+    };
+    const list = byMessage.get(row.message_id) ?? [];
+    list.push(view);
+    byMessage.set(row.message_id, list);
+  }
+  return byMessage;
+}
+
+export async function listAttachmentsForMessages(messageIds: string[]): Promise<Map<string, SalesAgentMessageAttachmentView[]>> {
+  if (messageIds.length === 0) return new Map();
+
+  const { data, error } = await supabaseAdmin
+    .from("sales_agent_message_attachments")
+    .select("id, message_id, file_name, mime_type, file_size_bytes")
+    .in("message_id", messageIds)
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    console.warn("[sales-agent/chat] list attachments:", error.message);
+    return new Map();
+  }
+
+  return mapAttachmentRows((data ?? []) as AttachmentRow[]);
+}
 
 export async function listSalesAgentMessages(agentUserId: string): Promise<SalesAgentMessageRow[]> {
   const { data, error } = await supabaseAdmin
@@ -60,22 +134,110 @@ export async function insertSalesAgentMessage(input: {
   senderUserId: string;
   senderRole: string;
   body: string;
-}): Promise<{ ok: boolean; error?: string }> {
+}): Promise<{ ok: boolean; messageId?: string; error?: string }> {
   const body = input.body.trim();
-  if (!body) return { ok: false, error: "empty" };
 
-  const { error } = await supabaseAdmin.from("sales_agent_messages").insert({
-    sales_agent_user_id: input.salesAgentUserId,
-    sender_user_id: input.senderUserId,
-    sender_role: input.senderRole,
-    body,
-  });
+  const { data, error } = await supabaseAdmin
+    .from("sales_agent_messages")
+    .insert({
+      sales_agent_user_id: input.salesAgentUserId,
+      sender_user_id: input.senderUserId,
+      sender_role: input.senderRole,
+      body,
+    })
+    .select("id")
+    .single();
 
   if (error) {
     console.warn("[sales-agent/chat] insert:", error.message);
+    salesAgentChatDebugLog("insert failed", {
+      salesAgentUserId: input.salesAgentUserId,
+      senderRole: input.senderRole,
+      error: error.message,
+    });
     return { ok: false, error: error.message };
   }
-  return { ok: true };
+
+  const messageId = typeof data?.id === "string" ? data.id : undefined;
+  salesAgentChatDebugLog("insert ok", {
+    messageId,
+    salesAgentUserId: input.salesAgentUserId,
+    senderUserId: input.senderUserId,
+    senderRole: input.senderRole,
+    bodyLen: body.length,
+  });
+  return { ok: true, messageId };
+}
+
+export async function deleteSalesAgentMessage(messageId: string): Promise<void> {
+  await supabaseAdmin.from("sales_agent_messages").delete().eq("id", messageId);
+}
+
+function inferMimeFromFilename(name: string): string | null {
+  const lower = name.toLowerCase();
+  if (lower.endsWith(".pdf")) return "application/pdf";
+  if (lower.endsWith(".doc")) return "application/msword";
+  if (lower.endsWith(".docx")) return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+  if (lower.endsWith(".png")) return "image/png";
+  if (lower.endsWith(".heic")) return "image/heic";
+  if (lower.endsWith(".webp")) return "image/webp";
+  return null;
+}
+
+export async function insertSalesAgentMessageAttachment(input: {
+  messageId: string;
+  salesAgentUserId: string;
+  uploadedBy: string;
+  file: File;
+}): Promise<{ ok: boolean; attachmentId?: string; error?: string }> {
+  let mime = (input.file.type || "").trim().toLowerCase();
+  if (!mime || mime === "application/octet-stream") {
+    mime = inferMimeFromFilename(input.file.name) ?? mime;
+  }
+  if (!mime) mime = "application/octet-stream";
+  if (!isAllowedSalesAgentChatAttachmentMime(mime)) {
+    return { ok: false, error: "unsupported_type" };
+  }
+
+  const maxB = maxBytesForSalesAgentChatAttachmentMime(mime);
+  if (input.file.size > maxB) {
+    return { ok: false, error: "too_large" };
+  }
+
+  const attachmentId = randomUUID();
+  const safe = safeFilename(input.file.name);
+  const storagePath = `${input.salesAgentUserId}/${input.messageId}/${attachmentId}-${safe}`;
+  const buf = Buffer.from(await input.file.arrayBuffer());
+
+  const { error: upErr } = await supabaseAdmin.storage
+    .from(SALES_AGENT_CHAT_ATTACHMENTS_BUCKET)
+    .upload(storagePath, buf, { contentType: mime, upsert: false });
+
+  if (upErr) {
+    console.warn("[sales-agent/chat] attachment upload:", upErr.message);
+    return { ok: false, error: upErr.message };
+  }
+
+  const { error: insErr } = await supabaseAdmin.from("sales_agent_message_attachments").insert({
+    id: attachmentId,
+    message_id: input.messageId,
+    sales_agent_user_id: input.salesAgentUserId,
+    uploaded_by: input.uploadedBy,
+    storage_bucket: SALES_AGENT_CHAT_ATTACHMENTS_BUCKET,
+    storage_path: storagePath,
+    file_name: input.file.name || safe,
+    mime_type: mime,
+    file_size_bytes: input.file.size,
+  });
+
+  if (insErr) {
+    await supabaseAdmin.storage.from(SALES_AGENT_CHAT_ATTACHMENTS_BUCKET).remove([storagePath]).catch(() => {});
+    console.warn("[sales-agent/chat] attachment insert:", insErr.message);
+    return { ok: false, error: insErr.message };
+  }
+
+  return { ok: true, attachmentId };
 }
 
 export async function listActiveSalesAgentsForChat(): Promise<SalesAgentChatAgentOption[]> {
@@ -137,6 +299,7 @@ export async function enrichSalesAgentMessagesForViewer(
   viewerUserId: string,
   agentTitle: string
 ): Promise<SalesAgentMessageView[]> {
+  const attachmentMap = await listAttachmentsForMessages(messages.map((m) => m.id));
   const labelCache = new Map<string, string>();
   const out: SalesAgentMessageView[] = [];
 
@@ -155,7 +318,11 @@ export async function enrichSalesAgentMessagesForViewer(
         labelCache.set(m.sender_user_id, senderLabel);
       }
     }
-    out.push({ ...m, senderLabel });
+    out.push({
+      ...m,
+      senderLabel,
+      attachments: attachmentMap.get(m.id) ?? [],
+    });
   }
   return out;
 }
@@ -166,13 +333,25 @@ export async function listSalesAgentThreadsForWorkspaceChat(
 ): Promise<SalesAgentWorkspaceChatListItem[]> {
   const { data: rows, error } = await supabaseAdmin
     .from("sales_agent_messages")
-    .select("sales_agent_user_id, body, created_at, sender_user_id, read_at")
+    .select("id, sales_agent_user_id, body, created_at, sender_user_id, sender_role, read_at")
     .order("created_at", { ascending: false });
 
   if (error) {
     console.warn("[sales-agent/chat] workspace threads:", error.message);
+    salesAgentChatDebugLog("workspace threads query failed", {
+      viewerUserId,
+      error: error.message,
+    });
     return [];
   }
+
+  salesAgentChatDebugLog("workspace threads query", {
+    viewerUserId,
+    rowCount: rows?.length ?? 0,
+  });
+
+  const messageIds = (rows ?? []).map((r) => r.id).filter((id): id is string => typeof id === "string");
+  const attachmentMap = await listAttachmentsForMessages(messageIds);
 
   const byAgent = new Map<
     string,
@@ -183,15 +362,20 @@ export async function listSalesAgentThreadsForWorkspaceChat(
     const agentId = typeof row.sales_agent_user_id === "string" ? row.sales_agent_user_id : "";
     if (!agentId || byAgent.has(agentId)) continue;
 
-    const fromAgentUnread = row.sender_role === "sales_agent" && row.read_at == null;
+    const attachments = attachmentMap.get(row.id) ?? [];
+    const bodyText = typeof row.body === "string" ? row.body.trim() : "";
+    let preview = bodyText.slice(0, 120);
+    if (!preview && attachments.length > 0) {
+      preview = attachmentPreviewLabel(attachments[0]?.mime_type, attachments[0]?.file_name);
+    }
+
     byAgent.set(agentId, {
-      lastMessagePreview: typeof row.body === "string" ? row.body.trim().slice(0, 120) : "",
-      lastMessageAt: typeof row.created_at === "string" ? row.created_at : null,
-      hasUnread: fromAgentUnread,
+      lastMessagePreview: preview,
+      lastMessageAt: typeof row.created_at === "string" ? row.created_at : "",
+      hasUnread: row.sender_role === "sales_agent" && row.read_at == null,
     });
   }
 
-  // Scan all rows for unread from agents (not just latest message)
   const unreadAgents = new Set<string>();
   for (const row of rows ?? []) {
     const agentId = typeof row.sales_agent_user_id === "string" ? row.sales_agent_user_id : "";
@@ -202,13 +386,15 @@ export async function listSalesAgentThreadsForWorkspaceChat(
   }
 
   const agentIds = [...byAgent.keys()];
-  if (agentIds.length === 0) return [];
+  if (agentIds.length === 0) {
+    salesAgentChatDebugLog("workspace threads empty", { viewerUserId });
+    return [];
+  }
 
   const { data: profiles } = await supabaseAdmin
     .from("staff_profiles")
     .select("user_id, full_name, email")
-    .in("user_id", agentIds)
-    .eq("role", "sales_agent");
+    .in("user_id", agentIds);
 
   const profileMap = new Map(
     (profiles ?? []).map((p) => [
@@ -238,5 +424,38 @@ export async function listSalesAgentThreadsForWorkspaceChat(
   });
 
   items.sort((a, b) => (b.lastMessageAt ?? "").localeCompare(a.lastMessageAt ?? ""));
+
+  salesAgentChatDebugLog("workspace threads result", {
+    viewerUserId,
+    threadCount: items.length,
+    agents: items.map((i) => ({ agentUserId: i.agentUserId, title: i.title, hasUnread: i.hasUnread })),
+  });
+
   return items;
+}
+
+export async function getSalesAgentChatAttachmentForDownload(attachmentId: string): Promise<{
+  storage_bucket: string;
+  storage_path: string;
+  file_name: string | null;
+  mime_type: string | null;
+  sales_agent_user_id: string;
+} | null> {
+  const { data, error } = await supabaseAdmin
+    .from("sales_agent_message_attachments")
+    .select("storage_bucket, storage_path, file_name, mime_type, sales_agent_user_id")
+    .eq("id", attachmentId)
+    .maybeSingle();
+
+  if (error || !data?.storage_path || !data.storage_bucket) {
+    return null;
+  }
+
+  return {
+    storage_bucket: String(data.storage_bucket),
+    storage_path: String(data.storage_path),
+    file_name: typeof data.file_name === "string" ? data.file_name : null,
+    mime_type: typeof data.mime_type === "string" ? data.mime_type : null,
+    sales_agent_user_id: String(data.sales_agent_user_id),
+  };
 }

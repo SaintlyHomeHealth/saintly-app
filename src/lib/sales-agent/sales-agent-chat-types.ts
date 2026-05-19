@@ -24,8 +24,19 @@ export type SalesAgentWorkspaceChatListItem = {
   hasUnread: boolean;
 };
 
+export type SalesAgentMessageAttachmentView = {
+  id: string;
+  message_id: string;
+  file_name: string | null;
+  mime_type: string | null;
+  file_size_bytes: number | null;
+  fileUrl: string;
+  isImage: boolean;
+};
+
 export type SalesAgentMessageView = SalesAgentMessageRow & {
   senderLabel: string;
+  attachments: SalesAgentMessageAttachmentView[];
 };
 
 export function salesAgentDisplayName(
