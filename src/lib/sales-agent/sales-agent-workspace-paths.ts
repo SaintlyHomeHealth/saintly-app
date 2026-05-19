@@ -9,6 +9,11 @@ export function salesAgentLeadDetailPath(leadId: string): string {
   return `${SALES_AGENT_ORDERS_BASE}/${encodeURIComponent(leadId)}`;
 }
 
+/** Manager workspace chat thread with a sales agent. */
+export function salesAgentWorkspaceChatThreadPath(agentUserId: string): string {
+  return `/workspace/phone/chat/sales-agent/${encodeURIComponent(agentUserId)}`;
+}
+
 export type SalesAgentPaths = {
   leads: string;
   newLead: string;

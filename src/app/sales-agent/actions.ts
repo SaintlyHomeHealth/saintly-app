@@ -82,6 +82,30 @@ function parseAddressLine(address: string): {
   return { address_line_1: raw, city: null, state: null, zip: null };
 }
 
+function parseAddressFromFormData(formData: FormData): {
+  address_line_1: string | null;
+  city: string | null;
+  state: string | null;
+  zip: string | null;
+} {
+  const addressRaw = readTrimmed(formData, "address");
+  const line1 = readTrimmed(formData, "address_line_1");
+  const city = readTrimmed(formData, "city");
+  const state = readTrimmed(formData, "state");
+  const zip = readTrimmed(formData, "zip");
+
+  if (line1 || city || state || zip) {
+    return {
+      address_line_1: line1 || addressRaw || null,
+      city: city || null,
+      state: state || null,
+      zip: zip || null,
+    };
+  }
+
+  return parseAddressLine(addressRaw);
+}
+
 function agentDisplayName(staff: { full_name: string | null; email: string | null }): string {
   return (staff.full_name ?? staff.email ?? "Sales Agent").trim() || "Sales Agent";
 }
@@ -194,7 +218,7 @@ export async function createSalesAgentLead(formData: FormData) {
     }
   }
 
-  const addr = parseAddressLine(addressRaw);
+  const addr = parseAddressFromFormData(formData);
   const primary_payer_type = mapInsuranceTypeToStructured(insuranceTypeRaw);
   const insurance_name = insuranceNameRaw || null;
   const primary_payer_name = insurance_name;

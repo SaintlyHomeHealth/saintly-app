@@ -10,6 +10,7 @@ import {
 } from "@/app/sales-agent/actions";
 import { ServiceDisciplineCheckboxes } from "@/components/crm/ServiceDisciplineCheckboxes";
 import { FormattedPhoneInput } from "@/components/phone/FormattedPhoneInput";
+import { MapboxUsAddressInput } from "@/components/address/MapboxUsAddressInput";
 import { FormattedDobInput } from "@/components/sales-agent/FormattedDobInput";
 import { FormattedSsnInput } from "@/components/sales-agent/FormattedSsnInput";
 import type { SalesAgentDuplicateHit } from "@/lib/sales-agent/sales-agent-lead-duplicate-check";
@@ -153,10 +154,7 @@ export function SalesAgentCreateLeadForm({ paths = DEFAULT_SALES_AGENT_PATHS }: 
               Patient name *
               <input name="patient_name" required className={inp} autoComplete="name" />
             </label>
-            <label className="sm:col-span-2 flex flex-col text-xs font-medium text-slate-600">
-              Address *
-              <input name="address" required className={inp} autoComplete="street-address" />
-            </label>
+            <MapboxUsAddressInput required className={inp} />
             <label className="flex flex-col text-xs font-medium text-slate-600">
               Phone number *
               <FormattedPhoneInput name="phone_number" required className={inp} />

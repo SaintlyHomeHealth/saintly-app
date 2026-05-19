@@ -15,6 +15,19 @@ export type SalesAgentChatAgentOption = {
   unread_count: number;
 };
 
+/** Workspace Chat list row for manager/admin Sales Agent threads. */
+export type SalesAgentWorkspaceChatListItem = {
+  agentUserId: string;
+  title: string;
+  lastMessagePreview: string;
+  lastMessageAt: string | null;
+  hasUnread: boolean;
+};
+
+export type SalesAgentMessageView = SalesAgentMessageRow & {
+  senderLabel: string;
+};
+
 export function salesAgentDisplayName(
   row: Pick<SalesAgentChatAgentOption, "full_name" | "email" | "user_id">
 ): string {

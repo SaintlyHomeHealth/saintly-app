@@ -5,17 +5,29 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import type { WorkspaceInternalChatListItem } from "@/lib/internal-chat/workspace-chat-list";
+import type { SalesAgentWorkspaceChatListItem } from "@/lib/sales-agent/sales-agent-chat-types";
+import { salesAgentWorkspaceChatThreadPath } from "@/lib/sales-agent/sales-agent-workspace-paths";
 
 export type ChatListItem = WorkspaceInternalChatListItem;
 
 type Props = {
   showTeamAdmin: boolean;
+  showSalesAgents?: boolean;
   /** When set (RSC), skip the client mount fetch — same payload as GET /api/workspace/internal-chat/chats. */
   initialChats?: ChatListItem[];
+  initialSalesAgentThreads?: SalesAgentWorkspaceChatListItem[];
 };
 
-export function ChatListClient({ showTeamAdmin, initialChats }: Props) {
+export function ChatListClient({
+  showTeamAdmin,
+  showSalesAgents = false,
+  initialChats,
+  initialSalesAgentThreads,
+}: Props) {
   const [chats, setChats] = useState<ChatListItem[]>(() => initialChats ?? []);
+  const [salesAgentThreads, setSalesAgentThreads] = useState<SalesAgentWorkspaceChatListItem[]>(
+    () => initialSalesAgentThreads ?? []
+  );
   const [loading, setLoading] = useState(!initialChats);
   const [searchQ, setSearchQ] = useState("");
   const [searching, setSearching] = useState(false);
@@ -33,15 +45,25 @@ export function ChatListClient({ showTeamAdmin, initialChats }: Props) {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/workspace/internal-chat/chats", { cache: "no-store" });
-      const json = (await res.json()) as { chats?: ChatListItem[] };
+      const [chatRes, saRes] = await Promise.all([
+        fetch("/api/workspace/internal-chat/chats", { cache: "no-store" }),
+        showSalesAgents
+          ? fetch("/api/workspace/sales-agent-chat/threads", { cache: "no-store" })
+          : Promise.resolve(null),
+      ]);
+      const json = (await chatRes.json()) as { chats?: ChatListItem[] };
       setChats(json.chats ?? []);
+      if (saRes) {
+        const saJson = (await saRes.json()) as { threads?: SalesAgentWorkspaceChatListItem[] };
+        setSalesAgentThreads(saJson.threads ?? []);
+      }
     } catch {
       setChats([]);
+      setSalesAgentThreads([]);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [showSalesAgents]);
 
   useEffect(() => {
     if (initialChats) return;
@@ -155,6 +177,41 @@ export function ChatListClient({ showTeamAdmin, initialChats }: Props) {
     if (json.ok && json.chatId) {
       window.location.href = `/workspace/phone/chat/${json.chatId}`;
     }
+  }
+
+  function salesAgentSection(rows: SalesAgentWorkspaceChatListItem[]) {
+    if (!showSalesAgents || rows.length === 0) return null;
+    return (
+      <div className="mt-6">
+        <h2 className="text-xs font-bold uppercase tracking-wide text-slate-500">Sales Agents</h2>
+        <ul className="mt-2 space-y-1">
+          {rows.map((t) => (
+            <li key={t.agentUserId}>
+              <Link
+                href={salesAgentWorkspaceChatThreadPath(t.agentUserId)}
+                className={`flex flex-col rounded-xl border px-3 py-2.5 transition ${
+                  t.hasUnread
+                    ? "border-sky-200 bg-sky-50/80"
+                    : "border-slate-200/80 bg-white hover:border-slate-300"
+                }`}
+              >
+                <span className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-semibold text-slate-900">{t.title}</span>
+                  {t.hasUnread ? (
+                    <span className="shrink-0 rounded-full bg-sky-600 px-2 py-0.5 text-[10px] font-bold text-white">
+                      New
+                    </span>
+                  ) : null}
+                </span>
+                {t.lastMessagePreview ? (
+                  <span className="mt-0.5 line-clamp-2 text-xs text-slate-600">{t.lastMessagePreview}</span>
+                ) : null}
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </div>
+    );
   }
 
   function section(title: string, rows: ChatListItem[]) {
@@ -302,6 +359,7 @@ export function ChatListClient({ showTeamAdmin, initialChats }: Props) {
       {section("Teams", grouped.teams)}
       {section("Patients", grouped.patients)}
       {section("Direct messages", grouped.direct)}
+      {salesAgentSection(salesAgentThreads)}
 
       </div>
 

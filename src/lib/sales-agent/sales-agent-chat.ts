@@ -1,8 +1,14 @@
 import { supabaseAdmin } from "@/lib/admin";
 
-import type { SalesAgentChatAgentOption, SalesAgentMessageRow } from "./sales-agent-chat-types";
+import type {
+  SalesAgentChatAgentOption,
+  SalesAgentMessageRow,
+  SalesAgentMessageView,
+  SalesAgentWorkspaceChatListItem,
+} from "./sales-agent-chat-types";
+import { salesAgentDisplayName } from "./sales-agent-chat-types";
 
-export type { SalesAgentChatAgentOption, SalesAgentMessageRow } from "./sales-agent-chat-types";
+export type { SalesAgentChatAgentOption, SalesAgentMessageRow, SalesAgentMessageView, SalesAgentWorkspaceChatListItem } from "./sales-agent-chat-types";
 export { salesAgentDisplayName } from "./sales-agent-chat-types";
 
 export async function listSalesAgentMessages(agentUserId: string): Promise<SalesAgentMessageRow[]> {
@@ -107,4 +113,130 @@ export async function listActiveSalesAgentsForChat(): Promise<SalesAgentChatAgen
   }
 
   return out;
+}
+
+async function staffLabelForUserId(userId: string): Promise<string> {
+  const { data } = await supabaseAdmin
+    .from("staff_profiles")
+    .select("full_name, email, role")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (!data) return "Staff";
+  const name = salesAgentDisplayName({
+    user_id: userId,
+    full_name: typeof data.full_name === "string" ? data.full_name : null,
+    email: typeof data.email === "string" ? data.email : null,
+    unread_count: 0,
+  });
+  if (data.role === "sales_agent") return name;
+  return name || "Saintly Admin";
+}
+
+export async function enrichSalesAgentMessagesForViewer(
+  messages: SalesAgentMessageRow[],
+  viewerUserId: string,
+  agentTitle: string
+): Promise<SalesAgentMessageView[]> {
+  const labelCache = new Map<string, string>();
+  const out: SalesAgentMessageView[] = [];
+
+  for (const m of messages) {
+    let senderLabel: string;
+    if (m.sender_user_id === viewerUserId) {
+      senderLabel = "You";
+    } else if (m.sender_role === "sales_agent") {
+      senderLabel = agentTitle;
+    } else {
+      const cached = labelCache.get(m.sender_user_id);
+      if (cached) {
+        senderLabel = cached;
+      } else {
+        senderLabel = await staffLabelForUserId(m.sender_user_id);
+        labelCache.set(m.sender_user_id, senderLabel);
+      }
+    }
+    out.push({ ...m, senderLabel });
+  }
+  return out;
+}
+
+/** Managers/admins: Sales Agent threads that have at least one message. */
+export async function listSalesAgentThreadsForWorkspaceChat(
+  viewerUserId: string
+): Promise<SalesAgentWorkspaceChatListItem[]> {
+  const { data: rows, error } = await supabaseAdmin
+    .from("sales_agent_messages")
+    .select("sales_agent_user_id, body, created_at, sender_user_id, read_at")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.warn("[sales-agent/chat] workspace threads:", error.message);
+    return [];
+  }
+
+  const byAgent = new Map<
+    string,
+    { lastMessagePreview: string; lastMessageAt: string; hasUnread: boolean }
+  >();
+
+  for (const row of rows ?? []) {
+    const agentId = typeof row.sales_agent_user_id === "string" ? row.sales_agent_user_id : "";
+    if (!agentId || byAgent.has(agentId)) continue;
+
+    const fromAgentUnread = row.sender_role === "sales_agent" && row.read_at == null;
+    byAgent.set(agentId, {
+      lastMessagePreview: typeof row.body === "string" ? row.body.trim().slice(0, 120) : "",
+      lastMessageAt: typeof row.created_at === "string" ? row.created_at : null,
+      hasUnread: fromAgentUnread,
+    });
+  }
+
+  // Scan all rows for unread from agents (not just latest message)
+  const unreadAgents = new Set<string>();
+  for (const row of rows ?? []) {
+    const agentId = typeof row.sales_agent_user_id === "string" ? row.sales_agent_user_id : "";
+    if (!agentId) continue;
+    if (row.sender_role === "sales_agent" && row.read_at == null) {
+      unreadAgents.add(agentId);
+    }
+  }
+
+  const agentIds = [...byAgent.keys()];
+  if (agentIds.length === 0) return [];
+
+  const { data: profiles } = await supabaseAdmin
+    .from("staff_profiles")
+    .select("user_id, full_name, email")
+    .in("user_id", agentIds)
+    .eq("role", "sales_agent");
+
+  const profileMap = new Map(
+    (profiles ?? []).map((p) => [
+      p.user_id as string,
+      {
+        full_name: typeof p.full_name === "string" ? p.full_name : null,
+        email: typeof p.email === "string" ? p.email : null,
+      },
+    ])
+  );
+
+  const items: SalesAgentWorkspaceChatListItem[] = agentIds.map((agentUserId) => {
+    const meta = byAgent.get(agentUserId)!;
+    const prof = profileMap.get(agentUserId);
+    return {
+      agentUserId,
+      title: salesAgentDisplayName({
+        user_id: agentUserId,
+        full_name: prof?.full_name ?? null,
+        email: prof?.email ?? null,
+        unread_count: 0,
+      }),
+      lastMessagePreview: meta.lastMessagePreview,
+      lastMessageAt: meta.lastMessageAt,
+      hasUnread: unreadAgents.has(agentUserId),
+    };
+  });
+
+  items.sort((a, b) => (b.lastMessageAt ?? "").localeCompare(a.lastMessageAt ?? ""));
+  return items;
 }

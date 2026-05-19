@@ -4,6 +4,7 @@ import { WorkspacePhonePageHeader } from "../_components/WorkspacePhonePageHeade
 import { ChatListClient } from "./_components/ChatListClient";
 import { canAccessWorkspaceInternalChat } from "@/lib/internal-chat/workspace-access";
 import { getWorkspaceInternalChatListForStaff } from "@/lib/internal-chat/workspace-chat-list";
+import { listSalesAgentThreadsForWorkspaceChat } from "@/lib/sales-agent/sales-agent-chat";
 import { canUseWorkspacePhoneAppShell, getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 
 export default async function WorkspaceChatPage() {
@@ -16,6 +17,9 @@ export default async function WorkspaceChatPage() {
   }
 
   const initialChats = await getWorkspaceInternalChatListForStaff(staff);
+  const initialSalesAgentThreads = isManagerOrHigher(staff)
+    ? await listSalesAgentThreadsForWorkspaceChat(staff.user_id)
+    : [];
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -24,7 +28,12 @@ export default async function WorkspaceChatPage() {
         title="Chat"
         subtitle="Internal HIPAA-aware messaging for your team. SMS and calls stay in Inbox and Calls."
       />
-      <ChatListClient showTeamAdmin={isManagerOrHigher(staff)} initialChats={initialChats} />
+      <ChatListClient
+        showTeamAdmin={isManagerOrHigher(staff)}
+        showSalesAgents={isManagerOrHigher(staff)}
+        initialChats={initialChats}
+        initialSalesAgentThreads={initialSalesAgentThreads}
+      />
     </div>
   );
 }

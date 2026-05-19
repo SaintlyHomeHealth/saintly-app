@@ -10,6 +10,14 @@ import {
 import { requireSalesAgent } from "@/lib/sales-agent/sales-agent-auth";
 import { SALES_AGENT_CHAT } from "@/lib/sales-agent/sales-agent-workspace-paths";
 
+function revalidateSalesAgentChatPaths(agentUserId?: string) {
+  revalidatePath(SALES_AGENT_CHAT);
+  revalidatePath("/workspace/phone/chat");
+  if (agentUserId) {
+    revalidatePath(`/workspace/phone/chat/sales-agent/${agentUserId}`);
+  }
+}
+
 export async function sendSalesAgentChatMessage(formData: FormData) {
   const staff = await requireSalesAgent();
   const body = String(formData.get("body") ?? "").trim();
@@ -24,14 +32,14 @@ export async function sendSalesAgentChatMessage(formData: FormData) {
 
   if (!result.ok) return { ok: false as const, error: "Could not send message." };
 
-  revalidatePath(SALES_AGENT_CHAT);
+  revalidateSalesAgentChatPaths(staff.user_id);
   return { ok: true as const };
 }
 
 export async function markSalesAgentChatReadAction() {
   const staff = await requireSalesAgent();
   await markSalesAgentMessagesRead(staff.user_id, staff.user_id);
-  revalidatePath(SALES_AGENT_CHAT);
+  revalidateSalesAgentChatPaths(staff.user_id);
   return { ok: true as const };
 }
 
@@ -57,7 +65,7 @@ export async function sendAdminToSalesAgentChatMessage(formData: FormData) {
   if (!result.ok) return { ok: false as const, error: "Could not send message." };
 
   revalidatePath("/admin/sales-agent-chat");
-  revalidatePath(SALES_AGENT_CHAT);
+  revalidateSalesAgentChatPaths(agentUserId);
   return { ok: true as const };
 }
 
@@ -71,6 +79,7 @@ export async function markAdminSalesAgentChatReadAction(agentUserId: string) {
 
   await markSalesAgentMessagesRead(id, staff.user_id);
   revalidatePath("/admin/sales-agent-chat");
+  revalidateSalesAgentChatPaths(id);
   return { ok: true as const };
 }
 
