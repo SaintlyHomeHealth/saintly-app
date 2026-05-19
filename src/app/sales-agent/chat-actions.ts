@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import { getStaffProfile, isManagerOrHigher, isSalesAgentRole } from "@/lib/staff-profile";
+import { notifySalesAgentChatMessagePush } from "@/lib/push/notify-sales-agent-chat";
 import {
   deleteSalesAgentMessage,
   insertSalesAgentMessage,
@@ -34,9 +35,14 @@ async function sendWithOptionalAttachment(input: {
   senderRole: string;
   body: string;
   attachment: File | null;
-}): Promise<{ ok: true } | { ok: false; error: string }> {
+}): Promise<
+  | { ok: true; messageId: string; hasAttachment: boolean; hasTextBody: boolean }
+  | { ok: false; error: string }
+> {
   const body = input.body.trim();
-  if (!body && !input.attachment) {
+  const hasTextBody = Boolean(body);
+  const hasAttachment = Boolean(input.attachment);
+  if (!hasTextBody && !hasAttachment) {
     return { ok: false, error: "Message or attachment is required." };
   }
 
@@ -52,7 +58,7 @@ async function sendWithOptionalAttachment(input: {
   }
 
   if (!input.attachment) {
-    return { ok: true };
+    return { ok: true, messageId: inserted.messageId, hasAttachment: false, hasTextBody };
   }
 
   const attached = await insertSalesAgentMessageAttachment({
@@ -73,7 +79,7 @@ async function sendWithOptionalAttachment(input: {
     return { ok: false, error: "Message sent but attachment upload failed. Please try again." };
   }
 
-  return { ok: true };
+  return { ok: true, messageId: inserted.messageId, hasAttachment: true, hasTextBody };
 }
 
 export async function sendSalesAgentChatMessage(formData: FormData) {
@@ -90,6 +96,15 @@ export async function sendSalesAgentChatMessage(formData: FormData) {
   });
 
   if (!result.ok) return { ok: false as const, error: result.error };
+
+  void notifySalesAgentChatMessagePush({
+    messageId: result.messageId,
+    salesAgentUserId: staff.user_id,
+    senderUserId: staff.user_id,
+    senderRole: "sales_agent",
+    hasAttachment: result.hasAttachment,
+    hasTextBody: result.hasTextBody,
+  });
 
   revalidateSalesAgentChatPaths(staff.user_id);
   return { ok: true as const };
@@ -124,6 +139,15 @@ export async function sendAdminToSalesAgentChatMessage(formData: FormData) {
   });
 
   if (!result.ok) return { ok: false as const, error: result.error };
+
+  void notifySalesAgentChatMessagePush({
+    messageId: result.messageId,
+    salesAgentUserId: agentUserId,
+    senderUserId: staff.user_id,
+    senderRole: staff.role,
+    hasAttachment: result.hasAttachment,
+    hasTextBody: result.hasTextBody,
+  });
 
   revalidatePath("/admin/sales-agent-chat");
   revalidateSalesAgentChatPaths(agentUserId);

@@ -3,8 +3,9 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
 import { upsertUserPushDeviceByInstallId } from "@/lib/push/upsert-user-push-device";
+import { canRegisterMobilePushNotifications } from "@/lib/push/push-registration-access";
 import { createServerSupabaseClient, getAuthenticatedUser } from "@/lib/supabase/server";
-import { canAccessWorkspacePhone, getStaffProfile } from "@/lib/staff-profile";
+import { getStaffProfile } from "@/lib/staff-profile";
 
 export const runtime = "nodejs";
 
@@ -55,7 +56,7 @@ export async function POST(req: Request) {
   });
 
   const staff = await getStaffProfile();
-  const workspaceAllowed = staff ? canAccessWorkspacePhone(staff) : false;
+  const pushAllowed = staff ? canRegisterMobilePushNotifications(staff) : false;
   console.log(LOG, "staff_profile", {
     reqId,
     hasStaffProfile: Boolean(staff),
@@ -63,7 +64,7 @@ export async function POST(req: Request) {
     role: staff?.role ?? null,
     is_active: staff?.is_active ?? null,
     phone_access_enabled: staff?.phone_access_enabled ?? null,
-    canAccessWorkspacePhone: workspaceAllowed,
+    canRegisterMobilePushNotifications: pushAllowed,
   });
 
   if (!user) {
@@ -82,10 +83,10 @@ export async function POST(req: Request) {
     );
   }
 
-  if (!workspaceAllowed) {
-    console.warn(LOG, "reject_401", { reqId, reason: "workspace_phone_not_allowed" });
+  if (!pushAllowed) {
+    console.warn(LOG, "reject_401", { reqId, reason: "mobile_push_not_allowed" });
     return NextResponse.json(
-      { error: "Unauthorized", reason: "workspace_phone_not_allowed" },
+      { error: "Unauthorized", reason: "mobile_push_not_allowed" },
       { status: 401 }
     );
   }

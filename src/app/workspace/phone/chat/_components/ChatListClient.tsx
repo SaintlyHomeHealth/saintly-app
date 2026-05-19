@@ -8,6 +8,8 @@ import type { WorkspaceInternalChatListItem } from "@/lib/internal-chat/workspac
 import type { SalesAgentWorkspaceChatListItem } from "@/lib/sales-agent/sales-agent-chat-types";
 import { salesAgentWorkspaceChatThreadPath } from "@/lib/sales-agent/sales-agent-workspace-paths";
 
+import { SalesAgentChatPushBanner } from "./SalesAgentChatPushBanner";
+
 export type ChatListItem = WorkspaceInternalChatListItem;
 
 type Props = {
@@ -181,9 +183,17 @@ export function ChatListClient({
 
   function salesAgentSection(rows: SalesAgentWorkspaceChatListItem[]) {
     if (!showSalesAgents) return null;
+    const unreadCount = rows.filter((t) => t.hasUnread).length;
     return (
       <div className="mt-6">
-        <h2 className="text-xs font-bold uppercase tracking-wide text-slate-500">Sales Agents</h2>
+        <h2 className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-slate-500">
+          Sales Agents
+          {unreadCount > 0 ? (
+            <span className="rounded-full bg-sky-600 px-1.5 py-0.5 text-[10px] font-bold normal-case tracking-normal text-white">
+              {unreadCount} new
+            </span>
+          ) : null}
+        </h2>
         {rows.length === 0 ? (
           <p className="mt-2 text-sm text-slate-500">No sales agent messages yet.</p>
         ) : (
@@ -363,6 +373,7 @@ export function ChatListClient({
       {section("Teams", grouped.teams)}
       {section("Patients", grouped.patients)}
       {section("Direct messages", grouped.direct)}
+      <SalesAgentChatPushBanner show={showSalesAgents} />
       {salesAgentSection(salesAgentThreads)}
 
       </div>
