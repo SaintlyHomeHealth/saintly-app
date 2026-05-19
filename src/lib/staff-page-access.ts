@@ -30,6 +30,7 @@ export const STAFF_PAGE_KEYS = [
   "workspace_patients",
   "workspace_pay",
   "workspace_leads",
+  "workspace_sales_agent_orders",
 ] as const;
 
 export type StaffPageKey = (typeof STAFF_PAGE_KEYS)[number];
@@ -59,6 +60,7 @@ export const STAFF_PAGE_LABELS: Record<StaffPageKey, string> = {
   workspace_patients: "Patients (workspace)",
   workspace_pay: "Pay (workspace)",
   workspace_leads: "Leads (workspace)",
+  workspace_sales_agent_orders: "Sales Agent Orders / Leads",
 };
 
 export const STAFF_PAGE_PRESETS = [
@@ -71,6 +73,7 @@ export const STAFF_PAGE_PRESETS = [
   "dispatch",
   "credentialing",
   "read_only",
+  "sales_agent",
   "custom",
 ] as const;
 
@@ -84,6 +87,7 @@ export const STAFF_PAGE_PRESET_LABELS: Record<StaffPagePreset, string> = {
   dispatch: "Dispatch",
   credentialing: "Credentialing",
   read_only: "Read-only",
+  sales_agent: "Sales Agent",
   custom: "Custom",
 };
 
@@ -178,6 +182,16 @@ function presetCredentialing(): Record<StaffPageKey, boolean> {
   return b;
 }
 
+/** Sales agents: workspace phone essentials + own orders only (no admin, no full workspace). */
+function presetSalesAgent(): Record<StaffPageKey, boolean> {
+  const b = allFalse();
+  b.workspace_keypad = true;
+  b.workspace_calls = true;
+  b.workspace_voicemail = true;
+  b.workspace_sales_agent_orders = true;
+  return b;
+}
+
 export function defaultPagesForPreset(preset: StaffPagePreset): Record<StaffPageKey, boolean> {
   switch (preset) {
     case "staff":
@@ -194,6 +208,8 @@ export function defaultPagesForPreset(preset: StaffPagePreset): Record<StaffPage
       return presetDispatch();
     case "credentialing":
       return presetCredentialing();
+    case "sales_agent":
+      return presetSalesAgent();
     case "admin":
     case "manager":
       return presetManagerLike();
@@ -226,6 +242,8 @@ export function roleFallbackPreset(role: StaffRole): StaffPagePreset {
     case "manager":
     case "don":
       return "manager";
+    case "sales_agent":
+      return "sales_agent";
     default:
       return "manager";
   }
@@ -286,6 +304,30 @@ export function resolveEffectivePageAccess(staff: StaffForPageAccess): Record<St
   }
 
   // Staff role never gets org-wide admin modules by default (even with admin shell).
+  if (staff.role === "sales_agent") {
+    merged.command_center = false;
+    merged.contacts = false;
+    merged.leads = false;
+    merged.recruiting = false;
+    merged.facilities = false;
+    merged.fax_center = false;
+    merged.pdf_sign = false;
+    merged.patients = false;
+    merged.credentialing = false;
+    merged.call_log = false;
+    merged.dispatch = false;
+    merged.employees = false;
+    merged.payroll = false;
+    merged.billing = false;
+    merged.staff_access = false;
+    merged.workspace_inbox = false;
+    merged.workspace_followups = false;
+    merged.workspace_visits = false;
+    merged.workspace_patients = false;
+    merged.workspace_pay = false;
+    merged.workspace_leads = false;
+  }
+
   if (staff.role === "staff") {
     merged.command_center = false;
     merged.contacts = false;
@@ -363,6 +405,7 @@ export function workspaceHrefToPageKey(href: string): StaffPageKey | null {
   if (href.startsWith("/workspace/phone/patients")) return "workspace_patients";
   if (href.startsWith("/workspace/phone/keypad")) return "workspace_keypad";
   if (href.startsWith("/workspace/phone/leads")) return "workspace_leads";
+  if (href.startsWith("/workspace/phone/sales-agent")) return "workspace_sales_agent_orders";
   if (href.startsWith("/workspace/pay")) return "workspace_pay";
   return null;
 }
@@ -377,6 +420,8 @@ const WORKSPACE_TAB_HREFS: { key: StaffPageKey; href: string }[] = [
   { key: "workspace_keypad", href: "/workspace/phone/keypad" },
   { key: "workspace_pay", href: "/workspace/pay" },
   { key: "workspace_leads", href: "/workspace/phone/leads" },
+  { key: "workspace_sales_agent_orders", href: "/workspace/phone/sales-agent/leads" },
+  { key: "workspace_sales_agent_orders", href: "/workspace/phone/sales-agent/leads/new" },
 ];
 
 export function allowedWorkspaceTabHrefs(access: Record<StaffPageKey, boolean>): string[] | null {
@@ -399,6 +444,9 @@ export function fallbackPathAfterKeypadDenied(access: Record<StaffPageKey, boole
 }
 
 export function userCanReachAdminBackend(staff: StaffForPageAccess, access: Record<StaffPageKey, boolean>): boolean {
+  if (staff.role === "sales_agent") {
+    return false;
+  }
   if (
     !isManagerOrHigher({ role: staff.role } as StaffProfile) &&
     staff.role !== "nurse" &&

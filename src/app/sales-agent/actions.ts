@@ -22,6 +22,11 @@ import {
 import { parseServiceDisciplinesFromFormData } from "@/lib/crm/service-disciplines";
 import { requireSalesAgent } from "@/lib/sales-agent/sales-agent-auth";
 import {
+  SALES_AGENT_ORDERS_BASE,
+  SALES_AGENT_ORDERS_NEW,
+  salesAgentLeadDetailPath,
+} from "@/lib/sales-agent/sales-agent-workspace-paths";
+import {
   findSalesAgentDuplicateLeads,
   type SalesAgentDuplicateHit,
 } from "@/lib/sales-agent/sales-agent-lead-duplicate-check";
@@ -161,19 +166,19 @@ export async function createSalesAgentLead(formData: FormData) {
   const consent = readCheckbox(formData, "consent_to_contact");
   const confirmDuplicate = readCheckbox(formData, "confirm_duplicate");
 
-  if (!patientName) redirect("/sales-agent/leads/new?error=validation_name");
-  if (!addressRaw) redirect("/sales-agent/leads/new?error=validation_address");
-  if (!phoneRaw) redirect("/sales-agent/leads/new?error=validation_phone");
-  if (!consent) redirect("/sales-agent/leads/new?error=validation_consent");
+  if (!patientName) redirect(`${SALES_AGENT_ORDERS_NEW}?error=validation_name`);
+  if (!addressRaw) redirect(`${SALES_AGENT_ORDERS_NEW}?error=validation_address`);
+  if (!phoneRaw) redirect(`${SALES_AGENT_ORDERS_NEW}?error=validation_phone`);
+  if (!consent) redirect(`${SALES_AGENT_ORDERS_NEW}?error=validation_consent`);
 
   const primary_phone = normalizePhone(phoneRaw);
-  if (!primary_phone) redirect("/sales-agent/leads/new?error=validation_phone");
+  if (!primary_phone) redirect(`${SALES_AGENT_ORDERS_NEW}?error=validation_phone`);
 
   const dob = parseDobIso(dobRaw);
-  if (!dob) redirect("/sales-agent/leads/new?error=validation_dob");
+  if (!dob) redirect(`${SALES_AGENT_ORDERS_NEW}?error=validation_dob`);
 
   if (!insuranceTypeRaw && !insuranceNameRaw) {
-    redirect("/sales-agent/leads/new?error=validation_insurance");
+    redirect(`${SALES_AGENT_ORDERS_NEW}?error=validation_insurance`);
   }
 
   if (!confirmDuplicate) {
@@ -184,7 +189,7 @@ export async function createSalesAgentLead(formData: FormData) {
       dobIso: dob,
     });
     if (duplicates.length > 0) {
-      redirect("/sales-agent/leads/new?error=duplicate_found");
+      redirect(`${SALES_AGENT_ORDERS_NEW}?error=duplicate_found`);
     }
   }
 
@@ -211,7 +216,7 @@ export async function createSalesAgentLead(formData: FormData) {
 
   if (cErr || !contactRow?.id) {
     console.warn("[sales-agent] contact insert failed");
-    redirect("/sales-agent/leads/new?error=contact_failed");
+    redirect(`${SALES_AGENT_ORDERS_NEW}?error=contact_failed`);
   }
 
   const contactId = contactRow.id as string;
@@ -251,7 +256,7 @@ export async function createSalesAgentLead(formData: FormData) {
   if (lErr || !leadRow?.id) {
     console.warn("[sales-agent] lead insert failed");
     await supabaseAdmin.from("contacts").delete().eq("id", contactId);
-    redirect("/sales-agent/leads/new?error=lead_failed");
+    redirect(`${SALES_AGENT_ORDERS_NEW}?error=lead_failed`);
   }
 
   const leadId = leadRow.id as string;
@@ -278,9 +283,9 @@ export async function createSalesAgentLead(formData: FormData) {
     intakeChannel: "sales_agent",
   });
 
-  revalidatePath("/sales-agent/leads");
+  revalidatePath(SALES_AGENT_ORDERS_BASE);
   revalidatePath("/admin/crm/leads");
-  redirect(`/sales-agent/leads/${leadId}?created=1`);
+  redirect(`${salesAgentLeadDetailPath(leadId)}?created=1`);
 }
 
 export async function uploadSalesAgentLeadDocument(formData: FormData) {
@@ -289,7 +294,7 @@ export async function uploadSalesAgentLeadDocument(formData: FormData) {
   const leadId = readTrimmed(formData, "leadId");
   const docTypeRaw = readTrimmed(formData, "documentType");
   if (!leadId || !isValidLeadDocumentType(docTypeRaw)) {
-    redirect("/sales-agent/leads?error=invalid_upload");
+    redirect(`${SALES_AGENT_ORDERS_BASE}?error=invalid_upload`);
   }
 
   const { data: lead } = await supabaseAdmin
@@ -300,12 +305,12 @@ export async function uploadSalesAgentLeadDocument(formData: FormData) {
     .maybeSingle();
 
   if (!lead?.id || lead.produced_by_sales_agent_id !== staff.user_id) {
-    redirect("/sales-agent/leads?error=forbidden");
+    redirect(`${SALES_AGENT_ORDERS_BASE}?error=forbidden`);
   }
 
   await uploadLeadDocumentFromForm(formData, leadId, "file", docTypeRaw, staff.user_id);
 
-  revalidatePath(`/sales-agent/leads/${leadId}`);
+  revalidatePath(salesAgentLeadDetailPath(leadId));
   revalidatePath(`/admin/crm/leads/${leadId}`);
-  redirect(`/sales-agent/leads/${leadId}?uploaded=1`);
+  redirect(`${salesAgentLeadDetailPath(leadId)}?uploaded=1`);
 }

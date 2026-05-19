@@ -127,7 +127,8 @@ function staffMayUsePhoneWorkspaceRole(role: StaffRole): boolean {
     role === "recruiter" ||
     role === "billing" ||
     role === "dispatch" ||
-    role === "credentialing"
+    role === "credentialing" ||
+    role === "sales_agent"
   );
 }
 
@@ -150,7 +151,6 @@ export function isPhoneWorkspaceUser(profile: StaffProfile | null | undefined): 
  */
 export function canAccessWorkspaceShell(profile: StaffProfile | null | undefined): boolean {
   if (!profile || profile.is_active === false) return false;
-  if (profile.role === "sales_agent") return false;
   return isStaffRole(profile.role);
 }
 

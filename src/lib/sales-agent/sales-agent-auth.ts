@@ -2,6 +2,8 @@ import { redirect } from "next/navigation";
 
 import { getStaffProfile, type StaffProfile } from "@/lib/staff-profile";
 
+import { SALES_AGENT_ORDERS_BASE } from "@/lib/sales-agent/sales-agent-workspace-paths";
+
 export function isSalesAgent(profile: StaffProfile | null | undefined): boolean {
   return profile?.role === "sales_agent" && profile.is_active !== false;
 }
@@ -16,7 +18,7 @@ export function isSalesAgentOrCrmManager(profile: StaffProfile | null | undefine
 export async function requireSalesAgent(): Promise<StaffProfile> {
   const staff = await getStaffProfile();
   if (!staff) {
-    redirect("/login?next=/sales-agent/leads");
+    redirect(`/login?next=${SALES_AGENT_ORDERS_BASE}`);
   }
   if (!isSalesAgent(staff)) {
     redirect("/unauthorized?reason=forbidden");
@@ -25,6 +27,6 @@ export async function requireSalesAgent(): Promise<StaffProfile> {
 }
 
 export function defaultPathForStaffRole(role: string): string {
-  if (role === "sales_agent") return "/sales-agent/leads";
+  if (role === "sales_agent") return SALES_AGENT_ORDERS_BASE;
   return "/workspace/phone/keypad";
 }

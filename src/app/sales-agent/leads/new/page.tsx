@@ -1,11 +1,7 @@
-import { Suspense } from "react";
+import { redirect } from "next/navigation";
 
-import { SalesAgentNewLeadForm } from "./SalesAgentNewLeadForm";
+import { SALES_AGENT_ORDERS_NEW } from "@/lib/sales-agent/sales-agent-workspace-paths";
 
 export default function SalesAgentNewLeadPage() {
-  return (
-    <Suspense fallback={<p className="text-sm text-slate-500">Loading form…</p>}>
-      <SalesAgentNewLeadForm />
-    </Suspense>
-  );
+  redirect(SALES_AGENT_ORDERS_NEW);
 }

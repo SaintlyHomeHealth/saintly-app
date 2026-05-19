@@ -10,6 +10,7 @@ import {
 } from "@/lib/perf/route-perf";
 import {
   CalendarDays,
+  ClipboardList,
   Hash,
   Inbox,
   MessageCircle,
@@ -52,6 +53,68 @@ const leadsTab: Tab = {
   ),
   iconTitle: "Leads",
 };
+
+const salesAgentOrdersTab: Tab = {
+  href: "/workspace/phone/sales-agent/leads",
+  label: "Orders",
+  match: /^\/workspace\/phone\/sales-agent\/leads(?:\/(?!new)[^/]+)?$/,
+  icon: (
+    <span className={iconWrap}>
+      <ClipboardList className="h-4 w-4" strokeWidth={2} aria-hidden />
+    </span>
+  ),
+  iconTitle: "My Orders",
+};
+
+const salesAgentCreateTab: Tab = {
+  href: "/workspace/phone/sales-agent/leads/new",
+  label: "Create",
+  match: /^\/workspace\/phone\/sales-agent\/leads\/new$/,
+  icon: (
+    <span className={iconWrap}>
+      <UserPlus className="h-4 w-4" strokeWidth={2} aria-hidden />
+    </span>
+  ),
+  iconTitle: "Create Order / Lead",
+};
+
+const salesAgentTabsBase: Tab[] = [
+  {
+    href: "/workspace/phone/keypad",
+    label: "Keypad",
+    match: /^\/workspace\/phone\/keypad/,
+    icon: (
+      <span className={iconWrap}>
+        <Hash className="h-4 w-4" strokeWidth={2} aria-hidden />
+      </span>
+    ),
+    iconTitle: "Keypad",
+  },
+  {
+    href: "/workspace/phone/calls",
+    label: "Calls",
+    match: /^\/workspace\/phone\/calls/,
+    icon: (
+      <span className={iconWrap}>
+        <Phone className="h-4 w-4" strokeWidth={2} aria-hidden />
+      </span>
+    ),
+    iconTitle: "Calls",
+  },
+  {
+    href: "/workspace/phone/voicemail",
+    label: "Voicemail",
+    match: /^\/workspace\/phone\/voicemail/,
+    icon: (
+      <span className={iconWrap}>
+        <Voicemail className="h-4 w-4" strokeWidth={2} aria-hidden />
+      </span>
+    ),
+    iconTitle: "Voicemail",
+  },
+  salesAgentOrdersTab,
+  salesAgentCreateTab,
+];
 
 const tabsBase: Tab[] = [
   {
@@ -151,6 +214,8 @@ function isActive(pathname: string, match: RegExp): boolean {
 type NavProps = {
   /** Managers/admins: show Leads. Hidden for nurses / workspace-only staff. */
   showLeadsNav?: boolean;
+  /** Sales agents: keypad/calls/orders nav only (no visits/inbox/patients). */
+  isSalesAgentNav?: boolean;
   /** When set, only these workspace paths appear in the bottom bar (Staff Access page permissions). */
   allowedTabHrefs?: string[] | null;
   /** Server snapshot; client keeps this updated via focused refreshes and a fallback interval. */
@@ -211,6 +276,7 @@ const NavTabLink = memo(function NavTabLink({
 
 function NursePhoneBottomNavInner({
   showLeadsNav = true,
+  isSalesAgentNav = false,
   allowedTabHrefs = null,
   initialInboxHasUnread = false,
 }: NavProps) {
@@ -338,13 +404,21 @@ function NursePhoneBottomNavInner({
     [allowedTabHrefs]
   );
   const tabs = useMemo(() => {
+    if (isSalesAgentNav) {
+      let t = salesAgentTabsBase;
+      if (tabsHrefKey) {
+        const allow = new Set(tabsHrefKey.split("|"));
+        t = t.filter((row) => allow.has(row.href));
+      }
+      return t;
+    }
     let t = showLeadsNav ? [...tabsBase.slice(0, 6), leadsTab, ...tabsBase.slice(6)] : tabsBase;
     if (tabsHrefKey) {
       const allow = new Set(tabsHrefKey.split("|"));
       t = t.filter((row) => allow.has(row.href));
     }
     return t;
-  }, [showLeadsNav, tabsHrefKey]);
+  }, [isSalesAgentNav, showLeadsNav, tabsHrefKey]);
 
   /** ActiveCallBar is fixed above the nav; hiding nav during a call avoids double-stack + wrong safe-area math on iPhone. */
   if (inCallLayout) {

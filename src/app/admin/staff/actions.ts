@@ -114,6 +114,13 @@ export async function addStaffProfile(formData: FormData) {
     is_active: true,
     phone_access_enabled: false,
     inbound_ring_enabled: false,
+    ...(roleRaw === "sales_agent"
+      ? {
+          page_access_preset: "sales_agent",
+          admin_shell_access: false,
+          page_permissions: {},
+        }
+      : {}),
   };
 
   const { data: inserted, error } = await supabaseAdmin
@@ -576,7 +583,17 @@ export async function updateStaffRole(formData: FormData) {
 
   const { error } = await supabaseAdmin
     .from("staff_profiles")
-    .update({ role: roleRaw, updated_at: new Date().toISOString() })
+    .update({
+      role: roleRaw,
+      ...(roleRaw === "sales_agent"
+        ? {
+            page_access_preset: "sales_agent",
+            admin_shell_access: false,
+            page_permissions: {},
+          }
+        : {}),
+      updated_at: new Date().toISOString(),
+    })
     .eq("id", id);
 
   if (error) {

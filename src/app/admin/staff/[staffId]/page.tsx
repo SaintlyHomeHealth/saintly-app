@@ -140,7 +140,12 @@ function StatusBadge({
 
 function accessSummaryLabel(profile: { role: StaffRole; page_access_preset: string | null }): string {
   if (profile.page_access_preset === "custom") return "Custom";
+  if (profile.page_access_preset === "sales_agent" || profile.role === "sales_agent") return "Sales Agent";
+  if (profile.page_access_preset && isStaffPagePreset(profile.page_access_preset)) {
+    return STAFF_PAGE_PRESET_LABELS[profile.page_access_preset];
+  }
   if (profile.role === "nurse") return "Nurse";
+  if (profile.role === "read_only") return "Read-only";
   return "Admin";
 }
 

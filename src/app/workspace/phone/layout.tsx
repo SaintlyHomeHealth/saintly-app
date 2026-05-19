@@ -15,7 +15,7 @@ import {
   routePerfTimed,
 } from "@/lib/perf/route-perf";
 import { allowedWorkspaceTabHrefs, resolveEffectivePageAccess } from "@/lib/staff-page-access";
-import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
+import { getStaffProfile, isManagerOrHigher, isSalesAgentRole } from "@/lib/staff-profile";
 
 export default async function WorkspacePhoneLayout({ children }: { children: ReactNode }) {
   const perfStart = routePerfStart();
@@ -24,16 +24,18 @@ export default async function WorkspacePhoneLayout({ children }: { children: Rea
       ? await routePerfTimed("workspace_phone_layout.staff_profile", getStaffProfile)
       : await getStaffProfile();
     if (!staff) {
-      redirect("/admin/phone");
+      redirect("/login?next=/workspace/phone/sales-agent/leads");
     }
 
+    const isSalesAgent = isSalesAgentRole(staff);
     const displayName =
       (typeof staff.full_name === "string" && staff.full_name.trim()) ||
       (typeof staff.email === "string" && staff.email.trim()) ||
       "Staff";
 
     const showAdminLink =
-      isManagerOrHigher(staff) || (staff.role === "nurse" && staff.admin_shell_access === true);
+      !isSalesAgent &&
+      (isManagerOrHigher(staff) || (staff.role === "nurse" && staff.admin_shell_access === true));
     const access = resolveEffectivePageAccess(staff);
     const allowedTabs = allowedWorkspaceTabHrefs(access);
 
@@ -59,7 +61,12 @@ export default async function WorkspacePhoneLayout({ children }: { children: Rea
 
           <WorkspacePhoneMainPad>{children}</WorkspacePhoneMainPad>
 
-          <NursePhoneBottomNav showLeadsNav={showAdminLink} allowedTabHrefs={allowedTabs} initialInboxHasUnread={false} />
+          <NursePhoneBottomNav
+            showLeadsNav={showAdminLink}
+            isSalesAgentNav={isSalesAgent}
+            allowedTabHrefs={allowedTabs}
+            initialInboxHasUnread={false}
+          />
         </div>
       </WorkspaceGlobalSoftphoneShell>
     );

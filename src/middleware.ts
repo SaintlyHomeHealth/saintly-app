@@ -3,6 +3,11 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { postLoginPathForRole, safeInternalPath } from "@/lib/auth/post-login-redirect";
+import {
+  mapLegacySalesAgentPath,
+  salesAgentMayAccessWorkspacePath,
+  SALES_AGENT_ORDERS_BASE,
+} from "@/lib/sales-agent/sales-agent-workspace-paths";
 
 export type StaffDenyReason = "no_staff_profile" | "inactive" | "role_not_allowed";
 
@@ -148,15 +153,33 @@ export async function middleware(request: NextRequest) {
       url.searchParams.set("reason", "forbidden");
       return NextResponse.redirect(url);
     }
+    const mapped = mapLegacySalesAgentPath(pathname);
+    if (mapped) {
+      const url = request.nextUrl.clone();
+      url.pathname = mapped;
+      return NextResponse.redirect(url);
+    }
   }
 
   if (pathname.startsWith("/workspace") && user) {
     const gate = await resolveStaffGate(supabase, user.id);
     if (gate.ok && gate.role === "sales_agent") {
       const url = request.nextUrl.clone();
-      url.pathname = "/sales-agent/leads";
-      url.search = "";
-      return NextResponse.redirect(url);
+      if (!pathname.startsWith("/workspace/phone")) {
+        url.pathname = SALES_AGENT_ORDERS_BASE;
+        url.search = "";
+        return NextResponse.redirect(url);
+      }
+      if (pathname === "/workspace/phone" || pathname === "/workspace/phone/") {
+        url.pathname = SALES_AGENT_ORDERS_BASE;
+        url.search = "";
+        return NextResponse.redirect(url);
+      }
+      if (!salesAgentMayAccessWorkspacePath(pathname)) {
+        url.pathname = SALES_AGENT_ORDERS_BASE;
+        url.search = "";
+        return NextResponse.redirect(url);
+      }
     }
   }
 
@@ -222,7 +245,7 @@ export async function middleware(request: NextRequest) {
     const salesAgentOnly = role === "sales_agent";
     if (salesAgentOnly) {
       const url = request.nextUrl.clone();
-      url.pathname = "/sales-agent/leads";
+      url.pathname = SALES_AGENT_ORDERS_BASE;
       url.search = "";
       return NextResponse.redirect(url);
     }
