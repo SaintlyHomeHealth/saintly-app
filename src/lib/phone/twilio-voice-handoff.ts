@@ -268,7 +268,7 @@ function buildPstnNumberDialOpeningResponseXml(input: {
 
 /**
  * Inbound softphone handoff order is controlled by {@link resolveVoiceInboundRingStrategy}:
- * default PSTN/cell first, then optional browser ring (`browser_first` restores legacy order).
+ * default browser/team clients first, then PSTN fallback (`pstn_first` / `pstn_only` when configured).
  */
 export async function buildVoiceHandoffTwiml(input: {
   closing: string;
@@ -548,8 +548,8 @@ export async function buildVoiceHandoffTwiml(input: {
 }
 
 /**
- * Staged inbound: order depends on {@link resolveVoiceInboundRingStrategy} — default PSTN first
- * (`pstn_first`), then primary browsers → `/inbound-escalation` backup → optional PSTN → voicemail.
+ * Staged inbound: order depends on {@link resolveVoiceInboundRingStrategy} — default browser first,
+ * then optional PSTN; with `VOICE_ESCALATION_ENABLED`, primary → backup → PSTN → voicemail.
  */
 export async function buildEscalationInboundVoiceTwiml(input: {
   closing: string;

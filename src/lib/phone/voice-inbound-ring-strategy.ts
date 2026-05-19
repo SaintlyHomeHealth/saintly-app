@@ -1,6 +1,21 @@
 /**
  * Inbound PSTN → ring target ordering (browser vs cell/office).
  *
+ * **Product default:** `browser_first` — Voice.js / mobile clients ring with caller/lead context in the
+ * Saintly UI; PSTN (`TWILIO_VOICE_RING_E164`) is fallback after no-answer.
+ *
+ * Vercel inbound (app/browser/team ringing, ~25s, no long cascade):
+ * - `TWILIO_VOICE_INBOUND_RING_STRATEGY=browser_first` (or unset — code default)
+ * - `TWILIO_VOICE_BROWSER_RING_SECONDS=25`
+ * - `TWILIO_VOICE_RING_TIMEOUT_SECONDS=25` (PSTN fallback leg after browser timeout)
+ * - `VOICE_ESCALATION_ENABLED=0` — use single browser→PSTN handoff, not primary→backup→PSTN ladder
+ * - `VOICE_BUSINESS_ROUTING_ENABLED=0` — skip multi-step `/inbound-dial-cascade` (optional if ring groups are minimal)
+ * - Unset `TWILIO_VOICE_DISABLE_BROWSER_RING`, `TWILIO_VOICE_TEAM_RING_E164S`, `TWILIO_VOICE_PRIMARY_ROUTE=pstn`
+ * - `TWILIO_VOICE_INBOUND_TRANSCRIPT_ENABLED=false` — no auto Real-Time Transcription on answer
+ *
+ * Outbound PSTN bridge (keep unchanged): `TWILIO_OUTBOUND_CALL_STRATEGY=pstn_bridge`,
+ * `TWILIO_OUTBOUND_DISABLE_CLIENT=1`, etc. — see `outbound-pstn-bridge-config.ts`.
+ *
  * @see TWILIO_VOICE_INBOUND_RING_STRATEGY
  * @see TWILIO_VOICE_DISABLE_BROWSER_RING
  */
@@ -38,8 +53,8 @@ function envForcesPstnOnly(): boolean {
 
 /**
  * - `pstn_only`: only &lt;Number&gt; legs toward `TWILIO_VOICE_RING_E164` (etc.), then voicemail — no &lt;Client&gt;.
- * - `pstn_first` (default when not overridden): PSTN before browser softphones.
- * - `browser_first`: ring Voice.js clients first, then PSTN fallback.
+ * - `pstn_first`: PSTN/cell before browser softphones.
+ * - `browser_first` (default when not overridden): ring Voice.js clients first, then PSTN fallback.
  *
  * Aliases: `TWILIO_INBOUND_RING_STRATEGY` (same as `TWILIO_VOICE_INBOUND_RING_STRATEGY`),
  * `TWILIO_VOICE_PRIMARY_ROUTE` (`pstn`|`browser`).
@@ -75,5 +90,5 @@ export function resolveVoiceInboundRingStrategy(): VoiceInboundRingStrategy {
     return "pstn_only";
   }
 
-  return "pstn_first";
+  return "browser_first";
 }
