@@ -30,6 +30,10 @@ import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { crmFilterInputCls, crmPrimaryCtaCls } from "@/components/admin/crm-admin-list-styles";
 import { normalizeCrmLeadRowForClient, staffPrimaryLabel, type CrmLeadRow } from "@/lib/crm/crm-leads-table-helpers";
 import {
+  isSalesAgentProducedLead,
+  resolveSalesAgentStaffDisplayBatch,
+} from "@/lib/crm/sales-agent-produced-by";
+import {
   routePerfLog,
   routePerfStart,
   routePerfStepsEnabled,
@@ -51,7 +55,7 @@ function isNextControlFlowError(error: unknown): boolean {
 
 /** Omit `external_source_metadata` — large JSONB; hydrate only employee rows via a narrow follow-up query. */
 const CRM_LEADS_LIST_SELECT_BASE_CORE =
-  "id, contact_id, source, status, lead_type, owner_user_id, created_at, intake_status, referral_source, payer_name, payer_type, primary_payer_type, primary_payer_name, secondary_payer_type, secondary_payer_name, referring_provider_name, next_action, follow_up_date, follow_up_at, last_contact_at, last_outcome, service_disciplines, service_type, lead_temperature";
+  "id, contact_id, source, status, lead_type, owner_user_id, produced_by_sales_agent_id, ownership_locked, assigned_to_staff_id, created_at, intake_status, referral_source, payer_name, payer_type, primary_payer_type, primary_payer_name, secondary_payer_type, secondary_payer_name, referring_provider_name, next_action, follow_up_date, follow_up_at, last_contact_at, last_outcome, service_disciplines, service_type, lead_temperature";
 
 const CRM_LEADS_LIST_SELECT_BASE = `${CRM_LEADS_LIST_SELECT_BASE_CORE}, call_attempt_count`;
 
@@ -395,6 +399,28 @@ export default async function AdminCrmLeadsPage({
     }
 
     const employeeOnlyView = false;
+
+    const salesAgentProducerRefs = [
+      ...new Set(
+        list
+          .filter((r) =>
+            isSalesAgentProducedLead({
+              source: r.source,
+              producedBySalesAgentId: r.produced_by_sales_agent_id,
+              ownershipLocked: r.ownership_locked,
+            })
+          )
+          .map((r) => (r.produced_by_sales_agent_id ?? "").trim())
+          .filter(Boolean)
+      ),
+    ];
+    const producedByAgentNameByUserId: Record<string, string> = {};
+    if (salesAgentProducerRefs.length > 0) {
+      const resolved = await resolveSalesAgentStaffDisplayBatch(supabaseAdmin, salesAgentProducerRefs);
+      for (const [uid, name] of resolved.entries()) {
+        producedByAgentNameByUserId[uid] = name;
+      }
+    }
 
     const rangeStart = list.length === 0 ? 0 : (safePage - 1) * ADMIN_CRM_LEADS_PAGE_SIZE + 1;
     const rangeEnd = (safePage - 1) * ADMIN_CRM_LEADS_PAGE_SIZE + list.length;
@@ -747,6 +773,7 @@ export default async function AdminCrmLeadsPage({
           initialList={list}
           employeeOnlyView={employeeOnlyView}
           staffOptions={staffOptions}
+          producedByAgentNameByUserId={producedByAgentNameByUserId}
           todayIso={todayIso}
           smsConversationIdByContactId={smsConversationIdByContactId}
           initialDensity={density}

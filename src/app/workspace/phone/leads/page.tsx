@@ -357,13 +357,30 @@ export default async function WorkspacePhoneLeadsPage({
   if (staffLookupIds.length > 0) {
     const { data: staffRows } = await supabaseAdmin
       .from("staff_profiles")
-      .select("user_id, full_name, email")
+      .select("id, user_id, full_name, email")
       .in("user_id", staffLookupIds);
     for (const s of staffRows ?? []) {
       const uid = typeof s.user_id === "string" ? s.user_id.trim() : "";
       const fnRaw = typeof s.full_name === "string" ? s.full_name.trim() : "";
       const emailRaw = typeof s.email === "string" ? s.email.trim() : "";
       const label = fnRaw || emailRaw;
+      if (uid && label) staffNameByUserId.set(uid, label);
+    }
+  }
+
+  const unresolvedAgentRefs = staffLookupIds.filter((id) => !staffNameByUserId.has(id));
+  if (unresolvedAgentRefs.length > 0) {
+    const { data: byProfileId } = await supabaseAdmin
+      .from("staff_profiles")
+      .select("id, user_id, full_name, email")
+      .in("id", unresolvedAgentRefs);
+    for (const s of byProfileId ?? []) {
+      const profileId = typeof s.id === "string" ? s.id.trim() : "";
+      const uid = typeof s.user_id === "string" ? s.user_id.trim() : "";
+      const fnRaw = typeof s.full_name === "string" ? s.full_name.trim() : "";
+      const emailRaw = typeof s.email === "string" ? s.email.trim() : "";
+      const label = fnRaw || emailRaw;
+      if (profileId && label) staffNameByUserId.set(profileId, label);
       if (uid && label) staffNameByUserId.set(uid, label);
     }
   }
@@ -458,7 +475,7 @@ export default async function WorkspacePhoneLeadsPage({
                   <p className="truncate text-sm font-semibold text-phone-navy">{name}</p>
                   <p className="mt-0.5 text-xs text-slate-600">{phoneDisplay}</p>
                   {agentLabel ? (
-                    <p className="mt-0.5 text-[11px] text-violet-800">Sales agent: {agentLabel}</p>
+                    <p className="mt-0.5 text-[11px] text-violet-800">Produced by {agentLabel}</p>
                   ) : null}
                   <p className="mt-1 text-[11px] text-slate-500">
                     Last contact:{" "}

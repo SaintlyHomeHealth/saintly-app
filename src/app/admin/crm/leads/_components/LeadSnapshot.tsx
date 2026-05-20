@@ -19,6 +19,8 @@ import { leadTemperatureLabel, normalizeLeadTemperature } from "@/lib/crm/lead-t
 import { setLeadWaitingOnDoctorsOrders, setLeadWaitingOnInsuranceVerification } from "@/app/admin/crm/actions";
 import { LEAD_HOLD_WAITING_ON_INSURANCE_VERIFICATION } from "@/lib/crm/lead-holds";
 import { formatAppDate, formatAppDateTime } from "@/lib/datetime/app-timezone";
+import { formatProducedBySalesAgentLabel } from "@/lib/crm/sales-agent-produced-by";
+
 import { LeadSnapshotCopyButton, LeadSnapshotMedicareReveal } from "./lead-snapshot-client";
 import { LeadDeleteButton } from "./LeadDeleteButton";
 
@@ -146,6 +148,12 @@ export type LeadSnapshotProps = {
   waitingOnDoctorsOrders: boolean;
   /** `leads.waiting_on_insurance_verification` */
   waitingOnInsuranceVerification: boolean;
+  /** Locked sales credit + internal assignment for sales-agent orders. */
+  salesAgentCredit?: {
+    producedByName: string | null;
+    ownershipLocked: boolean;
+    assignedToStaffId: string;
+  } | null;
 };
 
 function buildSnapshotPlainText(p: LeadSnapshotProps): string {
@@ -169,7 +177,17 @@ function buildSnapshotPlainText(p: LeadSnapshotProps): string {
     .join(" · ");
   L("Address", addr);
   L("Lead source", formatLeadSourceLabel(p.sourceRaw));
-  L("Owner", staffLabel(p.staffOptions, p.ownerUid) || "—");
+  if (p.salesAgentCredit) {
+    L("Produced by", formatProducedBySalesAgentLabel(p.salesAgentCredit.producedByName));
+    L(
+      "Assigned to",
+      p.salesAgentCredit.assignedToStaffId.trim()
+        ? staffLabel(p.staffOptions, p.salesAgentCredit.assignedToStaffId)
+        : "Not assigned"
+    );
+  } else {
+    L("Owner", staffLabel(p.staffOptions, p.ownerUid) || "—");
+  }
   L("Next action", formatLeadNextActionLabel(p.nextActionVal));
   L("Lead next follow-up", p.followUpIso ? fmtIsoDate(p.followUpIso) : "—");
   L("Lead priority", leadTemperatureLabel(normalizeLeadTemperature(p.leadTemperature)));
@@ -247,6 +265,7 @@ export function LeadSnapshot(props: LeadSnapshotProps) {
     terminal,
     waitingOnDoctorsOrders,
     waitingOnInsuranceVerification,
+    salesAgentCredit = null,
   } = props;
 
   const addrParts = [
@@ -426,7 +445,30 @@ export function LeadSnapshot(props: LeadSnapshotProps) {
             <Field label="Lead source" emphasis>
               {formatLeadSourceLabel(sourceRaw)}
             </Field>
-            <Field label="Owner">{textOrMuted(staffLabel(staffOptions, ownerUid))}</Field>
+            {salesAgentCredit ? (
+              <>
+                <Field label="Produced by" emphasis className="sm:col-span-2">
+                  <span className="flex flex-wrap items-center gap-2">
+                    <span>{formatProducedBySalesAgentLabel(salesAgentCredit.producedByName)}</span>
+                    <span className="text-xs font-medium text-violet-800">Sales Agent</span>
+                    {salesAgentCredit.ownershipLocked ? (
+                      <span className="rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-violet-900 ring-1 ring-violet-200">
+                        Locked
+                      </span>
+                    ) : null}
+                  </span>
+                </Field>
+                <Field label="Assigned to">
+                  {salesAgentCredit.assignedToStaffId.trim() ? (
+                    <span className="text-slate-900">{staffLabel(staffOptions, salesAgentCredit.assignedToStaffId)}</span>
+                  ) : (
+                    <span className="text-slate-400">Not assigned</span>
+                  )}
+                </Field>
+              </>
+            ) : (
+              <Field label="Owner">{textOrMuted(staffLabel(staffOptions, ownerUid))}</Field>
+            )}
             <Field label="Next action" emphasis>
               {formatLeadNextActionLabel(nextActionVal)}
             </Field>

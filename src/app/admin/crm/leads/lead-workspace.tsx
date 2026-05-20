@@ -519,7 +519,9 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
     salesAgentContext = null,
   } = props;
 
-  const isSalesAgentLead = Boolean(salesAgentContext?.producedBySalesAgentId);
+  const isSalesAgentLead = Boolean(
+    salesAgentContext?.isSalesAgentOrder || salesAgentContext?.producedBySalesAgentId
+  );
 
   const tomorrowIso = getCrmCalendarTomorrowIso();
   const voicemailSuggestedIso = addCalendarDaysToIsoDate(getCrmCalendarTodayIso(), 2);
@@ -674,6 +676,15 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
             terminal={terminal}
             waitingOnDoctorsOrders={waitingOnDoctorsOrders}
             waitingOnInsuranceVerification={waitingOnInsuranceVerification}
+            salesAgentCredit={
+              isSalesAgentLead && salesAgentContext
+                ? {
+                    producedByName: salesAgentContext.producedByAgentName,
+                    ownershipLocked: salesAgentContext.ownershipLocked,
+                    assignedToStaffId: salesAgentContext.assignedToStaffId,
+                  }
+                : null
+            }
           />
           </LeadDetailSectionErrorBoundary>
 

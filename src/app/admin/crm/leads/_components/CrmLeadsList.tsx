@@ -41,6 +41,10 @@ import {
   staffPrimaryLabel,
   type CrmLeadRow,
 } from "@/lib/crm/crm-leads-table-helpers";
+import {
+  formatProducedBySalesAgentLabel,
+  isSalesAgentProducedLead,
+} from "@/lib/crm/sales-agent-produced-by";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import {
   buildWorkspaceInboxLeadSmsHref,
@@ -250,6 +254,8 @@ type Props = {
   initialList: CrmLeadRow[];
   employeeOnlyView: boolean;
   staffOptions: StaffOpt[];
+  /** `staff_profiles.user_id` → display name for producing sales agents on list rows. */
+  producedByAgentNameByUserId?: Record<string, string>;
   /** Central CRM calendar YYYY-MM-DD for urgency + last-contact copy */
   todayIso: string;
   /** Latest SMS thread id per CRM contact for "Text" deep-links (navigation only). */
@@ -420,10 +426,30 @@ function followUpValueClass(fu: ReturnType<typeof followUpUrgency>): string {
   return "text-slate-700";
 }
 
+function leadCreditDisplay(
+  r: CrmLeadRow,
+  producedByAgentNameByUserId: Record<string, string>,
+  owner: StaffOpt | undefined
+): { label: string; value: string } {
+  if (
+    isSalesAgentProducedLead({
+      source: r.source,
+      producedBySalesAgentId: r.produced_by_sales_agent_id,
+      ownershipLocked: r.ownership_locked,
+    })
+  ) {
+    const uid = (r.produced_by_sales_agent_id ?? "").trim();
+    const name = uid ? producedByAgentNameByUserId[uid] : null;
+    return { label: "Produced by", value: formatProducedBySalesAgentLabel(name) };
+  }
+  return { label: "Owner", value: owner ? staffPrimaryLabel(owner) : "—" };
+}
+
 export function CrmLeadsList({
   initialList,
   employeeOnlyView,
   staffOptions,
+  producedByAgentNameByUserId = {},
   todayIso,
   smsConversationIdByContactId = {},
   initialDensity = "compact",
@@ -638,7 +664,8 @@ export function CrmLeadsList({
                 const displayName = contactDisplayName(contact, { unknownLabel: "Unknown patient" });
                 const phone = (contact?.primary_phone ?? "").trim();
                 const email = contactEmail(contact);
-                const owner = r.owner_user_id ? staffById.get(r.owner_user_id) : null;
+                const owner = r.owner_user_id ? staffById.get(r.owner_user_id) : undefined;
+                const credit = leadCreditDisplay(r, producedByAgentNameByUserId, owner);
                 const cid = typeof r.contact_id === "string" ? r.contact_id.trim() : "";
                 const dialE164 = pickOutboundE164ForDial(phone);
                 const keypadHref = dialE164
@@ -752,7 +779,7 @@ export function CrmLeadsList({
                               <span className="text-slate-400">Last:</span>{" "}
                               <span className={`font-normal ${lastContactToneClass(lcHuman.tone)}`}>{lcHuman.line}</span>
                               <span className="text-slate-300"> · </span>
-                              <span className="text-slate-400">Owner:</span> {owner ? staffPrimaryLabel(owner) : "—"}
+                              <span className="text-slate-400">{credit.label}:</span> {credit.value}
                             </p>
                           </div>
                           <LeadQuickActions compact leadId={r.id} />
@@ -777,8 +804,8 @@ export function CrmLeadsList({
                             <span className={`font-normal ${lastContactToneClass(lcHuman.tone)}`}>{lcHuman.line}</span>
                           </div>
                           <div>
-                            <span className="text-slate-500">Owner: </span>
-                            {owner ? staffPrimaryLabel(owner) : "—"}
+                            <span className="text-slate-500">{credit.label}: </span>
+                            {credit.value}
                           </div>
                           <LeadQuickActions leadId={r.id} />
                           <LeadTemperatureQuickSet leadId={r.id} value={r.lead_temperature ?? null} />
@@ -868,7 +895,8 @@ export function CrmLeadsList({
                 const displayName = contactDisplayName(contact, { unknownLabel: "Unknown patient" });
                 const phone = (contact?.primary_phone ?? "").trim();
                 const email = contactEmail(contact);
-                const owner = r.owner_user_id ? staffById.get(r.owner_user_id) : null;
+                const owner = r.owner_user_id ? staffById.get(r.owner_user_id) : undefined;
+                const credit = leadCreditDisplay(r, producedByAgentNameByUserId, owner);
                 const cid = typeof r.contact_id === "string" ? r.contact_id.trim() : "";
                 const dialE164 = pickOutboundE164ForDial(phone);
                 const keypadHref = dialE164
@@ -1001,7 +1029,7 @@ export function CrmLeadsList({
                               <span className="text-slate-400">Last:</span>{" "}
                               <span className={`font-normal ${lastContactToneClass(lcHuman.tone)}`}>{lcHuman.line}</span>
                               <span className="text-slate-300"> · </span>
-                              <span className="text-slate-400">Owner:</span> {owner ? staffPrimaryLabel(owner) : "—"}
+                              <span className="text-slate-400">{credit.label}:</span> {credit.value}
                             </p>
                           </div>
                           <LeadQuickActions compact leadId={r.id} />
@@ -1026,8 +1054,8 @@ export function CrmLeadsList({
                             <span className={`font-normal ${lastContactToneClass(lcHuman.tone)}`}>{lcHuman.line}</span>
                           </div>
                           <div>
-                            <span className="text-slate-500">Owner: </span>
-                            {owner ? staffPrimaryLabel(owner) : "—"}
+                            <span className="text-slate-500">{credit.label}: </span>
+                            {credit.value}
                           </div>
                           <LeadQuickActions leadId={r.id} />
                           <LeadTemperatureQuickSet leadId={r.id} value={r.lead_temperature ?? null} />

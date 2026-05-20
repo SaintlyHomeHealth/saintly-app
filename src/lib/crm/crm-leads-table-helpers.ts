@@ -19,6 +19,9 @@ export type CrmLeadRow = {
   status: string | null;
   lead_type: string | null;
   owner_user_id: string | null;
+  produced_by_sales_agent_id?: string | null;
+  ownership_locked?: boolean | null;
+  assigned_to_staff_id?: string | null;
   created_at: string;
   intake_status: string | null;
   referral_source: string | null;
@@ -153,6 +156,19 @@ export function normalizeCrmLeadRowForClient(raw: Record<string, unknown>): CrmL
     lead_type: typeof raw.lead_type === "string" ? raw.lead_type : raw.lead_type == null ? null : String(raw.lead_type),
     owner_user_id:
       typeof raw.owner_user_id === "string" ? raw.owner_user_id : raw.owner_user_id == null ? null : String(raw.owner_user_id),
+    produced_by_sales_agent_id:
+      typeof raw.produced_by_sales_agent_id === "string"
+        ? raw.produced_by_sales_agent_id.trim() || null
+        : raw.produced_by_sales_agent_id == null
+          ? null
+          : String(raw.produced_by_sales_agent_id).trim() || null,
+    ownership_locked: raw.ownership_locked === true,
+    assigned_to_staff_id:
+      typeof raw.assigned_to_staff_id === "string"
+        ? raw.assigned_to_staff_id.trim() || null
+        : raw.assigned_to_staff_id == null
+          ? null
+          : String(raw.assigned_to_staff_id).trim() || null,
     created_at: typeof raw.created_at === "string" ? raw.created_at : "",
     intake_status: typeof raw.intake_status === "string" ? raw.intake_status : null,
     referral_source: typeof raw.referral_source === "string" ? raw.referral_source : null,

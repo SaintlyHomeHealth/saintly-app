@@ -29,6 +29,11 @@ import {
   loadLeadSalesAgentAdminContext,
   type LeadSalesAgentAdminContext,
 } from "@/lib/crm/load-lead-sales-agent-context";
+import {
+  isSalesAgentProducedLead,
+  resolveProducedBySalesAgentIdFromActivity,
+  resolveSalesAgentStaffDisplay,
+} from "@/lib/crm/sales-agent-produced-by";
 import { isPostgresInvalidUuidError, isValidCrmLeadId, normalizeCrmLeadId } from "@/lib/crm/crm-lead-id";
 import { contactDisplayName as crmContactDisplayName } from "@/lib/crm/crm-leads-table-helpers";
 import { listInsurancePayers } from "@/lib/crm/insurance-payers";
@@ -87,16 +92,27 @@ function sanitizeLeadActivities(raw: unknown): LeadActivityRow[] {
 
 async function resolveSalesAgentAdminContext(
   leadId: string,
-  sourceRaw: string
+  sourceRaw: string,
+  ownershipLockedHint?: boolean
 ): Promise<LeadSalesAgentAdminContext | null> {
   try {
-    const ctx = await loadLeadSalesAgentAdminContext(leadId);
+    const ctx = await loadLeadSalesAgentAdminContext(leadId, {
+      source: sourceRaw,
+      ownershipLocked: ownershipLockedHint,
+    });
     if (ctx) return ctx;
   } catch (e) {
     console.warn("[crm/lead detail] sales agent context failed:", e);
   }
 
-  if (sourceRaw.trim().toLowerCase() !== "sales_agent") return null;
+  if (
+    !isSalesAgentProducedLead({
+      source: sourceRaw,
+      ownershipLocked: ownershipLockedHint,
+    })
+  ) {
+    return null;
+  }
 
   try {
     const { data, error } = await supabaseAdmin
@@ -104,23 +120,46 @@ async function resolveSalesAgentAdminContext(
       .select("produced_by_sales_agent_id, ownership_locked, assigned_to_staff_id")
       .eq("id", leadId)
       .maybeSingle();
-    if (error || !data) return null;
-    const produced =
+    if (error || !data) {
+      return buildMinimalLeadSalesAgentAdminContext({
+        isSalesAgentOrder: true,
+        ownershipLocked: ownershipLockedHint === true,
+      });
+    }
+
+    let produced =
       typeof data.produced_by_sales_agent_id === "string" && data.produced_by_sales_agent_id.trim()
         ? data.produced_by_sales_agent_id.trim()
         : "";
-    if (!produced) return null;
+    if (!produced) {
+      produced = (await resolveProducedBySalesAgentIdFromActivity(supabaseAdmin, leadId)) ?? "";
+    }
+
+    let producedByAgentName: string | null = null;
+    if (produced) {
+      const resolved = await resolveSalesAgentStaffDisplay(supabaseAdmin, produced);
+      if (resolved) {
+        producedByAgentName = resolved.displayName;
+        produced = resolved.userId;
+      }
+    }
+
     return buildMinimalLeadSalesAgentAdminContext({
-      producedBySalesAgentId: produced,
-      ownershipLocked: data.ownership_locked === true,
+      producedBySalesAgentId: produced || null,
+      producedByAgentName,
+      ownershipLocked: data.ownership_locked === true || ownershipLockedHint === true,
       assignedToStaffId:
         typeof data.assigned_to_staff_id === "string" && data.assigned_to_staff_id.trim()
           ? data.assigned_to_staff_id.trim()
           : "",
+      isSalesAgentOrder: true,
     });
   } catch (e) {
     console.warn("[crm/lead detail] sales agent minimal context failed:", e);
-    return null;
+    return buildMinimalLeadSalesAgentAdminContext({
+      isSalesAgentOrder: true,
+      ownershipLocked: ownershipLockedHint === true,
+    });
   }
 }
 
@@ -374,11 +413,12 @@ export default async function LeadIntakePage({
     typeof L.owner_user_id === "string" && L.owner_user_id.trim() ? L.owner_user_id.trim() : "";
 
   const sourceRawEarly = typeof (row as Record<string, unknown>).source === "string" ? String((row as Record<string, unknown>).source) : "";
+  const ownershipLockedEarly = (row as Record<string, unknown>).ownership_locked === true;
   const salesAgentContext = routePerfStepsEnabled()
     ? await routePerfTimed("admin_crm_lead_detail.sales_agent_context", () =>
-        resolveSalesAgentAdminContext(leadId, sourceRawEarly)
+        resolveSalesAgentAdminContext(leadId, sourceRawEarly, ownershipLockedEarly)
       )
-    : await resolveSalesAgentAdminContext(leadId, sourceRawEarly);
+    : await resolveSalesAgentAdminContext(leadId, sourceRawEarly, ownershipLockedEarly);
 
   const preserveUserIds = [
     ...(ownerUid ? [ownerUid] : []),

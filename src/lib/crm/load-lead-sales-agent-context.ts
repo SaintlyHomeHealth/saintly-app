@@ -2,8 +2,15 @@ import { supabaseAdmin } from "@/lib/admin";
 import type { LeadDocumentAdminRow } from "@/app/admin/crm/leads/_components/LeadSalesAgentSection";
 import { isMissingSchemaObjectError } from "@/lib/crm/supabase-migration-fallback";
 import { isValidCrmLeadId } from "@/lib/crm/crm-lead-id";
+import {
+  isSalesAgentProducedLead,
+  resolveProducedBySalesAgentIdFromActivity,
+  resolveSalesAgentStaffDisplay,
+} from "@/lib/crm/sales-agent-produced-by";
 
 export type LeadSalesAgentAdminContext = {
+  /** Sales-agent order — show locked Produced By even when profile lookup fails. */
+  isSalesAgentOrder: boolean;
   producedBySalesAgentId: string | null;
   producedByAgentName: string | null;
   ownershipLocked: boolean;
@@ -22,20 +29,26 @@ export type LeadSalesAgentAdminContext = {
   documentsUnavailable?: boolean;
 };
 
+export type LeadSalesAgentContextHints = {
+  source?: string | null;
+  ownershipLocked?: boolean | null;
+};
+
 const SALES_AGENT_COLUMNS_FULL =
-  "produced_by_sales_agent_id, ownership_locked, assigned_to_staff_id, converted_to_patient_at, converted_patient_id, caregiver_name, caregiver_phone_number, caregiver_relationship, reason_for_referral, insurance_member_id, social_security_number, sales_agent_hidden_at";
+  "source, produced_by_sales_agent_id, ownership_locked, assigned_to_staff_id, converted_to_patient_at, converted_patient_id, caregiver_name, caregiver_phone_number, caregiver_relationship, reason_for_referral, insurance_member_id, social_security_number, sales_agent_hidden_at";
 
 const SALES_AGENT_COLUMNS_NO_SSN =
-  "produced_by_sales_agent_id, ownership_locked, assigned_to_staff_id, converted_to_patient_at, converted_patient_id, caregiver_name, caregiver_phone_number, caregiver_relationship, reason_for_referral, insurance_member_id, sales_agent_hidden_at";
+  "source, produced_by_sales_agent_id, ownership_locked, assigned_to_staff_id, converted_to_patient_at, converted_patient_id, caregiver_name, caregiver_phone_number, caregiver_relationship, reason_for_referral, insurance_member_id, sales_agent_hidden_at";
 
 const SALES_AGENT_COLUMNS_MINIMAL =
-  "produced_by_sales_agent_id, ownership_locked, assigned_to_staff_id";
+  "source, produced_by_sales_agent_id, ownership_locked, assigned_to_staff_id";
 
 function mapLeadRowToContext(
   lead: Record<string, unknown>,
   producedByAgentName: string | null,
   documents: LeadDocumentAdminRow[],
-  documentsUnavailable: boolean
+  documentsUnavailable: boolean,
+  isSalesAgentOrder: boolean
 ): LeadSalesAgentAdminContext {
   const producedBySalesAgentId =
     typeof lead.produced_by_sales_agent_id === "string" && lead.produced_by_sales_agent_id.trim()
@@ -43,6 +56,7 @@ function mapLeadRowToContext(
       : null;
 
   return {
+    isSalesAgentOrder,
     producedBySalesAgentId,
     producedByAgentName,
     ownershipLocked: lead.ownership_locked === true,
@@ -73,20 +87,23 @@ function mapLeadRowToContext(
 
 /** Minimal context when extended columns are unavailable but the lead is a sales-agent order. */
 export function buildMinimalLeadSalesAgentAdminContext(input: {
-  producedBySalesAgentId: string;
+  producedBySalesAgentId?: string | null;
   producedByAgentName?: string | null;
   ownershipLocked?: boolean;
   assignedToStaffId?: string;
+  isSalesAgentOrder?: boolean;
 }): LeadSalesAgentAdminContext {
+  const producedId = (input.producedBySalesAgentId ?? "").trim() || null;
   return mapLeadRowToContext(
     {
-      produced_by_sales_agent_id: input.producedBySalesAgentId,
+      produced_by_sales_agent_id: producedId ?? "",
       ownership_locked: input.ownershipLocked === true,
       assigned_to_staff_id: input.assignedToStaffId ?? "",
     },
     input.producedByAgentName ?? null,
     [],
-    false
+    false,
+    input.isSalesAgentOrder !== false
   );
 }
 
@@ -115,30 +132,47 @@ async function loadLeadSalesAgentRow(
   return { lead: null, salesAgentWorkflowAvailable: false };
 }
 
-export async function loadLeadSalesAgentAdminContext(leadId: string): Promise<LeadSalesAgentAdminContext | null> {
+export async function loadLeadSalesAgentAdminContext(
+  leadId: string,
+  hints?: LeadSalesAgentContextHints
+): Promise<LeadSalesAgentAdminContext | null> {
   const id = leadId.trim();
   if (!isValidCrmLeadId(id)) return null;
 
   const { lead, salesAgentWorkflowAvailable } = await loadLeadSalesAgentRow(id);
-  if (!salesAgentWorkflowAvailable || !lead) return null;
+  if (!salesAgentWorkflowAvailable) return null;
 
-  const producedBySalesAgentId =
-    typeof lead.produced_by_sales_agent_id === "string" && lead.produced_by_sales_agent_id.trim()
+  const sourceFromRow = typeof lead?.source === "string" ? lead.source : hints?.source ?? "";
+  const ownershipFromRow = lead?.ownership_locked === true || hints?.ownershipLocked === true;
+
+  let producedBySalesAgentId =
+    typeof lead?.produced_by_sales_agent_id === "string" && lead.produced_by_sales_agent_id.trim()
       ? lead.produced_by_sales_agent_id.trim()
       : null;
 
-  if (!producedBySalesAgentId) return null;
+  const salesAgentOrder = isSalesAgentProducedLead({
+    source: sourceFromRow,
+    producedBySalesAgentId,
+    ownershipLocked: ownershipFromRow,
+  });
+
+  if (!salesAgentOrder) return null;
+
+  if (!producedBySalesAgentId) {
+    producedBySalesAgentId = await resolveProducedBySalesAgentIdFromActivity(supabaseAdmin, id);
+  }
 
   let producedByAgentName: string | null = null;
-  try {
-    const { data: agentRow } = await supabaseAdmin
-      .from("staff_profiles")
-      .select("full_name, email")
-      .eq("user_id", producedBySalesAgentId)
-      .maybeSingle();
-    producedByAgentName = (agentRow?.full_name ?? agentRow?.email ?? "").trim() || null;
-  } catch (e) {
-    console.warn("[crm] loadLeadSalesAgentAdminContext staff lookup:", e);
+  if (producedBySalesAgentId) {
+    try {
+      const resolved = await resolveSalesAgentStaffDisplay(supabaseAdmin, producedBySalesAgentId);
+      if (resolved) {
+        producedByAgentName = resolved.displayName;
+        producedBySalesAgentId = resolved.userId;
+      }
+    } catch (e) {
+      console.warn("[crm] loadLeadSalesAgentAdminContext staff lookup:", e);
+    }
   }
 
   let documents: LeadDocumentAdminRow[] = [];
@@ -157,5 +191,14 @@ export async function loadLeadSalesAgentAdminContext(leadId: string): Promise<Le
     documents = (docs ?? []) as LeadDocumentAdminRow[];
   }
 
-  return mapLeadRowToContext(lead, producedByAgentName, documents, documentsUnavailable);
+  const leadForMap: Record<string, unknown> = lead
+    ? { ...lead, produced_by_sales_agent_id: producedBySalesAgentId ?? lead.produced_by_sales_agent_id }
+    : {
+        source: sourceFromRow,
+        produced_by_sales_agent_id: producedBySalesAgentId ?? "",
+        ownership_locked: ownershipFromRow,
+        assigned_to_staff_id: "",
+      };
+
+  return mapLeadRowToContext(leadForMap, producedByAgentName, documents, documentsUnavailable, true);
 }

@@ -13,6 +13,7 @@ export type LeadDocumentAdminRow = {
 
 export type LeadSalesAgentSectionProps = {
   leadId: string;
+  isSalesAgentOrder?: boolean;
   producedBySalesAgentId: string | null;
   producedByAgentName: string | null;
   ownershipLocked: boolean;
@@ -41,6 +42,7 @@ function staffOptionLabel(s: LeadWorkspaceStaffOption): string {
 
 export function LeadSalesAgentSection({
   leadId,
+  isSalesAgentOrder = false,
   producedBySalesAgentId,
   producedByAgentName,
   ownershipLocked,
@@ -58,7 +60,7 @@ export function LeadSalesAgentSection({
   documents,
   documentsUnavailable = false,
 }: LeadSalesAgentSectionProps) {
-  if (!producedBySalesAgentId) return null;
+  if (!isSalesAgentOrder && !producedBySalesAgentId) return null;
 
   return (
     <div className="rounded-[28px] border border-violet-200/90 bg-violet-50/30 p-5 shadow-sm ring-1 ring-violet-100/60">
@@ -79,10 +81,11 @@ export function LeadSalesAgentSection({
 
       <div className="mt-4 grid gap-4 sm:grid-cols-2">
         <div className="sm:col-span-2">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Produced by (locked)</p>
-          <p className="mt-1 flex items-center gap-2 text-sm font-semibold text-slate-900">
-            {producedByAgentName?.trim() || "Unknown sales agent"}
-            {ownershipLocked ? (
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Produced by</p>
+          <p className="mt-1 flex flex-wrap items-center gap-2 text-sm font-semibold text-slate-900">
+            <span>{producedByAgentName?.trim() || "Unknown sales agent"}</span>
+            <span className="text-xs font-medium text-slate-500">Sales Agent</span>
+            {ownershipLocked || isSalesAgentOrder ? (
               <span className="rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-700">
                 Locked
               </span>
