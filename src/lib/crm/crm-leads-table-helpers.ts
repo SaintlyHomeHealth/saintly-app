@@ -49,12 +49,14 @@ export type CrmLeadRow = {
   contacts: CrmLeadsContactEmb | CrmLeadsContactEmb[] | null;
 };
 
-export function contactDisplayName(c: CrmLeadsContactEmb | null): string {
-  if (!c) return "—";
+/** Admin CRM list/detail display name with safe fallback when contact is missing. */
+export function contactDisplayName(c: CrmLeadsContactEmb | null, opts?: { unknownLabel?: string }): string {
+  const unknown = opts?.unknownLabel ?? "Unknown patient";
+  if (!c) return unknown;
   const fn = (c.full_name ?? "").trim();
   if (fn) return fn;
   const parts = [c.first_name, c.last_name].filter(Boolean).join(" ").trim();
-  return parts || "—";
+  return parts || unknown;
 }
 
 export function normalizeContact(
@@ -124,4 +126,51 @@ export function staffPrimaryLabel(s: {
 
 export function contactEmail(c: CrmLeadsContactEmb | null): string {
   return typeof c?.email === "string" ? c.email.trim() : "";
+}
+
+function asStringArray(v: unknown): string[] | null {
+  if (v == null) return null;
+  if (!Array.isArray(v)) return null;
+  return v.filter((x): x is string => typeof x === "string" && x.trim() !== "");
+}
+
+/** Normalize a leads list row from Supabase before passing to client components. */
+export function normalizeCrmLeadRowForClient(raw: Record<string, unknown>): CrmLeadRow {
+  const contacts = raw.contacts as CrmLeadsContactEmb | CrmLeadsContactEmb[] | null | undefined;
+  return {
+    id: typeof raw.id === "string" ? raw.id : String(raw.id ?? ""),
+    contact_id: typeof raw.contact_id === "string" ? raw.contact_id : String(raw.contact_id ?? ""),
+    source: typeof raw.source === "string" ? raw.source : "",
+    status: typeof raw.status === "string" ? raw.status : raw.status == null ? null : String(raw.status),
+    lead_type: typeof raw.lead_type === "string" ? raw.lead_type : raw.lead_type == null ? null : String(raw.lead_type),
+    owner_user_id:
+      typeof raw.owner_user_id === "string" ? raw.owner_user_id : raw.owner_user_id == null ? null : String(raw.owner_user_id),
+    created_at: typeof raw.created_at === "string" ? raw.created_at : "",
+    intake_status: typeof raw.intake_status === "string" ? raw.intake_status : null,
+    referral_source: typeof raw.referral_source === "string" ? raw.referral_source : null,
+    payer_name: typeof raw.payer_name === "string" ? raw.payer_name : null,
+    payer_type: typeof raw.payer_type === "string" ? raw.payer_type : null,
+    primary_payer_type: typeof raw.primary_payer_type === "string" ? raw.primary_payer_type : null,
+    primary_payer_name: typeof raw.primary_payer_name === "string" ? raw.primary_payer_name : null,
+    secondary_payer_type: typeof raw.secondary_payer_type === "string" ? raw.secondary_payer_type : null,
+    secondary_payer_name: typeof raw.secondary_payer_name === "string" ? raw.secondary_payer_name : null,
+    referring_provider_name: typeof raw.referring_provider_name === "string" ? raw.referring_provider_name : null,
+    next_action: typeof raw.next_action === "string" ? raw.next_action : null,
+    follow_up_date: typeof raw.follow_up_date === "string" ? raw.follow_up_date : null,
+    follow_up_at: typeof raw.follow_up_at === "string" ? raw.follow_up_at : null,
+    last_contact_at: typeof raw.last_contact_at === "string" ? raw.last_contact_at : null,
+    last_outcome: typeof raw.last_outcome === "string" ? raw.last_outcome : null,
+    service_disciplines: asStringArray(raw.service_disciplines),
+    service_type: typeof raw.service_type === "string" ? raw.service_type : null,
+    notes: typeof raw.notes === "string" ? raw.notes : null,
+    external_source_metadata: raw.external_source_metadata ?? null,
+    lead_temperature: typeof raw.lead_temperature === "string" ? raw.lead_temperature : null,
+    waiting_on_doctors_orders: raw.waiting_on_doctors_orders === true,
+    waiting_on_insurance_verification: raw.waiting_on_insurance_verification === true,
+    call_attempt_count:
+      typeof raw.call_attempt_count === "number" && Number.isFinite(raw.call_attempt_count)
+        ? raw.call_attempt_count
+        : null,
+    contacts: contacts ?? null,
+  };
 }

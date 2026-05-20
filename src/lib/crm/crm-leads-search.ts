@@ -32,6 +32,10 @@ export function buildContactSearchOrClause(qRaw: string): string | null {
     `notes.ilike.%${esc}%`,
     `primary_phone.ilike.%${esc}%`,
     `secondary_phone.ilike.%${esc}%`,
+    `address_line_1.ilike.%${esc}%`,
+    `city.ilike.%${esc}%`,
+    `state.ilike.%${esc}%`,
+    `zip.ilike.%${esc}%`,
   ];
 
   const d = searchQueryDigits(q);

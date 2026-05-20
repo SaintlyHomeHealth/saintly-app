@@ -50,11 +50,17 @@ export async function loadLeadSalesAgentAdminContext(leadId: string): Promise<Le
     .maybeSingle();
   producedByAgentName = (agentRow?.full_name ?? agentRow?.email ?? "").trim() || null;
 
-  const { data: docs } = await supabaseAdmin
+  let documents: LeadDocumentAdminRow[] = [];
+  const { data: docs, error: docsErr } = await supabaseAdmin
     .from("lead_documents")
     .select("id, document_type, created_at")
     .eq("lead_id", leadId)
     .order("created_at", { ascending: true });
+  if (docsErr) {
+    console.warn("[crm] loadLeadSalesAgentAdminContext documents:", docsErr.message);
+  } else {
+    documents = (docs ?? []) as LeadDocumentAdminRow[];
+  }
 
   return {
     producedBySalesAgentId,
@@ -80,6 +86,6 @@ export async function loadLeadSalesAgentAdminContext(leadId: string): Promise<Le
       typeof lead?.social_security_number === "string" ? lead.social_security_number : "",
     salesAgentHiddenAt:
       typeof lead?.sales_agent_hidden_at === "string" ? lead.sales_agent_hidden_at : null,
-    documents: (docs ?? []) as LeadDocumentAdminRow[],
+    documents,
   };
 }

@@ -78,7 +78,7 @@ function contactStageBadgeClassForOutcome(outcomeLower: string): string {
 /** Show pipeline label next to source when it adds info beyond default "new". */
 export function shouldShowPipelineStatusOnLeadRow(status: string | null | undefined): boolean {
   const s = (status ?? "").trim().toLowerCase();
-  return s !== "" && s !== "new" && s !== "new_applicant";
+  return s !== "" && s !== "new" && s !== "new_applicant" && s !== "new_lead";
 }
 
 export type PipelineHeat = "HOT" | "WARM" | "NEW" | "COLD" | "DEAD";

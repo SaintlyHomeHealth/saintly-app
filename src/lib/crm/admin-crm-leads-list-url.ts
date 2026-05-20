@@ -52,6 +52,7 @@ export function buildAdminCrmLeadsHref(state: Partial<AdminCrmLeadListHrefState>
     leadPriority = "",
     owner = "",
     payer = "",
+    salesAgent = "",
     followUp = "",
     q = "",
     includeDead = false,
@@ -63,6 +64,7 @@ export function buildAdminCrmLeadsHref(state: Partial<AdminCrmLeadListHrefState>
   if (leadPriority.trim()) u.set("leadPriority", leadPriority.trim());
   if (owner.trim()) u.set("owner", owner.trim());
   if (payer.trim()) u.set("payer", payer.trim());
+  if (salesAgent.trim()) u.set("salesAgent", salesAgent.trim());
   if (followUp.trim()) u.set("followUp", followUp.trim());
   if (q.trim()) u.set("q", q.trim());
   if (includeDead) u.set("includeDead", "1");

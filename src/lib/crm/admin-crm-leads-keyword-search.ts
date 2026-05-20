@@ -69,6 +69,7 @@ const LEAD_KEYWORD_ILIKE_COLUMNS = [
   "primary_payer_type",
   "secondary_payer_type",
   "referring_provider_name",
+  "insurance_name",
   "last_note",
   "notes",
 ] as const;
@@ -81,15 +82,19 @@ export function buildKeywordLeadSearchOrClause(input: {
   searchTerms: readonly string[];
   contactIds: string[];
   timelineLeadIds: string[];
+  producedBySalesAgentIds?: string[];
 }): string {
   const parts: string[] = [];
-  const { searchTerms, contactIds, timelineLeadIds } = input;
+  const { searchTerms, contactIds, timelineLeadIds, producedBySalesAgentIds = [] } = input;
 
   if (contactIds.length > 0) {
     parts.push(`contact_id.in.(${contactIds.join(",")})`);
   }
   if (timelineLeadIds.length > 0) {
     parts.push(`id.in.(${timelineLeadIds.join(",")})`);
+  }
+  if (producedBySalesAgentIds.length > 0) {
+    parts.push(`produced_by_sales_agent_id.in.(${producedBySalesAgentIds.join(",")})`);
   }
 
   const escapedTerms = [...new Set(searchTerms.map((t) => escapeForIlike(t.trim())).filter(Boolean))];
@@ -100,6 +105,39 @@ export function buildKeywordLeadSearchOrClause(input: {
   }
 
   return parts.join(",");
+}
+
+async function resolveSalesAgentUserIdsFromKeyword(
+  supabase: SupabaseClient,
+  searchTerms: readonly string[]
+): Promise<string[]> {
+  const escapedTerms = [...new Set(searchTerms.map((t) => escapeForIlike(t.trim())).filter(Boolean))];
+  if (escapedTerms.length === 0) return [];
+
+  const orParts: string[] = [];
+  for (const esc of escapedTerms) {
+    orParts.push(`full_name.ilike.%${esc}%`);
+    orParts.push(`email.ilike.%${esc}%`);
+  }
+  const orClause = orParts.join(",");
+  if (!orClause) return [];
+
+  const { data, error } = await supabase
+    .from("staff_profiles")
+    .select("user_id")
+    .eq("role", "sales_agent")
+    .or(orClause)
+    .limit(ADMIN_CRM_LEADS_KEYWORD_ID_BUCKET_CAP);
+
+  if (error) {
+    console.warn("[crm/leads] keyword search sales agents:", error.message);
+    return [];
+  }
+
+  return [...new Set((data ?? []).map((r) => String((r as { user_id?: unknown }).user_id ?? "").trim()).filter(Boolean))].slice(
+    0,
+    ADMIN_CRM_LEADS_KEYWORD_ID_BUCKET_CAP
+  );
 }
 
 export async function resolveAdminCrmLeadsKeywordLeadSearchOr(
@@ -201,10 +239,13 @@ export async function resolveAdminCrmLeadsKeywordLeadSearchOr(
           })
       : Promise.resolve([] as string[]);
 
-  const [contactIdsBase, timelineLeadIds, smsContactIds] = await Promise.all([
+  const salesAgentIdsPromise = resolveSalesAgentUserIdsFromKeyword(supabase, searchTerms);
+
+  const [contactIdsBase, timelineLeadIds, smsContactIds, producedBySalesAgentIds] = await Promise.all([
     contactPromise,
     activitiesPromise,
     smsContactsPromise,
+    salesAgentIdsPromise,
   ]);
 
   const contactIds = [...new Set([...contactIdsBase, ...smsContactIds])].slice(
@@ -212,9 +253,11 @@ export async function resolveAdminCrmLeadsKeywordLeadSearchOr(
     ADMIN_CRM_LEADS_KEYWORD_ID_BUCKET_CAP
   );
 
-  return buildKeywordLeadSearchOrClause({
+  const orClause = buildKeywordLeadSearchOrClause({
     searchTerms,
     contactIds,
     timelineLeadIds,
+    producedBySalesAgentIds,
   });
+  return orClause.trim() ? orClause : null;
 }

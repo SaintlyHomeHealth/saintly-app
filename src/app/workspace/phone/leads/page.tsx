@@ -66,6 +66,8 @@ type LeadRow = {
   notes?: string | null;
   last_note?: string | null;
   owner_user_id?: string | null;
+  produced_by_sales_agent_id?: string | null;
+  insurance_name?: string | null;
   primary_payer_name?: string | null;
   secondary_payer_name?: string | null;
   external_source_metadata?: unknown;
@@ -84,6 +86,15 @@ type ConvActivityRow = {
 };
 
 const WORKSPACE_LEADS_LIMIT = 100;
+
+function isNextControlFlowError(error: unknown): boolean {
+  const digest = error && typeof error === "object" && "digest" in error ? String(error.digest) : "";
+  return (
+    digest.startsWith("NEXT_REDIRECT") ||
+    digest.startsWith("NEXT_HTTP_ERROR_FALLBACK") ||
+    digest === "DYNAMIC_SERVER_USAGE"
+  );
+}
 
 function rowActivityMs(r: ConvActivityRow): number {
   let best = 0;
@@ -131,7 +142,11 @@ function ownerLabelForLead(row: LeadRow, ownerNameByUserId: Map<string, string>)
   return ownerNameByUserId.get(uid) ?? uid.replace(/-/g, "");
 }
 
-function workspaceLeadSearchHaystack(row: LeadRow, ownerLabel: string): string {
+function workspaceLeadSearchHaystack(
+  row: LeadRow,
+  ownerLabel: string,
+  salesAgentLabel: string
+): string {
   const c = normalizeContact(row.contacts as ContactEmb | ContactEmb[] | null);
   const name = displayNameFromContact(c).trim();
   const phoneRaw = typeof c?.primary_phone === "string" ? c.primary_phone : "";
@@ -140,9 +155,12 @@ function workspaceLeadSearchHaystack(row: LeadRow, ownerLabel: string): string {
   const email = typeof c?.email === "string" ? c.email.trim().toLowerCase() : "";
   const payer1 = typeof row.primary_payer_name === "string" ? row.primary_payer_name : "";
   const payer2 = typeof row.secondary_payer_name === "string" ? row.secondary_payer_name : "";
+  const insuranceName = typeof row.insurance_name === "string" ? row.insurance_name : "";
   const st = typeof row.status === "string" ? row.status : "";
   const src = typeof row.source === "string" ? row.source : "";
   const notes = `${typeof row.notes === "string" ? row.notes : ""} ${typeof row.last_note === "string" ? row.last_note : ""}`;
+  const producedBy =
+    typeof row.produced_by_sales_agent_id === "string" ? row.produced_by_sales_agent_id.trim().toLowerCase() : "";
 
   const parts = [
     name,
@@ -152,6 +170,9 @@ function workspaceLeadSearchHaystack(row: LeadRow, ownerLabel: string): string {
     email,
     payer1,
     payer2,
+    insuranceName,
+    salesAgentLabel,
+    producedBy,
     formatLeadPipelineStatusLabel(st),
     st,
     src,
@@ -166,12 +187,19 @@ function workspaceLeadSearchHaystack(row: LeadRow, ownerLabel: string): string {
   return parts.join(" ").toLowerCase();
 }
 
+const WORKSPACE_LEADS_SELECT =
+  "id, contact_id, status, source, notes, last_note, owner_user_id, produced_by_sales_agent_id, insurance_name, primary_payer_name, secondary_payer_name, external_source_metadata, follow_up_date, next_action, last_contact_at, last_outcome, created_at, contacts ( id, full_name, first_name, last_name, primary_phone, email )";
+
+const WORKSPACE_LEADS_SELECT_LEGACY =
+  "id, contact_id, status, source, notes, last_note, owner_user_id, primary_payer_name, secondary_payer_name, external_source_metadata, follow_up_date, next_action, last_contact_at, last_outcome, created_at, contacts ( id, full_name, first_name, last_name, primary_phone, email )";
+
 export default async function WorkspacePhoneLeadsPage({
   searchParams,
 }: {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const perfStart = routePerfStart();
+  try {
   const staff = routePerfStepsEnabled()
     ? await routePerfTimed("workspace_phone_leads.staff_profile", getStaffProfile)
     : await getStaffProfile();
@@ -192,19 +220,33 @@ export default async function WorkspacePhoneLeadsPage({
 
   const leadsFetchLimit = qLower.length > 0 ? 240 : WORKSPACE_LEADS_LIMIT;
 
-  const leadsQuery = leadRowsActiveOnly(
-    supabaseAdmin
-      .from("leads")
-      .select(
-        "id, contact_id, status, source, notes, last_note, owner_user_id, primary_payer_name, secondary_payer_name, external_source_metadata, follow_up_date, next_action, last_contact_at, last_outcome, created_at, contacts ( id, full_name, first_name, last_name, primary_phone, email )"
-      )
-      .order("last_contact_at", { ascending: false, nullsFirst: false })
-      .order("created_at", { ascending: false, nullsFirst: false })
-      .limit(leadsFetchLimit)
-  );
-  const { data: leadRows, error: leadsErr } = routePerfStepsEnabled()
-    ? await routePerfTimed("workspace_phone_leads.leads_query", () => leadsQuery)
-    : await leadsQuery;
+  const execLeadsQuery = (selectStr: string) =>
+    leadRowsActiveOnly(
+      supabaseAdmin
+        .from("leads")
+        .select(selectStr)
+        .order("last_contact_at", { ascending: false, nullsFirst: false })
+        .order("created_at", { ascending: false, nullsFirst: false })
+        .limit(leadsFetchLimit)
+    );
+
+  let leadRows: LeadRow[] | null = null;
+  let leadsErr: { message: string } | null = null;
+
+  const primaryRes = routePerfStepsEnabled()
+    ? await routePerfTimed("workspace_phone_leads.leads_query", () => execLeadsQuery(WORKSPACE_LEADS_SELECT))
+    : await execLeadsQuery(WORKSPACE_LEADS_SELECT);
+
+  if (primaryRes.error) {
+    const legacyRes = routePerfStepsEnabled()
+      ? await routePerfTimed("workspace_phone_leads.leads_query_legacy", () => execLeadsQuery(WORKSPACE_LEADS_SELECT_LEGACY))
+      : await execLeadsQuery(WORKSPACE_LEADS_SELECT_LEGACY);
+    leadRows = (legacyRes.data ?? []) as LeadRow[];
+    leadsErr = legacyRes.error;
+  } else {
+    leadRows = (primaryRes.data ?? []) as LeadRow[];
+    leadsErr = primaryRes.error;
+  }
 
   if (leadsErr) {
     console.warn("[workspace/phone/leads] leads:", leadsErr.message);
@@ -286,36 +328,51 @@ export default async function WorkspacePhoneLeadsPage({
     });
   });
 
-  const ownerIds = [
+  const staffLookupIds = [
     ...new Set(
-      openLeads
-        .map((r) => (typeof r.owner_user_id === "string" ? r.owner_user_id.trim() : ""))
-        .filter(Boolean)
+      openLeads.flatMap((r) => {
+        const ids: string[] = [];
+        const owner = typeof r.owner_user_id === "string" ? r.owner_user_id.trim() : "";
+        const agent =
+          typeof r.produced_by_sales_agent_id === "string" ? r.produced_by_sales_agent_id.trim() : "";
+        if (owner) ids.push(owner);
+        if (agent) ids.push(agent);
+        return ids;
+      })
     ),
   ];
-  const ownerNameByUserId = new Map<string, string>();
-  if (ownerIds.length > 0) {
+  const staffNameByUserId = new Map<string, string>();
+  if (staffLookupIds.length > 0) {
     const { data: staffRows } = await supabaseAdmin
       .from("staff_profiles")
-      .select("user_id, full_name")
-      .in("user_id", ownerIds);
+      .select("user_id, full_name, email")
+      .in("user_id", staffLookupIds);
     for (const s of staffRows ?? []) {
       const uid = typeof s.user_id === "string" ? s.user_id.trim() : "";
       const fnRaw = typeof s.full_name === "string" ? s.full_name.trim() : "";
-      if (uid && fnRaw) ownerNameByUserId.set(uid, fnRaw);
+      const emailRaw = typeof s.email === "string" ? s.email.trim() : "";
+      const label = fnRaw || emailRaw;
+      if (uid && label) staffNameByUserId.set(uid, label);
     }
+  }
+
+  function salesAgentLabelForLead(row: LeadRow): string {
+    const uid =
+      typeof row.produced_by_sales_agent_id === "string" ? row.produced_by_sales_agent_id.trim() : "";
+    if (!uid) return "";
+    return staffNameByUserId.get(uid) ?? "";
   }
 
   const filteredLeads =
     qLower.length > 0
       ? openLeads.filter((r) =>
-          workspaceLeadSearchHaystack(r, ownerLabelForLead(r, ownerNameByUserId)).includes(qLower)
+          workspaceLeadSearchHaystack(
+            r,
+            ownerLabelForLead(r, staffNameByUserId),
+            salesAgentLabelForLead(r)
+          ).includes(qLower)
         )
       : openLeads;
-
-  if (perfStart) {
-    routePerfLog("workspace/phone/leads", perfStart);
-  }
 
   return (
     <div className="ws-phone-page-shell flex flex-1 flex-col px-4 pb-6 pt-5 sm:px-5">
@@ -339,6 +396,12 @@ export default async function WorkspacePhoneLeadsPage({
         </div>
       ) : null}
 
+      {leadsErr ? (
+        <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-950">
+          Could not load leads. Pull to refresh or try again shortly.
+        </div>
+      ) : null}
+
       <ul className="mt-4 space-y-3">
         {filteredLeads.length === 0 ? (
           <li className="ws-phone-card px-4 py-6 text-center text-sm text-slate-600">
@@ -347,10 +410,11 @@ export default async function WorkspacePhoneLeadsPage({
         ) : null}
         {filteredLeads.map((row) => {
           const c = normalizeContact(row.contacts as ContactEmb | ContactEmb[] | null);
-          const name = displayNameFromContact(c);
+          const name = displayNameFromContact(c) || "Unknown patient";
           const contactId = typeof row.contact_id === "string" ? row.contact_id.trim() : "";
           const phoneRaw = typeof c?.primary_phone === "string" ? c.primary_phone : null;
-          const phoneDisplay = formatPhoneForDisplay(phoneRaw);
+          const phoneDisplay = phoneRaw ? formatPhoneForDisplay(phoneRaw) : "No phone";
+          const agentLabel = salesAgentLabelForLead(row);
           const fu = row.follow_up_date?.slice(0, 10) ?? "";
           const followUpToday = fu === todayIso;
           const nextLabel = formatLeadNextActionLabel(row.next_action);
@@ -365,6 +429,9 @@ export default async function WorkspacePhoneLeadsPage({
                 <div className="min-w-0">
                   <p className="truncate text-sm font-semibold text-phone-navy">{name}</p>
                   <p className="mt-0.5 text-xs text-slate-600">{phoneDisplay}</p>
+                  {agentLabel ? (
+                    <p className="mt-0.5 text-[11px] text-violet-800">Sales agent: {agentLabel}</p>
+                  ) : null}
                   <p className="mt-1 text-[11px] text-slate-500">
                     Last contact:{" "}
                     <span className="font-medium text-slate-700">
@@ -414,4 +481,25 @@ export default async function WorkspacePhoneLeadsPage({
       </ul>
     </div>
   );
+  } catch (e) {
+    if (isNextControlFlowError(e)) {
+      throw e;
+    }
+    console.error("[workspace/phone/leads] page failed", e);
+    return (
+      <div className="ws-phone-page-shell flex flex-1 flex-col px-4 pb-6 pt-5 sm:px-5">
+        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-950">
+          <p className="font-semibold">Could not load leads</p>
+          <p className="mt-1 text-rose-800/90">Try again or open CRM from a desktop browser.</p>
+          <Link href="/workspace/phone/leads" className="mt-2 inline-block font-semibold text-rose-900 underline">
+            Retry
+          </Link>
+        </div>
+      </div>
+    );
+  } finally {
+    if (perfStart) {
+      routePerfLog("workspace/phone/leads", perfStart);
+    }
+  }
 }

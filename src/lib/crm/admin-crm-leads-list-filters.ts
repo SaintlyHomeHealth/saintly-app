@@ -53,6 +53,8 @@ export type AdminCrmLeadListUrlFilters = {
   leadPriority: string;
   owner: string;
   payer: string;
+  /** `staff_profiles.user_id` for producing sales agent (`leads.produced_by_sales_agent_id`). */
+  salesAgent: string;
   /** Legacy/admin dashboard: `followUp=today` preserved in URL when active. */
   followUpToday: boolean;
   includeDead: boolean;
@@ -87,6 +89,8 @@ export function attachAdminCrmLeadListPredicates(
   if (deps.keywordLeadSearchOr) q = q.or(deps.keywordLeadSearchOr);
 
   if (UUID_RE.test(f.owner)) q = q.eq("owner_user_id", f.owner);
+
+  if (UUID_RE.test(f.salesAgent)) q = q.eq("produced_by_sales_agent_id", f.salesAgent);
 
   if (f.followUpToday) q = q.eq("follow_up_date", deps.todayIso);
 
@@ -148,6 +152,7 @@ export function parseAdminCrmLeadsListSearchParams(raw: Record<string, string | 
   leadPriority: string;
   owner: string;
   payer: string;
+  salesAgent: string;
   followUp: string;
   q: string;
   includeDead: boolean;
@@ -177,6 +182,7 @@ export function parseAdminCrmLeadsListSearchParams(raw: Record<string, string | 
     leadPriority: one("leadPriority").trim(),
     owner: one("owner").trim(),
     payer,
+    salesAgent: one("salesAgent").trim(),
     followUp: one("followUp").trim(),
     q: one("q").trim(),
     includeDead,

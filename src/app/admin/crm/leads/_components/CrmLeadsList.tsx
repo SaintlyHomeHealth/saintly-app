@@ -52,6 +52,7 @@ import {
   ADMIN_CRM_LEADS_LIST_PATH_PREFIX,
   buildAdminCrmLeadDetailHref,
 } from "@/lib/crm/admin-crm-leads-list-url";
+import { CrmLeadListRowErrorBoundary } from "@/components/admin/CrmLeadListRowErrorBoundary";
 import { formatAppDate, formatAppDateTime } from "@/lib/datetime/app-timezone";
 
 const pillBase = "inline-flex max-w-full shrink-0 rounded-full px-1 py-[1px] text-[9px] font-semibold ring-1";
@@ -628,7 +629,7 @@ export function CrmLeadsList({
             ) : (
               rows.map((r) => {
                 const contact = normalizeContact(r.contacts);
-                const displayName = contactDisplayName(contact);
+                const displayName = contactDisplayName(contact, { unknownLabel: "Unknown patient" });
                 const phone = (contact?.primary_phone ?? "").trim();
                 const email = contactEmail(contact);
                 const owner = r.owner_user_id ? staffById.get(r.owner_user_id) : null;
@@ -660,8 +661,8 @@ export function CrmLeadsList({
                 const contactStage = contactStageBadgeLabel(r);
 
                 return (
+                  <CrmLeadListRowErrorBoundary key={r.id} leadId={r.id}>
                   <div
-                    key={r.id}
                     className={`grid grid-cols-1 border-b border-slate-100 transition-colors last:border-0 md:items-start ${rowPad} ${listGrid} ${leadRowCardClass(r, fu)} ${crmListRowHoverCls}`}
                   >
                     <div className={`flex items-start justify-center ${compact ? "md:pt-0.5" : "pt-0.5 md:pt-1"}`}>
@@ -796,10 +797,15 @@ export function CrmLeadsList({
                     >
                       {(() => {
                         const c = relativeCreatedParts(r.created_at);
-                        return <span title={c.full}>{compact ? c.short : c.full}</span>;
+                        return (
+                          <span title={c.full} suppressHydrationWarning>
+                            {compact ? c.short : c.full}
+                          </span>
+                        );
                       })()}
                     </div>
                   </div>
+                  </CrmLeadListRowErrorBoundary>
                 );
               })
             )}
@@ -847,7 +853,7 @@ export function CrmLeadsList({
             ) : (
               rows.map((r) => {
                 const contact = normalizeContact(r.contacts);
-                const displayName = contactDisplayName(contact);
+                const displayName = contactDisplayName(contact, { unknownLabel: "Unknown patient" });
                 const phone = (contact?.primary_phone ?? "").trim();
                 const email = contactEmail(contact);
                 const owner = r.owner_user_id ? staffById.get(r.owner_user_id) : null;
@@ -880,8 +886,8 @@ export function CrmLeadsList({
                 const contactStage = contactStageBadgeLabel(r);
 
                 return (
+                  <CrmLeadListRowErrorBoundary key={r.id} leadId={r.id}>
                   <div
-                    key={r.id}
                     className={`grid grid-cols-1 border-b border-slate-100 transition-colors last:border-0 md:items-start ${rowPad} ${listGrid} ${leadRowCardClass(r, fu)} ${crmListRowHoverCls}`}
                   >
                     <div className={`flex items-start justify-center ${compact ? "md:pt-0.5" : "pt-0.5 md:pt-1"}`}>
@@ -1034,10 +1040,15 @@ export function CrmLeadsList({
                     >
                       {(() => {
                         const c = relativeCreatedParts(r.created_at);
-                        return <span title={c.full}>{compact ? c.short : c.full}</span>;
+                        return (
+                          <span title={c.full} suppressHydrationWarning>
+                            {compact ? c.short : c.full}
+                          </span>
+                        );
                       })()}
                     </div>
                   </div>
+                  </CrmLeadListRowErrorBoundary>
                 );
               })
             )}

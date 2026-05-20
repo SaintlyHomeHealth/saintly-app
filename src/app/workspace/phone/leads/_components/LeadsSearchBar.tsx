@@ -14,7 +14,7 @@ export function LeadsSearchBar({ defaultQuery, className = "" }: Props) {
       <input
         name="q"
         defaultValue={defaultQuery}
-        placeholder="Search name or number"
+        placeholder="Search name, phone, or agent"
         autoComplete="off"
         className="ws-phone-input w-full rounded-full px-3 py-2 text-sm shadow-sm shadow-sky-950/5 ring-offset-0"
       />

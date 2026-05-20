@@ -22,7 +22,7 @@ import { supabaseAdmin } from "@/lib/admin";
 import { ExportMarketingEmailsButton } from "@/components/admin/ExportMarketingEmailsButton";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { crmFilterInputCls, crmPrimaryCtaCls } from "@/components/admin/crm-admin-list-styles";
-import { staffPrimaryLabel, type CrmLeadRow } from "@/lib/crm/crm-leads-table-helpers";
+import { normalizeCrmLeadRowForClient, staffPrimaryLabel, type CrmLeadRow } from "@/lib/crm/crm-leads-table-helpers";
 import {
   routePerfLog,
   routePerfStart,
@@ -33,6 +33,15 @@ import { isMissingSchemaObjectError } from "@/lib/crm/supabase-migration-fallbac
 import { getStaffProfile, isCrmLeadsRowPolicyRole } from "@/lib/staff-profile";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isNextControlFlowError(error: unknown): boolean {
+  const digest = error && typeof error === "object" && "digest" in error ? String(error.digest) : "";
+  return (
+    digest.startsWith("NEXT_REDIRECT") ||
+    digest.startsWith("NEXT_HTTP_ERROR_FALLBACK") ||
+    digest === "DYNAMIC_SERVER_USAGE"
+  );
+}
 
 /** Omit `external_source_metadata` — large JSONB; hydrate only employee rows via a narrow follow-up query. */
 const CRM_LEADS_LIST_SELECT_BASE_CORE =
@@ -68,12 +77,14 @@ function narrowingFiltersPresent(input: {
   leadPriority: string;
   owner: string;
   payer: string;
+  salesAgent: string;
   followUpToday: boolean;
 }): boolean {
   return Boolean(
     input.q.trim() ||
       input.owner.trim() ||
       input.payer.trim() ||
+      input.salesAgent.trim() ||
       (input.contactStatus.trim() && isValidAdminCrmLeadsContactStatusFilter(input.contactStatus.trim())) ||
       (input.leadPriority.trim() && isValidLeadTemperature(input.leadPriority.trim())) ||
       input.followUpToday
@@ -107,6 +118,7 @@ export default async function AdminCrmLeadsPage({
       leadPriority: parsed.leadPriority,
       owner: parsed.owner,
       payer: parsed.payer,
+      salesAgent: parsed.salesAgent,
       followUp: parsed.followUp,
       q: parsed.q,
     };
@@ -118,6 +130,7 @@ export default async function AdminCrmLeadsPage({
       leadPriority: f.leadPriority,
       owner: f.owner,
       payer: f.payer,
+      salesAgent: f.salesAgent,
       followUpToday,
       includeDead,
     };
@@ -150,6 +163,8 @@ export default async function AdminCrmLeadsPage({
       role: string;
       full_name: string | null;
     }[];
+
+    const salesAgentOptions = staffOptions.filter((s) => (s.role ?? "").trim() === "sales_agent");
 
     const payerFilterOptions = routePerfStepsEnabled()
       ? await routePerfTimed("admin_crm_leads.payer_suggestions", () => harvestLeadsPayerFilterSuggestions(supabaseAdmin))
@@ -275,7 +290,9 @@ export default async function AdminCrmLeadsPage({
       console.warn("[crm/leads] leads query failed:", error.message);
     }
 
-    const list = (rows ?? []) as unknown as CrmLeadRow[];
+    const list = (rows ?? []).map((row) =>
+      normalizeCrmLeadRowForClient(row as Record<string, unknown>)
+    );
 
     const employeeLeadIdsForMeta = [
       ...new Set(
@@ -380,6 +397,11 @@ export default async function AdminCrmLeadsPage({
       ? staffOptions.find((s) => s.user_id === f.owner.trim())
       : undefined;
     const ownerLabelForChip = ownerStaffRow ? staffPrimaryLabel(ownerStaffRow) : null;
+
+    const salesAgentStaffRow = UUID_RE.test(f.salesAgent.trim())
+      ? salesAgentOptions.find((s) => s.user_id === f.salesAgent.trim())
+      : undefined;
+    const salesAgentLabelForChip = salesAgentStaffRow ? staffPrimaryLabel(salesAgentStaffRow) : null;
 
     const toastBanner =
       toastParam === "lead_deleted" ? (
@@ -552,6 +574,12 @@ export default async function AdminCrmLeadsPage({
               <span className="font-bold text-slate-500">×</span>
             </Link>
           ) : null}
+          {UUID_RE.test(f.salesAgent.trim()) ? (
+            <Link href={hrefWith({ salesAgent: "" })} prefetch={false} className={`${chipMuted} hover:border-sky-300 hover:bg-sky-50`}>
+              Sales agent: {salesAgentLabelForChip ?? f.salesAgent.slice(0, 8)}{" "}
+              <span className="font-bold text-slate-500">×</span>
+            </Link>
+          ) : null}
           {followUpToday ? (
             <Link href={hrefWith({ followUp: "" })} prefetch={false} className={`${chipMuted} hover:border-sky-300 hover:bg-sky-50`}>
               Follow-up: today <span className="font-bold text-slate-500">×</span>
@@ -631,6 +659,17 @@ export default async function AdminCrmLeadsPage({
               ))}
             </select>
           </label>
+          <label className="flex min-w-[9rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+            Sales agent
+            <select name="salesAgent" defaultValue={f.salesAgent} className={crmFilterInputCls}>
+              <option value="">All</option>
+              {salesAgentOptions.map((s) => (
+                <option key={s.user_id} value={s.user_id}>
+                  {staffPrimaryLabel(s)}
+                </option>
+              ))}
+            </select>
+          </label>
           <label className="flex min-w-[8.5rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
             Payer
             <input
@@ -654,12 +693,12 @@ export default async function AdminCrmLeadsPage({
               type="search"
               name="q"
               defaultValue={f.q}
-              placeholder="Search name, phone, email, payer, or notes…"
+              placeholder="Search patient, phone, payer, sales agent…"
               className={`${crmFilterInputCls} min-h-[2rem]`}
               aria-describedby="crm-leads-q-hint"
             />
             <span id="crm-leads-q-hint" className="text-[10px] font-normal text-slate-500">
-              Search name, phone, email, payer, or notes
+              Name, phone, email, payer, address, or sales agent (e.g. Kofi)
             </span>
           </label>
           <label className="flex min-h-[2rem] cursor-pointer items-center gap-1 rounded-md border border-slate-200/90 bg-slate-50/60 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
@@ -699,6 +738,22 @@ export default async function AdminCrmLeadsPage({
             clearHref: clearAllFiltersHref,
           }}
         />
+      </div>
+    );
+  } catch (e) {
+    if (isNextControlFlowError(e)) {
+      throw e;
+    }
+    console.error("[crm/leads] list page failed", e);
+    return (
+      <div className="space-y-3 p-4 sm:p-6">
+        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
+          <p className="font-semibold">Could not load leads</p>
+          <p className="mt-1 text-rose-800/90">Try refreshing. If this continues, contact admin.</p>
+          <Link href="/admin/crm/leads" className="mt-2 inline-block font-semibold text-rose-900 underline-offset-2 hover:underline">
+            Reload leads list
+          </Link>
+        </div>
       </div>
     );
   } finally {
