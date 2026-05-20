@@ -28,6 +28,7 @@ export type LeadSalesAgentSectionProps = {
   socialSecurityNumber: string;
   salesAgentHiddenAt: string | null;
   documents: LeadDocumentAdminRow[];
+  documentsUnavailable?: boolean;
 };
 
 function staffOptionLabel(s: LeadWorkspaceStaffOption): string {
@@ -55,6 +56,7 @@ export function LeadSalesAgentSection({
   socialSecurityNumber,
   salesAgentHiddenAt,
   documents,
+  documentsUnavailable = false,
 }: LeadSalesAgentSectionProps) {
   if (!producedBySalesAgentId) return null;
 
@@ -79,7 +81,7 @@ export function LeadSalesAgentSection({
         <div className="sm:col-span-2">
           <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Produced by (locked)</p>
           <p className="mt-1 flex items-center gap-2 text-sm font-semibold text-slate-900">
-            {producedByAgentName?.trim() || producedBySalesAgentId.slice(0, 8) + "…"}
+            {producedByAgentName?.trim() || "Unknown sales agent"}
             {ownershipLocked ? (
               <span className="rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-700">
                 Locked
@@ -156,6 +158,10 @@ export function LeadSalesAgentSection({
         <dl className="mt-4 grid gap-3 border-t border-violet-100 pt-4 sm:grid-cols-2">
           <LeadSsnRevealField defaultValue={socialSecurityNumber} />
         </dl>
+      ) : null}
+
+      {documentsUnavailable ? (
+        <p className="mt-5 border-t border-violet-100 pt-4 text-sm text-slate-600">Documents unavailable</p>
       ) : null}
 
       {documents.length > 0 ? (

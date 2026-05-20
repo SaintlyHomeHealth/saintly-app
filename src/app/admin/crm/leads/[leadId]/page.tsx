@@ -1,4 +1,4 @@
-import { notFound, redirect } from "next/navigation";
+import { notFound, redirect, unstable_rethrow } from "next/navigation";
 
 import { LeadWorkspace } from "../lead-workspace";
 import { parseEmploymentApplicationMeta, type EmploymentApplicationMeta } from "@/lib/crm/lead-employment-meta";
@@ -16,7 +16,6 @@ import {
   routePerfStepsEnabled,
   routePerfTimed,
 } from "@/lib/perf/route-perf";
-import { createServerSupabaseClient } from "@/lib/supabase/server";
 import {
   findLatestSmsConversationIdForContact,
   findLatestSmsConversationIdForPhoneE164,
@@ -25,18 +24,20 @@ import { pickOutboundE164ForDial } from "@/lib/workspace-phone/launch-urls";
 import { buildCrmCommunicationTimelineModel } from "@/lib/crm/build-crm-communication-timeline-model";
 import { resolveLeadCrmStage } from "@/lib/crm/crm-stage";
 import { loadAssignableLeadOwners } from "@/lib/crm/assignable-lead-owners";
-import { loadLeadSalesAgentAdminContext } from "@/lib/crm/load-lead-sales-agent-context";
+import {
+  buildMinimalLeadSalesAgentAdminContext,
+  loadLeadSalesAgentAdminContext,
+  type LeadSalesAgentAdminContext,
+} from "@/lib/crm/load-lead-sales-agent-context";
+import { isPostgresInvalidUuidError, isValidCrmLeadId, normalizeCrmLeadId } from "@/lib/crm/crm-lead-id";
+import { contactDisplayName as crmContactDisplayName } from "@/lib/crm/crm-leads-table-helpers";
 import { listInsurancePayers } from "@/lib/crm/insurance-payers";
 import { listCrmTasks } from "@/lib/crm/crm-tasks-operations";
+import type { CrmTaskRow } from "@/lib/crm/crm-task-types";
 import { loadLeadAttachmentsForWorkspace } from "@/lib/crm/lead-attachments-load";
 import { safeAdminCrmLeadsListReturnUrl } from "@/lib/crm/admin-crm-leads-list-url";
 import { getSaintlyCrmVoicePhiNotice } from "@/lib/crm/crm-voice-phi-notice.server";
 import { getSaintlyRealtimeGatewayClientSnapshot } from "@/lib/crm/saintly-ai-voice-config";
-
-function isNextControlFlowError(error: unknown): boolean {
-  const digest = error && typeof error === "object" && "digest" in error ? String(error.digest) : "";
-  return digest.startsWith("NEXT_REDIRECT") || digest.startsWith("NEXT_HTTP_ERROR_FALLBACK");
-}
 
 type ContactEmb = {
   full_name?: string | null;
@@ -54,11 +55,73 @@ type ContactEmb = {
 };
 
 function contactDisplayName(c: ContactEmb | null): string {
-  if (!c) return "—";
-  const fn = (c.full_name ?? "").trim();
-  if (fn) return fn;
-  const parts = [c.first_name, c.last_name].filter(Boolean).join(" ").trim();
-  return parts || "—";
+  return crmContactDisplayName(c, { unknownLabel: "Unknown patient" });
+}
+
+function sanitizeLeadActivities(raw: unknown): LeadActivityRow[] {
+  if (!Array.isArray(raw)) return [];
+  const out: LeadActivityRow[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const a = item as Record<string, unknown>;
+    const id = typeof a.id === "string" ? a.id.trim() : "";
+    if (!id) continue;
+    let metadata: Record<string, unknown> | null = null;
+    if (a.metadata && typeof a.metadata === "object" && !Array.isArray(a.metadata)) {
+      metadata = a.metadata as Record<string, unknown>;
+    }
+    out.push({
+      id,
+      lead_id: typeof a.lead_id === "string" ? a.lead_id : "",
+      event_type: typeof a.event_type === "string" ? a.event_type : "",
+      body: typeof a.body === "string" ? a.body : null,
+      metadata,
+      created_at: typeof a.created_at === "string" ? a.created_at : "",
+      created_by_user_id: typeof a.created_by_user_id === "string" ? a.created_by_user_id : null,
+      deleted_at: typeof a.deleted_at === "string" ? a.deleted_at : null,
+      deletable: a.deletable === true,
+    });
+  }
+  return out;
+}
+
+async function resolveSalesAgentAdminContext(
+  leadId: string,
+  sourceRaw: string
+): Promise<LeadSalesAgentAdminContext | null> {
+  try {
+    const ctx = await loadLeadSalesAgentAdminContext(leadId);
+    if (ctx) return ctx;
+  } catch (e) {
+    console.warn("[crm/lead detail] sales agent context failed:", e);
+  }
+
+  if (sourceRaw.trim().toLowerCase() !== "sales_agent") return null;
+
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("leads")
+      .select("produced_by_sales_agent_id, ownership_locked, assigned_to_staff_id")
+      .eq("id", leadId)
+      .maybeSingle();
+    if (error || !data) return null;
+    const produced =
+      typeof data.produced_by_sales_agent_id === "string" && data.produced_by_sales_agent_id.trim()
+        ? data.produced_by_sales_agent_id.trim()
+        : "";
+    if (!produced) return null;
+    return buildMinimalLeadSalesAgentAdminContext({
+      producedBySalesAgentId: produced,
+      ownershipLocked: data.ownership_locked === true,
+      assignedToStaffId:
+        typeof data.assigned_to_staff_id === "string" && data.assigned_to_staff_id.trim()
+          ? data.assigned_to_staff_id.trim()
+          : "",
+    });
+  } catch (e) {
+    console.warn("[crm/lead detail] sales agent minimal context failed:", e);
+    return null;
+  }
 }
 
 function str(v: unknown): string {
@@ -131,8 +194,12 @@ export default async function LeadIntakePage({
       redirect("/admin");
     }
 
-    const { leadId } = await params;
-    if (!leadId?.trim()) {
+    const { leadId: leadIdParam } = await params;
+    const leadId = normalizeCrmLeadId(leadIdParam);
+    if (!leadId) {
+      notFound();
+    }
+    if (!isValidCrmLeadId(leadId)) {
       notFound();
     }
 
@@ -164,27 +231,25 @@ export default async function LeadIntakePage({
     }
   }
 
-  const supabase = await createServerSupabaseClient();
-
     let rowRes = routePerfStepsEnabled()
       ? await routePerfTimed("admin_crm_lead_detail.lead_query", () =>
           leadRowsActiveOnly(
-            supabase.from("leads").select(LEAD_DETAIL_SELECT_WITH_MEDICARE).eq("id", leadId.trim())
+            supabaseAdmin.from("leads").select(LEAD_DETAIL_SELECT_WITH_MEDICARE).eq("id", leadId)
           ).maybeSingle()
         )
       : await leadRowsActiveOnly(
-          supabase.from("leads").select(LEAD_DETAIL_SELECT_WITH_MEDICARE).eq("id", leadId.trim())
+          supabaseAdmin.from("leads").select(LEAD_DETAIL_SELECT_WITH_MEDICARE).eq("id", leadId)
         ).maybeSingle();
 
   if (rowRes.error && isMissingSchemaObjectError(rowRes.error)) {
     rowRes = routePerfStepsEnabled()
       ? await routePerfTimed("admin_crm_lead_detail.lead_query_doctors_hold_only", () =>
           leadRowsActiveOnly(
-            supabase.from("leads").select(LEAD_DETAIL_SELECT_WITH_MEDICARE_DOCTORS_HOLD_ONLY).eq("id", leadId.trim())
+            supabaseAdmin.from("leads").select(LEAD_DETAIL_SELECT_WITH_MEDICARE_DOCTORS_HOLD_ONLY).eq("id", leadId)
           ).maybeSingle()
         )
       : await leadRowsActiveOnly(
-          supabase.from("leads").select(LEAD_DETAIL_SELECT_WITH_MEDICARE_DOCTORS_HOLD_ONLY).eq("id", leadId.trim())
+          supabaseAdmin.from("leads").select(LEAD_DETAIL_SELECT_WITH_MEDICARE_DOCTORS_HOLD_ONLY).eq("id", leadId)
         ).maybeSingle();
   }
 
@@ -192,11 +257,11 @@ export default async function LeadIntakePage({
     rowRes = routePerfStepsEnabled()
       ? await routePerfTimed("admin_crm_lead_detail.lead_query_no_waiting", () =>
           leadRowsActiveOnly(
-            supabase.from("leads").select(LEAD_DETAIL_SELECT_WITH_MEDICARE_NO_WAITING).eq("id", leadId.trim())
+            supabaseAdmin.from("leads").select(LEAD_DETAIL_SELECT_WITH_MEDICARE_NO_WAITING).eq("id", leadId)
           ).maybeSingle()
         )
       : await leadRowsActiveOnly(
-          supabase.from("leads").select(LEAD_DETAIL_SELECT_WITH_MEDICARE_NO_WAITING).eq("id", leadId.trim())
+          supabaseAdmin.from("leads").select(LEAD_DETAIL_SELECT_WITH_MEDICARE_NO_WAITING).eq("id", leadId)
         ).maybeSingle();
   }
 
@@ -204,11 +269,11 @@ export default async function LeadIntakePage({
     rowRes = routePerfStepsEnabled()
       ? await routePerfTimed("admin_crm_lead_detail.lead_query_legacy", () =>
           leadRowsActiveOnly(
-            supabase.from("leads").select(LEAD_DETAIL_SELECT_LEGACY).eq("id", leadId.trim())
+            supabaseAdmin.from("leads").select(LEAD_DETAIL_SELECT_LEGACY).eq("id", leadId)
           ).maybeSingle()
         )
       : await leadRowsActiveOnly(
-          supabase.from("leads").select(LEAD_DETAIL_SELECT_LEGACY).eq("id", leadId.trim())
+          supabaseAdmin.from("leads").select(LEAD_DETAIL_SELECT_LEGACY).eq("id", leadId)
         ).maybeSingle();
   }
 
@@ -216,11 +281,11 @@ export default async function LeadIntakePage({
     rowRes = routePerfStepsEnabled()
       ? await routePerfTimed("admin_crm_lead_detail.lead_query_pre_conv", () =>
           leadRowsActiveOnly(
-            supabase.from("leads").select(LEAD_DETAIL_SELECT_WITH_MEDICARE_PRE_CONV).eq("id", leadId.trim())
+            supabaseAdmin.from("leads").select(LEAD_DETAIL_SELECT_WITH_MEDICARE_PRE_CONV).eq("id", leadId)
           ).maybeSingle()
         )
       : await leadRowsActiveOnly(
-          supabase.from("leads").select(LEAD_DETAIL_SELECT_WITH_MEDICARE_PRE_CONV).eq("id", leadId.trim())
+          supabaseAdmin.from("leads").select(LEAD_DETAIL_SELECT_WITH_MEDICARE_PRE_CONV).eq("id", leadId)
         ).maybeSingle();
   }
 
@@ -228,11 +293,14 @@ export default async function LeadIntakePage({
     rowRes = routePerfStepsEnabled()
       ? await routePerfTimed("admin_crm_lead_detail.lead_query_pre_conv_doctors_hold_only", () =>
           leadRowsActiveOnly(
-            supabase.from("leads").select(LEAD_DETAIL_SELECT_WITH_MEDICARE_PRE_CONV_DOCTORS_HOLD_ONLY).eq("id", leadId.trim())
+            supabaseAdmin
+              .from("leads")
+              .select(LEAD_DETAIL_SELECT_WITH_MEDICARE_PRE_CONV_DOCTORS_HOLD_ONLY)
+              .eq("id", leadId)
           ).maybeSingle()
         )
       : await leadRowsActiveOnly(
-          supabase.from("leads").select(LEAD_DETAIL_SELECT_WITH_MEDICARE_PRE_CONV_DOCTORS_HOLD_ONLY).eq("id", leadId.trim())
+          supabaseAdmin.from("leads").select(LEAD_DETAIL_SELECT_WITH_MEDICARE_PRE_CONV_DOCTORS_HOLD_ONLY).eq("id", leadId)
         ).maybeSingle();
   }
 
@@ -240,17 +308,17 @@ export default async function LeadIntakePage({
     rowRes = routePerfStepsEnabled()
       ? await routePerfTimed("admin_crm_lead_detail.lead_query_no_waiting_pre_conv", () =>
           leadRowsActiveOnly(
-            supabase
+            supabaseAdmin
               .from("leads")
               .select(LEAD_DETAIL_SELECT_WITH_MEDICARE_NO_WAITING_PRE_CONV)
-              .eq("id", leadId.trim())
+              .eq("id", leadId)
           ).maybeSingle()
         )
       : await leadRowsActiveOnly(
-          supabase
+          supabaseAdmin
             .from("leads")
             .select(LEAD_DETAIL_SELECT_WITH_MEDICARE_NO_WAITING_PRE_CONV)
-            .eq("id", leadId.trim())
+            .eq("id", leadId)
         ).maybeSingle();
   }
 
@@ -258,16 +326,19 @@ export default async function LeadIntakePage({
     rowRes = routePerfStepsEnabled()
       ? await routePerfTimed("admin_crm_lead_detail.lead_query_legacy_pre_conv", () =>
           leadRowsActiveOnly(
-            supabase.from("leads").select(LEAD_DETAIL_SELECT_LEGACY_PRE_CONV).eq("id", leadId.trim())
+            supabaseAdmin.from("leads").select(LEAD_DETAIL_SELECT_LEGACY_PRE_CONV).eq("id", leadId)
           ).maybeSingle()
         )
       : await leadRowsActiveOnly(
-          supabase.from("leads").select(LEAD_DETAIL_SELECT_LEGACY_PRE_CONV).eq("id", leadId.trim())
+          supabaseAdmin.from("leads").select(LEAD_DETAIL_SELECT_LEGACY_PRE_CONV).eq("id", leadId)
         ).maybeSingle();
   }
 
   const { data: row, error } = rowRes;
 
+  if (error && isPostgresInvalidUuidError(error)) {
+    notFound();
+  }
   if (error || !row?.id) {
     notFound();
   }
@@ -281,9 +352,9 @@ export default async function LeadIntakePage({
     const { data: patientRow } = contactId
       ? routePerfStepsEnabled()
         ? await routePerfTimed("admin_crm_lead_detail.patient_lookup", () =>
-            supabase.from("patients").select("id").eq("contact_id", contactId).maybeSingle()
+            supabaseAdmin.from("patients").select("id").eq("contact_id", contactId).maybeSingle()
           )
-        : await supabase.from("patients").select("id").eq("contact_id", contactId).maybeSingle()
+        : await supabaseAdmin.from("patients").select("id").eq("contact_id", contactId).maybeSingle()
       : { data: null };
 
   const patientId = patientRow?.id ? String(patientRow.id) : null;
@@ -302,11 +373,12 @@ export default async function LeadIntakePage({
   const ownerUid =
     typeof L.owner_user_id === "string" && L.owner_user_id.trim() ? L.owner_user_id.trim() : "";
 
+  const sourceRawEarly = typeof (row as Record<string, unknown>).source === "string" ? String((row as Record<string, unknown>).source) : "";
   const salesAgentContext = routePerfStepsEnabled()
     ? await routePerfTimed("admin_crm_lead_detail.sales_agent_context", () =>
-        loadLeadSalesAgentAdminContext(leadId.trim())
+        resolveSalesAgentAdminContext(leadId, sourceRawEarly)
       )
-    : await loadLeadSalesAgentAdminContext(leadId.trim());
+    : await resolveSalesAgentAdminContext(leadId, sourceRawEarly);
 
   const preserveUserIds = [
     ...(ownerUid ? [ownerUid] : []),
@@ -431,7 +503,7 @@ export default async function LeadIntakePage({
           supabaseAdmin
             .from("lead_activities")
             .select("id, lead_id, event_type, body, metadata, created_at, created_by_user_id, deleted_at, deletable")
-            .eq("lead_id", leadId.trim())
+            .eq("lead_id", leadId)
             .is("deleted_at", null)
             .order("created_at", { ascending: false })
             .limit(LEAD_DETAIL_ACTIVITIES_CAP)
@@ -439,7 +511,7 @@ export default async function LeadIntakePage({
       : await supabaseAdmin
           .from("lead_activities")
           .select("id, lead_id, event_type, body, metadata, created_at, created_by_user_id, deleted_at, deletable")
-          .eq("lead_id", leadId.trim())
+          .eq("lead_id", leadId)
           .is("deleted_at", null)
           .order("created_at", { ascending: false })
           .limit(LEAD_DETAIL_ACTIVITIES_CAP);
@@ -453,7 +525,7 @@ export default async function LeadIntakePage({
     }
   } else {
     /** Newest-first query → restore chronological order for the workspace + timeline merger. */
-    initialActivities = ([...(activityRes.data ?? [])] as LeadActivityRow[]).reverse();
+    initialActivities = sanitizeLeadActivities(activityRes.data).reverse();
   }
 
   const medicareNum = typeof L.medicare_number === "string" ? L.medicare_number : "";
@@ -498,35 +570,52 @@ export default async function LeadIntakePage({
   const workspaceSmsConversationId = byPhone ?? byContact;
   const canEmbedWorkspaceSms = Boolean(staff && canAccessWorkspacePhone(staff));
 
-  const communicationTimelineRows = contactId
-    ? routePerfStepsEnabled()
-      ? await routePerfTimed("admin_crm_lead_detail.communication_timeline", () =>
-          buildCrmCommunicationTimelineModel({
+  let communicationTimelineRows: Awaited<ReturnType<typeof buildCrmCommunicationTimelineModel>> = [];
+  if (contactId) {
+    try {
+      communicationTimelineRows = routePerfStepsEnabled()
+        ? await routePerfTimed("admin_crm_lead_detail.communication_timeline", () =>
+            buildCrmCommunicationTimelineModel({
+              contactId,
+              leadId,
+              workspaceSmsConversationId,
+              lastNote,
+              leadActivities: initialActivities,
+            })
+          )
+        : await buildCrmCommunicationTimelineModel({
             contactId,
-            leadId: leadId.trim(),
+            leadId,
             workspaceSmsConversationId,
             lastNote,
             leadActivities: initialActivities,
-          })
-        )
-      : await buildCrmCommunicationTimelineModel({
-          contactId,
-          leadId: leadId.trim(),
-          workspaceSmsConversationId,
-          lastNote,
-          leadActivities: initialActivities,
-        })
-    : [];
+          });
+    } catch (e) {
+      console.warn("[crm/lead detail] communication timeline failed:", e);
+    }
+  }
 
-  const leadTasksRes = routePerfStepsEnabled()
-    ? await routePerfTimed("admin_crm_lead_detail.crm_tasks", () =>
-        listCrmTasks({ tab: "open", pinned_lead_id: leadId.trim(), result_limit: 10 })
-      )
-    : await listCrmTasks({ tab: "open", pinned_lead_id: leadId.trim(), result_limit: 10 });
-  const initialLeadTasks = leadTasksRes.ok ? leadTasksRes.tasks : [];
+  let initialLeadTasks: CrmTaskRow[] = [];
+  try {
+    const leadTasksRes = routePerfStepsEnabled()
+      ? await routePerfTimed("admin_crm_lead_detail.crm_tasks", () =>
+          listCrmTasks({ tab: "open", pinned_lead_id: leadId, result_limit: 10 })
+        )
+      : await listCrmTasks({ tab: "open", pinned_lead_id: leadId, result_limit: 10 });
+    initialLeadTasks = leadTasksRes.ok ? leadTasksRes.tasks : [];
+  } catch (e) {
+    console.warn("[crm/lead detail] crm tasks failed:", e);
+  }
+
   const crmRealtimeGateway = getSaintlyRealtimeGatewayClientSnapshot();
   const voicePhiNotice = getSaintlyCrmVoicePhiNotice();
-  const initialLeadAttachments = await loadLeadAttachmentsForWorkspace(leadId.trim());
+
+  let initialLeadAttachments: Awaited<ReturnType<typeof loadLeadAttachmentsForWorkspace>> = [];
+  try {
+    initialLeadAttachments = await loadLeadAttachmentsForWorkspace(leadId);
+  } catch (e) {
+    console.warn("[crm/lead detail] lead attachments failed:", e);
+  }
 
     return (
     <LeadWorkspace
@@ -588,9 +677,7 @@ export default async function LeadIntakePage({
     />
     );
   } catch (e) {
-    if (isNextControlFlowError(e)) {
-      throw e;
-    }
+    unstable_rethrow(e);
     console.error("LEAD PAGE CRASH", e);
     return (
       <div className="p-6">

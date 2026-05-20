@@ -30,6 +30,7 @@ import { ReopenLeadButton } from "@/app/admin/crm/leads/_components/ReopenLeadBu
 import { LeadTasksPanel } from "@/app/admin/crm/leads/_components/LeadTasksPanel";
 import { LeadAttachmentsPanel } from "@/app/admin/crm/leads/_components/LeadAttachmentsPanel";
 import { LeadSalesAgentSection } from "@/app/admin/crm/leads/_components/LeadSalesAgentSection";
+import { LeadDetailSectionErrorBoundary } from "@/components/admin/LeadDetailSectionErrorBoundary";
 import type { LeadSalesAgentAdminContext } from "@/lib/crm/load-lead-sales-agent-context";
 import type { LeadAttachmentWorkspaceRow } from "@/lib/crm/lead-attachments-load";
 import type { EmploymentApplicationMeta } from "@/lib/crm/lead-employment-meta";
@@ -639,9 +640,10 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
           className="min-w-0 space-y-10 [overflow-anchor:none]"
           data-lead-scroll-container="true"
         >
+          <LeadDetailSectionErrorBoundary section="lead snapshot">
           <LeadSnapshot
             leadId={leadId}
-            displayName={displayName}
+            displayName={displayName || "Unknown patient"}
             sourceRaw={sourceRaw}
             rawStatus={rawStatus}
             contact={contactProfileDefaults}
@@ -673,8 +675,10 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
             waitingOnDoctorsOrders={waitingOnDoctorsOrders}
             waitingOnInsuranceVerification={waitingOnInsuranceVerification}
           />
+          </LeadDetailSectionErrorBoundary>
 
           {canEmbedWorkspaceSms && contactId.trim() ? (
+            <LeadDetailSectionErrorBoundary section="conversation">
             <LeadSectionCard
               id="section-conversation"
               title="Conversation"
@@ -686,14 +690,17 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
                 initialConversationId={workspaceSmsConversationId ?? null}
               />
             </LeadSectionCard>
+            </LeadDetailSectionErrorBoundary>
           ) : null}
 
           {contactId.trim() ? (
+            <LeadDetailSectionErrorBoundary section="activity timeline">
             <CrmCommunicationTimeline
               rows={communicationTimelineRows}
               leadId={leadId}
               emptyHint="No SMS, calls, or notes on file yet."
             />
+            </LeadDetailSectionErrorBoundary>
           ) : null}
 
           {isEmployeeLead && hasAnyIntakeRequestDetail(intakeRequestDefaults) ? (
@@ -1097,7 +1104,9 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
           ) : null}
 
           {salesAgentContext ? (
-            <LeadSalesAgentSection leadId={leadId} {...salesAgentContext} staffOptions={staffOptions} />
+            <LeadDetailSectionErrorBoundary section="sales agent details">
+              <LeadSalesAgentSection leadId={leadId} {...salesAgentContext} staffOptions={staffOptions} />
+            </LeadDetailSectionErrorBoundary>
           ) : null}
 
           <LeadSectionCard
@@ -1413,6 +1422,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
           </dl>
         </div>
       )}
+        <LeadDetailSectionErrorBoundary section="attachments">
         <LeadSectionCard
           id="section-attachments"
           title="Attachments"
@@ -1420,6 +1430,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
         >
           <LeadAttachmentsPanel leadId={leadId} initialRows={initialLeadAttachments} />
         </LeadSectionCard>
+        </LeadDetailSectionErrorBoundary>
 
         <div className="border-t border-slate-200 pt-6">
           <Link
@@ -1465,6 +1476,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
       </div>
 
       <aside className="mt-8 flex min-h-0 min-w-0 flex-col pb-32 [overflow-anchor:none] lg:sticky lg:top-28 lg:mt-0 lg:max-h-[calc(100vh-8rem)] lg:overflow-hidden lg:self-start">
+        <LeadDetailSectionErrorBoundary section="follow-up and notes">
         <LeadFollowUpContextPanel
           leadId={leadId}
           activities={initialActivities}
@@ -1476,12 +1488,15 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
           followUpAtIso={followUpAtIso}
           nextActionVal={nextActionVal}
         />
+        </LeadDetailSectionErrorBoundary>
+        <LeadDetailSectionErrorBoundary section="CRM tasks">
         <LeadTasksPanel
           leadId={leadId}
           tasks={initialLeadTasks}
           crmRealtimeGateway={crmRealtimeGateway}
           voicePhiNotice={voicePhiNotice}
         />
+        </LeadDetailSectionErrorBoundary>
       </aside>
     </div>
     </div>
