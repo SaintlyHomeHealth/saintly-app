@@ -158,9 +158,14 @@ export async function buildWorkspaceCallContextPayload(
     };
   }
 
+  const moveToCellFull = readMoveToCellMeta(rawMeta);
+  const callDirection = data.direction === "inbound" ? "inbound" : data.direction === "outbound" ? "outbound" : null;
+
   const gating = computeConferenceGating({
     /** Active Voice SDK leg (often child) — must match the `call_sid` query param. */
     clientCallSid: callSid,
+    callDirection,
+    moveToCellStatus: moveToCellFull?.status ?? null,
     softphoneConference: conf
       ? {
           mode: typeof conf.mode === "string" ? conf.mode : null,
@@ -174,7 +179,28 @@ export async function buildWorkspaceCallContextPayload(
       : null,
   });
 
-  const moveToCellFull = readMoveToCellMeta(rawMeta);
+  if (!gating.can_move_to_cell) {
+    console.log(
+      JSON.stringify({
+        tag: "move-to-cell-ui",
+        event: "button_disabled",
+        phone_call_id: data.id,
+        client_leg_call_sid: callSid,
+        call_direction: callDirection,
+        conference_mode_env: gating.conference_mode_env,
+        inbound_conference_enabled: gating.inbound_conference_enabled,
+        conference_sid: gating.conference_sid,
+        pstn_call_sid: gating.pstn_call_sid,
+        softphone_conference_mode: typeof conf?.mode === "string" ? conf.mode : null,
+        softphone_conference_client_call_sid:
+          typeof conf?.client_call_sid === "string" ? conf.client_call_sid : null,
+        move_to_cell_status: moveToCellFull?.status ?? "idle",
+        disabled_codes: gating.move_to_cell_disabled_codes,
+        disabled_reason: gating.move_to_cell_disabled_reason,
+      })
+    );
+  }
+
   const moveToCellPayload = moveToCellFull
     ? { status: moveToCellFull.status, last_error: moveToCellFull.last_error ?? null }
     : null;

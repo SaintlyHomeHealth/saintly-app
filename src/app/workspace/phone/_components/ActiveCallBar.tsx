@@ -153,9 +153,16 @@ export function ActiveCallBar() {
   const pstnConferenceReady = Boolean(gating?.can_cold_transfer);
   const allowPstnConferenceActions =
     pstnConferenceReady && (softphoneCapabilities?.conference_outbound_enabled ?? true);
-  const allowMoveToCell = Boolean(gating?.can_move_to_cell);
   const moveToCellStatus = callContext?.move_to_cell?.status ?? "idle";
   const moveToCellInProgress = moveToCellStatus === "ringing" || moveToCellStatus === "press_1";
+  const allowMoveToCell = Boolean(gating?.can_move_to_cell);
+  const moveToCellDisabledReason =
+    gating?.move_to_cell_disabled_reason ??
+    gating?.blockers?.[0] ??
+    "Move to cell is not available on this call yet";
+  const moveToCellTooltip = allowMoveToCell
+    ? "Ring your cell — press 1 to take the call off the browser"
+    : moveToCellDisabledReason;
   const moveToCellLabel =
     moveToCellStatus === "ringing"
       ? "Calling your cell…"
@@ -211,6 +218,30 @@ export function ActiveCallBar() {
       message: "Cell transfer failed — browser call is still connected.",
     });
   }, [moveToCellStatus]);
+
+  useEffect(() => {
+    if (status !== "in_call" || allowMoveToCell) return;
+    softphoneDevLog("[move-to-cell-ui] button disabled", {
+      disabled_codes: gating?.move_to_cell_disabled_codes ?? [],
+      disabled_reason: moveToCellDisabledReason,
+      conference_sid: gating?.conference_sid ?? callContext?.conference?.conference_sid ?? null,
+      client_call_sid:
+        callContext?.conference?.client_call_sid ?? gating?.client_leg_call_sid ?? null,
+      pstn_call_sid: gating?.pstn_call_sid ?? callContext?.conference?.pstn_call_sid ?? null,
+      inbound_conference_enabled: gating?.inbound_conference_enabled ?? null,
+      conference_mode_env: gating?.conference_mode_env ?? null,
+      move_to_cell_status: moveToCellStatus,
+    });
+  }, [
+    status,
+    allowMoveToCell,
+    moveToCellDisabledReason,
+    gating,
+    callContext?.conference?.conference_sid,
+    callContext?.conference?.client_call_sid,
+    callContext?.conference?.pstn_call_sid,
+    moveToCellStatus,
+  ]);
 
   const handleHangUpClick = useCallback(() => {
     hangUp();
@@ -443,11 +474,8 @@ export function ActiveCallBar() {
               type="button"
               onClick={() => void runMoveToCell()}
               disabled={!allowMoveToCell || moveToCellInProgress || actionBusy !== null}
-              title={
-                allowMoveToCell
-                  ? "Ring your cell — press 1 to take the call off the browser"
-                  : gating?.blockers?.[0] ?? "Move to cell is not available on this call yet"
-              }
+              title={moveToCellTooltip}
+              aria-label={moveToCellTooltip}
               className="inline-flex h-10 items-center gap-1 rounded-full border border-white/15 px-3 text-xs font-semibold text-indigo-50 disabled:opacity-40"
             >
               <Smartphone className="h-4 w-4" strokeWidth={2} />
@@ -504,11 +532,7 @@ export function ActiveCallBar() {
             icon={<Smartphone className="h-5 w-5" strokeWidth={2} />}
             onClick={() => void runMoveToCell()}
             disabled={!allowMoveToCell || moveToCellInProgress || actionBusy !== null}
-            title={
-              allowMoveToCell
-                ? "Improve audio on your cell (press 1)"
-                : gating?.blockers?.[0] ?? "Conference not ready"
-            }
+            title={moveToCellTooltip}
           />
           <ControlBtn
             label="Transfer"

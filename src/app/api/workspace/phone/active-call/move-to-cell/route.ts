@@ -113,6 +113,8 @@ export async function POST(req: Request) {
   const direction = row.direction === "inbound" ? "inbound" : "outbound";
   const gating = computeConferenceGating({
     clientCallSid: browserLegSid,
+    callDirection: direction,
+    moveToCellStatus: existing?.status ?? null,
     softphoneConference: sc
       ? {
           mode: sc.mode ?? "conference",
@@ -138,11 +140,25 @@ export async function POST(req: Request) {
       : softphoneConferenceRoomName(browserLegSid));
 
   if (!gating.can_move_to_cell || !conferenceSid) {
+    console.log(
+      JSON.stringify({
+        tag: LOG_TAG,
+        event: "request_rejected_not_eligible",
+        client_call_sid: browserLegSid,
+        call_direction: direction,
+        conference_sid: conferenceSid || null,
+        disabled_codes: gating.move_to_cell_disabled_codes,
+        disabled_reason: gating.move_to_cell_disabled_reason,
+      })
+    );
     return NextResponse.json(
       {
         ok: false,
-        error: "Move to cell requires an active conference call (answer on the browser softphone first).",
+        error:
+          gating.move_to_cell_disabled_reason ??
+          "Move to cell requires an active conference call (answer on the browser softphone first).",
         blockers: gating.blockers,
+        disabled_codes: gating.move_to_cell_disabled_codes,
         fallback_available: false,
       },
       { status: 409 }
