@@ -94,8 +94,17 @@ export async function GET(req: NextRequest) {
 
   const built = builtResult.value;
   if (!built.found) {
-    logCallContext("not_found", { totalMs, authMs, ctxMs, callSid: `${callSid.slice(0, 10)}…` });
-    return NextResponse.json({ ok: true, degraded: false, found: false }, { status: 200 });
+    logCallContext("not_found", {
+      totalMs,
+      authMs,
+      ctxMs,
+      callSid: `${callSid.slice(0, 10)}…`,
+      move_to_cell_debug: built.move_to_cell_ui_debug,
+    });
+    return NextResponse.json(
+      { ok: true, degraded: false, found: false, move_to_cell_ui_debug: built.move_to_cell_ui_debug },
+      { status: 200 }
+    );
   }
 
   logCallContext("ok", {

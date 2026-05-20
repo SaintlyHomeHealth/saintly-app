@@ -1,7 +1,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { readVoiceAiMetadataFromMetadata } from "@/app/admin/phone/_lib/voice-ai-metadata";
-import { computeConferenceGating, type ConferenceGatingSnapshot } from "@/lib/phone/conference-gating";
+import {
+  computeConferenceGating,
+  type ConferenceGatingSnapshot,
+  type MoveToCellDisabledCode,
+} from "@/lib/phone/conference-gating";
+import { inboundBrowserConferenceEnabled } from "@/lib/phone/inbound-browser-conference";
 import { readMoveToCellMeta, type MoveToCellMeta } from "@/lib/phone/move-to-cell-types";
 import {
   parseLiveTranscriptEntriesFromMetadata,
@@ -31,6 +36,8 @@ export type WorkspaceCallContextPayload = {
     pstn_call_sid: string | null;
     pstn_on_hold: boolean | null;
     mode: string | null;
+    direction: "inbound" | "outbound" | null;
+    client_call_sid: string | null;
   } | null;
   softphone_recording: SoftphoneRecordingMeta | null;
   voice_ai: {
@@ -54,7 +61,69 @@ export type WorkspaceCallContextPayload = {
   } | null;
   conference_gating: ConferenceGatingSnapshot;
   move_to_cell: Pick<MoveToCellMeta, "status" | "last_error"> | null;
+  /** Staff-visible Move to cell diagnostics (safe to show in UI). */
+  move_to_cell_ui_debug: MoveToCellUiDebug;
 };
+
+export type MoveToCellUiDebug = {
+  call_context_found: boolean;
+  poll_call_sid: string;
+  phone_call_direction: "inbound" | "outbound" | null;
+  resolved_twilio_inbound_use_conference: string;
+  resolved_twilio_softphone_use_conference: string;
+  softphone_conference_mode: string | null;
+  softphone_conference_conference_sid: string | null;
+  softphone_conference_client_call_sid: string | null;
+  softphone_conference_pstn_call_sid: string | null;
+  move_to_cell_status: string;
+  can_move_to_cell: boolean;
+  disabled_reason: string | null;
+  disabled_codes: MoveToCellDisabledCode[];
+};
+
+function resolvedInboundConferenceEnvLabel(): string {
+  const raw = process.env.TWILIO_INBOUND_USE_CONFERENCE?.trim();
+  return raw === undefined || raw === "" ? "unset (off)" : raw;
+}
+
+function resolvedSoftphoneConferenceEnvLabel(): string {
+  return process.env.TWILIO_SOFTPHONE_USE_CONFERENCE === "true" ? "true" : "false";
+}
+
+export function buildMoveToCellUiDebug(input: {
+  pollCallSid: string;
+  callContextFound: boolean;
+  phoneCallDirection: "inbound" | "outbound" | null;
+  conf: Record<string, unknown> | null;
+  moveToCellStatus: string;
+  gating: ConferenceGatingSnapshot | null;
+}): MoveToCellUiDebug {
+  const g = input.gating;
+  const disabledReason =
+    g?.move_to_cell_disabled_reason ??
+    (input.callContextFound
+      ? "Move to cell is not available on this call yet."
+      : "Call context not found for this browser leg — cannot determine Move to cell eligibility.");
+
+  return {
+    call_context_found: input.callContextFound,
+    poll_call_sid: input.pollCallSid,
+    phone_call_direction: input.phoneCallDirection,
+    resolved_twilio_inbound_use_conference: resolvedInboundConferenceEnvLabel(),
+    resolved_twilio_softphone_use_conference: resolvedSoftphoneConferenceEnvLabel(),
+    softphone_conference_mode: typeof input.conf?.mode === "string" ? input.conf.mode : null,
+    softphone_conference_conference_sid:
+      typeof input.conf?.conference_sid === "string" ? input.conf.conference_sid : null,
+    softphone_conference_client_call_sid:
+      typeof input.conf?.client_call_sid === "string" ? input.conf.client_call_sid : null,
+    softphone_conference_pstn_call_sid:
+      typeof input.conf?.pstn_call_sid === "string" ? input.conf.pstn_call_sid : null,
+    move_to_cell_status: input.moveToCellStatus,
+    can_move_to_cell: Boolean(g?.can_move_to_cell),
+    disabled_reason: disabledReason,
+    disabled_codes: g?.move_to_cell_disabled_codes ?? [],
+  };
+}
 
 export type BuildWorkspaceCallContextOptions = {
   /** Hot path (call-context poller): no Twilio REST parent fallback. */
@@ -68,12 +137,52 @@ export async function buildWorkspaceCallContextPayload(
   supabase: SupabaseClient,
   callSid: string,
   options?: BuildWorkspaceCallContextOptions
-): Promise<{ found: false } | { found: true; payload: WorkspaceCallContextPayload }> {
-  const row = await findPhoneCallRowByTwilioCallSid(supabase, callSid, {
-    skipTwilioRestFallback: options?.skipTwilioRestFallback === true,
+): Promise<
+  | { found: false; move_to_cell_ui_debug: MoveToCellUiDebug }
+  | { found: true; payload: WorkspaceCallContextPayload }
+> {
+  const skipRest = options?.skipTwilioRestFallback === true;
+  let row = await findPhoneCallRowByTwilioCallSid(supabase, callSid, {
+    skipTwilioRestFallback: skipRest,
   });
+  if (!row && skipRest) {
+    row = await findPhoneCallRowByTwilioCallSid(supabase, callSid, {
+      skipTwilioRestFallback: false,
+    });
+  }
   if (!row) {
-    return { found: false };
+    const inboundEnabled = inboundBrowserConferenceEnabled();
+    const outboundEnabled = process.env.TWILIO_SOFTPHONE_USE_CONFERENCE === "true";
+    return {
+      found: false,
+      move_to_cell_ui_debug: buildMoveToCellUiDebug({
+        pollCallSid: callSid,
+        callContextFound: false,
+        phoneCallDirection: null,
+        conf: null,
+        moveToCellStatus: "idle",
+        gating: {
+          conference_mode_env: outboundEnabled,
+          inbound_conference_enabled: inboundEnabled,
+          client_leg_call_sid: callSid,
+          conference_sid: null,
+          pstn_call_sid: null,
+          can_hold_pstn: false,
+          can_cold_transfer: false,
+          can_add_participant: false,
+          can_move_to_cell: false,
+          move_to_cell_disabled_reason:
+            "Call context not found for this browser leg — link the call log (parent/child CallSid) before Move to cell can run.",
+          move_to_cell_disabled_codes: ["conference_metadata_missing"],
+          blockers: ["Call context not found for this browser leg."],
+          media_stream_wss_configured: false,
+          transcription_callback_configured: false,
+          legacy_bridge_transcript_configured: false,
+          transcript_writeback_configured: false,
+          media_stream_wss_target_masked: null,
+        },
+      }),
+    };
   }
 
   const data = row;
@@ -159,7 +268,14 @@ export async function buildWorkspaceCallContextPayload(
   }
 
   const moveToCellFull = readMoveToCellMeta(rawMeta);
-  const callDirection = data.direction === "inbound" ? "inbound" : data.direction === "outbound" ? "outbound" : null;
+  const callDirection =
+    data.direction === "inbound" || data.direction === "outbound"
+      ? data.direction
+      : metadataSource === "twilio_voice_softphone"
+        ? "outbound"
+        : metadataSource === "twilio_voice_inbound_ring" || metadataSource?.includes("inbound")
+          ? "inbound"
+          : null;
 
   const gating = computeConferenceGating({
     /** Active Voice SDK leg (often child) — must match the `call_sid` query param. */
@@ -179,27 +295,25 @@ export async function buildWorkspaceCallContextPayload(
       : null,
   });
 
-  if (!gating.can_move_to_cell) {
-    console.log(
-      JSON.stringify({
-        tag: "move-to-cell-ui",
-        event: "button_disabled",
-        phone_call_id: data.id,
-        client_leg_call_sid: callSid,
-        call_direction: callDirection,
-        conference_mode_env: gating.conference_mode_env,
-        inbound_conference_enabled: gating.inbound_conference_enabled,
-        conference_sid: gating.conference_sid,
-        pstn_call_sid: gating.pstn_call_sid,
-        softphone_conference_mode: typeof conf?.mode === "string" ? conf.mode : null,
-        softphone_conference_client_call_sid:
-          typeof conf?.client_call_sid === "string" ? conf.client_call_sid : null,
-        move_to_cell_status: moveToCellFull?.status ?? "idle",
-        disabled_codes: gating.move_to_cell_disabled_codes,
-        disabled_reason: gating.move_to_cell_disabled_reason,
-      })
-    );
-  }
+  const moveToCellUiDebug = buildMoveToCellUiDebug({
+    pollCallSid: callSid,
+    callContextFound: true,
+    phoneCallDirection: callDirection,
+    conf,
+    moveToCellStatus: moveToCellFull?.status ?? "idle",
+    gating,
+  });
+
+  console.log(
+    JSON.stringify({
+      tag: "move-to-cell-ui",
+      event: gating.can_move_to_cell ? "button_enabled" : "button_disabled",
+      ...moveToCellUiDebug,
+      phone_call_id: data.id,
+      external_call_id: data.external_call_id,
+      metadata_source: metadataSource,
+    })
+  );
 
   const moveToCellPayload = moveToCellFull
     ? { status: moveToCellFull.status, last_error: moveToCellFull.last_error ?? null }
@@ -252,6 +366,7 @@ export async function buildWorkspaceCallContextPayload(
         : null,
     conference_gating: gating,
     move_to_cell: moveToCellPayload,
+    move_to_cell_ui_debug: moveToCellUiDebug,
   };
 
   return { found: true, payload };

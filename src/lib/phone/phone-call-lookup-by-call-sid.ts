@@ -10,6 +10,7 @@ export type PhoneCallRowLookup = {
   id: string;
   /** Canonical row key — parent inbound leg for PSTN→browser; may differ from the Client leg CallSid. */
   external_call_id: string;
+  direction: "inbound" | "outbound" | null;
   from_e164: string | null;
   metadata: Record<string, unknown>;
   started_at: string | null;
@@ -24,7 +25,7 @@ export type PhoneCallSidMatchReason =
   | "twilio_rest_parent_external_call_id"
   | null;
 
-const ROW_SELECT = "id, metadata, external_call_id, from_e164, started_at";
+const ROW_SELECT = "id, metadata, external_call_id, from_e164, started_at, direction";
 
 /**
  * PostgREST `.or()` filter: same shapes as `findPhoneCallRowForTwilioStatus` in log-call (parent/child legs).
@@ -70,9 +71,12 @@ function rowFromData(data: Record<string, unknown>, lookupSid: string): {
 } {
   const sid = lookupSid.trim();
   const meta = asRecord(data.metadata);
+  const rawDirection = data.direction;
   const row: PhoneCallRowLookup = {
     id: data.id as string,
     external_call_id: typeof data.external_call_id === "string" ? data.external_call_id : sid,
+    direction:
+      rawDirection === "inbound" || rawDirection === "outbound" ? rawDirection : null,
     from_e164: typeof data.from_e164 === "string" ? data.from_e164 : null,
     metadata: meta,
     started_at: typeof data.started_at === "string" ? data.started_at : null,

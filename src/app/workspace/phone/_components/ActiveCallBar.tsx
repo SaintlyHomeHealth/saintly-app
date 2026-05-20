@@ -155,11 +155,15 @@ export function ActiveCallBar() {
     pstnConferenceReady && (softphoneCapabilities?.conference_outbound_enabled ?? true);
   const moveToCellStatus = callContext?.move_to_cell?.status ?? "idle";
   const moveToCellInProgress = moveToCellStatus === "ringing" || moveToCellStatus === "press_1";
-  const allowMoveToCell = Boolean(gating?.can_move_to_cell);
+  const moveToCellDebug = callContext?.move_to_cell_ui_debug ?? null;
+  const allowMoveToCell = moveToCellDebug
+    ? moveToCellDebug.can_move_to_cell
+    : Boolean(gating?.can_move_to_cell);
   const moveToCellDisabledReason =
+    moveToCellDebug?.disabled_reason ??
     gating?.move_to_cell_disabled_reason ??
     gating?.blockers?.[0] ??
-    "Move to cell is not available on this call yet";
+    (callContext ? "Move to cell is not available on this call yet." : "Loading call context…");
   const moveToCellTooltip = allowMoveToCell
     ? "Ring your cell — press 1 to take the call off the browser"
     : moveToCellDisabledReason;
@@ -220,28 +224,27 @@ export function ActiveCallBar() {
   }, [moveToCellStatus]);
 
   useEffect(() => {
-    if (status !== "in_call" || allowMoveToCell) return;
-    softphoneDevLog("[move-to-cell-ui] button disabled", {
-      disabled_codes: gating?.move_to_cell_disabled_codes ?? [],
-      disabled_reason: moveToCellDisabledReason,
-      conference_sid: gating?.conference_sid ?? callContext?.conference?.conference_sid ?? null,
-      client_call_sid:
-        callContext?.conference?.client_call_sid ?? gating?.client_leg_call_sid ?? null,
-      pstn_call_sid: gating?.pstn_call_sid ?? callContext?.conference?.pstn_call_sid ?? null,
-      inbound_conference_enabled: gating?.inbound_conference_enabled ?? null,
-      conference_mode_env: gating?.conference_mode_env ?? null,
+    if (status !== "in_call") return;
+    const payload = moveToCellDebug ?? {
+      call_context_found: Boolean(callContext?.conference_gating),
+      poll_call_sid: callContext?.external_call_id ?? null,
+      phone_call_direction: callContext?.conference?.direction ?? null,
+      resolved_twilio_inbound_use_conference: null,
+      resolved_twilio_softphone_use_conference: null,
+      softphone_conference_mode: callContext?.conference?.mode ?? null,
+      softphone_conference_conference_sid: callContext?.conference?.conference_sid ?? null,
+      softphone_conference_client_call_sid: callContext?.conference?.client_call_sid ?? null,
+      softphone_conference_pstn_call_sid: callContext?.conference?.pstn_call_sid ?? null,
       move_to_cell_status: moveToCellStatus,
-    });
-  }, [
-    status,
-    allowMoveToCell,
-    moveToCellDisabledReason,
-    gating,
-    callContext?.conference?.conference_sid,
-    callContext?.conference?.client_call_sid,
-    callContext?.conference?.pstn_call_sid,
-    moveToCellStatus,
-  ]);
+      can_move_to_cell: allowMoveToCell,
+      disabled_reason: moveToCellDisabledReason,
+      disabled_codes: gating?.move_to_cell_disabled_codes ?? [],
+    };
+    console.log("[move-to-cell-ui]", payload);
+    if (!allowMoveToCell) {
+      softphoneDevLog("[move-to-cell-ui] button disabled", payload);
+    }
+  }, [status, allowMoveToCell, moveToCellDebug, moveToCellDisabledReason, moveToCellStatus, callContext, gating]);
 
   const handleHangUpClick = useCallback(() => {
     hangUp();
@@ -380,6 +383,38 @@ export function ActiveCallBar() {
             role="status"
           >
             {moveToCellLabel}
+          </p>
+        ) : null}
+        {status === "in_call" && !allowMoveToCell && moveToCellDebug ? (
+          <p
+            className="mb-3 rounded-xl border border-slate-500/30 bg-slate-950/60 px-3 py-2 text-left font-mono text-[10px] leading-relaxed text-slate-300 sm:mb-2"
+            role="status"
+            data-testid="move-to-cell-debug"
+          >
+            <span className="font-semibold text-slate-200">Move cell disabled:</span>{" "}
+            {moveToCellDebug.disabled_reason}
+            <br />
+            direction={moveToCellDebug.phone_call_direction ?? "?"}
+            {" · "}
+            TWILIO_INBOUND_USE_CONFERENCE={moveToCellDebug.resolved_twilio_inbound_use_conference}
+            {" · "}
+            TWILIO_SOFTPHONE_USE_CONFERENCE={moveToCellDebug.resolved_twilio_softphone_use_conference}
+            <br />
+            mode={moveToCellDebug.softphone_conference_mode ?? "—"}
+            {" · "}
+            conference_sid={moveToCellDebug.softphone_conference_conference_sid ?? "—"}
+            <br />
+            client_call_sid={moveToCellDebug.softphone_conference_client_call_sid ?? "—"}
+            {" · "}
+            pstn_call_sid={moveToCellDebug.softphone_conference_pstn_call_sid ?? "—"}
+            {" · "}
+            move_to_cell={moveToCellDebug.move_to_cell_status}
+            {moveToCellDebug.disabled_codes.length > 0 ? (
+              <>
+                <br />
+                codes={moveToCellDebug.disabled_codes.join(",")}
+              </>
+            ) : null}
           </p>
         ) : null}
 

@@ -21,7 +21,8 @@ import {
 import { formatPhoneNumber, normalizePhone } from "@/lib/phone/us-phone-format";
 import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
 import { parseOutboundLinesFromCapabilitiesPayload } from "@/lib/phone/softphone-outbound-lines";
-import type { ConferenceGatingSnapshot } from "@/lib/phone/conference-gating";
+import type { ConferenceGatingSnapshot, MoveToCellDisabledCode } from "@/lib/phone/conference-gating";
+import type { MoveToCellUiDebug } from "@/lib/phone/build-workspace-call-context";
 import type { LiveTranscriptEntry } from "@/lib/phone/live-transcript-entries";
 import type { SoftphoneRecordingMeta } from "@/lib/twilio/softphone-recording-types";
 import { parseWorkspaceOutboundDialInput } from "@/lib/softphone/phone-number";
@@ -678,6 +679,21 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
           conference_gating?: ConferenceGatingSnapshot | null;
           softphone_recording?: SoftphoneRecordingMeta | null;
           move_to_cell?: { status: string; last_error?: string | null } | null;
+          move_to_cell_ui_debug?: {
+            call_context_found?: boolean;
+            poll_call_sid?: string;
+            phone_call_direction?: "inbound" | "outbound" | null;
+            resolved_twilio_inbound_use_conference?: string;
+            resolved_twilio_softphone_use_conference?: string;
+            softphone_conference_mode?: string | null;
+            softphone_conference_conference_sid?: string | null;
+            softphone_conference_client_call_sid?: string | null;
+            softphone_conference_pstn_call_sid?: string | null;
+            move_to_cell_status?: string;
+            can_move_to_cell?: boolean;
+            disabled_reason?: string | null;
+            disabled_codes?: string[];
+          } | null;
         };
         if (cancelled) return;
 
@@ -696,7 +712,42 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
         }
 
         if (!j.found) {
-          if (!cancelled) setCallContext(null);
+          if (!cancelled) {
+            const dbg = j.move_to_cell_ui_debug;
+            setCallContext(
+              dbg
+                ? {
+                    external_call_id: sid,
+                    phone_call_id: null,
+                    voice_ai: null,
+                    conference: null,
+                    conference_gating: null,
+                    softphone_recording: null,
+                    workspace_softphone_session: false,
+                    move_to_cell: null,
+                    move_to_cell_ui_debug: {
+                      call_context_found: Boolean(dbg.call_context_found),
+                      poll_call_sid: dbg.poll_call_sid ?? sid,
+                      phone_call_direction: dbg.phone_call_direction ?? null,
+                      resolved_twilio_inbound_use_conference:
+                        dbg.resolved_twilio_inbound_use_conference ?? "unknown",
+                      resolved_twilio_softphone_use_conference:
+                        dbg.resolved_twilio_softphone_use_conference ?? "unknown",
+                      softphone_conference_mode: dbg.softphone_conference_mode ?? null,
+                      softphone_conference_conference_sid: dbg.softphone_conference_conference_sid ?? null,
+                      softphone_conference_client_call_sid: dbg.softphone_conference_client_call_sid ?? null,
+                      softphone_conference_pstn_call_sid: dbg.softphone_conference_pstn_call_sid ?? null,
+                      move_to_cell_status: dbg.move_to_cell_status ?? "idle",
+                      can_move_to_cell: Boolean(dbg.can_move_to_cell),
+                      disabled_reason: dbg.disabled_reason ?? null,
+                      disabled_codes: (Array.isArray(dbg.disabled_codes)
+                        ? dbg.disabled_codes
+                        : []) as MoveToCellDisabledCode[],
+                    },
+                  }
+                : null
+            );
+          }
           return;
         }
 
@@ -773,6 +824,30 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
                       typeof j.move_to_cell.last_error === "string" ? j.move_to_cell.last_error : null,
                   }
                 : null,
+            move_to_cell_ui_debug: j.move_to_cell_ui_debug
+              ? {
+                  call_context_found: Boolean(j.move_to_cell_ui_debug.call_context_found),
+                  poll_call_sid: j.move_to_cell_ui_debug.poll_call_sid ?? sid,
+                  phone_call_direction: j.move_to_cell_ui_debug.phone_call_direction ?? null,
+                  resolved_twilio_inbound_use_conference:
+                    j.move_to_cell_ui_debug.resolved_twilio_inbound_use_conference ?? "unknown",
+                  resolved_twilio_softphone_use_conference:
+                    j.move_to_cell_ui_debug.resolved_twilio_softphone_use_conference ?? "unknown",
+                  softphone_conference_mode: j.move_to_cell_ui_debug.softphone_conference_mode ?? null,
+                  softphone_conference_conference_sid:
+                    j.move_to_cell_ui_debug.softphone_conference_conference_sid ?? null,
+                  softphone_conference_client_call_sid:
+                    j.move_to_cell_ui_debug.softphone_conference_client_call_sid ?? null,
+                  softphone_conference_pstn_call_sid:
+                    j.move_to_cell_ui_debug.softphone_conference_pstn_call_sid ?? null,
+                  move_to_cell_status: j.move_to_cell_ui_debug.move_to_cell_status ?? "idle",
+                  can_move_to_cell: Boolean(j.move_to_cell_ui_debug.can_move_to_cell),
+                  disabled_reason: j.move_to_cell_ui_debug.disabled_reason ?? null,
+                  disabled_codes: (Array.isArray(j.move_to_cell_ui_debug.disabled_codes)
+                    ? j.move_to_cell_ui_debug.disabled_codes
+                    : []) as MoveToCellDisabledCode[],
+                }
+              : null,
           });
         }
         if (typeof j.softphone_conference?.pstn_on_hold === "boolean") {

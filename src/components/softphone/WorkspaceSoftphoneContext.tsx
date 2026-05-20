@@ -4,6 +4,7 @@ import { createContext, useContext } from "react";
 import type { Dispatch, SetStateAction } from "react";
 
 import type { ConferenceGatingSnapshot } from "@/lib/phone/conference-gating";
+import type { MoveToCellUiDebug } from "@/lib/phone/build-workspace-call-context";
 import type { MoveToCellStatus } from "@/lib/phone/move-to-cell-types";
 import type { LiveTranscriptEntry } from "@/lib/phone/live-transcript-entries";
 import type { SoftphoneTranscriptStreamsMeta } from "@/lib/phone/softphone-transcript-stream-meta";
@@ -46,6 +47,8 @@ export type CallDeskContext = {
   conference_gating: ConferenceGatingSnapshot | null;
   /** Mid-call move to staff cell (conference-backed inbound or outbound). */
   move_to_cell: { status: MoveToCellStatus; last_error: string | null } | null;
+  /** Server diagnostics for why Move to cell is enabled/disabled. */
+  move_to_cell_ui_debug: MoveToCellUiDebug | null;
   /** Manual recording state from `phone_calls.metadata.softphone_recording`. */
   softphone_recording: SoftphoneRecordingMeta | null;
   /** Staff softphone row (`metadata.source=twilio_voice_softphone`) — transcript is human-only. */

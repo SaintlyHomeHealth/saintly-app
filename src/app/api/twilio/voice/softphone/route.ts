@@ -241,6 +241,8 @@ export async function POST(req: NextRequest) {
             softphone_conference: {
               friendly_name: roomName,
               mode: "conference",
+              direction: "outbound",
+              client_call_sid: callSid,
             },
           }
         : {}),
@@ -282,6 +284,9 @@ export async function POST(req: NextRequest) {
       const merged = await mergeSoftphoneConferenceMetadata(supabaseAdmin, callSid, {
         pstn_call_sid: pstnLegSid,
         friendly_name: roomName,
+        mode: "conference",
+        direction: "outbound",
+        client_call_sid: callSid,
       });
       if (!merged.ok) {
         console.warn("[twilio/voice/softphone] merge PSTN sid after REST create failed", merged.error);

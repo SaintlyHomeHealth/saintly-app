@@ -26,6 +26,7 @@ export async function GET(req: Request) {
       {
         found: false,
         hint: "No phone_calls row for this CallSid — outbound softphone may not have logged yet.",
+        move_to_cell_ui_debug: built.move_to_cell_ui_debug,
       },
       { status: 200 }
     );

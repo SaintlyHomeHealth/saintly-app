@@ -86,7 +86,12 @@ function computeMoveToCellEligibility(input: {
   const mode = (sc?.mode ?? "").trim().toLowerCase();
   const metaDirection =
     sc?.direction === "inbound" || sc?.direction === "outbound" ? sc.direction : null;
-  const direction = metaDirection ?? input.callDirection;
+  const direction =
+    metaDirection ??
+    input.callDirection ??
+    (mode === "conference" && input.conferenceModeEnv && !input.inboundConferenceEnabled
+      ? "outbound"
+      : null);
   const conferenceSid =
     typeof sc?.conference_sid === "string" && sc.conference_sid.startsWith("CF")
       ? sc.conference_sid.trim()
