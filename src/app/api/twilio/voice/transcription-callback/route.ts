@@ -8,6 +8,10 @@ import { parseVerifiedTwilioFormBody } from "@/lib/twilio/verify-form-post";
 /** Route: POST /api/twilio/voice/transcription-callback */
 export const runtime = "nodejs";
 
+function twilioTranscriptionCallbackOk(): NextResponse {
+  return new NextResponse("OK", { status: 200, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+}
+
 function extractTranscriptFromTranscriptionDataJson(raw: string): string {
   const t = raw.trim();
   if (!t) return "";
@@ -50,7 +54,7 @@ export async function POST(req: NextRequest) {
         transcription_sid: (p.TranscriptionSid ?? "").trim().slice(0, 12) || null,
       })
     );
-    return new NextResponse("", { status: 204 });
+    return twilioTranscriptionCallbackOk();
   }
 
   if (event === "transcription-stopped") {
@@ -63,7 +67,7 @@ export async function POST(req: NextRequest) {
         transcription_sid: (p.TranscriptionSid ?? "").trim().slice(0, 12) || null,
       })
     );
-    return new NextResponse("", { status: 204 });
+    return twilioTranscriptionCallbackOk();
   }
 
   if (event === "transcription-error") {
@@ -77,24 +81,24 @@ export async function POST(req: NextRequest) {
         error_message: (p.ErrorMessage ?? p.TranscriptionError ?? "").trim().slice(0, 500) || null,
       })
     );
-    return new NextResponse("", { status: 204 });
+    return twilioTranscriptionCallbackOk();
   }
 
   if (event !== "transcription-content") {
-    return new NextResponse("", { status: 204 });
+    return twilioTranscriptionCallbackOk();
   }
 
   if (p.PartialResults === "true") {
     const final = (p.Final ?? "").trim().toLowerCase();
     if (final === "false") {
-      return new NextResponse("", { status: 204 });
+      return twilioTranscriptionCallbackOk();
     }
   }
 
   const callSidRaw = typeof p.CallSid === "string" ? p.CallSid.trim() : "";
   const callSid = callSidRaw.startsWith("CA") ? callSidRaw : "";
   if (!callSid) {
-    return new NextResponse("", { status: 204 });
+    return twilioTranscriptionCallbackOk();
   }
 
   const rawTd = typeof p.TranscriptionData === "string" ? p.TranscriptionData : "";
@@ -105,7 +109,7 @@ export async function POST(req: NextRequest) {
       call_sid: `${callSid.slice(0, 10)}…`,
       preview: rawTd.length > 120 ? `${rawTd.slice(0, 120)}…` : rawTd,
     });
-    return new NextResponse("", { status: 204 });
+    return twilioTranscriptionCallbackOk();
   }
 
   const track = (p.Track ?? "").trim().toLowerCase();
@@ -147,5 +151,5 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  return new NextResponse("", { status: 204 });
+  return twilioTranscriptionCallbackOk();
 }
