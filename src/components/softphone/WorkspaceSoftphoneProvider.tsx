@@ -329,8 +329,6 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
   const [holdBusy, setHoldBusy] = useState(false);
   const micMutedBeforeHoldRef = useRef(false);
   const [callContext, setCallContext] = useState<CallDeskContext | null>(null);
-  const callContextRef = useRef<CallDeskContext | null>(null);
-  callContextRef.current = callContext;
   const [softphoneCapabilities, setSoftphoneCapabilities] = useState<SoftphoneServerCapabilities | null>(null);
   const [outboundCliSelection, setOutboundCliSelection] = useState<OutboundCliSelection | null>(null);
   const outboundCliSelectionRef = useRef<OutboundCliSelection | null>(null);
@@ -384,7 +382,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     setTranscriptStartError(null);
   }, []);
 
-  const callContextRef = useRef(callContext);
+  const callContextRef = useRef<CallDeskContext | null>(null);
   const transcriptPanelOpenRef = useRef(transcriptPanelOpen);
   const transcriptEnabledRef = useRef(transcriptEnabled);
   useEffect(() => {
