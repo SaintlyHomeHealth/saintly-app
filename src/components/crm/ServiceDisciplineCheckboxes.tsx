@@ -1,3 +1,5 @@
+"use client";
+
 import { disciplineLabel, SERVICE_DISCIPLINE_CODES } from "@/lib/crm/service-disciplines";
 
 type Props = {
