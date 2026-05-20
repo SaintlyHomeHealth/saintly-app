@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from "crypto";
+import twilio from "twilio";
 
 import { parseStaffUserIdFromTwilioClientFrom } from "@/lib/softphone/twilio-client-identity";
 import { resolveOutboundBridgeSigningSecret } from "@/lib/phone/outbound-pstn-bridge-config";
@@ -6,11 +7,13 @@ import { escapeXml } from "@/lib/twilio/softphone-conference";
 
 export const INBOUND_CONFERENCE_ROOM_PREFIX = "sf-in";
 
-/** Default on; set `TWILIO_INBOUND_USE_CONFERENCE=0` to restore legacy `<Dial><Client>` bridge. */
+/**
+ * Opt-in only. Production should leave unset or `0` until inbound conference connect is verified.
+ * Set `TWILIO_INBOUND_USE_CONFERENCE=1` (or `true`) to enable conference on staff answer.
+ */
 export function inboundBrowserConferenceEnabled(): boolean {
   const v = process.env.TWILIO_INBOUND_USE_CONFERENCE?.trim().toLowerCase() ?? "";
-  if (v === "0" || v === "false" || v === "no") return false;
-  return true;
+  return v === "1" || v === "true" || v === "yes";
 }
 
 /** Conference friendly name for PSTN inbound (customer parent CallSid). */
@@ -127,6 +130,176 @@ export function conferenceStatusCallbackAttrs(publicBase: string): string {
   const base = publicBase.trim().replace(/\/$/, "");
   if (!base) return "";
   return ` statusCallback="${escapeXml(`${base}/api/twilio/voice/softphone-conference-events`)}" statusCallbackMethod="POST" statusCallbackEvent="join leave mute hold start end"`;
+}
+
+/** Optional staff-leg waitUrl for debugging only (`INBOUND_CONFERENCE_STAFF_WAIT_URL`, may be empty string). */
+export function inboundConferenceStaffWaitUrlAttr(publicBase: string): string {
+  if (!process.env.INBOUND_CONFERENCE_STAFF_WAIT_URL) return "";
+  const raw = process.env.INBOUND_CONFERENCE_STAFF_WAIT_URL.trim();
+  const url =
+    raw === ""
+      ? `${publicBase.trim().replace(/\/$/, "")}/api/twilio/voice/softphone-hold-music`
+      : raw;
+  if (!url) return ` waitUrl=""`;
+  return ` waitUrl="${escapeXml(url)}"`;
+}
+
+export function buildCustomerConferenceJoinTwiml(room: string, publicBase: string): string {
+  const confAttrs = conferenceStatusCallbackAttrs(publicBase);
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Dial>
+    <Conference beep="false" startConferenceOnEnter="true" endConferenceOnExit="false" participantLabel="customer"${confAttrs}>${escapeXml(
+      room
+    )}</Conference>
+  </Dial>
+</Response>`.trim();
+}
+
+export function buildStaffConferenceJoinTwiml(room: string, publicBase: string): string {
+  const confAttrs = conferenceStatusCallbackAttrs(publicBase);
+  const waitAttr = inboundConferenceStaffWaitUrlAttr(publicBase);
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Dial>
+    <Conference beep="false" startConferenceOnEnter="false" endConferenceOnExit="false" participantLabel="staff"${waitAttr}${confAttrs}>${escapeXml(
+      room
+    )}</Conference>
+  </Dial>
+</Response>`.trim();
+}
+
+/** Legacy `<Dial><Client>` bridge when conference redirect cannot run (empty Response on staff leg). */
+export function legacyInboundStaffBridgeTwiml(): string {
+  return `<?xml version="1.0" encoding="UTF-8"?><Response></Response>`;
+}
+
+export type TwilioErrorFields = {
+  message: string;
+  code: number | string | null;
+  status: number | null;
+  moreInfo: string | null;
+};
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export type RedirectCustomerIntoConferenceResult = {
+  ok: boolean;
+  parentUpdateOk: boolean;
+  customerInConference: boolean;
+  conferenceSid: string | null;
+  parentStatusBefore: string | null;
+  parentStatusAfter: string | null;
+  pollAttempts: number;
+  error: TwilioErrorFields | null;
+};
+
+/**
+ * Move the customer (parent PSTN) leg into the inbound conference before the staff leg joins.
+ */
+export async function redirectCustomerIntoInboundConference(input: {
+  accountSid: string;
+  authToken: string;
+  customerCallSid: string;
+  room: string;
+  publicBase: string;
+  pollAttempts?: number;
+  pollIntervalMs?: number;
+}): Promise<RedirectCustomerIntoConferenceResult> {
+  const customerSid = input.customerCallSid.trim();
+  const room = input.room.trim();
+  const attempts = input.pollAttempts ?? 20;
+  const intervalMs = input.pollIntervalMs ?? 300;
+  const fail = (partial: Partial<RedirectCustomerIntoConferenceResult>): RedirectCustomerIntoConferenceResult => ({
+    ok: false,
+    parentUpdateOk: false,
+    customerInConference: false,
+    conferenceSid: null,
+    parentStatusBefore: null,
+    parentStatusAfter: null,
+    pollAttempts: 0,
+    error: null,
+    ...partial,
+  });
+
+  if (!customerSid.startsWith("CA") || !room.startsWith("sf-in-")) {
+    return fail({ error: { message: "invalid customer sid or room", code: null, status: null, moreInfo: null } });
+  }
+
+  const client = twilio(input.accountSid, input.authToken);
+  let parentStatusBefore: string | null = null;
+  try {
+    const parentBefore = await client.calls(customerSid).fetch();
+    parentStatusBefore = typeof parentBefore.status === "string" ? parentBefore.status : null;
+  } catch (e) {
+    return fail({ error: twilioErrorFields(e) });
+  }
+
+  const parentTwiml = buildCustomerConferenceJoinTwiml(room, input.publicBase);
+  let parentUpdateOk = false;
+  let parentStatusAfter: string | null = null;
+  try {
+    const updated = await client.calls(customerSid).update({ twiml: parentTwiml });
+    parentUpdateOk = true;
+    parentStatusAfter = typeof updated.status === "string" ? updated.status : parentStatusBefore;
+  } catch (e) {
+    return fail({ parentStatusBefore, error: twilioErrorFields(e) });
+  }
+
+  let conferenceSid: string | null = null;
+  let customerInConference = false;
+  let pollCount = 0;
+  for (let i = 0; i < attempts; i++) {
+    pollCount = i + 1;
+    try {
+      const conferences = await client.conferences.list({ friendlyName: room, limit: 5 });
+      for (const conf of conferences) {
+        const sid = typeof conf.sid === "string" ? conf.sid : "";
+        if (!sid.startsWith("CF") || conf.status === "completed") continue;
+        const participants = await client.conferences(sid).participants.list({ limit: 20 });
+        for (const part of participants) {
+          const partSid = typeof part.callSid === "string" ? part.callSid.trim() : "";
+          const partLabel = (part.label ?? "").trim().toLowerCase();
+          if (partSid === customerSid || partLabel === "customer") {
+            customerInConference = true;
+            conferenceSid = sid;
+            break;
+          }
+        }
+        if (customerInConference) break;
+      }
+    } catch {
+      /* poll again */
+    }
+    if (customerInConference) break;
+    if (i < attempts - 1) await sleep(intervalMs);
+  }
+
+  return {
+    ok: parentUpdateOk && customerInConference,
+    parentUpdateOk,
+    customerInConference,
+    conferenceSid,
+    parentStatusBefore,
+    parentStatusAfter,
+    pollAttempts: pollCount,
+    error: customerInConference ? null : { message: "customer_not_in_conference_after_poll", code: null, status: null, moreInfo: null },
+  };
+}
+
+export function twilioErrorFields(err: unknown): TwilioErrorFields {
+  if (err && typeof err === "object") {
+    const o = err as Record<string, unknown>;
+    return {
+      message: typeof o.message === "string" ? o.message : String(err),
+      code: (o.code as number | string | null) ?? null,
+      status: typeof o.status === "number" ? o.status : null,
+      moreInfo: typeof o.moreInfo === "string" ? o.moreInfo : null,
+    };
+  }
+  return { message: String(err), code: null, status: null, moreInfo: null };
 }
 
 export function staffUserIdFromClientCallParams(input: {

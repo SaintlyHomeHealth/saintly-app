@@ -3,7 +3,7 @@ import { resolveTranscriptionStatusCallbackUrl } from "@/lib/twilio/resolve-tran
 
 export type ConferenceGatingSnapshot = {
   conference_mode_env: boolean;
-  /** Inbound browser conference (default on; `TWILIO_INBOUND_USE_CONFERENCE=0` disables). */
+  /** Inbound browser conference (opt-in via `TWILIO_INBOUND_USE_CONFERENCE=1`). */
   inbound_conference_enabled: boolean;
   /** Client (browser) leg — active Voice SDK CallSid from the UI. */
   client_leg_call_sid: string;
@@ -57,7 +57,7 @@ export function computeConferenceGating(input: {
   const conferenceModeEnv = process.env.TWILIO_SOFTPHONE_USE_CONFERENCE === "true";
   const inboundConfEnv = process.env.TWILIO_INBOUND_USE_CONFERENCE?.trim().toLowerCase() ?? "";
   const inboundConferenceEnabled =
-    inboundConfEnv !== "0" && inboundConfEnv !== "false" && inboundConfEnv !== "no";
+    inboundConfEnv === "1" || inboundConfEnv === "true" || inboundConfEnv === "yes";
 
   const wss = resolveTwilioMediaStreamWssUrl();
   const mediaOk = wss.startsWith("wss://");
