@@ -46,7 +46,11 @@ export type CallDeskContext = {
   /** Server-computed gating — use for disabling controls with real reasons. */
   conference_gating: ConferenceGatingSnapshot | null;
   /** Mid-call move to staff cell (conference-backed inbound or outbound). */
-  move_to_cell: { status: MoveToCellStatus; last_error: string | null } | null;
+  move_to_cell: {
+    status: MoveToCellStatus;
+    last_error: string | null;
+    failure_reason?: string | null;
+  } | null;
   /** Server diagnostics for why Move to cell is enabled/disabled. */
   move_to_cell_ui_debug: MoveToCellUiDebug | null;
   /** Manual recording state from `phone_calls.metadata.softphone_recording`. */

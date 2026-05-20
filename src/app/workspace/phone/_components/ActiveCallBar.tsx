@@ -31,6 +31,7 @@ import { useWorkspaceCallDuration, useWorkspaceSoftphone } from "@/components/so
 
 import { LiveCallContextPanel } from "@/components/softphone/LiveCallContextPanel";
 import { softphoneDevLog } from "@/lib/softphone/softphone-client-debug";
+import { formatMoveToCellFailureMessage } from "@/lib/phone/move-to-cell-failure-messages";
 import { parseWorkspaceOutboundDialInput } from "@/lib/softphone/phone-number";
 
 function formatDuration(totalSec: number): string {
@@ -167,6 +168,8 @@ export function ActiveCallBar() {
   const moveToCellTooltip = allowMoveToCell
     ? "Ring your cell — press 1 to take the call off the browser"
     : moveToCellDisabledReason;
+  const moveToCellLastError =
+    callContext?.move_to_cell?.last_error ?? callContext?.move_to_cell?.failure_reason ?? null;
   const moveToCellLabel =
     moveToCellStatus === "ringing"
       ? "Calling your cell…"
@@ -175,7 +178,7 @@ export function ActiveCallBar() {
         : moveToCellStatus === "connected_on_cell"
           ? "Connected on cell"
           : moveToCellStatus === "failed"
-            ? "Failed, browser still active"
+            ? formatMoveToCellFailureMessage(moveToCellLastError)
             : null;
   const pstnConferenceBlockedReason = allowPstnConferenceActions
     ? undefined
@@ -219,9 +222,9 @@ export function ActiveCallBar() {
     if (moveToCellStatus !== "failed") return;
     setNotice({
       kind: "error",
-      message: "Cell transfer failed — browser call is still connected.",
+      message: formatMoveToCellFailureMessage(moveToCellLastError),
     });
-  }, [moveToCellStatus]);
+  }, [moveToCellStatus, moveToCellLastError]);
 
   useEffect(() => {
     if (status !== "in_call") return;

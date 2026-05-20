@@ -37,3 +37,31 @@ export async function mergeMoveToCellMetadata(
   if (error) return { ok: false, error: error.message };
   return { ok: true };
 }
+
+export async function markMoveToCellFailed(
+  supabase: SupabaseClient,
+  clientCallSid: string,
+  input: { last_error: string; cell_call_sid?: string | null; failure_reason?: string }
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const reason =
+    input.failure_reason?.trim() ||
+    input.last_error.trim().slice(0, 200);
+  const result = await mergeMoveToCellMetadata(supabase, clientCallSid, {
+    status: "failed",
+    last_error: input.last_error.trim().slice(0, 200),
+    failure_reason: reason,
+    ...(input.cell_call_sid?.startsWith("CA") ? { cell_call_sid: input.cell_call_sid } : {}),
+  });
+  if (!result.ok) {
+    console.error(
+      JSON.stringify({
+        tag: "move-to-cell",
+        event: "move_to_cell_metadata_merge_failed",
+        client_call_sid: clientCallSid,
+        error: result.error,
+        failure_reason: reason,
+      })
+    );
+  }
+  return result;
+}

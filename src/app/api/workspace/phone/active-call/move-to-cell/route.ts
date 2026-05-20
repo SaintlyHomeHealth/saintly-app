@@ -4,7 +4,14 @@ import twilio from "twilio";
 import { supabaseAdmin } from "@/lib/admin";
 import { computeConferenceGating } from "@/lib/phone/conference-gating";
 import { logMoveToCellEvent } from "@/lib/phone/move-to-cell-events";
-import { mergeMoveToCellMetadata } from "@/lib/phone/move-to-cell-metadata";
+import {
+  markMoveToCellFailed,
+  mergeMoveToCellMetadata,
+} from "@/lib/phone/move-to-cell-metadata";
+import {
+  formatMoveToCellFailureMessage,
+  moveToCellFailureReason,
+} from "@/lib/phone/move-to-cell-failure-messages";
 import { mergeSoftphoneConferenceMetadata } from "@/lib/phone/merge-softphone-conference-metadata";
 import { mintMoveToCellToken } from "@/lib/phone/move-to-cell-token";
 import { readMoveToCellMeta } from "@/lib/phone/move-to-cell-types";
@@ -45,15 +52,34 @@ export async function POST(req: Request) {
 
   const staffCell = resolveStaffOutboundCellE164(staff);
   if (!staffCell) {
+    const err = "Failed: missing staff cell number — add sms_notify_phone on your profile.";
+    console.log(
+      JSON.stringify({
+        tag: LOG_TAG,
+        event: "move_to_cell_failed_exact_reason",
+        reason: "missing_staff_cell",
+        staff_user_id: staff.user_id,
+      })
+    );
     return NextResponse.json(
       {
         ok: false,
-        error:
-          "No staff cell number configured. Add sms_notify_phone on your staff profile or set TWILIO_OUTBOUND_DEFAULT_STAFF_E164.",
+        error: err,
+        failure_reason: "missing_staff_cell",
       },
       { status: 400 }
     );
   }
+
+  console.log(
+    JSON.stringify({
+      tag: LOG_TAG,
+      event: "staff_cell_resolved",
+      staff_user_id: staff.user_id,
+      staff_cell_tail: staffCell.replace(/\D/g, "").slice(-4),
+      staff_cell_e164: staffCell,
+    })
+  );
 
   let body: RequestBody;
   try {
@@ -80,11 +106,11 @@ export async function POST(req: Request) {
   console.log(
     JSON.stringify({
       tag: LOG_TAG,
-      event: "request_received",
+      event: "move_to_cell_request_received",
       client_call_sid: clientCallSid,
       conference_sid_body: typeof body.conferenceSid === "string" ? body.conferenceSid.slice(0, 12) : null,
       staff_user_id: staff.user_id,
-      staff_cell_tail: staffCell.replace(/\D/g, "").slice(-4),
+      staff_cell_e164: staffCell,
     })
   );
 
@@ -173,10 +199,14 @@ export async function POST(req: Request) {
   }
 
   if (!gating.can_move_to_cell || !conferenceSid) {
+    const err =
+      gating.move_to_cell_disabled_reason ??
+      "Failed: conference not found or not active — answer on the browser softphone first.";
     console.log(
       JSON.stringify({
         tag: LOG_TAG,
-        event: "request_rejected_not_eligible",
+        event: "move_to_cell_failed_exact_reason",
+        reason: "not_eligible",
         client_call_sid: browserLegSid,
         call_direction: direction,
         conference_sid: conferenceSid || null,
@@ -187,11 +217,10 @@ export async function POST(req: Request) {
     return NextResponse.json(
       {
         ok: false,
-        error:
-          gating.move_to_cell_disabled_reason ??
-          "Move to cell requires an active conference call (answer on the browser softphone first).",
+        error: err,
         blockers: gating.blockers,
         disabled_codes: gating.move_to_cell_disabled_codes,
+        failure_reason: "conference_not_ready",
         fallback_available: false,
       },
       { status: 409 }
@@ -200,7 +229,9 @@ export async function POST(req: Request) {
 
   const callerId = process.env.TWILIO_SOFTPHONE_CALLER_ID_E164?.trim() || "";
   if (!callerId || !isValidE164(callerId)) {
-    return NextResponse.json({ ok: false, error: "TWILIO_SOFTPHONE_CALLER_ID_E164 not configured" }, { status: 503 });
+    const err = "Failed: outbound caller ID not configured (TWILIO_SOFTPHONE_CALLER_ID_E164).";
+    console.log(JSON.stringify({ tag: LOG_TAG, event: "move_to_cell_failed_exact_reason", reason: "invalid_from" }));
+    return NextResponse.json({ ok: false, error: err, failure_reason: "invalid_from" }, { status: 503 });
   }
 
   const accountSid = process.env.TWILIO_ACCOUNT_SID?.trim();
@@ -238,12 +269,14 @@ export async function POST(req: Request) {
     JSON.stringify({
       tag: LOG_TAG,
       event: "twilio_calls_create_start",
-      to_tail: staffCell.replace(/\D/g, "").slice(-4),
-      from_tail: callerId.replace(/\D/g, "").slice(-4),
+      to_e164: staffCell,
+      from_e164: callerId,
       conference_sid: conferenceSid,
       friendly_name: friendlyName.slice(0, 48),
       browser_leg_sid: browserLegSid,
+      customer_pstn_call_sid: customerCallSid,
       metadata_merge_key: metadataMergeKey,
+      staff_screen_url_host: staffScreenUrl.replace(/^https?:\/\//, "").split("/")[0],
     })
   );
 
@@ -265,8 +298,8 @@ export async function POST(req: Request) {
       JSON.stringify({
         tag: LOG_TAG,
         event: "twilio_calls_create_ok",
-        to_tail: staffCell.replace(/\D/g, "").slice(-4),
-        from_tail: callerId.replace(/\D/g, "").slice(-4),
+        to_e164: staffCell,
+        from_e164: callerId,
         cell_call_sid: cellCallSid,
         conference_sid: conferenceSid,
       })
@@ -338,32 +371,42 @@ export async function POST(req: Request) {
   } catch (e) {
     const twilioErr = twilioErrorFields(e);
     const msg = twilioErr.message;
+    const lastError = moveToCellFailureReason({
+      source: "calls_create",
+      twilioMessage: msg,
+      twilioCode: twilioErr.code,
+    });
+    const userError = formatMoveToCellFailureMessage(lastError, twilioErr.code);
     console.error(
       JSON.stringify({
         tag: LOG_TAG,
         event: "twilio_calls_create_failed",
+        event_exact: "move_to_cell_failed_exact_reason",
         message: msg,
         code: twilioErr.code,
         status: twilioErr.status,
         more_info: twilioErr.moreInfo,
-        to_tail: staffCell.replace(/\D/g, "").slice(-4),
-        from_tail: callerId.replace(/\D/g, "").slice(-4),
+        to_e164: staffCell,
+        from_e164: callerId,
+        user_error: userError,
       })
     );
-    await mergeMoveToCellMetadata(supabaseAdmin, metadataMergeKey, {
-      status: "failed",
-      last_error: msg.slice(0, 200),
+    await markMoveToCellFailed(supabaseAdmin, metadataMergeKey, {
+      last_error: lastError,
+      failure_reason: lastError,
     });
     await logMoveToCellEvent(supabaseAdmin, metadataMergeKey, "move_to_cell_failed", {
       reason: "calls_create",
       detail: msg,
+      twilio_code: twilioErr.code,
     });
     return NextResponse.json(
       {
         ok: false,
-        error: `Move to cell failed — ${msg.slice(0, 160)}`,
+        error: userError,
         detail: msg.slice(0, 200),
         twilio_code: twilioErr.code,
+        failure_reason: lastError,
       },
       { status: 502 }
     );

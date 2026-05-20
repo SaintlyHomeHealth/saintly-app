@@ -27,6 +27,14 @@ export async function POST(req: NextRequest) {
   const token = req.nextUrl.searchParams.get("token");
   const payload = verifyMoveToCellToken(token);
   if (!payload) {
+    console.log(
+      JSON.stringify({
+        tag: LOG_TAG,
+        event: "move_to_cell_failed_exact_reason",
+        reason: "invalid_or_expired_token",
+        cell_call_sid: parsed.params.CallSid ?? null,
+      })
+    );
     const xml = `<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna">${escapeXml(
       "This call could not be connected."
     )}</Say><Hangup/></Response>`;

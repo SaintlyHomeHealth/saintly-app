@@ -23,6 +23,7 @@ import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
 import { parseOutboundLinesFromCapabilitiesPayload } from "@/lib/phone/softphone-outbound-lines";
 import type { ConferenceGatingSnapshot, MoveToCellDisabledCode } from "@/lib/phone/conference-gating";
 import type { MoveToCellUiDebug } from "@/lib/phone/build-workspace-call-context";
+import { formatMoveToCellFailureMessage } from "@/lib/phone/move-to-cell-failure-messages";
 import type { LiveTranscriptEntry } from "@/lib/phone/live-transcript-entries";
 import type { SoftphoneRecordingMeta } from "@/lib/twilio/softphone-recording-types";
 import { parseWorkspaceOutboundDialInput } from "@/lib/softphone/phone-number";
@@ -822,6 +823,10 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
                     status: j.move_to_cell.status,
                     last_error:
                       typeof j.move_to_cell.last_error === "string" ? j.move_to_cell.last_error : null,
+                    failure_reason:
+                      typeof j.move_to_cell.failure_reason === "string"
+                        ? j.move_to_cell.failure_reason
+                        : null,
                   }
                 : null,
             move_to_cell_ui_debug: j.move_to_cell_ui_debug
@@ -2154,6 +2159,8 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       error?: string;
       detail?: string;
       status?: string;
+      failure_reason?: string;
+      twilio_code?: number | string;
     };
 
     console.log("[move-to-cell-ui] fetch_response", {
@@ -2167,13 +2174,17 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     if (!res.ok || !j.ok) {
       const err =
         j.error ??
-        j.detail ??
+        formatMoveToCellFailureMessage(j.failure_reason ?? j.detail, j.twilio_code) ??
         `Move to cell failed (HTTP ${res.status}) — browser call is still connected.`;
       setCallContext((prev) =>
         prev
           ? {
               ...prev,
-              move_to_cell: { status: "failed", last_error: err },
+              move_to_cell: {
+                status: "failed",
+                last_error: j.failure_reason ?? j.detail ?? err,
+                failure_reason: j.failure_reason ?? null,
+              },
               move_to_cell_ui_debug: prev.move_to_cell_ui_debug
                 ? { ...prev.move_to_cell_ui_debug, move_to_cell_status: "failed", disabled_reason: err }
                 : null,
@@ -2195,7 +2206,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       prev
         ? {
             ...prev,
-            move_to_cell: { status: st, last_error: null },
+            move_to_cell: { status: st, last_error: null, failure_reason: null },
             move_to_cell_ui_debug: prev.move_to_cell_ui_debug
               ? { ...prev.move_to_cell_ui_debug, move_to_cell_status: st }
               : null,

@@ -7,7 +7,7 @@ import {
   type MoveToCellDisabledCode,
 } from "@/lib/phone/conference-gating";
 import { inboundBrowserConferenceEnabled } from "@/lib/phone/inbound-browser-conference";
-import { readMoveToCellMeta, type MoveToCellMeta } from "@/lib/phone/move-to-cell-types";
+import { readMoveToCellUiState, type MoveToCellMeta } from "@/lib/phone/move-to-cell-types";
 import {
   parseLiveTranscriptEntriesFromMetadata,
   readUnclampedLiveTranscriptExcerpt,
@@ -267,7 +267,7 @@ export async function buildWorkspaceCallContextPayload(
     };
   }
 
-  const moveToCellFull = readMoveToCellMeta(rawMeta);
+  const moveToCellFull = readMoveToCellUiState(rawMeta);
   const callDirection =
     data.direction === "inbound" || data.direction === "outbound"
       ? data.direction
@@ -316,7 +316,11 @@ export async function buildWorkspaceCallContextPayload(
   );
 
   const moveToCellPayload = moveToCellFull
-    ? { status: moveToCellFull.status, last_error: moveToCellFull.last_error ?? null }
+    ? {
+        status: moveToCellFull.status,
+        last_error: moveToCellFull.last_error ?? null,
+        failure_reason: moveToCellFull.failure_reason ?? null,
+      }
     : null;
 
   const payload: WorkspaceCallContextPayload = {

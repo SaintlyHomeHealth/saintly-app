@@ -22,6 +22,8 @@ export type MoveToCellMeta = {
   requested_at: string;
   updated_at: string;
   last_error?: string | null;
+  /** Machine-readable code for logs / UI formatting. */
+  failure_reason?: string | null;
 };
 
 export const MOVE_TO_CELL_EVENT_TYPES = [
@@ -33,6 +35,38 @@ export const MOVE_TO_CELL_EVENT_TYPES = [
 ] as const;
 
 export type MoveToCellEventType = (typeof MOVE_TO_CELL_EVENT_TYPES)[number];
+
+/** UI poll: status + error even when full MoveToCellMeta validation fails. */
+export function readMoveToCellUiState(
+  metadata: Record<string, unknown> | null | undefined
+): { status: MoveToCellStatus; last_error: string | null; failure_reason: string | null } | null {
+  const full = readMoveToCellMeta(metadata);
+  if (full) {
+    return {
+      status: full.status,
+      last_error: full.last_error ?? null,
+      failure_reason: full.failure_reason ?? null,
+    };
+  }
+  const raw = metadata?.move_to_cell;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const o = raw as Record<string, unknown>;
+  const status = o.status;
+  if (
+    status !== "idle" &&
+    status !== "ringing" &&
+    status !== "press_1" &&
+    status !== "connected_on_cell" &&
+    status !== "failed"
+  ) {
+    return null;
+  }
+  return {
+    status,
+    last_error: typeof o.last_error === "string" ? o.last_error : null,
+    failure_reason: typeof o.failure_reason === "string" ? o.failure_reason : null,
+  };
+}
 
 export function readMoveToCellMeta(metadata: Record<string, unknown> | null | undefined): MoveToCellMeta | null {
   const raw = metadata?.move_to_cell;
@@ -75,6 +109,7 @@ export function readMoveToCellMeta(metadata: Record<string, unknown> | null | un
     requested_at: typeof o.requested_at === "string" ? o.requested_at : new Date().toISOString(),
     updated_at: typeof o.updated_at === "string" ? o.updated_at : new Date().toISOString(),
     last_error: typeof o.last_error === "string" ? o.last_error : null,
+    failure_reason: typeof o.failure_reason === "string" ? o.failure_reason : null,
   };
 }
 

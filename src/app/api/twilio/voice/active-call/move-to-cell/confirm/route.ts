@@ -2,7 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { supabaseAdmin } from "@/lib/admin";
 import { logMoveToCellEvent } from "@/lib/phone/move-to-cell-events";
-import { mergeMoveToCellMetadata } from "@/lib/phone/move-to-cell-metadata";
+import {
+  formatMoveToCellFailureMessage,
+  moveToCellFailureReason,
+} from "@/lib/phone/move-to-cell-failure-messages";
+import { markMoveToCellFailed, mergeMoveToCellMetadata } from "@/lib/phone/move-to-cell-metadata";
 import { verifyMoveToCellToken } from "@/lib/phone/move-to-cell-token";
 import { escapeXml } from "@/lib/twilio/softphone-conference";
 import { parseVerifiedTwilioFormBody } from "@/lib/twilio/verify-form-post";
@@ -29,22 +33,29 @@ export async function POST(req: NextRequest) {
   }
 
   if (digits !== "1") {
+    const lastError = moveToCellFailureReason({ source: "press_1" });
+    const userError = formatMoveToCellFailureMessage(lastError);
     console.log(
       JSON.stringify({
         tag: LOG_TAG,
-        event: "staff_confirm_rejected_or_timeout",
+        event: "move_to_cell_failed_exact_reason",
+        reason: lastError,
+        user_error: userError,
+        sub_event: "staff_confirm_rejected_or_timeout",
         client_call_sid: payload.client_call_sid,
         cell_call_sid: callSid,
         digits: digits || null,
       })
     );
-    await mergeMoveToCellMetadata(supabaseAdmin, payload.client_call_sid, {
-      status: "failed",
-      last_error: "press_1_timeout_or_rejected",
+    await markMoveToCellFailed(supabaseAdmin, payload.client_call_sid, {
+      last_error: lastError,
+      failure_reason: lastError,
+      cell_call_sid: callSid?.startsWith("CA") ? callSid : undefined,
     });
     await logMoveToCellEvent(supabaseAdmin, payload.client_call_sid, "move_to_cell_failed", {
       reason: "press_1",
       cell_call_sid: callSid,
+      failure_reason: lastError,
     });
     const xml = `<?xml version="1.0" encoding="UTF-8"?><Response><Hangup/></Response>`;
     return new NextResponse(xml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
