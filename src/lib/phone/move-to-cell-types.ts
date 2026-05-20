@@ -31,6 +31,8 @@ export const MOVE_TO_CELL_EVENT_TYPES = [
   "move_to_cell_ringing",
   "move_to_cell_confirmed",
   "browser_leg_removed_after_cell_join",
+  "staff_cell_joined_with_end_conference_on_exit",
+  "move_to_cell_staff_cell_hangup_ended_conference",
   "move_to_cell_failed",
 ] as const;
 

@@ -36,6 +36,34 @@ export async function removeBrowserParticipantFromConference(input: {
   }
 }
 
+/**
+ * After staff_cell joins, make that leg end the conference when it hangs up (customer must not stay alone).
+ */
+export async function setStaffCellEndConferenceOnExit(input: {
+  conferenceSid: string;
+  cellCallSid: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  const accountSid = process.env.TWILIO_ACCOUNT_SID?.trim();
+  const authToken = process.env.TWILIO_AUTH_TOKEN?.trim();
+  const conferenceSid = input.conferenceSid.trim();
+  const cellSid = input.cellCallSid.trim();
+  if (!accountSid || !authToken) {
+    return { ok: false, error: "Twilio credentials missing" };
+  }
+  if (!conferenceSid.startsWith("CF") || !cellSid.startsWith("CA")) {
+    return { ok: false, error: "invalid conference or cell CallSid" };
+  }
+
+  try {
+    const client = twilio(accountSid, authToken);
+    await client.conferences(conferenceSid).participants(cellSid).update({ endConferenceOnExit: true });
+    return { ok: true };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { ok: false, error: msg.slice(0, 200) };
+  }
+}
+
 /** True when client leg left conference due to intentional move-to-cell (do not tear down customer). */
 export function shouldSkipConferenceTeardownOnClientLeave(
   moveToCell: { status?: string } | null | undefined

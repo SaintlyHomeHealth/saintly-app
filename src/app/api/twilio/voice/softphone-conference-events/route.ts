@@ -16,8 +16,10 @@ import {
   hangupClientLegOnly,
   teardownSoftphoneConferenceFromMetadata,
 } from "@/lib/twilio/softphone-conference-teardown";
+import { endActiveWorkspaceConferenceCall } from "@/lib/phone/end-active-conference-call";
 import {
   removeBrowserParticipantFromConference,
+  setStaffCellEndConferenceOnExit,
   shouldSkipConferenceTeardownOnClientLeave,
 } from "@/lib/twilio/move-to-cell-conference";
 import { parseVerifiedTwilioFormBody } from "@/lib/twilio/verify-form-post";
@@ -122,6 +124,27 @@ export async function POST(req: NextRequest) {
     const moveToCellJoin = readMoveToCellMeta(metaJoin ?? null);
     const browserSidJoin = moveToCellJoin?.client_call_sid?.trim() ?? "";
     if (browserSidJoin && moveToCellJoin && browserSidJoin !== participantCallSid) {
+      const endExitSet = await setStaffCellEndConferenceOnExit({
+        conferenceSid,
+        cellCallSid: participantCallSid,
+      });
+      console.log(
+        JSON.stringify({
+          tag: "move-to-cell",
+          event: "staff_cell_joined_with_end_conference_on_exit",
+          conference_sid: conferenceSid,
+          cell_call_sid: participantCallSid,
+          end_conference_on_exit_set: endExitSet.ok,
+          end_conference_on_exit_error: endExitSet.error ?? null,
+        })
+      );
+      if (endExitSet.ok) {
+        await logMoveToCellEvent(supabaseAdmin, mergeLookupSid, "staff_cell_joined_with_end_conference_on_exit", {
+          cell_call_sid: participantCallSid,
+          conference_sid: conferenceSid,
+        });
+      }
+
       const removed = await removeBrowserParticipantFromConference({
         conferenceSid,
         clientCallSid: browserSidJoin,
@@ -147,6 +170,39 @@ export async function POST(req: NextRequest) {
   const meta = row?.metadata as Record<string, unknown> | undefined;
   const sc = meta?.softphone_conference as SoftphoneConferenceMeta | undefined;
   const moveToCell = readMoveToCellMeta(meta ?? null);
+
+  if (label === "staff_cell" && moveToCell?.status === "connected_on_cell" && conferenceSid) {
+    const cellSid = moveToCell.cell_call_sid?.trim() || participantCallSid;
+    const isStaffCellLeg = participantCallSid === cellSid || label === "staff_cell";
+    if (isStaffCellLeg) {
+      console.log(
+        JSON.stringify({
+          tag: "move-to-cell",
+          event: "staff_cell_left",
+          client_call_sid: mergeLookupSid,
+          cell_call_sid: participantCallSid,
+          conference_sid: conferenceSid,
+        })
+      );
+      const endResult = await endActiveWorkspaceConferenceCall(supabaseAdmin, {
+        lookupCallSid: mergeLookupSid,
+        conferenceSid,
+        reason: "move_to_cell_staff_cell_hangup",
+      });
+      if (endResult.ok) {
+        console.log(
+          JSON.stringify({
+            tag: "move-to-cell",
+            event: "conference_completed_after_staff_cell_left",
+            client_call_sid: mergeLookupSid,
+            conference_sid: conferenceSid,
+            steps: endResult.steps,
+          })
+        );
+      }
+      return new NextResponse("OK", { status: 200, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+    }
+  }
   const pstnStored = typeof sc?.pstn_call_sid === "string" ? sc.pstn_call_sid.trim() : "";
   const browserStored = typeof sc?.client_call_sid === "string" ? sc.client_call_sid.trim() : "";
 

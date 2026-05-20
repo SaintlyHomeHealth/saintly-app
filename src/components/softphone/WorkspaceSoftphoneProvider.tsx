@@ -384,6 +384,9 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
   }, []);
 
   const callContextRef = useRef<CallDeskContext | null>(null);
+  /** Client CallSid kept for polling / End call after move-to-cell drops the browser leg. */
+  const onCellCallSidRef = useRef<string | null>(null);
+  const skipBrowserDisconnectCleanupRef = useRef(false);
   const transcriptPanelOpenRef = useRef(transcriptPanelOpen);
   const transcriptEnabledRef = useRef(transcriptEnabled);
   useEffect(() => {
@@ -619,7 +622,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       transcriptEnabled && transcriptPanelOpen ? CALL_CONTEXT_POLL_TRANSCRIPT_MS : CALL_CONTEXT_POLL_MS_DEFAULT;
 
     const pollOnce = async () => {
-      const sid = readCallSid(activeCallRef.current);
+      const sid = readCallSid(activeCallRef.current) || onCellCallSidRef.current;
       if (!sid) {
         if (!cancelled) setCallContext(null);
         return;
@@ -665,7 +668,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
           return;
         }
 
-        const currentSid = readCallSid(activeCallRef.current);
+        const currentSid = readCallSid(activeCallRef.current) || onCellCallSidRef.current;
         if (currentSid !== sid) return;
         const j = (await res.json()) as {
           ok?: boolean;
@@ -1015,6 +1018,8 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       }
 
       activeCallRef.current = null;
+      onCellCallSidRef.current = null;
+      skipBrowserDisconnectCleanupRef.current = false;
       setStatus("idle");
       setCallStartedAtMs(null);
       if (options?.clearHint !== false) {
@@ -1332,6 +1337,11 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       setStatus("in_call");
       setCallStartedAtMs(Date.now());
       call.on("disconnect", (disconnectedArg) => {
+        if (skipBrowserDisconnectCleanupRef.current) {
+          skipBrowserDisconnectCleanupRef.current = false;
+          softphoneDevLog("[softphone] browser disconnect after move-to-cell — keeping on-cell session");
+          return;
+        }
         const disconnected = disconnectedArg ?? call;
         const sid = readCallSid(disconnected);
         softphoneDevLog("[softphone] Twilio disconnect event", sid ? `${sid.slice(0, 10)}…` : "(unknown)");
@@ -1862,10 +1872,15 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     hangUpInFlightRef.current = true;
 
     const c = activeCallRef.current;
+    const ctx = callContextRef.current;
+    const onCellConnected = ctx?.move_to_cell?.status === "connected_on_cell";
     const sid =
+      onCellCallSidRef.current ||
       readCallSid(c) ||
+      ctx?.external_call_id ||
       nativeShellActiveSidRef.current ||
       nativeShellIncomingCallId;
+    const conferenceSid = ctx?.conference?.conference_sid ?? null;
     const wasInCall = statusRef.current === "in_call";
 
     flushSync(() => {
@@ -1877,16 +1892,22 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     });
 
     Promise.resolve().then(async () => {
-      softphoneDevLog("[softphone] hangup pressed");
+      softphoneDevLog("[softphone] hangup pressed", { onCellConnected });
       try {
         if (nativeVoiceCallShell) {
           if (wasInCall && sid?.startsWith("CA")) {
             try {
-              const res = await fetch("/api/workspace/phone/conference/end-call", {
+              const endpoint = onCellConnected
+                ? "/api/workspace/phone/active-call/end"
+                : "/api/workspace/phone/conference/end-call";
+              const body = onCellConnected
+                ? { callSid: sid, conferenceSid: conferenceSid ?? undefined }
+                : { callSid: sid };
+              const res = await fetch(endpoint, {
                 method: "POST",
                 credentials: "include",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ callSid: sid }),
+                body: JSON.stringify(body),
               });
               await res.json().catch(() => ({}));
             } catch (e) {
@@ -1902,29 +1923,48 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
           return;
         }
 
-        if (c) {
+        if (onCellConnected && sid?.startsWith("CA")) {
           try {
-            c.disconnect();
-          } catch (e) {
-            softphoneDevWarn("[softphone] hangup disconnect threw", e);
-          }
-        }
-        if (sid) {
-          try {
-            softphoneDevLog("[softphone] server end-call request", { callSid: `${sid.slice(0, 10)}…` });
-            const res = await fetch("/api/workspace/phone/conference/end-call", {
+            softphoneDevLog("[softphone] active-call/end request (on cell)", {
+              callSid: `${sid.slice(0, 10)}…`,
+              conferenceSid: conferenceSid ? `${conferenceSid.slice(0, 10)}…` : null,
+            });
+            const res = await fetch("/api/workspace/phone/active-call/end", {
               method: "POST",
               credentials: "include",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ callSid: sid }),
+              body: JSON.stringify({ callSid: sid, conferenceSid: conferenceSid ?? undefined }),
             });
             const j = (await res.json().catch(() => ({}))) as { ok?: boolean; steps?: string[]; error?: string };
-            softphoneDevLog("[softphone] server end-call response", res.status, j);
+            softphoneDevLog("[softphone] active-call/end response", res.status, j);
           } catch (e) {
-            softphoneDevWarn("[softphone] end-call server request failed", e);
+            softphoneDevWarn("[softphone] active-call/end request failed", e);
           }
         } else {
-          softphoneDevWarn("[softphone] hangup with no activeCallRef — forcing idle UI");
+          if (c) {
+            try {
+              c.disconnect();
+            } catch (e) {
+              softphoneDevWarn("[softphone] hangup disconnect threw", e);
+            }
+          }
+          if (sid) {
+            try {
+              softphoneDevLog("[softphone] server end-call request", { callSid: `${sid.slice(0, 10)}…` });
+              const res = await fetch("/api/workspace/phone/conference/end-call", {
+                method: "POST",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ callSid: sid }),
+              });
+              const j = (await res.json().catch(() => ({}))) as { ok?: boolean; steps?: string[]; error?: string };
+              softphoneDevLog("[softphone] server end-call response", res.status, j);
+            } catch (e) {
+              softphoneDevWarn("[softphone] end-call server request failed", e);
+            }
+          } else {
+            softphoneDevWarn("[softphone] hangup with no activeCallRef — forcing idle UI");
+          }
         }
         finalizeCallCleanup("hangup", { endedCallSid: sid });
       } catch (e) {
@@ -1935,21 +1975,45 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     });
   }, [finalizeCallCleanup, nativeVoiceCallShell, nativeShellIncomingCallId]);
 
-  const moveToCellHangupDoneRef = useRef<string | null>(null);
+  const moveToCellBrowserReleaseDoneRef = useRef<string | null>(null);
 
-  /** After cell joins the conference, disconnect the browser leg locally (customer stays on cell + PSTN). */
+  /** After cell joins, drop only the browser leg — customer + staff_cell stay in the conference. */
+  const releaseBrowserLegAfterMoveToCell = useCallback(() => {
+    const ctx = callContextRef.current;
+    const sid = (ctx?.external_call_id ?? onCellCallSidRef.current ?? readCallSid(activeCallRef.current) ?? "").trim();
+    if (!sid.startsWith("CA")) return;
+
+    onCellCallSidRef.current = sid;
+    skipBrowserDisconnectCleanupRef.current = true;
+
+    const c = activeCallRef.current;
+    activeCallRef.current = null;
+    if (c) {
+      try {
+        c.disconnect();
+      } catch (e) {
+        softphoneDevWarn("[softphone] move-to-cell browser disconnect threw", e);
+      }
+    }
+    softphoneDevLog("[softphone] browser leg released after move-to-cell — call continues on cell");
+  }, []);
+
   useEffect(() => {
     if (status !== "in_call") {
-      moveToCellHangupDoneRef.current = null;
+      moveToCellBrowserReleaseDoneRef.current = null;
       return;
     }
     if (callContext?.move_to_cell?.status !== "connected_on_cell") return;
     const sid = callContext?.external_call_id ?? "";
-    if (moveToCellHangupDoneRef.current === sid) return;
-    moveToCellHangupDoneRef.current = sid;
-    softphoneDevLog("[softphone] move-to-cell connected — disconnecting browser leg");
-    hangUp();
-  }, [status, callContext?.move_to_cell?.status, callContext?.external_call_id, hangUp]);
+    if (moveToCellBrowserReleaseDoneRef.current === sid) return;
+    moveToCellBrowserReleaseDoneRef.current = sid;
+    releaseBrowserLegAfterMoveToCell();
+  }, [
+    status,
+    callContext?.move_to_cell?.status,
+    callContext?.external_call_id,
+    releaseBrowserLegAfterMoveToCell,
+  ]);
 
   const answerIncoming = useCallback(() => {
     if (nativeVoiceCallShell) {

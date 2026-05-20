@@ -86,7 +86,7 @@ export async function POST(req: NextRequest) {
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Dial>
-    <Conference beep="false" startConferenceOnEnter="true" endConferenceOnExit="false" participantLabel="staff_cell"${confEvents}>${escapeXml(
+    <Conference beep="false" startConferenceOnEnter="true" endConferenceOnExit="true" participantLabel="staff_cell"${confEvents}>${escapeXml(
       room
     )}</Conference>
   </Dial>
