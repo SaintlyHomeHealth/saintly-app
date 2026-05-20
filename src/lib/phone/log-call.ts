@@ -27,6 +27,7 @@ import {
   updateVoiceCallSessionVoicemailFields,
 } from "@/lib/phone/voice-call-sessions";
 import { ensureVoicemailThreadMessage } from "@/lib/phone/voicemail-thread-message";
+import { isOutboundPstnBridgePhoneCallMetadata } from "@/lib/phone/outbound-pstn-bridge-config";
 
 const PHONE_CALL_TRACE_LOGS =
   process.env.PHONE_CALL_TRACE_LOGS === "1" || process.env.NODE_ENV === "development";
@@ -1168,8 +1169,11 @@ export async function applyTwilioVoiceStatusCallback(
 
   const fromVal = asOptionalString(payload.From);
   const toVal = asOptionalString(payload.To);
+  /** PSTN-bridge staff leg reports To=staff cell; row was created with to_e164=patient — do not overwrite. */
+  const preservePstnBridgePatientDestination =
+    direction === "outbound" && isOutboundPstnBridgePhoneCallMetadata(rowMetaBeforeMerge);
   if (fromVal !== null) updateRow.from_e164 = fromVal;
-  if (toVal !== null) updateRow.to_e164 = toVal;
+  if (toVal !== null && !preservePstnBridgePatientDestination) updateRow.to_e164 = toVal;
 
   if (payload.DurationSeconds != null && payload.DurationSeconds >= 0) {
     updateRow.duration_seconds = payload.DurationSeconds;

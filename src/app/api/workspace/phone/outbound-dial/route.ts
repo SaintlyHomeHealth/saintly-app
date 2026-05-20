@@ -2,7 +2,10 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
 import { supabaseAdmin } from "@/lib/admin";
-import { shouldUsePstnBridgeOutbound } from "@/lib/phone/outbound-pstn-bridge-config";
+import {
+  resolveOutboundCallStrategy,
+  shouldUsePstnBridgeOutbound,
+} from "@/lib/phone/outbound-pstn-bridge-config";
 import {
   staffMayDialOutbound,
   staffMayDialOutboundPstnBridge,
@@ -106,6 +109,7 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({
     ok: true as const,
     e164: parsed.e164,
+    outbound_call_strategy: resolveOutboundCallStrategy(),
     outbound_use_pstn_bridge: shouldUsePstnBridgeOutbound(),
   });
 }

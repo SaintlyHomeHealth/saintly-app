@@ -13,8 +13,8 @@
  * - Unset `TWILIO_VOICE_DISABLE_BROWSER_RING`, `TWILIO_VOICE_TEAM_RING_E164S`, `TWILIO_VOICE_PRIMARY_ROUTE=pstn`
  * - `TWILIO_VOICE_INBOUND_TRANSCRIPT_ENABLED=false` — no auto Real-Time Transcription on answer
  *
- * Outbound PSTN bridge (keep unchanged): `TWILIO_OUTBOUND_CALL_STRATEGY=pstn_bridge`,
- * `TWILIO_OUTBOUND_DISABLE_CLIENT=1`, etc. — see `outbound-pstn-bridge-config.ts`.
+ * Outbound browser (default): unset strategy or `TWILIO_OUTBOUND_CALL_STRATEGY=browser_first` — see `outbound-pstn-bridge-config.ts`.
+ * Outbound PSTN bridge (optional): `TWILIO_OUTBOUND_CALL_STRATEGY=pstn_bridge` or `TWILIO_OUTBOUND_DISABLE_CLIENT=1`.
  *
  * @see TWILIO_VOICE_INBOUND_RING_STRATEGY
  * @see TWILIO_VOICE_DISABLE_BROWSER_RING

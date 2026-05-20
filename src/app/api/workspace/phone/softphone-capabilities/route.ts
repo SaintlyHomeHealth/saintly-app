@@ -6,7 +6,10 @@ import {
   loadSoftphoneOutboundCallerConfigFromEnv,
 } from "@/lib/softphone/outbound-caller-ids";
 import { isValidE164 } from "@/lib/softphone/phone-number";
-import { shouldUsePstnBridgeOutbound } from "@/lib/phone/outbound-pstn-bridge-config";
+import {
+  resolveOutboundCallStrategy,
+  shouldUsePstnBridgeOutbound,
+} from "@/lib/phone/outbound-pstn-bridge-config";
 import {
   sharedLineAllowsOutbound,
   staffMayDialOutbound,
@@ -153,6 +156,7 @@ export async function GET() {
 
   return NextResponse.json({
     conference_outbound_enabled: process.env.TWILIO_SOFTPHONE_USE_CONFERENCE === "true",
+    outbound_call_strategy: resolveOutboundCallStrategy(),
     outbound_use_pstn_bridge: shouldUsePstnBridgeOutbound(),
     outbound_client_disabled:
       process.env.TWILIO_OUTBOUND_DISABLE_CLIENT?.trim() === "1" ||
