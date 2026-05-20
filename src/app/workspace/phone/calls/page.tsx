@@ -15,10 +15,12 @@ import type { PhoneCallRow } from "@/app/admin/phone/recent-calls-live";
 import { loadCallLogContactOpenTargets } from "@/lib/phone/call-log-contact-targets";
 import { PHONE_CALL_LOG_LIST_SELECT_BASE } from "@/lib/phone/phone-call-log-select";
 import { staffMayAccessWorkspaceCallHistory } from "@/lib/phone/staff-phone-policy";
+import { shouldShowPhoneCallInWorkspaceDispatchList } from "@/lib/phone/phone-call-dispatch-list";
 import {
   canAccessWorkspacePhone,
   getStaffProfile,
   hasFullCallVisibility,
+  isAdminOrHigher,
   isManagerOrHigher,
 } from "@/lib/staff-profile";
 import { displayNameFromContactsRelation } from "@/lib/crm/contact-relation-display-name";
@@ -224,6 +226,7 @@ export default async function WorkspaceCallsPage(props: PageProps) {
   const filter = parseWorkspaceCallFilter(sp);
 
   const showAdminCallLogLink = isManagerOrHigher(staff);
+  const showHideFromDispatch = isAdminOrHigher(staff);
   const supabase = await createServerSupabaseClient();
   const debug = workspaceCallsDebugEnabled();
 
@@ -256,6 +259,7 @@ export default async function WorkspaceCallsPage(props: PageProps) {
   let dbQuery = supabase
     .from("phone_calls")
     .select(PHONE_CALL_LOG_LIST_SELECT_BASE)
+    .is("dispatch_hidden_at", null)
     .order("updated_at", { ascending: false })
     .limit(limit);
 
@@ -304,7 +308,17 @@ export default async function WorkspaceCallsPage(props: PageProps) {
   }
 
   const rawRows = (rows ?? []) as Record<string, unknown>[];
-  const calls = rawRows.map((r) => mapPhoneCallQueryRowForLog(r));
+  const calls = rawRows
+    .map((r) => mapPhoneCallQueryRowForLog(r))
+    .filter((c) =>
+      shouldShowPhoneCallInWorkspaceDispatchList({
+        dispatch_hidden_at: c.dispatch_hidden_at,
+        metadata: c.metadata,
+        direction: c.direction,
+        from_e164: c.from_e164,
+        to_e164: c.to_e164,
+      })
+    );
   const enriched = await enrichPhoneCallRowsWithResolvedIdentity(supabase, calls);
 
   const contactIds = [
@@ -384,7 +398,7 @@ export default async function WorkspaceCallsPage(props: PageProps) {
       ) : (
         <ul className="mt-4 overflow-hidden rounded-xl border border-slate-200/80 bg-white">
           {filtered.map((row) => (
-            <WorkspaceCallInboxCard key={row.id} row={row} />
+            <WorkspaceCallInboxCard key={row.id} row={row} showHideFromDispatch={showHideFromDispatch} />
           ))}
         </ul>
       )}

@@ -6,6 +6,7 @@ import { MessageSquare, Phone, UserPlus } from "lucide-react";
 
 import { QuickSaveContactSheet } from "@/components/workspace-phone/QuickSaveContactSheet";
 
+import { WorkspaceHideCallButton } from "./WorkspaceHideCallButton";
 import { WorkspaceMarkMissedResolvedButton } from "./WorkspaceMarkMissedResolvedButton";
 import { displayNameFromContactsRelation } from "@/lib/crm/contact-relation-display-name";
 import { formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
@@ -81,9 +82,11 @@ function initialsForRow(displayTitle: string, numberFallback: string): string {
 
 type Props = {
   row: CallInboxRow;
+  /** Admin / super_admin: hide test or bridge-polluted rows from Dispatch. */
+  showHideFromDispatch?: boolean;
 };
 
-export function WorkspaceCallInboxCard({ row }: Props) {
+export function WorkspaceCallInboxCard({ row, showHideFromDispatch = false }: Props) {
   const [saveOpen, setSaveOpen] = useState(false);
   const [saveE164, setSaveE164] = useState("");
   const [saveResetKey, setSaveResetKey] = useState(0);
@@ -221,6 +224,7 @@ export function WorkspaceCallInboxCard({ row }: Props) {
           </div>
         </div>
         <div className="flex max-w-[14rem] shrink-0 flex-col items-stretch justify-center gap-1.5 sm:max-w-none sm:flex-row sm:items-center sm:gap-2">
+          {showHideFromDispatch ? <WorkspaceHideCallButton callId={row.id} /> : null}
           {showMarkMissedResolved ? <WorkspaceMarkMissedResolvedButton callId={row.id} variant="compact" /> : null}
           {canQuickSave ? (
             <button

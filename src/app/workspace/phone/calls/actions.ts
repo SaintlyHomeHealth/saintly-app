@@ -6,7 +6,7 @@ import { staffCanAccessPhoneCallId } from "@/lib/phone/staff-call-access";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { staffMayAccessWorkspaceCallHistory } from "@/lib/phone/staff-phone-policy";
 import { supabaseAdmin } from "@/lib/admin";
-import { canAccessWorkspacePhone, getStaffProfile } from "@/lib/staff-profile";
+import { canAccessWorkspacePhone, getStaffProfile, isAdminOrHigher } from "@/lib/staff-profile";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -70,5 +70,63 @@ export async function markWorkspaceMissedCallResolved(
 
   revalidatePath("/workspace/phone/calls");
   revalidatePath("/workspace/phone/visits");
+  return { ok: true };
+}
+
+export type HidePhoneCallFromDispatchResult =
+  | { ok: true }
+  | { ok: false; error: "unauthorized" | "invalid" | "not_found" | "forbidden" | "update_failed" };
+
+/**
+ * Soft-hide a call from the workspace Dispatch call log (does not delete the row).
+ * Admin / super_admin only.
+ */
+export async function hidePhoneCallFromDispatch(callId: string): Promise<HidePhoneCallFromDispatchResult> {
+  const id = typeof callId === "string" ? callId.trim() : "";
+  if (!id || !UUID_RE.test(id)) {
+    return { ok: false, error: "invalid" };
+  }
+
+  const staff = await getStaffProfile();
+  if (!staff || !canAccessWorkspacePhone(staff) || !isAdminOrHigher(staff)) {
+    return { ok: false, error: "unauthorized" };
+  }
+
+  const { data: row, error: loadErr } = await supabaseAdmin
+    .from("phone_calls")
+    .select("id, dispatch_hidden_at")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (loadErr || !row?.id) {
+    return { ok: false, error: "not_found" };
+  }
+
+  if (typeof row.dispatch_hidden_at === "string" && row.dispatch_hidden_at.trim()) {
+    return { ok: true };
+  }
+
+  const userSupabase = await createServerSupabaseClient();
+  if (!(await staffCanAccessPhoneCallId(userSupabase, staff, supabaseAdmin, id))) {
+    return { ok: false, error: "forbidden" };
+  }
+
+  const now = new Date().toISOString();
+  const { error: updErr } = await supabaseAdmin
+    .from("phone_calls")
+    .update({
+      dispatch_hidden_at: now,
+      dispatch_hidden_by_user_id: staff.user_id,
+    })
+    .eq("id", id)
+    .is("dispatch_hidden_at", null);
+
+  if (updErr) {
+    return { ok: false, error: "update_failed" };
+  }
+
+  revalidatePath("/workspace/phone/calls");
+  revalidatePath("/workspace/phone/visits");
+  revalidatePath("/admin/phone");
   return { ok: true };
 }

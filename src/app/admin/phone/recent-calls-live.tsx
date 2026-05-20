@@ -61,6 +61,8 @@ export type PhoneCallRow = {
   crm_contact_display_name: string | null;
   /** JSON from `phone_calls.metadata` (e.g. `crm` classification). */
   metadata: Record<string, unknown> | null;
+  /** Soft-hide from workspace Dispatch call log. */
+  dispatch_hidden_at?: string | null;
 };
 
 type OwnershipOptimisticPatch = Pick<

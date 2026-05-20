@@ -60,6 +60,8 @@ export function mapPhoneCallQueryRowForLog(raw: Record<string, unknown>): PhoneC
     resolved_contact_id: null,
     crm_contact_display_name,
     metadata: mapMetadata(raw.metadata),
+    dispatch_hidden_at:
+      typeof raw.dispatch_hidden_at === "string" ? raw.dispatch_hidden_at : null,
   };
 }
 
