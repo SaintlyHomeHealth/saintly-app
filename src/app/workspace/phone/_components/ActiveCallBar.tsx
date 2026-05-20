@@ -305,18 +305,62 @@ export function ActiveCallBar() {
       if (!r.ok) {
         setNotice({
           kind: "error",
-          message: r.error ?? "Cell transfer failed — browser call is still connected.",
+          message: r.error ?? "Move to cell failed — browser call is still connected.",
         });
         return;
       }
       setNotice({
         kind: "info",
-        message: "Answer your cell and press 1 to join. Your browser stays connected until you confirm.",
+        message:
+          r.status === "press_1"
+            ? "Press 1 on your cell to join the call."
+            : "Answer your cell and press 1 to join. Your browser stays connected until you confirm.",
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Unexpected error";
+      setNotice({
+        kind: "error",
+        message: `Move to cell failed — ${msg}`,
       });
     } finally {
       setActionBusy(null);
     }
   };
+
+  const handleMoveToCellClick = () => {
+    console.log("[move-to-cell-ui] clicked", {
+      active_call_sid: callContext?.external_call_id ?? gating?.client_leg_call_sid ?? null,
+      direction:
+        moveToCellDebug?.phone_call_direction ??
+        callContext?.conference?.direction ??
+        null,
+      conference_sid:
+        callContext?.conference?.conference_sid ??
+        gating?.conference_sid ??
+        moveToCellDebug?.softphone_conference_conference_sid ??
+        null,
+      client_call_sid:
+        callContext?.conference?.client_call_sid ??
+        gating?.client_leg_call_sid ??
+        moveToCellDebug?.softphone_conference_client_call_sid ??
+        null,
+      pstn_call_sid:
+        callContext?.conference?.pstn_call_sid ??
+        gating?.pstn_call_sid ??
+        moveToCellDebug?.softphone_conference_pstn_call_sid ??
+        null,
+      move_to_cell_status: moveToCellStatus,
+      can_move_to_cell: allowMoveToCell,
+    });
+    void runMoveToCell();
+  };
+
+  const moveToCellBannerMessage =
+    moveToCellLabel ??
+    (notice && !xferOpen && !addOpen ? notice.message : null) ??
+    (actionBusy === "move_cell" ? "Calling your cell…" : null);
+  const moveToCellBannerKind: "error" | "info" =
+    moveToCellStatus === "failed" || notice?.kind === "error" ? "error" : "info";
 
   const runAdd = async () => {
     setNotice(null);
@@ -373,16 +417,17 @@ export function ActiveCallBar() {
             {callContextSoftNotice}
           </p>
         ) : null}
-        {moveToCellLabel ? (
+        {moveToCellBannerMessage ? (
           <p
             className={`mb-3 rounded-xl border px-3 py-2 text-center text-[11px] leading-snug sm:mb-2 ${
-              moveToCellStatus === "failed"
+              moveToCellBannerKind === "error"
                 ? "border-red-400/30 bg-red-950/40 text-red-100"
                 : "border-indigo-400/25 bg-indigo-500/10 text-indigo-50"
             }`}
             role="status"
+            aria-live="polite"
           >
-            {moveToCellLabel}
+            {moveToCellBannerMessage}
           </p>
         ) : null}
         {status === "in_call" && !allowMoveToCell && moveToCellDebug ? (
@@ -507,7 +552,7 @@ export function ActiveCallBar() {
             </button>
             <button
               type="button"
-              onClick={() => void runMoveToCell()}
+              onClick={handleMoveToCellClick}
               disabled={!allowMoveToCell || moveToCellInProgress || actionBusy !== null}
               title={moveToCellTooltip}
               aria-label={moveToCellTooltip}
@@ -565,7 +610,7 @@ export function ActiveCallBar() {
           <ControlBtn
             label={actionBusy === "move_cell" || moveToCellInProgress ? "Cell…" : "Move cell"}
             icon={<Smartphone className="h-5 w-5" strokeWidth={2} />}
-            onClick={() => void runMoveToCell()}
+            onClick={handleMoveToCellClick}
             disabled={!allowMoveToCell || moveToCellInProgress || actionBusy !== null}
             title={moveToCellTooltip}
           />

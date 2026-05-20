@@ -5,6 +5,7 @@ import { supabaseAdmin } from "@/lib/admin";
 import { computeConferenceGating } from "@/lib/phone/conference-gating";
 import { logMoveToCellEvent } from "@/lib/phone/move-to-cell-events";
 import { mergeMoveToCellMetadata } from "@/lib/phone/move-to-cell-metadata";
+import { mergeSoftphoneConferenceMetadata } from "@/lib/phone/merge-softphone-conference-metadata";
 import { mintMoveToCellToken } from "@/lib/phone/move-to-cell-token";
 import { readMoveToCellMeta } from "@/lib/phone/move-to-cell-types";
 import { upsertPhoneCallFromWebhook } from "@/lib/phone/log-call";
@@ -17,7 +18,7 @@ import {
   resolveStaffProfileForWorkspacePhoneApi,
 } from "@/lib/staff-profile";
 import type { SoftphoneConferenceMeta } from "@/lib/twilio/softphone-conference";
-import { inboundConferenceRoomName } from "@/lib/phone/inbound-browser-conference";
+import { inboundConferenceRoomName, twilioErrorFields } from "@/lib/phone/inbound-browser-conference";
 import { softphoneConferenceRoomName } from "@/lib/twilio/softphone-conference";
 
 export const dynamic = "force-dynamic";
@@ -76,8 +77,20 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "callSid (Client leg) required" }, { status: 400 });
   }
 
+  console.log(
+    JSON.stringify({
+      tag: LOG_TAG,
+      event: "request_received",
+      client_call_sid: clientCallSid,
+      conference_sid_body: typeof body.conferenceSid === "string" ? body.conferenceSid.slice(0, 12) : null,
+      staff_user_id: staff.user_id,
+      staff_cell_tail: staffCell.replace(/\D/g, "").slice(-4),
+    })
+  );
+
   const row = await findPhoneCallRowByTwilioCallSid(supabaseAdmin, clientCallSid);
   if (!row) {
+    console.log(JSON.stringify({ tag: LOG_TAG, event: "phone_call_not_found", client_call_sid: clientCallSid }));
     return NextResponse.json({ ok: false, error: "Active call not found" }, { status: 404 });
   }
 
@@ -129,7 +142,11 @@ export async function POST(req: Request) {
   let conferenceSid =
     typeof body.conferenceSid === "string" && body.conferenceSid.startsWith("CF")
       ? body.conferenceSid.trim()
-      : gating.conference_sid ?? "";
+      : gating.conference_sid?.startsWith("CF")
+        ? gating.conference_sid.trim()
+        : typeof sc?.conference_sid === "string" && sc.conference_sid.startsWith("CF")
+          ? sc.conference_sid.trim()
+          : "";
   const friendlyFromBody =
     typeof body.conferenceFriendlyName === "string" ? body.conferenceFriendlyName.trim() : "";
   const friendlyName =
@@ -138,6 +155,22 @@ export async function POST(req: Request) {
     (direction === "inbound"
       ? inboundConferenceRoomName(metadataMergeKey)
       : softphoneConferenceRoomName(browserLegSid));
+
+  const accountSidEarly = process.env.TWILIO_ACCOUNT_SID?.trim();
+  const authTokenEarly = process.env.TWILIO_AUTH_TOKEN?.trim();
+  if (!conferenceSid.startsWith("CF") && friendlyName && accountSidEarly && authTokenEarly) {
+    try {
+      const tw = twilio(accountSidEarly, authTokenEarly);
+      const conferences = await tw.conferences.list({ friendlyName, status: "in-progress", limit: 3 });
+      const match = conferences.find((c) => typeof c.sid === "string" && c.sid.startsWith("CF"));
+      if (match?.sid) {
+        conferenceSid = match.sid.trim();
+        console.log(JSON.stringify({ tag: LOG_TAG, event: "conference_sid_resolved", conference_sid: conferenceSid }));
+      }
+    } catch (e) {
+      console.warn(`[${LOG_TAG}] conference_sid_resolve_failed`, twilioErrorFields(e));
+    }
+  }
 
   if (!gating.can_move_to_cell || !conferenceSid) {
     console.log(
@@ -201,6 +234,19 @@ export async function POST(req: Request) {
   const statusUrl = `${publicBase}/api/twilio/voice/active-call/move-to-cell/status?token=${encodeURIComponent(token)}`;
   const ringSec = resolveOutboundStaffRingSeconds();
 
+  console.log(
+    JSON.stringify({
+      tag: LOG_TAG,
+      event: "twilio_calls_create_start",
+      to_tail: staffCell.replace(/\D/g, "").slice(-4),
+      from_tail: callerId.replace(/\D/g, "").slice(-4),
+      conference_sid: conferenceSid,
+      friendly_name: friendlyName.slice(0, 48),
+      browser_leg_sid: browserLegSid,
+      metadata_merge_key: metadataMergeKey,
+    })
+  );
+
   try {
     const client = twilio(accountSid, authToken);
     const cellCall = await client.calls.create({
@@ -214,6 +260,17 @@ export async function POST(req: Request) {
       statusCallbackEvent: ["initiated", "ringing", "answered", "completed"],
     });
     const cellCallSid = typeof cellCall.sid === "string" ? cellCall.sid : null;
+
+    console.log(
+      JSON.stringify({
+        tag: LOG_TAG,
+        event: "twilio_calls_create_ok",
+        to_tail: staffCell.replace(/\D/g, "").slice(-4),
+        from_tail: callerId.replace(/\D/g, "").slice(-4),
+        cell_call_sid: cellCallSid,
+        conference_sid: conferenceSid,
+      })
+    );
 
     if (cellCallSid) {
       await upsertPhoneCallFromWebhook(supabaseAdmin, {
@@ -231,6 +288,16 @@ export async function POST(req: Request) {
           staff_user_id: staff.user_id,
         },
       });
+    }
+
+    const confPatch = await mergeSoftphoneConferenceMetadata(supabaseAdmin, metadataMergeKey, {
+      conference_sid: conferenceSid,
+      client_call_sid: browserLegSid,
+      direction,
+      mode: "conference",
+    });
+    if (!confPatch.ok) {
+      console.warn(`[${LOG_TAG}] softphone_conference_patch_failed`, confPatch.error);
     }
 
     const mergeResult = await mergeMoveToCellMetadata(supabaseAdmin, metadataMergeKey, {
@@ -269,8 +336,20 @@ export async function POST(req: Request) {
       message: "Calling your cell… Press 1 when you answer to join the call.",
     });
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    console.error(`[${LOG_TAG}] calls.create failed`, msg);
+    const twilioErr = twilioErrorFields(e);
+    const msg = twilioErr.message;
+    console.error(
+      JSON.stringify({
+        tag: LOG_TAG,
+        event: "twilio_calls_create_failed",
+        message: msg,
+        code: twilioErr.code,
+        status: twilioErr.status,
+        more_info: twilioErr.moreInfo,
+        to_tail: staffCell.replace(/\D/g, "").slice(-4),
+        from_tail: callerId.replace(/\D/g, "").slice(-4),
+      })
+    );
     await mergeMoveToCellMetadata(supabaseAdmin, metadataMergeKey, {
       status: "failed",
       last_error: msg.slice(0, 200),
@@ -282,8 +361,9 @@ export async function POST(req: Request) {
     return NextResponse.json(
       {
         ok: false,
-        error: "Cell transfer failed — browser call is still connected.",
+        error: `Move to cell failed — ${msg.slice(0, 160)}`,
         detail: msg.slice(0, 200),
+        twilio_code: twilioErr.code,
       },
       { status: 502 }
     );

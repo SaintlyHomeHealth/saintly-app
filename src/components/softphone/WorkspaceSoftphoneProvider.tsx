@@ -329,6 +329,8 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
   const [holdBusy, setHoldBusy] = useState(false);
   const micMutedBeforeHoldRef = useRef(false);
   const [callContext, setCallContext] = useState<CallDeskContext | null>(null);
+  const callContextRef = useRef<CallDeskContext | null>(null);
+  callContextRef.current = callContext;
   const [softphoneCapabilities, setSoftphoneCapabilities] = useState<SoftphoneServerCapabilities | null>(null);
   const [outboundCliSelection, setOutboundCliSelection] = useState<OutboundCliSelection | null>(null);
   const outboundCliSelectionRef = useRef<OutboundCliSelection | null>(null);
@@ -2111,25 +2113,78 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     const c = activeCallRef.current;
     if (!c) return { ok: false as const, error: "No active call" };
     const sid = readCallSid(c);
-    if (!sid) return { ok: false as const, error: "No CallSid" };
-    softphoneDevLog("[softphone] move-to-cell requested", { callSid: `${sid.slice(0, 10)}…` });
-    const res = await fetch("/api/workspace/phone/active-call/move-to-cell", {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ callSid: sid, staffUserId: softphoneCapabilities?.staff_user_id ?? undefined }),
+    if (!sid) return { ok: false as const, error: "No CallSid on browser leg" };
+
+    const ctx = callContextRef.current;
+    const conf = ctx?.conference;
+    const conferenceSid =
+      conf?.conference_sid?.startsWith("CF") ? conf.conference_sid : ctx?.conference_gating?.conference_sid ?? undefined;
+    const clientLegSid =
+      conf?.client_call_sid?.startsWith("CA") ? conf.client_call_sid : sid;
+    const body = {
+      callSid: sid,
+      callSessionId: clientLegSid,
+      conferenceSid,
+      conferenceFriendlyName: undefined as string | undefined,
+      staffUserId: softphoneCapabilities?.staff_user_id ?? undefined,
+    };
+
+    console.log("[move-to-cell-ui] fetch_start", {
+      callSid: sid,
+      callSessionId: clientLegSid,
+      conferenceSid: conferenceSid ?? null,
+      direction: conf?.direction ?? ctx?.move_to_cell_ui_debug?.phone_call_direction ?? null,
     });
+    softphoneDevLog("[softphone] move-to-cell POST", body);
+
+    let res: Response;
+    try {
+      res = await fetch("/api/workspace/phone/active-call/move-to-cell", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Network error";
+      console.error("[move-to-cell-ui] fetch_failed", msg);
+      return { ok: false as const, error: `Move to cell failed — ${msg}` };
+    }
+
     const j = (await res.json().catch(() => ({}))) as {
       ok?: boolean;
       error?: string;
+      detail?: string;
       status?: string;
     };
+
+    console.log("[move-to-cell-ui] fetch_response", {
+      http_status: res.status,
+      ok: j.ok,
+      status: j.status,
+      error: j.error ?? null,
+      detail: j.detail ?? null,
+    });
+
     if (!res.ok || !j.ok) {
-      return {
-        ok: false as const,
-        error: j.error ?? "Cell transfer failed — browser call is still connected.",
-      };
+      const err =
+        j.error ??
+        j.detail ??
+        `Move to cell failed (HTTP ${res.status}) — browser call is still connected.`;
+      setCallContext((prev) =>
+        prev
+          ? {
+              ...prev,
+              move_to_cell: { status: "failed", last_error: err },
+              move_to_cell_ui_debug: prev.move_to_cell_ui_debug
+                ? { ...prev.move_to_cell_ui_debug, move_to_cell_status: "failed", disabled_reason: err }
+                : null,
+            }
+          : prev
+      );
+      return { ok: false as const, error: err };
     }
+
     const st =
       j.status === "ringing" ||
       j.status === "press_1" ||
@@ -2137,6 +2192,19 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       j.status === "failed"
         ? j.status
         : "ringing";
+
+    setCallContext((prev) =>
+      prev
+        ? {
+            ...prev,
+            move_to_cell: { status: st, last_error: null },
+            move_to_cell_ui_debug: prev.move_to_cell_ui_debug
+              ? { ...prev.move_to_cell_ui_debug, move_to_cell_status: st }
+              : null,
+          }
+        : prev
+    );
+
     return { ok: true as const, status: st };
   }, [softphoneCapabilities?.staff_user_id]);
 
