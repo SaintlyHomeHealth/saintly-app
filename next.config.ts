@@ -7,6 +7,15 @@ const withBundleAnalyzer = bundleAnalyzer({
 
 const nextConfig: NextConfig = {
   /* config options here */
+  /**
+   * Kofi lead Open-link investigation: mirrors CRM_LEADS_ID_DEBUG for client bundles.
+   * Prefer setting CRM_LEADS_ID_DEBUG=1 in Vercel → Environment Variables (Production).
+   * Hardcoded "1" below keeps tracing on until that env is set and this line is removed.
+   */
+  env: {
+    /** Enabled for Kofi lead-id investigation; also set CRM_LEADS_ID_DEBUG=1 in Vercel when convenient. */
+    NEXT_PUBLIC_CRM_LEADS_ID_DEBUG: "1",
+  },
   experimental: {
     serverActions: {
       /** Default is 1 MB; credentialing PDF/image/bulk uploads need more headroom. */

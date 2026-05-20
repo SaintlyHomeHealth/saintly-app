@@ -389,12 +389,14 @@ export default async function WorkspacePhoneLeadsPage({
   if (crmLeadsIdDebugEnabled()) {
     const debugRows = qLower.includes("kofi") ? filteredLeads.slice(0, 12) : filteredLeads.slice(0, 5);
     for (const row of debugRows) {
-      const openHref = buildWorkspacePhoneLeadOpenHref(row.id);
+      const parsed = parseCrmLeadIdFromRow(row.id);
+      const openHref = buildWorkspacePhoneLeadOpenHref(parsed.id);
       logCrmLeadIdDebug("workspace_phone_leads.list_row", {
         rawFromDb: row.id,
-        normalized: row.id,
+        idPassedToClient: parsed.id,
+        normalized: parsed.id,
         openHref,
-        hrefForClient: openHref,
+        hrefUsedInOpenButton: openHref,
       });
     }
   }
@@ -493,6 +495,7 @@ export default async function WorkspacePhoneLeadsPage({
               {contactId ? (
                 <WorkspaceLeadRowActions
                   leadId={leadIdParsed.id}
+                  rawLeadIdFromDb={row.id}
                   contactId={contactId}
                   dialE164={dialE164}
                   hasSmsCapablePhone={hasSmsCapablePhone(phoneRaw)}

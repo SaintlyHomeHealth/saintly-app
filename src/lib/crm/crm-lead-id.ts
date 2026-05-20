@@ -23,7 +23,10 @@ export function parseCrmLeadIdFromRow(raw: unknown): { id: string; valid: boolea
 }
 
 export function crmLeadsIdDebugEnabled(): boolean {
-  return process.env.CRM_LEADS_ID_DEBUG === "1";
+  return (
+    process.env.CRM_LEADS_ID_DEBUG === "1" ||
+    process.env.NEXT_PUBLIC_CRM_LEADS_ID_DEBUG === "1"
+  );
 }
 
 /** Logs lead UUID diagnostics only (no names, phones, or notes). */
@@ -31,9 +34,11 @@ export function logCrmLeadIdDebug(
   context: string,
   fields: {
     rawFromDb?: unknown;
+    idPassedToClient?: string;
     normalized?: string;
     openHref?: string | null;
     hrefForClient?: string | null;
+    hrefUsedInOpenButton?: string | null;
   }
 ): void {
   if (!crmLeadsIdDebugEnabled()) return;
@@ -43,12 +48,63 @@ export function logCrmLeadIdDebug(
       : typeof fields.rawFromDb === "string"
         ? fields.rawFromDb.trim()
         : String(fields.rawFromDb).trim();
+  const openHref = fields.openHref ?? fields.hrefForClient ?? fields.hrefUsedInOpenButton ?? null;
   console.warn("[crm/leads-id-debug]", {
     context,
     rawFromDb: raw,
     rawLen: raw?.length,
+    idPassedToClient: fields.idPassedToClient,
     normalized: fields.normalized,
-    openHref: fields.openHref ?? fields.hrefForClient,
+    openHref,
+    hrefUsedInOpenButton: fields.hrefUsedInOpenButton ?? openHref,
+  });
+}
+
+/** Client-side console (mobile Safari / WebView devtools). */
+export function logCrmLeadIdDebugClient(
+  context: string,
+  fields: {
+    rawFromDb?: string;
+    idPassedToClient?: string;
+    normalized?: string;
+    openHref?: string | null;
+  }
+): void {
+  if (typeof window === "undefined") return;
+  if (process.env.NEXT_PUBLIC_CRM_LEADS_ID_DEBUG !== "1") return;
+  console.warn("[crm/leads-id-debug/client]", {
+    context,
+    ...fields,
+  });
+}
+
+export function sendCrmLeadIdDebugBeacon(fields: {
+  context: string;
+  rawFromDb?: string;
+  idPassedToClient?: string;
+  normalized?: string;
+  openHref?: string | null;
+  displayNameHint?: string;
+}): void {
+  if (typeof window === "undefined") return;
+  if (process.env.NEXT_PUBLIC_CRM_LEADS_ID_DEBUG !== "1") return;
+  const payload = JSON.stringify(fields);
+  try {
+    if (navigator.sendBeacon) {
+      navigator.sendBeacon(
+        "/api/crm/leads-id-debug",
+        new Blob([payload], { type: "application/json" })
+      );
+      return;
+    }
+  } catch {
+    /* fall through */
+  }
+  void fetch("/api/crm/leads-id-debug", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: payload,
+    keepalive: true,
   });
 }
 
