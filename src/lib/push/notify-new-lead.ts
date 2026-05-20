@@ -2,6 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { isValidCrmLeadId } from "@/lib/crm/crm-lead-id";
 import { sendFcmDataAndNotificationToUserIds } from "@/lib/push/send-fcm-to-user-ids";
 import { resolveInboundBrowserStaffUserIdsAsync } from "@/lib/softphone/inbound-staff-ids";
 import { isManagerOrHigher, type StaffProfile } from "@/lib/staff-profile";
@@ -107,6 +108,10 @@ export async function notifyNewLeadCreatedPush(supabase: SupabaseClient, leadId:
   const id = leadId.trim();
   if (!id) {
     console.warn(LOG, "skipped", { reason: "empty_lead_id" });
+    return;
+  }
+  if (!isValidCrmLeadId(id)) {
+    console.warn(LOG, "skipped", { reason: "invalid_lead_id", leadId: id, len: id.length });
     return;
   }
 

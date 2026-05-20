@@ -14,7 +14,13 @@ import {
 } from "@/lib/crm/admin-crm-leads-list-filters";
 import { resolveAdminCrmLeadsKeywordLeadSearchOr } from "@/lib/crm/admin-crm-leads-keyword-search";
 import { harvestLeadsPayerFilterSuggestions } from "@/lib/crm/admin-crm-leads-payer-suggestions";
-import { buildAdminCrmLeadsHref, type AdminCrmLeadListHrefState } from "@/lib/crm/admin-crm-leads-list-url";
+import {
+  ADMIN_CRM_LEADS_LIST_PATH_PREFIX,
+  buildAdminCrmLeadDetailHref,
+  buildAdminCrmLeadsHref,
+  type AdminCrmLeadListHrefState,
+} from "@/lib/crm/admin-crm-leads-list-url";
+import { crmLeadsIdDebugEnabled, logCrmLeadIdDebug } from "@/lib/crm/crm-lead-id";
 import { getCrmCalendarTodayIso } from "@/lib/crm/crm-local-date";
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { LEAD_TEMPERATURE_VALUES, isValidLeadTemperature, leadTemperatureLabel } from "@/lib/crm/lead-temperature";
@@ -293,6 +299,18 @@ export default async function AdminCrmLeadsPage({
     const list = (rows ?? []).map((row) =>
       normalizeCrmLeadRowForClient(row as Record<string, unknown>)
     );
+
+    if (crmLeadsIdDebugEnabled()) {
+      const qLower = f.q.trim().toLowerCase();
+      const debugRows = qLower.includes("kofi") ? list : list.slice(0, 8);
+      for (const r of debugRows) {
+        logCrmLeadIdDebug("admin_crm_leads.list_row", {
+          rawFromDb: r.id,
+          normalized: r.id,
+          openHref: buildAdminCrmLeadDetailHref(r.id, ADMIN_CRM_LEADS_LIST_PATH_PREFIX),
+        });
+      }
+    }
 
     const employeeLeadIdsForMeta = [
       ...new Set(

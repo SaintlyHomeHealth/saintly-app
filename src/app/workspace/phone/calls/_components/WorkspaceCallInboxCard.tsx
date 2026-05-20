@@ -10,6 +10,7 @@ import { WorkspaceMarkMissedResolvedButton } from "./WorkspaceMarkMissedResolved
 import { displayNameFromContactsRelation } from "@/lib/crm/contact-relation-display-name";
 import { formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
+import { buildWorkspacePhoneLeadOpenHref } from "@/lib/crm/admin-crm-leads-list-url";
 import {
   buildWorkspaceInboxNewSmsHref,
   buildWorkspaceKeypadCallHref,
@@ -239,9 +240,14 @@ export function WorkspaceCallInboxCard({ row }: Props) {
             </Link>
           ) : null}
           {ui?.openLeadId ? (
-            <Link href={`/admin/crm/leads/${ui.openLeadId}`} className={openGhostCls} prefetch={false}>
-              Lead
-            </Link>
+            (() => {
+              const leadHref = buildWorkspacePhoneLeadOpenHref(ui.openLeadId);
+              return leadHref ? (
+                <Link href={leadHref} className={openGhostCls} prefetch={false}>
+                  Lead
+                </Link>
+              ) : null;
+            })()
           ) : null}
           {callHref ? (
             <Link

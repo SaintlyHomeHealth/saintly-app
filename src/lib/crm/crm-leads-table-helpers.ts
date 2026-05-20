@@ -1,6 +1,7 @@
 /** Shared types + pure helpers for the admin CRM leads table (server + client). */
 
 import { formatAppDate } from "@/lib/datetime/app-timezone";
+import { isValidCrmLeadId, logCrmLeadIdDebug, parseCrmLeadIdFromRow } from "@/lib/crm/crm-lead-id";
 
 export type CrmLeadsContactEmb = {
   full_name?: string | null;
@@ -137,8 +138,15 @@ function asStringArray(v: unknown): string[] | null {
 /** Normalize a leads list row from Supabase before passing to client components. */
 export function normalizeCrmLeadRowForClient(raw: Record<string, unknown>): CrmLeadRow {
   const contacts = raw.contacts as CrmLeadsContactEmb | CrmLeadsContactEmb[] | null | undefined;
+  const { id: leadId, valid: leadIdValid } = parseCrmLeadIdFromRow(raw.id);
+  if (!leadIdValid && leadId) {
+    logCrmLeadIdDebug("admin_crm_leads.normalize_row", {
+      rawFromDb: raw.id,
+      normalized: leadId,
+    });
+  }
   return {
-    id: typeof raw.id === "string" ? raw.id : String(raw.id ?? ""),
+    id: leadId,
     contact_id: typeof raw.contact_id === "string" ? raw.contact_id : String(raw.contact_id ?? ""),
     source: typeof raw.source === "string" ? raw.source : "",
     status: typeof raw.status === "string" ? raw.status : raw.status == null ? null : String(raw.status),

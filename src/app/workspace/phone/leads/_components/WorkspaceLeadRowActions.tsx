@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 
+import { buildWorkspacePhoneLeadOpenHref } from "@/lib/crm/admin-crm-leads-list-url";
+import { isValidCrmLeadId, normalizeCrmLeadId } from "@/lib/crm/crm-lead-id";
 import {
   buildWorkspaceKeypadCallHref,
   buildWorkspaceSmsToContactHref,
@@ -22,18 +24,33 @@ type Props = {
 };
 
 export function WorkspaceLeadRowActions({ leadId, contactId, dialE164, hasSmsCapablePhone, displayName }: Props) {
-  const keypadCallHref = dialE164
-    ? buildWorkspaceKeypadCallHref({
-        dial: dialE164,
-        leadId,
-        contactId,
-        contextName: displayName,
-      })
-    : null;
+  const leadIdNorm = normalizeCrmLeadId(leadId);
+  const leadIdValid = isValidCrmLeadId(leadIdNorm);
+  const openHref = leadIdValid ? buildWorkspacePhoneLeadOpenHref(leadIdNorm) : null;
 
-  const smsHref = hasSmsCapablePhone
-    ? buildWorkspaceSmsToContactHref({ contactId, leadId })
-    : null;
+  const keypadCallHref =
+    leadIdValid && dialE164
+      ? buildWorkspaceKeypadCallHref({
+          dial: dialE164,
+          leadId: leadIdNorm,
+          contactId,
+          contextName: displayName,
+        })
+      : dialE164
+        ? buildWorkspaceKeypadCallHref({
+            dial: dialE164,
+            contactId,
+            contextName: displayName,
+          })
+        : null;
+
+  const smsHref =
+    hasSmsCapablePhone && isValidCrmLeadId(contactId)
+      ? buildWorkspaceSmsToContactHref({
+          contactId,
+          ...(leadIdValid ? { leadId: leadIdNorm } : {}),
+        })
+      : null;
 
   return (
     <div className="mt-2 flex flex-wrap gap-2">
@@ -51,9 +68,15 @@ export function WorkspaceLeadRowActions({ leadId, contactId, dialE164, hasSmsCap
       ) : (
         <span className={`${btnGhost} flex-1 cursor-not-allowed text-slate-400`}>No SMS phone</span>
       )}
-      <Link href={`/admin/crm/leads/${leadId}`} className={btnGhost} prefetch={false}>
-        Open
-      </Link>
+      {openHref ? (
+        <Link href={openHref} className={btnGhost} prefetch={false}>
+          Open
+        </Link>
+      ) : (
+        <span className={`${btnGhost} flex-1 cursor-not-allowed text-rose-700`} title="Invalid lead ID">
+          Invalid lead ID
+        </span>
+      )}
     </div>
   );
 }

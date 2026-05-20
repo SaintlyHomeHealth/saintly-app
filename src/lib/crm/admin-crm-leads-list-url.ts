@@ -1,6 +1,10 @@
 import type { AdminCrmLeadListUrlFilters } from "@/lib/crm/admin-crm-leads-list-filters";
+import { isValidCrmLeadId, logCrmLeadIdDebug, normalizeCrmLeadId } from "@/lib/crm/crm-lead-id";
 
 export const ADMIN_CRM_LEADS_LIST_PATH_PREFIX = "/admin/crm/leads";
+
+/** Workspace phone tab list — used as `returnTo` when opening admin lead detail from mobile. */
+export const WORKSPACE_PHONE_LEADS_PATH = "/workspace/phone/leads";
 
 /** Safe target for “Back to leads” from lead detail (open redirect hardening). */
 export function safeAdminCrmLeadsListReturnUrl(
@@ -26,11 +30,35 @@ export function safeAdminCrmLeadsListReturnUrl(
 }
 
 /** Lead detail link with `returnTo` so Back / navigation can restore list filters. */
-export function buildAdminCrmLeadDetailHref(leadId: string, listContextHref: string): string {
-  const id = String(leadId ?? "").trim();
-  if (!id) return ADMIN_CRM_LEADS_LIST_PATH_PREFIX;
+export function buildAdminCrmLeadDetailHref(leadId: string, listContextHref: string): string | null {
+  const id = normalizeCrmLeadId(leadId);
+  if (!id || !isValidCrmLeadId(id)) {
+    logCrmLeadIdDebug("admin_crm_leads.detail_href", {
+      rawFromDb: leadId,
+      normalized: id,
+    });
+    return null;
+  }
   const list = (listContextHref ?? "").trim() || ADMIN_CRM_LEADS_LIST_PATH_PREFIX;
-  return `${ADMIN_CRM_LEADS_LIST_PATH_PREFIX}/${encodeURIComponent(id)}?returnTo=${encodeURIComponent(list)}`;
+  const href = `${ADMIN_CRM_LEADS_LIST_PATH_PREFIX}/${id}?returnTo=${encodeURIComponent(list)}`;
+  return href;
+}
+
+/**
+ * Admin CRM lead detail from Workspace Phone → Leads (raw `leads.id` only).
+ * Path segment is never encoded; UUID is validated before link render.
+ */
+export function buildWorkspacePhoneLeadOpenHref(leadId: string): string | null {
+  const id = normalizeCrmLeadId(leadId);
+  if (!isValidCrmLeadId(id)) {
+    logCrmLeadIdDebug("workspace_phone_leads.open_href", {
+      rawFromDb: leadId,
+      normalized: id,
+    });
+    return null;
+  }
+  const href = `${ADMIN_CRM_LEADS_LIST_PATH_PREFIX}/${id}?returnTo=${encodeURIComponent(WORKSPACE_PHONE_LEADS_PATH)}`;
+  return href;
 }
 
 /** Round-trip helpers for CRM leads list URLs (filters + paging + density). */

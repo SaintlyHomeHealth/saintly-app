@@ -171,9 +171,15 @@ function LeadActionButtonRow({
           Text
         </span>
       )}
-      <Link href={detailHref} className={secondary}>
-        View
-      </Link>
+      {detailHref ? (
+        <Link href={detailHref} className={secondary}>
+          View
+        </Link>
+      ) : (
+        <span className={disabled} title="Invalid lead ID">
+          Invalid ID
+        </span>
+      )}
       <LeadDeleteButton leadId={leadId} variant="tableInlineGhost" />
     </div>
   );
@@ -676,12 +682,18 @@ export function CrmLeadsList({
                     </div>
                     <div className="min-w-0 space-y-1">
                       <div className="flex min-w-0 flex-wrap items-center gap-2">
-                        <Link
-                          href={detailHref}
-                          className={`min-w-0 ${nameSz} leading-tight text-slate-900 hover:text-sky-800 hover:underline`}
-                        >
-                          {displayName}
-                        </Link>
+                        {detailHref ? (
+                          <Link
+                            href={detailHref}
+                            className={`min-w-0 ${nameSz} leading-tight text-slate-900 hover:text-sky-800 hover:underline`}
+                          >
+                            {displayName}
+                          </Link>
+                        ) : (
+                          <span className={`min-w-0 ${nameSz} leading-tight text-rose-800`} title="Invalid lead ID">
+                            {displayName}
+                          </span>
+                        )}
                         <span
                           className={`${pillBase} max-w-[min(100%,14rem)] truncate ${contactStage.badgeClass}`}
                           title={contactStage.label}
@@ -901,12 +913,18 @@ export function CrmLeadsList({
                     </div>
                     <div className="min-w-0 space-y-1">
                       <div className="flex min-w-0 flex-wrap items-center gap-2">
-                        <Link
-                          href={detailHref}
-                          className={`min-w-0 ${nameSz} leading-tight text-slate-900 hover:text-sky-800 hover:underline`}
-                        >
-                          {displayName}
-                        </Link>
+                        {detailHref ? (
+                          <Link
+                            href={detailHref}
+                            className={`min-w-0 ${nameSz} leading-tight text-slate-900 hover:text-sky-800 hover:underline`}
+                          >
+                            {displayName}
+                          </Link>
+                        ) : (
+                          <span className={`min-w-0 ${nameSz} leading-tight text-rose-800`} title="Invalid lead ID">
+                            {displayName}
+                          </span>
+                        )}
                         <span
                           className={`${pillBase} max-w-[min(100%,14rem)] truncate ${contactStage.badgeClass}`}
                           title={contactStage.label}

@@ -23,6 +23,8 @@ import {
 import { staffMayAccessWorkspaceSms } from "@/lib/phone/staff-phone-policy";
 import { canAccessWorkspacePhone, getStaffProfile, isWorkspaceEmployeeRole } from "@/lib/staff-profile";
 import { formatAppDate } from "@/lib/datetime/app-timezone";
+import { buildWorkspacePhoneLeadOpenHref } from "@/lib/crm/admin-crm-leads-list-url";
+import { crmLeadsIdDebugEnabled, logCrmLeadIdDebug, parseCrmLeadIdFromRow } from "@/lib/crm/crm-lead-id";
 
 type ContactEmb = {
   id?: string;
@@ -86,6 +88,14 @@ type ConvActivityRow = {
 };
 
 const WORKSPACE_LEADS_LIMIT = 100;
+
+function coerceWorkspaceLeadRow(raw: LeadRow): LeadRow {
+  const { id, valid } = parseCrmLeadIdFromRow(raw.id);
+  if (!valid && id) {
+    console.warn("[workspace/phone/leads] invalid lead id on row", { leadId: id, len: id.length });
+  }
+  return id === raw.id ? raw : { ...raw, id };
+}
 
 function isNextControlFlowError(error: unknown): boolean {
   const digest = error && typeof error === "object" && "digest" in error ? String(error.digest) : "";
@@ -252,10 +262,12 @@ export default async function WorkspacePhoneLeadsPage({
     console.warn("[workspace/phone/leads] leads:", leadsErr.message);
   }
 
-  const openLeads: LeadRow[] = (leadRows ?? []).filter((r) => {
-    const s = typeof r.status === "string" ? r.status : "";
-    return !isLeadPipelineTerminal(s);
-  }) as LeadRow[];
+  const openLeads: LeadRow[] = (leadRows ?? [])
+    .map((r) => coerceWorkspaceLeadRow(r as LeadRow))
+    .filter((r) => {
+      const s = typeof r.status === "string" ? r.status : "";
+      return !isLeadPipelineTerminal(s);
+    });
 
   const contactIds = [
     ...new Set(
@@ -374,6 +386,19 @@ export default async function WorkspacePhoneLeadsPage({
         )
       : openLeads;
 
+  if (crmLeadsIdDebugEnabled()) {
+    const debugRows = qLower.includes("kofi") ? filteredLeads.slice(0, 12) : filteredLeads.slice(0, 5);
+    for (const row of debugRows) {
+      const openHref = buildWorkspacePhoneLeadOpenHref(row.id);
+      logCrmLeadIdDebug("workspace_phone_leads.list_row", {
+        rawFromDb: row.id,
+        normalized: row.id,
+        openHref,
+        hrefForClient: openHref,
+      });
+    }
+  }
+
   return (
     <div className="ws-phone-page-shell flex flex-1 flex-col px-4 pb-6 pt-5 sm:px-5">
       <WorkspacePhonePageHeader
@@ -409,6 +434,7 @@ export default async function WorkspacePhoneLeadsPage({
           </li>
         ) : null}
         {filteredLeads.map((row) => {
+          const leadIdParsed = parseCrmLeadIdFromRow(row.id);
           const c = normalizeContact(row.contacts as ContactEmb | ContactEmb[] | null);
           const name = displayNameFromContact(c) || "Unknown patient";
           const contactId = typeof row.contact_id === "string" ? row.contact_id.trim() : "";
@@ -422,7 +448,7 @@ export default async function WorkspacePhoneLeadsPage({
 
           return (
             <li
-              key={row.id}
+              key={leadIdParsed.valid ? row.id : `invalid-lead-${row.id}`}
               className="ws-phone-card p-4"
             >
               <div className="flex flex-wrap items-start justify-between gap-2">
@@ -466,7 +492,7 @@ export default async function WorkspacePhoneLeadsPage({
               </div>
               {contactId ? (
                 <WorkspaceLeadRowActions
-                  leadId={row.id}
+                  leadId={leadIdParsed.id}
                   contactId={contactId}
                   dialE164={dialE164}
                   hasSmsCapablePhone={hasSmsCapablePhone(phoneRaw)}
@@ -475,6 +501,9 @@ export default async function WorkspacePhoneLeadsPage({
               ) : (
                 <p className="mt-2 text-xs text-rose-700">Missing contact on this lead.</p>
               )}
+              {!leadIdParsed.valid && leadIdParsed.id ? (
+                <p className="mt-2 text-xs font-medium text-rose-700">Invalid lead ID — cannot open CRM detail.</p>
+              ) : null}
             </li>
           );
         })}
