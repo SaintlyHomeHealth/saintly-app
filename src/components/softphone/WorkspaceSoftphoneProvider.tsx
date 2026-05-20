@@ -677,6 +677,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
           softphone_conference?: SoftphoneConferenceContext | null;
           conference_gating?: ConferenceGatingSnapshot | null;
           softphone_recording?: SoftphoneRecordingMeta | null;
+          move_to_cell?: { status: string; last_error?: string | null } | null;
         };
         if (cancelled) return;
 
@@ -758,6 +759,20 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
             conference_gating: j.conference_gating ?? null,
             softphone_recording: j.softphone_recording ?? null,
             workspace_softphone_session: Boolean(j.workspace_softphone_session),
+            move_to_cell:
+              j.move_to_cell &&
+              typeof j.move_to_cell.status === "string" &&
+              (j.move_to_cell.status === "idle" ||
+                j.move_to_cell.status === "ringing" ||
+                j.move_to_cell.status === "press_1" ||
+                j.move_to_cell.status === "connected_on_cell" ||
+                j.move_to_cell.status === "failed")
+                ? {
+                    status: j.move_to_cell.status,
+                    last_error:
+                      typeof j.move_to_cell.last_error === "string" ? j.move_to_cell.last_error : null,
+                  }
+                : null,
           });
         }
         if (typeof j.softphone_conference?.pstn_on_hold === "boolean") {
@@ -1840,6 +1855,22 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     });
   }, [finalizeCallCleanup, nativeVoiceCallShell, nativeShellIncomingCallId]);
 
+  const moveToCellHangupDoneRef = useRef<string | null>(null);
+
+  /** After cell joins the conference, disconnect the browser leg locally (customer stays on cell + PSTN). */
+  useEffect(() => {
+    if (status !== "in_call") {
+      moveToCellHangupDoneRef.current = null;
+      return;
+    }
+    if (callContext?.move_to_cell?.status !== "connected_on_cell") return;
+    const sid = callContext?.external_call_id ?? "";
+    if (moveToCellHangupDoneRef.current === sid) return;
+    moveToCellHangupDoneRef.current = sid;
+    softphoneDevLog("[softphone] move-to-cell connected — disconnecting browser leg");
+    hangUp();
+  }, [status, callContext?.move_to_cell?.status, callContext?.external_call_id, hangUp]);
+
   const answerIncoming = useCallback(() => {
     if (nativeVoiceCallShell) {
       if (!nativeShellIncomingCallId) return;
@@ -2000,6 +2031,39 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     }
     return { ok: true as const };
   }, []);
+
+  const moveToCell = useCallback(async () => {
+    const c = activeCallRef.current;
+    if (!c) return { ok: false as const, error: "No active call" };
+    const sid = readCallSid(c);
+    if (!sid) return { ok: false as const, error: "No CallSid" };
+    softphoneDevLog("[softphone] move-to-cell requested", { callSid: `${sid.slice(0, 10)}…` });
+    const res = await fetch("/api/workspace/phone/active-call/move-to-cell", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ callSid: sid, staffUserId: softphoneCapabilities?.staff_user_id ?? undefined }),
+    });
+    const j = (await res.json().catch(() => ({}))) as {
+      ok?: boolean;
+      error?: string;
+      status?: string;
+    };
+    if (!res.ok || !j.ok) {
+      return {
+        ok: false as const,
+        error: j.error ?? "Cell transfer failed — browser call is still connected.",
+      };
+    }
+    const st =
+      j.status === "ringing" ||
+      j.status === "press_1" ||
+      j.status === "connected_on_cell" ||
+      j.status === "failed"
+        ? j.status
+        : "ringing";
+    return { ok: true as const, status: st };
+  }, [softphoneCapabilities?.staff_user_id]);
 
   const toggleCallRecording = useCallback(async () => {
     const c = activeCallRef.current;
@@ -2379,6 +2443,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       softphoneCapabilities,
       coldTransferTo,
       addConferenceParticipant,
+      moveToCell,
       startLiveTranscriptStream,
       stopLiveTranscriptStream,
       transcriptEnabled,
@@ -2431,6 +2496,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     toggleHold,
     coldTransferTo,
     addConferenceParticipant,
+    moveToCell,
     startLiveTranscriptStream,
     stopLiveTranscriptStream,
     transcriptEnabled,

@@ -3,7 +3,9 @@ import { resolveTranscriptionStatusCallbackUrl } from "@/lib/twilio/resolve-tran
 
 export type ConferenceGatingSnapshot = {
   conference_mode_env: boolean;
-  /** Client (browser) leg — same as `phone_calls.external_call_id` for outbound softphone. */
+  /** Inbound browser conference (default on; `TWILIO_INBOUND_USE_CONFERENCE=0` disables). */
+  inbound_conference_enabled: boolean;
+  /** Client (browser) leg — active Voice SDK CallSid from the UI. */
   client_leg_call_sid: string;
   conference_sid: string | null;
   pstn_call_sid: string | null;
@@ -11,6 +13,8 @@ export type ConferenceGatingSnapshot = {
   can_hold_pstn: boolean;
   can_cold_transfer: boolean;
   can_add_participant: boolean;
+  /** Mid-call browser → staff cell (conference + configured cell). */
+  can_move_to_cell: boolean;
   /** Human-readable reasons controls stay disabled (staff-facing). */
   blockers: string[];
   media_stream_wss_configured: boolean;
@@ -46,9 +50,15 @@ export function computeConferenceGating(input: {
     mode?: string | null;
     conference_sid?: string | null;
     pstn_call_sid?: string | null;
+    direction?: string | null;
+    client_call_sid?: string | null;
   } | null;
 }): ConferenceGatingSnapshot {
   const conferenceModeEnv = process.env.TWILIO_SOFTPHONE_USE_CONFERENCE === "true";
+  const inboundConfEnv = process.env.TWILIO_INBOUND_USE_CONFERENCE?.trim().toLowerCase() ?? "";
+  const inboundConferenceEnabled =
+    inboundConfEnv !== "0" && inboundConfEnv !== "false" && inboundConfEnv !== "no";
+
   const wss = resolveTwilioMediaStreamWssUrl();
   const mediaOk = wss.startsWith("wss://");
   const callbackUrl = resolveTranscriptionStatusCallbackUrl();
@@ -59,25 +69,39 @@ export function computeConferenceGating(input: {
   const clientSid = input.clientCallSid.trim();
   const sc = input.softphoneConference;
   const mode = (sc?.mode ?? "").trim().toLowerCase();
+  const direction = (sc?.direction ?? "").trim().toLowerCase();
   const conferenceSid = typeof sc?.conference_sid === "string" ? sc.conference_sid.trim() : null;
   const pstnSid = typeof sc?.pstn_call_sid === "string" ? sc.pstn_call_sid.trim() : null;
+  const storedBrowserSid =
+    typeof sc?.client_call_sid === "string" && sc.client_call_sid.startsWith("CA")
+      ? sc.client_call_sid.trim()
+      : null;
+
+  const isInboundConference = inboundConferenceEnabled && direction === "inbound" && mode === "conference";
+  const isOutboundConference = conferenceModeEnv && mode === "conference" && direction !== "inbound";
 
   const blockers: string[] = [];
-  if (!conferenceModeEnv) {
-    blockers.push("Server: TWILIO_SOFTPHONE_USE_CONFERENCE is not true — outbound calls use legacy Dial, not Conference+PSTN.");
+  if (!isInboundConference && !isOutboundConference) {
+    if (!conferenceModeEnv && !inboundConferenceEnabled) {
+      blockers.push(
+        "Server: conference mode is off — enable TWILIO_SOFTPHONE_USE_CONFERENCE (outbound) or inbound browser conference (default on)."
+      );
+    } else if (mode && mode !== "conference") {
+      blockers.push(`This call was logged as mode "${sc?.mode}" — not a conference call.`);
+    } else if (!mode) {
+      blockers.push("Conference metadata not present on this call yet.");
+    }
   }
-  if (conferenceModeEnv && mode && mode !== "conference") {
-    blockers.push(`This call was logged as mode "${sc?.mode}" — not a conference outbound.`);
-  }
-  if (conferenceModeEnv && mode === "conference" && !conferenceSid) {
+  if ((isInboundConference || isOutboundConference) && !conferenceSid) {
     blockers.push(
-      "Conference SID missing — Twilio has not yet posted softphone-conference-events with ConferenceSid, or the row lookup failed."
+      "Conference SID missing — Twilio has not yet posted softphone-conference-events with ConferenceSid."
     );
   }
-  if (conferenceModeEnv && mode === "conference" && !pstnSid) {
-    blockers.push(
-      "PSTN leg CallSid missing — join events did not correlate (expected PSTN participant CallSid ≠ client leg)."
-    );
+  if ((isInboundConference || isOutboundConference) && !pstnSid) {
+    blockers.push("Customer/PSTN leg CallSid missing in conference metadata.");
+  }
+  if (isInboundConference && !storedBrowserSid) {
+    blockers.push("Browser leg not connected yet — answer the call on the softphone first.");
   }
   if (!transcriptionCallbackOk && !legacyBridge) {
     blockers.push(
@@ -85,17 +109,23 @@ export function computeConferenceGating(input: {
     );
   }
 
+  const browserLegReady = isInboundConference ? Boolean(storedBrowserSid) : Boolean(clientSid.startsWith("CA"));
   const baseReady =
-    conferenceModeEnv && mode === "conference" && Boolean(conferenceSid) && Boolean(pstnSid);
+    (isInboundConference || isOutboundConference) &&
+    Boolean(conferenceSid) &&
+    Boolean(pstnSid) &&
+    browserLegReady;
 
   return {
     conference_mode_env: conferenceModeEnv,
+    inbound_conference_enabled: inboundConferenceEnabled,
     client_leg_call_sid: clientSid,
     conference_sid: conferenceSid,
     pstn_call_sid: pstnSid,
     can_hold_pstn: baseReady,
     can_cold_transfer: baseReady,
     can_add_participant: baseReady && Boolean(conferenceSid),
+    can_move_to_cell: baseReady && Boolean(conferenceSid),
     blockers,
     media_stream_wss_configured: mediaOk,
     transcription_callback_configured: transcriptionCallbackOk,

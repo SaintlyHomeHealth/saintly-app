@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { readVoiceAiMetadataFromMetadata } from "@/app/admin/phone/_lib/voice-ai-metadata";
 import { computeConferenceGating, type ConferenceGatingSnapshot } from "@/lib/phone/conference-gating";
+import { readMoveToCellMeta, type MoveToCellMeta } from "@/lib/phone/move-to-cell-types";
 import {
   parseLiveTranscriptEntriesFromMetadata,
   readUnclampedLiveTranscriptExcerpt,
@@ -52,6 +53,7 @@ export type WorkspaceCallContextPayload = {
     inbound_transcript_last_error: string | null;
   } | null;
   conference_gating: ConferenceGatingSnapshot;
+  move_to_cell: Pick<MoveToCellMeta, "status" | "last_error"> | null;
 };
 
 export type BuildWorkspaceCallContextOptions = {
@@ -159,8 +161,23 @@ export async function buildWorkspaceCallContextPayload(
   const gating = computeConferenceGating({
     /** Active Voice SDK leg (often child) — must match the `call_sid` query param. */
     clientCallSid: callSid,
-    softphoneConference: softphoneConference,
+    softphoneConference: conf
+      ? {
+          mode: typeof conf.mode === "string" ? conf.mode : null,
+          conference_sid: typeof conf.conference_sid === "string" ? conf.conference_sid : null,
+          pstn_call_sid: typeof conf.pstn_call_sid === "string" ? conf.pstn_call_sid : null,
+          direction:
+            conf.direction === "inbound" || conf.direction === "outbound" ? conf.direction : null,
+          client_call_sid:
+            typeof conf.client_call_sid === "string" ? conf.client_call_sid : null,
+        }
+      : null,
   });
+
+  const moveToCellFull = readMoveToCellMeta(rawMeta);
+  const moveToCellPayload = moveToCellFull
+    ? { status: moveToCellFull.status, last_error: moveToCellFull.last_error ?? null }
+    : null;
 
   const payload: WorkspaceCallContextPayload = {
     phone_call_id: data.id,
@@ -174,6 +191,10 @@ export async function buildWorkspaceCallContextPayload(
           pstn_call_sid: typeof conf.pstn_call_sid === "string" ? conf.pstn_call_sid : null,
           pstn_on_hold: typeof conf.pstn_on_hold === "boolean" ? conf.pstn_on_hold : null,
           mode: typeof conf.mode === "string" ? conf.mode : null,
+          direction:
+            conf.direction === "inbound" || conf.direction === "outbound" ? conf.direction : null,
+          client_call_sid:
+            typeof conf.client_call_sid === "string" ? conf.client_call_sid : null,
         }
       : null,
     softphone_recording: softphoneRecording ?? defaultSoftphoneRecordingMeta(),
@@ -204,6 +225,7 @@ export async function buildWorkspaceCallContextPayload(
           }
         : null,
     conference_gating: gating,
+    move_to_cell: moveToCellPayload,
   };
 
   return { found: true, payload };

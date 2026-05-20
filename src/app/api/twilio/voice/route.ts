@@ -78,6 +78,8 @@ export async function POST(req: NextRequest) {
       publicBase,
       toClientUri: to,
       pstnCallerE164: from,
+      parentCallSid: parentCallSid ?? callSid,
+      staffCallSid: callSid,
     });
     if (twiml) {
       console.log("[parent-call]", {

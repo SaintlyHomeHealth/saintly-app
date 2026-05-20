@@ -28,6 +28,7 @@ import {
 } from "@/lib/phone/voice-call-sessions";
 import { ensureVoicemailThreadMessage } from "@/lib/phone/voicemail-thread-message";
 import { isOutboundPstnBridgePhoneCallMetadata } from "@/lib/phone/outbound-pstn-bridge-config";
+import { isMoveToCellBridgeLegMetadata } from "@/lib/phone/move-to-cell-types";
 import { isOutboundPstnBridgeStaffLegRow } from "@/lib/phone/phone-call-dispatch-list";
 
 const PHONE_CALL_TRACE_LOGS =
@@ -177,7 +178,7 @@ export async function upsertPhoneCallFromWebhook(
     if (ownerUserId) insertRow.owner_user_id = ownerUserId;
     if (ownerStaffProfileId) insertRow.owner_staff_profile_id = ownerStaffProfileId;
     if (twilioPhoneNumberId) insertRow.twilio_phone_number_id = twilioPhoneNumberId;
-    if (isOutboundPstnBridgeStaffLegRow(metaVal)) {
+    if (isOutboundPstnBridgeStaffLegRow(metaVal) || isMoveToCellBridgeLegMetadata(metaVal)) {
       insertRow.dispatch_hidden_at = new Date().toISOString();
     }
 

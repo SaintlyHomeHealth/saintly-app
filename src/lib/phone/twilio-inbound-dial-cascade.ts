@@ -10,7 +10,7 @@ import type { VoicemailGreetingKind } from "@/lib/phone/twilio-voicemail-twiml";
 import { buildSaintlyVoicemailRecordTwiml } from "@/lib/phone/twilio-voicemail-twiml";
 import {
   buildInboundPstnCascadeDialTwiml,
-  clientDialNounXml,
+  browserClientDialBodiesXml,
   resolveInboundCallerIdForClientDial,
   resolveInboundPstnFallbackCallerId,
 } from "@/lib/phone/twilio-voice-handoff";
@@ -97,6 +97,7 @@ export function buildTwimlForCascadeStep(input: {
   callerIdForPstnDial: string;
   routing: VoiceRoutingJsonV1;
   stepIndex: number;
+  inboundCustomerCallSid?: string | null;
 }): string | null {
   const { publicBase, callerIdForBrowserDial, callerIdForPstnDial, routing } = input;
   const step = routing.steps[input.stepIndex];
@@ -139,9 +140,13 @@ export function buildTwimlForCascadeStep(input: {
       : ` answerOnBridge="true" timeout="${browserRingSec}" callerId="${escapeXml(callerIdForBrowserDial)}"`;
 
     const dialExtras = clientDialExtrasFromRouting(routing);
-    const clientBodies = step.userIds
-      .map((id) => clientDialNounXml(softphoneTwilioClientIdentity(id), callerIdForBrowserDial, dialExtras))
-      .join("");
+    const clientBodies = browserClientDialBodiesXml({
+      staffUserIds: step.userIds,
+      callerId: callerIdForBrowserDial,
+      extras: dialExtras,
+      publicBase,
+      inboundCustomerCallSid: input.inboundCustomerCallSid,
+    });
 
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
@@ -191,6 +196,7 @@ export function buildFirstInboundCascadeTwiml(input: {
   from: string;
   to: string;
   routing: VoiceRoutingJsonV1;
+  inboundCustomerCallSid?: string | null;
 }): string | null {
   const callerIdForBrowserDial = resolveInboundCallerIdForClientDial(input.from, input.to);
   const callerIdForPstnDial = resolveInboundPstnFallbackCallerId({
@@ -204,6 +210,7 @@ export function buildFirstInboundCascadeTwiml(input: {
     callerIdForPstnDial,
     routing: input.routing,
     stepIndex: 0,
+    inboundCustomerCallSid: input.inboundCustomerCallSid,
   });
 }
 
@@ -324,6 +331,7 @@ export async function handleInboundDialCascadePost(input: {
     callerIdForPstnDial,
     routing: updated,
     stepIndex: nextIndex,
+    inboundCustomerCallSid: externalCallId,
   });
 
   if (!twiml) {

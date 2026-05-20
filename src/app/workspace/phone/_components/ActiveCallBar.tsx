@@ -21,6 +21,7 @@ import {
   PhoneForwarded,
   PhoneOff,
   PlayCircle,
+  Smartphone,
   User,
   Users,
   Volume2,
@@ -118,6 +119,7 @@ export function ActiveCallBar() {
     setTranscriptPanelOpen,
     coldTransferTo,
     addConferenceParticipant,
+    moveToCell,
     softphoneRecording,
     recordingBusy,
     recordingActionError,
@@ -137,7 +139,7 @@ export function ActiveCallBar() {
   const [dtmfPressedKey, setDtmfPressedKey] = useState<string | null>(null);
   const [xferTo, setXferTo] = useState("");
   const [addTo, setAddTo] = useState("");
-  const [actionBusy, setActionBusy] = useState<"xfer" | "add" | null>(null);
+  const [actionBusy, setActionBusy] = useState<"xfer" | "add" | "move_cell" | null>(null);
   const [notice, setNotice] = useState<{ kind: "error" | "info"; message: string } | null>(null);
   const [recTick, setRecTick] = useState(0);
   /** Expo / RN shell: earpiece vs speakerphone (native Twilio audio device). */
@@ -151,6 +153,19 @@ export function ActiveCallBar() {
   const pstnConferenceReady = Boolean(gating?.can_cold_transfer);
   const allowPstnConferenceActions =
     pstnConferenceReady && (softphoneCapabilities?.conference_outbound_enabled ?? true);
+  const allowMoveToCell = Boolean(gating?.can_move_to_cell);
+  const moveToCellStatus = callContext?.move_to_cell?.status ?? "idle";
+  const moveToCellInProgress = moveToCellStatus === "ringing" || moveToCellStatus === "press_1";
+  const moveToCellLabel =
+    moveToCellStatus === "ringing"
+      ? "Calling your cell…"
+      : moveToCellStatus === "press_1"
+        ? "Press 1 to join"
+        : moveToCellStatus === "connected_on_cell"
+          ? "Connected on cell"
+          : moveToCellStatus === "failed"
+            ? "Failed, browser still active"
+            : null;
   const pstnConferenceBlockedReason = allowPstnConferenceActions
     ? undefined
     : softphoneCapabilities && softphoneCapabilities.conference_outbound_enabled === false
@@ -188,6 +203,14 @@ export function ActiveCallBar() {
     if (!keypadOpen) return;
     softphoneDevLog("[softphone] in-call keypad opened");
   }, [keypadOpen]);
+
+  useEffect(() => {
+    if (moveToCellStatus !== "failed") return;
+    setNotice({
+      kind: "error",
+      message: "Cell transfer failed — browser call is still connected.",
+    });
+  }, [moveToCellStatus]);
 
   const handleHangUpClick = useCallback(() => {
     hangUp();
@@ -234,6 +257,28 @@ export function ActiveCallBar() {
       });
       setXferTo("");
       setXferOpen(false);
+    } finally {
+      setActionBusy(null);
+    }
+  };
+
+  const runMoveToCell = async () => {
+    setNotice(null);
+    setActionBusy("move_cell");
+    setNotice({ kind: "info", message: "Calling your cell…" });
+    try {
+      const r = await moveToCell();
+      if (!r.ok) {
+        setNotice({
+          kind: "error",
+          message: r.error ?? "Cell transfer failed — browser call is still connected.",
+        });
+        return;
+      }
+      setNotice({
+        kind: "info",
+        message: "Answer your cell and press 1 to join. Your browser stays connected until you confirm.",
+      });
     } finally {
       setActionBusy(null);
     }
@@ -292,6 +337,18 @@ export function ActiveCallBar() {
             role="status"
           >
             {callContextSoftNotice}
+          </p>
+        ) : null}
+        {moveToCellLabel ? (
+          <p
+            className={`mb-3 rounded-xl border px-3 py-2 text-center text-[11px] leading-snug sm:mb-2 ${
+              moveToCellStatus === "failed"
+                ? "border-red-400/30 bg-red-950/40 text-red-100"
+                : "border-indigo-400/25 bg-indigo-500/10 text-indigo-50"
+            }`}
+            role="status"
+          >
+            {moveToCellLabel}
           </p>
         ) : null}
 
@@ -384,6 +441,20 @@ export function ActiveCallBar() {
             </button>
             <button
               type="button"
+              onClick={() => void runMoveToCell()}
+              disabled={!allowMoveToCell || moveToCellInProgress || actionBusy !== null}
+              title={
+                allowMoveToCell
+                  ? "Ring your cell — press 1 to take the call off the browser"
+                  : gating?.blockers?.[0] ?? "Move to cell is not available on this call yet"
+              }
+              className="inline-flex h-10 items-center gap-1 rounded-full border border-white/15 px-3 text-xs font-semibold text-indigo-50 disabled:opacity-40"
+            >
+              <Smartphone className="h-4 w-4" strokeWidth={2} />
+              {actionBusy === "move_cell" || moveToCellInProgress ? "Cell…" : "Move to cell"}
+            </button>
+            <button
+              type="button"
               onClick={() => setKeypadOpen(true)}
               title="Send DTMF tones"
               className="inline-flex h-10 items-center gap-1 rounded-full border border-white/15 px-3 text-xs font-semibold text-indigo-50"
@@ -428,6 +499,17 @@ export function ActiveCallBar() {
         <div
           className={`mt-5 grid gap-2 sm:hidden ${isReactNativeWebViewShell() ? "grid-cols-4" : "grid-cols-3"}`}
         >
+          <ControlBtn
+            label={actionBusy === "move_cell" || moveToCellInProgress ? "Cell…" : "Move cell"}
+            icon={<Smartphone className="h-5 w-5" strokeWidth={2} />}
+            onClick={() => void runMoveToCell()}
+            disabled={!allowMoveToCell || moveToCellInProgress || actionBusy !== null}
+            title={
+              allowMoveToCell
+                ? "Improve audio on your cell (press 1)"
+                : gating?.blockers?.[0] ?? "Conference not ready"
+            }
+          />
           <ControlBtn
             label="Transfer"
             icon={<PhoneForwarded className="h-5 w-5" strokeWidth={2} />}

@@ -1,4 +1,5 @@
 import { isOutboundPstnBridgePhoneCallMetadata } from "@/lib/phone/outbound-pstn-bridge-config";
+import { isMoveToCellBridgeLegMetadata } from "@/lib/phone/move-to-cell-types";
 import { phoneRawToE164LookupKey } from "@/lib/phone/resolve-phone-display-identity";
 
 /** Paul's mobile — used only for safe cleanup preview filters (E.164 + digits). */
@@ -49,6 +50,9 @@ export function shouldShowPhoneCallInWorkspaceDispatchList(row: {
     return false;
   }
   if (isOutboundPstnBridgeStaffLegRow(row.metadata)) {
+    return false;
+  }
+  if (isMoveToCellBridgeLegMetadata(row.metadata)) {
     return false;
   }
   return true;

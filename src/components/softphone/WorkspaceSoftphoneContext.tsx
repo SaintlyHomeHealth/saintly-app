@@ -4,6 +4,7 @@ import { createContext, useContext } from "react";
 import type { Dispatch, SetStateAction } from "react";
 
 import type { ConferenceGatingSnapshot } from "@/lib/phone/conference-gating";
+import type { MoveToCellStatus } from "@/lib/phone/move-to-cell-types";
 import type { LiveTranscriptEntry } from "@/lib/phone/live-transcript-entries";
 import type { SoftphoneTranscriptStreamsMeta } from "@/lib/phone/softphone-transcript-stream-meta";
 import type { SoftphoneRecordingMeta } from "@/lib/twilio/softphone-recording-types";
@@ -30,6 +31,8 @@ export type SoftphoneConferenceContext = {
   pstn_call_sid: string | null;
   pstn_on_hold: boolean | null;
   mode: string | null;
+  direction?: "inbound" | "outbound" | null;
+  client_call_sid?: string | null;
 };
 
 export type CallDeskContext = {
@@ -41,6 +44,8 @@ export type CallDeskContext = {
   conference: SoftphoneConferenceContext | null;
   /** Server-computed gating — use for disabling controls with real reasons. */
   conference_gating: ConferenceGatingSnapshot | null;
+  /** Mid-call move to staff cell (conference-backed inbound or outbound). */
+  move_to_cell: { status: MoveToCellStatus; last_error: string | null } | null;
   /** Manual recording state from `phone_calls.metadata.softphone_recording`. */
   softphone_recording: SoftphoneRecordingMeta | null;
   /** Staff softphone row (`metadata.source=twilio_voice_softphone`) — transcript is human-only. */
@@ -123,6 +128,8 @@ export type WorkspaceSoftphoneContextValue = {
   softphoneCapabilities: SoftphoneServerCapabilities | null;
   coldTransferTo: (toE164: string) => Promise<{ ok: boolean; error?: string }>;
   addConferenceParticipant: (toE164: string) => Promise<{ ok: boolean; error?: string }>;
+  /** Ring staff cell (press 1) and join the live conference; browser leg drops after confirm. */
+  moveToCell: () => Promise<{ ok: boolean; error?: string; status?: MoveToCellStatus }>;
   startLiveTranscriptStream: () => Promise<{ ok: boolean; error?: string }>;
   stopLiveTranscriptStream: () => Promise<{ ok: boolean; error?: string }>;
   /** Manual Dialpad-style: user must opt in before we treat transcript as "on". */

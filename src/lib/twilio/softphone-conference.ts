@@ -33,9 +33,12 @@ export type SoftphoneConferenceMeta = {
   conference_sid?: string;
   client_call_sid?: string;
   pstn_call_sid?: string;
+  /** `inbound` (customer parent leg) or `outbound` (browser client leg anchor). */
+  direction?: "inbound" | "outbound";
   pstn_on_hold?: boolean;
   last_conference_event?: string;
   updated_at?: string;
+  mode?: string;
 };
 
 export function isClientIdentityFrom(value: string | null | undefined): boolean {

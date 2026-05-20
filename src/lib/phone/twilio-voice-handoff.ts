@@ -19,6 +19,10 @@ import {
   resolveInboundBrowserStaffUserIdsAsync,
 } from "@/lib/softphone/inbound-staff-ids";
 import { normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
+import {
+  buildInboundStaffConnectUrl,
+  inboundBrowserConferenceEnabled,
+} from "@/lib/phone/inbound-browser-conference";
 import { softphoneTwilioClientIdentity } from "@/lib/softphone/twilio-client-identity";
 import type { InboundCallerClientDialExtras } from "@/lib/phone/inbound-caller-identity";
 import {
@@ -106,7 +110,8 @@ function clientDialExtraParamsXml(extras: InboundCallerClientDialExtras | null |
 export function clientDialNounXml(
   identity: string,
   pstnCallerIdForDial: string,
-  extras?: InboundCallerClientDialExtras | null
+  extras?: InboundCallerClientDialExtras | null,
+  options?: { onAnswerUrl?: string | null }
 ): string {
   const idEsc = escapeXml(identity);
   const pstn = pstnCallerIdForDial.trim();
@@ -115,7 +120,34 @@ export function clientDialNounXml(
       ? `<Parameter name="pstn_from" value="${escapeXml(pstn)}" />`
       : "";
   const extra = clientDialExtraParamsXml(extras);
-  return `<Client><Identity>${idEsc}</Identity>${param}${extra}</Client>`;
+  const urlRaw = options?.onAnswerUrl?.trim() ?? "";
+  const urlAttr = urlRaw ? ` url="${escapeXml(urlRaw)}"` : "";
+  return `<Client${urlAttr}><Identity>${idEsc}</Identity>${param}${extra}</Client>`;
+}
+
+/** Build `<Client>` nouns for browser ring; optional conference connect URL per staff member. */
+export function browserClientDialBodiesXml(input: {
+  staffUserIds: string[];
+  callerId: string;
+  extras?: InboundCallerClientDialExtras | null;
+  publicBase: string;
+  inboundCustomerCallSid?: string | null;
+}): string {
+  const useConference =
+    inboundBrowserConferenceEnabled() &&
+    Boolean(input.inboundCustomerCallSid?.trim().startsWith("CA")) &&
+    Boolean(input.publicBase?.trim());
+  const parentSid = input.inboundCustomerCallSid?.trim() ?? "";
+  return input.staffUserIds
+    .map((uid) => {
+      const onAnswerUrl = useConference
+        ? buildInboundStaffConnectUrl(input.publicBase, parentSid, uid)
+        : null;
+      return clientDialNounXml(softphoneTwilioClientIdentity(uid), input.callerId, input.extras, {
+        onAnswerUrl,
+      });
+    })
+    .join("");
 }
 
 const DEFAULT_TWILIO_VOICE_RING_TIMEOUT_SECONDS = 30;
@@ -277,6 +309,8 @@ export async function buildVoiceHandoffTwiml(input: {
   /** Raw env or UI string; normalized to E.164 before PSTN dial. */
   ringE164: string;
   clientDialExtras?: InboundCallerClientDialExtras | null;
+  /** PSTN parent CallSid (inbound customer leg) for conference room + Client answer URL. */
+  inboundCustomerCallSid?: string | null;
 }): Promise<string | null> {
   const { closing, publicBase, callerId, ringE164, clientDialExtras } = input;
   const ringStrategy = resolveVoiceInboundRingStrategy();
@@ -411,9 +445,13 @@ export async function buildVoiceHandoffTwiml(input: {
       : ` answerOnBridge="true" timeout="${browserRingSec}" callerId="${escapeXml(callerId)}"`;
 
     const clientIdentitiesForTwilio = inboundBrowserStaffIds.map((id) => softphoneTwilioClientIdentity(id));
-    const clientBodies = inboundBrowserStaffIds
-      .map((id) => clientDialNounXml(softphoneTwilioClientIdentity(id), callerId, clientDialExtras))
-      .join("");
+    const clientBodies = browserClientDialBodiesXml({
+      staffUserIds: inboundBrowserStaffIds,
+      callerId,
+      extras: clientDialExtras,
+      publicBase,
+      inboundCustomerCallSid: input.inboundCustomerCallSid,
+    });
 
     console.log(
       JSON.stringify({
@@ -422,6 +460,7 @@ export async function buildVoiceHandoffTwiml(input: {
         dial_timeout_sec: browserRingSec,
         client_leg_count: clientIdentitiesForTwilio.length,
         dial_action: "inbound-browser-fallback_then_pstn_via_TWILIO_VOICE_RING_E164",
+        inbound_conference: inboundBrowserConferenceEnabled() && Boolean(input.inboundCustomerCallSid),
       })
     );
     console.log(
@@ -463,9 +502,13 @@ export async function buildVoiceHandoffTwiml(input: {
     )}" statusCallbackMethod="POST" statusCallbackEvent="initiated ringing answered completed"`;
 
     const clientIdentitiesForTwilio = inboundBrowserStaffIds.map((id) => softphoneTwilioClientIdentity(id));
-    const clientBodies = inboundBrowserStaffIds
-      .map((id) => clientDialNounXml(softphoneTwilioClientIdentity(id), callerId, clientDialExtras))
-      .join("");
+    const clientBodies = browserClientDialBodiesXml({
+      staffUserIds: inboundBrowserStaffIds,
+      callerId,
+      extras: clientDialExtras,
+      publicBase,
+      inboundCustomerCallSid: input.inboundCustomerCallSid,
+    });
 
     console.log(
       JSON.stringify({
@@ -557,6 +600,7 @@ export async function buildEscalationInboundVoiceTwiml(input: {
   callerId: string;
   ringE164: string;
   clientDialExtras?: InboundCallerClientDialExtras | null;
+  inboundCustomerCallSid?: string | null;
 }): Promise<string | null> {
   const { closing, publicBase, callerId, ringE164, clientDialExtras } = input;
   const ringStrategy = resolveVoiceInboundRingStrategy();
@@ -696,9 +740,13 @@ export async function buildEscalationInboundVoiceTwiml(input: {
         )}" statusCallbackMethod="POST" statusCallbackEvent="initiated ringing answered completed"`
       : ` answerOnBridge="true" timeout="${primaryRingSec}" callerId="${escapeXml(callerId)}"`;
 
-    const clientBodies = primaryIds
-      .map((id) => clientDialNounXml(softphoneTwilioClientIdentity(id), callerId, clientDialExtras))
-      .join("");
+    const clientBodies = browserClientDialBodiesXml({
+      staffUserIds: primaryIds,
+      callerId,
+      extras: clientDialExtras,
+      publicBase,
+      inboundCustomerCallSid: input.inboundCustomerCallSid,
+    });
 
     console.log(
       JSON.stringify({
@@ -709,6 +757,7 @@ export async function buildEscalationInboundVoiceTwiml(input: {
         dial_timeout_sec: primaryRingSec,
         client_leg_count: primaryIds.length,
         dial_action: primaryBrowserDialActionUrl,
+        inbound_conference: inboundBrowserConferenceEnabled() && Boolean(input.inboundCustomerCallSid),
       })
     );
 
@@ -765,6 +814,10 @@ export function buildTwiMLAppIncomingClientRingTwiml(input: {
   /** Twilio `From` — PSTN caller E.164 when present. */
   pstnCallerE164: string;
   clientDialExtras?: InboundCallerClientDialExtras | null;
+  /** Child leg CallSid when this request is for a ringing Client leg. */
+  staffCallSid?: string | null;
+  /** Parent PSTN customer CallSid when created by inbound `<Dial><Client>`. */
+  parentCallSid?: string | null;
 }): string | null {
   const base = input.publicBase.trim().replace(/\/$/, "");
   const to = input.toClientUri.trim();
@@ -785,6 +838,21 @@ export function buildTwiMLAppIncomingClientRingTwiml(input: {
     ? resolveEscalationPrimaryRingTimeoutSeconds()
     : resolveBrowserFirstRingTimeoutSeconds();
   const callerIdForDial = pstn || identity;
+
+  const parentSid = (input.parentCallSid ?? "").trim();
+  if (inboundBrowserConferenceEnabled() && parentSid.startsWith("CA")) {
+    console.log(
+      JSON.stringify({
+        tag: "inbound-voice-flow",
+        event: "browser_client_ring_twiml_built",
+        path: "twiml_app_incoming_client",
+        branch: "empty_response_parent_dial_has_client_url",
+        parent_call_sid: parentSid,
+        staff_call_sid: input.staffCallSid ?? null,
+      })
+    );
+    return `<?xml version="1.0" encoding="UTF-8"?><Response></Response>`.trim();
+  }
 
   const browserDialAttrs = ` answerOnBridge="true" timeout="${browserRingSec}" callerId="${escapeXml(
     callerIdForDial
@@ -817,11 +885,12 @@ export function buildTwiMLAppIncomingClientRingTwiml(input: {
  * Inbound PSTN to a staff-owned Twilio number: ring that staff's Voice.js identity first; on no-answer,
  * fall through to inbound-browser-fallback (company ring group / voicemail).
  */
-export function buildStaffAssignedInboundDialTwiml (input: {
+export function buildStaffAssignedInboundDialTwiml(input: {
   publicBase: string;
   pstnCallerE164: string;
   staffUserId: string;
   clientDialExtras?: InboundCallerClientDialExtras | null;
+  inboundCustomerCallSid?: string | null;
 }): string {
   const base = input.publicBase.trim().replace(/\/$/, "");
   const uid = input.staffUserId.trim();
@@ -841,13 +910,18 @@ export function buildStaffAssignedInboundDialTwiml (input: {
     statusCallbackUrl
   )}" statusCallbackMethod="POST" statusCallbackEvent="initiated ringing answered completed"`;
 
-  const clientBody = clientDialNounXml(identity, pstn, input.clientDialExtras ?? null);
+  const onAnswerUrl =
+    inboundBrowserConferenceEnabled() && input.inboundCustomerCallSid?.startsWith("CA")
+      ? buildInboundStaffConnectUrl(input.publicBase, input.inboundCustomerCallSid.trim(), uid)
+      : null;
+  const clientBody = clientDialNounXml(identity, pstn, input.clientDialExtras ?? null, { onAnswerUrl });
 
   console.log(
     JSON.stringify({
       tag: "inbound-voice-flow",
       event: "browser_client_ring_twiml_built",
       path: "staff_assigned_did_first_leg",
+      inbound_conference: Boolean(onAnswerUrl),
       dial_timeout_sec: browserRingSec,
       staff_user_tail: uid.length > 8 ? uid.slice(-8) : uid,
       dial_action: "inbound-browser-fallback",

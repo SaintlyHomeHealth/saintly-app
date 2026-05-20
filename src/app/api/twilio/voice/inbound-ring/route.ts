@@ -41,6 +41,7 @@ import { isTwilioVoiceJsClientFrom, isTwilioVoiceJsClientTo } from "@/lib/twilio
 import { logTwilioVoiceTrace, summarizeTwimlResponse } from "@/lib/twilio/twilio-voice-trace-log";
 import { parseVerifiedTwilioFormBody } from "@/lib/twilio/verify-form-post";
 import { findTwilioPhoneNumberByToE164 } from "@/lib/twilio/twilio-phone-number-repo";
+import { inboundBrowserConferenceEnabled, inboundConferenceRoomName } from "@/lib/phone/inbound-browser-conference";
 import { normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
 
 function escapeXml(text: string): string {
@@ -154,6 +155,8 @@ export async function POST(req: NextRequest) {
       toClientUri: to,
       pstnCallerE164: from,
       clientDialExtras: toClientDialExtras(inboundResolved),
+      parentCallSid: parentCallSid ?? callSid,
+      staffCallSid: callSid,
     });
     if (twiml) {
       logTwilioVoiceTrace({
@@ -197,10 +200,20 @@ export async function POST(req: NextRequest) {
     owner_user_id: staffVoiceUserId || undefined,
     owner_staff_profile_id: voiceTn?.assigned_staff_profile_id ?? undefined,
     twilio_phone_number_id: voiceTn?.id ?? undefined,
-    metadata:
-      routePlan && routingJson
+    metadata: {
+      source: "twilio_voice_inbound_ring",
+      ...(inboundBrowserConferenceEnabled()
         ? {
-            source: "twilio_voice_inbound_ring",
+            softphone_conference: {
+              friendly_name: inboundConferenceRoomName(callSid),
+              mode: "conference",
+              direction: "inbound",
+              pstn_call_sid: callSid,
+            },
+          }
+        : {}),
+      ...(routePlan && routingJson
+        ? {
             voice_routing: {
               route_type: routePlan.routeType,
               after_hours: routePlan.afterHours,
@@ -208,7 +221,8 @@ export async function POST(req: NextRequest) {
               business_local_date: routePlan.businessHours.localDate,
             },
           }
-        : { source: "twilio_voice_inbound_ring" },
+        : {}),
+    },
   });
 
   const inboundResolved = await identityPromise;
@@ -325,6 +339,7 @@ export async function POST(req: NextRequest) {
       pstnCallerE164: from,
       staffUserId: staffVoiceUserId,
       clientDialExtras: toClientDialExtras(inboundResolved),
+      inboundCustomerCallSid: callSid,
     });
     logTwilioVoiceTrace({
       route: "POST /api/twilio/voice/inbound-ring",
@@ -442,6 +457,7 @@ export async function POST(req: NextRequest) {
       from,
       to,
       routing: routingJsonWithCaller ?? routingJson,
+      inboundCustomerCallSid: callSid,
     });
     if (!twimlBiz) {
       const vm = buildSaintlyVoicemailRecordTwiml(publicBase, {
@@ -527,6 +543,7 @@ export async function POST(req: NextRequest) {
         callerId,
         ringE164: ringE164Raw,
         clientDialExtras: toClientDialExtras(inboundResolved),
+        inboundCustomerCallSid: callSid,
       })
     : await buildVoiceHandoffTwiml({
         closing: "",
@@ -534,6 +551,7 @@ export async function POST(req: NextRequest) {
         callerId,
         ringE164: ringE164Raw,
         clientDialExtras: toClientDialExtras(inboundResolved),
+        inboundCustomerCallSid: callSid,
       });
 
   if (!twiml) {
