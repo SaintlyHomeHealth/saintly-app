@@ -1,4 +1,44 @@
-import { isValidE164 } from "@/lib/softphone/phone-number";
+import {
+  isValidE164,
+  parseWorkspaceOutboundDialInput,
+} from "@/lib/softphone/phone-number";
+
+/** Shown when env looks like +NXXNXXXXXX (10 digits after +, missing US country code 1). */
+export const INVALID_TWILIO_CALLER_ID_FORMAT_ERROR =
+  "Invalid Twilio caller ID format. Use +14803600008.";
+
+export type ResolveTwilioSoftphoneCallerIdResult =
+  | { ok: true; e164: string; normalized_from: string }
+  | { ok: false; error: string; raw: string };
+
+/**
+ * Normalize and validate `TWILIO_SOFTPHONE_CALLER_ID_E164` for Twilio `From` / callerId.
+ * - `4803600008` → `+14803600008`
+ * - `+14803600008` → unchanged
+ * - `+4803600008` → reject (malformed +10 without country code 1)
+ */
+export function resolveTwilioSoftphoneCallerIdE164(
+  rawInput?: string | null
+): ResolveTwilioSoftphoneCallerIdResult {
+  const raw = (rawInput ?? process.env.TWILIO_SOFTPHONE_CALLER_ID_E164 ?? "").trim();
+  if (!raw) {
+    return { ok: false, error: "TWILIO_SOFTPHONE_CALLER_ID_E164 is not configured.", raw: "" };
+  }
+
+  const compact = raw.replace(/[\s\-().]/g, "");
+
+  /** US NANP written as +AAANNNNNNN (10 digits after +) instead of +1AAANNNNNNN. */
+  if (/^\+\d{10}$/.test(compact)) {
+    return { ok: false, error: INVALID_TWILIO_CALLER_ID_FORMAT_ERROR, raw };
+  }
+
+  const parsed = parseWorkspaceOutboundDialInput(compact);
+  if (parsed.ok && isValidE164(parsed.e164)) {
+    return { ok: true, e164: parsed.e164, normalized_from: raw };
+  }
+
+  return { ok: false, error: INVALID_TWILIO_CALLER_ID_FORMAT_ERROR, raw };
+}
 
 /**
  * Workspace softphone outbound caller ID ("Call as").
@@ -36,8 +76,9 @@ function dedupeLines(lines: SoftphoneOutboundLine[]): SoftphoneOutboundLine[] {
 
 /** Returns `null` if primary env is missing or invalid — same gate as legacy softphone route. */
 export function loadSoftphoneOutboundCallerConfigFromEnv(): SoftphoneOutboundCallerConfig | null {
-  const primary = process.env.TWILIO_SOFTPHONE_CALLER_ID_E164?.trim() || "";
-  if (!primary || !isValidE164(primary)) return null;
+  const primaryResolved = resolveTwilioSoftphoneCallerIdE164();
+  if (!primaryResolved.ok) return null;
+  const primary = primaryResolved.e164;
 
   const orgLabel = process.env.TWILIO_SOFTPHONE_ORG_LABEL?.trim() || "Saintly Home Health";
   const jsonRaw = process.env.TWILIO_SOFTPHONE_OUTBOUND_LINES_JSON?.trim();

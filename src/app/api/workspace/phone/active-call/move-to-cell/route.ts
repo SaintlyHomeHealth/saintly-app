@@ -19,7 +19,7 @@ import { upsertPhoneCallFromWebhook } from "@/lib/phone/log-call";
 import { findPhoneCallRowByTwilioCallSid } from "@/lib/phone/phone-call-lookup-by-call-sid";
 import { resolveStaffOutboundCellE164 } from "@/lib/phone/staff-outbound-cell";
 import { resolveOutboundStaffRingSeconds } from "@/lib/phone/outbound-pstn-bridge-config";
-import { isValidE164 } from "@/lib/softphone/phone-number";
+import { resolveTwilioSoftphoneCallerIdE164 } from "@/lib/softphone/outbound-caller-ids";
 import {
   canAccessWorkspacePhone,
   resolveStaffProfileForWorkspacePhoneApi,
@@ -227,11 +227,35 @@ export async function POST(req: Request) {
     );
   }
 
-  const callerId = process.env.TWILIO_SOFTPHONE_CALLER_ID_E164?.trim() || "";
-  if (!callerId || !isValidE164(callerId)) {
-    const err = "Failed: outbound caller ID not configured (TWILIO_SOFTPHONE_CALLER_ID_E164).";
-    console.log(JSON.stringify({ tag: LOG_TAG, event: "move_to_cell_failed_exact_reason", reason: "invalid_from" }));
-    return NextResponse.json({ ok: false, error: err, failure_reason: "invalid_from" }, { status: 503 });
+  const callerResolved = resolveTwilioSoftphoneCallerIdE164();
+  if (!callerResolved.ok) {
+    const err = callerResolved.error.startsWith("Invalid Twilio caller ID")
+      ? `Failed: ${callerResolved.error}`
+      : "Failed: outbound caller ID not configured (TWILIO_SOFTPHONE_CALLER_ID_E164).";
+    console.log(
+      JSON.stringify({
+        tag: LOG_TAG,
+        event: "move_to_cell_failed_exact_reason",
+        reason: "invalid_from",
+        raw_caller_id: callerResolved.raw || null,
+        error: callerResolved.error,
+      })
+    );
+    return NextResponse.json(
+      { ok: false, error: err, failure_reason: "invalid_from", detail: callerResolved.error },
+      { status: 503 }
+    );
+  }
+  const callerId = callerResolved.e164;
+  if (callerResolved.normalized_from !== callerId) {
+    console.log(
+      JSON.stringify({
+        tag: LOG_TAG,
+        event: "softphone_caller_id_normalized",
+        from: callerResolved.normalized_from,
+        to: callerId,
+      })
+    );
   }
 
   const accountSid = process.env.TWILIO_ACCOUNT_SID?.trim();

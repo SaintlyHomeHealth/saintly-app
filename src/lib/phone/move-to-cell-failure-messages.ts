@@ -13,6 +13,9 @@ export function formatMoveToCellFailureMessage(
   if (lower.includes("missing staff cell") || lower.includes("no staff cell")) {
     return "Failed: missing staff cell number — add sms_notify_phone on your profile.";
   }
+  if (lower.includes("invalid twilio caller id format")) {
+    return raw.startsWith("Failed:") ? raw : `Failed: ${raw}`;
+  }
   if (lower.includes("twilio_softphone_caller_id") || lower.includes("caller_id")) {
     return "Failed: outbound caller ID not configured (TWILIO_SOFTPHONE_CALLER_ID_E164).";
   }
