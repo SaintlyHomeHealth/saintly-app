@@ -166,6 +166,9 @@ export function SoftphoneDialer({
   );
 
   const isOnHold = isPstnHold || isClientHold;
+  const showManualCellBridge =
+    softphoneCapabilities?.outbound_pstn_bridge_manual_available === true &&
+    softphoneCapabilities?.outbound_use_pstn_bridge !== true;
   const gating = callContext?.conference_gating;
   const pstnConferenceReady = Boolean(gating?.can_cold_transfer);
   const allowPstnConferenceActions =
@@ -399,6 +402,17 @@ export function SoftphoneDialer({
                 disabled={!digits.trim() || !canDial}
               >
                 Call
+              </button>
+            ) : null}
+            {showManualCellBridge && showCallButton ? (
+              <button
+                type="button"
+                onClick={() => void startCall(undefined, { viaPstnBridge: true })}
+                disabled={!digits.trim() || !canDial}
+                title="Rings your cell; press 1 to connect. Better audio on cellular."
+                className="inline-flex flex-1 items-center justify-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50 disabled:opacity-50 sm:flex-none"
+              >
+                Via cell
               </button>
             ) : null}
             {status === "in_call" ? (
@@ -730,6 +744,17 @@ export function SoftphoneDialer({
               ) : null}
             </div>
           </div>
+          {showManualCellBridge && showCallButton && variant === "keypad" ? (
+            <button
+              type="button"
+              onClick={() => void startCall(undefined, { viaPstnBridge: true })}
+              disabled={keypadDisabled || !canDial || !outboundDialReady || !digits.trim()}
+              title="Rings your cell; press 1 to connect. Better audio on cellular."
+              className="mt-2 w-full touch-manipulation rounded-xl border border-slate-200/90 bg-slate-50/90 py-2.5 text-center text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-100/90 disabled:opacity-50"
+            >
+              Call via cell — better audio (press 1)
+            </button>
+          ) : null}
           {keypadShowSaveCta && status === "idle" && !incoming ? (
             <div className="mt-3 w-full px-0">
               <button

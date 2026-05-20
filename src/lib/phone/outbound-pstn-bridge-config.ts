@@ -10,8 +10,9 @@
  * `TWILIO_VOICE_RING_E164` is **inbound PSTN fallback only**; it is not used for outbound browser calls.
  *
  * ## PSTN bridge / click-to-call (staff cell first, press 1)
- * - `TWILIO_OUTBOUND_CALL_STRATEGY=pstn_bridge` (aliases: `bridge`, `click_to_call`, `pstn`)
- * - or `TWILIO_OUTBOUND_DISABLE_CLIENT=1`
+ * - Env default: `TWILIO_OUTBOUND_CALL_STRATEGY=pstn_bridge` or `TWILIO_OUTBOUND_DISABLE_CLIENT=1`
+ * - Or per-call from the UI: “Call via cell” / “Better audio” (`POST /api/workspace/phone/outbound-pstn-bridge`)
+ *   whenever the staff member has `sms_notify_phone` (or `TWILIO_OUTBOUND_DEFAULT_STAFF_E164`).
  *
  * Optional PSTN-bridge tuning:
  * - `TWILIO_OUTBOUND_STAFF_RING_SECONDS` — staff leg ring timeout (default 25, clamp 10–60)

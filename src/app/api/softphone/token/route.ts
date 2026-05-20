@@ -26,8 +26,8 @@ const VoiceGrant = AccessToken.VoiceGrant;
  * Short-lived JWT for Twilio Voice JS SDK (browser inbound/optional client outbound).
  * TwiML App Voice URL: `POST {TWILIO_PUBLIC_BASE_URL}/api/twilio/voice/softphone`.
  * Default outbound: `Device.connect` → `/api/twilio/voice/softphone` (browser_first).
- * When `TWILIO_OUTBOUND_CALL_STRATEGY=pstn_bridge` (or `TWILIO_OUTBOUND_DISABLE_CLIENT=1`), keypad outbound uses
- * `POST /api/workspace/phone/outbound-pstn-bridge` instead of `Device.connect`.
+ * Optional per-call cell bridge: UI “Call via cell” → `POST /api/workspace/phone/outbound-pstn-bridge`.
+ * Env default PSTN bridge: `TWILIO_OUTBOUND_CALL_STRATEGY=pstn_bridge` or `TWILIO_OUTBOUND_DISABLE_CLIENT=1`.
  * Response may include `skip_twilio_device_registration: true` when web softphone is off but PSTN bridge is allowed.
  */
 export async function GET(request: NextRequest) {

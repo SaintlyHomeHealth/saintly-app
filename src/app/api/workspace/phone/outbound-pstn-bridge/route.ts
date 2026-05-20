@@ -3,10 +3,7 @@ import { NextResponse } from "next/server";
 import twilio from "twilio";
 
 import { supabaseAdmin } from "@/lib/admin";
-import {
-  resolveOutboundStaffRingSeconds,
-  shouldUsePstnBridgeOutbound,
-} from "@/lib/phone/outbound-pstn-bridge-config";
+import { resolveOutboundStaffRingSeconds } from "@/lib/phone/outbound-pstn-bridge-config";
 import { mintOutboundPstnBridgeToken } from "@/lib/phone/outbound-pstn-bridge-token";
 import { upsertPhoneCallFromWebhook } from "@/lib/phone/log-call";
 import { resolveStaffOutboundCellE164 } from "@/lib/phone/staff-outbound-cell";
@@ -39,14 +36,6 @@ export async function POST(req: NextRequest) {
   if (!staff || !canAccessWorkspacePhone(staff)) {
     console.warn(`[${LOG_TAG}] deny_unauthorized`);
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
-  }
-
-  if (!shouldUsePstnBridgeOutbound()) {
-    console.warn(`[${LOG_TAG}] deny_strategy_not_pstn_bridge`);
-    return NextResponse.json(
-      { ok: false, error: "PSTN bridge outbound is not enabled (TWILIO_OUTBOUND_CALL_STRATEGY / DISABLE_CLIENT)." },
-      { status: 400 }
-    );
   }
 
   let crmAssignedVoiceE164: string | null = null;

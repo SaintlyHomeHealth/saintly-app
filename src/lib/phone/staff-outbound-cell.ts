@@ -18,3 +18,8 @@ export function resolveStaffOutboundCellE164(staff: Pick<StaffProfile, "sms_noti
   const n2 = normalizeDialInputToE164(envFallback);
   return n2 && isValidE164(n2) ? n2 : null;
 }
+
+/** True when this staff member can be rung for optional manual PSTN-bridge outbound. */
+export function staffHasOutboundPstnBridgeCell(staff: Pick<StaffProfile, "sms_notify_phone">): boolean {
+  return Boolean(resolveStaffOutboundCellE164(staff));
+}

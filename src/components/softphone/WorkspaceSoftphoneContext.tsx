@@ -62,6 +62,8 @@ export type SoftphoneServerCapabilities = {
   outbound_call_strategy?: "browser_first" | "pstn_bridge";
   /** When true, outbound calls use REST → staff cell → press 1 → patient (no Twilio Client for that path). */
   outbound_use_pstn_bridge?: boolean;
+  /** When true, UI may offer optional “Call via cell” (Verizon bridge) even if env default is browser_first. */
+  outbound_pstn_bridge_manual_available?: boolean;
   /** Echo of TWILIO_OUTBOUND_DISABLE_CLIENT (for UI / diagnostics). */
   outbound_client_disabled?: boolean;
   /** Server: staff may place an outbound call from the keypad (classic and/or PSTN bridge). */
@@ -148,7 +150,7 @@ export type WorkspaceSoftphoneContextValue = {
   /** Soft warning when call-context is slow/degraded; keypad and nav stay usable. */
   callContextSoftNotice: string | null;
   clearCallError: () => void;
-  startCall: (toOverride?: string) => Promise<void>;
+  startCall: (toOverride?: string, options?: { viaPstnBridge?: boolean }) => Promise<void>;
   /** Outbound "Call as" (caller ID); `null` before capabilities hydrate. */
   outboundCliSelection: OutboundCliSelection | null;
   setOutboundCliSelection: Dispatch<SetStateAction<OutboundCliSelection | null>>;

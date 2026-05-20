@@ -8,7 +8,7 @@ import {
 } from "@/lib/phone/outbound-pstn-bridge-config";
 import {
   staffMayDialOutbound,
-  staffMayDialOutboundPstnBridge,
+  staffMayUseManualOutboundPstnBridge,
 } from "@/lib/phone/staff-phone-policy";
 import {
   parseWorkspaceOutboundDialInput,
@@ -58,10 +58,11 @@ export async function POST(req: NextRequest) {
   }
 
   const dialCtx = { crmAssignedVoiceE164 };
-  const pstnBridgeOk = shouldUsePstnBridgeOutbound() && staffMayDialOutboundPstnBridge(staff, dialCtx);
+  const manualPstnBridgeOk = staffMayUseManualOutboundPstnBridge(staff, dialCtx);
+  const envDefaultPstnBridge = shouldUsePstnBridgeOutbound();
   const classicOk = staffMayDialOutbound(staff, dialCtx);
 
-  if (!classicOk && !pstnBridgeOk) {
+  if (!classicOk && !manualPstnBridgeOk) {
     console.warn("[workspace/phone/outbound-dial] deny_staff_may_not_dial", {
       userId: staff.user_id,
       phone_calling_profile: staff.phone_calling_profile,
@@ -76,7 +77,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  if (staff.softphone_web_enabled === false && !pstnBridgeOk) {
+  if (staff.softphone_web_enabled === false && !manualPstnBridgeOk) {
     console.warn("[workspace/phone/outbound-dial] deny_softphone_web_disabled", { userId: staff.user_id });
     return NextResponse.json(
       { ok: false, error: "Web softphone is disabled for this staff member." },
@@ -110,6 +111,9 @@ export async function POST(req: NextRequest) {
     ok: true as const,
     e164: parsed.e164,
     outbound_call_strategy: resolveOutboundCallStrategy(),
-    outbound_use_pstn_bridge: shouldUsePstnBridgeOutbound(),
+    /** Env default: auto-route outbound through staff cell + press 1. */
+    outbound_use_pstn_bridge: envDefaultPstnBridge,
+    /** UI may offer “Call via cell” when true (works even when env default is browser_first). */
+    outbound_pstn_bridge_manual_available: manualPstnBridgeOk,
   });
 }

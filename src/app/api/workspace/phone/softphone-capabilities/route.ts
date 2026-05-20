@@ -13,7 +13,7 @@ import {
 import {
   sharedLineAllowsOutbound,
   staffMayDialOutbound,
-  staffMayDialOutboundPstnBridge,
+  staffMayUseManualOutboundPstnBridge,
   staffUsesDedicatedAssignment,
   staffUsesSharedCompanyLine,
 } from "@/lib/phone/staff-phone-policy";
@@ -146,9 +146,9 @@ export async function GET() {
     }
   }
 
+  const manualPstnBridgeAvailable = staffMayUseManualOutboundPstnBridge(staff, dialCtx);
   const keypadOutboundAllowed =
-    staffMayDialOutbound(staff, dialCtx) ||
-    (shouldUsePstnBridgeOutbound() && staffMayDialOutboundPstnBridge(staff, dialCtx));
+    staffMayDialOutbound(staff, dialCtx) || manualPstnBridgeAvailable;
   if (!keypadOutboundAllowed) {
     lines = [];
     defaultE164 = null;
@@ -158,6 +158,7 @@ export async function GET() {
     conference_outbound_enabled: process.env.TWILIO_SOFTPHONE_USE_CONFERENCE === "true",
     outbound_call_strategy: resolveOutboundCallStrategy(),
     outbound_use_pstn_bridge: shouldUsePstnBridgeOutbound(),
+    outbound_pstn_bridge_manual_available: manualPstnBridgeAvailable,
     outbound_client_disabled:
       process.env.TWILIO_OUTBOUND_DISABLE_CLIENT?.trim() === "1" ||
       process.env.TWILIO_OUTBOUND_DISABLE_CLIENT?.trim().toLowerCase() === "true",

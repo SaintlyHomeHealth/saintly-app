@@ -5,6 +5,7 @@ import {
   isPhoneWorkspaceUser,
 } from "@/lib/staff-profile";
 import { shouldUsePstnBridgeOutbound } from "@/lib/phone/outbound-pstn-bridge-config";
+import { staffHasOutboundPstnBridgeCell } from "@/lib/phone/staff-outbound-cell";
 
 export type StaffPhoneDialContext = {
   /** Voice-capable E.164 from twilio_phone_numbers when assigned to this user */
@@ -59,6 +60,15 @@ export function sharedLineAllowsCallHistory(profile: StaffProfile): boolean {
  * Outbound via Twilio REST → staff cell → patient (no browser/WebRTC for the outbound path).
  * Does not require `softphone_web_enabled` so teams can turn off web softphone but keep CRM click-to-call.
  */
+/**
+ * Optional “Call via cell” / Verizon bridge from the UI (independent of `TWILIO_OUTBOUND_CALL_STRATEGY`).
+ * Requires phone permissions plus a staff cell (`sms_notify_phone` or `TWILIO_OUTBOUND_DEFAULT_STAFF_E164`).
+ */
+export function staffMayUseManualOutboundPstnBridge(profile: StaffProfile, ctx: StaffPhoneDialContext): boolean {
+  if (!staffMayDialOutboundPstnBridge(profile, ctx)) return false;
+  return staffHasOutboundPstnBridgeCell(profile);
+}
+
 export function staffMayDialOutboundPstnBridge(profile: StaffProfile, ctx: StaffPhoneDialContext): boolean {
   if (!staffHasTelephonyAccess(profile)) return false;
   if (profile.phone_calling_profile === "inbound_disabled") return false;

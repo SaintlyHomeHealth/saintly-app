@@ -504,9 +504,13 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
           const staffRaw = j.staff_user_id ?? j.staffUserId;
           const defRaw = j.outbound_default_e164 ?? j.outboundDefaultE164;
           const blockRaw = j.outbound_block_available ?? j.outboundBlockAvailable;
+          const strategyRaw = j.outbound_call_strategy;
           setSoftphoneCapabilities({
             conference_outbound_enabled: Boolean(j.conference_outbound_enabled),
+            outbound_call_strategy:
+              strategyRaw === "pstn_bridge" || strategyRaw === "browser_first" ? strategyRaw : undefined,
             outbound_use_pstn_bridge: Boolean(j.outbound_use_pstn_bridge),
+            outbound_pstn_bridge_manual_available: Boolean(j.outbound_pstn_bridge_manual_available),
             outbound_client_disabled: Boolean(j.outbound_client_disabled),
             keypad_outbound_allowed: Boolean(j.keypad_outbound_allowed),
             media_stream_wss_configured: Boolean(j.media_stream_wss_configured),
@@ -2092,7 +2096,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
   }, [callWaitingCall, attachActiveCallHandlers]);
 
   const startCall = useCallback(
-    async (toOverride?: string) => {
+    async (toOverride?: string, options?: { viaPstnBridge?: boolean }) => {
       setHint(null);
       setHintMeta(null);
       const raw = typeof toOverride === "string" ? toOverride : digitsRef.current;
@@ -2131,6 +2135,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
           e164?: string;
           error?: string;
           outbound_use_pstn_bridge?: boolean;
+          outbound_pstn_bridge_manual_available?: boolean;
         };
         if (res.status === 400) {
           setStatus("idle");
@@ -2164,7 +2169,18 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
         }
         e164 = j.e164;
 
-        if (j.outbound_use_pstn_bridge === true) {
+        const envDefaultPstnBridge = j.outbound_use_pstn_bridge === true;
+        const manualPstnBridge = options?.viaPstnBridge === true;
+        const usePstnBridge = envDefaultPstnBridge || manualPstnBridge;
+        if (usePstnBridge) {
+          if (manualPstnBridge && !envDefaultPstnBridge && j.outbound_pstn_bridge_manual_available !== true) {
+            setStatus("idle");
+            setHint(
+              "Call via cell is not set up. Add your mobile number under Staff Access (sms_notify_phone) or ask an admin."
+            );
+            setHintMeta(null);
+            return;
+          }
           setStatus("connecting");
           const bridgeBody: { to: string; outboundCli?: string } = { to: trimmed };
           const cliSelBridge = outboundCliSelectionRef.current;
@@ -2292,11 +2308,11 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
 
   useEffect(() => {
     const handler = (ev: Event) => {
-      const ce = ev as CustomEvent<{ to?: string }>;
+      const ce = ev as CustomEvent<{ to?: string; viaPstnBridge?: boolean }>;
       const to = ce?.detail?.to;
       if (!to || typeof to !== "string") return;
       if (!canDial || busy) return;
-      void startCall(to);
+      void startCall(to, { viaPstnBridge: ce.detail?.viaPstnBridge === true });
     };
     window.addEventListener("softphone:dialTo", handler as EventListener);
     return () => window.removeEventListener("softphone:dialTo", handler as EventListener);
