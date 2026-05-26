@@ -7,6 +7,11 @@ import {
   ingestFacebookPartnerStandardLead,
   type FacebookPartnerStandardPayload,
 } from "@/lib/facebook/facebook-lead-ingestion";
+import {
+  ingestFacebookRecruitingLead,
+  type FacebookRecruitingLeadPayload,
+} from "@/lib/recruiting/facebook-recruiting-lead-ingestion";
+import { isFacebookRecruitingLeadPayload } from "@/lib/recruiting/facebook-recruiting-lead-detect";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -113,6 +118,14 @@ export async function POST(req: NextRequest) {
   const serviceNeeded = pickScalarString(norm, ["service_needed", "service needed", "service", "Service"]);
   const campaign = pickScalarString(norm, ["campaign", "utm_campaign"]);
   const attributionSource = pickScalarString(norm, ["source", "utm_source", "referral_source"]);
+  const leadType = pickScalarString(norm, ["lead_type", "lead type"]);
+  const licenseStatus = pickScalarString(norm, ["license_status", "license status"]);
+  const homeHealthExperience = pickScalarString(norm, ["home_health_experience", "home health experience"]);
+  const visitsPerWeek = pickScalarString(norm, ["visits_per_week", "visits per week"]);
+  const coverageArea = pickScalarString(norm, ["coverage_area", "coverage area"]);
+  const startDate = pickScalarString(norm, ["start_date", "start date"]);
+  const contactPreference = pickScalarString(norm, ["contact_preference", "contact preference"]);
+  const city = pickScalarString(norm, ["city", "City"]);
 
   const normalizedLead = {
     full_name: fullName,
@@ -128,11 +141,58 @@ export async function POST(req: NextRequest) {
     notes,
     campaign,
     attribution_source: attributionSource,
+    lead_type: leadType,
+    license_status: licenseStatus,
+    home_health_experience: homeHealthExperience,
+    visits_per_week: visitsPerWeek,
+    coverage_area: coverageArea,
+    start_date: startDate,
+    contact_preference: contactPreference,
+    city,
   };
   console.log("Normalized lead:", normalizedLead);
 
   if (!fullName.trim() && !phone.trim()) {
     return NextResponse.json({ ok: false, error: "missing_name_or_phone" } as const, { status: 400 });
+  }
+
+  const recruitingPayload: FacebookRecruitingLeadPayload = {
+    form_name: formName || undefined,
+    full_name: fullName || undefined,
+    phone: phone || undefined,
+    email: email || undefined,
+    license_status: licenseStatus || undefined,
+    home_health_experience: homeHealthExperience || undefined,
+    visits_per_week: visitsPerWeek || undefined,
+    coverage_area: coverageArea || undefined,
+    start_date: startDate || undefined,
+    lead_type: leadType || undefined,
+    source: attributionSource || undefined,
+    contact_preference: contactPreference || undefined,
+    city: city || undefined,
+  };
+
+  if (isFacebookRecruitingLeadPayload(recruitingPayload as Record<string, unknown>)) {
+    try {
+      const recruitingResult = await ingestFacebookRecruitingLead(supabaseAdmin, {
+        payload: recruitingPayload,
+        rawBodyText,
+      });
+
+      if (!recruitingResult.ok) {
+        return NextResponse.json({ ok: false, error: recruitingResult.error } as const, { status: 400 });
+      }
+
+      return NextResponse.json({
+        ok: true,
+        lead_id: recruitingResult.leadId,
+        lead_type: "recruiting",
+      } as const);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.warn("[api/leads/facebook] recruiting unhandled", msg);
+      return NextResponse.json({ ok: false, error: "internal_error" } as const, { status: 500 });
+    }
   }
 
   const payloadForIngest: FacebookPartnerStandardPayload = {
