@@ -114,6 +114,20 @@ export type PrivatePayRecipientSearchResult = {
   leads: PrivatePayRecipient[];
 };
 
+/** Walk-in / call-in private-pay customer (stored as a CRM contact). */
+export type PrivatePayCustomerInput = {
+  first_name?: string;
+  last_name?: string;
+  phone: string;
+  email?: string;
+  address_line_1?: string;
+  address_line_2?: string;
+  city?: string;
+  state?: string;
+  zip?: string;
+  notes?: string;
+};
+
 export type PrivatePayInvoiceInput = {
   contact_id?: string | null;
   patient_id?: string | null;

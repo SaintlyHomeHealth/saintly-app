@@ -25,6 +25,7 @@ type ContactBrief = {
   first_name: string | null;
   last_name: string | null;
   organization_name: string | null;
+  contact_type: string | null;
 };
 
 const INVOICE_COLUMNS =
@@ -247,7 +248,7 @@ export async function listAllPrivatePayInvoices(limit = 500): Promise<PrivatePay
   if (contactIds.length > 0) {
     const { data: contacts } = await supabaseAdmin
       .from("contacts")
-      .select("id, full_name, first_name, last_name, organization_name")
+      .select("id, full_name, first_name, last_name, organization_name, contact_type")
       .in("id", contactIds);
     for (const c of (contacts ?? []) as ContactBrief[]) {
       contactById.set(c.id, c);
@@ -268,7 +269,8 @@ export async function listAllPrivatePayInvoices(limit = 500): Promise<PrivatePay
       customer_detail = "Lead";
       profile_href = `/admin/crm/leads/${invoice.lead_id}`;
     } else if (invoice.contact_id) {
-      customer_detail = "Contact";
+      customer_detail =
+        (contact?.contact_type ?? "").trim() === "private_pay" ? "Private Pay" : "Contact";
       profile_href = `/admin/crm/contacts/${invoice.contact_id}`;
     }
 

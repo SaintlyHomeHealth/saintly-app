@@ -13,6 +13,7 @@ export const CRM_CONTACT_TYPE_VALUES = [
   "facility_vendor",
   "payer",
   "employee",
+  "private_pay",
   "other",
 ] as const;
 
@@ -28,6 +29,7 @@ export const CRM_CONTACT_TYPE_LABELS: Record<CrmContactTypeValue, string> = {
   facility_vendor: "Facility / Vendor",
   payer: "Payer",
   employee: "Employee",
+  private_pay: "Private Pay",
   other: "Contact",
 };
 
