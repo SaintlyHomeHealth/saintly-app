@@ -21,7 +21,8 @@
     "verify:sms-senders": "tsx scripts/verify-sms-sender-defaults.ts",
     "verify:outbound-parse": "tsx scripts/verify-workspace-outbound-parse.ts",
     "verify:facebook-recruiting-leads": "tsx scripts/verify-facebook-recruiting-leads.ts",
-    "backfill:twilio-mms": "tsx scripts/backfill-twilio-inbound-mms.ts"
+    "backfill:twilio-mms": "tsx scripts/backfill-twilio-inbound-mms.ts",
+    "generate:compliance-program-pdf": "tsx scripts/generate-compliance-program-pdf.ts"
   },
   "dependencies": {
     "@napi-rs/canvas": "^0.1.80",
@@ -41,6 +42,7 @@
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "server-only": "^0.0.1",
+    "stripe": "^22.2.0",
     "tesseract.js": "^7.0.0",
     "twilio": "^5.13.1",
     "word-extractor": "^1.0.4",
