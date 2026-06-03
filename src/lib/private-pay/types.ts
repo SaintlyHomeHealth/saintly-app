@@ -86,6 +86,34 @@ export type PrivatePayInvoiceItemInput = {
   unit_amount_cents: number;
 };
 
+/** Enriched row for the admin Private Pay list page. */
+export type PrivatePayInvoiceListRow = PrivatePayInvoiceWithItems & {
+  customer_name: string;
+  customer_detail: string | null;
+  profile_href: string | null;
+};
+
+/** CRM person selected when creating an invoice from /admin/private-pay. */
+export type PrivatePayRecipient = {
+  contact_id: string;
+  patient_id: string | null;
+  lead_id: string | null;
+  kind: "contact" | "patient" | "lead";
+  label: string;
+  billing: {
+    name: string;
+    email: string;
+    phone: string;
+    address: string;
+  };
+};
+
+export type PrivatePayRecipientSearchResult = {
+  contacts: PrivatePayRecipient[];
+  patients: PrivatePayRecipient[];
+  leads: PrivatePayRecipient[];
+};
+
 export type PrivatePayInvoiceInput = {
   contact_id?: string | null;
   patient_id?: string | null;

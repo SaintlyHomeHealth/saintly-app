@@ -7,15 +7,25 @@ import {
   type PrivatePayPaymentMethod,
 } from "@/lib/private-pay/constants";
 import { computeLineTotalCents } from "@/lib/private-pay/format";
+import { contactDirectoryDisplayName } from "@/lib/crm/contact-directory";
 import type {
   PrivatePayInvoice,
   PrivatePayInvoiceInput,
   PrivatePayInvoiceItem,
   PrivatePayInvoiceItemInput,
+  PrivatePayInvoiceListRow,
   PrivatePayInvoiceWithItems,
   PrivatePayPayment,
   PrivatePayServiceTemplate,
 } from "@/lib/private-pay/types";
+
+type ContactBrief = {
+  id: string;
+  full_name: string | null;
+  first_name: string | null;
+  last_name: string | null;
+  organization_name: string | null;
+};
 
 const INVOICE_COLUMNS =
   "id, contact_id, patient_id, lead_id, invoice_number, status, billing_name, billing_email, billing_phone, billing_address, subtotal_cents, discount_cents, tax_cents, total_cents, notes, stripe_customer_id, stripe_checkout_session_id, stripe_payment_intent_id, paid_at, created_by, created_at, updated_at";
@@ -185,15 +195,9 @@ export async function getInvoiceWithItems(invoiceId: string): Promise<PrivatePay
   };
 }
 
-export async function listInvoicesForContact(contactId: string): Promise<PrivatePayInvoiceWithItems[]> {
-  const { data: invoices, error } = await supabaseAdmin
-    .from("private_pay_invoices")
-    .select(INVOICE_COLUMNS)
-    .eq("contact_id", contactId)
-    .order("created_at", { ascending: false });
-  if (error || !invoices || invoices.length === 0) return [];
-
-  const ids = invoices.map((i) => i.id as string);
+async function attachItemsAndPayments(invoices: PrivatePayInvoice[]): Promise<PrivatePayInvoiceWithItems[]> {
+  if (invoices.length === 0) return [];
+  const ids = invoices.map((i) => i.id);
   const [{ data: items }, { data: payments }] = await Promise.all([
     supabaseAdmin
       .from("private_pay_invoice_items")
@@ -220,11 +224,71 @@ export async function listInvoicesForContact(contactId: string): Promise<Private
     paymentsByInvoice.set(payment.invoice_id, list);
   }
 
-  return (invoices as PrivatePayInvoice[]).map((invoice) => ({
+  return invoices.map((invoice) => ({
     ...invoice,
     items: itemsByInvoice.get(invoice.id) ?? [],
     payments: paymentsByInvoice.get(invoice.id) ?? [],
   }));
+}
+
+/** All private-pay invoices for the admin billing hub (newest first). */
+export async function listAllPrivatePayInvoices(limit = 500): Promise<PrivatePayInvoiceListRow[]> {
+  const { data: invoices, error } = await supabaseAdmin
+    .from("private_pay_invoices")
+    .select(INVOICE_COLUMNS)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error || !invoices?.length) return [];
+
+  const withItems = await attachItemsAndPayments(invoices as PrivatePayInvoice[]);
+  const contactIds = [...new Set(withItems.map((i) => i.contact_id).filter(Boolean))] as string[];
+
+  const contactById = new Map<string, ContactBrief>();
+  if (contactIds.length > 0) {
+    const { data: contacts } = await supabaseAdmin
+      .from("contacts")
+      .select("id, full_name, first_name, last_name, organization_name")
+      .in("id", contactIds);
+    for (const c of (contacts ?? []) as ContactBrief[]) {
+      contactById.set(c.id, c);
+    }
+  }
+
+  return withItems.map((invoice) => {
+    const contact = invoice.contact_id ? contactById.get(invoice.contact_id) : null;
+    const contactName = contact ? contactDirectoryDisplayName(contact) : null;
+    const customer_name = (invoice.billing_name ?? "").trim() || contactName || "—";
+
+    let customer_detail: string | null = null;
+    let profile_href: string | null = null;
+    if (invoice.patient_id) {
+      customer_detail = "Patient";
+      profile_href = `/admin/crm/patients/${invoice.patient_id}`;
+    } else if (invoice.lead_id) {
+      customer_detail = "Lead";
+      profile_href = `/admin/crm/leads/${invoice.lead_id}`;
+    } else if (invoice.contact_id) {
+      customer_detail = "Contact";
+      profile_href = `/admin/crm/contacts/${invoice.contact_id}`;
+    }
+
+    return {
+      ...invoice,
+      customer_name,
+      customer_detail,
+      profile_href,
+    };
+  });
+}
+
+export async function listInvoicesForContact(contactId: string): Promise<PrivatePayInvoiceWithItems[]> {
+  const { data: invoices, error } = await supabaseAdmin
+    .from("private_pay_invoices")
+    .select(INVOICE_COLUMNS)
+    .eq("contact_id", contactId)
+    .order("created_at", { ascending: false });
+  if (error || !invoices || invoices.length === 0) return [];
+  return attachItemsAndPayments(invoices as PrivatePayInvoice[]);
 }
 
 export async function listActiveServiceTemplates(): Promise<PrivatePayServiceTemplate[]> {

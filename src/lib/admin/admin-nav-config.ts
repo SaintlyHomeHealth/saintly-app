@@ -3,6 +3,7 @@ import type { StaffProfile } from "@/lib/staff-profile";
 import {
   canUseWorkspacePhoneAppShell,
   isAdminOrHigher,
+  isCrmLeadsRowPolicyRole,
   isManagerOrHigher,
   isPhoneWorkspaceUser,
 } from "@/lib/staff-profile";
@@ -27,6 +28,7 @@ export const ADMIN_NAV_LABELS = {
   dispatch: "Dispatch",
   employees: "Employees",
   payroll: "Payroll",
+  privatePay: "Private Pay",
   staffAccess: "Staff Access",
   phoneNumbers: "Phone numbers",
   salesAgentChat: "Sales Agent Chat",
@@ -49,6 +51,7 @@ export type AdminNavItemId =
   | "dispatch"
   | "employees"
   | "payroll"
+  | "private_pay"
   | "staff_access"
   | "phone_numbers"
   | "sales_agent_chat";
@@ -214,6 +217,16 @@ export function buildAdminNavItems(staff: StaffProfile | null): AdminNavItemReso
       href: "/admin/payroll",
       ...g("payroll", false, ""),
     },
+    ...(isCrmLeadsRowPolicyRole(staff)
+      ? [
+          {
+            id: "private_pay" as const,
+            label: ADMIN_NAV_LABELS.privatePay,
+            href: "/admin/private-pay",
+            disabled: false,
+          },
+        ]
+      : []),
     ...(admin
       ? [
           {

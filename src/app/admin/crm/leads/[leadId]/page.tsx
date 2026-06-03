@@ -43,8 +43,6 @@ import { loadLeadAttachmentsForWorkspace } from "@/lib/crm/lead-attachments-load
 import { safeAdminCrmLeadsListReturnUrl } from "@/lib/crm/admin-crm-leads-list-url";
 import { getSaintlyCrmVoicePhiNotice } from "@/lib/crm/crm-voice-phi-notice.server";
 import { getSaintlyRealtimeGatewayClientSnapshot } from "@/lib/crm/saintly-ai-voice-config";
-import { PrivatePaySection } from "@/components/crm/private-pay/PrivatePaySection";
-import { listActiveServiceTemplates, listInvoicesForContact } from "@/lib/private-pay/data";
 
 type ContactEmb = {
   full_name?: string | null;
@@ -659,21 +657,6 @@ export default async function LeadIntakePage({
     console.warn("[crm/lead detail] lead attachments failed:", e);
   }
 
-  const privatePayInvoices = contactId ? await listInvoicesForContact(contactId) : [];
-  const privatePayTemplates = contactId ? await listActiveServiceTemplates() : [];
-  const privatePayBillingAddress = [
-    contactProfileDefaults.address_line_1,
-    contactProfileDefaults.address_line_2,
-    [
-      contactProfileDefaults.city,
-      [contactProfileDefaults.state, contactProfileDefaults.zip].filter(Boolean).join(" "),
-    ]
-      .filter(Boolean)
-      .join(", "),
-  ]
-    .filter(Boolean)
-    .join(", ");
-
     return (
     <>
     <LeadWorkspace
@@ -733,23 +716,6 @@ export default async function LeadIntakePage({
       initialLeadAttachments={initialLeadAttachments}
       salesAgentContext={salesAgentContext}
     />
-    {contactId ? (
-      <div className="px-4 pb-10 sm:px-6 lg:px-8">
-        <PrivatePaySection
-          contactId={contactId}
-          leadId={String(L.id)}
-          patientId={patientId}
-          defaultBilling={{
-            name: contactProfileDefaults.fullName,
-            email: contactProfileDefaults.email,
-            phone: contactProfileDefaults.primaryPhone,
-            address: privatePayBillingAddress,
-          }}
-          templates={privatePayTemplates}
-          initialInvoices={privatePayInvoices}
-        />
-      </div>
-    ) : null}
     </>
     );
   } catch (e) {

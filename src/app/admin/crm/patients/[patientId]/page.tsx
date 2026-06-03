@@ -37,8 +37,6 @@ import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 import { formatAdminPhoneWhen } from "@/app/workspace/phone/patients/_lib/patient-hub";
 import { formatAppDateTime } from "@/lib/datetime/app-timezone";
-import { PrivatePaySection } from "@/components/crm/private-pay/PrivatePaySection";
-import { listActiveServiceTemplates, listInvoicesForContact } from "@/lib/private-pay/data";
 
 type ContactEmb = {
   id?: string | null;
@@ -401,24 +399,6 @@ export default async function PatientIntakePage({
   const crmStageForPatientBadge: CrmStage =
     leadsList.length === 0 ? "patient" : normalizeCrmStage((patientStageLead ?? leadsList[0])?.crm_stage);
 
-  const privatePayInvoices = contactId ? await listInvoicesForContact(contactId) : [];
-  const privatePayTemplates = await listActiveServiceTemplates();
-  const billingName = contactDisplayName(c ?? null);
-  const billingAddressLine = [
-    (c?.address_line_1 as string | null | undefined)?.trim(),
-    (c?.address_line_2 as string | null | undefined)?.trim(),
-    [
-      (c?.city as string | null | undefined)?.trim(),
-      [(c?.state as string | null | undefined)?.trim(), (c?.zip as string | null | undefined)?.trim()]
-        .filter(Boolean)
-        .join(" "),
-    ]
-      .filter(Boolean)
-      .join(", "),
-  ]
-    .filter(Boolean)
-    .join(", ");
-
   return (
     <div className="space-y-6 p-6">
       {smsFlash ? (
@@ -702,18 +682,6 @@ export default async function PatientIntakePage({
         staffOptions={staffOptions}
         assignments={(asnRows ?? []) as { id: string; role: string; assigned_user_id: string | null; discipline: string | null; is_primary: boolean | null }[]}
         staffByUser={staffByUser}
-      />
-
-      <PrivatePaySection
-        contactId={contactId || null}
-        patientId={pid}
-        defaultBilling={{
-          name: billingName === "—" ? "" : billingName,
-          phone: (c?.primary_phone as string | null) ?? "",
-          address: billingAddressLine,
-        }}
-        templates={privatePayTemplates}
-        initialInvoices={privatePayInvoices}
       />
 
       <div className="rounded-[28px] border border-indigo-100 bg-gradient-to-br from-indigo-50/60 to-white p-5 shadow-sm ring-1 ring-indigo-100/70">
