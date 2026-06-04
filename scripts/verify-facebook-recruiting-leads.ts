@@ -1,5 +1,5 @@
 /**
- * Lightweight assertions for Facebook recruiting lead routing + field mapping.
+ * Lightweight assertions for Facebook recruiting lead routing + post-create behavior.
  * Run: npm run verify:facebook-recruiting-leads
  */
 
@@ -9,6 +9,15 @@ import {
   isFacebookRecruitingLeadPayload,
   normalizeFacebookRecruitingLeadFields,
 } from "../src/lib/recruiting/facebook-recruiting-lead-detect";
+import {
+  buildFacebookRecruitingLeadAdminNotificationBody,
+  buildFacebookRecruitingLeadIntroSmsBody,
+  extractRecruitingLeadFirstName,
+  recruitingLeadAdminNotificationDedupeKey,
+  recruitingLeadAdminNotificationHref,
+  shouldSendFacebookRecruitingAdminNotification,
+  shouldSendFacebookRecruitingIntroSms,
+} from "../src/lib/recruiting/facebook-recruiting-lead-shared";
 import { normalizeRecruitingPhoneForStorage } from "../src/lib/recruiting/recruiting-contact-normalize";
 
 const examplePayload = {
@@ -88,11 +97,76 @@ function testPatientPayloadNotRecruiting() {
   assert.equal(fields.phone, "6025559999");
 }
 
+function testIntroSmsCopy() {
+  const body = buildFacebookRecruitingLeadIntroSmsBody(extractRecruitingLeadFirstName("Test Lead"));
+  assert.match(body, /^Hi Test,/);
+  assert.match(body, /480-360-0008/);
+  assert.match(body, /Reply STOP to opt out\./);
+
+  const generic = buildFacebookRecruitingLeadIntroSmsBody(null);
+  assert.match(generic, /^Hi, thanks for reaching out/);
+}
+
+function testPostCreateGuards() {
+  assert.equal(
+    shouldSendFacebookRecruitingIntroSms({ created: true, hasPhone: true, autoSmsSentAt: null }),
+    true
+  );
+  assert.equal(
+    shouldSendFacebookRecruitingIntroSms({ created: false, hasPhone: true, autoSmsSentAt: null }),
+    false
+  );
+  assert.equal(
+    shouldSendFacebookRecruitingIntroSms({ created: true, hasPhone: true, autoSmsSentAt: "2026-01-01T00:00:00.000Z" }),
+    false
+  );
+  assert.equal(
+    shouldSendFacebookRecruitingIntroSms({ created: true, hasPhone: false, autoSmsSentAt: null }),
+    false
+  );
+
+  assert.equal(
+    shouldSendFacebookRecruitingAdminNotification({ created: true, lastAdminNotificationSentAt: null }),
+    true
+  );
+  assert.equal(
+    shouldSendFacebookRecruitingAdminNotification({ created: false, lastAdminNotificationSentAt: null }),
+    false
+  );
+  assert.equal(
+    shouldSendFacebookRecruitingAdminNotification({
+      created: true,
+      lastAdminNotificationSentAt: "2026-01-01T00:00:00.000Z",
+    }),
+    false
+  );
+}
+
+function testAdminNotificationContent() {
+  const body = buildFacebookRecruitingLeadAdminNotificationBody({
+    fullName: "Test Lead",
+    coverageArea: "Maricopa County",
+    visitsPerWeek: "10-20 visits",
+    startDate: "Immediately",
+  });
+  assert.match(body, /Test Lead submitted a Facebook PT hiring form\./);
+  assert.match(body, /Maricopa County/);
+  assert.match(body, /10-20 visits/);
+  assert.match(body, /Start: Immediately/);
+
+  const leadId = "11111111-1111-4111-8111-111111111111";
+  assert.equal(recruitingLeadAdminNotificationHref(leadId), `/admin/recruiting-leads/${leadId}`);
+  assert.equal(recruitingLeadAdminNotificationDedupeKey(leadId), `facebook_recruiting_lead:${leadId}`);
+}
+
 function main() {
   testRecruitingDetection();
   testFieldNormalization();
   testPhoneNormalization();
   testPatientPayloadNotRecruiting();
+  testIntroSmsCopy();
+  testPostCreateGuards();
+  testAdminNotificationContent();
   console.log("verify:facebook-recruiting-leads ok");
 }
 

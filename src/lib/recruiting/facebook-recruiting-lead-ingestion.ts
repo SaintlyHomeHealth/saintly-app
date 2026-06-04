@@ -10,6 +10,7 @@ import {
   normalizeRecruitingPhoneForStorage,
 } from "@/lib/recruiting/recruiting-contact-normalize";
 import { normalizeFacebookRecruitingLeadFields } from "@/lib/recruiting/facebook-recruiting-lead-detect";
+import { handleNewFacebookRecruitingLeadCreated } from "@/lib/recruiting/facebook-recruiting-lead-post-create-workflow";
 
 export type FacebookRecruitingLeadPayload = {
   form_name?: unknown;
@@ -68,7 +69,7 @@ function mergeRawPayload(
 }
 
 export type IngestFacebookRecruitingLeadResult =
-  | { ok: true; leadId: string; created: boolean }
+  | { ok: true; leadId: string; created: boolean; sms_sent: boolean; admin_notification_sent: boolean }
   | { ok: false; error: string };
 
 export async function ingestFacebookRecruitingLead(
@@ -161,7 +162,13 @@ export async function ingestFacebookRecruitingLead(
     revalidatePath("/admin/recruiting-leads");
     revalidatePath(`/admin/recruiting-leads/${existing.id}`);
 
-    return { ok: true, leadId: existing.id, created: false };
+    return {
+      ok: true,
+      leadId: existing.id,
+      created: false,
+      sms_sent: false,
+      admin_notification_sent: false,
+    };
   }
 
   const { data: inserted, error: insertErr } = await supabase
@@ -182,5 +189,15 @@ export async function ingestFacebookRecruitingLead(
   revalidatePath("/admin/recruiting-leads");
   revalidatePath(`/admin/recruiting-leads/${inserted.id}`);
 
-  return { ok: true, leadId: String(inserted.id), created: true };
+  console.log("[facebook-recruiting-lead] created", { lead_id: inserted.id });
+
+  const postCreate = await handleNewFacebookRecruitingLeadCreated(supabase, String(inserted.id));
+
+  return {
+    ok: true,
+    leadId: String(inserted.id),
+    created: true,
+    sms_sent: postCreate.smsSent,
+    admin_notification_sent: postCreate.adminNotificationSent,
+  };
 }

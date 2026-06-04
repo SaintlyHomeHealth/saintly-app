@@ -164,6 +164,9 @@ export function MarketingSiteFooter() {
           <Link href="/privacy" className="underline-offset-2 hover:text-amber-700 hover:underline">
             Privacy Policy
           </Link>
+          <Link href="/compliance-program" className="underline-offset-2 hover:text-amber-700 hover:underline">
+            Compliance Program
+          </Link>
           <Link href="/terms" className="underline-offset-2 hover:text-amber-700 hover:underline">
             Terms of Service
           </Link>

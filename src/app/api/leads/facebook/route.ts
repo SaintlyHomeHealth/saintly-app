@@ -187,6 +187,8 @@ export async function POST(req: NextRequest) {
         ok: true,
         lead_id: recruitingResult.leadId,
         lead_type: "recruiting",
+        sms_sent: recruitingResult.sms_sent,
+        admin_notification_sent: recruitingResult.admin_notification_sent,
       } as const);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
