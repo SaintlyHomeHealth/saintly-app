@@ -7,7 +7,7 @@ import {
 } from "./staff-sign-in-url-build";
 
 /**
- * Ops: set `NEXT_PUBLIC_APP_URL` to your **production** app origin (e.g. `https://app.saintlyhomehealth.com`)
+ * Ops: set `NEXT_PUBLIC_APP_URL` to your **production** app origin (e.g. `https://appsaintlyhomehealth.com`)
  * in every Vercel/production environment that sends real staff SMS/email. Otherwise the origin can fall back
  * to `VERCEL_PROJECT_PRODUCTION_URL` or `VERCEL_URL` (preview deployments may leak preview hostnames).
  *

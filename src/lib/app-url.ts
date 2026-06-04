@@ -1,10 +1,10 @@
 /**
  * Canonical app origin for outbound links (SMS, email, Stripe redirects).
  * Set in production:
- *   NEXT_PUBLIC_APP_URL=https://app.saintlyhomehealth.com
- *   APP_URL=https://app.saintlyhomehealth.com
+ *   NEXT_PUBLIC_APP_URL=https://appsaintlyhomehealth.com
+ *   APP_URL=https://appsaintlyhomehealth.com
  *
- * Do not use `NEXT_PUBLIC_SITE_URL` or the marketing host (appsaintlyhomehealth.com) here.
+ * Do not use `NEXT_PUBLIC_SITE_URL` or `https://app.saintlyhomehealth.com` (wrong host).
  */
 
 export function getAppBaseUrl(fallbackOrigin?: string): string {
@@ -16,8 +16,8 @@ export function getAppBaseUrl(fallbackOrigin?: string): string {
 }
 
 /**
- * Returns an error message when the configured app URL uses the wrong host
- * (e.g. appsaintlyhomehealth.com without the "app." subdomain).
+ * Returns an error when the app URL is missing, invalid, or uses the wrong CRM host
+ * (`app.saintlyhomehealth.com` with a dot — production uses `appsaintlyhomehealth.com`).
  */
 export function validateAppBaseUrl(baseUrl: string): string | null {
   const trimmed = (baseUrl ?? "").trim();
@@ -25,8 +25,8 @@ export function validateAppBaseUrl(baseUrl: string): string | null {
   try {
     const host = new URL(trimmed.startsWith("http") ? trimmed : `https://${trimmed}`).hostname
       .toLowerCase();
-    if (host === "appsaintlyhomehealth.com") {
-      return "Use https://app.saintlyhomehealth.com (with a dot after app), not appsaintlyhomehealth.com.";
+    if (host === "app.saintlyhomehealth.com") {
+      return "Use https://appsaintlyhomehealth.com for CRM links, not https://app.saintlyhomehealth.com.";
     }
   } catch {
     return "NEXT_PUBLIC_APP_URL / APP_URL is not a valid URL.";
