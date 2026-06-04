@@ -1,6 +1,9 @@
 import { getAppBaseUrl } from "@/lib/app-url";
 
-/** Customer-facing invoice view (pay + download PDF). No login required. */
+/**
+ * Customer-facing invoice view (pay + download PDF). No login required.
+ * Full URL pattern: https://app.saintlyhomehealth.com/p/private-pay/invoice/[publicToken]
+ */
 export const PRIVATE_PAY_PUBLIC_INVOICE_PATH = "/p/private-pay/invoice";
 
 /**

@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { getAppBaseUrl } from "@/lib/app-url";
+import { getAppBaseUrl, validateAppBaseUrl } from "@/lib/app-url";
 import { requirePrivatePayStaff } from "@/lib/private-pay/auth";
 import { getInvoiceWithItems } from "@/lib/private-pay/data";
 import { buildPrivatePayDeliveryLinks } from "@/lib/private-pay/public-urls";
@@ -22,6 +22,10 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ invoiceId: 
   }
 
   const baseUrl = getAppBaseUrl(req.nextUrl.origin);
+  const urlError = validateAppBaseUrl(baseUrl);
+  if (urlError) {
+    return NextResponse.json({ ok: false, error: urlError }, { status: 500 });
+  }
   const links = buildPrivatePayDeliveryLinks(invoice.public_token, invoice.status, baseUrl);
 
   return NextResponse.json({

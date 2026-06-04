@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { getAppBaseUrl } from "@/lib/app-url";
+import { getAppBaseUrl, validateAppBaseUrl } from "@/lib/app-url";
 import { getInvoiceWithItems, markInvoiceSent } from "@/lib/private-pay/data";
 import { requirePrivatePayStaff } from "@/lib/private-pay/auth";
 import { buildPrivatePayInvoicePublicUrl } from "@/lib/private-pay/public-urls";
@@ -38,6 +38,10 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ invoiceId:
   }
   const to = `+1${digits}`;
   const baseUrl = getAppBaseUrl(req.nextUrl.origin);
+  const urlError = validateAppBaseUrl(baseUrl);
+  if (urlError) {
+    return NextResponse.json({ ok: false, error: urlError }, { status: 500 });
+  }
   const invoiceUrl = buildPrivatePayInvoicePublicUrl(invoice.public_token, baseUrl);
 
   const message = `Saintly Home Health: Your private-pay invoice is ready. View/download your invoice and payment options here: ${invoiceUrl}`;
