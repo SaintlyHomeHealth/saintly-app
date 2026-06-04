@@ -74,7 +74,7 @@ export function PrivatePayAdminWorkspace({
   const [busy, setBusy] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
   const [rowBusyId, setRowBusyId] = useState<string | null>(null);
-  const [banner, setBanner] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+  const [banner, setBanner] = useState<{ kind: "ok" | "err" | "warn"; text: string } | null>(null);
   const [paymentLink, setPaymentLink] = useState<{ invoiceNumber: string; url: string } | null>(null);
   const [recordFor, setRecordFor] = useState<PrivatePayInvoiceListRow | null>(null);
   const [recordBusy, setRecordBusy] = useState(false);
@@ -84,6 +84,7 @@ export function PrivatePayAdminWorkspace({
     channel: "email" | "text";
     invoiceNumber: string;
     invoiceUrl: string;
+    envWarning: string | null;
   } | null>(null);
   const [sendBusy, setSendBusy] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
@@ -231,10 +232,16 @@ export function PrivatePayAdminWorkspace({
             ok?: boolean;
             invoiceNumber?: string;
             invoiceUrl?: string;
+            envWarning?: string | null;
             error?: string;
           };
           if (!previewRes.ok || !preview.ok || !preview.invoiceUrl) {
             throw new Error(preview.error || "Could not build invoice link");
+          }
+          if (!preview.invoiceUrl.startsWith("https://appsaintlyhomehealth.com/p/private-pay/invoice/")) {
+            throw new Error(
+              "Invoice link must use https://appsaintlyhomehealth.com — check NEXT_PUBLIC_APP_URL in Vercel."
+            );
           }
           const row = invoices.find((i) => i.id === invoiceId);
           setSendError(null);
@@ -243,6 +250,7 @@ export function PrivatePayAdminWorkspace({
             channel: action,
             invoiceNumber: preview.invoiceNumber ?? row?.invoice_number ?? "",
             invoiceUrl: preview.invoiceUrl,
+            envWarning: preview.envWarning ?? null,
           });
         } else if (action === "void") {
           if (!window.confirm("Void this invoice? This cannot be undone.")) return;
@@ -384,7 +392,9 @@ export function PrivatePayAdminWorkspace({
           className={`rounded-xl border px-4 py-3 text-sm ${
             banner.kind === "ok"
               ? "border-emerald-200 bg-emerald-50 text-emerald-900"
-              : "border-rose-200 bg-rose-50 text-rose-900"
+              : banner.kind === "warn"
+                ? "border-amber-200 bg-amber-50 text-amber-900"
+                : "border-rose-200 bg-rose-50 text-rose-900"
           }`}
         >
           {banner.text}
@@ -621,7 +631,8 @@ export function PrivatePayAdminWorkspace({
         open={Boolean(sendConfirm)}
         channel={sendConfirm?.channel ?? "text"}
         invoiceNumber={sendConfirm?.invoiceNumber ?? ""}
-        invoiceUrl={sendConfirm?.invoiceUrl ?? buildPrivatePayInvoicePublicUrl("", clientAppBase())}
+        invoiceUrl={sendConfirm?.invoiceUrl ?? ""}
+        envWarning={sendConfirm?.envWarning}
         busy={sendBusy}
         error={sendError}
         onClose={() => {

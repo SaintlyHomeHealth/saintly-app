@@ -5,6 +5,7 @@ export function PrivatePaySendInvoiceConfirmModal({
   channel,
   invoiceNumber,
   invoiceUrl,
+  envWarning,
   busy,
   error,
   onClose,
@@ -14,6 +15,7 @@ export function PrivatePaySendInvoiceConfirmModal({
   channel: "email" | "text";
   invoiceNumber: string;
   invoiceUrl: string;
+  envWarning?: string | null;
   busy: boolean;
   error: string | null;
   onClose: () => void;
@@ -42,6 +44,12 @@ export function PrivatePaySendInvoiceConfirmModal({
           Review the secure link below. The customer will open this page to view/download the invoice PDF and pay
           (no clinical details are included in the {label}).
         </p>
+
+        {envWarning ? (
+          <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            {envWarning}
+          </p>
+        ) : null}
 
         <div className="mt-4 rounded-xl border border-sky-200 bg-sky-50 px-3 py-3">
           <p className="text-[10px] font-semibold uppercase tracking-wide text-sky-800">Invoice link</p>
