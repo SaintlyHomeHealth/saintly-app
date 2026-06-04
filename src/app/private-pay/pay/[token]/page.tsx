@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 
 import { PRIVATE_PAY_BUSINESS } from "@/lib/private-pay/constants";
 import { getInvoiceByPublicToken } from "@/lib/private-pay/data";
+import { getPrivatePayPaymentInstructions } from "@/lib/private-pay/payment-instructions";
 import {
   formatCentsUsd,
   formatPaymentDetail,
@@ -44,6 +45,9 @@ export default async function PrivatePayPublicInvoicePage({
   const paid = invoice.status === "paid";
   const voided = invoice.status === "void";
   const payment = invoice.payments.find((p) => p.status === "succeeded") ?? invoice.payments[0] ?? null;
+  const instructions = getPrivatePayPaymentInstructions();
+  const invoicePdfHref = `/api/private-pay/public/invoice/${token}/pdf`;
+  const receiptPdfHref = `/api/private-pay/public/invoice/${token}/receipt`;
 
   return (
     <main className="flex min-h-screen items-start justify-center bg-gradient-to-b from-sky-50 to-white px-4 py-10">
@@ -117,11 +121,49 @@ export default async function PrivatePayPublicInvoicePage({
               <PayButton token={token} />
             )}
 
+            <div className="mt-4 flex flex-wrap justify-center gap-2">
+              <a
+                href={invoicePdfHref}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-lg border border-slate-300 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                View / download invoice PDF
+              </a>
+              {paid ? (
+                <a
+                  href={receiptPdfHref}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-2 text-xs font-semibold text-emerald-800 hover:bg-emerald-100"
+                >
+                  Download receipt PDF
+                </a>
+              ) : null}
+            </div>
+
             {!paid && !voided ? (
-              <p className="mt-5 text-center text-xs text-slate-400">
-                Prefer Zelle, Cash App, Apple Cash, cash, or check? Contact our office and reference invoice{" "}
-                {invoice.invoice_number}.
-              </p>
+              instructions.length ? (
+                <div className="mt-6 rounded-2xl border border-sky-100 bg-sky-50/60 px-4 py-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-sky-700">Other ways to pay</p>
+                  <dl className="mt-2 space-y-1.5">
+                    {instructions.map((g) => (
+                      <div key={g.method} className="flex flex-wrap gap-x-2 text-xs">
+                        <dt className="font-semibold text-slate-700">{g.method}:</dt>
+                        <dd className="text-slate-600">{g.lines.join("  ·  ")}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                  <p className="mt-2 text-[11px] text-slate-400">
+                    Please reference invoice {invoice.invoice_number} with any manual payment.
+                  </p>
+                </div>
+              ) : (
+                <p className="mt-5 text-center text-xs text-slate-400">
+                  Prefer Zelle, Cash App, Apple Cash, cash, or check? Contact our office and reference invoice{" "}
+                  {invoice.invoice_number}.
+                </p>
+              )
             ) : null}
           </div>
         </div>

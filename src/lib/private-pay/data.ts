@@ -343,6 +343,7 @@ export async function markInvoicePaidManually(
   opts: {
     method: PrivatePayPaymentMethod;
     amountCents?: number;
+    paidAt?: string | null;
     reference?: string | null;
     note?: string | null;
   },
@@ -351,9 +352,24 @@ export async function markInvoicePaidManually(
   const invoice = await getInvoiceWithItems(invoiceId);
   if (!invoice) throw new Error("Invoice not found.");
   if (invoice.status === "paid") throw new Error("Invoice is already paid.");
+  if (invoice.status === "void") throw new Error("Voided invoices cannot be paid.");
 
-  const paidAt = new Date().toISOString();
   const amount = opts.amountCents && opts.amountCents > 0 ? opts.amountCents : invoice.total_cents;
+  if (amount > invoice.total_cents) {
+    throw new Error(
+      `Amount received cannot exceed the invoice balance of ${(invoice.total_cents / 100).toLocaleString("en-US", {
+        style: "currency",
+        currency: "USD",
+      })}.`
+    );
+  }
+
+  // Honor an admin-entered payment date; fall back to now. Stored as ISO.
+  let paidAt = new Date().toISOString();
+  if (opts.paidAt) {
+    const parsed = new Date(opts.paidAt);
+    if (!Number.isNaN(parsed.getTime())) paidAt = parsed.toISOString();
+  }
 
   const { error: paymentError } = await supabaseAdmin.from("private_pay_payments").insert({
     invoice_id: invoiceId,

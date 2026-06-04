@@ -74,9 +74,9 @@ export function PrivatePayAdminWorkspace({
   const [recordBusy, setRecordBusy] = useState(false);
   const [recordError, setRecordError] = useState<string | null>(null);
 
-  const publicLinkFor = useCallback((invoice: PrivatePayInvoiceListRow) => {
+  const publicPdfLinkFor = useCallback((invoice: PrivatePayInvoiceListRow) => {
     const origin = typeof window !== "undefined" ? window.location.origin : "";
-    return `${origin}/private-pay/pay/${invoice.public_token}`;
+    return `${origin}/api/private-pay/public/invoice/${invoice.public_token}/pdf`;
   }, []);
 
   const upsertInvoice = useCallback(
@@ -264,6 +264,7 @@ export function PrivatePayAdminWorkspace({
             method: input.method,
             reference: input.reference,
             amount: input.amount,
+            paid_at: input.paidDate,
             note: input.note,
           }),
         });
@@ -286,15 +287,15 @@ export function PrivatePayAdminWorkspace({
     [recordFor, upsertInvoice, router]
   );
 
-  const copyPublicLink = useCallback(
+  const copyPdfLink = useCallback(
     (invoice: PrivatePayInvoiceListRow) => {
-      const url = publicLinkFor(invoice);
+      const url = publicPdfLinkFor(invoice);
       navigator.clipboard?.writeText(url).then(
-        () => setBanner({ kind: "ok", text: "Secure invoice link copied to clipboard." }),
+        () => setBanner({ kind: "ok", text: "Secure invoice PDF link copied to clipboard." }),
         () => setBanner({ kind: "err", text: "Could not copy link." })
       );
     },
-    [publicLinkFor]
+    [publicPdfLinkFor]
   );
 
   const openEdit = (invoice: PrivatePayInvoiceListRow) => {
@@ -467,10 +468,10 @@ export function PrivatePayAdminWorkspace({
                             <button
                               type="button"
                               disabled={rowBusy}
-                              onClick={() => copyPublicLink(invoice)}
+                              onClick={() => copyPdfLink(invoice)}
                               className={`${actionBtn} border-slate-300 bg-white text-slate-700 hover:bg-slate-50`}
                             >
-                              Copy link
+                              Copy PDF link
                             </button>
                             <button
                               type="button"

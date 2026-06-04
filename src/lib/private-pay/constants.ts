@@ -108,9 +108,11 @@ export const PRIVATE_PAY_BUSINESS = {
   legalName: "Saintly Home Health LLC",
   phoneDisplay: "(480) 360-0008",
   email: EMAIL_INTAKE,
+  website: "saintlyhomehealth.com",
   addressStreet: ADDRESS_LINE_STREET,
   addressCity: ADDRESS_LINE_CITY,
   addressFull: `${ADDRESS_LINE_STREET}, ${ADDRESS_LINE_CITY}`,
+  tagline: "Care that goes above.",
   receiptFooter: "Thank you for choosing Saintly Home Health LLC.",
 } as const;
 

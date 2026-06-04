@@ -40,31 +40,30 @@ export async function sendPrivatePayInvoiceEmail(
 
   const name = (input.billingName || "").trim() || "there";
   const amount = formatCentsUsd(input.totalCents);
-  const subject = `Invoice ${input.invoiceNumber} from ${PRIVATE_PAY_BUSINESS.legalName}`;
+  const subject = `${PRIVATE_PAY_BUSINESS.legalName} Private Pay Invoice ${input.invoiceNumber}`;
 
-  const html = `<div style="font-family:Arial,Helvetica,sans-serif;color:#0f172a;">
-  <p>Hi ${escapeHtml(name)},</p>
-  <p>Your private-pay invoice <strong>${escapeHtml(input.invoiceNumber)}</strong> from
-  ${escapeHtml(PRIVATE_PAY_BUSINESS.legalName)} is ready.</p>
-  <p style="font-size:18px;"><strong>Amount due: ${escapeHtml(amount)}</strong></p>
-  <p style="margin:28px 0;">
-    <a href="${escapeHtml(input.link)}" style="display:inline-block;background:#0369a1;color:#ffffff;padding:12px 28px;border-radius:10px;text-decoration:none;font-weight:600;">Pay securely</a>
+  const html = `<div style="font-family:Arial,Helvetica,sans-serif;color:#0f172a;line-height:1.5;">
+  <p>Hello ${escapeHtml(name)},</p>
+  <p>Your ${escapeHtml(PRIVATE_PAY_BUSINESS.legalName)} private-pay invoice is ready.</p>
+  <p style="font-size:16px;"><strong>Amount due: ${escapeHtml(amount)}</strong></p>
+  <p>View/download your invoice and payment options here:</p>
+  <p style="margin:24px 0;">
+    <a href="${escapeHtml(input.link)}" style="display:inline-block;background:#0369a1;color:#ffffff;padding:12px 28px;border-radius:10px;text-decoration:none;font-weight:600;">View invoice &amp; pay securely</a>
   </p>
-  <p style="font-size:13px;color:#475569;">You can pay by card or Apple Pay through the secure link above. Payments are processed by Stripe; Saintly never sees your full card number.</p>
+  <p style="font-size:13px;color:#475569;word-break:break-all;"><a href="${escapeHtml(input.link)}" style="color:#0369a1;">${escapeHtml(input.link)}</a></p>
   <p style="font-size:12px;color:#94a3b8;">This message covers private-pay services only and contains no diagnosis, insurance, Medicare, or clinical information.</p>
-  <p>— ${escapeHtml(PRIVATE_PAY_BUSINESS.legalName)}<br/>${escapeHtml(PRIVATE_PAY_BUSINESS.phoneDisplay)}</p>
+  <p>Thank you,<br/>${escapeHtml(PRIVATE_PAY_BUSINESS.legalName)}<br/>${escapeHtml(PRIVATE_PAY_BUSINESS.phoneDisplay)}</p>
 </div>`;
 
-  const text = `Hi ${name},
+  const text = `Hello ${name},
 
-Your private-pay invoice ${input.invoiceNumber} from ${PRIVATE_PAY_BUSINESS.legalName} is ready.
-Amount due: ${amount}
+Your ${PRIVATE_PAY_BUSINESS.legalName} private-pay invoice is ready.
 
-Pay securely: ${input.link}
+View/download your invoice and payment options here:
+${input.link}
 
-You can pay by card or Apple Pay through the secure link. Payments are processed by Stripe.
-
-— ${PRIVATE_PAY_BUSINESS.legalName}
+Thank you,
+${PRIVATE_PAY_BUSINESS.legalName}
 ${PRIVATE_PAY_BUSINESS.phoneDisplay}`;
 
   const res = await fetch("https://api.resend.com/emails", {

@@ -1,33 +1,42 @@
-import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage, type RGB } from "pdf-lib";
+import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFImage, type PDFPage, type RGB } from "pdf-lib";
 
-import { loadSaintlyLogoForPdf } from "@/lib/fax/load-saintly-logo-pdf";
-import { PRIVATE_PAY_BUSINESS } from "@/lib/private-pay/constants";
+import { loadPrivatePayBrandLogos } from "@/lib/private-pay/brand-assets";
+import {
+  PRIVATE_PAY_BUSINESS,
+  PRIVATE_PAY_UNIT_LABEL_OPTIONS,
+} from "@/lib/private-pay/constants";
+import { getPrivatePayPaymentInstructions } from "@/lib/private-pay/payment-instructions";
 import {
   formatCentsUsd,
   formatPaymentDetail,
   formatQuantity,
   serviceTypeLabel,
-  unitLabelNoun,
 } from "@/lib/private-pay/format";
 import type { PrivatePayInvoiceWithItems, PrivatePayPayment } from "@/lib/private-pay/types";
 
 const PAGE_W = 612;
 const PAGE_H = 792;
-const MARGIN = 46;
+const MARGIN = 44;
 const CONTENT_W = PAGE_W - MARGIN * 2;
+const PAD = 16;
 
-// Soft blue / white medical palette with a gold halo accent.
-const INK = rgb(0.12, 0.16, 0.23);
-const MUTED = rgb(0.43, 0.48, 0.56);
-const ACCENT = rgb(0.13, 0.42, 0.68);
-const ACCENT_DEEP = rgb(0.06, 0.26, 0.44);
-const CARD_FILL = rgb(0.955, 0.975, 1);
-const CARD_BORDER = rgb(0.78, 0.87, 0.96);
-const HEADER_FILL = rgb(0.9, 0.95, 1);
-const GOLD = rgb(0.82, 0.63, 0.16);
-const GOLD_SOFT = rgb(0.96, 0.86, 0.62);
-const PAID_GREEN = rgb(0.05, 0.5, 0.32);
-const UNPAID_RED = rgb(0.74, 0.22, 0.22);
+// Premium soft-blue / white medical palette with a gold halo accent.
+const INK = rgb(0.11, 0.15, 0.22);
+const MUTED = rgb(0.45, 0.5, 0.58);
+const FAINT = rgb(0.62, 0.66, 0.72);
+const ACCENT = rgb(0.13, 0.42, 0.66);
+const ACCENT_DEEP = rgb(0.06, 0.24, 0.42);
+const SOFT_BLUE = rgb(0.937, 0.962, 0.992);
+const HEADER_BADGE = rgb(0.88, 0.93, 0.99);
+const BORDER = rgb(0.8, 0.87, 0.95);
+const GOLD = rgb(0.84, 0.66, 0.16);
+const GOLD_SOFT = rgb(0.98, 0.91, 0.66);
+const GREEN = rgb(0.05, 0.5, 0.32);
+const GREEN_SOFT = rgb(0.86, 0.96, 0.9);
+const GREEN_BORDER = rgb(0.7, 0.88, 0.78);
+const RED = rgb(0.72, 0.22, 0.22);
+const RED_SOFT = rgb(0.99, 0.91, 0.91);
+const SLATE_SOFT = rgb(0.93, 0.94, 0.96);
 const WHITE = rgb(1, 1, 1);
 
 type Fonts = { font: PDFFont; bold: PDFFont };
@@ -50,18 +59,21 @@ function wrap(text: string, font: PDFFont, size: number, maxWidth: number): stri
 }
 
 function drawRight(page: PDFPage, text: string, rightX: number, y: number, size: number, font: PDFFont, color = INK) {
-  const w = font.widthOfTextAtSize(text, size);
-  page.drawText(text, { x: rightX - w, y, size, font, color });
+  page.drawText(text, { x: rightX - font.widthOfTextAtSize(text, size), y, size, font, color });
 }
 
 function drawCenter(page: PDFPage, text: string, centerX: number, y: number, size: number, font: PDFFont, color = INK) {
-  const w = font.widthOfTextAtSize(text, size);
-  page.drawText(text, { x: centerX - w / 2, y, size, font, color });
+  page.drawText(text, { x: centerX - font.widthOfTextAtSize(text, size) / 2, y, size, font, color });
+}
+
+function fitContain(imgW: number, imgH: number, maxW: number, maxH: number): { w: number; h: number } {
+  const scale = Math.min(maxW / imgW, maxH / imgH);
+  return { w: imgW * scale, h: imgH * scale };
 }
 
 /** Filled rounded rectangle approximated with rectangles + corner circles. */
 function fillRound(page: PDFPage, x: number, y: number, w: number, h: number, r: number, color: RGB, opacity = 1) {
-  const rad = Math.min(r, w / 2, h / 2);
+  const rad = Math.max(0, Math.min(r, w / 2, h / 2));
   page.drawRectangle({ x: x + rad, y, width: w - 2 * rad, height: h, color, opacity });
   page.drawRectangle({ x, y: y + rad, width: w, height: h - 2 * rad, color, opacity });
   for (const [cx, cy] of [
@@ -74,8 +86,7 @@ function fillRound(page: PDFPage, x: number, y: number, w: number, h: number, r:
   }
 }
 
-/** Rounded card with an optional border drawn as a slightly larger backing shape. */
-function roundedCard(
+function card(
   page: PDFPage,
   x: number,
   y: number,
@@ -93,8 +104,7 @@ function roundedCard(
   }
 }
 
-/** Pill/chip with label text. */
-function drawChip(page: PDFPage, fonts: Fonts, label: string, x: number, y: number, fill: RGB, textColor: RGB, size = 9) {
+function chip(page: PDFPage, fonts: Fonts, label: string, x: number, y: number, fill: RGB, textColor: RGB, size = 8.5): number {
   const padX = 9;
   const w = fonts.bold.widthOfTextAtSize(label, size) + padX * 2;
   const h = size + 9;
@@ -103,331 +113,290 @@ function drawChip(page: PDFPage, fonts: Fonts, label: string, x: number, y: numb
   return w;
 }
 
-function formatLongDate(iso: string | null): string {
+function longDate(iso: string | null): string {
   if (!iso) return "—";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "—";
-  return new Intl.DateTimeFormat("en-US", {
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-    timeZone: "America/Phoenix",
-  }).format(d);
+  return new Intl.DateTimeFormat("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "America/Phoenix" }).format(d);
 }
 
-function lineDetail(item: PrivatePayInvoiceWithItems["items"][number]): string | null {
-  if (item.unit_label === "flat") return "Flat rate";
-  return `${formatQuantity(item.quantity)} ${unitLabelNoun(item.unit_label, item.quantity)} × ${formatCentsUsd(
-    item.unit_amount_cents
-  )}`;
+function statusBadge(page: PDFPage, fonts: Fonts, status: string, x: number, y: number): number {
+  if (status === "paid" || status === "refunded") return chip(page, fonts, "PAID", x, y, GREEN_SOFT, GREEN, 9);
+  if (status === "void") return chip(page, fonts, "VOID", x, y, SLATE_SOFT, MUTED, 9);
+  return chip(page, fonts, "UNPAID", x, y, RED_SOFT, RED, 9);
 }
 
-async function drawHeader(
-  doc: PDFDocument,
-  page: PDFPage,
-  fonts: Fonts,
-  isReceipt: boolean
-): Promise<number> {
-  const cardH = 96;
+async function drawHeader(doc: PDFDocument, page: PDFPage, fonts: Fonts, isReceipt: boolean, invoice: PrivatePayInvoiceWithItems): Promise<number> {
   const top = PAGE_H - MARGIN;
-  const cardY = top - cardH;
-  roundedCard(page, MARGIN, cardY, CONTENT_W, cardH, 16, { fill: HEADER_FILL, border: CARD_BORDER });
+  const logos = await loadPrivatePayBrandLogos();
 
-  // Gold halo accent behind the logo.
-  const haloCx = MARGIN + 58;
-  const haloCy = cardY + cardH / 2;
-  page.drawCircle({ x: haloCx, y: haloCy, size: 40, color: GOLD_SOFT, opacity: 0.5 });
-  page.drawCircle({ x: haloCx, y: haloCy, size: 30, color: GOLD, opacity: 0.18 });
+  // Soft gold glow behind the icon (the mark already carries its own halo).
+  const iconBox = 50;
+  const haloCx = MARGIN + iconBox / 2;
+  const haloCy = top - iconBox / 2 - 2;
+  page.drawCircle({ x: haloCx, y: haloCy, size: 30, color: GOLD_SOFT, opacity: 0.16 });
 
-  const logoAsset = await loadSaintlyLogoForPdf();
-  if (logoAsset) {
+  if (logos.icon) {
     try {
-      const logo =
-        logoAsset.kind === "jpeg" ? await doc.embedJpg(logoAsset.bytes) : await doc.embedPng(logoAsset.bytes);
-      const logoH = 60;
-      const logoW = (logo.width / logo.height) * logoH;
-      page.drawImage(logo, { x: haloCx - logoW / 2, y: haloCy - logoH / 2, width: logoW, height: logoH });
+      const img: PDFImage = logos.icon.kind === "jpeg" ? await doc.embedJpg(logos.icon.bytes) : await doc.embedPng(logos.icon.bytes);
+      const { w, h } = fitContain(img.width, img.height, iconBox, iconBox);
+      page.drawImage(img, { x: haloCx - w / 2, y: haloCy - h / 2, width: w, height: h });
     } catch {
-      /* optional logo */
+      /* optional */
     }
   }
+  if (logos.wordmark) {
+    try {
+      const img: PDFImage = logos.wordmark.kind === "jpeg" ? await doc.embedJpg(logos.wordmark.bytes) : await doc.embedPng(logos.wordmark.bytes);
+      const { w, h } = fitContain(img.width, img.height, 168, 40);
+      page.drawImage(img, { x: MARGIN + iconBox + 8, y: haloCy - h / 2, width: w, height: h });
+    } catch {
+      /* optional */
+    }
+  } else {
+    page.drawText(PRIVATE_PAY_BUSINESS.legalName, { x: MARGIN + iconBox + 8, y: haloCy - 5, size: 14, font: fonts.bold, color: ACCENT_DEEP });
+  }
 
-  // Title block on the right.
-  const rightX = PAGE_W - MARGIN - 18;
-  const title = isReceipt ? "PRIVATE PAY RECEIPT" : "PRIVATE PAY INVOICE";
-  drawRight(page, title, rightX, cardY + cardH - 32, 16, fonts.bold, ACCENT_DEEP);
-  drawRight(page, isReceipt ? "PAYMENT RECEIVED" : "DUE UPON RECEIPT", rightX, cardY + cardH - 50, 9, fonts.bold, isReceipt ? PAID_GREEN : ACCENT);
-  drawRight(page, PRIVATE_PAY_BUSINESS.legalName, rightX, cardY + 16, 9, fonts.font, MUTED);
+  // Right-side title badge.
+  const badgeW = 196;
+  const badgeH = 50;
+  const badgeX = PAGE_W - MARGIN - badgeW;
+  const badgeY = top - badgeH;
+  card(page, badgeX, badgeY, badgeW, badgeH, 12, { fill: HEADER_BADGE });
+  drawRight(page, isReceipt ? "PRIVATE PAY RECEIPT" : "PRIVATE PAY INVOICE", badgeX + badgeW - 14, badgeY + badgeH - 21, 14, fonts.bold, ACCENT_DEEP);
+  drawRight(page, isReceipt ? "Payment received" : "Due upon receipt", badgeX + badgeW - 14, badgeY + 13, 9, fonts.font, ACCENT);
 
-  // Business contact line just under the header card.
-  let y = cardY - 16;
-  const contact = `${PRIVATE_PAY_BUSINESS.addressFull}`;
-  page.drawText(contact, { x: MARGIN + 2, y, size: 8.5, font: fonts.font, color: MUTED });
-  y -= 11;
-  page.drawText(`Phone ${PRIVATE_PAY_BUSINESS.phoneDisplay}  |  ${PRIVATE_PAY_BUSINESS.email}`, {
-    x: MARGIN + 2,
-    y,
-    size: 8.5,
-    font: fonts.font,
-    color: MUTED,
+  // Gold rule under the header.
+  let y = top - 64;
+  page.drawRectangle({ x: MARGIN, y, width: CONTENT_W, height: 2, color: GOLD });
+  y -= 16;
+
+  // Business contact (left) + invoice meta (right).
+  const contactLines = [
+    PRIVATE_PAY_BUSINESS.legalName,
+    PRIVATE_PAY_BUSINESS.addressFull,
+    `Phone ${PRIVATE_PAY_BUSINESS.phoneDisplay}`,
+    `${PRIVATE_PAY_BUSINESS.email}  ·  ${PRIVATE_PAY_BUSINESS.website}`,
+  ];
+  let cy = y;
+  contactLines.forEach((line, idx) => {
+    page.drawText(line, { x: MARGIN, y: cy, size: idx === 0 ? 9.5 : 8.5, font: idx === 0 ? fonts.bold : fonts.font, color: idx === 0 ? INK : MUTED });
+    cy -= idx === 0 ? 13 : 11;
   });
-  return y - 18;
+
+  // Meta block on the right.
+  const metaRightX = PAGE_W - MARGIN;
+  let my = y;
+  page.drawText("INVOICE #", { x: metaRightX - 150, y: my, size: 7.5, font: fonts.bold, color: FAINT });
+  drawRight(page, invoice.invoice_number, metaRightX, my, 10.5, fonts.bold, INK);
+  my -= 16;
+  page.drawText(isReceipt ? "RECEIPT DATE" : "INVOICE DATE", { x: metaRightX - 150, y: my, size: 7.5, font: fonts.bold, color: FAINT });
+  drawRight(page, longDate(isReceipt ? invoice.paid_at : invoice.created_at), metaRightX, my, 10, fonts.font, INK);
+  my -= 16;
+  page.drawText("STATUS", { x: metaRightX - 150, y: my, size: 7.5, font: fonts.bold, color: FAINT });
+  statusBadge(page, fonts, invoice.status, metaRightX - 56, my - 3);
+
+  return Math.min(cy, my) - 16;
 }
 
-function drawBillToAndAmount(
-  page: PDFPage,
-  fonts: Fonts,
-  topY: number,
-  invoice: PrivatePayInvoiceWithItems,
-  isReceipt: boolean,
-  payment: PrivatePayPayment | null
-): number {
-  const gap = 16;
+function drawBillAndAmount(page: PDFPage, fonts: Fonts, topY: number, invoice: PrivatePayInvoiceWithItems, isReceipt: boolean, payment: PrivatePayPayment | null): number {
+  const gap = 14;
   const colW = (CONTENT_W - gap) / 2;
-  const cardH = 116;
+  const cardH = 108;
   const cardY = topY - cardH;
   const leftX = MARGIN;
   const rightX = MARGIN + colW + gap;
 
-  // --- BILL TO card ---
-  roundedCard(page, leftX, cardY, colW, cardH, 14, { fill: WHITE, border: CARD_BORDER });
-  let ly = cardY + cardH - 22;
-  const lpad = leftX + 16;
-  page.drawText("BILL TO", { x: lpad, y: ly, size: 8, font: fonts.bold, color: ACCENT });
+  // BILL TO
+  card(page, leftX, cardY, colW, cardH, 12, { fill: WHITE, border: BORDER });
+  let ly = cardY + cardH - 20;
+  page.drawText("BILL TO", { x: leftX + PAD, y: ly, size: 8, font: fonts.bold, color: ACCENT });
   ly -= 18;
-  const name = (invoice.billing_name ?? "").trim() || "Private Pay Client";
-  page.drawText(name, { x: lpad, y: ly, size: 13, font: fonts.bold, color: INK });
-  ly -= 16;
-  const contactLine = [invoice.billing_phone, invoice.billing_email]
-    .map((v) => (v ?? "").trim())
-    .filter(Boolean)
-    .join("  |  ");
-  if (contactLine) {
-    for (const w of wrap(contactLine, fonts.font, 9.5, colW - 32)) {
-      page.drawText(w, { x: lpad, y: ly, size: 9.5, font: fonts.font, color: MUTED });
-      ly -= 12;
-    }
-  }
-  if ((invoice.billing_address ?? "").trim()) {
-    for (const w of wrap(invoice.billing_address!.trim(), fonts.font, 9.5, colW - 32)) {
-      page.drawText(w, { x: lpad, y: ly, size: 9.5, font: fonts.font, color: MUTED });
+  page.drawText((invoice.billing_name ?? "").trim() || "Private Pay Client", { x: leftX + PAD, y: ly, size: 13, font: fonts.bold, color: INK });
+  ly -= 15;
+  const detailLines = [
+    (invoice.billing_phone ?? "").trim(),
+    (invoice.billing_email ?? "").trim(),
+    (invoice.billing_address ?? "").trim(),
+  ].filter(Boolean);
+  for (const line of detailLines) {
+    for (const w of wrap(line, fonts.font, 9.5, colW - PAD * 2)) {
+      page.drawText(w, { x: leftX + PAD, y: ly, size: 9.5, font: fonts.font, color: MUTED });
       ly -= 12;
     }
   }
 
-  // --- AMOUNT card ---
-  roundedCard(page, rightX, cardY, colW, cardH, 14, { fill: CARD_FILL, border: CARD_BORDER });
-  let ry = cardY + cardH - 22;
-  const rpad = rightX + 16;
-  page.drawText(isReceipt ? "AMOUNT PAID" : "AMOUNT DUE", { x: rpad, y: ry, size: 8, font: fonts.bold, color: ACCENT });
-  ry -= 30;
+  // AMOUNT
+  card(page, rightX, cardY, colW, cardH, 12, { fill: SOFT_BLUE, border: BORDER });
+  let ry = cardY + cardH - 20;
+  page.drawText(isReceipt ? "AMOUNT PAID" : "AMOUNT DUE", { x: rightX + PAD, y: ry, size: 8, font: fonts.bold, color: ACCENT });
+  ry -= 34;
   const amountText = formatCentsUsd(invoice.total_cents);
-  page.drawText(amountText, { x: rpad, y: ry, size: 26, font: fonts.bold, color: ACCENT_DEEP });
-  // Status chip to the right of the amount.
-  const chipX = rpad + fonts.bold.widthOfTextAtSize(amountText, 26) + 12;
-  if (isReceipt) {
-    drawChip(page, fonts, "PAID", chipX, ry + 4, rgb(0.86, 0.96, 0.9), PAID_GREEN);
-  } else {
-    drawChip(page, fonts, "UNPAID", chipX, ry + 4, rgb(0.99, 0.91, 0.91), UNPAID_RED);
-  }
-  ry -= 22;
+  page.drawText(amountText, { x: rightX + PAD, y: ry, size: 28, font: fonts.bold, color: ACCENT_DEEP });
+  statusBadge(page, fonts, invoice.status, rightX + PAD + fonts.bold.widthOfTextAtSize(amountText, 28) + 12, ry + 6);
+  ry -= 20;
   const note = isReceipt
-    ? `Paid ${formatLongDate(payment?.paid_at ?? invoice.paid_at)} · ${formatPaymentDetail(payment)}`
+    ? `Paid ${longDate(payment?.paid_at ?? invoice.paid_at)} · ${formatPaymentDetail(payment)}`
     : "Secure payment link can be sent by email or text.";
-  for (const w of wrap(note, fonts.font, 8.5, colW - 32)) {
-    page.drawText(w, { x: rpad, y: ry, size: 8.5, font: fonts.font, color: MUTED });
+  for (const w of wrap(note, fonts.font, 8.5, colW - PAD * 2)) {
+    page.drawText(w, { x: rightX + PAD, y: ry, size: 8.5, font: fonts.font, color: MUTED });
     ry -= 11;
   }
 
-  return cardY - 18;
+  return cardY - 16;
 }
 
-function drawMetaRow(page: PDFPage, fonts: Fonts, topY: number, invoice: PrivatePayInvoiceWithItems, isReceipt: boolean, payment: PrivatePayPayment | null): number {
-  const cells: Array<[string, string]> = [];
-  cells.push(["INVOICE #", invoice.invoice_number]);
-  if (isReceipt && payment?.receipt_number) cells.push(["RECEIPT #", payment.receipt_number]);
-  cells.push([isReceipt ? "PAID DATE" : "DATE", formatLongDate(isReceipt ? payment?.paid_at ?? invoice.paid_at : invoice.created_at)]);
+function drawServiceTable(page: PDFPage, fonts: Fonts, topY: number, invoice: PrivatePayInvoiceWithItems, isReceipt: boolean): number {
+  const x = MARGIN;
+  const innerL = x + PAD;
+  const qtyRightX = x + CONTENT_W - 270;
+  const unitX = x + CONTENT_W - 250;
+  const rateRightX = x + CONTENT_W - 95;
+  const amountRightX = x + CONTENT_W - PAD;
+  const descMaxW = qtyRightX - innerL - 40;
 
-  const colW = CONTENT_W / cells.length;
-  let x = MARGIN + 2;
-  for (const [label, value] of cells) {
-    page.drawText(label, { x, y: topY, size: 7.5, font: fonts.bold, color: MUTED });
-    page.drawText(value, { x, y: topY - 13, size: 10.5, font: fonts.bold, color: INK });
-    x += colW;
-  }
-  return topY - 30;
-}
-
-function drawServiceTable(page: PDFPage, fonts: Fonts, topY: number, invoice: PrivatePayInvoiceWithItems): number {
-  const qtyX = PAGE_W - MARGIN - 200;
-  const rateX = PAGE_W - MARGIN - 130;
-  const amountRightX = PAGE_W - MARGIN - 16;
-  const descX = MARGIN + 16;
-  const descMaxW = qtyX - descX - 10;
-
-  // Pre-measure rows to size the card.
   const rows = invoice.items.map((item) => {
-    const title = (item.description ?? "").trim() || serviceTypeLabel(item.service_type);
-    const titleLines = wrap(title, fonts.bold, 10.5, descMaxW);
-    const detail = lineDetail(item);
-    const dateText = item.service_date ? `Service date: ${formatLongDate(item.service_date)}` : null;
-    const extra = (detail ? 1 : 0) + (dateText ? 1 : 0);
-    const h = titleLines.length * 13 + extra * 11 + 12;
-    return { item, title, titleLines, detail, dateText, h };
+    const title = serviceTypeLabel(item.service_type);
+    const description = (item.description ?? "").trim();
+    const descLines = description ? wrap(description, fonts.font, 9, descMaxW) : [];
+    const dateText = item.service_date ? `Service date: ${longDate(item.service_date)}` : null;
+    const h = 15 + descLines.length * 11 + (dateText ? 11 : 0) + 10;
+    return { item, title, descLines, dateText, h };
   });
 
-  const headerH = 26;
-  const totalsH = 24 * (1 + (invoice.discount_cents > 0 ? 1 : 0) + (invoice.tax_cents > 0 ? 1 : 0)) + 14;
-  const bodyH = rows.reduce((acc, r) => acc + r.h, 0);
+  const headerH = 24;
+  const bodyH = rows.reduce((a, r) => a + r.h, 0);
+  const totalsRows: Array<[string, string, boolean]> = [["Subtotal", formatCentsUsd(invoice.subtotal_cents), false]];
+  if (invoice.discount_cents > 0) totalsRows.push(["Discount", `- ${formatCentsUsd(invoice.discount_cents)}`, false]);
+  if (invoice.tax_cents > 0) totalsRows.push(["Tax", formatCentsUsd(invoice.tax_cents), false]);
+  const totalsH = totalsRows.length * 15 + 26;
   const cardH = headerH + bodyH + totalsH + 12;
   const cardY = topY - cardH;
 
-  roundedCard(page, MARGIN, cardY, CONTENT_W, cardH, 14, { fill: WHITE, border: CARD_BORDER });
+  card(page, x, cardY, CONTENT_W, cardH, 12, { fill: WHITE, border: BORDER });
 
-  // Column header band.
-  fillRound(page, MARGIN, cardY + cardH - headerH, CONTENT_W, headerH, 0, HEADER_FILL);
-  const hY = cardY + cardH - 17;
-  page.drawText("SERVICE", { x: descX, y: hY, size: 8, font: fonts.bold, color: ACCENT_DEEP });
-  page.drawText("QTY", { x: qtyX, y: hY, size: 8, font: fonts.bold, color: ACCENT_DEEP });
-  page.drawText("RATE", { x: rateX, y: hY, size: 8, font: fonts.bold, color: ACCENT_DEEP });
+  // Header band (inset so the card's rounded top corners stay clean).
+  fillRound(page, x + 8, cardY + cardH - headerH - 1, CONTENT_W - 16, headerH - 2, 0, SOFT_BLUE);
+  const hY = cardY + cardH - 16;
+  page.drawText("SERVICE", { x: innerL, y: hY, size: 8, font: fonts.bold, color: ACCENT_DEEP });
+  drawRight(page, "QTY", qtyRightX, hY, 8, fonts.bold, ACCENT_DEEP);
+  page.drawText("UNIT", { x: unitX, y: hY, size: 8, font: fonts.bold, color: ACCENT_DEEP });
+  drawRight(page, "RATE", rateRightX, hY, 8, fonts.bold, ACCENT_DEEP);
   drawRight(page, "AMOUNT", amountRightX, hY, 8, fonts.bold, ACCENT_DEEP);
 
   let y = cardY + cardH - headerH - 16;
-  for (const row of rows) {
+  rows.forEach((row, idx) => {
     const baseY = y;
-    row.titleLines.forEach((line, idx) => {
-      page.drawText(line, { x: descX, y: baseY - idx * 13, size: 10.5, font: fonts.bold, color: INK });
-    });
-    let subY = baseY - row.titleLines.length * 13 + 1;
-    if (row.detail) {
-      page.drawText(row.detail, { x: descX, y: subY, size: 9, font: fonts.font, color: MUTED });
+    page.drawText(row.title, { x: innerL, y: baseY, size: 10.5, font: fonts.bold, color: INK });
+    let subY = baseY - 13;
+    for (const line of row.descLines) {
+      page.drawText(line, { x: innerL, y: subY, size: 9, font: fonts.font, color: MUTED });
       subY -= 11;
     }
     if (row.dateText) {
-      page.drawText(row.dateText, { x: descX, y: subY, size: 9, font: fonts.font, color: MUTED });
+      page.drawText(row.dateText, { x: innerL, y: subY, size: 9, font: fonts.font, color: FAINT });
       subY -= 11;
     }
-    const qtyText = row.item.unit_label === "flat" ? "—" : formatQuantity(row.item.quantity);
-    const rateText = row.item.unit_label === "flat" ? "Flat" : `${formatCentsUsd(row.item.unit_amount_cents)}`;
-    page.drawText(qtyText, { x: qtyX, y: baseY, size: 10, font: fonts.font, color: INK });
-    page.drawText(rateText, { x: rateX, y: baseY, size: 10, font: fonts.font, color: INK });
+    const isFlat = row.item.unit_label === "flat";
+    drawRight(page, isFlat ? "—" : formatQuantity(row.item.quantity), qtyRightX, baseY, 10, fonts.font, INK);
+    page.drawText(isFlat ? "Flat" : PRIVATE_PAY_UNIT_LABEL_OPTIONS[row.item.unit_label].replace(/^Per /, ""), { x: unitX, y: baseY, size: 9.5, font: fonts.font, color: MUTED });
+    drawRight(page, isFlat ? "—" : formatCentsUsd(row.item.unit_amount_cents), rateRightX, baseY, 10, fonts.font, INK);
     drawRight(page, formatCentsUsd(row.item.line_total_cents), amountRightX, baseY, 10.5, fonts.bold, INK);
     y -= row.h;
-    // subtle divider
-    page.drawLine({ start: { x: descX, y: y + 6 }, end: { x: amountRightX, y: y + 6 }, thickness: 0.5, color: CARD_BORDER });
-  }
+    if (idx < rows.length - 1) {
+      page.drawLine({ start: { x: innerL, y: y + 6 }, end: { x: amountRightX, y: y + 6 }, thickness: 0.5, color: rgb(0.9, 0.93, 0.96) });
+    }
+  });
 
   // Totals.
-  y -= 6;
-  const totalsRows: Array<[string, string]> = [["Subtotal", formatCentsUsd(invoice.subtotal_cents)]];
-  if (invoice.discount_cents > 0) totalsRows.push(["Discount", `- ${formatCentsUsd(invoice.discount_cents)}`]);
-  if (invoice.tax_cents > 0) totalsRows.push(["Tax", formatCentsUsd(invoice.tax_cents)]);
+  y -= 4;
+  page.drawLine({ start: { x: rateRightX - 110, y: y + 8 }, end: { x: amountRightX, y: y + 8 }, thickness: 0.75, color: BORDER });
   for (const [label, value] of totalsRows) {
-    drawRight(page, label, rateX + 30, y, 9.5, fonts.font, MUTED);
+    drawRight(page, label, rateRightX, y, 9.5, fonts.font, MUTED);
     drawRight(page, value, amountRightX, y, 9.5, fonts.font, INK);
-    y -= 16;
+    y -= 15;
   }
-  page.drawLine({ start: { x: rateX - 10, y: y + 4 }, end: { x: amountRightX, y: y + 4 }, thickness: 0.75, color: CARD_BORDER });
-  y -= 6;
-  drawRight(page, "Total", rateX + 30, y, 11, fonts.bold, INK);
-  drawRight(page, formatCentsUsd(invoice.total_cents), amountRightX, y, 12, fonts.bold, ACCENT_DEEP);
+  y -= 2;
+  // Total due bar.
+  const barH = 22;
+  fillRound(page, rateRightX - 150, y - barH + 6, amountRightX - (rateRightX - 150), barH, 6, SOFT_BLUE);
+  drawRight(page, isReceipt ? "TOTAL PAID" : "TOTAL DUE", rateRightX, y - 9, 11, fonts.bold, ACCENT_DEEP);
+  drawRight(page, formatCentsUsd(invoice.total_cents), amountRightX, y - 10, 13, fonts.bold, ACCENT_DEEP);
 
-  return cardY - 18;
+  return cardY - 16;
 }
 
 function drawPaymentOptions(page: PDFPage, fonts: Fonts, topY: number, invoice: PrivatePayInvoiceWithItems): number {
-  const cardH = 104;
+  const instructions = getPrivatePayPaymentInstructions();
+  const instrLines = instructions.reduce((a, g) => a + 1 + g.lines.length, 0);
+  const cardH = 88 + (instructions.length ? 8 + instrLines * 11 : 0);
   const cardY = topY - cardH;
-  roundedCard(page, MARGIN, cardY, CONTENT_W, cardH, 14, { fill: CARD_FILL, border: CARD_BORDER });
-  const pad = MARGIN + 16;
-  let y = cardY + cardH - 22;
+  card(page, MARGIN, cardY, CONTENT_W, cardH, 12, { fill: SOFT_BLUE, border: BORDER });
+  const pad = MARGIN + PAD;
+  let y = cardY + cardH - 20;
   page.drawText("PAYMENT OPTIONS", { x: pad, y, size: 8, font: fonts.bold, color: ACCENT });
   y -= 16;
   page.drawText("Pay by secure card link", { x: pad, y, size: 11, font: fonts.bold, color: INK });
   y -= 13;
-  page.drawText("Use the secure payment link sent by Saintly by email or text. Apple Pay is supported.", {
-    x: pad,
-    y,
-    size: 9,
-    font: fonts.font,
-    color: MUTED,
-  });
+  page.drawText("Use the secure payment link sent by Saintly by email or text. Apple Pay is supported at checkout.", { x: pad, y, size: 9, font: fonts.font, color: MUTED });
   y -= 18;
-  // Method chips.
   let cx = pad;
   const chips: Array<[string, RGB, RGB]> = [
-    ["Card / Apple Pay", rgb(0.88, 0.93, 1), ACCENT_DEEP],
+    ["Card / Apple Pay", rgb(0.85, 0.91, 0.99), ACCENT_DEEP],
     ["Zelle", WHITE, INK],
     ["Cash App", WHITE, INK],
     ["Apple Cash", WHITE, INK],
-    ["Cash / Check", WHITE, INK],
+    ["Cash", WHITE, INK],
+    ["Check", WHITE, INK],
   ];
   for (const [label, fill, color] of chips) {
-    const w = drawChip(page, fonts, label, cx, y - 14, fill, color, 8.5);
-    cx += w + 8;
+    cx += chip(page, fonts, label, cx, y - 13, fill, color, 8.5) + 7;
   }
-  y -= 30;
-  page.drawText(`Manual payments (Zelle, Cash App, Apple Cash, cash, check) should reference invoice ${invoice.invoice_number}.`, {
-    x: pad,
-    y,
-    size: 8,
-    font: fonts.font,
-    color: MUTED,
-  });
-  return cardY - 16;
+  y -= 26;
+
+  if (instructions.length) {
+    page.drawLine({ start: { x: pad, y: y + 6 }, end: { x: MARGIN + CONTENT_W - PAD, y: y + 6 }, thickness: 0.5, color: BORDER });
+    for (const g of instructions) {
+      page.drawText(`${g.method}:`, { x: pad, y, size: 8.5, font: fonts.bold, color: INK });
+      page.drawText(g.lines.join("  ·  "), { x: pad + 70, y, size: 8.5, font: fonts.font, color: MUTED });
+      y -= 11 * g.lines.length;
+    }
+  }
+  page.drawText(`Manual payments should reference invoice ${invoice.invoice_number}.`, { x: pad, y, size: 8, font: fonts.font, color: FAINT });
+  return cardY - 14;
 }
 
 function drawReceiptDetail(page: PDFPage, fonts: Fonts, topY: number, invoice: PrivatePayInvoiceWithItems, payment: PrivatePayPayment | null): number {
-  const cardH = 76;
+  const cardH = 84;
   const cardY = topY - cardH;
-  roundedCard(page, MARGIN, cardY, CONTENT_W, cardH, 14, { fill: rgb(0.93, 0.98, 0.95), border: rgb(0.7, 0.88, 0.78) });
-  const pad = MARGIN + 16;
-  let y = cardY + cardH - 22;
-  page.drawText("PAYMENT RECEIVED", { x: pad, y, size: 8, font: fonts.bold, color: PAID_GREEN });
+  card(page, MARGIN, cardY, CONTENT_W, cardH, 12, { fill: GREEN_SOFT, border: GREEN_BORDER });
+  const pad = MARGIN + PAD;
+  let y = cardY + cardH - 20;
+  page.drawText("PAYMENT RECEIVED", { x: pad, y, size: 8, font: fonts.bold, color: GREEN });
   y -= 18;
-  page.drawText(`Status: Paid`, { x: pad, y, size: 11, font: fonts.bold, color: PAID_GREEN });
-  y -= 15;
-  const detail = [
-    `Paid date: ${formatLongDate(payment?.paid_at ?? invoice.paid_at)}`,
-    `Method: ${formatPaymentDetail(payment)}`,
-  ].join("     ");
-  page.drawText(detail, { x: pad, y, size: 9.5, font: fonts.font, color: INK });
-  return cardY - 16;
+  page.drawText("Status: Paid", { x: pad, y, size: 12, font: fonts.bold, color: GREEN });
+  y -= 16;
+  page.drawText(`Paid date: ${longDate(payment?.paid_at ?? invoice.paid_at)}`, { x: pad, y, size: 9.5, font: fonts.font, color: INK });
+  page.drawText(`Method: ${formatPaymentDetail(payment)}`, { x: pad + 220, y, size: 9.5, font: fonts.font, color: INK });
+  y -= 14;
+  drawRight(page, `Total paid: ${formatCentsUsd(invoice.total_cents)}`, MARGIN + CONTENT_W - PAD, y + 28, 11, fonts.bold, GREEN);
+  return cardY - 14;
 }
 
 function drawFooter(page: PDFPage, fonts: Fonts) {
   const cx = PAGE_W / 2;
-  let y = MARGIN + 44;
+  let y = MARGIN + 40;
+  page.drawRectangle({ x: cx - 30, y: y + 16, width: 60, height: 2, color: GOLD });
   drawCenter(page, PRIVATE_PAY_BUSINESS.receiptFooter, cx, y, 10.5, fonts.bold, ACCENT_DEEP);
   y -= 13;
-  drawCenter(page, "Care that goes above.", cx, y, 9.5, fonts.font, GOLD);
-  y -= 16;
-  drawCenter(
-    page,
-    "This document covers private-pay services only and contains no diagnosis, insurance, Medicare, or clinical information.",
-    cx,
-    y,
-    7.5,
-    fonts.font,
-    MUTED
-  );
+  drawCenter(page, PRIVATE_PAY_BUSINESS.tagline, cx, y, 9.5, fonts.bold, GOLD);
+  y -= 15;
+  drawCenter(page, "This document covers private-pay services only and contains no diagnosis, insurance, Medicare, or clinical information.", cx, y, 7.5, fonts.font, FAINT);
   y -= 11;
-  drawCenter(
-    page,
-    `${PRIVATE_PAY_BUSINESS.legalName}  |  ${PRIVATE_PAY_BUSINESS.phoneDisplay}  |  ${PRIVATE_PAY_BUSINESS.email}  ·  Generated by Saintly CRM`,
-    cx,
-    y,
-    7.5,
-    fonts.font,
-    MUTED
-  );
+  drawCenter(page, `${PRIVATE_PAY_BUSINESS.legalName}  ·  ${PRIVATE_PAY_BUSINESS.phoneDisplay}  ·  ${PRIVATE_PAY_BUSINESS.email}  ·  ${PRIVATE_PAY_BUSINESS.website}`, cx, y, 7.5, fonts.font, FAINT);
 }
 
-async function buildDocument(
-  invoice: PrivatePayInvoiceWithItems,
-  variant: "invoice" | "receipt",
-  payment: PrivatePayPayment | null
-): Promise<Uint8Array> {
+async function buildDocument(invoice: PrivatePayInvoiceWithItems, variant: "invoice" | "receipt", payment: PrivatePayPayment | null): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
@@ -435,19 +404,16 @@ async function buildDocument(
   const page = doc.addPage([PAGE_W, PAGE_H]);
   const isReceipt = variant === "receipt";
 
-  let y = await drawHeader(doc, page, fonts, isReceipt);
-  y = drawMetaRow(page, fonts, y, invoice, isReceipt, payment);
-  y = drawBillToAndAmount(page, fonts, y, invoice, isReceipt, payment);
-  y = drawServiceTable(page, fonts, y, invoice);
-  y = isReceipt
-    ? drawReceiptDetail(page, fonts, y, invoice, payment)
-    : drawPaymentOptions(page, fonts, y, invoice);
+  let y = await drawHeader(doc, page, fonts, isReceipt, invoice);
+  y = drawBillAndAmount(page, fonts, y, invoice, isReceipt, payment);
+  y = drawServiceTable(page, fonts, y, invoice, isReceipt);
+  y = isReceipt ? drawReceiptDetail(page, fonts, y, invoice, payment) : drawPaymentOptions(page, fonts, y, invoice);
 
   if ((invoice.notes ?? "").trim()) {
-    page.drawText("NOTES", { x: MARGIN + 2, y, size: 7.5, font: bold, color: MUTED });
+    page.drawText("NOTES", { x: MARGIN, y, size: 7.5, font: bold, color: FAINT });
     y -= 12;
-    for (const line of wrap(invoice.notes!.trim(), font, 9, CONTENT_W - 4)) {
-      page.drawText(line, { x: MARGIN + 2, y, size: 9, font, color: MUTED });
+    for (const line of wrap(invoice.notes!.trim(), font, 9, CONTENT_W)) {
+      page.drawText(line, { x: MARGIN, y, size: 9, font, color: MUTED });
       y -= 11;
     }
   }

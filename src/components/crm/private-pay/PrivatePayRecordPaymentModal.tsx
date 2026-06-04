@@ -14,8 +14,15 @@ export type RecordPaymentInput = {
   method: PrivatePayManualPaymentMethod;
   reference: string;
   amount: string;
+  paidDate: string;
   note: string;
 };
+
+function todayInputValue(): string {
+  const now = new Date();
+  const tz = now.getTimezoneOffset();
+  return new Date(now.getTime() - tz * 60_000).toISOString().slice(0, 10);
+}
 
 export function PrivatePayRecordPaymentModal({
   open,
@@ -37,6 +44,7 @@ export function PrivatePayRecordPaymentModal({
   const [method, setMethod] = useState<PrivatePayManualPaymentMethod>("zelle");
   const [reference, setReference] = useState("");
   const [amount, setAmount] = useState("");
+  const [paidDate, setPaidDate] = useState(todayInputValue());
   const [note, setNote] = useState("");
 
   if (!open) return null;
@@ -92,15 +100,27 @@ export function PrivatePayRecordPaymentModal({
             />
           </div>
 
-          <div>
-            <label className="text-xs font-semibold text-slate-600">Amount received (optional)</label>
-            <input
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              disabled={busy}
-              placeholder={`Defaults to ${formatCentsUsd(totalCents)}`}
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-            />
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-semibold text-slate-600">Amount received</label>
+              <input
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                disabled={busy}
+                placeholder={`Default ${formatCentsUsd(totalCents)}`}
+                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-600">Payment date</label>
+              <input
+                type="date"
+                value={paidDate}
+                onChange={(e) => setPaidDate(e.target.value)}
+                disabled={busy}
+                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              />
+            </div>
           </div>
 
           <div>
@@ -128,7 +148,7 @@ export function PrivatePayRecordPaymentModal({
           <button
             type="button"
             disabled={busy}
-            onClick={() => onSubmit({ method, reference, amount, note })}
+            onClick={() => onSubmit({ method, reference, amount, paidDate, note })}
             className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
           >
             {busy ? "Saving…" : "Mark paid"}

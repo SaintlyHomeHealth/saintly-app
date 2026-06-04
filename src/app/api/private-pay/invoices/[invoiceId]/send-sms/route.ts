@@ -4,8 +4,6 @@ import { getInvoiceWithItems, markInvoiceSent } from "@/lib/private-pay/data";
 import { requirePrivatePayStaff } from "@/lib/private-pay/auth";
 import { sendSms } from "@/lib/twilio/send-sms";
 import { normalizeUsPhoneForSend } from "@/lib/phone/us-phone-format";
-import { formatCentsUsd } from "@/lib/private-pay/format";
-import { PRIVATE_PAY_BUSINESS } from "@/lib/private-pay/constants";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -48,10 +46,9 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ invoiceId:
   const to = `+1${digits}`;
   const link = `${resolveOrigin(req)}/private-pay/pay/${invoice.public_token}`;
 
-  // HIPAA-safe: invoice number, amount, and secure link only. No clinical details.
-  const message = `${PRIVATE_PAY_BUSINESS.legalName}: invoice ${invoice.invoice_number} for ${formatCentsUsd(
-    invoice.total_cents
-  )} is ready. Pay securely (card/Apple Pay): ${link}`;
+  // HIPAA-safe: a generic invoice-ready notice with only the secure link. No
+  // diagnosis, condition, Medicare number, or clinical details.
+  const message = `Saintly Home Health: Your private-pay invoice is ready. View/download your invoice and payment options here: ${link}`;
 
   const result = await sendSms({ to, body: message });
   if (!result.ok) {

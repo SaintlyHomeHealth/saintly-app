@@ -15,7 +15,14 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ invoiceId:
   }
   const { invoiceId } = await ctx.params;
 
-  let body: { method?: string; amount?: string | number; amount_cents?: number; reference?: string; note?: string } = {};
+  let body: {
+    method?: string;
+    amount?: string | number;
+    amount_cents?: number;
+    paid_at?: string;
+    reference?: string;
+    note?: string;
+  } = {};
   try {
     body = (await req.json().catch(() => ({}))) as typeof body;
   } catch {
@@ -46,7 +53,13 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ invoiceId:
   try {
     await markInvoicePaidManually(
       invoiceId,
-      { method, amountCents, reference: body.reference ?? null, note: body.note ?? null },
+      {
+        method,
+        amountCents,
+        paidAt: body.paid_at ?? null,
+        reference: body.reference ?? null,
+        note: body.note ?? null,
+      },
       auth.auth.user.id
     );
     const invoice = await getInvoiceWithItems(invoiceId);
