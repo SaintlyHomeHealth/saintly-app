@@ -280,6 +280,7 @@ export function PrivatePayRecipientPicker({
             <label className={labelCls}>
               Phone
               <FormattedPhoneInput
+                name="phone"
                 className={inputCls}
                 value={phoneDisplay}
                 onValueChange={setPhoneDisplay}

@@ -1,7 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { getInvoiceWithItems } from "@/lib/private-pay/data";
-import { requirePrivatePayStaff } from "@/lib/private-pay/auth";
+import { getInvoiceByPublicToken } from "@/lib/private-pay/data";
 import { createInvoiceCheckoutSession } from "@/lib/private-pay/checkout";
 
 export const runtime = "nodejs";
@@ -16,14 +15,14 @@ function resolveOrigin(req: NextRequest): string {
   return req.nextUrl.origin;
 }
 
-export async function POST(req: NextRequest, ctx: { params: Promise<{ invoiceId: string }> }) {
-  const auth = await requirePrivatePayStaff();
-  if (!auth.ok) {
-    return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
-  }
-
-  const { invoiceId } = await ctx.params;
-  const invoice = await getInvoiceWithItems(invoiceId);
+/**
+ * Public, unauthenticated endpoint that creates a Stripe Checkout session for a
+ * private-pay invoice identified only by its opaque public token. No PHI is
+ * returned. The token is the secret; invalid tokens return 404.
+ */
+export async function POST(req: NextRequest, ctx: { params: Promise<{ token: string }> }) {
+  const { token } = await ctx.params;
+  const invoice = await getInvoiceByPublicToken(token);
   if (!invoice) {
     return NextResponse.json({ ok: false, error: "Invoice not found" }, { status: 404 });
   }

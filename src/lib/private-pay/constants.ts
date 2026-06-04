@@ -45,16 +45,63 @@ export const PRIVATE_PAY_INVOICE_STATUS_LABELS: Record<PrivatePayInvoiceStatus, 
   refunded: "Refunded",
 };
 
-export const PRIVATE_PAY_PAYMENT_METHODS = ["card", "cash", "check", "zelle", "manual"] as const;
+export const PRIVATE_PAY_PAYMENT_METHODS = [
+  "card",
+  "zelle",
+  "cashapp",
+  "apple_cash",
+  "cash",
+  "check",
+  "manual",
+  "other",
+] as const;
 export type PrivatePayPaymentMethod = (typeof PRIVATE_PAY_PAYMENT_METHODS)[number];
 
 export const PRIVATE_PAY_PAYMENT_METHOD_LABELS: Record<PrivatePayPaymentMethod, string> = {
-  card: "Card",
+  card: "Card / Apple Pay",
+  zelle: "Zelle",
+  cashapp: "Cash App",
+  apple_cash: "Apple Cash",
   cash: "Cash",
   check: "Check",
-  zelle: "Zelle",
   manual: "Manual / Other",
+  other: "Other",
 };
+
+/**
+ * Manual payment methods an admin can record by hand. These NEVER auto-mark an
+ * invoice paid — staff must confirm receipt and enter a reference number.
+ * Card is intentionally excluded (it flows through Stripe Checkout / Apple Pay).
+ */
+export const PRIVATE_PAY_MANUAL_PAYMENT_METHODS = [
+  "zelle",
+  "cashapp",
+  "apple_cash",
+  "cash",
+  "check",
+  "other",
+] as const satisfies readonly PrivatePayPaymentMethod[];
+
+export type PrivatePayManualPaymentMethod = (typeof PRIVATE_PAY_MANUAL_PAYMENT_METHODS)[number];
+
+/** Whether a recorded manual method typically carries a reference/confirmation number. */
+export const PRIVATE_PAY_METHOD_USES_REFERENCE: Record<PrivatePayManualPaymentMethod, boolean> = {
+  zelle: true,
+  cashapp: true,
+  apple_cash: true,
+  cash: false,
+  check: true,
+  other: true,
+};
+
+export function isPrivatePayManualPaymentMethod(
+  value: unknown
+): value is PrivatePayManualPaymentMethod {
+  return (
+    typeof value === "string" &&
+    (PRIVATE_PAY_MANUAL_PAYMENT_METHODS as readonly string[]).includes(value)
+  );
+}
 
 /** Saintly Home Health billing identity used on invoice + receipt PDFs. */
 export const PRIVATE_PAY_BUSINESS = {

@@ -1,6 +1,8 @@
 import {
+  PRIVATE_PAY_PAYMENT_METHOD_LABELS,
   PRIVATE_PAY_SERVICE_TYPE_LABELS,
   isPrivatePayServiceType,
+  isPrivatePayPaymentMethod,
   type PrivatePayUnitLabel,
 } from "@/lib/private-pay/constants";
 
@@ -87,4 +89,30 @@ export function formatCardSummary(brand: string | null, last4: string | null): s
     ? brand.charAt(0).toUpperCase() + brand.slice(1).replace(/_/g, " ")
     : "Card";
   return `${niceBrand} ending in ${last4}`;
+}
+
+/** Friendly payment-method label, falling back to a title-cased value. */
+export function paymentMethodLabel(method: string): string {
+  if (isPrivatePayPaymentMethod(method)) return PRIVATE_PAY_PAYMENT_METHOD_LABELS[method];
+  return method
+    ? method.charAt(0).toUpperCase() + method.slice(1).replace(/_/g, " ")
+    : "Manual";
+}
+
+/**
+ * Receipt-facing payment detail line. Prefers the card summary; otherwise the
+ * manual method label with an optional reference/confirmation number.
+ */
+export function formatPaymentDetail(payment: {
+  payment_method: string;
+  card_brand?: string | null;
+  card_last4?: string | null;
+  payment_reference?: string | null;
+} | null): string {
+  if (!payment) return "—";
+  const card = formatCardSummary(payment.card_brand ?? null, payment.card_last4 ?? null);
+  if (card) return card;
+  const label = paymentMethodLabel(payment.payment_method);
+  const ref = (payment.payment_reference ?? "").trim();
+  return ref ? `${label} · Ref ${ref}` : label;
 }

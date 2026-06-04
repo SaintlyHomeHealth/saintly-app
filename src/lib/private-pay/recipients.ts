@@ -169,7 +169,7 @@ export async function resolvePrivatePayRecipient(opts: {
   const c = contact as ContactRow;
 
   let patientId = opts.patient_id?.trim() || null;
-  let leadId = opts.lead_id?.trim() || null;
+  const leadId = opts.lead_id?.trim() || null;
   let kind: PrivatePayRecipient["kind"] = "contact";
 
   if (patientId) {

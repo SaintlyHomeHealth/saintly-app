@@ -22,6 +22,10 @@ import type {
 } from "@/lib/private-pay/types";
 import { PrivatePayInvoiceModal, type InvoiceSubmitAction } from "./PrivatePayInvoiceModal";
 import { PrivatePayRecipientPicker } from "./PrivatePayRecipientPicker";
+import {
+  PrivatePayRecordPaymentModal,
+  type RecordPaymentInput,
+} from "./PrivatePayRecordPaymentModal";
 
 function formatDate(iso: string | null): string {
   if (!iso) return "—";
@@ -66,6 +70,14 @@ export function PrivatePayAdminWorkspace({
   const [rowBusyId, setRowBusyId] = useState<string | null>(null);
   const [banner, setBanner] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
   const [paymentLink, setPaymentLink] = useState<{ invoiceNumber: string; url: string } | null>(null);
+  const [recordFor, setRecordFor] = useState<PrivatePayInvoiceListRow | null>(null);
+  const [recordBusy, setRecordBusy] = useState(false);
+  const [recordError, setRecordError] = useState<string | null>(null);
+
+  const publicLinkFor = useCallback((invoice: PrivatePayInvoiceListRow) => {
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    return `${origin}/private-pay/pay/${invoice.public_token}`;
+  }, []);
 
   const upsertInvoice = useCallback(
     (invoice: PrivatePayInvoiceWithItems, hint?: PrivatePayRecipient | null) => {
@@ -193,26 +205,29 @@ export function PrivatePayAdminWorkspace({
   );
 
   const handleRowAction = useCallback(
-    async (invoiceId: string, action: "link" | "charge" | "markPaid" | "void") => {
+    async (invoiceId: string, action: "link" | "charge" | "email" | "text" | "void") => {
       setRowBusyId(invoiceId);
       setBanner(null);
       try {
         if (action === "link" || action === "charge") {
           await startCheckout(invoiceId, action);
-        } else if (action === "markPaid") {
-          const res = await fetch(`/api/private-pay/invoices/${invoiceId}/mark-paid`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ method: "manual" }),
-          });
+        } else if (action === "email" || action === "text") {
+          const endpoint = action === "email" ? "send-email" : "send-sms";
+          const res = await fetch(`/api/private-pay/invoices/${invoiceId}/${endpoint}`, { method: "POST" });
           const json = (await res.json().catch(() => ({}))) as {
             ok?: boolean;
             invoice?: PrivatePayInvoiceWithItems;
+            sentTo?: string;
             error?: string;
           };
-          if (!res.ok || !json.ok || !json.invoice) throw new Error(json.error || "Failed to mark paid");
-          upsertInvoice(json.invoice);
-          setBanner({ kind: "ok", text: "Invoice marked paid." });
+          if (!res.ok || !json.ok) throw new Error(json.error || "Failed to send invoice");
+          if (json.invoice) upsertInvoice(json.invoice);
+          setBanner({
+            kind: "ok",
+            text: `Secure invoice link sent by ${action === "email" ? "email" : "text"}${
+              json.sentTo ? ` to ${json.sentTo}` : ""
+            }.`,
+          });
           router.refresh();
         } else if (action === "void") {
           if (!window.confirm("Void this invoice? This cannot be undone.")) return;
@@ -234,6 +249,52 @@ export function PrivatePayAdminWorkspace({
       }
     },
     [startCheckout, upsertInvoice, router]
+  );
+
+  const submitRecordPayment = useCallback(
+    async (input: RecordPaymentInput) => {
+      if (!recordFor) return;
+      setRecordBusy(true);
+      setRecordError(null);
+      try {
+        const res = await fetch(`/api/private-pay/invoices/${recordFor.id}/mark-paid`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            method: input.method,
+            reference: input.reference,
+            amount: input.amount,
+            note: input.note,
+          }),
+        });
+        const json = (await res.json().catch(() => ({}))) as {
+          ok?: boolean;
+          invoice?: PrivatePayInvoiceWithItems;
+          error?: string;
+        };
+        if (!res.ok || !json.ok || !json.invoice) throw new Error(json.error || "Failed to record payment");
+        upsertInvoice(json.invoice);
+        setRecordFor(null);
+        setBanner({ kind: "ok", text: "Payment recorded and invoice marked paid." });
+        router.refresh();
+      } catch (e) {
+        setRecordError(e instanceof Error ? e.message : "Something went wrong");
+      } finally {
+        setRecordBusy(false);
+      }
+    },
+    [recordFor, upsertInvoice, router]
+  );
+
+  const copyPublicLink = useCallback(
+    (invoice: PrivatePayInvoiceListRow) => {
+      const url = publicLinkFor(invoice);
+      navigator.clipboard?.writeText(url).then(
+        () => setBanner({ kind: "ok", text: "Secure invoice link copied to clipboard." }),
+        () => setBanner({ kind: "err", text: "Could not copy link." })
+      );
+    },
+    [publicLinkFor]
   );
 
   const openEdit = (invoice: PrivatePayInvoiceListRow) => {
@@ -362,7 +423,7 @@ export function PrivatePayAdminWorkspace({
                     <td className="py-3 pr-3 text-slate-600">{formatDate(invoice.created_at)}</td>
                     <td className="py-3 pr-3 text-slate-600">{formatDate(invoice.paid_at)}</td>
                     <td className="px-4 py-3">
-                      <div className="flex max-w-[20rem] flex-wrap gap-1.5">
+                      <div className="flex max-w-[26rem] flex-wrap gap-1.5">
                         <button
                           type="button"
                           disabled={rowBusy || invoice.status !== "draft"}
@@ -390,6 +451,30 @@ export function PrivatePayAdminWorkspace({
                             <button
                               type="button"
                               disabled={rowBusy}
+                              onClick={() => handleRowAction(invoice.id, "email")}
+                              className={`${actionBtn} border-sky-300 bg-white text-sky-800 hover:bg-sky-50`}
+                            >
+                              Send email
+                            </button>
+                            <button
+                              type="button"
+                              disabled={rowBusy}
+                              onClick={() => handleRowAction(invoice.id, "text")}
+                              className={`${actionBtn} border-sky-300 bg-white text-sky-800 hover:bg-sky-50`}
+                            >
+                              Send text
+                            </button>
+                            <button
+                              type="button"
+                              disabled={rowBusy}
+                              onClick={() => copyPublicLink(invoice)}
+                              className={`${actionBtn} border-slate-300 bg-white text-slate-700 hover:bg-slate-50`}
+                            >
+                              Copy link
+                            </button>
+                            <button
+                              type="button"
+                              disabled={rowBusy}
                               onClick={() => handleRowAction(invoice.id, "link")}
                               className={`${actionBtn} border-sky-300 bg-sky-50 text-sky-800 hover:bg-sky-100`}
                             >
@@ -406,10 +491,13 @@ export function PrivatePayAdminWorkspace({
                             <button
                               type="button"
                               disabled={rowBusy}
-                              onClick={() => handleRowAction(invoice.id, "markPaid")}
+                              onClick={() => {
+                                setRecordError(null);
+                                setRecordFor(invoice);
+                              }}
                               className={`${actionBtn} border-slate-300 bg-white text-slate-700 hover:bg-slate-50`}
                             >
-                              Mark paid
+                              Record payment
                             </button>
                             <button
                               type="button"
@@ -465,6 +553,20 @@ export function PrivatePayAdminWorkspace({
           onSubmit={handleSubmit}
         />
       ) : null}
+
+      <PrivatePayRecordPaymentModal
+        open={Boolean(recordFor)}
+        invoiceNumber={recordFor?.invoice_number ?? ""}
+        totalCents={recordFor?.total_cents ?? 0}
+        busy={recordBusy}
+        error={recordError}
+        onClose={() => {
+          if (recordBusy) return;
+          setRecordFor(null);
+          setRecordError(null);
+        }}
+        onSubmit={submitRecordPayment}
+      />
     </div>
   );
 }

@@ -29,13 +29,13 @@ type ContactBrief = {
 };
 
 const INVOICE_COLUMNS =
-  "id, contact_id, patient_id, lead_id, invoice_number, status, billing_name, billing_email, billing_phone, billing_address, subtotal_cents, discount_cents, tax_cents, total_cents, notes, stripe_customer_id, stripe_checkout_session_id, stripe_payment_intent_id, paid_at, created_by, created_at, updated_at";
+  "id, contact_id, patient_id, lead_id, invoice_number, public_token, status, billing_name, billing_email, billing_phone, billing_address, subtotal_cents, discount_cents, tax_cents, total_cents, notes, stripe_customer_id, stripe_checkout_session_id, stripe_payment_intent_id, paid_at, created_by, created_at, updated_at";
 
 const ITEM_COLUMNS =
   "id, invoice_id, service_type, description, service_date, quantity, unit_label, unit_amount_cents, line_total_cents, sort_order, created_at";
 
 const PAYMENT_COLUMNS =
-  "id, invoice_id, receipt_number, amount_cents, payment_method, status, stripe_payment_intent_id, stripe_charge_id, card_brand, card_last4, notes, paid_at, created_by, created_at";
+  "id, invoice_id, receipt_number, amount_cents, payment_method, status, stripe_payment_intent_id, stripe_charge_id, card_brand, card_last4, payment_reference, notes, paid_at, created_by, created_at";
 
 function sanitizeItems(items: PrivatePayInvoiceItemInput[]): Array<
   PrivatePayInvoiceItemInput & { line_total_cents: number; sort_order: number }
@@ -196,6 +196,21 @@ export async function getInvoiceWithItems(invoiceId: string): Promise<PrivatePay
   };
 }
 
+/** Look up an invoice by its opaque public token (powers the HIPAA-safe pay link). */
+export async function getInvoiceByPublicToken(
+  token: string
+): Promise<PrivatePayInvoiceWithItems | null> {
+  const trimmed = (token ?? "").trim();
+  if (!trimmed) return null;
+  const { data: invoice, error } = await supabaseAdmin
+    .from("private_pay_invoices")
+    .select(INVOICE_COLUMNS)
+    .eq("public_token", trimmed)
+    .maybeSingle();
+  if (error || !invoice) return null;
+  return getInvoiceWithItems((invoice as PrivatePayInvoice).id);
+}
+
 async function attachItemsAndPayments(invoices: PrivatePayInvoice[]): Promise<PrivatePayInvoiceWithItems[]> {
   if (invoices.length === 0) return [];
   const ids = invoices.map((i) => i.id);
@@ -325,7 +340,12 @@ export async function voidInvoice(invoiceId: string): Promise<void> {
 
 export async function markInvoicePaidManually(
   invoiceId: string,
-  opts: { method: PrivatePayPaymentMethod; amountCents?: number; note?: string | null },
+  opts: {
+    method: PrivatePayPaymentMethod;
+    amountCents?: number;
+    reference?: string | null;
+    note?: string | null;
+  },
   createdBy: string | null
 ): Promise<void> {
   const invoice = await getInvoiceWithItems(invoiceId);
@@ -340,6 +360,7 @@ export async function markInvoicePaidManually(
     amount_cents: amount,
     payment_method: opts.method,
     status: "succeeded",
+    payment_reference: (opts.reference ?? "").trim() || null,
     notes: (opts.note ?? "").trim() || null,
     paid_at: paidAt,
     created_by: createdBy,

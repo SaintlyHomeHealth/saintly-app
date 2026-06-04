@@ -30,6 +30,7 @@ export type PrivatePayPayment = {
   stripe_charge_id: string | null;
   card_brand: string | null;
   card_last4: string | null;
+  payment_reference: string | null;
   notes: string | null;
   paid_at: string | null;
   created_by: string | null;
@@ -42,6 +43,7 @@ export type PrivatePayInvoice = {
   patient_id: string | null;
   lead_id: string | null;
   invoice_number: string;
+  public_token: string;
   status: PrivatePayInvoiceStatus;
   billing_name: string | null;
   billing_email: string | null;
