@@ -26,6 +26,12 @@ import {
   PrivatePayRecordPaymentModal,
   type RecordPaymentInput,
 } from "./PrivatePayRecordPaymentModal";
+import { PrivatePaySendInvoiceConfirmModal } from "./PrivatePaySendInvoiceConfirmModal";
+import { getAppBaseUrl } from "@/lib/app-url";
+import {
+  buildPrivatePayInvoicePdfUrl,
+  buildPrivatePayInvoicePublicUrl,
+} from "@/lib/private-pay/public-urls";
 
 function formatDate(iso: string | null): string {
   if (!iso) return "—";
@@ -73,11 +79,19 @@ export function PrivatePayAdminWorkspace({
   const [recordFor, setRecordFor] = useState<PrivatePayInvoiceListRow | null>(null);
   const [recordBusy, setRecordBusy] = useState(false);
   const [recordError, setRecordError] = useState<string | null>(null);
+  const [sendConfirm, setSendConfirm] = useState<{
+    invoiceId: string;
+    channel: "email" | "text";
+    invoiceNumber: string;
+    invoiceUrl: string;
+  } | null>(null);
+  const [sendBusy, setSendBusy] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
 
-  const publicPdfLinkFor = useCallback((invoice: PrivatePayInvoiceListRow) => {
-    const origin = typeof window !== "undefined" ? window.location.origin : "";
-    return `${origin}/api/private-pay/public/invoice/${invoice.public_token}/pdf`;
-  }, []);
+  const clientAppBase = useCallback(
+    () => getAppBaseUrl(typeof window !== "undefined" ? window.location.origin : undefined),
+    []
+  );
 
   const upsertInvoice = useCallback(
     (invoice: PrivatePayInvoiceWithItems, hint?: PrivatePayRecipient | null) => {
@@ -212,23 +226,24 @@ export function PrivatePayAdminWorkspace({
         if (action === "link" || action === "charge") {
           await startCheckout(invoiceId, action);
         } else if (action === "email" || action === "text") {
-          const endpoint = action === "email" ? "send-email" : "send-sms";
-          const res = await fetch(`/api/private-pay/invoices/${invoiceId}/${endpoint}`, { method: "POST" });
-          const json = (await res.json().catch(() => ({}))) as {
+          const previewRes = await fetch(`/api/private-pay/invoices/${invoiceId}/delivery-links`);
+          const preview = (await previewRes.json().catch(() => ({}))) as {
             ok?: boolean;
-            invoice?: PrivatePayInvoiceWithItems;
-            sentTo?: string;
+            invoiceNumber?: string;
+            invoiceUrl?: string;
             error?: string;
           };
-          if (!res.ok || !json.ok) throw new Error(json.error || "Failed to send invoice");
-          if (json.invoice) upsertInvoice(json.invoice);
-          setBanner({
-            kind: "ok",
-            text: `Secure invoice link sent by ${action === "email" ? "email" : "text"}${
-              json.sentTo ? ` to ${json.sentTo}` : ""
-            }.`,
+          if (!previewRes.ok || !preview.ok || !preview.invoiceUrl) {
+            throw new Error(preview.error || "Could not build invoice link");
+          }
+          const row = invoices.find((i) => i.id === invoiceId);
+          setSendError(null);
+          setSendConfirm({
+            invoiceId,
+            channel: action,
+            invoiceNumber: preview.invoiceNumber ?? row?.invoice_number ?? "",
+            invoiceUrl: preview.invoiceUrl,
           });
-          router.refresh();
         } else if (action === "void") {
           if (!window.confirm("Void this invoice? This cannot be undone.")) return;
           const res = await fetch(`/api/private-pay/invoices/${invoiceId}/void`, { method: "POST" });
@@ -248,7 +263,7 @@ export function PrivatePayAdminWorkspace({
         setRowBusyId(null);
       }
     },
-    [startCheckout, upsertInvoice, router]
+    [startCheckout, upsertInvoice, router, invoices]
   );
 
   const submitRecordPayment = useCallback(
@@ -289,14 +304,47 @@ export function PrivatePayAdminWorkspace({
 
   const copyPdfLink = useCallback(
     (invoice: PrivatePayInvoiceListRow) => {
-      const url = publicPdfLinkFor(invoice);
+      const url = buildPrivatePayInvoicePdfUrl(invoice.public_token, { baseUrl: clientAppBase() });
       navigator.clipboard?.writeText(url).then(
         () => setBanner({ kind: "ok", text: "Secure invoice PDF link copied to clipboard." }),
         () => setBanner({ kind: "err", text: "Could not copy link." })
       );
     },
-    [publicPdfLinkFor]
+    [clientAppBase]
   );
+
+  const confirmSendInvoice = useCallback(async () => {
+    if (!sendConfirm) return;
+    setSendBusy(true);
+    setSendError(null);
+    try {
+      const endpoint = sendConfirm.channel === "email" ? "send-email" : "send-sms";
+      const res = await fetch(`/api/private-pay/invoices/${sendConfirm.invoiceId}/${endpoint}`, {
+        method: "POST",
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        invoice?: PrivatePayInvoiceWithItems;
+        sentTo?: string;
+        invoiceUrl?: string;
+        error?: string;
+      };
+      if (!res.ok || !json.ok) throw new Error(json.error || "Failed to send invoice");
+      if (json.invoice) upsertInvoice(json.invoice);
+      setSendConfirm(null);
+      setBanner({
+        kind: "ok",
+        text: `Secure invoice link sent by ${sendConfirm.channel === "email" ? "email" : "text"}${
+          json.sentTo ? ` to ${json.sentTo}` : ""
+        }.`,
+      });
+      router.refresh();
+    } catch (e) {
+      setSendError(e instanceof Error ? e.message : "Something went wrong");
+    } finally {
+      setSendBusy(false);
+    }
+  }, [sendConfirm, upsertInvoice, router]);
 
   const openEdit = (invoice: PrivatePayInvoiceListRow) => {
     setEditing(invoice);
@@ -567,6 +615,21 @@ export function PrivatePayAdminWorkspace({
           setRecordError(null);
         }}
         onSubmit={submitRecordPayment}
+      />
+
+      <PrivatePaySendInvoiceConfirmModal
+        open={Boolean(sendConfirm)}
+        channel={sendConfirm?.channel ?? "text"}
+        invoiceNumber={sendConfirm?.invoiceNumber ?? ""}
+        invoiceUrl={sendConfirm?.invoiceUrl ?? buildPrivatePayInvoicePublicUrl("", clientAppBase())}
+        busy={sendBusy}
+        error={sendError}
+        onClose={() => {
+          if (sendBusy) return;
+          setSendConfirm(null);
+          setSendError(null);
+        }}
+        onConfirm={confirmSendInvoice}
       />
     </div>
   );

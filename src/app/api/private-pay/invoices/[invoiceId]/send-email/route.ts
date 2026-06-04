@@ -1,20 +1,13 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { getAppBaseUrl } from "@/lib/app-url";
 import { getInvoiceWithItems, markInvoiceSent } from "@/lib/private-pay/data";
 import { requirePrivatePayStaff } from "@/lib/private-pay/auth";
+import { buildPrivatePayInvoicePublicUrl } from "@/lib/private-pay/public-urls";
 import { sendPrivatePayInvoiceEmail } from "@/lib/private-pay/send-invoice-email";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-function resolveOrigin(req: NextRequest): string {
-  const envUrl =
-    process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
-    process.env.NEXT_PUBLIC_APP_URL?.trim() ||
-    process.env.APP_URL?.trim();
-  if (envUrl) return envUrl.replace(/\/$/, "");
-  return req.nextUrl.origin;
-}
 
 export async function POST(req: NextRequest, ctx: { params: Promise<{ invoiceId: string }> }) {
   const auth = await requirePrivatePayStaff();
@@ -43,13 +36,15 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ invoiceId:
     );
   }
 
-  const link = `${resolveOrigin(req)}/private-pay/pay/${invoice.public_token}`;
+  const baseUrl = getAppBaseUrl(req.nextUrl.origin);
+  const invoiceUrl = buildPrivatePayInvoicePublicUrl(invoice.public_token, baseUrl);
+
   const result = await sendPrivatePayInvoiceEmail({
     to,
     billingName: invoice.billing_name,
     invoiceNumber: invoice.invoice_number,
     totalCents: invoice.total_cents,
-    link,
+    link: invoiceUrl,
   });
   if (!result.ok) {
     return NextResponse.json({ ok: false, error: result.error }, { status: 502 });
@@ -57,5 +52,5 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ invoiceId:
 
   await markInvoiceSent(invoiceId);
   const updated = await getInvoiceWithItems(invoiceId);
-  return NextResponse.json({ ok: true, invoice: updated, sentTo: to });
+  return NextResponse.json({ ok: true, invoice: updated, sentTo: to, invoiceUrl });
 }

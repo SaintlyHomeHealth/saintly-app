@@ -1,21 +1,14 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { getAppBaseUrl } from "@/lib/app-url";
 import { getInvoiceWithItems, markInvoiceSent } from "@/lib/private-pay/data";
 import { requirePrivatePayStaff } from "@/lib/private-pay/auth";
+import { buildPrivatePayInvoicePublicUrl } from "@/lib/private-pay/public-urls";
 import { sendSms } from "@/lib/twilio/send-sms";
 import { normalizeUsPhoneForSend } from "@/lib/phone/us-phone-format";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-function resolveOrigin(req: NextRequest): string {
-  const envUrl =
-    process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
-    process.env.NEXT_PUBLIC_APP_URL?.trim() ||
-    process.env.APP_URL?.trim();
-  if (envUrl) return envUrl.replace(/\/$/, "");
-  return req.nextUrl.origin;
-}
 
 export async function POST(req: NextRequest, ctx: { params: Promise<{ invoiceId: string }> }) {
   const auth = await requirePrivatePayStaff();
@@ -44,11 +37,10 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ invoiceId:
     );
   }
   const to = `+1${digits}`;
-  const link = `${resolveOrigin(req)}/private-pay/pay/${invoice.public_token}`;
+  const baseUrl = getAppBaseUrl(req.nextUrl.origin);
+  const invoiceUrl = buildPrivatePayInvoicePublicUrl(invoice.public_token, baseUrl);
 
-  // HIPAA-safe: a generic invoice-ready notice with only the secure link. No
-  // diagnosis, condition, Medicare number, or clinical details.
-  const message = `Saintly Home Health: Your private-pay invoice is ready. View/download your invoice and payment options here: ${link}`;
+  const message = `Saintly Home Health: Your private-pay invoice is ready. View/download your invoice and payment options here: ${invoiceUrl}`;
 
   const result = await sendSms({ to, body: message });
   if (!result.ok) {
@@ -57,5 +49,5 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ invoiceId:
 
   await markInvoiceSent(invoiceId);
   const updated = await getInvoiceWithItems(invoiceId);
-  return NextResponse.json({ ok: true, invoice: updated, sentTo: to });
+  return NextResponse.json({ ok: true, invoice: updated, sentTo: to, invoiceUrl });
 }

@@ -1,14 +1,15 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { getAppBaseUrl } from "@/lib/app-url";
-import { getInvoiceWithItems } from "@/lib/private-pay/data";
 import { requirePrivatePayStaff } from "@/lib/private-pay/auth";
-import { createInvoiceCheckoutSession } from "@/lib/private-pay/checkout";
+import { getInvoiceWithItems } from "@/lib/private-pay/data";
+import { buildPrivatePayDeliveryLinks } from "@/lib/private-pay/public-urls";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function POST(req: NextRequest, ctx: { params: Promise<{ invoiceId: string }> }) {
+/** Returns canonical outbound links for admin preview (SMS, email, copy). */
+export async function GET(req: NextRequest, ctx: { params: Promise<{ invoiceId: string }> }) {
   const auth = await requirePrivatePayStaff();
   if (!auth.ok) {
     return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
@@ -20,9 +21,13 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ invoiceId:
     return NextResponse.json({ ok: false, error: "Invoice not found" }, { status: 404 });
   }
 
-  const result = await createInvoiceCheckoutSession(invoice, getAppBaseUrl(req.nextUrl.origin));
-  if (!result.ok) {
-    return NextResponse.json({ ok: false, error: result.error }, { status: result.status });
-  }
-  return NextResponse.json({ ok: true, url: result.url });
+  const baseUrl = getAppBaseUrl(req.nextUrl.origin);
+  const links = buildPrivatePayDeliveryLinks(invoice.public_token, invoice.status, baseUrl);
+
+  return NextResponse.json({
+    ok: true,
+    invoiceNumber: invoice.invoice_number,
+    baseUrl,
+    ...links,
+  });
 }
