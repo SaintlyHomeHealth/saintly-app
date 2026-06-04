@@ -103,6 +103,27 @@ export function isPrivatePayManualPaymentMethod(
   );
 }
 
+/** Methods a customer can select on "I sent payment" (no card — card uses Stripe). */
+export const PRIVATE_PAY_REPORT_PAYMENT_METHODS = [
+  "zelle",
+  "cashapp",
+  "apple_cash",
+  "cash",
+  "check",
+  "other",
+] as const satisfies readonly PrivatePayManualPaymentMethod[];
+
+export type PrivatePayReportPaymentMethod = (typeof PRIVATE_PAY_REPORT_PAYMENT_METHODS)[number];
+
+export function isPrivatePayReportPaymentMethod(
+  value: unknown
+): value is PrivatePayReportPaymentMethod {
+  return (
+    typeof value === "string" &&
+    (PRIVATE_PAY_REPORT_PAYMENT_METHODS as readonly string[]).includes(value)
+  );
+}
+
 /** Saintly Home Health billing identity used on invoice + receipt PDFs. */
 export const PRIVATE_PAY_BUSINESS = {
   legalName: "Saintly Home Health LLC",

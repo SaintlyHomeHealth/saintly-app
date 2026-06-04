@@ -2,6 +2,7 @@ import "server-only";
 
 import { supabaseAdmin } from "@/lib/admin";
 import {
+  isPrivatePayReportPaymentMethod,
   isPrivatePayServiceType,
   isPrivatePayUnitLabel,
   type PrivatePayPaymentMethod,
@@ -16,6 +17,7 @@ import type {
   PrivatePayInvoiceListRow,
   PrivatePayInvoiceWithItems,
   PrivatePayPayment,
+  PrivatePayPaymentReport,
   PrivatePayServiceTemplate,
 } from "@/lib/private-pay/types";
 
@@ -36,6 +38,9 @@ const ITEM_COLUMNS =
 
 const PAYMENT_COLUMNS =
   "id, invoice_id, receipt_number, amount_cents, payment_method, status, stripe_payment_intent_id, stripe_charge_id, card_brand, card_last4, payment_reference, notes, paid_at, created_by, created_at";
+
+const PAYMENT_REPORT_COLUMNS =
+  "id, invoice_id, payment_method, amount_cents, reported_date, payment_reference, customer_note, status, created_at";
 
 function sanitizeItems(items: PrivatePayInvoiceItemInput[]): Array<
   PrivatePayInvoiceItemInput & { line_total_cents: number; sort_order: number }
@@ -211,6 +216,29 @@ export async function getInvoiceByPublicToken(
   return getInvoiceWithItems((invoice as PrivatePayInvoice).id);
 }
 
+async function attachPendingPaymentReports(
+  invoices: PrivatePayInvoiceWithItems[]
+): Promise<Map<string, PrivatePayPaymentReport>> {
+  if (invoices.length === 0) return new Map();
+  const openIds = invoices
+    .filter((i) => i.status === "draft" || i.status === "sent")
+    .map((i) => i.id);
+  if (openIds.length === 0) return new Map();
+
+  const { data: reports } = await supabaseAdmin
+    .from("private_pay_payment_reports")
+    .select(PAYMENT_REPORT_COLUMNS)
+    .in("invoice_id", openIds)
+    .eq("status", "pending")
+    .order("created_at", { ascending: false });
+
+  const byInvoice = new Map<string, PrivatePayPaymentReport>();
+  for (const row of (reports ?? []) as PrivatePayPaymentReport[]) {
+    if (!byInvoice.has(row.invoice_id)) byInvoice.set(row.invoice_id, row);
+  }
+  return byInvoice;
+}
+
 async function attachItemsAndPayments(invoices: PrivatePayInvoice[]): Promise<PrivatePayInvoiceWithItems[]> {
   if (invoices.length === 0) return [];
   const ids = invoices.map((i) => i.id);
@@ -270,6 +298,8 @@ export async function listAllPrivatePayInvoices(limit = 500): Promise<PrivatePay
     }
   }
 
+  const pendingByInvoice = await attachPendingPaymentReports(withItems);
+
   return withItems.map((invoice) => {
     const contact = invoice.contact_id ? contactById.get(invoice.contact_id) : null;
     const contactName = contact ? contactDirectoryDisplayName(contact) : null;
@@ -294,8 +324,68 @@ export async function listAllPrivatePayInvoices(limit = 500): Promise<PrivatePay
       customer_name,
       customer_detail,
       profile_href,
+      pending_payment_report: pendingByInvoice.get(invoice.id) ?? null,
     };
   });
+}
+
+/** Customer "I sent payment" — never marks the invoice paid. */
+export async function createPrivatePayPaymentReport(
+  invoiceId: string,
+  input: {
+    method: string;
+    amountCents?: number | null;
+    reportedDate?: string | null;
+    reference?: string | null;
+    customerNote?: string | null;
+  }
+): Promise<PrivatePayPaymentReport> {
+  const invoice = await getInvoiceWithItems(invoiceId);
+  if (!invoice) throw new Error("Invoice not found.");
+  if (invoice.status === "paid") throw new Error("This invoice is already paid.");
+  if (invoice.status === "void") throw new Error("This invoice is no longer payable.");
+  if (!isPrivatePayReportPaymentMethod(input.method)) {
+    throw new Error("Invalid payment method.");
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from("private_pay_payment_reports")
+    .insert({
+      invoice_id: invoiceId,
+      payment_method: input.method,
+      amount_cents: input.amountCents ?? null,
+      reported_date: input.reportedDate ?? null,
+      payment_reference: (input.reference ?? "").trim() || null,
+      customer_note: (input.customerNote ?? "").trim() || null,
+      status: "pending",
+    })
+    .select(PAYMENT_REPORT_COLUMNS)
+    .single();
+
+  if (error || !data) throw new Error(error?.message ?? "Failed to save payment report.");
+  return data as PrivatePayPaymentReport;
+}
+
+export async function getPendingPaymentReportForInvoice(
+  invoiceId: string
+): Promise<PrivatePayPaymentReport | null> {
+  const { data } = await supabaseAdmin
+    .from("private_pay_payment_reports")
+    .select(PAYMENT_REPORT_COLUMNS)
+    .eq("invoice_id", invoiceId)
+    .eq("status", "pending")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return (data as PrivatePayPaymentReport | null) ?? null;
+}
+
+async function markPaymentReportsReviewedForInvoice(invoiceId: string): Promise<void> {
+  await supabaseAdmin
+    .from("private_pay_payment_reports")
+    .update({ status: "reviewed" })
+    .eq("invoice_id", invoiceId)
+    .eq("status", "pending");
 }
 
 export async function listInvoicesForContact(contactId: string): Promise<PrivatePayInvoiceWithItems[]> {
@@ -388,6 +478,8 @@ export async function markInvoicePaidManually(
     .update({ status: "paid", paid_at: paidAt })
     .eq("id", invoiceId);
   if (invoiceError) throw new Error(invoiceError.message);
+
+  await markPaymentReportsReviewedForInvoice(invoiceId);
 }
 
 /**
@@ -442,6 +534,8 @@ export async function recordStripePaymentSucceeded(opts: {
     })
     .eq("id", opts.invoiceId)
     .neq("status", "refunded");
+
+  await markPaymentReportsReviewedForInvoice(opts.invoiceId);
 }
 
 export async function attachCheckoutSession(

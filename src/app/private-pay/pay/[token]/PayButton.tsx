@@ -23,19 +23,19 @@ export function PayButton({ token }: { token: string }) {
   }
 
   return (
-    <div className="mt-6">
+    <div className="mt-3">
       <button
         type="button"
         onClick={startCheckout}
         disabled={busy}
-        className="w-full rounded-xl bg-sky-700 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-sky-800 disabled:opacity-60"
+        className="w-full rounded-xl border border-slate-300 bg-slate-50 px-5 py-2.5 text-sm font-semibold text-slate-800 transition hover:bg-white disabled:opacity-60"
       >
-        {busy ? "Opening secure checkout…" : "Pay securely by card or Apple Pay"}
+        {busy ? "Opening secure checkout…" : "Pay by card"}
       </button>
-      <p className="mt-2 text-center text-xs text-slate-500">
-        Payments are processed securely by Stripe. Saintly never sees your full card number.
+      <p className="mt-2 text-center text-[11px] text-slate-400">
+        Processed securely by Stripe. Apple Pay is available at checkout.
       </p>
-      {error ? <p className="mt-3 text-center text-sm text-rose-700">{error}</p> : null}
+      {error ? <p className="mt-2 text-center text-sm text-rose-700">{error}</p> : null}
     </div>
   );
 }

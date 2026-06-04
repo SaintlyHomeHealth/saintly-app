@@ -1,12 +1,18 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { getAppBaseUrl, validateAppBaseUrl } from "@/lib/app-url";
 import { getInvoiceWithItems, markInvoicePaidManually } from "@/lib/private-pay/data";
+import { deliverPrivatePayReceipt, type PrivatePayReceiptDelivery } from "@/lib/private-pay/deliver-receipt";
 import { isPrivatePayManualPaymentMethod } from "@/lib/private-pay/constants";
 import { requirePrivatePayStaff } from "@/lib/private-pay/auth";
 import { dollarsToCents } from "@/lib/private-pay/format";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+function isReceiptDelivery(value: unknown): value is PrivatePayReceiptDelivery {
+  return value === "text" || value === "email" || value === "both";
+}
 
 export async function POST(req: NextRequest, ctx: { params: Promise<{ invoiceId: string }> }) {
   const auth = await requirePrivatePayStaff();
@@ -22,6 +28,9 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ invoiceId:
     paid_at?: string;
     reference?: string;
     note?: string;
+    customer_note?: string;
+    send_receipt?: boolean;
+    receipt_delivery?: string;
   } = {};
   try {
     body = (await req.json().catch(() => ({}))) as typeof body;
@@ -29,14 +38,12 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ invoiceId:
     body = {};
   }
 
-  // Card payments must flow through Stripe so we capture brand/last4 safely; only
-  // manual methods (Zelle, Cash App, Apple Cash, cash, check, other) can be hand-recorded.
   if (!isPrivatePayManualPaymentMethod(body.method)) {
     return NextResponse.json(
       {
         ok: false,
         error:
-          "Choose a manual payment method (Zelle, Cash App, Apple Cash, Cash, Check, or Other). Use the secure link for card payments.",
+          "Choose a manual payment method (Zelle, Cash App, Apple Cash, Cash, Check, or Other). Use Charge card for Stripe payments.",
       },
       { status: 400 }
     );
@@ -50,6 +57,13 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ invoiceId:
         ? dollarsToCents(body.amount)
         : undefined;
 
+  const noteParts: string[] = [];
+  const internal = (body.note ?? "").trim();
+  const customer = (body.customer_note ?? "").trim();
+  if (internal) noteParts.push(internal);
+  if (customer) noteParts.push(`Customer note: ${customer}`);
+  const combinedNote = noteParts.length ? noteParts.join("\n\n") : null;
+
   try {
     await markInvoicePaidManually(
       invoiceId,
@@ -58,12 +72,30 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ invoiceId:
         amountCents,
         paidAt: body.paid_at ?? null,
         reference: body.reference ?? null,
-        note: body.note ?? null,
+        note: combinedNote,
       },
       auth.auth.user.id
     );
     const invoice = await getInvoiceWithItems(invoiceId);
-    return NextResponse.json({ ok: true, invoice });
+    if (!invoice) {
+      return NextResponse.json({ ok: false, error: "Invoice not found after payment." }, { status: 500 });
+    }
+
+    const sendReceipt = body.send_receipt !== false;
+    let receiptWarning: string | null = null;
+    if (sendReceipt) {
+      const delivery = isReceiptDelivery(body.receipt_delivery) ? body.receipt_delivery : "both";
+      const baseUrl = getAppBaseUrl(req.nextUrl.origin);
+      const urlError = validateAppBaseUrl(baseUrl);
+      if (urlError) {
+        receiptWarning = urlError;
+      } else {
+        const sent = await deliverPrivatePayReceipt({ invoice, baseUrl, delivery });
+        if (!sent.ok) receiptWarning = sent.error;
+      }
+    }
+
+    return NextResponse.json({ ok: true, invoice, receiptWarning });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to mark paid";
     return NextResponse.json({ ok: false, error: message }, { status: 400 });

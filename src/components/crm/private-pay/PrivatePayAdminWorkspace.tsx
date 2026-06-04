@@ -13,6 +13,7 @@ import {
   type PrivatePayInvoiceStatus,
 } from "@/lib/private-pay/constants";
 import { formatCentsUsd, serviceTypeLabel } from "@/lib/private-pay/format";
+import type { PrivatePaySettingsInput } from "@/lib/private-pay/payment-settings";
 import type {
   PrivatePayInvoiceInput,
   PrivatePayInvoiceListRow,
@@ -26,6 +27,7 @@ import {
   PrivatePayRecordPaymentModal,
   type RecordPaymentInput,
 } from "./PrivatePayRecordPaymentModal";
+import { PrivatePayPaymentSettingsModal } from "./PrivatePayPaymentSettingsModal";
 import { PrivatePaySendInvoiceConfirmModal } from "./PrivatePaySendInvoiceConfirmModal";
 import { getAppBaseUrl } from "@/lib/app-url";
 import {
@@ -61,9 +63,11 @@ const actionBtn =
 export function PrivatePayAdminWorkspace({
   templates,
   initialInvoices,
+  initialPaymentSettings,
 }: {
   templates: PrivatePayServiceTemplate[];
   initialInvoices: PrivatePayInvoiceListRow[];
+  initialPaymentSettings: PrivatePaySettingsInput;
 }) {
   const router = useRouter();
   const [invoices, setInvoices] = useState<PrivatePayInvoiceListRow[]>(initialInvoices);
@@ -88,6 +92,8 @@ export function PrivatePayAdminWorkspace({
   } | null>(null);
   const [sendBusy, setSendBusy] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [paymentSettings, setPaymentSettings] = useState<PrivatePaySettingsInput>(initialPaymentSettings);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const clientAppBase = useCallback(
     () => getAppBaseUrl(typeof window !== "undefined" ? window.location.origin : undefined),
@@ -121,6 +127,10 @@ export function PrivatePayAdminWorkspace({
             "—",
           customer_detail,
           profile_href,
+          pending_payment_report:
+            invoice.status === "paid" || invoice.status === "void"
+              ? null
+              : (prevRow?.pending_payment_report ?? null),
         };
         const exists = prev.some((i) => i.id === invoice.id);
         return exists ? prev.map((i) => (i.id === invoice.id ? { ...i, ...enriched } : i)) : [enriched, ...prev];
@@ -289,17 +299,26 @@ export function PrivatePayAdminWorkspace({
             amount: input.amount,
             paid_at: input.paidDate,
             note: input.note,
+            customer_note: input.customerNote,
+            send_receipt: input.sendReceipt,
+            receipt_delivery: input.receiptDelivery,
           }),
         });
         const json = (await res.json().catch(() => ({}))) as {
           ok?: boolean;
           invoice?: PrivatePayInvoiceWithItems;
+          receiptWarning?: string | null;
           error?: string;
         };
         if (!res.ok || !json.ok || !json.invoice) throw new Error(json.error || "Failed to record payment");
         upsertInvoice(json.invoice);
         setRecordFor(null);
-        setBanner({ kind: "ok", text: "Payment recorded and invoice marked paid." });
+        setBanner({
+          kind: json.receiptWarning ? "warn" : "ok",
+          text: json.receiptWarning
+            ? `Payment recorded. Receipt delivery issue: ${json.receiptWarning}`
+            : "Payment recorded and invoice marked paid.",
+        });
         router.refresh();
       } catch (e) {
         setRecordError(e instanceof Error ? e.message : "Something went wrong");
@@ -315,6 +334,17 @@ export function PrivatePayAdminWorkspace({
       const url = buildPrivatePayInvoicePdfUrl(invoice.public_token, { baseUrl: clientAppBase() });
       navigator.clipboard?.writeText(url).then(
         () => setBanner({ kind: "ok", text: "Secure invoice PDF link copied to clipboard." }),
+        () => setBanner({ kind: "err", text: "Could not copy link." })
+      );
+    },
+    [clientAppBase]
+  );
+
+  const copyReceiptLink = useCallback(
+    (invoice: PrivatePayInvoiceListRow) => {
+      const url = buildPrivatePayInvoicePublicUrl(invoice.public_token, clientAppBase());
+      navigator.clipboard?.writeText(url).then(
+        () => setBanner({ kind: "ok", text: "Secure receipt link copied to clipboard." }),
         () => setBanner({ kind: "err", text: "Could not copy link." })
       );
     },
@@ -373,6 +403,13 @@ export function PrivatePayAdminWorkspace({
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-end gap-2">
+        <button
+          type="button"
+          onClick={() => setSettingsOpen(true)}
+          className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+        >
+          Payment settings
+        </button>
         <button
           type="button"
           onClick={() => {
@@ -473,11 +510,18 @@ export function PrivatePayAdminWorkspace({
                       {formatCentsUsd(invoice.total_cents)}
                     </td>
                     <td className="py-3 pr-3">
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${STATUS_STYLES[invoice.status]}`}
-                      >
-                        {PRIVATE_PAY_INVOICE_STATUS_LABELS[invoice.status]}
-                      </span>
+                      <div className="flex flex-col gap-1">
+                        <span
+                          className={`w-fit rounded-full px-2 py-0.5 text-[10px] font-semibold ${STATUS_STYLES[invoice.status]}`}
+                        >
+                          {PRIVATE_PAY_INVOICE_STATUS_LABELS[invoice.status]}
+                        </span>
+                        {invoice.pending_payment_report ? (
+                          <span className="w-fit rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-900">
+                            Payment reported
+                          </span>
+                        ) : null}
+                      </div>
                     </td>
                     <td className="py-3 pr-3 text-slate-600">{formatDate(invoice.created_at)}</td>
                     <td className="py-3 pr-3 text-slate-600">{formatDate(invoice.paid_at)}</td>
@@ -498,12 +542,80 @@ export function PrivatePayAdminWorkspace({
                           Invoice PDF
                         </a>
                         {invoice.status === "paid" ? (
-                          <a
-                            href={`/api/private-pay/invoices/${invoice.id}/receipt`}
-                            className={`${actionBtn} border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100`}
-                          >
-                            Receipt PDF
-                          </a>
+                          <>
+                            <a
+                              href={`/api/private-pay/invoices/${invoice.id}/receipt`}
+                              className={`${actionBtn} border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100`}
+                            >
+                              Receipt PDF
+                            </a>
+                            <button
+                              type="button"
+                              disabled={rowBusy}
+                              onClick={async () => {
+                                setRowBusyId(invoice.id);
+                                try {
+                                  const res = await fetch(
+                                    `/api/private-pay/invoices/${invoice.id}/send-receipt-sms`,
+                                    { method: "POST" }
+                                  );
+                                  const json = (await res.json().catch(() => ({}))) as {
+                                    ok?: boolean;
+                                    error?: string;
+                                  };
+                                  if (!res.ok || !json.ok) throw new Error(json.error || "Failed to send receipt");
+                                  setBanner({ kind: "ok", text: "Receipt link sent by text." });
+                                } catch (e) {
+                                  setBanner({
+                                    kind: "err",
+                                    text: e instanceof Error ? e.message : "Something went wrong",
+                                  });
+                                } finally {
+                                  setRowBusyId(null);
+                                }
+                              }}
+                              className={`${actionBtn} border-sky-300 bg-white text-sky-800 hover:bg-sky-50`}
+                            >
+                              Send receipt text
+                            </button>
+                            <button
+                              type="button"
+                              disabled={rowBusy}
+                              onClick={async () => {
+                                setRowBusyId(invoice.id);
+                                try {
+                                  const res = await fetch(
+                                    `/api/private-pay/invoices/${invoice.id}/send-receipt-email`,
+                                    { method: "POST" }
+                                  );
+                                  const json = (await res.json().catch(() => ({}))) as {
+                                    ok?: boolean;
+                                    error?: string;
+                                  };
+                                  if (!res.ok || !json.ok) throw new Error(json.error || "Failed to send receipt");
+                                  setBanner({ kind: "ok", text: "Receipt link sent by email." });
+                                } catch (e) {
+                                  setBanner({
+                                    kind: "err",
+                                    text: e instanceof Error ? e.message : "Something went wrong",
+                                  });
+                                } finally {
+                                  setRowBusyId(null);
+                                }
+                              }}
+                              className={`${actionBtn} border-sky-300 bg-white text-sky-800 hover:bg-sky-50`}
+                            >
+                              Send receipt email
+                            </button>
+                            <button
+                              type="button"
+                              disabled={rowBusy}
+                              onClick={() => copyReceiptLink(invoice)}
+                              className={`${actionBtn} border-slate-300 bg-white text-slate-700 hover:bg-slate-50`}
+                            >
+                              Copy receipt link
+                            </button>
+                          </>
                         ) : null}
                         {isOpenStatus ? (
                           <>
@@ -543,7 +655,7 @@ export function PrivatePayAdminWorkspace({
                               type="button"
                               disabled={rowBusy}
                               onClick={() => handleRowAction(invoice.id, "charge")}
-                              className={`${actionBtn} border-emerald-600 bg-emerald-600 text-white hover:bg-emerald-700`}
+                              className={`${actionBtn} border-slate-300 bg-white text-slate-700 hover:bg-slate-50`}
                             >
                               Charge card
                             </button>
@@ -617,6 +729,7 @@ export function PrivatePayAdminWorkspace({
         open={Boolean(recordFor)}
         invoiceNumber={recordFor?.invoice_number ?? ""}
         totalCents={recordFor?.total_cents ?? 0}
+        pendingReport={recordFor?.pending_payment_report ?? null}
         busy={recordBusy}
         error={recordError}
         onClose={() => {
@@ -625,6 +738,16 @@ export function PrivatePayAdminWorkspace({
           setRecordError(null);
         }}
         onSubmit={submitRecordPayment}
+      />
+
+      <PrivatePayPaymentSettingsModal
+        open={settingsOpen}
+        initialSettings={paymentSettings}
+        onClose={() => setSettingsOpen(false)}
+        onSaved={(settings) => {
+          setPaymentSettings(settings);
+          setBanner({ kind: "ok", text: "Payment settings saved. New invoices will use these instructions." });
+        }}
       />
 
       <PrivatePaySendInvoiceConfirmModal

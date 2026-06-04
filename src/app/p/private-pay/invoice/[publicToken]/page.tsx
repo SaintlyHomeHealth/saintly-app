@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
 import { PublicInvoiceView } from "@/components/private-pay/PublicInvoiceView";
-import { getInvoiceByPublicToken } from "@/lib/private-pay/data";
-import { getPrivatePayPaymentInstructions } from "@/lib/private-pay/payment-instructions";
+import { getInvoiceByPublicToken, getPendingPaymentReportForInvoice } from "@/lib/private-pay/data";
+import { loadPrivatePayPaymentSettings } from "@/lib/private-pay/settings-data";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,11 +25,17 @@ export default async function PrivatePayPublicInvoicePage({
   const invoice = await getInvoiceByPublicToken(publicToken);
   if (!invoice) notFound();
 
+  const [settings, pendingReport] = await Promise.all([
+    loadPrivatePayPaymentSettings(),
+    getPendingPaymentReportForInvoice(invoice.id),
+  ]);
+
   return (
     <PublicInvoiceView
       invoice={invoice}
       publicToken={publicToken}
-      instructions={getPrivatePayPaymentInstructions()}
+      settings={settings}
+      pendingReport={pendingReport}
     />
   );
 }

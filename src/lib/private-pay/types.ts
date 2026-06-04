@@ -1,6 +1,7 @@
 import type {
   PrivatePayInvoiceStatus,
   PrivatePayPaymentMethod,
+  PrivatePayReportPaymentMethod,
   PrivatePayServiceType,
   PrivatePayUnitLabel,
 } from "@/lib/private-pay/constants";
@@ -16,6 +17,20 @@ export type PrivatePayInvoiceItem = {
   unit_amount_cents: number;
   line_total_cents: number;
   sort_order: number;
+  created_at: string;
+};
+
+export type PrivatePayPaymentReportStatus = "pending" | "reviewed" | "dismissed";
+
+export type PrivatePayPaymentReport = {
+  id: string;
+  invoice_id: string;
+  payment_method: PrivatePayReportPaymentMethod;
+  amount_cents: number | null;
+  reported_date: string | null;
+  payment_reference: string | null;
+  customer_note: string | null;
+  status: PrivatePayPaymentReportStatus;
   created_at: string;
 };
 
@@ -93,6 +108,7 @@ export type PrivatePayInvoiceListRow = PrivatePayInvoiceWithItems & {
   customer_name: string;
   customer_detail: string | null;
   profile_href: string | null;
+  pending_payment_report: PrivatePayPaymentReport | null;
 };
 
 /** CRM person selected when creating an invoice from /admin/private-pay. */
