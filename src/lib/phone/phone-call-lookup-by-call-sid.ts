@@ -22,6 +22,7 @@ export type PhoneCallSidMatchReason =
   | "twilio_leg_map.last_leg_call_sid"
   | "twilio_leg_map.parent_call_sid"
   | "softphone_conference.pstn_call_sid"
+  | "softphone_conference.client_call_sid"
   | "twilio_rest_parent_external_call_id"
   | null;
 
@@ -39,6 +40,7 @@ export function buildPhoneCallOrFilterForTwilioSid(callSid: string): string {
     `metadata->twilio_leg_map->>last_leg_call_sid.eq.${sid}`,
     `metadata->twilio_leg_map->>parent_call_sid.eq.${sid}`,
     `metadata->softphone_conference->>pstn_call_sid.eq.${sid}`,
+    `metadata->softphone_conference->>client_call_sid.eq.${sid}`,
   ].join(",");
 }
 
@@ -59,8 +61,11 @@ function inferMatchReason(
   }
   const sc = row.metadata?.softphone_conference;
   if (sc && typeof sc === "object" && !Array.isArray(sc)) {
-    const p = (sc as Record<string, unknown>).pstn_call_sid;
+    const scRec = sc as Record<string, unknown>;
+    const p = scRec.pstn_call_sid;
     if (typeof p === "string" && p === lookupSid) return "softphone_conference.pstn_call_sid";
+    const c = scRec.client_call_sid;
+    if (typeof c === "string" && c === lookupSid) return "softphone_conference.client_call_sid";
   }
   return null;
 }
@@ -118,6 +123,7 @@ export async function findPhoneCallRowByTwilioCallSidDetailed(
           "twilio_leg_map.last_leg_call_sid",
           "twilio_leg_map.parent_call_sid",
           "softphone_conference.pstn_call_sid",
+          "softphone_conference.client_call_sid",
         ],
       })
     );

@@ -106,6 +106,19 @@ export async function POST(req: NextRequest) {
     console.warn("[softphone-conference-events] merge_failed", result.error, {
       mergeLookupSid: mergeLookupSid.slice(0, 12),
     });
+  } else if (isInbound && isJoin && conferenceSid) {
+    console.log(
+      JSON.stringify({
+        tag: "inbound-conference-events",
+        event: "participant_join",
+        conference_sid: conferenceSid,
+        participant_call_sid: participantCallSid,
+        label,
+        pstn_call_sid: patch.pstn_call_sid ?? null,
+        client_call_sid: patch.client_call_sid ?? null,
+        merge_lookup_sid: mergeLookupSid,
+      })
+    );
   }
 
   const eventLower = (event || "").toLowerCase();

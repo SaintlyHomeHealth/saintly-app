@@ -157,6 +157,16 @@ export function ActiveCallBar() {
   const moveToCellStatus = callContext?.move_to_cell?.status ?? "idle";
   const moveToCellInProgress = moveToCellStatus === "ringing" || moveToCellStatus === "press_1";
   const moveToCellDebug = callContext?.move_to_cell_ui_debug ?? null;
+  const isInboundActiveCall =
+    moveToCellDebug?.phone_call_direction === "inbound" ||
+    callContext?.conference?.direction === "inbound";
+  const inboundConferenceEnabled =
+    moveToCellDebug?.inbound_conference_enabled ??
+    gating?.inbound_conference_enabled ??
+    softphoneCapabilities?.conference_inbound_enabled ??
+    true;
+  /** Hide Move to cell on inbound when server conference mode is off (not a broken button). */
+  const showMoveToCell = !isInboundActiveCall || inboundConferenceEnabled;
   const allowMoveToCell = moveToCellDebug
     ? moveToCellDebug.can_move_to_cell
     : Boolean(gating?.can_move_to_cell);
@@ -433,7 +443,7 @@ export function ActiveCallBar() {
             {moveToCellBannerMessage}
           </p>
         ) : null}
-        {status === "in_call" && !allowMoveToCell && moveToCellDebug ? (
+        {status === "in_call" && showMoveToCell && !allowMoveToCell && moveToCellDebug ? (
           <p
             className="mb-3 rounded-xl border border-slate-500/30 bg-slate-950/60 px-3 py-2 text-left font-mono text-[10px] leading-relaxed text-slate-300 sm:mb-2"
             role="status"
@@ -553,17 +563,19 @@ export function ActiveCallBar() {
               <MessageSquareText className="h-4 w-4" strokeWidth={2} />
               Transcript
             </button>
-            <button
-              type="button"
-              onClick={handleMoveToCellClick}
-              disabled={!allowMoveToCell || moveToCellInProgress || actionBusy !== null}
-              title={moveToCellTooltip}
-              aria-label={moveToCellTooltip}
-              className="inline-flex h-10 items-center gap-1 rounded-full border border-white/15 px-3 text-xs font-semibold text-indigo-50 disabled:opacity-40"
-            >
-              <Smartphone className="h-4 w-4" strokeWidth={2} />
-              {actionBusy === "move_cell" || moveToCellInProgress ? "Cell…" : "Move to cell"}
-            </button>
+            {showMoveToCell ? (
+              <button
+                type="button"
+                onClick={handleMoveToCellClick}
+                disabled={!allowMoveToCell || moveToCellInProgress || actionBusy !== null}
+                title={moveToCellTooltip}
+                aria-label={moveToCellTooltip}
+                className="inline-flex h-10 items-center gap-1 rounded-full border border-white/15 px-3 text-xs font-semibold text-indigo-50 disabled:opacity-40"
+              >
+                <Smartphone className="h-4 w-4" strokeWidth={2} />
+                {actionBusy === "move_cell" || moveToCellInProgress ? "Cell…" : "Move to cell"}
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={() => setKeypadOpen(true)}
@@ -610,13 +622,15 @@ export function ActiveCallBar() {
         <div
           className={`mt-5 grid gap-2 sm:hidden ${isReactNativeWebViewShell() ? "grid-cols-4" : "grid-cols-3"}`}
         >
-          <ControlBtn
-            label={actionBusy === "move_cell" || moveToCellInProgress ? "Cell…" : "Move cell"}
-            icon={<Smartphone className="h-5 w-5" strokeWidth={2} />}
-            onClick={handleMoveToCellClick}
-            disabled={!allowMoveToCell || moveToCellInProgress || actionBusy !== null}
-            title={moveToCellTooltip}
-          />
+          {showMoveToCell ? (
+            <ControlBtn
+              label={actionBusy === "move_cell" || moveToCellInProgress ? "Cell…" : "Move cell"}
+              icon={<Smartphone className="h-5 w-5" strokeWidth={2} />}
+              onClick={handleMoveToCellClick}
+              disabled={!allowMoveToCell || moveToCellInProgress || actionBusy !== null}
+              title={moveToCellTooltip}
+            />
+          ) : null}
           <ControlBtn
             label="Transfer"
             icon={<PhoneForwarded className="h-5 w-5" strokeWidth={2} />}

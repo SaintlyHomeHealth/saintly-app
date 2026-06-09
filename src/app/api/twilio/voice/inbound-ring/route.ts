@@ -41,7 +41,7 @@ import { isTwilioVoiceJsClientFrom, isTwilioVoiceJsClientTo } from "@/lib/twilio
 import { logTwilioVoiceTrace, summarizeTwimlResponse } from "@/lib/twilio/twilio-voice-trace-log";
 import { parseVerifiedTwilioFormBody } from "@/lib/twilio/verify-form-post";
 import { findTwilioPhoneNumberByToE164 } from "@/lib/twilio/twilio-phone-number-repo";
-import { inboundBrowserConferenceEnabled, inboundConferenceRoomName } from "@/lib/phone/inbound-browser-conference";
+import { inboundBrowserConferenceEnabled, inboundConferenceRoomName, inboundBrowserConferenceEnvLabel } from "@/lib/phone/inbound-browser-conference";
 import { normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
 
 function escapeXml(text: string): string {
@@ -82,6 +82,7 @@ export async function POST(req: NextRequest) {
         tag: "inbound-voice-flow",
         event: "inbound_call_received",
         handler: "inbound-ring",
+        inbound_conference_enabled: inboundBrowserConferenceEnabled(),
         call_sid: callSid,
         from_e164_tail: from.replace(/\D/g, "").slice(-4),
         to_e164_tail: to.replace(/\D/g, "").slice(-4),
@@ -202,6 +203,8 @@ export async function POST(req: NextRequest) {
     twilio_phone_number_id: voiceTn?.id ?? undefined,
     metadata: {
       source: "twilio_voice_inbound_ring",
+      inbound_conference_env_at_ring: inboundBrowserConferenceEnvLabel(),
+      inbound_conference_enabled_at_ring: inboundBrowserConferenceEnabled(),
       ...(inboundBrowserConferenceEnabled()
         ? {
             softphone_conference: {

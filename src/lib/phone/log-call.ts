@@ -153,7 +153,7 @@ export async function upsertPhoneCallFromWebhook(
 
   const { data: existing, error: findError } = await supabase
     .from("phone_calls")
-    .select("id")
+    .select("id, metadata")
     .eq("external_call_id", externalCallId)
     .maybeSingle();
 
@@ -217,7 +217,13 @@ export async function upsertPhoneCallFromWebhook(
     if (startedVal !== null) updateRow.started_at = startedVal;
     if (endedVal !== null) updateRow.ended_at = endedVal;
     if (durationVal !== null) updateRow.duration_seconds = durationVal;
-    if (metaVal !== undefined) updateRow.metadata = metaVal;
+    if (metaVal !== undefined) {
+      const prevMeta =
+        existing.metadata && typeof existing.metadata === "object" && !Array.isArray(existing.metadata)
+          ? (existing.metadata as Record<string, unknown>)
+          : {};
+      updateRow.metadata = { ...prevMeta, ...metaVal };
+    }
 
     if (Object.keys(updateRow).length > 0) {
       const { error: updateError } = await supabase.from("phone_calls").update(updateRow).eq("id", callId);

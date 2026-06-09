@@ -26,6 +26,7 @@ import {
 import { loadAssignedTwilioNumberForUser } from "@/lib/twilio/twilio-phone-number-repo";
 import { resolveTwilioMediaStreamWssUrl } from "@/lib/twilio/resolve-media-stream-wss-url";
 import { resolveTranscriptionStatusCallbackUrl } from "@/lib/twilio/resolve-transcription-callback-url";
+import { inboundBrowserConferenceEnabled } from "@/lib/phone/inbound-browser-conference";
 
 type OutboundLinePayload = { e164: string; label: string; is_default: boolean };
 
@@ -156,6 +157,7 @@ export async function GET() {
 
   return NextResponse.json({
     conference_outbound_enabled: process.env.TWILIO_SOFTPHONE_USE_CONFERENCE === "true",
+    conference_inbound_enabled: inboundBrowserConferenceEnabled(),
     outbound_call_strategy: resolveOutboundCallStrategy(),
     outbound_use_pstn_bridge: shouldUsePstnBridgeOutbound(),
     outbound_pstn_bridge_manual_available: manualPstnBridgeAvailable,

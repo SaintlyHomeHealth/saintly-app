@@ -70,6 +70,8 @@ export type OutboundLineInfo = { e164: string; label: string; is_default: boolea
 /** Server flags from `/api/workspace/phone/softphone-capabilities` (no secrets). */
 export type SoftphoneServerCapabilities = {
   conference_outbound_enabled: boolean;
+  /** Server: TWILIO_INBOUND_USE_CONFERENCE=1|true|yes — inbound Move to cell / conference controls. */
+  conference_inbound_enabled?: boolean;
   /** Server: `browser_first` (Voice.js) or `pstn_bridge` (staff cell + press 1). */
   outbound_call_strategy?: "browser_first" | "pstn_bridge";
   /** When true, outbound calls use REST → staff cell → press 1 → patient (no Twilio Client for that path). */

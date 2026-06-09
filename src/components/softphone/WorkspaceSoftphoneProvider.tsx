@@ -512,6 +512,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
           const strategyRaw = j.outbound_call_strategy;
           setSoftphoneCapabilities({
             conference_outbound_enabled: Boolean(j.conference_outbound_enabled),
+            conference_inbound_enabled: Boolean(j.conference_inbound_enabled),
             outbound_call_strategy:
               strategyRaw === "pstn_bridge" || strategyRaw === "browser_first" ? strategyRaw : undefined,
             outbound_use_pstn_bridge: Boolean(j.outbound_use_pstn_bridge),
@@ -733,6 +734,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
                       call_context_found: Boolean(dbg.call_context_found),
                       poll_call_sid: dbg.poll_call_sid ?? sid,
                       phone_call_direction: dbg.phone_call_direction ?? null,
+                      inbound_conference_enabled: Boolean(dbg.inbound_conference_enabled),
                       resolved_twilio_inbound_use_conference:
                         dbg.resolved_twilio_inbound_use_conference ?? "unknown",
                       resolved_twilio_softphone_use_conference:
@@ -837,6 +839,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
                   call_context_found: Boolean(j.move_to_cell_ui_debug.call_context_found),
                   poll_call_sid: j.move_to_cell_ui_debug.poll_call_sid ?? sid,
                   phone_call_direction: j.move_to_cell_ui_debug.phone_call_direction ?? null,
+                  inbound_conference_enabled: Boolean(j.move_to_cell_ui_debug.inbound_conference_enabled),
                   resolved_twilio_inbound_use_conference:
                     j.move_to_cell_ui_debug.resolved_twilio_inbound_use_conference ?? "unknown",
                   resolved_twilio_softphone_use_conference:

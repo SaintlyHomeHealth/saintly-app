@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/admin";
 import {
   buildStaffConferenceJoinTwiml,
+  inboundBrowserConferenceEnabled,
   inboundConferenceRoomName,
   legacyInboundStaffBridgeTwiml,
   redirectCustomerIntoInboundConference,
@@ -40,6 +41,7 @@ export async function POST(req: NextRequest) {
   const fromRaw = typeof p.From === "string" ? p.From : "";
 
   logConnect("request_received", {
+    inbound_conference_enabled: inboundBrowserConferenceEnabled(),
     staff_call_sid: staffCallSid || null,
     parent_call_sid_param: parentFromParams || null,
     token_parent_call_sid: tokenParentSid || null,
@@ -49,6 +51,15 @@ export async function POST(req: NextRequest) {
     from_tail: fromRaw.replace(/\D/g, "").slice(-4) || null,
     to_client: toRaw.toLowerCase().startsWith("client:") ? toRaw.slice(0, 24) : toRaw.slice(0, 24),
   });
+
+  if (!inboundBrowserConferenceEnabled()) {
+    logConnect("fallback_legacy_inbound_conference_disabled", {
+      staff_call_sid: staffCallSid || null,
+      customer_call_sid: customerCallSid || null,
+    });
+    const xml = legacyInboundStaffBridgeTwiml();
+    return new NextResponse(xml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
+  }
 
   if (!payload || !customerCallSid || !staffCallSid.startsWith("CA")) {
     logConnect("fallback_legacy_invalid_token_or_sids", {
@@ -120,11 +131,12 @@ export async function POST(req: NextRequest) {
     twilio_more_info: redirect.error?.moreInfo ?? null,
   });
 
-  if (!redirect.ok) {
+  if (!redirect.parentUpdateOk) {
     logConnect("fallback_legacy_direct_bridge", {
-      reason: redirect.customerInConference ? "parent_update_failed" : "customer_not_in_conference",
+      reason: redirect.error?.message ?? "parent_conference_redirect_failed",
       staff_call_sid: staffCallSid,
       customer_call_sid: customerCallSid,
+      customer_in_conference: redirect.customerInConference,
     });
     const xml = legacyInboundStaffBridgeTwiml();
     logTwilioVoiceTrace({
@@ -142,6 +154,16 @@ export async function POST(req: NextRequest) {
     return new NextResponse(xml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
   }
 
+  if (!redirect.customerInConference) {
+    logConnect("warn_customer_conference_poll_miss", {
+      customer_call_sid: customerCallSid,
+      conference_friendly_name: room,
+      poll_attempts: redirect.pollAttempts,
+      conference_sid: redirect.conferenceSid,
+      note: "proceeding_with_staff_join_parent_redirect_ok",
+    });
+  }
+
   const mergeResult = await mergeSoftphoneConferenceMetadata(supabaseAdmin, customerCallSid, {
     friendly_name: room,
     mode: "conference",
@@ -154,7 +176,7 @@ export async function POST(req: NextRequest) {
     console.warn(`[${LOG_TAG}] metadata_merge_failed`, mergeResult.error);
   }
 
-  if (staffUserId && mergeResult.ok) {
+  if (staffUserId) {
     const { data: row } = await supabaseAdmin
       .from("phone_calls")
       .select("id, metadata")
@@ -166,6 +188,11 @@ export async function POST(req: NextRequest) {
           ? (row.metadata as Record<string, unknown>)
           : {};
       meta.staff_user_id = staffUserId;
+      meta.twilio_leg_map = {
+        parent_call_sid: customerCallSid,
+        last_leg_call_sid: staffCallSid,
+        updated_at: new Date().toISOString(),
+      };
       await supabaseAdmin.from("phone_calls").update({ metadata: meta }).eq("id", row.id);
     }
   }
@@ -173,10 +200,13 @@ export async function POST(req: NextRequest) {
   const xml = buildStaffConferenceJoinTwiml(room, publicBase);
 
   logConnect("staff_join_conference_twiml", {
+    inbound_conference_enabled: true,
     staff_call_sid: staffCallSid,
     customer_call_sid: customerCallSid,
     conference_friendly_name: room,
     conference_sid: redirect.conferenceSid,
+    move_to_cell_ready: Boolean(redirect.conferenceSid && staffCallSid && customerCallSid),
+    customer_in_conference: redirect.customerInConference,
   });
 
   logTwilioVoiceTrace({

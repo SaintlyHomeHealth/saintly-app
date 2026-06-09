@@ -6,7 +6,7 @@ import {
   type ConferenceGatingSnapshot,
   type MoveToCellDisabledCode,
 } from "@/lib/phone/conference-gating";
-import { inboundBrowserConferenceEnabled } from "@/lib/phone/inbound-browser-conference";
+import { inboundBrowserConferenceEnabled, inboundBrowserConferenceEnvLabel } from "@/lib/phone/inbound-browser-conference";
 import { readMoveToCellUiState, type MoveToCellMeta } from "@/lib/phone/move-to-cell-types";
 import {
   parseLiveTranscriptEntriesFromMetadata,
@@ -69,6 +69,8 @@ export type MoveToCellUiDebug = {
   call_context_found: boolean;
   poll_call_sid: string;
   phone_call_direction: "inbound" | "outbound" | null;
+  /** Resolved from TWILIO_INBOUND_USE_CONFERENCE (1/true/yes = enabled). */
+  inbound_conference_enabled: boolean;
   resolved_twilio_inbound_use_conference: string;
   resolved_twilio_softphone_use_conference: string;
   softphone_conference_mode: string | null;
@@ -81,13 +83,8 @@ export type MoveToCellUiDebug = {
   disabled_codes: MoveToCellDisabledCode[];
 };
 
-function resolvedInboundConferenceEnvLabel(): string {
-  const raw = process.env.TWILIO_INBOUND_USE_CONFERENCE?.trim();
-  return raw === undefined || raw === "" ? "unset (off)" : raw;
-}
-
 function resolvedSoftphoneConferenceEnvLabel(): string {
-  return process.env.TWILIO_SOFTPHONE_USE_CONFERENCE === "true" ? "true" : "false";
+  return process.env.TWILIO_SOFTPHONE_USE_CONFERENCE === "true" ? "true (enabled)" : "false (disabled)";
 }
 
 export function buildMoveToCellUiDebug(input: {
@@ -109,7 +106,8 @@ export function buildMoveToCellUiDebug(input: {
     call_context_found: input.callContextFound,
     poll_call_sid: input.pollCallSid,
     phone_call_direction: input.phoneCallDirection,
-    resolved_twilio_inbound_use_conference: resolvedInboundConferenceEnvLabel(),
+    inbound_conference_enabled: input.gating?.inbound_conference_enabled ?? inboundBrowserConferenceEnabled(),
+    resolved_twilio_inbound_use_conference: inboundBrowserConferenceEnvLabel(),
     resolved_twilio_softphone_use_conference: resolvedSoftphoneConferenceEnvLabel(),
     softphone_conference_mode: typeof input.conf?.mode === "string" ? input.conf.mode : null,
     softphone_conference_conference_sid:
@@ -308,6 +306,11 @@ export async function buildWorkspaceCallContextPayload(
     JSON.stringify({
       tag: "move-to-cell-ui",
       event: gating.can_move_to_cell ? "button_enabled" : "button_disabled",
+      inbound_conference_enabled: gating.inbound_conference_enabled,
+      conference_sid: moveToCellUiDebug.softphone_conference_conference_sid,
+      pstn_call_sid: moveToCellUiDebug.softphone_conference_pstn_call_sid,
+      client_call_sid: moveToCellUiDebug.softphone_conference_client_call_sid,
+      move_to_cell_ready: gating.can_move_to_cell,
       ...moveToCellUiDebug,
       phone_call_id: data.id,
       external_call_id: data.external_call_id,

@@ -16,6 +16,13 @@ export function inboundBrowserConferenceEnabled(): boolean {
   return v === "1" || v === "true" || v === "yes";
 }
 
+/** Staff-visible label for diagnostics (raw env + resolved on/off). */
+export function inboundBrowserConferenceEnvLabel(): string {
+  const raw = process.env.TWILIO_INBOUND_USE_CONFERENCE?.trim();
+  if (raw === undefined || raw === "") return "unset (off)";
+  return inboundBrowserConferenceEnabled() ? `${raw} (enabled)` : `${raw} (disabled)`;
+}
+
 /** Conference friendly name for PSTN inbound (customer parent CallSid). */
 export function inboundConferenceRoomName(customerCallSid: string): string {
   const sid = customerCallSid.trim();
@@ -277,15 +284,21 @@ export async function redirectCustomerIntoInboundConference(input: {
     if (i < attempts - 1) await sleep(intervalMs);
   }
 
+  /** Parent TwiML redirect is authoritative; poll may lag before participant list shows the customer. */
+  const ok = parentUpdateOk;
   return {
-    ok: parentUpdateOk && customerInConference,
+    ok,
     parentUpdateOk,
     customerInConference,
     conferenceSid,
     parentStatusBefore,
     parentStatusAfter,
     pollAttempts: pollCount,
-    error: customerInConference ? null : { message: "customer_not_in_conference_after_poll", code: null, status: null, moreInfo: null },
+    error: ok
+      ? customerInConference
+        ? null
+        : { message: "customer_not_in_conference_after_poll", code: null, status: null, moreInfo: null }
+      : { message: "parent_conference_redirect_failed", code: null, status: null, moreInfo: null },
   };
 }
 

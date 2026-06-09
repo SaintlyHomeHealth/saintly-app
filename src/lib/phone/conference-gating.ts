@@ -1,4 +1,5 @@
 import type { MoveToCellStatus } from "@/lib/phone/move-to-cell-types";
+import { inboundBrowserConferenceEnabled } from "@/lib/phone/inbound-browser-conference";
 import { resolveTwilioMediaStreamWssUrl } from "@/lib/twilio/resolve-media-stream-wss-url";
 import { resolveTranscriptionStatusCallbackUrl } from "@/lib/twilio/resolve-transcription-callback-url";
 
@@ -195,9 +196,7 @@ export function computeConferenceGating(input: {
   } | null;
 }): ConferenceGatingSnapshot {
   const conferenceModeEnv = process.env.TWILIO_SOFTPHONE_USE_CONFERENCE === "true";
-  const inboundConfEnv = process.env.TWILIO_INBOUND_USE_CONFERENCE?.trim().toLowerCase() ?? "";
-  const inboundConferenceEnabled =
-    inboundConfEnv === "1" || inboundConfEnv === "true" || inboundConfEnv === "yes";
+  const inboundConferenceEnabled = inboundBrowserConferenceEnabled();
 
   const wss = resolveTwilioMediaStreamWssUrl();
   const mediaOk = wss.startsWith("wss://");
