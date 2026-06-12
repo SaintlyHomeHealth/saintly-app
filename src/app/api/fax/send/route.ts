@@ -82,6 +82,8 @@ function parsePacketMetadata(value: unknown): FaxPacketMetadata | null {
     message: pick("message"),
     cover_sheet_template_id: pick("cover_sheet_template_id"),
     cover_sheet_template_name: pick("cover_sheet_template_name"),
+    document_template_id: pick("document_template_id"),
+    document_template_name: pick("document_template_name"),
   };
   const hasValue = Object.values(meta).some(Boolean);
   return hasValue ? meta : null;

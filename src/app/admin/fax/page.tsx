@@ -153,6 +153,9 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
             <Link href="/admin/fax/templates" className={crmActionBtnSky}>
               Cover templates
             </Link>
+            <Link href="/admin/fax/document-templates" className={crmActionBtnSky}>
+              Document templates
+            </Link>
             <Link href="/admin/fax?tab=inbox&unread=1" className={crmPrimaryCtaCls}>
               Review unread
             </Link>

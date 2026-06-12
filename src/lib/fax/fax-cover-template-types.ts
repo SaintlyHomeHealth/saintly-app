@@ -21,6 +21,8 @@ export type FaxPacketMetadata = {
   message?: string | null;
   cover_sheet_template_id?: string | null;
   cover_sheet_template_name?: string | null;
+  document_template_id?: string | null;
+  document_template_name?: string | null;
 };
 
 export type FaxCoverSheetFields = {

@@ -15,6 +15,7 @@ import {
 } from "@/app/admin/fax/_components/fax-center-ui";
 import { SAINTLY_RETURN_FAX_DISPLAY } from "@/lib/fax/cover-sheet-constants";
 import type { FaxCoverSheetFields, FaxCoverSheetTemplateRow, FaxPacketMetadata } from "@/lib/fax/fax-cover-template-types";
+import type { FaxDocumentTemplateRow } from "@/lib/fax/fax-document-template-types";
 import { formatDateOfBirthInput } from "@/lib/fax/format-date-of-birth-input";
 import { formatPhoneFaxInput, normalizePhoneFaxForSend } from "@/lib/fax/format-fax-phone-display";
 import { buildFaxPacketPdf, formatPacketDate, isFaxPacketFile, MAX_PACKET_FILES } from "@/lib/fax/fax-packet-pdf";
@@ -55,7 +56,32 @@ function buildRecipientName(name: string, org: string): string | null {
 }
 
 function pdfBytesToFile(pdfBytes: Uint8Array, filename: string): File {
-  return new File([pdfBytes.slice()], filename, { type: "application/pdf" });
+  const copy = new Uint8Array(pdfBytes.byteLength);
+  copy.set(pdfBytes);
+  return new File([copy], filename, { type: "application/pdf" });
+}
+
+async function fetchDocumentTemplateAttachmentFile(templateId: string): Promise<File | null> {
+  const res = await fetch(
+    `/api/fax/document-templates/${encodeURIComponent(templateId)}/attachment?format=json`
+  );
+  if (res.status === 404) return null;
+  const data = (await res.json()) as {
+    ok?: boolean;
+    url?: string;
+    fileName?: string | null;
+    contentType?: string | null;
+    error?: string;
+  };
+  if (!res.ok || !data.url) {
+    throw new Error(data.error || "Could not load template attachment.");
+  }
+  const blobRes = await fetch(data.url);
+  if (!blobRes.ok) throw new Error("Could not download template attachment.");
+  const blob = await blobRes.blob();
+  const name = data.fileName?.trim() || "template-attachment";
+  const type = data.contentType?.trim() || blob.type || "application/octet-stream";
+  return new File([blob], name, { type });
 }
 
 function buildCoverFields(input: {
@@ -92,12 +118,19 @@ export function NewFaxPacketButton() {
   const [step, setStep] = useState<Step>("compose");
   const [sending, setSending] = useState(false);
   const [loadingTemplates, setLoadingTemplates] = useState(false);
+  const [loadingDocumentTemplates, setLoadingDocumentTemplates] = useState(false);
+  const [loadingDocumentTemplate, setLoadingDocumentTemplate] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
   const [templates, setTemplates] = useState<FaxCoverSheetTemplateRow[]>([]);
+  const [documentTemplates, setDocumentTemplates] = useState<FaxDocumentTemplateRow[]>([]);
   const [schemaMissing, setSchemaMissing] = useState(false);
+  const [documentTemplatesSchemaMissing, setDocumentTemplatesSchemaMissing] = useState(false);
 
   const [templateId, setTemplateId] = useState("");
+  const [documentTemplateId, setDocumentTemplateId] = useState("");
+  const [documentBodyText, setDocumentBodyText] = useState("");
+  const [templateAttachmentFile, setTemplateAttachmentFile] = useState<File | null>(null);
   const [toFax, setToFax] = useState("");
   const [recipientName, setRecipientName] = useState("");
   const [recipientOrganization, setRecipientOrganization] = useState("");
@@ -116,7 +149,13 @@ export function NewFaxPacketButton() {
   const [buildingPreview, setBuildingPreview] = useState(false);
 
   const selectedTemplate = templates.find((t) => t.id === templateId) ?? null;
-  const busy = sending || buildingPreview;
+  const selectedDocumentTemplate = documentTemplates.find((t) => t.id === documentTemplateId) ?? null;
+  const busy = sending || buildingPreview || loadingDocumentTemplate;
+
+  const packetAttachmentFiles = [
+    ...(templateAttachmentFile ? [templateAttachmentFile] : []),
+    ...files,
+  ];
 
   const loadTemplates = useCallback(async () => {
     setLoadingTemplates(true);
@@ -144,10 +183,30 @@ export function NewFaxPacketButton() {
     }
   }, []);
 
+  const loadDocumentTemplates = useCallback(async () => {
+    setLoadingDocumentTemplates(true);
+    try {
+      const res = await fetch("/api/fax/document-templates");
+      const data = (await res.json()) as {
+        templates?: FaxDocumentTemplateRow[];
+        schema_missing?: boolean;
+        error?: string;
+      };
+      if (!res.ok) throw new Error(data.error || "Could not load document templates.");
+      setDocumentTemplatesSchemaMissing(Boolean(data.schema_missing));
+      setDocumentTemplates(data.templates ?? []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not load document templates.");
+    } finally {
+      setLoadingDocumentTemplates(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (!open) return;
     void loadTemplates();
-  }, [open, loadTemplates]);
+    void loadDocumentTemplates();
+  }, [open, loadTemplates, loadDocumentTemplates]);
 
   useEffect(() => {
     if (!toast) return;
@@ -172,6 +231,9 @@ export function NewFaxPacketButton() {
     setError(null);
     setFiles([]);
     setTemplateId("");
+    setDocumentTemplateId("");
+    setDocumentBodyText("");
+    setTemplateAttachmentFile(null);
     setToFax("");
     setRecipientName("");
     setRecipientOrganization("");
@@ -187,6 +249,36 @@ export function NewFaxPacketButton() {
     if (!busy) {
       setOpen(false);
       resetModal();
+    }
+  }
+
+  async function onDocumentTemplateChange(id: string) {
+    setDocumentTemplateId(id);
+    clearPreview();
+
+    if (!id) {
+      setDocumentBodyText("");
+      setTemplateAttachmentFile(null);
+      return;
+    }
+
+    const tpl = documentTemplates.find((t) => t.id === id);
+    if (!tpl) return;
+
+    setDocumentBodyText(tpl.body_content);
+    setTemplateAttachmentFile(null);
+
+    if (!tpl.attachment_storage_path) return;
+
+    setLoadingDocumentTemplate(true);
+    setError(null);
+    try {
+      const file = await fetchDocumentTemplateAttachmentFile(id);
+      setTemplateAttachmentFile(file);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not load template attachment.");
+    } finally {
+      setLoadingDocumentTemplate(false);
     }
   }
 
@@ -275,29 +367,35 @@ export function NewFaxPacketButton() {
     return true;
   }
 
-  function validateAttachments(): boolean {
-    if (files.length === 0) {
-      setError("Add at least one attachment.");
-      return false;
+  function validatePacketContent(): boolean {
+    const hasBody = documentBodyText.trim().length > 0;
+    const hasAttachments = packetAttachmentFiles.length > 0;
+    if (hasBody || hasAttachments) {
+      setError(null);
+      return true;
     }
-    setError(null);
-    return true;
+    setError("Add document text, select a template with content, or upload at least one attachment.");
+    return false;
   }
 
   async function buildPreview() {
-    if (!validateCompose() || !validateAttachments()) return;
+    if (!validateCompose() || !validatePacketContent()) return;
     setBuildingPreview(true);
     setError(null);
     try {
       const draft = await buildFaxPacketPdf({
         coverFields: coverInput("—"),
         templateTitle: selectedTemplate?.name,
-        attachmentFiles: files,
+        documentBodyText,
+        documentBodyTitle: selectedDocumentTemplate?.name,
+        attachmentFiles: packetAttachmentFiles,
       });
       const finalPacket = await buildFaxPacketPdf({
         coverFields: coverInput(String(draft.pageCount)),
         templateTitle: selectedTemplate?.name,
-        attachmentFiles: files,
+        documentBodyText,
+        documentBodyTitle: selectedDocumentTemplate?.name,
+        attachmentFiles: packetAttachmentFiles,
       });
       clearPreview();
       setPreviewUrl(URL.createObjectURL(new Blob([finalPacket.pdfBytes.slice()], { type: "application/pdf" })));
@@ -311,7 +409,7 @@ export function NewFaxPacketButton() {
   }
 
   async function handleSend() {
-    if (!validateCompose() || !validateAttachments()) return;
+    if (!validateCompose() || !validatePacketContent()) return;
     const toNumber = normalizePhoneFaxForSend(toFax);
     if (!toNumber) return;
 
@@ -324,14 +422,18 @@ export function NewFaxPacketButton() {
           await buildFaxPacketPdf({
             coverFields: coverInput("—"),
             templateTitle: selectedTemplate?.name,
-            attachmentFiles: files,
+            documentBodyText,
+            documentBodyTitle: selectedDocumentTemplate?.name,
+            attachmentFiles: packetAttachmentFiles,
           })
         ).pageCount;
 
       const { pdfBytes } = await buildFaxPacketPdf({
         coverFields: coverInput(String(pageCount)),
         templateTitle: selectedTemplate?.name,
-        attachmentFiles: files,
+        documentBodyText,
+        documentBodyTitle: selectedDocumentTemplate?.name,
+        attachmentFiles: packetAttachmentFiles,
       });
 
       const storagePath = await uploadFaxPdf(pdfBytesToFile(pdfBytes, "fax-packet.pdf"));
@@ -345,10 +447,13 @@ export function NewFaxPacketButton() {
         message: message.trim() || null,
         cover_sheet_template_id: templateId,
         cover_sheet_template_name: selectedTemplate?.name ?? null,
+        document_template_id: documentTemplateId || null,
+        document_template_name: selectedDocumentTemplate?.name ?? null,
       };
 
       const noteParts = [
         `Fax packet: ${selectedTemplate?.name ?? "cover sheet"}.`,
+        selectedDocumentTemplate?.name ? `Document: ${selectedDocumentTemplate.name}.` : null,
         patientName.trim() ? `Patient: ${patientName.trim()}.` : null,
         patientDob.trim() ? `DOB: ${patientDob.trim()}.` : null,
       ].filter(Boolean);
@@ -399,6 +504,12 @@ export function NewFaxPacketButton() {
             <FaxPacketModalHeader onClose={closeModal} busy={busy} step={step} />
 
             <div className={faxUi.modalBody}>
+              {documentTemplatesSchemaMissing ? (
+                <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                  Apply the fax document templates migration to use saved document templates in packets.
+                </div>
+              ) : null}
+
               {schemaMissing ? (
                 <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
                   Apply the fax cover sheet migration to enable templates.
@@ -534,7 +645,82 @@ export function NewFaxPacketButton() {
               ) : null}
 
               {step === "attachments" ? (
-                <FaxSection title="Attachments" hint="PDF, JPEG, or PNG. Drag rows to set page order after the cover sheet.">
+                <div className="space-y-5">
+                  <FaxSection
+                    title="Document template"
+                    hint="Load saved clinical document text. You can edit it before sending. Attachments from the template are optional."
+                  >
+                    <FaxField label="Use document template">
+                      <select
+                        value={documentTemplateId}
+                        disabled={busy || loadingDocumentTemplates}
+                        onChange={(e) => void onDocumentTemplateChange(e.target.value)}
+                        className={faxUi.select}
+                      >
+                        <option value="">
+                          {loadingDocumentTemplates ? "Loading…" : "None — paste or upload below"}
+                        </option>
+                        {documentTemplates.map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {t.name}
+                          </option>
+                        ))}
+                      </select>
+                    </FaxField>
+                    <p className="text-xs text-slate-500">
+                      <Link href="/admin/fax/document-templates" className="font-semibold text-sky-700 hover:underline">
+                        Manage document templates
+                      </Link>
+                      {loadingDocumentTemplate ? " · Loading template attachment…" : null}
+                    </p>
+                    <FaxField label="Document body">
+                      <textarea
+                        value={documentBodyText}
+                        onChange={(e) => {
+                          setDocumentBodyText(e.target.value);
+                          clearPreview();
+                        }}
+                        disabled={busy}
+                        rows={14}
+                        className={faxUi.textarea}
+                        placeholder="Paste or edit document text here. It will be included as readable PDF pages in the fax packet."
+                        spellCheck={false}
+                      />
+                    </FaxField>
+                    <p className={faxUi.sectionHint}>
+                      Line breaks are preserved. Document text can be sent without uploading any additional files.
+                    </p>
+                  </FaxSection>
+
+                  <FaxSection
+                    title="Additional attachments"
+                    hint={
+                      documentBodyText.trim()
+                        ? "Optional PDF, JPEG, or PNG files. Drag rows to set page order after the cover sheet and document body."
+                        : "PDF, JPEG, or PNG. Drag rows to set page order after the cover sheet and document body."
+                    }
+                  >
+                  {templateAttachmentFile ? (
+                    <div className={`${faxUi.fileRow} mb-3`}>
+                      <span className="min-w-0 break-all text-slate-800">
+                        <span className="mr-2 rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-sky-800">
+                          Template
+                        </span>
+                        {templateAttachmentFile.name}
+                      </span>
+                      <button
+                        type="button"
+                        className={faxUi.btnGhost}
+                        disabled={busy}
+                        onClick={() => {
+                          setTemplateAttachmentFile(null);
+                          clearPreview();
+                        }}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ) : null}
                   <input
                     ref={fileInputRef}
                     id={`${uploadId}-file`}
@@ -615,11 +801,12 @@ export function NewFaxPacketButton() {
                       ))}
                     </ul>
                   ) : null}
-                </FaxSection>
+                  </FaxSection>
+                </div>
               ) : null}
 
               {step === "preview" ? (
-                <FaxSection title="Review packet" hint="Confirm the merged cover sheet and attachments before sending.">
+                <FaxSection title="Review packet" hint="Confirm the cover sheet, document body, and attachments before sending.">
                   {previewPageCount != null ? (
                     <p className="text-sm font-semibold text-slate-700">Total pages: {previewPageCount}</p>
                   ) : null}
@@ -661,7 +848,7 @@ export function NewFaxPacketButton() {
                     if (validateCompose()) setStep("attachments");
                   }}
                 >
-                  Next: attachments
+                  Next: document & attachments
                 </button>
               ) : null}
               {step === "attachments" ? (

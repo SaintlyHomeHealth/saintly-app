@@ -1,6 +1,7 @@
 import { PDFDocument } from "pdf-lib";
 
 import { generateFaxCoverSheetPdf } from "@/lib/fax/fax-cover-sheet-pdf";
+import { generateFaxDocumentBodyPdf } from "@/lib/fax/fax-document-body-pdf";
 import type { FaxCoverSheetFields } from "@/lib/fax/fax-cover-template-types";
 
 const MAX_PACKET_FILES = 24;
@@ -83,6 +84,8 @@ export async function mergeAttachmentFiles(files: File[]): Promise<Uint8Array> {
 export async function buildFaxPacketPdf(input: {
   coverFields: FaxCoverSheetFields;
   templateTitle?: string;
+  documentBodyText?: string;
+  documentBodyTitle?: string;
   attachmentFiles: File[];
 }): Promise<{ pdfBytes: Uint8Array; pageCount: number }> {
   const coverBytes = await generateFaxCoverSheetPdf(input.coverFields, input.templateTitle);
@@ -91,6 +94,14 @@ export async function buildFaxPacketPdf(input: {
   const coverDoc = await PDFDocument.load(coverBytes);
   const coverPages = await packet.copyPages(coverDoc, coverDoc.getPageIndices());
   coverPages.forEach((p) => packet.addPage(p));
+
+  const bodyText = input.documentBodyText?.trim() ?? "";
+  if (bodyText) {
+    const bodyBytes = await generateFaxDocumentBodyPdf(bodyText, input.documentBodyTitle);
+    const bodyDoc = await PDFDocument.load(bodyBytes);
+    const bodyPages = await packet.copyPages(bodyDoc, bodyDoc.getPageIndices());
+    bodyPages.forEach((p) => packet.addPage(p));
+  }
 
   for (const file of input.attachmentFiles) {
     await fileToPdfPages(packet, file);

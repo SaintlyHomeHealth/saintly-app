@@ -41,6 +41,9 @@ export default async function FaxCoverTemplatesPage() {
             <Link href="/admin/fax" className={crmActionBtnSky}>
               Back to Fax Center
             </Link>
+            <Link href="/admin/fax/document-templates" className={crmActionBtnSky}>
+              Document templates
+            </Link>
             <span className="rounded-[20px] border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm">
               Return fax: {SAINTLY_RETURN_FAX_DISPLAY}
             </span>

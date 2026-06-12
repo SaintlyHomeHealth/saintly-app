@@ -51,7 +51,7 @@ export const faxUi = {
 
 export const FAX_PACKET_STEPS = [
   { id: "compose" as const, label: "Cover sheet", short: "1" },
-  { id: "attachments" as const, label: "Attachments", short: "2" },
+  { id: "attachments" as const, label: "Document & files", short: "2" },
   { id: "preview" as const, label: "Preview & send", short: "3" },
 ];
 
