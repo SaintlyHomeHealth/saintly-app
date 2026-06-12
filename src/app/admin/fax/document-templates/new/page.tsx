@@ -5,7 +5,7 @@ import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { crmActionBtnSky } from "@/components/admin/crm-admin-list-styles";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 
-import { DocumentTemplateForm } from "./_components/DocumentTemplateForm";
+import { DocumentTemplateForm } from "../_components/DocumentTemplateForm";
 import { faxUi } from "@/app/admin/fax/_components/fax-center-ui";
 
 export default async function NewFaxDocumentTemplatePage() {
