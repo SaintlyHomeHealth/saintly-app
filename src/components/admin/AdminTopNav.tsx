@@ -68,8 +68,8 @@ export function AdminTopNav({ items }: AdminTopNavProps) {
   if (items.length === 0) return null;
 
   return (
-    <header className={shell}>
-      <div className="mx-auto flex max-w-[1600px] flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6">
+    <header className={`${shell} overflow-visible`}>
+      <div className="mx-auto flex max-w-[1600px] flex-wrap items-center justify-between gap-3 overflow-visible px-4 py-3 sm:px-6">
         <div className="flex flex-wrap items-center gap-1.5 sm:gap-2" aria-label="Admin">
           {items.map((item) => {
             const active = navItemIsActive(pathname, item);

@@ -1,12 +1,45 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type RefObject } from "react";
+import { createPortal } from "react-dom";
 
 import { formatMatchedFieldLabel } from "@/lib/admin/global-search/source-trail";
 import type { GlobalSearchResponse, GlobalSearchResult } from "@/lib/admin/global-search/types";
 import { globalSearchTypeLabel } from "@/lib/admin/global-search/hrefs";
+
+const VIEWPORT_MARGIN_PX = 12;
+const DROPDOWN_MAX_WIDTH_PX = 560;
+
+function isFullSearchResultsPage(pathname: string): boolean {
+  const p = pathname.replace(/\/$/, "");
+  return p === "/admin/search" || p === "/workspace/phone/search";
+}
+
+function computeDropdownStyle(anchor: HTMLElement): CSSProperties {
+  const rect = anchor.getBoundingClientRect();
+  const viewportW = window.innerWidth;
+  const maxAllowedWidth = viewportW - VIEWPORT_MARGIN_PX * 2;
+  const width = Math.min(DROPDOWN_MAX_WIDTH_PX, maxAllowedWidth);
+
+  let left = rect.left;
+  if (left + width > viewportW - VIEWPORT_MARGIN_PX) {
+    left = viewportW - VIEWPORT_MARGIN_PX - width;
+  }
+  if (left < VIEWPORT_MARGIN_PX) {
+    left = VIEWPORT_MARGIN_PX;
+  }
+
+  return {
+    position: "fixed",
+    top: rect.bottom + 8,
+    left,
+    width,
+    maxWidth: `calc(100vw - ${VIEWPORT_MARGIN_PX * 2}px)`,
+    zIndex: 9999,
+  };
+}
 
 function formatWhen(iso: string | null): string {
   if (!iso) return "—";
@@ -84,17 +117,51 @@ function GlobalSearchDropdown({
   results,
   loading,
   query,
+  anchorRef,
   onNavigate,
 }: {
   results: GlobalSearchResult[];
   loading: boolean;
   query: string;
+  anchorRef: RefObject<HTMLElement | null>;
   onNavigate: () => void;
 }) {
-  if (!query.trim()) return null;
+  const [style, setStyle] = useState<CSSProperties | null>(null);
+  const [mounted, setMounted] = useState(false);
 
-  return (
-    <div className="absolute right-0 top-full z-50 mt-2 w-[min(100vw-2rem,28rem)] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl shadow-slate-900/10">
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const updatePosition = useCallback(() => {
+    const anchor = anchorRef.current;
+    if (!anchor) return;
+    setStyle(computeDropdownStyle(anchor));
+  }, [anchorRef]);
+
+  useLayoutEffect(() => {
+    updatePosition();
+  }, [updatePosition, query, results.length, loading]);
+
+  useEffect(() => {
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [updatePosition]);
+
+  if (!query.trim() || !mounted || !style) return null;
+
+  const panel = (
+    <div
+      style={style}
+      className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl shadow-slate-900/10"
+      role="listbox"
+      aria-label="Global search preview"
+    >
       <div className="border-b border-slate-100 px-3 py-2 text-[11px] font-semibold text-slate-500">
         {loading ? "Searching…" : `${results.length} result${results.length === 1 ? "" : "s"}`}
       </div>
@@ -120,6 +187,8 @@ function GlobalSearchDropdown({
       </Link>
     </div>
   );
+
+  return createPortal(panel, document.body);
 }
 
 type GlobalSearchBarProps = {
@@ -135,12 +204,19 @@ export function GlobalSearchBar({
   autoFocus = false,
 }: GlobalSearchBarProps) {
   const router = useRouter();
+  const pathname = usePathname() ?? "";
+  const onFullSearchPage = isFullSearchResultsPage(pathname);
   const [query, setQuery] = useState(initialQuery);
   const [results, setResults] = useState<GlobalSearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const anchorRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (onFullSearchPage) setOpen(false);
+  }, [onFullSearchPage]);
 
   const fetchResults = useCallback(async (q: string) => {
     const trimmed = q.trim();
@@ -189,16 +265,19 @@ export function GlobalSearchBar({
 
   const shellCls =
     variant === "header"
-      ? "relative w-full min-w-[12rem] max-w-md flex-1 sm:flex-none sm:w-72"
-      : "relative w-full";
+      ? "relative z-50 w-full min-w-[12rem] max-w-md flex-1 overflow-visible sm:flex-none sm:w-72"
+      : "relative w-full overflow-visible";
 
   const inputCls =
     variant === "header"
       ? "w-full rounded-full border border-slate-200/90 bg-white/90 px-4 py-2 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200"
       : "w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200";
 
+  const showHeaderDropdown = variant === "header" && open && !onFullSearchPage && query.trim().length > 0;
+
   return (
     <div ref={rootRef} className={shellCls}>
+      <div ref={anchorRef}>
       <form
         action="/admin/search"
         method="get"
@@ -216,9 +295,11 @@ export function GlobalSearchBar({
           value={query}
           onChange={(e) => {
             setQuery(e.target.value);
-            setOpen(true);
+            if (!onFullSearchPage) setOpen(true);
           }}
-          onFocus={() => setOpen(true)}
+          onFocus={() => {
+            if (!onFullSearchPage) setOpen(true);
+          }}
           onKeyDown={(e) => {
             if (e.key === "Enter" && variant === "header") {
               e.preventDefault();
@@ -241,11 +322,13 @@ export function GlobalSearchBar({
           </button>
         ) : null}
       </form>
-      {variant === "header" && open ? (
+      </div>
+      {showHeaderDropdown ? (
         <GlobalSearchDropdown
           results={results}
           loading={loading}
           query={query}
+          anchorRef={anchorRef}
           onNavigate={() => setOpen(false)}
         />
       ) : null}
