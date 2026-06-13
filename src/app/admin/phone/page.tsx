@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
+import { SearchCallerLink } from "@/components/admin/SearchCallerLink";
 import { supabaseAdmin } from "@/lib/admin";
 import { loadCallLogContactOpenTargets } from "@/lib/phone/call-log-contact-targets";
 import { formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
@@ -525,6 +526,7 @@ export default async function AdminPhoneCallLogPage({ searchParams }: PageProps)
                         >
                           {openLabel}
                         </Link>
+                        <SearchCallerLink phone={partyE164} />
                         {showCreateLead ? (
                           <CallLogCreateLeadButton phoneCallId={row.id} />
                         ) : null}

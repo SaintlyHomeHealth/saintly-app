@@ -30,6 +30,7 @@ import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 import { WorkspaceCallInboxCard, type CallInboxRow } from "./_components/WorkspaceCallInboxCard";
 import { CallsSearchBar } from "./_components/CallsSearchBar";
+import { SearchCallerLink } from "@/components/admin/SearchCallerLink";
 import { WorkspacePhonePageHeader } from "../_components/WorkspacePhonePageHeader";
 
 export const dynamic = "force-dynamic";
@@ -365,6 +366,13 @@ export default async function WorkspaceCallsPage(props: PageProps) {
         actions={
           <>
             <CallsSearchBar defaultQuery={qRaw} filter={filter} />
+            {qRaw.trim() ? <SearchCallerLink phone={qRaw} context="workspace" /> : null}
+            <Link
+              href="/workspace/phone/search"
+              className="rounded-full border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-semibold text-violet-900"
+            >
+              Global search
+            </Link>
             <span className="text-sm font-medium text-emerald-700" role="status">
               ● Ready
             </span>

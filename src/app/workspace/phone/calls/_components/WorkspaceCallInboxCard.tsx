@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { SearchCallerLink } from "@/components/admin/SearchCallerLink";
 import { MessageSquare, Phone, UserPlus } from "lucide-react";
 
 import { QuickSaveContactSheet } from "@/components/workspace-phone/QuickSaveContactSheet";
@@ -238,6 +239,7 @@ export function WorkspaceCallInboxCard({ row, showHideFromDispatch = false }: Pr
               <span className="hidden min-[360px]:inline">Save</span>
             </button>
           ) : null}
+          <SearchCallerLink phone={e164} context="workspace" className={openGhostCls} />
           {ui?.openPatientId ? (
             <Link href={`/workspace/phone/patients/${ui.openPatientId}`} className={openGhostCls} prefetch={false}>
               Patient

@@ -27,6 +27,7 @@ import { buildTranscriptMessages } from "@/components/softphone/build-transcript
 import type { CallContextVoiceAi } from "@/components/softphone/WorkspaceSoftphoneProvider";
 import { CallDetailTranscriptThread } from "@/components/phone/CallDetailTranscriptThread";
 import { CallDetailCallOutputsSection } from "../_components/CallDetailCallOutputsSection";
+import { SearchCallerLink } from "@/components/admin/SearchCallerLink";
 import {
   parseLiveTranscriptEntriesFromMetadata,
   readUnclampedLiveTranscriptExcerpt,
@@ -366,6 +367,9 @@ export default async function AdminPhoneCallDetailPage({ params, searchParams }:
         <p className="mt-1 text-xs text-slate-500">
           {c.direction.trim().toLowerCase() === "outbound" ? "Dialed number (outbound)" : "Caller ID (inbound)"}
         </p>
+        <div className="mt-3">
+          <SearchCallerLink phone={caller !== "—" ? caller : null} />
+        </div>
         <dl className="mt-6 grid gap-3 text-sm sm:grid-cols-2">
           <div>
             <dt className="text-xs font-medium text-slate-500">Status</dt>
