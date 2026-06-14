@@ -3,10 +3,12 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { DiscoverQuickAddModal,
-  externalResultToQuickAddDraft,
-  type QuickAddDraft,
-} from "@/app/admin/facilities/_components/DiscoverQuickAddModal";
+import { FacilityNearbyExternalCard } from "@/app/admin/facilities/_components/FacilityNearbyExternalCard";
+import {
+  FacilityRadiusSelect,
+  radiusValueToMiles,
+  type FacilityRadiusValue,
+} from "@/app/admin/facilities/_components/FacilityRadiusSelect";
 import { FacilityAiCaptureButton } from "@/app/admin/facilities/_components/FacilityAiCaptureButton";
 import { FacilityQuickLogButton } from "@/app/admin/facilities/_components/FacilityQuickLogButton";
 import type {
@@ -29,6 +31,12 @@ import {
   removeStopFromRouteDraft,
   FACILITY_ROUTE_DRAFT_EVENT,
 } from "@/lib/crm/facility-route-draft";
+import {
+  DiscoverQuickAddModal,
+  externalResultToQuickAddDraft,
+  type QuickAddDraft,
+} from "@/app/admin/facilities/_components/DiscoverQuickAddModal";
+import { formatFacilitySearchBasisLabel } from "@/lib/crm/facility-location-search";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 
 type SearchScope = "both" | "portal" | "google";
@@ -350,7 +358,7 @@ export function FacilityDiscoverView() {
   const [query, setQuery] = useState("");
   const [city, setCity] = useState("");
   const [fieldFilter, setFieldFilter] = useState<FacilityFieldFilterId | null>(null);
-  const [radiusMiles, setRadiusMiles] = useState(15);
+  const [radius, setRadius] = useState<FacilityRadiusValue>(15);
   const [maxResults, setMaxResults] = useState(20);
   const [searchScope, setSearchScope] = useState<SearchScope>("both");
   const [location, setLocation] = useState<LocationState>({ status: "idle" });
@@ -410,7 +418,7 @@ export function FacilityDiscoverView() {
         query,
         city: city.trim() || null,
         field_filter: fieldFilter,
-        radius_miles: radiusMiles,
+        radius_miles: radiusValueToMiles(radius),
         max_results: maxResults,
         search_scope: searchScope,
       };
@@ -437,7 +445,7 @@ export function FacilityDiscoverView() {
           near_me: false,
           field_filter: fieldFilter,
           search_scope: searchScope,
-          radius_miles: radiusMiles,
+          radius_miles: radiusValueToMiles(radius),
           max_results: maxResults,
         },
         google_places_configured: false,
@@ -446,23 +454,32 @@ export function FacilityDiscoverView() {
     } finally {
       setLoading(false);
     }
-  }, [query, city, fieldFilter, radiusMiles, maxResults, searchScope, location]);
+  }, [query, city, fieldFilter, radius, maxResults, searchScope, location]);
 
   useEffect(() => {
     const t = window.setTimeout(() => {
       if (query.trim() || city.trim() || fieldFilter) void runSearch();
     }, 400);
     return () => window.clearTimeout(t);
-  }, [query, city, fieldFilter, radiusMiles, maxResults, searchScope, location.status, runSearch]);
+  }, [query, city, fieldFilter, radius, maxResults, searchScope, location.status, runSearch]);
 
-  const locationHint = useMemo(() => {
+  const searchBasisLabel = useMemo(() => {
     if (location.status === "requesting") return "Getting your location…";
-    if (location.status === "ready") return "Using your location for nearby results";
-    if (location.status === "denied" || location.status === "error" || location.status === "unavailable") {
-      return location.message;
+    return formatFacilitySearchBasisLabel({
+      radiusMiles: location.status === "ready" ? radiusValueToMiles(radius) : null,
+      locationAvailable: location.status === "ready",
+      city: city.trim() || data?.normalized_query.city || null,
+      nearMe: /near me/i.test(query) || Boolean(data?.normalized_query.near_me),
+    });
+  }, [location, radius, city, query, data?.normalized_query]);
+
+  function handleDiscoverNearMe() {
+    if (!/near me/i.test(query)) {
+      setQuery((q) => (q.trim() ? `${q.trim()} near me` : "facilities near me"));
     }
-    return null;
-  }, [location]);
+    requestLocation();
+    void runSearch();
+  }
 
   function showToast(msg: string) {
     setToast(msg);
@@ -491,8 +508,8 @@ export function FacilityDiscoverView() {
 
       <div className="sticky top-0 z-20 space-y-3 rounded-2xl border border-slate-200 bg-white/95 p-4 shadow-sm backdrop-blur">
         <div className="flex flex-wrap gap-2">
-          <button type="button" onClick={requestLocation} className={btnSecondary}>
-            {location.status === "requesting" ? "Locating…" : "Use my location"}
+          <button type="button" onClick={handleDiscoverNearMe} className={btnSecondary}>
+            Discover near me
           </button>
           <button type="button" onClick={() => void runSearch()} className={btnPrimary} disabled={loading}>
             {loading ? "Searching…" : "Search"}
@@ -523,19 +540,17 @@ export function FacilityDiscoverView() {
           />
         </label>
 
-        {locationHint ? (
+        {searchBasisLabel ? (
           <p className={`text-xs ${location.status === "ready" ? "text-emerald-700" : "text-amber-800"}`}>
-            {locationHint}
+            {searchBasisLabel}
+            {location.status === "denied" || location.status === "error" || location.status === "unavailable"
+              ? ` ${location.message}`
+              : null}
           </p>
         ) : null}
 
         <div className="flex flex-wrap gap-2">
-          <select value={radiusMiles} onChange={(e) => setRadiusMiles(Number(e.target.value))} className={selectCls}>
-            <option value={5}>5 mi</option>
-            <option value={10}>10 mi</option>
-            <option value={15}>15 mi</option>
-            <option value={25}>25 mi</option>
-          </select>
+          <FacilityRadiusSelect value={radius} onChange={setRadius} />
           <select value={maxResults} onChange={(e) => setMaxResults(Number(e.target.value))} className={selectCls}>
             <option value={10}>10 results</option>
             <option value={20}>20 results</option>
@@ -592,7 +607,7 @@ export function FacilityDiscoverView() {
       {data && data.portal_results.length > 0 ? (
         <section className="space-y-3">
           <h2 className="text-sm font-bold uppercase tracking-wide text-slate-500">
-            Already in Saintly Portal ({data.portal_results.length})
+            In Saintly Portal ({data.portal_results.length})
           </h2>
           {data.portal_results.map((item) => (
             <PortalDiscoverCard
@@ -608,10 +623,10 @@ export function FacilityDiscoverView() {
       {data && data.external_results.length > 0 ? (
         <section className="space-y-3">
           <h2 className="text-sm font-bold uppercase tracking-wide text-slate-500">
-            New Facilities Found ({data.external_results.length})
+            New Google Results Near You ({data.external_results.length})
           </h2>
           {data.external_results.map((item) => (
-            <ExternalDiscoverCard
+            <FacilityNearbyExternalCard
               key={item.google_place_id}
               item={item}
               savedAsPortalId={savedPlaceIds[item.google_place_id] ?? null}
@@ -630,7 +645,7 @@ export function FacilityDiscoverView() {
             Possible Matches — review before adding ({data.possible_matches.length})
           </h2>
           {data.possible_matches.map((item) => (
-            <ExternalDiscoverCard
+            <FacilityNearbyExternalCard
               key={`possible-${item.google_place_id}`}
               item={item}
               savedAsPortalId={savedPlaceIds[item.google_place_id] ?? null}
@@ -650,6 +665,17 @@ export function FacilityDiscoverView() {
             />
           ))}
         </section>
+      ) : null}
+
+      {data &&
+      !loading &&
+      data.portal_results.length === 0 &&
+      (data.external_results.length > 0 || data.possible_matches.length > 0) &&
+      location.status === "ready" &&
+      radius !== "all" ? (
+        <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+          No portal facilities found within {radius} miles.
+        </div>
       ) : null}
 
       {data &&

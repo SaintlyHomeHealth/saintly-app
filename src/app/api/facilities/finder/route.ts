@@ -1,20 +1,32 @@
 import { NextResponse } from "next/server";
 
 import { supabaseAdmin } from "@/lib/admin";
+import { buildFacilityFullAddress } from "@/lib/crm/facility-address";
 import {
   filterFacilitiesForFinder,
+  getFieldFilterById,
   type FacilityFieldFilterId,
   type FacilitySearchRow,
   facilityMatchExplanation,
   parseFacilityFinderQuery,
 } from "@/lib/crm/facility-finder-query";
 import {
+  distanceFromAgentMiles,
+  isWithinRadiusMiles,
+  searchGooglePlacesForDiscovery,
+} from "@/lib/crm/facility-discover-google";
+import {
   formatDistanceMiles,
-  haversineDistanceMiles,
-  isValidGeoPoint,
   type GeoPoint,
+  isValidGeoPoint,
 } from "@/lib/crm/facility-geolocation";
-import { buildFacilityFullAddress } from "@/lib/crm/facility-address";
+import { buildGooglePlacesTextQuery, normalizeRadiusMiles } from "@/lib/crm/facility-location-search";
+import type {
+  DiscoverExternalResult,
+  DiscoverPortalResult,
+} from "@/app/api/facilities/discover/route";
+import { type PortalFacilityForMatch } from "@/lib/crm/facility-match";
+import { isGooglePlacesConfigured } from "@/lib/google/places";
 import { geocodeFacilitiesBatch } from "@/lib/mapbox/geocode-address";
 import { getStaffProfile, canAccessFacilityFieldTools } from "@/lib/staff-profile";
 
@@ -41,10 +53,16 @@ export type FacilityFinderResult = {
 
 export type FacilityFinderResponse = {
   results: FacilityFinderResult[];
+  externalResults: DiscoverExternalResult[];
+  possibleMatches: DiscoverExternalResult[];
   parsedQuery: ReturnType<typeof parseFacilityFinderQuery>;
   agentLocation: GeoPoint | null;
+  radiusMiles: number | null;
+  locationAvailable: boolean;
+  googlePlacesConfigured: boolean;
   geocodedCount: number;
   totalMatched: number;
+  errors: string[];
 };
 
 type FinderRequestBody = {
@@ -53,6 +71,8 @@ type FinderRequestBody = {
   latitude?: number | null;
   longitude?: number | null;
   radiusMiles?: number | null;
+  includeGoogle?: boolean;
+  searchScope?: "portal" | "google" | "both";
 };
 
 const FINDER_FACILITY_SELECT_WITH_GEO =
@@ -137,8 +157,10 @@ export async function POST(req: Request) {
       ? { latitude: body.latitude, longitude: body.longitude }
       : null;
 
-  const radiusMiles =
-    typeof body.radiusMiles === "number" && body.radiusMiles > 0 ? body.radiusMiles : null;
+  const radiusMiles = normalizeRadiusMiles(body.radiusMiles ?? 15);
+  const searchScope = body.searchScope ?? "both";
+  const includeGoogle = body.includeGoogle !== false && searchScope !== "portal";
+  const errors: string[] = [];
 
   const { rows: baseRows, canPersistGeocode, error: facErr } = await loadFinderFacilities();
 
@@ -228,16 +250,9 @@ export async function POST(req: Request) {
   }
 
   if (radiusMiles != null && agentLocation) {
-    filtered = filtered.filter((row) => {
-      if (!isValidGeoPoint({ latitude: row.latitude ?? NaN, longitude: row.longitude ?? NaN })) {
-        return false;
-      }
-      const dist = haversineDistanceMiles(agentLocation, {
-        latitude: row.latitude!,
-        longitude: row.longitude!,
-      });
-      return dist <= radiusMiles;
-    });
+    filtered = filtered.filter((row) =>
+      isWithinRadiusMiles(agentLocation, radiusMiles, row.latitude, row.longitude)
+    );
   }
 
   const { data: staffRows } = await supabaseAdmin
@@ -252,17 +267,7 @@ export async function POST(req: Request) {
   }
 
   const results: FacilityFinderResult[] = filtered.map((row) => {
-    const hasCoords = isValidGeoPoint({
-      latitude: row.latitude ?? NaN,
-      longitude: row.longitude ?? NaN,
-    });
-    const distanceMiles =
-      agentLocation && hasCoords
-        ? haversineDistanceMiles(agentLocation, {
-            latitude: row.latitude!,
-            longitude: row.longitude!,
-          })
-        : null;
+    const distanceMiles = distanceFromAgentMiles(agentLocation, row.latitude, row.longitude);
 
     const rep = row.assigned_rep_user_id ? staffById[row.assigned_rep_user_id] : null;
 
@@ -299,12 +304,79 @@ export async function POST(req: Request) {
     results.sort((a, b) => a.name.localeCompare(b.name));
   }
 
+  const externalResults: DiscoverExternalResult[] = [];
+  const possibleMatches: DiscoverExternalResult[] = [];
+
+  if (includeGoogle && (searchScope === "both" || searchScope === "google")) {
+    type PortalRow = PortalFacilityForMatch & {
+      type: string | null;
+      latitude: number | null;
+      longitude: number | null;
+      website?: string | null;
+    };
+    const portalForMatch = baseRows as unknown as PortalRow[];
+    const portalIdSet = new Set(results.map((r) => r.id));
+    const portalResultsForGoogle: DiscoverPortalResult[] = results.map((r) => ({
+      match_status: "already_in_portal" as const,
+      source: "saintly_portal" as const,
+      facility_id: r.id,
+      name: r.name,
+      type: r.type,
+      city: r.city,
+      formatted_address: r.address,
+      phone: r.phone,
+      website: null,
+      latitude: r.latitude,
+      longitude: r.longitude,
+      distance_miles: r.distanceMiles,
+      distance_label: r.distanceLabel,
+      matched_facility_id: r.id,
+      matched_facility_name: r.name,
+      match_confidence: 1,
+      match_reason: "Already in Saintly portal",
+    }));
+
+    const textQuery = buildGooglePlacesTextQuery({
+      queryRaw,
+      parsedText: parsed.text,
+      parsedCity: parsed.city,
+      nearMe: parsed.nearMe,
+      fieldFilterLabel: explicitFilter ? getFieldFilterById(explicitFilter)?.label ?? null : null,
+    });
+
+    const googleSearch = await searchGooglePlacesForDiscovery({
+      textQuery,
+      agentLocation,
+      radiusMiles,
+      maxResults: 20,
+      portalForMatch,
+      portalIdSet,
+      portalResults: portalResultsForGoogle,
+    });
+
+    externalResults.push(...googleSearch.externalResults);
+    possibleMatches.push(...googleSearch.possibleMatches);
+    errors.push(...googleSearch.errors);
+  } else if (includeGoogle && !isGooglePlacesConfigured()) {
+    errors.push("Google Places is not configured yet. Portal results only.");
+  }
+
+  if (agentLocation && radiusMiles != null && results.length === 0 && externalResults.length === 0 && possibleMatches.length === 0) {
+    errors.push(`No portal facilities found within ${radiusMiles} miles.`);
+  }
+
   const payload: FacilityFinderResponse = {
     results,
+    externalResults,
+    possibleMatches,
     parsedQuery: parsed,
     agentLocation,
+    radiusMiles: agentLocation ? radiusMiles : null,
+    locationAvailable: agentLocation != null,
+    googlePlacesConfigured: isGooglePlacesConfigured(),
     geocodedCount,
-    totalMatched: results.length,
+    totalMatched: results.length + externalResults.length + possibleMatches.length,
+    errors,
   };
 
   return NextResponse.json(payload);

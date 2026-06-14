@@ -8,6 +8,18 @@ import { FacilityAiCaptureButton } from "@/app/admin/facilities/_components/Faci
 import { FacilityPhotoNoteButton } from "@/app/admin/facilities/_components/FacilityPhotoNoteButton";
 import { FacilityQuickLogButton } from "@/app/admin/facilities/_components/FacilityQuickLogButton";
 import type { FacilityFinderResponse, FacilityFinderResult } from "@/app/api/facilities/finder/route";
+import type { DiscoverExternalResult } from "@/app/api/facilities/discover/route";
+import {
+  DiscoverQuickAddModal,
+  externalResultToQuickAddDraft,
+  type QuickAddDraft,
+} from "@/app/admin/facilities/_components/DiscoverQuickAddModal";
+import { FacilityNearbyExternalCard } from "@/app/admin/facilities/_components/FacilityNearbyExternalCard";
+import {
+  FacilityRadiusSelect,
+  radiusValueToMiles,
+  type FacilityRadiusValue,
+} from "@/app/admin/facilities/_components/FacilityRadiusSelect";
 import { crmActionBtnMuted, crmActionBtnSky } from "@/components/admin/crm-admin-list-styles";
 import { appleMapsDirectionsUrl } from "@/lib/crm/apple-maps";
 import {
@@ -19,6 +31,7 @@ import {
   addFacilityToRouteDraft,
   getFacilityRouteDraft,
   getFacilityRouteDraftCount,
+  isStopInRouteDraft,
   notifyRouteDraftChanged,
   removeStopFromRouteDraft,
   FACILITY_ROUTE_DRAFT_EVENT,
@@ -208,12 +221,19 @@ export function FacilityFinderView() {
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [fieldFilter, setFieldFilter] = useState<FacilityFieldFilterId | null>(null);
+  const [radius, setRadius] = useState<FacilityRadiusValue>(15);
   const [location, setLocation] = useState<LocationState>({ status: "idle" });
   const [results, setResults] = useState<FacilityFinderResult[]>([]);
+  const [externalResults, setExternalResults] = useState<DiscoverExternalResult[]>([]);
+  const [possibleMatches, setPossibleMatches] = useState<DiscoverExternalResult[]>([]);
+  const [responseErrors, setResponseErrors] = useState<string[]>([]);
+  const [parsedNearMe, setParsedNearMe] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [routeCount, setRouteCount] = useState(0);
   const [routeIds, setRouteIds] = useState<Set<string>>(new Set());
+  const [quickAddDraft, setQuickAddDraft] = useState<QuickAddDraft | null>(null);
+  const [savedPlaceIds, setSavedPlaceIds] = useState<Record<string, string>>({});
 
   const refreshRouteState = useCallback(() => {
     const draft = getFacilityRouteDraft();
@@ -277,6 +297,9 @@ export function FacilityFinderView() {
         const body: Record<string, unknown> = {
           query: debouncedQuery,
           fieldFilter,
+          radiusMiles: radiusValueToMiles(radius),
+          includeGoogle: true,
+          searchScope: "both",
         };
         if (location.status === "ready") {
           body.latitude = location.latitude;
@@ -292,11 +315,20 @@ export function FacilityFinderView() {
           throw new Error(errBody.error ?? "search_failed");
         }
         const data = (await res.json()) as FacilityFinderResponse;
-        if (!cancelled) setResults(data.results);
+        if (!cancelled) {
+          setResults(data.results);
+          setExternalResults(data.externalResults ?? []);
+          setPossibleMatches(data.possibleMatches ?? []);
+          setResponseErrors(data.errors ?? []);
+          setParsedNearMe(Boolean(data.parsedQuery?.nearMe));
+        }
       } catch (e) {
         if (!cancelled) {
           setError(e instanceof Error ? e.message : "Search failed");
           setResults([]);
+          setExternalResults([]);
+          setPossibleMatches([]);
+          setResponseErrors([]);
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -306,26 +338,37 @@ export function FacilityFinderView() {
     return () => {
       cancelled = true;
     };
-  }, [debouncedQuery, fieldFilter, location]);
+  }, [debouncedQuery, fieldFilter, location, radius]);
 
-  const locationHint = useMemo(() => {
+  const searchBasisLabel = useMemo(() => {
     if (location.status === "requesting") return "Getting your location…";
-    if (location.status === "ready") return "Sorted by distance from you";
-    if (location.status === "denied" || location.status === "error" || location.status === "unavailable") {
-      return location.message;
+    return formatFacilitySearchBasisLabel({
+      radiusMiles: location.status === "ready" ? radiusValueToMiles(radius) : null,
+      locationAvailable: location.status === "ready",
+      nearMe: parsedNearMe || /near me/i.test(debouncedQuery),
+    });
+  }, [location, radius, parsedNearMe, debouncedQuery]);
+
+  const hasAnyResults =
+    results.length > 0 || externalResults.length > 0 || possibleMatches.length > 0;
+
+  function handleNearMe() {
+    if (!/near me/i.test(query)) {
+      setQuery((q) => (q.trim() ? `${q.trim()} near me` : "facilities near me"));
     }
-    return null;
-  }, [location]);
+    requestLocation();
+  }
 
   return (
     <div className="space-y-4 pb-24">
       <div className="sticky top-0 z-20 -mx-1 space-y-3 rounded-2xl border border-slate-200 bg-white/95 p-4 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-white/90">
         <div className="flex flex-wrap items-center gap-2">
+          <FacilityRadiusSelect value={radius} onChange={setRadius} />
           <Link href="/admin/facilities/discover" className={btnSecondary}>
             Discover New Facilities
           </Link>
-          <button type="button" onClick={requestLocation} className={btnSecondary}>
-            {location.status === "requesting" ? "Locating…" : "Refresh location"}
+          <button type="button" onClick={handleNearMe} className={btnSecondary}>
+            {location.status === "requesting" ? "Locating…" : "Facilities near me"}
           </button>
           {routeCount > 0 ? (
             <Link href="/admin/facilities/route-builder" className={`${btnSecondary} border-indigo-300 bg-indigo-50 text-indigo-900`}>
@@ -352,9 +395,16 @@ export function FacilityFinderView() {
           />
         </label>
 
-        {locationHint ? (
-          <p className={`text-xs ${location.status === "ready" ? "text-emerald-700" : "text-amber-800"}`}>
-            {locationHint}
+        {searchBasisLabel ? (
+          <p
+            className={`text-xs ${
+              location.status === "ready" ? "text-emerald-700" : "text-amber-800"
+            }`}
+          >
+            {searchBasisLabel}
+            {location.status === "denied" || location.status === "error" || location.status === "unavailable"
+              ? ` ${location.message}`
+              : null}
           </p>
         ) : null}
 
@@ -379,6 +429,12 @@ export function FacilityFinderView() {
         </div>
       </div>
 
+      {responseErrors.map((msg) => (
+        <div key={msg} className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+          {msg}
+        </div>
+      ))}
+
       {error ? (
         <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</div>
       ) : null}
@@ -387,28 +443,122 @@ export function FacilityFinderView() {
         <p className="py-8 text-center text-sm text-slate-500">Searching facilities…</p>
       ) : null}
 
-      {!loading && results.length === 0 ? (
+      {!loading && !hasAnyResults ? (
         <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-6 py-10 text-center">
-          <p className="text-sm font-medium text-slate-700">No facilities match</p>
-          <p className="mt-1 text-xs text-slate-500">Try a different filter or search term.</p>
+          <p className="text-sm font-medium text-slate-700">
+            {location.status === "ready" && radius !== "all"
+              ? `No portal facilities found within ${radius} miles.`
+              : "No facilities match your search"}
+          </p>
+          <p className="mt-1 text-xs text-slate-500">
+            Try searching Google near you, expanding radius, or showing all portal facilities.
+          </p>
+          <div className="mt-4 flex flex-wrap justify-center gap-2">
+            <Link href="/admin/facilities/discover" className={btnPrimary}>
+              Search Google near me
+            </Link>
+            {radius !== 50 && radius !== "all" ? (
+              <button
+                type="button"
+                onClick={() => setRadius(radius === 5 ? 10 : radius === 10 ? 15 : radius === 15 ? 25 : radius === 25 ? 50 : "all")}
+                className={btnSecondary}
+              >
+                Expand radius
+              </button>
+            ) : null}
+            <button type="button" onClick={() => setRadius("all")} className={btnSecondary}>
+              Show all portal facilities
+            </button>
+          </div>
         </div>
       ) : (
-        <div className="space-y-3">
-          {results.map((f) => (
-            <FacilityFinderCard
-              key={f.id}
-              facility={f}
-              inRoute={routeIds.has(f.id)}
-              onRouteChange={refreshRouteState}
-            />
-          ))}
+        <div className="space-y-6">
+          {results.length > 0 ? (
+            <section className="space-y-3">
+              <h2 className="text-sm font-bold uppercase tracking-wide text-slate-500">
+                In Saintly Portal ({results.length})
+              </h2>
+              {results.map((f) => (
+                <FacilityFinderCard
+                  key={f.id}
+                  facility={f}
+                  inRoute={routeIds.has(f.id)}
+                  onRouteChange={refreshRouteState}
+                />
+              ))}
+            </section>
+          ) : null}
+
+          {externalResults.length > 0 ? (
+            <section className="space-y-3">
+              <h2 className="text-sm font-bold uppercase tracking-wide text-slate-500">
+                New Google Results Near You ({externalResults.length})
+              </h2>
+              {externalResults.map((item) => (
+                <FacilityNearbyExternalCard
+                  key={item.google_place_id}
+                  item={item}
+                  sourceContext="finder"
+                  savedAsPortalId={savedPlaceIds[item.google_place_id] ?? null}
+                  inRoute={isStopInRouteDraft({ googlePlaceId: item.google_place_id })}
+                  onRouteChange={refreshRouteState}
+                  onQuickAdd={() => setQuickAddDraft(externalResultToQuickAddDraft(item))}
+                  onReviewMatch={() => setQuickAddDraft(externalResultToQuickAddDraft(item))}
+                />
+              ))}
+            </section>
+          ) : null}
+
+          {possibleMatches.length > 0 ? (
+            <section className="space-y-3">
+              <h2 className="text-sm font-bold uppercase tracking-wide text-amber-800">
+                Possible Matches ({possibleMatches.length})
+              </h2>
+              {possibleMatches.map((item) => (
+                <FacilityNearbyExternalCard
+                  key={`possible-${item.google_place_id}`}
+                  item={item}
+                  sourceContext="finder"
+                  savedAsPortalId={savedPlaceIds[item.google_place_id] ?? null}
+                  inRoute={isStopInRouteDraft({
+                    facilityId: savedPlaceIds[item.google_place_id] ?? item.matched_facility_id ?? undefined,
+                    googlePlaceId: item.google_place_id,
+                  })}
+                  onRouteChange={refreshRouteState}
+                  onQuickAdd={() => setQuickAddDraft(externalResultToQuickAddDraft(item))}
+                  onReviewMatch={() => {
+                    if (item.matched_facility_id) {
+                      window.location.href = `/admin/facilities/${item.matched_facility_id}`;
+                    } else {
+                      setQuickAddDraft(externalResultToQuickAddDraft(item));
+                    }
+                  }}
+                />
+              ))}
+            </section>
+          ) : null}
         </div>
       )}
 
-      {results.length > 0 ? (
+      {hasAnyResults ? (
         <p className="text-center text-xs text-slate-500">
-          {loading ? "Updating…" : `${results.length} facilit${results.length === 1 ? "y" : "ies"}`}
+          {loading ? "Updating…" : `${results.length + externalResults.length + possibleMatches.length} result(s)`}
         </p>
+      ) : null}
+
+      {quickAddDraft ? (
+        <DiscoverQuickAddModal
+          draft={quickAddDraft}
+          onClose={() => setQuickAddDraft(null)}
+          onSaved={(facilityId, name) => {
+            setSavedPlaceIds((prev) => ({ ...prev, [quickAddDraft.google_place_id]: facilityId }));
+            setQuickAddDraft(null);
+          }}
+          onUseExisting={(facilityId) => {
+            setQuickAddDraft(null);
+            window.location.href = `/admin/facilities/${facilityId}`;
+          }}
+        />
       ) : null}
 
       <div className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 px-4 py-3 shadow-[0_-4px_20px_rgba(15,23,42,0.08)] backdrop-blur supports-[backdrop-filter]:bg-white/90 md:hidden">
@@ -420,7 +570,7 @@ export function FacilityFinderView() {
             <Link href="/admin/facilities" className={`${btnSecondary} flex-1`}>
               Admin list
             </Link>
-            <button type="button" onClick={requestLocation} className={`${btnPrimary} flex-1`}>
+            <button type="button" onClick={handleNearMe} className={`${btnPrimary} flex-1`}>
               Near me
             </button>
           </div>

@@ -4,21 +4,20 @@ import { supabaseAdmin } from "@/lib/admin";
 import { buildFacilityFullAddress } from "@/lib/crm/facility-address";
 import {
   filterFacilitiesForFinder,
+  getFieldFilterById,
   type FacilityFieldFilterId,
   type FacilitySearchRow,
   parseFacilityFinderQuery,
 } from "@/lib/crm/facility-finder-query";
 import {
-  formatDistanceMiles,
-  haversineDistanceMiles,
-  isValidGeoPoint,
-  type GeoPoint,
-} from "@/lib/crm/facility-geolocation";
-import {
-  matchExternalPlaceAgainstPortal,
-  type PortalFacilityForMatch,
-} from "@/lib/crm/facility-match";
-import { isGooglePlacesConfigured, searchGooglePlaces } from "@/lib/google/places";
+  distanceFromAgentMiles,
+  isWithinRadiusMiles,
+  searchGooglePlacesForDiscovery,
+} from "@/lib/crm/facility-discover-google";
+import { formatDistanceMiles, isValidGeoPoint, type GeoPoint } from "@/lib/crm/facility-geolocation";
+import { buildGooglePlacesTextQuery, normalizeRadiusMiles } from "@/lib/crm/facility-location-search";
+import { type PortalFacilityForMatch } from "@/lib/crm/facility-match";
+import { isGooglePlacesConfigured } from "@/lib/google/places";
 import { getStaffProfile, canAccessFacilityFieldTools } from "@/lib/staff-profile";
 
 export type DiscoverMatchStatus = "already_in_portal" | "possible_match" | "not_in_portal";
@@ -79,7 +78,7 @@ export type DiscoverResponse = {
     near_me: boolean;
     field_filter: FacilityFieldFilterId | null;
     search_scope: "both" | "portal" | "google";
-    radius_miles: number;
+    radius_miles: number | null;
     max_results: number;
   };
   google_places_configured: boolean;
@@ -91,33 +90,12 @@ type DiscoverRequestBody = {
   city?: string | null;
   latitude?: number | null;
   longitude?: number | null;
-  radius_miles?: number;
+  radius_miles?: number | null;
   max_results?: number;
   search_scope?: "both" | "portal" | "google";
   field_filter?: FacilityFieldFilterId | null;
 };
 
-function buildTextQuery(
-  queryRaw: string,
-  cityOverride: string | null,
-  parsed: ReturnType<typeof parseFacilityFinderQuery>
-): string {
-  const parts: string[] = [];
-  if (queryRaw.trim()) parts.push(queryRaw.trim());
-  else if (parsed.text) parts.push(parsed.text);
-
-  const city = (cityOverride ?? parsed.city ?? "").trim();
-  if (city && !queryRaw.toLowerCase().includes(city.toLowerCase())) {
-    parts.push(`in ${city}`);
-  }
-
-  if (parsed.nearMe && parts.every((p) => !/near me/i.test(p))) {
-    parts.push("near me");
-  }
-
-  const joined = parts.join(" ").trim();
-  return joined || "medical offices Arizona";
-}
 
 export async function POST(req: Request) {
   const staff = await getStaffProfile();
@@ -137,9 +115,7 @@ export async function POST(req: Request) {
   const parsed = parseFacilityFinderQuery(queryRaw);
   const fieldFilter = body.field_filter ?? parsed.fieldFilterId ?? null;
   const searchScope = body.search_scope ?? "both";
-  const radiusMiles = [5, 10, 15, 25].includes(body.radius_miles ?? 15)
-    ? (body.radius_miles as number)
-    : 15;
+  const radiusMiles = normalizeRadiusMiles(body.radius_miles ?? 15);
   const maxResults = [10, 20, 40].includes(body.max_results ?? 20)
     ? (body.max_results as number)
     : 20;
@@ -189,17 +165,9 @@ type PortalRowForDiscover = PortalFacilityForMatch & {
   let portalFiltered = filterFacilitiesForFinder(enriched, portalParsed, fieldFilter);
 
   if (radiusMiles != null && agentLocation) {
-    portalFiltered = portalFiltered.filter((row) => {
-      if (!isValidGeoPoint({ latitude: row.latitude ?? NaN, longitude: row.longitude ?? NaN })) {
-        return true;
-      }
-      return (
-        haversineDistanceMiles(agentLocation, {
-          latitude: row.latitude!,
-          longitude: row.longitude!,
-        }) <= radiusMiles
-      );
-    });
+    portalFiltered = portalFiltered.filter((row) =>
+      isWithinRadiusMiles(agentLocation, radiusMiles, row.latitude, row.longitude)
+    );
   }
 
   portalFiltered = portalFiltered.slice(0, maxResults);
@@ -209,14 +177,7 @@ type PortalRowForDiscover = PortalFacilityForMatch & {
 
   if (searchScope === "both" || searchScope === "portal") {
     for (const row of portalFiltered) {
-      const distanceMiles =
-        agentLocation &&
-        isValidGeoPoint({ latitude: row.latitude ?? NaN, longitude: row.longitude ?? NaN })
-          ? haversineDistanceMiles(agentLocation, {
-              latitude: row.latitude!,
-              longitude: row.longitude!,
-            })
-          : null;
+      const distanceMiles = distanceFromAgentMiles(agentLocation, row.latitude, row.longitude);
 
       portalIdSet.add(row.id);
       portal_results.push({
@@ -254,111 +215,26 @@ type PortalRowForDiscover = PortalFacilityForMatch & {
   const possible_matches: DiscoverExternalResult[] = [];
 
   if (searchScope === "both" || searchScope === "google") {
-    if (!googleConfigured) {
-      errors.push("Google Places is not configured yet. Portal results only.");
-    } else {
-      const textQuery = buildTextQuery(queryRaw, cityOverride, parsed);
-      const google = await searchGooglePlaces({
-        textQuery,
-        latitude: agentLocation?.latitude ?? null,
-        longitude: agentLocation?.longitude ?? null,
-        radiusMiles,
-        maxResults,
-      });
-
-      if (google.error === "quota_exceeded") {
-        errors.push("Google Places quota exceeded. Try again later or search portal only.");
-      } else if (google.error === "upstream_error") {
-        errors.push("Google Places search failed. Portal results may still be available.");
-      } else if (google.error === "invalid_request") {
-        errors.push("Enter a search query to discover facilities.");
-      }
-
-      for (const place of google.results) {
-        const match = matchExternalPlaceAgainstPortal(
-          {
-            google_place_id: place.google_place_id,
-            name: place.name,
-            formatted_address: place.formatted_address,
-            phone: place.phone,
-            website: place.website,
-            city: place.city,
-          },
-          portalForMatch
-        );
-
-        const distanceMiles =
-          agentLocation &&
-          typeof place.latitude === "number" &&
-          typeof place.longitude === "number"
-            ? haversineDistanceMiles(agentLocation, {
-                latitude: place.latitude,
-                longitude: place.longitude,
-              })
-            : null;
-
-        const card: DiscoverExternalResult = {
-          match_status: match.match_status,
-          source: "google_places",
-          google_place_id: place.google_place_id,
-          name: place.name,
-          type: place.suggested_type,
-          formatted_address: place.formatted_address,
-          address_line_1: place.address_line_1,
-          city: place.city,
-          state: place.state,
-          zip: place.zip,
-          phone: place.phone,
-          website: place.website,
-          latitude: place.latitude,
-          longitude: place.longitude,
-          categories: place.categories,
-          rating: place.rating,
-          open_now: place.open_now,
-          distance_miles: distanceMiles,
-          distance_label: formatDistanceMiles(distanceMiles),
-          matched_facility_id: match.matched_facility_id,
-          matched_facility_name: match.matched_facility_name,
-          match_confidence: match.match_confidence,
-          match_reason: match.match_reason,
-        };
-
-        if (match.match_status === "already_in_portal" && match.matched_facility_id) {
-          if (!portalIdSet.has(match.matched_facility_id)) {
-            const f = portalForMatch.find((p) => p.id === match.matched_facility_id);
-            if (f) {
-              portalIdSet.add(f.id);
-              portal_results.push({
-                match_status: "already_in_portal",
-                source: "saintly_portal",
-                facility_id: f.id,
-                name: f.name,
-                type: f.type ?? place.suggested_type,
-                city: f.city,
-                formatted_address: buildFacilityFullAddress(f),
-                phone: f.main_phone,
-                website: f.website,
-                latitude: f.latitude ?? place.latitude,
-                longitude: f.longitude ?? place.longitude,
-                distance_miles: distanceMiles,
-                distance_label: formatDistanceMiles(distanceMiles),
-                matched_facility_id: f.id,
-                matched_facility_name: f.name,
-                match_confidence: match.match_confidence,
-                match_reason: match.match_reason,
-              });
-            }
-          }
-          continue;
-        }
-
-        if (match.match_status === "possible_match") {
-          possible_matches.push(card);
-        } else {
-          external_results.push(card);
-        }
-      }
-    }
+    const textQuery = buildGooglePlacesTextQuery({
+      queryRaw,
+      cityOverride,
+      parsedText: parsed.text,
+      parsedCity: parsed.city,
+      nearMe: parsed.nearMe,
+      fieldFilterLabel: fieldFilter ? getFieldFilterById(fieldFilter)?.label ?? null : null,
+    });
+    const googleSearch = await searchGooglePlacesForDiscovery({
+      textQuery,
+      agentLocation,
+      radiusMiles,
+      maxResults,
+      portalForMatch,
+      portalIdSet,
+      portalResults: portal_results,
+    });
+    external_results.push(...googleSearch.externalResults);
+    possible_matches.push(...googleSearch.possibleMatches);
+    errors.push(...googleSearch.errors);
   }
 
   if (

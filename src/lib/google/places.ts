@@ -119,7 +119,7 @@ export async function searchGooglePlaces(opts: {
     Number.isFinite(opts.latitude) &&
     Number.isFinite(opts.longitude)
   ) {
-    const radiusMeters = Math.round((opts.radiusMiles ?? 15) * 1609.34);
+    const radiusMeters = Math.round((opts.radiusMiles ?? 50) * 1609.34);
     body.locationBias = {
       circle: {
         center: { latitude: opts.latitude, longitude: opts.longitude },
