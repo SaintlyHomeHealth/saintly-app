@@ -2,8 +2,6 @@
 
 import Link from "next/link";
 
-import { FacilityAiCaptureButton } from "@/app/admin/facilities/_components/FacilityAiCaptureButton";
-import { FacilityQuickLogButton } from "@/app/admin/facilities/_components/FacilityQuickLogButton";
 import type { DiscoverExternalResult } from "@/app/api/facilities/discover/route";
 import { crmActionBtnMuted, crmActionBtnSky } from "@/components/admin/crm-admin-list-styles";
 import { appleMapsDirectionsUrl } from "@/lib/crm/apple-maps";
@@ -20,7 +18,7 @@ function MatchBadge({ status }: { status: "already_in_portal" | "possible_match"
   if (status === "already_in_portal") {
     return (
       <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-bold text-emerald-900 ring-1 ring-emerald-200">
-        Already in Portal
+        In Saintly Portal
       </span>
     );
   }
@@ -33,22 +31,21 @@ function MatchBadge({ status }: { status: "already_in_portal" | "possible_match"
   }
   return (
     <span className="rounded-full bg-violet-50 px-2 py-0.5 text-[11px] font-bold text-violet-900 ring-1 ring-violet-200">
-      Google
+      New Google Result
     </span>
   );
 }
 
 export function FacilityNearbyExternalCard({
   item,
-  inRoute,
   onRouteChange,
   onQuickAdd,
   onReviewMatch,
   savedAsPortalId,
-  sourceContext = "discover",
 }: {
   item: DiscoverExternalResult;
-  inRoute: boolean;
+  /** @deprecated use internal route state from matched facility / google place id */
+  inRoute?: boolean;
   onRouteChange: () => void;
   onQuickAdd: () => void;
   onReviewMatch: () => void;
@@ -56,6 +53,8 @@ export function FacilityNearbyExternalCard({
   sourceContext?: "discover" | "finder";
 }) {
   const effectiveStatus = savedAsPortalId ? "already_in_portal" : item.match_status;
+  const portalFacilityId = savedAsPortalId ?? item.matched_facility_id ?? null;
+
   const tel = item.phone?.trim() ? `tel:${item.phone.replace(/[^\d+]/g, "")}` : null;
   const mapsUrl = appleMapsDirectionsUrl({
     address: item.formatted_address,
@@ -63,11 +62,24 @@ export function FacilityNearbyExternalCard({
     longitude: item.longitude,
   });
 
+  const routeIn = portalFacilityId
+    ? isStopInRouteDraft({ facilityId: portalFacilityId })
+    : isStopInRouteDraft({ googlePlaceId: item.google_place_id });
+
   const toggleRoute = () => {
-    if (savedAsPortalId) {
-      if (inRoute) removeStopFromRouteDraft({ facilityId: savedAsPortalId });
-      else addFacilityToRouteDraft(savedAsPortalId, item.name);
-    } else if (inRoute) {
+    if (portalFacilityId) {
+      if (routeIn) {
+        removeStopFromRouteDraft({ facilityId: portalFacilityId });
+      } else {
+        addFacilityToRouteDraft(portalFacilityId, item.name, {
+          address: item.formatted_address,
+          phone: item.phone,
+          latitude: item.latitude,
+          longitude: item.longitude,
+          type: item.type,
+        });
+      }
+    } else if (routeIn) {
       removeStopFromRouteDraft({ googlePlaceId: item.google_place_id });
     } else {
       addExternalPlaceToRouteDraft({
@@ -83,17 +95,12 @@ export function FacilityNearbyExternalCard({
         latitude: item.latitude,
         longitude: item.longitude,
         type: item.type,
-        portalStatus: item.match_status === "possible_match" ? "possible_match" : "not_in_portal",
+        portalStatus: "not_in_portal",
       });
     }
     notifyRouteDraftChanged();
     onRouteChange();
   };
-
-  const routeIn =
-    savedAsPortalId != null
-      ? isStopInRouteDraft({ facilityId: savedAsPortalId })
-      : inRoute;
 
   return (
     <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -125,6 +132,9 @@ export function FacilityNearbyExternalCard({
       </p>
       <p className="mt-2 text-sm text-slate-700">{item.formatted_address}</p>
       {item.phone ? <p className="mt-1 text-sm text-slate-700">{formatPhoneForDisplay(item.phone)}</p> : null}
+      {item.match_reason && effectiveStatus === "possible_match" ? (
+        <p className="mt-2 text-xs text-slate-500">{item.match_reason}</p>
+      ) : null}
 
       <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
         {mapsUrl ? (
@@ -142,42 +152,39 @@ export function FacilityNearbyExternalCard({
           <span className={`${crmActionBtnMuted} min-h-[2.5rem] cursor-not-allowed opacity-50`}>Call</span>
         )}
 
-        {savedAsPortalId ? (
-          <>
-            <FacilityQuickLogButton
-              facilityId={savedAsPortalId}
-              facilityName={item.name}
-              className={`${crmActionBtnMuted} min-h-[2.5rem] text-center`}
-            />
-            <FacilityAiCaptureButton
-              facilityId={savedAsPortalId}
-              facilityName={item.name}
-              sourceContext={sourceContext}
-              className={`${crmActionBtnMuted} min-h-[2.5rem] text-center`}
-            />
-            <Link href={`/admin/facilities/${savedAsPortalId}`} className={`${crmActionBtnSky} min-h-[2.5rem] text-center`}>
-              Open
-            </Link>
-          </>
-        ) : effectiveStatus === "not_in_portal" ? (
+        {effectiveStatus === "already_in_portal" && portalFacilityId ? (
+          <Link
+            href={`/admin/facilities/${portalFacilityId}`}
+            className={`${crmActionBtnSky} min-h-[2.5rem] text-center`}
+          >
+            Open Facility
+          </Link>
+        ) : null}
+
+        {effectiveStatus === "not_in_portal" ? (
           <button type="button" onClick={onQuickAdd} className={`${crmActionBtnSky} min-h-[2.5rem]`}>
             Quick Add to Portal
           </button>
-        ) : (
+        ) : null}
+
+        {effectiveStatus === "possible_match" ? (
           <>
             <button type="button" onClick={onReviewMatch} className={`${crmActionBtnSky} min-h-[2.5rem]`}>
               Review Match
             </button>
             {item.matched_facility_id ? (
-              <Link href={`/admin/facilities/${item.matched_facility_id}`} className={`${crmActionBtnMuted} min-h-[2.5rem] text-center`}>
+              <Link
+                href={`/admin/facilities/${item.matched_facility_id}`}
+                className={`${crmActionBtnMuted} min-h-[2.5rem] text-center`}
+              >
                 Use Existing
               </Link>
             ) : null}
             <button type="button" onClick={onQuickAdd} className={`${crmActionBtnMuted} min-h-[2.5rem]`}>
-              Quick Add to Portal
+              Create Anyway
             </button>
           </>
-        )}
+        ) : null}
 
         <button
           type="button"
