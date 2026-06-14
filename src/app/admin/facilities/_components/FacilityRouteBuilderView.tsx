@@ -10,6 +10,7 @@ import {
 } from "@/app/admin/facilities/_components/DiscoverQuickAddModal";
 import { FacilitySaveRoutePlanModal } from "@/app/admin/facilities/_components/FacilitySaveRoutePlanModal";
 import { RoutesNavLink } from "@/app/admin/facilities/_components/RoutesNavLink";
+import { FacilityAiCaptureButton } from "@/app/admin/facilities/_components/FacilityAiCaptureButton";
 import { FacilityPhotoNoteButton } from "@/app/admin/facilities/_components/FacilityPhotoNoteButton";
 import { FacilityQuickLogButton } from "@/app/admin/facilities/_components/FacilityQuickLogButton";
 import type { RouteBuilderEnrichedFacility } from "@/app/api/facilities/route-builder/enrich/route";
@@ -25,7 +26,7 @@ import {
 } from "@/lib/crm/facility-route-builder";
 import {
   clearFacilityRouteDraft,
-  getFacilityRouteDraft,
+  loadFacilityRouteDraftWithMeta,
   mergeEnrichedPortalFields,
   moveStopInRoute,
   notifyRouteDraftChanged,
@@ -131,7 +132,7 @@ function RouteStopCard({
           <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">
             Stop {stop.stopNumber}
           </p>
-          <h3 className="text-base font-semibold text-slate-900">{stop.name}</h3>
+          <h3 className="text-base font-semibold text-slate-900">{stop.name || "Unnamed stop"}</h3>
           <div className="mt-2 flex flex-wrap gap-1.5">
             <StopBadge stop={stop} />
             {stop.distanceMiles != null ? (
@@ -229,6 +230,7 @@ function RouteStopCard({
         <button
           type="button"
           onClick={() => {
+            if (!stop.localId) return;
             removeStopByLocalId(stop.localId);
             notifyRouteDraftChanged();
             onChange();
@@ -239,8 +241,9 @@ function RouteStopCard({
         </button>
         <button
           type="button"
-          disabled={isFirst}
+          disabled={isFirst || !stop.localId}
           onClick={() => {
+            if (!stop.localId) return;
             moveStopInRoute(stop.localId, "up");
             notifyRouteDraftChanged();
             onChange();
@@ -251,8 +254,9 @@ function RouteStopCard({
         </button>
         <button
           type="button"
-          disabled={isLast}
+          disabled={isLast || !stop.localId}
           onClick={() => {
+            if (!stop.localId) return;
             moveStopInRoute(stop.localId, "down");
             notifyRouteDraftChanged();
             onChange();
@@ -262,7 +266,7 @@ function RouteStopCard({
           Move Down
         </button>
 
-        {stop.visitState !== "visited" ? (
+        {stop.visitState !== "visited" && stop.localId ? (
           <button
             type="button"
             onClick={() => {
@@ -276,7 +280,7 @@ function RouteStopCard({
           </button>
         ) : null}
 
-        {stop.visitState === "skipped" ? (
+        {stop.visitState === "skipped" && stop.localId ? (
           <button
             type="button"
             onClick={() => {
@@ -288,7 +292,7 @@ function RouteStopCard({
           >
             Unskip
           </button>
-        ) : stop.visitState !== "visited" ? (
+        ) : stop.visitState !== "visited" && stop.localId ? (
           <button
             type="button"
             onClick={() => {
@@ -322,6 +326,7 @@ export function FacilityRouteBuilderView({
   canAssignOthers?: boolean;
 } = {}) {
   const [stops, setStops] = useState<FacilityRouteDraftStop[]>([]);
+  const [draftCorrupt, setDraftCorrupt] = useState(false);
   const [location, setLocation] = useState<LocationState>({ status: "idle" });
   const [quickAddDraft, setQuickAddDraft] = useState<QuickAddDraft | null>(null);
   const [quickAddLocalId, setQuickAddLocalId] = useState<string | null>(null);
@@ -336,7 +341,9 @@ export function FacilityRouteBuilderView({
       : null;
 
   const reloadStops = useCallback(() => {
-    setStops(getFacilityRouteDraft().stops);
+    const { draft, corrupt, skippedInvalid } = loadFacilityRouteDraftWithMeta();
+    setStops(draft.stops);
+    setDraftCorrupt(corrupt || (skippedInvalid > 0 && draft.stops.length === 0));
   }, []);
 
   const enrichPortalStops = useCallback(async (currentStops: FacilityRouteDraftStop[]) => {
@@ -495,7 +502,16 @@ export function FacilityRouteBuilderView({
     notifyRouteDraftChanged();
     reloadStops();
     setShowClearConfirm(false);
+    setDraftCorrupt(false);
     showToast("Route cleared.");
+  }
+
+  function handleClearCorruptDraft() {
+    clearFacilityRouteDraft();
+    notifyRouteDraftChanged();
+    reloadStops();
+    setDraftCorrupt(false);
+    showToast("Route draft cleared.");
   }
 
   function handleQuickAddSaved(facilityId: string, name: string) {
@@ -525,6 +541,17 @@ export function FacilityRouteBuilderView({
         <div className="fixed left-1/2 top-4 z-50 -translate-x-1/2 rounded-xl bg-slate-800 px-4 py-2 text-sm font-semibold text-white shadow-lg">
           {toast}
         </div>
+      ) : null}
+
+      {draftCorrupt ? (
+        <section className="rounded-2xl border border-amber-200 bg-amber-50 p-4 shadow-sm">
+          <p className="text-sm font-semibold text-amber-950">
+            Your route draft could not be loaded. Clear draft and start again.
+          </p>
+          <button type="button" onClick={handleClearCorruptDraft} className={`${btnDanger} mt-3`}>
+            Clear Draft
+          </button>
+        </section>
       ) : null}
 
       {/* Location */}
@@ -615,7 +642,7 @@ export function FacilityRouteBuilderView({
               const hasNextPending = findNextPendingStopIndex(stops) >= 0;
               return (
                 <RouteStopCard
-                  key={stop.localId}
+                  key={stop.localId || `stop-${idx}`}
                   stop={stop}
                   isFirst={idx === 0}
                   isLast={idx === enrichedStops.length - 1}
@@ -626,7 +653,7 @@ export function FacilityRouteBuilderView({
                   }}
                   showOpenNext={stop.visitState === "visited" && hasNextPending}
                   onOpenNext={() => {
-                    const fresh = getFacilityRouteDraft().stops;
+                    const fresh = loadFacilityRouteDraftWithMeta().draft.stops;
                     const ni = findNextPendingStopIndex(fresh);
                     if (ni < 0) return;
                     openStopInMaps(fresh[ni]);

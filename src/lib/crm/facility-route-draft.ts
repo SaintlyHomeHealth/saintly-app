@@ -37,6 +37,19 @@ export type FacilityRouteDraft = {
   updatedAt: string;
 };
 
+export type FacilityRouteDraftLoadResult = {
+  draft: FacilityRouteDraft;
+  corrupt: boolean;
+  skippedInvalid: number;
+};
+
+const VALID_VISIT_STATES = new Set<RouteStopVisitState>(["pending", "visited", "skipped"]);
+const VALID_PORTAL_STATUSES = new Set<NonNullable<FacilityRouteDraftStop["portalStatus"]>>([
+  "already_in_portal",
+  "not_in_portal",
+  "possible_match",
+]);
+
 function newLocalId(): string {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
     return crypto.randomUUID();
@@ -44,30 +57,170 @@ function newLocalId(): string {
   return `stop-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
-function normalizeStop(raw: FacilityRouteDraftStop): FacilityRouteDraftStop {
+function optionalString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function optionalNullableString(value: unknown): string | null | undefined {
+  if (value == null) return value === null ? null : undefined;
+  return typeof value === "string" ? value : undefined;
+}
+
+function optionalNumber(value: unknown): number | null | undefined {
+  if (value == null) return value === null ? null : undefined;
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function normalizeVisitState(value: unknown): RouteStopVisitState {
+  return VALID_VISIT_STATES.has(value as RouteStopVisitState)
+    ? (value as RouteStopVisitState)
+    : "pending";
+}
+
+function normalizePortalStatus(
+  value: unknown,
+  facilityId?: string,
+  googlePlaceId?: string
+): FacilityRouteDraftStop["portalStatus"] {
+  if (typeof value === "string" && VALID_PORTAL_STATUSES.has(value as NonNullable<FacilityRouteDraftStop["portalStatus"]>)) {
+    return value as NonNullable<FacilityRouteDraftStop["portalStatus"]>;
+  }
+  if (facilityId) return "already_in_portal";
+  if (googlePlaceId) return "not_in_portal";
+  return undefined;
+}
+
+function normalizeSource(
+  value: unknown,
+  facilityId?: string,
+  googlePlaceId?: string
+): FacilityRouteDraftStop["source"] {
+  if (value === "portal" || value === "google_places") return value;
+  if (facilityId) return "portal";
+  if (googlePlaceId) return "google_places";
+  return "portal";
+}
+
+/** Validate and normalize a single draft stop; returns null when the item cannot be rendered safely. */
+export function validateRouteDraftStop(raw: unknown): FacilityRouteDraftStop | null {
+  if (!raw || typeof raw !== "object") {
+    console.warn("[facility-route-draft] skipped invalid stop: not an object");
+    return null;
+  }
+
+  const r = raw as Record<string, unknown>;
+  const facilityId = optionalString(r.facilityId);
+  const googlePlaceId = optionalString(r.googlePlaceId);
+  const name = optionalString(r.name) ?? "";
+
+  if (!name && !facilityId && !googlePlaceId) {
+    console.warn("[facility-route-draft] skipped stop missing name and ids");
+    return null;
+  }
+
   return {
-    ...raw,
-    localId: raw.localId || newLocalId(),
-    visitState: raw.visitState ?? "pending",
+    localId: optionalString(r.localId) ?? newLocalId(),
+    facilityId,
+    googlePlaceId,
+    name: name || "Unnamed stop",
+    address: optionalString(r.address),
+    address_line_1: optionalString(r.address_line_1),
+    city: optionalString(r.city),
+    state: optionalString(r.state),
+    zip: optionalString(r.zip),
+    phone: optionalNullableString(r.phone) ?? null,
+    website: optionalNullableString(r.website) ?? null,
+    latitude: optionalNumber(r.latitude) ?? null,
+    longitude: optionalNumber(r.longitude) ?? null,
+    type: optionalNullableString(r.type) ?? null,
+    source: normalizeSource(r.source, facilityId, googlePlaceId),
+    portalStatus: normalizePortalStatus(r.portalStatus, facilityId, googlePlaceId),
+    notes: optionalNullableString(r.notes) ?? null,
+    visitState: normalizeVisitState(r.visitState),
+    priority: optionalNullableString(r.priority) ?? null,
+    nextFollowUpAt: optionalNullableString(r.nextFollowUpAt) ?? null,
+    addedAt:
+      typeof r.addedAt === "string" && r.addedAt.trim()
+        ? r.addedAt
+        : new Date().toISOString(),
   };
 }
 
-function readDraft(): FacilityRouteDraft {
+function normalizeStop(raw: FacilityRouteDraftStop): FacilityRouteDraftStop {
+  return (
+    validateRouteDraftStop(raw) ?? {
+      localId: newLocalId(),
+      name: "Unnamed stop",
+      source: "portal",
+      portalStatus: "already_in_portal",
+      visitState: "pending",
+      addedAt: new Date().toISOString(),
+    }
+  );
+}
+
+function emptyDraft(): FacilityRouteDraft {
+  return { stops: [], updatedAt: new Date().toISOString() };
+}
+
+export function loadFacilityRouteDraftWithMeta(): FacilityRouteDraftLoadResult {
   if (typeof window === "undefined") {
-    return { stops: [], updatedAt: new Date().toISOString() };
+    return { draft: emptyDraft(), corrupt: false, skippedInvalid: 0 };
   }
+
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return { stops: [], updatedAt: new Date().toISOString() };
-    const parsed = JSON.parse(raw) as FacilityRouteDraft;
-    if (!Array.isArray(parsed.stops)) return { stops: [], updatedAt: new Date().toISOString() };
+    if (!raw) {
+      return { draft: emptyDraft(), corrupt: false, skippedInvalid: 0 };
+    }
+
+    const parsed = JSON.parse(raw) as Partial<FacilityRouteDraft>;
+    if (!parsed || !Array.isArray(parsed.stops)) {
+      console.warn("[facility-route-draft] corrupt draft: stops is not an array");
+      return { draft: emptyDraft(), corrupt: true, skippedInvalid: 0 };
+    }
+
+    const stops: FacilityRouteDraftStop[] = [];
+    let skippedInvalid = 0;
+    for (const item of parsed.stops) {
+      const normalized = validateRouteDraftStop(item);
+      if (!normalized) {
+        skippedInvalid += 1;
+        continue;
+      }
+      stops.push(normalized);
+    }
+
+    if (skippedInvalid > 0) {
+      console.warn(`[facility-route-draft] skipped ${skippedInvalid} invalid stop(s)`);
+      writeDraft({
+        stops,
+        updatedAt:
+          typeof parsed.updatedAt === "string" && parsed.updatedAt.trim()
+            ? parsed.updatedAt
+            : new Date().toISOString(),
+      });
+    }
+
     return {
-      ...parsed,
-      stops: parsed.stops.map((s) => normalizeStop(s as FacilityRouteDraftStop)),
+      draft: {
+        stops,
+        updatedAt:
+          typeof parsed.updatedAt === "string" && parsed.updatedAt.trim()
+            ? parsed.updatedAt
+            : new Date().toISOString(),
+      },
+      corrupt: false,
+      skippedInvalid,
     };
-  } catch {
-    return { stops: [], updatedAt: new Date().toISOString() };
+  } catch (error) {
+    console.warn("[facility-route-draft] corrupt draft:", error);
+    return { draft: emptyDraft(), corrupt: true, skippedInvalid: 0 };
   }
+}
+
+function readDraft(): FacilityRouteDraft {
+  return loadFacilityRouteDraftWithMeta().draft;
 }
 
 function writeDraft(draft: FacilityRouteDraft): void {
@@ -205,8 +358,11 @@ export function addExternalPlaceToRouteDraft(input: ExternalRouteStopInput): Fac
 }
 
 export function setRouteDraftStops(stops: FacilityRouteDraftStop[]): FacilityRouteDraft {
+  const normalized = stops
+    .map((stop) => validateRouteDraftStop(stop))
+    .filter((stop): stop is FacilityRouteDraftStop => stop != null);
   const next: FacilityRouteDraft = {
-    stops: stops.map(normalizeStop),
+    stops: normalized,
     updatedAt: new Date().toISOString(),
   };
   writeDraft(next);
