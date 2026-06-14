@@ -26,6 +26,7 @@ import {
   FACILITY_FIELD_FILTERS,
   type FacilityFieldFilterId,
 } from "@/lib/crm/facility-finder-query";
+import { formatFacilitySearchBasisLabel } from "@/lib/crm/facility-location-search";
 import { formatFacilityDate } from "@/lib/crm/facility-address";
 import {
   addFacilityToRouteDraft,
