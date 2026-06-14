@@ -20,7 +20,7 @@ import {
   radiusValueToMiles,
   type FacilityRadiusValue,
 } from "@/app/admin/facilities/_components/FacilityRadiusSelect";
-import { crmActionBtnMuted, crmActionBtnSky } from "@/components/admin/crm-admin-list-styles";
+import { crmActionBtnMuted, crmActionBtnSky, crmPrimaryCtaCls } from "@/components/admin/crm-admin-list-styles";
 import { appleMapsDirectionsUrl } from "@/lib/crm/apple-maps";
 import {
   FACILITY_FIELD_FILTERS,
@@ -162,57 +162,62 @@ function FacilityFinderCard({
         </div>
       </div>
 
-      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
-        {mapsUrl ? (
-          <a
-            href={mapsUrl}
-            target="_blank"
-            rel="noreferrer"
-            className={`${crmActionBtnMuted} min-h-[2.5rem] text-center`}
-          >
-            Directions
-          </a>
-        ) : (
-          <span className={`${crmActionBtnMuted} min-h-[2.5rem] cursor-not-allowed text-center opacity-50`}>
-            Directions
-          </span>
-        )}
-        {tel ? (
-          <a href={tel} className={`${crmActionBtnMuted} min-h-[2.5rem] text-center`}>
-            Call
-          </a>
-        ) : (
-          <span className={`${crmActionBtnMuted} min-h-[2.5rem] cursor-not-allowed text-center opacity-50`}>
-            Call
-          </span>
-        )}
-        <FacilityQuickLogButton
-          facilityId={facility.id}
-          facilityName={facility.name}
-          className={`${crmActionBtnMuted} min-h-[2.5rem] text-center`}
-        />
-        <FacilityAiCaptureButton
-          facilityId={facility.id}
-          facilityName={facility.name}
-          sourceContext="finder"
-          className={`${crmActionBtnMuted} min-h-[2.5rem] text-center`}
-        />
-        <FacilityPhotoNoteButton
-          facilityId={facility.id}
-          facilityName={facility.name}
-          sourceContext="finder"
-          className={`${crmActionBtnMuted} min-h-[2.5rem] text-center text-[11px]`}
-        />
-        <Link href={`/admin/facilities/${facility.id}`} className={`${crmActionBtnSky} min-h-[2.5rem] text-center`}>
-          Open
-        </Link>
-        <button
-          type="button"
-          onClick={toggleRoute}
-          className={`${crmActionBtnMuted} min-h-[2.5rem] ${inRoute ? "border-emerald-300 bg-emerald-50 text-emerald-900" : ""}`}
+      <div className="mt-4 space-y-3">
+        <Link
+          href={`/admin/facilities/${facility.id}`}
+          className={`${crmPrimaryCtaCls} flex w-full min-h-[2.75rem] items-center justify-center text-sm font-bold`}
         >
-          {inRoute ? "In route ✓" : "Add to Route"}
-        </button>
+          Open Facility File
+        </Link>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          {mapsUrl ? (
+            <a
+              href={mapsUrl}
+              target="_blank"
+              rel="noreferrer"
+              className={`${crmActionBtnMuted} min-h-[2.5rem] text-center`}
+            >
+              Directions
+            </a>
+          ) : (
+            <span className={`${crmActionBtnMuted} min-h-[2.5rem] cursor-not-allowed text-center opacity-50`}>
+              Directions
+            </span>
+          )}
+          {tel ? (
+            <a href={tel} className={`${crmActionBtnMuted} min-h-[2.5rem] text-center`}>
+              Call
+            </a>
+          ) : (
+            <span className={`${crmActionBtnMuted} min-h-[2.5rem] cursor-not-allowed text-center opacity-50`}>
+              Call
+            </span>
+          )}
+          <FacilityQuickLogButton
+            facilityId={facility.id}
+            facilityName={facility.name}
+            className={`${crmActionBtnMuted} min-h-[2.5rem] text-center`}
+          />
+          <FacilityAiCaptureButton
+            facilityId={facility.id}
+            facilityName={facility.name}
+            sourceContext="finder"
+            className={`${crmActionBtnMuted} min-h-[2.5rem] text-center`}
+          />
+          <FacilityPhotoNoteButton
+            facilityId={facility.id}
+            facilityName={facility.name}
+            sourceContext="finder"
+            className={`${crmActionBtnMuted} min-h-[2.5rem] text-center text-[11px]`}
+          />
+          <button
+            type="button"
+            onClick={toggleRoute}
+            className={`${crmActionBtnMuted} min-h-[2.5rem] ${inRoute ? "border-emerald-300 bg-emerald-50 text-emerald-900" : ""}`}
+          >
+            {inRoute ? "In route ✓" : "Add to Route"}
+          </button>
+        </div>
       </div>
     </article>
   );
@@ -235,6 +240,12 @@ export function FacilityFinderView() {
   const [routeIds, setRouteIds] = useState<Set<string>>(new Set());
   const [quickAddDraft, setQuickAddDraft] = useState<QuickAddDraft | null>(null);
   const [savedPlaceIds, setSavedPlaceIds] = useState<Record<string, string>>({});
+  const [toast, setToast] = useState<string | null>(null);
+
+  function showToast(msg: string) {
+    setToast(msg);
+    window.setTimeout(() => setToast(null), 3500);
+  }
 
   const refreshRouteState = useCallback(() => {
     const draft = getFacilityRouteDraft();
@@ -362,6 +373,12 @@ export function FacilityFinderView() {
 
   return (
     <div className="space-y-4 pb-24">
+      {toast ? (
+        <div className="fixed left-1/2 top-4 z-50 -translate-x-1/2 rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white shadow-lg">
+          {toast}
+        </div>
+      ) : null}
+
       <div className="sticky top-0 z-20 -mx-1 space-y-3 rounded-2xl border border-slate-200 bg-white/95 p-4 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-white/90">
         <div className="flex flex-wrap items-center gap-2">
           <FacilityRadiusSelect value={radius} onChange={setRadius} />
@@ -554,6 +571,7 @@ export function FacilityFinderView() {
           onSaved={(facilityId, name) => {
             setSavedPlaceIds((prev) => ({ ...prev, [quickAddDraft.google_place_id]: facilityId }));
             setQuickAddDraft(null);
+            showToast(`${name} added — open the facility file to start working it`);
           }}
           onUseExisting={(facilityId) => {
             setQuickAddDraft(null);

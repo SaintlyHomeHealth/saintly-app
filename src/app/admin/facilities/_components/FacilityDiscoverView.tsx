@@ -16,7 +16,7 @@ import type {
   DiscoverPortalResult,
   DiscoverResponse,
 } from "@/app/api/facilities/discover/route";
-import { crmActionBtnMuted, crmActionBtnSky } from "@/components/admin/crm-admin-list-styles";
+import { crmActionBtnMuted, crmActionBtnSky, crmPrimaryCtaCls } from "@/components/admin/crm-admin-list-styles";
 import { appleMapsDirectionsUrl } from "@/lib/crm/apple-maps";
 import {
   FACILITY_FIELD_FILTERS,
@@ -142,42 +142,47 @@ function PortalDiscoverCard({
           {item.website}
         </a>
       ) : null}
-      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
-        {mapsUrl ? (
-          <a href={mapsUrl} target="_blank" rel="noreferrer" className={`${crmActionBtnMuted} min-h-[2.5rem] text-center`}>
-            Directions
-          </a>
-        ) : (
-          <span className={`${crmActionBtnMuted} min-h-[2.5rem] cursor-not-allowed opacity-50`}>Directions</span>
-        )}
-        {tel ? (
-          <a href={tel} className={`${crmActionBtnMuted} min-h-[2.5rem] text-center`}>
-            Call
-          </a>
-        ) : (
-          <span className={`${crmActionBtnMuted} min-h-[2.5rem] cursor-not-allowed opacity-50`}>Call</span>
-        )}
-        <FacilityQuickLogButton
-          facilityId={item.facility_id}
-          facilityName={item.name}
-          className={`${crmActionBtnMuted} min-h-[2.5rem] text-center`}
-        />
-        <FacilityAiCaptureButton
-          facilityId={item.facility_id}
-          facilityName={item.name}
-          sourceContext="discover"
-          className={`${crmActionBtnMuted} min-h-[2.5rem] text-center`}
-        />
-        <Link href={`/admin/facilities/${item.facility_id}`} className={`${crmActionBtnSky} min-h-[2.5rem] text-center`}>
-          Open
-        </Link>
-        <button
-          type="button"
-          onClick={toggleRoute}
-          className={`${crmActionBtnMuted} min-h-[2.5rem] ${inRoute ? "border-emerald-300 bg-emerald-50 text-emerald-900" : ""}`}
+      <div className="mt-4 space-y-3">
+        <Link
+          href={`/admin/facilities/${item.facility_id}`}
+          className={`${crmPrimaryCtaCls} flex w-full min-h-[2.75rem] items-center justify-center text-sm font-bold`}
         >
-          {inRoute ? "In route ✓" : "Add to Route"}
-        </button>
+          Open Facility File
+        </Link>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          {mapsUrl ? (
+            <a href={mapsUrl} target="_blank" rel="noreferrer" className={`${crmActionBtnMuted} min-h-[2.5rem] text-center`}>
+              Directions
+            </a>
+          ) : (
+            <span className={`${crmActionBtnMuted} min-h-[2.5rem] cursor-not-allowed opacity-50`}>Directions</span>
+          )}
+          {tel ? (
+            <a href={tel} className={`${crmActionBtnMuted} min-h-[2.5rem] text-center`}>
+              Call
+            </a>
+          ) : (
+            <span className={`${crmActionBtnMuted} min-h-[2.5rem] cursor-not-allowed opacity-50`}>Call</span>
+          )}
+          <FacilityQuickLogButton
+            facilityId={item.facility_id}
+            facilityName={item.name}
+            className={`${crmActionBtnMuted} min-h-[2.5rem] text-center`}
+          />
+          <FacilityAiCaptureButton
+            facilityId={item.facility_id}
+            facilityName={item.name}
+            sourceContext="discover"
+            className={`${crmActionBtnMuted} min-h-[2.5rem] text-center`}
+          />
+          <button
+            type="button"
+            onClick={toggleRoute}
+            className={`${crmActionBtnMuted} min-h-[2.5rem] ${inRoute ? "border-emerald-300 bg-emerald-50 text-emerald-900" : ""}`}
+          >
+            {inRoute ? "In route ✓" : "Add to Route"}
+          </button>
+        </div>
       </div>
     </article>
   );
@@ -489,8 +494,7 @@ export function FacilityDiscoverView() {
   function handleSaved(googlePlaceId: string, facilityId: string, name: string) {
     setSavedPlaceIds((prev) => ({ ...prev, [googlePlaceId]: facilityId }));
     setQuickAddDraft(null);
-    showToast(`${name} added to the portal`);
-    void runSearch();
+    showToast(`${name} added — open the facility file to start working it`);
   }
 
   const googleWarning =

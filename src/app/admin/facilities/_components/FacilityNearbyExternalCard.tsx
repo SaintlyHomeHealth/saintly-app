@@ -2,8 +2,11 @@
 
 import Link from "next/link";
 
+import { FacilityAiCaptureButton } from "@/app/admin/facilities/_components/FacilityAiCaptureButton";
+import { FacilityPhotoNoteButton } from "@/app/admin/facilities/_components/FacilityPhotoNoteButton";
+import { FacilityQuickLogButton } from "@/app/admin/facilities/_components/FacilityQuickLogButton";
 import type { DiscoverExternalResult } from "@/app/api/facilities/discover/route";
-import { crmActionBtnMuted, crmActionBtnSky } from "@/components/admin/crm-admin-list-styles";
+import { crmActionBtnMuted, crmActionBtnSky, crmPrimaryCtaCls } from "@/components/admin/crm-admin-list-styles";
 import { appleMapsDirectionsUrl } from "@/lib/crm/apple-maps";
 import {
   addExternalPlaceToRouteDraft,
@@ -42,6 +45,7 @@ export function FacilityNearbyExternalCard({
   onQuickAdd,
   onReviewMatch,
   savedAsPortalId,
+  sourceContext,
 }: {
   item: DiscoverExternalResult;
   /** @deprecated use internal route state from matched facility / google place id */
@@ -52,8 +56,10 @@ export function FacilityNearbyExternalCard({
   savedAsPortalId?: string | null;
   sourceContext?: "discover" | "finder";
 }) {
-  const effectiveStatus = savedAsPortalId ? "already_in_portal" : item.match_status;
   const portalFacilityId = savedAsPortalId ?? item.matched_facility_id ?? null;
+  const isInPortal = Boolean(portalFacilityId);
+  const effectiveStatus = isInPortal ? "already_in_portal" : item.match_status;
+  const captureContext = sourceContext ?? "discover";
 
   const tel = item.phone?.trim() ? `tel:${item.phone.replace(/[^\d+]/g, "")}` : null;
   const mapsUrl = appleMapsDirectionsUrl({
@@ -136,64 +142,108 @@ export function FacilityNearbyExternalCard({
         <p className="mt-2 text-xs text-slate-500">{item.match_reason}</p>
       ) : null}
 
-      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
-        {mapsUrl ? (
-          <a href={mapsUrl} target="_blank" rel="noreferrer" className={`${crmActionBtnMuted} min-h-[2.5rem] text-center`}>
-            Directions
-          </a>
-        ) : (
-          <span className={`${crmActionBtnMuted} min-h-[2.5rem] cursor-not-allowed opacity-50`}>Directions</span>
-        )}
-        {tel ? (
-          <a href={tel} className={`${crmActionBtnMuted} min-h-[2.5rem] text-center`}>
-            Call
-          </a>
-        ) : (
-          <span className={`${crmActionBtnMuted} min-h-[2.5rem] cursor-not-allowed opacity-50`}>Call</span>
-        )}
-
-        {effectiveStatus === "already_in_portal" && portalFacilityId ? (
+      {isInPortal && portalFacilityId ? (
+        <div className="mt-4 space-y-3">
           <Link
             href={`/admin/facilities/${portalFacilityId}`}
-            className={`${crmActionBtnSky} min-h-[2.5rem] text-center`}
+            className={`${crmPrimaryCtaCls} flex w-full min-h-[2.75rem] items-center justify-center text-sm font-bold`}
           >
-            Open Facility
+            Open Facility File
           </Link>
-        ) : null}
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {mapsUrl ? (
+              <a href={mapsUrl} target="_blank" rel="noreferrer" className={`${crmActionBtnMuted} min-h-[2.5rem] text-center`}>
+                Directions
+              </a>
+            ) : (
+              <span className={`${crmActionBtnMuted} min-h-[2.5rem] cursor-not-allowed opacity-50`}>Directions</span>
+            )}
+            {tel ? (
+              <a href={tel} className={`${crmActionBtnMuted} min-h-[2.5rem] text-center`}>
+                Call
+              </a>
+            ) : (
+              <span className={`${crmActionBtnMuted} min-h-[2.5rem] cursor-not-allowed opacity-50`}>Call</span>
+            )}
+            <FacilityQuickLogButton
+              facilityId={portalFacilityId}
+              facilityName={item.name}
+              className={`${crmActionBtnMuted} min-h-[2.5rem] text-center`}
+            >
+              Add Note
+            </FacilityQuickLogButton>
+            <FacilityAiCaptureButton
+              facilityId={portalFacilityId}
+              facilityName={item.name}
+              sourceContext={captureContext}
+              className={`${crmActionBtnMuted} min-h-[2.5rem] text-center`}
+            />
+            <FacilityPhotoNoteButton
+              facilityId={portalFacilityId}
+              facilityName={item.name}
+              sourceContext={captureContext}
+              className={`${crmActionBtnMuted} min-h-[2.5rem] text-center text-[11px]`}
+            />
+            <button
+              type="button"
+              onClick={toggleRoute}
+              className={`${crmActionBtnMuted} min-h-[2.5rem] ${routeIn ? "border-emerald-300 bg-emerald-50 text-emerald-900" : ""}`}
+            >
+              {routeIn ? "In route ✓" : "Add to Route"}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
+          {mapsUrl ? (
+            <a href={mapsUrl} target="_blank" rel="noreferrer" className={`${crmActionBtnMuted} min-h-[2.5rem] text-center`}>
+              Directions
+            </a>
+          ) : (
+            <span className={`${crmActionBtnMuted} min-h-[2.5rem] cursor-not-allowed opacity-50`}>Directions</span>
+          )}
+          {tel ? (
+            <a href={tel} className={`${crmActionBtnMuted} min-h-[2.5rem] text-center`}>
+              Call
+            </a>
+          ) : (
+            <span className={`${crmActionBtnMuted} min-h-[2.5rem] cursor-not-allowed opacity-50`}>Call</span>
+          )}
 
-        {effectiveStatus === "not_in_portal" ? (
-          <button type="button" onClick={onQuickAdd} className={`${crmActionBtnSky} min-h-[2.5rem]`}>
-            Quick Add to Portal
+          {effectiveStatus === "not_in_portal" ? (
+            <button type="button" onClick={onQuickAdd} className={`${crmActionBtnSky} min-h-[2.5rem]`}>
+              Quick Add to Portal
+            </button>
+          ) : null}
+
+          {effectiveStatus === "possible_match" ? (
+            <>
+              <button type="button" onClick={onReviewMatch} className={`${crmActionBtnSky} min-h-[2.5rem]`}>
+                Review Match
+              </button>
+              {item.matched_facility_id ? (
+                <Link
+                  href={`/admin/facilities/${item.matched_facility_id}`}
+                  className={`${crmActionBtnMuted} min-h-[2.5rem] text-center`}
+                >
+                  Use Existing
+                </Link>
+              ) : null}
+              <button type="button" onClick={onQuickAdd} className={`${crmActionBtnMuted} min-h-[2.5rem]`}>
+                Create Anyway
+              </button>
+            </>
+          ) : null}
+
+          <button
+            type="button"
+            onClick={toggleRoute}
+            className={`${crmActionBtnMuted} min-h-[2.5rem] ${routeIn ? "border-emerald-300 bg-emerald-50 text-emerald-900" : ""}`}
+          >
+            {routeIn ? "In route ✓" : "Add to Route"}
           </button>
-        ) : null}
-
-        {effectiveStatus === "possible_match" ? (
-          <>
-            <button type="button" onClick={onReviewMatch} className={`${crmActionBtnSky} min-h-[2.5rem]`}>
-              Review Match
-            </button>
-            {item.matched_facility_id ? (
-              <Link
-                href={`/admin/facilities/${item.matched_facility_id}`}
-                className={`${crmActionBtnMuted} min-h-[2.5rem] text-center`}
-              >
-                Use Existing
-              </Link>
-            ) : null}
-            <button type="button" onClick={onQuickAdd} className={`${crmActionBtnMuted} min-h-[2.5rem]`}>
-              Create Anyway
-            </button>
-          </>
-        ) : null}
-
-        <button
-          type="button"
-          onClick={toggleRoute}
-          className={`${crmActionBtnMuted} min-h-[2.5rem] ${routeIn ? "border-emerald-300 bg-emerald-50 text-emerald-900" : ""}`}
-        >
-          {routeIn ? "In route ✓" : "Add to Route"}
-        </button>
-      </div>
+        </div>
+      )}
     </article>
   );
 }
