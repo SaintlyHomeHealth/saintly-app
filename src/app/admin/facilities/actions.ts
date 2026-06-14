@@ -12,8 +12,9 @@ import {
   isValidVisitFrequency,
 } from "@/lib/crm/facility-options";
 import { supabaseAdmin } from "@/lib/admin";
+import { syncFollowUpTaskFromActivity } from "@/lib/crm/facility-follow-up-tasks";
 import { getAuthenticatedUser } from "@/lib/supabase/server";
-import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
+import { canAccessFacilityAdminTools, getStaffProfile } from "@/lib/staff-profile";
 import { parseFormDatetimeToUtcIso } from "@/lib/datetime/app-timezone";
 
 function str(formData: FormData, key: string): string {
@@ -37,7 +38,7 @@ function parseIsoDatetime(raw: string | null): string | null {
 
 async function requireManager() {
   const staff = await getStaffProfile();
-  if (!staff || !isManagerOrHigher(staff)) {
+  if (!staff || !canAccessFacilityAdminTools(staff)) {
     redirect("/admin");
   }
   return staff;
@@ -280,27 +281,49 @@ export async function createFacilityActivity(formData: FormData) {
 
   const activity_at = parseIsoDatetime(str(formData, "activity_at")) ?? new Date().toISOString();
   const next_follow_up_at = parseIsoDatetime(str(formData, "next_follow_up_at"));
+  const follow_up_task = optStr(formData, "follow_up_task");
 
-  const { error } = await supabaseAdmin.from("facility_activities").insert({
-    facility_id,
-    facility_contact_id,
-    staff_user_id: user?.id ?? null,
-    activity_type,
-    outcome,
-    activity_at,
-    notes: optStr(formData, "notes"),
-    next_follow_up_at,
-    follow_up_task: optStr(formData, "follow_up_task"),
-    referral_potential: optStr(formData, "referral_potential"),
-    materials_dropped_off: readBool(formData, "materials_dropped_off"),
-    got_business_card: readBool(formData, "got_business_card"),
-    requested_packet: readBool(formData, "requested_packet"),
-    referral_process_captured: readBool(formData, "referral_process_captured"),
-  });
+  const { data: inserted, error } = await supabaseAdmin
+    .from("facility_activities")
+    .insert({
+      facility_id,
+      facility_contact_id,
+      staff_user_id: user?.id ?? null,
+      activity_type,
+      outcome,
+      activity_at,
+      notes: optStr(formData, "notes"),
+      next_follow_up_at,
+      follow_up_task,
+      referral_potential: optStr(formData, "referral_potential"),
+      materials_dropped_off: readBool(formData, "materials_dropped_off"),
+      got_business_card: readBool(formData, "got_business_card"),
+      requested_packet: readBool(formData, "requested_packet"),
+      referral_process_captured: readBool(formData, "referral_process_captured"),
+    })
+    .select("id")
+    .maybeSingle();
 
-  if (error) {
-    console.warn("[facilities] createFacilityActivity:", error.message);
+  if (error || !inserted?.id) {
+    console.warn("[facilities] createFacilityActivity:", error?.message);
     redirect(`/admin/facilities/${facility_id}?visitError=save`);
+  }
+
+  if (next_follow_up_at) {
+    const sync = await syncFollowUpTaskFromActivity(supabaseAdmin, {
+      facility_id,
+      activity_id: inserted.id as string,
+      contact_id: facility_contact_id,
+      follow_up_task,
+      outcome,
+      next_follow_up_at,
+      source: "advanced_log",
+      created_by: user?.id ?? null,
+      description: optStr(formData, "notes"),
+    });
+    if (!sync.ok) {
+      console.warn("[facilities] createFacilityActivity task sync:", sync.error);
+    }
   }
 
   revalidatePath("/admin/facilities");

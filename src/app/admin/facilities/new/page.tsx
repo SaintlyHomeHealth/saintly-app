@@ -5,7 +5,7 @@ import { FacilityForm } from "@/app/admin/facilities/_components/FacilityForm";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { crmPrimaryCtaCls } from "@/components/admin/crm-admin-list-styles";
 import { supabaseAdmin } from "@/lib/admin";
-import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
+import { canAccessFacilityAdminTools, getStaffProfile } from "@/lib/staff-profile";
 
 export default async function AdminFacilityNewPage({
   searchParams,
@@ -13,7 +13,7 @@ export default async function AdminFacilityNewPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const staff = await getStaffProfile();
-  if (!staff || !isManagerOrHigher(staff)) {
+  if (!staff || !canAccessFacilityAdminTools(staff)) {
     redirect("/admin");
   }
 

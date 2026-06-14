@@ -4,7 +4,7 @@ import { LeadWorkspace } from "../lead-workspace";
 import { parseEmploymentApplicationMeta, type EmploymentApplicationMeta } from "@/lib/crm/lead-employment-meta";
 import { parseLeadIntakeRequestFromMetadata } from "@/lib/crm/lead-intake-request";
 import { isLeadPipelineTerminal, isValidLeadPipelineStatus } from "@/lib/crm/lead-pipeline-status";
-import { canAccessWorkspacePhone, getStaffProfile, isCrmLeadsRowPolicyRole } from "@/lib/staff-profile";
+import { canAccessFacilityAdminTools, canAccessWorkspacePhone, getStaffProfile, isCrmLeadsRowPolicyRole } from "@/lib/staff-profile";
 import { supabaseAdmin } from "@/lib/admin";
 import type { LeadActivityRow } from "@/lib/crm/lead-activities-timeline";
 import { isMissingSchemaObjectError } from "@/lib/crm/supabase-migration-fallback";
@@ -40,9 +40,14 @@ import { listInsurancePayers } from "@/lib/crm/insurance-payers";
 import { listCrmTasks } from "@/lib/crm/crm-tasks-operations";
 import type { CrmTaskRow } from "@/lib/crm/crm-task-types";
 import { loadLeadAttachmentsForWorkspace } from "@/lib/crm/lead-attachments-load";
+import { loadLeadReferralDocumentsForLead } from "@/lib/crm/lead-referral-documents";
 import { safeAdminCrmLeadsListReturnUrl } from "@/lib/crm/admin-crm-leads-list-url";
 import { getSaintlyCrmVoicePhiNotice } from "@/lib/crm/crm-voice-phi-notice.server";
 import { getSaintlyRealtimeGatewayClientSnapshot } from "@/lib/crm/saintly-ai-voice-config";
+import { loadFacilityReferralLeadPanel } from "@/lib/crm/facility-referral-pipeline";
+import { loadLeadIntakeReadiness } from "@/lib/crm/lead-intake-readiness";
+import { loadLeadAdmissionHandoffPanel } from "@/lib/crm/lead-admission-handoff";
+import { loadLeadReferralSourceReviewPanel } from "@/lib/crm/facility-referral-source-review";
 
 type ContactEmb = {
   full_name?: string | null;
@@ -657,6 +662,61 @@ export default async function LeadIntakePage({
     console.warn("[crm/lead detail] lead attachments failed:", e);
   }
 
+  let initialLeadReferralDocuments: Awaited<ReturnType<typeof loadLeadReferralDocumentsForLead>> = [];
+  try {
+    initialLeadReferralDocuments = await loadLeadReferralDocumentsForLead(leadId);
+  } catch (e) {
+    console.warn("[crm/lead detail] lead referral documents failed:", e);
+  }
+
+  const leadDocumentContext = {
+    patientFirstName: str(c?.first_name),
+    patientLastName: str(c?.last_name),
+    dob: dobIso ?? "",
+    phone: primaryPhone,
+    addressLine1: str(c?.address_line_1),
+    addressLine2: str(c?.address_line_2),
+    city: str(c?.city),
+    state: str(c?.state),
+    zip: str(c?.zip),
+    primaryPayerName: str(L.primary_payer_name),
+    payerName: str(L.payer_name),
+    serviceType: serviceTypeLegacy,
+    notes: typeof L.notes === "string" ? L.notes : "",
+    referringProviderName: str(L.referring_provider_name),
+    doctorOfficeName: str(L.doctor_office_name),
+    doctorOfficePhone: str(L.doctor_office_phone),
+    referringDoctorName: str(L.referring_doctor_name),
+  };
+
+  let facilityReferralPanel: Awaited<ReturnType<typeof loadFacilityReferralLeadPanel>> = null;
+  try {
+    facilityReferralPanel = await loadFacilityReferralLeadPanel(leadId);
+  } catch (e) {
+    console.warn("[crm/lead detail] facility referral panel failed:", e);
+  }
+
+  let referralSourceReviewPanel: Awaited<ReturnType<typeof loadLeadReferralSourceReviewPanel>> = null;
+  try {
+    referralSourceReviewPanel = await loadLeadReferralSourceReviewPanel(leadId);
+  } catch (e) {
+    console.warn("[crm/lead detail] referral source review panel failed:", e);
+  }
+
+  let intakeReadinessPanel: Awaited<ReturnType<typeof loadLeadIntakeReadiness>> = null;
+  try {
+    intakeReadinessPanel = await loadLeadIntakeReadiness(leadId, staff);
+  } catch (e) {
+    console.warn("[crm/lead detail] intake readiness panel failed:", e);
+  }
+
+  let admissionHandoffPanel: Awaited<ReturnType<typeof loadLeadAdmissionHandoffPanel>> = null;
+  try {
+    admissionHandoffPanel = await loadLeadAdmissionHandoffPanel(leadId, staff);
+  } catch (e) {
+    console.warn("[crm/lead detail] admission handoff panel failed:", e);
+  }
+
     return (
     <>
     <LeadWorkspace
@@ -714,7 +774,14 @@ export default async function LeadIntakePage({
       crmRealtimeGateway={crmRealtimeGateway}
       voicePhiNotice={voicePhiNotice}
       initialLeadAttachments={initialLeadAttachments}
+      initialLeadReferralDocuments={initialLeadReferralDocuments}
+      leadDocumentContext={leadDocumentContext}
       salesAgentContext={salesAgentContext}
+      facilityReferralPanel={facilityReferralPanel}
+      referralSourceReviewPanel={referralSourceReviewPanel}
+      canManageReferralSourceReview={canAccessFacilityAdminTools(staff)}
+      intakeReadinessPanel={intakeReadinessPanel}
+      admissionHandoffPanel={admissionHandoffPanel}
     />
     </>
     );

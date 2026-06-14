@@ -12,6 +12,7 @@ export const LEAD_SOURCE_OPTIONS = [
   { value: "facebook_lead_ads", label: "Facebook Lead Ads (Zapier)" },
   { value: "google", label: "Google" },
   { value: "sales_agent", label: "Sales Agent" },
+  { value: "facility_outreach", label: "Facility Outreach" },
   { value: "other", label: "Other" },
 ] as const;
 

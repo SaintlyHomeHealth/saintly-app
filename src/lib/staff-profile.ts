@@ -244,6 +244,18 @@ export function isSalesAgentRole(profile: StaffProfile | null | undefined): bool
   return profile?.role === "sales_agent" && profile.is_active !== false;
 }
 
+/** Field sales reps and manager-tier staff may use outreach, finder, route builder, quick log, etc. */
+export function canAccessFacilityFieldTools(profile: StaffProfile | null | undefined): boolean {
+  if (!profile || profile.is_active === false) return false;
+  return isSalesAgentRole(profile) || isManagerOrHigher(profile);
+}
+
+/** Admin facility table, analytics, bulk admin actions — manager-tier and above only. */
+export function canAccessFacilityAdminTools(profile: StaffProfile | null | undefined): boolean {
+  if (!profile || profile.is_active === false) return false;
+  return isManagerOrHigher(profile);
+}
+
 const STAFF_PROFILE_SELECT =
   "id, user_id, email, role, created_at, updated_at, full_name, is_active, phone_access_enabled, inbound_ring_enabled, applicant_id, sms_notify_phone, admin_shell_access, page_access_preset, page_permissions, require_password_change, phone_assignment_mode, dedicated_outbound_e164, shared_line_e164, phone_calling_profile, sms_messaging_enabled, voicemail_access_enabled, shared_line_permissions, softphone_mobile_enabled, softphone_web_enabled, push_notifications_enabled, call_recording_enabled";
 

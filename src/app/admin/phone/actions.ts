@@ -499,7 +499,7 @@ export async function convertLeadToPatient(leadId: string): Promise<ConvertLeadT
     supabaseAdmin
       .from("leads")
       .select(
-        "id, contact_id, status, crm_stage, referring_provider_name, referring_provider_phone, referring_doctor_name, doctor_office_name, doctor_office_phone, doctor_office_fax, doctor_office_contact_person, payer_name, payer_type, referral_source, service_type, service_disciplines, intake_status"
+        "id, contact_id, status, crm_stage, referring_provider_name, referring_provider_phone, referring_doctor_name, doctor_office_name, doctor_office_phone, doctor_office_fax, doctor_office_contact_person, payer_name, payer_type, referral_source, service_type, service_disciplines, intake_status, referring_facility_id, referring_facility_contact_id"
       )
       .eq("id", id)
   ).maybeSingle();
@@ -538,6 +538,8 @@ export async function convertLeadToPatient(leadId: string): Promise<ConvertLeadT
     doctor_office_phone?: string | null;
     doctor_office_fax?: string | null;
     doctor_office_contact_person?: string | null;
+    referring_facility_id?: string | null;
+    referring_facility_contact_id?: string | null;
   };
 
   let patientId: string;
@@ -574,6 +576,8 @@ export async function convertLeadToPatient(leadId: string): Promise<ConvertLeadT
         service_disciplines: serviceDisciplines,
         intake_status: lead.intake_status ?? null,
         physician_name,
+        referring_facility_id: L.referring_facility_id ?? null,
+        referring_facility_contact_id: L.referring_facility_contact_id ?? null,
       })
       .select("id")
       .single();

@@ -1,9 +1,17 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
+import { FacilityReferralAttributionSection } from "@/app/admin/facilities/_components/FacilityReferralAttributionSection";
+import { FacilityReferralProfilePanel } from "@/app/admin/facilities/_components/FacilityReferralProfilePanel";
+import { FacilityCampaignsSection } from "@/app/admin/facilities/_components/FacilityCampaignsSection";
+import { FacilityPacketRequestsSection } from "@/app/admin/facilities/_components/FacilityPacketRequestsSection";
+import { ReferralsNavLink } from "@/app/admin/facilities/_components/ReferralsNavLink";
+import { FacilityActivityHistoryPanel } from "@/app/admin/facilities/_components/FacilityActivityHistoryPanel";
 import { FacilityDueBadge } from "@/app/admin/facilities/_components/FacilityDueBadge";
 import { FacilityDetailInteractive } from "@/app/admin/facilities/_components/FacilityDetailInteractive";
 import { FacilityFollowUpForm } from "@/app/admin/facilities/_components/FacilityFollowUpForm";
+import { FacilityFollowUpTasksSection } from "@/app/admin/facilities/_components/FacilityFollowUpTasksSection";
+import { FacilityOutreachInsightPanel } from "@/app/admin/facilities/_components/FacilityOutreachInsightPanel";
 import { LeadSectionCard } from "@/app/admin/crm/leads/_components/LeadSectionCard";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { crmPrimaryCtaCls } from "@/components/admin/crm-admin-list-styles";
@@ -17,7 +25,10 @@ import {
 import { staffPrimaryLabel } from "@/lib/crm/crm-leads-table-helpers";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import { supabaseAdmin } from "@/lib/admin";
-import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
+import { loadFacilityOutreachInsight } from "@/lib/crm/facility-analytics";
+import { loadFacilityReferralProfile } from "@/lib/crm/facility-referral-profile";
+import { loadFacilityReferralAttribution } from "@/lib/crm/facility-referral-lead";
+import { canAccessFacilityAdminTools, canAccessFacilityFieldTools, getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 
 type FacilityRow = Record<string, unknown> & {
   id: string;
@@ -54,11 +65,13 @@ type ActivityRow = {
   activity_at: string;
   notes: string | null;
   next_follow_up_at: string | null;
+  referral_potential: string | null;
   staff_user_id: string | null;
   materials_dropped_off: boolean;
   got_business_card: boolean;
   requested_packet: boolean;
   referral_process_captured: boolean;
+  decision_maker_met?: boolean;
 };
 
 export default async function AdminFacilityDetailPage({
@@ -69,7 +82,7 @@ export default async function AdminFacilityDetailPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const staff = await getStaffProfile();
-  if (!staff || !isManagerOrHigher(staff)) {
+  if (!staff || !canAccessFacilityFieldTools(staff)) {
     redirect("/admin");
   }
 
@@ -83,7 +96,8 @@ export default async function AdminFacilityDetailPage({
     const v = sp[k];
     return typeof v === "string" ? v : Array.isArray(v) ? v[0] : "";
   };
-  const openVisit = one("visit").trim() === "1";
+  const openQuickLog = one("visit").trim() === "1";
+  const openAdvanced = one("advanced").trim() === "1";
 
   const { data: facility, error: fErr } = await supabaseAdmin
     .from("facilities")
@@ -136,6 +150,9 @@ export default async function AdminFacilityDetailPage({
       is_decision_maker: boolean;
       influence_level: string | null;
       notes: string | null;
+      is_best_contact?: boolean;
+      is_gatekeeper?: boolean;
+      is_referral_contact?: boolean;
     }[];
 
   const { data: activityRows } = await supabaseAdmin
@@ -152,9 +169,73 @@ export default async function AdminFacilityDetailPage({
     staffById[s.user_id] = s;
   }
 
+  const { data: photoRows } = await supabaseAdmin
+    .from("facility_activity_photos")
+    .select("id, activity_id, photo_type, ai_summary, created_at")
+    .eq("facility_id", F.id)
+    .order("created_at", { ascending: false })
+    .limit(200);
+
+  const allPhotos = (photoRows ?? []) as {
+    id: string;
+    activity_id: string | null;
+    photo_type: string | null;
+    ai_summary: string | null;
+    created_at: string;
+  }[];
+
+  const photosByActivity: Record<string, typeof allPhotos> = {};
+  for (const p of allPhotos) {
+    if (!p.activity_id) continue;
+    if (!photosByActivity[p.activity_id]) photosByActivity[p.activity_id] = [];
+    photosByActivity[p.activity_id].push(p);
+  }
+
+  const activityHistoryRows = activities.map((a) => {
+    const repAct = a.staff_user_id ? staffById[a.staff_user_id] : null;
+    const flags = [
+      a.materials_dropped_off ? "Materials" : null,
+      a.got_business_card ? "Card" : null,
+      a.requested_packet ? "Packet" : null,
+      a.referral_process_captured ? "Process" : null,
+      a.decision_maker_met ? "Decision maker" : null,
+    ].filter(Boolean) as string[];
+    return {
+      id: a.id,
+      activity_type: a.activity_type,
+      outcome: a.outcome,
+      activity_at: a.activity_at,
+      notes: a.notes,
+      next_follow_up_at: a.next_follow_up_at,
+      referral_potential: a.referral_potential,
+      repLabel: repAct ? staffPrimaryLabel(repAct) : "—",
+      flags,
+      summary: [a.activity_type, a.outcome].filter(Boolean).join(" · "),
+      whenLabel: formatFacilityDateTime(a.activity_at),
+      followUpLabel: a.next_follow_up_at ? formatFacilityDate(a.next_follow_up_at) : null,
+    };
+  });
+
   const addr = buildFacilityFullAddress(F);
   const mapsUrl = googleMapsSearchUrlForAddress(addr);
   const activityAtDefaultIso = new Date().toISOString();
+  const outreachInsight = await loadFacilityOutreachInsight(supabaseAdmin, F.id);
+  const staffByIdMap = new Map(
+    staffOptions.map((s) => [s.user_id, { full_name: s.full_name, email: s.email }])
+  );
+  const referralAttribution = await loadFacilityReferralAttribution(F.id, staffByIdMap);
+  const referralProfile = await loadFacilityReferralProfile(F.id);
+  const contactOptions = contacts.map((c) => ({
+    id: c.id,
+    name:
+      (c.full_name ?? "").trim() ||
+      [c.first_name, c.last_name].filter(Boolean).join(" ").trim() ||
+      "Contact",
+  }));
+  const staffSelectOptions = staffOptions.map((s) => ({
+    user_id: s.user_id,
+    label: staffPrimaryLabel(s),
+  }));
 
   return (
     <div className="space-y-6 p-6">
@@ -170,9 +251,12 @@ export default async function AdminFacilityDetailPage({
           )
         }
         actions={
-          <Link href="/admin/facilities" className={crmPrimaryCtaCls}>
-            All facilities
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <ReferralsNavLink />
+            <Link href="/admin/facilities" className={crmPrimaryCtaCls}>
+              All facilities
+            </Link>
+          </div>
         }
       />
 
@@ -237,14 +321,43 @@ export default async function AdminFacilityDetailPage({
         </div>
       </section>
 
+      <FacilityReferralProfilePanel
+        facilityId={F.id}
+        facilityName={F.name}
+        initialSummary={referralProfile}
+        contacts={contactOptions}
+        canEdit={canAccessFacilityFieldTools(staff)}
+      />
+
+      <FacilityCampaignsSection
+        facilityId={F.id}
+        facilityName={F.name}
+        canManage={isManagerOrHigher(staff)}
+      />
+
+      <FacilityPacketRequestsSection
+        facilityId={F.id}
+        facilityName={F.name}
+        contacts={contactOptions}
+        staffOptions={staffSelectOptions}
+        defaultAssignedTo={F.assigned_rep_user_id}
+        canManage={canAccessFacilityFieldTools(staff)}
+      />
+
       <FacilityDetailInteractive
         facilityId={F.id}
+        facilityName={F.name}
         mapsUrl={mapsUrl}
         mainPhone={F.main_phone}
         contacts={contacts}
         activityAtDefaultIso={activityAtDefaultIso}
-        openVisitOnMount={openVisit}
+        openQuickLogOnMount={openQuickLog}
+        openAdvancedOnMount={openAdvanced}
+        staffOptions={staffSelectOptions}
+        defaultRepId={F.assigned_rep_user_id}
+        contactOptions={contactOptions}
       >
+        <FacilityOutreachInsightPanel insight={outreachInsight} />
         <LeadSectionCard
           id="overview"
           title="Overview"
@@ -288,52 +401,33 @@ export default async function AdminFacilityDetailPage({
         </LeadSectionCard>
       </FacilityDetailInteractive>
 
+      <LeadSectionCard
+        id="referral-attribution"
+        title="Referral attribution"
+        description="Track CRM leads and conversions from this referral source."
+      >
+        <FacilityReferralAttributionSection
+          facilityId={F.id}
+          facilityName={F.name}
+          attribution={referralAttribution}
+          contacts={contactOptions}
+          staffOptions={staffSelectOptions}
+          defaultRepId={F.assigned_rep_user_id}
+        />
+      </LeadSectionCard>
+
       <LeadSectionCard id="activity" title="Activity history" description="Visits, calls, and touches — newest first.">
-        {activities.length === 0 ? (
-          <p className="text-sm text-slate-600">
-            No activity logged yet. Use <span className="font-semibold text-slate-800">Add visit</span> to capture your first touch.
-          </p>
-        ) : (
-          <div className="overflow-x-auto rounded-xl border border-slate-100">
-            <table className="min-w-full divide-y divide-slate-100 text-sm">
-              <thead className="bg-slate-50/90 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                <tr>
-                  <th className="px-4 py-3">When</th>
-                  <th className="px-4 py-3">Type</th>
-                  <th className="px-4 py-3">Outcome</th>
-                  <th className="px-4 py-3">Rep</th>
-                  <th className="px-4 py-3">Notes</th>
-                  <th className="px-4 py-3">Flags</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {activities.map((a) => {
-                  const repAct = a.staff_user_id ? staffById[a.staff_user_id] : null;
-                  const flags = [
-                    a.materials_dropped_off ? "Materials" : null,
-                    a.got_business_card ? "Card" : null,
-                    a.requested_packet ? "Packet" : null,
-                    a.referral_process_captured ? "Process" : null,
-                  ].filter(Boolean);
-                  return (
-                    <tr key={a.id} className="bg-white/80">
-                      <td className="whitespace-nowrap px-4 py-3 text-xs text-slate-700">
-                        {formatFacilityDateTime(a.activity_at)}
-                      </td>
-                      <td className="px-4 py-3 text-xs font-medium text-slate-900">{a.activity_type}</td>
-                      <td className="px-4 py-3 text-xs text-slate-700">{a.outcome ?? "—"}</td>
-                      <td className="px-4 py-3 text-xs text-slate-700">{repAct ? staffPrimaryLabel(repAct) : "—"}</td>
-                      <td className="max-w-[min(28rem,50vw)] px-4 py-3 text-xs text-slate-700">
-                        <span className="line-clamp-4 whitespace-pre-wrap">{a.notes?.trim() || "—"}</span>
-                      </td>
-                      <td className="px-4 py-3 text-[11px] text-slate-600">{flags.length ? flags.join(", ") : "—"}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
+        <FacilityActivityHistoryPanel
+          facilityId={F.id}
+          facilityName={F.name}
+          contacts={contactOptions}
+          staffOptions={staffSelectOptions}
+          defaultRepId={F.assigned_rep_user_id}
+          activities={activityHistoryRows}
+          photosByActivity={photosByActivity}
+          recentPhotos={allPhotos}
+          formatPhotoDate={(iso) => formatFacilityDate(iso)}
+        />
       </LeadSectionCard>
 
       <LeadSectionCard
@@ -368,6 +462,23 @@ export default async function AdminFacilityDetailPage({
           bestTimeToVisit={F.best_time_to_visit}
         />
       </LeadSectionCard>
+
+      <FacilityFollowUpTasksSection
+        facilityId={F.id}
+        facilityName={F.name}
+        contacts={contacts.map((c) => ({
+          id: c.id,
+          name:
+            (c.full_name ?? "").trim() ||
+            [c.first_name, c.last_name].filter(Boolean).join(" ").trim() ||
+            "Contact",
+        }))}
+        staffOptions={staffOptions.map((s) => ({
+          user_id: s.user_id,
+          label: staffPrimaryLabel(s),
+        }))}
+        defaultAssignedTo={F.assigned_rep_user_id}
+      />
     </div>
   );
 }

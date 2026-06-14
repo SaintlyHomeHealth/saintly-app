@@ -128,6 +128,22 @@ export function staffPrimaryLabel(s: {
   return `${s.user_id.slice(0, 8)}…`;
 }
 
+type StaffLabelLookup = Map<string, { full_name: string | null; email: string | null }> | Record<
+  string,
+  { full_name: string | null; email: string | null }
+>;
+
+/** Resolve a display label from a user id + staff lookup map (no user_id on lookup values required). */
+export function staffLabelFromLookup(
+  userId: string | null | undefined,
+  lookup: StaffLabelLookup
+): string | null {
+  if (!userId) return null;
+  const row = lookup instanceof Map ? lookup.get(userId) : lookup[userId];
+  if (!row) return null;
+  return staffPrimaryLabel({ user_id: userId, full_name: row.full_name, email: row.email });
+}
+
 export function contactEmail(c: CrmLeadsContactEmb | null): string {
   return typeof c?.email === "string" ? c.email.trim() : "";
 }

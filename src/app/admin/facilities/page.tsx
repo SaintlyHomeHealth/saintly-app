@@ -1,7 +1,10 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { FacilitiesHubCards } from "@/app/admin/facilities/_components/FacilitiesHubCards";
 import { FacilitiesEmptyState } from "@/app/admin/facilities/_components/FacilitiesEmptyState";
+import { FacilityAiCaptureButton } from "@/app/admin/facilities/_components/FacilityAiCaptureButton";
+import { FacilityQuickLogButton } from "@/app/admin/facilities/_components/FacilityQuickLogButton";
 import { FacilityDueBadge } from "@/app/admin/facilities/_components/FacilityDueBadge";
 import { FacilityTypeSelect } from "@/app/admin/facilities/_components/FacilityTypeSelect";
 import {
@@ -25,7 +28,12 @@ import {
 import { staffPrimaryLabel } from "@/lib/crm/crm-leads-table-helpers";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import { supabaseAdmin } from "@/lib/admin";
-import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
+import {
+  canAccessFacilityAdminTools,
+  canAccessFacilityFieldTools,
+  getStaffProfile,
+  isSalesAgentRole,
+} from "@/lib/staff-profile";
 
 type FacilityRow = {
   id: string;
@@ -91,8 +99,12 @@ export default async function AdminFacilitiesPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const staff = await getStaffProfile();
-  if (!staff || !isManagerOrHigher(staff)) {
+  if (!staff || !canAccessFacilityFieldTools(staff)) {
     redirect("/admin");
+  }
+
+  if (isSalesAgentRole(staff) && !canAccessFacilityAdminTools(staff)) {
+    redirect("/admin/facilities/outreach");
   }
 
   const rawSp = await searchParams;
@@ -100,6 +112,8 @@ export default async function AdminFacilitiesPage({
     const v = rawSp[k];
     return typeof v === "string" ? v : Array.isArray(v) ? v[0] : "";
   };
+
+  const showTable = one("hub") === "0";
 
   const f = {
     q: one("q").trim(),
@@ -110,6 +124,25 @@ export default async function AdminFacilitiesPage({
     priority: one("priority").trim(),
     showInactive: one("showInactive").trim() === "1",
   };
+
+  if (!showTable) {
+    return (
+      <div className="space-y-6 p-4 sm:p-6">
+        <AdminPageHeader
+          eyebrow="Outside sales CRM"
+          title="Facilities"
+          description="Field outreach tools and referral-source management for your outside sales team."
+        />
+        <FacilitiesHubCards showAdminTools />
+        <p className="text-sm text-slate-600">
+          Need the full admin table?{" "}
+          <Link href="/admin/facilities?hub=0" className="font-semibold text-sky-800 hover:underline">
+            Open facility list
+          </Link>
+        </p>
+      </div>
+    );
+  }
 
   const { data: staffRows } = await supabaseAdmin
     .from("staff_profiles")
@@ -128,7 +161,7 @@ export default async function AdminFacilitiesPage({
     staffById[s.user_id] = s;
   }
 
-  let query = supabaseAdmin.from("facilities").select("*").order("name", { ascending: true }).limit(800);
+  let query = supabaseAdmin.from("facilities").select("*").order("name", { ascending: true }).limit(500);
 
   if (!f.showInactive) {
     query = query.eq("is_active", true);
@@ -185,19 +218,25 @@ export default async function AdminFacilitiesPage({
   });
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6 p-4 sm:p-6">
       <AdminPageHeader
-        eyebrow="Outside sales CRM"
-        title="Facilities"
-        description="Track referral-source buildings, contacts, and field visits for your outside sales team."
+        eyebrow="Admin"
+        title="Facility List"
+        description="Search and manage all referral-source facilities."
         actions={
-          <Link href="/admin/facilities/new" className={crmPrimaryCtaCls}>
-            + Add facility
+          <Link
+            href="/admin/facilities"
+            className="inline-flex min-h-[2.75rem] items-center rounded-[20px] border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-800 shadow-sm hover:bg-slate-50 sm:text-sm"
+          >
+            ← Hub
           </Link>
         }
       />
 
+      <FacilitiesHubCards showAdminTools />
+
       <form method="get" action="/admin/facilities" className={crmFilterBarCls}>
+        <input type="hidden" name="hub" value="0" />
         <label className="flex min-w-[10rem] flex-1 flex-col gap-0.5 text-[11px] font-medium text-slate-600">
           Search
           <input
@@ -345,9 +384,17 @@ export default async function AdminFacilitiesPage({
                     <Link href={`/admin/facilities/${r.id}`} className={crmActionBtnSky}>
                       Open
                     </Link>
-                    <Link href={`/admin/facilities/${r.id}?visit=1`} className={crmActionBtnMuted}>
-                      Add visit
-                    </Link>
+                    <FacilityQuickLogButton
+                      facilityId={r.id}
+                      facilityName={r.name}
+                      className={crmActionBtnMuted}
+                    />
+                    <FacilityAiCaptureButton
+                      facilityId={r.id}
+                      facilityName={r.name}
+                      sourceContext="facilities_list"
+                      className={crmActionBtnMuted}
+                    />
                     {tel ? (
                       <a href={tel} className={crmActionBtnMuted}>
                         Call
@@ -427,9 +474,17 @@ export default async function AdminFacilitiesPage({
                       <Link href={`/admin/facilities/${r.id}`} className={crmActionBtnSky}>
                         Open
                       </Link>
-                      <Link href={`/admin/facilities/${r.id}?visit=1`} className={crmActionBtnMuted}>
-                        Add visit
-                      </Link>
+                      <FacilityQuickLogButton
+                        facilityId={r.id}
+                        facilityName={r.name}
+                        className={crmActionBtnMuted}
+                      />
+                      <FacilityAiCaptureButton
+                        facilityId={r.id}
+                        facilityName={r.name}
+                        sourceContext="facilities_list"
+                        className={crmActionBtnMuted}
+                      />
                       {tel ? (
                         <a href={tel} className={crmActionBtnMuted}>
                           Call

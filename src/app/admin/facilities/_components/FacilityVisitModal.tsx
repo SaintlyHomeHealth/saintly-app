@@ -60,8 +60,8 @@ export function FacilityVisitModal({ facilityId, contacts, activityAtDefaultIso,
       >
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-sky-700">Log activity</p>
-            <h2 className="mt-1 text-lg font-semibold text-slate-900">Add visit / touch</h2>
+            <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-sky-700">Advanced Log</p>
+            <h2 className="mt-1 text-lg font-semibold text-slate-900">Full visit / touch form</h2>
           </div>
           <button
             type="button"

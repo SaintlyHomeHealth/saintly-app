@@ -17,6 +17,14 @@ import type { LeadActivityRow } from "@/lib/crm/lead-activities-timeline";
 import { LeadQualityControls } from "@/app/admin/crm/leads/_components/LeadQualityControls";
 import { LeadConversationSection } from "@/app/admin/crm/leads/_components/LeadConversationSection";
 import { LeadSectionCard } from "@/app/admin/crm/leads/_components/LeadSectionCard";
+import type { FacilityReferralLeadPanelData } from "@/lib/crm/facility-referral-pipeline";
+import { LeadFacilityReferralSection } from "@/app/admin/facilities/_components/LeadFacilityReferralSection";
+import { LeadIntakeReadinessPanel } from "@/app/admin/crm/leads/_components/LeadIntakeReadinessPanel";
+import { LeadAdmissionHandoffPanel } from "@/app/admin/crm/leads/_components/LeadAdmissionHandoffPanel";
+import {
+  LeadReferralSourceReviewBanner,
+  type LeadReferralSourceReviewPanel,
+} from "@/app/admin/facilities/_components/LeadReferralSourceReviewBanner";
 import { LeadSnapshot } from "@/app/admin/crm/leads/_components/LeadSnapshot";
 import { createLeadManualFromCrm, updateLeadContactProfile, updateLeadInsuranceIntake, updateLeadIntake } from "../actions";
 import type { CommunicationTimelineRow } from "@/lib/crm/build-crm-communication-timeline-model";
@@ -29,10 +37,13 @@ import { MoveToPatientStageButton } from "@/app/admin/crm/leads/_components/Move
 import { ReopenLeadButton } from "@/app/admin/crm/leads/_components/ReopenLeadButton";
 import { LeadTasksPanel } from "@/app/admin/crm/leads/_components/LeadTasksPanel";
 import { LeadAttachmentsPanel } from "@/app/admin/crm/leads/_components/LeadAttachmentsPanel";
+import { LeadReferralDocumentsPanel } from "@/app/admin/crm/leads/_components/LeadReferralDocumentsPanel";
+import type { LeadDocumentSuggestionsLeadContext } from "@/app/admin/crm/leads/_components/LeadDocumentSuggestionsModal";
 import { LeadSalesAgentSection } from "@/app/admin/crm/leads/_components/LeadSalesAgentSection";
 import { LeadDetailSectionErrorBoundary } from "@/components/admin/LeadDetailSectionErrorBoundary";
 import type { LeadSalesAgentAdminContext } from "@/lib/crm/load-lead-sales-agent-context";
 import type { LeadAttachmentWorkspaceRow } from "@/lib/crm/lead-attachments-load";
+import type { LeadReferralDocumentWorkspaceRow } from "@/lib/crm/lead-referral-documents-types";
 import type { EmploymentApplicationMeta } from "@/lib/crm/lead-employment-meta";
 import { hasAnyIntakeRequestDetail, type LeadIntakeRequestDetails } from "@/lib/crm/lead-intake-request";
 import { addCalendarDaysToIsoDate, getCrmCalendarTodayIso, getCrmCalendarTomorrowIso } from "@/lib/crm/crm-local-date";
@@ -227,8 +238,20 @@ export type LeadWorkspaceExistingProps = {
   voicePhiNotice: string;
   /** Uploaded lead documents (Storage + `lead_attachments`). */
   initialLeadAttachments?: LeadAttachmentWorkspaceRow[];
+  /** Public/staff referral documents (`lead_referral_documents`). */
+  initialLeadReferralDocuments?: LeadReferralDocumentWorkspaceRow[];
+  leadDocumentContext?: LeadDocumentSuggestionsLeadContext;
   /** Sales agent order context (produced-by credit, assigned-to, card uploads). */
   salesAgentContext?: LeadSalesAgentAdminContext | null;
+  /** Facility outreach referral attribution + intake checklist (facility-sourced leads only). */
+  facilityReferralPanel?: FacilityReferralLeadPanelData | null;
+  /** Public QR / referral link source review state. */
+  referralSourceReviewPanel?: LeadReferralSourceReviewPanel | null;
+  canManageReferralSourceReview?: boolean;
+  /** Intake readiness review (Phase 27). */
+  intakeReadinessPanel?: import("@/lib/crm/lead-intake-readiness-types").LeadIntakeReadinessSummary | null;
+  /** Admission handoff (Phase 28). */
+  admissionHandoffPanel?: import("@/lib/crm/lead-admission-handoff").LeadAdmissionHandoffPanelData | null;
 };
 
 export type LeadWorkspaceNewProps = {
@@ -516,7 +539,32 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
     crmRealtimeGateway,
     voicePhiNotice,
     initialLeadAttachments = [],
+    initialLeadReferralDocuments = [],
+    leadDocumentContext = {
+      patientFirstName: "",
+      patientLastName: "",
+      dob: "",
+      phone: "",
+      addressLine1: "",
+      addressLine2: "",
+      city: "",
+      state: "",
+      zip: "",
+      primaryPayerName: "",
+      payerName: "",
+      serviceType: "",
+      notes: "",
+      referringProviderName: "",
+      doctorOfficeName: "",
+      doctorOfficePhone: "",
+      referringDoctorName: "",
+    },
     salesAgentContext = null,
+    facilityReferralPanel = null,
+    referralSourceReviewPanel = null,
+    canManageReferralSourceReview = false,
+    intakeReadinessPanel = null,
+    admissionHandoffPanel = null,
   } = props;
 
   const isSalesAgentLead = Boolean(
@@ -1120,6 +1168,38 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
             </LeadDetailSectionErrorBoundary>
           ) : null}
 
+          {referralSourceReviewPanel ? (
+            <LeadDetailSectionErrorBoundary section="referral source review">
+              <LeadReferralSourceReviewBanner
+                leadId={leadId}
+                panel={referralSourceReviewPanel}
+                canManage={canManageReferralSourceReview}
+              />
+            </LeadDetailSectionErrorBoundary>
+          ) : null}
+
+          {intakeReadinessPanel ? (
+            <LeadDetailSectionErrorBoundary section="intake readiness">
+              <LeadIntakeReadinessPanel
+                leadId={leadId}
+                initial={intakeReadinessPanel}
+                staffOptions={staffOptions}
+              />
+            </LeadDetailSectionErrorBoundary>
+          ) : null}
+
+          {admissionHandoffPanel ? (
+            <LeadDetailSectionErrorBoundary section="admission handoff">
+              <LeadAdmissionHandoffPanel leadId={leadId} initial={admissionHandoffPanel} />
+            </LeadDetailSectionErrorBoundary>
+          ) : null}
+
+          {facilityReferralPanel ? (
+            <LeadDetailSectionErrorBoundary section="facility referral">
+              <LeadFacilityReferralSection leadId={leadId} data={facilityReferralPanel} />
+            </LeadDetailSectionErrorBoundary>
+          ) : null}
+
           <LeadSectionCard
             id="section-ownership"
             title="Ownership & disposition"
@@ -1433,6 +1513,20 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
           </dl>
         </div>
       )}
+        <LeadDetailSectionErrorBoundary section="referral-documents">
+        <LeadSectionCard
+          id="section-referral-documents"
+          title="Referral documents"
+          description="Documents submitted from the public referral form or uploaded by intake. Stored securely with signed download links."
+        >
+          <LeadReferralDocumentsPanel
+            leadId={leadId}
+            initialRows={initialLeadReferralDocuments}
+            leadContext={leadDocumentContext}
+          />
+        </LeadSectionCard>
+        </LeadDetailSectionErrorBoundary>
+
         <LeadDetailSectionErrorBoundary section="attachments">
         <LeadSectionCard
           id="section-attachments"
