@@ -14,7 +14,7 @@ export default async function FacilityOutreachPage() {
   const showAdmin = canAccessFacilityAdminTools(staff);
 
   return (
-    <div className="space-y-6 p-4 sm:p-6">
+    <div className="w-full min-w-0 space-y-6 p-4 sm:p-6">
       <AdminPageHeader
         eyebrow="Field sales"
         title="Today's Outreach"

@@ -265,7 +265,7 @@ export function FacilityOutreachView({
   );
 
   return (
-    <div className="space-y-5 pb-36">
+    <div className="w-full min-w-0 space-y-5 pb-36">
       {toast ? (
         <div className="fixed left-1/2 top-4 z-[60] -translate-x-1/2 rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white shadow-lg">
           {toast}

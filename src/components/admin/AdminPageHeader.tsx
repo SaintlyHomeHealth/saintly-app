@@ -52,8 +52,8 @@ export function AdminPageHeader({
       className={`overflow-hidden rounded-[28px] bg-white ${a.shell} ${className}`.trim()}
     >
       <div className={`${a.gradient} px-5 py-5 sm:px-8 sm:py-6`}>
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between lg:gap-6">
-          <div className="min-w-0 max-w-2xl">
+        <div className="flex w-full min-w-0 flex-col gap-4">
+          <div className="w-full min-w-0">
             {eyebrow ? (
               <span
                 className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] ${a.eyebrowPill}`}
@@ -70,11 +70,11 @@ export function AdminPageHeader({
               <div className="mt-1.5 text-[11px] font-medium uppercase tracking-wide text-slate-500">{metaLine}</div>
             ) : null}
             {description ? (
-              <div className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-600">{description}</div>
+              <div className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-600">{description}</div>
             ) : null}
           </div>
           {actions ? (
-            <div className="flex w-full shrink-0 flex-col items-stretch gap-3 sm:items-end lg:w-auto lg:min-w-[min(100%,420px)]">
+            <div className="w-full min-w-0 overflow-x-auto pb-0.5 [-webkit-overflow-scrolling:touch]">
               {actions}
             </div>
           ) : null}

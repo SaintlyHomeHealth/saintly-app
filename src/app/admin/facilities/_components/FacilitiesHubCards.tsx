@@ -93,7 +93,7 @@ export function FacilitiesHubCards({ showAdminTools = true }: FacilitiesHubCards
 /** Compact row of field nav links for page headers (sales rep view). */
 export function FacilitiesFieldNavRow({ showAnalytics = false }: { showAnalytics?: boolean }) {
   return (
-    <div className="flex flex-wrap gap-2">
+    <div className="flex w-max min-w-full flex-nowrap items-center gap-2">
       <FieldModeNavLink />
       <OutreachNavLink />
       <Link
