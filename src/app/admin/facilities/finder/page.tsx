@@ -1,26 +1,15 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import dynamic from "next/dynamic";
 
 import { FieldModeNavLink } from "@/app/admin/facilities/_components/FieldModeNavLink";
+import { FacilityFinderViewClient } from "@/app/admin/facilities/_components/FacilityFinderViewClient";
 import { FacilityNotificationBell } from "@/app/admin/facilities/_components/FacilityNotificationBell";
 import { OutreachNavLink } from "@/app/admin/facilities/_components/OutreachNavLink";
 import { FollowUpNavLink } from "@/app/admin/facilities/_components/FollowUpNavLink";
 import { RouteBuilderNavLink } from "@/app/admin/facilities/_components/RouteBuilderNavLink";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { crmPrimaryCtaCls } from "@/components/admin/crm-admin-list-styles";
-import { canAccessFacilityAdminTools, canAccessFacilityFieldTools, getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
-
-const FacilityFinderView = dynamic(
-  () =>
-    import("@/app/admin/facilities/_components/FacilityFinderView").then((m) => m.FacilityFinderView),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="min-h-[16rem] animate-pulse rounded-[28px] border border-slate-200 bg-slate-50/80" aria-hidden />
-    ),
-  }
-);
+import { canAccessFacilityFieldTools, getStaffProfile } from "@/lib/staff-profile";
 
 export default async function FacilityFinderPage() {
   const staff = await getStaffProfile();
@@ -60,7 +49,7 @@ export default async function FacilityFinderPage() {
         }
       />
 
-      <FacilityFinderView />
+      <FacilityFinderViewClient />
     </div>
   );
 }

@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import dynamic from "next/dynamic";
 
 import { FieldModeNavLink } from "@/app/admin/facilities/_components/FieldModeNavLink";
 import { FacilityNotificationBell } from "@/app/admin/facilities/_components/FacilityNotificationBell";
+import { FacilityRouteBuilderViewClient } from "@/app/admin/facilities/_components/FacilityRouteBuilderViewClient";
 import { OutreachNavLink } from "@/app/admin/facilities/_components/OutreachNavLink";
 import { FollowUpNavLink } from "@/app/admin/facilities/_components/FollowUpNavLink";
 import { RoutesNavLink } from "@/app/admin/facilities/_components/RoutesNavLink";
@@ -16,17 +16,6 @@ import {
   canAccessFacilityFieldTools,
   getStaffProfile,
 } from "@/lib/staff-profile";
-
-const FacilityRouteBuilderView = dynamic(
-  () =>
-    import("@/app/admin/facilities/_components/FacilityRouteBuilderView").then((m) => m.FacilityRouteBuilderView),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="min-h-[16rem] animate-pulse rounded-[28px] border border-slate-200 bg-slate-50/80" aria-hidden />
-    ),
-  }
-);
 
 export default async function FacilityRouteBuilderPage() {
   const staff = await getStaffProfile();
@@ -79,7 +68,7 @@ export default async function FacilityRouteBuilderPage() {
         }
       />
 
-      <FacilityRouteBuilderView
+      <FacilityRouteBuilderViewClient
         currentUserId={staff.user_id}
         staffOptions={staffOptions}
         canAssignOthers={canManageAll}
