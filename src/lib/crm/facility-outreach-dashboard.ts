@@ -29,6 +29,9 @@ import type {
   OutreachDashboardData,
   OutreachFacilityCard,
   OutreachRecentActivity,
+  OutreachSectionId,
+  OutreachSectionPage,
+  OutreachSummaryData,
 } from "@/lib/crm/facility-outreach-types";
 
 type FacilityRow = {
@@ -201,30 +204,19 @@ function buildWhyPriority(row: FacilityRow, act: ActivityRow | null): string {
   return reasons.join(" · ") || "High priority";
 }
 
-export async function loadOutreachDashboard(
+const FACILITY_CARD_SELECT =
+  "id, name, type, status, priority, city, address_line_1, address_line_2, state, zip, main_phone, last_visit_at, next_follow_up_at, visit_frequency, assigned_rep_user_id, relationship_strength, latitude, longitude, is_active";
+
+const ACTIVITY_SELECT =
+  "id, facility_id, activity_type, outcome, notes, activity_at, next_follow_up_at, referral_potential, staff_user_id";
+
+async function loadScopedFacilities(
   supabase: SupabaseClient,
-  staff: StaffProfile,
-  opts: {
-    latitude?: number | null;
-    longitude?: number | null;
-    radiusMiles?: number;
-  }
-): Promise<OutreachDashboardData> {
-  const today = getCrmCalendarTodayIso();
-  const radius = opts.radiusMiles ?? 15;
-
-  const origin: GeoPoint | null =
-    typeof opts.latitude === "number" &&
-    typeof opts.longitude === "number" &&
-    isValidGeoPoint({ latitude: opts.latitude, longitude: opts.longitude })
-      ? { latitude: opts.latitude, longitude: opts.longitude }
-      : null;
-
+  staff: StaffProfile
+): Promise<FacilityRow[]> {
   let facilityQuery = supabase
     .from("facilities")
-    .select(
-      "id, name, type, status, priority, city, address_line_1, address_line_2, state, zip, main_phone, last_visit_at, next_follow_up_at, visit_frequency, assigned_rep_user_id, relationship_strength, latitude, longitude, is_active"
-    )
+    .select(FACILITY_CARD_SELECT)
     .eq("is_active", true)
     .limit(2000);
 
@@ -234,11 +226,13 @@ export async function loadOutreachDashboard(
   }
 
   const { data: facilityRows } = await facilityQuery;
-  const facilities = (facilityRows ?? []) as FacilityRow[];
+  return (facilityRows ?? []) as FacilityRow[];
+}
 
-  const { data: staffRows } = await supabase
-    .from("staff_profiles")
-    .select("user_id, full_name, email");
+async function loadStaffById(
+  supabase: SupabaseClient
+): Promise<Record<string, { full_name: string | null; email: string | null }>> {
+  const { data: staffRows } = await supabase.from("staff_profiles").select("user_id, full_name, email");
   const staffById: Record<string, { full_name: string | null; email: string | null }> = {};
   for (const s of staffRows ?? []) {
     staffById[(s as { user_id: string }).user_id] = s as {
@@ -246,81 +240,77 @@ export async function loadOutreachDashboard(
       email: string | null;
     };
   }
+  return staffById;
+}
 
-  const facilityIds = facilities.map((f) => f.id);
+async function loadLatestActivityForFacilities(
+  supabase: SupabaseClient,
+  facilityIds: string[]
+): Promise<Record<string, ActivityRow>> {
   const latestByFacility: Record<string, ActivityRow> = {};
+  if (facilityIds.length === 0) return latestByFacility;
 
-  if (facilityIds.length > 0) {
-    const { data: activityRows } = await supabase
-      .from("facility_activities")
-      .select(
-        "id, facility_id, activity_type, outcome, notes, activity_at, next_follow_up_at, referral_potential, staff_user_id"
-      )
-      .in("facility_id", facilityIds)
-      .order("activity_at", { ascending: false })
-      .limit(5000);
-
-    for (const raw of activityRows ?? []) {
-      const a = raw as ActivityRow;
-      if (!latestByFacility[a.facility_id]) {
-        latestByFacility[a.facility_id] = a;
-      }
-    }
-  }
-
-  const weekAgo = new Date();
-  weekAgo.setDate(weekAgo.getDate() - 7);
-  let activityCountQuery = supabase
+  const { data: activityRows } = await supabase
     .from("facility_activities")
-    .select("id", { count: "exact", head: true })
-    .gte("activity_at", weekAgo.toISOString());
-
-  if (!isManagerOrHigher(staff) && !isAdminOrHigher(staff)) {
-    activityCountQuery = activityCountQuery.eq("staff_user_id", staff.user_id);
-  }
-  const { count: loggedThisWeek } = await activityCountQuery;
-
-  let recentQuery = supabase
-    .from("facility_activities")
-    .select(
-      "id, facility_id, activity_type, outcome, notes, activity_at, next_follow_up_at, referral_potential, staff_user_id"
-    )
+    .select(ACTIVITY_SELECT)
+    .in("facility_id", facilityIds)
     .order("activity_at", { ascending: false })
-    .limit(30);
+    .limit(Math.min(facilityIds.length * 3, 500));
 
-  if (!isManagerOrHigher(staff) && !isAdminOrHigher(staff)) {
-    recentQuery = recentQuery.eq("staff_user_id", staff.user_id);
-  }
-  const { data: recentRows } = await recentQuery;
-  const recentActivities = (recentRows ?? []) as ActivityRow[];
-
-  const facilityNameById: Record<string, string> = {};
-  for (const f of facilities) {
-    facilityNameById[f.id] = f.name;
-  }
-
-  const recentActivityIds = recentActivities.map((a) => a.id);
-  const photoCountByActivity: Record<string, number> = {};
-  if (recentActivityIds.length > 0) {
-    const { data: photoRows } = await supabase
-      .from("facility_activity_photos")
-      .select("id, activity_id")
-      .in("activity_id", recentActivityIds);
-    for (const p of photoRows ?? []) {
-      const aid = (p as { activity_id: string }).activity_id;
-      if (aid) photoCountByActivity[aid] = (photoCountByActivity[aid] ?? 0) + 1;
+  for (const raw of activityRows ?? []) {
+    const a = raw as ActivityRow;
+    if (!latestByFacility[a.facility_id]) {
+      latestByFacility[a.facility_id] = a;
     }
   }
+  return latestByFacility;
+}
 
-  const followUpRows = facilities
+async function loadWarmActivityFacilityIds(
+  supabase: SupabaseClient,
+  staff: StaffProfile
+): Promise<Set<string>> {
+  let query = supabase
+    .from("facility_activities")
+    .select("facility_id, outcome, referral_potential, activity_at")
+    .order("activity_at", { ascending: false })
+    .limit(500);
+
+  if (!isManagerOrHigher(staff) && !isAdminOrHigher(staff)) {
+    query = query.eq("staff_user_id", staff.user_id);
+  }
+
+  const { data: rows } = await query;
+  const ids = new Set<string>();
+  for (const raw of rows ?? []) {
+    const a = raw as {
+      facility_id: string;
+      outcome: string | null;
+      referral_potential: string | null;
+    };
+    if (a.referral_potential && WARM_POTENTIAL.has(a.referral_potential)) {
+      ids.add(a.facility_id);
+      continue;
+    }
+    if (a.outcome && HIGH_PRIORITY_OUTCOMES.has(a.outcome)) {
+      ids.add(a.facility_id);
+    }
+  }
+  return ids;
+}
+
+function filterFollowUpRows(facilities: FacilityRow[], today: string): FacilityRow[] {
+  return facilities
     .filter((f) => isFollowUpDue(f, today))
     .sort((a, b) => {
       const ka = followUpSortKey(a, today);
       const kb = followUpSortKey(b, today);
       return ka[0] - kb[0] || ka[1] - kb[1] || ka[3].localeCompare(kb[3]);
     });
+}
 
-  const notVisitedRows = facilities
+function filterNotVisitedRows(facilities: FacilityRow[]): FacilityRow[] {
+  return facilities
     .filter((f) => !f.last_visit_at)
     .sort(
       (a, b) =>
@@ -328,11 +318,40 @@ export async function loadOutreachDashboard(
         (a.city ?? "").localeCompare(b.city ?? "") ||
         a.name.localeCompare(b.name)
     );
+}
 
-  const highPriorityRows = facilities
+function filterNearMeRows(
+  facilities: FacilityRow[],
+  origin: GeoPoint | null,
+  radius: number
+): FacilityRow[] {
+  if (!origin) return [];
+  return facilities
+    .filter((f) =>
+      isValidGeoPoint({ latitude: f.latitude ?? NaN, longitude: f.longitude ?? NaN })
+    )
+    .map((f) => ({
+      row: f,
+      dist: haversineDistanceMiles(origin, {
+        latitude: f.latitude!,
+        longitude: f.longitude!,
+      }),
+    }))
+    .filter(({ dist }) => dist <= radius)
+    .sort((a, b) => a.dist - b.dist)
+    .map(({ row }) => row);
+}
+
+function filterHighPriorityRows(
+  facilities: FacilityRow[],
+  latestByFacility: Record<string, ActivityRow>,
+  warmActivityIds: Set<string>
+): FacilityRow[] {
+  return facilities
     .filter((f) => {
       if (f.priority === "High") return true;
       if ((f.relationship_strength ?? 0) >= 4) return true;
+      if (warmActivityIds.has(f.id)) return true;
       const act = latestByFacility[f.id];
       if (!act) return false;
       if (act.referral_potential && WARM_POTENTIAL.has(act.referral_potential)) return true;
@@ -340,26 +359,73 @@ export async function loadOutreachDashboard(
       return false;
     })
     .sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority));
+}
 
-  let nearMeRows = facilities;
-  if (origin) {
-    nearMeRows = facilities
-      .filter((f) =>
-        isValidGeoPoint({ latitude: f.latitude ?? NaN, longitude: f.longitude ?? NaN })
-      )
-      .map((f) => ({
-        row: f,
-        dist: haversineDistanceMiles(origin, {
-          latitude: f.latitude!,
-          longitude: f.longitude!,
-        }),
-      }))
-      .filter(({ dist }) => dist <= radius)
-      .sort((a, b) => a.dist - b.dist)
-      .map(({ row }) => row);
-  } else {
-    nearMeRows = [];
-  }
+async function enrichFacilityCards(
+  supabase: SupabaseClient,
+  rows: FacilityRow[],
+  staffById: Record<string, { full_name: string | null; email: string | null }>,
+  origin: GeoPoint | null,
+  opts?: { withWhyPriority?: boolean }
+): Promise<OutreachFacilityCard[]> {
+  if (rows.length === 0) return [];
+
+  const ids = rows.map((f) => f.id);
+  const [latestByFacility, referralCounts, pipelineCounts, needingInfoCounts, profileHints] =
+    await Promise.all([
+      loadLatestActivityForFacilities(supabase, ids),
+      loadFacilityReferralCountsByFacility(ids),
+      loadFacilityReferralPipelineCounts(ids),
+      countReferralsNeedingInfoByFacilityIds(ids),
+      loadProfileHintsForFacilities(ids),
+    ]);
+
+  return rows.map((f) => {
+    const act = latestByFacility[f.id] ?? null;
+    const card = toCard(
+      f,
+      staffById,
+      origin,
+      act,
+      referralCounts.get(f.id) ?? null,
+      pipelineCounts.get(f.id) ?? null,
+      needingInfoCounts.get(f.id) ?? 0
+    );
+    if (opts?.withWhyPriority) {
+      card.whyPriority = buildWhyPriority(f, act);
+    }
+    card.profileHints = profileHints[f.id] ?? undefined;
+    return card;
+  });
+}
+
+export async function loadOutreachSummary(
+  supabase: SupabaseClient,
+  staff: StaffProfile,
+  opts: {
+    latitude?: number | null;
+    longitude?: number | null;
+    radiusMiles?: number;
+  } = {}
+): Promise<OutreachSummaryData> {
+  const today = getCrmCalendarTodayIso();
+  const radius = opts.radiusMiles ?? 15;
+  const origin: GeoPoint | null =
+    typeof opts.latitude === "number" &&
+    typeof opts.longitude === "number" &&
+    isValidGeoPoint({ latitude: opts.latitude, longitude: opts.longitude })
+      ? { latitude: opts.latitude, longitude: opts.longitude }
+      : null;
+
+  const [facilities, warmActivityIds] = await Promise.all([
+    loadScopedFacilities(supabase, staff),
+    loadWarmActivityFacilityIds(supabase, staff),
+  ]);
+
+  const followUpRows = filterFollowUpRows(facilities, today);
+  const notVisitedRows = filterNotVisitedRows(facilities);
+  const nearMeRows = filterNearMeRows(facilities, origin, radius);
+  const highPriorityRows = filterHighPriorityRows(facilities, {}, warmActivityIds);
 
   const overdueCount = followUpRows.filter((f) => {
     const due = computeFacilityDueInfo({
@@ -379,55 +445,123 @@ export async function loadOutreachDashboard(
     return due.effectiveNextDueYmd === today;
   }).length;
 
-  const referralCounts = await loadFacilityReferralCountsByFacility(facilities.map((f) => f.id));
-  const pipelineCounts = await loadFacilityReferralPipelineCounts(facilities.map((f) => f.id));
-  const needingInfoCounts = await countReferralsNeedingInfoByFacilityIds(facilities.map((f) => f.id));
+  const weekAgo = new Date();
+  weekAgo.setDate(weekAgo.getDate() - 7);
+  let activityCountQuery = supabase
+    .from("facility_activities")
+    .select("id", { count: "exact", head: true })
+    .gte("activity_at", weekAgo.toISOString());
 
-  const mapFollowUp = (f: FacilityRow) =>
-    toCard(
-      f,
-      staffById,
-      origin,
-      latestByFacility[f.id] ?? null,
-      referralCounts.get(f.id) ?? null,
-      pipelineCounts.get(f.id) ?? null,
-      needingInfoCounts.get(f.id) ?? 0
-    );
+  if (!isManagerOrHigher(staff) && !isAdminOrHigher(staff)) {
+    activityCountQuery = activityCountQuery.eq("staff_user_id", staff.user_id);
+  }
+  const { count: loggedThisWeek } = await activityCountQuery;
 
-  const mapHighPriority = (f: FacilityRow) => {
-    const act = latestByFacility[f.id] ?? null;
-    const card = toCard(
-      f,
-      staffById,
-      origin,
-      act,
-      referralCounts.get(f.id) ?? null,
-      pipelineCounts.get(f.id) ?? null,
-      needingInfoCounts.get(f.id) ?? 0
-    );
-    card.whyPriority = buildWhyPriority(f, act);
-    return card;
-  };
+  let recentCountQuery = supabase
+    .from("facility_activities")
+    .select("id", { count: "exact", head: true });
 
-  const allCards = [
-    ...followUpRows.slice(0, 50).map(mapFollowUp),
-    ...nearMeRows.slice(0, 20).map(mapFollowUp),
-    ...notVisitedRows.slice(0, 50).map(mapFollowUp),
-    ...highPriorityRows.slice(0, 30).map(mapHighPriority),
-  ];
-  const hintFacilityIds = [...new Set(allCards.map((c) => c.id))];
-  const profileHints = await loadProfileHintsForFacilities(hintFacilityIds);
-  const attachHints = (c: OutreachFacilityCard): OutreachFacilityCard => ({
-    ...c,
-    profileHints: profileHints[c.id] ?? undefined,
-  });
+  if (!isManagerOrHigher(staff) && !isAdminOrHigher(staff)) {
+    recentCountQuery = recentCountQuery.eq("staff_user_id", staff.user_id);
+  }
+  const { count: recentActivityCount } = await recentCountQuery;
+
+  const packetRequests = await loadOutreachPacketRequests(staff);
 
   return {
-    follow_ups_due: followUpRows.slice(0, 50).map(mapFollowUp).map(attachHints),
-    near_me: nearMeRows.slice(0, 20).map(mapFollowUp).map(attachHints),
-    not_visited: notVisitedRows.slice(0, 50).map(mapFollowUp).map(attachHints),
-    high_priority: highPriorityRows.slice(0, 30).map(mapHighPriority).map(attachHints),
-    recent_activity: recentActivities.slice(0, 20).map((a) => ({
+    due_today: dueTodayCount,
+    overdue: overdueCount,
+    not_visited: notVisitedRows.length,
+    route_stops: 0,
+    logged_this_week: loggedThisWeek ?? 0,
+    section_counts: {
+      follow_ups_due: followUpRows.length,
+      near_me: nearMeRows.length,
+      not_visited: notVisitedRows.length,
+      high_priority: highPriorityRows.length,
+      recent_activity: recentActivityCount ?? 0,
+      packet_requests_due: packetRequests.length,
+    },
+  };
+}
+
+export async function loadOutreachSection(
+  supabase: SupabaseClient,
+  staff: StaffProfile,
+  section: OutreachSectionId,
+  opts: {
+    limit?: number;
+    offset?: number;
+    latitude?: number | null;
+    longitude?: number | null;
+    radiusMiles?: number;
+  } = {}
+): Promise<
+  OutreachSectionPage<OutreachFacilityCard> | OutreachSectionPage<OutreachRecentActivity> | OutreachSectionPage<PacketRequestCard>
+> {
+  const limit = Math.min(Math.max(opts.limit ?? 15, 1), 50);
+  const offset = Math.max(opts.offset ?? 0, 0);
+  const today = getCrmCalendarTodayIso();
+  const radius = opts.radiusMiles ?? 15;
+  const origin: GeoPoint | null =
+    typeof opts.latitude === "number" &&
+    typeof opts.longitude === "number" &&
+    isValidGeoPoint({ latitude: opts.latitude, longitude: opts.longitude })
+      ? { latitude: opts.latitude, longitude: opts.longitude }
+      : null;
+
+  if (section === "packet_requests_due") {
+    const all = await loadOutreachPacketRequests(staff);
+    const items = all.slice(offset, offset + limit);
+    return { items, total: all.length, has_more: offset + items.length < all.length };
+  }
+
+  if (section === "recent_activity") {
+    let recentQuery = supabase
+      .from("facility_activities")
+      .select(ACTIVITY_SELECT)
+      .order("activity_at", { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (!isManagerOrHigher(staff) && !isAdminOrHigher(staff)) {
+      recentQuery = recentQuery.eq("staff_user_id", staff.user_id);
+    }
+
+    let countQuery = supabase.from("facility_activities").select("id", { count: "exact", head: true });
+    if (!isManagerOrHigher(staff) && !isAdminOrHigher(staff)) {
+      countQuery = countQuery.eq("staff_user_id", staff.user_id);
+    }
+
+    const [{ data: recentRows }, { count: total }] = await Promise.all([recentQuery, countQuery]);
+    const recentActivities = (recentRows ?? []) as ActivityRow[];
+    const facilityIds = [...new Set(recentActivities.map((a) => a.facility_id))];
+
+    const [{ data: facilityRows }, photoCountByActivity] = await Promise.all([
+      facilityIds.length > 0
+        ? supabase.from("facilities").select("id, name").in("id", facilityIds)
+        : Promise.resolve({ data: [] as { id: string; name: string }[] }),
+      (async () => {
+        const recentActivityIds = recentActivities.map((a) => a.id);
+        const out: Record<string, number> = {};
+        if (recentActivityIds.length === 0) return out;
+        const { data: photoRows } = await supabase
+          .from("facility_activity_photos")
+          .select("id, activity_id")
+          .in("activity_id", recentActivityIds);
+        for (const p of photoRows ?? []) {
+          const aid = (p as { activity_id: string }).activity_id;
+          if (aid) out[aid] = (out[aid] ?? 0) + 1;
+        }
+        return out;
+      })(),
+    ]);
+
+    const facilityNameById: Record<string, string> = {};
+    for (const f of facilityRows ?? []) {
+      facilityNameById[(f as { id: string }).id] = (f as { name: string }).name;
+    }
+
+    const items: OutreachRecentActivity[] = recentActivities.map((a) => ({
       id: a.id,
       facilityId: a.facility_id,
       facilityName: facilityNameById[a.facility_id] ?? "Facility",
@@ -437,14 +571,87 @@ export async function loadOutreachDashboard(
       activityAt: a.activity_at,
       nextFollowUpAt: a.next_follow_up_at,
       photoCount: photoCountByActivity[a.id] ?? 0,
-    })),
-    packet_requests_due: await loadOutreachPacketRequests(staff),
+    }));
+
+    return {
+      items,
+      total: total ?? items.length,
+      has_more: offset + items.length < (total ?? 0),
+    };
+  }
+
+  const [facilities, staffById, warmActivityIds] = await Promise.all([
+    loadScopedFacilities(supabase, staff),
+    loadStaffById(supabase),
+    section === "high_priority" ? loadWarmActivityFacilityIds(supabase, staff) : Promise.resolve(new Set<string>()),
+  ]);
+
+  let matched: FacilityRow[] = [];
+  if (section === "follow_ups_due") {
+    matched = filterFollowUpRows(facilities, today);
+  } else if (section === "not_visited") {
+    matched = filterNotVisitedRows(facilities);
+  } else if (section === "near_me") {
+    matched = filterNearMeRows(facilities, origin, radius);
+  } else if (section === "high_priority") {
+    const candidateIds = new Set<string>();
+    for (const f of facilities) {
+      if (f.priority === "High" || (f.relationship_strength ?? 0) >= 4 || warmActivityIds.has(f.id)) {
+        candidateIds.add(f.id);
+      }
+    }
+    const candidates = facilities.filter((f) => candidateIds.has(f.id));
+    const latestByFacility = await loadLatestActivityForFacilities(
+      supabase,
+      candidates.map((f) => f.id)
+    );
+    matched = filterHighPriorityRows(facilities, latestByFacility, warmActivityIds);
+  }
+
+  const pageRows = matched.slice(offset, offset + limit);
+  const items = await enrichFacilityCards(supabase, pageRows, staffById, origin, {
+    withWhyPriority: section === "high_priority",
+  });
+
+  return {
+    items,
+    total: matched.length,
+    has_more: offset + items.length < matched.length,
+  };
+}
+
+export async function loadOutreachDashboard(
+  supabase: SupabaseClient,
+  staff: StaffProfile,
+  opts: {
+    latitude?: number | null;
+    longitude?: number | null;
+    radiusMiles?: number;
+  }
+): Promise<OutreachDashboardData> {
+  const summary = await loadOutreachSummary(supabase, staff, opts);
+  const [followUps, nearMe, notVisited, highPriority, recent, packets] = await Promise.all([
+    loadOutreachSection(supabase, staff, "follow_ups_due", { ...opts, limit: 50, offset: 0 }),
+    loadOutreachSection(supabase, staff, "near_me", { ...opts, limit: 20, offset: 0 }),
+    loadOutreachSection(supabase, staff, "not_visited", { ...opts, limit: 50, offset: 0 }),
+    loadOutreachSection(supabase, staff, "high_priority", { ...opts, limit: 30, offset: 0 }),
+    loadOutreachSection(supabase, staff, "recent_activity", { ...opts, limit: 20, offset: 0 }),
+    loadOutreachSection(supabase, staff, "packet_requests_due", { limit: 50, offset: 0 }),
+  ]);
+
+  return {
+    follow_ups_due: followUps.items as OutreachFacilityCard[],
+    near_me: nearMe.items as OutreachFacilityCard[],
+    not_visited: notVisited.items as OutreachFacilityCard[],
+    high_priority: highPriority.items as OutreachFacilityCard[],
+    recent_activity: recent.items as OutreachRecentActivity[],
+    packet_requests_due: packets.items as PacketRequestCard[],
     summary: {
-      due_today: dueTodayCount,
-      overdue: overdueCount,
-      not_visited: notVisitedRows.length,
-      route_stops: 0,
-      logged_this_week: loggedThisWeek ?? 0,
+      due_today: summary.due_today,
+      overdue: summary.overdue,
+      not_visited: summary.not_visited,
+      route_stops: summary.route_stops,
+      logged_this_week: summary.logged_this_week,
     },
   };
 }

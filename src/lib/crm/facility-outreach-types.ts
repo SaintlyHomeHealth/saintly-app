@@ -63,6 +63,33 @@ export type OutreachDashboardSummary = {
   logged_this_week: number;
 };
 
+export type OutreachSectionId =
+  | "follow_ups_due"
+  | "near_me"
+  | "not_visited"
+  | "high_priority"
+  | "recent_activity"
+  | "packet_requests_due";
+
+export type OutreachSectionCounts = {
+  follow_ups_due: number;
+  near_me: number;
+  not_visited: number;
+  high_priority: number;
+  recent_activity: number;
+  packet_requests_due: number;
+};
+
+export type OutreachSummaryData = OutreachDashboardSummary & {
+  section_counts: OutreachSectionCounts;
+};
+
+export type OutreachSectionPage<T> = {
+  items: T[];
+  total: number;
+  has_more: boolean;
+};
+
 export type OutreachDashboardData = {
   follow_ups_due: OutreachFacilityCard[];
   near_me: OutreachFacilityCard[];
