@@ -11,6 +11,9 @@ import { globalSearchTypeLabel } from "@/lib/admin/global-search/hrefs";
 
 const VIEWPORT_MARGIN_PX = 12;
 const DROPDOWN_MAX_WIDTH_PX = 560;
+const HEADER_MIN_QUERY_LEN = 2;
+const HEADER_DEBOUNCE_MS = 400;
+const PAGE_DEBOUNCE_MS = 300;
 
 function isFullSearchResultsPage(pathname: string): boolean {
   const p = pathname.replace(/\/$/, "");
@@ -218,16 +221,21 @@ export function GlobalSearchBar({
     if (onFullSearchPage) setOpen(false);
   }, [onFullSearchPage]);
 
-  const fetchResults = useCallback(async (q: string) => {
+  const fetchResults = useCallback(async (q: string, searchMode: "preview" | "full") => {
     const trimmed = q.trim();
-    if (trimmed.length < 1) {
+    const minLen = searchMode === "preview" ? HEADER_MIN_QUERY_LEN : 1;
+    if (trimmed.length < minLen) {
       setResults([]);
       setLoading(false);
       return;
     }
     setLoading(true);
     try {
-      const res = await fetch(`/api/admin/global-search?q=${encodeURIComponent(trimmed)}&limit=12`);
+      const params = new URLSearchParams();
+      params.set("q", trimmed);
+      params.set("limit", searchMode === "preview" ? "12" : "50");
+      if (searchMode === "preview") params.set("mode", "preview");
+      const res = await fetch(`/api/admin/global-search?${params.toString()}`);
       if (!res.ok) {
         setResults([]);
         return;
@@ -246,14 +254,20 @@ export function GlobalSearchBar({
   }, [initialQuery]);
 
   useEffect(() => {
+    if (variant === "header" && onFullSearchPage) return;
+    if (variant === "header" && !open) return;
+
+    const searchMode = variant === "header" ? "preview" : "full";
+    const debounceMs = variant === "header" ? HEADER_DEBOUNCE_MS : PAGE_DEBOUNCE_MS;
+
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
-      void fetchResults(query);
-    }, 300);
+      void fetchResults(query, searchMode);
+    }, debounceMs);
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [query, fetchResults]);
+  }, [query, fetchResults, variant, open, onFullSearchPage]);
 
   useEffect(() => {
     function onDocClick(e: MouseEvent) {
@@ -273,7 +287,11 @@ export function GlobalSearchBar({
       ? "w-full rounded-full border border-slate-200/90 bg-white/90 px-4 py-2 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200"
       : "w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200";
 
-  const showHeaderDropdown = variant === "header" && open && !onFullSearchPage && query.trim().length > 0;
+  const showHeaderDropdown =
+    variant === "header" &&
+    open &&
+    !onFullSearchPage &&
+    query.trim().length >= HEADER_MIN_QUERY_LEN;
 
   return (
     <div ref={rootRef} className={shellCls}>

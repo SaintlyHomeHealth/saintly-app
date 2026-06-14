@@ -290,9 +290,7 @@ export function FacilityOutreachView({
     if (currentUserId) initOfflineQueueUser(currentUserId);
   }, [currentUserId]);
 
-  const { daily, notifications, loading: alertsLoading } = useFacilityNotifications({
-    autoGenerate: true,
-  });
+  const { daily, notifications, loading: alertsLoading } = useFacilityNotifications();
 
   useEffect(() => {
     void fetch("/api/facilities/routes/active-today")

@@ -106,9 +106,7 @@ export function FacilityAnalyticsView({ canFilterReps }: FacilityAnalyticsViewPr
   const [taskModal, setTaskModal] = useState<{ mode: FollowUpTaskActionMode; task: FollowUpTaskCard } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
-  const { managerAlerts, loading: managerAlertsLoading } = useFacilityNotifications({
-    autoGenerate: canFilterReps,
-  });
+  const { managerAlerts, loading: managerAlertsLoading } = useFacilityNotifications();
 
   function applyPreset(p: DatePreset) {
     setPreset(p);

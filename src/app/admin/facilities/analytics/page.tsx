@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import dynamic from "next/dynamic";
 
 import { AnalyticsNavLink } from "@/app/admin/facilities/_components/AnalyticsNavLink";
-import { FacilityAnalyticsView } from "@/app/admin/facilities/_components/FacilityAnalyticsView";
 import { FacilityNotificationBell } from "@/app/admin/facilities/_components/FacilityNotificationBell";
 import { PlaybooksNavLink } from "@/app/admin/facilities/_components/PlaybooksNavLink";
 import { CampaignsNavLink } from "@/app/admin/facilities/_components/CampaignsNavLink";
@@ -15,6 +15,17 @@ import { SourceReviewNavLink } from "@/app/admin/facilities/_components/SourceRe
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { crmPrimaryCtaCls } from "@/components/admin/crm-admin-list-styles";
 import { canAccessFacilityAdminTools, getStaffProfile } from "@/lib/staff-profile";
+
+const FacilityAnalyticsView = dynamic(
+  () =>
+    import("@/app/admin/facilities/_components/FacilityAnalyticsView").then((m) => m.FacilityAnalyticsView),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="min-h-[20rem] animate-pulse rounded-[28px] border border-slate-200 bg-slate-50/80" aria-hidden />
+    ),
+  }
+);
 
 export default async function FacilityAnalyticsPage() {
   const staff = await getStaffProfile();

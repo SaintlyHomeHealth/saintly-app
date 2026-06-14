@@ -10,6 +10,9 @@
  *
  * In development, `[db-dev]` logs from `devTimedSupabaseQuery` include duration and row-count
  * estimates only (no PHI).
+ *
+ * In development (or with NEXT_PUBLIC_ROUTE_PERF=1), `[perf-dev]` logs API fetch counts per page,
+ * individual fetch durations, and active Supabase realtime subscription totals via ClientDevPerfMonitor.
  */
 export function routePerfEnabled(): boolean {
   return process.env.NEXT_PUBLIC_ROUTE_PERF === "1";

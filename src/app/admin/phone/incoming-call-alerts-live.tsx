@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { updateIncomingCallAlert } from "./actions";
 import { findContactByIncomingPhone } from "@/lib/crm/find-contact-by-incoming-phone";
+import { trackSubscription } from "@/lib/perf/client-dev-perf";
 import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
 import { formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
 
@@ -19,6 +20,12 @@ export type IncomingCallAlertRow = {
   resolved_at: string | null;
   crm_contact_display_name: string | null;
 };
+
+function incomingAlertsRealtimeCutoffIso(): string {
+  const d = new Date();
+  d.setDate(d.getDate() - 7);
+  return d.toISOString();
+}
 
 function followUpPill(status: string) {
   const s = status.trim();
@@ -207,11 +214,17 @@ export function IncomingCallAlertsLive({ initialAlerts, maxVisible = 50 }: Props
 
   useEffect(() => {
     const supabase = createBrowserSupabaseClient();
+    const realtimeCutoff = incomingAlertsRealtimeCutoffIso();
     const channel = supabase
       .channel("incoming_call_alerts_admin_phone")
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "incoming_call_alerts" },
+        {
+          event: "*",
+          schema: "public",
+          table: "incoming_call_alerts",
+          filter: `created_at=gte.${realtimeCutoff}`,
+        },
         (payload) => {
           const ev = payload.eventType;
           if (ev === "INSERT") {
@@ -297,7 +310,10 @@ export function IncomingCallAlertsLive({ initialAlerts, maxVisible = 50 }: Props
       )
       .subscribe();
 
+    trackSubscription("incoming_call_alerts_admin_phone", 1);
+
     return () => {
+      trackSubscription("incoming_call_alerts_admin_phone", -1);
       void supabase.removeChannel(channel);
     };
   }, [maxVisible]);

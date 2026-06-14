@@ -57,7 +57,7 @@ export function FacilityReferralsView({
   const [summary, setSummary] = useState<FacilityReferralPipelineSummary | null>(null);
   const [health, setHealth] = useState<ReferralPipelineHealthRow[]>([]);
 
-  const { notifications } = useFacilityNotifications({ autoGenerate: true });
+  const { notifications } = useFacilityNotifications();
 
   const load = useCallback(async () => {
     setLoading(true);

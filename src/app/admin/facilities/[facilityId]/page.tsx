@@ -101,7 +101,9 @@ export default async function AdminFacilityDetailPage({
 
   const { data: facility, error: fErr } = await supabaseAdmin
     .from("facilities")
-    .select("*")
+    .select(
+      "id, name, type, status, priority, territory, address_line_1, address_line_2, city, state, zip, main_phone, fax, email, website, assigned_rep_user_id, referral_method, referral_notes, intake_notes, best_time_to_visit, last_visit_at, next_follow_up_at, visit_frequency, relationship_strength, general_notes, is_active"
+    )
     .eq("id", facilityId.trim())
     .maybeSingle();
 
@@ -127,7 +129,9 @@ export default async function AdminFacilityDetailPage({
 
   const { data: contactRows } = await supabaseAdmin
     .from("facility_contacts")
-    .select("*")
+    .select(
+      "id, full_name, first_name, last_name, title, department, direct_phone, mobile_phone, fax, email, preferred_contact_method, best_time_to_reach, is_decision_maker, influence_level, notes, is_best_contact, is_gatekeeper, is_referral_contact"
+    )
     .eq("facility_id", F.id)
     .eq("is_active", true)
     .order("last_name", { ascending: true })
@@ -157,7 +161,9 @@ export default async function AdminFacilityDetailPage({
 
   const { data: activityRows } = await supabaseAdmin
     .from("facility_activities")
-    .select("*")
+    .select(
+      "id, activity_type, outcome, activity_at, notes, next_follow_up_at, referral_potential, staff_user_id, materials_dropped_off, got_business_card, requested_packet, referral_process_captured, decision_maker_met"
+    )
     .eq("facility_id", F.id)
     .order("activity_at", { ascending: false })
     .limit(100);

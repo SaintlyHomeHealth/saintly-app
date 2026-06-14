@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { Suspense } from "react";
 
 import { MobileSupabaseSessionBridge } from "@/app/workspace/MobileSupabaseSessionBridge";
+import { ClientDevPerfMonitor } from "@/components/perf/ClientDevPerfMonitor";
 import { RoutePerfClientLogger } from "@/components/perf/RoutePerfClientLogger";
 
 import "./globals.css";
@@ -76,6 +77,7 @@ export default function RootLayout({
         <MobileSupabaseSessionBridge />
         <Suspense fallback={null}>
           <RoutePerfClientLogger />
+          <ClientDevPerfMonitor />
         </Suspense>
         {children}
       </body>

@@ -17,6 +17,7 @@ import {
   updatePhoneCallNotification,
   updatePhoneCallPrimaryTag,
 } from "./actions";
+import { trackSubscription } from "@/lib/perf/client-dev-perf";
 import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
 import { formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
@@ -222,6 +223,12 @@ function sortCallNewestFirst(a: PhoneCallRow, b: PhoneCallRow) {
   const ta = new Date(a.started_at ?? a.created_at).getTime();
   const tb = new Date(b.started_at ?? b.created_at).getTime();
   return tb - ta;
+}
+
+function recentCallsRealtimeCutoffIso(): string {
+  const d = new Date();
+  d.setDate(d.getDate() - 14);
+  return d.toISOString();
 }
 
 function rowMatchesCallVisibility(
@@ -634,11 +641,17 @@ export function RecentCallsLive({
 
   useEffect(() => {
     const supabase = createBrowserSupabaseClient();
+    const realtimeCutoff = recentCallsRealtimeCutoffIso();
     const channel = supabase
       .channel("phone_calls_admin_recent")
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "phone_calls" },
+        {
+          event: "*",
+          schema: "public",
+          table: "phone_calls",
+          filter: `created_at=gte.${realtimeCutoff}`,
+        },
         (payload) => {
           const ev = payload.eventType;
           if (ev === "INSERT") {
@@ -733,7 +746,10 @@ export function RecentCallsLive({
       )
       .subscribe();
 
+    trackSubscription("phone_calls_admin_recent", 1);
+
     return () => {
+      trackSubscription("phone_calls_admin_recent", -1);
       void supabase.removeChannel(channel);
     };
   }, [callVisibility, currentUserId, maxVisible]);

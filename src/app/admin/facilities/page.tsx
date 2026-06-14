@@ -161,7 +161,13 @@ export default async function AdminFacilitiesPage({
     staffById[s.user_id] = s;
   }
 
-  let query = supabaseAdmin.from("facilities").select("*").order("name", { ascending: true }).limit(500);
+  let query = supabaseAdmin
+    .from("facilities")
+    .select(
+      "id, name, type, status, priority, city, main_phone, address_line_1, address_line_2, state, zip, assigned_rep_user_id, last_visit_at, next_follow_up_at, visit_frequency, relationship_strength, is_active"
+    )
+    .order("name", { ascending: true })
+    .limit(500);
 
   if (!f.showInactive) {
     query = query.eq("is_active", true);

@@ -3,23 +3,17 @@
 import { useEffect, useRef } from "react";
 
 import { FacilityNotificationList } from "@/app/admin/facilities/_components/FacilityNotificationList";
-import { useFacilityNotifications } from "@/app/admin/facilities/_components/useFacilityNotifications";
+import type { FacilityNotificationsState } from "@/app/admin/facilities/_components/useFacilityNotificationsState";
 
 type FacilityNotificationDropdownProps = {
   open: boolean;
   onClose: () => void;
+  state: FacilityNotificationsState;
 };
 
-export function FacilityNotificationDropdown({ open, onClose }: FacilityNotificationDropdownProps) {
+export function FacilityNotificationDropdown({ open, onClose, state }: FacilityNotificationDropdownProps) {
   const panelRef = useRef<HTMLDivElement>(null);
-  const { notifications, summary, loading, markRead, dismiss, refresh } = useFacilityNotifications({
-    autoGenerate: false,
-  });
-
-  useEffect(() => {
-    if (!open) return;
-    void refresh(true);
-  }, [open, refresh]);
+  const { notifications, summary, loading, markRead, dismiss, refresh } = state;
 
   useEffect(() => {
     if (!open) return;

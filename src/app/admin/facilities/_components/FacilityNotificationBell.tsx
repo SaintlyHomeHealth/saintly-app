@@ -11,8 +11,9 @@ type FacilityNotificationBellProps = {
 
 export function FacilityNotificationBell({ className }: FacilityNotificationBellProps) {
   const [open, setOpen] = useState(false);
-  const { summary } = useFacilityNotifications({ autoGenerate: true, pollMs: 120_000 });
+  const notificationsState = useFacilityNotifications();
 
+  const { summary } = notificationsState;
   const badge = summary.unread;
   const urgent = summary.urgent > 0;
 
@@ -43,7 +44,7 @@ export function FacilityNotificationBell({ className }: FacilityNotificationBell
           </span>
         ) : null}
       </button>
-      <FacilityNotificationDropdown open={open} onClose={() => setOpen(false)} />
+      <FacilityNotificationDropdown open={open} onClose={() => setOpen(false)} state={notificationsState} />
     </div>
   );
 }

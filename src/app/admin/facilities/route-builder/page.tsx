@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import dynamic from "next/dynamic";
 
-import { FacilityRouteBuilderView } from "@/app/admin/facilities/_components/FacilityRouteBuilderView";
 import { FieldModeNavLink } from "@/app/admin/facilities/_components/FieldModeNavLink";
 import { FacilityNotificationBell } from "@/app/admin/facilities/_components/FacilityNotificationBell";
 import { OutreachNavLink } from "@/app/admin/facilities/_components/OutreachNavLink";
@@ -16,6 +16,17 @@ import {
   canAccessFacilityFieldTools,
   getStaffProfile,
 } from "@/lib/staff-profile";
+
+const FacilityRouteBuilderView = dynamic(
+  () =>
+    import("@/app/admin/facilities/_components/FacilityRouteBuilderView").then((m) => m.FacilityRouteBuilderView),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="min-h-[16rem] animate-pulse rounded-[28px] border border-slate-200 bg-slate-50/80" aria-hidden />
+    ),
+  }
+);
 
 export default async function FacilityRouteBuilderPage() {
   const staff = await getStaffProfile();

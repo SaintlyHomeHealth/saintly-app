@@ -1612,7 +1612,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     }
     let cancelled = false;
     let failureBackoffUntil = 0;
-    const POLL_MS = 3500;
+    const POLL_MS = 6500;
     const FAILURE_BACKOFF_MS = 30_000;
     const poll = async () => {
       if (typeof document !== "undefined" && document.visibilityState === "hidden") {
@@ -2199,7 +2199,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       staffUserId: softphoneCapabilities?.staff_user_id ?? undefined,
     };
 
-    console.log("[move-to-cell-ui] fetch_start", {
+    softphoneDevLog("[move-to-cell-ui] fetch_start", {
       callSid: sid,
       callSessionId: clientLegSid,
       conferenceSid: conferenceSid ?? null,
@@ -2230,7 +2230,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       twilio_code?: number | string;
     };
 
-    console.log("[move-to-cell-ui] fetch_response", {
+    softphoneDevLog("[move-to-cell-ui] fetch_response", {
       http_status: res.status,
       ok: j.ok,
       status: j.status,

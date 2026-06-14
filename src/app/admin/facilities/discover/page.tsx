@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import dynamic from "next/dynamic";
 
-import { FacilityDiscoverView } from "@/app/admin/facilities/_components/FacilityDiscoverView";
 import { FacilityNotificationBell } from "@/app/admin/facilities/_components/FacilityNotificationBell";
 import { OutreachNavLink } from "@/app/admin/facilities/_components/OutreachNavLink";
 import { FollowUpNavLink } from "@/app/admin/facilities/_components/FollowUpNavLink";
@@ -9,6 +9,17 @@ import { RouteBuilderNavLink } from "@/app/admin/facilities/_components/RouteBui
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { crmPrimaryCtaCls } from "@/components/admin/crm-admin-list-styles";
 import { canAccessFacilityAdminTools, canAccessFacilityFieldTools, getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
+
+const FacilityDiscoverView = dynamic(
+  () =>
+    import("@/app/admin/facilities/_components/FacilityDiscoverView").then((m) => m.FacilityDiscoverView),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="min-h-[16rem] animate-pulse rounded-[28px] border border-slate-200 bg-slate-50/80" aria-hidden />
+    ),
+  }
+);
 
 export default async function FacilityDiscoverPage() {
   const staff = await getStaffProfile();

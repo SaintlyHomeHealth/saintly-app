@@ -69,6 +69,9 @@ const ProcessNoopBatchButton = dynamic(
   }
 );
 
+const APPLICANTS_LIST_SELECT =
+  "id, first_name, last_name, email, position, primary_discipline, type_of_position, resume_url, status, created_at";
+
 type ApplicantRow = {
   id: string;
   first_name: string | null;
@@ -484,9 +487,9 @@ export default async function AdminDashboardPage({
 
   const applicantsRes = routePerfStepsEnabled()
     ? await routePerfTimed("applicants_list", () =>
-        supabase.from("applicants").select("*").limit(50)
+        supabase.from("applicants").select(APPLICANTS_LIST_SELECT).limit(50)
       )
-    : await supabase.from("applicants").select("*").limit(50);
+    : await supabase.from("applicants").select(APPLICANTS_LIST_SELECT).limit(50);
   const { data: applicantsRaw, error: applicantsError } = applicantsRes;
 
   if (applicantsError) {

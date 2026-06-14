@@ -23,6 +23,8 @@ import type { GlobalSearchResponse, GlobalSearchResult } from "./types";
 
 const DEFAULT_LIMIT = 50;
 
+export type GlobalSearchMode = "preview" | "full";
+
 function groupResults(results: GlobalSearchResult[]): GlobalSearchResponse["groups"] {
   const bestMatches = results.slice(0, 8);
   const leads = results.filter((r) => r.type === "lead");
@@ -49,7 +51,8 @@ function stripInternalFields(results: GlobalSearchResult[]): GlobalSearchResult[
 export async function runGlobalSearch(
   supabase: SupabaseClient,
   rawQuery: string,
-  limit = DEFAULT_LIMIT
+  limit = DEFAULT_LIMIT,
+  mode: GlobalSearchMode = "full"
 ): Promise<GlobalSearchResponse | null> {
   const query = parseGlobalSearchQuery(rawQuery);
   if (!query) {
@@ -62,29 +65,38 @@ export async function runGlobalSearch(
 
   const { results: crmResults, leadTrailsByContactId } = await searchLeadsAndPatients(supabase, query);
 
-  const [
-    calls,
-    privatePay,
-    fax,
-    applicants,
-    packets,
-    recruits,
-    conversations,
-    facilities,
-    tasks,
-    inbound,
-  ] = await Promise.all([
-    searchPhoneCalls(supabase, query, leadTrailsByContactId),
-    searchPrivatePay(supabase, query),
-    searchFaxMessages(supabase, query),
-    searchApplicants(supabase, query),
-    searchSignatureRecipients(supabase, query),
-    searchRecruitingCandidates(supabase, query),
-    searchConversations(supabase, query),
-    searchFacilities(supabase, query),
-    searchCrmTasks(supabase, query),
-    searchInboundEmails(supabase, query),
-  ]);
+  let calls: GlobalSearchResult[] = [];
+  let privatePay: GlobalSearchResult[] = [];
+  let fax: GlobalSearchResult[] = [];
+  let applicants: GlobalSearchResult[] = [];
+  let packets: GlobalSearchResult[] = [];
+  let recruits: GlobalSearchResult[] = [];
+  let conversations: GlobalSearchResult[] = [];
+  let facilities: GlobalSearchResult[] = [];
+  let tasks: GlobalSearchResult[] = [];
+  let inbound: GlobalSearchResult[] = [];
+
+  if (mode === "preview") {
+    [calls, conversations, facilities] = await Promise.all([
+      searchPhoneCalls(supabase, query, leadTrailsByContactId),
+      searchConversations(supabase, query),
+      searchFacilities(supabase, query),
+    ]);
+  } else {
+    [calls, privatePay, fax, applicants, packets, recruits, conversations, facilities, tasks, inbound] =
+      await Promise.all([
+        searchPhoneCalls(supabase, query, leadTrailsByContactId),
+        searchPrivatePay(supabase, query),
+        searchFaxMessages(supabase, query),
+        searchApplicants(supabase, query),
+        searchSignatureRecipients(supabase, query),
+        searchRecruitingCandidates(supabase, query),
+        searchConversations(supabase, query),
+        searchFacilities(supabase, query),
+        searchCrmTasks(supabase, query),
+        searchInboundEmails(supabase, query),
+      ]);
+  }
 
   const merged = [
     ...crmResults,

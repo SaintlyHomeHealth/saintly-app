@@ -14,8 +14,11 @@ export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const q = (searchParams.get("q") ?? "").trim();
   const limit = Math.min(50, Math.max(5, parseInt(searchParams.get("limit") ?? "50", 10) || 50));
+  const modeParam = searchParams.get("mode");
+  const mode = modeParam === "preview" ? "preview" : "full";
+  const minLength = mode === "preview" ? 2 : 1;
 
-  if (q.length < 1) {
+  if (q.length < minLength) {
     return NextResponse.json({
       query: "",
       results: [],
@@ -24,7 +27,7 @@ export async function GET(req: Request) {
   }
 
   try {
-    const payload = await runGlobalSearch(supabaseAdmin, q, limit);
+    const payload = await runGlobalSearch(supabaseAdmin, q, limit, mode);
     return NextResponse.json(payload);
   } catch (err) {
     console.warn("[api/admin/global-search]", err);

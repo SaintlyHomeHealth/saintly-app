@@ -45,7 +45,7 @@ export function FacilityFollowUpsView({
   const [toast, setToast] = useState<string | null>(null);
   const [listKey, setListKey] = useState(0);
 
-  const { notifications } = useFacilityNotifications({ autoGenerate: true });
+  const { notifications } = useFacilityNotifications();
 
   function showToast(msg: string) {
     setToast(msg);

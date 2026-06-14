@@ -1,10 +1,23 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-import { GlobalSearchBar } from "@/components/admin/GlobalSearchBar";
 import type { AdminNavItemResolved } from "@/lib/admin/admin-nav-config";
+
+const GlobalSearchBar = dynamic(
+  () => import("@/components/admin/GlobalSearchBar").then((m) => m.GlobalSearchBar),
+  {
+    ssr: false,
+    loading: () => (
+      <div
+        className="relative z-50 h-[2.25rem] w-full min-w-[12rem] max-w-md flex-1 rounded-full border border-slate-200/90 bg-slate-50/90 sm:w-72 sm:flex-none"
+        aria-hidden
+      />
+    ),
+  }
+);
 
 const shell =
   "sticky top-0 z-40 border-b border-slate-200/80 bg-gradient-to-r from-white via-sky-50/40 to-cyan-50/35 shadow-[0_1px_0_0_rgba(255,255,255,0.8)_inset] backdrop-blur-md supports-[backdrop-filter]:bg-white/75";
