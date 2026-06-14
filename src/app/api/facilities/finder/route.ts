@@ -55,6 +55,58 @@ type FinderRequestBody = {
   radiusMiles?: number | null;
 };
 
+const FINDER_FACILITY_SELECT_WITH_GEO =
+  "id, name, type, status, priority, city, state, zip, main_phone, fax, email, website, address_line_1, address_line_2, assigned_rep_user_id, last_visit_at, next_follow_up_at, general_notes, referral_notes, intake_notes, latitude, longitude, is_active";
+
+const FINDER_FACILITY_SELECT_BASE =
+  "id, name, type, status, priority, city, state, zip, main_phone, fax, email, website, address_line_1, address_line_2, assigned_rep_user_id, last_visit_at, next_follow_up_at, general_notes, referral_notes, intake_notes, is_active";
+
+function isMissingColumnError(message: string): boolean {
+  return /column .* does not exist/i.test(message);
+}
+
+async function loadFinderFacilities(): Promise<{
+  rows: FacilitySearchRow[];
+  canPersistGeocode: boolean;
+  error: string | null;
+}> {
+  const withGeo = await supabaseAdmin
+    .from("facilities")
+    .select(FINDER_FACILITY_SELECT_WITH_GEO)
+    .eq("is_active", true)
+    .limit(2000);
+
+  if (!withGeo.error) {
+    return {
+      rows: (withGeo.data ?? []) as FacilitySearchRow[],
+      canPersistGeocode: true,
+      error: null,
+    };
+  }
+
+  if (!isMissingColumnError(withGeo.error.message)) {
+    return { rows: [], canPersistGeocode: false, error: withGeo.error.message };
+  }
+
+  const base = await supabaseAdmin
+    .from("facilities")
+    .select(FINDER_FACILITY_SELECT_BASE)
+    .eq("is_active", true)
+    .limit(2000);
+
+  if (base.error) {
+    return { rows: [], canPersistGeocode: false, error: base.error.message };
+  }
+
+  const rows = (base.data ?? []).map((row) => ({
+    ...(row as Omit<FacilitySearchRow, "latitude" | "longitude">),
+    latitude: null,
+    longitude: null,
+  }));
+
+  return { rows, canPersistGeocode: false, error: null };
+}
+
 function staffPrimaryLabel(s: { full_name: string | null; email: string | null }): string {
   const name = (s.full_name ?? "").trim();
   if (name) return name;
@@ -88,20 +140,13 @@ export async function POST(req: Request) {
   const radiusMiles =
     typeof body.radiusMiles === "number" && body.radiusMiles > 0 ? body.radiusMiles : null;
 
-  const { data: facilityRows, error: facErr } = await supabaseAdmin
-    .from("facilities")
-    .select(
-      "id, name, type, status, priority, city, state, zip, main_phone, fax, email, website, address_line_1, address_line_2, assigned_rep_user_id, last_visit_at, next_follow_up_at, visit_frequency, relationship_strength, general_notes, referral_notes, intake_notes, latitude, longitude, is_active"
-    )
-    .eq("is_active", true)
-    .limit(2000);
+  const { rows: baseRows, canPersistGeocode, error: facErr } = await loadFinderFacilities();
 
   if (facErr) {
-    console.warn("[api/facilities/finder] facilities:", facErr.message);
+    console.warn("[api/facilities/finder] facilities:", facErr);
     return NextResponse.json({ error: "fetch_failed" }, { status: 500 });
   }
 
-  const baseRows = (facilityRows ?? []) as FacilitySearchRow[];
   const facilityIds = baseRows.map((r) => r.id);
 
   const contactNamesByFacility = new Map<string, string[]>();
@@ -170,13 +215,15 @@ export async function POST(req: Request) {
         row.latitude = point.latitude;
         row.longitude = point.longitude;
       }
-      void supabaseAdmin
-        .from("facilities")
-        .update({ latitude: point.latitude, longitude: point.longitude })
-        .eq("id", id)
-        .then(({ error }) => {
-          if (error) console.warn("[api/facilities/finder] geocode persist:", id, error.message);
-        });
+      if (canPersistGeocode) {
+        void supabaseAdmin
+          .from("facilities")
+          .update({ latitude: point.latitude, longitude: point.longitude })
+          .eq("id", id)
+          .then(({ error }) => {
+            if (error) console.warn("[api/facilities/finder] geocode persist:", id, error.message);
+          });
+      }
     }
   }
 

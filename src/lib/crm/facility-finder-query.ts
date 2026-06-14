@@ -215,8 +215,6 @@ export type FacilitySearchRow = {
   assigned_rep_user_id: string | null;
   last_visit_at: string | null;
   next_follow_up_at: string | null;
-  visit_frequency: string | null;
-  relationship_strength: number | null;
   general_notes: string | null;
   referral_notes: string | null;
   intake_notes: string | null;
