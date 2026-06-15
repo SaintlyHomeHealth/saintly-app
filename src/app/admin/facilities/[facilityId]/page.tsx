@@ -182,15 +182,23 @@ export default async function AdminFacilityDetailPage({
     .order("created_at", { ascending: false })
     .limit(200);
 
-  const allPhotos = (photoRows ?? []) as {
+  type ActivityPhotoRow = {
     id: string;
     activity_id: string | null;
     photo_type: string | null;
     ai_summary: string | null;
     created_at: string;
-  }[];
+  };
 
-  const photosByActivity: Record<string, typeof allPhotos> = {};
+  const allPhotos: ActivityPhotoRow[] = (photoRows ?? []).map((row) => ({
+    id: String(row.id),
+    activity_id: row.activity_id ?? null,
+    photo_type: row.photo_type ?? null,
+    ai_summary: row.ai_summary ?? null,
+    created_at: String(row.created_at),
+  }));
+
+  const photosByActivity: Record<string, ActivityPhotoRow[]> = {};
   for (const p of allPhotos) {
     if (!p.activity_id) continue;
     if (!photosByActivity[p.activity_id]) photosByActivity[p.activity_id] = [];
@@ -432,7 +440,6 @@ export default async function AdminFacilityDetailPage({
           activities={activityHistoryRows}
           photosByActivity={photosByActivity}
           recentPhotos={allPhotos}
-          formatPhotoDate={(iso) => formatFacilityDate(iso)}
         />
       </LeadSectionCard>
 

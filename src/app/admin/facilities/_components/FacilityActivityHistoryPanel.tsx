@@ -8,6 +8,11 @@ import { facilityPhotoTypeLabel } from "@/lib/crm/facility-photos-constants";
 import { facilityPhotoFileUrl } from "@/lib/crm/facility-photo-client";
 import { isReferralLeadSuggestedOutcome } from "@/lib/crm/facility-referral-lead-client";
 import { isPacketRequestSuggestedOutcome } from "@/lib/crm/facility-packet-types";
+import { formatFacilityDate } from "@/lib/crm/facility-address";
+
+function formatPhotoDate(iso?: string | null) {
+  return formatFacilityDate(iso, "Not provided");
+}
 
 export type ActivityPhotoRow = {
   id: string;
@@ -39,7 +44,6 @@ type FacilityActivityHistoryPanelProps = {
   }>;
   photosByActivity: Record<string, ActivityPhotoRow[]>;
   recentPhotos: ActivityPhotoRow[];
-  formatPhotoDate: (iso: string) => string;
 };
 
 export function FacilityActivityHistoryPanel({
@@ -51,7 +55,6 @@ export function FacilityActivityHistoryPanel({
   activities,
   photosByActivity,
   recentPhotos,
-  formatPhotoDate,
 }: FacilityActivityHistoryPanelProps) {
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [referralActivityId, setReferralActivityId] = useState<string | null>(null);
@@ -139,7 +142,9 @@ export function FacilityActivityHistoryPanel({
                               type="button"
                               onClick={() => setPreviewId(p.id)}
                               className="relative h-10 w-10 overflow-hidden rounded-lg border border-slate-200"
-                              title={p.ai_summary ?? facilityPhotoTypeLabel(p.photo_type)}
+                              title={[p.ai_summary ?? facilityPhotoTypeLabel(p.photo_type), formatPhotoDate(p.created_at)]
+                                .filter(Boolean)
+                                .join(" · ")}
                             >
                               {/* eslint-disable-next-line @next/next/no-img-element */}
                               <img src={facilityPhotoFileUrl(p.id)} alt="" className="h-full w-full object-cover" />
