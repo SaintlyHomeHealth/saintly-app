@@ -120,12 +120,23 @@ type SpeechRecognitionCtor = new () => {
   continuous: boolean;
   interimResults: boolean;
   lang: string;
-  onresult: ((ev: { results: { [index: number]: { [index: number]: { transcript: string } } } }) => void) | null;
+  onresult: ((ev: {
+    resultIndex: number;
+    results: {
+      length: number;
+      [index: number]: { isFinal: boolean; [altIndex: number]: { transcript: string } };
+    };
+  }) => void) | null;
   onerror: ((ev: { error: string }) => void) | null;
   onend: (() => void) | null;
   start: () => void;
   stop: () => void;
+  abort: () => void;
 };
+
+function joinText(a: string, b: string) {
+  return [a.trim(), b.trim()].filter(Boolean).join(" ");
+}
 
 function getSpeechRecognition(): SpeechRecognitionCtor | null {
   if (typeof window === "undefined") return null;
@@ -162,6 +173,8 @@ export function FacilityAiCaptureModal({
   const [listening, setListening] = useState(false);
   const [speechSupported] = useState(() => Boolean(getSpeechRecognition()));
   const recognitionRef = useRef<InstanceType<SpeechRecognitionCtor> | null>(null);
+  const baseNoteRef = useRef("");
+  const finalTranscriptRef = useRef("");
 
   const [analyzing, setAnalyzing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -212,10 +225,11 @@ export function FacilityAiCaptureModal({
       setListening(false);
       if (recognitionRef.current) {
         try {
-          recognitionRef.current.stop();
+          recognitionRef.current.abort();
         } catch {
           /* ignore */
         }
+        recognitionRef.current = null;
       }
       return;
     }
@@ -226,10 +240,11 @@ export function FacilityAiCaptureModal({
     return () => {
       if (recognitionRef.current) {
         try {
-          recognitionRef.current.stop();
+          recognitionRef.current.abort();
         } catch {
           /* ignore */
         }
+        recognitionRef.current = null;
       }
     };
   }, []);
@@ -261,38 +276,75 @@ export function FacilityAiCaptureModal({
     );
   }
 
-  function toggleVoice() {
-    const Ctor = getSpeechRecognition();
-    if (!Ctor) return;
+  function stopVoiceNote() {
+    recognitionRef.current?.stop();
+    recognitionRef.current = null;
+    setListening(false);
+  }
 
-    if (listening && recognitionRef.current) {
-      recognitionRef.current.stop();
-      setListening(false);
+  function startVoiceNote() {
+    const Ctor = getSpeechRecognition();
+    if (!Ctor) {
+      alert("Voice notes are not supported in this browser.");
       return;
     }
 
-    const rec = new Ctor();
-    rec.continuous = true;
-    rec.interimResults = true;
-    rec.lang = "en-US";
-    rec.onresult = (ev) => {
-      const results = ev.results as unknown as { length: number; [i: number]: { [j: number]: { transcript: string } } };
-      let chunk = "";
-      for (let i = 0; i < results.length; i++) {
-        chunk += results[i][0].transcript;
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.abort();
+      } catch {
+        /* ignore */
       }
-      if (chunk.trim()) {
-        setRawText((prev) => {
-          const base = prev.trim();
-          return base ? `${base} ${chunk.trim()}` : chunk.trim();
-        });
+      recognitionRef.current = null;
+    }
+
+    const recognition = new Ctor();
+    recognitionRef.current = recognition;
+
+    baseNoteRef.current = rawText || "";
+    finalTranscriptRef.current = "";
+
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = "en-US";
+
+    recognition.onresult = (ev) => {
+      let interimTranscript = "";
+
+      for (let i = ev.resultIndex; i < ev.results.length; i++) {
+        const transcript = ev.results[i][0]?.transcript || "";
+
+        if (ev.results[i].isFinal) {
+          finalTranscriptRef.current = joinText(finalTranscriptRef.current, transcript);
+        } else {
+          interimTranscript = joinText(interimTranscript, transcript);
+        }
       }
+
+      const voiceText = joinText(finalTranscriptRef.current, interimTranscript);
+      setRawText(joinText(baseNoteRef.current, voiceText));
     };
-    rec.onerror = () => setListening(false);
-    rec.onend = () => setListening(false);
-    recognitionRef.current = rec;
-    rec.start();
+
+    recognition.onend = () => {
+      recognitionRef.current = null;
+      setListening(false);
+    };
+
+    recognition.onerror = () => {
+      recognitionRef.current = null;
+      setListening(false);
+    };
+
     setListening(true);
+    recognition.start();
+  }
+
+  function toggleVoice() {
+    if (listening && recognitionRef.current) {
+      stopVoiceNote();
+      return;
+    }
+    startVoiceNote();
   }
 
   async function handleAnalyze() {
