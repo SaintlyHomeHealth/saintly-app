@@ -1,8 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server";
 import type Stripe from "stripe";
 
+import { removePaymentMethodByStripeId } from "@/lib/private-pay/customers";
+import { handleSetupIntentSucceeded } from "@/lib/private-pay/charge-card";
+import { recordStripePaymentFailed, recordStripePaymentSucceeded } from "@/lib/private-pay/data";
 import { getStripe, getStripeWebhookSecret } from "@/lib/private-pay/stripe";
-import { recordStripePaymentSucceeded } from "@/lib/private-pay/data";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -32,6 +34,8 @@ async function handlePaidIntent(
     amountCents: number;
     customerId: string | null;
     sessionId: string | null;
+    stripePaymentMethodId?: string | null;
+    privatePayCustomerId?: string | null;
   }
 ): Promise<void> {
   if (!opts.invoiceId) {
@@ -48,6 +52,29 @@ async function handlePaidIntent(
     stripeCheckoutSessionId: opts.sessionId,
     cardBrand: card.brand,
     cardLast4: card.last4,
+    customerId: opts.privatePayCustomerId ?? null,
+    stripePaymentMethodId: opts.stripePaymentMethodId ?? null,
+  });
+}
+
+async function handleFailedIntent(
+  opts: {
+    invoiceId: string | undefined | null;
+    paymentIntentId: string;
+    amountCents: number;
+    failureMessage: string;
+    privatePayCustomerId?: string | null;
+    stripePaymentMethodId?: string | null;
+  }
+): Promise<void> {
+  if (!opts.invoiceId) return;
+  await recordStripePaymentFailed({
+    invoiceId: opts.invoiceId,
+    amountCents: opts.amountCents,
+    stripePaymentIntentId: opts.paymentIntentId,
+    failureMessage: opts.failureMessage,
+    customerId: opts.privatePayCustomerId ?? null,
+    stripePaymentMethodId: opts.stripePaymentMethodId ?? null,
   });
 }
 
@@ -79,7 +106,12 @@ export async function POST(req: NextRequest) {
   try {
     if (event.type === "checkout.session.completed") {
       const session = event.data.object as Stripe.Checkout.Session;
-      if (session.payment_status === "paid" && typeof session.payment_intent === "string") {
+
+      if (session.mode === "setup" && session.setup_intent) {
+        const setupIntentId =
+          typeof session.setup_intent === "string" ? session.setup_intent : session.setup_intent.id;
+        await handleSetupIntentSucceeded(setupIntentId);
+      } else if (session.payment_status === "paid" && typeof session.payment_intent === "string") {
         await handlePaidIntent(stripe, {
           invoiceId: session.metadata?.private_pay_invoice_id ?? session.client_reference_id,
           paymentIntentId: session.payment_intent,
@@ -90,18 +122,38 @@ export async function POST(req: NextRequest) {
       }
     } else if (event.type === "payment_intent.succeeded") {
       const pi = event.data.object as Stripe.PaymentIntent;
+      const pmId = typeof pi.payment_method === "string" ? pi.payment_method : pi.payment_method?.id ?? null;
       await handlePaidIntent(stripe, {
-        invoiceId: pi.metadata?.private_pay_invoice_id,
+        invoiceId: pi.metadata?.private_pay_invoice_id ?? pi.metadata?.invoice_id,
         paymentIntentId: pi.id,
         amountCents: pi.amount_received || pi.amount,
         customerId: typeof pi.customer === "string" ? pi.customer : null,
         sessionId: null,
+        stripePaymentMethodId: pmId,
+        privatePayCustomerId: pi.metadata?.customer_id ?? null,
       });
+    } else if (event.type === "payment_intent.payment_failed") {
+      const pi = event.data.object as Stripe.PaymentIntent;
+      const pmId = typeof pi.payment_method === "string" ? pi.payment_method : pi.payment_method?.id ?? null;
+      const message = pi.last_payment_error?.message ?? "Payment failed";
+      await handleFailedIntent({
+        invoiceId: pi.metadata?.private_pay_invoice_id ?? pi.metadata?.invoice_id,
+        paymentIntentId: pi.id,
+        amountCents: pi.amount,
+        failureMessage: message,
+        privatePayCustomerId: pi.metadata?.customer_id ?? null,
+        stripePaymentMethodId: pmId,
+      });
+    } else if (event.type === "setup_intent.succeeded") {
+      const si = event.data.object as Stripe.SetupIntent;
+      await handleSetupIntentSucceeded(si.id);
+    } else if (event.type === "payment_method.detached") {
+      const pm = event.data.object as Stripe.PaymentMethod;
+      await removePaymentMethodByStripeId(pm.id);
     }
   } catch (e) {
     const message = e instanceof Error ? e.message : "Webhook handler error";
     console.error("[stripe webhook] handler error", message);
-    // Return 500 so Stripe retries the event.
     return NextResponse.json({ error: "Handler error" }, { status: 500 });
   }
 

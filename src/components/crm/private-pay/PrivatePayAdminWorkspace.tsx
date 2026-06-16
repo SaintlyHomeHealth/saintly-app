@@ -13,6 +13,10 @@ import {
   type PrivatePayInvoiceStatus,
 } from "@/lib/private-pay/constants";
 import { formatCentsUsd, serviceTypeLabel } from "@/lib/private-pay/format";
+import {
+  PRIVATE_PAY_PAYMENT_BADGE_LABELS,
+  PRIVATE_PAY_PAYMENT_BADGE_STYLES,
+} from "@/lib/private-pay/payment-badges";
 import type { PrivatePaySettingsInput } from "@/lib/private-pay/payment-settings";
 import type {
   PrivatePayInvoiceInput,
@@ -29,6 +33,8 @@ import {
 } from "./PrivatePayRecordPaymentModal";
 import { PrivatePayPaymentSettingsModal } from "./PrivatePayPaymentSettingsModal";
 import { PrivatePaySendInvoiceConfirmModal } from "./PrivatePaySendInvoiceConfirmModal";
+import { PrivatePayChargeCardModal } from "./PrivatePayChargeCardModal";
+import type { PrivatePayPaymentMethodOnFile } from "@/lib/private-pay/types";
 import { getAppBaseUrl } from "@/lib/app-url";
 import {
   buildPrivatePayInvoicePdfUrl,
@@ -94,6 +100,8 @@ export function PrivatePayAdminWorkspace({
   const [sendError, setSendError] = useState<string | null>(null);
   const [paymentSettings, setPaymentSettings] = useState<PrivatePaySettingsInput>(initialPaymentSettings);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [chargeFor, setChargeFor] = useState<PrivatePayInvoiceListRow | null>(null);
+  const [chargeMethods, setChargeMethods] = useState<PrivatePayPaymentMethodOnFile[]>([]);
 
   const clientAppBase = useCallback(
     () => getAppBaseUrl(typeof window !== "undefined" ? window.location.origin : undefined),
@@ -131,6 +139,11 @@ export function PrivatePayAdminWorkspace({
             invoice.status === "paid" || invoice.status === "void"
               ? null
               : (prevRow?.pending_payment_report ?? null),
+          has_card_on_file: prevRow?.has_card_on_file ?? false,
+          payment_badge:
+            invoice.status === "paid"
+              ? "paid"
+              : (prevRow?.payment_badge ?? "unpaid"),
         };
         const exists = prev.some((i) => i.id === invoice.id);
         return exists ? prev.map((i) => (i.id === invoice.id ? { ...i, ...enriched } : i)) : [enriched, ...prev];
@@ -235,7 +248,31 @@ export function PrivatePayAdminWorkspace({
       setBanner(null);
       try {
         if (action === "link" || action === "charge") {
-          await startCheckout(invoiceId, action);
+          if (action === "charge") {
+            const row = invoices.find((i) => i.id === invoiceId);
+            if (!row?.contact_id) {
+              throw new Error("This invoice has no contact — add a card on the customer profile first.");
+            }
+            const pmRes = await fetch(`/api/private-pay/customers/${row.contact_id}/payment-methods`);
+            const pmJson = (await pmRes.json().catch(() => ({}))) as {
+              ok?: boolean;
+              paymentMethods?: PrivatePayPaymentMethodOnFile[];
+              error?: string;
+            };
+            if (!pmRes.ok || !pmJson.ok) {
+              throw new Error(pmJson.error || "Could not load saved cards");
+            }
+            const methods = pmJson.paymentMethods ?? [];
+            if (methods.length === 0) {
+              throw new Error(
+                "No card on file. Add a card on the customer profile or use Payment link for customer self-pay."
+              );
+            }
+            setChargeMethods(methods);
+            setChargeFor(row);
+          } else {
+            await startCheckout(invoiceId, action);
+          }
         } else if (action === "email" || action === "text") {
           const previewRes = await fetch(`/api/private-pay/invoices/${invoiceId}/delivery-links`);
           const preview = (await previewRes.json().catch(() => ({}))) as {
@@ -496,7 +533,14 @@ export function PrivatePayAdminWorkspace({
                 const rowBusy = rowBusyId === invoice.id;
                 return (
                   <tr key={invoice.id} className="border-b border-slate-100 align-top hover:bg-slate-50/60">
-                    <td className="px-4 py-3 pr-3 font-medium text-slate-900">{invoice.invoice_number}</td>
+                    <td className="px-4 py-3 pr-3 font-medium text-slate-900">
+                      <Link
+                        href={`/admin/private-pay/invoices/${invoice.id}`}
+                        className="text-sky-800 hover:underline"
+                      >
+                        {invoice.invoice_number}
+                      </Link>
+                    </td>
                     <td className="py-3 pr-3">
                       <p className="font-medium text-slate-800">{invoice.customer_name}</p>
                       {invoice.customer_detail && invoice.profile_href ? (
@@ -519,6 +563,13 @@ export function PrivatePayAdminWorkspace({
                         {invoice.pending_payment_report ? (
                           <span className="w-fit rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-900">
                             Payment reported
+                          </span>
+                        ) : null}
+                        {invoice.status !== "paid" && invoice.status !== "void" ? (
+                          <span
+                            className={`w-fit rounded-full px-2 py-0.5 text-[10px] font-semibold ${PRIVATE_PAY_PAYMENT_BADGE_STYLES[invoice.payment_badge]}`}
+                          >
+                            {PRIVATE_PAY_PAYMENT_BADGE_LABELS[invoice.payment_badge]}
                           </span>
                         ) : null}
                       </div>
@@ -764,6 +815,21 @@ export function PrivatePayAdminWorkspace({
           setSendError(null);
         }}
         onConfirm={confirmSendInvoice}
+      />
+
+      <PrivatePayChargeCardModal
+        open={Boolean(chargeFor)}
+        invoice={chargeFor}
+        paymentMethods={chargeMethods}
+        busy={false}
+        error={null}
+        onClose={() => setChargeFor(null)}
+        onSuccess={(updated, message) => {
+          upsertInvoice({ ...updated, status: "paid" });
+          setChargeFor(null);
+          setBanner({ kind: "ok", text: message });
+          router.refresh();
+        }}
       />
     </div>
   );

@@ -1,11 +1,10 @@
 import "server-only";
 
-import type Stripe from "stripe";
-
-import { attachCheckoutSession } from "@/lib/private-pay/data";
-import { getStripe } from "@/lib/private-pay/stripe";
-import { serviceTypeLabel } from "@/lib/private-pay/format";
 import { PRIVATE_PAY_BUSINESS } from "@/lib/private-pay/constants";
+import { attachCheckoutSession } from "@/lib/private-pay/data";
+import { ensureStripeCustomerForContact } from "@/lib/private-pay/customers";
+import { serviceTypeLabel } from "@/lib/private-pay/format";
+import { getStripe } from "@/lib/private-pay/stripe";
 import type { PrivatePayInvoiceWithItems } from "@/lib/private-pay/types";
 
 export type CreateCheckoutResult =
@@ -13,9 +12,60 @@ export type CreateCheckoutResult =
   | { ok: false; status: number; error: string };
 
 /**
- * Create a Stripe Checkout session for a private-pay invoice. Stripe Checkout
- * automatically offers Apple Pay (and other wallets) when available, so we do
- * not pass payment_method_types. Shared by the staff route and the public link.
+ * Stripe Checkout in setup mode — saves a card on the Stripe Customer for future
+ * off-session charges. Staff or customer completes card entry on Stripe-hosted pages.
+ */
+export async function createCardSetupCheckoutSession(
+  contactId: string,
+  origin: string,
+  billing?: { name?: string | null; email?: string | null; phone?: string | null }
+): Promise<CreateCheckoutResult> {
+  const stripe = getStripe();
+  if (!stripe) {
+    return { ok: false, status: 503, error: "Stripe is not configured. Set STRIPE_SECRET_KEY." };
+  }
+
+  try {
+    const { customer, stripeCustomerId } = await ensureStripeCustomerForContact(contactId, billing);
+    const cleanOrigin = origin.replace(/\/$/, "");
+
+    const session = await stripe.checkout.sessions.create({
+      mode: "setup",
+      customer: stripeCustomerId,
+      payment_method_types: ["card"],
+      metadata: {
+        saintly_private_pay: "true",
+        private_pay_contact_id: contactId,
+        private_pay_customer_id: customer.id,
+        card_setup: "true",
+      },
+      setup_intent_data: {
+        metadata: {
+          saintly_private_pay: "true",
+          private_pay_contact_id: contactId,
+          private_pay_customer_id: customer.id,
+          card_setup: "true",
+        },
+      },
+      success_url: `${cleanOrigin}/private-pay/card-setup/thank-you?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${cleanOrigin}/private-pay/card-setup/thank-you?status=cancelled`,
+    });
+
+    if (!session.url) {
+      return { ok: false, status: 502, error: "Stripe did not return a checkout URL" };
+    }
+
+    return { ok: true, url: session.url };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Failed to create card setup session";
+    console.error("[private-pay] card setup checkout error", message);
+    return { ok: false, status: 502, error: message };
+  }
+}
+
+/**
+ * One-time payment Checkout for an invoice (customer pays themselves).
+ * Distinct from off-session staff charge of a saved card.
  */
 export async function createInvoiceCheckoutSession(
   invoice: PrivatePayInvoiceWithItems,
@@ -38,7 +88,7 @@ export async function createInvoiceCheckoutSession(
   const cleanOrigin = origin.replace(/\/$/, "");
   const simple = invoice.discount_cents === 0 && invoice.tax_cents === 0;
 
-  const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = simple
+  const lineItems = simple
     ? invoice.items.map((item) => ({
         quantity: 1,
         price_data: {
@@ -65,6 +115,7 @@ export async function createInvoiceCheckoutSession(
   const metadata: Record<string, string> = {
     private_pay_invoice_id: invoice.id,
     invoice_number: invoice.invoice_number,
+    saintly_private_pay: "true",
   };
 
   try {
@@ -96,6 +147,48 @@ export async function createInvoiceCheckoutSession(
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to create checkout session";
     console.error("[private-pay] checkout error", message);
+    return { ok: false, status: 502, error: message };
+  }
+}
+
+/**
+ * Checkout session for a PaymentIntent that requires customer authentication (3DS).
+ */
+export async function createPaymentAuthenticationCheckoutSession(
+  paymentIntentId: string,
+  origin: string
+): Promise<CreateCheckoutResult> {
+  const stripe = getStripe();
+  if (!stripe) {
+    return { ok: false, status: 503, error: "Stripe is not configured." };
+  }
+
+  try {
+    const pi = await stripe.paymentIntents.retrieve(paymentIntentId);
+    const cleanOrigin = origin.replace(/\/$/, "");
+    const invoiceNumber = pi.metadata?.invoice_number ?? "";
+
+    const session = await stripe.checkout.sessions.create({
+      mode: "payment",
+      payment_intent: paymentIntentId,
+      success_url: `${cleanOrigin}/private-pay/thank-you?invoice=${encodeURIComponent(invoiceNumber)}`,
+      cancel_url: `${cleanOrigin}/private-pay/thank-you?status=cancelled&invoice=${encodeURIComponent(
+        invoiceNumber
+      )}`,
+      metadata: {
+        saintly_private_pay: "true",
+        private_pay_invoice_id: pi.metadata?.private_pay_invoice_id ?? "",
+        invoice_number: invoiceNumber,
+        auth_retry: "true",
+      },
+    });
+
+    if (!session.url) {
+      return { ok: false, status: 502, error: "Stripe did not return a checkout URL" };
+    }
+    return { ok: true, url: session.url };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Failed to create authentication checkout";
     return { ok: false, status: 502, error: message };
   }
 }

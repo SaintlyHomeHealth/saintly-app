@@ -33,10 +33,14 @@ import {
   canAccessWorkspacePhone,
   getStaffProfile,
   isManagerOrHigher,
+  isCrmLeadsRowPolicyRole,
   isPhoneWorkspaceUser,
   type StaffProfile,
 } from "@/lib/staff-profile";
 import { ContactArchiveButton } from "@/app/admin/crm/contacts/_components/ContactArchiveButton";
+import { PrivatePayPaymentMethodsCard } from "@/components/crm/private-pay/PrivatePayPaymentMethodsCard";
+import { listPaymentMethodsForContact } from "@/lib/private-pay/customers";
+import { listInvoicesForContact } from "@/lib/private-pay/data";
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { devTimedSupabaseQuery } from "@/lib/perf/supabase-dev-query-log";
@@ -175,6 +179,15 @@ export default async function AdminCrmContactDetailPage({
     error: null,
   }));
   const dupPool = dupPoolRes.data ?? [];
+
+  const rawType = (row.contact_type ?? "").trim();
+  const showPrivatePayCards =
+    rawType === "private_pay" ||
+    (await listInvoicesForContact(contactId)).length > 0;
+  const privatePayPaymentMethods = showPrivatePayCards
+    ? await listPaymentMethodsForContact(contactId)
+    : [];
+  const canManagePrivatePay = isCrmLeadsRowPolicyRole(staff);
 
   const patientRow = prow as { id: string; patient_status: string; created_at?: string } | null;
   const patient: PatientLinkBrief | null = patientRow
@@ -320,7 +333,6 @@ export default async function AdminCrmContactDetailPage({
     [row.first_name, row.last_name].filter(Boolean).join(" ").trim() ||
     "—";
   const storedTypeLabel = labelForContactType(row.contact_type);
-  const rawType = (row.contact_type ?? "").trim();
   const statusRollup = resolveDirectoryStatusLabel(row, patient, leads);
   const sourceRollup = resolveDirectorySourceLabel(row, leads);
   const credSummary = credentialingSummaryFromMetadata(row.relationship_metadata);
@@ -662,6 +674,15 @@ export default async function AdminCrmContactDetailPage({
           </div>
         </div>
       </div>
+
+      {showPrivatePayCards ? (
+        <PrivatePayPaymentMethodsCard
+          contactId={contactId}
+          contactName={contactDirectoryDisplayName(row)}
+          initialMethods={privatePayPaymentMethods}
+          canManage={canManagePrivatePay}
+        />
+      ) : null}
 
       <div className={cardCls}>
         <h2 className="text-sm font-bold text-slate-900">Payer metadata on this contact</h2>

@@ -45,12 +45,36 @@ export type PrivatePayPayment = {
   stripe_charge_id: string | null;
   card_brand: string | null;
   card_last4: string | null;
+  customer_id: string | null;
+  stripe_payment_method_id: string | null;
+  failure_message: string | null;
   payment_reference: string | null;
   notes: string | null;
   paid_at: string | null;
   created_by: string | null;
   created_at: string;
 };
+
+export type PrivatePayPaymentMethodOnFile = {
+  id: string;
+  customer_id: string;
+  stripe_payment_method_id: string;
+  brand: string | null;
+  last4: string | null;
+  exp_month: number | null;
+  exp_year: number | null;
+  is_default: boolean;
+  consent_collected_at: string | null;
+  created_at: string;
+};
+
+/** Small badge for invoice list rows (payment / card-on-file state). */
+export type PrivatePayInvoicePaymentBadge =
+  | "unpaid"
+  | "paid"
+  | "failed"
+  | "card_on_file"
+  | "processing";
 
 export type PrivatePayInvoice = {
   id: string;
@@ -109,6 +133,8 @@ export type PrivatePayInvoiceListRow = PrivatePayInvoiceWithItems & {
   customer_detail: string | null;
   profile_href: string | null;
   pending_payment_report: PrivatePayPaymentReport | null;
+  payment_badge: PrivatePayInvoicePaymentBadge;
+  has_card_on_file: boolean;
 };
 
 /** CRM person selected when creating an invoice from /admin/private-pay. */
