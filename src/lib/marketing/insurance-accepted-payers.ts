@@ -6,6 +6,8 @@ export type InsurancePlan = {
   logo: string;
   /** Short initials shown if the logo image fails to load. */
   initials: string;
+  /** Optional compliance subtext rendered under the card (e.g. plan-specific caveats). */
+  note?: string;
 };
 
 /**
@@ -19,6 +21,7 @@ export const INSURANCE_PLANS: InsurancePlan[] = [
     name: "UnitedHealthcare",
     logo: "/images/insurance/unitedhealthcare-logo.png",
     initials: "UHC",
+    note: "Select plans only — full network expected 08/01/2026.",
   },
   { name: "Humana", logo: "/images/insurance/humana-logo.png", initials: "HU" },
   { name: "HealthSpring", logo: "/images/insurance/healthspring-logo.png", initials: "HS" },
@@ -52,4 +55,4 @@ export const INSURANCE_ACCEPTED_SUBHEADING =
   "Saintly Home Health works with Medicare, AHCCCS Medicaid, and select Medicare Advantage / managed care plans. Coverage varies by plan, authorization requirements, and service type.";
 
 export const INSURANCE_ACCEPTED_DISCLAIMER =
-  "Coverage varies by plan, service type, and authorization requirements. Saintly Home Health will verify benefits before care starts.";
+  "Saintly Home Health accepts select Medicare Advantage, Medicaid, and managed care plans. Some plans may require eligibility verification, prior authorization, and payer approval before services begin. UnitedHealthcare is currently accepted for select plans only, with full network participation expected effective 08/01/2026.";

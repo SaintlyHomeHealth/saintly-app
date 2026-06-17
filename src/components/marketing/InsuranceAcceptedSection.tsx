@@ -39,6 +39,11 @@ function PlanLogoCard({ plan }: { plan: InsurancePlan }) {
         <p className="mt-4 text-center text-[0.82rem] font-semibold leading-snug tracking-tight text-slate-500">
           {plan.name}
         </p>
+        {plan.note ? (
+          <p className="mt-1.5 text-center text-[0.68rem] font-medium leading-snug text-amber-700">
+            {plan.note}
+          </p>
+        ) : null}
       </article>
     </li>
   );
