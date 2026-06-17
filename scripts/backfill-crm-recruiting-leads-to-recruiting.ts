@@ -58,6 +58,20 @@ type CrmLeadRow = {
   status: string | null;
   created_at: string;
   external_source_metadata: unknown;
+  referral_source?: string | null;
+  payer_name?: string | null;
+  payer_type?: string | null;
+  primary_payer_name?: string | null;
+  primary_payer_type?: string | null;
+  secondary_payer_name?: string | null;
+  secondary_payer_type?: string | null;
+  referring_doctor_name?: string | null;
+  doctor_office_name?: string | null;
+  referring_provider_name?: string | null;
+  service_type?: string | null;
+  service_disciplines?: unknown;
+  dob?: string | null;
+  medicare_number?: string | null;
   contacts:
     | {
         full_name: string | null;
@@ -191,6 +205,15 @@ async function removeCrmLead(leadId: string, summary: Summary): Promise<void> {
 }
 
 async function migrateLead(row: CrmLeadRow, summary: Summary): Promise<void> {
+  const meta =
+    row.external_source_metadata && typeof row.external_source_metadata === "object"
+      ? (row.external_source_metadata as Record<string, unknown>)
+      : null;
+  if (meta?.restored_from_recruiting === true) {
+    bumpReason(summary, "restored_patient_lead");
+    return;
+  }
+
   if (!isCrmRecruitingApplicantLead(row)) {
     bumpReason(summary, "not_recruiting_applicant");
     return;
@@ -339,7 +362,7 @@ async function main() {
     const { data: rows, error } = await supabaseAdmin
       .from("leads")
       .select(
-        "id, contact_id, source, notes, lead_type, status, created_at, external_source_metadata, contacts ( full_name, first_name, last_name, primary_phone, email, city )"
+        "id, contact_id, source, notes, lead_type, status, created_at, external_source_metadata, referral_source, payer_name, payer_type, primary_payer_name, primary_payer_type, secondary_payer_name, secondary_payer_type, referring_doctor_name, doctor_office_name, referring_provider_name, service_type, service_disciplines, dob, medicare_number, contacts ( full_name, first_name, last_name, primary_phone, email, city )"
       )
       .is("deleted_at", null)
       .order("created_at", { ascending: true })

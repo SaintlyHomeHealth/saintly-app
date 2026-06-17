@@ -23,6 +23,8 @@
     "verify:facebook-recruiting-leads": "tsx scripts/verify-facebook-recruiting-leads.ts",
     "backfill:recruiting-lead-links": "tsx scripts/backfill-recruiting-lead-candidate-links.ts",
     "backfill:crm-recruiting-leads": "tsx scripts/backfill-crm-recruiting-leads-to-recruiting.ts",
+    "restore:misclassified-patient-leads": "tsx scripts/restore-misclassified-patient-leads-from-recruiting.ts",
+    "verify:crm-recruiting-classification": "tsx scripts/verify-crm-recruiting-classification.ts",
     "backfill:twilio-mms": "tsx scripts/backfill-twilio-inbound-mms.ts",
     "generate:compliance-program-pdf": "tsx scripts/generate-compliance-program-pdf.ts"
   },

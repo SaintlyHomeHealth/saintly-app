@@ -13,6 +13,8 @@ export const LEAD_SOURCE_OPTIONS = [
   { value: "google", label: "Google" },
   { value: "sales_agent", label: "Sales Agent" },
   { value: "facility_outreach", label: "Facility Outreach" },
+  { value: "legacy_crm_lead", label: "Legacy CRM lead" },
+  { value: "restored_from_recruiting_misclassification", label: "Restored from recruiting" },
   { value: "other", label: "Other" },
 ] as const;
 

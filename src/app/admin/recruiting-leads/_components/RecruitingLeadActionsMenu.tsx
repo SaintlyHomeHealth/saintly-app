@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
 import { RecruitingLeadDeleteButton } from "./RecruitingLeadDeleteButton";
+import { MoveRecruitingLeadToPatientLeadsButton } from "./MoveRecruitingLeadToPatientLeadsButton";
 import { RecruitingLeadSendEmailModal } from "./RecruitingLeadSendEmailModal";
 
 const primaryBtnCls =
@@ -82,6 +83,16 @@ export function RecruitingLeadActionsMenu({
               className="absolute right-0 top-full z-20 mt-1 min-w-[10rem] rounded-xl border border-slate-200 bg-white py-1 shadow-lg shadow-slate-200/60"
               role="menu"
             >
+              <MoveRecruitingLeadToPatientLeadsButton
+                leadId={leadId}
+                leadName={leadName}
+                variant="menu"
+                onMoved={() => {
+                  setMenuOpen(false);
+                  setToast("Moved to Patient Leads.");
+                  router.refresh();
+                }}
+              />
               <RecruitingLeadDeleteButton
                 leadId={leadId}
                 leadName={leadName}

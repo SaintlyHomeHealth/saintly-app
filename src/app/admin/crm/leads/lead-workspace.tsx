@@ -33,6 +33,7 @@ import type { CrmTaskRow } from "@/lib/crm/crm-task-types";
 import { CrmStageBadge } from "@/app/admin/crm/_components/CrmStageBadge";
 import { LeadIntakeSaveForm, LeadInsuranceIntakeSaveForm } from "@/app/admin/crm/leads/_components/LeadIntakeSaveForm";
 import { MarkLeadDeadButton } from "@/app/admin/crm/leads/_components/MarkLeadDeadButton";
+import { MoveCrmLeadToRecruitingLeadsButton } from "@/app/admin/crm/leads/_components/MoveCrmLeadToRecruitingLeadsButton";
 import { MoveToPatientStageButton } from "@/app/admin/crm/leads/_components/MoveToPatientStageButton";
 import { ReopenLeadButton } from "@/app/admin/crm/leads/_components/ReopenLeadButton";
 import { LeadTasksPanel } from "@/app/admin/crm/leads/_components/LeadTasksPanel";
@@ -1264,6 +1265,9 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
                   leadId={leadId}
                   className="rounded-lg border border-slate-400 bg-white px-3 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-50"
                 />
+                {!isEmployeeLead && !isConverted && !isDead ? (
+                  <MoveCrmLeadToRecruitingLeadsButton leadId={leadId} leadName={displayName} />
+                ) : null}
               </div>
             </div>
           </LeadSectionCard>

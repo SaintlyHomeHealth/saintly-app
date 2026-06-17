@@ -20,6 +20,7 @@ import {
   RecruitingLeadActivityTimeline,
   type RecruitingLeadActivityRow,
 } from "./RecruitingLeadActivityTimeline";
+import { MoveRecruitingLeadToPatientLeadsButton } from "./MoveRecruitingLeadToPatientLeadsButton";
 import { RecruitingLeadSendEmailModal } from "./RecruitingLeadSendEmailModal";
 
 export type FacebookRecruitingLeadRow = {
@@ -137,6 +138,7 @@ export function FacebookRecruitingLeadDetailClient({
               Email
             </a>
           ) : null}
+          <MoveRecruitingLeadToPatientLeadsButton leadId={lead.id} leadName={lead.full_name} variant="detail" />
           {deleteAction}
         </div>
       </div>
