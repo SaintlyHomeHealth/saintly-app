@@ -16,6 +16,7 @@ export type GooglePlacesSearchResult = {
   longitude: number | null;
   categories: string[];
   rating: number | null;
+  review_count: number | null;
   open_now: boolean | null;
   source: "google_places";
   address_line_1: string;
@@ -85,6 +86,7 @@ type RawGooglePlace = {
   websiteUri?: string;
   types?: string[];
   rating?: number;
+  userRatingCount?: number;
   currentOpeningHours?: { openNow?: boolean };
 };
 
@@ -138,6 +140,7 @@ export async function searchGooglePlaces(opts: {
     "places.websiteUri",
     "places.types",
     "places.rating",
+    "places.userRatingCount",
     "places.currentOpeningHours.openNow",
   ].join(",");
 
@@ -199,6 +202,7 @@ export async function searchGooglePlaces(opts: {
       longitude: place.location?.longitude ?? null,
       categories,
       rating: typeof place.rating === "number" ? place.rating : null,
+      review_count: typeof place.userRatingCount === "number" ? place.userRatingCount : null,
       open_now:
         typeof place.currentOpeningHours?.openNow === "boolean"
           ? place.currentOpeningHours.openNow

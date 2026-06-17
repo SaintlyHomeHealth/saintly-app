@@ -18,6 +18,7 @@ export const ADMIN_NAV_LABELS = {
   tasks: "Tasks",
   recruiting: "Recruiting",
   recruitingLeads: "Recruiting Leads",
+  ptColdCalling: "PT Cold Calling",
   facilities: "Facilities",
   faxCenter: "Fax Center",
   pdfSign: "PDF Sign",
@@ -41,6 +42,7 @@ export type AdminNavItemId =
   | "crm_tasks"
   | "recruiting"
   | "recruiting_leads"
+  | "pt_cold_calling"
   | "facilities"
   | "fax_center"
   | "pdf_sign"
@@ -142,6 +144,12 @@ export function buildAdminNavItems(staff: StaffProfile | null): AdminNavItemReso
       label: ADMIN_NAV_LABELS.recruitingLeads,
       href: "/admin/recruiting-leads",
       ...g("recruiting_leads", false, ""),
+    },
+    {
+      id: "pt_cold_calling",
+      label: ADMIN_NAV_LABELS.ptColdCalling,
+      href: "/admin/recruiting/pt-cold-calling",
+      ...g("pt_cold_calling", false, ""),
     },
     {
       id: "facilities",
