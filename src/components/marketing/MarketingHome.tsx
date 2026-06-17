@@ -22,6 +22,7 @@ import {
   Stethoscope,
   Users,
 } from "lucide-react";
+import { InsuranceAcceptedSection } from "./InsuranceAcceptedSection";
 import { HaloMark } from "./MarketingHaloMark";
 import { MarketingSiteFooter } from "./MarketingSiteFooter";
 import { MarketingSiteHeader } from "./MarketingSiteHeader";
@@ -688,6 +689,9 @@ export function MarketingHome() {
           ))}
         </ul>
       </section>
+
+      {/* ─── Insurance & plans we accept — payer logo cards ──────────────── */}
+      <InsuranceAcceptedSection />
 
       {/* ─── Medicare Coverage — Saintly cream/gold reference panel ──────── */}
       <section

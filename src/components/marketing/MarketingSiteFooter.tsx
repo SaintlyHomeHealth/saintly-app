@@ -24,6 +24,7 @@ const servicesLinks = [
 
 const patientsLinks = [
   { href: "/referrals", label: "Referrals" },
+  { href: "/insurance", label: "Insurance Accepted" },
   { href: "/medicare", label: "Medicare & Coverage" },
   { href: "/faq", label: "FAQs" },
 ] as const;
