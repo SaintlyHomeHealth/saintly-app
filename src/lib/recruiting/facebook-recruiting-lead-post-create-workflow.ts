@@ -15,6 +15,10 @@ import { resolveRecruitingLeadsNotifyUserIds } from "@/lib/recruiting/resolve-re
 import { normalizeRecruitingPhoneForStorage } from "@/lib/recruiting/recruiting-contact-normalize";
 import { sendFcmDataAndNotificationToUserIds } from "@/lib/push/send-fcm-to-user-ids";
 import { isValidE164, normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
+import {
+  resolveRecruitingAdminSmsAlertSource,
+  sendRecruitingAdminSmsAlert,
+} from "@/lib/recruiting/recruiting-admin-sms-alert";
 import { sendSms } from "@/lib/twilio/send-sms";
 import { getPrimarySmsFromNumber, isSaintlyBackupSmsE164, logAltSmsSenderUsed } from "@/lib/twilio/sms-from-numbers";
 
@@ -24,6 +28,12 @@ type RecruitingLeadRow = {
   id: string;
   full_name: string;
   phone: string | null;
+  email: string | null;
+  source: string | null;
+  form_name: string | null;
+  license_status: string | null;
+  lead_type: string | null;
+  raw_payload: unknown;
   normalized_phone: string | null;
   coverage_area: string | null;
   visits_per_week: string | null;
@@ -31,6 +41,7 @@ type RecruitingLeadRow = {
   auto_sms_sent_at: string | null;
   auto_sms_error: string | null;
   last_admin_notification_sent_at: string | null;
+  last_admin_sms_alert_sent_at: string | null;
 };
 
 /**
@@ -83,7 +94,7 @@ async function loadRecruitingLeadRow(supabase: SupabaseClient, leadId: string): 
   const { data, error } = await supabase
     .from("facebook_recruiting_leads")
     .select(
-      "id, full_name, phone, normalized_phone, coverage_area, visits_per_week, start_date, auto_sms_sent_at, auto_sms_error, last_admin_notification_sent_at"
+      "id, full_name, phone, email, source, form_name, license_status, lead_type, raw_payload, normalized_phone, coverage_area, visits_per_week, start_date, auto_sms_sent_at, auto_sms_error, last_admin_notification_sent_at, last_admin_sms_alert_sent_at"
     )
     .eq("id", leadId)
     .maybeSingle();
@@ -244,9 +255,29 @@ async function sendAdminPushAndInAppNotifications(
   return true;
 }
 
+async function sendAdminRecruitingLeadSmsAlert(
+  supabase: SupabaseClient,
+  lead: RecruitingLeadRow
+): Promise<boolean> {
+  const alertSource = resolveRecruitingAdminSmsAlertSource(lead);
+  if (!alertSource) {
+    console.log(LOG, "admin_sms_skipped", { lead_id: lead.id, reason: "source_not_eligible" });
+    return false;
+  }
+
+  try {
+    return await sendRecruitingAdminSmsAlert(supabase, lead, alertSource);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn(LOG, "admin_sms_unhandled", { lead_id: lead.id, error: msg.slice(0, 500) });
+    return false;
+  }
+}
+
 export type FacebookRecruitingLeadPostCreateResult = {
   smsSent: boolean;
   adminNotificationSent: boolean;
+  adminSmsAlertSent: boolean;
 };
 
 /**
@@ -259,7 +290,7 @@ export async function handleNewFacebookRecruitingLeadCreated(
 ): Promise<FacebookRecruitingLeadPostCreateResult> {
   const id = leadId.trim();
   if (!id) {
-    return { smsSent: false, adminNotificationSent: false };
+    return { smsSent: false, adminNotificationSent: false, adminSmsAlertSent: false };
   }
 
   console.log(LOG, "start", { lead_id: id });
@@ -267,14 +298,15 @@ export async function handleNewFacebookRecruitingLeadCreated(
   const lead = await loadRecruitingLeadRow(supabase, id);
   if (!lead) {
     console.warn(LOG, "skipped", { lead_id: id, reason: "lead_not_found" });
-    return { smsSent: false, adminNotificationSent: false };
+    return { smsSent: false, adminNotificationSent: false, adminSmsAlertSent: false };
   }
 
-  const [smsSent, adminNotificationSent] = await Promise.all([
+  const [smsSent, adminNotificationSent, adminSmsAlertSent] = await Promise.all([
     sendApplicantThankYouSms(supabase, lead),
     sendAdminPushAndInAppNotifications(supabase, lead),
+    sendAdminRecruitingLeadSmsAlert(supabase, lead),
   ]);
 
-  console.log(LOG, "complete", { lead_id: id, smsSent, adminNotificationSent });
-  return { smsSent, adminNotificationSent };
+  console.log(LOG, "complete", { lead_id: id, smsSent, adminNotificationSent, adminSmsAlertSent });
+  return { smsSent, adminNotificationSent, adminSmsAlertSent };
 }

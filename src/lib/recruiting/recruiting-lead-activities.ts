@@ -5,6 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 export const RECRUITING_LEAD_ACTIVITY_EVENT = {
   outbound_email: "outbound_email",
   outbound_email_failed: "outbound_email_failed",
+  admin_sms_alert: "admin_sms_alert",
 } as const;
 
 export type RecruitingLeadOutboundEmailMetadata = {

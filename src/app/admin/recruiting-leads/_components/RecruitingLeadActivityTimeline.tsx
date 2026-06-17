@@ -27,6 +27,8 @@ function eventLabel(eventType: string): string {
       return "Email sent";
     case "outbound_email_failed":
       return "Email failed";
+    case "admin_sms_alert":
+      return "Admin SMS alert";
     default:
       return eventType.replace(/_/g, " ");
   }
@@ -50,6 +52,7 @@ export function RecruitingLeadActivityTimeline({ activities }: { activities: Rec
           const subject = typeof meta.subject === "string" ? meta.subject : null;
           const recipient = typeof meta.recipient === "string" ? meta.recipient : null;
           const deliveryStatus = typeof meta.delivery_status === "string" ? meta.delivery_status : null;
+          const alertStatus = typeof meta.status === "string" ? meta.status : null;
           const bodyText = typeof meta.body === "string" ? meta.body : null;
           const error = typeof meta.error === "string" ? meta.error : null;
 
@@ -66,6 +69,8 @@ export function RecruitingLeadActivityTimeline({ activities }: { activities: Rec
               {subject ? <p className="mt-1 text-xs text-slate-700">Subject: {subject}</p> : null}
               {deliveryStatus ? (
                 <p className="mt-1 text-xs text-slate-600">Status: {deliveryStatus}</p>
+              ) : alertStatus ? (
+                <p className="mt-1 text-xs text-slate-600">Status: {alertStatus}</p>
               ) : null}
               {bodyText ? (
                 <pre className="mt-3 max-h-48 overflow-auto whitespace-pre-wrap rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-700">

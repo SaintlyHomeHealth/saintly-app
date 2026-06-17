@@ -69,7 +69,14 @@ function mergeRawPayload(
 }
 
 export type IngestFacebookRecruitingLeadResult =
-  | { ok: true; leadId: string; created: boolean; sms_sent: boolean; admin_notification_sent: boolean }
+  | {
+      ok: true;
+      leadId: string;
+      created: boolean;
+      sms_sent: boolean;
+      admin_notification_sent: boolean;
+      admin_sms_alert_sent: boolean;
+    }
   | { ok: false; error: string };
 
 export async function ingestFacebookRecruitingLead(
@@ -168,6 +175,7 @@ export async function ingestFacebookRecruitingLead(
       created: false,
       sms_sent: false,
       admin_notification_sent: false,
+      admin_sms_alert_sent: false,
     };
   }
 
@@ -199,5 +207,6 @@ export async function ingestFacebookRecruitingLead(
     created: true,
     sms_sent: postCreate.smsSent,
     admin_notification_sent: postCreate.adminNotificationSent,
+    admin_sms_alert_sent: postCreate.adminSmsAlertSent,
   };
 }
