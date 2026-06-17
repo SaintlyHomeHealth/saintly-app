@@ -1,30 +1,23 @@
 import { notFound, redirect } from "next/navigation";
 
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
+import type { RecruitingLeadResumeDocumentClientRow } from "@/components/recruiting/RecruitingLeadResumeDocumentsPanel";
 import { staffPrimaryLabel } from "@/lib/crm/crm-leads-table-helpers";
 import { supabaseAdmin } from "@/lib/admin";
+import {
+  buildAdminRecruitingLeadsListHref,
+  parseAdminRecruitingLeadsListSearchParams,
+} from "@/lib/recruiting/admin-recruiting-leads-list-filters";
 import { listRecruitingLeadResumeDocuments } from "@/lib/recruiting/recruiting-lead-candidate-bridge";
 import { isRecruitingEmailConfigured } from "@/lib/recruiting/recruiting-email-from";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 
+import type { RecruitingLeadActivityRow } from "../_components/RecruitingLeadActivityTimeline";
 import { FacebookRecruitingLeadDetailClient } from "../_components/FacebookRecruitingLeadDetailClient";
 import { RecruitingLeadDetailDeleteButton } from "../_components/RecruitingLeadDeleteButton";
-import type { RecruitingLeadActivityRow } from "../_components/RecruitingLeadActivityTimeline";
-import type { RecruitingLeadResumeDocumentClientRow } from "@/components/recruiting/RecruitingLeadResumeDocumentsPanel";
 
 function buildListBackHref(sp: Record<string, string | string[] | undefined>): string {
-  const u = new URLSearchParams();
-  const one = (k: string) => {
-    const v = sp[k];
-    return typeof v === "string" ? v : Array.isArray(v) ? v[0] : "";
-  };
-  const keys = ["q", "status", "coverage", "license"] as const;
-  for (const k of keys) {
-    const v = one(k).trim();
-    if (v) u.set(k, v);
-  }
-  const s = u.toString();
-  return s ? `/admin/recruiting-leads?${s}` : "/admin/recruiting-leads";
+  return buildAdminRecruitingLeadsListHref(parseAdminRecruitingLeadsListSearchParams(sp));
 }
 
 export default async function AdminRecruitingLeadDetailPage({
