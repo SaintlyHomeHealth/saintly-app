@@ -2,54 +2,45 @@
 
 import Image from "next/image";
 import { useState } from "react";
-import { INSURANCE_LOGO_BASE_PATH } from "@/lib/marketing/insurance-accepted-payers";
+import { insurancePlanAlt } from "@/lib/marketing/insurance-accepted-payers";
 import { NAVY } from "./marketing-design";
 
 type InsurancePayerLogoProps = {
-  logoFile: string;
-  logoAlt: string;
-  logoInitials: string;
-  payerName: string;
+  name: string;
+  logo: string;
+  initials: string;
 };
 
-/** Local payer logo with branded initials fallback when the file is missing. */
-export function InsurancePayerLogo({
-  logoFile,
-  logoAlt,
-  logoInitials,
-  payerName,
-}: InsurancePayerLogoProps) {
+/** Centered, contained plan logo with a branded initials fallback. */
+export function InsurancePayerLogo({ name, logo, initials }: InsurancePayerLogoProps) {
   const [failed, setFailed] = useState(false);
-  const src = `${INSURANCE_LOGO_BASE_PATH}/${logoFile}`;
 
   if (failed) {
     return (
       <div
-        className="flex h-[4.5rem] w-full max-w-[12rem] items-center justify-center rounded-xl border border-sky-200/80 bg-gradient-to-br from-sky-50 to-white px-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]"
+        className="flex h-full w-full items-center justify-center"
         role="img"
-        aria-label={`${payerName} logo placeholder`}
+        aria-label={insurancePlanAlt(name)}
       >
         <span
-          className="text-[1.05rem] font-bold tracking-[0.12em]"
+          className="inline-flex items-center justify-center rounded-2xl border border-sky-200/80 bg-gradient-to-br from-sky-50 to-white px-5 py-3 text-[1.15rem] font-bold tracking-[0.12em] shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]"
           style={{ color: NAVY }}
-          aria-hidden
         >
-          {logoInitials}
+          {initials}
         </span>
       </div>
     );
   }
 
   return (
-    <div className="relative flex h-[4.5rem] w-full max-w-[12rem] items-center justify-center">
-      <Image
-        src={src}
-        alt={logoAlt}
-        width={192}
-        height={72}
-        className="max-h-[4.5rem] w-auto max-w-full object-contain object-center"
-        onError={() => setFailed(true)}
-      />
-    </div>
+    <Image
+      src={logo}
+      alt={insurancePlanAlt(name)}
+      fill
+      sizes="(max-width: 640px) 40vw, (max-width: 1024px) 28vw, 18vw"
+      quality={92}
+      className="object-contain object-center p-1"
+      onError={() => setFailed(true)}
+    />
   );
 }

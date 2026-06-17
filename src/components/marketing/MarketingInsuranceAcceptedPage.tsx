@@ -5,7 +5,7 @@ import { MarketingFinalCtaStrip } from "./MarketingFinalCtaStrip";
 import { MarketingSiteFooter } from "./MarketingSiteFooter";
 import { MarketingSiteHeader } from "./MarketingSiteHeader";
 import { MarketingStickyMobileCta } from "./MarketingStickyMobileCta";
-import { PHONE_DISPLAY, TEL } from "./marketing-constants";
+import { TEL } from "./marketing-constants";
 import { BG_CREAM_GOLD, BTN_DARK_OUTLINE, BTN_GOLD, CREAM, NAVY, SectionEyebrow } from "./marketing-design";
 import { MARKETING_NAV_INSURANCE_PAGE } from "./marketing-nav";
 import { HaloMark } from "./MarketingHaloMark";
@@ -38,18 +38,18 @@ export function MarketingInsuranceAcceptedPage() {
             Insurance &amp; Plans We Accept
           </h1>
           <p className="mx-auto mt-6 max-w-2xl text-[1.12rem] leading-[1.65] text-slate-700 sm:text-[1.22rem]">
-            We work with Medicare, Medicaid, Medicare Advantage, and authorized network partners.
-            Status labels reflect current participation — we verify eligibility and authorization
-            before care begins.
+            Saintly Home Health works with Medicare, AHCCCS Medicaid, and select Medicare Advantage
+            / managed care plans. Coverage varies by plan, authorization requirements, and service
+            type.
           </p>
           <div className="mt-10 flex flex-col items-stretch justify-center gap-4 sm:flex-row sm:flex-wrap sm:justify-center sm:gap-5">
             <Link href="/contact#form" className={BTN_GOLD}>
-              Verify Insurance
+              Verify My Insurance
               <ArrowRight className="h-5 w-5" strokeWidth={2.25} aria-hidden />
             </Link>
             <a href={TEL} className={BTN_DARK_OUTLINE}>
               <Phone className="h-5 w-5 shrink-0" strokeWidth={2.25} aria-hidden />
-              Call {PHONE_DISPLAY}
+              Call Saintly
             </a>
           </div>
         </div>
