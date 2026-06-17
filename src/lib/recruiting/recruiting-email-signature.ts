@@ -50,8 +50,8 @@ export function getRecruitingEmailHtmlSignature(): string {
       <img
         src="${logoUrl}"
         alt="Saintly Home Health LLC"
-        width="160"
-        style="display:block;width:160px;max-width:160px;height:auto;border:0;outline:none;text-decoration:none;margin-bottom:12px;"
+        width="140"
+        style="display:block;width:140px;max-width:140px;height:auto;border:0;outline:none;text-decoration:none;margin-bottom:10px;"
       />
       <div style="font-size:14px;font-weight:700;color:#0f172a;">Paul Vonasek</div>
       <div style="margin-top:2px;color:#334155;">Vice President</div>
