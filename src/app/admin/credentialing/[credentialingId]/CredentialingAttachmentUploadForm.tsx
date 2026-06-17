@@ -1,21 +1,18 @@
 "use client";
 
-import { useRef, useState, type FormEvent } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import type { BulkUploadResult } from "@/lib/crm/payer-credentialing-attachment-upload";
 import {
   batchItemsByTotalSize,
   isDuplicateAgainstExisting,
-  maxCredentialingUploadBatchBytes,
+  maxCredentialingClientUploadBatchBytes,
+  PAYER_CREDENTIALING_CLIENT_FILES_PER_REQUEST,
   type ExistingAttachmentFingerprint,
 } from "@/lib/crm/payer-credentialing-attachments";
 import { hashFileSha256 } from "@/lib/crm/payer-credentialing-attachments-client";
 import { PAYER_CREDENTIALING_MAX_ATTACHMENT_BYTES } from "@/lib/crm/payer-credentialing-storage";
-
-import {
-  uploadPayerCredentialingAttachmentAction,
-  type BulkUploadResult,
-} from "../actions";
 
 const inp =
   "mt-0.5 w-full max-w-lg rounded border border-slate-200 px-2 py-1.5 text-sm text-slate-800";
@@ -27,6 +24,10 @@ type PreparedFile = {
   hash: string;
   size: number;
 };
+
+function uploadApiUrl(credentialingId: string): string {
+  return `/api/admin/credentialing/${encodeURIComponent(credentialingId)}/attachments/upload`;
+}
 
 function mergeUploadResults(target: BulkUploadResult, batch: BulkUploadResult): BulkUploadResult {
   return {
@@ -60,6 +61,67 @@ function buildSummaryMessage(result: BulkUploadResult): string | undefined {
   return parts.length > 0 ? parts.join(" ") : undefined;
 }
 
+function httpStatusMessage(status: number): string {
+  if (status === 401 || status === 403) return "You do not have permission to upload (sign in again if needed).";
+  if (status === 413) return "Request too large for the server. The app uploads one file at a time; contact support if this persists.";
+  if (status >= 500) return "Server error during upload. Try again in a moment.";
+  return `Upload request failed (HTTP ${status}).`;
+}
+
+async function postUploadBatch(params: {
+  credentialingId: string;
+  files: PreparedFile[];
+  category: string | null;
+  description: string | null;
+  batchNumber: number;
+}): Promise<BulkUploadResult> {
+  const { credentialingId, files, category, description, batchNumber } = params;
+  const batchFd = new FormData();
+  batchFd.set("batch_number", String(batchNumber));
+  if (category) batchFd.set("attachment_category", category);
+  if (description) batchFd.set("attachment_description", description);
+  for (const item of files) {
+    batchFd.append("files", item.file, item.file.name);
+  }
+
+  const batchBytes = files.reduce((sum, f) => sum + f.size, 0);
+  if (process.env.NODE_ENV !== "production") {
+    console.debug("[credentialing upload] POST batch", {
+      batchNumber,
+      fileCount: files.length,
+      batchBytes,
+      files: files.map((f) => ({ name: f.file.name, size: f.size, type: f.file.type })),
+    });
+  }
+
+  let res: Response;
+  try {
+    res = await fetch(uploadApiUrl(credentialingId), { method: "POST", body: batchFd });
+  } catch (err) {
+    console.error("[credentialing upload] network error:", batchNumber, err);
+    throw new Error("Network error during upload. Check your connection and try again.");
+  }
+
+  let data: BulkUploadResult | null = null;
+  try {
+    data = (await res.json()) as BulkUploadResult;
+  } catch {
+    console.error("[credentialing upload] non-JSON response:", batchNumber, res.status);
+    throw new Error(httpStatusMessage(res.status));
+  }
+
+  if (!data) {
+    throw new Error(httpStatusMessage(res.status));
+  }
+
+  if (!res.ok && data.failed.length === 0 && data.uploaded.length === 0) {
+    const msg = data.message ?? data.failed[0]?.message ?? httpStatusMessage(res.status);
+    throw new Error(msg);
+  }
+
+  return data;
+}
+
 export function CredentialingAttachmentUploadForm({
   credentialingId,
   existingAttachments,
@@ -68,20 +130,21 @@ export function CredentialingAttachmentUploadForm({
   existingAttachments: ExistingAttachmentFingerprint[];
 }) {
   const router = useRouter();
-  const formRef = useRef<HTMLFormElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const knownFingerprintsRef = useRef<ExistingAttachmentFingerprint[]>([]);
+  const [category, setCategory] = useState("");
+  const [description, setDescription] = useState("");
   const [clientError, setClientError] = useState<string | null>(null);
   const [isPending, setIsPending] = useState(false);
   const [progress, setProgress] = useState<{ current: number; total: number } | null>(null);
   const [state, setState] = useState<BulkUploadResult | null>(null);
 
-  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
+  async function handleUploadClick() {
     setClientError(null);
     setState(null);
 
-    const fd = new FormData(e.currentTarget);
-    const rawFiles = fd.getAll("files").filter((x): x is File => x instanceof File && x.size > 0);
+    const input = fileInputRef.current;
+    const rawFiles = input?.files ? Array.from(input.files).filter((f) => f.size > 0) : [];
     if (rawFiles.length === 0) {
       setClientError("Choose at least one file to upload.");
       return;
@@ -96,33 +159,61 @@ export function CredentialingAttachmentUploadForm({
       }
     }
 
-    const category = fd.get("attachment_category");
-    const description = fd.get("attachment_description");
-    const categoryVal = typeof category === "string" && category.trim() ? category.trim() : null;
-    const descriptionVal = typeof description === "string" && description.trim() ? description.trim() : null;
+    const categoryVal = category.trim() || null;
+    const descriptionVal = description.trim() || null;
 
     setIsPending(true);
     knownFingerprintsRef.current = existingAttachments.map((row) => ({ ...row }));
     const total = rawFiles.length;
     setProgress({ current: 0, total });
 
+    if (process.env.NODE_ENV !== "production") {
+      console.debug("[credentialing upload] selected", {
+        totalFiles: total,
+        totalBytes: rawFiles.reduce((s, f) => s + f.size, 0),
+        names: rawFiles.map((f) => f.name),
+      });
+    }
+
     try {
-      const seenHashes = new Set<string>();
+      const seenKeys = new Set<string>();
       const prepared: PreparedFile[] = [];
       const clientSkippedNames: string[] = [];
 
       for (const file of rawFiles) {
-        const hash = await hashFileSha256(file);
-        if (seenHashes.has(hash)) {
+        let hash = "";
+        try {
+          hash = await hashFileSha256(file);
+        } catch (err) {
+          console.warn("[credentialing upload] client hash failed:", file.name, err);
+        }
+
+        const dedupeKey = hash || `${file.name}\0${file.size}\0${file.lastModified}`;
+        if (seenKeys.has(dedupeKey)) {
           clientSkippedNames.push(file.name);
           continue;
         }
-        seenHashes.add(hash);
+        seenKeys.add(dedupeKey);
 
         const mime = file.type.trim().toLowerCase();
         if (
+          hash &&
           isDuplicateAgainstExisting({
             hash,
+            fileName: file.name,
+            fileSize: file.size,
+            fileType: mime,
+            existing: knownFingerprintsRef.current,
+          })
+        ) {
+          clientSkippedNames.push(file.name);
+          continue;
+        }
+
+        if (
+          !hash &&
+          isDuplicateAgainstExisting({
+            hash: "",
             fileName: file.name,
             fileSize: file.size,
             fileType: mime,
@@ -136,7 +227,23 @@ export function CredentialingAttachmentUploadForm({
         prepared.push({ file, hash, size: file.size });
       }
 
-      const batches = batchItemsByTotalSize(prepared, maxCredentialingUploadBatchBytes());
+      const batches = batchItemsByTotalSize(prepared, maxCredentialingClientUploadBatchBytes());
+      if (PAYER_CREDENTIALING_CLIENT_FILES_PER_REQUEST === 1 && prepared.length > 0) {
+        const singleFileBatches = prepared.map((item) => [item]);
+        batches.splice(0, batches.length, ...singleFileBatches);
+      }
+
+      if (process.env.NODE_ENV !== "production") {
+        console.debug("[credentialing upload] batches", {
+          batchCount: batches.length,
+          batches: batches.map((batch, i) => ({
+            batch: i + 1,
+            fileCount: batch.length,
+            bytes: batch.reduce((s, f) => s + f.size, 0),
+            files: batch.map((f) => ({ name: f.file.name, size: f.size })),
+          })),
+        });
+      }
 
       let aggregate: BulkUploadResult = {
         ok: true,
@@ -152,18 +259,17 @@ export function CredentialingAttachmentUploadForm({
       let completed = clientSkippedNames.length;
       setProgress({ current: completed, total });
 
-      for (const batch of batches) {
+      for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+        const batch = batches[batchIndex]!;
         setProgress({ current: completed, total });
 
-        const batchFd = new FormData();
-        batchFd.set("credentialing_id", credentialingId);
-        if (categoryVal) batchFd.set("attachment_category", categoryVal);
-        if (descriptionVal) batchFd.set("attachment_description", descriptionVal);
-        for (const item of batch) {
-          batchFd.append("files", item.file);
-        }
-
-        const batchResult = await uploadPayerCredentialingAttachmentAction(null, batchFd);
+        const batchResult = await postUploadBatch({
+          credentialingId,
+          files: batch,
+          category: categoryVal,
+          description: descriptionVal,
+          batchNumber: batchIndex + 1,
+        });
         aggregate = mergeUploadResults(aggregate, batchResult);
 
         completed += batch.length;
@@ -173,7 +279,7 @@ export function CredentialingAttachmentUploadForm({
         for (const item of batch) {
           if (!uploadedNames.has(item.file.name)) continue;
           knownFingerprintsRef.current.push({
-            fileHashSha256: item.hash,
+            fileHashSha256: item.hash || null,
             fileName: item.file.name,
             fileSize: item.file.size,
             fileType: item.file.type.trim().toLowerCase(),
@@ -186,11 +292,15 @@ export function CredentialingAttachmentUploadForm({
       setState(aggregate);
 
       if (aggregate.uploaded.length > 0) {
-        formRef.current?.reset();
+        if (input) input.value = "";
+        setCategory("");
+        setDescription("");
         router.refresh();
       }
-    } catch {
-      setClientError("Something went wrong during upload. Please try again.");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Something went wrong during upload. Please try again.";
+      console.error("[credentialing upload] failed:", err);
+      setClientError(msg);
     } finally {
       setIsPending(false);
       setProgress(null);
@@ -202,12 +312,7 @@ export function CredentialingAttachmentUploadForm({
   const hasSkipped = Boolean(state?.skipped.length);
 
   return (
-    <form
-      ref={formRef}
-      encType="multipart/form-data"
-      onSubmit={handleSubmit}
-      className="space-y-3 rounded-2xl border border-slate-100 bg-slate-50/50 p-4"
-    >
+    <div className="space-y-3 rounded-2xl border border-slate-100 bg-slate-50/50 p-4">
       {clientError ? (
         <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">
           {clientError}
@@ -260,10 +365,9 @@ export function CredentialingAttachmentUploadForm({
       <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-700">
         Files <span className="text-red-600">*</span>
         <input
-          name="files"
+          ref={fileInputRef}
           type="file"
           multiple
-          required
           disabled={isPending}
           onChange={() => {
             setClientError(null);
@@ -275,16 +379,16 @@ export function CredentialingAttachmentUploadForm({
           <span className="block">
             Select one or more files (same category/description apply to all). Accepted: PDF, images (JPEG, PNG,
             WebP, GIF), Word, Excel, CSV, TXT, ZIP. Max{" "}
-            <strong className="font-semibold text-slate-700">{MAX_MB} MB per file</strong>. Large selections are
-            uploaded automatically in batches under the{" "}
-            <strong className="font-semibold text-slate-700">25 MB</strong> request limit.
+            <strong className="font-semibold text-slate-700">{MAX_MB} MB per file</strong>. Files upload one at a
+            time automatically so large selections stay reliable.
           </span>
         </span>
       </label>
       <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-700">
         Category / type <span className="font-normal text-slate-500">(optional)</span>
         <input
-          name="attachment_category"
+          value={category}
+          onChange={(e) => setCategory(e.target.value)}
           className={inp}
           disabled={isPending}
           placeholder="e.g. Contract, Welcome letter, Screenshot"
@@ -293,7 +397,8 @@ export function CredentialingAttachmentUploadForm({
       <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-700">
         Description <span className="font-normal text-slate-500">(optional)</span>
         <textarea
-          name="attachment_description"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
           rows={2}
           className={inp}
           disabled={isPending}
@@ -301,12 +406,13 @@ export function CredentialingAttachmentUploadForm({
         />
       </label>
       <button
-        type="submit"
+        type="button"
         disabled={isPending}
+        onClick={() => void handleUploadClick()}
         className="rounded-xl border border-slate-800 bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
       >
         {isPending ? "Uploading…" : "Upload attachment(s)"}
       </button>
-    </form>
+    </div>
   );
 }

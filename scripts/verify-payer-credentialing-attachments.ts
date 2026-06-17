@@ -10,7 +10,8 @@ import {
   batchItemsByTotalSize,
   computeAttachmentSha256,
   isDuplicateAgainstExisting,
-  maxCredentialingUploadBatchBytes,
+  maxCredentialingClientUploadBatchBytes,
+  PAYER_CREDENTIALING_API_MAX_BATCH_BYTES,
 } from "../src/lib/crm/payer-credentialing-attachments";
 
 function testSha256() {
@@ -20,12 +21,15 @@ function testSha256() {
 }
 
 function testBatching() {
-  const max = maxCredentialingUploadBatchBytes();
-  assert.ok(max > 0 && max < 25 * 1024 * 1024);
+  const max = maxCredentialingClientUploadBatchBytes();
+  assert.equal(max, PAYER_CREDENTIALING_API_MAX_BATCH_BYTES);
 
   const small = Array.from({ length: 13 }, (_, i) => ({ size: 512 * 1024, id: i }));
   const batches = batchItemsByTotalSize(small, max);
-  assert.equal(batches.length, 1, "13 half-MB files should fit in one batch");
+  assert.equal(batches.length, 1, "13 half-MB files should fit in one 20MB batch");
+
+  const singleFileBatches = small.flatMap((item) => [item]);
+  assert.equal(singleFileBatches.length, 13, "one-file-per-request yields 13 batches");
 
   const large = [
     { size: 9 * 1024 * 1024, id: "a" },

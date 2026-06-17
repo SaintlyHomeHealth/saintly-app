@@ -22,8 +22,14 @@ export function attachmentFallbackKey(fp: AttachmentFallbackFingerprint): string
   return `${name}\0${fp.fileSize}\0${type}`;
 }
 
-export function maxCredentialingUploadBatchBytes(): number {
-  return PAYER_CREDENTIALING_MAX_REQUEST_BODY_BYTES - PAYER_CREDENTIALING_REQUEST_BODY_HEADROOM_BYTES;
+/** Client upload: one file per HTTP request (avoids platform body-size limits). */
+export const PAYER_CREDENTIALING_CLIENT_FILES_PER_REQUEST = 1;
+
+/** Max bytes per API upload request (server-enforced). */
+export const PAYER_CREDENTIALING_API_MAX_BATCH_BYTES = 20 * 1024 * 1024;
+
+export function maxCredentialingClientUploadBatchBytes(): number {
+  return PAYER_CREDENTIALING_API_MAX_BATCH_BYTES;
 }
 
 /** Split files into upload batches that stay under the request body limit. */
