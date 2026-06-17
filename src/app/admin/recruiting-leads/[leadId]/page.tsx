@@ -8,6 +8,7 @@ import { isRecruitingEmailConfigured } from "@/lib/recruiting/recruiting-email-f
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 
 import { FacebookRecruitingLeadDetailClient } from "../_components/FacebookRecruitingLeadDetailClient";
+import { RecruitingLeadDetailDeleteButton } from "../_components/RecruitingLeadDeleteButton";
 import type { RecruitingLeadActivityRow } from "../_components/RecruitingLeadActivityTimeline";
 import type { RecruitingLeadResumeDocumentClientRow } from "@/components/recruiting/RecruitingLeadResumeDocumentsPanel";
 
@@ -134,6 +135,13 @@ export default async function AdminRecruitingLeadDetailPage({
         activities={activities}
         emailConfigured={isRecruitingEmailConfigured()}
         resumeDocuments={resumeDocuments}
+        deleteAction={
+          <RecruitingLeadDetailDeleteButton
+            leadId={lead.id}
+            leadName={String(lead.full_name ?? "Recruiting lead")}
+            listBackHref={buildListBackHref(sp)}
+          />
+        }
       />
     </div>
   );

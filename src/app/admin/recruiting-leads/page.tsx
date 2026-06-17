@@ -19,9 +19,14 @@ import { FACEBOOK_RECRUITING_LEAD_STATUS_OPTIONS } from "@/lib/recruiting/facebo
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 
 import { facebookRecruitingLeadStatusPillClass } from "./recruiting-leads-status-styles";
+import {
+  RecruitingLeadSourceBadge,
+  RecruitingLeadsListRowActions,
+} from "./_components/RecruitingLeadDeleteButton";
+import { isRecruitingEmailConfigured } from "@/lib/recruiting/recruiting-email-from";
 
 const LIST_SELECT =
-  "id, full_name, phone, email, license_status, home_health_experience, visits_per_week, coverage_area, start_date, source, status, created_at";
+  "id, full_name, phone, email, license_status, home_health_experience, visits_per_week, coverage_area, start_date, source, form_name, raw_payload, status, created_at";
 
 type LeadListRow = {
   id: string;
@@ -34,12 +39,11 @@ type LeadListRow = {
   coverage_area: string | null;
   start_date: string | null;
   source: string | null;
+  form_name: string | null;
+  raw_payload: unknown;
   status: string;
   created_at: string;
 };
-
-const rowActionBtnCls =
-  "inline-flex h-8 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-sky-900 shadow-sm transition hover:border-sky-300 hover:bg-sky-50 hover:shadow-md whitespace-nowrap";
 
 function formatListDate(iso: string | null | undefined): string {
   if (!iso) return "—";
@@ -120,13 +124,14 @@ export default async function AdminRecruitingLeadsPage({
   ].sort((a, b) => a.localeCompare(b));
 
   const filterQs = buildFilterQs(f);
+  const emailConfigured = isRecruitingEmailConfigured();
 
   return (
     <div className="space-y-6 p-6">
       <AdminPageHeader
         eyebrow="Hiring"
         title="Recruiting Leads"
-        description="Hiring applicants from Facebook Lead Ads and the Saintly website careers form. Patient referral leads stay in CRM Leads."
+        description="Hiring applicants from Facebook, website careers, manual resume uploads, and legacy CRM recruiting leads. Patient referral leads stay in CRM Leads."
       />
 
       <form method="get" action="/admin/recruiting-leads" className={`${crmFilterBarCls} flex-wrap`}>
@@ -239,14 +244,24 @@ export default async function AdminRecruitingLeadsPage({
                   <td className="px-4 py-3 align-middle text-xs text-slate-700">{row.visits_per_week ?? "—"}</td>
                   <td className="px-4 py-3 align-middle text-xs text-slate-700">{row.coverage_area ?? "—"}</td>
                   <td className="px-4 py-3 align-middle text-xs text-slate-700">{row.start_date ?? "—"}</td>
-                  <td className="px-4 py-3 align-middle text-xs text-slate-700">{row.source ?? "—"}</td>
+                  <td className="px-4 py-3 align-middle">
+                    <RecruitingLeadSourceBadge
+                      source={row.source}
+                      formName={row.form_name}
+                      rawPayload={row.raw_payload}
+                    />
+                  </td>
                   <td className="px-4 py-3 align-middle">
                     <span className={facebookRecruitingLeadStatusPillClass(row.status)}>{row.status}</span>
                   </td>
                   <td className="px-4 py-3 align-middle text-right">
-                    <Link href={`/admin/recruiting-leads/${row.id}${filterQs}`} className={rowActionBtnCls}>
-                      Open
-                    </Link>
+                    <RecruitingLeadsListRowActions
+                      leadId={row.id}
+                      leadName={row.full_name}
+                      email={row.email}
+                      detailHref={`/admin/recruiting-leads/${row.id}${filterQs}`}
+                      emailConfigured={emailConfigured}
+                    />
                   </td>
                 </tr>
               ))}

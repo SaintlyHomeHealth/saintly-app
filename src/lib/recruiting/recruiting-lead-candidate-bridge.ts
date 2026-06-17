@@ -178,7 +178,7 @@ export async function syncRecruitingLeadForCandidate(
   const { data: candidate, error: cErr } = await supabase
     .from("recruiting_candidates")
     .select(
-      "id, full_name, phone, email, city, state, coverage_area, discipline, source, notes, resume_file_name, resume_storage_path, resume_uploaded_at, recruiting_lead_id"
+      "id, full_name, phone, email, city, state, coverage_area, discipline, source, notes, resume_file_name, resume_storage_path, resume_uploaded_at, recruiting_lead_id, recruiting_lead_sync_suppressed"
     )
     .eq("id", id)
     .maybeSingle();
@@ -187,7 +187,10 @@ export async function syncRecruitingLeadForCandidate(
     return { ok: false, error: cErr?.message ?? "candidate_not_found" };
   }
 
-  const row = candidate as RecruitingCandidateBridgeRow;
+  const row = candidate as RecruitingCandidateBridgeRow & { recruiting_lead_sync_suppressed?: boolean | null };
+  if (row.recruiting_lead_sync_suppressed === true) {
+    return { ok: false, error: "recruiting_lead_sync_suppressed" };
+  }
   const normalizedEmail = row.email ? normalizeRecruitingEmail(row.email) : null;
   const normalizedPhone = row.phone ? normalizeRecruitingPhoneForStorage(row.phone) : null;
 

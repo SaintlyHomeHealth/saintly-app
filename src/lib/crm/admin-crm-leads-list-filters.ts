@@ -2,6 +2,7 @@
  * Shared filter predicates for `/admin/crm/leads` list queries (data + counts).
  */
 
+import { attachExcludeRecruitingCrmLeadsPredicates } from "@/lib/crm/crm-recruiting-lead-exclusion";
 import { escapeForIlike } from "@/lib/crm/crm-leads-search";
 import { LEAD_HOLD_WAITING_ON_INSURANCE_VERIFICATION_KEY } from "@/lib/crm/lead-holds";
 import { isValidLeadTemperature } from "@/lib/crm/lead-temperature";
@@ -86,8 +87,7 @@ export function attachAdminCrmLeadListPredicates(
 ): unknown {
   let q = qb as LeadListFilterQB;
 
-  // Patient CRM list: exclude employment / recruiting website applicants.
-  q = q.or("lead_type.is.null,lead_type.neq.employee");
+  q = attachExcludeRecruitingCrmLeadsPredicates(q) as LeadListFilterQB;
 
   if (deps.keywordLeadSearchOr) q = q.or(deps.keywordLeadSearchOr);
 

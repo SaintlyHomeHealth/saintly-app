@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
+import type { ReactNode } from "react";
 
 import { crmFilterInputCls, crmPrimaryCtaCls } from "@/components/admin/crm-admin-list-styles";
 import {
@@ -87,6 +88,7 @@ type FacebookRecruitingLeadDetailClientProps = {
   activities: RecruitingLeadActivityRow[];
   emailConfigured: boolean;
   resumeDocuments: RecruitingLeadResumeDocumentClientRow[];
+  deleteAction?: ReactNode;
 };
 
 export function FacebookRecruitingLeadDetailClient({
@@ -95,6 +97,7 @@ export function FacebookRecruitingLeadDetailClient({
   activities,
   emailConfigured,
   resumeDocuments,
+  deleteAction,
 }: FacebookRecruitingLeadDetailClientProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -134,6 +137,7 @@ export function FacebookRecruitingLeadDetailClient({
               Email
             </a>
           ) : null}
+          {deleteAction}
         </div>
       </div>
 

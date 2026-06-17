@@ -22,6 +22,7 @@ import {
 } from "@/lib/crm/admin-crm-leads-list-url";
 import { crmLeadsIdDebugEnabled, logCrmLeadIdDebug } from "@/lib/crm/crm-lead-id";
 import { getCrmCalendarTodayIso } from "@/lib/crm/crm-local-date";
+import { attachExcludeRecruitingCrmLeadsPredicates } from "@/lib/crm/crm-recruiting-lead-exclusion";
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { LEAD_TEMPERATURE_VALUES, isValidLeadTemperature, leadTemperatureLabel } from "@/lib/crm/lead-temperature";
 import { supabaseAdmin } from "@/lib/admin";
@@ -198,9 +199,10 @@ export default async function AdminCrmLeadsPage({
     };
 
     const execBaselineExactCount = () => {
-      return leadRowsActiveOnly(supabaseAdmin.from("leads").select("id", { count: "exact", head: true }))
-        .neq("status", "dead_lead")
-        .or("lead_type.is.null,lead_type.neq.employee");
+      let q = leadRowsActiveOnly(supabaseAdmin.from("leads").select("id", { count: "exact", head: true }))
+        .neq("status", "dead_lead");
+      q = attachExcludeRecruitingCrmLeadsPredicates(q) as typeof q;
+      return q;
     };
 
     const needBaseline = narrowingFiltersPresent({ ...f, followUpToday });
