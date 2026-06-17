@@ -23,6 +23,11 @@ import {
 } from "@/lib/crm/credentialing-status-options";
 import { contractingStatusLabel, credentialingStatusLabel } from "@/lib/crm/credentialing-command-center";
 import {
+  computeAttachmentSha256,
+  isDuplicateAgainstExisting,
+  type ExistingAttachmentFingerprint,
+} from "@/lib/crm/payer-credentialing-attachments";
+import {
   isAllowedPayerCredentialingMime,
   PAYER_CREDENTIALING_MAX_ATTACHMENT_BYTES,
   PAYER_CREDENTIALING_STORAGE_BUCKET,
@@ -930,15 +935,41 @@ const UPLOAD_USER_MESSAGES: Record<string, string> = {
   bucket_config: "Storage bucket is not configured.",
   forbidden: "You do not have permission to upload.",
   invalid_record: "Invalid credentialing record.",
+  duplicate: "This file is already attached to this carrier.",
   unexpected: "Something went wrong during upload. Please try again.",
 };
 
 export type BulkUploadResult = {
   ok: boolean;
   uploaded: Array<{ fileName: string; attachmentId?: string }>;
+  skipped: Array<{ fileName: string; code: string; message: string }>;
   failed: Array<{ fileName: string; code: string; message: string }>;
   message?: string;
 };
+
+async function loadExistingAttachmentFingerprints(
+  credentialingId: string
+): Promise<ExistingAttachmentFingerprint[]> {
+  const { data, error } = await supabaseAdmin
+    .from("payer_credentialing_attachments")
+    .select("file_hash_sha256, file_name, file_size, file_type")
+    .eq("credentialing_record_id", credentialingId);
+
+  if (error) {
+    console.warn("[credentialing] attachment fingerprint fetch:", error.message);
+    return [];
+  }
+
+  return (data ?? []).map((row) => ({
+    fileHashSha256:
+      typeof row.file_hash_sha256 === "string" && row.file_hash_sha256.trim()
+        ? row.file_hash_sha256.trim()
+        : null,
+    fileName: typeof row.file_name === "string" ? row.file_name : "",
+    fileSize: typeof row.file_size === "number" ? row.file_size : null,
+    fileType: typeof row.file_type === "string" ? row.file_type : null,
+  }));
+}
 
 async function uploadOneCredentialingAttachment(params: {
   credentialingId: string;
@@ -946,11 +977,12 @@ async function uploadOneCredentialingAttachment(params: {
   file: File;
   category: string | null;
   description: string | null;
+  existingFingerprints: ExistingAttachmentFingerprint[];
 }): Promise<
   | { ok: true; fileName: string; attachmentId: string }
-  | { ok: false; fileName: string; code: string; message: string }
+  | { ok: false; fileName: string; code: string; message: string; duplicate?: boolean }
 > {
-  const { credentialingId, staffUserId, file, category, description } = params;
+  const { credentialingId, staffUserId, file, category, description, existingFingerprints } = params;
   const displayName = typeof file.name === "string" && file.name.trim() ? file.name : "file";
 
   try {
@@ -968,6 +1000,25 @@ async function uploadOneCredentialingAttachment(params: {
 
     const safeName = sanitizePayerCredentialingFileName(displayName);
     const buffer = Buffer.from(await file.arrayBuffer());
+    const fileHashSha256 = computeAttachmentSha256(buffer);
+
+    if (
+      isDuplicateAgainstExisting({
+        hash: fileHashSha256,
+        fileName: displayName,
+        fileSize: file.size,
+        fileType: mime,
+        existing: existingFingerprints,
+      })
+    ) {
+      return {
+        ok: false,
+        fileName: displayName,
+        code: "duplicate",
+        message: UPLOAD_USER_MESSAGES.duplicate,
+        duplicate: true,
+      };
+    }
 
     let attachmentId = randomUUID();
     let storagePath = `${credentialingId}/${attachmentId}/${safeName}`;
@@ -1006,6 +1057,7 @@ async function uploadOneCredentialingAttachment(params: {
       file_name: displayName,
       file_type: mime,
       file_size: file.size,
+      file_hash_sha256: fileHashSha256,
       category,
       description,
       uploaded_by_user_id: staffUserId,
@@ -1019,8 +1071,28 @@ async function uploadOneCredentialingAttachment(params: {
       if (rmErr) {
         console.error("[credentialing] orphan storage after failed DB insert:", storagePath, rmErr.message);
       }
+      const isDuplicate =
+        insErr.code === "23505" ||
+        (insErr.message ?? "").toLowerCase().includes("duplicate") ||
+        (insErr.message ?? "").toLowerCase().includes("unique");
+      if (isDuplicate) {
+        return {
+          ok: false,
+          fileName: displayName,
+          code: "duplicate",
+          message: UPLOAD_USER_MESSAGES.duplicate,
+          duplicate: true,
+        };
+      }
       return { ok: false, fileName: displayName, code: "db", message: UPLOAD_USER_MESSAGES.db };
     }
+
+    existingFingerprints.push({
+      fileHashSha256: fileHashSha256,
+      fileName: displayName,
+      fileSize: file.size,
+      fileType: mime,
+    });
 
     const detailParts = [`File: ${displayName}`, `Type: ${mime}`, `Size: ${file.size} bytes`];
     if (category) detailParts.push(`Category: ${category}`);
@@ -1056,6 +1128,7 @@ export async function uploadPayerCredentialingAttachmentAction(
   const empty = (): BulkUploadResult => ({
     ok: false,
     uploaded: [],
+    skipped: [],
     failed: [],
   });
 
@@ -1114,6 +1187,7 @@ export async function uploadPayerCredentialingAttachmentAction(
       return {
         ok: false,
         uploaded: [],
+        skipped: [],
         failed: [{ fileName: "—", code: "missing_file", message: UPLOAD_USER_MESSAGES.missing_file }],
         message: UPLOAD_USER_MESSAGES.missing_file,
       };
@@ -1121,8 +1195,10 @@ export async function uploadPayerCredentialingAttachmentAction(
 
     const category = readTrimmed(formData, "attachment_category");
     const description = readTrimmed(formData, "attachment_description");
+    const existingFingerprints = await loadExistingAttachmentFingerprints(credentialingId);
 
     const uploaded: BulkUploadResult["uploaded"] = [];
+    const skipped: BulkUploadResult["skipped"] = [];
     const failed: BulkUploadResult["failed"] = [];
 
     for (const file of files) {
@@ -1132,9 +1208,12 @@ export async function uploadPayerCredentialingAttachmentAction(
         file,
         category,
         description,
+        existingFingerprints,
       });
       if (result.ok) {
         uploaded.push({ fileName: result.fileName, attachmentId: result.attachmentId });
+      } else if ("duplicate" in result && result.duplicate) {
+        skipped.push({ fileName: result.fileName, code: result.code, message: result.message });
       } else {
         failed.push({ fileName: result.fileName, code: result.code, message: result.message });
       }
@@ -1149,7 +1228,7 @@ export async function uploadPayerCredentialingAttachmentAction(
     let message: string | undefined;
     if (uploaded.length > 0 && failed.length > 0) {
       message = `${uploaded.length} file(s) uploaded; ${failed.length} failed.`;
-    } else if (uploaded.length === 0 && failed.length > 0) {
+    } else if (uploaded.length === 0 && failed.length > 0 && skipped.length === 0) {
       message = "No files were uploaded.";
     } else if (uploaded.length > 0) {
       message =
@@ -1157,10 +1236,16 @@ export async function uploadPayerCredentialingAttachmentAction(
           ? "Attachment uploaded successfully."
           : `${uploaded.length} attachments uploaded successfully.`;
     }
+    if (skipped.length > 0) {
+      const skipNote =
+        skipped.length === 1 ? "Skipped 1 duplicate file." : `Skipped ${skipped.length} duplicate files.`;
+      message = message ? `${message} ${skipNote}` : skipNote;
+    }
 
     return {
       ok: allOk,
       uploaded,
+      skipped,
       failed,
       message,
     };
@@ -1169,6 +1254,7 @@ export async function uploadPayerCredentialingAttachmentAction(
     return {
       ok: false,
       uploaded: [],
+      skipped: [],
       failed: [{ fileName: "—", code: "unexpected", message: UPLOAD_USER_MESSAGES.unexpected }],
       message: UPLOAD_USER_MESSAGES.unexpected,
     };

@@ -2,6 +2,7 @@ import { CredentialingAttachmentDeleteButton } from "./CredentialingAttachmentDe
 import { CredentialingAttachmentUploadForm } from "./CredentialingAttachmentUploadForm";
 import { formatCredentialingDateTime } from "@/lib/crm/credentialing-datetime";
 import { PAYER_CREDENTIALING_MAX_ATTACHMENT_BYTES } from "@/lib/crm/payer-credentialing-storage";
+import type { ExistingAttachmentFingerprint } from "@/lib/crm/payer-credentialing-attachments";
 import { loadCredentialingStaffLabelMap } from "@/lib/crm/credentialing-staff-directory";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
@@ -13,6 +14,7 @@ type AttachmentRow = {
   file_name: string;
   file_type: string | null;
   file_size: number | null;
+  file_hash_sha256: string | null;
   category: string | null;
   description: string | null;
   uploaded_at: string;
@@ -40,7 +42,9 @@ export async function CredentialingAttachmentsSection({ credentialingId }: { cre
 
   const { data: rawAttachments, error: attachFetchErr } = await supabase
     .from("payer_credentialing_attachments")
-    .select("id, file_name, file_type, file_size, category, description, uploaded_at, uploaded_by_user_id")
+    .select(
+      "id, file_name, file_type, file_size, file_hash_sha256, category, description, uploaded_at, uploaded_by_user_id"
+    )
     .eq("credentialing_record_id", id)
     .order("uploaded_at", { ascending: false });
 
@@ -55,6 +59,13 @@ export async function CredentialingAttachmentsSection({ credentialingId }: { cre
   }
 
   const attachments = (rawAttachments ?? []) as AttachmentRow[];
+  const existingAttachments: ExistingAttachmentFingerprint[] = attachments.map((a) => ({
+    fileHashSha256:
+      typeof a.file_hash_sha256 === "string" && a.file_hash_sha256.trim() ? a.file_hash_sha256.trim() : null,
+    fileName: a.file_name,
+    fileSize: a.file_size,
+    fileType: a.file_type,
+  }));
   const uploaderIds = attachments.map((a) => a.uploaded_by_user_id).filter((x): x is string => Boolean(x));
   const actorLabels = await loadCredentialingStaffLabelMap(uploaderIds);
 
@@ -75,7 +86,10 @@ export async function CredentialingAttachmentsSection({ credentialingId }: { cre
       </p>
 
       <div className="mt-4">
-        <CredentialingAttachmentUploadForm credentialingId={credentialingId} />
+        <CredentialingAttachmentUploadForm
+          credentialingId={credentialingId}
+          existingAttachments={existingAttachments}
+        />
       </div>
 
       <div className="mt-6 rounded-2xl border border-slate-200 bg-white/80 p-4 shadow-sm">
