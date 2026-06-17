@@ -86,6 +86,9 @@ export function attachAdminCrmLeadListPredicates(
 ): unknown {
   let q = qb as LeadListFilterQB;
 
+  // Patient CRM list: exclude employment / recruiting website applicants.
+  q = q.or("lead_type.is.null,lead_type.neq.employee");
+
   if (deps.keywordLeadSearchOr) q = q.or(deps.keywordLeadSearchOr);
 
   if (UUID_RE.test(f.owner)) q = q.eq("owner_user_id", f.owner);

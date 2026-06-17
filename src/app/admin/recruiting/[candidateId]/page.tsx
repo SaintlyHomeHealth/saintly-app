@@ -4,11 +4,14 @@ import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { crmPrimaryCtaCls } from "@/components/admin/crm-admin-list-styles";
 import { staffPrimaryLabel } from "@/lib/crm/crm-leads-table-helpers";
 import { supabaseAdmin } from "@/lib/admin";
+import { isRecruitingEmailConfigured } from "@/lib/recruiting/recruiting-email-from";
+import { loadRecruitingLeadActivitiesForLead, listRecruitingLeadResumeDocuments, syncRecruitingLeadForCandidate } from "@/lib/recruiting/recruiting-lead-candidate-bridge";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 import { ensureRecruitingCandidateCrmContact } from "@/lib/recruiting/recruiting-crm-contact-sync";
 import { buildWorkspaceKeypadCallHref } from "@/lib/workspace-phone/launch-urls";
 
 import { RecruitingCandidateDetailClient } from "../_components/RecruitingCandidateDetailClient";
+import type { RecruitingLeadActivityRow } from "../../recruiting-leads/_components/RecruitingLeadActivityTimeline";
 
 function buildListBackHref(sp: Record<string, string | string[] | undefined>): string {
   const u = new URLSearchParams();
@@ -112,6 +115,51 @@ export default async function AdminRecruitingCandidatePage({
 
   const listBackHref = buildListBackHref(sp);
 
+  let recruitingLeadId =
+    typeof (candidate as { recruiting_lead_id?: unknown }).recruiting_lead_id === "string"
+      ? String((candidate as { recruiting_lead_id: string }).recruiting_lead_id).trim()
+      : null;
+
+  if (!recruitingLeadId) {
+    const synced = await syncRecruitingLeadForCandidate(supabaseAdmin, candidateId.trim());
+    if (synced.ok) {
+      recruitingLeadId = synced.recruitingLeadId;
+      (candidate as { recruiting_lead_id?: string | null }).recruiting_lead_id = synced.recruitingLeadId;
+    }
+  }
+
+  let recruitingLeadActivities: RecruitingLeadActivityRow[] = [];
+  if (recruitingLeadId) {
+    const activityRows = await loadRecruitingLeadActivitiesForLead(supabaseAdmin, recruitingLeadId, 50);
+    const creatorIds = [
+      ...new Set(activityRows.map((r) => r.created_by).filter((id): id is string => Boolean(id))),
+    ];
+    const staffByUserId = new Map<string, { full_name: string | null; email: string | null }>();
+    if (creatorIds.length > 0) {
+      const { data: staffRowsForActs } = await supabaseAdmin
+        .from("staff_profiles")
+        .select("user_id, full_name, email")
+        .in("user_id", creatorIds);
+      for (const row of staffRowsForActs ?? []) {
+        const uid = typeof row.user_id === "string" ? row.user_id : "";
+        if (uid) {
+          staffByUserId.set(uid, {
+            full_name: typeof row.full_name === "string" ? row.full_name : null,
+            email: typeof row.email === "string" ? row.email : null,
+          });
+        }
+      }
+    }
+    recruitingLeadActivities = activityRows.map((row) => ({
+      id: row.id,
+      event_type: row.event_type,
+      body: row.body,
+      metadata: row.metadata,
+      created_at: row.created_at,
+      created_by_name: row.created_by ? staffPrimaryLabel(staffByUserId.get(row.created_by) ?? {}) : null,
+    }));
+  }
+
   const errRaw = typeof sp.error === "string" ? sp.error : Array.isArray(sp.error) ? sp.error[0] : "";
   const inviteErr = typeof sp.inviteErr === "string" ? sp.inviteErr.trim() : Array.isArray(sp.inviteErr) ? String(sp.inviteErr[0] ?? "").trim() : "";
   const inviteOk = typeof sp.inviteOk === "string" ? sp.inviteOk.trim() : Array.isArray(sp.inviteOk) ? String(sp.inviteOk[0] ?? "").trim() : "";
@@ -193,6 +241,8 @@ export default async function AdminRecruitingCandidatePage({
         viewerUserId={staff.user_id}
         actorLabels={actorLabels}
         keypadCallHref={keypadCallHref}
+        recruitingLeadActivities={recruitingLeadActivities}
+        emailConfigured={isRecruitingEmailConfigured()}
       />
     </div>
   );

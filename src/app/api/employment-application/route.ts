@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { normalizeFbclid } from "@/lib/crm/fbclid";
 import { supabaseAdmin } from "@/lib/admin";
 import { normalizePhone } from "@/lib/phone/us-phone-format";
-import { handleNewLeadCreated } from "@/lib/crm/post-create-lead-workflow";
+import { ingestWebsiteRecruitingLead } from "@/lib/recruiting/website-recruiting-lead-ingestion";
 
 const MAX_LEN = 8000;
 
@@ -77,120 +77,38 @@ export async function POST(req: Request) {
 
   const full_name = [first_name, last_name].filter(Boolean).join(" ").trim() || null;
 
-  const notesLines = [
-    "Employment application (saintly-hiring website)",
-    "",
-    `Role: ${position}`,
-    license_number ? `License #: ${license_number}` : null,
-    years_experience ? `Experience: ${years_experience}` : null,
-    preferred_hours ? `Hours: ${preferred_hours}` : null,
-    available_start_date ? `Available start: ${available_start_date}` : null,
-    "",
-    experience_message ? `Message / experience:\n${experience_message}` : null,
-    resume_url ? `Resume link: ${resume_url}` : null,
-  ].filter((x) => x != null && String(x).trim() !== "");
-
-  const notes = notesLines.join("\n").slice(0, MAX_LEN);
-
   const submittedAt = new Date().toISOString();
-  const external_source_metadata = {
-    employment_application: {
-      submitted_at: submittedAt,
-      sms_consent: true,
-      position,
-      license_number: license_number || null,
-      years_experience: years_experience || null,
-      preferred_hours: preferred_hours || null,
-      available_start_date: available_start_date || null,
-      experience_message: experience_message || null,
-      resume_url: resume_url || null,
-    },
-  };
 
-  const { data: existingContact, error: findErr } = await supabaseAdmin
-    .from("contacts")
-    .select("id")
-    .eq("email", emailNorm)
-    .is("archived_at", null)
-    .maybeSingle();
-
-  if (findErr) {
-    console.warn("[employment-application] contact lookup:", findErr.message);
-    return NextResponse.json({ ok: false, error: "server_error" } as const, { status: 500 });
-  }
-
-  let contactId: string;
-
-  if (existingContact?.id) {
-    contactId = existingContact.id as string;
-    const { error: upErr } = await supabaseAdmin
-      .from("contacts")
-      .update({
-        first_name,
-        last_name,
-        full_name,
-        primary_phone,
-        email: emailNorm,
-        address_line_1: address || null,
-        city: city || null,
-        state: state || null,
-        zip: zip || null,
-      })
-      .eq("id", contactId);
-
-    if (upErr) {
-      console.warn("[employment-application] contact update:", upErr.message);
-      return NextResponse.json({ ok: false, error: "server_error" } as const, { status: 500 });
-    }
-  } else {
-    const { data: ins, error: cErr } = await supabaseAdmin
-      .from("contacts")
-      .insert({
-        first_name,
-        last_name,
-        full_name,
-        primary_phone,
-        email: emailNorm,
-        address_line_1: address || null,
-        city: city || null,
-        state: state || null,
-        zip: zip || null,
-      })
-      .select("id")
-      .single();
-
-    if (cErr || !ins?.id) {
-      console.warn("[employment-application] contact insert:", cErr?.message);
-      return NextResponse.json({ ok: false, error: "server_error" } as const, { status: 500 });
-    }
-    contactId = ins.id as string;
-  }
-
-  const { data: newLead, error: lErr } = await supabaseAdmin
-    .from("leads")
-    .insert({
-      contact_id: contactId,
-      source: "other",
-      status: "new_applicant",
-      lead_type: "employee",
-      referral_source: "Saintly employment website",
-      notes,
-      external_source_metadata,
-      ...(fbclid ? { fbclid } : {}),
-    })
-    .select("id")
-    .single();
-
-  if (lErr || !newLead?.id) {
-    console.warn("[employment-application] lead insert:", lErr?.message);
-    return NextResponse.json({ ok: false, error: "server_error" } as const, { status: 500 });
-  }
-
-  await handleNewLeadCreated(supabaseAdmin, {
-    leadId: String(newLead.id),
-    contactId,
-    intakeChannel: "employment_web",
+  const result = await ingestWebsiteRecruitingLead(supabaseAdmin, {
+    first_name,
+    last_name,
+    full_name: full_name ?? `${first_name} ${last_name}`.trim(),
+    email: emailNorm,
+    phone: primary_phone,
+    city: city || null,
+    state: state || null,
+    zip: zip || null,
+    address: address || null,
+    position,
+    license_number: license_number || null,
+    years_experience: years_experience || null,
+    preferred_hours: preferred_hours || null,
+    available_start_date: available_start_date || null,
+    experience_message: experience_message || null,
+    resume_url: resume_url || null,
+    fbclid: fbclid ?? null,
+    submitted_at: submittedAt,
   });
 
-  return NextResponse.json({ ok: true, leadId: newLead.id as string } as const);
+  if (!result.ok) {
+    console.warn("[employment-application] recruiting insert:", result.error);
+    return NextResponse.json({ ok: false, error: "server_error" } as const, { status: 500 });
+  }
+
+  return NextResponse.json({
+    ok: true,
+    leadId: result.leadId,
+    lead_type: "recruiting",
+    pipeline: "recruiting",
+  } as const);
 }

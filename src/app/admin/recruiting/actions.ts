@@ -37,6 +37,7 @@ import {
 } from "@/lib/recruiting/resume-upload-mime";
 import { supabaseAdmin } from "@/lib/admin";
 import { ensureRecruitingCandidateCrmContact } from "@/lib/recruiting/recruiting-crm-contact-sync";
+import { syncRecruitingLeadForCandidate } from "@/lib/recruiting/recruiting-lead-candidate-bridge";
 import { isRecruitingActivityDeletable } from "@/lib/recruiting/recruiting-timeline";
 import { createServerSupabaseClient, getAuthenticatedUser } from "@/lib/supabase/server";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
@@ -92,6 +93,17 @@ async function requireManager() {
 
 function uuidOk(id: string): boolean {
   return /^[0-9a-f-]{36}$/i.test(id);
+}
+
+async function linkCandidateToRecruitingLead(candidateId: string, uploadedBy?: string | null): Promise<string | null> {
+  const synced = await syncRecruitingLeadForCandidate(supabaseAdmin, candidateId, { uploadedBy: uploadedBy ?? null });
+  if (!synced.ok) {
+    console.warn("[recruiting] linkCandidateToRecruitingLead:", synced.error);
+    return null;
+  }
+  revalidatePath("/admin/recruiting-leads");
+  revalidatePath(`/admin/recruiting-leads/${synced.recruitingLeadId}`);
+  return synced.recruitingLeadId;
 }
 
 function logRecruitingSupabaseErr(
@@ -931,6 +943,8 @@ export async function attachResumeToExistingCandidate(formData: FormData): Promi
     newStoragePath: storagePath,
   });
 
+  await linkCandidateToRecruitingLead(candidateId, user?.id ?? null);
+
   revalidatePath("/admin/recruiting");
   revalidatePath(`/admin/recruiting/${candidateId}`);
   return { ok: true };
@@ -1082,6 +1096,8 @@ export async function createRecruitingCandidateFromResume(
 
   await ensureRecruitingCandidateCrmContact(supabaseAdmin, candidateId);
 
+  await linkCandidateToRecruitingLead(candidateId, user?.id ?? null);
+
   revalidatePath("/admin/recruiting");
   revalidatePath(`/admin/recruiting/${candidateId}`);
   return { ok: true, candidateId };
@@ -1096,6 +1112,8 @@ export type BulkResumeProcessResult = {
   email: string | null;
   candidateId: string | null;
   existingCandidateId: string | null;
+  recruitingLeadId: string | null;
+  resumeAttached: boolean;
   duplicateReasonLabel: string | null;
   errorMessage: string | null;
 };
@@ -1114,6 +1132,8 @@ export async function processBulkResumeFile(formData: FormData): Promise<BulkRes
     email: null,
     candidateId: null,
     existingCandidateId: null,
+    recruitingLeadId: null,
+    resumeAttached: false,
     duplicateReasonLabel: null,
     errorMessage: null,
   });
@@ -1185,7 +1205,10 @@ export async function processBulkResumeFile(formData: FormData): Promise<BulkRes
   const phone = fields.phone.trim() || null;
   const email = fields.email.trim() || null;
 
-  const baseOut: Omit<BulkResumeProcessResult, "status" | "candidateId" | "existingCandidateId" | "duplicateReasonLabel" | "errorMessage"> = {
+  const baseOut: Omit<
+    BulkResumeProcessResult,
+    "status" | "candidateId" | "existingCandidateId" | "recruitingLeadId" | "resumeAttached" | "duplicateReasonLabel" | "errorMessage"
+  > = {
     fileName: safeName,
     extractedName,
     discipline: disciplineForDisplay,
@@ -1193,6 +1216,8 @@ export async function processBulkResumeFile(formData: FormData): Promise<BulkRes
     email,
     candidateId: null,
     existingCandidateId: null,
+    recruitingLeadId: null,
+    resumeAttached: false,
     duplicateReasonLabel: null,
     errorMessage: null,
   };
@@ -1210,12 +1235,22 @@ export async function processBulkResumeFile(formData: FormData): Promise<BulkRes
         city: fields.city.trim() || null,
       });
       if (duplicates.length > 0) {
-        const primary = duplicates[0];
+        const primary = duplicates[0]!;
+        const contentType = guessContentType(safeName);
+        const uploadFile = new File([new Uint8Array(buffer)], safeName, { type: contentType });
+        const attachFd = new FormData();
+        attachFd.set("candidateId", primary.id);
+        attachFd.set("file", uploadFile);
+        const attached = await attachResumeToExistingCandidate(attachFd);
+        const recruitingLeadId = attached.ok ? await linkCandidateToRecruitingLead(primary.id) : null;
         return {
           ...baseOut,
           status: "duplicate",
           existingCandidateId: primary.id,
+          recruitingLeadId,
+          resumeAttached: attached.ok,
           duplicateReasonLabel: describeDuplicateReasons(primary.reasons),
+          errorMessage: attached.ok ? null : attached.reason,
         };
       }
     } catch (e) {
@@ -1258,19 +1293,29 @@ export async function processBulkResumeFile(formData: FormData): Promise<BulkRes
 
   const created = await createRecruitingCandidateFromResume(fd);
   if (created.ok) {
+    const recruitingLeadId = await linkCandidateToRecruitingLead(created.candidateId);
     return {
       ...baseOut,
       status: "created",
       candidateId: created.candidateId,
+      recruitingLeadId,
     };
   }
   if (created.reason === "duplicates" && created.duplicates.length > 0) {
-    const primary = created.duplicates[0];
+    const primary = created.duplicates[0]!;
+    const attachFd = new FormData();
+    attachFd.set("candidateId", primary.id);
+    attachFd.set("file", uploadFile);
+    const attached = await attachResumeToExistingCandidate(attachFd);
+    const recruitingLeadId = attached.ok ? await linkCandidateToRecruitingLead(primary.id) : null;
     return {
       ...baseOut,
       status: "duplicate",
       existingCandidateId: primary.id,
+      recruitingLeadId,
+      resumeAttached: attached.ok,
       duplicateReasonLabel: describeDuplicateReasons(primary.reasons),
+      errorMessage: attached.ok ? null : attached.reason,
     };
   }
   const errMap: Record<string, string> = {

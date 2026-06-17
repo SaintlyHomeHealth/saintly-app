@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useCallback, useMemo, useRef, useState } from "react";
 
+import { RecruitingLeadSendEmailModal } from "@/app/admin/recruiting-leads/_components/RecruitingLeadSendEmailModal";
+
 import {
   crmActionBtnSky,
   crmFilterInputCls,
@@ -87,12 +89,13 @@ function computeResultCounts(queue: QueuedFile[], rows: Record<string, RowState>
   return out;
 }
 
-export function BulkResumeUploadClient() {
+export function BulkResumeUploadClient({ emailConfigured }: { emailConfigured: boolean }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [queue, setQueue] = useState<QueuedFile[]>([]);
   const [rows, setRows] = useState<Record<string, RowState>>({});
   const [isRunning, setIsRunning] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [emailModal, setEmailModal] = useState<{ leadId: string; email: string | null } | null>(null);
   /** Applies to every file in `runBatch` — sent as `upload_discipline` (overrides parsed discipline on create). */
   const [batchDiscipline, setBatchDiscipline] = useState("");
 
@@ -155,6 +158,8 @@ export function BulkResumeUploadClient() {
               email: null,
               candidateId: null,
               existingCandidateId: null,
+              recruitingLeadId: null,
+              resumeAttached: false,
               duplicateReasonLabel: null,
               errorMessage: msg || "Unexpected error.",
             },
@@ -357,8 +362,9 @@ export function BulkResumeUploadClient() {
                   <th className="whitespace-nowrap px-4 py-3">Discipline</th>
                   <th className="whitespace-nowrap px-4 py-3">Phone</th>
                   <th className="whitespace-nowrap px-4 py-3">Email</th>
-                  <th className="min-w-[10rem] px-4 py-3">Status</th>
-                  <th className="whitespace-nowrap px-4 py-3">Link</th>
+                  <th className="whitespace-nowrap px-4 py-3">Status</th>
+                  <th className="whitespace-nowrap px-4 py-3">Recruiting lead</th>
+                  <th className="whitespace-nowrap px-4 py-3">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -366,12 +372,13 @@ export function BulkResumeUploadClient() {
                   const st = rows[q.id];
                   if (st?.phase !== "done") return null;
                   const r = st.result;
-                  const link =
+                  const candidateLink =
                     r.status === "created" && r.candidateId
                       ? `/admin/recruiting/${r.candidateId}`
                       : r.status === "duplicate" && r.existingCandidateId
                         ? `/admin/recruiting/${r.existingCandidateId}`
                         : null;
+                  const leadLink = r.recruitingLeadId ? `/admin/recruiting-leads/${r.recruitingLeadId}` : null;
                   return (
                     <tr key={q.id} className="border-b border-slate-100 hover:bg-slate-50/80">
                       <td className="max-w-[12rem] truncate px-4 py-2.5 font-medium text-slate-900" title={r.fileName}>
@@ -395,18 +402,41 @@ export function BulkResumeUploadClient() {
                             <span className="mt-0.5 block">{r.duplicateReasonLabel}</span>
                           </div>
                         ) : null}
+                        {r.status === "duplicate" && r.resumeAttached ? (
+                          <div className="mt-2 text-[11px] text-emerald-800">Resume attached to existing lead.</div>
+                        ) : null}
                         {r.status !== "duplicate" && r.errorMessage ? (
                           <span className="mt-2 block text-[11px] leading-snug text-rose-800">{r.errorMessage}</span>
                         ) : null}
                       </td>
                       <td className="whitespace-nowrap px-4 py-2.5">
-                        {link ? (
-                          <Link href={link} className={crmActionBtnSky}>
-                            Open
+                        {leadLink ? (
+                          <Link href={leadLink} className={crmActionBtnSky}>
+                            Open lead
                           </Link>
                         ) : (
                           <span className="text-slate-400">—</span>
                         )}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-2.5">
+                        <div className="flex flex-wrap gap-2">
+                          {candidateLink ? (
+                            <Link href={candidateLink} className={crmActionBtnSky}>
+                              Candidate
+                            </Link>
+                          ) : null}
+                          {r.recruitingLeadId ? (
+                            <button
+                              type="button"
+                              className={crmActionBtnSky}
+                              onClick={() =>
+                                setEmailModal({ leadId: r.recruitingLeadId!, email: r.email ?? null })
+                              }
+                            >
+                              Send email
+                            </button>
+                          ) : null}
+                        </div>
                       </td>
                     </tr>
                   );
@@ -424,6 +454,16 @@ export function BulkResumeUploadClient() {
           </p>
         </div>
       )}
+
+      {emailModal ? (
+        <RecruitingLeadSendEmailModal
+          leadId={emailModal.leadId}
+          recipientEmail={emailModal.email}
+          emailConfigured={emailConfigured}
+          onClose={() => setEmailModal(null)}
+          onSent={() => setEmailModal(null)}
+        />
+      ) : null}
     </div>
   );
 }

@@ -24,6 +24,8 @@ import {
 import { buildRecruitingTimelineEntries } from "@/lib/recruiting/recruiting-timeline";
 import { staffPrimaryLabel } from "@/lib/crm/crm-leads-table-helpers";
 
+import { RecruitingLeadEmailPanel } from "@/components/recruiting/RecruitingLeadEmailPanel";
+import type { RecruitingLeadActivityRow } from "@/app/admin/recruiting-leads/_components/RecruitingLeadActivityTimeline";
 import { RecruitingTimelinePanel } from "@/components/recruiting/RecruitingTimelinePanel";
 import { recruitingQuickAction, type RecruitingQuickActionKind, updateRecruitingCandidate } from "../actions";
 import { recruitingInterestPillClass, recruitingStatusPillClass } from "../recruiting-status-styles";
@@ -64,6 +66,7 @@ type CandidateRow = {
   follow_up_bucket: string | null;
   specialties: string | null;
   recruiting_tags: string | null;
+  recruiting_lead_id: string | null;
 };
 
 type ActivityRow = {
@@ -145,6 +148,8 @@ type RecruitingCandidateDetailClientProps = {
   actorLabels: Record<string, string>;
   /** Opens workspace keypad in a new tab; null when the recruit has no dialable phone. */
   keypadCallHref: string | null;
+  recruitingLeadActivities: RecruitingLeadActivityRow[];
+  emailConfigured: boolean;
 };
 
 export function RecruitingCandidateDetailClient({
@@ -156,6 +161,8 @@ export function RecruitingCandidateDetailClient({
   viewerUserId,
   actorLabels,
   keypadCallHref,
+  recruitingLeadActivities,
+  emailConfigured,
 }: RecruitingCandidateDetailClientProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -244,6 +251,13 @@ export function RecruitingCandidateDetailClient({
           {banner}
         </div>
       ) : null}
+
+      <RecruitingLeadEmailPanel
+        recruitingLeadId={initial.recruiting_lead_id}
+        recipientEmail={initial.email}
+        emailConfigured={emailConfigured}
+        leadActivities={recruitingLeadActivities}
+      />
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_380px] lg:items-start">
         <div className="space-y-6">

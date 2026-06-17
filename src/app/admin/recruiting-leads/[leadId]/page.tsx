@@ -1,10 +1,15 @@
 import { notFound, redirect } from "next/navigation";
 
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
+import { staffPrimaryLabel } from "@/lib/crm/crm-leads-table-helpers";
 import { supabaseAdmin } from "@/lib/admin";
+import { listRecruitingLeadResumeDocuments } from "@/lib/recruiting/recruiting-lead-candidate-bridge";
+import { isRecruitingEmailConfigured } from "@/lib/recruiting/recruiting-email-from";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 
 import { FacebookRecruitingLeadDetailClient } from "../_components/FacebookRecruitingLeadDetailClient";
+import type { RecruitingLeadActivityRow } from "../_components/RecruitingLeadActivityTimeline";
+import type { RecruitingLeadResumeDocumentClientRow } from "@/components/recruiting/RecruitingLeadResumeDocumentsPanel";
 
 function buildListBackHref(sp: Record<string, string | string[] | undefined>): string {
   const u = new URLSearchParams();
@@ -50,14 +55,86 @@ export default async function AdminRecruitingLeadDetailPage({
     notFound();
   }
 
+  const { data: activityRows, error: activityErr } = await supabaseAdmin
+    .from("facebook_recruiting_lead_activities")
+    .select("id, event_type, body, metadata, created_at, created_by")
+    .eq("lead_id", lead.id)
+    .order("created_at", { ascending: false })
+    .limit(100);
+
+  if (activityErr) {
+    console.warn("[recruiting-leads/detail] activities:", activityErr.message);
+  }
+
+  const creatorIds = [
+    ...new Set(
+      (activityRows ?? [])
+        .map((r) => (typeof (r as { created_by?: unknown }).created_by === "string" ? String(r.created_by) : ""))
+        .filter(Boolean)
+    ),
+  ];
+
+  const staffByUserId = new Map<string, { full_name: string | null; email: string | null }>();
+  if (creatorIds.length > 0) {
+    const { data: staffRows } = await supabaseAdmin
+      .from("staff_profiles")
+      .select("user_id, full_name, email")
+      .in("user_id", creatorIds);
+    for (const row of staffRows ?? []) {
+      const uid = typeof row.user_id === "string" ? row.user_id : "";
+      if (uid) {
+        staffByUserId.set(uid, {
+          full_name: typeof row.full_name === "string" ? row.full_name : null,
+          email: typeof row.email === "string" ? row.email : null,
+        });
+      }
+    }
+  }
+
+  const activities: RecruitingLeadActivityRow[] = (activityRows ?? []).map((row) => {
+    const r = row as {
+      id: string;
+      event_type: string;
+      body: string | null;
+      metadata: Record<string, unknown> | null;
+      created_at: string;
+      created_by: string | null;
+    };
+    const creator = r.created_by ? staffByUserId.get(r.created_by) : null;
+    return {
+      id: r.id,
+      event_type: r.event_type,
+      body: r.body,
+      metadata: r.metadata,
+      created_at: r.created_at,
+      created_by_name: creator ? staffPrimaryLabel(creator) : null,
+    };
+  });
+
+  const resumeDocuments: RecruitingLeadResumeDocumentClientRow[] = (
+    await listRecruitingLeadResumeDocuments(supabaseAdmin, lead.id)
+  ).map((doc) => ({
+    id: doc.id,
+    file_name: doc.file_name,
+    uploaded_at: doc.uploaded_at,
+    source: doc.source,
+    recruiting_candidate_id: doc.recruiting_candidate_id,
+  }));
+
   return (
     <div className="space-y-6 p-6">
       <AdminPageHeader
         eyebrow="Hiring"
-        title="Facebook Recruiting Lead"
-        description="Review applicant answers and update recruiting follow-up status."
+        title="Recruiting Lead"
+        description="Review applicant answers, send follow-up emails, and update recruiting status."
       />
-      <FacebookRecruitingLeadDetailClient lead={lead} listBackHref={buildListBackHref(sp)} />
+      <FacebookRecruitingLeadDetailClient
+        lead={lead}
+        listBackHref={buildListBackHref(sp)}
+        activities={activities}
+        emailConfigured={isRecruitingEmailConfigured()}
+        resumeDocuments={resumeDocuments}
+      />
     </div>
   );
 }

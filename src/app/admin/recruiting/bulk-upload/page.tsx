@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { crmPrimaryCtaCls } from "@/components/admin/crm-admin-list-styles";
+import { isRecruitingEmailConfigured } from "@/lib/recruiting/recruiting-email-from";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 
 import { BulkResumeUploadClient } from "./_components/BulkResumeUploadClient";
@@ -34,7 +35,7 @@ export default async function BulkResumeUploadPage() {
         }
       />
 
-      <BulkResumeUploadClient />
+      <BulkResumeUploadClient emailConfigured={isRecruitingEmailConfigured()} />
     </div>
   );
 }

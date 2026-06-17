@@ -21,6 +21,7 @@
     "verify:sms-senders": "tsx scripts/verify-sms-sender-defaults.ts",
     "verify:outbound-parse": "tsx scripts/verify-workspace-outbound-parse.ts",
     "verify:facebook-recruiting-leads": "tsx scripts/verify-facebook-recruiting-leads.ts",
+    "backfill:recruiting-lead-links": "tsx scripts/backfill-recruiting-lead-candidate-links.ts",
     "backfill:twilio-mms": "tsx scripts/backfill-twilio-inbound-mms.ts",
     "generate:compliance-program-pdf": "tsx scripts/generate-compliance-program-pdf.ts"
   },

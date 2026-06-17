@@ -21,7 +21,7 @@ import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 import { facebookRecruitingLeadStatusPillClass } from "./recruiting-leads-status-styles";
 
 const LIST_SELECT =
-  "id, full_name, phone, email, license_status, home_health_experience, visits_per_week, coverage_area, start_date, status, created_at";
+  "id, full_name, phone, email, license_status, home_health_experience, visits_per_week, coverage_area, start_date, source, status, created_at";
 
 type LeadListRow = {
   id: string;
@@ -33,6 +33,7 @@ type LeadListRow = {
   visits_per_week: string | null;
   coverage_area: string | null;
   start_date: string | null;
+  source: string | null;
   status: string;
   created_at: string;
 };
@@ -124,8 +125,8 @@ export default async function AdminRecruitingLeadsPage({
     <div className="space-y-6 p-6">
       <AdminPageHeader
         eyebrow="Hiring"
-        title="Facebook Recruiting Leads"
-        description="PT applicants from the Facebook Lead Form webhook. Patient referral leads stay in the main Leads CRM."
+        title="Recruiting Leads"
+        description="Hiring applicants from Facebook Lead Ads and the Saintly website careers form. Patient referral leads stay in CRM Leads."
       />
 
       <form method="get" action="/admin/recruiting-leads" className={`${crmFilterBarCls} flex-wrap`}>
@@ -196,7 +197,7 @@ export default async function AdminRecruitingLeadsPage({
 
       {list.length === 0 ? (
         <div className="rounded-[28px] border border-dashed border-slate-200 bg-white/80 px-6 py-16 text-center text-sm text-slate-600 shadow-sm">
-          No Facebook recruiting leads match these filters yet.
+          No recruiting leads match these filters yet.
         </div>
       ) : (
         <div className={crmListScrollOuterCls}>
@@ -212,6 +213,7 @@ export default async function AdminRecruitingLeadsPage({
                 <th className="px-4 py-3 align-middle">Visits/Week</th>
                 <th className="px-4 py-3 align-middle">Coverage Area</th>
                 <th className="px-4 py-3 align-middle">Start Date</th>
+                <th className="px-4 py-3 align-middle">Source</th>
                 <th className="px-4 py-3 align-middle">Status</th>
                 <th className="px-4 py-3 align-middle text-right">Actions</th>
               </tr>
@@ -237,6 +239,7 @@ export default async function AdminRecruitingLeadsPage({
                   <td className="px-4 py-3 align-middle text-xs text-slate-700">{row.visits_per_week ?? "—"}</td>
                   <td className="px-4 py-3 align-middle text-xs text-slate-700">{row.coverage_area ?? "—"}</td>
                   <td className="px-4 py-3 align-middle text-xs text-slate-700">{row.start_date ?? "—"}</td>
+                  <td className="px-4 py-3 align-middle text-xs text-slate-700">{row.source ?? "—"}</td>
                   <td className="px-4 py-3 align-middle">
                     <span className={facebookRecruitingLeadStatusPillClass(row.status)}>{row.status}</span>
                   </td>

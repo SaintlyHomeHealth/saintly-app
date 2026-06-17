@@ -12,6 +12,7 @@ import {
   RESUME_SOFT_MANUAL_PARSE_PROFILE,
 } from "@/lib/recruiting/resume-upload-mime";
 import { RECRUITING_RESUMES_BUCKET } from "@/lib/recruiting/recruiting-resume-storage";
+import { syncRecruitingLeadForCandidate } from "@/lib/recruiting/recruiting-lead-candidate-bridge";
 import { supabaseAdmin } from "@/lib/admin";
 import { getAuthenticatedUser } from "@/lib/supabase/server";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
@@ -209,11 +210,16 @@ export async function POST(req: Request) {
     console.warn("[recruiting] resume_parsed activity:", parseActErr.message);
   }
 
+  const synced = await syncRecruitingLeadForCandidate(supabaseAdmin, candidateId, {
+    uploadedBy: user?.id ?? null,
+  });
+
   return NextResponse.json({
     ok: true,
     resume_file_name: safeName,
     resume_storage_path: storagePath,
     resume_uploaded_at: uploadedAt,
+    recruiting_lead_id: synced.ok ? synced.recruitingLeadId : null,
     parse: parseOut,
   });
 }

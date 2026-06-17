@@ -198,10 +198,9 @@ export default async function AdminCrmLeadsPage({
     };
 
     const execBaselineExactCount = () => {
-      return leadRowsActiveOnly(supabaseAdmin.from("leads").select("id", { count: "exact", head: true })).neq(
-        "status",
-        "dead_lead"
-      );
+      return leadRowsActiveOnly(supabaseAdmin.from("leads").select("id", { count: "exact", head: true }))
+        .neq("status", "dead_lead")
+        .or("lead_type.is.null,lead_type.neq.employee");
     };
 
     const needBaseline = narrowingFiltersPresent({ ...f, followUpToday });

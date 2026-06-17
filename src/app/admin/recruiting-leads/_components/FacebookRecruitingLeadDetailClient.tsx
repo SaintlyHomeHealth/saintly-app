@@ -1,16 +1,25 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 
 import { crmFilterInputCls, crmPrimaryCtaCls } from "@/components/admin/crm-admin-list-styles";
+import {
+  RecruitingLeadResumeDocumentsPanel,
+  type RecruitingLeadResumeDocumentClientRow,
+} from "@/components/recruiting/RecruitingLeadResumeDocumentsPanel";
 import { formatAppDateTime } from "@/lib/datetime/app-timezone";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import { FACEBOOK_RECRUITING_LEAD_STATUS_OPTIONS } from "@/lib/recruiting/facebook-recruiting-lead-options";
 
 import { updateFacebookRecruitingLead } from "../actions";
 import { facebookRecruitingLeadStatusPillClass } from "../recruiting-leads-status-styles";
+import {
+  RecruitingLeadActivityTimeline,
+  type RecruitingLeadActivityRow,
+} from "./RecruitingLeadActivityTimeline";
+import { RecruitingLeadSendEmailModal } from "./RecruitingLeadSendEmailModal";
 
 export type FacebookRecruitingLeadRow = {
   id: string;
@@ -75,13 +84,24 @@ function DetailField({ label, value }: { label: string; value: string | null | u
 type FacebookRecruitingLeadDetailClientProps = {
   lead: FacebookRecruitingLeadRow;
   listBackHref: string;
+  activities: RecruitingLeadActivityRow[];
+  emailConfigured: boolean;
+  resumeDocuments: RecruitingLeadResumeDocumentClientRow[];
 };
 
-export function FacebookRecruitingLeadDetailClient({ lead, listBackHref }: FacebookRecruitingLeadDetailClientProps) {
+export function FacebookRecruitingLeadDetailClient({
+  lead,
+  listBackHref,
+  activities,
+  emailConfigured,
+  resumeDocuments,
+}: FacebookRecruitingLeadDetailClientProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const router = useRouter();
   const [status, setStatus] = useState(lead.status);
   const [notes, setNotes] = useState(lead.notes ?? "");
+  const [emailModalOpen, setEmailModalOpen] = useState(false);
   const returnTo = searchParams?.toString() ? `${pathname}?${searchParams.toString()}` : pathname;
 
   const phoneDisplay = lead.phone ? formatPhoneForDisplay(lead.phone) : "—";
@@ -96,6 +116,9 @@ export function FacebookRecruitingLeadDetailClient({ lead, listBackHref }: Faceb
           ← Back to recruiting leads
         </Link>
         <div className="flex flex-wrap items-center gap-2">
+          <button type="button" onClick={() => setEmailModalOpen(true)} className={rowActionBtnCls}>
+            Send template email
+          </button>
           {callHref ? (
             <a href={callHref} className={rowActionBtnCls}>
               Call
@@ -142,6 +165,10 @@ export function FacebookRecruitingLeadDetailClient({ lead, listBackHref }: Faceb
         </dl>
       </div>
 
+      <RecruitingLeadResumeDocumentsPanel documents={resumeDocuments} />
+
+      <RecruitingLeadActivityTimeline activities={activities} />
+
       <form action={updateFacebookRecruitingLead} className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
         <input type="hidden" name="leadId" value={lead.id} />
         <input type="hidden" name="returnTo" value={returnTo} />
@@ -181,6 +208,16 @@ export function FacebookRecruitingLeadDetailClient({ lead, listBackHref }: Faceb
           </button>
         </div>
       </form>
+
+      {emailModalOpen ? (
+        <RecruitingLeadSendEmailModal
+          leadId={lead.id}
+          recipientEmail={lead.email}
+          emailConfigured={emailConfigured}
+          onClose={() => setEmailModalOpen(false)}
+          onSent={() => router.refresh()}
+        />
+      ) : null}
     </div>
   );
 }

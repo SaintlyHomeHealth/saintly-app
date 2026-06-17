@@ -19,6 +19,17 @@ import {
   shouldSendFacebookRecruitingIntroSms,
 } from "../src/lib/recruiting/facebook-recruiting-lead-shared";
 import { normalizeRecruitingPhoneForStorage } from "../src/lib/recruiting/recruiting-contact-normalize";
+import {
+  buildRecruitingEmailVariables,
+  renderRecruitingEmailTemplate,
+} from "../src/lib/recruiting/render-recruiting-email-template";
+import { RECRUITING_EMAIL_TEMPLATES } from "../src/lib/recruiting/recruiting-email-templates";
+import {
+  WEBSITE_CAREERS_FORM_NAME,
+  WEBSITE_RECRUITING_LEAD_TYPE,
+  WEBSITE_RECRUITING_PIPELINE,
+  WEBSITE_RECRUITING_SOURCE,
+} from "../src/lib/recruiting/website-recruiting-lead-constants";
 
 const examplePayload = {
   form_name: "Hiring Form - Physical Therapy",
@@ -159,6 +170,38 @@ function testAdminNotificationContent() {
   assert.equal(recruitingLeadAdminNotificationDedupeKey(leadId), `facebook_recruiting_lead:${leadId}`);
 }
 
+function testWebsiteRecruitingClassification() {
+  assert.equal(WEBSITE_RECRUITING_SOURCE, "website");
+  assert.equal(WEBSITE_RECRUITING_LEAD_TYPE, "recruiting");
+  assert.equal(WEBSITE_RECRUITING_PIPELINE, "recruiting");
+  assert.equal(WEBSITE_CAREERS_FORM_NAME, "Saintly website careers form");
+}
+
+function testRecruitingEmailTemplates() {
+  assert.equal(RECRUITING_EMAIL_TEMPLATES.length, 4);
+  const lpnVars = buildRecruitingEmailVariables({
+    full_name: "Jane Doe",
+    phone: "4805551234",
+    email: "jane@example.com",
+    city: "Phoenix",
+    license_status: "LPN",
+    lead_type: "recruiting",
+    form_name: "Saintly website careers form",
+  });
+  assert.equal(lpnVars.first_name, "Jane");
+  assert.equal(lpnVars.pay_rate, "$60");
+  const lpnRendered = renderRecruitingEmailTemplate(RECRUITING_EMAIL_TEMPLATES[0]!.body, lpnVars);
+  assert.match(lpnRendered, /\$60/);
+
+  const rnVars = buildRecruitingEmailVariables({
+    full_name: "Jane Doe",
+    license_status: "RN",
+    lead_type: "recruiting",
+  });
+  assert.equal(rnVars.pay_rate, "$80");
+  assert.equal(rnVars.soc_rate, "$110");
+}
+
 function main() {
   testRecruitingDetection();
   testFieldNormalization();
@@ -167,6 +210,8 @@ function main() {
   testIntroSmsCopy();
   testPostCreateGuards();
   testAdminNotificationContent();
+  testWebsiteRecruitingClassification();
+  testRecruitingEmailTemplates();
   console.log("verify:facebook-recruiting-leads ok");
 }
 
