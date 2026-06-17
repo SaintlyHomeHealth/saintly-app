@@ -30,9 +30,22 @@ type InsuranceAcceptedSectionProps = {
 };
 
 function PlanLogoCard({ plan }: { plan: InsurancePlan }) {
+  const isComingSoon = plan.status === "coming_soon";
+
   return (
     <li className="h-full">
-      <article className="group flex h-full flex-col items-center justify-center rounded-2xl border border-slate-200/70 bg-white p-5 shadow-[0_18px_44px_-26px_rgba(15,23,42,0.22)] ring-1 ring-slate-100/60 transition duration-300 hover:-translate-y-1 hover:border-amber-200/80 hover:shadow-[0_30px_70px_-26px_rgba(245,180,0,0.32)] sm:p-6">
+      <article
+        className={`group relative flex h-full flex-col items-center justify-center rounded-2xl border bg-white p-5 shadow-[0_18px_44px_-26px_rgba(15,23,42,0.22)] ring-1 transition duration-300 hover:-translate-y-1 hover:shadow-[0_30px_70px_-26px_rgba(245,180,0,0.32)] sm:p-6 ${
+          isComingSoon
+            ? "border-amber-200/80 ring-amber-100/70 hover:border-amber-300/90"
+            : "border-slate-200/70 ring-slate-100/60 hover:border-amber-200/80"
+        }`}
+      >
+        {plan.statusLabel ? (
+          <span className="absolute right-3 top-3 z-10 inline-flex items-center rounded-full border border-amber-200/90 bg-gradient-to-br from-[#FFC72C] to-[#F5B400] px-2.5 py-1 text-[0.62rem] font-bold uppercase tracking-[0.08em] text-[#0c1929] shadow-[0_8px_18px_-10px_rgba(245,180,0,0.55)] ring-1 ring-amber-200/80 sm:right-4 sm:top-4 sm:px-3 sm:py-1.5 sm:text-[0.65rem]">
+            {plan.statusLabel}
+          </span>
+        ) : null}
         <div className="relative flex h-[5rem] w-full items-center justify-center sm:h-[5.5rem]">
           <InsurancePayerLogo name={plan.name} logo={plan.logo} initials={plan.initials} />
         </div>
