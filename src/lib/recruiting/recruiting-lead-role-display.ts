@@ -24,8 +24,8 @@ export function recruitingLeadRoleBadge(input: {
     .toLowerCase();
   if (/\brn\b|registered nurse/.test(hay)) return "RN";
   if (/\blpn\b|licensed practical nurse/.test(hay)) return "LPN";
-  if (/\bpta\b|physical therapy assistant/.test(hay)) return "PTA";
-  if (/\bpt\b|physical therapist/.test(hay)) return "PT";
+  if (/\bpta\b|physical therapist assistant|physical therapy assistant/.test(hay)) return "PTA";
+  if (/\bpt\b|physical therapist(?!\s+assistant)/.test(hay)) return "PT";
   if (/\bhha\b|home health aide/.test(hay)) return "HHA";
   return "Other";
 }

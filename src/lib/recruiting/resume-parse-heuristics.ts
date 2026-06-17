@@ -9,22 +9,28 @@ const US_STATES = new Set([
   "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY", "DC",
 ]);
 
-/** Match longer tokens first (PTA before PT). */
+/**
+ * Match longer / more specific tokens first (PTA before PT; assistant titles before therapist).
+ * Priority for abbreviations: RN, LPN, CNA, PTA, PT, OT, ST, HHA.
+ */
 const DISCIPLINE_RULES: { pattern: RegExp; value: string }[] = [
-  { pattern: /\bPTA\b/i, value: "PT" },
-  { pattern: /\bOTA\b/i, value: "OT" },
-  { pattern: /\bLVN\b/i, value: "LPN" },
-  { pattern: /\bLPN\b/i, value: "LPN" },
   { pattern: /\bRN\b/i, value: "RN" },
   /** OCR often preserves degree line without "RN" token */
   { pattern: /\bBSN\b/i, value: "RN" },
+  { pattern: /\bLVN\b/i, value: "LPN" },
+  { pattern: /\bLPN\b/i, value: "LPN" },
   { pattern: /\bCNA\b/i, value: "CNA" },
+  { pattern: /\bPTA\b/i, value: "PTA" },
+  { pattern: /physical therapist assistant/i, value: "PTA" },
+  { pattern: /physical therapy assistant/i, value: "PTA" },
+  { pattern: /\bPT\b/i, value: "PT" },
+  { pattern: /\bphysical therapist\b(?!\s+assistant)/i, value: "PT" },
+  { pattern: /\bOT\b/i, value: "OT" },
+  { pattern: /\bOTA\b/i, value: "OT" },
+  { pattern: /\bST\b/i, value: "ST" },
+  { pattern: /\bSLP\b/i, value: "ST" },
   { pattern: /\bHHA\b/i, value: "HHA" },
   { pattern: /\bMSW\b/i, value: "MSW" },
-  { pattern: /\bSLP\b/i, value: "SLP" },
-  { pattern: /\bPT\b/i, value: "PT" },
-  { pattern: /\bOT\b/i, value: "OT" },
-  { pattern: /\bST\b/i, value: "ST" },
 ];
 
 const EMAIL_RE = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/;

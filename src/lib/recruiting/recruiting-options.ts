@@ -9,6 +9,7 @@ export const RECRUITING_DISCIPLINE_OPTIONS = [
   "LPN",
   "CNA",
   "PT",
+  "PTA",
   "OT",
   "ST",
   "HHA",
