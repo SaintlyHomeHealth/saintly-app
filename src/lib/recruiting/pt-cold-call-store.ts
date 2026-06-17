@@ -35,6 +35,8 @@ const CALLED_STATUSES = new Set<string>([
   "Asked for Manager",
   "Interested",
   "Candidate Identified",
+  "Send Application",
+  "Waiting on Rates",
   "Interview Scheduled",
   "Hired",
   "Not Interested",
@@ -127,11 +129,15 @@ export type QuickAddResult =
   | { ok: true; target_id: string; clinic_name: string }
   | { ok: false; error: string; duplicate?: QuickAddDuplicate };
 
-function googleMapsUrlForPlace(placeId: string | null | undefined, fallbackAddress: string): string | null {
+function googleMapsUrlForPlace(
+  placeId: string | null | undefined,
+  clinicName: string,
+  fallbackAddress: string
+): string | null {
   const id = (placeId ?? "").trim();
   if (id) return `https://www.google.com/maps/place/?q=place_id:${encodeURIComponent(id)}`;
-  const addr = fallbackAddress.trim();
-  if (addr) return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addr)}`;
+  const q = fallbackAddress.trim() || clinicName.trim();
+  if (q) return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`;
   return null;
 }
 
@@ -197,7 +203,8 @@ export async function quickAddColdCallTarget(
   const now = new Date().toISOString();
 
   const googleMapsUrl =
-    (input.google_maps_url ?? "").trim() || googleMapsUrlForPlace(input.google_place_id, formatted_address);
+    (input.google_maps_url ?? "").trim() ||
+    googleMapsUrlForPlace(input.google_place_id, clinic_name, formatted_address);
 
   const { data, error } = await supabaseAdmin
     .from("recruiting_call_targets")

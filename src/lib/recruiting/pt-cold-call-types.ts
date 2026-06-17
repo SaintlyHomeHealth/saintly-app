@@ -89,6 +89,7 @@ export type PtColdCallSearchResult = {
   google_rating: number | null;
   google_review_count: number | null;
   google_maps_url: string;
+  has_address: boolean;
   distance_miles: number | null;
   distance_label: string;
   // Dedup against existing PT cold-call targets.
@@ -106,7 +107,9 @@ export type PtColdCallSearchResponse = {
   results: PtColdCallSearchResult[];
   google_places_configured: boolean;
   normalized_query: {
+    search_mode: "zip_nearby" | "keyword";
     search_type: string;
+    keyword: string | null;
     zip_code: string | null;
     radius_miles: number | null;
   };

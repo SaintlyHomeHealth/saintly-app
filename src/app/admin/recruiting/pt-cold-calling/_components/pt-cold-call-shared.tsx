@@ -33,6 +33,7 @@ export function statusBadgeClass(status: string): string {
       return `${base} bg-sky-50 text-sky-900 ring-sky-200`;
     case "Call Today":
     case "Follow Up":
+    case "Waiting on Rates":
       return `${base} bg-amber-50 text-amber-950 ring-amber-200`;
     case "Do Not Call":
     case "Bad Number":

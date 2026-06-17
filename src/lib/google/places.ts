@@ -96,6 +96,8 @@ export async function searchGooglePlaces(opts: {
   longitude?: number | null;
   radiusMiles?: number;
   maxResults?: number;
+  /** When false, include listings with a name + place id but no formatted address (PT keyword search). Default true for facilities. */
+  requireFormattedAddress?: boolean;
 }): Promise<GooglePlacesSearchResponse> {
   const apiKey = getGooglePlacesApiKey();
   if (!apiKey) {
@@ -178,6 +180,7 @@ export async function searchGooglePlaces(opts: {
     return { results: [], error: "upstream_error" };
   }
 
+  const requireAddress = opts.requireFormattedAddress !== false;
   const results: GooglePlacesSearchResult[] = [];
   for (const place of json.places ?? []) {
     const rawId = (place.id ?? "").trim();
@@ -185,9 +188,12 @@ export async function searchGooglePlaces(opts: {
     const google_place_id = rawId.startsWith("places/") ? rawId.slice("places/".length) : rawId;
     const name = (place.displayName?.text ?? "").trim();
     const formatted_address = (place.formattedAddress ?? "").trim();
-    if (!name || !formatted_address) continue;
+    if (!name) continue;
+    if (requireAddress && !formatted_address) continue;
 
-    const parsed = parseUsFormattedAddress(formatted_address);
+    const parsed = formatted_address
+      ? parseUsFormattedAddress(formatted_address)
+      : { address_line_1: "", city: "", state: "", zip: "" };
     const categories = place.types ?? [];
     const phone =
       (place.nationalPhoneNumber ?? place.internationalPhoneNumber ?? "").trim() || null;

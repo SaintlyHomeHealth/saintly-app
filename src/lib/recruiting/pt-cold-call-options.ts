@@ -14,6 +14,7 @@ export const PT_COLD_CALL_STATUSES = [
   "Candidate Identified",
   "Send Application",
   "Follow Up",
+  "Waiting on Rates",
   "Interview Scheduled",
   "Hired",
   "Not Interested",
@@ -45,6 +46,7 @@ export const PT_COLD_CALL_OUTCOMES = [
   "Not Interested",
   "Wrong Number",
   "Asked to Call Back",
+  "Waiting on Rates",
   "Other",
 ] as const;
 
@@ -101,6 +103,7 @@ export const PT_COLD_CALL_QUICK_ACTIONS: readonly PtColdCallQuickAction[] = [
   { id: "interested", label: "Interested", status: "Interested", countsAsCall: true, outcome: "Interested" },
   { id: "candidate", label: "Candidate Identified", status: "Candidate Identified", countsAsCall: true },
   { id: "send_application", label: "Send Application", status: "Send Application", countsAsCall: false },
+  { id: "waiting_on_rates", label: "Waiting on Rates", status: "Waiting on Rates", countsAsCall: true, outcome: "Waiting on Rates" },
   { id: "not_interested", label: "Not Interested", status: "Not Interested", countsAsCall: true, outcome: "Not Interested" },
   { id: "bad_number", label: "Bad Number", status: "Bad Number", countsAsCall: true, outcome: "Wrong Number" },
   { id: "do_not_call", label: "Do Not Call", status: "Do Not Call", countsAsCall: false, doNotCall: true },

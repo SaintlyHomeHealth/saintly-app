@@ -3,11 +3,12 @@
  * matching rules stay consistent across the app, but matches against the dedicated
  * recruiting_call_targets pipeline (NOT facilities).
  *
- * Priority: google_place_id > normalized phone > website domain > normalized name + address/city.
+ * Priority: google_place_id > normalized phone > website domain > normalized business name > address (optional).
  */
 
 import {
   normalizeAddressKey,
+  normalizeFacilityName,
   normalizePhoneDigits,
   normalizeWebsite,
   sameCity,
@@ -76,6 +77,7 @@ export function matchExternalAgainstTargets(
   const extPhone = normalizePhoneDigits(external.phone);
   const extAddr = normalizeAddressKey(external.formatted_address);
   const extDomain = websiteDomain(external.website);
+  const extName = normalizeFacilityName(external.clinic_name);
 
   let bestPossible: PtColdCallMatchResult | null = null;
 
@@ -112,15 +114,21 @@ export function matchExternalAgainstTargets(
       return strong(t, 0.95, "Already in PT Cold Calling (phone match)");
     }
 
-    const tAddr = normalizeAddressKey(t.address ?? "");
-    if (extAddr.length >= 12 && tAddr.length >= 12 && extAddr === tAddr) {
-      return strong(t, 0.92, "Already in PT Cold Calling (address match)");
-    }
-
     const tDomain = (t.website_domain ?? "").trim();
     if (extDomain && tDomain && extDomain === tDomain) {
       const candidate = possible(t, 0.85, "Possible match by website");
       if (!bestPossible || candidate.match_confidence > bestPossible.match_confidence) bestPossible = candidate;
+    }
+
+    const tName = normalizeFacilityName(t.clinic_name);
+    if (extName.length >= 4 && tName.length >= 4 && extName === tName) {
+      const candidate = possible(t, 0.88, "Possible match by business name");
+      if (!bestPossible || candidate.match_confidence > bestPossible.match_confidence) bestPossible = candidate;
+    }
+
+    const tAddr = normalizeAddressKey(t.address ?? "");
+    if (extAddr.length >= 12 && tAddr.length >= 12 && extAddr === tAddr) {
+      return strong(t, 0.92, "Already in PT Cold Calling (address match)");
     }
 
     if (similarFacilityNames(external.clinic_name, t.clinic_name) && sameCity(external.city, t.city)) {
@@ -134,7 +142,12 @@ export function matchExternalAgainstTargets(
       tAddr.length >= 10 &&
       (extAddr.includes(tAddr.slice(0, 10)) || tAddr.includes(extAddr.slice(0, 10)))
     ) {
-      const candidate = possible(t, 0.78, "Possible match by name + address");
+      const candidate = possible(t, 0.78, "Possible match by similar name and address");
+      if (!bestPossible || candidate.match_confidence > bestPossible.match_confidence) bestPossible = candidate;
+    }
+
+    if (similarFacilityNames(external.clinic_name, t.clinic_name) && extAddr.length < 12 && tAddr.length < 12) {
+      const candidate = possible(t, 0.72, "Possible match by similar business name");
       if (!bestPossible || candidate.match_confidence > bestPossible.match_confidence) bestPossible = candidate;
     }
   }

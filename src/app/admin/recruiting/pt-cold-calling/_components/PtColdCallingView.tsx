@@ -15,6 +15,13 @@ import {
   getQuickActionById,
   type PtColdCallFilterId,
 } from "@/lib/recruiting/pt-cold-call-options";
+import {
+  PT_COLD_CALL_SEARCH_MODE_KEYWORD,
+  PT_COLD_CALL_SEARCH_MODE_ZIP,
+  PT_COLD_CALL_SEARCH_TYPE_ANY,
+  ptColdCallDisplayAddress,
+  type PtColdCallSearchMode,
+} from "@/lib/recruiting/pt-cold-call-google";
 import { ptColdCallMatchesFilter } from "@/lib/recruiting/pt-cold-call-filters";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import {
@@ -110,7 +117,9 @@ function ResultCard({
         </div>
       </div>
 
-      <p className="mt-2 text-sm text-slate-700">{item.formatted_address}</p>
+      <p className={`mt-2 text-sm ${item.has_address ? "text-slate-700" : "italic text-slate-500"}`}>
+        {ptColdCallDisplayAddress(item.formatted_address)}
+      </p>
       {item.phone ? <p className="mt-1 text-sm text-slate-700">{formatPhoneForDisplay(item.phone)}</p> : null}
       {site ? (
         <a href={site} target="_blank" rel="noreferrer" className="mt-1 block truncate text-sm text-sky-800 underline">
@@ -176,6 +185,7 @@ function ResultCard({
 }
 
 export function PtColdCallingView() {
+  const [searchMode, setSearchMode] = useState<PtColdCallSearchMode>(PT_COLD_CALL_SEARCH_MODE_ZIP);
   const [searchType, setSearchType] = useState<string>(PT_COLD_CALL_SEARCH_TYPES[0]);
   const [keyword, setKeyword] = useState("");
   const [zip, setZip] = useState("");
@@ -218,13 +228,31 @@ export function PtColdCallingView() {
   }, [loadTargets]);
 
   const runSearch = useCallback(async () => {
+    if (searchMode === PT_COLD_CALL_SEARCH_MODE_KEYWORD && !keyword.trim()) {
+      setSearchData({
+        results: [],
+        google_places_configured: true,
+        normalized_query: {
+          search_mode: searchMode,
+          search_type: searchType,
+          keyword: null,
+          zip_code: zip.trim() || null,
+          radius_miles: radiusValueToMiles(radius),
+        },
+        errors: ["Enter a business name or keyword (e.g. “At Home Therapy” or “physical therapy phoenix in home”)."],
+      });
+      return;
+    }
+
     setSearching(true);
     try {
       const res = await fetch("/api/recruiting/pt-cold-calling/search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          search_type: searchType,
+          search_mode: searchMode,
+          search_type:
+            searchMode === PT_COLD_CALL_SEARCH_MODE_KEYWORD ? PT_COLD_CALL_SEARCH_TYPE_ANY : searchType,
           keyword: keyword.trim() || undefined,
           zip_code: zip.trim() || undefined,
           radius_miles: radiusValueToMiles(radius),
@@ -237,13 +265,19 @@ export function PtColdCallingView() {
       setSearchData({
         results: [],
         google_places_configured: true,
-        normalized_query: { search_type: searchType, zip_code: zip.trim() || null, radius_miles: radiusValueToMiles(radius) },
+        normalized_query: {
+          search_mode: searchMode,
+          search_type: searchType,
+          keyword: keyword.trim() || null,
+          zip_code: zip.trim() || null,
+          radius_miles: radiusValueToMiles(radius),
+        },
         errors: ["Network error. Check your connection and try again."],
       });
     } finally {
       setSearching(false);
     }
-  }, [searchType, keyword, zip, radius, maxResults]);
+  }, [searchMode, searchType, keyword, zip, radius, maxResults]);
 
   function handleQuickAddSaved(placeId: string, targetId: string, name: string) {
     setSavedPlaceIds((prev) => ({ ...prev, [placeId]: targetId }));
@@ -332,10 +366,56 @@ export function PtColdCallingView() {
 
       {/* Search panel */}
       <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-        <h2 className="text-sm font-bold uppercase tracking-wide text-slate-500">Find clinics to call</h2>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-bold uppercase tracking-wide text-slate-500">Find clinics to call</h2>
+          <div className="flex rounded-xl border border-slate-200 bg-slate-50 p-0.5">
+            <button
+              type="button"
+              onClick={() => setSearchMode(PT_COLD_CALL_SEARCH_MODE_ZIP)}
+              className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                searchMode === PT_COLD_CALL_SEARCH_MODE_ZIP
+                  ? "bg-white text-sky-900 shadow-sm"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              ZIP / nearby
+            </button>
+            <button
+              type="button"
+              onClick={() => setSearchMode(PT_COLD_CALL_SEARCH_MODE_KEYWORD)}
+              className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                searchMode === PT_COLD_CALL_SEARCH_MODE_KEYWORD
+                  ? "bg-white text-sky-900 shadow-sm"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              Keyword / name
+            </button>
+          </div>
+        </div>
+
+        <label className="block text-xs font-medium text-slate-600">
+          {searchMode === PT_COLD_CALL_SEARCH_MODE_KEYWORD
+            ? "Business name or keyword"
+            : "Keyword (optional)"}
+          <input
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void runSearch();
+            }}
+            placeholder={
+              searchMode === PT_COLD_CALL_SEARCH_MODE_KEYWORD
+                ? 'e.g. "At Home Therapy", "physical therapy phoenix in home"'
+                : "e.g. pediatric, hand therapy"
+            }
+            className={`${inputCls} mt-1`}
+          />
+        </label>
+
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           <label className="block text-xs font-medium text-slate-600">
-            ZIP code
+            ZIP code {searchMode === PT_COLD_CALL_SEARCH_MODE_KEYWORD ? "(optional — location bias)" : ""}
             <input
               inputMode="numeric"
               value={zip}
@@ -343,13 +423,19 @@ export function PtColdCallingView() {
               onKeyDown={(e) => {
                 if (e.key === "Enter") void runSearch();
               }}
-              placeholder="85284"
+              placeholder="85282"
               className={`${inputCls} mt-1`}
             />
           </label>
           <label className="block text-xs font-medium text-slate-600">
             Search type
-            <select value={searchType} onChange={(e) => setSearchType(e.target.value)} className={`${inputCls} mt-1`}>
+            <select
+              value={searchType}
+              onChange={(e) => setSearchType(e.target.value)}
+              disabled={searchMode === PT_COLD_CALL_SEARCH_MODE_KEYWORD}
+              className={`${inputCls} mt-1 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500`}
+            >
+              <option value={PT_COLD_CALL_SEARCH_TYPE_ANY}>Any / Blank</option>
               {PT_COLD_CALL_SEARCH_TYPES.map((t) => (
                 <option key={t} value={t}>
                   {t}
@@ -358,15 +444,14 @@ export function PtColdCallingView() {
             </select>
           </label>
         </div>
-        <label className="block text-xs font-medium text-slate-600">
-          Extra keyword (optional)
-          <input
-            value={keyword}
-            onChange={(e) => setKeyword(e.target.value)}
-            placeholder="e.g. pediatric, hand therapy"
-            className={`${inputCls} mt-1`}
-          />
-        </label>
+
+        {searchMode === PT_COLD_CALL_SEARCH_MODE_KEYWORD ? (
+          <p className="text-xs text-slate-500">
+            Searches Google for your exact keyword or business name. ZIP and radius only bias results — they won&apos;t
+            hide listings without an address.
+          </p>
+        ) : null}
+
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-xs font-medium text-slate-500">Radius</span>
           <FacilityRadiusSelect value={radius} onChange={setRadius} className={selectCls} />

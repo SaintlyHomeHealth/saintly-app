@@ -8,6 +8,15 @@ import {
 import { formatDistanceMiles, isValidGeoPoint, type GeoPoint } from "@/lib/crm/facility-geolocation";
 import { searchGooglePlaces, isGooglePlacesConfigured } from "@/lib/google/places";
 import { geocodeAddressWithMapbox } from "@/lib/mapbox/geocode-address";
+import {
+  buildPtColdCallTextQuery,
+  isPtColdCallSearchMode,
+  PT_COLD_CALL_SEARCH_MODE_KEYWORD,
+  PT_COLD_CALL_SEARCH_MODE_ZIP,
+  PT_COLD_CALL_SEARCH_TYPE_ANY,
+  ptColdCallGoogleMapsUrl,
+  ptColdCallPlaceHasAddress,
+} from "@/lib/recruiting/pt-cold-call-google";
 import { matchExternalAgainstTargets } from "@/lib/recruiting/pt-cold-call-match";
 import { fetchTargetsForMatch, fetchLatestLog } from "@/lib/recruiting/pt-cold-call-store";
 import { PT_COLD_CALL_SEARCH_TYPES } from "@/lib/recruiting/pt-cold-call-options";
@@ -15,6 +24,7 @@ import type { PtColdCallSearchResponse, PtColdCallSearchResult } from "@/lib/rec
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 
 type SearchRequestBody = {
+  search_mode?: string;
   search_type?: string;
   keyword?: string;
   zip_code?: string;
@@ -23,11 +33,6 @@ type SearchRequestBody = {
   longitude?: number | null;
   max_results?: number;
 };
-
-function googleMapsUrlForPlace(placeId: string, fallbackAddress: string): string {
-  if (placeId.trim()) return `https://www.google.com/maps/place/?q=place_id:${encodeURIComponent(placeId.trim())}`;
-  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(fallbackAddress)}`;
-}
 
 export async function POST(req: Request) {
   const staff = await getStaffProfile();
@@ -42,22 +47,52 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
   }
 
-  const searchTypeRaw = (body.search_type ?? "").trim();
-  const searchType = PT_COLD_CALL_SEARCH_TYPES.includes(searchTypeRaw as (typeof PT_COLD_CALL_SEARCH_TYPES)[number])
-    ? searchTypeRaw
-    : "Physical therapy clinic";
+  const searchModeRaw = (body.search_mode ?? PT_COLD_CALL_SEARCH_MODE_ZIP).trim();
+  const searchMode = isPtColdCallSearchMode(searchModeRaw) ? searchModeRaw : PT_COLD_CALL_SEARCH_MODE_ZIP;
+
+  const searchTypeRaw = (body.search_type ?? PT_COLD_CALL_SEARCH_TYPE_ANY).trim();
+  const searchType =
+    searchTypeRaw === PT_COLD_CALL_SEARCH_TYPE_ANY
+      ? PT_COLD_CALL_SEARCH_TYPE_ANY
+      : PT_COLD_CALL_SEARCH_TYPES.includes(searchTypeRaw as (typeof PT_COLD_CALL_SEARCH_TYPES)[number])
+        ? searchTypeRaw
+        : PT_COLD_CALL_SEARCH_TYPE_ANY;
+
   const keyword = (body.keyword ?? "").trim();
   const zip = (body.zip_code ?? "").trim();
   const radiusMiles = normalizeRadiusMiles(body.radius_miles ?? 10);
   const maxResults = [10, 20, 40].includes(body.max_results ?? 20) ? (body.max_results as number) : 20;
 
+  const textQuery = buildPtColdCallTextQuery({
+    search_mode: searchMode,
+    keyword,
+    search_type: searchType,
+    zip_code: zip,
+  });
+
   const errors: string[] = [];
   const googleConfigured = isGooglePlacesConfigured();
 
-  const base = keyword || searchType;
-  const textQuery = zip ? `${base} in ${zip}` : base;
+  if (!textQuery) {
+    const hint =
+      searchMode === PT_COLD_CALL_SEARCH_MODE_KEYWORD
+        ? "Enter a business name or keyword to search (e.g. “At Home Therapy” or “physical therapy phoenix in home”)."
+        : "Enter a ZIP code, keyword, or search type to run a nearby clinic search.";
+    return NextResponse.json({
+      results: [],
+      google_places_configured: googleConfigured,
+      normalized_query: {
+        search_mode: searchMode,
+        search_type: searchType,
+        keyword: keyword || null,
+        zip_code: zip || null,
+        radius_miles: radiusMiles,
+      },
+      errors: [hint],
+    } satisfies PtColdCallSearchResponse);
+  }
 
-  // Resolve a center point for radius bias / distance: explicit coords win, else geocode the ZIP.
+  // Location bias center: explicit coords, or geocoded ZIP when provided.
   let agentLocation: GeoPoint | null =
     typeof body.latitude === "number" &&
     typeof body.longitude === "number" &&
@@ -74,7 +109,13 @@ export async function POST(req: Request) {
     const payload: PtColdCallSearchResponse = {
       results: [],
       google_places_configured: false,
-      normalized_query: { search_type: searchType, zip_code: zip || null, radius_miles: radiusMiles },
+      normalized_query: {
+        search_mode: searchMode,
+        search_type: searchType,
+        keyword: keyword || null,
+        zip_code: zip || null,
+        radius_miles: radiusMiles,
+      },
       errors: ["Google Places is not configured yet. Add GOOGLE_PLACES_API_KEY to enable clinic search."],
     };
     return NextResponse.json(payload);
@@ -86,6 +127,7 @@ export async function POST(req: Request) {
     longitude: agentLocation?.longitude ?? null,
     radiusMiles: radiusMiles ?? undefined,
     maxResults,
+    requireFormattedAddress: false,
   });
 
   if (googleSearch.error) {
@@ -99,16 +141,24 @@ export async function POST(req: Request) {
   }
 
   const targets = await fetchTargetsForMatch();
+  const hardRadiusFilter = searchMode === PT_COLD_CALL_SEARCH_MODE_ZIP;
 
   const results: PtColdCallSearchResult[] = [];
   for (const place of googleSearch.results) {
+    // Keyword mode: ZIP/radius is bias only — never drop results outside the circle.
+    // ZIP mode: only apply radius when the listing has coordinates.
     if (
+      hardRadiusFilter &&
       radiusMiles != null &&
       agentLocation &&
+      place.latitude != null &&
+      place.longitude != null &&
       !isWithinRadiusMiles(agentLocation, radiusMiles, place.latitude, place.longitude)
     ) {
       continue;
     }
+
+    const hasAddress = ptColdCallPlaceHasAddress(place);
 
     const match = matchExternalAgainstTargets(
       {
@@ -144,7 +194,8 @@ export async function POST(req: Request) {
       longitude: place.longitude,
       google_rating: place.rating,
       google_review_count: place.review_count,
-      google_maps_url: googleMapsUrlForPlace(place.google_place_id, place.formatted_address),
+      google_maps_url: ptColdCallGoogleMapsUrl(place.google_place_id, place.name, place.formatted_address),
+      has_address: hasAddress,
       distance_miles: distanceMiles,
       distance_label: formatDistanceMiles(distanceMiles),
       match_status: match.match_status,
@@ -168,13 +219,23 @@ export async function POST(req: Request) {
   }
 
   if (results.length === 0 && errors.length === 0) {
-    errors.push("No clinics found. Try a wider radius, a different ZIP, or another search type.");
+    errors.push(
+      searchMode === PT_COLD_CALL_SEARCH_MODE_KEYWORD
+        ? "No results for that keyword. Try the exact business name or a broader phrase."
+        : "No clinics found. Try a wider radius, a different ZIP, or switch to keyword search."
+    );
   }
 
   const payload: PtColdCallSearchResponse = {
     results,
     google_places_configured: googleConfigured,
-    normalized_query: { search_type: searchType, zip_code: zip || null, radius_miles: radiusMiles },
+    normalized_query: {
+      search_mode: searchMode,
+      search_type: searchType,
+      keyword: keyword || null,
+      zip_code: zip || null,
+      radius_miles: radiusMiles,
+    },
     errors,
   };
 
