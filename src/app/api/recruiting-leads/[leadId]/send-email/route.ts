@@ -21,6 +21,9 @@ type Body = {
   template_id?: string;
   subject?: string;
   body?: string;
+  visit_rate?: string;
+  soc_rate?: string;
+  pay_summary?: string;
 };
 
 export async function POST(req: NextRequest, ctx: { params: Promise<{ leadId: string }> }) {
@@ -65,15 +68,22 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ leadId: st
     return NextResponse.json({ ok: false, error: "missing_lead_email" }, { status: 400 });
   }
 
-  const variables = buildRecruitingEmailVariables({
-    full_name: String(lead.full_name ?? ""),
-    phone: lead.phone,
-    email: lead.email,
-    city: lead.city,
-    license_status: lead.license_status,
-    lead_type: lead.lead_type,
-    form_name: lead.form_name,
-  });
+  const variables = buildRecruitingEmailVariables(
+    {
+      full_name: String(lead.full_name ?? ""),
+      phone: lead.phone,
+      email: lead.email,
+      city: lead.city,
+      license_status: lead.license_status,
+      lead_type: lead.lead_type,
+      form_name: lead.form_name,
+    },
+    {
+      visit_rate: typeof body.visit_rate === "string" ? body.visit_rate : undefined,
+      soc_rate: typeof body.soc_rate === "string" ? body.soc_rate : undefined,
+      pay_summary: typeof body.pay_summary === "string" ? body.pay_summary : undefined,
+    }
+  );
 
   const subject = renderRecruitingEmailTemplate(subjectRaw, variables);
   const renderedBody = renderRecruitingEmailTemplate(bodyRaw, variables);

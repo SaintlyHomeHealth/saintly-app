@@ -1,6 +1,8 @@
 export type RecruitingEmailTemplateId =
-  | "lpn_follow_up"
   | "rn_follow_up"
+  | "pt_follow_up"
+  | "pta_follow_up"
+  | "lpn_follow_up"
   | "interview_scheduling"
   | "missing_documents";
 
@@ -8,11 +10,11 @@ export type RecruitingEmailTemplateVariableKey =
   | "first_name"
   | "full_name"
   | "role"
+  | "visit_rate"
+  | "soc_rate"
+  | "pay_summary"
   | "phone"
-  | "email"
-  | "city"
-  | "pay_rate"
-  | "soc_rate";
+  | "email";
 
 export type RecruitingEmailTemplateDefinition = {
   id: RecruitingEmailTemplateId;
@@ -21,48 +23,53 @@ export type RecruitingEmailTemplateDefinition = {
   body: string;
 };
 
+const ROLE_FOLLOW_UP_BODY = `Hi {{first_name}},
+
+Thank you for your interest in {{role}} visit opportunities with Saintly Home Health.
+
+We are currently offering {{pay_summary}}.
+
+If you are still interested, please reply to this email with a good time for a quick call so we can discuss your availability, experience, and next steps.
+
+Best regards,
+Saintly Home Health Recruiting`;
+
 export const RECRUITING_EMAIL_TEMPLATES: RecruitingEmailTemplateDefinition[] = [
+  {
+    id: "rn_follow_up",
+    label: "RN follow-up ($60–$80/visit, $110 SOC)",
+    subject: "RN visit opportunities with Saintly Home Health",
+    body: ROLE_FOLLOW_UP_BODY.replace("{{role}}", "RN"),
+  },
+  {
+    id: "pt_follow_up",
+    label: "PT follow-up ($80/visit, $110 SOC)",
+    subject: "PT visit opportunities with Saintly Home Health",
+    body: ROLE_FOLLOW_UP_BODY.replace("{{role}}", "PT"),
+  },
+  {
+    id: "pta_follow_up",
+    label: "PTA follow-up ($60/visit)",
+    subject: "PTA visit opportunities with Saintly Home Health",
+    body: ROLE_FOLLOW_UP_BODY.replace("{{role}}", "PTA"),
+  },
   {
     id: "lpn_follow_up",
     label: "LPN follow-up ($60/visit)",
-    subject: "LPN opportunities with Saintly Home Health",
-    body: `Hi {{first_name}},
-
-Thank you for your interest in LPN visit opportunities with Saintly Home Health.
-
-We are currently offering {{pay_rate}} per visit for qualified LPNs in {{city}}.
-
-If you are still interested, please reply to this email or call us at your convenience so we can discuss next steps.
-
-Best regards,
-Saintly Home Health Recruiting`,
-  },
-  {
-    id: "rn_follow_up",
-    label: "RN follow-up ($80/visit, $110 SOC)",
-    subject: "RN opportunities with Saintly Home Health",
-    body: `Hi {{first_name}},
-
-Thank you for your interest in RN visit opportunities with Saintly Home Health.
-
-We are currently offering {{pay_rate}} per visit and {{soc_rate}} for start-of-care visits for qualified RNs in {{city}}.
-
-If you are still interested, please reply to this email or call us at your convenience so we can discuss next steps.
-
-Best regards,
-Saintly Home Health Recruiting`,
+    subject: "LPN visit opportunities with Saintly Home Health",
+    body: ROLE_FOLLOW_UP_BODY.replace("{{role}}", "LPN"),
   },
   {
     id: "interview_scheduling",
     label: "Interview / call scheduling",
-    subject: "Schedule a recruiting call — Saintly Home Health",
+    subject: "Saintly Home Health — quick call",
     body: `Hi {{first_name}},
 
 Thank you again for applying for our {{role}} opportunity with Saintly Home Health.
 
 We would like to schedule a brief phone call to learn more about your experience and availability.
 
-Please reply with a few times that work for you this week, or call us at {{phone}} if you prefer.
+Please reply with a good time for a quick call, or call us at {{phone}} if you prefer.
 
 We look forward to speaking with you.
 
@@ -72,7 +79,7 @@ Saintly Home Health Recruiting`,
   {
     id: "missing_documents",
     label: "Missing documents",
-    subject: "Documents needed — Saintly Home Health application",
+    subject: "Saintly Home Health — missing documents",
     body: `Hi {{first_name}},
 
 Thank you for your interest in joining Saintly Home Health as a {{role}}.

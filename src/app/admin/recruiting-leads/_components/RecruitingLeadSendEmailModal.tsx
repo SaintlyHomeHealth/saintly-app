@@ -4,10 +4,16 @@ import { useMemo, useState } from "react";
 
 import { crmFilterInputCls, crmPrimaryCtaCls } from "@/components/admin/crm-admin-list-styles";
 import {
+  buildRecruitingPaySummary,
+  getRecruitingEmailPayDefaultsForTemplate,
+  recruitingEmailTemplateUsesPayFields,
+} from "@/lib/recruiting/recruiting-email-pay";
+import {
   RECRUITING_EMAIL_TEMPLATES,
   type RecruitingEmailTemplateId,
 } from "@/lib/recruiting/recruiting-email-templates";
 import { buildRecruitingEmailHtml } from "@/lib/recruiting/recruiting-email-signature";
+import { renderRecruitingEmailTemplate } from "@/lib/recruiting/render-recruiting-email-template";
 
 type Props = {
   leadId: string;
@@ -17,9 +23,9 @@ type Props = {
   onSent: () => void;
 };
 
-function renderPreview(template: string, variables: Record<string, string>): string {
-  return template.replace(/\{\{\s*([a-z_]+)\s*\}\}/gi, (_m, key: string) => variables[key.trim().toLowerCase()] ?? "");
-}
+const DEFAULT_TEMPLATE_ID: RecruitingEmailTemplateId = "rn_follow_up";
+const defaultPay = getRecruitingEmailPayDefaultsForTemplate(DEFAULT_TEMPLATE_ID)!;
+const defaultTemplate = RECRUITING_EMAIL_TEMPLATES[0]!;
 
 export function RecruitingLeadSendEmailModal({
   leadId,
@@ -28,13 +34,17 @@ export function RecruitingLeadSendEmailModal({
   onClose,
   onSent,
 }: Props) {
-  const [templateId, setTemplateId] = useState<RecruitingEmailTemplateId>("lpn_follow_up");
-  const [subject, setSubject] = useState(RECRUITING_EMAIL_TEMPLATES[0]!.subject);
-  const [body, setBody] = useState(RECRUITING_EMAIL_TEMPLATES[0]!.body);
+  const [templateId, setTemplateId] = useState<RecruitingEmailTemplateId>(DEFAULT_TEMPLATE_ID);
+  const [subject, setSubject] = useState(defaultTemplate.subject);
+  const [body, setBody] = useState(defaultTemplate.body);
+  const [visitRate, setVisitRate] = useState(defaultPay.visitRate);
+  const [socRate, setSocRate] = useState(defaultPay.socRate);
+  const [paySummary, setPaySummary] = useState(defaultPay.paySummary);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const templateOptions = useMemo(() => RECRUITING_EMAIL_TEMPLATES, []);
+  const showPayFields = recruitingEmailTemplateUsesPayFields(templateId);
+  const showSocRate = showPayFields && getRecruitingEmailPayDefaultsForTemplate(templateId)?.includeSoc;
 
   function applyTemplate(id: RecruitingEmailTemplateId) {
     const tpl = RECRUITING_EMAIL_TEMPLATES.find((t) => t.id === id);
@@ -42,7 +52,31 @@ export function RecruitingLeadSendEmailModal({
     setTemplateId(id);
     setSubject(tpl.subject);
     setBody(tpl.body);
+    const payDefaults = getRecruitingEmailPayDefaultsForTemplate(id);
+    if (payDefaults) {
+      setVisitRate(payDefaults.visitRate);
+      setSocRate(payDefaults.socRate);
+      setPaySummary(payDefaults.paySummary);
+    }
     setError(null);
+  }
+
+  function updateVisitRate(value: string) {
+    setVisitRate(value);
+    const payDefaults = getRecruitingEmailPayDefaultsForTemplate(templateId);
+    if (payDefaults?.includeSoc) {
+      setPaySummary(buildRecruitingPaySummary(value, socRate, true));
+    } else if (payDefaults) {
+      setPaySummary(buildRecruitingPaySummary(value, "", false));
+    }
+  }
+
+  function updateSocRate(value: string) {
+    setSocRate(value);
+    const payDefaults = getRecruitingEmailPayDefaultsForTemplate(templateId);
+    if (payDefaults?.includeSoc) {
+      setPaySummary(buildRecruitingPaySummary(visitRate, value, true));
+    }
   }
 
   async function handleSend() {
@@ -65,6 +99,9 @@ export function RecruitingLeadSendEmailModal({
           template_id: templateId,
           subject,
           body,
+          visit_rate: showPayFields ? visitRate : undefined,
+          soc_rate: showPayFields && showSocRate ? socRate : undefined,
+          pay_summary: showPayFields ? paySummary : undefined,
         }),
       });
       const data = (await res.json()) as { ok?: boolean; error?: string };
@@ -81,19 +118,32 @@ export function RecruitingLeadSendEmailModal({
     }
   }
 
-  const previewVars: Record<string, string> = {
-    first_name: "Alex",
-    full_name: "Alex Example",
-    role: "LPN",
-    phone: "(480) 555-0100",
-    email: recipientEmail ?? "candidate@example.com",
-    city: "Phoenix",
-    pay_rate: "$60",
-    soc_rate: "$110",
-  };
+  const previewVars: Record<string, string> = useMemo(() => {
+    const role =
+      templateId === "rn_follow_up"
+        ? "RN"
+        : templateId === "pt_follow_up"
+          ? "PT"
+          : templateId === "pta_follow_up"
+            ? "PTA"
+            : templateId === "lpn_follow_up"
+              ? "LPN"
+              : "caregiver";
+    return {
+      first_name: "Alex",
+      full_name: "Alex Example",
+      role,
+      phone: "(480) 555-0100",
+      email: recipientEmail ?? "candidate@example.com",
+      visit_rate: visitRate,
+      soc_rate: socRate,
+      pay_summary: paySummary,
+      pay_rate: visitRate,
+    };
+  }, [templateId, recipientEmail, visitRate, socRate, paySummary]);
 
-  const previewSubject = renderPreview(subject, previewVars);
-  const previewBody = renderPreview(body, previewVars);
+  const previewSubject = renderRecruitingEmailTemplate(subject, previewVars);
+  const previewBody = renderRecruitingEmailTemplate(body, previewVars);
   const previewHtml = useMemo(() => buildRecruitingEmailHtml(previewBody), [previewBody]);
 
   return (
@@ -129,13 +179,52 @@ export function RecruitingLeadSendEmailModal({
               onChange={(e) => applyTemplate(e.target.value as RecruitingEmailTemplateId)}
               className={crmFilterInputCls}
             >
-              {templateOptions.map((t) => (
+              {RECRUITING_EMAIL_TEMPLATES.map((t) => (
                 <option key={t.id} value={t.id}>
                   {t.label}
                 </option>
               ))}
             </select>
           </label>
+
+          {showPayFields ? (
+            <div className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50/80 p-3 sm:grid-cols-2">
+              <label className="flex flex-col gap-1 text-[11px] font-medium text-slate-600">
+                Visit rate
+                <input
+                  type="text"
+                  value={visitRate}
+                  onChange={(e) => updateVisitRate(e.target.value)}
+                  placeholder="e.g. $60–$80"
+                  className={crmFilterInputCls}
+                />
+              </label>
+              {showSocRate ? (
+                <label className="flex flex-col gap-1 text-[11px] font-medium text-slate-600">
+                  SOC rate
+                  <input
+                    type="text"
+                    value={socRate}
+                    onChange={(e) => updateSocRate(e.target.value)}
+                    placeholder="e.g. $110"
+                    className={crmFilterInputCls}
+                  />
+                </label>
+              ) : null}
+              <label
+                className={`flex flex-col gap-1 text-[11px] font-medium text-slate-600 ${showSocRate ? "sm:col-span-2" : ""}`}
+              >
+                Pay summary (shown in email)
+                <input
+                  type="text"
+                  value={paySummary}
+                  onChange={(e) => setPaySummary(e.target.value)}
+                  placeholder="e.g. $60 per visit and $110 for SOC"
+                  className={crmFilterInputCls}
+                />
+              </label>
+            </div>
+          ) : null}
 
           <label className="flex flex-col gap-1 text-[11px] font-medium text-slate-600">
             Subject
@@ -164,7 +253,6 @@ export function RecruitingLeadSendEmailModal({
             <p className="mt-2 text-sm font-semibold text-slate-900">{previewSubject}</p>
             <div
               className="mt-3 rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-800"
-              // Signature HTML is generated in-app (logo URL + inline styles only).
               dangerouslySetInnerHTML={{ __html: previewHtml }}
             />
           </div>

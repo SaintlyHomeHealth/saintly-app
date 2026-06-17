@@ -1,4 +1,8 @@
 import { extractRecruitingLeadFirstName } from "@/lib/recruiting/facebook-recruiting-lead-shared";
+import {
+  buildRecruitingPaySummary,
+  inferRecruitingEmailPayDefaultsForRole,
+} from "@/lib/recruiting/recruiting-email-pay";
 
 export type RecruitingLeadEmailContext = {
   full_name: string;
@@ -10,6 +14,12 @@ export type RecruitingLeadEmailContext = {
   form_name?: string | null;
 };
 
+export type RecruitingEmailPayOverrides = {
+  visit_rate?: string | null;
+  soc_rate?: string | null;
+  pay_summary?: string | null;
+};
+
 const VARIABLE_RE = /\{\{\s*([a-z_]+)\s*\}\}/gi;
 
 function inferRole(lead: RecruitingLeadEmailContext): string {
@@ -19,24 +29,25 @@ function inferRole(lead: RecruitingLeadEmailContext): string {
     .toLowerCase();
   if (/\brn\b|registered nurse/.test(hay)) return "RN";
   if (/\blpn\b|licensed practical nurse/.test(hay)) return "LPN";
-  if (/\bpt\b|physical therapist/.test(hay)) return "Physical Therapist";
+  if (/\bpta\b|physical therapy assistant/.test(hay)) return "PTA";
+  if (/\bpt\b|physical therapist/.test(hay)) return "PT";
   return lead.license_status?.trim() || lead.lead_type?.trim() || "caregiver";
 }
 
-function inferPayRates(role: string): { pay_rate: string; soc_rate: string } {
-  const r = role.toLowerCase();
-  if (r.includes("lpn")) return { pay_rate: "$60", soc_rate: "N/A" };
-  if (r.includes("rn")) return { pay_rate: "$80", soc_rate: "$110" };
-  return { pay_rate: "competitive rates", soc_rate: "competitive SOC rates" };
-}
-
 export function buildRecruitingEmailVariables(
-  lead: RecruitingLeadEmailContext
+  lead: RecruitingLeadEmailContext,
+  payOverrides?: RecruitingEmailPayOverrides
 ): Record<string, string> {
   const full_name = lead.full_name.trim() || "there";
   const first_name = extractRecruitingLeadFirstName(full_name);
   const role = inferRole(lead);
-  const { pay_rate, soc_rate } = inferPayRates(role);
+  const payDefaults = inferRecruitingEmailPayDefaultsForRole(role);
+
+  const visit_rate = payOverrides?.visit_rate?.trim() || payDefaults.visitRate;
+  const soc_rate = payOverrides?.soc_rate?.trim() || payDefaults.socRate;
+  const pay_summary =
+    payOverrides?.pay_summary?.trim() ||
+    buildRecruitingPaySummary(visit_rate, soc_rate, payDefaults.includeSoc);
 
   return {
     first_name,
@@ -44,9 +55,12 @@ export function buildRecruitingEmailVariables(
     role,
     phone: lead.phone?.trim() || "our office",
     email: lead.email?.trim() || "",
-    city: lead.city?.trim() || "your area",
-    pay_rate,
+    visit_rate,
     soc_rate,
+    pay_summary,
+    // Legacy aliases for older templates
+    pay_rate: visit_rate,
+    city: lead.city?.trim() || "",
   };
 }
 

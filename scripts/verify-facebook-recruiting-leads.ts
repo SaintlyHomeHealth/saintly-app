@@ -178,7 +178,8 @@ function testWebsiteRecruitingClassification() {
 }
 
 function testRecruitingEmailTemplates() {
-  assert.equal(RECRUITING_EMAIL_TEMPLATES.length, 4);
+  assert.equal(RECRUITING_EMAIL_TEMPLATES.length, 6);
+  const lpnTpl = RECRUITING_EMAIL_TEMPLATES.find((t) => t.id === "lpn_follow_up")!;
   const lpnVars = buildRecruitingEmailVariables({
     full_name: "Jane Doe",
     phone: "4805551234",
@@ -189,17 +190,23 @@ function testRecruitingEmailTemplates() {
     form_name: "Saintly website careers form",
   });
   assert.equal(lpnVars.first_name, "Jane");
-  assert.equal(lpnVars.pay_rate, "$60");
-  const lpnRendered = renderRecruitingEmailTemplate(RECRUITING_EMAIL_TEMPLATES[0]!.body, lpnVars);
-  assert.match(lpnRendered, /\$60/);
+  assert.equal(lpnVars.visit_rate, "$60");
+  assert.equal(lpnVars.pay_summary, "$60 per visit");
+  const lpnRendered = renderRecruitingEmailTemplate(lpnTpl.body, lpnVars);
+  assert.match(lpnRendered, /\$60 per visit/);
+  assert.doesNotMatch(lpnRendered, /Phoenix|in your area/i);
 
+  const rnTpl = RECRUITING_EMAIL_TEMPLATES.find((t) => t.id === "rn_follow_up")!;
   const rnVars = buildRecruitingEmailVariables({
     full_name: "Jane Doe",
     license_status: "RN",
     lead_type: "recruiting",
   });
-  assert.equal(rnVars.pay_rate, "$80");
+  assert.equal(rnVars.visit_rate, "$60–$80");
   assert.equal(rnVars.soc_rate, "$110");
+  assert.equal(rnVars.pay_summary, "$60–$80 per visit and $110 for SOC");
+  const rnRendered = renderRecruitingEmailTemplate(rnTpl.body, rnVars);
+  assert.match(rnRendered, /good time for a quick call/i);
 }
 
 function main() {
