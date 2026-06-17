@@ -20,6 +20,10 @@ type Props = {
   leadId: string;
   leadName: string;
   email: string | null;
+  phone?: string | null;
+  licenseStatus?: string | null;
+  leadType?: string | null;
+  formName?: string | null;
   detailHref: string;
   emailConfigured: boolean;
 };
@@ -28,6 +32,10 @@ export function RecruitingLeadActionsMenu({
   leadId,
   leadName,
   email,
+  phone,
+  licenseStatus,
+  leadType,
+  formName,
   detailHref,
   emailConfigured,
 }: Props) {
@@ -95,6 +103,14 @@ export function RecruitingLeadActionsMenu({
       {emailModalOpen ? (
         <RecruitingLeadSendEmailModal
           leadId={leadId}
+          lead={{
+            full_name: leadName,
+            phone,
+            email,
+            license_status: licenseStatus,
+            lead_type: leadType,
+            form_name: formName,
+          }}
           recipientEmail={email}
           emailConfigured={emailConfigured}
           onClose={() => setEmailModalOpen(false)}

@@ -21,6 +21,7 @@ import {
 import { normalizeRecruitingPhoneForStorage } from "../src/lib/recruiting/recruiting-contact-normalize";
 import {
   buildRecruitingEmailVariables,
+  findUnresolvedRecruitingEmailPlaceholders,
   renderRecruitingEmailTemplate,
 } from "../src/lib/recruiting/render-recruiting-email-template";
 import { RECRUITING_EMAIL_TEMPLATES } from "../src/lib/recruiting/recruiting-email-templates";
@@ -194,19 +195,36 @@ function testRecruitingEmailTemplates() {
   assert.equal(lpnVars.pay_summary, "$60 per visit");
   const lpnRendered = renderRecruitingEmailTemplate(lpnTpl.body, lpnVars);
   assert.match(lpnRendered, /\$60 per visit/);
-  assert.doesNotMatch(lpnRendered, /Phoenix|in your area/i);
+  assert.match(lpnRendered, /Hi Jane,/);
+  assert.doesNotMatch(lpnRendered, /Phoenix|in your area|in {{city}}/i);
+
+  assert.deepEqual(
+    findUnresolvedRecruitingEmailPlaceholders("Hi {{first_name}}, still {{pay_summary}}"),
+    ["{{first_name}}", "{{pay_summary}}"]
+  );
+  assert.equal(findUnresolvedRecruitingEmailPlaceholders("Hi Brad, all good.").length, 0);
 
   const rnTpl = RECRUITING_EMAIL_TEMPLATES.find((t) => t.id === "rn_follow_up")!;
   const rnVars = buildRecruitingEmailVariables({
     full_name: "Jane Doe",
     license_status: "RN",
     lead_type: "recruiting",
-  });
+  }, { template_id: "rn_follow_up" });
   assert.equal(rnVars.visit_rate, "$60–$80");
   assert.equal(rnVars.soc_rate, "$110");
-  assert.equal(rnVars.pay_summary, "$60–$80 per visit and $110 for SOC");
+  assert.match(
+    rnVars.pay_summary,
+    /starting at \$60 per visit, with higher rates up to \$80/
+  );
+  assert.match(rnVars.pay_summary, /\$110/);
   const rnRendered = renderRecruitingEmailTemplate(rnTpl.body, rnVars);
   assert.match(rnRendered, /good time for a quick call/i);
+  assert.match(rnRendered, /Hi Jane,/);
+
+  const bradVars = buildRecruitingEmailVariables({ full_name: "Brad Mizokami", license_status: "RN" });
+  assert.equal(bradVars.first_name, "Brad");
+  const bradGreeting = renderRecruitingEmailTemplate("Hi {{first_name}},", bradVars);
+  assert.equal(bradGreeting, "Hi Brad,");
 }
 
 function main() {

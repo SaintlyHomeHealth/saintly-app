@@ -8,9 +8,11 @@ import {
 } from "@/lib/recruiting/recruiting-lead-activities";
 import {
   buildRecruitingEmailVariables,
+  findUnresolvedRecruitingEmailPlaceholders,
   renderRecruitingEmailTemplate,
 } from "@/lib/recruiting/render-recruiting-email-template";
 import { prepareRecruitingEmailPayload } from "@/lib/recruiting/recruiting-email-signature";
+import type { RecruitingEmailTemplateId } from "@/lib/recruiting/recruiting-email-templates";
 import { sendRecruitingEmail } from "@/lib/recruiting/send-recruiting-email";
 import { staffPrimaryLabel } from "@/lib/crm/crm-leads-table-helpers";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
@@ -73,7 +75,6 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ leadId: st
       full_name: String(lead.full_name ?? ""),
       phone: lead.phone,
       email: lead.email,
-      city: lead.city,
       license_status: lead.license_status,
       lead_type: lead.lead_type,
       form_name: lead.form_name,
@@ -82,11 +83,27 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ leadId: st
       visit_rate: typeof body.visit_rate === "string" ? body.visit_rate : undefined,
       soc_rate: typeof body.soc_rate === "string" ? body.soc_rate : undefined,
       pay_summary: typeof body.pay_summary === "string" ? body.pay_summary : undefined,
+      template_id: (templateId as RecruitingEmailTemplateId) || undefined,
     }
   );
 
   const subject = renderRecruitingEmailTemplate(subjectRaw, variables);
   const renderedBody = renderRecruitingEmailTemplate(bodyRaw, variables);
+
+  const unresolved = [
+    ...findUnresolvedRecruitingEmailPlaceholders(subject),
+    ...findUnresolvedRecruitingEmailPlaceholders(renderedBody),
+  ];
+  if (unresolved.length > 0) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: `Unresolved placeholders in email: ${unresolved.join(", ")}`,
+      },
+      { status: 400 }
+    );
+  }
+
   const { text: sentBodyText } = prepareRecruitingEmailPayload(renderedBody);
   const sentAt = new Date().toISOString();
   const sentByName = staffPrimaryLabel(staff);

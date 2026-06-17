@@ -216,6 +216,14 @@ export function FacebookRecruitingLeadDetailClient({
       {emailModalOpen ? (
         <RecruitingLeadSendEmailModal
           leadId={lead.id}
+          lead={{
+            full_name: lead.full_name,
+            phone: lead.phone,
+            email: lead.email,
+            license_status: lead.license_status,
+            lead_type: lead.lead_type,
+            form_name: lead.form_name,
+          }}
           recipientEmail={lead.email}
           emailConfigured={emailConfigured}
           onClose={() => setEmailModalOpen(false)}

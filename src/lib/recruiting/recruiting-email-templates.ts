@@ -37,7 +37,7 @@ Saintly Home Health Recruiting`;
 export const RECRUITING_EMAIL_TEMPLATES: RecruitingEmailTemplateDefinition[] = [
   {
     id: "rn_follow_up",
-    label: "RN follow-up ($60–$80/visit, $110 SOC)",
+    label: "RN follow-up (starting at $60/visit, up to $80, $110 SOC)",
     subject: "RN visit opportunities with Saintly Home Health",
     body: ROLE_FOLLOW_UP_BODY.replace("{{role}}", "RN"),
   },

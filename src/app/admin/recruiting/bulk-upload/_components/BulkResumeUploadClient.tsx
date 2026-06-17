@@ -95,7 +95,13 @@ export function BulkResumeUploadClient({ emailConfigured }: { emailConfigured: b
   const [rows, setRows] = useState<Record<string, RowState>>({});
   const [isRunning, setIsRunning] = useState(false);
   const [dragOver, setDragOver] = useState(false);
-  const [emailModal, setEmailModal] = useState<{ leadId: string; email: string | null } | null>(null);
+  const [emailModal, setEmailModal] = useState<{
+    leadId: string;
+    email: string | null;
+    fullName: string;
+    phone: string | null;
+    discipline: string | null;
+  } | null>(null);
   /** Applies to every file in `runBatch` — sent as `upload_discipline` (overrides parsed discipline on create). */
   const [batchDiscipline, setBatchDiscipline] = useState("");
 
@@ -430,7 +436,13 @@ export function BulkResumeUploadClient({ emailConfigured }: { emailConfigured: b
                               type="button"
                               className={crmActionBtnSky}
                               onClick={() =>
-                                setEmailModal({ leadId: r.recruitingLeadId!, email: r.email ?? null })
+                                setEmailModal({
+                                  leadId: r.recruitingLeadId!,
+                                  email: r.email ?? null,
+                                  fullName: r.extractedName ?? "",
+                                  phone: r.phone ?? null,
+                                  discipline: r.discipline ?? null,
+                                })
                               }
                             >
                               Send email
@@ -458,6 +470,12 @@ export function BulkResumeUploadClient({ emailConfigured }: { emailConfigured: b
       {emailModal ? (
         <RecruitingLeadSendEmailModal
           leadId={emailModal.leadId}
+          lead={{
+            full_name: emailModal.fullName,
+            phone: emailModal.phone,
+            email: emailModal.email,
+            license_status: emailModal.discipline,
+          }}
           recipientEmail={emailModal.email}
           emailConfigured={emailConfigured}
           onClose={() => setEmailModal(null)}

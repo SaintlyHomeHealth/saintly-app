@@ -16,6 +16,11 @@ const rowActionBtnCls =
 type RecruitingLeadEmailPanelProps = {
   recruitingLeadId: string | null;
   recipientEmail: string | null;
+  leadFullName?: string | null;
+  leadPhone?: string | null;
+  leadLicenseStatus?: string | null;
+  leadType?: string | null;
+  leadFormName?: string | null;
   emailConfigured: boolean;
   leadActivities: RecruitingLeadActivityRow[];
   recruitingLeadHref?: string | null;
@@ -25,6 +30,11 @@ type RecruitingLeadEmailPanelProps = {
 export function RecruitingLeadEmailPanel({
   recruitingLeadId,
   recipientEmail,
+  leadFullName,
+  leadPhone,
+  leadLicenseStatus,
+  leadType,
+  leadFormName,
   emailConfigured,
   leadActivities,
   recruitingLeadHref,
@@ -67,6 +77,14 @@ export function RecruitingLeadEmailPanel({
       {emailModalOpen ? (
         <RecruitingLeadSendEmailModal
           leadId={recruitingLeadId}
+          lead={{
+            full_name: leadFullName ?? "",
+            phone: leadPhone,
+            email: recipientEmail,
+            license_status: leadLicenseStatus,
+            lead_type: leadType,
+            form_name: leadFormName,
+          }}
           recipientEmail={recipientEmail}
           emailConfigured={emailConfigured}
           onClose={() => setEmailModalOpen(false)}

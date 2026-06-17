@@ -135,6 +135,10 @@ export function RecruitingLeadListCard({ row, detailHref, emailConfigured }: Pro
             leadId={row.id}
             leadName={row.full_name}
             email={row.email}
+            phone={row.phone}
+            licenseStatus={row.license_status}
+            leadType={row.lead_type}
+            formName={row.form_name}
             detailHref={detailHref}
             emailConfigured={emailConfigured}
           />

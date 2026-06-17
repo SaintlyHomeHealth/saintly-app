@@ -5,7 +5,9 @@ import { useMemo, useState } from "react";
 import { crmFilterInputCls, crmPrimaryCtaCls } from "@/components/admin/crm-admin-list-styles";
 import {
   buildRecruitingPaySummary,
+  buildRnRecruitingPaySummary,
   getRecruitingEmailPayDefaultsForTemplate,
+  inferRecruitingEmailTemplateIdForLead,
   recruitingEmailTemplateUsesPayFields,
 } from "@/lib/recruiting/recruiting-email-pay";
 import {
@@ -13,38 +15,85 @@ import {
   type RecruitingEmailTemplateId,
 } from "@/lib/recruiting/recruiting-email-templates";
 import { buildRecruitingEmailHtml } from "@/lib/recruiting/recruiting-email-signature";
-import { renderRecruitingEmailTemplate } from "@/lib/recruiting/render-recruiting-email-template";
+import {
+  buildRecruitingEmailVariables,
+  findUnresolvedRecruitingEmailPlaceholders,
+  type RecruitingLeadEmailContext,
+  renderRecruitingEmailTemplate,
+} from "@/lib/recruiting/render-recruiting-email-template";
+
+export type RecruitingLeadSendEmailLeadProps = RecruitingLeadEmailContext;
 
 type Props = {
   leadId: string;
+  lead: RecruitingLeadSendEmailLeadProps;
   recipientEmail: string | null;
   emailConfigured: boolean;
   onClose: () => void;
   onSent: () => void;
 };
 
-const DEFAULT_TEMPLATE_ID: RecruitingEmailTemplateId = "rn_follow_up";
-const defaultPay = getRecruitingEmailPayDefaultsForTemplate(DEFAULT_TEMPLATE_ID)!;
-const defaultTemplate = RECRUITING_EMAIL_TEMPLATES[0]!;
+function initialTemplateId(lead: RecruitingLeadSendEmailLeadProps): RecruitingEmailTemplateId {
+  return inferRecruitingEmailTemplateIdForLead(lead);
+}
+
+function initialTemplateState(lead: RecruitingLeadSendEmailLeadProps) {
+  const templateId = initialTemplateId(lead);
+  const tpl = RECRUITING_EMAIL_TEMPLATES.find((t) => t.id === templateId) ?? RECRUITING_EMAIL_TEMPLATES[0]!;
+  const payDefaults = getRecruitingEmailPayDefaultsForTemplate(templateId);
+  return {
+    templateId,
+    subject: tpl.subject,
+    body: tpl.body,
+    visitRate: payDefaults?.visitRate ?? "",
+    socRate: payDefaults?.socRate ?? "",
+    paySummary: payDefaults?.paySummary ?? "",
+  };
+}
 
 export function RecruitingLeadSendEmailModal({
   leadId,
+  lead,
   recipientEmail,
   emailConfigured,
   onClose,
   onSent,
 }: Props) {
-  const [templateId, setTemplateId] = useState<RecruitingEmailTemplateId>(DEFAULT_TEMPLATE_ID);
-  const [subject, setSubject] = useState(defaultTemplate.subject);
-  const [body, setBody] = useState(defaultTemplate.body);
-  const [visitRate, setVisitRate] = useState(defaultPay.visitRate);
-  const [socRate, setSocRate] = useState(defaultPay.socRate);
-  const [paySummary, setPaySummary] = useState(defaultPay.paySummary);
+  const initial = initialTemplateState(lead);
+  const [templateId, setTemplateId] = useState<RecruitingEmailTemplateId>(initial.templateId);
+  const [subject, setSubject] = useState(initial.subject);
+  const [body, setBody] = useState(initial.body);
+  const [visitRate, setVisitRate] = useState(initial.visitRate);
+  const [socRate, setSocRate] = useState(initial.socRate);
+  const [paySummary, setPaySummary] = useState(initial.paySummary);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const leadContext: RecruitingLeadEmailContext = useMemo(
+    () => ({
+      full_name: lead.full_name,
+      phone: lead.phone,
+      email: recipientEmail ?? lead.email,
+      license_status: lead.license_status,
+      lead_type: lead.lead_type,
+      form_name: lead.form_name,
+    }),
+    [lead, recipientEmail]
+  );
+
   const showPayFields = recruitingEmailTemplateUsesPayFields(templateId);
   const showSocRate = showPayFields && getRecruitingEmailPayDefaultsForTemplate(templateId)?.includeSoc;
+
+  const previewVariables = useMemo(
+    () =>
+      buildRecruitingEmailVariables(leadContext, {
+        visit_rate: showPayFields ? visitRate : undefined,
+        soc_rate: showPayFields && showSocRate ? socRate : undefined,
+        pay_summary: showPayFields ? paySummary : undefined,
+        template_id: templateId,
+      }),
+    [leadContext, showPayFields, showSocRate, visitRate, socRate, paySummary, templateId]
+  );
 
   function applyTemplate(id: RecruitingEmailTemplateId) {
     const tpl = RECRUITING_EMAIL_TEMPLATES.find((t) => t.id === id);
@@ -63,19 +112,24 @@ export function RecruitingLeadSendEmailModal({
 
   function updateVisitRate(value: string) {
     setVisitRate(value);
+    if (templateId === "rn_follow_up") return;
     const payDefaults = getRecruitingEmailPayDefaultsForTemplate(templateId);
     if (payDefaults?.includeSoc) {
-      setPaySummary(buildRecruitingPaySummary(value, socRate, true));
+      setPaySummary(buildRecruitingPaySummary(value, socRate, true, templateId));
     } else if (payDefaults) {
-      setPaySummary(buildRecruitingPaySummary(value, "", false));
+      setPaySummary(buildRecruitingPaySummary(value, "", false, templateId));
     }
   }
 
   function updateSocRate(value: string) {
     setSocRate(value);
+    if (templateId === "rn_follow_up") {
+      setPaySummary(buildRnRecruitingPaySummary(value));
+      return;
+    }
     const payDefaults = getRecruitingEmailPayDefaultsForTemplate(templateId);
     if (payDefaults?.includeSoc) {
-      setPaySummary(buildRecruitingPaySummary(visitRate, value, true));
+      setPaySummary(buildRecruitingPaySummary(visitRate, value, true, templateId));
     }
   }
 
@@ -87,6 +141,19 @@ export function RecruitingLeadSendEmailModal({
     }
     if (!emailConfigured) {
       setError("Email is not configured on the server (RESEND_API_KEY).");
+      return;
+    }
+
+    const renderedSubject = renderRecruitingEmailTemplate(subject, previewVariables);
+    const renderedBody = renderRecruitingEmailTemplate(body, previewVariables);
+    const unresolved = [
+      ...findUnresolvedRecruitingEmailPlaceholders(renderedSubject),
+      ...findUnresolvedRecruitingEmailPlaceholders(renderedBody),
+    ];
+    if (unresolved.length > 0) {
+      setError(
+        `Email still has unresolved placeholders: ${unresolved.join(", ")}. Fill in or remove them before sending.`
+      );
       return;
     }
 
@@ -118,33 +185,11 @@ export function RecruitingLeadSendEmailModal({
     }
   }
 
-  const previewVars: Record<string, string> = useMemo(() => {
-    const role =
-      templateId === "rn_follow_up"
-        ? "RN"
-        : templateId === "pt_follow_up"
-          ? "PT"
-          : templateId === "pta_follow_up"
-            ? "PTA"
-            : templateId === "lpn_follow_up"
-              ? "LPN"
-              : "caregiver";
-    return {
-      first_name: "Alex",
-      full_name: "Alex Example",
-      role,
-      phone: "(480) 555-0100",
-      email: recipientEmail ?? "candidate@example.com",
-      visit_rate: visitRate,
-      soc_rate: socRate,
-      pay_summary: paySummary,
-      pay_rate: visitRate,
-    };
-  }, [templateId, recipientEmail, visitRate, socRate, paySummary]);
-
-  const previewSubject = renderRecruitingEmailTemplate(subject, previewVars);
-  const previewBody = renderRecruitingEmailTemplate(body, previewVars);
+  const previewSubject = renderRecruitingEmailTemplate(subject, previewVariables);
+  const previewBody = renderRecruitingEmailTemplate(body, previewVariables);
   const previewHtml = useMemo(() => buildRecruitingEmailHtml(previewBody), [previewBody]);
+
+  const previewLeadLabel = lead.full_name?.trim() || "this lead";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
@@ -219,7 +264,7 @@ export function RecruitingLeadSendEmailModal({
                   type="text"
                   value={paySummary}
                   onChange={(e) => setPaySummary(e.target.value)}
-                  placeholder="e.g. $60 per visit and $110 for SOC"
+                  placeholder="Pay wording inserted into the email body"
                   className={crmFilterInputCls}
                 />
               </label>
@@ -248,7 +293,7 @@ export function RecruitingLeadSendEmailModal({
 
           <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-4">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-              Preview (sample data + signature)
+              Preview with {previewLeadLabel}
             </p>
             <p className="mt-2 text-sm font-semibold text-slate-900">{previewSubject}</p>
             <div

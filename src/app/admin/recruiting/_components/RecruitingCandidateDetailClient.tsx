@@ -255,6 +255,9 @@ export function RecruitingCandidateDetailClient({
       <RecruitingLeadEmailPanel
         recruitingLeadId={initial.recruiting_lead_id}
         recipientEmail={initial.email}
+        leadFullName={initial.full_name}
+        leadPhone={initial.phone}
+        leadLicenseStatus={initial.discipline}
         emailConfigured={emailConfigured}
         leadActivities={recruitingLeadActivities}
       />
