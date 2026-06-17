@@ -7,6 +7,7 @@ import {
   RECRUITING_EMAIL_TEMPLATES,
   type RecruitingEmailTemplateId,
 } from "@/lib/recruiting/recruiting-email-templates";
+import { buildRecruitingEmailHtml } from "@/lib/recruiting/recruiting-email-signature";
 
 type Props = {
   leadId: string;
@@ -93,6 +94,7 @@ export function RecruitingLeadSendEmailModal({
 
   const previewSubject = renderPreview(subject, previewVars);
   const previewBody = renderPreview(body, previewVars);
+  const previewHtml = useMemo(() => buildRecruitingEmailHtml(previewBody), [previewBody]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
@@ -156,9 +158,15 @@ export function RecruitingLeadSendEmailModal({
           </label>
 
           <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-4">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Preview (sample data)</p>
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              Preview (sample data + signature)
+            </p>
             <p className="mt-2 text-sm font-semibold text-slate-900">{previewSubject}</p>
-            <pre className="mt-2 whitespace-pre-wrap text-xs text-slate-700">{previewBody}</pre>
+            <div
+              className="mt-3 rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-800"
+              // Signature HTML is generated in-app (logo URL + inline styles only).
+              dangerouslySetInnerHTML={{ __html: previewHtml }}
+            />
           </div>
 
           {error ? (

@@ -10,6 +10,7 @@ import {
   buildRecruitingEmailVariables,
   renderRecruitingEmailTemplate,
 } from "@/lib/recruiting/render-recruiting-email-template";
+import { prepareRecruitingEmailPayload } from "@/lib/recruiting/recruiting-email-signature";
 import { sendRecruitingEmail } from "@/lib/recruiting/send-recruiting-email";
 import { staffPrimaryLabel } from "@/lib/crm/crm-leads-table-helpers";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
@@ -76,6 +77,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ leadId: st
 
   const subject = renderRecruitingEmailTemplate(subjectRaw, variables);
   const renderedBody = renderRecruitingEmailTemplate(bodyRaw, variables);
+  const { text: sentBodyText } = prepareRecruitingEmailPayload(renderedBody);
   const sentAt = new Date().toISOString();
   const sentByName = staffPrimaryLabel(staff);
 
@@ -88,7 +90,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ leadId: st
   const baseMetadata = {
     template_id: templateId || null,
     subject,
-    body: renderedBody,
+    body: sentBodyText,
     recipient,
     sent_at: sentAt,
     sent_by: staff.user_id,

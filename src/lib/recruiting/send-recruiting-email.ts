@@ -1,7 +1,7 @@
 import "server-only";
 
 import { getRecruitingEmailSender, isRecruitingEmailConfigured } from "@/lib/recruiting/recruiting-email-from";
-import { plainTextToHtml } from "@/lib/recruiting/render-recruiting-email-template";
+import { prepareRecruitingEmailPayload } from "@/lib/recruiting/recruiting-email-signature";
 
 export type SendRecruitingEmailResult =
   | { ok: true; providerMessageId: string | null }
@@ -31,6 +31,8 @@ export async function sendRecruitingEmail(opts: {
     return { ok: false, error: "Email body is required.", deliveryStatus: "failed" };
   }
 
+  const { text: emailText, html: emailHtml } = prepareRecruitingEmailPayload(bodyText);
+
   const key = process.env.RESEND_API_KEY!.trim();
   const { from, replyTo } = getRecruitingEmailSender();
 
@@ -42,8 +44,8 @@ export async function sendRecruitingEmail(opts: {
       reply_to: replyTo,
       to: [to],
       subject,
-      text: bodyText,
-      html: plainTextToHtml(bodyText),
+      text: emailText,
+      html: emailHtml,
     }),
   });
 
