@@ -5,8 +5,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { syncRecruitingLeadForCandidate } from "@/lib/recruiting/recruiting-lead-candidate-bridge";
 
 /**
- * Gradually links un-synced recruiting candidates into the unified leads table
- * so legacy Indeed/manual records appear in the main Recruiting workspace.
+ * Links un-synced recruiting_candidates into facebook_recruiting_leads.
+ * Run manually via the admin "Sync legacy uploads" button or scripts/backfill-recruiting-lead-candidate-links.ts.
+ * Do NOT call during normal page render.
  */
 export async function syncOrphanRecruitingCandidatesToLeads(
   supabase: SupabaseClient,

@@ -66,7 +66,16 @@ export type AdminRecruitingLeadsListFilters = {
   startDate: string;
   tab: AdminRecruitingLeadsTab;
   dateRange: AdminRecruitingLeadsDateRange;
+  page: number;
 };
+
+export const ADMIN_RECRUITING_LEADS_PAGE_SIZE = 50;
+
+const RESUME_SOURCE_OR =
+  "source.eq.manual_resume_upload,source.ilike.%manual resume%,form_name.ilike.%manual resume%";
+
+const FORM_FACEBOOK_SOURCE_OR =
+  "source.eq.facebook,source.eq.website,source.eq.website_form,source.eq.careers_form,source.ilike.%facebook%,source.ilike.%website%,source.ilike.%careers%,form_name.ilike.%facebook%,form_name.ilike.%careers%";
 
 function one(raw: Record<string, string | string[] | undefined>, key: string): string {
   const v = raw[key];
@@ -111,6 +120,11 @@ const SOURCE_FILTER_TO_BADGE: Record<
 
 const FORM_FACEBOOK_BADGES: RecruitingLeadSourceBadge[] = ["Facebook", "Website Careers"];
 
+function parsePage(raw: string): number {
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : 1;
+}
+
 export function parseAdminRecruitingLeadsListSearchParams(
   rawSp: Record<string, string | string[] | undefined>
 ): AdminRecruitingLeadsListFilters {
@@ -130,6 +144,7 @@ export function parseAdminRecruitingLeadsListSearchParams(
     startDate: one(rawSp, "start"),
     tab,
     dateRange,
+    page: parsePage(one(rawSp, "page")),
   };
 }
 
@@ -145,6 +160,7 @@ export function buildAdminRecruitingLeadsListHref(
   if (filters.source) u.set("source", filters.source);
   if (filters.role) u.set("role", filters.role);
   if (filters.startDate) u.set("start", filters.startDate);
+  if (filters.page && filters.page > 1) u.set("page", String(filters.page));
   const s = u.toString();
   return s ? `/admin/recruiting?${s}` : "/admin/recruiting";
 }
@@ -163,7 +179,94 @@ type RecruitingLeadsListQuery = {
   ilike: (col: string, val: string) => RecruitingLeadsListQuery;
   or: (filters: string) => RecruitingLeadsListQuery;
   gte: (col: string, val: string) => RecruitingLeadsListQuery;
+  not: (col: string, operator: string, value: string) => RecruitingLeadsListQuery;
+  range: (from: number, to: number) => RecruitingLeadsListQuery;
 };
+
+function attachAdminRecruitingLeadsSourcePredicate(
+  q: RecruitingLeadsListQuery,
+  source: AdminRecruitingLeadsSourceFilter
+): RecruitingLeadsListQuery {
+  if (!source) return q;
+  switch (source) {
+    case "facebook":
+      return q.or("source.eq.facebook,source.ilike.%facebook%,form_name.ilike.%facebook%");
+    case "website":
+      return q.or(
+        "source.eq.website,source.eq.website_form,source.eq.careers_form,source.ilike.%website%,source.ilike.%careers%,form_name.ilike.%careers%,form_name.ilike.%website%"
+      );
+    case "manual_resume_upload":
+      return q.or(RESUME_SOURCE_OR);
+    case "legacy_crm_lead":
+      return q.or("source.eq.legacy_crm_lead,source.ilike.%legacy crm%");
+    default:
+      return q;
+  }
+}
+
+function attachAdminRecruitingLeadsTabPredicate(
+  q: RecruitingLeadsListQuery,
+  tab: AdminRecruitingLeadsTab
+): RecruitingLeadsListQuery {
+  if (tab === "form_facebook") return q.or(FORM_FACEBOOK_SOURCE_OR);
+  if (tab === "resume_uploads") return q.or(RESUME_SOURCE_OR);
+  return q;
+}
+
+function attachAdminRecruitingLeadsRolePredicate(
+  q: RecruitingLeadsListQuery,
+  role: RecruitingLeadRoleBadge | ""
+): RecruitingLeadsListQuery {
+  if (!role) return q;
+  switch (role) {
+    case "RN":
+      return q.or(
+        "license_status.ilike.%RN%,lead_type.ilike.%RN%,license_status.ilike.%registered nurse%"
+      );
+    case "LPN":
+      return q.or(
+        "license_status.ilike.%LPN%,lead_type.ilike.%LPN%,license_status.ilike.%licensed practical%"
+      );
+    case "PTA":
+      return q.or(
+        "license_status.ilike.%PTA%,lead_type.ilike.%PTA%,license_status.ilike.%physical therapist assistant%,license_status.ilike.%physical therapy assistant%"
+      );
+    case "PT":
+      return q
+        .or(
+          "license_status.eq.PT,license_status.ilike.%physical therapist%,lead_type.ilike.%PT Hiring%"
+        )
+        .not("license_status", "ilike", "%PTA%")
+        .not("lead_type", "ilike", "%PTA%");
+    case "HHA":
+      return q.or(
+        "license_status.ilike.%HHA%,lead_type.ilike.%HHA%,license_status.ilike.%home health aide%"
+      );
+    case "Other":
+      return q
+        .not("license_status", "ilike", "%RN%")
+        .not("license_status", "ilike", "%LPN%")
+        .not("license_status", "ilike", "%PTA%")
+        .not("license_status", "ilike", "%PT%")
+        .not("license_status", "ilike", "%HHA%")
+        .not("lead_type", "ilike", "%RN%")
+        .not("lead_type", "ilike", "%LPN%")
+        .not("lead_type", "ilike", "%PTA%")
+        .not("lead_type", "ilike", "%PT Hiring%")
+        .not("lead_type", "ilike", "%HHA%");
+    default:
+      return q;
+  }
+}
+
+export function recruitingLeadsListRange(filters: AdminRecruitingLeadsListFilters): {
+  from: number;
+  to: number;
+} {
+  const page = filters.page > 0 ? filters.page : 1;
+  const from = (page - 1) * ADMIN_RECRUITING_LEADS_PAGE_SIZE;
+  return { from, to: from + ADMIN_RECRUITING_LEADS_PAGE_SIZE - 1 };
+}
 
 function effectiveDateRange(filters: AdminRecruitingLeadsListFilters): AdminRecruitingLeadsDateRange {
   if (filters.tab === "new_today") return "today";
@@ -207,6 +310,10 @@ export function attachAdminRecruitingLeadsListPredicates(
   } else if (range === "last_7_days") {
     q = q.gte("created_at", phoenixLast7DaysStartIso());
   }
+
+  q = attachAdminRecruitingLeadsTabPredicate(q, filters.tab);
+  q = attachAdminRecruitingLeadsSourcePredicate(q, filters.source);
+  q = attachAdminRecruitingLeadsRolePredicate(q, filters.role);
 
   return q;
 }

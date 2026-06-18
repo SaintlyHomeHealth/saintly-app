@@ -11,7 +11,6 @@ import { RECRUITING_LEAD_ROLE_FILTER_OPTIONS } from "@/lib/recruiting/recruiting
 
 type Props = {
   filters: AdminRecruitingLeadsListFilters;
-  coverageOptions: string[];
 };
 
 const filterCardCls =
@@ -19,7 +18,7 @@ const filterCardCls =
 
 const filterLabelCls = "text-[11px] font-semibold uppercase tracking-wide text-slate-500";
 
-export function RecruitingLeadFilters({ filters, coverageOptions }: Props) {
+export function RecruitingLeadFilters({ filters }: Props) {
   return (
     <form method="get" action="/admin/recruiting" className={filterCardCls}>
       {filters.tab !== "all" ? <input type="hidden" name="tab" value={filters.tab} /> : null}
@@ -70,16 +69,10 @@ export function RecruitingLeadFilters({ filters, coverageOptions }: Props) {
           <span className={filterLabelCls}>Coverage area</span>
           <input
             name="coverage"
-            list="recruiting-leads-coverage-options"
             defaultValue={filters.coverageArea}
             placeholder="Area or region…"
             className={crmFilterInputCls}
           />
-          <datalist id="recruiting-leads-coverage-options">
-            {coverageOptions.map((c) => (
-              <option key={c} value={c} />
-            ))}
-          </datalist>
         </label>
         <label className="flex flex-col gap-1.5">
           <span className={filterLabelCls}>Start / availability</span>

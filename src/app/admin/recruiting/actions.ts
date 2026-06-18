@@ -1403,3 +1403,16 @@ export async function updateFacebookRecruitingLead(formData: FormData) {
   revalidatePath(`/admin/recruiting/leads/${leadId}`);
   redirect(returnTo);
 }
+
+export async function syncLegacyRecruitingCandidatesAction(): Promise<
+  { ok: true; synced: number } | { ok: false; error: string }
+> {
+  await requireManager();
+
+  const { syncOrphanRecruitingCandidatesToLeads } = await import(
+    "@/lib/recruiting/sync-orphan-recruiting-candidates"
+  );
+  const synced = await syncOrphanRecruitingCandidatesToLeads(supabaseAdmin, 50);
+  revalidatePath("/admin/recruiting");
+  return { ok: true, synced };
+}

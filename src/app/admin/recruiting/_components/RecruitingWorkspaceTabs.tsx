@@ -35,6 +35,7 @@ export function RecruitingWorkspaceTabs({ filters, counts }: Props) {
           ...filters,
           tab: option.value,
           dateRange: option.value === "new_today" ? "today" : filters.dateRange,
+          page: 1,
         });
         const count = counts?.[option.value];
         return (

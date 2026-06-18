@@ -5,27 +5,31 @@ import { crmPrimaryCtaCls } from "@/components/admin/crm-admin-list-styles";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { supabaseAdmin } from "@/lib/admin";
 import {
-  applyAdminRecruitingLeadsClientFilters,
+  ADMIN_RECRUITING_LEADS_PAGE_SIZE,
   attachAdminRecruitingLeadsListPredicates,
   buildAdminRecruitingLeadDetailHref,
-  matchesAdminRecruitingLeadsTabFilter,
   parseAdminRecruitingLeadsListSearchParams,
-  recruitingLeadSourceBadgeForRow,
+  recruitingLeadsListRange,
 } from "@/lib/recruiting/admin-recruiting-leads-list-filters";
-import { isPhoenixSameCalendarDay } from "@/lib/recruiting/phoenix-time";
+import {
+  countFilteredRecruitingLeads,
+  fetchRecruitingLeadTabCounts,
+  fetchRecruitingLeadWorkspaceStats,
+} from "@/lib/recruiting/admin-recruiting-leads-stats";
 import { isRecruitingEmailConfigured } from "@/lib/recruiting/recruiting-email-from";
-import { syncOrphanRecruitingCandidatesToLeads } from "@/lib/recruiting/sync-orphan-recruiting-candidates";
+import { adminPerfTimed, routePerfLog, routePerfStart } from "@/lib/perf/route-perf";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 
 import { RecruitingLeadFilters } from "@/app/admin/recruiting/_components/RecruitingLeadFilters";
 import { RecruitingLeadListCard } from "@/app/admin/recruiting/_components/RecruitingLeadListCard";
+import { RecruitingLeadPagination } from "@/app/admin/recruiting/_components/RecruitingLeadPagination";
+import { SyncLegacyRecruitingCandidatesButton } from "@/app/admin/recruiting/_components/SyncLegacyRecruitingCandidatesButton";
 import { RecruitingWorkspaceStatsCards } from "./_components/RecruitingWorkspaceStatsCards";
 import { RecruitingWorkspaceTabs } from "./_components/RecruitingWorkspaceTabs";
 
+/** Card list fields only — no raw_payload, notes, or resume blobs. */
 const LIST_SELECT =
-  "id, full_name, phone, email, license_status, lead_type, home_health_experience, visits_per_week, coverage_area, start_date, source, form_name, raw_payload, status, notes, created_at";
-
-const STATS_SELECT = "status, source, form_name, raw_payload, created_at";
+  "id, full_name, phone, email, license_status, lead_type, visits_per_week, coverage_area, start_date, source, form_name, status, created_at";
 
 type LeadListRow = {
   id: string;
@@ -34,116 +38,63 @@ type LeadListRow = {
   email: string | null;
   license_status: string | null;
   lead_type: string | null;
-  home_health_experience: string | null;
   visits_per_week: string | null;
   coverage_area: string | null;
   start_date: string | null;
   source: string | null;
   form_name: string | null;
-  raw_payload: unknown;
   status: string;
-  notes: string | null;
   created_at: string;
 };
-
-type StatsRow = {
-  status: string;
-  source: string | null;
-  form_name: string | null;
-  raw_payload: unknown;
-  created_at: string;
-};
-
-function computeStats(rows: StatsRow[]) {
-  let newLeads = 0;
-  let newToday = 0;
-  let formFacebookLeads = 0;
-  let resumeUploads = 0;
-  for (const row of rows) {
-    if (row.status === "New") newLeads += 1;
-    if (isPhoenixSameCalendarDay(row.created_at)) newToday += 1;
-    const badge = recruitingLeadSourceBadgeForRow(row);
-    if (badge === "Facebook" || badge === "Website Careers") formFacebookLeads += 1;
-    if (badge === "Manual Resume Upload") resumeUploads += 1;
-  }
-  return {
-    total: rows.length,
-    newLeads,
-    newToday,
-    formFacebookLeads,
-    resumeUploads,
-  };
-}
-
-function computeTabCounts(rows: LeadListRow[]) {
-  return {
-    all: rows.length,
-    form_facebook: rows.filter((row) => matchesAdminRecruitingLeadsTabFilter(row, "form_facebook")).length,
-    resume_uploads: rows.filter((row) => matchesAdminRecruitingLeadsTabFilter(row, "resume_uploads")).length,
-    new_today: rows.filter((row) => matchesAdminRecruitingLeadsTabFilter(row, "new_today")).length,
-  } as const;
-}
 
 export default async function AdminRecruitingWorkspacePage({
   searchParams,
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  const perfStart = routePerfStart();
   const staff = await getStaffProfile();
   if (!staff || !isManagerOrHigher(staff)) {
     redirect("/admin");
   }
 
-  await syncOrphanRecruitingCandidatesToLeads(supabaseAdmin, 40);
-
   const rawSp = await searchParams;
   const f = parseAdminRecruitingLeadsListSearchParams(rawSp);
+  const { from, to } = recruitingLeadsListRange(f);
 
-  let query = supabaseAdmin
-    .from("facebook_recruiting_leads")
-    .select(LIST_SELECT)
-    .order("created_at", { ascending: false })
-    .limit(2000);
-  query = attachAdminRecruitingLeadsListPredicates(query, f) as typeof query;
+  const [stats, tabCounts, filteredTotal, listRows] = await Promise.all([
+    adminPerfTimed("admin/recruiting.stats", () => fetchRecruitingLeadWorkspaceStats(supabaseAdmin)),
+    adminPerfTimed("admin/recruiting.tabCounts", () => fetchRecruitingLeadTabCounts(supabaseAdmin)),
+    adminPerfTimed("admin/recruiting.filteredCount", () => countFilteredRecruitingLeads(supabaseAdmin, f)),
+    adminPerfTimed("admin/recruiting.list", async () => {
+      let query = supabaseAdmin
+        .from("facebook_recruiting_leads")
+        .select(LIST_SELECT)
+        .order("created_at", { ascending: false })
+        .range(from, to);
+      query = attachAdminRecruitingLeadsListPredicates(query, f) as typeof query;
+      const { data, error } = await query;
+      if (error) {
+        console.warn("[recruiting] list:", error.message);
+        return [] as LeadListRow[];
+      }
+      return (data ?? []) as LeadListRow[];
+    }),
+  ]);
 
-  const { data: rows, error } = await query;
-  const dbList = (rows ?? []) as LeadListRow[];
-  if (error) {
-    console.warn("[recruiting] list:", error.message);
-  }
-
-  const list = applyAdminRecruitingLeadsClientFilters(dbList, f);
-
-  const { data: statsRows, count: statsCount } = await supabaseAdmin
-    .from("facebook_recruiting_leads")
-    .select(STATS_SELECT, { count: "exact" })
-    .limit(5000);
-
-  const stats = computeStats((statsRows ?? []) as StatsRow[]);
-  if (statsCount != null && statsCount > stats.total) {
-    stats.total = statsCount;
-  }
-
-  const tabCounts = computeTabCounts((statsRows ?? []) as LeadListRow[]);
-
-  const { data: coverageRows } = await supabaseAdmin
-    .from("facebook_recruiting_leads")
-    .select("coverage_area")
-    .not("coverage_area", "is", null)
-    .limit(2000);
-  const coverageOptions = [
-    ...new Set(
-      (coverageRows ?? [])
-        .map((r) => (r as { coverage_area: string | null }).coverage_area)
-        .filter((c): c is string => Boolean(c && c.trim()))
-    ),
-  ].sort((a, b) => a.localeCompare(b));
+  routePerfLog("admin/recruiting", perfStart);
 
   const emailConfigured = isRecruitingEmailConfigured();
+  const totalPages = Math.max(1, Math.ceil(filteredTotal / ADMIN_RECRUITING_LEADS_PAGE_SIZE));
 
   const updatedBanner =
     typeof rawSp.updated === "string" && rawSp.updated === "1"
       ? "Existing lead updated with the new resume."
+      : null;
+
+  const syncBanner =
+    typeof rawSp.synced === "string" && rawSp.synced === "1"
+      ? "Legacy resume uploads synced into the recruiting leads list."
       : null;
 
   return (
@@ -154,6 +105,7 @@ export default async function AdminRecruitingWorkspacePage({
         description="One workspace for Facebook, website careers, resume uploads, and legacy recruiting leads."
         actions={
           <div className="flex flex-wrap items-center justify-end gap-2">
+            <SyncLegacyRecruitingCandidatesButton />
             <Link
               href="/admin/recruiting/bulk-upload"
               className="inline-flex items-center justify-center rounded-xl border border-violet-200 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-900 shadow-sm transition hover:bg-violet-100"
@@ -173,6 +125,12 @@ export default async function AdminRecruitingWorkspacePage({
         </div>
       ) : null}
 
+      {syncBanner ? (
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-950 shadow-sm">
+          {syncBanner}
+        </div>
+      ) : null}
+
       <RecruitingWorkspaceStatsCards
         total={stats.total}
         newLeads={stats.newLeads}
@@ -183,9 +141,9 @@ export default async function AdminRecruitingWorkspacePage({
 
       <RecruitingWorkspaceTabs filters={f} counts={tabCounts} />
 
-      <RecruitingLeadFilters filters={f} coverageOptions={coverageOptions} />
+      <RecruitingLeadFilters filters={f} />
 
-      {list.length === 0 ? (
+      {listRows.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-slate-200 bg-white/90 px-6 py-16 text-center shadow-sm">
           <p className="text-base font-semibold text-slate-800">No leads match these filters</p>
           <p className="mt-2 text-sm text-slate-600">
@@ -205,11 +163,14 @@ export default async function AdminRecruitingWorkspacePage({
         </div>
       ) : (
         <div className="space-y-3">
-          <p className="text-xs font-medium text-slate-500">
-            {list.length} lead{list.length === 1 ? "" : "s"}
-            {list.length !== dbList.length ? ` (filtered from ${dbList.length})` : ""}
-          </p>
-          {list.map((row) => (
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs font-medium text-slate-500">
+              Showing {from + 1}–{from + listRows.length} of {filteredTotal} lead
+              {filteredTotal === 1 ? "" : "s"}
+            </p>
+            <RecruitingLeadPagination filters={f} page={f.page} totalPages={totalPages} />
+          </div>
+          {listRows.map((row) => (
             <RecruitingLeadListCard
               key={row.id}
               row={row}
@@ -217,6 +178,7 @@ export default async function AdminRecruitingWorkspacePage({
               emailConfigured={emailConfigured}
             />
           ))}
+          <RecruitingLeadPagination filters={f} page={f.page} totalPages={totalPages} />
         </div>
       )}
     </div>
