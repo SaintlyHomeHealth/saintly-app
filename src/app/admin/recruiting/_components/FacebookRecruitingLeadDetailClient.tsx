@@ -117,7 +117,7 @@ export function FacebookRecruitingLeadDetailClient({
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Link href={listBackHref} className="text-sm font-medium text-sky-800 hover:underline">
-          ← Back to recruiting leads
+          ← Back to recruiting
         </Link>
         <div className="flex flex-wrap items-center gap-2">
           <button type="button" onClick={() => setEmailModalOpen(true)} className={rowActionBtnCls}>

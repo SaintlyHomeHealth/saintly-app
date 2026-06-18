@@ -3,6 +3,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { buildIncomingContactDisplayName } from "@/lib/crm/incoming-caller-lookup";
 import { buildPhoneColumnOrFilter } from "@/lib/crm/phone-supabase-match";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
+import {
+  buildAdminRecruitingWorkingDetailHref,
+  mapRecruitingLeadIdsToCandidateIds,
+} from "@/lib/recruiting/recruiting-working-detail-href";
 
 import { globalSearchHref } from "./hrefs";
 import { phoneDigitsMatch } from "./rank";
@@ -677,7 +681,13 @@ export async function searchRecruitingCandidates(
     return [];
   }
 
-  return (data ?? []).map((row) => ({
+  const rows = data ?? [];
+  const candidateByLeadId = await mapRecruitingLeadIdsToCandidateIds(
+    supabase,
+    rows.map((row) => row.id)
+  );
+
+  return rows.map((row) => ({
     type: "recruit" as const,
     id: row.id,
     title: row.full_name?.trim() || "Recruit",
@@ -690,7 +700,7 @@ export async function searchRecruitingCandidates(
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     lastActivityAt: row.updated_at,
-    href: globalSearchHref("recruit", row.id),
+    href: buildAdminRecruitingWorkingDetailHref(row.id, candidateByLeadId.get(row.id)),
   }));
 }
 

@@ -7,10 +7,13 @@ import { supabaseAdmin } from "@/lib/admin";
 import {
   ADMIN_RECRUITING_LEADS_PAGE_SIZE,
   attachAdminRecruitingLeadsListPredicates,
-  buildAdminRecruitingLeadDetailHref,
   parseAdminRecruitingLeadsListSearchParams,
   recruitingLeadsListRange,
 } from "@/lib/recruiting/admin-recruiting-leads-list-filters";
+import {
+  buildAdminRecruitingWorkingDetailHref,
+  mapRecruitingLeadIdsToCandidateIds,
+} from "@/lib/recruiting/recruiting-working-detail-href";
 import {
   countFilteredRecruitingLeads,
   fetchRecruitingLeadTabCounts,
@@ -83,6 +86,13 @@ export default async function AdminRecruitingWorkspacePage({
   ]);
 
   routePerfLog("admin/recruiting", perfStart);
+
+  const candidateByLeadId = await adminPerfTimed("admin/recruiting.candidateLinks", () =>
+    mapRecruitingLeadIdsToCandidateIds(
+      supabaseAdmin,
+      listRows.map((row) => row.id)
+    )
+  );
 
   const emailConfigured = isRecruitingEmailConfigured();
   const totalPages = Math.max(1, Math.ceil(filteredTotal / ADMIN_RECRUITING_LEADS_PAGE_SIZE));
@@ -174,7 +184,7 @@ export default async function AdminRecruitingWorkspacePage({
             <RecruitingLeadListCard
               key={row.id}
               row={row}
-              detailHref={buildAdminRecruitingLeadDetailHref(row.id, f)}
+              detailHref={buildAdminRecruitingWorkingDetailHref(row.id, candidateByLeadId.get(row.id), f)}
               emailConfigured={emailConfigured}
             />
           ))}

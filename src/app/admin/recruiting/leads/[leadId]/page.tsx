@@ -8,6 +8,10 @@ import {
   buildAdminRecruitingLeadsListHref,
   parseAdminRecruitingLeadsListSearchParams,
 } from "@/lib/recruiting/admin-recruiting-leads-list-filters";
+import {
+  buildAdminRecruitingCandidateDetailHref,
+  findRecruitingCandidateIdForLead,
+} from "@/lib/recruiting/recruiting-working-detail-href";
 import { listRecruitingLeadResumeDocuments } from "@/lib/recruiting/recruiting-lead-candidate-bridge";
 import { isRecruitingEmailConfigured } from "@/lib/recruiting/recruiting-email-from";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
@@ -38,6 +42,16 @@ export default async function AdminRecruitingLeadDetailPage({
   }
 
   const sp = await searchParams;
+  const listFilters = parseAdminRecruitingLeadsListSearchParams(sp);
+
+  const linkedCandidateId = await findRecruitingCandidateIdForLead(supabaseAdmin, leadId.trim());
+  if (linkedCandidateId) {
+    let candidateHref = buildAdminRecruitingCandidateDetailHref(linkedCandidateId, listFilters);
+    if (typeof sp.updated === "string" && sp.updated === "1") {
+      candidateHref += candidateHref.includes("?") ? "&updated=1" : "?updated=1";
+    }
+    redirect(candidateHref);
+  }
 
   const updatedBanner =
     typeof sp.updated === "string" && sp.updated === "1"

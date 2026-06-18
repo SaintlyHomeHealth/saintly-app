@@ -5,6 +5,10 @@ import { crmPrimaryCtaCls } from "@/components/admin/crm-admin-list-styles";
 import { staffPrimaryLabel } from "@/lib/crm/crm-leads-table-helpers";
 import { supabaseAdmin } from "@/lib/admin";
 import { isRecruitingEmailConfigured } from "@/lib/recruiting/recruiting-email-from";
+import {
+  buildAdminRecruitingLeadsListHref,
+  parseAdminRecruitingLeadsListSearchParams,
+} from "@/lib/recruiting/admin-recruiting-leads-list-filters";
 import { loadRecruitingLeadActivitiesForLead, listRecruitingLeadResumeDocuments, syncRecruitingLeadForCandidate } from "@/lib/recruiting/recruiting-lead-candidate-bridge";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 import { ensureRecruitingCandidateCrmContact } from "@/lib/recruiting/recruiting-crm-contact-sync";
@@ -14,31 +18,7 @@ import { RecruitingCandidateDetailClient } from "../_components/RecruitingCandid
 import type { RecruitingLeadActivityRow } from "@/app/admin/recruiting/_components/RecruitingLeadActivityTimeline";
 
 function buildListBackHref(sp: Record<string, string | string[] | undefined>): string {
-  const u = new URLSearchParams();
-  const one = (k: string) => {
-    const v = sp[k];
-    return typeof v === "string" ? v : Array.isArray(v) ? v[0] : "";
-  };
-  const keys = [
-    "status",
-    "discipline",
-    "area",
-    "city",
-    "coverage",
-    "name",
-    "source",
-    "followUp",
-    "interest",
-    "tags",
-    "lastContactFrom",
-    "lastContactTo",
-  ] as const;
-  for (const k of keys) {
-    const v = one(k).trim();
-    if (v) u.set(k, v);
-  }
-  const s = u.toString();
-  return s ? `/admin/recruiting?${s}` : "/admin/recruiting";
+  return buildAdminRecruitingLeadsListHref(parseAdminRecruitingLeadsListSearchParams(sp));
 }
 
 export default async function AdminRecruitingCandidatePage({

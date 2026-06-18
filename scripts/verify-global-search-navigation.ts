@@ -7,11 +7,20 @@ import assert from "node:assert/strict";
 
 import { globalSearchHref } from "../src/lib/admin/global-search/hrefs";
 import { isGlobalSearchResultCurrentPage } from "../src/lib/admin/global-search/navigation";
+import { buildAdminRecruitingWorkingDetailHref } from "../src/lib/recruiting/recruiting-working-detail-href";
 
 function testHrefs() {
   assert.equal(globalSearchHref("lead", "abc-123"), "/admin/crm/leads/abc-123");
   assert.equal(globalSearchHref("contact", "contact-1"), "/admin/crm/contacts/contact-1");
   assert.equal(globalSearchHref("recruit", "recruit-1"), "/admin/recruiting/leads/recruit-1");
+  assert.equal(
+    buildAdminRecruitingWorkingDetailHref("recruit-1", "candidate-9"),
+    "/admin/recruiting/candidate-9"
+  );
+  assert.equal(
+    buildAdminRecruitingWorkingDetailHref("recruit-1", null),
+    "/admin/recruiting/leads/recruit-1"
+  );
   assert.equal(globalSearchHref("facility", "fac-1"), "/admin/facilities/fac-1");
 }
 

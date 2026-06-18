@@ -385,6 +385,7 @@ export function BulkResumeUploadClient({ emailConfigured }: { emailConfigured: b
                         ? `/admin/recruiting/${r.existingCandidateId}`
                         : null;
                   const leadLink = r.recruitingLeadId ? `/admin/recruiting/leads/${r.recruitingLeadId}` : null;
+                  const workingLink = candidateLink ?? leadLink;
                   return (
                     <tr key={q.id} className="border-b border-slate-100 hover:bg-slate-50/80">
                       <td className="max-w-[12rem] truncate px-4 py-2.5 font-medium text-slate-900" title={r.fileName}>
@@ -416,9 +417,9 @@ export function BulkResumeUploadClient({ emailConfigured }: { emailConfigured: b
                         ) : null}
                       </td>
                       <td className="whitespace-nowrap px-4 py-2.5">
-                        {leadLink ? (
-                          <Link href={leadLink} className={crmActionBtnSky}>
-                            Open lead
+                        {workingLink ? (
+                          <Link href={workingLink} className={crmActionBtnSky}>
+                            Open
                           </Link>
                         ) : (
                           <span className="text-slate-400">—</span>

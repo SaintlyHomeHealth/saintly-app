@@ -289,9 +289,11 @@ export function NewFromResumeClient({ initialError }: NewFromResumeClientProps) 
       const res = await createRecruitingCandidateFromResume(fd);
       if (res.ok) {
         setDupes(null);
-        const leadHref = res.recruitingLeadId
-          ? `/admin/recruiting/leads/${res.recruitingLeadId}${res.updatedExisting ? "?updated=1" : ""}`
-          : `/admin/recruiting/${res.candidateId}`;
+        const leadHref = res.candidateId
+          ? `/admin/recruiting/${res.candidateId}${res.updatedExisting ? "?updated=1" : ""}`
+          : res.recruitingLeadId
+            ? `/admin/recruiting/leads/${res.recruitingLeadId}${res.updatedExisting ? "?updated=1" : ""}`
+            : "/admin/recruiting";
         router.push(leadHref);
         return;
       }
@@ -615,10 +617,7 @@ export function NewFromResumeClient({ initialError }: NewFromResumeClientProps) 
             const r = await attachResumeToExistingCandidate(fd);
             if (r.ok) {
               setDupes(null);
-              const leadHref = r.recruitingLeadId
-                ? `/admin/recruiting/leads/${r.recruitingLeadId}?updated=1`
-                : `/admin/recruiting/${candidateId}?updated=1`;
-              router.push(leadHref);
+              router.push(`/admin/recruiting/${candidateId}?updated=1`);
               return;
             }
             setToast(r.reason);
