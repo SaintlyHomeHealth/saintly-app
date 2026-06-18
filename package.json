@@ -21,6 +21,7 @@
     "verify:sms-senders": "tsx scripts/verify-sms-sender-defaults.ts",
     "verify:outbound-parse": "tsx scripts/verify-workspace-outbound-parse.ts",
     "verify:facebook-recruiting-leads": "tsx scripts/verify-facebook-recruiting-leads.ts",
+    "verify:global-search-navigation": "tsx scripts/verify-global-search-navigation.ts",
     "verify:recruiting-discipline-parse": "NODE_OPTIONS='--conditions=react-server' tsx scripts/verify-recruiting-discipline-parse.ts",
     "backfill:recruiting-lead-links": "tsx scripts/backfill-recruiting-lead-candidate-links.ts",
     "backfill:crm-recruiting-leads": "tsx scripts/backfill-crm-recruiting-leads-to-recruiting.ts",

@@ -1,13 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type RefObject } from "react";
 import { createPortal } from "react-dom";
 
+import { globalSearchTypeLabel } from "@/lib/admin/global-search/hrefs";
+import { isGlobalSearchResultCurrentPage } from "@/lib/admin/global-search/navigation";
 import { formatMatchedFieldLabel } from "@/lib/admin/global-search/source-trail";
 import type { GlobalSearchResponse, GlobalSearchResult } from "@/lib/admin/global-search/types";
-import { globalSearchTypeLabel } from "@/lib/admin/global-search/hrefs";
 
 const VIEWPORT_MARGIN_PX = 12;
 const DROPDOWN_MAX_WIDTH_PX = 560;
@@ -60,18 +61,38 @@ function formatWhen(iso: string | null): string {
 export function GlobalSearchResultCard({
   result,
   compact = false,
+  highlighted = false,
+  isCurrentPage = false,
+  onNavigate,
 }: {
   result: GlobalSearchResult;
   compact?: boolean;
+  highlighted?: boolean;
+  isCurrentPage?: boolean;
+  onNavigate?: () => void;
 }) {
   const matched = result.matchedFields.map(formatMatchedFieldLabel).join(" · ");
 
   return (
     <Link
       href={result.href}
-      className={`block rounded-xl border border-slate-200/90 bg-white transition hover:border-sky-200 hover:bg-sky-50/40 hover:shadow-sm ${
-        compact ? "px-3 py-2.5" : "px-4 py-3.5"
-      }`}
+      onClick={(e) => {
+        if (isCurrentPage) {
+          e.preventDefault();
+          onNavigate?.();
+          window.scrollTo({ top: 0, behavior: "smooth" });
+          return;
+        }
+        onNavigate?.();
+      }}
+      aria-current={isCurrentPage ? "page" : undefined}
+      className={`block rounded-xl border bg-white transition hover:border-sky-200 hover:bg-sky-50/40 hover:shadow-sm ${
+        highlighted
+          ? "border-sky-300 bg-sky-50/60 ring-2 ring-sky-200"
+          : isCurrentPage
+            ? "border-emerald-200 bg-emerald-50/30"
+            : "border-slate-200/90"
+      } ${compact ? "px-3 py-2.5" : "px-4 py-3.5"}`}
     >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
@@ -80,6 +101,11 @@ export function GlobalSearchResultCard({
             <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-sky-900">
               {globalSearchTypeLabel(result.type)}
             </span>
+            {isCurrentPage ? (
+              <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-900">
+                Currently open
+              </span>
+            ) : null}
           </div>
           <div className={`mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-600 ${compact ? "hidden sm:flex" : ""}`}>
             {result.phone ? <span>{result.phone}</span> : null}
@@ -87,9 +113,9 @@ export function GlobalSearchResultCard({
             {result.status ? <span className="capitalize">{result.status}</span> : null}
           </div>
         </div>
-        {!compact ? (
-          <span className="shrink-0 text-[11px] font-semibold text-sky-800">Open →</span>
-        ) : null}
+        <span className="shrink-0 text-[11px] font-semibold text-sky-800">
+          {isCurrentPage ? "Viewing" : "Open →"}
+        </span>
       </div>
 
       {result.sourceTrail.length > 0 ? (
@@ -121,12 +147,20 @@ function GlobalSearchDropdown({
   loading,
   query,
   anchorRef,
+  panelRef,
+  pathname,
+  search,
+  highlightIndex,
   onNavigate,
 }: {
   results: GlobalSearchResult[];
   loading: boolean;
   query: string;
   anchorRef: RefObject<HTMLElement | null>;
+  panelRef: RefObject<HTMLDivElement | null>;
+  pathname: string;
+  search: string;
+  highlightIndex: number;
   onNavigate: () => void;
 }) {
   const [style, setStyle] = useState<CSSProperties | null>(null);
@@ -158,8 +192,11 @@ function GlobalSearchDropdown({
 
   if (!query.trim() || !mounted || !style) return null;
 
+  const previewResults = results.slice(0, 8);
+
   const panel = (
     <div
+      ref={panelRef}
       style={style}
       className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl shadow-slate-900/10"
       role="listbox"
@@ -173,10 +210,15 @@ function GlobalSearchDropdown({
           <p className="px-2 py-4 text-center text-sm text-slate-500">No matches yet.</p>
         ) : (
           <div className="space-y-2">
-            {results.slice(0, 8).map((r) => (
-              <div key={`${r.type}:${r.id}`} onClick={onNavigate}>
-                <GlobalSearchResultCard result={r} compact />
-              </div>
+            {previewResults.map((r, index) => (
+              <GlobalSearchResultCard
+                key={`${r.type}:${r.id}`}
+                result={r}
+                compact
+                highlighted={index === highlightIndex}
+                isCurrentPage={isGlobalSearchResultCurrentPage(pathname, search, r.href)}
+                onNavigate={onNavigate}
+              />
             ))}
           </div>
         )}
@@ -208,14 +250,19 @@ export function GlobalSearchBar({
 }: GlobalSearchBarProps) {
   const router = useRouter();
   const pathname = usePathname() ?? "";
+  const searchParams = useSearchParams();
+  const search = searchParams.toString() ? `?${searchParams.toString()}` : "";
   const onFullSearchPage = isFullSearchResultsPage(pathname);
   const [query, setQuery] = useState(initialQuery);
   const [results, setResults] = useState<GlobalSearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
+  const [highlightIndex, setHighlightIndex] = useState(-1);
   const rootRef = useRef<HTMLDivElement>(null);
   const anchorRef = useRef<HTMLDivElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const previewResultCount = Math.min(results.length, 8);
 
   useEffect(() => {
     if (onFullSearchPage) setOpen(false);
@@ -270,8 +317,15 @@ export function GlobalSearchBar({
   }, [query, fetchResults, variant, open, onFullSearchPage]);
 
   useEffect(() => {
+    setHighlightIndex(-1);
+  }, [query, results]);
+
+  useEffect(() => {
     function onDocClick(e: MouseEvent) {
-      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+      const target = e.target as Node;
+      if (rootRef.current?.contains(target)) return;
+      if (dropdownRef.current?.contains(target)) return;
+      setOpen(false);
     }
     document.addEventListener("mousedown", onDocClick);
     return () => document.removeEventListener("mousedown", onDocClick);
@@ -319,7 +373,41 @@ export function GlobalSearchBar({
             if (!onFullSearchPage) setOpen(true);
           }}
           onKeyDown={(e) => {
-            if (e.key === "Enter" && variant === "header") {
+            if (variant !== "header") return;
+
+            if (e.key === "Escape") {
+              setOpen(false);
+              setHighlightIndex(-1);
+              return;
+            }
+
+            if (showHeaderDropdown && previewResultCount > 0) {
+              if (e.key === "ArrowDown") {
+                e.preventDefault();
+                setHighlightIndex((current) => {
+                  if (current < 0) return 0;
+                  return Math.min(current + 1, previewResultCount - 1);
+                });
+                return;
+              }
+              if (e.key === "ArrowUp") {
+                e.preventDefault();
+                setHighlightIndex((current) => Math.max(current - 1, 0));
+                return;
+              }
+              if (e.key === "Enter") {
+                e.preventDefault();
+                const selected = highlightIndex >= 0 ? results[highlightIndex] : null;
+                if (selected?.href) {
+                  router.push(selected.href);
+                  setOpen(false);
+                  setHighlightIndex(-1);
+                  return;
+                }
+              }
+            }
+
+            if (e.key === "Enter") {
               e.preventDefault();
               const trimmed = query.trim();
               if (trimmed) router.push(`/admin/search?q=${encodeURIComponent(trimmed)}`);
@@ -347,6 +435,10 @@ export function GlobalSearchBar({
           loading={loading}
           query={query}
           anchorRef={anchorRef}
+          panelRef={dropdownRef}
+          pathname={pathname}
+          search={search}
+          highlightIndex={highlightIndex}
           onNavigate={() => setOpen(false)}
         />
       ) : null}
@@ -361,13 +453,21 @@ export function GlobalSearchResultsSection({
   title: string;
   results: GlobalSearchResult[];
 }) {
+  const pathname = usePathname() ?? "";
+  const searchParams = useSearchParams();
+  const search = searchParams.toString() ? `?${searchParams.toString()}` : "";
+
   if (results.length === 0) return null;
   return (
     <section className="space-y-3">
       <h2 className="text-sm font-bold uppercase tracking-wide text-slate-500">{title}</h2>
       <div className="grid gap-3">
         {results.map((r) => (
-          <GlobalSearchResultCard key={`${r.type}:${r.id}`} result={r} />
+          <GlobalSearchResultCard
+            key={`${r.type}:${r.id}`}
+            result={r}
+            isCurrentPage={isGlobalSearchResultCurrentPage(pathname, search, r.href)}
+          />
         ))}
       </div>
     </section>
