@@ -49,11 +49,13 @@ export default async function AdminRecruitingCandidatePage({
   }
 
   const ensured = await ensureRecruitingCandidateCrmContact(supabaseAdmin, candidateId.trim());
+  const candidateDisplayName =
+    typeof candidate.full_name === "string" ? candidate.full_name.trim() : "";
   const keypadCallHref = ensured.dialE164
     ? buildWorkspaceKeypadCallHref({
         dial: ensured.dialE164,
         contactId: ensured.contactId ?? undefined,
-        contextName: ensured.contextName ?? undefined,
+        contextName: candidateDisplayName || ensured.contextName || undefined,
         candidateId: candidateId.trim(),
         source: "recruiting",
         placeCall: false,

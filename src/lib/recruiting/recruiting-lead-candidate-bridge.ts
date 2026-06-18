@@ -16,6 +16,7 @@ import {
   recruitingNameCityKey,
 } from "@/lib/recruiting/recruiting-contact-normalize";
 import { WEBSITE_RECRUITING_PIPELINE } from "@/lib/recruiting/website-recruiting-lead-constants";
+import { findRecruitingLeadIdForCandidate } from "@/lib/recruiting/recruiting-working-detail-href";
 
 export type RecruitingLeadResumeDocumentRow = {
   id: string;
@@ -195,16 +196,7 @@ export async function syncRecruitingLeadForCandidate(
   const normalizedEmail = row.email ? normalizeRecruitingEmail(row.email) : null;
   const normalizedPhone = row.phone ? normalizeRecruitingPhoneForStorage(row.phone) : null;
 
-  let leadId = row.recruiting_lead_id?.trim() || null;
-
-  if (leadId) {
-    const { data: existingLead } = await supabase
-      .from("facebook_recruiting_leads")
-      .select("id")
-      .eq("id", leadId)
-      .maybeSingle();
-    if (!existingLead?.id) leadId = null;
-  }
+  let leadId = await findRecruitingLeadIdForCandidate(supabase, id);
 
   if (!leadId) {
     leadId = await findRecruitingLeadByContact(supabase, {
@@ -388,10 +380,19 @@ export async function syncRecruitingCandidateToLinkedRecords(
     return { ok: true, recruitingLeadId: row.recruiting_lead_id?.trim() || null };
   }
 
-  const leadId = row.recruiting_lead_id?.trim() || null;
+  const leadId = await findRecruitingLeadIdForCandidate(supabase, id);
   if (!leadId) {
-    // No linked lead yet — never create one from a plain profile edit (avoids duplicate lead rows).
     return { ok: true, recruitingLeadId: null };
+  }
+
+  if (row.recruiting_lead_id?.trim() !== leadId) {
+    const { error: linkErr } = await supabase
+      .from("recruiting_candidates")
+      .update({ recruiting_lead_id: leadId })
+      .eq("id", row.id);
+    if (linkErr) {
+      console.warn("[recruiting-lead-bridge] backfill candidate lead link:", linkErr.message);
+    }
   }
 
   const { data: existingLead } = await supabase

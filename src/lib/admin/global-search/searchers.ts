@@ -5,8 +5,13 @@ import { buildPhoneColumnOrFilter } from "@/lib/crm/phone-supabase-match";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import {
   buildAdminRecruitingWorkingDetailHref,
+  findRecruitingLeadIdForCandidate,
   mapRecruitingLeadIdsToCandidateIds,
 } from "@/lib/recruiting/recruiting-working-detail-href";
+import {
+  fetchRecruitingCandidatesForLeadListDisplay,
+  mergeRecruitingLeadListRowWithCandidate,
+} from "@/lib/recruiting/recruiting-lead-list-display";
 
 import { globalSearchHref } from "./hrefs";
 import { phoneDigitsMatch } from "./rank";
@@ -669,39 +674,171 @@ export async function searchRecruitingCandidates(
     orParts.push(`phone.ilike.%${query.digits.slice(-10)}%`);
   }
 
-  const { data, error } = await supabase
-    .from("facebook_recruiting_leads")
-    .select("id, full_name, phone, email, source, status, form_name, created_at, updated_at")
-    .or(orParts.join(","))
-    .order("updated_at", { ascending: false })
-    .limit(8);
-
-  if (error) {
-    console.warn("[global-search] recruiting:", error.message);
-    return [];
+  const candidateOrParts = [
+    `full_name.ilike.${query.ilikePattern}`,
+    `phone.ilike.${query.ilikePattern}`,
+    `email.ilike.${query.ilikePattern}`,
+    `notes.ilike.${query.ilikePattern}`,
+  ];
+  if (query.isPhone) {
+    candidateOrParts.push(`phone.ilike.%${query.digits.slice(-10)}%`);
   }
 
-  const rows = data ?? [];
+  const [{ data: leadRows, error: leadErr }, { data: candidateHits, error: candidateErr }] =
+    await Promise.all([
+      supabase
+        .from("facebook_recruiting_leads")
+        .select("id, full_name, phone, email, source, status, form_name, created_at, updated_at")
+        .or(orParts.join(","))
+        .order("updated_at", { ascending: false })
+        .limit(8),
+      supabase
+        .from("recruiting_candidates")
+        .select("id, full_name, phone, email, notes, status, source, created_at, updated_at")
+        .or(candidateOrParts.join(","))
+        .order("updated_at", { ascending: false })
+        .limit(8),
+    ]);
+
+  if (leadErr) {
+    console.warn("[global-search] recruiting leads:", leadErr.message);
+  }
+  if (candidateErr) {
+    console.warn("[global-search] recruiting candidates:", candidateErr.message);
+  }
+
+  const leadList = leadRows ?? [];
+  const candidateHitList = candidateHits ?? [];
+
   const candidateByLeadId = await mapRecruitingLeadIdsToCandidateIds(
     supabase,
-    rows.map((row) => row.id)
+    leadList.map((row) => row.id)
   );
 
-  return rows.map((row) => ({
-    type: "recruit" as const,
-    id: row.id,
-    title: row.full_name?.trim() || "Recruit",
-    phone: formatPhoneForDisplay(row.phone) || null,
-    email: row.email?.trim() || null,
-    status: row.status?.replace(/_/g, " ") ?? null,
-    source: row.source?.trim() || row.form_name?.trim() || null,
-    sourceTrail: buildRecruitSourceTrail(row.source ?? row.form_name),
-    matchedFields: query.isPhone ? ["phone"] : query.isEmail ? ["email"] : ["name"],
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-    lastActivityAt: row.updated_at,
-    href: buildAdminRecruitingWorkingDetailHref(row.id, candidateByLeadId.get(row.id)),
-  }));
+  const linkedCandidateIds = [
+    ...new Set([
+      ...candidateByLeadId.values(),
+      ...candidateHitList.map((row) => String(row.id)),
+    ]),
+  ];
+  const candidateById = await fetchRecruitingCandidatesForLeadListDisplay(supabase, linkedCandidateIds);
+
+  function identityMatchesCandidate(
+    candidate: { full_name?: string | null; phone?: string | null; email?: string | null; notes?: string | null }
+  ): boolean {
+    if (query.isPhone) {
+      const digits = query.digits.slice(-10);
+      return phoneDigitsMatch(candidate.phone, digits) || (candidate.phone ?? "").includes(digits);
+    }
+    if (query.isEmail) {
+      return (candidate.email ?? "").toLowerCase().includes(query.lower);
+    }
+    const hay = [candidate.full_name, candidate.email, candidate.notes]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    return hay.includes(query.lower);
+  }
+
+  function keepLeadRow(lead: (typeof leadList)[number]): boolean {
+    const candidateId = candidateByLeadId.get(lead.id);
+    const candidate = candidateId ? candidateById.get(candidateId) : undefined;
+    if (!candidate?.full_name?.trim()) return true;
+
+    if (identityMatchesCandidate(candidate)) return true;
+
+    const leadNameMatch = (lead.full_name ?? "").toLowerCase().includes(query.lower);
+    if (leadNameMatch && query.isPhone) {
+      return phoneDigitsMatch(lead.phone, query.digits) || phoneDigitsMatch(candidate.phone, query.digits);
+    }
+    if (leadNameMatch && query.isEmail) {
+      return (lead.email ?? "").toLowerCase().includes(query.lower);
+    }
+    if (leadNameMatch && !query.isPhone && !query.isEmail) {
+      return false;
+    }
+    return true;
+  }
+
+  const results: GlobalSearchResult[] = [];
+  const seenLeadIds = new Set<string>();
+
+  for (const row of leadList.filter(keepLeadRow)) {
+    seenLeadIds.add(row.id);
+    const candidateId = candidateByLeadId.get(row.id);
+    const candidate = candidateId ? candidateById.get(candidateId) : undefined;
+    const display = mergeRecruitingLeadListRowWithCandidate(
+      {
+        id: row.id,
+        full_name: row.full_name ?? "",
+        phone: row.phone,
+        email: row.email,
+        license_status: null,
+        lead_type: null,
+        visits_per_week: null,
+        coverage_area: null,
+        start_date: null,
+        source: row.source,
+        form_name: row.form_name,
+        status: row.status ?? "New",
+        created_at: row.created_at,
+      },
+      candidate
+    );
+
+    results.push({
+      type: "recruit" as const,
+      id: row.id,
+      title: display.full_name?.trim() || "Recruit",
+      phone: formatPhoneForDisplay(display.phone) || null,
+      email: display.email?.trim() || null,
+      status: display.status?.replace(/_/g, " ") ?? null,
+      source: row.source?.trim() || row.form_name?.trim() || null,
+      sourceTrail: buildRecruitSourceTrail(row.source ?? row.form_name),
+      matchedFields: query.isPhone ? ["phone"] : query.isEmail ? ["email"] : ["name"],
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      lastActivityAt: row.updated_at,
+      href: buildAdminRecruitingWorkingDetailHref(row.id, candidateId),
+    });
+  }
+
+  for (const candidate of candidateHitList) {
+    const candidateId = String(candidate.id);
+    const leadId = await findRecruitingLeadIdForCandidate(supabase, candidateId);
+    if (!leadId || seenLeadIds.has(leadId)) continue;
+
+    const candidateRow = candidateById.get(candidateId) ?? {
+      id: candidateId,
+      full_name: String(candidate.full_name ?? ""),
+      phone: candidate.phone as string | null,
+      email: candidate.email as string | null,
+      city: null,
+      state: null,
+      coverage_area: null,
+      discipline: null,
+      status: candidate.status as string | null,
+    };
+
+    seenLeadIds.add(leadId);
+    results.push({
+      type: "recruit" as const,
+      id: leadId,
+      title: candidateRow.full_name?.trim() || "Recruit",
+      phone: formatPhoneForDisplay(candidateRow.phone) || null,
+      email: candidateRow.email?.trim() || null,
+      status: candidateRow.status?.replace(/_/g, " ") ?? null,
+      source: candidate.source?.trim() || null,
+      sourceTrail: buildRecruitSourceTrail(candidate.source),
+      matchedFields: query.isPhone ? ["phone"] : query.isEmail ? ["email"] : ["name"],
+      createdAt: candidate.created_at,
+      updatedAt: candidate.updated_at,
+      lastActivityAt: candidate.updated_at,
+      href: buildAdminRecruitingWorkingDetailHref(leadId, candidateId),
+    });
+  }
+
+  return results.slice(0, 8);
 }
 
 export async function searchConversations(

@@ -89,3 +89,55 @@ export async function findRecruitingCandidateIdForLead(
   const map = await mapRecruitingLeadIdsToCandidateIds(supabase, [leadId]);
   return map.get(leadId.trim()) ?? null;
 }
+
+/**
+ * Reverse of {@link mapRecruitingLeadIdsToCandidateIds}: resolves the unified lead row a candidate
+ * card opens from, using the same direct-link + resume-document fallback rules as the list.
+ */
+export async function findRecruitingLeadIdForCandidate(
+  supabase: SupabaseClient,
+  candidateId: string
+): Promise<string | null> {
+  const id = candidateId.trim();
+  if (!id) return null;
+
+  const { data: candidate, error: cErr } = await supabase
+    .from("recruiting_candidates")
+    .select("recruiting_lead_id")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (cErr) {
+    console.warn("[recruiting] candidate->lead lookup:", cErr.message);
+  }
+
+  let leadId =
+    typeof candidate?.recruiting_lead_id === "string" ? candidate.recruiting_lead_id.trim() : "";
+
+  if (leadId) {
+    const { data: lead } = await supabase
+      .from("facebook_recruiting_leads")
+      .select("id")
+      .eq("id", leadId)
+      .maybeSingle();
+    if (lead?.id) return String(lead.id);
+    leadId = "";
+  }
+
+  const { data: docs, error: docErr } = await supabase
+    .from("recruiting_lead_resume_documents")
+    .select("recruiting_lead_id")
+    .eq("recruiting_candidate_id", id)
+    .not("recruiting_lead_id", "is", null)
+    .order("uploaded_at", { ascending: false })
+    .limit(1);
+
+  if (docErr) {
+    console.warn("[recruiting] candidate resume doc lead lookup:", docErr.message);
+    return null;
+  }
+
+  const docLeadId =
+    typeof docs?.[0]?.recruiting_lead_id === "string" ? docs[0].recruiting_lead_id.trim() : "";
+  return docLeadId || null;
+}

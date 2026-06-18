@@ -15,6 +15,11 @@ import {
   mapRecruitingLeadIdsToCandidateIds,
 } from "@/lib/recruiting/recruiting-working-detail-href";
 import {
+  fetchRecruitingCandidatesForLeadListDisplay,
+  logRecruitingLeadListCardDisplayDebug,
+  mergeRecruitingLeadListRowWithCandidate,
+} from "@/lib/recruiting/recruiting-lead-list-display";
+import {
   countFilteredRecruitingLeads,
   fetchRecruitingLeadTabCounts,
   fetchRecruitingLeadWorkspaceStats,
@@ -93,6 +98,27 @@ export default async function AdminRecruitingWorkspacePage({
       listRows.map((row) => row.id)
     )
   );
+
+  const candidateById = await adminPerfTimed("admin/recruiting.candidateRows", () =>
+    fetchRecruitingCandidatesForLeadListDisplay(
+      supabaseAdmin,
+      [...new Set([...candidateByLeadId.values()])]
+    )
+  );
+
+  const displayRows = listRows.map((row) => {
+    const candidateId = candidateByLeadId.get(row.id);
+    const candidate = candidateId ? candidateById.get(candidateId) : undefined;
+    const displayRow = mergeRecruitingLeadListRowWithCandidate(row, candidate);
+    logRecruitingLeadListCardDisplayDebug({
+      leadId: row.id,
+      leadFullName: row.full_name,
+      candidateId,
+      candidateFullName: candidate?.full_name,
+      displayFullName: displayRow.full_name,
+    });
+    return displayRow;
+  });
 
   const emailConfigured = isRecruitingEmailConfigured();
   const totalPages = Math.max(1, Math.ceil(filteredTotal / ADMIN_RECRUITING_LEADS_PAGE_SIZE));
@@ -180,7 +206,7 @@ export default async function AdminRecruitingWorkspacePage({
             </p>
             <RecruitingLeadPagination filters={f} page={f.page} totalPages={totalPages} />
           </div>
-          {listRows.map((row) => (
+          {displayRows.map((row) => (
             <RecruitingLeadListCard
               key={row.id}
               row={row}
