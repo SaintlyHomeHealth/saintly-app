@@ -14,7 +14,12 @@ import {
   RECRUITING_STATUS_LEGACY_OPTIONS,
   RECRUITING_STATUS_OPTIONS,
   RECRUITING_TEXT_TEMPLATES,
+  resolveRecruitingTextTemplateBody,
 } from "@/lib/recruiting/recruiting-options";
+import {
+  buildRecruitingTextVariables,
+  renderRecruitingTextTemplate,
+} from "@/lib/recruiting/render-recruiting-text-template";
 import { isPhoenixSameCalendarDay, phoenixEndOfTodayIso } from "@/lib/recruiting/phoenix-time";
 import {
   formatAppDateTime,
@@ -26,6 +31,10 @@ import { buildRecruitingTimelineEntries } from "@/lib/recruiting/recruiting-time
 import { staffPrimaryLabel } from "@/lib/crm/crm-leads-table-helpers";
 
 import { RecruitingLeadSendEmailModal } from "@/app/admin/recruiting/_components/RecruitingLeadSendEmailModal";
+import {
+  RecruitingQuickTextModal,
+  recruitingQuickTextDisabledReason,
+} from "@/app/admin/recruiting/_components/RecruitingQuickTextModal";
 import type { RecruitingLeadActivityRow } from "@/app/admin/recruiting/_components/RecruitingLeadActivityTimeline";
 import { RecruitingTimelinePanel } from "@/components/recruiting/RecruitingTimelinePanel";
 import { recruitingQuickAction, type RecruitingQuickActionKind, updateRecruitingCandidate } from "../actions";
@@ -170,12 +179,16 @@ function formatWhen(iso: string | null | undefined): string {
   });
 }
 
-function smsHref(phone: string | null | undefined, body: string): string | null {
-  const raw = (phone ?? "").trim();
-  if (!raw) return null;
-  const digits = raw.replace(/[^\d+]/g, "");
-  if (!digits) return null;
-  return `sms:${digits}?body=${encodeURIComponent(body)}`;
+function candidateTextContext(candidate: CandidateRow) {
+  return {
+    full_name: candidate.full_name,
+    first_name: candidate.first_name,
+    phone: candidate.phone,
+    city: candidate.city,
+    coverage_area: candidate.coverage_area,
+    discipline: candidate.discipline,
+    smsOptOut: candidate.sms_opt_out,
+  };
 }
 
 type RecruitingCandidateDetailClientProps = {
@@ -213,6 +226,7 @@ export function RecruitingCandidateDetailClient({
   const [followUpOpen, setFollowUpOpen] = useState(false);
   const [noteOpen, setNoteOpen] = useState(false);
   const [emailOpen, setEmailOpen] = useState(false);
+  const [textOpen, setTextOpen] = useState(false);
   const [followUpWhen, setFollowUpWhen] = useState("");
   const [followUpNote, setFollowUpNote] = useState("");
   const [freeNote, setFreeNote] = useState("");
@@ -227,6 +241,10 @@ export function RecruitingCandidateDetailClient({
   const hasEmail = Boolean(initial.email?.trim());
   const hasLeadLink = Boolean(initial.recruiting_lead_id);
   const canSendEmail = hasEmail && hasLeadLink && emailConfigured;
+  const textDisabledReason = recruitingQuickTextDisabledReason({
+    phone: initial.phone,
+    smsOptOut: initial.sms_opt_out,
+  });
   const emailDisabledReason = !hasLeadLink
     ? "Not yet linked to a recruiting lead — save the profile or upload a resume to enable email."
     : !hasEmail
@@ -372,19 +390,14 @@ export function RecruitingCandidateDetailClient({
                   Call
                 </span>
               )}
-              {initial.phone?.trim() ? (
-                <a
-                  href={`/workspace/phone/inbox/new?recruitingCandidateId=${encodeURIComponent(initial.id)}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={btnGhost}
-                >
-                  Text
-                </a>
-              ) : (
-                <span className={btnDisabled} title="Add a phone number to text this candidate.">
-                  Text
+              {textDisabledReason ? (
+                <span className={btnDisabled} title={textDisabledReason}>
+                  {textDisabledReason === "No phone on file" ? "Send text" : textDisabledReason}
                 </span>
+              ) : (
+                <button type="button" className={btnPrimary} onClick={() => setTextOpen(true)}>
+                  Send text
+                </button>
               )}
               <AddEmployeeInviteButton
                 triggerLabel="Onboard as employee"
@@ -459,6 +472,15 @@ export function RecruitingCandidateDetailClient({
                 <button type="button" className={quickGhost} disabled={pending} onClick={() => runQuick("call")}>
                   Log call
                 </button>
+                {textDisabledReason ? (
+                  <span className={`${quickGhost} cursor-not-allowed opacity-50`} title={textDisabledReason}>
+                    {textDisabledReason}
+                  </span>
+                ) : (
+                  <button type="button" className={quickPrimary} disabled={pending} onClick={() => setTextOpen(true)}>
+                    Send text
+                  </button>
+                )}
                 <button type="button" className={quickGhost} disabled={pending} onClick={() => runQuick("text")}>
                   Text sent
                 </button>
@@ -519,24 +541,34 @@ export function RecruitingCandidateDetailClient({
               <div className="mt-4 border-t border-slate-100 pt-4">
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Text templates</p>
                 <div className="mt-2 flex flex-wrap gap-2">
-                  {RECRUITING_TEXT_TEMPLATES.map((tpl) =>
-                    initial.phone?.trim() && smsHref(initial.phone, tpl.body) ? (
-                      <a
+                  {RECRUITING_TEXT_TEMPLATES.map((tpl) => {
+                    const previewBody = renderRecruitingTextTemplate(
+                      resolveRecruitingTextTemplateBody(tpl.id, initial.discipline),
+                      buildRecruitingTextVariables(candidateTextContext(initial))
+                    );
+                    if (textDisabledReason) {
+                      return (
+                        <span
+                          key={tpl.id}
+                          title={textDisabledReason}
+                          className="inline-flex cursor-not-allowed items-center rounded-full border border-dashed border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-semibold text-slate-400"
+                        >
+                          {tpl.label}
+                        </span>
+                      );
+                    }
+                    return (
+                      <button
                         key={tpl.id}
-                        href={smsHref(initial.phone, tpl.body)!}
+                        type="button"
+                        onClick={() => setTextOpen(true)}
                         className="inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-[11px] font-semibold text-sky-900 hover:bg-sky-100"
+                        title={previewBody.slice(0, 120)}
                       >
                         {tpl.label}
-                      </a>
-                    ) : (
-                      <span
-                        key={tpl.id}
-                        className="inline-flex cursor-not-allowed items-center rounded-full border border-dashed border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-semibold text-slate-400"
-                      >
-                        {tpl.label}
-                      </span>
-                    )
-                  )}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             </div>
@@ -1061,6 +1093,21 @@ export function RecruitingCandidateDetailClient({
           </div>
         </div>
       ) : null}
+
+      <RecruitingQuickTextModal
+        open={textOpen}
+        target={
+          textOpen
+            ? {
+                ...candidateTextContext(initial),
+                candidateId: initial.id,
+                leadId: initial.recruiting_lead_id,
+              }
+            : null
+        }
+        onClose={() => setTextOpen(false)}
+        onSent={() => router.refresh()}
+      />
     </div>
   );
 }

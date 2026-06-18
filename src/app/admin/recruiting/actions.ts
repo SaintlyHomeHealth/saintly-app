@@ -47,6 +47,8 @@ import {
 import { isValidFacebookRecruitingLeadStatus } from "@/lib/recruiting/facebook-recruiting-lead-options";
 import { createServerSupabaseClient, getAuthenticatedUser } from "@/lib/supabase/server";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
+import { sendSms } from "@/lib/twilio/send-sms";
+import { pickOutboundE164ForDial } from "@/lib/workspace-phone/launch-urls";
 
 function str(formData: FormData, key: string): string {
   const v = formData.get(key);
@@ -617,6 +619,128 @@ export async function recruitingListQuickAction(input: {
   }
 
   revalidatePath(`/admin/recruiting/leads/${leadId}`);
+  return { ok: true, candidateId };
+}
+
+/** Send an outbound recruiting SMS via Twilio and log timeline + engagement fields. */
+export async function sendRecruitingCandidateText(input: {
+  candidateId?: string | null;
+  leadId?: string | null;
+  body: string;
+  templateId?: string | null;
+}): Promise<{ ok: true; candidateId: string } | { ok: false; message: string }> {
+  const staff = await requireManager();
+  const user = await getAuthenticatedUser();
+  const db = await createServerSupabaseClient();
+
+  let candidateId = input.candidateId?.trim() ?? "";
+  const leadId = input.leadId?.trim() ?? "";
+
+  if (!candidateId || !uuidOk(candidateId)) {
+    if (!leadId || !uuidOk(leadId)) {
+      return { ok: false, message: "Invalid candidate." };
+    }
+    const ensured = await ensureRecruitingCandidateForLead(supabaseAdmin, leadId);
+    if (!ensured.ok) {
+      return { ok: false, message: ensured.error || "Could not link candidate." };
+    }
+    candidateId = ensured.candidateId;
+  }
+
+  const body = input.body?.trim() ?? "";
+  if (!body) {
+    return { ok: false, message: "Message is required." };
+  }
+
+  const { data: candidate, error: fetchErr } = await db
+    .from("recruiting_candidates")
+    .select("id, phone, sms_opt_out, status")
+    .eq("id", candidateId)
+    .maybeSingle();
+
+  if (fetchErr) {
+    logRecruitingSupabaseErr("sendRecruitingCandidateText candidate fetch", fetchErr, {
+      candidate_id: candidateId,
+      staff_role: staff.role,
+    });
+    return { ok: false, message: "Could not load candidate." };
+  }
+  if (!candidate?.id) {
+    return { ok: false, message: "Candidate not found." };
+  }
+
+  const phoneRaw = typeof candidate.phone === "string" ? candidate.phone : "";
+  if (!phoneRaw.trim()) {
+    return { ok: false, message: "No phone on file." };
+  }
+  if (Boolean(candidate.sms_opt_out)) {
+    return { ok: false, message: "SMS opt-out — texting is disabled for this candidate." };
+  }
+
+  const toE164 = pickOutboundE164ForDial(phoneRaw);
+  if (!toE164) {
+    return { ok: false, message: "Phone number is not valid for texting." };
+  }
+
+  const sms = await sendSms({ to: toE164, body });
+  if (!sms.ok) {
+    console.warn("[recruiting] sendRecruitingCandidateText sms failed", {
+      candidate_id: candidateId,
+      error: sms.error.slice(0, 300),
+    });
+    return { ok: false, message: sms.error || "Could not send text." };
+  }
+
+  const nowIso = new Date().toISOString();
+  const prevStatus = typeof candidate.status === "string" ? candidate.status : "New";
+
+  const patch: Record<string, unknown> = {
+    last_text_at: nowIso,
+    last_contact_at: nowIso,
+  };
+  if (prevStatus === "New" || prevStatus === "Not Contacted") {
+    patch.status = "Attempted Contact";
+  }
+
+  const activityRow = {
+    candidate_id: candidateId,
+    activity_type: "text",
+    outcome: "sent",
+    body,
+    created_by: user?.id ?? null,
+  };
+
+  let { error: actErr } = await db.from("recruiting_candidate_activities").insert(activityRow);
+  if (actErr?.code === "23503" && activityRow.created_by) {
+    ({ error: actErr } = await db.from("recruiting_candidate_activities").insert({
+      ...activityRow,
+      created_by: null,
+    }));
+  }
+  if (actErr) {
+    logRecruitingSupabaseErr("sendRecruitingCandidateText INSERT activity FAILED", actErr, {
+      candidate_id: candidateId,
+      payload: activityRow,
+    });
+    return { ok: false, message: "Text sent but could not save to timeline." };
+  }
+
+  const { error: updErr } = await db.from("recruiting_candidates").update(patch).eq("id", candidateId);
+  if (updErr) {
+    logRecruitingSupabaseErr("sendRecruitingCandidateText UPDATE candidate FAILED", updErr, {
+      candidate_id: candidateId,
+      patch,
+    });
+    return { ok: false, message: "Text sent but could not update candidate." };
+  }
+
+  revalidatePath("/admin/recruiting");
+  revalidatePath(`/admin/recruiting/${candidateId}`);
+
+  if (leadId && uuidOk(leadId)) {
+    revalidatePath(`/admin/recruiting/leads/${leadId}`);
+  }
+
   return { ok: true, candidateId };
 }
 

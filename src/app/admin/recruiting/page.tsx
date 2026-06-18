@@ -216,13 +216,25 @@ export default async function AdminRecruitingWorkspacePage({
             </p>
             <RecruitingLeadPagination filters={f} page={f.page} totalPages={totalPages} />
           </div>
-          {displayRows.map((row) => (
+          {displayRows.map((row) => {
+            const linkedCandidateId = candidateByLeadId.get(row.id);
+            const candidate = linkedCandidateId ? candidateById.get(linkedCandidateId) : undefined;
+            return (
             <RecruitingLeadListCard
               key={row.id}
               row={row}
-              detailHref={buildAdminRecruitingWorkingDetailHref(row.id, candidateByLeadId.get(row.id), f)}
+              detailHref={buildAdminRecruitingWorkingDetailHref(row.id, linkedCandidateId, f)}
               emailConfigured={emailConfigured}
-              candidateId={candidateByLeadId.get(row.id) ?? null}
+              candidateId={linkedCandidateId ?? null}
+              textTarget={{
+                full_name: row.full_name,
+                first_name: candidate?.first_name ?? null,
+                phone: row.phone,
+                city: candidate?.city ?? null,
+                coverage_area: row.coverage_area,
+                discipline: candidate?.discipline ?? row.license_status,
+                smsOptOut: candidate?.sms_opt_out ?? false,
+              }}
               engagement={
                 engagementByLeadId.get(row.id) ?? {
                   attemptsCount: 0,
@@ -237,7 +249,8 @@ export default async function AdminRecruitingWorkspacePage({
                 }
               }
             />
-          ))}
+            );
+          })}
           <RecruitingLeadPagination filters={f} page={f.page} totalPages={totalPages} />
         </div>
       )}

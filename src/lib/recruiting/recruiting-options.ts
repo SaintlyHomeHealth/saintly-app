@@ -85,8 +85,21 @@ export const RECRUITING_BATCH_UPLOAD_DISCIPLINE_OPTIONS: readonly { value: strin
   { value: "Other", label: "Other / unspecified" },
 ];
 
-/** Default SMS snippets for one-tap compose (Phoenix / Saintly context). */
+import {
+  RECRUITING_GENERAL_DISCIPLINE_OUTREACH_NO_DISCIPLINE_BODY,
+  RECRUITING_GENERAL_DISCIPLINE_OUTREACH_TEMPLATE_ID,
+  RECRUITING_GENERAL_DISCIPLINE_OUTREACH_WITH_DISCIPLINE_BODY,
+} from "@/lib/recruiting/render-recruiting-text-template";
+
+export { RECRUITING_GENERAL_DISCIPLINE_OUTREACH_TEMPLATE_ID } from "@/lib/recruiting/render-recruiting-text-template";
+
+/** Default SMS snippets for recruiting quick text (placeholders filled at send time). */
 export const RECRUITING_TEXT_TEMPLATES: { id: string; label: string; body: string }[] = [
+  {
+    id: RECRUITING_GENERAL_DISCIPLINE_OUTREACH_TEMPLATE_ID,
+    label: "General discipline outreach",
+    body: RECRUITING_GENERAL_DISCIPLINE_OUTREACH_WITH_DISCIPLINE_BODY,
+  },
   {
     id: "intro",
     label: "Intro",
@@ -103,3 +116,19 @@ export const RECRUITING_TEXT_TEMPLATES: { id: string; label: string; body: strin
     body: "Hi — we have flexible shifts across Maricopa County. Want me to share a few details and next steps?",
   },
 ];
+
+/** Resolve a stored template body for a candidate (discipline-aware for general outreach). */
+export function resolveRecruitingTextTemplateBody(
+  templateId: string,
+  discipline: string | null | undefined
+): string {
+  if (templateId === RECRUITING_GENERAL_DISCIPLINE_OUTREACH_TEMPLATE_ID) {
+    const d = (discipline ?? "").trim();
+    if (!d || d.toUpperCase() === "OTHER") {
+      return RECRUITING_GENERAL_DISCIPLINE_OUTREACH_NO_DISCIPLINE_BODY;
+    }
+    return RECRUITING_GENERAL_DISCIPLINE_OUTREACH_WITH_DISCIPLINE_BODY;
+  }
+  const tpl = RECRUITING_TEXT_TEMPLATES.find((t) => t.id === templateId);
+  return tpl?.body ?? RECRUITING_GENERAL_DISCIPLINE_OUTREACH_WITH_DISCIPLINE_BODY;
+}

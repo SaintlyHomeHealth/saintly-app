@@ -4,6 +4,7 @@ import { isValidFacebookRecruitingLeadStatus } from "@/lib/recruiting/facebook-r
 export type RecruitingLeadListCandidateRow = {
   id: string;
   full_name: string;
+  first_name: string | null;
   phone: string | null;
   email: string | null;
   city: string | null;
@@ -12,6 +13,7 @@ export type RecruitingLeadListCandidateRow = {
   discipline: string | null;
   status: string | null;
   interest_level: string | null;
+  sms_opt_out: boolean | null;
   last_call_at: string | null;
   last_text_at: string | null;
   last_contact_at: string | null;
@@ -19,7 +21,7 @@ export type RecruitingLeadListCandidateRow = {
 };
 
 const CANDIDATE_LIST_SELECT =
-  "id, full_name, phone, email, city, state, coverage_area, discipline, status, interest_level, last_call_at, last_text_at, last_contact_at, next_follow_up_at";
+  "id, full_name, first_name, phone, email, city, state, coverage_area, discipline, status, interest_level, sms_opt_out, last_call_at, last_text_at, last_contact_at, next_follow_up_at";
 
 export type RecruitingLeadListDisplayRow = {
   id: string;

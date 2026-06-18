@@ -15,6 +15,7 @@ import { recruitingStatusPillClass } from "@/app/admin/recruiting/recruiting-sta
 import { RecruitingLeadActionsMenu } from "./RecruitingLeadActionsMenu";
 import { RecruitingLeadListEngagement } from "./RecruitingLeadListEngagement";
 import { RecruitingLeadSourceBadge } from "./RecruitingLeadDeleteButton";
+import type { RecruitingQuickTextTarget } from "./RecruitingQuickTextModal";
 
 export type RecruitingLeadListRow = {
   id: string;
@@ -38,6 +39,7 @@ type Props = {
   emailConfigured: boolean;
   candidateId: string | null;
   engagement: RecruitingLeadListEngagementSummary;
+  textTarget: Omit<RecruitingQuickTextTarget, "candidateId" | "leadId">;
 };
 
 function formatListDate(iso: string | null | undefined): string {
@@ -67,6 +69,7 @@ export function RecruitingLeadListCard({
   emailConfigured,
   candidateId,
   engagement,
+  textTarget,
 }: Props) {
   const role = recruitingLeadRoleBadge({
     license_status: row.license_status,
@@ -136,7 +139,12 @@ export function RecruitingLeadListCard({
         </div>
       </div>
 
-      <RecruitingLeadListEngagement leadId={row.id} candidateId={candidateId} engagement={engagement} />
+      <RecruitingLeadListEngagement
+        leadId={row.id}
+        candidateId={candidateId}
+        engagement={engagement}
+        textTarget={textTarget}
+      />
 
       <div className="flex items-center justify-end border-t border-slate-100/80 px-4 py-2">
         <Link

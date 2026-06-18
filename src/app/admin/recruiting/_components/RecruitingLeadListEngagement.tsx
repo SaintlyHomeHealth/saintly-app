@@ -17,6 +17,11 @@ import {
   type RecruitingQuickActionKind,
 } from "@/app/admin/recruiting/actions";
 import {
+  RecruitingQuickTextModal,
+  recruitingQuickTextDisabledReason,
+  type RecruitingQuickTextTarget,
+} from "@/app/admin/recruiting/_components/RecruitingQuickTextModal";
+import {
   facebookRecruitingLeadStatusPillClass,
 } from "@/app/admin/recruiting/recruiting-leads-status-styles";
 import {
@@ -62,15 +67,22 @@ type Props = {
   leadId: string;
   candidateId: string | null;
   engagement: RecruitingLeadListEngagementSummary;
+  textTarget: Omit<RecruitingQuickTextTarget, "candidateId" | "leadId">;
 };
 
-export function RecruitingLeadListEngagement({ leadId, candidateId, engagement: initial }: Props) {
+export function RecruitingLeadListEngagement({
+  leadId,
+  candidateId,
+  engagement: initial,
+  textTarget,
+}: Props) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [busyKind, setBusyKind] = useState<string | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
   const [noteOpen, setNoteOpen] = useState(false);
   const [followUpOpen, setFollowUpOpen] = useState(false);
+  const [textOpen, setTextOpen] = useState(false);
   const [noteBody, setNoteBody] = useState("");
   const [followUpWhen, setFollowUpWhen] = useState("");
   const [followUpNote, setFollowUpNote] = useState("");
@@ -87,6 +99,15 @@ export function RecruitingLeadListEngagement({ leadId, candidateId, engagement: 
   const statusPillClass = engagement.usesCandidateEngagement
     ? recruitingStatusPillClass(engagement.status)
     : facebookRecruitingLeadStatusPillClass(engagement.status);
+
+  const textDisabledReason = recruitingQuickTextDisabledReason({
+    phone: textTarget.phone,
+    smsOptOut: textTarget.smsOptOut,
+  });
+
+  function patchEngagementAfterTextSend() {
+    patchEngagementAfterAction("text");
+  }
 
   function patchEngagementAfterAction(kind: RecruitingQuickActionKind) {
     const nowIso = new Date().toISOString();
@@ -175,6 +196,31 @@ export function RecruitingLeadListEngagement({ leadId, candidateId, engagement: 
     });
   }
 
+  function renderSendTextButton(className?: string) {
+    if (textDisabledReason) {
+      return (
+        <span
+          key="send-text"
+          title={textDisabledReason}
+          className={`${actionBtnClass("ghost")} cursor-not-allowed opacity-50 ${className ?? ""}`}
+        >
+          {textDisabledReason}
+        </span>
+      );
+    }
+    return (
+      <button
+        key="send-text"
+        type="button"
+        disabled={pending}
+        onClick={() => setTextOpen(true)}
+        className={`${actionBtnClass("primary")} ${className ?? ""}`}
+      >
+        Send text
+      </button>
+    );
+  }
+
   function renderActionButton(action: QuickActionDef) {
     return (
       <button
@@ -221,6 +267,7 @@ export function RecruitingLeadListEngagement({ leadId, candidateId, engagement: 
         </div>
 
         <div className="mt-2 hidden flex-wrap items-center gap-1.5 sm:flex">
+          {renderSendTextButton()}
           {PRIMARY_ACTIONS.map(renderActionButton)}
           {SECONDARY_ACTIONS.map(renderActionButton)}
           <button
@@ -249,7 +296,8 @@ export function RecruitingLeadListEngagement({ leadId, candidateId, engagement: 
         </div>
 
         <div className="mt-2 flex flex-wrap items-center gap-1.5 sm:hidden">
-          {PRIMARY_ACTIONS.slice(0, 4).map(renderActionButton)}
+          {renderSendTextButton()}
+          {PRIMARY_ACTIONS.slice(0, 3).map(renderActionButton)}
           <div className="relative">
             <button
               type="button"
@@ -261,7 +309,8 @@ export function RecruitingLeadListEngagement({ leadId, candidateId, engagement: 
             </button>
             {moreOpen ? (
               <div className="absolute bottom-full right-0 z-20 mb-1 flex min-w-[10rem] flex-col gap-1 rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
-                {[...PRIMARY_ACTIONS.slice(4), ...SECONDARY_ACTIONS].map(renderActionButton)}
+                {PRIMARY_ACTIONS.slice(3).map(renderActionButton)}
+                {SECONDARY_ACTIONS.map(renderActionButton)}
                 <button
                   type="button"
                   disabled={pending}
@@ -396,6 +445,24 @@ export function RecruitingLeadListEngagement({ leadId, candidateId, engagement: 
           </div>
         </div>
       ) : null}
+
+      <RecruitingQuickTextModal
+        open={textOpen}
+        target={
+          textOpen
+            ? {
+                ...textTarget,
+                candidateId: candidateId ?? "",
+                leadId,
+              }
+            : null
+        }
+        onClose={() => setTextOpen(false)}
+        onSent={() => {
+          patchEngagementAfterTextSend();
+          router.refresh();
+        }}
+      />
     </>
   );
 }
