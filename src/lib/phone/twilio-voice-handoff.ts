@@ -150,8 +150,8 @@ export function browserClientDialBodiesXml(input: {
     .join("");
 }
 
-const DEFAULT_TWILIO_VOICE_RING_TIMEOUT_SECONDS = 30;
-const MIN_TWILIO_VOICE_RING_TIMEOUT_SECONDS = 15;
+const DEFAULT_TWILIO_VOICE_RING_TIMEOUT_SECONDS = 35;
+const MIN_TWILIO_VOICE_RING_TIMEOUT_SECONDS = 30;
 const MAX_TWILIO_VOICE_RING_TIMEOUT_SECONDS = 45;
 
 export function resolvePstnDialTimeoutSeconds(): number {
@@ -278,7 +278,7 @@ function buildPstnNumberDialOpeningResponseXml(input: {
       dial_action_url: dialActionUrl || null,
     })
   );
-  const numberAmdAttrs = ` machineDetection="Enable"`;
+  const numberInner = `<Number>${escapeXml(pstnRingNormalized)}</Number>`;
   const pstnDialAttrs = publicBase
     ? ` answerOnBridge="true" timeout="${pstnDialSec}" callerId="${escapeXml(
         callerId
@@ -293,7 +293,7 @@ function buildPstnNumberDialOpeningResponseXml(input: {
 <Response>
   ${openingSay}
   <Dial${pstnDialAttrs}>
-    <Number${numberAmdAttrs}>${escapeXml(pstnRingNormalized)}</Number>
+    ${numberInner}
   </Dial>
 </Response>`.trim();
 }

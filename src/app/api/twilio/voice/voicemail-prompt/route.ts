@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
     return parsed.response;
   }
 
-  const publicBase = resolveTwilioVoicePublicBase();
+  const publicBase = resolveTwilioVoicePublicBase(new URL(req.url).origin);
   if (!publicBase) {
     const xml = `<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna">${escapeXml(
       "Please try your call again later."

@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
     return parsed.response;
   }
 
-  const publicBase = resolveTwilioVoicePublicBase();
+  const publicBase = resolveTwilioVoicePublicBase(new URL(req.url).origin);
   if (!publicBase) {
     const xml = `<?xml version="1.0" encoding="UTF-8"?><Response><Hangup/></Response>`;
     return new NextResponse(xml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });

@@ -5,6 +5,7 @@ import {
   resolveInboundCallerIdForClientDial,
 } from "@/lib/phone/twilio-voice-handoff";
 import { inferTwilioDialAnswerPath, logInboundVoiceDebug } from "@/lib/phone/twilio-voice-debug";
+import { isTwilioDialLegBridged } from "@/lib/phone/twilio-dial-leg-bridge";
 import { resolveTwilioVoicePublicBase } from "@/lib/phone/twilio-voicemail-twiml";
 import { resolveBrowserFirstRingTimeoutSeconds } from "@/lib/softphone/inbound-staff-ids";
 import { softphoneTwilioClientIdentity } from "@/lib/softphone/twilio-client-identity";
@@ -42,7 +43,7 @@ export async function POST(req: NextRequest) {
   const params = parsed.params as Record<string, string | undefined>;
   const dialStatus = (params.DialCallStatus || "").trim().toLowerCase();
 
-  if (dialStatus === "completed") {
+  if (isTwilioDialLegBridged(params)) {
     const to = (params.To ?? "").trim();
     logInboundVoiceDebug("dial_leg_completed", {
       handler: "inbound-staff-after-pstn",
@@ -62,7 +63,7 @@ export async function POST(req: NextRequest) {
     })
   );
 
-  const publicBase = resolveTwilioVoicePublicBase();
+  const publicBase = resolveTwilioVoicePublicBase(new URL(req.url).origin);
   if (!publicBase) {
     const xml = `<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna">${escapeXml(
       "Please try your call again later."

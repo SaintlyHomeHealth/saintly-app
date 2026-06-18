@@ -179,7 +179,7 @@ export const COMPLIANCE_PROGRAM_COVER_FIELDS = {
   title: "Saintly Home Health LLC Compliance Program Materials",
   companyName: "Saintly Home Health LLC",
   address: "64 East Broadway Rd, Suite 200-235, Tempe, AZ 85282",
-  phone: "480-360-0008",
+  phone: "(480) 360-0008",
   fax: "480-393-4119",
   email: "info@saintlyhomehealth.com",
   website: "www.saintlyhomehealth.com",

@@ -1,6 +1,6 @@
-export const TEL = "tel:+14803600008";
+export const TEL = "tel:4803600008";
 /** Canonical display format for intake line (marketing + forms). */
-export const PHONE_DISPLAY = "480-360-0008";
+export const PHONE_DISPLAY = "(480) 360-0008";
 
 /** Public intake / office contact (marketing pages). */
 export const FAX_DISPLAY = "480-393-4119";

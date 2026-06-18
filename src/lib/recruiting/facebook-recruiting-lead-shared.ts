@@ -1,6 +1,6 @@
 /** Pure helpers for Facebook PT recruiting lead SMS + staff notifications (safe for verify scripts). */
 
-export const FACEBOOK_RECRUITING_INTRO_SMS_CALLBACK_PHONE = "480-360-0008";
+export const FACEBOOK_RECRUITING_INTRO_SMS_CALLBACK_PHONE = "(480) 360-0008";
 
 export const FACEBOOK_RECRUITING_FORM_CONSENT_LANGUAGE =
   "We'll use the information you provide to contact you about Physical Therapist visit opportunities with Saintly Home Health. Your information may be used to confirm your interest, review your availability, and follow up by phone, text, or email about this position.";

@@ -7,6 +7,7 @@ import {
   resolveInboundPstnFallbackCallerId,
 } from "@/lib/phone/twilio-voice-handoff";
 import { inferTwilioDialAnswerPath, logInboundVoiceDebug } from "@/lib/phone/twilio-voice-debug";
+import { isTwilioDialLegBridged } from "@/lib/phone/twilio-dial-leg-bridge";
 import { buildSaintlyVoicemailRecordTwiml, resolveTwilioVoicePublicBase } from "@/lib/phone/twilio-voicemail-twiml";
 import { parseVerifiedTwilioFormBody } from "@/lib/twilio/verify-form-post";
 
@@ -44,7 +45,7 @@ export async function POST(req: NextRequest) {
     })
   );
 
-  if (dialStatus === "completed") {
+  if (isTwilioDialLegBridged(params)) {
     const to = (params.To ?? "").trim();
     logInboundVoiceDebug("dial_leg_completed", {
       handler: "inbound-browser-fallback",
@@ -69,7 +70,7 @@ export async function POST(req: NextRequest) {
     })
   );
 
-  const publicBase = resolveTwilioVoicePublicBase();
+  const publicBase = resolveTwilioVoicePublicBase(new URL(req.url).origin);
   if (!publicBase) {
     const xml = `<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna">${escapeXml(
       "Please try your call again later."

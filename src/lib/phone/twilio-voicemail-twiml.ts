@@ -24,13 +24,17 @@ export const SAINTLY_VOICEMAIL_PROMPT_AFTER_HOURS =
 
 /**
  * Prefer TWILIO_PUBLIC_BASE_URL; fall back to TWILIO_WEBHOOK_BASE_URL (origin only in env).
+ * Optional `fallbackOrigin` (e.g. `new URL(req.url).origin`) matches inbound-ring behavior so
+ * Dial action callbacks can still reach Record/recording webhooks when env is unset in dev.
  */
-export function resolveTwilioVoicePublicBase(): string {
-  return (
+export function resolveTwilioVoicePublicBase(fallbackOrigin?: string | null): string {
+  const fromEnv =
     process.env.TWILIO_PUBLIC_BASE_URL?.trim().replace(/\/$/, "") ||
     process.env.TWILIO_WEBHOOK_BASE_URL?.trim().replace(/\/$/, "") ||
-    ""
-  );
+    "";
+  if (fromEnv) return fromEnv;
+  const origin = typeof fallbackOrigin === "string" ? fallbackOrigin.trim().replace(/\/$/, "") : "";
+  return origin;
 }
 
 export type VoicemailGreetingKind = "default" | "business_hours" | "after_hours";

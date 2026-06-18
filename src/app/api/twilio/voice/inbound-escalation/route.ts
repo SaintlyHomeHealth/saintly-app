@@ -17,6 +17,7 @@ import {
   resolveEscalationPrimaryRingTimeoutSeconds,
 } from "@/lib/phone/voice-escalation-config";
 import { inferTwilioDialAnswerPath, logInboundVoiceDebug } from "@/lib/phone/twilio-voice-debug";
+import { isTwilioDialLegBridged } from "@/lib/phone/twilio-dial-leg-bridge";
 import { buildSaintlyVoicemailRecordTwiml, resolveTwilioVoicePublicBase } from "@/lib/phone/twilio-voicemail-twiml";
 import { updateVoiceCallSessionEscalation } from "@/lib/phone/voice-call-sessions";
 import { normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
@@ -52,9 +53,9 @@ export async function POST(req: NextRequest) {
   const parentCallSid = typeof params.ParentCallSid === "string" ? params.ParentCallSid.trim() : "";
   const externalCallId = parentCallSid || callSid || "";
 
-  const publicBase = resolveTwilioVoicePublicBase();
+  const publicBase = resolveTwilioVoicePublicBase(new URL(req.url).origin);
 
-  if (dialStatus === "completed") {
+  if (isTwilioDialLegBridged(params)) {
     const to = (params.To ?? "").trim();
     logInboundVoiceDebug("dial_leg_completed", {
       handler: "inbound-escalation",

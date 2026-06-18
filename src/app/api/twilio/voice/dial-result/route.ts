@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { inferTwilioDialAnswerPath, logInboundVoiceDebug } from "@/lib/phone/twilio-voice-debug";
+import { isTwilioDialLegBridged } from "@/lib/phone/twilio-dial-leg-bridge";
 import { buildSaintlyVoicemailRecordTwiml, resolveTwilioVoicePublicBase } from "@/lib/phone/twilio-voicemail-twiml";
 import { parseVerifiedTwilioFormBody } from "@/lib/twilio/verify-form-post";
 
@@ -34,17 +35,18 @@ export async function POST(req: NextRequest) {
       : `…${to.replace(/\D/g, "").slice(-4)}`,
   });
 
-  const publicBase = resolveTwilioVoicePublicBase();
+  const publicBase = resolveTwilioVoicePublicBase(new URL(req.url).origin);
+
+  /** Twilio: completed = dialed party answered and was connected to the caller. */
+  if (isTwilioDialLegBridged(params)) {
+    const xml = `<?xml version="1.0" encoding="UTF-8"?><Response></Response>`;
+    return new NextResponse(xml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
+  }
+
   if (!publicBase) {
     const xml = `<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna">${escapeXml(
       "Please try your call again later."
     )}</Say></Response>`;
-    return new NextResponse(xml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
-  }
-
-  /** Twilio: completed = dialed party answered and was connected to the caller. */
-  if (dialStatus === "completed") {
-    const xml = `<?xml version="1.0" encoding="UTF-8"?><Response></Response>`;
     return new NextResponse(xml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
   }
 

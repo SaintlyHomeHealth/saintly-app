@@ -120,7 +120,7 @@ function testPatientPayloadNotRecruiting() {
 function testIntroSmsCopy() {
   const body = buildFacebookRecruitingLeadIntroSmsBody(extractRecruitingLeadFirstName("Test Lead"));
   assert.match(body, /^Hi Test,/);
-  assert.match(body, /480-360-0008/);
+  assert.match(body, /\(480\) 360-0008/);
   assert.match(body, /Reply STOP to opt out\./);
 
   const generic = buildFacebookRecruitingLeadIntroSmsBody(null);

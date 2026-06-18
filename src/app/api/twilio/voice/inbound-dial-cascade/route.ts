@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
   const callSid = params.CallSid?.trim();
   const parentCallSid = typeof params.ParentCallSid === "string" ? params.ParentCallSid.trim() : null;
 
-  const publicBase = resolveTwilioVoicePublicBase();
+  const publicBase = resolveTwilioVoicePublicBase(new URL(req.url).origin);
   const xml = await handleInboundDialCascadePost({ params, publicBase });
 
   logTwilioVoiceTrace({

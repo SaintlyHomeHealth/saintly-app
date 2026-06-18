@@ -30,6 +30,7 @@ import {
   logInboundVoiceDebug,
   uuidTail,
 } from "@/lib/phone/twilio-voice-debug";
+import { isTwilioDialLegBridged } from "@/lib/phone/twilio-dial-leg-bridge";
 
 function escapeXml(text: string): string {
   return text
@@ -227,7 +228,7 @@ export async function handleInboundDialCascadePost(input: {
   const parentCallSid = typeof params.ParentCallSid === "string" ? params.ParentCallSid.trim() : "";
   const externalCallId = parentCallSid || callSid;
 
-  if (dialStatus === "completed") {
+  if (isTwilioDialLegBridged(params)) {
     const to = (params.To ?? "").trim();
     logInboundVoiceDebug("dial_leg_completed", {
       handler: "inbound-dial-cascade",

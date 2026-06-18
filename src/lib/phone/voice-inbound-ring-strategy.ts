@@ -22,8 +22,8 @@
 
 export type VoiceInboundRingStrategy = "pstn_first" | "browser_first" | "pstn_only";
 
-const DEFAULT_PSTN_ONLY_RING_SECONDS = 25;
-const MIN_PSTN_ONLY_RING_SECONDS = 15;
+const DEFAULT_PSTN_ONLY_RING_SECONDS = 35;
+const MIN_PSTN_ONLY_RING_SECONDS = 30;
 const MAX_PSTN_ONLY_RING_SECONDS = 45;
 
 /**
