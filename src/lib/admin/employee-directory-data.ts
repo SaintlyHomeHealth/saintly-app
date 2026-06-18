@@ -188,6 +188,8 @@ export function getRequiredCredentialTypesForApplicant(
     merged = `${merged} home health aide hha caregiver certified caregiver`.trim();
   } else if (rk === "rn") {
     merged = `${merged} rn registered nurse`.trim();
+  } else if (rk === "lvn") {
+    merged = `${merged} lvn lpn licensed practical nurse licensed vocational nurse`.trim();
   } else if (rk === "pt") {
     merged = `${merged} pt physical therapist`.trim();
   } else if (rk === "st") {

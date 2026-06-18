@@ -1,4 +1,4 @@
-export type ContractRoleKey = "rn" | "pt" | "st" | "msw" | "hha";
+export type ContractRoleKey = "rn" | "lvn" | "pt" | "st" | "msw" | "hha";
 export type EmploymentClassification = "employee" | "contractor";
 export type EmploymentType = "prn" | "part_time" | "full_time";
 export type PayType = "per_visit" | "hourly" | "salary";
@@ -54,6 +54,22 @@ const ROLE_CONFIG: Record<ContractRoleKey, ContractRoleConfig> = {
     ],
     qualifications: [
       "Maintain an active professional license and any required certifications for the role.",
+      "Complete agency onboarding, training, HIPAA, and competency requirements.",
+    ],
+  },
+  lvn: {
+    key: "lvn",
+    label: "LVN",
+    title: "Licensed Vocational Nurse",
+    duties: [
+      "Provide skilled nursing tasks and treatments as permitted under state law and agency policy.",
+      "Observe, report, and document patient condition, response to care, and changes needing escalation.",
+      "Assist with medication administration, wound care, treatments, and patient/caregiver instruction under appropriate supervision.",
+      "Collaborate with the supervising RN and interdisciplinary team to support continuity of care.",
+      "Complete visit documentation, patient education, and care communication in a timely and accurate manner.",
+    ],
+    qualifications: [
+      "Maintain an active LVN/LPN license and any required certifications for the role.",
       "Complete agency onboarding, training, HIPAA, and competency requirements.",
     ],
   },
@@ -130,6 +146,14 @@ export function inferContractRoleFromText(value?: string | null): ContractRoleKe
 
   if (!normalized) return "";
   if (normalized === "rn" || normalized.includes("registered nurse")) return "rn";
+  if (
+    normalized === "lvn" ||
+    normalized === "lpn" ||
+    normalized.includes("licensed practical nurse") ||
+    normalized.includes("licensed vocational nurse")
+  ) {
+    return "lvn";
+  }
   if (
     normalized === "pt" ||
     normalized.includes("physical therapist") ||
