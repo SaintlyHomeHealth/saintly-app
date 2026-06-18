@@ -51,7 +51,7 @@ export function buildFacebookRecruitingLeadAdminNotificationBody(input: {
 }
 
 export function recruitingLeadAdminNotificationHref(leadId: string): string {
-  return `/admin/recruiting-leads/${leadId.trim()}`;
+  return `/admin/recruiting/leads/${leadId.trim()}`;
 }
 
 export function recruitingLeadAdminNotificationDedupeKey(leadId: string): string {

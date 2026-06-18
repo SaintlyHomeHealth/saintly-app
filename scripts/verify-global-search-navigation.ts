@@ -11,7 +11,7 @@ import { isGlobalSearchResultCurrentPage } from "../src/lib/admin/global-search/
 function testHrefs() {
   assert.equal(globalSearchHref("lead", "abc-123"), "/admin/crm/leads/abc-123");
   assert.equal(globalSearchHref("contact", "contact-1"), "/admin/crm/contacts/contact-1");
-  assert.equal(globalSearchHref("recruit", "recruit-1"), "/admin/recruiting/recruit-1");
+  assert.equal(globalSearchHref("recruit", "recruit-1"), "/admin/recruiting/leads/recruit-1");
   assert.equal(globalSearchHref("facility", "fac-1"), "/admin/facilities/fac-1");
 }
 

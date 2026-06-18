@@ -22,12 +22,12 @@ export async function POST(_req: Request, ctx: { params: Promise<{ leadId: strin
 
   revalidatePath("/admin/crm/leads");
   revalidatePath(`/admin/crm/leads/${rawLeadId}`);
-  revalidatePath("/admin/recruiting-leads");
-  revalidatePath(`/admin/recruiting-leads/${result.recruitingLeadId}`);
+  revalidatePath("/admin/recruiting");
+  revalidatePath(`/admin/recruiting/leads/${result.recruitingLeadId}`);
 
   return NextResponse.json({
     ok: true,
     recruitingLeadId: result.recruitingLeadId,
-    redirectTo: `/admin/recruiting-leads/${result.recruitingLeadId}`,
+    redirectTo: `/admin/recruiting/leads/${result.recruitingLeadId}`,
   });
 }

@@ -52,7 +52,7 @@ export function RecruitingLeadEmailPanel({
     );
   }
 
-  const leadHref = recruitingLeadHref ?? `/admin/recruiting-leads/${recruitingLeadId}`;
+  const leadHref = recruitingLeadHref ?? `/admin/recruiting/leads/${recruitingLeadId}`;
 
   return (
     <div className="space-y-4">

@@ -143,7 +143,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ leadId: st
     console.warn("[recruiting-leads/send-email] activity log failed", activity.error);
   }
 
-  revalidatePath(`/admin/recruiting-leads/${leadId}`);
+  revalidatePath(`/admin/recruiting/leads/${leadId}`);
 
   if (!sendResult.ok) {
     return NextResponse.json(

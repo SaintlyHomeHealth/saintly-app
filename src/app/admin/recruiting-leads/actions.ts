@@ -29,7 +29,7 @@ export async function updateFacebookRecruitingLead(formData: FormData) {
   const leadId = str(formData, "leadId");
   const status = str(formData, "status");
   const notes = str(formData, "notes");
-  const returnTo = str(formData, "returnTo") || "/admin/recruiting-leads";
+  const returnTo = str(formData, "returnTo") || "/admin/recruiting";
 
   if (!leadId) {
     redirect(`${returnTo}?err=missing_lead`);
@@ -50,7 +50,7 @@ export async function updateFacebookRecruitingLead(formData: FormData) {
     redirect(`${returnTo}?err=update_failed`);
   }
 
-  revalidatePath("/admin/recruiting-leads");
-  revalidatePath(`/admin/recruiting-leads/${leadId}`);
+  revalidatePath("/admin/recruiting");
+  revalidatePath(`/admin/recruiting/leads/${leadId}`);
   redirect(returnTo);
 }

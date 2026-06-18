@@ -384,7 +384,7 @@ export function BulkResumeUploadClient({ emailConfigured }: { emailConfigured: b
                       : r.status === "duplicate" && r.existingCandidateId
                         ? `/admin/recruiting/${r.existingCandidateId}`
                         : null;
-                  const leadLink = r.recruitingLeadId ? `/admin/recruiting-leads/${r.recruitingLeadId}` : null;
+                  const leadLink = r.recruitingLeadId ? `/admin/recruiting/leads/${r.recruitingLeadId}` : null;
                   return (
                     <tr key={q.id} className="border-b border-slate-100 hover:bg-slate-50/80">
                       <td className="max-w-[12rem] truncate px-4 py-2.5 font-medium text-slate-900" title={r.fileName}>

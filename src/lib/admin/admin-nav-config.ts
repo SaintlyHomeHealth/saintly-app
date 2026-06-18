@@ -140,12 +140,6 @@ export function buildAdminNavItems(staff: StaffProfile | null): AdminNavItemReso
       ...g("recruiting", false, ""),
     },
     {
-      id: "recruiting_leads",
-      label: ADMIN_NAV_LABELS.recruitingLeads,
-      href: "/admin/recruiting-leads",
-      ...g("recruiting_leads", false, ""),
-    },
-    {
       id: "pt_cold_calling",
       label: ADMIN_NAV_LABELS.ptColdCalling,
       href: "/admin/recruiting/pt-cold-calling",

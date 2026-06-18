@@ -87,6 +87,13 @@ function testFieldNormalization() {
   assert.equal(fields.start_date, "Immediately");
   assert.equal(fields.lead_type, "PT Hiring");
   assert.equal(fields.source, "Facebook Lead Form");
+  const defaulted = normalizeFacebookRecruitingLeadFields({
+    form_name: "Hiring Form - Physical Therapy",
+    full_name: "No Source Lead",
+    phone: "4805559999",
+    lead_type: "PT Hiring",
+  });
+  assert.equal(defaulted.source, "facebook");
 }
 
 function testPhoneNormalization() {
@@ -167,12 +174,12 @@ function testAdminNotificationContent() {
   assert.match(body, /Start: Immediately/);
 
   const leadId = "11111111-1111-4111-8111-111111111111";
-  assert.equal(recruitingLeadAdminNotificationHref(leadId), `/admin/recruiting-leads/${leadId}`);
+  assert.equal(recruitingLeadAdminNotificationHref(leadId), `/admin/recruiting/leads/${leadId}`);
   assert.equal(recruitingLeadAdminNotificationDedupeKey(leadId), `facebook_recruiting_lead:${leadId}`);
 }
 
 function testWebsiteRecruitingClassification() {
-  assert.equal(WEBSITE_RECRUITING_SOURCE, "website");
+  assert.equal(WEBSITE_RECRUITING_SOURCE, "website_form");
   assert.equal(WEBSITE_RECRUITING_LEAD_TYPE, "recruiting");
   assert.equal(WEBSITE_RECRUITING_PIPELINE, "recruiting");
   assert.equal(WEBSITE_CAREERS_FORM_NAME, "Saintly website careers form");

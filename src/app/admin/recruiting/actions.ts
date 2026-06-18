@@ -19,6 +19,7 @@ import {
 import {
   describeDuplicateReasons,
   findRecruitingDuplicateCandidates,
+  findRecruitingUnifiedDuplicates,
   type RecruitingDuplicateRow,
 } from "@/lib/recruiting/recruiting-duplicates";
 import {
@@ -101,8 +102,8 @@ async function linkCandidateToRecruitingLead(candidateId: string, uploadedBy?: s
     console.warn("[recruiting] linkCandidateToRecruitingLead:", synced.error);
     return null;
   }
-  revalidatePath("/admin/recruiting-leads");
-  revalidatePath(`/admin/recruiting-leads/${synced.recruitingLeadId}`);
+  revalidatePath("/admin/recruiting");
+  revalidatePath(`/admin/recruiting/leads/${synced.recruitingLeadId}`);
   return synced.recruitingLeadId;
 }
 
@@ -229,6 +230,7 @@ export async function createRecruitingCandidate(formData: FormData): Promise<Cre
   }
 
   await ensureRecruitingCandidateCrmContact(supabaseAdmin, data.id as string);
+  await linkCandidateToRecruitingLead(data.id as string);
 
   revalidatePath("/admin/recruiting");
   return { ok: true, candidateId: data.id as string };
@@ -800,7 +802,7 @@ export async function applyRecruitingResumeSuggestions(input: {
 }
 
 export type CreateRecruitingCandidateFromResumeResult =
-  | { ok: true; candidateId: string }
+  | { ok: true; candidateId: string; recruitingLeadId: string; updatedExisting: boolean }
   | { ok: false; reason: "duplicates"; duplicates: RecruitingDuplicateRow[] }
   | { ok: false; reason: "missing_name" | "missing_file" | "file_too_large" | "bad_type" | "save_failed" | "upload_failed" };
 
@@ -849,7 +851,9 @@ async function finalizeResumeAfterStorage(input: {
   }
 }
 
-export type AttachResumeToCandidateResult = { ok: true } | { ok: false; reason: string };
+export type AttachResumeToCandidateResult =
+  | { ok: true; recruitingLeadId: string | null; updatedExisting: boolean }
+  | { ok: false; reason: string };
 
 /** Upload/replace resume on an existing candidate (e.g. duplicate flow). Does not change profile fields. */
 export async function attachResumeToExistingCandidate(formData: FormData): Promise<AttachResumeToCandidateResult> {
@@ -943,11 +947,11 @@ export async function attachResumeToExistingCandidate(formData: FormData): Promi
     newStoragePath: storagePath,
   });
 
-  await linkCandidateToRecruitingLead(candidateId, user?.id ?? null);
+  const recruitingLeadId = await linkCandidateToRecruitingLead(candidateId, user?.id ?? null);
 
   revalidatePath("/admin/recruiting");
   revalidatePath(`/admin/recruiting/${candidateId}`);
-  return { ok: true };
+  return { ok: true, recruitingLeadId, updatedExisting: true };
 }
 
 export async function createRecruitingCandidateFromResume(
@@ -1001,15 +1005,40 @@ export async function createRecruitingCandidateFromResume(
   const phone = optStr(formData, "phone");
   const city = optStr(formData, "city");
 
+  let prelinkedLeadId: string | null = null;
+
   if (!forceDuplicateFromForm(formData)) {
-    const duplicates = await findRecruitingDuplicateCandidates(supabaseAdmin, {
+    const unified = await findRecruitingUnifiedDuplicates(supabaseAdmin, {
       email,
       phone,
       fullName: full_name,
       city,
+      discipline,
     });
-    if (duplicates.length > 0) {
-      return { ok: false, reason: "duplicates", duplicates };
+
+    const candidateDupes = [...unified.candidates];
+    for (const lead of unified.leads) {
+      if (lead.linkedCandidateId) {
+        const already = candidateDupes.some((c) => c.id === lead.linkedCandidateId);
+        if (!already) {
+          candidateDupes.push({
+            id: lead.linkedCandidateId,
+            full_name: lead.full_name,
+            phone: lead.phone,
+            email: lead.email,
+            city: null,
+            status: lead.status,
+            last_contact_at: null,
+            reasons: lead.reasons,
+          });
+        }
+      } else if (!prelinkedLeadId) {
+        prelinkedLeadId = lead.leadId;
+      }
+    }
+
+    if (candidateDupes.length > 0) {
+      return { ok: false, reason: "duplicates", duplicates: candidateDupes };
     }
   }
 
@@ -1035,6 +1064,7 @@ export async function createRecruitingCandidateFromResume(
       recruiting_tags: optStr(formData, "recruiting_tags"),
       follow_up_bucket: optStr(formData, "follow_up_bucket"),
       preferred_contact_method,
+      recruiting_lead_id: prelinkedLeadId,
       ...norm,
     })
     .select("id")
@@ -1096,11 +1126,20 @@ export async function createRecruitingCandidateFromResume(
 
   await ensureRecruitingCandidateCrmContact(supabaseAdmin, candidateId);
 
-  await linkCandidateToRecruitingLead(candidateId, user?.id ?? null);
+  const recruitingLeadId =
+    (await linkCandidateToRecruitingLead(candidateId, user?.id ?? null)) ?? prelinkedLeadId ?? "";
 
   revalidatePath("/admin/recruiting");
   revalidatePath(`/admin/recruiting/${candidateId}`);
-  return { ok: true, candidateId };
+  if (recruitingLeadId) {
+    revalidatePath(`/admin/recruiting/leads/${recruitingLeadId}`);
+  }
+  return {
+    ok: true,
+    candidateId,
+    recruitingLeadId: recruitingLeadId || prelinkedLeadId || "",
+    updatedExisting: Boolean(prelinkedLeadId),
+  };
 }
 
 export type BulkResumeProcessResult = {

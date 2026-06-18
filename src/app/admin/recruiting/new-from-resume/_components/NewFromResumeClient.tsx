@@ -289,7 +289,10 @@ export function NewFromResumeClient({ initialError }: NewFromResumeClientProps) 
       const res = await createRecruitingCandidateFromResume(fd);
       if (res.ok) {
         setDupes(null);
-        router.push(`/admin/recruiting/${res.candidateId}`);
+        const leadHref = res.recruitingLeadId
+          ? `/admin/recruiting/leads/${res.recruitingLeadId}${res.updatedExisting ? "?updated=1" : ""}`
+          : `/admin/recruiting/${res.candidateId}`;
+        router.push(leadHref);
         return;
       }
       if (res.reason === "duplicates") {
@@ -612,7 +615,10 @@ export function NewFromResumeClient({ initialError }: NewFromResumeClientProps) 
             const r = await attachResumeToExistingCandidate(fd);
             if (r.ok) {
               setDupes(null);
-              router.push(`/admin/recruiting/${candidateId}`);
+              const leadHref = r.recruitingLeadId
+                ? `/admin/recruiting/leads/${r.recruitingLeadId}?updated=1`
+                : `/admin/recruiting/${candidateId}?updated=1`;
+              router.push(leadHref);
               return;
             }
             setToast(r.reason);

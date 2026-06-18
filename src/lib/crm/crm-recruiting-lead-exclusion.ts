@@ -206,7 +206,14 @@ function hasStrongRecruitingEvidence(lead: CrmLeadClassificationInput): boolean 
   }
 
   const source = norm(lead.source);
-  if (source === WEBSITE_RECRUITING_SOURCE || source === MANUAL_RESUME_UPLOAD_SOURCE) return true;
+  if (
+    source === WEBSITE_RECRUITING_SOURCE ||
+    source === "website" ||
+    source === "careers_form" ||
+    source === MANUAL_RESUME_UPLOAD_SOURCE
+  ) {
+    return true;
+  }
   if (RECRUITING_SOURCE_NEEDLES.some((needle) => source.includes(needle))) return true;
 
   const notes = norm(lead.notes);

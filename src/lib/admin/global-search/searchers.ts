@@ -656,8 +656,7 @@ export async function searchRecruitingCandidates(
 ): Promise<GlobalSearchResult[]> {
   const orParts = [
     `full_name.ilike.${query.ilikePattern}`,
-    `first_name.ilike.${query.ilikePattern}`,
-    `last_name.ilike.${query.ilikePattern}`,
+    `phone.ilike.${query.ilikePattern}`,
     `email.ilike.${query.ilikePattern}`,
     `notes.ilike.${query.ilikePattern}`,
   ];
@@ -667,8 +666,8 @@ export async function searchRecruitingCandidates(
   }
 
   const { data, error } = await supabase
-    .from("recruiting_candidates")
-    .select("id, full_name, first_name, last_name, phone, email, source, status, created_at, updated_at")
+    .from("facebook_recruiting_leads")
+    .select("id, full_name, phone, email, source, status, form_name, created_at, updated_at")
     .or(orParts.join(","))
     .order("updated_at", { ascending: false })
     .limit(8);
@@ -681,12 +680,12 @@ export async function searchRecruitingCandidates(
   return (data ?? []).map((row) => ({
     type: "recruit" as const,
     id: row.id,
-    title: row.full_name?.trim() || `${row.first_name ?? ""} ${row.last_name ?? ""}`.trim() || "Recruit",
+    title: row.full_name?.trim() || "Recruit",
     phone: formatPhoneForDisplay(row.phone) || null,
     email: row.email?.trim() || null,
     status: row.status?.replace(/_/g, " ") ?? null,
-    source: row.source?.trim() || null,
-    sourceTrail: buildRecruitSourceTrail(row.source),
+    source: row.source?.trim() || row.form_name?.trim() || null,
+    sourceTrail: buildRecruitSourceTrail(row.source ?? row.form_name),
     matchedFields: query.isPhone ? ["phone"] : query.isEmail ? ["email"] : ["name"],
     createdAt: row.created_at,
     updatedAt: row.updated_at,

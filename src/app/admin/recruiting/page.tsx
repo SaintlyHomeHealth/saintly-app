@@ -1,123 +1,90 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import AddEmployeeInviteButton from "@/app/admin/employees/add-employee-invite-button";
-import {
-  crmFilterBarCls,
-  crmFilterInputCls,
-  crmListRowHoverCls,
-  crmListScrollOuterCls,
-  crmPrimaryCtaCls,
-} from "@/components/admin/crm-admin-list-styles";
+import { crmPrimaryCtaCls } from "@/components/admin/crm-admin-list-styles";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
-import { isPhoenixSameCalendarDay, phoenixEndOfTodayIso } from "@/lib/recruiting/phoenix-time";
-import {
-  RECRUITING_DISCIPLINE_OPTIONS,
-  RECRUITING_INTEREST_LEVEL_OPTIONS,
-  RECRUITING_SOURCE_OPTIONS,
-  RECRUITING_STATUS_OPTIONS,
-} from "@/lib/recruiting/recruiting-options";
-import { ExportMarketingEmailsButton } from "@/components/admin/ExportMarketingEmailsButton";
-import {
-  attachAdminRecruitingListPredicates,
-  parseAdminRecruitingListSearchParams,
-} from "@/lib/recruiting/admin-recruiting-list-filters";
-import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import { supabaseAdmin } from "@/lib/admin";
+import {
+  applyAdminRecruitingLeadsClientFilters,
+  attachAdminRecruitingLeadsListPredicates,
+  buildAdminRecruitingLeadDetailHref,
+  matchesAdminRecruitingLeadsTabFilter,
+  parseAdminRecruitingLeadsListSearchParams,
+  recruitingLeadSourceBadgeForRow,
+} from "@/lib/recruiting/admin-recruiting-leads-list-filters";
+import { isPhoenixSameCalendarDay } from "@/lib/recruiting/phoenix-time";
+import { isRecruitingEmailConfigured } from "@/lib/recruiting/recruiting-email-from";
+import { syncOrphanRecruitingCandidatesToLeads } from "@/lib/recruiting/sync-orphan-recruiting-candidates";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
-import { formatAppDateTime } from "@/lib/datetime/app-timezone";
 
-import { recruitingInterestPillClass, recruitingStatusPillClass } from "./recruiting-status-styles";
+import { RecruitingLeadFilters } from "../recruiting-leads/_components/RecruitingLeadFilters";
+import { RecruitingLeadListCard } from "../recruiting-leads/_components/RecruitingLeadListCard";
+import { RecruitingWorkspaceStatsCards } from "./_components/RecruitingWorkspaceStatsCards";
+import { RecruitingWorkspaceTabs } from "./_components/RecruitingWorkspaceTabs";
 
-const RECRUITING_LIST_SELECT =
-  "id, full_name, first_name, last_name, discipline, city, coverage_area, phone, email, source, status, interest_level, recruiting_tags, last_contact_at, next_follow_up_at, updated_at";
+const LIST_SELECT =
+  "id, full_name, phone, email, license_status, lead_type, home_health_experience, visits_per_week, coverage_area, start_date, source, form_name, raw_payload, status, notes, created_at";
 
-const RECRUITING_ACTIVITY_IN_CHUNK = 120;
+const STATS_SELECT = "status, source, form_name, raw_payload, created_at";
 
-const recruitingRowActionBtnCls =
-  "inline-flex h-8 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-sky-900 shadow-sm transition hover:border-sky-300 hover:bg-sky-50 hover:shadow-md whitespace-nowrap";
-
-type CandidateRow = {
+type LeadListRow = {
   id: string;
   full_name: string;
-  first_name: string | null;
-  last_name: string | null;
-  discipline: string | null;
-  city: string | null;
-  coverage_area: string | null;
   phone: string | null;
   email: string | null;
+  license_status: string | null;
+  lead_type: string | null;
+  home_health_experience: string | null;
+  visits_per_week: string | null;
+  coverage_area: string | null;
+  start_date: string | null;
   source: string | null;
-  status: string | null;
-  interest_level: string | null;
-  recruiting_tags: string | null;
-  last_contact_at: string | null;
-  next_follow_up_at: string | null;
+  form_name: string | null;
+  raw_payload: unknown;
+  status: string;
+  notes: string | null;
+  created_at: string;
 };
 
-function formatListDate(iso: string | null | undefined): string {
-  if (!iso) return "—";
-  return formatAppDateTime(iso, "—", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
+type StatsRow = {
+  status: string;
+  source: string | null;
+  form_name: string | null;
+  raw_payload: unknown;
+  created_at: string;
+};
 
-function buildFilterQs(sp: {
-  status?: string;
-  discipline?: string;
-  area?: string;
-  city?: string;
-  coverage?: string;
-  name?: string;
-  source?: string;
-  followUp?: string;
-  interest?: string;
-  tags?: string;
-  lastContactFrom?: string;
-  lastContactTo?: string;
-}): string {
-  const u = new URLSearchParams();
-  if (sp.status) u.set("status", sp.status);
-  if (sp.discipline) u.set("discipline", sp.discipline);
-  if (sp.area) u.set("area", sp.area);
-  if (sp.city) u.set("city", sp.city);
-  if (sp.coverage) u.set("coverage", sp.coverage);
-  if (sp.name) u.set("name", sp.name);
-  if (sp.source) u.set("source", sp.source);
-  if (sp.followUp) u.set("followUp", sp.followUp);
-  if (sp.interest) u.set("interest", sp.interest);
-  if (sp.tags) u.set("tags", sp.tags);
-  if (sp.lastContactFrom) u.set("lastContactFrom", sp.lastContactFrom);
-  if (sp.lastContactTo) u.set("lastContactTo", sp.lastContactTo);
-  const s = u.toString();
-  return s ? `?${s}` : "";
-}
-
-function splitRecruitingName(
-  fullName: string,
-  firstName: string | null,
-  lastName: string | null
-): { firstName: string; lastName: string } {
-  const first = firstName?.trim() ?? "";
-  const last = lastName?.trim() ?? "";
-  if (first || last) {
-    return { firstName: first, lastName: last };
-  }
-  const parts = fullName.trim().split(/\s+/).filter(Boolean);
-  if (parts.length <= 1) {
-    return { firstName: parts[0] ?? "", lastName: "" };
+function computeStats(rows: StatsRow[]) {
+  let newLeads = 0;
+  let newToday = 0;
+  let formFacebookLeads = 0;
+  let resumeUploads = 0;
+  for (const row of rows) {
+    if (row.status === "New") newLeads += 1;
+    if (isPhoenixSameCalendarDay(row.created_at)) newToday += 1;
+    const badge = recruitingLeadSourceBadgeForRow(row);
+    if (badge === "Facebook" || badge === "Website Careers") formFacebookLeads += 1;
+    if (badge === "Manual Resume Upload") resumeUploads += 1;
   }
   return {
-    firstName: parts[0] ?? "",
-    lastName: parts.slice(1).join(" "),
+    total: rows.length,
+    newLeads,
+    newToday,
+    formFacebookLeads,
+    resumeUploads,
   };
 }
 
-export default async function AdminRecruitingListPage({
+function computeTabCounts(rows: LeadListRow[]) {
+  return {
+    all: rows.length,
+    form_facebook: rows.filter((row) => matchesAdminRecruitingLeadsTabFilter(row, "form_facebook")).length,
+    resume_uploads: rows.filter((row) => matchesAdminRecruitingLeadsTabFilter(row, "resume_uploads")).length,
+    new_today: rows.filter((row) => matchesAdminRecruitingLeadsTabFilter(row, "new_today")).length,
+  } as const;
+}
+
+export default async function AdminRecruitingWorkspacePage({
   searchParams,
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -127,488 +94,130 @@ export default async function AdminRecruitingListPage({
     redirect("/admin");
   }
 
+  await syncOrphanRecruitingCandidatesToLeads(supabaseAdmin, 40);
+
   const rawSp = await searchParams;
+  const f = parseAdminRecruitingLeadsListSearchParams(rawSp);
 
-  const f = parseAdminRecruitingListSearchParams(rawSp);
-
-  let query = supabaseAdmin.from("recruiting_candidates").select(RECRUITING_LIST_SELECT).order("updated_at", { ascending: false }).limit(2000);
-  query = attachAdminRecruitingListPredicates(query, f) as typeof query;
+  let query = supabaseAdmin
+    .from("facebook_recruiting_leads")
+    .select(LIST_SELECT)
+    .order("created_at", { ascending: false })
+    .limit(2000);
+  query = attachAdminRecruitingLeadsListPredicates(query, f) as typeof query;
 
   const { data: rows, error } = await query;
-
-  let list = (rows ?? []) as CandidateRow[];
+  const dbList = (rows ?? []) as LeadListRow[];
   if (error) {
     console.warn("[recruiting] list:", error.message);
-    list = [];
   }
 
-  const ids = list.map((r) => r.id);
-  const countById = new Map<string, number>();
-  if (ids.length) {
-    for (let i = 0; i < ids.length; i += RECRUITING_ACTIVITY_IN_CHUNK) {
-      const slice = ids.slice(i, i + RECRUITING_ACTIVITY_IN_CHUNK);
-      const { data: naRows } = await supabaseAdmin
-        .from("recruiting_candidate_activities")
-        .select("candidate_id")
-        .eq("outcome", "no_answer")
-        .in("candidate_id", slice);
-      for (const r of naRows ?? []) {
-        const id = (r as { candidate_id: string }).candidate_id;
-        countById.set(id, (countById.get(id) ?? 0) + 1);
-      }
-    }
+  const list = applyAdminRecruitingLeadsClientFilters(dbList, f);
+
+  const { data: statsRows, count: statsCount } = await supabaseAdmin
+    .from("facebook_recruiting_leads")
+    .select(STATS_SELECT, { count: "exact" })
+    .limit(5000);
+
+  const stats = computeStats((statsRows ?? []) as StatsRow[]);
+  if (statsCount != null && statsCount > stats.total) {
+    stats.total = statsCount;
   }
 
-  const { data: areaRows } = await supabaseAdmin.from("recruiting_candidates").select("coverage_area").limit(2000);
-  const areaOptions = [
+  const tabCounts = computeTabCounts((statsRows ?? []) as LeadListRow[]);
+
+  const { data: coverageRows } = await supabaseAdmin
+    .from("facebook_recruiting_leads")
+    .select("coverage_area")
+    .not("coverage_area", "is", null)
+    .limit(2000);
+  const coverageOptions = [
     ...new Set(
-      (areaRows ?? [])
+      (coverageRows ?? [])
         .map((r) => (r as { coverage_area: string | null }).coverage_area)
         .filter((c): c is string => Boolean(c && c.trim()))
     ),
   ].sort((a, b) => a.localeCompare(b));
 
-  const filterQs = buildFilterQs(f);
-  const inviteErr =
-    typeof rawSp.inviteErr === "string"
-      ? rawSp.inviteErr.trim()
-      : Array.isArray(rawSp.inviteErr)
-        ? String(rawSp.inviteErr[0] ?? "").trim()
-        : "";
-  const inviteOk =
-    typeof rawSp.inviteOk === "string"
-      ? rawSp.inviteOk.trim()
-      : Array.isArray(rawSp.inviteOk)
-        ? String(rawSp.inviteOk[0] ?? "").trim()
-        : "";
-  const inviteApplicantId =
-    typeof rawSp.inviteApplicantId === "string"
-      ? rawSp.inviteApplicantId.trim()
-      : Array.isArray(rawSp.inviteApplicantId)
-        ? String(rawSp.inviteApplicantId[0] ?? "").trim()
-        : "";
-  const inviteEmailWarn =
-    typeof rawSp.inviteEmailWarn === "string"
-      ? rawSp.inviteEmailWarn.trim()
-      : Array.isArray(rawSp.inviteEmailWarn)
-        ? String(rawSp.inviteEmailWarn[0] ?? "").trim()
-        : "";
+  const emailConfigured = isRecruitingEmailConfigured();
+
+  const updatedBanner =
+    typeof rawSp.updated === "string" && rawSp.updated === "1"
+      ? "Existing lead updated with the new resume."
+      : null;
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="min-h-full space-y-6 bg-gradient-to-b from-sky-50/70 via-white to-white p-4 sm:p-6">
       <AdminPageHeader
-        eyebrow="Talent pipeline"
+        eyebrow="Hiring"
         title="Recruiting"
-        description="Track Indeed candidates with a fast call/text workflow and a permanent activity history."
+        description="One workspace for Facebook, website careers, resume uploads, and legacy recruiting leads."
         actions={
           <div className="flex flex-wrap items-center justify-end gap-2">
-            <ExportMarketingEmailsButton exportPath="/admin/recruiting/export-emails" omitSearchKeys={[]} />
             <Link
               href="/admin/recruiting/bulk-upload"
-              className="inline-flex items-center justify-center rounded-[20px] border border-violet-200 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-900 shadow-sm hover:bg-violet-100"
+              className="inline-flex items-center justify-center rounded-xl border border-violet-200 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-900 shadow-sm transition hover:bg-violet-100"
             >
               Bulk resumes
             </Link>
-            <Link
-              href="/admin/recruiting/new-from-resume"
-              className="inline-flex items-center justify-center rounded-[20px] border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-900 shadow-sm hover:bg-sky-100"
-            >
-              + From resume
-            </Link>
-            <Link href="/admin/recruiting/new" className={crmPrimaryCtaCls}>
-              + Add candidate
+            <Link href="/admin/recruiting/new-from-resume" className={crmPrimaryCtaCls}>
+              Upload resume
             </Link>
           </div>
         }
       />
 
-      {inviteErr ? (
-        <div className="rounded-[20px] border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900 shadow-sm">
-          {inviteErr}
+      {updatedBanner ? (
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-950 shadow-sm">
+          {updatedBanner}
         </div>
       ) : null}
 
-      {inviteOk ? (
-        <div className="rounded-[20px] border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-950 shadow-sm">
-          Employee onboarding invite sent.
-          {inviteApplicantId ? (
-            <>
-              {" "}
-              <Link
-                href={`/admin/employees/${inviteApplicantId}`}
-                prefetch={false}
-                className="font-semibold text-emerald-900 underline-offset-2 hover:underline"
-              >
-                Open employee record
-              </Link>
-            </>
-          ) : null}
-        </div>
-      ) : null}
+      <RecruitingWorkspaceStatsCards
+        total={stats.total}
+        newLeads={stats.newLeads}
+        newToday={stats.newToday}
+        formFacebookLeads={stats.formFacebookLeads}
+        resumeUploads={stats.resumeUploads}
+      />
 
-      {inviteEmailWarn ? (
-        <div className="rounded-[20px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950 shadow-sm">
-          <span className="font-semibold">Text was sent, but email did not send.</span> {inviteEmailWarn}
-        </div>
-      ) : null}
+      <RecruitingWorkspaceTabs filters={f} counts={tabCounts} />
 
-      <form method="get" action="/admin/recruiting" className={`${crmFilterBarCls} flex-wrap`}>
-        <label className="flex min-w-[8rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-          Status
-          <select name="status" defaultValue={f.status} className={`${crmFilterInputCls} min-w-[9rem]`}>
-            <option value="">All</option>
-            {RECRUITING_STATUS_OPTIONS.map((t) => (
-              <option key={t} value={t}>
-                {t}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="flex min-w-[8rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-          Interest
-          <select name="interest" defaultValue={f.interest} className={`${crmFilterInputCls} min-w-[9rem]`}>
-            <option value="">All</option>
-            {RECRUITING_INTEREST_LEVEL_OPTIONS.map((t) => (
-              <option key={t} value={t}>
-                {t.replace(/_/g, " ")}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="flex min-w-[8rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-          Discipline
-          <select name="discipline" defaultValue={f.discipline} className={`${crmFilterInputCls} min-w-[9rem]`}>
-            <option value="">All</option>
-            {RECRUITING_DISCIPLINE_OPTIONS.map((t) => (
-              <option key={t} value={t}>
-                {t}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="flex min-w-[8rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-          Candidate name
-          <input
-            name="name"
-            defaultValue={f.name}
-            placeholder="Search by name..."
-            className={`${crmFilterInputCls} min-w-[9rem]`}
-            autoComplete="off"
-          />
-        </label>
-        <label className="flex min-w-[8rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-          City
-          <input
-            name="city"
-            defaultValue={f.city}
-            placeholder="Contains…"
-            className={`${crmFilterInputCls} min-w-[9rem]`}
-          />
-        </label>
-        <label className="flex min-w-[8rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-          Coverage area
-          <input
-            name="coverage"
-            list="recruiting-area-options"
-            defaultValue={f.coverage}
-            placeholder="Area or region…"
-            className={`${crmFilterInputCls} min-w-[11rem]`}
-          />
-          <datalist id="recruiting-area-options">
-            {areaOptions.map((c) => (
-              <option key={c} value={c} />
-            ))}
-          </datalist>
-        </label>
-        <label className="flex min-w-[8rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-          City or area (legacy)
-          <input
-            name="area"
-            defaultValue={f.area}
-            placeholder="Combined search…"
-            className={`${crmFilterInputCls} min-w-[11rem]`}
-          />
-        </label>
-        <label className="flex min-w-[8rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-          Source
-          <select name="source" defaultValue={f.source} className={`${crmFilterInputCls} min-w-[9rem]`}>
-            <option value="">All</option>
-            {RECRUITING_SOURCE_OPTIONS.map((t) => (
-              <option key={t} value={t}>
-                {t}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="flex min-w-[8rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-          Tags
-          <input
-            name="tags"
-            defaultValue={f.tags}
-            placeholder="Contains…"
-            className={`${crmFilterInputCls} min-w-[9rem]`}
-          />
-        </label>
-        <label className="flex min-w-[9rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-          Last contact from
-          <input
-            name="lastContactFrom"
-            type="date"
-            defaultValue={f.lastContactFrom}
-            className={`${crmFilterInputCls} min-w-[10rem]`}
-          />
-        </label>
-        <label className="flex min-w-[9rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-          Last contact to
-          <input
-            name="lastContactTo"
-            type="date"
-            defaultValue={f.lastContactTo}
-            className={`${crmFilterInputCls} min-w-[10rem]`}
-          />
-        </label>
-        <label className="flex min-w-[10rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-          Follow-up
-          <select name="followUp" defaultValue={f.followUp} className={`${crmFilterInputCls} min-w-[11rem]`}>
-            <option value="">All</option>
-            <option value="due">Due (today or overdue)</option>
-          </select>
-        </label>
-        <button
-          type="submit"
-          className="rounded-lg border border-sky-600 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-900 hover:bg-sky-100"
-        >
-          Apply
-        </button>
-        <Link
-          href="/admin/recruiting"
-          className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
-        >
-          Clear
-        </Link>
-      </form>
+      <RecruitingLeadFilters filters={f} coverageOptions={coverageOptions} />
 
       {list.length === 0 ? (
-        <div className="rounded-[28px] border border-dashed border-slate-200 bg-white/80 px-6 py-16 text-center text-sm text-slate-600 shadow-sm">
-          No candidates match these filters.{" "}
-          <Link href="/admin/recruiting/new" className="font-semibold text-sky-800 hover:underline">
-            Add a candidate
-          </Link>{" "}
-          to get started.
+        <div className="rounded-2xl border border-dashed border-slate-200 bg-white/90 px-6 py-16 text-center shadow-sm">
+          <p className="text-base font-semibold text-slate-800">No leads match these filters</p>
+          <p className="mt-2 text-sm text-slate-600">
+            Try a different tab or upload a resume to add a new applicant.
+          </p>
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
+            <Link href="/admin/recruiting/new-from-resume" className={crmPrimaryCtaCls}>
+              Upload resume
+            </Link>
+            <Link
+              href="/admin/recruiting"
+              className="inline-flex items-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
+            >
+              View all leads
+            </Link>
+          </div>
         </div>
       ) : (
-        <>
-          <div className="space-y-3 md:hidden">
-            {list.map((r) => {
-              const loc = [r.city, r.coverage_area].filter(Boolean).join(" · ") || "—";
-              const noAnswerCount = countById.get(r.id) ?? 0;
-              const dueToday = Boolean(r.next_follow_up_at && isPhoenixSameCalendarDay(r.next_follow_up_at));
-              const dueBucket = Boolean(r.next_follow_up_at && r.next_follow_up_at <= phoenixEndOfTodayIso());
-              const inviteName = splitRecruitingName(r.full_name, r.first_name, r.last_name);
-              return (
-                <div
-                  key={r.id}
-                  className={`rounded-2xl border border-slate-200 bg-white p-4 shadow-sm ${crmListRowHoverCls} ${
-                    dueToday ? "ring-2 ring-amber-300/80" : ""
-                  }`}
-                >
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <Link
-                        href={`/admin/recruiting/${r.id}${filterQs}`}
-                        className="font-semibold text-slate-900 hover:text-sky-800 hover:underline"
-                      >
-                        {r.full_name}
-                      </Link>
-                      <p className="mt-1 text-xs text-slate-500">
-                        {[r.discipline, loc].filter(Boolean).join(" · ")}
-                      </p>
-                    </div>
-                    <div className="flex shrink-0 flex-col items-end gap-1.5">
-                      <span className={recruitingStatusPillClass(r.status ?? "")}>{r.status ?? "—"}</span>
-                      {r.interest_level?.trim() ? (
-                        <span className={recruitingInterestPillClass(r.interest_level)}>
-                          {r.interest_level.replace(/_/g, " ")}
-                        </span>
-                      ) : null}
-                      {dueBucket ? (
-                        <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-900 ring-1 ring-amber-200">
-                          {dueToday ? "Due today" : "Follow-up due"}
-                        </span>
-                      ) : null}
-                      {noAnswerCount >= 2 ? (
-                        <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-rose-900 ring-1 ring-rose-200">
-                          No response
-                        </span>
-                      ) : null}
-                    </div>
-                  </div>
-                  <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-xs text-slate-600">
-                    <div>
-                      <span className="font-medium text-slate-500">Phone</span>
-                      <div className="text-slate-800">{r.phone ? formatPhoneForDisplay(r.phone) : "—"}</div>
-                    </div>
-                    <div>
-                      <span className="font-medium text-slate-500">Email</span>
-                      <div className="text-slate-800">{r.email?.trim() || "—"}</div>
-                    </div>
-                    <div>
-                      <span className="font-medium text-slate-500">Source</span>
-                      <div>{r.source ?? "—"}</div>
-                    </div>
-                    <div>
-                      <span className="font-medium text-slate-500">Last contact</span>
-                      <div>{formatListDate(r.last_contact_at)}</div>
-                    </div>
-                    <div className="col-span-2">
-                      <span className="font-medium text-slate-500">Next follow-up</span>
-                      <div className="text-slate-800">{formatListDate(r.next_follow_up_at)}</div>
-                    </div>
-                  </div>
-                  <div className="mt-3 flex flex-wrap items-center gap-2">
-                    <AddEmployeeInviteButton
-                      triggerLabel="Onboard"
-                      triggerClassName={recruitingRowActionBtnCls}
-                      initialValues={{
-                        firstName: inviteName.firstName,
-                        lastName: inviteName.lastName,
-                        email: r.email,
-                        phone: r.phone,
-                        role: r.discipline,
-                      }}
-                      recruitingCandidateId={r.id}
-                      returnTo={`/admin/recruiting${filterQs}`}
-                      title="Invite new hire"
-                      description="Review the recruit details, fill any missing required contact fields, and send the onboarding invite."
-                    />
-                    {r.phone?.trim() ? (
-                      <a
-                        href={`/admin/recruiting/open-keypad/${r.id}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className={recruitingRowActionBtnCls}
-                      >
-                        Call
-                      </a>
-                    ) : null}
-                    <Link href={`/admin/recruiting/${r.id}${filterQs}`} className={recruitingRowActionBtnCls}>
-                      Open
-                    </Link>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          <div className={`${crmListScrollOuterCls} hidden md:block`}>
-            <table className="min-w-full divide-y divide-slate-100 text-sm">
-              <thead className="bg-slate-50/90 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                <tr>
-                  <th className="px-4 py-3 align-middle">Candidate</th>
-                  <th className="px-4 py-3 align-middle">Discipline</th>
-                  <th className="px-4 py-3 align-middle">Location / area</th>
-                  <th className="px-4 py-3 align-middle">Phone</th>
-                  <th className="px-4 py-3 align-middle">Email</th>
-                  <th className="px-4 py-3 align-middle">Source</th>
-                  <th className="px-4 py-3 align-middle">Status</th>
-                  <th className="px-4 py-3 align-middle">Interest</th>
-                  <th className="px-4 py-3 align-middle">Last contact</th>
-                  <th className="px-4 py-3 align-middle">Next follow-up</th>
-                  <th className="px-4 py-3 align-middle text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {list.map((r) => {
-                  const loc = [r.city, r.coverage_area].filter(Boolean).join(" · ") || "—";
-                  const noAnswerCount = countById.get(r.id) ?? 0;
-                  const dueToday = Boolean(r.next_follow_up_at && isPhoenixSameCalendarDay(r.next_follow_up_at));
-                  const dueBucket = Boolean(r.next_follow_up_at && r.next_follow_up_at <= phoenixEndOfTodayIso());
-                  const inviteName = splitRecruitingName(r.full_name, r.first_name, r.last_name);
-                  return (
-                    <tr
-                      key={r.id}
-                      className={`bg-white/90 ${crmListRowHoverCls} ${dueToday ? "bg-amber-50/50" : ""}`}
-                    >
-                      <td className="px-4 py-3 align-middle">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Link
-                            href={`/admin/recruiting/${r.id}${filterQs}`}
-                            className="font-semibold text-slate-900 hover:text-sky-800 hover:underline"
-                          >
-                            {r.full_name}
-                          </Link>
-                          {dueBucket ? (
-                            <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-900 ring-1 ring-amber-200">
-                              {dueToday ? "Due today" : "Due"}
-                            </span>
-                          ) : null}
-                          {noAnswerCount >= 2 ? (
-                            <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-rose-900 ring-1 ring-rose-200">
-                              No response
-                            </span>
-                          ) : null}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 align-middle text-xs text-slate-700">{r.discipline ?? "—"}</td>
-                      <td className="px-4 py-3 align-middle text-xs text-slate-600">{loc}</td>
-                      <td className="px-4 py-3 align-middle text-xs text-slate-700">
-                        {r.phone ? formatPhoneForDisplay(r.phone) : "—"}
-                      </td>
-                      <td className="px-4 py-3 align-middle text-xs text-slate-600">{r.email?.trim() || "—"}</td>
-                      <td className="px-4 py-3 align-middle text-xs text-slate-600">{r.source ?? "—"}</td>
-                      <td className="px-4 py-3 align-middle">
-                        <span className={recruitingStatusPillClass(r.status ?? "")}>{r.status ?? "—"}</span>
-                      </td>
-                      <td className="px-4 py-3 align-middle text-xs text-slate-700">
-                        {r.interest_level?.trim() ? (
-                          <span className={recruitingInterestPillClass(r.interest_level)}>
-                            {r.interest_level.replace(/_/g, " ")}
-                          </span>
-                        ) : (
-                          "—"
-                        )}
-                      </td>
-                      <td className="px-4 py-3 align-middle text-xs text-slate-600">{formatListDate(r.last_contact_at)}</td>
-                      <td className="px-4 py-3 align-middle text-xs text-slate-600">{formatListDate(r.next_follow_up_at)}</td>
-                      <td className="px-4 py-3 align-middle text-right">
-                        <div className="flex items-center justify-end gap-2 whitespace-nowrap">
-                          <AddEmployeeInviteButton
-                            triggerLabel="Onboard"
-                            triggerClassName={recruitingRowActionBtnCls}
-                            initialValues={{
-                              firstName: inviteName.firstName,
-                              lastName: inviteName.lastName,
-                              email: r.email,
-                              phone: r.phone,
-                              role: r.discipline,
-                            }}
-                            recruitingCandidateId={r.id}
-                            returnTo={`/admin/recruiting${filterQs}`}
-                            title="Invite new hire"
-                            description="Review the recruit details, fill any missing required contact fields, and send the onboarding invite."
-                          />
-                          {r.phone?.trim() ? (
-                            <a
-                              href={`/admin/recruiting/open-keypad/${r.id}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className={recruitingRowActionBtnCls}
-                            >
-                              Call
-                            </a>
-                          ) : null}
-                          <Link href={`/admin/recruiting/${r.id}${filterQs}`} className={recruitingRowActionBtnCls}>
-                            Open
-                          </Link>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </>
+        <div className="space-y-3">
+          <p className="text-xs font-medium text-slate-500">
+            {list.length} lead{list.length === 1 ? "" : "s"}
+            {list.length !== dbList.length ? ` (filtered from ${dbList.length})` : ""}
+          </p>
+          {list.map((row) => (
+            <RecruitingLeadListCard
+              key={row.id}
+              row={row}
+              detailHref={buildAdminRecruitingLeadDetailHref(row.id, f)}
+              emailConfigured={emailConfigured}
+            />
+          ))}
+        </div>
       )}
     </div>
   );

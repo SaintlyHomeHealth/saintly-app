@@ -22,8 +22,8 @@ export async function POST(_req: Request, ctx: { params: Promise<{ leadId: strin
     return NextResponse.json({ ok: false, error: result.error }, { status: result.status });
   }
 
-  revalidatePath("/admin/recruiting-leads");
-  revalidatePath(`/admin/recruiting-leads/${result.recruitingLeadId}`);
+  revalidatePath("/admin/recruiting");
+  revalidatePath(`/admin/recruiting/leads/${result.recruitingLeadId}`);
   revalidatePath("/admin/crm/leads");
   revalidatePath(`/admin/crm/leads/${result.crmLeadId}`);
 

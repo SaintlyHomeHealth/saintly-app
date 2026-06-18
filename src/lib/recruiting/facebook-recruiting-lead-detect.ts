@@ -49,7 +49,7 @@ export function normalizeFacebookRecruitingLeadFields(payload: Record<string, un
     start_date: pick(["start_date"]),
     contact_preference: pick(["contact_preference"]),
     lead_type: pick(["lead_type"]) ?? "PT Hiring",
-    source: pick(["source"]) ?? "Facebook Lead Form",
+    source: pick(["source"]) ?? "facebook",
     city: pick(["city"]),
   };
 }

@@ -44,10 +44,16 @@ export function recruitingLeadSourceBadge(input: {
   if (source === "manual_resume_upload" || combined.includes("manual resume")) {
     return "Manual Resume Upload";
   }
-  if (source === "website" || WEBSITE_NEEDLES.some((n) => combined.includes(n))) {
+  if (
+    source === "website" ||
+    source === "website_form" ||
+    source === "careers_form" ||
+    WEBSITE_NEEDLES.some((n) => combined.includes(n))
+  ) {
     return "Website Careers";
   }
   if (
+    source === "facebook" ||
     source.includes("facebook") ||
     FACEBOOK_NEEDLES.some((n) => combined.includes(n)) ||
     (pipeline === "recruiting" && combined.includes("facebook"))

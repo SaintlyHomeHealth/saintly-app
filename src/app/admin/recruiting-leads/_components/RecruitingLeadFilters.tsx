@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { crmFilterInputCls, crmPrimaryCtaCls } from "@/components/admin/crm-admin-list-styles";
 import {
+  ADMIN_RECRUITING_LEADS_DATE_RANGE_OPTIONS,
   ADMIN_RECRUITING_LEADS_SOURCE_FILTER_OPTIONS,
   type AdminRecruitingLeadsListFilters,
 } from "@/lib/recruiting/admin-recruiting-leads-list-filters";
@@ -20,8 +21,9 @@ const filterLabelCls = "text-[11px] font-semibold uppercase tracking-wide text-s
 
 export function RecruitingLeadFilters({ filters, coverageOptions }: Props) {
   return (
-    <form method="get" action="/admin/recruiting-leads" className={filterCardCls}>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+    <form method="get" action="/admin/recruiting" className={filterCardCls}>
+      {filters.tab !== "all" ? <input type="hidden" name="tab" value={filters.tab} /> : null}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-7">
         <label className="flex flex-col gap-1.5">
           <span className={filterLabelCls}>Search</span>
           <input
@@ -88,13 +90,28 @@ export function RecruitingLeadFilters({ filters, coverageOptions }: Props) {
             className={crmFilterInputCls}
           />
         </label>
+        <label className="flex flex-col gap-1.5">
+          <span className={filterLabelCls}>Added</span>
+          <select
+            name="dateRange"
+            defaultValue={filters.tab === "new_today" ? "today" : filters.dateRange}
+            className={crmFilterInputCls}
+            disabled={filters.tab === "new_today"}
+          >
+            {ADMIN_RECRUITING_LEADS_DATE_RANGE_OPTIONS.map((option) => (
+              <option key={option.value || "all_time"} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
       <div className="mt-4 flex flex-wrap items-center gap-2">
         <button type="submit" className={crmPrimaryCtaCls}>
           Apply filters
         </button>
         <Link
-          href="/admin/recruiting-leads"
+          href="/admin/recruiting"
           className="inline-flex items-center rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
         >
           Clear

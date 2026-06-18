@@ -17,7 +17,7 @@ export function globalSearchHref(type: string, id: string): string {
     case "applicant":
       return `/admin/onboarding/${id}`;
     case "recruit":
-      return `/admin/recruiting/${id}`;
+      return `/admin/recruiting/leads/${id}`;
     case "inbound_email":
       return `/admin/crm/leads?tab=all&q=${encodeURIComponent(id.slice(0, 8))}`;
     case "facility":

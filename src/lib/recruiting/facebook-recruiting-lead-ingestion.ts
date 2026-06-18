@@ -166,8 +166,8 @@ export async function ingestFacebookRecruitingLead(
       return { ok: false, error: `lead_update_failed:${error.message}` };
     }
 
-    revalidatePath("/admin/recruiting-leads");
-    revalidatePath(`/admin/recruiting-leads/${existing.id}`);
+    revalidatePath("/admin/recruiting");
+    revalidatePath(`/admin/recruiting/leads/${existing.id}`);
 
     return {
       ok: true,
@@ -194,8 +194,8 @@ export async function ingestFacebookRecruitingLead(
     return { ok: false, error: `lead_insert_failed:${insertErr?.message ?? "unknown"}` };
   }
 
-  revalidatePath("/admin/recruiting-leads");
-  revalidatePath(`/admin/recruiting-leads/${inserted.id}`);
+  revalidatePath("/admin/recruiting");
+  revalidatePath(`/admin/recruiting/leads/${inserted.id}`);
 
   console.log("[facebook-recruiting-lead] created", { lead_id: inserted.id });
 

@@ -20,8 +20,8 @@ export async function DELETE(_req: Request, ctx: { params: Promise<{ leadId: str
     return NextResponse.json({ ok: false, error: result.error }, { status: result.status });
   }
 
-  revalidatePath("/admin/recruiting-leads");
-  revalidatePath(`/admin/recruiting-leads/${result.leadId}`);
+  revalidatePath("/admin/recruiting");
+  revalidatePath(`/admin/recruiting/leads/${result.leadId}`);
 
   return NextResponse.json({
     ok: true,
