@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import type { ParsedResumeSuggestions, ResumeExtractionMethod, ResumeParseQuality } from "@/lib/recruiting/resume-parse-types";
+import type { ParsedResumeSuggestions, ResumeExtractionMethod, ResumeParseQuality, ResumeParserDebug } from "@/lib/recruiting/resume-parse-types";
 import {
   normalizeBaseMime,
   isResumeMimeAllowed,
@@ -41,6 +41,7 @@ export type ParseOnlyParsePayload = {
   extractionMethod?: ResumeExtractionMethod;
   confidenceWarnings?: string[];
   parseNotes?: string[];
+  parserDebug?: ResumeParserDebug;
   textPreview?: string;
   needsReview?: boolean;
 };
@@ -128,6 +129,7 @@ export async function POST(req: Request) {
       extractionMethod: pipeline.extractionMethod,
       confidenceWarnings: pipeline.confidenceWarnings,
       parseNotes: pipeline.parseNotes,
+      parserDebug: pipeline.parserDebug,
       textPreview: pipeline.textPreview,
       needsReview: pipeline.needsReview,
     };

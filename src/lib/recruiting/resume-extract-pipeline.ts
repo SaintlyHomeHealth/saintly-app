@@ -5,7 +5,7 @@ import { isForceOcrPage1DebugMode, isResumeExtractDebugEnabled } from "@/lib/rec
 import { canRunResumePdfOcr } from "@/lib/recruiting/recruiting-ocr-env";
 import { isOcrSpaceRecruitingConfigured, ocrSpaceFromBuffer } from "@/lib/recruiting/ocr-space";
 import { parseResumePlainText } from "@/lib/recruiting/resume-parse-heuristics";
-import type { ParsedResumeSuggestions, ResumeExtractionMethod, ResumeParseQuality } from "@/lib/recruiting/resume-parse-types";
+import type { ParsedResumeSuggestions, ResumeExtractionMethod, ResumeParseQuality, ResumeParserDebug } from "@/lib/recruiting/resume-parse-types";
 import { assessResumeExtractQuality } from "@/lib/recruiting/resume-extract-quality";
 import { normalizeResumeTextForParsing } from "@/lib/recruiting/resume-text-normalize";
 import type { PdfOcrDebug, PdfOcrResult } from "@/lib/recruiting/resume-pdf-ocr";
@@ -44,13 +44,17 @@ function resolveExtractionMethod(args: {
   return "manual";
 }
 
-function parseSuggestionsWithNotes(text: string): {
+function parseSuggestionsWithNotes(
+  text: string,
+  opts?: { directText?: string; ocrText?: string }
+): {
   suggestions: ParsedResumeSuggestions | null;
   parseNotes: string[];
+  parserDebug?: ResumeParserDebug;
 } {
   try {
-    const parsed = parseResumePlainText(text) as ParsedResumeSuggestions & {
-      _meta?: { parseNotes: string[] };
+    const parsed = parseResumePlainText(text, opts) as ParsedResumeSuggestions & {
+      _meta?: { parseNotes: string[]; parserDebug?: ResumeParserDebug };
     };
     const meta = parsed._meta;
     const suggestions = { ...parsed } as ParsedResumeSuggestions & { _meta?: unknown };
@@ -59,6 +63,7 @@ function parseSuggestionsWithNotes(text: string): {
     return {
       suggestions: keys.length ? suggestions : null,
       parseNotes: meta?.parseNotes ?? [],
+      parserDebug: meta?.parserDebug,
     };
   } catch {
     return { suggestions: null, parseNotes: [] };
@@ -145,6 +150,7 @@ export type ResumeExtractPipelineResult = {
   ocrError?: string;
   confidenceWarnings: string[];
   parseNotes: string[];
+  parserDebug?: ResumeParserDebug;
   needsReview: boolean;
   textPreview: string;
   /** Short UI lines for banners */
@@ -530,6 +536,7 @@ export async function runResumeExtractPipeline(
       ocrError: msg,
       confidenceWarnings: ["Resume text may need review."],
       parseNotes: [],
+      parserDebug: undefined,
       needsReview: true,
       textPreview: "",
       messages: buildMessages("manual", {
@@ -695,9 +702,14 @@ async function runResumeExtractPipelineInternal(
 
   let suggestions: ParsedResumeSuggestions | null = null;
   let parseNotes: string[] = [];
-  const parsed = parseSuggestionsWithNotes(parseInput);
+  let parserDebug: ResumeParserDebug | undefined;
+  const parsed = parseSuggestionsWithNotes(parseInput, {
+    directText: directText || undefined,
+    ocrText: (ocrResult.text ?? "").trim() || undefined,
+  });
   suggestions = parsed.suggestions;
   parseNotes = parsed.parseNotes;
+  parserDebug = parsed.parserDebug;
 
   const normalized = normalizeResumeTextForParsing(
     [directText, ocrResult.text ?? ""].filter(Boolean).join("\n\n")
@@ -770,6 +782,7 @@ async function runResumeExtractPipelineInternal(
       ocrError,
       confidenceWarnings,
       parseNotes,
+      parserDebug,
       needsReview: true,
       textPreview,
       messages: buildMessages(quality, msgCtx),
@@ -856,6 +869,7 @@ async function runResumeExtractPipelineInternal(
     ocrError,
     confidenceWarnings,
     parseNotes,
+    parserDebug,
     needsReview,
     textPreview,
     messages: buildMessages(quality, msgCtx),

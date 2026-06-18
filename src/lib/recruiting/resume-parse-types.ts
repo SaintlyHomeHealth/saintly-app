@@ -36,11 +36,41 @@ export type ParsedResumeSuggestions = {
   email?: SuggestedResumeField;
   city?: SuggestedResumeField;
   state?: SuggestedResumeField;
+  zip?: SuggestedResumeField;
+  coverage_area?: SuggestedResumeField;
   discipline?: SuggestedResumeField;
   notes_summary?: SuggestedResumeField;
   years_of_experience?: SuggestedResumeField;
   specialties?: SuggestedResumeField;
   certifications?: SuggestedResumeField;
+  education?: SuggestedResumeField;
+  skills?: SuggestedResumeField;
+};
+
+export type ResumeParserFieldDebug = {
+  value: string | null;
+  confidence: ResumeParseConfidence | null;
+  source: string | null;
+};
+
+/** Admin-facing parser debug shown on resume import preview. */
+export type ResumeParserDebug = {
+  parsedName: string | null;
+  nameConfidence: ResumeParseConfidence | null;
+  nameSource: string | null;
+  phone: ResumeParserFieldDebug;
+  email: ResumeParserFieldDebug;
+  city: ResumeParserFieldDebug;
+  state: ResumeParserFieldDebug;
+  zip: ResumeParserFieldDebug;
+  coverageArea: ResumeParserFieldDebug;
+  discipline: ResumeParserFieldDebug;
+  credentials: string | null;
+  skills: string | null;
+  yearsOfExperience: string | null;
+  education: string | null;
+  rejectedCandidates: string[];
+  locationWarning: string | null;
 };
 
 export type ApplyableResumeField =
@@ -51,14 +81,31 @@ export type ApplyableResumeField =
   | "email"
   | "city"
   | "state"
+  | "zip"
+  | "coverage_area"
   | "discipline"
   | "notes_summary"
   | "years_of_experience"
   | "specialties"
-  | "certifications";
+  | "certifications"
+  | "education"
+  | "skills";
 
 export function confidenceToLabel(c: ResumeParseConfidence): ResumeConfidenceLabel {
   if (c === "high") return "high";
   if (c === "medium") return "possible";
   return "review";
+}
+
+export function emptyParserFieldDebug(): ResumeParserFieldDebug {
+  return { value: null, confidence: null, source: null };
+}
+
+export function fieldToParserDebug(field?: SuggestedResumeField): ResumeParserFieldDebug {
+  if (!field?.value) return emptyParserFieldDebug();
+  return {
+    value: field.value,
+    confidence: field.confidence,
+    source: field.note ?? null,
+  };
 }

@@ -23,6 +23,8 @@
     "verify:facebook-recruiting-leads": "tsx scripts/verify-facebook-recruiting-leads.ts",
     "verify:global-search-navigation": "tsx scripts/verify-global-search-navigation.ts",
     "verify:recruiting-discipline-parse": "NODE_OPTIONS='--conditions=react-server' tsx scripts/verify-recruiting-discipline-parse.ts",
+    "verify:recruiting-name-parse": "NODE_OPTIONS='--conditions=react-server' tsx scripts/verify-recruiting-name-parse.ts",
+    "verify:recruiting-location-parse": "NODE_OPTIONS='--conditions=react-server' tsx scripts/verify-recruiting-location-parse.ts",
     "backfill:recruiting-lead-links": "tsx scripts/backfill-recruiting-lead-candidate-links.ts",
     "backfill:crm-recruiting-leads": "tsx scripts/backfill-crm-recruiting-leads-to-recruiting.ts",
     "restore:misclassified-patient-leads": "tsx scripts/restore-misclassified-patient-leads-from-recruiting.ts",

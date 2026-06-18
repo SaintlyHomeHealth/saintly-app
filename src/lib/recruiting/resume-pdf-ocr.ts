@@ -18,8 +18,37 @@ import { getNodeCanvasRuntime } from "@/lib/recruiting/napi-canvas-runtime";
  */
 
 const DEFAULT_MAX_OCR_PAGES = 5;
-const MAX_CANVAS_EDGE = 2400;
-const RENDER_SCALE = 2;
+const MAX_CANVAS_EDGE = 2600;
+const RENDER_SCALE = 2.5;
+
+/** Grayscale + mild contrast boost before Tesseract (better on scanned resumes). */
+function preprocessCanvasForOcr(canvas: {
+  width: number;
+  height: number;
+  getContext: (id: "2d") => {
+    getImageData: (sx: number, sy: number, sw: number, sh: number) => ImageData;
+    putImageData: (data: ImageData, dx: number, dy: number) => void;
+  } | null;
+}): void {
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  const { width, height } = canvas;
+  if (width <= 0 || height <= 0) return;
+  const imageData = ctx.getImageData(0, 0, width, height);
+  const data = imageData.data;
+  const contrast = 1.25;
+  for (let i = 0; i < data.length; i += 4) {
+    const r = data[i] ?? 255;
+    const g = data[i + 1] ?? 255;
+    const b = data[i + 2] ?? 255;
+    const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+    const adjusted = Math.min(255, Math.max(0, (gray - 128) * contrast + 128));
+    data[i] = adjusted;
+    data[i + 1] = adjusted;
+    data[i + 2] = adjusted;
+  }
+  ctx.putImageData(imageData, 0, 0);
+}
 
 export type PdfOcrPageDebug = {
   pageIndex: number;
@@ -257,6 +286,8 @@ export async function ocrPdfBuffer(buffer: Buffer, options?: OcrPdfOptions): Pro
           nonWhiteSampleRatio: pageDebug.nonWhiteSampleRatio,
         });
       }
+
+      preprocessCanvasForOcr(canvas);
 
       const png = Buffer.from(canvas.toBuffer("image/png"));
       let pageText = "";

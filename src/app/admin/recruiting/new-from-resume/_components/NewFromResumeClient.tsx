@@ -16,7 +16,8 @@ import {
   RECRUITING_SOURCE_OPTIONS,
 } from "@/lib/recruiting/recruiting-options";
 import type { RecruitingDuplicateRow } from "@/lib/recruiting/recruiting-duplicates";
-import type { ParsedResumeSuggestions, ResumeParseQuality } from "@/lib/recruiting/resume-parse-types";
+import type { ParsedResumeSuggestions, ResumeParseQuality, ResumeParserDebug, ResumeParserFieldDebug } from "@/lib/recruiting/resume-parse-types";
+import { parsedSuggestionsToResumeFields } from "@/lib/recruiting/resume-suggestions-to-fields";
 import {
   RESUME_HARD_ERROR_CHOOSE_FILE,
   RESUME_HARD_ERROR_INVALID_FILE,
@@ -27,10 +28,6 @@ import {
 import { attachResumeToExistingCandidate, createRecruitingCandidateFromResume } from "../../actions";
 import { RecruitingDuplicateModal } from "../../_components/RecruitingDuplicateModal";
 
-function pick(s?: { value: string } | undefined): string {
-  return s?.value?.trim() ? s.value.trim() : "";
-}
-
 /** Form field state for review step (controlled inputs — not defaultValue). */
 type ReviewFormFields = {
   full_name: string;
@@ -40,6 +37,7 @@ type ReviewFormFields = {
   email: string;
   city: string;
   state: string;
+  zip: string;
   discipline: string;
   notes: string;
   specialties: string;
@@ -59,6 +57,7 @@ const EMPTY_REVIEW_FORM: ReviewFormFields = {
   email: "",
   city: "",
   state: "",
+  zip: "",
   discipline: "",
   notes: "",
   specialties: "",
@@ -67,30 +66,14 @@ const EMPTY_REVIEW_FORM: ReviewFormFields = {
   recruiting_tags: "",
   follow_up_bucket: "",
   preferred_contact_method: "",
-  source: "Indeed",
+  source: "Resume Upload",
 };
 
 function buildReviewFormFromSuggestions(s: ParsedResumeSuggestions): ReviewFormFields {
-  const notesParts: string[] = [];
-  const summary = pick(s.notes_summary);
-  if (summary) notesParts.push(summary);
-  const yrs = pick(s.years_of_experience);
-  if (yrs) notesParts.push(`Experience: ${yrs}`);
-  const cert = pick(s.certifications);
-  if (cert) notesParts.push(`Certifications: ${cert}`);
-
+  const mapped = parsedSuggestionsToResumeFields(s);
   return {
     ...EMPTY_REVIEW_FORM,
-    full_name: pick(s.full_name) || [pick(s.first_name), pick(s.last_name)].filter(Boolean).join(" "),
-    first_name: pick(s.first_name),
-    last_name: pick(s.last_name),
-    phone: pick(s.phone),
-    email: pick(s.email),
-    city: pick(s.city),
-    state: pick(s.state),
-    discipline: pick(s.discipline),
-    notes: notesParts.join("\n"),
-    specialties: pick(s.specialties),
+    ...mapped,
   };
 }
 
@@ -103,9 +86,38 @@ type ParsePayload = {
   messages: string[];
   /** Banner title override from API (e.g. scanned PDF without OCR in this environment) */
   statusHeadline?: string;
+  parserDebug?: ResumeParserDebug;
   /** @deprecated use messages */
   warning?: string;
 };
+
+function formatConfidence(c: ResumeParserFieldDebug["confidence"] | ResumeParserDebug["nameConfidence"]): string {
+  if (c === "high") return "High";
+  if (c === "medium") return "Medium";
+  if (c === "low") return "Low";
+  return "—";
+}
+
+function ParserFieldRow({
+  label,
+  field,
+}: {
+  label: string;
+  field: ResumeParserFieldDebug;
+}) {
+  return (
+    <div>
+      <dt className="text-[11px] font-medium text-slate-500">{label}</dt>
+      <dd className="font-medium text-slate-900">{field.value ?? "—"}</dd>
+      {field.value ? (
+        <dd className="text-[11px] text-slate-500">
+          {formatConfidence(field.confidence)}
+          {field.source ? ` · ${field.source}` : ""}
+        </dd>
+      ) : null}
+    </div>
+  );
+}
 
 function parseStatusBannerClass(q: ResumeParseQuality): string {
   switch (q) {
@@ -390,6 +402,63 @@ export function NewFromResumeClient({ initialError }: NewFromResumeClientProps) 
                     </ul>
                   </div>
                 ) : null}
+                {parse?.parserDebug ? (
+                  <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50/90 px-4 py-3 text-sm text-slate-800">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Parser preview</p>
+                    {parse.parserDebug.locationWarning ? (
+                      <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+                        {parse.parserDebug.locationWarning}
+                      </p>
+                    ) : null}
+                    <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
+                      <div>
+                        <dt className="text-[11px] font-medium text-slate-500">Parsed name</dt>
+                        <dd className="font-medium text-slate-900">{parse.parserDebug.parsedName ?? "—"}</dd>
+                        {parse.parserDebug.parsedName ? (
+                          <dd className="text-[11px] text-slate-500">
+                            {formatConfidence(parse.parserDebug.nameConfidence)}
+                            {parse.parserDebug.nameSource ? ` · ${parse.parserDebug.nameSource}` : ""}
+                          </dd>
+                        ) : null}
+                      </div>
+                      <ParserFieldRow label="Phone" field={parse.parserDebug.phone} />
+                      <ParserFieldRow label="Email" field={parse.parserDebug.email} />
+                      <ParserFieldRow label="City" field={parse.parserDebug.city} />
+                      <ParserFieldRow label="State" field={parse.parserDebug.state} />
+                      <ParserFieldRow label="ZIP" field={parse.parserDebug.zip} />
+                      <ParserFieldRow label="Coverage area" field={parse.parserDebug.coverageArea} />
+                      <ParserFieldRow label="Discipline" field={parse.parserDebug.discipline} />
+                      <div>
+                        <dt className="text-[11px] font-medium text-slate-500">Credentials / licenses</dt>
+                        <dd className="font-medium text-slate-900">{parse.parserDebug.credentials ?? "—"}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-[11px] font-medium text-slate-500">Skills</dt>
+                        <dd className="whitespace-pre-wrap font-medium text-slate-900">{parse.parserDebug.skills ?? "—"}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-[11px] font-medium text-slate-500">Years of experience</dt>
+                        <dd className="font-medium text-slate-900">{parse.parserDebug.yearsOfExperience ?? "—"}</dd>
+                      </div>
+                      <div className="sm:col-span-2">
+                        <dt className="text-[11px] font-medium text-slate-500">Education</dt>
+                        <dd className="whitespace-pre-wrap font-medium text-slate-900">{parse.parserDebug.education ?? "—"}</dd>
+                      </div>
+                      {parse.parserDebug.rejectedCandidates.length > 0 ? (
+                        <div className="sm:col-span-2">
+                          <dt className="text-[11px] font-medium text-slate-500">Rejected candidates</dt>
+                          <dd className="mt-1 text-xs text-slate-600">
+                            <ul className="list-disc space-y-1 pl-4">
+                              {parse.parserDebug.rejectedCandidates.map((line) => (
+                                <li key={line}>{line}</li>
+                              ))}
+                            </ul>
+                          </dd>
+                        </div>
+                      ) : null}
+                    </dl>
+                  </div>
+                ) : null}
                 {process.env.NODE_ENV === "development" && parse?.suggestions ? (
                   <div className="mt-4 rounded-lg border border-dashed border-amber-400 bg-amber-50 p-3 text-left">
                     <p className="text-xs font-semibold text-amber-900">Debug (dev): raw suggestions received by client</p>
@@ -460,6 +529,15 @@ export function NewFromResumeClient({ initialError }: NewFromResumeClientProps) 
                   name="state"
                   value={reviewForm.state}
                   onChange={(e) => setReviewForm((p) => ({ ...p, state: e.target.value }))}
+                  className={crmFilterInputCls}
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                ZIP
+                <input
+                  name="zip"
+                  value={reviewForm.zip}
+                  onChange={(e) => setReviewForm((p) => ({ ...p, zip: e.target.value }))}
                   className={crmFilterInputCls}
                 />
               </label>

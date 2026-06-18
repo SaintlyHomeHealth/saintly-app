@@ -15,9 +15,12 @@ export function parsedSuggestionsToResumeFields(s: ParsedResumeSuggestions | nul
   email: string;
   city: string;
   state: string;
+  zip: string;
+  coverage_area: string;
   discipline: string;
   notes: string;
   specialties: string;
+  source: string;
 } {
   if (!s) {
     return {
@@ -28,9 +31,12 @@ export function parsedSuggestionsToResumeFields(s: ParsedResumeSuggestions | nul
       email: "",
       city: "",
       state: "",
+      zip: "",
+      coverage_area: "",
       discipline: "",
       notes: "",
       specialties: "",
+      source: "Resume Upload",
     };
   }
 
@@ -39,12 +45,17 @@ export function parsedSuggestionsToResumeFields(s: ParsedResumeSuggestions | nul
   if (summary) notesParts.push(summary);
   const yrs = pickResumeSuggestion(s.years_of_experience);
   if (yrs) notesParts.push(`Experience: ${yrs}`);
+  const education = pickResumeSuggestion(s.education);
+  if (education) notesParts.push(`Education:\n${education}`);
   const cert = pickResumeSuggestion(s.certifications);
-  if (cert) notesParts.push(`Certifications: ${cert}`);
+  if (cert) notesParts.push(`Certifications / licenses: ${cert}`);
 
   const fn = pickResumeSuggestion(s.first_name);
   const ln = pickResumeSuggestion(s.last_name);
   const combined = [fn, ln].filter(Boolean).join(" ");
+
+  const skills = pickResumeSuggestion(s.skills);
+  const specialties = [pickResumeSuggestion(s.specialties), skills].filter(Boolean).join("\n");
 
   return {
     full_name: pickResumeSuggestion(s.full_name) || combined,
@@ -54,9 +65,12 @@ export function parsedSuggestionsToResumeFields(s: ParsedResumeSuggestions | nul
     email: pickResumeSuggestion(s.email),
     city: pickResumeSuggestion(s.city),
     state: pickResumeSuggestion(s.state),
+    zip: pickResumeSuggestion(s.zip),
+    coverage_area: pickResumeSuggestion(s.coverage_area),
     discipline: pickResumeSuggestion(s.discipline),
-    notes: notesParts.join("\n"),
-    specialties: pickResumeSuggestion(s.specialties),
+    notes: notesParts.join("\n\n"),
+    specialties,
+    source: "Resume Upload",
   };
 }
 

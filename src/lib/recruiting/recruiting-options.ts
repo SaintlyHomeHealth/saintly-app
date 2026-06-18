@@ -2,7 +2,7 @@
  * Recruiting CRM: allowed values for filters and forms (keep aligned with app usage).
  */
 
-export const RECRUITING_SOURCE_OPTIONS = ["Indeed", "Referral", "Website", "Other"] as const;
+export const RECRUITING_SOURCE_OPTIONS = ["Indeed", "Referral", "Website", "Resume Upload", "Other"] as const;
 
 export const RECRUITING_DISCIPLINE_OPTIONS = [
   "RN",

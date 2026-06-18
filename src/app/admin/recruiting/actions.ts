@@ -1242,6 +1242,7 @@ export async function createRecruitingCandidateFromResume(
       email,
       city,
       state: optStr(formData, "state"),
+      zip: optStr(formData, "zip"),
       coverage_area: optStr(formData, "coverage_area"),
       discipline,
       source,
