@@ -227,6 +227,10 @@ function attachAdminRecruitingLeadsRolePredicate(
       return q.or(
         "license_status.ilike.%LPN%,lead_type.ilike.%LPN%,license_status.ilike.%licensed practical%"
       );
+    case "CNA":
+      return q.or(
+        "license_status.eq.CNA,license_status.ilike.%CNA%,license_status.ilike.%certified nursing assistant%"
+      );
     case "PTA":
       return q.or(
         "license_status.ilike.%PTA%,lead_type.ilike.%PTA%,license_status.ilike.%physical therapist assistant%,license_status.ilike.%physical therapy assistant%"
@@ -238,6 +242,14 @@ function attachAdminRecruitingLeadsRolePredicate(
         )
         .not("license_status", "ilike", "%PTA%")
         .not("lead_type", "ilike", "%PTA%");
+    case "OT":
+      return q.or(
+        "license_status.eq.OT,license_status.ilike.%occupational therapist%,license_status.ilike.%occupational therapy%,license_status.ilike.%OTR%"
+      );
+    case "ST":
+      return q.or(
+        "license_status.eq.ST,license_status.ilike.%speech therapist%,license_status.ilike.%speech therapy%,license_status.ilike.%SLP%,license_status.ilike.%speech-language%,license_status.ilike.%speech language%"
+      );
     case "HHA":
       return q.or(
         "license_status.ilike.%HHA%,lead_type.ilike.%HHA%,license_status.ilike.%home health aide%"
@@ -246,8 +258,16 @@ function attachAdminRecruitingLeadsRolePredicate(
       return q
         .not("license_status", "ilike", "%RN%")
         .not("license_status", "ilike", "%LPN%")
+        .not("license_status", "ilike", "%CNA%")
         .not("license_status", "ilike", "%PTA%")
         .not("license_status", "ilike", "%PT%")
+        .not("license_status", "eq", "OT")
+        .not("license_status", "ilike", "%occupational therapist%")
+        .not("license_status", "ilike", "%occupational therapy%")
+        .not("license_status", "eq", "ST")
+        .not("license_status", "ilike", "%speech therapist%")
+        .not("license_status", "ilike", "%speech therapy%")
+        .not("license_status", "ilike", "%SLP%")
         .not("license_status", "ilike", "%HHA%")
         .not("lead_type", "ilike", "%RN%")
         .not("lead_type", "ilike", "%LPN%")

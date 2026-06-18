@@ -1,5 +1,10 @@
 import "server-only";
 
+import { detectResumeDiscipline } from "@/lib/recruiting/resume-discipline-detect";
+import {
+  flattenResumeTextForRegex,
+  normalizeResumeTextForParsing,
+} from "@/lib/recruiting/resume-text-normalize";
 import type { ParsedResumeSuggestions, ResumeParseConfidence, SuggestedResumeField } from "./resume-parse-types";
 import { confidenceToLabel } from "./resume-parse-types";
 
@@ -9,56 +14,24 @@ const US_STATES = new Set([
   "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY", "DC",
 ]);
 
-/**
- * Match longer / more specific tokens first (PTA before PT; assistant titles before therapist).
- * Priority for abbreviations: RN, LPN, CNA, PTA, PT, OT, ST, HHA.
- */
-const DISCIPLINE_RULES: { pattern: RegExp; value: string }[] = [
-  { pattern: /\bRN\b/i, value: "RN" },
-  /** OCR often preserves degree line without "RN" token */
-  { pattern: /\bBSN\b/i, value: "RN" },
-  { pattern: /\bLVN\b/i, value: "LPN" },
-  { pattern: /\bLPN\b/i, value: "LPN" },
-  { pattern: /\bCNA\b/i, value: "CNA" },
-  { pattern: /\bPTA\b/i, value: "PTA" },
-  { pattern: /physical therapist assistant/i, value: "PTA" },
-  { pattern: /physical therapy assistant/i, value: "PTA" },
-  { pattern: /\bPT\b/i, value: "PT" },
-  { pattern: /\bphysical therapist\b(?!\s+assistant)/i, value: "PT" },
-  { pattern: /\bOT\b/i, value: "OT" },
-  { pattern: /\bOTA\b/i, value: "OT" },
-  { pattern: /\bST\b/i, value: "ST" },
-  { pattern: /\bSLP\b/i, value: "ST" },
-  { pattern: /\bHHA\b/i, value: "HHA" },
-  { pattern: /\bMSW\b/i, value: "MSW" },
-];
-
 const EMAIL_RE = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/;
 
 const PHONE_RES = [
   /\b(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b/g,
   /\b\d{3}[-.\s]\d{3}[-.\s]\d{4}\b/g,
-  /** OCR often inserts spaces between digit groups */
   /\b\d{3}\s+\d{3}\s+\d{4}\b/g,
 ];
 
 const SKIP_NAME_LINE = /resume|curriculum|vitae|cv\b|phone|email|objective|summary|experience|education|skills|linkedin|http|www|\d{3}[-.\s]?\d{3}/i;
 
-function sf(value: string, confidence: ResumeParseConfidence): SuggestedResumeField | undefined {
+function sf(
+  value: string,
+  confidence: ResumeParseConfidence,
+  note?: string
+): SuggestedResumeField | undefined {
   const v = value.trim();
   if (!v) return undefined;
-  return { value: v, confidence, label: confidenceToLabel(confidence) };
-}
-
-function normalizeWhitespace(s: string): string {
-  return s.replace(/\s+/g, " ").trim();
-}
-
-/** Fix common OCR artifacts before regex-based extraction (keeps newlines). */
-function ocrNormalizeForParsing(raw: string): string {
-  return raw
-    .replace(/\u00a0/g, " ")
-    .replace(/([a-zA-Z0-9._%+\-])\s+@\s+([a-zA-Z0-9.\-])/g, "$1@$2");
+  return { value: v, confidence, label: confidenceToLabel(confidence), ...(note ? { note } : {}) };
 }
 
 function extractEmail(text: string): SuggestedResumeField | undefined {
@@ -86,8 +59,7 @@ function extractPhone(text: string): SuggestedResumeField | undefined {
       const digits = m[0].replace(/\D/g, "");
       if (digits.length >= 10) {
         const core = digits.length > 10 ? digits.slice(-10) : digits.slice(0, 10);
-        const display = formatUsPhoneDigits(core);
-        return sf(display, "high") ?? undefined;
+        return sf(formatUsPhoneDigits(core), "high") ?? undefined;
       }
     }
   }
@@ -101,7 +73,6 @@ function extractNameFromTop(text: string): { full?: SuggestedResumeField; first?
     .filter(Boolean)
     .slice(0, 35);
 
-  /** OCR often splits "First Last" across two lines */
   for (let i = 0; i < Math.min(lines.length - 1, 10); i++) {
     const a = lines[i]!;
     const b = lines[i + 1]!;
@@ -116,14 +87,11 @@ function extractNameFromTop(text: string): { full?: SuggestedResumeField; first?
     const lastW = wb[0]!;
     if (firstW.length < 2 || lastW.length < 2) continue;
     if (/^(skills|education|experience|employment|work|summary|contact|objective|profile)$/i.test(a)) continue;
-    const conf: ResumeParseConfidence = "low";
     const fullName = `${firstW} ${lastW}`;
-    const full = sf(fullName, conf);
-    const fi = sf(firstW, conf);
-    const la = sf(lastW, conf);
-    if (full && fi && la) {
-      return { full, first: fi, last: la };
-    }
+    const full = sf(fullName, "low");
+    const fi = sf(firstW, "low");
+    const la = sf(lastW, "low");
+    if (full && fi && la) return { full, first: fi, last: la };
   }
 
   for (const line of lines) {
@@ -147,11 +115,7 @@ function extractNameFromTop(text: string): { full?: SuggestedResumeField; first?
     const la = last ? sf(last, conf) : undefined;
     if (!full || !fi) return {};
 
-    return {
-      full,
-      first: fi,
-      ...(la ? { last: la } : {}),
-    };
+    return { full, first: fi, ...(la ? { last: la } : {}) };
   }
 
   return {};
@@ -167,34 +131,17 @@ function extractCityState(text: string): { city?: SuggestedResumeField; state?: 
     if (city && st && US_STATES.has(st)) {
       const c = sf(city, "medium");
       const s = sf(st, "medium");
-      if (c && s) {
-        return { city: c, state: s };
-      }
+      if (c && s) return { city: c, state: s };
     }
   }
   return {};
 }
 
-function extractDiscipline(text: string): SuggestedResumeField | undefined {
-  const upper = text.toUpperCase();
-  for (const { pattern, value } of DISCIPLINE_RULES) {
-    pattern.lastIndex = 0;
-    if (pattern.test(text) || pattern.test(upper)) {
-      return sf(value, "medium") ?? undefined;
-    }
-  }
-  return undefined;
-}
-
 function extractYearsExperience(text: string): SuggestedResumeField | undefined {
   const m = text.match(/\b(\d{1,2})\+?\s*(?:years?|yrs\.?)\s+(?:of\s+)?(?:experience|exp\.?|in\s+nursing)\b/i);
-  if (m?.[1]) {
-    return sf(`${m[1]}+ years`, "low") ?? undefined;
-  }
+  if (m?.[1]) return sf(`${m[1]}+ years`, "low") ?? undefined;
   const m2 = text.match(/\b(\d{1,2})\+?\s*yrs\b/i);
-  if (m2?.[1]) {
-    return sf(`${m2[1]}+ years`, "low") ?? undefined;
-  }
+  if (m2?.[1]) return sf(`${m2[1]}+ years`, "low") ?? undefined;
   return undefined;
 }
 
@@ -208,70 +155,73 @@ function extractLabeledSection(text: string, label: RegExp): string | undefined 
 
 function buildSummary(text: string): SuggestedResumeField | undefined {
   const cleaned = text
-    .replace(/\r/g, "\n")
-    .split(/\n/)
+    .split("\n")
     .map((l) => l.trim())
     .filter((l) => l.length > 0 && !SKIP_NAME_LINE.test(l) && !EMAIL_RE.test(l))
     .slice(0, 40)
     .join("\n");
 
-  const chunk = normalizeWhitespace(cleaned).slice(0, 900);
+  const chunk = cleaned.replace(/\s+/g, " ").trim().slice(0, 900);
   if (chunk.length < 40) return undefined;
   return sf(chunk.slice(0, 680), "low") ?? undefined;
 }
 
-export function parseResumePlainText(rawText: string): ParsedResumeSuggestions {
-  const rawClean = ocrNormalizeForParsing(rawText.replace(/\0/g, " "));
-  const text = normalizeWhitespace(rawClean);
-  if (text.length < 15) {
+export type ResumeParseMeta = {
+  parseNotes: string[];
+};
+
+export function parseResumePlainText(rawText: string): ParsedResumeSuggestions & { _meta?: ResumeParseMeta } {
+  const { raw, cleaned } = normalizeResumeTextForParsing(rawText);
+  const flat = flattenResumeTextForRegex(cleaned);
+  if (flat.length < 15) {
     return {};
   }
 
-  const out: ParsedResumeSuggestions = {};
+  const out: ParsedResumeSuggestions & { _meta?: ResumeParseMeta } = {};
+  const parseNotes: string[] = [];
 
-  const email = extractEmail(text);
+  const email = extractEmail(flat);
   if (email) out.email = email;
 
-  const phone = extractPhone(text);
+  const phone = extractPhone(flat);
   if (phone) out.phone = phone;
 
-  const names = extractNameFromTop(rawClean);
+  const names = extractNameFromTop(raw);
   if (names.full) out.full_name = names.full;
   if (names.first) out.first_name = names.first;
   if (names.last) out.last_name = names.last;
 
-  const cs = extractCityState(text);
+  const cs = extractCityState(flat);
   if (cs.city) out.city = cs.city;
   if (cs.state) out.state = cs.state;
 
-  const disc = extractDiscipline(text);
-  if (disc) out.discipline = disc;
+  const disc = detectResumeDiscipline(cleaned, flat);
+  if (disc && disc.confidence !== "low") {
+    out.discipline = sf(disc.value, disc.confidence, disc.parseNote);
+    parseNotes.push(disc.parseNote);
+  } else if (disc?.confidence === "low") {
+    parseNotes.push(`${disc.parseNote} (low confidence — left blank)`);
+  }
 
-  const yrs = extractYearsExperience(text);
+  const yrs = extractYearsExperience(flat);
   if (yrs) out.years_of_experience = yrs;
 
-  const spec = extractLabeledSection(
-    text,
-    /(?:^|\n)\s*specialties?:\s*(.+)/i
-  );
+  const spec = extractLabeledSection(cleaned, /(?:^|\n)\s*specialties?:\s*(.+)/i);
   if (spec) {
     const s = sf(spec, "low");
     if (s) out.specialties = s;
   }
 
-  const cert = extractLabeledSection(
-    text,
-    /(?:^|\n)\s*certifications?:\s*(.+)/i
-  );
+  const cert = extractLabeledSection(cleaned, /(?:^|\n)\s*certifications?:\s*(.+)/i);
   if (cert) {
     const c = sf(cert, "low");
     if (c) out.certifications = c;
   }
 
-  const summary = buildSummary(rawClean);
-  if (summary) {
-    out.notes_summary = summary;
-  }
+  const summary = buildSummary(cleaned);
+  if (summary) out.notes_summary = summary;
+
+  if (parseNotes.length) out._meta = { parseNotes };
 
   return out;
 }

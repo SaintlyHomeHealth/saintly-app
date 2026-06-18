@@ -70,6 +70,7 @@ type RecruitingResumeSuggestionsPanelProps = {
   candidateId: string;
   parseOk: boolean;
   parseWarning?: string;
+  confidenceWarnings?: string[];
   suggestions: ParsedResumeSuggestions | null;
   current: CandidateSnapshot;
   onDismiss: () => void;
@@ -80,6 +81,7 @@ export function RecruitingResumeSuggestionsPanel({
   candidateId,
   parseOk,
   parseWarning,
+  confidenceWarnings,
   suggestions,
   current,
   onDismiss,
@@ -141,6 +143,16 @@ export function RecruitingResumeSuggestionsPanel({
           </div>
         ) : null}
 
+        {confidenceWarnings && confidenceWarnings.length > 0 ? (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+            <ul className="list-disc space-y-1 pl-4">
+              {confidenceWarnings.map((w) => (
+                <li key={w}>{w}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
         {parseOk && !hasAnySuggestion ? (
           <div className="rounded-xl border border-slate-200 bg-white/80 px-3 py-3 text-sm text-slate-700">
             No structured fields were detected. Open the resume and enter profile fields manually.
@@ -194,6 +206,9 @@ export function RecruitingResumeSuggestionsPanel({
                     onChange={(e) => setField(row.key, e.target.value)}
                   />
                 )}
+                {sug?.note ? (
+                  <p className="mt-1 text-[11px] text-slate-500">{sug.note}</p>
+                ) : null}
                 {hasExisting ? (
                   <label className="mt-2 flex cursor-pointer items-center gap-2 text-[11px] font-medium text-slate-600">
                     <input

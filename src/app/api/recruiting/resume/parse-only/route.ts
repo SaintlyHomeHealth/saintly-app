@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import type { ParsedResumeSuggestions, ResumeParseQuality } from "@/lib/recruiting/resume-parse-types";
+import type { ParsedResumeSuggestions, ResumeExtractionMethod, ResumeParseQuality } from "@/lib/recruiting/resume-parse-types";
 import {
   normalizeBaseMime,
   isResumeMimeAllowed,
@@ -36,10 +36,13 @@ export type ParseOnlyParsePayload = {
   quality: ResumeParseQuality;
   suggestions: ParsedResumeSuggestions | null;
   messages: string[];
-  /** Overrides default banner title when present (e.g. scanned PDF without server-side OCR) */
   statusHeadline?: string;
-  /** @deprecated prefer messages */
   warning?: string;
+  extractionMethod?: ResumeExtractionMethod;
+  confidenceWarnings?: string[];
+  parseNotes?: string[];
+  textPreview?: string;
+  needsReview?: boolean;
 };
 
 const RECOVERABLE_MANUAL: ParseOnlyParsePayload = {
@@ -122,6 +125,11 @@ export async function POST(req: Request) {
       messages: pipeline.messages,
       statusHeadline: pipeline.statusHeadline,
       warning: pipeline.messages.join("\n"),
+      extractionMethod: pipeline.extractionMethod,
+      confidenceWarnings: pipeline.confidenceWarnings,
+      parseNotes: pipeline.parseNotes,
+      textPreview: pipeline.textPreview,
+      needsReview: pipeline.needsReview,
     };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

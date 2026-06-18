@@ -112,6 +112,7 @@ function parseStatusBannerClass(q: ResumeParseQuality): string {
     case "parsed_ok":
       return "border-emerald-200 bg-emerald-50 text-emerald-950";
     case "limited_parse":
+    case "needs_review":
       return "border-amber-200 bg-amber-50 text-amber-950";
     case "ocr_success":
     case "ocr_limited":

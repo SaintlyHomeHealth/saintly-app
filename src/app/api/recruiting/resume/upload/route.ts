@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 
-import type { ParsedResumeSuggestions, ResumeParseQuality } from "@/lib/recruiting/resume-parse-types";
+import type { ParsedResumeSuggestions, ResumeExtractionMethod, ResumeParseQuality } from "@/lib/recruiting/resume-parse-types";
 import { resumeParsedActivityBody, runResumeExtractPipeline } from "@/lib/recruiting/resume-extract-pipeline";
+import { persistResumeParseCache } from "@/lib/recruiting/resume-parse-persist";
 import {
   isResumeMimeAllowed,
   normalizeBaseMime,
@@ -170,6 +171,11 @@ export async function POST(req: Request) {
     messages?: string[];
     quality?: ResumeParseQuality;
     statusHeadline?: string;
+    extractionMethod?: ResumeExtractionMethod;
+    confidenceWarnings?: string[];
+    parseNotes?: string[];
+    textPreview?: string;
+    needsReview?: boolean;
   } = { ok: false, suggestions: null };
 
   let parsedActivityBody = resumeParsedActivityBody("manual");
@@ -178,6 +184,7 @@ export async function POST(req: Request) {
     const pipeline = await runResumeExtractPipeline(buffer, safeName, {
       mimeType: normalizeBaseMime(mime),
     });
+    await persistResumeParseCache(supabaseAdmin, candidateId, pipeline);
     parsedActivityBody = resumeParsedActivityBody(pipeline.quality);
     parseOut = {
       ok: pipeline.quality !== "manual",
@@ -186,6 +193,11 @@ export async function POST(req: Request) {
       quality: pipeline.quality,
       statusHeadline: pipeline.statusHeadline,
       warning: pipeline.messages.join("\n"),
+      extractionMethod: pipeline.extractionMethod,
+      confidenceWarnings: pipeline.confidenceWarnings,
+      parseNotes: pipeline.parseNotes,
+      textPreview: pipeline.textPreview,
+      needsReview: pipeline.needsReview,
     };
   } catch (e) {
     parsedActivityBody = resumeParsedActivityBody("manual");

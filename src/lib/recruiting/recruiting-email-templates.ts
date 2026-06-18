@@ -3,6 +3,8 @@ export type RecruitingEmailTemplateId =
   | "pt_follow_up"
   | "pta_follow_up"
   | "lpn_follow_up"
+  | "ot_follow_up"
+  | "st_follow_up"
   | "interview_scheduling"
   | "missing_documents";
 
@@ -58,6 +60,18 @@ export const RECRUITING_EMAIL_TEMPLATES: RecruitingEmailTemplateDefinition[] = [
     label: "LPN follow-up ($60/visit)",
     subject: "LPN visit opportunities with Saintly Home Health",
     body: ROLE_FOLLOW_UP_BODY.replace("{{role}}", "LPN"),
+  },
+  {
+    id: "ot_follow_up",
+    label: "OT follow-up ($80/visit)",
+    subject: "OT visit opportunities with Saintly Home Health",
+    body: ROLE_FOLLOW_UP_BODY.replace("{{role}}", "OT"),
+  },
+  {
+    id: "st_follow_up",
+    label: "ST follow-up ($80/visit)",
+    subject: "ST visit opportunities with Saintly Home Health",
+    body: ROLE_FOLLOW_UP_BODY.replace("{{role}}", "ST"),
   },
   {
     id: "interview_scheduling",

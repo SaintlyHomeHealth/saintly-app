@@ -168,6 +168,8 @@ export function BulkResumeUploadClient({ emailConfigured }: { emailConfigured: b
               resumeAttached: false,
               duplicateReasonLabel: null,
               errorMessage: msg || "Unexpected error.",
+              parseWarning: null,
+              extractionMethod: null,
             },
           },
         }));
@@ -414,6 +416,14 @@ export function BulkResumeUploadClient({ emailConfigured }: { emailConfigured: b
                         ) : null}
                         {r.status !== "duplicate" && r.errorMessage ? (
                           <span className="mt-2 block text-[11px] leading-snug text-rose-800">{r.errorMessage}</span>
+                        ) : null}
+                        {r.parseWarning ? (
+                          <span className="mt-2 block text-[11px] leading-snug text-amber-900">{r.parseWarning}</span>
+                        ) : null}
+                        {r.extractionMethod ? (
+                          <span className="mt-1 block text-[10px] uppercase tracking-wide text-slate-500">
+                            via {r.extractionMethod.replace(/_/g, " ")}
+                          </span>
                         ) : null}
                       </td>
                       <td className="whitespace-nowrap px-4 py-2.5">

@@ -28,6 +28,7 @@ import {
 } from "@/lib/recruiting/resume-suggestions-to-fields";
 import { RECRUITING_RESUMES_BUCKET } from "@/lib/recruiting/recruiting-resume-storage";
 import { resumeParsedActivityBody, runResumeExtractPipeline } from "@/lib/recruiting/resume-extract-pipeline";
+import { persistResumeParseCache } from "@/lib/recruiting/resume-parse-persist";
 import {
   isResumeMimeAllowed,
   normalizeBaseMime,
@@ -893,6 +894,7 @@ async function finalizeResumeAfterStorage(input: {
   try {
     const pipeline = await runResumeExtractPipeline(buffer, safeName, mimeType ? { mimeType } : undefined);
     parsedBody = resumeParsedActivityBody(pipeline.quality);
+    await persistResumeParseCache(supabaseAdmin, candidateId, pipeline);
   } catch {
     parsedBody = resumeParsedActivityBody("manual");
   }
@@ -1217,6 +1219,8 @@ export type BulkResumeProcessResult = {
   resumeAttached: boolean;
   duplicateReasonLabel: string | null;
   errorMessage: string | null;
+  parseWarning: string | null;
+  extractionMethod: string | null;
 };
 
 /**
@@ -1237,6 +1241,8 @@ export async function processBulkResumeFile(formData: FormData): Promise<BulkRes
     resumeAttached: false,
     duplicateReasonLabel: null,
     errorMessage: null,
+    parseWarning: null,
+    extractionMethod: null,
   });
 
   await requireManager();
@@ -1286,10 +1292,12 @@ export async function processBulkResumeFile(formData: FormData): Promise<BulkRes
   }
 
   let fields: ReturnType<typeof parsedSuggestionsToResumeFields>;
+  let pipelineQuality: Awaited<ReturnType<typeof runResumeExtractPipeline>> | null = null;
   try {
     const pipeline = await runResumeExtractPipeline(buffer, safeName, {
       mimeType: normalizeBaseMime(mime),
     });
+    pipelineQuality = pipeline;
     fields = parsedSuggestionsToResumeFields(pipeline.suggestions);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -1306,6 +1314,10 @@ export async function processBulkResumeFile(formData: FormData): Promise<BulkRes
   const phone = fields.phone.trim() || null;
   const email = fields.email.trim() || null;
 
+  const parseWarning =
+    pipelineQuality?.confidenceWarnings?.[0] ??
+    (pipelineQuality?.needsReview ? "Resume text may need review." : null);
+
   const baseOut: Omit<
     BulkResumeProcessResult,
     "status" | "candidateId" | "existingCandidateId" | "recruitingLeadId" | "resumeAttached" | "duplicateReasonLabel" | "errorMessage"
@@ -1321,6 +1333,8 @@ export async function processBulkResumeFile(formData: FormData): Promise<BulkRes
     resumeAttached: false,
     duplicateReasonLabel: null,
     errorMessage: null,
+    parseWarning,
+    extractionMethod: pipelineQuality?.extractionMethod ?? null,
   };
 
   const fullNameForDup = extractedName ?? "";
@@ -1365,6 +1379,16 @@ export async function processBulkResumeFile(formData: FormData): Promise<BulkRes
   }
 
   if (!canBulkAutoCreateFromFields(fields)) {
+    return {
+      ...baseOut,
+      status: "needs_review",
+    };
+  }
+
+  if (
+    pipelineQuality?.needsReview ||
+    (!uploadDisciplineOverride && !disciplineForDisplay)
+  ) {
     return {
       ...baseOut,
       status: "needs_review",

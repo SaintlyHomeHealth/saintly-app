@@ -4,6 +4,7 @@ import {
   inferRecruitingEmailPayDefaultsForRole,
 } from "@/lib/recruiting/recruiting-email-pay";
 import type { RecruitingEmailTemplateId } from "@/lib/recruiting/recruiting-email-templates";
+import { recruitingLeadRoleBadge } from "@/lib/recruiting/recruiting-lead-role-display";
 
 export type RecruitingLeadEmailContext = {
   full_name: string;
@@ -26,15 +27,7 @@ const VARIABLE_RE = /\{\{\s*([a-z_]+)\s*\}\}/gi;
 const UNRESOLVED_PLACEHOLDER_RE = /\{\{\s*[a-z_]+\s*\}\}/gi;
 
 function inferRole(lead: RecruitingLeadEmailContext): string {
-  const hay = [lead.license_status, lead.lead_type, lead.form_name]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
-  if (/\brn\b|registered nurse/.test(hay)) return "RN";
-  if (/\blpn\b|\blvn\b|licensed practical nurse/.test(hay)) return "LPN";
-  if (/\bpta\b|physical therapy assistant/.test(hay)) return "PTA";
-  if (/\bpt\b|physical therapist/.test(hay)) return "PT";
-  return lead.license_status?.trim() || lead.lead_type?.trim() || "";
+  return recruitingLeadRoleBadge(lead);
 }
 
 export function buildRecruitingEmailVariables(

@@ -1,4 +1,6 @@
 import type { RecruitingEmailTemplateId } from "@/lib/recruiting/recruiting-email-templates";
+import { recruitingLeadRoleBadge } from "@/lib/recruiting/recruiting-lead-role-display";
+import type { RecruitingDisciplineOption } from "@/lib/recruiting/recruiting-options";
 import type { RecruitingLeadEmailContext } from "@/lib/recruiting/render-recruiting-email-template";
 
 export type RecruitingEmailPayDefaults = {
@@ -31,7 +33,12 @@ export function buildRecruitingPaySummary(
 }
 
 const ROLE_FOLLOW_UP_PAY: Record<
-  "rn_follow_up" | "pt_follow_up" | "pta_follow_up" | "lpn_follow_up",
+  | "rn_follow_up"
+  | "pt_follow_up"
+  | "pta_follow_up"
+  | "lpn_follow_up"
+  | "ot_follow_up"
+  | "st_follow_up",
   RecruitingEmailPayDefaults
 > = {
   rn_follow_up: {
@@ -58,17 +65,40 @@ const ROLE_FOLLOW_UP_PAY: Record<
     paySummary: "$60 per visit",
     includeSoc: false,
   },
+  ot_follow_up: {
+    visitRate: "$80",
+    socRate: "",
+    paySummary: "$80 per visit",
+    includeSoc: false,
+  },
+  st_follow_up: {
+    visitRate: "$80",
+    socRate: "",
+    paySummary: "$80 per visit",
+    includeSoc: false,
+  },
+};
+
+/** Default follow-up template per shared recruiting discipline. */
+export const RECRUITING_DISCIPLINE_DEFAULT_EMAIL_TEMPLATE: Record<
+  RecruitingDisciplineOption,
+  RecruitingEmailTemplateId
+> = {
+  RN: "rn_follow_up",
+  LPN: "lpn_follow_up",
+  PT: "pt_follow_up",
+  PTA: "pta_follow_up",
+  OT: "ot_follow_up",
+  ST: "st_follow_up",
+  CNA: "interview_scheduling",
+  HHA: "interview_scheduling",
+  Other: "interview_scheduling",
 };
 
 export function recruitingEmailTemplateUsesPayFields(
   templateId: RecruitingEmailTemplateId
 ): boolean {
-  return (
-    templateId === "rn_follow_up" ||
-    templateId === "pt_follow_up" ||
-    templateId === "pta_follow_up" ||
-    templateId === "lpn_follow_up"
-  );
+  return templateId in ROLE_FOLLOW_UP_PAY;
 }
 
 export function getRecruitingEmailPayDefaultsForTemplate(
@@ -81,32 +111,17 @@ export function getRecruitingEmailPayDefaultsForTemplate(
 }
 
 export function inferRecruitingEmailPayDefaultsForRole(role: string): RecruitingEmailPayDefaults {
-  const r = role.trim().toLowerCase();
-  if (r === "rn" || /\bregistered nurse\b/.test(r)) {
-    return { ...ROLE_FOLLOW_UP_PAY.rn_follow_up };
+  const discipline = recruitingLeadRoleBadge({ license_status: role });
+  const templateId = RECRUITING_DISCIPLINE_DEFAULT_EMAIL_TEMPLATE[discipline];
+  if (templateId in ROLE_FOLLOW_UP_PAY) {
+    return { ...ROLE_FOLLOW_UP_PAY[templateId as keyof typeof ROLE_FOLLOW_UP_PAY] };
   }
-  if (r === "pta" || /\bphysical therapy assistant\b/.test(r)) {
-    return { ...ROLE_FOLLOW_UP_PAY.pta_follow_up };
-  }
-  if (r === "pt" || /\bphysical therapist\b/.test(r)) {
-    return { ...ROLE_FOLLOW_UP_PAY.pt_follow_up };
-  }
-  if (r === "lpn" || r === "lvn" || /\blicensed practical nurse\b/.test(r)) {
-    return { ...ROLE_FOLLOW_UP_PAY.lpn_follow_up };
-  }
-  return { ...ROLE_FOLLOW_UP_PAY.lpn_follow_up };
+  return { visitRate: "", socRate: "", paySummary: "", includeSoc: false };
 }
 
 export function inferRecruitingEmailTemplateIdForLead(
   lead: RecruitingLeadEmailContext
 ): RecruitingEmailTemplateId {
-  const hay = [lead.license_status, lead.lead_type, lead.form_name]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
-  if (/\brn\b|registered nurse/.test(hay)) return "rn_follow_up";
-  if (/\bpta\b|physical therapy assistant/.test(hay)) return "pta_follow_up";
-  if (/\bpt\b|physical therapist/.test(hay)) return "pt_follow_up";
-  if (/\blpn\b|\blvn\b|\bpn\b|licensed practical nurse/.test(hay)) return "lpn_follow_up";
-  return "lpn_follow_up";
+  const discipline = recruitingLeadRoleBadge(lead);
+  return RECRUITING_DISCIPLINE_DEFAULT_EMAIL_TEMPLATE[discipline];
 }

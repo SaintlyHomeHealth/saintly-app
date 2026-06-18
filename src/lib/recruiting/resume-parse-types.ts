@@ -6,9 +6,13 @@
 export type ResumeParseQuality =
   | "parsed_ok"
   | "limited_parse"
+  | "needs_review"
   | "ocr_success"
   | "ocr_limited"
   | "manual";
+
+/** How resume text was obtained at upload/re-parse time. */
+export type ResumeExtractionMethod = "pdf_text" | "ocr" | "hybrid" | "manual";
 
 export type ResumeParseConfidence = "high" | "medium" | "low";
 
@@ -20,6 +24,8 @@ export type SuggestedResumeField = {
   confidence: ResumeParseConfidence;
   /** Derived label for pills */
   label: ResumeConfidenceLabel;
+  /** Optional rationale (e.g. discipline detection) */
+  note?: string;
 };
 
 export type ParsedResumeSuggestions = {

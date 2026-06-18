@@ -5,7 +5,9 @@ import { isForceOcrPage1DebugMode, isResumeExtractDebugEnabled } from "@/lib/rec
 import { canRunResumePdfOcr } from "@/lib/recruiting/recruiting-ocr-env";
 import { isOcrSpaceRecruitingConfigured, ocrSpaceFromBuffer } from "@/lib/recruiting/ocr-space";
 import { parseResumePlainText } from "@/lib/recruiting/resume-parse-heuristics";
-import type { ParsedResumeSuggestions, ResumeParseQuality } from "@/lib/recruiting/resume-parse-types";
+import type { ParsedResumeSuggestions, ResumeExtractionMethod, ResumeParseQuality } from "@/lib/recruiting/resume-parse-types";
+import { assessResumeExtractQuality } from "@/lib/recruiting/resume-extract-quality";
+import { normalizeResumeTextForParsing } from "@/lib/recruiting/resume-text-normalize";
 import type { PdfOcrDebug, PdfOcrResult } from "@/lib/recruiting/resume-pdf-ocr";
 import { ocrPdfBuffer } from "@/lib/recruiting/resume-pdf-ocr";
 import { getLastNativeCanvasLoadError, isNativePdfOcrCanvasAvailable } from "@/lib/recruiting/napi-canvas-runtime";
@@ -26,6 +28,42 @@ const OCR_SKIP_IF_DIRECT_CHARS = 200;
 const OCR_SHORT_DIRECT_CHARS = 45;
 
 export type ResumeExtractionSource = "direct" | "ocr" | "none";
+
+function resolveExtractionMethod(args: {
+  directLen: number;
+  ocrLen: number;
+  ocrAttempted: boolean;
+  finalLen: number;
+}): ResumeExtractionMethod {
+  if (args.finalLen < MIN_USABLE_TEXT_LEN) return "manual";
+  const hasDirect = args.directLen >= MIN_USABLE_TEXT_LEN;
+  const hasOcr = args.ocrAttempted && args.ocrLen >= MIN_USABLE_TEXT_LEN;
+  if (hasDirect && hasOcr) return "hybrid";
+  if (hasOcr) return "ocr";
+  if (hasDirect) return "pdf_text";
+  return "manual";
+}
+
+function parseSuggestionsWithNotes(text: string): {
+  suggestions: ParsedResumeSuggestions | null;
+  parseNotes: string[];
+} {
+  try {
+    const parsed = parseResumePlainText(text) as ParsedResumeSuggestions & {
+      _meta?: { parseNotes: string[] };
+    };
+    const meta = parsed._meta;
+    const suggestions = { ...parsed } as ParsedResumeSuggestions & { _meta?: unknown };
+    delete suggestions._meta;
+    const keys = Object.keys(suggestions).filter((k) => suggestions[k as keyof ParsedResumeSuggestions] != null);
+    return {
+      suggestions: keys.length ? suggestions : null,
+      parseNotes: meta?.parseNotes ?? [],
+    };
+  } catch {
+    return { suggestions: null, parseNotes: [] };
+  }
+}
 
 export type ResumeExtractFailureStep =
   | "none"
@@ -97,11 +135,18 @@ export const RESUME_STATUS_HEADLINE_SCANNED_NO_NATIVE_OCR =
 
 export type ResumeExtractPipelineResult = {
   text: string;
+  rawText: string;
+  cleanedText: string;
   extractionSource: ResumeExtractionSource;
+  extractionMethod: ResumeExtractionMethod;
   quality: ResumeParseQuality;
   suggestions: ParsedResumeSuggestions | null;
   directError?: string;
   ocrError?: string;
+  confidenceWarnings: string[];
+  parseNotes: string[];
+  needsReview: boolean;
+  textPreview: string;
   /** Short UI lines for banners */
   messages: string[];
   /** Overrides default parse banner title when set (e.g. scanned PDF without native canvas) */
@@ -234,15 +279,17 @@ function shouldRunPdfOcrThisRequest(directText: string, filename: string): boole
 function buildQuality(
   extractionSource: ResumeExtractionSource,
   textLen: number,
-  suggestions: ParsedResumeSuggestions | null
+  suggestions: ParsedResumeSuggestions | null,
+  needsReview: boolean
 ): ResumeParseQuality {
   if (textLen < MIN_USABLE_TEXT_LEN) {
     return "manual";
   }
   if (!suggestions || !hasAnySuggestion(suggestions)) {
     if (extractionSource === "ocr") return "ocr_limited";
-    return "manual";
+    return needsReview ? "needs_review" : "manual";
   }
+  if (needsReview) return "needs_review";
   const strong = hasStrongSuggestions(suggestions);
   if (extractionSource === "ocr") {
     return strong ? "ocr_success" : "ocr_limited";
@@ -263,12 +310,16 @@ function buildMessages(quality: ResumeParseQuality, ctx?: MessageCtx): string[] 
   switch (quality) {
     case "parsed_ok":
       return ["Parsed successfully."];
-    case "limited_parse": {
+    case "limited_parse":
+    case "needs_review": {
       if (ctx?.nativeCanvasUnavailable && ctx.ocrApplicable && ctx.ocrRunnable) {
         return [
           RESUME_STATUS_HEADLINE_SCANNED_NO_NATIVE_OCR,
           "Review and edit suggested fields before saving.",
         ];
+      }
+      if (quality === "needs_review") {
+        return ["Resume text may need review.", "Review and edit suggested fields before saving."];
       }
       return ["Limited parse — review and edit fields before saving."];
     }
@@ -469,11 +520,18 @@ export async function runResumeExtractPipeline(
       isOcrSpaceRecruitingConfigured() || nativePdfOcrBackendReady();
     return {
       text: "",
+      rawText: "",
+      cleanedText: "",
       extractionSource: "none",
+      extractionMethod: "manual",
       quality: "manual",
       suggestions: null,
       directError: msg,
       ocrError: msg,
+      confidenceWarnings: ["Resume text may need review."],
+      parseNotes: [],
+      needsReview: true,
+      textPreview: "",
       messages: buildMessages("manual", {
         ocrApplicable,
         ocrRunnable,
@@ -636,14 +694,26 @@ async function runResumeExtractPipelineInternal(
   }
 
   let suggestions: ParsedResumeSuggestions | null = null;
-  try {
-    suggestions = parseResumePlainText(parseInput);
-  } catch (pe) {
-    if (shouldLogPipeline()) {
-      console.error("[resume pipeline] parseResumePlainText threw", pe);
-    }
-    suggestions = null;
-  }
+  let parseNotes: string[] = [];
+  const parsed = parseSuggestionsWithNotes(parseInput);
+  suggestions = parsed.suggestions;
+  parseNotes = parsed.parseNotes;
+
+  const normalized = normalizeResumeTextForParsing(
+    [directText, ocrResult.text ?? ""].filter(Boolean).join("\n\n")
+  );
+  const rawText = normalized.raw;
+  const cleanedText = normalizeResumeTextForParsing(parseInput).cleaned;
+  const extractionMethod = resolveExtractionMethod({
+    directLen: directText.length,
+    ocrLen: (ocrResult.text ?? "").trim().length,
+    ocrAttempted,
+    finalLen: textOut.length,
+  });
+  const qualityAssessment = assessResumeExtractQuality(cleanedText, suggestions);
+  const confidenceWarnings = qualityAssessment.warnings;
+  const needsReview = qualityAssessment.needsReview;
+  const textPreview = cleanedText.slice(0, 2500);
 
   if (shouldLogPipeline()) {
     const keys = suggestionKeys(suggestions);
@@ -690,11 +760,18 @@ async function runResumeExtractPipelineInternal(
     const quality: ResumeParseQuality = "manual";
     const result: ResumeExtractPipelineResult = {
       text: textOut,
+      rawText,
+      cleanedText,
       extractionSource: textOut.length > 0 && extractionSourceOut === "ocr" ? "ocr" : "none",
+      extractionMethod,
       quality,
       suggestions: null,
       directError: direct.error,
       ocrError,
+      confidenceWarnings,
+      parseNotes,
+      needsReview: true,
+      textPreview,
       messages: buildMessages(quality, msgCtx),
       ...(statusHeadline ? { statusHeadline } : {}),
       ...(forcePage1 && ocrApplicable && (includeDebugSummary || options?.forceOcrPage1Debug)
@@ -761,7 +838,7 @@ async function runResumeExtractPipelineInternal(
     return result;
   }
 
-  const quality = buildQuality(extractionSourceOut, textOut.length, suggestions);
+  const quality = buildQuality(extractionSourceOut, textOut.length, suggestions, needsReview);
   const headline =
     scannedHeadlineFailure ||
     (quality === "limited_parse" && msgCtx.nativeCanvasUnavailable && ocrApplicable && ocrRunnable)
@@ -769,11 +846,18 @@ async function runResumeExtractPipelineInternal(
       : undefined;
   const result: ResumeExtractPipelineResult = {
     text: textOut,
+    rawText,
+    cleanedText,
     extractionSource: extractionSourceOut === "ocr" ? "ocr" : "direct",
+    extractionMethod,
     quality,
     suggestions,
     directError: direct.error,
     ocrError,
+    confidenceWarnings,
+    parseNotes,
+    needsReview,
+    textPreview,
     messages: buildMessages(quality, msgCtx),
     ...(headline ? { statusHeadline: headline } : {}),
     ...(forcePage1 && ocrApplicable && (includeDebugSummary || options?.forceOcrPage1Debug)
@@ -850,6 +934,7 @@ export function resumeParsedActivityBody(quality: ResumeParseQuality): string {
       return "Resume stored, but auto-fill could not read enough text. Candidate created manually.";
     case "parsed_ok":
     case "limited_parse":
+    case "needs_review":
       return "Resume parsed and suggestions generated";
     default: {
       const _e: never = quality;

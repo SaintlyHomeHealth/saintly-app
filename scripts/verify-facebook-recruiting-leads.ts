@@ -25,6 +25,7 @@ import {
   renderRecruitingEmailTemplate,
 } from "../src/lib/recruiting/render-recruiting-email-template";
 import { RECRUITING_EMAIL_TEMPLATES } from "../src/lib/recruiting/recruiting-email-templates";
+import { inferRecruitingEmailTemplateIdForLead } from "../src/lib/recruiting/recruiting-email-pay";
 import {
   WEBSITE_CAREERS_FORM_NAME,
   WEBSITE_RECRUITING_LEAD_TYPE,
@@ -186,7 +187,7 @@ function testWebsiteRecruitingClassification() {
 }
 
 function testRecruitingEmailTemplates() {
-  assert.equal(RECRUITING_EMAIL_TEMPLATES.length, 6);
+  assert.equal(RECRUITING_EMAIL_TEMPLATES.length, 8);
   const lpnTpl = RECRUITING_EMAIL_TEMPLATES.find((t) => t.id === "lpn_follow_up")!;
   const lpnVars = buildRecruitingEmailVariables({
     full_name: "Jane Doe",
@@ -232,6 +233,48 @@ function testRecruitingEmailTemplates() {
   assert.equal(bradVars.first_name, "Brad");
   const bradGreeting = renderRecruitingEmailTemplate("Hi {{first_name}},", bradVars);
   assert.equal(bradGreeting, "Hi Brad,");
+
+  const otTpl = RECRUITING_EMAIL_TEMPLATES.find((t) => t.id === "ot_follow_up")!;
+  assert.match(otTpl.subject, /OT visit opportunities/);
+  const otVars = buildRecruitingEmailVariables(
+    { full_name: "Alex Kim", license_status: "OT" },
+    { template_id: "ot_follow_up", pay_summary: "$80 per visit" }
+  );
+  assert.equal(otVars.role, "OT");
+  assert.equal(otVars.pay_summary, "$80 per visit");
+  const otRendered = renderRecruitingEmailTemplate(otTpl.body, otVars);
+  assert.match(otRendered, /Hi Alex,/);
+  assert.match(otRendered, /\$80 per visit/);
+  assert.match(otRendered, /OT visit opportunities/);
+
+  const stTpl = RECRUITING_EMAIL_TEMPLATES.find((t) => t.id === "st_follow_up")!;
+  assert.match(stTpl.subject, /ST visit opportunities/);
+  const stVars = buildRecruitingEmailVariables(
+    { full_name: "Jordan Lee", license_status: "ST" },
+    { template_id: "st_follow_up", pay_summary: "$80 per visit" }
+  );
+  assert.equal(stVars.role, "ST");
+  assert.equal(stVars.pay_summary, "$80 per visit");
+  const stRendered = renderRecruitingEmailTemplate(stTpl.body, stVars);
+  assert.match(stRendered, /Hi Jordan,/);
+  assert.match(stRendered, /\$80 per visit/);
+
+  assert.equal(
+    inferRecruitingEmailTemplateIdForLead({ full_name: "Alex", license_status: "OT" }),
+    "ot_follow_up"
+  );
+  assert.equal(
+    inferRecruitingEmailTemplateIdForLead({ full_name: "Jordan", license_status: "ST" }),
+    "st_follow_up"
+  );
+  assert.equal(
+    inferRecruitingEmailTemplateIdForLead({ full_name: "Jane", license_status: "LPN" }),
+    "lpn_follow_up"
+  );
+  assert.equal(
+    inferRecruitingEmailTemplateIdForLead({ full_name: "Sam", license_status: "HHA" }),
+    "interview_scheduling"
+  );
 }
 
 function main() {

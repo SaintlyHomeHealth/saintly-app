@@ -52,6 +52,10 @@ type CandidateRow = {
   resume_file_name: string | null;
   resume_storage_path: string | null;
   resume_uploaded_at: string | null;
+  resume_extraction_method?: string | null;
+  resume_parse_warnings?: string | null;
+  resume_parse_notes?: string | null;
+  resume_extracted_clean_text?: string | null;
   notes: string | null;
   last_call_at: string | null;
   last_text_at: string | null;
@@ -590,6 +594,10 @@ export function RecruitingCandidateDetailClient({
             resumeFileName={initial.resume_file_name ?? null}
             resumeStoragePath={initial.resume_storage_path ?? null}
             resumeUploadedAt={initial.resume_uploaded_at ?? null}
+            resumeExtractionMethod={initial.resume_extraction_method ?? null}
+            resumeParseWarnings={initial.resume_parse_warnings ?? null}
+            resumeParseNotes={initial.resume_parse_notes ?? null}
+            resumeExtractedCleanText={initial.resume_extracted_clean_text ?? null}
             candidate={{
               full_name: initial.full_name,
               first_name: initial.first_name,
