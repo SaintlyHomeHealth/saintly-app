@@ -11,10 +11,15 @@ export type RecruitingLeadListCandidateRow = {
   coverage_area: string | null;
   discipline: string | null;
   status: string | null;
+  interest_level: string | null;
+  last_call_at: string | null;
+  last_text_at: string | null;
+  last_contact_at: string | null;
+  next_follow_up_at: string | null;
 };
 
 const CANDIDATE_LIST_SELECT =
-  "id, full_name, phone, email, city, state, coverage_area, discipline, status";
+  "id, full_name, phone, email, city, state, coverage_area, discipline, status, interest_level, last_call_at, last_text_at, last_contact_at, next_follow_up_at";
 
 export type RecruitingLeadListDisplayRow = {
   id: string;

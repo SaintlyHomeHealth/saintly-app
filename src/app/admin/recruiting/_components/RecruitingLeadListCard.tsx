@@ -4,13 +4,16 @@ import Link from "next/link";
 
 import { formatAppDateTime } from "@/lib/datetime/app-timezone";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
+import type { RecruitingLeadListEngagementSummary } from "@/lib/recruiting/recruiting-lead-list-engagement";
 import {
   recruitingLeadRoleBadge,
   recruitingLeadRoleBadgeClass,
 } from "@/lib/recruiting/recruiting-lead-role-display";
 
 import { facebookRecruitingLeadStatusPillClass } from "@/app/admin/recruiting/recruiting-leads-status-styles";
+import { recruitingStatusPillClass } from "@/app/admin/recruiting/recruiting-status-styles";
 import { RecruitingLeadActionsMenu } from "./RecruitingLeadActionsMenu";
+import { RecruitingLeadListEngagement } from "./RecruitingLeadListEngagement";
 import { RecruitingLeadSourceBadge } from "./RecruitingLeadDeleteButton";
 
 export type RecruitingLeadListRow = {
@@ -33,6 +36,8 @@ type Props = {
   row: RecruitingLeadListRow;
   detailHref: string;
   emailConfigured: boolean;
+  candidateId: string | null;
+  engagement: RecruitingLeadListEngagementSummary;
 };
 
 function formatListDate(iso: string | null | undefined): string {
@@ -56,12 +61,22 @@ function initialsFromName(name: string): string {
   return `${parts[0]![0] ?? ""}${parts[parts.length - 1]![0] ?? ""}`.toUpperCase();
 }
 
-export function RecruitingLeadListCard({ row, detailHref, emailConfigured }: Props) {
+export function RecruitingLeadListCard({
+  row,
+  detailHref,
+  emailConfigured,
+  candidateId,
+  engagement,
+}: Props) {
   const role = recruitingLeadRoleBadge({
     license_status: row.license_status,
     lead_type: row.lead_type,
     form_name: row.form_name,
   });
+
+  const statusPillClass = engagement.usesCandidateEngagement
+    ? recruitingStatusPillClass(engagement.status)
+    : facebookRecruitingLeadStatusPillClass(engagement.status);
 
   return (
     <article className={cardCls}>
@@ -77,7 +92,7 @@ export function RecruitingLeadListCard({ row, detailHref, emailConfigured }: Pro
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <RecruitingLeadSourceBadge source={row.source} formName={row.form_name} />
-              <span className={facebookRecruitingLeadStatusPillClass(row.status)}>{row.status}</span>
+              <span className={statusPillClass}>{engagement.status}</span>
             </div>
             <p className={metaCls}>Added {formatListDate(row.created_at)}</p>
           </div>
@@ -121,10 +136,9 @@ export function RecruitingLeadListCard({ row, detailHref, emailConfigured }: Pro
         </div>
       </div>
 
-      <div className="flex items-center justify-between border-t border-slate-100 bg-slate-50/40 px-4 py-2.5">
-        <span className="text-[11px] font-medium text-slate-400">
-          {row.email?.trim() ? "Has email on file" : "No email on file"}
-        </span>
+      <RecruitingLeadListEngagement leadId={row.id} candidateId={candidateId} engagement={engagement} />
+
+      <div className="flex items-center justify-end border-t border-slate-100/80 px-4 py-2">
         <Link
           href={detailHref}
           className="inline-flex items-center gap-1 text-xs font-semibold text-sky-800 transition group-hover/lead:gap-1.5 hover:text-sky-900"

@@ -38,6 +38,7 @@ import {
 } from "@/lib/recruiting/resume-upload-mime";
 import { supabaseAdmin } from "@/lib/admin";
 import { ensureRecruitingCandidateCrmContact } from "@/lib/recruiting/recruiting-crm-contact-sync";
+import { ensureRecruitingCandidateForLead } from "@/lib/recruiting/ensure-recruiting-candidate-for-lead";
 import {
   syncRecruitingCandidateToLinkedRecords,
   syncRecruitingLeadForCandidate,
@@ -359,6 +360,7 @@ export async function updateRecruitingCandidate(formData: FormData) {
 export type RecruitingQuickActionKind =
   | "call"
   | "text"
+  | "email"
   | "no_answer"
   | "voicemail"
   | "spoke"
@@ -429,6 +431,14 @@ export async function recruitingQuickAction(input: {
       patch.last_contact_at = nowIso;
       patch.status = "Text Sent";
       break;
+    case "email":
+      activity_type = "email";
+      outcome = "sent";
+      patch.last_contact_at = nowIso;
+      if (prevStatus === "New" || prevStatus === "Not Contacted") {
+        patch.status = "Attempted Contact";
+      }
+      break;
     case "no_answer":
       activity_type = "call";
       outcome = "no_answer";
@@ -443,6 +453,9 @@ export async function recruitingQuickAction(input: {
       outcome = "left_voicemail";
       patch.last_call_at = nowIso;
       patch.last_contact_at = nowIso;
+      if (prevStatus === "New" || prevStatus === "Not Contacted") {
+        patch.status = "Attempted Contact";
+      }
       break;
     case "spoke":
       activity_type = "call";
@@ -565,6 +578,45 @@ export async function recruitingQuickAction(input: {
   revalidatePath("/admin/recruiting");
   revalidatePath(`/admin/recruiting/${candidateId}`);
   return { ok: true };
+}
+
+/** List-card quick actions: ensure a candidate exists for the lead, then reuse detail quick-action logic. */
+export async function recruitingListQuickAction(input: {
+  leadId: string;
+  candidateId?: string | null;
+  kind: RecruitingQuickActionKind;
+  body?: string | null;
+  nextFollowUpAt?: string | null;
+}): Promise<{ ok: true; candidateId: string } | { ok: false; message: string }> {
+  await requireManager();
+
+  const leadId = input.leadId?.trim() ?? "";
+  if (!uuidOk(leadId)) {
+    return { ok: false, message: "Invalid lead." };
+  }
+
+  let candidateId = input.candidateId?.trim() ?? "";
+  if (!candidateId || !uuidOk(candidateId)) {
+    const ensured = await ensureRecruitingCandidateForLead(supabaseAdmin, leadId);
+    if (!ensured.ok) {
+      return { ok: false, message: ensured.error || "Could not link candidate." };
+    }
+    candidateId = ensured.candidateId;
+  }
+
+  const res = await recruitingQuickAction({
+    candidateId,
+    kind: input.kind,
+    body: input.body ?? null,
+    nextFollowUpAt: input.nextFollowUpAt ?? null,
+  });
+
+  if (!res.ok) {
+    return res;
+  }
+
+  revalidatePath(`/admin/recruiting/leads/${leadId}`);
+  return { ok: true, candidateId };
 }
 
 type RecruitingDb = Awaited<ReturnType<typeof createServerSupabaseClient>>;

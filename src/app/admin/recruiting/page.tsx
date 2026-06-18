@@ -19,6 +19,7 @@ import {
   logRecruitingLeadListCardDisplayDebug,
   mergeRecruitingLeadListRowWithCandidate,
 } from "@/lib/recruiting/recruiting-lead-list-display";
+import { fetchRecruitingLeadListEngagementSummaries } from "@/lib/recruiting/recruiting-lead-list-engagement-fetch";
 import {
   countFilteredRecruitingLeads,
   fetchRecruitingLeadTabCounts,
@@ -104,6 +105,15 @@ export default async function AdminRecruitingWorkspacePage({
       supabaseAdmin,
       [...new Set([...candidateByLeadId.values()])]
     )
+  );
+
+  const engagementByLeadId = await adminPerfTimed("admin/recruiting.engagement", () =>
+    fetchRecruitingLeadListEngagementSummaries({
+      supabase: supabaseAdmin,
+      leadRows: listRows,
+      candidateByLeadId,
+      candidateById,
+    })
   );
 
   const displayRows = listRows.map((row) => {
@@ -212,6 +222,20 @@ export default async function AdminRecruitingWorkspacePage({
               row={row}
               detailHref={buildAdminRecruitingWorkingDetailHref(row.id, candidateByLeadId.get(row.id), f)}
               emailConfigured={emailConfigured}
+              candidateId={candidateByLeadId.get(row.id) ?? null}
+              engagement={
+                engagementByLeadId.get(row.id) ?? {
+                  attemptsCount: 0,
+                  lastContactAt: null,
+                  lastCallAt: null,
+                  lastTextAt: null,
+                  lastEmailAt: null,
+                  nextFollowUpAt: null,
+                  status: row.status,
+                  interestLevel: null,
+                  usesCandidateEngagement: false,
+                }
+              }
             />
           ))}
           <RecruitingLeadPagination filters={f} page={f.page} totalPages={totalPages} />

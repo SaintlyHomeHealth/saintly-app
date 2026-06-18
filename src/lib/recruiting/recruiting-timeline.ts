@@ -54,6 +54,7 @@ export function formatRecruitingActivityHeadline(a: Pick<RecruitingActivityRow, 
   if (t === "call" && o === "spoke") return "Call — spoke";
   if (t === "voicemail" && o === "left_voicemail") return "Voicemail left";
   if (t === "text" && o === "sent") return "Text sent";
+  if (t === "email" && o === "sent") return "Email sent";
   if (t === "status_change" && o === "interested") return "Interested";
   if (t === "status_change" && o === "not_interested") return "Not interested";
   if (t === "status_change" && o === "maybe_later") return "Maybe later";
