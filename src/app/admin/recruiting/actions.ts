@@ -39,7 +39,7 @@ import {
 import { supabaseAdmin } from "@/lib/admin";
 import { ensureRecruitingCandidateCrmContact } from "@/lib/recruiting/recruiting-crm-contact-sync";
 import { syncRecruitingLeadForCandidate } from "@/lib/recruiting/recruiting-lead-candidate-bridge";
-import { isRecruitingActivityDeletable } from "@/lib/recruiting/recruiting-timeline";
+import { isValidFacebookRecruitingLeadStatus } from "@/lib/recruiting/facebook-recruiting-lead-options";
 import { createServerSupabaseClient, getAuthenticatedUser } from "@/lib/supabase/server";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 
@@ -1370,4 +1370,36 @@ export async function processBulkResumeFile(formData: FormData): Promise<BulkRes
     status: "failed",
     errorMessage: errMap[created.reason] ?? "Could not create candidate.",
   };
+}
+
+export async function updateFacebookRecruitingLead(formData: FormData) {
+  await requireManager();
+
+  const leadId = str(formData, "leadId");
+  const status = str(formData, "status");
+  const notes = str(formData, "notes");
+  const returnTo = str(formData, "returnTo") || "/admin/recruiting";
+
+  if (!leadId) {
+    redirect(`${returnTo}?err=missing_lead`);
+  }
+
+  const patch: Record<string, unknown> = {};
+  if (status) {
+    if (!isValidFacebookRecruitingLeadStatus(status)) {
+      redirect(`${returnTo}?err=invalid_status`);
+    }
+    patch.status = status;
+  }
+  patch.notes = notes || null;
+
+  const { error } = await supabaseAdmin.from("facebook_recruiting_leads").update(patch).eq("id", leadId);
+  if (error) {
+    console.warn("[recruiting] lead update failed", error.message);
+    redirect(`${returnTo}?err=update_failed`);
+  }
+
+  revalidatePath("/admin/recruiting");
+  revalidatePath(`/admin/recruiting/leads/${leadId}`);
+  redirect(returnTo);
 }

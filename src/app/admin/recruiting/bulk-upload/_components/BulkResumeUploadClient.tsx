@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useMemo, useRef, useState } from "react";
 
-import { RecruitingLeadSendEmailModal } from "@/app/admin/recruiting-leads/_components/RecruitingLeadSendEmailModal";
+import { RecruitingLeadSendEmailModal } from "@/app/admin/recruiting/_components/RecruitingLeadSendEmailModal";
 
 import {
   crmActionBtnSky,

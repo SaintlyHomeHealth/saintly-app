@@ -9,7 +9,7 @@ import {
   recruitingLeadRoleBadgeClass,
 } from "@/lib/recruiting/recruiting-lead-role-display";
 
-import { facebookRecruitingLeadStatusPillClass } from "../recruiting-leads-status-styles";
+import { facebookRecruitingLeadStatusPillClass } from "@/app/admin/recruiting/recruiting-leads-status-styles";
 import { RecruitingLeadActionsMenu } from "./RecruitingLeadActionsMenu";
 import { RecruitingLeadSourceBadge } from "./RecruitingLeadDeleteButton";
 

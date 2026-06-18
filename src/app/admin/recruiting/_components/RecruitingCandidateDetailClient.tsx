@@ -25,7 +25,7 @@ import { buildRecruitingTimelineEntries } from "@/lib/recruiting/recruiting-time
 import { staffPrimaryLabel } from "@/lib/crm/crm-leads-table-helpers";
 
 import { RecruitingLeadEmailPanel } from "@/components/recruiting/RecruitingLeadEmailPanel";
-import type { RecruitingLeadActivityRow } from "@/app/admin/recruiting-leads/_components/RecruitingLeadActivityTimeline";
+import type { RecruitingLeadActivityRow } from "@/app/admin/recruiting/_components/RecruitingLeadActivityTimeline";
 import { RecruitingTimelinePanel } from "@/components/recruiting/RecruitingTimelinePanel";
 import { recruitingQuickAction, type RecruitingQuickActionKind, updateRecruitingCandidate } from "../actions";
 import { recruitingInterestPillClass, recruitingStatusPillClass } from "../recruiting-status-styles";

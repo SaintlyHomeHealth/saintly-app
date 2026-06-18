@@ -14,8 +14,8 @@ import { formatAppDateTime } from "@/lib/datetime/app-timezone";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import { FACEBOOK_RECRUITING_LEAD_STATUS_OPTIONS } from "@/lib/recruiting/facebook-recruiting-lead-options";
 
-import { updateFacebookRecruitingLead } from "../actions";
-import { facebookRecruitingLeadStatusPillClass } from "../recruiting-leads-status-styles";
+import { updateFacebookRecruitingLead } from "@/app/admin/recruiting/actions";
+import { facebookRecruitingLeadStatusPillClass } from "@/app/admin/recruiting/recruiting-leads-status-styles";
 import {
   RecruitingLeadActivityTimeline,
   type RecruitingLeadActivityRow,

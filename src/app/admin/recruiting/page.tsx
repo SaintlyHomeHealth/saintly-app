@@ -17,8 +17,8 @@ import { isRecruitingEmailConfigured } from "@/lib/recruiting/recruiting-email-f
 import { syncOrphanRecruitingCandidatesToLeads } from "@/lib/recruiting/sync-orphan-recruiting-candidates";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 
-import { RecruitingLeadFilters } from "../recruiting-leads/_components/RecruitingLeadFilters";
-import { RecruitingLeadListCard } from "../recruiting-leads/_components/RecruitingLeadListCard";
+import { RecruitingLeadFilters } from "@/app/admin/recruiting/_components/RecruitingLeadFilters";
+import { RecruitingLeadListCard } from "@/app/admin/recruiting/_components/RecruitingLeadListCard";
 import { RecruitingWorkspaceStatsCards } from "./_components/RecruitingWorkspaceStatsCards";
 import { RecruitingWorkspaceTabs } from "./_components/RecruitingWorkspaceTabs";
 

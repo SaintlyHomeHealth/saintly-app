@@ -12,9 +12,9 @@ import { listRecruitingLeadResumeDocuments } from "@/lib/recruiting/recruiting-l
 import { isRecruitingEmailConfigured } from "@/lib/recruiting/recruiting-email-from";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 
-import type { RecruitingLeadActivityRow } from "../../recruiting-leads/_components/RecruitingLeadActivityTimeline";
-import { FacebookRecruitingLeadDetailClient } from "../../recruiting-leads/_components/FacebookRecruitingLeadDetailClient";
-import { RecruitingLeadDetailDeleteButton } from "../../recruiting-leads/_components/RecruitingLeadDeleteButton";
+import type { RecruitingLeadActivityRow } from "@/app/admin/recruiting/_components/RecruitingLeadActivityTimeline";
+import { FacebookRecruitingLeadDetailClient } from "@/app/admin/recruiting/_components/FacebookRecruitingLeadDetailClient";
+import { RecruitingLeadDetailDeleteButton } from "@/app/admin/recruiting/_components/RecruitingLeadDeleteButton";
 
 function buildListBackHref(sp: Record<string, string | string[] | undefined>): string {
   return buildAdminRecruitingLeadsListHref(parseAdminRecruitingLeadsListSearchParams(sp));

@@ -4,11 +4,11 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-import { RecruitingLeadSendEmailModal } from "@/app/admin/recruiting-leads/_components/RecruitingLeadSendEmailModal";
+import { RecruitingLeadSendEmailModal } from "@/app/admin/recruiting/_components/RecruitingLeadSendEmailModal";
 import {
   RecruitingLeadActivityTimeline,
   type RecruitingLeadActivityRow,
-} from "@/app/admin/recruiting-leads/_components/RecruitingLeadActivityTimeline";
+} from "@/app/admin/recruiting/_components/RecruitingLeadActivityTimeline";
 
 const rowActionBtnCls =
   "inline-flex h-8 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-sky-900 shadow-sm transition hover:border-sky-300 hover:bg-sky-50 hover:shadow-md whitespace-nowrap";

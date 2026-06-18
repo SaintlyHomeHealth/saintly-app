@@ -11,7 +11,7 @@ import { ensureRecruitingCandidateCrmContact } from "@/lib/recruiting/recruiting
 import { buildWorkspaceKeypadCallHref } from "@/lib/workspace-phone/launch-urls";
 
 import { RecruitingCandidateDetailClient } from "../_components/RecruitingCandidateDetailClient";
-import type { RecruitingLeadActivityRow } from "../../recruiting-leads/_components/RecruitingLeadActivityTimeline";
+import type { RecruitingLeadActivityRow } from "@/app/admin/recruiting/_components/RecruitingLeadActivityTimeline";
 
 function buildListBackHref(sp: Record<string, string | string[] | undefined>): string {
   const u = new URLSearchParams();
