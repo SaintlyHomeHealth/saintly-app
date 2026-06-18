@@ -333,6 +333,135 @@ export async function syncRecruitingLeadForCandidate(
   return { ok: true, recruitingLeadId: leadId };
 }
 
+type RecruitingCandidateIdentityRow = {
+  id: string;
+  full_name: string;
+  first_name: string | null;
+  last_name: string | null;
+  phone: string | null;
+  email: string | null;
+  city: string | null;
+  coverage_area: string | null;
+  discipline: string | null;
+  preferred_contact_method: string | null;
+  crm_contact_id: string | null;
+  recruiting_lead_id: string | null;
+  recruiting_lead_sync_suppressed: boolean | null;
+};
+
+/**
+ * Pushes an edited candidate's identity/contact fields onto the already-linked unified
+ * `facebook_recruiting_leads` row and CRM contact so the recruiting list, lead record, and
+ * call log all reflect the latest name/contact info.
+ *
+ * Intentionally narrow vs. {@link syncRecruitingLeadForCandidate}: it only touches identity/contact
+ * columns and never rewrites lead origin metadata (source, lead_type, form_name, raw_payload). It
+ * only updates an existing linked lead — it never creates a new lead from a profile edit.
+ */
+export async function syncRecruitingCandidateToLinkedRecords(
+  supabase: SupabaseClient,
+  candidateId: string
+): Promise<{ ok: true; recruitingLeadId: string | null } | { ok: false; error: string }> {
+  const id = candidateId.trim();
+  if (!id) return { ok: false, error: "missing_candidate_id" };
+
+  const { data: candidate, error } = await supabase
+    .from("recruiting_candidates")
+    .select(
+      "id, full_name, first_name, last_name, phone, email, city, coverage_area, discipline, preferred_contact_method, crm_contact_id, recruiting_lead_id, recruiting_lead_sync_suppressed"
+    )
+    .eq("id", id)
+    .maybeSingle();
+
+  if (error || !candidate?.id) {
+    return { ok: false, error: error?.message ?? "candidate_not_found" };
+  }
+
+  const row = candidate as RecruitingCandidateIdentityRow;
+
+  await syncRecruitingCandidateNameToContact(supabase, row);
+
+  if (row.recruiting_lead_sync_suppressed === true) {
+    return { ok: true, recruitingLeadId: row.recruiting_lead_id?.trim() || null };
+  }
+
+  const leadId = row.recruiting_lead_id?.trim() || null;
+  if (!leadId) {
+    // No linked lead yet — never create one from a plain profile edit (avoids duplicate lead rows).
+    return { ok: true, recruitingLeadId: null };
+  }
+
+  const { data: existingLead } = await supabase
+    .from("facebook_recruiting_leads")
+    .select("id")
+    .eq("id", leadId)
+    .maybeSingle();
+  if (!existingLead?.id) {
+    return { ok: true, recruitingLeadId: null };
+  }
+
+  const fullName = row.full_name?.trim() || "";
+  const normalizedPhone = row.phone ? normalizeRecruitingPhoneForStorage(row.phone) : null;
+  const normalizedEmail = row.email ? normalizeRecruitingEmail(row.email) : null;
+  const displayPhone = buildDisplayPhone(row.phone, normalizedPhone);
+
+  // Only sync non-empty values so a partially filled candidate never wipes good lead data.
+  const patch: Record<string, unknown> = {};
+  if (fullName) patch.full_name = fullName;
+  if (displayPhone) {
+    patch.phone = displayPhone;
+    patch.normalized_phone = normalizedPhone;
+  }
+  if (row.email?.trim() && row.email.includes("@")) {
+    patch.email = row.email.trim().slice(0, 320);
+    patch.normalized_email = normalizedEmail;
+  }
+  if (row.city?.trim()) patch.city = row.city.trim();
+  if (row.coverage_area?.trim()) patch.coverage_area = row.coverage_area.trim();
+  if (row.discipline?.trim()) patch.license_status = row.discipline.trim();
+  if (row.preferred_contact_method?.trim()) patch.contact_preference = row.preferred_contact_method.trim();
+
+  if (Object.keys(patch).length === 0) {
+    return { ok: true, recruitingLeadId: leadId };
+  }
+
+  const { error: upErr } = await supabase
+    .from("facebook_recruiting_leads")
+    .update(patch)
+    .eq("id", leadId);
+
+  if (upErr) {
+    // Unique normalized_phone/email collisions or other update failures should not break the candidate save.
+    console.warn("[recruiting-lead-bridge] identity sync to lead:", upErr.message);
+    return { ok: false, error: upErr.message };
+  }
+
+  return { ok: true, recruitingLeadId: leadId };
+}
+
+/** Keeps the linked CRM contact's name in step with the candidate so the call log shows the latest name. */
+async function syncRecruitingCandidateNameToContact(
+  supabase: SupabaseClient,
+  row: RecruitingCandidateIdentityRow
+): Promise<void> {
+  const contactId = row.crm_contact_id?.trim();
+  if (!contactId) return;
+
+  const fullName = row.full_name?.trim();
+  if (!fullName) return;
+
+  const patch: Record<string, unknown> = { full_name: fullName };
+  const first = row.first_name?.trim();
+  const last = row.last_name?.trim();
+  if (first) patch.first_name = first;
+  if (last) patch.last_name = last;
+
+  const { error } = await supabase.from("contacts").update(patch).eq("id", contactId);
+  if (error) {
+    console.warn("[recruiting-lead-bridge] candidate name sync to contact:", error.message);
+  }
+}
+
 export async function listRecruitingLeadResumeDocuments(
   supabase: SupabaseClient,
   recruitingLeadId: string

@@ -1,7 +1,5 @@
 import { notFound, redirect } from "next/navigation";
 
-import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
-import { crmPrimaryCtaCls } from "@/components/admin/crm-admin-list-styles";
 import { staffPrimaryLabel } from "@/lib/crm/crm-leads-table-helpers";
 import { supabaseAdmin } from "@/lib/admin";
 import { isRecruitingEmailConfigured } from "@/lib/recruiting/recruiting-email-from";
@@ -165,18 +163,7 @@ export default async function AdminRecruitingCandidatePage({
           : null;
 
   return (
-    <div className="space-y-6 p-6">
-      <AdminPageHeader
-        eyebrow="Talent pipeline"
-        title={(candidate as { full_name?: string }).full_name ?? "Candidate"}
-        description="Log outreach in seconds — the timeline stays as your source of truth."
-        actions={
-          <a href={listBackHref} className={crmPrimaryCtaCls}>
-            View list
-          </a>
-        }
-      />
-
+    <div className="min-h-full space-y-6 bg-gradient-to-b from-sky-50/70 via-white to-white p-4 sm:p-6">
       {saveError ? (
         <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-900">
           {saveError}

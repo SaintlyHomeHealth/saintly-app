@@ -38,7 +38,10 @@ import {
 } from "@/lib/recruiting/resume-upload-mime";
 import { supabaseAdmin } from "@/lib/admin";
 import { ensureRecruitingCandidateCrmContact } from "@/lib/recruiting/recruiting-crm-contact-sync";
-import { syncRecruitingLeadForCandidate } from "@/lib/recruiting/recruiting-lead-candidate-bridge";
+import {
+  syncRecruitingCandidateToLinkedRecords,
+  syncRecruitingLeadForCandidate,
+} from "@/lib/recruiting/recruiting-lead-candidate-bridge";
 import { isValidFacebookRecruitingLeadStatus } from "@/lib/recruiting/facebook-recruiting-lead-options";
 import { createServerSupabaseClient, getAuthenticatedUser } from "@/lib/supabase/server";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
@@ -279,11 +282,15 @@ export async function updateRecruitingCandidate(formData: FormData) {
 
   const { data: smsRow } = await supabaseAdmin
     .from("recruiting_candidates")
-    .select("sms_opt_out")
+    .select("sms_opt_out, recruiting_lead_id")
     .eq("id", id)
     .maybeSingle();
 
   const prevSmsOptOut = Boolean((smsRow as { sms_opt_out?: boolean } | null)?.sms_opt_out);
+  const linkedRecruitingLeadId =
+    typeof (smsRow as { recruiting_lead_id?: unknown } | null)?.recruiting_lead_id === "string"
+      ? String((smsRow as { recruiting_lead_id: string }).recruiting_lead_id).trim()
+      : "";
   const smsOptOut = formData.get("sms_opt_out") === "on";
   const nowIso = new Date().toISOString();
   let sms_opt_out_at: string | null | undefined;
@@ -341,8 +348,15 @@ export async function updateRecruitingCandidate(formData: FormData) {
 
   await ensureRecruitingCandidateCrmContact(supabaseAdmin, id);
 
+  // Push the edited name/contact fields onto the already-linked unified lead + CRM contact so the
+  // recruiting list, lead record, and call log all show the latest name (no new lead is created here).
+  const synced = await syncRecruitingCandidateToLinkedRecords(supabaseAdmin, id);
+
   revalidatePath("/admin/recruiting");
   revalidatePath(`/admin/recruiting/${id}`);
+  if (synced.ok && synced.recruitingLeadId) {
+    revalidatePath(`/admin/recruiting/leads/${synced.recruitingLeadId}`);
+  }
   redirect(`/admin/recruiting/${id}`);
 }
 

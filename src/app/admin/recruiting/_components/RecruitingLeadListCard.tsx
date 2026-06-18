@@ -45,9 +45,16 @@ function formatListDate(iso: string | null | undefined): string {
 }
 
 const cardCls =
-  "rounded-2xl border border-slate-200/90 bg-white/95 shadow-sm shadow-slate-200/40 transition hover:border-sky-200/80 hover:shadow-md hover:shadow-sky-100/50";
+  "group/lead overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-sm shadow-slate-200/40 transition hover:border-sky-200/80 hover:shadow-md hover:shadow-sky-100/50";
 
 const metaCls = "text-xs text-slate-600";
+
+function initialsFromName(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
+  return `${parts[0]![0] ?? ""}${parts[parts.length - 1]![0] ?? ""}`.toUpperCase();
+}
 
 export function RecruitingLeadListCard({ row, detailHref, emailConfigured }: Props) {
   const role = recruitingLeadRoleBadge({
@@ -59,16 +66,21 @@ export function RecruitingLeadListCard({ row, detailHref, emailConfigured }: Pro
   return (
     <article className={cardCls}>
       <div className="grid gap-4 p-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1.4fr)_auto] lg:items-center lg:gap-6">
-        <div className="min-w-0 space-y-2">
-          <div className="flex flex-wrap items-center gap-2">
-            <h3 className="truncate text-base font-semibold text-slate-900">{row.full_name}</h3>
-            <span className={recruitingLeadRoleBadgeClass(role)}>{role}</span>
+        <div className="flex min-w-0 items-start gap-3">
+          <span className="hidden h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-sky-100 to-cyan-100 text-sm font-bold text-sky-800 ring-1 ring-sky-200/60 sm:flex">
+            {initialsFromName(row.full_name)}
+          </span>
+          <div className="min-w-0 space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="truncate text-base font-semibold text-slate-900">{row.full_name}</h3>
+              <span className={recruitingLeadRoleBadgeClass(role)}>{role}</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <RecruitingLeadSourceBadge source={row.source} formName={row.form_name} />
+              <span className={facebookRecruitingLeadStatusPillClass(row.status)}>{row.status}</span>
+            </div>
+            <p className={metaCls}>Added {formatListDate(row.created_at)}</p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <RecruitingLeadSourceBadge source={row.source} formName={row.form_name} />
-            <span className={facebookRecruitingLeadStatusPillClass(row.status)}>{row.status}</span>
-          </div>
-          <p className={metaCls}>Added {formatListDate(row.created_at)}</p>
         </div>
 
         <div className="grid min-w-0 gap-2 sm:grid-cols-2">
@@ -109,12 +121,16 @@ export function RecruitingLeadListCard({ row, detailHref, emailConfigured }: Pro
         </div>
       </div>
 
-      <div className="border-t border-slate-100 px-4 py-2">
+      <div className="flex items-center justify-between border-t border-slate-100 bg-slate-50/40 px-4 py-2.5">
+        <span className="text-[11px] font-medium text-slate-400">
+          {row.email?.trim() ? "Has email on file" : "No email on file"}
+        </span>
         <Link
           href={detailHref}
-          className="text-xs font-semibold text-sky-800 hover:text-sky-900 hover:underline"
+          className="inline-flex items-center gap-1 text-xs font-semibold text-sky-800 transition group-hover/lead:gap-1.5 hover:text-sky-900"
         >
-          View details
+          Open candidate
+          <span aria-hidden>→</span>
         </Link>
       </div>
     </article>
