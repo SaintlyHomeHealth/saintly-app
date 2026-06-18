@@ -3,6 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
+import { isValidFacebookRecruitingLeadStatus } from "@/lib/recruiting/facebook-recruiting-lead-options";
 import {
   MANUAL_RESUME_UPLOAD_FORM_NAME,
   MANUAL_RESUME_UPLOAD_LEAD_TYPE,
@@ -343,6 +344,8 @@ type RecruitingCandidateIdentityRow = {
   city: string | null;
   coverage_area: string | null;
   discipline: string | null;
+  status: string | null;
+  notes: string | null;
   preferred_contact_method: string | null;
   crm_contact_id: string | null;
   recruiting_lead_id: string | null;
@@ -368,7 +371,7 @@ export async function syncRecruitingCandidateToLinkedRecords(
   const { data: candidate, error } = await supabase
     .from("recruiting_candidates")
     .select(
-      "id, full_name, first_name, last_name, phone, email, city, coverage_area, discipline, preferred_contact_method, crm_contact_id, recruiting_lead_id, recruiting_lead_sync_suppressed"
+      "id, full_name, first_name, last_name, phone, email, city, coverage_area, discipline, status, notes, preferred_contact_method, crm_contact_id, recruiting_lead_id, recruiting_lead_sync_suppressed"
     )
     .eq("id", id)
     .maybeSingle();
@@ -420,6 +423,13 @@ export async function syncRecruitingCandidateToLinkedRecords(
   if (row.coverage_area?.trim()) patch.coverage_area = row.coverage_area.trim();
   if (row.discipline?.trim()) patch.license_status = row.discipline.trim();
   if (row.preferred_contact_method?.trim()) patch.contact_preference = row.preferred_contact_method.trim();
+  // The lead status column has a CHECK constraint with its own enum, which differs from the
+  // candidate status options — only mirror when the value is valid for the lead table.
+  if (row.status?.trim() && isValidFacebookRecruitingLeadStatus(row.status.trim())) {
+    patch.status = row.status.trim();
+  }
+  // Mirror recruiter notes when present; never blank existing lead/intake notes from an empty field.
+  if (row.notes?.trim()) patch.notes = row.notes.trim();
 
   if (Object.keys(patch).length === 0) {
     return { ok: true, recruitingLeadId: leadId };
@@ -439,7 +449,12 @@ export async function syncRecruitingCandidateToLinkedRecords(
   return { ok: true, recruitingLeadId: leadId };
 }
 
-/** Keeps the linked CRM contact's name in step with the candidate so the call log shows the latest name. */
+/**
+ * Keeps the linked CRM contact's name in step with the candidate so the call/text log shows the
+ * latest name. Only renames contacts this recruiting candidate owns (matched by
+ * `relationship_metadata.recruiting_candidate_id`) so a shared patient/other contact that merely
+ * matched by phone or email is never renamed.
+ */
 async function syncRecruitingCandidateNameToContact(
   supabase: SupabaseClient,
   row: RecruitingCandidateIdentityRow
@@ -449,6 +464,21 @@ async function syncRecruitingCandidateNameToContact(
 
   const fullName = row.full_name?.trim();
   if (!fullName) return;
+
+  const { data: contact, error: loadErr } = await supabase
+    .from("contacts")
+    .select("relationship_metadata")
+    .eq("id", contactId)
+    .maybeSingle();
+  if (loadErr || !contact) return;
+
+  const meta = contact.relationship_metadata;
+  const owned =
+    !!meta &&
+    typeof meta === "object" &&
+    !Array.isArray(meta) &&
+    (meta as Record<string, unknown>).recruiting_candidate_id === row.id;
+  if (!owned) return;
 
   const patch: Record<string, unknown> = { full_name: fullName };
   const first = row.first_name?.trim();

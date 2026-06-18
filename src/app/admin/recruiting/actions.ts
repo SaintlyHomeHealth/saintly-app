@@ -282,15 +282,11 @@ export async function updateRecruitingCandidate(formData: FormData) {
 
   const { data: smsRow } = await supabaseAdmin
     .from("recruiting_candidates")
-    .select("sms_opt_out, recruiting_lead_id")
+    .select("sms_opt_out")
     .eq("id", id)
     .maybeSingle();
 
   const prevSmsOptOut = Boolean((smsRow as { sms_opt_out?: boolean } | null)?.sms_opt_out);
-  const linkedRecruitingLeadId =
-    typeof (smsRow as { recruiting_lead_id?: unknown } | null)?.recruiting_lead_id === "string"
-      ? String((smsRow as { recruiting_lead_id: string }).recruiting_lead_id).trim()
-      : "";
   const smsOptOut = formData.get("sms_opt_out") === "on";
   const nowIso = new Date().toISOString();
   let sms_opt_out_at: string | null | undefined;
