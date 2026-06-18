@@ -97,7 +97,7 @@ export function detectResumeDiscipline(text: string, flatText: string): Discipli
 
   let confidence: ResumeParseConfidence = "medium";
   if (top.score >= HIGH_SCORE) confidence = "high";
-  else if (top.score < MIN_SCORE + 2) confidence = "low";
+  else if (top.score < MIN_SCORE) confidence = "low";
 
   if (value === "PT" && top.score < HIGH_SCORE && !top.evidence.includes("Physical Therapist") && !top.evidence.includes("DPT")) {
     confidence = "low";
