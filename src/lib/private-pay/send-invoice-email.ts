@@ -45,11 +45,12 @@ export async function sendPrivatePayInvoiceEmail(
   <p>Hello ${escapeHtml(name)},</p>
   <p>Your private-pay invoice from Saintly Home Health is ready.</p>
   <p style="font-size:16px;"><strong>Amount due: ${escapeHtml(amount)}</strong></p>
-  <p>View/download your invoice and payment options here:</p>
+  <p>View your invoice and pay securely here:</p>
   <p style="margin:24px 0;">
-    <a href="${escapeHtml(input.link)}" style="display:inline-block;background:#0369a1;color:#ffffff;padding:12px 28px;border-radius:10px;text-decoration:none;font-weight:600;">View invoice</a>
+    <a href="${escapeHtml(input.link)}" style="display:inline-block;background:#0369a1;color:#ffffff;padding:12px 28px;border-radius:10px;text-decoration:none;font-weight:600;">View &amp; pay invoice</a>
   </p>
   <p style="font-size:13px;color:#475569;word-break:break-all;"><a href="${escapeHtml(input.link)}" style="color:#0369a1;">${escapeHtml(input.link)}</a></p>
+  <p style="font-size:13px;color:#475569;">If you have already paid or need help, contact Saintly at ${escapeHtml(PRIVATE_PAY_BUSINESS.phoneDisplay)}.</p>
   <p style="font-size:12px;color:#94a3b8;">This message covers private-pay services only and contains no diagnosis, insurance, Medicare, or clinical information.</p>
   <p>Thank you,<br/>${escapeHtml(sender.name)}<br/>${escapeHtml(PRIVATE_PAY_BUSINESS.phoneDisplay)}</p>
 </div>`;
@@ -60,8 +61,10 @@ Your private-pay invoice from Saintly Home Health is ready.
 
 Amount due: ${amount}
 
-View/download your invoice and payment options here:
+View your invoice and pay securely here:
 ${input.link}
+
+If you have already paid or need help, contact Saintly at ${PRIVATE_PAY_BUSINESS.phoneDisplay}.
 
 Thank you,
 ${PRIVATE_PAY_BUSINESS.phoneDisplay}`;

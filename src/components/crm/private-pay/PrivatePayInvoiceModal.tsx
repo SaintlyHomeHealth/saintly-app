@@ -17,8 +17,6 @@ import type {
   PrivatePayServiceTemplate,
 } from "@/lib/private-pay/types";
 
-export type InvoiceSubmitAction = "draft" | "link" | "charge";
-
 type LineDraft = {
   key: string;
   service_type: PrivatePayServiceType;
@@ -80,7 +78,7 @@ export function PrivatePayInvoiceModal({
   busy: boolean;
   error: string | null;
   onClose: () => void;
-  onSubmit: (action: InvoiceSubmitAction, input: PrivatePayInvoiceInput) => void;
+  onSubmit: (input: PrivatePayInvoiceInput) => void;
 }) {
   const [billingName, setBillingName] = useState(existing?.billing_name ?? defaultBilling.name ?? "");
   const [billingEmail, setBillingEmail] = useState(existing?.billing_email ?? defaultBilling.email ?? "");
@@ -385,29 +383,24 @@ export function PrivatePayInvoiceModal({
         <div className="flex flex-col gap-2 border-t border-slate-200 px-6 py-4 sm:flex-row sm:justify-end">
           <button
             type="button"
-            disabled={!canSubmit}
-            onClick={() => onSubmit("draft", buildInput())}
+            disabled={busy}
+            onClick={onClose}
             className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
           >
-            Save draft
+            Cancel
           </button>
           <button
             type="button"
             disabled={!canSubmit}
-            onClick={() => onSubmit("link", buildInput())}
-            className="rounded-lg border border-sky-600 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-800 hover:bg-sky-100 disabled:opacity-50"
+            onClick={() => onSubmit(buildInput())}
+            className="rounded-lg bg-sky-700 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-800 disabled:opacity-50"
           >
-            Send payment link
-          </button>
-          <button
-            type="button"
-            disabled={!canSubmit}
-            onClick={() => onSubmit("charge", buildInput())}
-            className="rounded-lg border border-emerald-700 bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
-          >
-            Charge card
+            {mode === "edit" ? "Save changes" : "Save invoice"}
           </button>
         </div>
+        <p className="px-6 pb-4 text-center text-[11px] text-slate-400 sm:text-right">
+          After saving, charge a card on file, send the invoice, or mark it paid from the billing list.
+        </p>
       </div>
     </div>
   );

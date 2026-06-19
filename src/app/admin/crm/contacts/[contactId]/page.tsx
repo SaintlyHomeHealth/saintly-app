@@ -39,6 +39,7 @@ import {
 } from "@/lib/staff-profile";
 import { ContactArchiveButton } from "@/app/admin/crm/contacts/_components/ContactArchiveButton";
 import { PrivatePayPaymentMethodsCard } from "@/components/crm/private-pay/PrivatePayPaymentMethodsCard";
+import { PrivatePayContactBillingCard } from "@/components/crm/private-pay/PrivatePayContactBillingCard";
 import { listPaymentMethodsForContact } from "@/lib/private-pay/customers";
 import { listInvoicesForContact } from "@/lib/private-pay/data";
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
@@ -181,13 +182,35 @@ export default async function AdminCrmContactDetailPage({
   const dupPool = dupPoolRes.data ?? [];
 
   const rawType = (row.contact_type ?? "").trim();
-  const showPrivatePayCards =
-    rawType === "private_pay" ||
-    (await listInvoicesForContact(contactId)).length > 0;
+  const privatePayInvoices = await listInvoicesForContact(contactId);
+  const showPrivatePayCards = rawType === "private_pay" || privatePayInvoices.length > 0;
   const privatePayPaymentMethods = showPrivatePayCards
     ? await listPaymentMethodsForContact(contactId)
     : [];
   const canManagePrivatePay = isCrmLeadsRowPolicyRole(staff);
+
+  const privatePayUnpaid = privatePayInvoices.filter(
+    (inv) => inv.status === "draft" || inv.status === "sent"
+  );
+  const privatePayLastPaymentAt = privatePayInvoices
+    .filter((inv) => (inv.status === "paid" || inv.status === "refunded") && inv.paid_at)
+    .map((inv) => inv.paid_at as string)
+    .sort((a, b) => b.localeCompare(a))[0] ?? null;
+  const privatePayMostRecent = privatePayInvoices[0] ?? null;
+  const privatePayBillingSummary = {
+    unpaidCount: privatePayUnpaid.length,
+    unpaidTotalCents: privatePayUnpaid.reduce((sum, inv) => sum + inv.total_cents, 0),
+    mostRecent: privatePayMostRecent
+      ? {
+          invoice_number: privatePayMostRecent.invoice_number,
+          total_cents: privatePayMostRecent.total_cents,
+          status: privatePayMostRecent.status,
+          created_at: privatePayMostRecent.created_at,
+        }
+      : null,
+    lastPaymentAt: privatePayLastPaymentAt,
+  };
+  const privatePayOpenInvoice = privatePayUnpaid[0] ?? null;
 
   const patientRow = prow as { id: string; patient_status: string; created_at?: string } | null;
   const patient: PatientLinkBrief | null = patientRow
@@ -469,6 +492,17 @@ export default async function AdminCrmContactDetailPage({
           ) : null}
         </div>
       </div>
+
+      {showPrivatePayCards ? (
+        <PrivatePayContactBillingCard
+          contactId={contactId}
+          canManage={canManagePrivatePay}
+          hasCard={privatePayPaymentMethods.length > 0}
+          contactHasPhone={Boolean((row.primary_phone ?? "").trim())}
+          summary={privatePayBillingSummary}
+          openInvoice={privatePayOpenInvoice}
+        />
+      ) : null}
 
       {dupCandidates.length > 0 ? (
         <div className="rounded-[28px] border border-amber-200 bg-amber-50/90 p-5 shadow-sm ring-1 ring-amber-100">

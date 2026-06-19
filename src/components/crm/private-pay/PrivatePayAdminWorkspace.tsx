@@ -1,112 +1,84 @@
 "use client";
 
-import Link from "next/link";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { CreditCard, FileText, PiggyBank, Wallet } from "lucide-react";
 
 import {
-  crmListScrollOuterCls,
-  crmPrimaryCtaCls,
-} from "@/components/admin/crm-admin-list-styles";
-import {
-  PRIVATE_PAY_INVOICE_STATUS_LABELS,
-  type PrivatePayInvoiceStatus,
-} from "@/lib/private-pay/constants";
-import { formatCentsUsd, serviceTypeLabel } from "@/lib/private-pay/format";
-import {
-  PRIVATE_PAY_PAYMENT_BADGE_LABELS,
-  PRIVATE_PAY_PAYMENT_BADGE_STYLES,
-} from "@/lib/private-pay/payment-badges";
-import type { PrivatePaySettingsInput } from "@/lib/private-pay/payment-settings";
+  AdminHeroHeader,
+  AdminStatCard,
+  AdminStatCardGrid,
+  AdminTabsBar,
+} from "@/components/admin/design-system";
+import { crmPrimaryCtaCls } from "@/components/admin/crm-admin-list-styles";
+import { formatCentsUsd } from "@/lib/private-pay/format";
 import type {
   PrivatePayInvoiceInput,
   PrivatePayInvoiceListRow,
   PrivatePayInvoiceWithItems,
+  PrivatePayPaymentMethodOnFile,
   PrivatePayRecipient,
   PrivatePayServiceTemplate,
 } from "@/lib/private-pay/types";
-import { PrivatePayInvoiceModal, type InvoiceSubmitAction } from "./PrivatePayInvoiceModal";
+import { PrivatePayInvoiceModal } from "./PrivatePayInvoiceModal";
+import { PrivatePayInvoiceCard } from "./PrivatePayInvoiceCard";
 import { PrivatePayRecipientPicker } from "./PrivatePayRecipientPicker";
-import {
-  PrivatePayRecordPaymentModal,
-  type RecordPaymentInput,
-} from "./PrivatePayRecordPaymentModal";
-import { PrivatePayPaymentSettingsModal } from "./PrivatePayPaymentSettingsModal";
-import { PrivatePaySendInvoiceConfirmModal } from "./PrivatePaySendInvoiceConfirmModal";
+import { PrivatePayRecordPaymentModal } from "./PrivatePayRecordPaymentModal";
+import { PrivatePaySendModal } from "./PrivatePaySendModal";
 import { PrivatePayChargeCardModal } from "./PrivatePayChargeCardModal";
-import type { PrivatePayPaymentMethodOnFile } from "@/lib/private-pay/types";
-import { getAppBaseUrl } from "@/lib/app-url";
 import {
-  buildPrivatePayInvoicePdfUrl,
-  buildPrivatePayInvoicePublicUrl,
-} from "@/lib/private-pay/public-urls";
+  loadPaymentMethods,
+  recordManualPayment,
+  sendInvoice,
+  sendReceipt,
+  voidInvoice as voidInvoiceAction,
+  type RecordPaymentPayload,
+  type SendChannel,
+} from "./private-pay-client-actions";
 
-function formatDate(iso: string | null): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" }).format(d);
+type TabKey = "unpaid" | "paid" | "all";
+
+function isUnpaidStatus(status: string): boolean {
+  return status === "draft" || status === "sent";
 }
-
-const STATUS_STYLES: Record<PrivatePayInvoiceStatus, string> = {
-  draft: "bg-slate-100 text-slate-700",
-  sent: "bg-amber-100 text-amber-900",
-  paid: "bg-emerald-100 text-emerald-900",
-  void: "bg-slate-200 text-slate-500",
-  refunded: "bg-rose-100 text-rose-900",
-};
-
-function servicesSummary(invoice: PrivatePayInvoiceWithItems): string {
-  const labels = invoice.items.map((i) => (i.description ?? "").trim() || serviceTypeLabel(i.service_type));
-  if (labels.length === 0) return "—";
-  if (labels.length <= 2) return labels.join(", ");
-  return `${labels.slice(0, 2).join(", ")} +${labels.length - 2} more`;
+function isPaidStatus(status: string): boolean {
+  return status === "paid" || status === "refunded";
 }
-
-const actionBtn =
-  "rounded-md border px-2 py-1 text-[11px] font-semibold disabled:opacity-50 whitespace-nowrap";
 
 export function PrivatePayAdminWorkspace({
   templates,
   initialInvoices,
-  initialPaymentSettings,
 }: {
   templates: PrivatePayServiceTemplate[];
   initialInvoices: PrivatePayInvoiceListRow[];
-  initialPaymentSettings: PrivatePaySettingsInput;
 }) {
   const router = useRouter();
   const [invoices, setInvoices] = useState<PrivatePayInvoiceListRow[]>(initialInvoices);
+  const [tab, setTab] = useState<TabKey>("unpaid");
+  const [banner, setBanner] = useState<{ kind: "ok" | "err" | "warn"; text: string } | null>(null);
+  const [rowBusyId, setRowBusyId] = useState<string | null>(null);
+
+  // Create / edit invoice
   const [recipient, setRecipient] = useState<PrivatePayRecipient | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<PrivatePayInvoiceWithItems | null>(null);
   const [busy, setBusy] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
-  const [rowBusyId, setRowBusyId] = useState<string | null>(null);
-  const [banner, setBanner] = useState<{ kind: "ok" | "err" | "warn"; text: string } | null>(null);
-  const [paymentLink, setPaymentLink] = useState<{ invoiceNumber: string; url: string } | null>(null);
-  const [recordFor, setRecordFor] = useState<PrivatePayInvoiceListRow | null>(null);
-  const [recordBusy, setRecordBusy] = useState(false);
-  const [recordError, setRecordError] = useState<string | null>(null);
-  const [sendConfirm, setSendConfirm] = useState<{
-    invoiceId: string;
-    channel: "email" | "text";
-    invoiceNumber: string;
-    invoiceUrl: string;
-    envWarning: string | null;
-  } | null>(null);
-  const [sendBusy, setSendBusy] = useState(false);
-  const [sendError, setSendError] = useState<string | null>(null);
-  const [paymentSettings, setPaymentSettings] = useState<PrivatePaySettingsInput>(initialPaymentSettings);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  // Charge card
   const [chargeFor, setChargeFor] = useState<PrivatePayInvoiceListRow | null>(null);
   const [chargeMethods, setChargeMethods] = useState<PrivatePayPaymentMethodOnFile[]>([]);
 
-  const clientAppBase = useCallback(
-    () => getAppBaseUrl(typeof window !== "undefined" ? window.location.origin : undefined),
-    []
-  );
+  // Send invoice / receipt
+  const [sendFor, setSendFor] = useState<{ row: PrivatePayInvoiceListRow; mode: "invoice" | "receipt" } | null>(null);
+  const [sendBusy, setSendBusy] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
+
+  // Mark paid
+  const [recordFor, setRecordFor] = useState<PrivatePayInvoiceListRow | null>(null);
+  const [recordBusy, setRecordBusy] = useState(false);
+  const [recordError, setRecordError] = useState<string | null>(null);
 
   const upsertInvoice = useCallback(
     (invoice: PrivatePayInvoiceWithItems, hint?: PrivatePayRecipient | null) => {
@@ -140,10 +112,7 @@ export function PrivatePayAdminWorkspace({
               ? null
               : (prevRow?.pending_payment_report ?? null),
           has_card_on_file: prevRow?.has_card_on_file ?? false,
-          payment_badge:
-            invoice.status === "paid"
-              ? "paid"
-              : (prevRow?.payment_badge ?? "unpaid"),
+          payment_badge: invoice.status === "paid" ? "paid" : (prevRow?.payment_badge ?? "unpaid"),
         };
         const exists = prev.some((i) => i.id === invoice.id);
         return exists ? prev.map((i) => (i.id === invoice.id ? { ...i, ...enriched } : i)) : [enriched, ...prev];
@@ -152,86 +121,80 @@ export function PrivatePayAdminWorkspace({
     []
   );
 
-  const startCheckout = useCallback(
-    async (invoiceId: string, action: "link" | "charge") => {
-      const res = await fetch(`/api/private-pay/invoices/${invoiceId}/checkout`, { method: "POST" });
-      const json = (await res.json().catch(() => ({}))) as { ok?: boolean; url?: string; error?: string };
-      if (!res.ok || !json.ok || !json.url) {
-        throw new Error(json.error || "Failed to create checkout session");
+  const stats = useMemo(() => {
+    const unpaid = invoices.filter((i) => isUnpaidStatus(i.status));
+    const unpaidTotal = unpaid.reduce((sum, i) => sum + i.total_cents, 0);
+
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+    let paidThisMonthCount = 0;
+    let paidThisMonthCents = 0;
+    for (const i of invoices) {
+      if (!isPaidStatus(i.status) || !i.paid_at) continue;
+      const t = new Date(i.paid_at).getTime();
+      if (!Number.isNaN(t) && t >= monthStart) {
+        paidThisMonthCount += 1;
+        paidThisMonthCents += i.total_cents;
       }
-      const invoice = invoices.find((i) => i.id === invoiceId);
-      if (invoice) upsertInvoice({ ...invoice, status: "sent" });
-      if (action === "charge") {
-        window.open(json.url, "_blank", "noopener,noreferrer");
-        setBanner({ kind: "ok", text: "Stripe checkout opened in a new tab for card entry." });
-      } else {
-        setPaymentLink({ invoiceNumber: invoice?.invoice_number ?? "", url: json.url });
-      }
-      router.refresh();
-    },
-    [invoices, router, upsertInvoice]
-  );
+    }
+
+    const cardReady = new Set(
+      invoices.filter((i) => i.has_card_on_file && i.contact_id).map((i) => i.contact_id as string)
+    ).size;
+
+    return {
+      unpaidCount: unpaid.length,
+      unpaidTotal,
+      paidCount: invoices.filter((i) => isPaidStatus(i.status)).length,
+      paidThisMonthCount,
+      paidThisMonthCents,
+      cardReady,
+    };
+  }, [invoices]);
+
+  const visible = useMemo(() => {
+    if (tab === "unpaid") return invoices.filter((i) => isUnpaidStatus(i.status));
+    if (tab === "paid") return invoices.filter((i) => isPaidStatus(i.status));
+    return invoices;
+  }, [invoices, tab]);
 
   const resolveContext = useCallback(() => {
     if (editing) {
-      return {
-        contact_id: editing.contact_id,
-        patient_id: editing.patient_id,
-        lead_id: editing.lead_id,
-      };
+      return { contact_id: editing.contact_id, patient_id: editing.patient_id, lead_id: editing.lead_id };
     }
     if (recipient) {
-      return {
-        contact_id: recipient.contact_id,
-        patient_id: recipient.patient_id,
-        lead_id: recipient.lead_id,
-      };
+      return { contact_id: recipient.contact_id, patient_id: recipient.patient_id, lead_id: recipient.lead_id };
     }
     return null;
   }, [editing, recipient]);
 
   const handleSubmit = useCallback(
-    async (action: InvoiceSubmitAction, input: PrivatePayInvoiceInput) => {
+    async (input: PrivatePayInvoiceInput) => {
       const ctx = resolveContext();
       if (!ctx?.contact_id) {
         setModalError("Select a contact, patient, or lead first.");
         return;
       }
-
       setBusy(true);
       setModalError(null);
       try {
-        const payload: PrivatePayInvoiceInput = {
-          ...input,
-          ...ctx,
-        };
         const isEdit = Boolean(editing);
-        const res = await fetch(
-          isEdit ? `/api/private-pay/invoices/${editing!.id}` : "/api/private-pay/invoices",
-          {
-            method: isEdit ? "PATCH" : "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-          }
-        );
+        const res = await fetch(isEdit ? `/api/private-pay/invoices/${editing!.id}` : "/api/private-pay/invoices", {
+          method: isEdit ? "PATCH" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...input, ...ctx }),
+        });
         const json = (await res.json().catch(() => ({}))) as {
           ok?: boolean;
           invoice?: PrivatePayInvoiceWithItems;
           error?: string;
         };
-        if (!res.ok || !json.ok || !json.invoice) {
-          throw new Error(json.error || "Failed to save invoice");
-        }
+        if (!res.ok || !json.ok || !json.invoice) throw new Error(json.error || "Failed to save invoice");
         upsertInvoice(json.invoice, recipient);
-        const invoiceId = json.invoice.id;
         setModalOpen(false);
         setEditing(null);
         setRecipient(null);
-        if (action === "link" || action === "charge") {
-          await startCheckout(invoiceId, action);
-        } else {
-          setBanner({ kind: "ok", text: `Draft invoice ${json.invoice.invoice_number} saved.` });
-        }
+        setBanner({ kind: "ok", text: `Invoice ${json.invoice.invoice_number} saved.` });
         router.refresh();
       } catch (e) {
         setModalError(e instanceof Error ? e.message : "Something went wrong");
@@ -239,121 +202,83 @@ export function PrivatePayAdminWorkspace({
         setBusy(false);
       }
     },
-    [editing, recipient, resolveContext, startCheckout, upsertInvoice, router]
+    [editing, recipient, resolveContext, upsertInvoice, router]
   );
 
-  const handleRowAction = useCallback(
-    async (invoiceId: string, action: "link" | "charge" | "email" | "text" | "void") => {
-      setRowBusyId(invoiceId);
-      setBanner(null);
+  const openCharge = useCallback(async (row: PrivatePayInvoiceListRow) => {
+    if (!row.contact_id) {
+      setBanner({ kind: "err", text: "This invoice has no contact — add a card on the customer profile first." });
+      return;
+    }
+    setRowBusyId(row.id);
+    setBanner(null);
+    try {
+      const methods = await loadPaymentMethods(row.contact_id);
+      if (methods.length === 0) {
+        throw new Error("No card on file. Use Send invoice, or add a card on the customer profile.");
+      }
+      setChargeMethods(methods);
+      setChargeFor(row);
+    } catch (e) {
+      setBanner({ kind: "err", text: e instanceof Error ? e.message : "Something went wrong" });
+    } finally {
+      setRowBusyId(null);
+    }
+  }, []);
+
+  const openSend = useCallback((row: PrivatePayInvoiceListRow, mode: "invoice" | "receipt") => {
+    setSendError(null);
+    setSendFor({ row, mode });
+  }, []);
+
+  const confirmSend = useCallback(
+    async (channels: SendChannel[]) => {
+      if (!sendFor) return;
+      setSendBusy(true);
+      setSendError(null);
       try {
-        if (action === "link" || action === "charge") {
-          if (action === "charge") {
-            const row = invoices.find((i) => i.id === invoiceId);
-            if (!row?.contact_id) {
-              throw new Error("This invoice has no contact — add a card on the customer profile first.");
-            }
-            const pmRes = await fetch(`/api/private-pay/customers/${row.contact_id}/payment-methods`);
-            const pmJson = (await pmRes.json().catch(() => ({}))) as {
-              ok?: boolean;
-              paymentMethods?: PrivatePayPaymentMethodOnFile[];
-              error?: string;
-            };
-            if (!pmRes.ok || !pmJson.ok) {
-              throw new Error(pmJson.error || "Could not load saved cards");
-            }
-            const methods = pmJson.paymentMethods ?? [];
-            if (methods.length === 0) {
-              throw new Error(
-                "No card on file. Add a card on the customer profile or use Payment link for customer self-pay."
-              );
-            }
-            setChargeMethods(methods);
-            setChargeFor(row);
+        let lastInvoice: PrivatePayInvoiceWithItems | null = null;
+        const sentTo: string[] = [];
+        for (const channel of channels) {
+          if (sendFor.mode === "invoice") {
+            const r = await sendInvoice(sendFor.row.id, channel);
+            if (r.invoice) lastInvoice = r.invoice;
+            if (r.sentTo) sentTo.push(r.sentTo);
           } else {
-            await startCheckout(invoiceId, action);
+            const r = await sendReceipt(sendFor.row.id, channel);
+            if (r.sentTo) sentTo.push(r.sentTo);
           }
-        } else if (action === "email" || action === "text") {
-          const previewRes = await fetch(`/api/private-pay/invoices/${invoiceId}/delivery-links`);
-          const preview = (await previewRes.json().catch(() => ({}))) as {
-            ok?: boolean;
-            invoiceNumber?: string;
-            invoiceUrl?: string;
-            envWarning?: string | null;
-            error?: string;
-          };
-          if (!previewRes.ok || !preview.ok || !preview.invoiceUrl) {
-            throw new Error(preview.error || "Could not build invoice link");
-          }
-          if (!preview.invoiceUrl.startsWith("https://appsaintlyhomehealth.com/p/private-pay/invoice/")) {
-            throw new Error(
-              "Invoice link must use https://appsaintlyhomehealth.com — check NEXT_PUBLIC_APP_URL in Vercel."
-            );
-          }
-          const row = invoices.find((i) => i.id === invoiceId);
-          setSendError(null);
-          setSendConfirm({
-            invoiceId,
-            channel: action,
-            invoiceNumber: preview.invoiceNumber ?? row?.invoice_number ?? "",
-            invoiceUrl: preview.invoiceUrl,
-            envWarning: preview.envWarning ?? null,
-          });
-        } else if (action === "void") {
-          if (!window.confirm("Void this invoice? This cannot be undone.")) return;
-          const res = await fetch(`/api/private-pay/invoices/${invoiceId}/void`, { method: "POST" });
-          const json = (await res.json().catch(() => ({}))) as {
-            ok?: boolean;
-            invoice?: PrivatePayInvoiceWithItems;
-            error?: string;
-          };
-          if (!res.ok || !json.ok || !json.invoice) throw new Error(json.error || "Failed to void invoice");
-          upsertInvoice(json.invoice);
-          setBanner({ kind: "ok", text: "Invoice voided." });
-          router.refresh();
         }
+        if (lastInvoice) upsertInvoice(lastInvoice);
+        const label = sendFor.mode === "invoice" ? "Invoice" : "Receipt";
+        setSendFor(null);
+        setBanner({
+          kind: "ok",
+          text: `${label} sent${sentTo.length ? ` to ${sentTo.join(" and ")}` : ""}.`,
+        });
+        router.refresh();
       } catch (e) {
-        setBanner({ kind: "err", text: e instanceof Error ? e.message : "Something went wrong" });
+        setSendError(e instanceof Error ? e.message : "Something went wrong");
       } finally {
-        setRowBusyId(null);
+        setSendBusy(false);
       }
     },
-    [startCheckout, upsertInvoice, router, invoices]
+    [sendFor, upsertInvoice, router]
   );
 
-  const submitRecordPayment = useCallback(
-    async (input: RecordPaymentInput) => {
+  const submitRecord = useCallback(
+    async (payload: RecordPaymentPayload) => {
       if (!recordFor) return;
       setRecordBusy(true);
       setRecordError(null);
       try {
-        const res = await fetch(`/api/private-pay/invoices/${recordFor.id}/mark-paid`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            method: input.method,
-            reference: input.reference,
-            amount: input.amount,
-            paid_at: input.paidDate,
-            note: input.note,
-            customer_note: input.customerNote,
-            send_receipt: input.sendReceipt,
-            receipt_delivery: input.receiptDelivery,
-          }),
-        });
-        const json = (await res.json().catch(() => ({}))) as {
-          ok?: boolean;
-          invoice?: PrivatePayInvoiceWithItems;
-          receiptWarning?: string | null;
-          error?: string;
-        };
-        if (!res.ok || !json.ok || !json.invoice) throw new Error(json.error || "Failed to record payment");
-        upsertInvoice(json.invoice);
+        const { invoice, receiptWarning } = await recordManualPayment(recordFor.id, payload);
+        upsertInvoice(invoice);
         setRecordFor(null);
         setBanner({
-          kind: json.receiptWarning ? "warn" : "ok",
-          text: json.receiptWarning
-            ? `Payment recorded. Receipt delivery issue: ${json.receiptWarning}`
+          kind: receiptWarning ? "warn" : "ok",
+          text: receiptWarning
+            ? `Payment recorded. Receipt delivery issue: ${receiptWarning}`
             : "Payment recorded and invoice marked paid.",
         });
         router.refresh();
@@ -366,67 +291,38 @@ export function PrivatePayAdminWorkspace({
     [recordFor, upsertInvoice, router]
   );
 
-  const copyPdfLink = useCallback(
-    (invoice: PrivatePayInvoiceListRow) => {
-      const url = buildPrivatePayInvoicePdfUrl(invoice.public_token, { baseUrl: clientAppBase() });
-      navigator.clipboard?.writeText(url).then(
-        () => setBanner({ kind: "ok", text: "Secure invoice PDF link copied to clipboard." }),
-        () => setBanner({ kind: "err", text: "Could not copy link." })
-      );
+  const handleVoid = useCallback(
+    async (row: PrivatePayInvoiceListRow) => {
+      if (!window.confirm("Void this invoice? This cannot be undone.")) return;
+      setRowBusyId(row.id);
+      setBanner(null);
+      try {
+        const invoice = await voidInvoiceAction(row.id);
+        upsertInvoice(invoice);
+        setBanner({ kind: "ok", text: "Invoice voided." });
+        router.refresh();
+      } catch (e) {
+        setBanner({ kind: "err", text: e instanceof Error ? e.message : "Something went wrong" });
+      } finally {
+        setRowBusyId(null);
+      }
     },
-    [clientAppBase]
+    [upsertInvoice, router]
   );
 
-  const copyReceiptLink = useCallback(
-    (invoice: PrivatePayInvoiceListRow) => {
-      const url = buildPrivatePayInvoicePublicUrl(invoice.public_token, clientAppBase());
-      navigator.clipboard?.writeText(url).then(
-        () => setBanner({ kind: "ok", text: "Secure receipt link copied to clipboard." }),
-        () => setBanner({ kind: "err", text: "Could not copy link." })
-      );
-    },
-    [clientAppBase]
-  );
-
-  const confirmSendInvoice = useCallback(async () => {
-    if (!sendConfirm) return;
-    setSendBusy(true);
-    setSendError(null);
-    try {
-      const endpoint = sendConfirm.channel === "email" ? "send-email" : "send-sms";
-      const res = await fetch(`/api/private-pay/invoices/${sendConfirm.invoiceId}/${endpoint}`, {
-        method: "POST",
-      });
-      const json = (await res.json().catch(() => ({}))) as {
-        ok?: boolean;
-        invoice?: PrivatePayInvoiceWithItems;
-        sentTo?: string;
-        invoiceUrl?: string;
-        error?: string;
-      };
-      if (!res.ok || !json.ok) throw new Error(json.error || "Failed to send invoice");
-      if (json.invoice) upsertInvoice(json.invoice);
-      setSendConfirm(null);
-      setBanner({
-        kind: "ok",
-        text: `Secure invoice link sent by ${sendConfirm.channel === "email" ? "email" : "text"}${
-          json.sentTo ? ` to ${json.sentTo}` : ""
-        }.`,
-      });
-      router.refresh();
-    } catch (e) {
-      setSendError(e instanceof Error ? e.message : "Something went wrong");
-    } finally {
-      setSendBusy(false);
-    }
-  }, [sendConfirm, upsertInvoice, router]);
-
-  const openEdit = (invoice: PrivatePayInvoiceListRow) => {
-    setEditing(invoice);
+  const openEdit = useCallback((row: PrivatePayInvoiceListRow) => {
+    setEditing(row);
     setRecipient(null);
     setModalError(null);
     setModalOpen(true);
-  };
+  }, []);
+
+  const startNewInvoice = useCallback(() => {
+    setEditing(null);
+    setRecipient(null);
+    setModalError(null);
+    setPickerOpen(true);
+  }, []);
 
   const modalBilling = editing
     ? {
@@ -437,33 +333,41 @@ export function PrivatePayAdminWorkspace({
       }
     : recipient?.billing ?? { name: "", email: "", phone: "", address: "" };
 
+  const tabs: { key: TabKey; label: string; count: number }[] = [
+    { key: "unpaid", label: "Unpaid", count: stats.unpaidCount },
+    { key: "paid", label: "Paid", count: stats.paidCount },
+    { key: "all", label: "All", count: invoices.length },
+  ];
+
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-end gap-2">
-        <button
-          type="button"
-          onClick={() => setSettingsOpen(true)}
-          className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-        >
-          Payment settings
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            setEditing(null);
-            setRecipient(null);
-            setModalError(null);
-            setPickerOpen(true);
-          }}
-          className={crmPrimaryCtaCls}
-        >
-          + New Private Pay Invoice
-        </button>
-      </div>
+    <>
+      <AdminHeroHeader
+        eyebrow="Billing"
+        title="Private Pay Billing"
+        description="Charge saved cards, send invoices, and record private-pay payments."
+        actions={
+          <button type="button" onClick={startNewInvoice} className={crmPrimaryCtaCls}>
+            + New invoice
+          </button>
+        }
+      />
+
+      <AdminStatCardGrid columns={4}>
+        <AdminStatCard label="Unpaid invoices" value={stats.unpaidCount} accent="amber" icon={FileText} />
+        <AdminStatCard label="Total unpaid" value={formatCentsUsd(stats.unpaidTotal)} accent="sky" icon={Wallet} />
+        <AdminStatCard
+          label="Paid this month"
+          value={formatCentsUsd(stats.paidThisMonthCents)}
+          accent="emerald"
+          icon={PiggyBank}
+          hint={`${stats.paidThisMonthCount} invoice${stats.paidThisMonthCount === 1 ? "" : "s"}`}
+        />
+        <AdminStatCard label="Card-ready clients" value={stats.cardReady} accent="indigo" icon={CreditCard} hint="saved card on file" />
+      </AdminStatCardGrid>
 
       {banner ? (
         <p
-          className={`rounded-xl border px-4 py-3 text-sm ${
+          className={`rounded-2xl border px-4 py-3 text-sm shadow-sm ${
             banner.kind === "ok"
               ? "border-emerald-200 bg-emerald-50 text-emerald-900"
               : banner.kind === "warn"
@@ -475,271 +379,68 @@ export function PrivatePayAdminWorkspace({
         </p>
       ) : null}
 
-      {paymentLink ? (
-        <div className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900">
-          <p className="font-semibold">Payment link for {paymentLink.invoiceNumber}</p>
-          <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
-            <input
-              readOnly
-              value={paymentLink.url}
-              className="min-w-0 flex-1 rounded-lg border border-sky-200 bg-white px-2 py-1.5 text-xs text-slate-700"
-              onFocus={(e) => e.currentTarget.select()}
-            />
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  navigator.clipboard?.writeText(paymentLink.url).then(
-                    () => setBanner({ kind: "ok", text: "Payment link copied to clipboard." }),
-                    () => undefined
-                    );
-                }}
-                className="rounded-lg border border-sky-600 bg-white px-3 py-1.5 text-xs font-semibold text-sky-800 hover:bg-sky-100"
+      <AdminTabsBar>
+        {tabs.map((t) => {
+          const active = tab === t.key;
+          return (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => setTab(t.key)}
+              className={`inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-sm font-semibold transition ${
+                active ? "bg-sky-600 text-white shadow-sm shadow-sky-200/60" : "text-slate-600 hover:bg-sky-50 hover:text-sky-900"
+              }`}
+              aria-current={active ? "page" : undefined}
+            >
+              {t.label}
+              <span
+                className={`rounded-full px-2 py-0.5 text-[11px] font-bold tabular-nums ${
+                  active ? "bg-white/20 text-white" : "bg-slate-100 text-slate-600"
+                }`}
               >
-                Copy link
-              </button>
-              <button
-                type="button"
-                onClick={() => setPaymentLink(null)}
-                className="rounded-lg px-3 py-1.5 text-xs font-semibold text-sky-700 hover:underline"
-              >
-                Dismiss
-              </button>
-            </div>
+                {t.count}
+              </span>
+            </button>
+          );
+        })}
+      </AdminTabsBar>
+
+      {visible.length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-slate-200 bg-white/90 px-6 py-16 text-center shadow-sm">
+          <p className="text-base font-semibold text-slate-800">
+            {tab === "unpaid"
+              ? "No unpaid invoices"
+              : tab === "paid"
+                ? "No paid invoices yet"
+                : "No private-pay invoices yet"}
+          </p>
+          <p className="mt-2 text-sm text-slate-600">Create an invoice to charge a card, send a payment link, or record a payment.</p>
+          <div className="mt-6">
+            <button type="button" onClick={startNewInvoice} className={crmPrimaryCtaCls}>
+              + New invoice
+            </button>
           </div>
         </div>
-      ) : null}
-
-      <div className={crmListScrollOuterCls}>
-        {invoices.length === 0 ? (
-          <p className="p-6 text-sm text-slate-500">No private-pay invoices yet. Create one to get started.</p>
-        ) : (
-          <table className="min-w-full text-left text-xs">
-            <thead>
-              <tr className="border-b border-slate-200 bg-slate-50/80 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                <th className="px-4 py-3 pr-3">Invoice #</th>
-                <th className="py-3 pr-3">Customer</th>
-                <th className="py-3 pr-3">Services</th>
-                <th className="py-3 pr-3">Total</th>
-                <th className="py-3 pr-3">Status</th>
-                <th className="py-3 pr-3">Created</th>
-                <th className="py-3 pr-3">Paid</th>
-                <th className="px-4 py-3">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {invoices.map((invoice) => {
-                const isOpenStatus = invoice.status === "draft" || invoice.status === "sent";
-                const rowBusy = rowBusyId === invoice.id;
-                return (
-                  <tr key={invoice.id} className="border-b border-slate-100 align-top hover:bg-slate-50/60">
-                    <td className="px-4 py-3 pr-3 font-medium text-slate-900">
-                      <Link
-                        href={`/admin/private-pay/invoices/${invoice.id}`}
-                        className="text-sky-800 hover:underline"
-                      >
-                        {invoice.invoice_number}
-                      </Link>
-                    </td>
-                    <td className="py-3 pr-3">
-                      <p className="font-medium text-slate-800">{invoice.customer_name}</p>
-                      {invoice.customer_detail && invoice.profile_href ? (
-                        <Link href={invoice.profile_href} className="text-[11px] font-semibold text-sky-800 hover:underline">
-                          {invoice.customer_detail} profile
-                        </Link>
-                      ) : null}
-                    </td>
-                    <td className="py-3 pr-3 max-w-[12rem] text-slate-700">{servicesSummary(invoice)}</td>
-                    <td className="py-3 pr-3 font-semibold tabular-nums text-slate-900">
-                      {formatCentsUsd(invoice.total_cents)}
-                    </td>
-                    <td className="py-3 pr-3">
-                      <div className="flex flex-col gap-1">
-                        <span
-                          className={`w-fit rounded-full px-2 py-0.5 text-[10px] font-semibold ${STATUS_STYLES[invoice.status]}`}
-                        >
-                          {PRIVATE_PAY_INVOICE_STATUS_LABELS[invoice.status]}
-                        </span>
-                        {invoice.pending_payment_report ? (
-                          <span className="w-fit rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-900">
-                            Payment reported
-                          </span>
-                        ) : null}
-                        {invoice.status !== "paid" && invoice.status !== "void" ? (
-                          <span
-                            className={`w-fit rounded-full px-2 py-0.5 text-[10px] font-semibold ${PRIVATE_PAY_PAYMENT_BADGE_STYLES[invoice.payment_badge]}`}
-                          >
-                            {PRIVATE_PAY_PAYMENT_BADGE_LABELS[invoice.payment_badge]}
-                          </span>
-                        ) : null}
-                      </div>
-                    </td>
-                    <td className="py-3 pr-3 text-slate-600">{formatDate(invoice.created_at)}</td>
-                    <td className="py-3 pr-3 text-slate-600">{formatDate(invoice.paid_at)}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex max-w-[26rem] flex-wrap gap-1.5">
-                        <button
-                          type="button"
-                          disabled={rowBusy || invoice.status !== "draft"}
-                          onClick={() => openEdit(invoice)}
-                          className={`${actionBtn} border-slate-300 bg-white text-slate-700 hover:bg-slate-50`}
-                        >
-                          View/Edit
-                        </button>
-                        <a
-                          href={`/api/private-pay/invoices/${invoice.id}/pdf`}
-                          className={`${actionBtn} border-slate-300 bg-white text-slate-700 hover:bg-slate-50`}
-                        >
-                          Invoice PDF
-                        </a>
-                        {invoice.status === "paid" ? (
-                          <>
-                            <a
-                              href={`/api/private-pay/invoices/${invoice.id}/receipt`}
-                              className={`${actionBtn} border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100`}
-                            >
-                              Receipt PDF
-                            </a>
-                            <button
-                              type="button"
-                              disabled={rowBusy}
-                              onClick={async () => {
-                                setRowBusyId(invoice.id);
-                                try {
-                                  const res = await fetch(
-                                    `/api/private-pay/invoices/${invoice.id}/send-receipt-sms`,
-                                    { method: "POST" }
-                                  );
-                                  const json = (await res.json().catch(() => ({}))) as {
-                                    ok?: boolean;
-                                    error?: string;
-                                  };
-                                  if (!res.ok || !json.ok) throw new Error(json.error || "Failed to send receipt");
-                                  setBanner({ kind: "ok", text: "Receipt link sent by text." });
-                                } catch (e) {
-                                  setBanner({
-                                    kind: "err",
-                                    text: e instanceof Error ? e.message : "Something went wrong",
-                                  });
-                                } finally {
-                                  setRowBusyId(null);
-                                }
-                              }}
-                              className={`${actionBtn} border-sky-300 bg-white text-sky-800 hover:bg-sky-50`}
-                            >
-                              Send receipt text
-                            </button>
-                            <button
-                              type="button"
-                              disabled={rowBusy}
-                              onClick={async () => {
-                                setRowBusyId(invoice.id);
-                                try {
-                                  const res = await fetch(
-                                    `/api/private-pay/invoices/${invoice.id}/send-receipt-email`,
-                                    { method: "POST" }
-                                  );
-                                  const json = (await res.json().catch(() => ({}))) as {
-                                    ok?: boolean;
-                                    error?: string;
-                                  };
-                                  if (!res.ok || !json.ok) throw new Error(json.error || "Failed to send receipt");
-                                  setBanner({ kind: "ok", text: "Receipt link sent by email." });
-                                } catch (e) {
-                                  setBanner({
-                                    kind: "err",
-                                    text: e instanceof Error ? e.message : "Something went wrong",
-                                  });
-                                } finally {
-                                  setRowBusyId(null);
-                                }
-                              }}
-                              className={`${actionBtn} border-sky-300 bg-white text-sky-800 hover:bg-sky-50`}
-                            >
-                              Send receipt email
-                            </button>
-                            <button
-                              type="button"
-                              disabled={rowBusy}
-                              onClick={() => copyReceiptLink(invoice)}
-                              className={`${actionBtn} border-slate-300 bg-white text-slate-700 hover:bg-slate-50`}
-                            >
-                              Copy receipt link
-                            </button>
-                          </>
-                        ) : null}
-                        {isOpenStatus ? (
-                          <>
-                            <button
-                              type="button"
-                              disabled={rowBusy}
-                              onClick={() => handleRowAction(invoice.id, "email")}
-                              className={`${actionBtn} border-sky-300 bg-white text-sky-800 hover:bg-sky-50`}
-                            >
-                              Send email
-                            </button>
-                            <button
-                              type="button"
-                              disabled={rowBusy}
-                              onClick={() => handleRowAction(invoice.id, "text")}
-                              className={`${actionBtn} border-sky-300 bg-white text-sky-800 hover:bg-sky-50`}
-                            >
-                              Send text
-                            </button>
-                            <button
-                              type="button"
-                              disabled={rowBusy}
-                              onClick={() => copyPdfLink(invoice)}
-                              className={`${actionBtn} border-slate-300 bg-white text-slate-700 hover:bg-slate-50`}
-                            >
-                              Copy PDF link
-                            </button>
-                            <button
-                              type="button"
-                              disabled={rowBusy}
-                              onClick={() => handleRowAction(invoice.id, "link")}
-                              className={`${actionBtn} border-sky-300 bg-sky-50 text-sky-800 hover:bg-sky-100`}
-                            >
-                              Payment link
-                            </button>
-                            <button
-                              type="button"
-                              disabled={rowBusy}
-                              onClick={() => handleRowAction(invoice.id, "charge")}
-                              className={`${actionBtn} border-slate-300 bg-white text-slate-700 hover:bg-slate-50`}
-                            >
-                              Charge card
-                            </button>
-                            <button
-                              type="button"
-                              disabled={rowBusy}
-                              onClick={() => {
-                                setRecordError(null);
-                                setRecordFor(invoice);
-                              }}
-                              className={`${actionBtn} border-slate-300 bg-white text-slate-700 hover:bg-slate-50`}
-                            >
-                              Record payment
-                            </button>
-                            <button
-                              type="button"
-                              disabled={rowBusy}
-                              onClick={() => handleRowAction(invoice.id, "void")}
-                              className={`${actionBtn} border-rose-300 bg-white text-rose-700 hover:bg-rose-50`}
-                            >
-                              Void
-                            </button>
-                          </>
-                        ) : null}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
-      </div>
+      ) : (
+        <div className="space-y-3">
+          {visible.map((invoice) => (
+            <PrivatePayInvoiceCard
+              key={invoice.id}
+              invoice={invoice}
+              busy={rowBusyId === invoice.id}
+              onCharge={openCharge}
+              onSendInvoice={(row) => openSend(row, "invoice")}
+              onMarkPaid={(row) => {
+                setRecordError(null);
+                setRecordFor(row);
+              }}
+              onSendReceipt={(row) => openSend(row, "receipt")}
+              onVoid={handleVoid}
+              onEdit={openEdit}
+            />
+          ))}
+        </div>
+      )}
 
       <PrivatePayRecipientPicker
         open={pickerOpen}
@@ -788,33 +489,23 @@ export function PrivatePayAdminWorkspace({
           setRecordFor(null);
           setRecordError(null);
         }}
-        onSubmit={submitRecordPayment}
+        onSubmit={submitRecord}
       />
 
-      <PrivatePayPaymentSettingsModal
-        open={settingsOpen}
-        initialSettings={paymentSettings}
-        onClose={() => setSettingsOpen(false)}
-        onSaved={(settings) => {
-          setPaymentSettings(settings);
-          setBanner({ kind: "ok", text: "Payment settings saved. New invoices will use these instructions." });
-        }}
-      />
-
-      <PrivatePaySendInvoiceConfirmModal
-        open={Boolean(sendConfirm)}
-        channel={sendConfirm?.channel ?? "text"}
-        invoiceNumber={sendConfirm?.invoiceNumber ?? ""}
-        invoiceUrl={sendConfirm?.invoiceUrl ?? ""}
-        envWarning={sendConfirm?.envWarning}
+      <PrivatePaySendModal
+        open={Boolean(sendFor)}
+        mode={sendFor?.mode ?? "invoice"}
+        invoiceNumber={sendFor?.row.invoice_number ?? ""}
+        email={sendFor?.row.billing_email ?? null}
+        phone={sendFor?.row.billing_phone ?? null}
         busy={sendBusy}
         error={sendError}
         onClose={() => {
           if (sendBusy) return;
-          setSendConfirm(null);
+          setSendFor(null);
           setSendError(null);
         }}
-        onConfirm={confirmSendInvoice}
+        onConfirm={confirmSend}
       />
 
       <PrivatePayChargeCardModal
@@ -831,6 +522,6 @@ export function PrivatePayAdminWorkspace({
           router.refresh();
         }}
       />
-    </div>
+    </>
   );
 }

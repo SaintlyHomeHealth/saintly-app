@@ -5,8 +5,6 @@ import {
   PRIVATE_PAY_BUSINESS,
   PRIVATE_PAY_UNIT_LABEL_OPTIONS,
 } from "@/lib/private-pay/constants";
-import { loadPrivatePayPaymentSettings } from "@/lib/private-pay/settings-data";
-import type { PrivatePayPaymentSettings } from "@/lib/private-pay/payment-settings";
 import {
   formatCentsUsd,
   formatPaymentDetail,
@@ -344,86 +342,30 @@ function drawServiceTable(page: PDFPage, fonts: Fonts, topY: number, invoice: Pr
   return cardY - 16;
 }
 
-/** Compact payment instructions for unpaid invoices only. */
-function drawPaymentInstructions(
-  page: PDFPage,
-  fonts: Fonts,
-  topY: number,
-  invoice: PrivatePayInvoiceWithItems,
-  s: PrivatePayPaymentSettings
-): number {
+/** Compact, secure-link-only payment instructions for unpaid invoices. */
+function drawPaymentInstructions(page: PDFPage, fonts: Fonts, topY: number): number {
   const pad = MARGIN + PAD;
   const maxW = CONTENT_W - PAD * 2;
-  const sections: Array<{ title: string; lines: string[] }> = [];
 
-  if (s.showZelle && s.zelle.sendToLines.length) {
-    sections.push({
-      title: "Preferred payment: Zelle",
-      lines: [`Send to: ${s.zelle.sendToLines.join(" · ")}`],
-    });
-  }
-
-  const otherLines: string[] = [];
-  if (s.showCashApp && s.cashApp.display) otherLines.push(`Cash App: ${s.cashApp.display}`);
-  if (s.showAppleCash && s.appleCash.sendToLines.length) {
-    otherLines.push(`Apple Cash: ${s.appleCash.sendToLines.join(" · ")}`);
-  }
-  if (s.showCashCheck) {
-    otherLines.push(`Cash / check: Contact ${s.contactLine} to arrange payment.`);
-    if (s.check.payableTo) otherLines.push(`Checks payable to ${s.check.payableTo}`);
-    if (s.check.mailingAddress) otherLines.push(`Mail to: ${s.check.mailingAddress}`);
-  }
-  if (otherLines.length) sections.push({ title: "Other options", lines: otherLines });
-
-  if (s.showStripe) {
-    sections.push({
-      title: "Card / Apple Pay (secondary)",
-      lines: ["Pay by card or Apple Pay using the secure payment link sent by Saintly."],
-    });
-  }
-
-  const footerLines = [
-    `Please include invoice ${invoice.invoice_number} in the payment memo.`,
-    "After payment, click \"I sent payment\" on the invoice page or contact Saintly so we can verify and send your receipt.",
+  const bodyLines = [
+    `Pay securely using the payment link sent by ${PRIVATE_PAY_BUSINESS.legalName}.`,
+    `If you have already paid or need help, contact Saintly at ${PRIVATE_PAY_BUSINESS.phoneDisplay}.`,
   ];
-  if (s.manualNote.trim()) footerLines.unshift(s.manualNote.trim());
 
-  let lineCount = 2;
-  for (const sec of sections) {
-    lineCount += 1 + sec.lines.length;
-  }
-  lineCount += footerLines.length;
+  let lineCount = 0;
+  for (const line of bodyLines) lineCount += wrap(line, fonts.font, 9.5, maxW).length;
 
-  const cardH = 36 + lineCount * 12;
+  const cardH = 30 + lineCount * 13;
   const cardY = topY - cardH;
   card(page, MARGIN, cardY, CONTENT_W, cardH, 12, { fill: SOFT_BLUE, border: BORDER });
   let y = cardY + cardH - 18;
   page.drawText("PAYMENT INSTRUCTIONS", { x: pad, y, size: 8, font: fonts.bold, color: ACCENT });
-  y -= 14;
+  y -= 15;
 
-  for (const sec of sections) {
-    page.drawText(sec.title, { x: pad, y, size: 9.5, font: fonts.bold, color: INK });
-    y -= 12;
-    for (const line of sec.lines) {
-      for (const wrapped of wrap(line, fonts.font, 8.5, maxW)) {
-        page.drawText(wrapped, { x: pad + 6, y, size: 8.5, font: fonts.font, color: MUTED });
-        y -= 11;
-      }
-    }
-    y -= 2;
-  }
-
-  page.drawLine({
-    start: { x: pad, y: y + 4 },
-    end: { x: MARGIN + CONTENT_W - PAD, y: y + 4 },
-    thickness: 0.5,
-    color: BORDER,
-  });
-  y -= 6;
-  for (const line of footerLines) {
-    for (const wrapped of wrap(line, fonts.font, 8, maxW)) {
-      page.drawText(wrapped, { x: pad, y, size: 8, font: fonts.font, color: FAINT });
-      y -= 10;
+  for (const line of bodyLines) {
+    for (const wrapped of wrap(line, fonts.font, 9.5, maxW)) {
+      page.drawText(wrapped, { x: pad, y, size: 9.5, font: fonts.font, color: INK });
+      y -= 13;
     }
   }
 
@@ -491,8 +433,7 @@ function drawFooter(page: PDFPage, fonts: Fonts, isReceipt: boolean) {
 
 async function buildDocument(
   invoice: PrivatePayInvoiceWithItems,
-  variant: "invoice" | "receipt",
-  paymentSettings: PrivatePayPaymentSettings | null
+  variant: "invoice" | "receipt"
 ): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
@@ -507,8 +448,8 @@ async function buildDocument(
   y = drawServiceTable(page, fonts, y, invoice, isReceipt);
   if (isReceipt) {
     y = drawReceiptDetail(page, fonts, y, invoice, payment);
-  } else if (paymentSettings) {
-    y = drawPaymentInstructions(page, fonts, y, invoice, paymentSettings);
+  } else {
+    y = drawPaymentInstructions(page, fonts, y);
   }
 
   if ((invoice.notes ?? "").trim()) {
@@ -525,11 +466,9 @@ async function buildDocument(
 }
 
 export async function generatePrivatePayInvoicePdf(invoice: PrivatePayInvoiceWithItems): Promise<Uint8Array> {
-  const isPaid = isPaidPrivatePayDocument(invoice, "invoice");
-  const paymentSettings = isPaid ? null : await loadPrivatePayPaymentSettings();
-  return buildDocument(invoice, "invoice", paymentSettings);
+  return buildDocument(invoice, "invoice");
 }
 
 export async function generatePrivatePayReceiptPdf(invoice: PrivatePayInvoiceWithItems): Promise<Uint8Array> {
-  return buildDocument(invoice, "receipt", null);
+  return buildDocument(invoice, "receipt");
 }

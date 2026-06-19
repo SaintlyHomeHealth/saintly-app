@@ -77,5 +77,5 @@ export async function sendPrivatePayReceiptSms(opts: {
 }
 
 export function buildPrivatePayInvoiceSmsBody(invoiceLink: string): string {
-  return `Saintly Home Health: Your private-pay invoice is ready. You can view/download it and see payment options here: ${invoiceLink}`;
+  return `Saintly Home Health: Your private-pay invoice is ready. View it and pay securely here: ${invoiceLink}`;
 }

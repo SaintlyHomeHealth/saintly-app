@@ -30,10 +30,10 @@ export function PayButton({ token }: { token: string }) {
         disabled={busy}
         className="w-full rounded-xl border border-slate-300 bg-slate-50 px-5 py-2.5 text-sm font-semibold text-slate-800 transition hover:bg-white disabled:opacity-60"
       >
-        {busy ? "Opening secure checkout…" : "Pay by card"}
+        {busy ? "Opening secure checkout…" : "Pay securely"}
       </button>
       <p className="mt-2 text-center text-[11px] text-slate-400">
-        Processed securely by Stripe. Apple Pay is available at checkout.
+        Processed securely by Stripe.
       </p>
       {error ? <p className="mt-2 text-center text-sm text-rose-700">{error}</p> : null}
     </div>

@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
 import { PublicInvoiceView } from "@/components/private-pay/PublicInvoiceView";
-import { getInvoiceByPublicToken, getPendingPaymentReportForInvoice } from "@/lib/private-pay/data";
-import { loadPrivatePayPaymentSettings } from "@/lib/private-pay/settings-data";
+import { getInvoiceByPublicToken } from "@/lib/private-pay/data";
+import { isPrivatePayStripeConfigured } from "@/lib/private-pay/stripe";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,17 +25,11 @@ export default async function PrivatePayPublicInvoicePage({
   const invoice = await getInvoiceByPublicToken(publicToken);
   if (!invoice) notFound();
 
-  const [settings, pendingReport] = await Promise.all([
-    loadPrivatePayPaymentSettings(),
-    getPendingPaymentReportForInvoice(invoice.id),
-  ]);
-
   return (
     <PublicInvoiceView
       invoice={invoice}
       publicToken={publicToken}
-      settings={settings}
-      pendingReport={pendingReport}
+      stripeConfigured={isPrivatePayStripeConfigured()}
     />
   );
 }

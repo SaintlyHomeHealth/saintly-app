@@ -17,6 +17,11 @@ export function getStripe(): Stripe | null {
   return cached;
 }
 
+/** True when STRIPE_SECRET_KEY is set, i.e. card payments can be processed. */
+export function isPrivatePayStripeConfigured(): boolean {
+  return getStripe() !== null;
+}
+
 export function getStripeWebhookSecret(): string | null {
   return process.env.STRIPE_WEBHOOK_SECRET?.trim() || null;
 }
