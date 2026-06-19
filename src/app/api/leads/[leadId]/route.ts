@@ -7,14 +7,14 @@ import { supabaseAdmin } from "@/lib/admin";
 
 type LeadQuality = "qualified" | "unqualified";
 
-export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
+export async function PATCH(req: Request, ctx: { params: Promise<{ leadId: string }> }) {
   const staff = await getStaffProfile();
   if (!staff || !isManagerOrHigher(staff)) {
     return NextResponse.json({ ok: false, error: "forbidden" as const }, { status: 403 });
   }
 
-  const { id } = await ctx.params;
-  const leadId = typeof id === "string" ? id.trim() : "";
+  const { leadId: rawLeadId } = await ctx.params;
+  const leadId = typeof rawLeadId === "string" ? rawLeadId.trim() : "";
   if (!leadId) {
     return NextResponse.json({ ok: false, error: "invalid_id" as const }, { status: 400 });
   }
@@ -67,7 +67,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     .maybeSingle();
 
   if (error) {
-    console.warn("[api/leads/[id]] PATCH:", error.message);
+    console.warn("[api/leads/[leadId]] PATCH:", error.message);
     return NextResponse.json({ ok: false, error: "save_failed" as const }, { status: 500 });
   }
   if (!data?.id) {

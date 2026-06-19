@@ -22,6 +22,15 @@ const MIN_PDF_TEXT = 50;
 const OCR_SHORT_DIRECT = 200;
 
 const PDF_EMPTY_ERROR = "PDF text extraction returned empty text";
+const PDF_NOT_RECEIVED_ERROR = "Uploaded file did not reach server as a valid PDF";
+
+function bufferStartsWithPdf(buffer: Buffer): boolean {
+  return buffer.length >= 4 && buffer.toString("utf8", 0, 4) === "%PDF";
+}
+
+function first20BytesHex(buffer: Buffer): string {
+  return buffer.subarray(0, 20).toString("hex");
+}
 
 async function extractImageTextViaOcr(buffer: Buffer, filename: string, mimeType: string): Promise<string> {
   if (isOcrSpaceRecruitingConfigured()) {
@@ -47,15 +56,63 @@ export async function runPatientReferralExtractPipeline(
   let ocrLen = 0;
   let ocrAttempted = false;
   let pdfExtractMethod: string | null = null;
+  let pdfParseTextLength = 0;
+  let pdfjsTextLength = 0;
+  let pdfParseError: string | null = null;
+  let pdfjsError: string | null = null;
   const messages: string[] = [];
   const parseNotes: string[] = [];
   const isPdf = isPatientReferralPdfFilename(filename, mimeType);
+  const startsWithPdf = bufferStartsWithPdf(buffer);
+  const runtime = `node ${process.version}`;
+
+  // Prove the bytes actually arrived as a PDF before blaming text extraction.
+  if (isPdf && (buffer.length <= 0 || !startsWithPdf)) {
+    const debug: PatientReferralParseDebug = {
+      fileName: filename,
+      fileSize: buffer.length,
+      mimeType: mimeType ?? null,
+      extractedTextLength: 0,
+      textPreview: "",
+      documentTypeDetected: null,
+      parsedFieldsCount: 0,
+      pdfExtractMethod: null,
+      error: PDF_NOT_RECEIVED_ERROR,
+      startsWithPdf,
+      bufferLength: buffer.length,
+      first20Bytes: first20BytesHex(buffer),
+      runtime,
+    };
+    if (process.env.PATIENT_REFERRAL_PARSE_DEBUG === "1" || process.env.NODE_ENV === "development") {
+      console.info("[patient-referral] parse debug", JSON.stringify(debug));
+    }
+    return {
+      ok: false,
+      quality: "manual",
+      suggestions: null,
+      messages: [PDF_NOT_RECEIVED_ERROR],
+      extractionMethod: "manual",
+      confidenceWarnings: [],
+      parseNotes,
+      needsReview: false,
+      isTangoDocument: false,
+      documentType: null,
+      textPreview: "",
+      extractedTextLength: 0,
+      parseDebug: debug,
+      statusHeadline: PDF_NOT_RECEIVED_ERROR,
+    };
+  }
 
   if (isPdf) {
     const direct = await extractPatientReferralPdfText(buffer);
     text = (direct.text ?? "").trim();
     directLen = text.length;
     pdfExtractMethod = direct.method;
+    pdfParseTextLength = direct.pdfParseTextLength;
+    pdfjsTextLength = direct.pdfjsTextLength;
+    pdfParseError = direct.pdfParseError ?? null;
+    pdfjsError = direct.pdfjsError ?? null;
     if (direct.error) parseNotes.push(`PDF text extraction: ${direct.error}`);
 
     if (directLen < OCR_SHORT_DIRECT && canRunResumePdfOcr()) {
@@ -91,6 +148,16 @@ export async function runPatientReferralExtractPipeline(
       parsedFieldsCount: 0,
       pdfExtractMethod,
       error: PDF_EMPTY_ERROR,
+      startsWithPdf,
+      bufferLength: buffer.length,
+      first20Bytes: first20BytesHex(buffer),
+      runtime,
+      pdfParseTextLength,
+      pdfjsTextLength,
+      pdfParseError,
+      pdfjsError,
+      ocrAttempted,
+      ocrTextLength: ocrLen,
     };
 
     if (process.env.PATIENT_REFERRAL_PARSE_DEBUG === "1" || process.env.NODE_ENV === "development") {
@@ -167,6 +234,16 @@ export async function runPatientReferralExtractPipeline(
     parsedFieldsCount: countParsedFields(parsed.suggestions),
     pdfExtractMethod,
     error: ok ? null : messages[0] ?? null,
+    startsWithPdf,
+    bufferLength: buffer.length,
+    first20Bytes: first20BytesHex(buffer),
+    runtime,
+    pdfParseTextLength,
+    pdfjsTextLength,
+    pdfParseError,
+    pdfjsError,
+    ocrAttempted,
+    ocrTextLength: ocrLen,
   };
 
   if (process.env.PATIENT_REFERRAL_PARSE_DEBUG === "1" || process.env.NODE_ENV === "development") {

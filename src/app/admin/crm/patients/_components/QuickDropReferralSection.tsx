@@ -30,6 +30,13 @@ import { PATIENT_REFERRAL_ACCEPT_ATTR } from "@/lib/crm/patient-referral/upload-
 import { PatientReferralDuplicateModal } from "./PatientReferralDuplicateModal";
 import { PatientReferralReviewDrawer } from "./PatientReferralReviewDrawer";
 
+/**
+ * Raw extracted referral text + parsed PHI are only logged / shown in the UI
+ * when this temporary admin debug flag is explicitly enabled. Off in normal
+ * production so patient text never lands in the browser console.
+ */
+const PATIENT_REFERRAL_DEBUG = process.env.NEXT_PUBLIC_PATIENT_REFERRAL_DEBUG === "true";
+
 type QueuedReferralFile = {
   id: string;
   file: File;
@@ -85,6 +92,15 @@ export function QuickDropReferralSection() {
   const [parsePending, setParsePending] = useState(false);
   const [attachPatientId, setAttachPatientId] = useState<string | null>(null);
   const [forceDuplicate, setForceDuplicate] = useState(false);
+  const [debugInfo, setDebugInfo] = useState<{
+    id: string;
+    loading: boolean;
+    extractedTextLength?: number;
+    preview?: string;
+    parserResult?: unknown;
+    parserErrors?: string[];
+    error?: string;
+  } | null>(null);
 
   const activeItem = queue.find((q) => q.id === activeFileId) ?? null;
 
@@ -121,6 +137,8 @@ export function QuickDropReferralSection() {
       const fd = new FormData();
       fd.set("file", file);
       fd.set("referral_source_type", sourceType);
+      fd.set("client_file_size", String(file.size));
+      fd.set("client_file_type", file.type || "");
 
       try {
         const res = await fetch("/api/crm/patient-referrals/parse-only", {
@@ -132,10 +150,35 @@ export function QuickDropReferralSection() {
           | {
               ok: true;
               parse: PatientReferralParsePayload;
-              debug?: { textPreview?: string; parseDebug?: PatientReferralParsePayload["parseDebug"] };
+              debug?: Record<string, unknown> & {
+                textPreview?: string;
+                parseDebug?: PatientReferralParsePayload["parseDebug"];
+              };
             }
           | { error?: string }
           | null;
+
+        // Always log CONCISE, non-PHI diagnostics so the real failure point is
+        // visible in the browser console (no raw patient text / parsed PHI).
+        const concise =
+          json && "debug" in json && json.debug ? (json.debug as Record<string, unknown>) : {};
+        console.info("[patient-referral] parse-only", {
+          status: res.status,
+          clientFileSize: file.size,
+          clientFileType: file.type,
+          serverFileSize: concise.serverFileSize ?? null,
+          bufferLength: concise.bufferLength ?? null,
+          startsWithPdf: concise.startsWithPdf ?? null,
+          extractedTextLength: concise.extractedTextLength ?? null,
+          pdfExtractMethod: concise.pdfExtractMethod ?? null,
+          pdfParseError: concise.pdfParseError ?? null,
+          pdfjsError: concise.pdfjsError ?? null,
+        });
+
+        // Full payload (raw text preview + parsed PHI) only when the debug flag is on.
+        if (PATIENT_REFERRAL_DEBUG) {
+          console.info("[patient-referral] parse-only FULL (debug)", { status: res.status, body: json });
+        }
 
         if (!res.ok || !json || !("ok" in json) || !json.ok) {
           const errMsg =
@@ -162,19 +205,30 @@ export function QuickDropReferralSection() {
           parse: json.parse,
         });
 
+        let failureError: string | undefined;
+        if (status === "failed") {
+          const base =
+            json.parse.messages.join(" ") || json.parse.statusHeadline || "Failed to parse document.";
+          const d = json.debug ?? {};
+          const diag = [
+            `received ${d.serverFileSize ?? d.bufferLength ?? "?"} bytes`,
+            `%PDF=${d.startsWithPdf ?? "?"}`,
+            `text=${d.extractedTextLength ?? 0}`,
+            d.pdfExtractMethod ? `via ${d.pdfExtractMethod}` : null,
+            d.pdfParseError ? `pdf-parse err: ${String(d.pdfParseError).split("\n")[0]}` : null,
+            d.pdfjsError ? `pdfjs err: ${String(d.pdfjsError).split("\n")[0]}` : null,
+          ]
+            .filter(Boolean)
+            .join(" · ");
+          failureError = diag ? `${base} (${diag})` : base;
+        }
+
         const patch: Partial<QueuedReferralFile> = {
           status,
           parseAttempted: true,
           parse: json.parse,
-          error:
-            status === "failed"
-              ? json.parse.messages.join(" ") || json.parse.statusHeadline || "Failed to parse document."
-              : undefined,
+          error: failureError,
         };
-
-        if (process.env.NODE_ENV === "development" && json.debug?.parseDebug) {
-          console.info("[patient-referral] parse debug", json.debug.parseDebug);
-        }
 
         updateQueueItem(id, patch);
         return patch;
@@ -254,6 +308,47 @@ export function QuickDropReferralSection() {
       setActiveFileId(null);
     }
   }, [activeFileId]);
+
+  const runDebugExtract = useCallback(
+    async (item: QueuedReferralFile) => {
+      setDebugInfo({ id: item.id, loading: true });
+      try {
+        const fd = new FormData();
+        fd.set("file", item.file);
+        fd.set("client_file_size", String(item.file.size));
+        fd.set("referral_source_type", referralSourceType || "");
+        const res = await fetch("/api/crm/patient-referrals/debug-parse", {
+          method: "POST",
+          body: fd,
+          credentials: "include",
+        });
+        const json = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+        if (!res.ok || !json) {
+          setDebugInfo({
+            id: item.id,
+            loading: false,
+            error: (json && (json.error as string)) || `Debug request failed (${res.status})`,
+          });
+          return;
+        }
+        setDebugInfo({
+          id: item.id,
+          loading: false,
+          extractedTextLength: (json.extractedTextLength as number) ?? 0,
+          preview: (json.extractedTextPreview as string) ?? "",
+          parserResult: json.parserResult ?? null,
+          parserErrors: (json.parserErrors as string[]) ?? [],
+        });
+      } catch (e) {
+        setDebugInfo({
+          id: item.id,
+          loading: false,
+          error: e instanceof Error ? e.message : "Debug request error",
+        });
+      }
+    },
+    [referralSourceType]
+  );
 
   const viewFile = useCallback(async (item: QueuedReferralFile) => {
     if (item.objectUrl) {
@@ -537,6 +632,39 @@ export function QuickDropReferralSection() {
                           ) : null}
                         </div>
                         {item.error ? <p className="mt-1 text-xs text-rose-700">{item.error}</p> : null}
+                        {PATIENT_REFERRAL_DEBUG && debugInfo?.id === item.id && !debugInfo.loading ? (
+                          <div className="mt-2 rounded-lg border border-violet-200 bg-violet-50/70 p-3 text-[11px] text-violet-950">
+                            {debugInfo.error ? (
+                              <p className="font-semibold text-rose-700">Debug error: {debugInfo.error}</p>
+                            ) : (
+                              <>
+                                <p className="font-semibold">
+                                  extractedTextLength: {debugInfo.extractedTextLength ?? 0}
+                                </p>
+                                {debugInfo.parserErrors && debugInfo.parserErrors.length > 0 ? (
+                                  <p className="mt-1 text-rose-700">parserErrors: {debugInfo.parserErrors.join(" | ")}</p>
+                                ) : (
+                                  <p className="mt-1 text-emerald-700">parserErrors: none</p>
+                                )}
+                                <p className="mt-1 font-semibold">First 500 chars:</p>
+                                <pre className="mt-0.5 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-white/80 p-2">
+                                  {debugInfo.preview || "(empty)"}
+                                </pre>
+                                <p className="mt-1 font-semibold">Parser result:</p>
+                                <pre className="mt-0.5 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-white/80 p-2">
+                                  {JSON.stringify(debugInfo.parserResult, null, 2)}
+                                </pre>
+                                <button
+                                  type="button"
+                                  className="mt-2 text-[11px] font-medium text-violet-700 underline"
+                                  onClick={() => setDebugInfo(null)}
+                                >
+                                  Hide debug
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        ) : null}
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
                         <button
@@ -546,18 +674,14 @@ export function QuickDropReferralSection() {
                         >
                           View file
                         </button>
-                        {process.env.NODE_ENV === "development" && item.parse?.parseDebug ? (
+                        {PATIENT_REFERRAL_DEBUG ? (
                           <button
                             type="button"
-                            className="rounded-lg border border-violet-300 bg-violet-50 px-3 py-1 text-xs font-semibold text-violet-900 hover:bg-violet-100"
-                            onClick={() => {
-                              console.info("[patient-referral] debug parse", item.parse?.parseDebug);
-                              setToast(
-                                `Parse debug: ${item.parse?.parseDebug?.extractedTextLength ?? 0} chars, ${item.parse?.parseDebug?.parsedFieldsCount ?? 0} fields`
-                              );
-                            }}
+                            className="rounded-lg border border-violet-300 bg-violet-50 px-3 py-1 text-xs font-semibold text-violet-900 hover:bg-violet-100 disabled:opacity-50"
+                            disabled={debugInfo?.id === item.id && debugInfo.loading}
+                            onClick={() => void runDebugExtract(item)}
                           >
-                            Debug parse
+                            {debugInfo?.id === item.id && debugInfo.loading ? "Debugging…" : "Debug extracted text"}
                           </button>
                         ) : null}
                         {item.status === "failed" ? (

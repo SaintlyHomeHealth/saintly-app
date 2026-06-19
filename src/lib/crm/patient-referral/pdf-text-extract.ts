@@ -1,4 +1,7 @@
 import "server-only";
+// Must run before pdf-parse / pdfjs-dist load: polyfills Promise.withResolvers
+// for Node < 22 so PDF text extraction works on older deployed runtimes.
+import "./ensure-promise-with-resolvers";
 
 import { PDFParse } from "pdf-parse";
 
@@ -8,7 +11,24 @@ export type PatientReferralPdfExtractResult = {
   text: string;
   method: "pdf_parse" | "pdfjs" | "none";
   error?: string;
+  /** Per-engine diagnostics so the live route can report exactly which engine failed. */
+  pdfParseTextLength: number;
+  pdfjsTextLength: number;
+  pdfParseError?: string;
+  pdfjsError?: string;
 };
+
+function errorDetail(e: unknown, fallback: string): string {
+  if (e instanceof Error) {
+    return e.stack ? `${e.message}\n${e.stack.split("\n").slice(1, 4).join("\n")}` : e.message;
+  }
+  if (typeof e === "string") return e;
+  try {
+    return JSON.stringify(e);
+  } catch {
+    return fallback;
+  }
+}
 
 async function extractPdfTextWithPdfJs(buffer: Buffer): Promise<string> {
   const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");
@@ -60,12 +80,17 @@ export async function extractPatientReferralPdfText(buffer: Buffer): Promise<Pat
   let best = "";
   let method: PatientReferralPdfExtractResult["method"] = "none";
   let error: string | undefined;
+  let pdfParseTextLength = 0;
+  let pdfjsTextLength = 0;
+  let pdfParseError: string | undefined;
+  let pdfjsError: string | undefined;
 
   try {
     const parser = new PDFParse({ data: buffer });
     try {
       const result = await parser.getText();
       const text = (result.text ?? "").trim();
+      pdfParseTextLength = text.length;
       if (text.length > best.length) {
         best = text;
         method = "pdf_parse";
@@ -74,18 +99,21 @@ export async function extractPatientReferralPdfText(buffer: Buffer): Promise<Pat
       await parser.destroy();
     }
   } catch (e) {
-    error = e instanceof Error ? e.message : "pdf-parse failed";
+    pdfParseError = errorDetail(e, "pdf-parse failed");
+    error = pdfParseError;
   }
 
   if (best.length < 200) {
     try {
       const pdfjsText = await extractPdfTextWithPdfJs(buffer);
+      pdfjsTextLength = pdfjsText.length;
       if (pdfjsText.length > best.length) {
         best = pdfjsText;
         method = "pdfjs";
       }
     } catch (e) {
-      if (!error) error = e instanceof Error ? e.message : "pdfjs failed";
+      pdfjsError = errorDetail(e, "pdfjs failed");
+      if (!error) error = pdfjsError;
     }
   }
 
@@ -93,5 +121,9 @@ export async function extractPatientReferralPdfText(buffer: Buffer): Promise<Pat
     text: best.slice(0, MAX_EXTRACT_CHARS),
     method,
     error,
+    pdfParseTextLength,
+    pdfjsTextLength,
+    pdfParseError,
+    pdfjsError,
   };
 }

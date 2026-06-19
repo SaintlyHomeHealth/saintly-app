@@ -130,6 +130,17 @@ export type PatientReferralParseDebug = {
   parsedFieldsCount: number;
   pdfExtractMethod?: string | null;
   error?: string | null;
+  /** Live-debug fields: prove the server received a real PDF and which engine extracted text. */
+  startsWithPdf?: boolean;
+  bufferLength?: number;
+  first20Bytes?: string;
+  runtime?: string;
+  pdfParseTextLength?: number;
+  pdfjsTextLength?: number;
+  pdfParseError?: string | null;
+  pdfjsError?: string | null;
+  ocrAttempted?: boolean;
+  ocrTextLength?: number;
 };
 
 export type PatientReferralParsePayload = {
