@@ -13,27 +13,21 @@ import {
   PRIVATE_PAY_INVOICE_STATUS_LABELS,
   type PrivatePayInvoiceStatus,
 } from "@/lib/private-pay/constants";
-import { formatCentsUsd } from "@/lib/private-pay/format";
+import { formatCentsUsd, formatPaymentDetail } from "@/lib/private-pay/format";
 import {
   PRIVATE_PAY_PAYMENT_BADGE_LABELS,
   PRIVATE_PAY_PAYMENT_BADGE_STYLES,
-  formatSavedCardLabel,
 } from "@/lib/private-pay/payment-badges";
 import type {
   PrivatePayInvoiceListRow,
   PrivatePayInvoiceWithItems,
-  PrivatePayPaymentMethodOnFile,
   PrivatePayPaymentReport,
 } from "@/lib/private-pay/types";
-import { PrivatePayChargeCardModal } from "./PrivatePayChargeCardModal";
 import { PrivatePayDeleteInvoiceModal } from "./PrivatePayDeleteInvoiceModal";
-import { PrivatePayRecordPaymentModal, type RecordPaymentInput } from "./PrivatePayRecordPaymentModal";
+import { PrivatePayRecordPaymentModal } from "./PrivatePayRecordPaymentModal";
+import type { RecordPaymentPayload } from "./private-pay-client-actions";
 import { PrivatePaySendModal } from "./PrivatePaySendModal";
-import {
-  hardDeleteInvoice,
-  sendInvoice,
-  type SendChannel,
-} from "./private-pay-client-actions";
+import { hardDeleteInvoice, sendInvoice, sendReceipt, type SendChannel } from "./private-pay-client-actions";
 
 const STATUS_VARIANT: Record<PrivatePayInvoiceStatus, "slate" | "amber" | "emerald" | "rose"> = {
   draft: "slate",
@@ -56,30 +50,31 @@ function formatDateTime(iso: string | null): string {
   }).format(d);
 }
 
+function invoiceHasProtectedPayment(invoice: PrivatePayInvoiceListRow): boolean {
+  return (
+    Boolean((invoice.stripe_payment_intent_id ?? "").trim()) ||
+    invoice.payments.some((p) => p.status === "succeeded" && (p.stripe_payment_intent_id ?? "").trim())
+  );
+}
+
 export function PrivatePayInvoicePaymentPanel({
   invoice: initialInvoice,
-  paymentMethods: initialPaymentMethods,
   pendingReport,
   profileHref,
-  contactId,
 }: {
   invoice: PrivatePayInvoiceListRow;
-  paymentMethods: PrivatePayPaymentMethodOnFile[];
   pendingReport: PrivatePayPaymentReport | null;
   profileHref: string | null;
-  contactId: string | null;
 }) {
   const router = useRouter();
   const [invoice, setInvoice] = useState(initialInvoice);
-  const [paymentMethods, setPaymentMethods] = useState(initialPaymentMethods);
   const [rowBusy, setRowBusy] = useState(false);
   const [banner, setBanner] = useState<{ kind: "ok" | "err" | "warn"; text: string } | null>(null);
-  const [chargeOpen, setChargeOpen] = useState(false);
-  const [chargeError, setChargeError] = useState<string | null>(null);
   const [recordOpen, setRecordOpen] = useState(false);
   const [recordBusy, setRecordBusy] = useState(false);
   const [recordError, setRecordError] = useState<string | null>(null);
   const [sendOpen, setSendOpen] = useState(false);
+  const [sendMode, setSendMode] = useState<"invoice" | "receipt">("invoice");
   const [sendBusy, setSendBusy] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -88,55 +83,22 @@ export function PrivatePayInvoicePaymentPanel({
 
   const isOpenStatus = invoice.status === "draft" || invoice.status === "sent";
   const isPaid = invoice.status === "paid" || invoice.status === "refunded";
-  const hasCard = paymentMethods.length > 0;
-  const defaultCard = paymentMethods.find((m) => m.is_default) ?? paymentMethods[0] ?? null;
   const succeededPayment = invoice.payments.find((p) => p.status === "succeeded") ?? null;
-  const hasStripePayment =
-    Boolean((invoice.stripe_payment_intent_id ?? "").trim()) ||
-    invoice.payments.some((p) => p.status === "succeeded" && (p.stripe_payment_intent_id ?? "").trim());
+  const canHardDelete = !invoiceHasProtectedPayment(invoice);
 
-  const upsert = useCallback(
-    (updated: PrivatePayInvoiceWithItems, methods?: PrivatePayPaymentMethodOnFile[]) => {
-      const cardMethods = methods ?? paymentMethods;
-      setInvoice((prev) => ({
-        ...prev,
-        ...updated,
-        customer_name: prev.customer_name,
-        customer_detail: prev.customer_detail,
-        profile_href: prev.profile_href,
-        pending_payment_report:
-          updated.status === "paid" || updated.status === "void" ? null : prev.pending_payment_report,
-        has_card_on_file: cardMethods.length > 0,
-        payment_badge:
-          updated.status === "paid"
-            ? "paid"
-            : updated.payments.some((p) => p.status === "pending" && p.payment_method === "card")
-              ? "processing"
-              : updated.payments.some((p) => p.status === "failed" && p.payment_method === "card")
-                ? "failed"
-                : cardMethods.length > 0
-                  ? "card_on_file"
-                  : "unpaid",
-      }));
-    },
-    [paymentMethods]
-  );
-
-  const handleChargeSuccess = useCallback(
-    (payload: {
-      invoice: PrivatePayInvoiceWithItems;
-      paymentMethods?: PrivatePayPaymentMethodOnFile[];
-      message: string;
-    }) => {
-      const methods = payload.paymentMethods ?? paymentMethods;
-      if (payload.paymentMethods) setPaymentMethods(payload.paymentMethods);
-      upsert(payload.invoice, methods);
-      setChargeOpen(false);
-      setBanner({ kind: "ok", text: payload.message });
-      router.refresh();
-    },
-    [upsert, paymentMethods, router]
-  );
+  const upsert = useCallback((updated: PrivatePayInvoiceWithItems) => {
+    setInvoice((prev) => ({
+      ...prev,
+      ...updated,
+      customer_name: prev.customer_name,
+      customer_detail: prev.customer_detail,
+      profile_href: prev.profile_href,
+      pending_payment_report:
+        updated.status === "paid" || updated.status === "void" ? null : prev.pending_payment_report,
+      has_card_on_file: false,
+      payment_badge: updated.status === "paid" ? "paid" : "unpaid",
+    }));
+  }, []);
 
   const confirmSendInvoice = async (channels: SendChannel[]) => {
     setSendBusy(true);
@@ -145,15 +107,21 @@ export function PrivatePayInvoicePaymentPanel({
       const sentTo: string[] = [];
       let lastInvoice: PrivatePayInvoiceWithItems | null = null;
       for (const channel of channels) {
-        const r = await sendInvoice(invoice.id, channel);
-        if (r.invoice) lastInvoice = r.invoice;
-        if (r.sentTo) sentTo.push(r.sentTo);
+        if (sendMode === "invoice") {
+          const r = await sendInvoice(invoice.id, channel);
+          if (r.invoice) lastInvoice = r.invoice;
+          if (r.sentTo) sentTo.push(r.sentTo);
+        } else {
+          const r = await sendReceipt(invoice.id, channel);
+          if (r.sentTo) sentTo.push(r.sentTo);
+        }
       }
       if (lastInvoice) upsert(lastInvoice);
       setSendOpen(false);
+      const label = sendMode === "invoice" ? "Invoice" : "Receipt";
       setBanner({
         kind: "ok",
-        text: `Invoice sent${sentTo.length ? ` to ${sentTo.join(" and ")}` : ""}.`,
+        text: `${label} sent${sentTo.length ? ` to ${sentTo.join(" and ")}` : ""}.`,
       });
       router.refresh();
     } catch (e) {
@@ -163,7 +131,7 @@ export function PrivatePayInvoicePaymentPanel({
     }
   };
 
-  const submitRecordPayment = async (input: RecordPaymentInput) => {
+  const submitRecordPayment = async (input: RecordPaymentPayload) => {
     setRecordBusy(true);
     setRecordError(null);
     try {
@@ -176,7 +144,6 @@ export function PrivatePayInvoicePaymentPanel({
           amount: input.amount,
           paid_at: input.paidDate,
           note: input.note,
-          customer_note: input.customerNote,
           send_receipt: input.sendReceipt,
           receipt_delivery: input.receiptDelivery,
         }),
@@ -194,7 +161,7 @@ export function PrivatePayInvoicePaymentPanel({
         kind: json.receiptWarning ? "warn" : "ok",
         text: json.receiptWarning
           ? `Payment recorded. Receipt issue: ${json.receiptWarning}`
-          : "Manual payment recorded and invoice marked paid.",
+          : "Payment recorded and invoice marked paid.",
       });
       router.refresh();
     } catch (e) {
@@ -239,6 +206,11 @@ export function PrivatePayInvoicePaymentPanel({
           <div>
             <h2 className="text-sm font-bold text-slate-900">Payment status</h2>
             <p className="mt-0.5 text-xs text-slate-500">{invoice.customer_name}</p>
+            {profileHref ? (
+              <Link href={profileHref} className="text-xs font-semibold text-sky-800 hover:underline">
+                View customer profile
+              </Link>
+            ) : null}
           </div>
           <div className="flex flex-wrap gap-2">
             <AdminBadge variant={STATUS_VARIANT[invoice.status] ?? "slate"}>
@@ -259,24 +231,6 @@ export function PrivatePayInvoicePaymentPanel({
               {isPaid ? formatCentsUsd(0) : formatCentsUsd(invoice.total_cents)}
             </dd>
           </div>
-          <div className="rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2.5">
-            <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Card on file</dt>
-            <dd className="mt-0.5 text-sm font-semibold text-slate-900">
-              {defaultCard
-                ? formatSavedCardLabel(
-                    defaultCard.brand,
-                    defaultCard.last4,
-                    defaultCard.exp_month,
-                    defaultCard.exp_year
-                  )
-                : "None"}
-            </dd>
-            {profileHref ? (
-              <Link href={profileHref} className="text-xs font-semibold text-sky-800 hover:underline">
-                Manage cards on customer profile
-              </Link>
-            ) : null}
-          </div>
           {isPaid ? (
             <>
               <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 px-3 py-2.5">
@@ -284,13 +238,10 @@ export function PrivatePayInvoicePaymentPanel({
                 <dd className="mt-0.5 text-sm font-semibold text-emerald-900">{formatDateTime(invoice.paid_at)}</dd>
               </div>
               {succeededPayment ? (
-                <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 px-3 py-2.5">
+                <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 px-3 py-2.5 sm:col-span-2">
                   <dt className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700">Payment</dt>
                   <dd className="mt-0.5 text-sm font-semibold text-emerald-900">
-                    {formatCentsUsd(succeededPayment.amount_cents)}
-                    {succeededPayment.card_last4
-                      ? ` · ${(succeededPayment.card_brand ?? "Card").toUpperCase()} •••• ${succeededPayment.card_last4}`
-                      : ` · ${succeededPayment.payment_method}`}
+                    {formatCentsUsd(succeededPayment.amount_cents)} · {formatPaymentDetail(succeededPayment)}
                   </dd>
                 </div>
               ) : null}
@@ -298,26 +249,16 @@ export function PrivatePayInvoicePaymentPanel({
           ) : null}
         </dl>
 
-        {isOpenStatus ? (
-          <div className="mt-4 space-y-3 border-t border-slate-100 pt-4">
-            <div className="flex flex-wrap gap-2">
+        <div className="mt-4 flex flex-wrap gap-2 border-t border-slate-100 pt-4">
+          {isOpenStatus ? (
+            <>
               <AdminActionButton
                 variant="primary"
                 size="md"
                 disabled={rowBusy}
                 onClick={() => {
-                  setChargeError(null);
-                  setChargeOpen(true);
-                }}
-              >
-                Charge card
-              </AdminActionButton>
-              <AdminActionButton
-                variant="secondary"
-                size="md"
-                disabled={rowBusy}
-                onClick={() => {
                   setSendError(null);
+                  setSendMode("invoice");
                   setSendOpen(true);
                 }}
               >
@@ -334,34 +275,29 @@ export function PrivatePayInvoicePaymentPanel({
               >
                 Mark paid
               </AdminActionButton>
-            </div>
-            {!hasCard ? (
-              <p className="text-xs text-slate-500">
-                Enter the client&apos;s card securely through Stripe to charge this invoice and save the card on file.
-                Card numbers are not stored by Saintly.
-              </p>
-            ) : null}
-            {!contactId ? (
-              <p className="text-xs text-amber-800">
-                This invoice has no linked contact — attach a contact before charging and saving a card.
-              </p>
-            ) : null}
-          </div>
-        ) : null}
+            </>
+          ) : isPaid ? (
+            <>
+              <AdminActionButton variant="primary" size="md" href={`/api/private-pay/invoices/${invoice.id}/receipt`}>
+                Receipt PDF
+              </AdminActionButton>
+              <AdminActionButton
+                variant="secondary"
+                size="md"
+                disabled={rowBusy}
+                onClick={() => {
+                  setSendError(null);
+                  setSendMode("receipt");
+                  setSendOpen(true);
+                }}
+              >
+                Send receipt
+              </AdminActionButton>
+            </>
+          ) : null}
+        </div>
 
-        {invoice.payments.some((p) => p.status === "failed" && p.payment_method === "card") ? (
-          <div className="mt-4 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-900">
-            <p className="font-semibold">Recent card charge failed</p>
-            {invoice.payments
-              .filter((p) => p.status === "failed" && p.payment_method === "card")
-              .slice(0, 1)
-              .map((p) => (
-                <p key={p.id} className="mt-1">{p.failure_message ?? "Card declined."}</p>
-              ))}
-          </div>
-        ) : null}
-
-        {!hasStripePayment ? (
+        {canHardDelete ? (
           <div className="mt-4 border-t border-slate-100 pt-4">
             <AdminActionButton
               variant="danger"
@@ -377,28 +313,14 @@ export function PrivatePayInvoicePaymentPanel({
           </div>
         ) : (
           <p className="mt-4 border-t border-slate-100 pt-4 text-xs text-slate-500">
-            Invoices with Stripe payments cannot be permanently deleted. Void or archive instead.
+            This invoice cannot be permanently deleted because it has a processed card payment on record.
           </p>
         )}
       </AdminListCard>
 
-      <PrivatePayChargeCardModal
-        open={chargeOpen}
-        invoice={invoice}
-        paymentMethods={paymentMethods}
-        contactId={contactId}
-        busy={false}
-        error={chargeError}
-        onClose={() => {
-          setChargeOpen(false);
-          setChargeError(null);
-        }}
-        onSuccess={handleChargeSuccess}
-      />
-
       <PrivatePaySendModal
         open={sendOpen}
-        mode="invoice"
+        mode={sendMode}
         invoiceNumber={invoice.invoice_number}
         email={invoice.billing_email ?? null}
         phone={invoice.billing_phone ?? null}

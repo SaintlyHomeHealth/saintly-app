@@ -3,7 +3,6 @@ import { notFound } from "next/navigation";
 
 import { PublicInvoiceView } from "@/components/private-pay/PublicInvoiceView";
 import { getInvoiceByPublicToken } from "@/lib/private-pay/data";
-import { isPrivatePayStripeConfigured } from "@/lib/private-pay/stripe";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,11 +24,5 @@ export default async function PrivatePayPublicInvoicePage({
   const invoice = await getInvoiceByPublicToken(publicToken);
   if (!invoice) notFound();
 
-  return (
-    <PublicInvoiceView
-      invoice={invoice}
-      publicToken={publicToken}
-      stripeConfigured={isPrivatePayStripeConfigured()}
-    />
-  );
+  return <PublicInvoiceView invoice={invoice} publicToken={publicToken} />;
 }

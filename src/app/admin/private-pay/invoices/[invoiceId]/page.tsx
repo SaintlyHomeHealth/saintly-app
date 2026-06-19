@@ -5,7 +5,6 @@ import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { AdminListCard } from "@/components/admin/design-system";
 import { PrivatePayInvoicePaymentPanel } from "@/components/crm/private-pay/PrivatePayInvoicePaymentPanel";
 import { contactDirectoryDisplayName } from "@/lib/crm/contact-directory";
-import { listPaymentMethodsForContact } from "@/lib/private-pay/customers";
 import {
   getInvoiceWithItems,
   getPendingPaymentReportForInvoice,
@@ -30,10 +29,7 @@ export default async function PrivatePayInvoiceDetailPage({
   const invoice = await getInvoiceWithItems(invoiceId);
   if (!invoice) notFound();
 
-  const [pendingReport, paymentMethods] = await Promise.all([
-    getPendingPaymentReportForInvoice(invoiceId),
-    invoice.contact_id ? listPaymentMethodsForContact(invoice.contact_id) : Promise.resolve([]),
-  ]);
+  const pendingReport = await getPendingPaymentReportForInvoice(invoiceId);
 
   let customer_name = (invoice.billing_name ?? "").trim() || "—";
   let customer_detail: string | null = null;
@@ -59,15 +55,12 @@ export default async function PrivatePayInvoiceDetailPage({
     profile_href = `/admin/crm/leads/${invoice.lead_id}`;
   }
 
-  const has_card_on_file = paymentMethods.length > 0;
-  let payment_badge: "unpaid" | "paid" | "failed" | "card_on_file" | "processing" = "unpaid";
+  let payment_badge: "unpaid" | "paid" | "failed" | "processing" = "unpaid";
   if (invoice.status === "paid") payment_badge = "paid";
   else if (invoice.payments.some((p) => p.status === "pending" && p.payment_method === "card")) {
     payment_badge = "processing";
   } else if (invoice.payments.some((p) => p.status === "failed" && p.payment_method === "card")) {
     payment_badge = "failed";
-  } else if (has_card_on_file && (invoice.status === "draft" || invoice.status === "sent")) {
-    payment_badge = "card_on_file";
   }
 
   const listRow = {
@@ -76,7 +69,7 @@ export default async function PrivatePayInvoiceDetailPage({
     customer_detail,
     profile_href,
     pending_payment_report: pendingReport,
-    has_card_on_file,
+    has_card_on_file: false,
     payment_badge,
   };
 
@@ -141,10 +134,8 @@ export default async function PrivatePayInvoiceDetailPage({
 
         <PrivatePayInvoicePaymentPanel
           invoice={listRow}
-          paymentMethods={paymentMethods}
           pendingReport={pendingReport}
           profileHref={profile_href}
-          contactId={invoice.contact_id}
         />
       </div>
     </div>

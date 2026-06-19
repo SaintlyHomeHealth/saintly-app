@@ -99,17 +99,33 @@ export function paymentMethodLabel(method: string): string {
     : "Manual";
 }
 
+function staffPaymentMethodFromNotes(notes: string | null | undefined): string | null {
+  const text = (notes ?? "").trim();
+  if (!text) return null;
+  for (const line of text.split("\n")) {
+    const match = line.match(/^Payment method:\s*(.+)$/i);
+    if (match) return match[1].trim();
+  }
+  return null;
+}
+
 /**
- * Receipt-facing payment detail line. Prefers the card summary; otherwise the
- * manual method label with an optional reference/confirmation number.
+ * Receipt-facing payment detail line. Prefers staff-entered method labels from notes,
+ * then card summary for legacy payments, then method label with reference.
  */
 export function formatPaymentDetail(payment: {
   payment_method: string;
   card_brand?: string | null;
   card_last4?: string | null;
   payment_reference?: string | null;
+  notes?: string | null;
 } | null): string {
   if (!payment) return "—";
+  const staffLabel = staffPaymentMethodFromNotes(payment.notes);
+  if (staffLabel) {
+    const ref = (payment.payment_reference ?? "").trim();
+    return ref ? `${staffLabel} · Ref ${ref}` : staffLabel;
+  }
   const card = formatCardSummary(payment.card_brand ?? null, payment.card_last4 ?? null);
   if (card) return card;
   const label = paymentMethodLabel(payment.payment_method);

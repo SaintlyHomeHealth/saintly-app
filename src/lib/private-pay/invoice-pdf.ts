@@ -342,15 +342,24 @@ function drawServiceTable(page: PDFPage, fonts: Fonts, topY: number, invoice: Pr
   return cardY - 16;
 }
 
-/** Compact, secure-link-only payment instructions for unpaid invoices. */
-function drawPaymentInstructions(page: PDFPage, fonts: Fonts, topY: number): number {
+/** Compact payment instructions for unpaid invoices. */
+function drawPaymentInstructions(
+  page: PDFPage,
+  fonts: Fonts,
+  topY: number,
+  invoice: PrivatePayInvoiceWithItems
+): number {
   const pad = MARGIN + PAD;
   const maxW = CONTENT_W - PAD * 2;
 
   const bodyLines = [
-    `Pay securely using the payment link sent by ${PRIVATE_PAY_BUSINESS.legalName}.`,
+    "Payment is due upon receipt. Saintly Home Health LLC will provide a secure payment option separately.",
     `If you have already paid or need help, contact Saintly at ${PRIVATE_PAY_BUSINESS.phoneDisplay}.`,
   ];
+  const externalLink = (invoice.external_payment_link ?? "").trim();
+  if (externalLink) {
+    bodyLines.splice(1, 0, `Pay securely online: ${externalLink}`);
+  }
 
   let lineCount = 0;
   for (const line of bodyLines) lineCount += wrap(line, fonts.font, 9.5, maxW).length;
@@ -449,7 +458,7 @@ async function buildDocument(
   if (isReceipt) {
     y = drawReceiptDetail(page, fonts, y, invoice, payment);
   } else {
-    y = drawPaymentInstructions(page, fonts, y);
+    y = drawPaymentInstructions(page, fonts, y, invoice);
   }
 
   if ((invoice.notes ?? "").trim()) {

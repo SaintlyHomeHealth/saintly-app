@@ -4,18 +4,12 @@ import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { AdminBadge } from "@/components/admin/design-system";
 import { PRIVATE_PAY_INVOICE_STATUS_LABELS } from "@/lib/private-pay/constants";
 import { formatCentsUsd } from "@/lib/private-pay/format";
-import type {
-  PrivatePayInvoiceWithItems,
-  PrivatePayPaymentMethodOnFile,
-} from "@/lib/private-pay/types";
-import { PrivatePayChargeCardModal } from "./PrivatePayChargeCardModal";
+import type { PrivatePayInvoiceWithItems } from "@/lib/private-pay/types";
 import { PrivatePayRecordPaymentModal } from "./PrivatePayRecordPaymentModal";
 import { PrivatePaySendModal } from "./PrivatePaySendModal";
 import {
-  loadPaymentMethods,
   recordManualPayment,
   sendInvoice,
   type RecordPaymentPayload,
@@ -49,15 +43,11 @@ function formatDate(iso: string | null): string {
 export function PrivatePayContactBillingCard({
   contactId,
   canManage,
-  hasCard,
-  contactHasPhone,
   summary,
   openInvoice,
 }: {
   contactId: string;
   canManage: boolean;
-  hasCard: boolean;
-  contactHasPhone: boolean;
   summary: PrivatePayContactBillingSummary;
   /** Most recent unpaid invoice, used as the target for quick actions. */
   openInvoice: PrivatePayInvoiceWithItems | null;
@@ -65,9 +55,6 @@ export function PrivatePayContactBillingCard({
   const router = useRouter();
   const [banner, setBanner] = useState<{ kind: "ok" | "err" | "warn"; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
-
-  const [chargeOpen, setChargeOpen] = useState(false);
-  const [chargeMethods, setChargeMethods] = useState<PrivatePayPaymentMethodOnFile[]>([]);
 
   const [sendOpen, setSendOpen] = useState(false);
   const [sendBusy, setSendBusy] = useState(false);
@@ -78,21 +65,6 @@ export function PrivatePayContactBillingCard({
   const [recordError, setRecordError] = useState<string | null>(null);
 
   const hasOpenInvoice = Boolean(openInvoice);
-
-  const openCharge = async () => {
-    if (!openInvoice) return;
-    setBusy(true);
-    setBanner(null);
-    try {
-      const methods = await loadPaymentMethods(contactId);
-      setChargeMethods(methods);
-      setChargeOpen(true);
-    } catch (e) {
-      setBanner({ kind: "err", text: e instanceof Error ? e.message : "Something went wrong" });
-    } finally {
-      setBusy(false);
-    }
-  };
 
   const confirmSend = async (channels: SendChannel[]) => {
     if (!openInvoice) return;
@@ -141,14 +113,9 @@ export function PrivatePayContactBillingCard({
         <div>
           <h2 className="text-sm font-bold text-slate-900">Private Pay Billing</h2>
           <p className="mt-1 text-xs text-slate-500">
-            Charge a saved card, send an invoice, or record a private-pay payment for this contact.
+            Create invoices, send them to clients, and record payments received through Square or other methods.
           </p>
         </div>
-        {hasCard ? (
-          <AdminBadge variant="sky">Card on file</AdminBadge>
-        ) : (
-          <AdminBadge variant="slate">No card on file</AdminBadge>
-        )}
       </div>
 
       {banner ? (
@@ -165,19 +132,13 @@ export function PrivatePayContactBillingCard({
         </p>
       ) : null}
 
-      <dl className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2.5">
-          <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Card on file</dt>
-          <dd className="mt-0.5 text-sm font-semibold text-slate-900">{hasCard ? "Yes" : "No"}</dd>
-        </div>
+      <dl className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <div className="rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2.5">
           <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Unpaid total</dt>
-          <dd className="mt-0.5 text-sm font-semibold text-slate-900 tabular-nums">
+          <dd className="mt-0.5 text-sm font-semibold tabular-nums text-slate-900">
             {formatCentsUsd(summary.unpaidTotalCents)}
             {summary.unpaidCount > 0 ? (
-              <span className="ml-1 text-[11px] font-medium text-slate-500">
-                ({summary.unpaidCount} open)
-              </span>
+              <span className="ml-1 text-[11px] font-medium text-slate-500">({summary.unpaidCount} open)</span>
             ) : null}
           </dd>
         </div>
@@ -207,9 +168,9 @@ export function PrivatePayContactBillingCard({
 
       {canManage ? (
         <div className="mt-4 flex flex-wrap gap-2">
-          <button type="button" disabled={busy || !hasOpenInvoice} onClick={openCharge} className={btnPrimary}>
-            Charge card
-          </button>
+          <Link href="/admin/private-pay" className={btnPrimary}>
+            New invoice
+          </Link>
           <button
             type="button"
             disabled={busy || !hasOpenInvoice}
@@ -232,17 +193,7 @@ export function PrivatePayContactBillingCard({
           >
             Mark paid
           </button>
-          <Link href="/admin/private-pay" className={btnGhost}>
-            New invoice
-          </Link>
         </div>
-      ) : null}
-
-      {canManage && !hasCard && hasOpenInvoice ? (
-        <p className="mt-2 text-[11px] text-slate-500">
-          Enter the client&apos;s card securely through Stripe to charge this invoice and save the card on file. Card
-          numbers are not stored by Saintly.
-        </p>
       ) : null}
 
       {!hasOpenInvoice && canManage ? (
@@ -254,21 +205,6 @@ export function PrivatePayContactBillingCard({
           .
         </p>
       ) : null}
-
-      <PrivatePayChargeCardModal
-        open={chargeOpen}
-        invoice={openInvoice}
-        paymentMethods={chargeMethods}
-        contactId={contactId}
-        busy={false}
-        error={null}
-        onClose={() => setChargeOpen(false)}
-        onSuccess={(payload) => {
-          setChargeOpen(false);
-          setBanner({ kind: "ok", text: payload.message });
-          router.refresh();
-        }}
-      />
 
       <PrivatePaySendModal
         open={sendOpen}

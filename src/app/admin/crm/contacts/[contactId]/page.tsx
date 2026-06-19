@@ -38,9 +38,7 @@ import {
   type StaffProfile,
 } from "@/lib/staff-profile";
 import { ContactArchiveButton } from "@/app/admin/crm/contacts/_components/ContactArchiveButton";
-import { PrivatePayPaymentMethodsCard } from "@/components/crm/private-pay/PrivatePayPaymentMethodsCard";
 import { PrivatePayContactBillingCard } from "@/components/crm/private-pay/PrivatePayContactBillingCard";
-import { listPaymentMethodsForContact } from "@/lib/private-pay/customers";
 import { listInvoicesForContact } from "@/lib/private-pay/data";
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
@@ -184,9 +182,6 @@ export default async function AdminCrmContactDetailPage({
   const rawType = (row.contact_type ?? "").trim();
   const privatePayInvoices = await listInvoicesForContact(contactId);
   const showPrivatePayCards = rawType === "private_pay" || privatePayInvoices.length > 0;
-  const privatePayPaymentMethods = showPrivatePayCards
-    ? await listPaymentMethodsForContact(contactId)
-    : [];
   const canManagePrivatePay = isCrmLeadsRowPolicyRole(staff);
 
   const privatePayUnpaid = privatePayInvoices.filter(
@@ -497,8 +492,6 @@ export default async function AdminCrmContactDetailPage({
         <PrivatePayContactBillingCard
           contactId={contactId}
           canManage={canManagePrivatePay}
-          hasCard={privatePayPaymentMethods.length > 0}
-          contactHasPhone={Boolean((row.primary_phone ?? "").trim())}
           summary={privatePayBillingSummary}
           openInvoice={privatePayOpenInvoice}
         />
@@ -708,15 +701,6 @@ export default async function AdminCrmContactDetailPage({
           </div>
         </div>
       </div>
-
-      {showPrivatePayCards ? (
-        <PrivatePayPaymentMethodsCard
-          contactId={contactId}
-          contactName={contactDirectoryDisplayName(row)}
-          initialMethods={privatePayPaymentMethods}
-          canManage={canManagePrivatePay}
-        />
-      ) : null}
 
       <div className={cardCls}>
         <h2 className="text-sm font-bold text-slate-900">Payer metadata on this contact</h2>

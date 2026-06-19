@@ -7,7 +7,6 @@ import {
   unitLabelNoun,
 } from "@/lib/private-pay/format";
 import type { PrivatePayInvoiceWithItems } from "@/lib/private-pay/types";
-import { PayButton } from "@/app/private-pay/pay/[token]/PayButton";
 
 function formatLongDate(iso: string | null): string {
   if (!iso) return "—";
@@ -27,17 +26,16 @@ function formatLongDate(iso: string | null): string {
 export function PublicInvoiceView({
   invoice,
   publicToken,
-  stripeConfigured,
 }: {
   invoice: PrivatePayInvoiceWithItems;
   publicToken: string;
-  stripeConfigured: boolean;
 }) {
   const paid = invoice.status === "paid";
   const voided = invoice.status === "void";
   const payment = invoice.payments.find((p) => p.status === "succeeded") ?? invoice.payments[0] ?? null;
   const invoicePdfHref = `/api/private-pay/public/invoice/${publicToken}/pdf`;
   const receiptPdfHref = `/api/private-pay/public/invoice/${publicToken}/receipt`;
+  const externalLink = (invoice.external_payment_link ?? "").trim();
 
   return (
     <main className="flex min-h-screen items-start justify-center bg-gradient-to-b from-sky-50 to-white px-4 py-10">
@@ -111,22 +109,27 @@ export function PublicInvoiceView({
                 <p className="mt-1 text-xs text-emerald-700">{formatPaymentDetail(payment)}</p>
               </div>
             ) : voided ? null : (
-              <>
-                <div className="mt-6 rounded-2xl border-2 border-sky-200 bg-sky-50/70 px-4 py-4">
-                  <p className="text-sm font-semibold text-slate-900">Pay securely</p>
-                  <p className="mt-1 text-xs text-slate-600">
-                    {stripeConfigured
-                      ? "Pay this invoice securely with the button below."
-                      : "Pay this invoice securely using the payment link sent by Saintly Home Health."}{" "}
-                    If you have already paid or need help, contact {PRIVATE_PAY_BUSINESS.legalName} at{" "}
-                    <span className="whitespace-nowrap font-semibold text-slate-800">
-                      {PRIVATE_PAY_BUSINESS.phoneDisplay}
-                    </span>
-                    .
-                  </p>
-                  {stripeConfigured ? <PayButton token={publicToken} /> : null}
-                </div>
-              </>
+              <div className="mt-6 rounded-2xl border-2 border-sky-200 bg-sky-50/70 px-4 py-4">
+                <p className="text-sm font-semibold text-slate-900">Payment</p>
+                <p className="mt-1 text-xs text-slate-600">
+                  Payment is due upon receipt. {PRIVATE_PAY_BUSINESS.legalName} will provide a secure payment option
+                  separately. If you have already paid or need help, contact Saintly at{" "}
+                  <span className="whitespace-nowrap font-semibold text-slate-800">
+                    {PRIVATE_PAY_BUSINESS.phoneDisplay}
+                  </span>
+                  .
+                </p>
+                {externalLink ? (
+                  <a
+                    href={externalLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-4 inline-flex w-full items-center justify-center rounded-xl bg-sky-700 px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-sky-800"
+                  >
+                    Pay securely
+                  </a>
+                ) : null}
+              </div>
             )}
 
             <div className="mt-4 flex flex-wrap justify-center gap-2">

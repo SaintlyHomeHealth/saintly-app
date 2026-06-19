@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CreditCard, FileText, PiggyBank, Wallet } from "lucide-react";
+import { DollarSign, FileText, PiggyBank, Wallet } from "lucide-react";
 
 import {
   AdminHeroHeader,
@@ -16,7 +16,6 @@ import type {
   PrivatePayInvoiceInput,
   PrivatePayInvoiceListRow,
   PrivatePayInvoiceWithItems,
-  PrivatePayPaymentMethodOnFile,
   PrivatePayRecipient,
   PrivatePayServiceTemplate,
 } from "@/lib/private-pay/types";
@@ -25,13 +24,10 @@ import { PrivatePayInvoiceCard } from "./PrivatePayInvoiceCard";
 import { PrivatePayRecipientPicker } from "./PrivatePayRecipientPicker";
 import { PrivatePayRecordPaymentModal } from "./PrivatePayRecordPaymentModal";
 import { PrivatePaySendModal } from "./PrivatePaySendModal";
-import { PrivatePayChargeCardModal } from "./PrivatePayChargeCardModal";
 import { PrivatePayDeleteInvoiceModal } from "./PrivatePayDeleteInvoiceModal";
 import {
-  loadPaymentMethods,
   hardDeleteInvoice,
   recordManualPayment,
-  sendCardAuthLink,
   sendInvoice,
   sendReceipt,
   voidInvoice as voidInvoiceAction,
@@ -68,10 +64,6 @@ export function PrivatePayAdminWorkspace({
   const [editing, setEditing] = useState<PrivatePayInvoiceWithItems | null>(null);
   const [busy, setBusy] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
-
-  // Charge card
-  const [chargeFor, setChargeFor] = useState<PrivatePayInvoiceListRow | null>(null);
-  const [chargeMethods, setChargeMethods] = useState<PrivatePayPaymentMethodOnFile[]>([]);
 
   // Send invoice / receipt
   const [sendFor, setSendFor] = useState<{ row: PrivatePayInvoiceListRow; mode: "invoice" | "receipt" } | null>(null);
@@ -119,7 +111,7 @@ export function PrivatePayAdminWorkspace({
             invoice.status === "paid" || invoice.status === "void"
               ? null
               : (prevRow?.pending_payment_report ?? null),
-          has_card_on_file: prevRow?.has_card_on_file ?? false,
+          has_card_on_file: false,
           payment_badge: invoice.status === "paid" ? "paid" : (prevRow?.payment_badge ?? "unpaid"),
         };
         const exists = prev.some((i) => i.id === invoice.id);
@@ -137,8 +129,11 @@ export function PrivatePayAdminWorkspace({
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
     let paidThisMonthCount = 0;
     let paidThisMonthCents = 0;
+    let totalRevenueCents = 0;
     for (const i of invoices) {
-      if (!isPaidStatus(i.status) || !i.paid_at) continue;
+      if (!isPaidStatus(i.status)) continue;
+      totalRevenueCents += i.total_cents;
+      if (!i.paid_at) continue;
       const t = new Date(i.paid_at).getTime();
       if (!Number.isNaN(t) && t >= monthStart) {
         paidThisMonthCount += 1;
@@ -146,17 +141,13 @@ export function PrivatePayAdminWorkspace({
       }
     }
 
-    const cardReady = new Set(
-      invoices.filter((i) => i.has_card_on_file && i.contact_id).map((i) => i.contact_id as string)
-    ).size;
-
     return {
       unpaidCount: unpaid.length,
       unpaidTotal,
       paidCount: invoices.filter((i) => isPaidStatus(i.status)).length,
       paidThisMonthCount,
       paidThisMonthCents,
-      cardReady,
+      totalRevenueCents,
     };
   }, [invoices]);
 
@@ -212,20 +203,6 @@ export function PrivatePayAdminWorkspace({
     },
     [editing, recipient, resolveContext, upsertInvoice, router]
   );
-
-  const openCharge = useCallback(async (row: PrivatePayInvoiceListRow) => {
-    setRowBusyId(row.id);
-    setBanner(null);
-    try {
-      const methods = row.contact_id ? await loadPaymentMethods(row.contact_id) : [];
-      setChargeMethods(methods);
-      setChargeFor(row);
-    } catch (e) {
-      setBanner({ kind: "err", text: e instanceof Error ? e.message : "Something went wrong" });
-    } finally {
-      setRowBusyId(null);
-    }
-  }, []);
 
   const openSend = useCallback((row: PrivatePayInvoiceListRow, mode: "invoice" | "receipt") => {
     setSendError(null);
@@ -311,27 +288,6 @@ export function PrivatePayAdminWorkspace({
     [upsertInvoice, router]
   );
 
-  const handleSendCardAuth = useCallback(async (row: PrivatePayInvoiceListRow) => {
-    if (!row.contact_id) {
-      setBanner({ kind: "err", text: "This invoice has no linked contact." });
-      return;
-    }
-    setRowBusyId(row.id);
-    setBanner(null);
-    try {
-      const channel: SendChannel = (row.billing_phone ?? "").trim() ? "text" : "email";
-      const { sentTo } = await sendCardAuthLink(row.contact_id, channel);
-      setBanner({
-        kind: "ok",
-        text: `Card authorization link sent${sentTo ? ` to ${sentTo}` : ""}.`,
-      });
-    } catch (e) {
-      setBanner({ kind: "err", text: e instanceof Error ? e.message : "Something went wrong" });
-    } finally {
-      setRowBusyId(null);
-    }
-  }, []);
-
   const confirmDelete = useCallback(async () => {
     if (!deleteFor) return;
     setDeleteBusy(true);
@@ -383,7 +339,7 @@ export function PrivatePayAdminWorkspace({
       <AdminHeroHeader
         eyebrow="Billing"
         title="Private Pay Billing"
-        description="Charge saved cards, send invoices, and record private-pay payments."
+        description="Create invoices, send them to clients, and record payments received through Square or other methods."
         actions={
           <button type="button" onClick={startNewInvoice} className={crmPrimaryCtaCls}>
             + New invoice
@@ -401,7 +357,13 @@ export function PrivatePayAdminWorkspace({
           icon={PiggyBank}
           hint={`${stats.paidThisMonthCount} invoice${stats.paidThisMonthCount === 1 ? "" : "s"}`}
         />
-        <AdminStatCard label="Card-ready clients" value={stats.cardReady} accent="indigo" icon={CreditCard} hint="saved card on file" />
+        <AdminStatCard
+          label="Total private-pay revenue"
+          value={formatCentsUsd(stats.totalRevenueCents)}
+          accent="indigo"
+          icon={DollarSign}
+          hint={`${stats.paidCount} paid invoice${stats.paidCount === 1 ? "" : "s"}`}
+        />
       </AdminStatCardGrid>
 
       {banner ? (
@@ -453,7 +415,7 @@ export function PrivatePayAdminWorkspace({
                 ? "No paid invoices yet"
                 : "No private-pay invoices yet"}
           </p>
-          <p className="mt-2 text-sm text-slate-600">Create an invoice to charge a card, send a payment link, or record a payment.</p>
+          <p className="mt-2 text-sm text-slate-600">Create an invoice, send it to the client, and record payment when received.</p>
           <div className="mt-6">
             <button type="button" onClick={startNewInvoice} className={crmPrimaryCtaCls}>
               + New invoice
@@ -467,9 +429,7 @@ export function PrivatePayAdminWorkspace({
               key={invoice.id}
               invoice={invoice}
               busy={rowBusyId === invoice.id}
-              onCharge={openCharge}
               onSendInvoice={(row) => openSend(row, "invoice")}
-              onSendCardAuth={handleSendCardAuth}
               onMarkPaid={(row) => {
                 setRecordError(null);
                 setRecordFor(row);
@@ -550,34 +510,6 @@ export function PrivatePayAdminWorkspace({
           setSendError(null);
         }}
         onConfirm={confirmSend}
-      />
-
-      <PrivatePayChargeCardModal
-        open={Boolean(chargeFor)}
-        invoice={chargeFor}
-        paymentMethods={chargeMethods}
-        contactId={chargeFor?.contact_id}
-        busy={false}
-        error={null}
-        onClose={() => setChargeFor(null)}
-        onSuccess={(payload) => {
-          upsertInvoice({
-            ...payload.invoice,
-            status: "paid",
-          });
-          if (payload.paymentMethods && chargeFor?.contact_id) {
-            setInvoices((prev) =>
-              prev.map((row) =>
-                row.contact_id === chargeFor.contact_id
-                  ? { ...row, has_card_on_file: payload.paymentMethods!.length > 0 }
-                  : row
-              )
-            );
-          }
-          setChargeFor(null);
-          setBanner({ kind: "ok", text: payload.message });
-          router.refresh();
-        }}
       />
 
       <PrivatePayDeleteInvoiceModal

@@ -3,7 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getAppBaseUrl, validateAppBaseUrl } from "@/lib/app-url";
 import { getInvoiceWithItems, markInvoicePaidManually } from "@/lib/private-pay/data";
 import { deliverPrivatePayReceipt, type PrivatePayReceiptDelivery } from "@/lib/private-pay/deliver-receipt";
-import { isPrivatePayManualPaymentMethod } from "@/lib/private-pay/constants";
+import { isPrivatePayStaffRecordedPaymentMethod } from "@/lib/private-pay/constants";
 import { requirePrivatePayStaff } from "@/lib/private-pay/auth";
 import { dollarsToCents } from "@/lib/private-pay/format";
 
@@ -38,12 +38,11 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ invoiceId:
     body = {};
   }
 
-  if (!isPrivatePayManualPaymentMethod(body.method)) {
+  if (!isPrivatePayStaffRecordedPaymentMethod(body.method)) {
     return NextResponse.json(
       {
         ok: false,
-        error:
-          "Choose a manual payment method (Zelle, Cash App, Apple Cash, Cash, Check, or Other). Use Charge card for Stripe payments.",
+        error: "Choose a payment method (Square, Cash, Check, Bank Transfer, Other, or Custom).",
       },
       { status: 400 }
     );
@@ -81,7 +80,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ invoiceId:
       return NextResponse.json({ ok: false, error: "Invoice not found after payment." }, { status: 500 });
     }
 
-    const sendReceipt = body.send_receipt !== false;
+    const sendReceipt = body.send_receipt === true;
     let receiptWarning: string | null = null;
     if (sendReceipt) {
       const delivery = isReceiptDelivery(body.receipt_delivery) ? body.receipt_delivery : "both";

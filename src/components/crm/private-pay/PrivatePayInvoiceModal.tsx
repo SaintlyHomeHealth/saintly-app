@@ -85,6 +85,7 @@ export function PrivatePayInvoiceModal({
   const [billingPhone, setBillingPhone] = useState(existing?.billing_phone ?? defaultBilling.phone ?? "");
   const [billingAddress, setBillingAddress] = useState(existing?.billing_address ?? defaultBilling.address ?? "");
   const [notes, setNotes] = useState(existing?.notes ?? "");
+  const [externalPaymentLink, setExternalPaymentLink] = useState(existing?.external_payment_link ?? "");
   const [discount, setDiscount] = useState(existing ? centsToDollarString(existing.discount_cents) : "0.00");
   const [tax, setTax] = useState(existing ? centsToDollarString(existing.tax_cents) : "0.00");
   const [lines, setLines] = useState<LineDraft[]>(() => {
@@ -149,6 +150,7 @@ export function PrivatePayInvoiceModal({
       billing_phone: billingPhone,
       billing_address: billingAddress,
       notes,
+      external_payment_link: externalPaymentLink.trim() || null,
       discount_cents: totals.discountCents,
       tax_cents: totals.taxCents,
       items: lines.map((line) => {
@@ -348,6 +350,19 @@ export function PrivatePayInvoiceModal({
                 placeholder="Internal notes / payment terms (shown on the invoice/receipt)."
               />
             </label>
+            <label className={`${labelCls} sm:col-span-2`}>
+              Square payment link (optional)
+              <input
+                className={inputCls}
+                type="url"
+                value={externalPaymentLink}
+                onChange={(e) => setExternalPaymentLink(e.target.value)}
+                placeholder="https://…"
+              />
+              <span className="text-[10px] font-normal text-slate-400">
+                If set, clients see a Pay securely button on the public invoice.
+              </span>
+            </label>
           </section>
 
           <section className="rounded-xl border border-slate-200 bg-white p-4">
@@ -395,11 +410,11 @@ export function PrivatePayInvoiceModal({
             onClick={() => onSubmit(buildInput())}
             className="rounded-lg bg-sky-700 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-800 disabled:opacity-50"
           >
-            {mode === "edit" ? "Save changes" : "Save invoice"}
+            {mode === "edit" ? "Save changes" : "Create invoice"}
           </button>
         </div>
         <p className="px-6 pb-4 text-center text-[11px] text-slate-400 sm:text-right">
-          After saving, charge a card on file, send the invoice, or mark it paid from the billing list.
+          After saving, send the invoice or mark it paid when payment is received.
         </p>
       </div>
     </div>

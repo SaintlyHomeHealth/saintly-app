@@ -68,10 +68,23 @@ export const PRIVATE_PAY_PAYMENT_METHOD_LABELS: Record<PrivatePayPaymentMethod, 
   other: "Other",
 };
 
+/** Methods staff can record when marking an invoice paid (Square, cash, check, etc.). */
+export const PRIVATE_PAY_STAFF_RECORDED_METHODS = ["cash", "check", "manual", "other"] as const;
+export type PrivatePayStaffRecordedMethod = (typeof PRIVATE_PAY_STAFF_RECORDED_METHODS)[number];
+
+export function isPrivatePayStaffRecordedPaymentMethod(
+  value: unknown
+): value is PrivatePayStaffRecordedMethod {
+  return (
+    typeof value === "string" &&
+    (PRIVATE_PAY_STAFF_RECORDED_METHODS as readonly string[]).includes(value)
+  );
+}
+
 /**
  * Manual payment methods an admin can record by hand. These NEVER auto-mark an
  * invoice paid — staff must confirm receipt and enter a reference number.
- * Card is intentionally excluded (it flows through Stripe Checkout / Apple Pay).
+ * Card is intentionally excluded (legacy Stripe flow; not used in admin UI).
  */
 export const PRIVATE_PAY_MANUAL_PAYMENT_METHODS = [
   "zelle",

@@ -6,17 +6,12 @@ import { formatCentsUsd } from "@/lib/private-pay/format";
 import type { PrivatePayPaymentReport } from "@/lib/private-pay/types";
 import type { RecordPaymentPayload } from "./private-pay-client-actions";
 
-/**
- * Staff-only manual payment options. These labels never appear to clients —
- * they only let staff record how a payment was actually received. "Bank
- * Transfer" and "Custom" are stored against the generic "other" method with a
- * descriptive internal note so the database enum is preserved.
- */
 const METHOD_OPTIONS = [
-  { value: "other", label: "Other", backend: "other" },
+  { value: "square", label: "Square", backend: "manual", methodLabel: "Square" },
   { value: "cash", label: "Cash", backend: "cash" },
   { value: "check", label: "Check", backend: "check" },
-  { value: "bank_transfer", label: "Bank Transfer", backend: "other" },
+  { value: "bank_transfer", label: "Bank Transfer", backend: "other", methodLabel: "Bank Transfer" },
+  { value: "other", label: "Other", backend: "other", methodLabel: "Other" },
   { value: "custom", label: "Custom", backend: "other" },
 ] as const;
 
@@ -32,7 +27,6 @@ type RecordPaymentProps = {
   open: boolean;
   invoiceNumber: string;
   totalCents: number;
-  /** Retained for caller/back-end compatibility; not surfaced in the simplified staff modal. */
   pendingReport?: PrivatePayPaymentReport | null;
   busy: boolean;
   error: string | null;
@@ -53,10 +47,11 @@ function RecordPaymentForm({
   onClose,
   onSubmit,
 }: RecordPaymentProps) {
-  const [method, setMethod] = useState<MethodValue>("other");
+  const [method, setMethod] = useState<MethodValue>("square");
   const [customLabel, setCustomLabel] = useState("");
   const [amount, setAmount] = useState("");
   const [paidDate, setPaidDate] = useState(todayInputValue());
+  const [reference, setReference] = useState("");
   const [note, setNote] = useState("");
   const [sendReceipt, setSendReceipt] = useState(false);
   const [receiptDelivery, setReceiptDelivery] = useState<"text" | "email" | "both">("both");
@@ -64,15 +59,21 @@ function RecordPaymentForm({
   const submit = () => {
     const option = METHOD_OPTIONS.find((m) => m.value === method) ?? METHOD_OPTIONS[0];
     const noteLines: string[] = [];
-    if (method === "bank_transfer") noteLines.push("Payment method: Bank Transfer");
-    if (method === "custom") noteLines.push(`Payment method: ${customLabel.trim() || "Custom"}`);
+    const methodLabel =
+      method === "custom"
+        ? customLabel.trim() || "Custom"
+        : "methodLabel" in option && option.methodLabel
+          ? option.methodLabel
+          : option.label;
+    noteLines.push(`Payment method: ${methodLabel}`);
     const internal = note.trim();
     if (internal) noteLines.push(internal);
     onSubmit({
       method: option.backend,
       amount,
       paid_at: paidDate,
-      note: noteLines.length ? noteLines.join("\n") : null,
+      reference: reference.trim() || null,
+      note: noteLines.join("\n"),
       send_receipt: sendReceipt,
       receipt_delivery: receiptDelivery,
     });
@@ -93,8 +94,8 @@ function RecordPaymentForm({
           </button>
         </div>
 
-        <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">
-          Only record a payment you have confirmed was received outside the secure payment link.
+        <p className="mt-3 rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-900">
+          Record payment after the client pays through Square or another method outside this system.
         </p>
 
         <div className="mt-4 space-y-4">
@@ -151,13 +152,24 @@ function RecordPaymentForm({
           ) : null}
 
           <div>
+            <label className="text-xs font-semibold text-slate-600">Reference / confirmation # (optional)</label>
+            <input
+              value={reference}
+              onChange={(e) => setReference(e.target.value)}
+              disabled={busy}
+              placeholder="Square confirmation, check #, etc."
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            />
+          </div>
+
+          <div>
             <label className="text-xs font-semibold text-slate-600">Internal note (optional)</label>
             <textarea
               value={note}
               onChange={(e) => setNote(e.target.value)}
               disabled={busy}
               rows={2}
-              placeholder="Confirmation #, who took the payment, etc."
+              placeholder="Who took the payment, notes for staff, etc."
               className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
             />
           </div>
@@ -170,7 +182,7 @@ function RecordPaymentForm({
                 onChange={(e) => setSendReceipt(e.target.checked)}
                 disabled={busy}
               />
-              Send a receipt to the client
+              Send receipt
             </label>
             {sendReceipt ? (
               <div className="mt-2">

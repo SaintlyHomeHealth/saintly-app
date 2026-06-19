@@ -93,6 +93,7 @@ export type PrivatePayInvoice = {
   tax_cents: number;
   total_cents: number;
   notes: string | null;
+  external_payment_link: string | null;
   stripe_customer_id: string | null;
   stripe_checkout_session_id: string | null;
   stripe_payment_intent_id: string | null;
@@ -183,5 +184,6 @@ export type PrivatePayInvoiceInput = {
   discount_cents?: number;
   tax_cents?: number;
   notes?: string | null;
+  external_payment_link?: string | null;
   items: PrivatePayInvoiceItemInput[];
 };

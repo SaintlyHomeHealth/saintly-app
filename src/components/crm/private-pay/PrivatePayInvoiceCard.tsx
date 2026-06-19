@@ -6,7 +6,7 @@ import { useState } from "react";
 import { AdminActionButton, AdminActionLink, AdminBadge, AdminListCard } from "@/components/admin/design-system";
 import type { AdminBadgeVariant } from "@/components/admin/design-system";
 import { PRIVATE_PAY_INVOICE_STATUS_LABELS } from "@/lib/private-pay/constants";
-import { formatCentsUsd, serviceTypeLabel } from "@/lib/private-pay/format";
+import { formatCentsUsd, formatPaymentDetail, serviceTypeLabel } from "@/lib/private-pay/format";
 import type { PrivatePayInvoiceListRow } from "@/lib/private-pay/types";
 
 function formatDate(iso: string | null): string {
@@ -31,12 +31,17 @@ const STATUS_VARIANT: Record<string, AdminBadgeVariant> = {
   refunded: "rose",
 };
 
+function invoiceHasProtectedPayment(invoice: PrivatePayInvoiceListRow): boolean {
+  return (
+    Boolean((invoice.stripe_payment_intent_id ?? "").trim()) ||
+    invoice.payments.some((p) => p.status === "succeeded" && (p.stripe_payment_intent_id ?? "").trim())
+  );
+}
+
 export function PrivatePayInvoiceCard({
   invoice,
   busy,
-  onCharge,
   onSendInvoice,
-  onSendCardAuth,
   onMarkPaid,
   onSendReceipt,
   onVoid,
@@ -45,9 +50,7 @@ export function PrivatePayInvoiceCard({
 }: {
   invoice: PrivatePayInvoiceListRow;
   busy: boolean;
-  onCharge: (invoice: PrivatePayInvoiceListRow) => void;
   onSendInvoice: (invoice: PrivatePayInvoiceListRow) => void;
-  onSendCardAuth?: (invoice: PrivatePayInvoiceListRow) => void;
   onMarkPaid: (invoice: PrivatePayInvoiceListRow) => void;
   onSendReceipt: (invoice: PrivatePayInvoiceListRow) => void;
   onVoid: (invoice: PrivatePayInvoiceListRow) => void;
@@ -58,10 +61,8 @@ export function PrivatePayInvoiceCard({
 
   const isUnpaid = invoice.status === "draft" || invoice.status === "sent";
   const isPaid = invoice.status === "paid" || invoice.status === "refunded";
-  const hasCard = invoice.has_card_on_file;
-  const hasStripePayment =
-    Boolean((invoice.stripe_payment_intent_id ?? "").trim()) ||
-    invoice.payments.some((p) => p.status === "succeeded" && (p.stripe_payment_intent_id ?? "").trim());
+  const succeededPayment = invoice.payments.find((p) => p.status === "succeeded") ?? null;
+  const canHardDelete = !invoiceHasProtectedPayment(invoice);
 
   const closeMenu = () => setMenuOpen(false);
 
@@ -79,7 +80,6 @@ export function PrivatePayInvoiceCard({
             <AdminBadge variant={STATUS_VARIANT[invoice.status] ?? "slate"}>
               {PRIVATE_PAY_INVOICE_STATUS_LABELS[invoice.status]}
             </AdminBadge>
-            {isUnpaid && hasCard ? <AdminBadge variant="sky">Card on file</AdminBadge> : null}
             {invoice.pending_payment_report ? <AdminBadge variant="amber">Payment reported</AdminBadge> : null}
           </div>
           <p className="text-sm font-semibold text-slate-900">{invoice.customer_name}</p>
@@ -91,8 +91,11 @@ export function PrivatePayInvoiceCard({
           <p className="text-xs text-slate-600">{servicesSummary(invoice)}</p>
           <p className="text-[11px] text-slate-400">
             Created {formatDate(invoice.created_at)}
-            {isPaid ? ` · Paid ${formatDate(invoice.paid_at)}` : ""}
+            {isPaid && invoice.paid_at ? ` · Paid ${formatDate(invoice.paid_at)}` : ""}
           </p>
+          {isPaid && succeededPayment ? (
+            <p className="text-[11px] font-medium text-emerald-700">{formatPaymentDetail(succeededPayment)}</p>
+          ) : null}
         </div>
 
         <div className="shrink-0 text-right">
@@ -103,10 +106,7 @@ export function PrivatePayInvoiceCard({
       <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
         {isUnpaid ? (
           <>
-            <AdminActionButton variant="primary" size="md" disabled={busy} onClick={() => onCharge(invoice)}>
-              Charge card
-            </AdminActionButton>
-            <AdminActionButton variant="text" size="md" disabled={busy} onClick={() => onSendInvoice(invoice)}>
+            <AdminActionButton variant="primary" size="md" disabled={busy} onClick={() => onSendInvoice(invoice)}>
               Send invoice
             </AdminActionButton>
             <AdminActionButton variant="secondary" size="md" disabled={busy} onClick={() => onMarkPaid(invoice)}>
@@ -118,7 +118,7 @@ export function PrivatePayInvoiceCard({
             <AdminActionLink variant="call" size="md" href={`/api/private-pay/invoices/${invoice.id}/receipt`}>
               Receipt PDF
             </AdminActionLink>
-            <AdminActionButton variant="text" size="md" disabled={busy} onClick={() => onSendReceipt(invoice)}>
+            <AdminActionButton variant="secondary" size="md" disabled={busy} onClick={() => onSendReceipt(invoice)}>
               Send receipt
             </AdminActionButton>
           </>
@@ -137,18 +137,16 @@ export function PrivatePayInvoiceCard({
                 onClick={closeMenu}
               />
               <div className="absolute right-0 z-50 mt-1 w-44 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-lg">
-                {isUnpaid ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      closeMenu();
-                      onEdit(invoice);
-                    }}
-                    className="block w-full px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                  >
-                    View / edit
-                  </button>
-                ) : null}
+                <button
+                  type="button"
+                  onClick={() => {
+                    closeMenu();
+                    onEdit(invoice);
+                  }}
+                  className="block w-full px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  View / edit
+                </button>
                 <a
                   href={`/api/private-pay/invoices/${invoice.id}/pdf`}
                   onClick={closeMenu}
@@ -156,19 +154,6 @@ export function PrivatePayInvoiceCard({
                 >
                   Invoice PDF
                 </a>
-                {isUnpaid && invoice.contact_id && onSendCardAuth ? (
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => {
-                      closeMenu();
-                      onSendCardAuth(invoice);
-                    }}
-                    className="block w-full px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-                  >
-                    Send card authorization link
-                  </button>
-                ) : null}
                 {isUnpaid ? (
                   <button
                     type="button"
@@ -182,7 +167,7 @@ export function PrivatePayInvoiceCard({
                     Void
                   </button>
                 ) : null}
-                {!hasStripePayment ? (
+                {canHardDelete ? (
                   <button
                     type="button"
                     disabled={busy}

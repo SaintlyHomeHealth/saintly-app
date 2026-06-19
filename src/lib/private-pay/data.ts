@@ -33,7 +33,7 @@ type ContactBrief = {
 };
 
 const INVOICE_COLUMNS =
-  "id, contact_id, patient_id, lead_id, invoice_number, public_token, status, billing_name, billing_email, billing_phone, billing_address, subtotal_cents, discount_cents, tax_cents, total_cents, notes, stripe_customer_id, stripe_checkout_session_id, stripe_payment_intent_id, paid_at, created_by, created_at, updated_at";
+  "id, contact_id, patient_id, lead_id, invoice_number, public_token, status, billing_name, billing_email, billing_phone, billing_address, subtotal_cents, discount_cents, tax_cents, total_cents, notes, external_payment_link, stripe_customer_id, stripe_checkout_session_id, stripe_payment_intent_id, paid_at, created_by, created_at, updated_at";
 
 const ITEM_COLUMNS =
   "id, invoice_id, service_type, description, service_date, quantity, unit_label, unit_amount_cents, line_total_cents, sort_order, created_at";
@@ -107,6 +107,7 @@ export async function createInvoiceWithItems(
       billing_phone: (input.billing_phone ?? "").trim() || null,
       billing_address: (input.billing_address ?? "").trim() || null,
       notes: (input.notes ?? "").trim() || null,
+      external_payment_link: (input.external_payment_link ?? "").trim() || null,
       created_by: createdBy,
       ...totals,
     })
@@ -160,6 +161,7 @@ export async function updateDraftInvoice(
       billing_phone: (input.billing_phone ?? "").trim() || null,
       billing_address: (input.billing_address ?? "").trim() || null,
       notes: (input.notes ?? "").trim() || null,
+      external_payment_link: (input.external_payment_link ?? "").trim() || null,
       ...totals,
     })
     .eq("id", invoiceId);
@@ -218,53 +220,13 @@ export async function getInvoiceByPublicToken(
   return getInvoiceWithItems((invoice as PrivatePayInvoice).id);
 }
 
-function derivePaymentBadge(
-  invoice: PrivatePayInvoiceWithItems,
-  hasCardOnFile: boolean
-): PrivatePayInvoicePaymentBadge {
+function derivePaymentBadge(invoice: PrivatePayInvoiceWithItems): PrivatePayInvoicePaymentBadge {
   if (invoice.status === "paid") return "paid";
   const pendingCard = invoice.payments.some((p) => p.status === "pending" && p.payment_method === "card");
   if (pendingCard) return "processing";
   const failedCard = invoice.payments.some((p) => p.status === "failed" && p.payment_method === "card");
   if (failedCard) return "failed";
-  if (hasCardOnFile && (invoice.status === "draft" || invoice.status === "sent")) return "card_on_file";
   return "unpaid";
-}
-
-async function loadCardOnFileByContact(contactIds: string[]): Promise<Map<string, boolean>> {
-  const result = new Map<string, boolean>();
-  if (contactIds.length === 0) return result;
-
-  const { data: customers } = await supabaseAdmin
-    .from("private_pay_customers")
-    .select("id, contact_id")
-    .in("contact_id", contactIds);
-
-  const customerRows = (customers ?? []) as { id: string; contact_id: string }[];
-  if (customerRows.length === 0) {
-    for (const id of contactIds) result.set(id, false);
-    return result;
-  }
-
-  const customerIds = customerRows.map((c) => c.id);
-  const { data: methods } = await supabaseAdmin
-    .from("private_pay_payment_methods")
-    .select("customer_id")
-    .in("customer_id", customerIds);
-
-  const customersWithCards = new Set(
-    ((methods ?? []) as { customer_id: string }[]).map((m) => m.customer_id)
-  );
-  const contactByCustomer = new Map(customerRows.map((c) => [c.id, c.contact_id]));
-
-  for (const contactId of contactIds) {
-    result.set(contactId, false);
-  }
-  for (const customerId of customersWithCards) {
-    const contactId = contactByCustomer.get(customerId);
-    if (contactId) result.set(contactId, true);
-  }
-  return result;
 }
 
 async function attachPendingPaymentReports(
@@ -350,7 +312,6 @@ export async function listAllPrivatePayInvoices(limit = 500): Promise<PrivatePay
   }
 
   const pendingByInvoice = await attachPendingPaymentReports(withItems);
-  const cardOnFileByContact = await loadCardOnFileByContact(contactIds);
 
   return withItems.map((invoice) => {
     const contact = invoice.contact_id ? contactById.get(invoice.contact_id) : null;
@@ -371,16 +332,14 @@ export async function listAllPrivatePayInvoices(limit = 500): Promise<PrivatePay
       profile_href = `/admin/crm/contacts/${invoice.contact_id}`;
     }
 
-    const has_card_on_file = invoice.contact_id ? cardOnFileByContact.get(invoice.contact_id) ?? false : false;
-
     return {
       ...invoice,
       customer_name,
       customer_detail,
       profile_href,
       pending_payment_report: pendingByInvoice.get(invoice.id) ?? null,
-      has_card_on_file,
-      payment_badge: derivePaymentBadge(invoice, has_card_on_file),
+      has_card_on_file: false,
+      payment_badge: derivePaymentBadge(invoice),
     };
   });
 }
@@ -512,7 +471,7 @@ export async function hardDeleteInvoice(invoiceId: string): Promise<void> {
   if (!invoice) throw new Error("Invoice not found.");
   if (invoiceHasStripePayment(invoice)) {
     throw new Error(
-      "This invoice has a Stripe payment on record and cannot be permanently deleted. Void or archive it instead."
+      "This invoice has a processed card payment on record and cannot be permanently deleted."
     );
   }
 
