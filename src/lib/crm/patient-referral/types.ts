@@ -136,9 +136,10 @@ export type PatientReferralParseDebug = {
   first20Bytes?: string;
   runtime?: string;
   pdfParseTextLength?: number;
-  pdfjsTextLength?: number;
+  unpdfTextLength?: number;
   pdfParseError?: string | null;
-  pdfjsError?: string | null;
+  unpdfError?: string | null;
+  dependencyError?: boolean;
   ocrAttempted?: boolean;
   ocrTextLength?: number;
 };

@@ -23,6 +23,7 @@ const OCR_SHORT_DIRECT = 200;
 
 const PDF_EMPTY_ERROR = "PDF text extraction returned empty text";
 const PDF_NOT_RECEIVED_ERROR = "Uploaded file did not reach server as a valid PDF";
+const PDF_DEPENDENCY_ERROR = "PDF extraction dependency failed: pdfjs worker missing.";
 
 function bufferStartsWithPdf(buffer: Buffer): boolean {
   return buffer.length >= 4 && buffer.toString("utf8", 0, 4) === "%PDF";
@@ -57,9 +58,10 @@ export async function runPatientReferralExtractPipeline(
   let ocrAttempted = false;
   let pdfExtractMethod: string | null = null;
   let pdfParseTextLength = 0;
-  let pdfjsTextLength = 0;
+  let unpdfTextLength = 0;
   let pdfParseError: string | null = null;
-  let pdfjsError: string | null = null;
+  let unpdfError: string | null = null;
+  let dependencyError = false;
   const messages: string[] = [];
   const parseNotes: string[] = [];
   const isPdf = isPatientReferralPdfFilename(filename, mimeType);
@@ -110,23 +112,40 @@ export async function runPatientReferralExtractPipeline(
     directLen = text.length;
     pdfExtractMethod = direct.method;
     pdfParseTextLength = direct.pdfParseTextLength;
-    pdfjsTextLength = direct.pdfjsTextLength;
+    unpdfTextLength = direct.unpdfTextLength;
     pdfParseError = direct.pdfParseError ?? null;
-    pdfjsError = direct.pdfjsError ?? null;
+    unpdfError = direct.unpdfError ?? null;
+    dependencyError = direct.dependencyError;
     if (direct.error) parseNotes.push(`PDF text extraction: ${direct.error}`);
 
-    if (directLen < OCR_SHORT_DIRECT && canRunResumePdfOcr()) {
-      ocrAttempted = true;
-      const ocr = await ocrPdfBuffer(buffer, { maxPages: 3 });
-      const ocrText = (ocr.text ?? "").trim();
-      ocrLen = ocrText.length;
-      if (ocrText.length > text.length) text = ocrText;
-    } else if (directLen < OCR_SHORT_DIRECT && isOcrSpaceRecruitingConfigured()) {
-      ocrAttempted = true;
-      const ocr = await ocrSpaceFromBuffer(buffer, filename, mimeType ?? "application/pdf");
-      ocrLen = ocr.text.trim().length;
-      if (ocr.text.trim().length > text.length) text = ocr.text.trim();
-      if (ocr.error) parseNotes.push(ocr.error);
+    // When text extraction comes up short (scanned PDF, or a dependency/worker
+    // failure), fall back to OCR. Prefer cloud OCR (OCR.space) on dependency
+    // failures since the render-based path also needs the same native stack.
+    if (directLen < OCR_SHORT_DIRECT) {
+      const preferCloud = dependencyError && isOcrSpaceRecruitingConfigured();
+      if (!preferCloud && canRunResumePdfOcr()) {
+        ocrAttempted = true;
+        try {
+          const ocr = await ocrPdfBuffer(buffer, { maxPages: 3 });
+          const ocrText = (ocr.text ?? "").trim();
+          ocrLen = ocrText.length;
+          if (ocrText.length > text.length) text = ocrText;
+        } catch (e) {
+          parseNotes.push(`OCR (render) failed: ${e instanceof Error ? e.message : "error"}`);
+          if (isOcrSpaceRecruitingConfigured()) {
+            const ocr = await ocrSpaceFromBuffer(buffer, filename, mimeType ?? "application/pdf");
+            ocrLen = ocr.text.trim().length;
+            if (ocr.text.trim().length > text.length) text = ocr.text.trim();
+            if (ocr.error) parseNotes.push(ocr.error);
+          }
+        }
+      } else if (isOcrSpaceRecruitingConfigured()) {
+        ocrAttempted = true;
+        const ocr = await ocrSpaceFromBuffer(buffer, filename, mimeType ?? "application/pdf");
+        ocrLen = ocr.text.trim().length;
+        if (ocr.text.trim().length > text.length) text = ocr.text.trim();
+        if (ocr.error) parseNotes.push(ocr.error);
+      }
     }
   } else if (isPatientReferralImageFilename(filename, mimeType)) {
     ocrAttempted = true;
@@ -138,6 +157,8 @@ export async function runPatientReferralExtractPipeline(
   const extractedTextLength = text.length;
 
   if (isPdf && extractedTextLength < MIN_PDF_TEXT) {
+    // A missing pdfjs worker/module is a dependency failure, NOT an empty PDF.
+    const failureMessage = dependencyError ? PDF_DEPENDENCY_ERROR : PDF_EMPTY_ERROR;
     const debug: PatientReferralParseDebug = {
       fileName: filename,
       fileSize: buffer.length,
@@ -147,15 +168,16 @@ export async function runPatientReferralExtractPipeline(
       documentTypeDetected: null,
       parsedFieldsCount: 0,
       pdfExtractMethod,
-      error: PDF_EMPTY_ERROR,
+      error: failureMessage,
       startsWithPdf,
       bufferLength: buffer.length,
       first20Bytes: first20BytesHex(buffer),
       runtime,
       pdfParseTextLength,
-      pdfjsTextLength,
+      unpdfTextLength,
       pdfParseError,
-      pdfjsError,
+      unpdfError,
+      dependencyError,
       ocrAttempted,
       ocrTextLength: ocrLen,
     };
@@ -168,7 +190,7 @@ export async function runPatientReferralExtractPipeline(
       ok: false,
       quality: "manual",
       suggestions: null,
-      messages: [PDF_EMPTY_ERROR],
+      messages: [failureMessage],
       extractionMethod: "manual",
       confidenceWarnings: [],
       parseNotes,
@@ -178,7 +200,7 @@ export async function runPatientReferralExtractPipeline(
       textPreview: text.slice(0, 500),
       extractedTextLength,
       parseDebug: debug,
-      statusHeadline: PDF_EMPTY_ERROR,
+      statusHeadline: failureMessage,
     };
   }
 
@@ -239,9 +261,10 @@ export async function runPatientReferralExtractPipeline(
     first20Bytes: first20BytesHex(buffer),
     runtime,
     pdfParseTextLength,
-    pdfjsTextLength,
+    unpdfTextLength,
     pdfParseError,
-    pdfjsError,
+    unpdfError,
+    dependencyError,
     ocrAttempted,
     ocrTextLength: ocrLen,
   };

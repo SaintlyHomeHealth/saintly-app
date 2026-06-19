@@ -73,7 +73,7 @@ export async function POST(req: Request) {
   const extract = await extractPatientReferralPdfText(buffer);
   const parserErrors: string[] = [];
   if (extract.pdfParseError) parserErrors.push(`pdf-parse: ${extract.pdfParseError}`);
-  if (extract.pdfjsError) parserErrors.push(`pdfjs: ${extract.pdfjsError}`);
+  if (extract.unpdfError) parserErrors.push(`unpdf: ${extract.unpdfError}`);
 
   let parserResult: unknown = null;
   try {
@@ -95,7 +95,8 @@ export async function POST(req: Request) {
     ...base,
     pdfExtractMethod: extract.method,
     pdfParseTextLength: extract.pdfParseTextLength,
-    pdfjsTextLength: extract.pdfjsTextLength,
+    unpdfTextLength: extract.unpdfTextLength,
+    dependencyError: extract.dependencyError,
     extractedTextLength: extract.text.length,
     extractedTextPreview: extract.text.slice(0, 500),
     parserResult,

@@ -22,12 +22,25 @@ const nextConfig: NextConfig = {
   serverExternalPackages: [
     "pdf-parse",
     "pdfjs-dist",
+    "unpdf",
     "mammoth",
     "word-extractor",
     "canvas",
     "@napi-rs/canvas",
     "tesseract.js",
   ],
+  /**
+   * pdf-parse / pdfjs-dist load `pdf.worker.mjs` via a runtime path that Next's
+   * file tracer can't see, so it was missing from the Vercel lambda
+   * ("Cannot find module .../pdfjs-dist/legacy/build/pdf.worker.mjs"). Force the
+   * worker (and its sourcemap) into the serverless bundle for the parse routes.
+   */
+  outputFileTracingIncludes: {
+    "/api/crm/patient-referrals/**": [
+      "./node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs",
+      "./node_modules/pdfjs-dist/legacy/build/pdf.mjs",
+    ],
+  },
   allowedDevOrigins: ["hector-coud-karine.ngrok-free.dev"],
   typescript: {
     ignoreBuildErrors: true,

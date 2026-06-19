@@ -6,16 +6,19 @@ import "./ensure-promise-with-resolvers";
 import { PDFParse } from "pdf-parse";
 
 const MAX_EXTRACT_CHARS = 120_000;
+const MIN_USEFUL_TEXT = 200;
 
 export type PatientReferralPdfExtractResult = {
   text: string;
-  method: "pdf_parse" | "pdfjs" | "none";
+  method: "pdf_parse" | "unpdf" | "none";
   error?: string;
   /** Per-engine diagnostics so the live route can report exactly which engine failed. */
   pdfParseTextLength: number;
-  pdfjsTextLength: number;
+  unpdfTextLength: number;
   pdfParseError?: string;
-  pdfjsError?: string;
+  unpdfError?: string;
+  /** True when a failure is a missing dependency/worker (e.g. pdf.worker.mjs), not empty content. */
+  dependencyError: boolean;
 };
 
 function errorDetail(e: unknown, fallback: string): string {
@@ -30,32 +33,38 @@ function errorDetail(e: unknown, fallback: string): string {
   }
 }
 
-async function extractPdfTextWithPdfJs(buffer: Buffer): Promise<string> {
-  const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");
+/** A worker/module-missing failure (the Vercel `pdf.worker.mjs` issue), not an empty PDF. */
+function isDependencyError(msg: string | undefined): boolean {
+  if (!msg) return false;
+  return /pdf\.worker|cannot find module|worker|MODULE_NOT_FOUND|failed to load/i.test(msg);
+}
 
-  const data = new Uint8Array(buffer.length);
-  data.set(buffer);
-
-  const loadingTask = getDocument({
-    data,
-    disableWorker: true,
-    useWorkerFetch: false,
-    isEvalSupported: false,
-    useSystemFonts: true,
-  });
-
-  const pdf = await loadingTask.promise;
+/**
+ * Worker-free text extraction via unpdf's serverless pdfjs build. We reconstruct
+ * line breaks from `hasEOL` so the Tango parser (which is newline-aware) keeps
+ * working. unpdf does NOT require pdf.worker.mjs, so it survives on Vercel even
+ * when pdf-parse's worker is missing.
+ */
+async function extractPdfTextWithUnpdf(buffer: Buffer): Promise<string> {
+  const { getDocumentProxy } = await import("unpdf");
+  const pdf = await getDocumentProxy(new Uint8Array(buffer));
   const parts: string[] = [];
 
   try {
     for (let pageIndex = 1; pageIndex <= pdf.numPages; pageIndex++) {
       const page = await pdf.getPage(pageIndex);
-      const textContent = await page.getTextContent({ includeMarkedContent: false });
+      const textContent = await page.getTextContent();
       const items = (textContent.items ?? []) as Array<{ str?: string; hasEOL?: boolean }>;
       let line = "";
       for (const item of items) {
         const chunk = (item.str ?? "").trim();
-        if (!chunk) continue;
+        if (!chunk) {
+          if (item.hasEOL && line) {
+            parts.push(line);
+            line = "";
+          }
+          continue;
+        }
         line += (line ? " " : "") + chunk;
         if (item.hasEOL) {
           if (line) parts.push(line);
@@ -75,15 +84,20 @@ async function extractPdfTextWithPdfJs(buffer: Buffer): Promise<string> {
   return parts.join("\n").trim();
 }
 
-/** Extract plain text from a referral PDF buffer (pdf-parse, then pdfjs fallback). */
+/**
+ * Extract plain text from a referral PDF buffer.
+ * 1) pdf-parse (layout-aware, best quality for the Tango parser).
+ * 2) unpdf (worker-free fallback) — used when pdf-parse yields too little or
+ *    fails because its pdfjs worker module is missing in the deployed lambda.
+ */
 export async function extractPatientReferralPdfText(buffer: Buffer): Promise<PatientReferralPdfExtractResult> {
   let best = "";
   let method: PatientReferralPdfExtractResult["method"] = "none";
   let error: string | undefined;
   let pdfParseTextLength = 0;
-  let pdfjsTextLength = 0;
+  let unpdfTextLength = 0;
   let pdfParseError: string | undefined;
-  let pdfjsError: string | undefined;
+  let unpdfError: string | undefined;
 
   try {
     const parser = new PDFParse({ data: buffer });
@@ -103,27 +117,33 @@ export async function extractPatientReferralPdfText(buffer: Buffer): Promise<Pat
     error = pdfParseError;
   }
 
-  if (best.length < 200) {
+  if (best.length < MIN_USEFUL_TEXT) {
     try {
-      const pdfjsText = await extractPdfTextWithPdfJs(buffer);
-      pdfjsTextLength = pdfjsText.length;
-      if (pdfjsText.length > best.length) {
-        best = pdfjsText;
-        method = "pdfjs";
+      const unpdfText = await extractPdfTextWithUnpdf(buffer);
+      unpdfTextLength = unpdfText.length;
+      if (unpdfText.length > best.length) {
+        best = unpdfText;
+        method = "unpdf";
       }
     } catch (e) {
-      pdfjsError = errorDetail(e, "pdfjs failed");
-      if (!error) error = pdfjsError;
+      unpdfError = errorDetail(e, "unpdf failed");
+      if (!error) error = unpdfError;
     }
   }
+
+  // Dependency failure = both engines errored and at least one was a worker/module problem,
+  // and we recovered no usable text. This is NOT an "empty PDF".
+  const dependencyError =
+    best.length === 0 && (isDependencyError(pdfParseError) || isDependencyError(unpdfError));
 
   return {
     text: best.slice(0, MAX_EXTRACT_CHARS),
     method,
     error,
     pdfParseTextLength,
-    pdfjsTextLength,
+    unpdfTextLength,
     pdfParseError,
-    pdfjsError,
+    unpdfError,
+    dependencyError,
   };
 }

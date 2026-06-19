@@ -171,8 +171,9 @@ export function QuickDropReferralSection() {
           startsWithPdf: concise.startsWithPdf ?? null,
           extractedTextLength: concise.extractedTextLength ?? null,
           pdfExtractMethod: concise.pdfExtractMethod ?? null,
+          dependencyError: concise.dependencyError ?? null,
           pdfParseError: concise.pdfParseError ?? null,
-          pdfjsError: concise.pdfjsError ?? null,
+          unpdfError: concise.unpdfError ?? null,
         });
 
         // Full payload (raw text preview + parsed PHI) only when the debug flag is on.
@@ -216,7 +217,7 @@ export function QuickDropReferralSection() {
             `text=${d.extractedTextLength ?? 0}`,
             d.pdfExtractMethod ? `via ${d.pdfExtractMethod}` : null,
             d.pdfParseError ? `pdf-parse err: ${String(d.pdfParseError).split("\n")[0]}` : null,
-            d.pdfjsError ? `pdfjs err: ${String(d.pdfjsError).split("\n")[0]}` : null,
+            d.unpdfError ? `unpdf err: ${String(d.unpdfError).split("\n")[0]}` : null,
           ]
             .filter(Boolean)
             .join(" · ");
