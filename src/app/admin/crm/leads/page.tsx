@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { CrmLeadsList } from "@/app/admin/crm/leads/_components/CrmLeadsList";
 import { CrmLeadsDensityToggle } from "@/app/admin/crm/leads/_components/CrmLeadsDensityToggle";
+import { CrmLeadsStatsCards } from "@/app/admin/crm/leads/_components/CrmLeadsStatsCards";
 import {
   ADMIN_CRM_LEADS_PAGE_SIZE,
   ADMIN_CRM_LEADS_CONTACT_STATUS_URL_VALUES,
@@ -27,9 +28,21 @@ import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { LEAD_TEMPERATURE_VALUES, isValidLeadTemperature, leadTemperatureLabel } from "@/lib/crm/lead-temperature";
 import { supabaseAdmin } from "@/lib/admin";
 import { ExportMarketingEmailsButton } from "@/components/admin/ExportMarketingEmailsButton";
-import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
+import {
+  AdminBadge,
+  AdminFilterLabel,
+  AdminFilterPanel,
+  AdminHeroHeader,
+  AdminListToolbar,
+  AdminPageShell,
+  AdminPaginationBar,
+  AdminRemovableBadge,
+  adminAlertErrorCls,
+  adminAlertSuccessCls,
+  adminSecondaryBtnCls,
+} from "@/components/admin/design-system";
 import { crmFilterInputCls, crmPrimaryCtaCls } from "@/components/admin/crm-admin-list-styles";
-import { normalizeCrmLeadRowForClient, staffPrimaryLabel, type CrmLeadRow } from "@/lib/crm/crm-leads-table-helpers";
+import { normalizeCrmLeadRowForClient, staffPrimaryLabel } from "@/lib/crm/crm-leads-table-helpers";
 import {
   isSalesAgentProducedLead,
   resolveSalesAgentStaffDisplayBatch,
@@ -71,9 +84,6 @@ const CRM_LEADS_LIST_SELECT_WITHOUT_WAITING = `${CRM_LEADS_LIST_SELECT_BASE}, ${
 const CRM_LEADS_LIST_SELECT_WITH_WAITING_PRE_CALL_ATTEMPTS = `${CRM_LEADS_LIST_SELECT_BASE_CORE}, waiting_on_doctors_orders, waiting_on_insurance_verification, ${CRM_LEADS_LIST_CONTACTS_EMBED}`;
 const CRM_LEADS_LIST_SELECT_DOCTORS_HOLD_ONLY_PRE_CALL_ATTEMPTS = `${CRM_LEADS_LIST_SELECT_BASE_CORE}, waiting_on_doctors_orders, ${CRM_LEADS_LIST_CONTACTS_EMBED}`;
 const CRM_LEADS_LIST_SELECT_WITHOUT_WAITING_PRE_CALL_ATTEMPTS = `${CRM_LEADS_LIST_SELECT_BASE_CORE}, ${CRM_LEADS_LIST_CONTACTS_EMBED}`;
-
-const chipMuted =
-  "inline-flex items-center gap-1 rounded-full border border-slate-200/90 bg-white px-2 py-0.5 text-[10px] font-medium text-slate-700 shadow-sm";
 
 function parsePage(one: (k: string) => string): number {
   const raw = one("page").trim();
@@ -450,7 +460,7 @@ export default async function AdminCrmLeadsPage({
 
     const toastBanner =
       toastParam === "lead_deleted" ? (
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-950">
+        <div className={`${adminAlertSuccessCls} flex flex-wrap items-center justify-between gap-2`}>
           <span>Lead removed from the active list.</span>
           <Link href={dismissToastHref} className="font-semibold text-emerald-900 underline-offset-2 hover:underline">
             Dismiss
@@ -460,7 +470,7 @@ export default async function AdminCrmLeadsPage({
         toastParam === "lead_delete_denied" ||
         toastParam === "lead_delete_invalid" ||
         toastParam === "lead_delete_gone" ? (
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-950">
+        <div className={`${adminAlertErrorCls} flex flex-wrap items-center justify-between gap-2`}>
           <span>
             {toastParam === "lead_delete_denied"
               ? "You do not have permission to delete that lead."
@@ -492,10 +502,10 @@ export default async function AdminCrmLeadsPage({
     });
 
     return (
-      <div className="space-y-3 p-4 sm:space-y-4 sm:p-6">
+      <AdminPageShell>
         {toastBanner}
 
-        <AdminPageHeader
+        <AdminHeroHeader
           eyebrow="Pipeline"
           title="Leads"
           description={
@@ -512,10 +522,7 @@ export default async function AdminCrmLeadsPage({
           actions={
             <div className="flex flex-wrap items-center gap-2">
               <ExportMarketingEmailsButton exportPath="/admin/crm/leads/export-emails" />
-              <Link
-                href="/admin/crm/leads/import"
-                className="inline-flex rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50"
-              >
+              <Link href="/admin/crm/leads/import" className={adminSecondaryBtnCls}>
                 Import CSV
               </Link>
               <Link href="/admin/crm/leads/new" className={crmPrimaryCtaCls}>
@@ -525,11 +532,21 @@ export default async function AdminCrmLeadsPage({
           }
         />
 
-        {/* Summary strip */}
-        <div className="flex flex-col gap-2 rounded-xl border border-slate-200 bg-slate-50/90 px-3 py-2.5 shadow-sm sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-          <div className="min-w-0 space-y-1">
-            <div className="text-sm font-semibold text-slate-900">{summaryPrimary}</div>
-            <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-600">
+        <CrmLeadsStatsCards
+          totalFiltered={totalFiltered}
+          rangeStart={rangeStart}
+          rangeEnd={rangeEnd}
+          baselineTotal={baselineTotal}
+          hasActiveFilters={hasSearchOrColumnFilters}
+          hidingDeadByDefault={hidingDeadByDefault}
+          page={safePage}
+          totalPages={computedTotalPages}
+        />
+
+        <AdminListToolbar
+          primary={summaryPrimary}
+          secondary={
+            <>
               {totalFiltered > 0 ? (
                 <span>
                   Page {safePage} of {computedTotalPages}
@@ -549,226 +566,202 @@ export default async function AdminCrmLeadsPage({
                   Hiding pipeline &quot;Dead / not qualified&quot; unless you enable Include dead.
                 </span>
               ) : null}
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1 shadow-sm">
-              {paginationPrevHref ? (
-                <Link
-                  href={paginationPrevHref}
-                  prefetch={false}
-                  className="rounded-md px-2 py-1 text-[11px] font-semibold text-sky-800 hover:bg-sky-50"
-                >
-                  Previous
-                </Link>
-              ) : (
-                <span className="cursor-not-allowed rounded-md px-2 py-1 text-[11px] font-medium text-slate-400">Previous</span>
-              )}
-              <span className="text-[10px] text-slate-500">·</span>
-              {paginationNextHref ? (
-                <Link href={paginationNextHref} prefetch={false} className="rounded-md px-2 py-1 text-[11px] font-semibold text-sky-800 hover:bg-sky-50">
-                  Next
-                </Link>
-              ) : (
-                <span className="cursor-not-allowed rounded-md px-2 py-1 text-[11px] font-medium text-slate-400">Next</span>
-              )}
-            </div>
-            <Link
-              href={clearAllFiltersHref}
-              prefetch={false}
-              className="inline-flex rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-800 shadow-sm hover:bg-slate-50"
-            >
-              Clear all filters
-            </Link>
-            <CrmLeadsDensityToggle density={density} />
-          </div>
-        </div>
+            </>
+          }
+          actions={
+            <>
+              <AdminPaginationBar
+                page={safePage}
+                totalPages={computedTotalPages}
+                prevHref={paginationPrevHref}
+                nextHref={paginationNextHref}
+                ariaLabel="Leads pagination"
+              />
+              <Link href={clearAllFiltersHref} prefetch={false} className={adminSecondaryBtnCls}>
+                Clear all filters
+              </Link>
+              <CrmLeadsDensityToggle density={density} />
+            </>
+          }
+        />
 
         {/* Explicit filter chips (no silent filters) */}
         <div className="flex flex-wrap items-center gap-1.5">
           {!hasSearchOrColumnFilters && !includeDead && safePage <= 1 ? (
-            <span className={`${chipMuted} border-emerald-200/80 bg-emerald-50/60 text-emerald-950`}>Default list (no filters)</span>
+            <AdminBadge variant="emerald">Default list (no filters)</AdminBadge>
           ) : null}
           {hidingDeadByDefault && safePage <= 1 ? (
-            <span className={`${chipMuted} border-sky-200/80 bg-sky-50/70 text-sky-950`}>Hiding dead / not qualified by default</span>
+            <AdminBadge variant="sky">Hiding dead / not qualified by default</AdminBadge>
           ) : null}
 
           {(() => {
             const cs = f.contactStatus.trim();
             if (!isValidAdminCrmLeadsContactStatusFilter(cs)) return null;
             return (
-              <Link href={hrefWith({ contactStatus: "" })} prefetch={false} className={`${chipMuted} hover:border-sky-300 hover:bg-sky-50`}>
-                Contact status: {formatAdminCrmLeadsContactStatusLabel(cs)}{" "}
-                <span className="font-bold text-slate-500">×</span>
-              </Link>
+              <AdminRemovableBadge href={hrefWith({ contactStatus: "" })} variant="neutral">
+                Contact status: {formatAdminCrmLeadsContactStatusLabel(cs)}
+              </AdminRemovableBadge>
             );
           })()}
           {(() => {
             const lp = f.leadPriority.trim();
             if (!isValidLeadTemperature(lp)) return null;
             return (
-              <Link href={hrefWith({ leadPriority: "" })} prefetch={false} className={`${chipMuted} hover:border-sky-300 hover:bg-sky-50`}>
-                Priority: {leadTemperatureLabel(lp)}{" "}
-                <span className="font-bold text-slate-500">×</span>
-              </Link>
+              <AdminRemovableBadge href={hrefWith({ leadPriority: "" })} variant="neutral">
+                Priority: {leadTemperatureLabel(lp)}
+              </AdminRemovableBadge>
             );
           })()}
           {UUID_RE.test(f.owner.trim()) ? (
-            <Link href={hrefWith({ owner: "" })} prefetch={false} className={`${chipMuted} hover:border-sky-300 hover:bg-sky-50`}>
-              Owner: {ownerLabelForChip ?? f.owner.slice(0, 8)}{" "}
-              <span className="font-bold text-slate-500">×</span>
-            </Link>
+            <AdminRemovableBadge href={hrefWith({ owner: "" })} variant="neutral">
+              Owner: {ownerLabelForChip ?? f.owner.slice(0, 8)}
+            </AdminRemovableBadge>
           ) : null}
           {UUID_RE.test(f.salesAgent.trim()) ? (
-            <Link href={hrefWith({ salesAgent: "" })} prefetch={false} className={`${chipMuted} hover:border-sky-300 hover:bg-sky-50`}>
-              Sales agent: {salesAgentLabelForChip ?? f.salesAgent.slice(0, 8)}{" "}
-              <span className="font-bold text-slate-500">×</span>
-            </Link>
+            <AdminRemovableBadge href={hrefWith({ salesAgent: "" })} variant="neutral">
+              Sales agent: {salesAgentLabelForChip ?? f.salesAgent.slice(0, 8)}
+            </AdminRemovableBadge>
           ) : null}
           {followUpToday ? (
-            <Link href={hrefWith({ followUp: "" })} prefetch={false} className={`${chipMuted} hover:border-sky-300 hover:bg-sky-50`}>
-              Follow-up: today <span className="font-bold text-slate-500">×</span>
-            </Link>
+            <AdminRemovableBadge href={hrefWith({ followUp: "" })} variant="neutral">
+              Follow-up: today
+            </AdminRemovableBadge>
           ) : null}
           {f.payer.trim() ? (
-            <Link href={hrefWith({ payer: "" })} prefetch={false} className={`${chipMuted} max-w-[14rem] hover:border-sky-300 hover:bg-sky-50`}>
+            <AdminRemovableBadge href={hrefWith({ payer: "" })} variant="neutral" className="max-w-[14rem]">
               <span className="truncate" title={f.payer}>
                 Payer: {f.payer.length > 28 ? `${f.payer.slice(0, 28)}…` : f.payer}
-              </span>{" "}
-              <span className="font-bold text-slate-500">×</span>
-            </Link>
+              </span>
+            </AdminRemovableBadge>
           ) : null}
           {includeDead ? (
-            <Link href={hrefWith({ includeDead: false })} prefetch={false} className={`${chipMuted} hover:border-sky-300 hover:bg-sky-50`}>
-              Include dead / not qualified <span className="font-bold text-slate-500">×</span>
-            </Link>
+            <AdminRemovableBadge href={hrefWith({ includeDead: false })} variant="neutral">
+              Include dead / not qualified
+            </AdminRemovableBadge>
           ) : null}
           {f.q.trim() ? (
-            <Link href={hrefWith({ q: "" })} prefetch={false} className={`${chipMuted} max-w-[18rem] hover:border-sky-300 hover:bg-sky-50`}>
+            <AdminRemovableBadge href={hrefWith({ q: "" })} variant="neutral" className="max-w-[18rem]">
               <span className="truncate" title={f.q}>
                 Search: {f.q.slice(0, 40)}
                 {f.q.length > 40 ? "…" : ""}
-              </span>{" "}
-              <span className="font-bold text-slate-500">×</span>
-            </Link>
+              </span>
+            </AdminRemovableBadge>
           ) : null}
           {safePage > 1 ? (
-            <Link href={hrefWith({ page: 1 })} prefetch={false} className={`${chipMuted} hover:border-sky-300 hover:bg-sky-50`}>
+            <AdminRemovableBadge href={hrefWith({ page: 1 })} variant="neutral">
               Page {safePage}
-              <span className="font-bold text-slate-500">×</span>
-            </Link>
+            </AdminRemovableBadge>
           ) : null}
         </div>
 
-        <form
+        <AdminFilterPanel
           method="get"
           action="/admin/crm/leads"
-          className="flex flex-wrap items-end gap-x-2 gap-y-2 rounded-xl border border-slate-200 bg-white p-2.5 shadow-sm sm:rounded-[22px]"
+          footer={
+            <>
+              <button type="submit" className={crmPrimaryCtaCls}>
+                Apply filters
+              </button>
+              <Link href={clearAllFiltersHref} className={adminSecondaryBtnCls}>
+                Clear all filters
+              </Link>
+            </>
+          }
         >
           {density === "comfortable" ? <input type="hidden" name="density" value="comfortable" /> : null}
           {followUpToday ? <input type="hidden" name="followUp" value="today" /> : null}
-          <label className="flex min-w-[7.5rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-            Contact status
-            <select
-              name="contactStatus"
-              defaultValue={isValidAdminCrmLeadsContactStatusFilter(f.contactStatus.trim()) ? f.contactStatus.trim() : ""}
-              className={crmFilterInputCls}
-            >
-              <option value="">All</option>
-              {ADMIN_CRM_LEADS_CONTACT_STATUS_URL_VALUES.map((v) => (
-                <option key={v} value={v}>
-                  {formatAdminCrmLeadsContactStatusLabel(v)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex min-w-[7.5rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-            Lead priority
-            <select name="leadPriority" defaultValue={isValidLeadTemperature(f.leadPriority.trim()) ? f.leadPriority.trim() : ""} className={crmFilterInputCls}>
-              <option value="">All</option>
-              {LEAD_TEMPERATURE_VALUES.map((v) => (
-                <option key={v} value={v}>
-                  {leadTemperatureLabel(v)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex min-w-[9rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-            Owner
-            <select name="owner" defaultValue={f.owner} className={crmFilterInputCls}>
-              <option value="">All</option>
-              {staffOptions.map((s) => (
-                <option key={s.user_id} value={s.user_id}>
-                  {staffPrimaryLabel(s)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex min-w-[9rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-            Sales agent
-            <select name="salesAgent" defaultValue={f.salesAgent} className={crmFilterInputCls}>
-              <option value="">All</option>
-              {salesAgentOptions.map((s) => (
-                <option key={s.user_id} value={s.user_id}>
-                  {staffPrimaryLabel(s)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex min-w-[8.5rem] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
-            Payer
-            <input
-              type="text"
-              name="payer"
-              list="crm-admin-leads-payer-list"
-              defaultValue={f.payer}
-              placeholder="Keyword (e.g. United, Humana)…"
-              autoComplete="off"
-              className={crmFilterInputCls}
-            />
-            <datalist id="crm-admin-leads-payer-list">
-              {payerFilterOptions.map((p) => (
-                <option key={p} value={p} />
-              ))}
-            </datalist>
-          </label>
-          <label className="flex min-w-[min(100%,12rem)] flex-1 flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:min-w-[12rem]">
-            Keyword search
-            <input
-              type="search"
-              name="q"
-              defaultValue={f.q}
-              placeholder="Search patient, phone, payer, sales agent…"
-              className={`${crmFilterInputCls} min-h-[2rem]`}
-              aria-describedby="crm-leads-q-hint"
-            />
-            <span id="crm-leads-q-hint" className="text-[10px] font-normal text-slate-500">
-              Name, phone, email, payer, address, or sales agent (e.g. Kofi)
-            </span>
-          </label>
-          <label className="flex min-h-[2rem] cursor-pointer items-center gap-1 rounded-md border border-slate-200/90 bg-slate-50/60 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
-            <input
-              type="checkbox"
-              name="includeDead"
-              value="1"
-              defaultChecked={includeDead}
-              className="h-3 w-3 rounded border-slate-300 text-sky-600"
-            />
-            Include dead
-          </label>
-          <button
-            type="submit"
-            className="rounded-lg border border-sky-600 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-900 hover:bg-sky-100"
-          >
-            Apply
-          </button>
-          <Link
-            href={clearAllFiltersHref}
-            className="inline-flex rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
-          >
-            Clear all filters
-          </Link>
-        </form>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            <label className="flex flex-col gap-1.5">
+              <AdminFilterLabel>Contact status</AdminFilterLabel>
+              <select
+                name="contactStatus"
+                defaultValue={isValidAdminCrmLeadsContactStatusFilter(f.contactStatus.trim()) ? f.contactStatus.trim() : ""}
+                className={crmFilterInputCls}
+              >
+                <option value="">All</option>
+                {ADMIN_CRM_LEADS_CONTACT_STATUS_URL_VALUES.map((v) => (
+                  <option key={v} value={v}>
+                    {formatAdminCrmLeadsContactStatusLabel(v)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1.5">
+              <AdminFilterLabel>Lead priority</AdminFilterLabel>
+              <select name="leadPriority" defaultValue={isValidLeadTemperature(f.leadPriority.trim()) ? f.leadPriority.trim() : ""} className={crmFilterInputCls}>
+                <option value="">All</option>
+                {LEAD_TEMPERATURE_VALUES.map((v) => (
+                  <option key={v} value={v}>
+                    {leadTemperatureLabel(v)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1.5">
+              <AdminFilterLabel>Owner</AdminFilterLabel>
+              <select name="owner" defaultValue={f.owner} className={crmFilterInputCls}>
+                <option value="">All</option>
+                {staffOptions.map((s) => (
+                  <option key={s.user_id} value={s.user_id}>
+                    {staffPrimaryLabel(s)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1.5">
+              <AdminFilterLabel>Sales agent</AdminFilterLabel>
+              <select name="salesAgent" defaultValue={f.salesAgent} className={crmFilterInputCls}>
+                <option value="">All</option>
+                {salesAgentOptions.map((s) => (
+                  <option key={s.user_id} value={s.user_id}>
+                    {staffPrimaryLabel(s)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1.5">
+              <AdminFilterLabel>Payer</AdminFilterLabel>
+              <input
+                type="text"
+                name="payer"
+                list="crm-admin-leads-payer-list"
+                defaultValue={f.payer}
+                placeholder="Keyword (e.g. United, Humana)…"
+                autoComplete="off"
+                className={crmFilterInputCls}
+              />
+              <datalist id="crm-admin-leads-payer-list">
+                {payerFilterOptions.map((p) => (
+                  <option key={p} value={p} />
+                ))}
+              </datalist>
+            </label>
+            <label className="flex min-w-[min(100%,12rem)] flex-1 flex-col gap-1.5 sm:min-w-[12rem] lg:col-span-2">
+              <AdminFilterLabel>Keyword search</AdminFilterLabel>
+              <input
+                type="search"
+                name="q"
+                defaultValue={f.q}
+                placeholder="Search patient, phone, payer, sales agent…"
+                className={`${crmFilterInputCls} min-h-[2rem]`}
+                aria-describedby="crm-leads-q-hint"
+              />
+              <span id="crm-leads-q-hint" className="text-[10px] font-normal text-slate-500">
+                Name, phone, email, payer, address, or sales agent (e.g. Kofi)
+              </span>
+            </label>
+            <label className="flex min-h-[2rem] cursor-pointer items-center gap-2 rounded-xl border border-slate-200/90 bg-slate-50/60 px-3 py-2 text-[11px] font-medium text-slate-600">
+              <input
+                type="checkbox"
+                name="includeDead"
+                value="1"
+                defaultChecked={includeDead}
+                className="h-3.5 w-3.5 rounded border-slate-300 text-sky-600"
+              />
+              Include dead / not qualified
+            </label>
+          </div>
+        </AdminFilterPanel>
 
         <CrmLeadsList
           initialList={list}
@@ -784,7 +777,7 @@ export default async function AdminCrmLeadsPage({
             clearHref: clearAllFiltersHref,
           }}
         />
-      </div>
+      </AdminPageShell>
     );
   } catch (e) {
     if (isNextControlFlowError(e)) {
@@ -792,15 +785,15 @@ export default async function AdminCrmLeadsPage({
     }
     console.error("[crm/leads] list page failed", e);
     return (
-      <div className="space-y-3 p-4 sm:p-6">
-        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
+      <AdminPageShell>
+        <div className={`${adminAlertErrorCls}`}>
           <p className="font-semibold">Could not load leads</p>
           <p className="mt-1 text-rose-800/90">Try refreshing. If this continues, contact admin.</p>
           <Link href="/admin/crm/leads" className="mt-2 inline-block font-semibold text-rose-900 underline-offset-2 hover:underline">
             Reload leads list
           </Link>
         </div>
-      </div>
+      </AdminPageShell>
     );
   } finally {
     if (perfStart) {

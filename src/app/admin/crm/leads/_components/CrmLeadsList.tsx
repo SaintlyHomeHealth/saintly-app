@@ -19,7 +19,14 @@ import {
 import type { LeadTemperature } from "@/lib/crm/lead-temperature";
 import { leadTemperatureLabel, normalizeLeadTemperature } from "@/lib/crm/lead-temperature";
 import { LeadDeleteButton } from "@/app/admin/crm/leads/_components/LeadDeleteButton";
-import { crmListRowHoverCls, crmListScrollOuterCls } from "@/components/admin/crm-admin-list-styles";
+import {
+  AdminActionLink,
+  AdminEmptyState,
+  AdminTableCard,
+  adminTableHeaderCls,
+  adminTableRowCls,
+  adminTableRowHoverCls,
+} from "@/components/admin/design-system";
 import { formatLeadNextActionLabel } from "@/lib/crm/lead-follow-up-options";
 import { formatLeadSourceLabel } from "@/lib/crm/lead-source-options";
 import { parseEmploymentApplicationMeta } from "@/lib/crm/lead-employment-meta";
@@ -59,7 +66,7 @@ import {
 import { CrmLeadListRowErrorBoundary } from "@/components/admin/CrmLeadListRowErrorBoundary";
 import { formatAppDate, formatAppDateTime } from "@/lib/datetime/app-timezone";
 
-const pillBase = "inline-flex max-w-full shrink-0 rounded-full px-1 py-[1px] text-[9px] font-semibold ring-1";
+const pillBase = "inline-flex max-w-full shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1";
 
 function relativeCreatedParts(iso: string): { short: string; full: string } {
   const d = new Date(iso);
@@ -141,49 +148,31 @@ function LeadActionButtonRow({
   leadsListContextHref: string;
 }) {
   const detailHref = buildAdminCrmLeadDetailHref(leadId, leadsListContextHref);
-  const pad = compact ? "px-1.5 py-0.5 text-[9px]" : "px-2 py-1 text-[10px]";
-  const primary =
-    `inline-flex items-center justify-center rounded-md border ${pad} font-semibold shadow-sm transition hover:shadow`;
-  const secondary = `inline-flex items-center justify-center rounded-md border border-slate-200 bg-white ${pad} font-semibold text-slate-700 shadow-sm hover:border-slate-300 hover:bg-slate-50`;
-  const disabled = `inline-flex cursor-not-allowed items-center justify-center rounded-md border border-slate-100 bg-slate-50 ${pad} font-semibold text-slate-400 opacity-60 shadow-none`;
+  const size = compact ? "xs" : "sm";
 
   return (
     <div className="flex w-full shrink-0 flex-nowrap items-center justify-end gap-1">
-      {keypadHref ? (
-        <Link
-          href={keypadHref}
-          prefetch={false}
-          className={`${primary} border-emerald-200 bg-emerald-50/80 text-emerald-900 hover:border-emerald-300 hover:bg-emerald-50`}
-        >
-          Call
-        </Link>
-      ) : (
-        <span className={disabled} title={phone ? undefined : "No dialable phone"}>
-          Call
-        </span>
-      )}
-      {smsHref ? (
-        <Link
-          href={smsHref}
-          prefetch={false}
-          className={`${primary} border-sky-200 bg-sky-50/80 text-sky-900 hover:border-sky-300 hover:bg-sky-50`}
-        >
-          Text
-        </Link>
-      ) : (
-        <span className={disabled} title={phone ? undefined : "No SMS"}>
-          Text
-        </span>
-      )}
-      {detailHref ? (
-        <Link href={detailHref} className={secondary}>
-          View
-        </Link>
-      ) : (
-        <span className={disabled} title="Invalid lead ID">
-          Invalid ID
-        </span>
-      )}
+      <AdminActionLink
+        href={keypadHref ?? "#"}
+        variant="call"
+        size={size}
+        disabled={!keypadHref}
+        title={phone ? undefined : "No dialable phone"}
+      >
+        Call
+      </AdminActionLink>
+      <AdminActionLink
+        href={smsHref ?? "#"}
+        variant="text"
+        size={size}
+        disabled={!smsHref}
+        title={phone ? undefined : "No SMS"}
+      >
+        Text
+      </AdminActionLink>
+      <AdminActionLink href={detailHref ?? "#"} variant="secondary" size={size} disabled={!detailHref}>
+        View
+      </AdminActionLink>
       <LeadDeleteButton leadId={leadId} variant="tableInlineGhost" />
     </div>
   );
@@ -201,38 +190,30 @@ function LeadRowMobileDialRow({
   phone: string;
   compact?: boolean;
 }) {
-  const h = compact ? "min-h-[28px]" : "min-h-[32px]";
-  const primary = `inline-flex ${h} flex-1 items-center justify-center rounded-md border px-2 py-0.5 text-[10px] font-semibold shadow-sm transition hover:shadow`;
-  const disabled = `inline-flex ${h} flex-1 cursor-not-allowed items-center justify-center rounded-md border border-slate-100 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold text-slate-400 opacity-60 shadow-none`;
+  const size = compact ? "xs" : "sm";
 
   return (
     <div className="flex w-full min-w-0 gap-1.5 pt-1 md:hidden">
-      {keypadHref ? (
-        <Link
-          href={keypadHref}
-          prefetch={false}
-          className={`${primary} border-emerald-200 bg-emerald-50/80 text-emerald-900 hover:border-emerald-300 hover:bg-emerald-50`}
-        >
-          Call
-        </Link>
-      ) : (
-        <span className={disabled} title={phone ? undefined : "No dialable phone"}>
-          Call
-        </span>
-      )}
-      {smsHref ? (
-        <Link
-          href={smsHref}
-          prefetch={false}
-          className={`${primary} border-sky-200 bg-sky-50/80 text-sky-900 hover:border-sky-300 hover:bg-sky-50`}
-        >
-          Text
-        </Link>
-      ) : (
-        <span className={disabled} title={phone ? undefined : "No SMS"}>
-          Text
-        </span>
-      )}
+      <AdminActionLink
+        href={keypadHref ?? "#"}
+        variant="call"
+        size={size}
+        disabled={!keypadHref}
+        className="flex-1"
+        title={phone ? undefined : "No dialable phone"}
+      >
+        Call
+      </AdminActionLink>
+      <AdminActionLink
+        href={smsHref ?? "#"}
+        variant="text"
+        size={size}
+        disabled={!smsHref}
+        className="flex-1"
+        title={phone ? undefined : "No SMS"}
+      >
+        Text
+      </AdminActionLink>
     </div>
   );
 }
@@ -271,7 +252,7 @@ type Props = {
 };
 
 const quickBtnCls =
-  "inline-flex items-center justify-center rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-medium text-slate-800 shadow-sm hover:border-slate-300 hover:bg-slate-50 disabled:opacity-50";
+  "inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white px-2 py-1 text-[10px] font-semibold text-slate-800 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 hover:shadow-md disabled:opacity-50";
 
 const TEMP_OPTIONS: { value: LeadTemperature; label: string }[] = [
   { value: "hot", label: "Hot" },
@@ -445,6 +426,26 @@ function leadCreditDisplay(
   return { label: "Owner", value: owner ? staffPrimaryLabel(owner) : "—" };
 }
 
+function CrmLeadsListEmpty({
+  emptyState,
+}: {
+  emptyState?: { narrowFiltersActive: boolean; clearHref: string };
+}) {
+  return (
+    <AdminEmptyState
+      title={emptyState?.narrowFiltersActive ? "No leads match these filters." : "No leads found."}
+      description={
+        emptyState?.narrowFiltersActive
+          ? "Adjust search or filters, check pagination, or clear all filters."
+          : "No open leads match the default list (dead / not qualified are hidden unless you include them)."
+      }
+      actionHref={emptyState?.narrowFiltersActive ? emptyState.clearHref : undefined}
+      actionLabel={emptyState?.narrowFiltersActive ? "Clear all filters" : undefined}
+      className="mx-4 my-6 md:text-left"
+    />
+  );
+}
+
 export function CrmLeadsList({
   initialList,
   employeeOnlyView,
@@ -545,7 +546,7 @@ export function CrmLeadsList({
   const bulkBar =
     someSelected ? (
       <div
-        className={`flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 text-slate-800 shadow-sm ${compact ? "px-3 py-1.5 text-xs" : "px-4 py-2.5 text-sm"}`}
+        className={`flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-slate-200/90 bg-slate-50/90 text-slate-800 shadow-sm shadow-slate-200/40 ${compact ? "px-3 py-1.5 text-xs" : "px-4 py-2.5 text-sm"}`}
       >
         <span className="font-medium text-slate-700">{selected.size} selected</span>
         <button
@@ -617,12 +618,10 @@ export function CrmLeadsList({
         </div>
       ) : null}
       {bulkBar}
-      <div className={crmListScrollOuterCls}>
+      <AdminTableCard minWidth="1080px">
         {employeeOnlyView ? (
-          <div className="min-w-[1080px] text-sm">
-            <div
-              className={`hidden border-b border-slate-100 bg-slate-50/90 ${hdrPad} text-[11px] font-semibold tracking-tight text-slate-600 md:grid ${listGrid}`}
-            >
+          <div className="text-sm">
+            <div className={`${adminTableHeaderCls} ${hdrPad} md:grid ${listGrid}`}>
               <div className="flex items-center justify-center">
                 <input
                   ref={selectAllRef}
@@ -641,23 +640,7 @@ export function CrmLeadsList({
               <div className="text-right">Created</div>
             </div>
             {rows.length === 0 ? (
-              <div className="space-y-3 px-4 py-8 text-center text-sm text-slate-600 md:text-left">
-                <p className="font-medium text-slate-800">{emptyState?.narrowFiltersActive ? "No leads match these filters." : "No leads found."}</p>
-                <p className="text-xs text-slate-500">
-                  {emptyState?.narrowFiltersActive
-                    ? "Adjust search or filters, check pagination, or clear all filters."
-                    : "No open leads match the default list (dead / not qualified are hidden unless you include them)."}
-                </p>
-                {emptyState?.narrowFiltersActive && emptyState.clearHref ? (
-                  <Link
-                    href={emptyState.clearHref}
-                    prefetch={false}
-                    className="inline-flex rounded-lg border border-sky-600 bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-900 hover:bg-sky-100"
-                  >
-                    Clear all filters
-                  </Link>
-                ) : null}
-              </div>
+              <CrmLeadsListEmpty emptyState={emptyState} />
             ) : (
               rows.map((r) => {
                 const contact = normalizeContact(r.contacts);
@@ -696,7 +679,7 @@ export function CrmLeadsList({
                 return (
                   <CrmLeadListRowErrorBoundary key={r.id} leadId={r.id}>
                   <div
-                    className={`grid grid-cols-1 border-b border-slate-100 transition-colors last:border-0 md:items-start ${rowPad} ${listGrid} ${leadRowCardClass(r, fu)} ${crmListRowHoverCls}`}
+                    className={`${adminTableRowCls} ${rowPad} ${listGrid} ${leadRowCardClass(r, fu)} ${adminTableRowHoverCls}`}
                   >
                     <div className={`flex items-start justify-center ${compact ? "md:pt-0.5" : "pt-0.5 md:pt-1"}`}>
                       <input
@@ -850,10 +833,8 @@ export function CrmLeadsList({
             )}
           </div>
         ) : (
-          <div className="min-w-[1080px] text-sm">
-            <div
-              className={`hidden border-b border-slate-100 bg-slate-50/90 ${hdrPad} text-[11px] font-semibold tracking-tight text-slate-600 md:grid ${listGrid}`}
-            >
+          <div className="text-sm">
+            <div className={`${adminTableHeaderCls} ${hdrPad} md:grid ${listGrid}`}>
               <div className="flex items-center justify-center">
                 <input
                   ref={selectAllRef}
@@ -872,23 +853,7 @@ export function CrmLeadsList({
               <div className="text-right">Created</div>
             </div>
             {rows.length === 0 ? (
-              <div className="space-y-3 px-4 py-8 text-center text-sm text-slate-600 md:text-left">
-                <p className="font-medium text-slate-800">{emptyState?.narrowFiltersActive ? "No leads match these filters." : "No leads found."}</p>
-                <p className="text-xs text-slate-500">
-                  {emptyState?.narrowFiltersActive
-                    ? "Adjust search or filters, check pagination, or clear all filters."
-                    : "No open leads match the default list (dead / not qualified are hidden unless you include them)."}
-                </p>
-                {emptyState?.narrowFiltersActive && emptyState.clearHref ? (
-                  <Link
-                    href={emptyState.clearHref}
-                    prefetch={false}
-                    className="inline-flex rounded-lg border border-sky-600 bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-900 hover:bg-sky-100"
-                  >
-                    Clear all filters
-                  </Link>
-                ) : null}
-              </div>
+              <CrmLeadsListEmpty emptyState={emptyState} />
             ) : (
               rows.map((r) => {
                 const contact = normalizeContact(r.contacts);
@@ -928,7 +893,7 @@ export function CrmLeadsList({
                 return (
                   <CrmLeadListRowErrorBoundary key={r.id} leadId={r.id}>
                   <div
-                    className={`grid grid-cols-1 border-b border-slate-100 transition-colors last:border-0 md:items-start ${rowPad} ${listGrid} ${leadRowCardClass(r, fu)} ${crmListRowHoverCls}`}
+                    className={`${adminTableRowCls} ${rowPad} ${listGrid} ${leadRowCardClass(r, fu)} ${adminTableRowHoverCls}`}
                   >
                     <div className={`flex items-start justify-center ${compact ? "md:pt-0.5" : "pt-0.5 md:pt-1"}`}>
                       <input
@@ -1100,7 +1065,7 @@ export function CrmLeadsList({
             )}
           </div>
         )}
-      </div>
+      </AdminTableCard>
       {bulkModal}
     </div>
   );

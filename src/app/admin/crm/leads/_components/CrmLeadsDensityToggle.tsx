@@ -31,6 +31,7 @@ export function CrmLeadsDensityToggle({ density }: Props) {
       leadPriority: qs.leadPriority ?? "",
       owner: qs.owner ?? "",
       payer: qs.payer ?? "",
+      salesAgent: qs.salesAgent ?? "",
       followUp: qs.followUp ?? "",
       q: qs.q ?? "",
       includeDead: qs.includeDead === "1" || qs.showDead === "1",
@@ -42,14 +43,14 @@ export function CrmLeadsDensityToggle({ density }: Props) {
   };
 
   const btn =
-    "rounded-md px-2 py-1 text-[11px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-50";
+    "rounded-lg px-2.5 py-1 text-[11px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-50";
 
   return (
-    <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1 shadow-sm">
+    <div className="flex items-center gap-1 rounded-xl border border-slate-200/90 bg-white px-2 py-1 shadow-sm">
       <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Density</span>
       <button
         type="button"
-        className={`${btn} ${density === "compact" ? "border border-sky-200 bg-sky-50 text-sky-900" : "text-slate-600 hover:bg-slate-50"}`}
+        className={`${btn} ${density === "compact" ? "border border-sky-200 bg-sky-50 text-sky-900 shadow-sm" : "text-slate-600 hover:bg-slate-50"}`}
         aria-pressed={density === "compact"}
         onClick={() => setDensity("compact")}
       >
@@ -57,7 +58,7 @@ export function CrmLeadsDensityToggle({ density }: Props) {
       </button>
       <button
         type="button"
-        className={`${btn} ${density === "comfortable" ? "border border-sky-200 bg-sky-50 text-sky-900" : "text-slate-600 hover:bg-slate-50"}`}
+        className={`${btn} ${density === "comfortable" ? "border border-sky-200 bg-sky-50 text-sky-900 shadow-sm" : "text-slate-600 hover:bg-slate-50"}`}
         aria-pressed={density === "comfortable"}
         onClick={() => setDensity("comfortable")}
       >
