@@ -3,13 +3,23 @@ import type Stripe from "stripe";
 
 import { removePaymentMethodByStripeId } from "@/lib/private-pay/customers";
 import { handleSetupIntentSucceeded } from "@/lib/private-pay/charge-card";
-import { recordStripePaymentFailed, recordStripePaymentSucceeded } from "@/lib/private-pay/data";
+import {
+  getInvoiceIdByCheckoutSessionId,
+  recordStripePaymentFailed,
+  recordStripePaymentSucceeded,
+} from "@/lib/private-pay/data";
 import { getStripe, getStripeWebhookSecret } from "@/lib/private-pay/stripe";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type CardInfo = { brand: string | null; last4: string | null; chargeId: string | null };
+
+function extractId(value: string | { id?: string } | null | undefined): string | null {
+  if (!value) return null;
+  if (typeof value === "string") return value;
+  return value.id ?? null;
+}
 
 async function resolveCardInfo(stripe: Stripe, paymentIntentId: string): Promise<CardInfo> {
   try {
@@ -24,6 +34,52 @@ async function resolveCardInfo(stripe: Stripe, paymentIntentId: string): Promise
   } catch {
     return { brand: null, last4: null, chargeId: null };
   }
+}
+
+async function resolveInvoiceIdFromCheckoutSession(
+  stripe: Stripe,
+  session: Stripe.Checkout.Session
+): Promise<string | null> {
+  const fromMeta =
+    (session.metadata?.private_pay_invoice_id ?? "").trim() ||
+    (session.client_reference_id ?? "").trim() ||
+    null;
+  if (fromMeta) return fromMeta;
+
+  const fromDb = await getInvoiceIdByCheckoutSessionId(session.id);
+  if (fromDb) return fromDb;
+
+  const paymentIntentId = extractId(session.payment_intent);
+  if (!paymentIntentId) return null;
+
+  try {
+    const pi = await stripe.paymentIntents.retrieve(paymentIntentId);
+    const fromPi =
+      (pi.metadata?.private_pay_invoice_id ?? "").trim() ||
+      (pi.metadata?.invoice_id ?? "").trim() ||
+      null;
+    return fromPi;
+  } catch {
+    return null;
+  }
+}
+
+async function resolveInvoiceIdFromPaymentIntent(
+  stripe: Stripe,
+  pi: Stripe.PaymentIntent
+): Promise<string | null> {
+  const fromMeta =
+    (pi.metadata?.private_pay_invoice_id ?? "").trim() ||
+    (pi.metadata?.invoice_id ?? "").trim() ||
+    null;
+  if (fromMeta) return fromMeta;
+
+  if (pi.metadata?.auth_retry === "true") {
+    // 3DS retry checkout — metadata should still be on the PI; no further fallback.
+    return null;
+  }
+
+  return null;
 }
 
 async function handlePaidIntent(
@@ -108,36 +164,52 @@ export async function POST(req: NextRequest) {
       const session = event.data.object as Stripe.Checkout.Session;
 
       if (session.mode === "setup" && session.setup_intent) {
-        const setupIntentId =
-          typeof session.setup_intent === "string" ? session.setup_intent : session.setup_intent.id;
-        await handleSetupIntentSucceeded(setupIntentId);
-      } else if (session.payment_status === "paid" && typeof session.payment_intent === "string") {
-        await handlePaidIntent(stripe, {
-          invoiceId: session.metadata?.private_pay_invoice_id ?? session.client_reference_id,
-          paymentIntentId: session.payment_intent,
-          amountCents: session.amount_total ?? 0,
-          customerId: typeof session.customer === "string" ? session.customer : null,
-          sessionId: session.id,
-        });
+        const setupIntentId = extractId(session.setup_intent);
+        if (setupIntentId) await handleSetupIntentSucceeded(setupIntentId);
+      } else if (session.mode === "payment" && session.payment_status === "paid") {
+        const paymentIntentId = extractId(session.payment_intent);
+        if (!paymentIntentId) {
+          console.warn("[stripe webhook] paid checkout session missing payment_intent", session.id);
+        } else {
+          const invoiceId = await resolveInvoiceIdFromCheckoutSession(stripe, session);
+          let amountCents = session.amount_total ?? 0;
+          if (amountCents <= 0) {
+            try {
+              const pi = await stripe.paymentIntents.retrieve(paymentIntentId);
+              amountCents = pi.amount_received || pi.amount;
+            } catch {
+              // keep session amount
+            }
+          }
+          await handlePaidIntent(stripe, {
+            invoiceId,
+            paymentIntentId,
+            amountCents,
+            customerId: extractId(session.customer),
+            sessionId: session.id,
+          });
+        }
       }
     } else if (event.type === "payment_intent.succeeded") {
       const pi = event.data.object as Stripe.PaymentIntent;
-      const pmId = typeof pi.payment_method === "string" ? pi.payment_method : pi.payment_method?.id ?? null;
+      const pmId = extractId(pi.payment_method);
+      const invoiceId = await resolveInvoiceIdFromPaymentIntent(stripe, pi);
       await handlePaidIntent(stripe, {
-        invoiceId: pi.metadata?.private_pay_invoice_id ?? pi.metadata?.invoice_id,
+        invoiceId,
         paymentIntentId: pi.id,
         amountCents: pi.amount_received || pi.amount,
-        customerId: typeof pi.customer === "string" ? pi.customer : null,
+        customerId: extractId(pi.customer),
         sessionId: null,
         stripePaymentMethodId: pmId,
         privatePayCustomerId: pi.metadata?.customer_id ?? null,
       });
     } else if (event.type === "payment_intent.payment_failed") {
       const pi = event.data.object as Stripe.PaymentIntent;
-      const pmId = typeof pi.payment_method === "string" ? pi.payment_method : pi.payment_method?.id ?? null;
+      const pmId = extractId(pi.payment_method);
       const message = pi.last_payment_error?.message ?? "Payment failed";
+      const invoiceId = await resolveInvoiceIdFromPaymentIntent(stripe, pi);
       await handleFailedIntent({
-        invoiceId: pi.metadata?.private_pay_invoice_id ?? pi.metadata?.invoice_id,
+        invoiceId,
         paymentIntentId: pi.id,
         amountCents: pi.amount,
         failureMessage: message,

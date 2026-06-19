@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
+import { AdminListCard } from "@/components/admin/design-system";
 import { PrivatePayInvoicePaymentPanel } from "@/components/crm/private-pay/PrivatePayInvoicePaymentPanel";
 import { contactDirectoryDisplayName } from "@/lib/crm/contact-directory";
 import { listPaymentMethodsForContact } from "@/lib/private-pay/customers";
@@ -34,15 +35,15 @@ export default async function PrivatePayInvoiceDetailPage({
     invoice.contact_id ? listPaymentMethodsForContact(invoice.contact_id) : Promise.resolve([]),
   ]);
 
-  // Build list row shape for payment panel (reuse list enrichment logic via lightweight assembly)
   let customer_name = (invoice.billing_name ?? "").trim() || "—";
   let customer_detail: string | null = null;
   let profile_href: string | null = null;
+  let contactHasPhone = Boolean((invoice.billing_phone ?? "").trim());
 
   if (invoice.contact_id) {
     const { data: contact } = await supabaseAdmin
       .from("contacts")
-      .select("id, full_name, first_name, last_name, organization_name, contact_type")
+      .select("id, full_name, first_name, last_name, organization_name, contact_type, phone, mobile_phone")
       .eq("id", invoice.contact_id)
       .maybeSingle();
     if (contact) {
@@ -50,6 +51,10 @@ export default async function PrivatePayInvoiceDetailPage({
       customer_detail =
         (contact.contact_type ?? "").trim() === "private_pay" ? "Private Pay" : "Contact";
       profile_href = `/admin/crm/contacts/${invoice.contact_id}`;
+      contactHasPhone =
+        contactHasPhone ||
+        Boolean((contact.phone ?? "").trim()) ||
+        Boolean((contact.mobile_phone ?? "").trim());
     }
   } else if (invoice.patient_id) {
     customer_detail = "Patient";
@@ -103,7 +108,7 @@ export default async function PrivatePayInvoiceDetailPage({
       />
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <AdminListCard hover={false}>
           <h2 className="text-sm font-bold text-slate-900">Line items</h2>
           <ul className="mt-3 divide-y divide-slate-100">
             {invoice.items.map((item) => (
@@ -137,13 +142,15 @@ export default async function PrivatePayInvoiceDetailPage({
               </a>
             ) : null}
           </div>
-        </div>
+        </AdminListCard>
 
         <PrivatePayInvoicePaymentPanel
           invoice={listRow}
           paymentMethods={paymentMethods}
           pendingReport={pendingReport}
           profileHref={profile_href}
+          contactId={invoice.contact_id}
+          contactHasPhone={contactHasPhone}
         />
       </div>
     </div>

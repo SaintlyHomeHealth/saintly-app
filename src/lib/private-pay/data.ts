@@ -8,6 +8,7 @@ import {
   type PrivatePayPaymentMethod,
 } from "@/lib/private-pay/constants";
 import { computeLineTotalCents } from "@/lib/private-pay/format";
+import { notifyPrivatePayInvoicePaid } from "@/lib/private-pay/notify-admin-payment";
 import { contactDirectoryDisplayName } from "@/lib/crm/contact-directory";
 import type {
   PrivatePayInvoice,
@@ -483,6 +484,42 @@ export async function voidInvoice(invoiceId: string): Promise<void> {
   if (error) throw new Error(error.message);
 }
 
+function invoiceHasStripePayment(invoice: PrivatePayInvoiceWithItems): boolean {
+  if ((invoice.stripe_payment_intent_id ?? "").trim()) return true;
+  return invoice.payments.some(
+    (p) => p.status === "succeeded" && Boolean((p.stripe_payment_intent_id ?? "").trim())
+  );
+}
+
+/** Resolve invoice id from a Stripe Checkout session id (webhook fallback). */
+export async function getInvoiceIdByCheckoutSessionId(sessionId: string): Promise<string | null> {
+  const trimmed = (sessionId ?? "").trim();
+  if (!trimmed) return null;
+  const { data } = await supabaseAdmin
+    .from("private_pay_invoices")
+    .select("id")
+    .eq("stripe_checkout_session_id", trimmed)
+    .maybeSingle();
+  return (data as { id: string } | null)?.id ?? null;
+}
+
+/**
+ * Permanently delete a local invoice and cascaded records (items, payments, reports).
+ * Blocks invoices with a succeeded Stripe payment on record.
+ */
+export async function hardDeleteInvoice(invoiceId: string): Promise<void> {
+  const invoice = await getInvoiceWithItems(invoiceId);
+  if (!invoice) throw new Error("Invoice not found.");
+  if (invoiceHasStripePayment(invoice)) {
+    throw new Error(
+      "This invoice has a Stripe payment on record and cannot be permanently deleted. Void or archive it instead."
+    );
+  }
+
+  const { error } = await supabaseAdmin.from("private_pay_invoices").delete().eq("id", invoiceId);
+  if (error) throw new Error(error.message);
+}
+
 export async function markInvoicePaidManually(
   invoiceId: string,
   opts: {
@@ -581,6 +618,8 @@ export async function recordStripePaymentSucceeded(opts: {
   stripePaymentMethodId?: string | null;
   pendingPaymentId?: string | null;
 }): Promise<void> {
+  const invoiceBefore = await getInvoiceWithItems(opts.invoiceId);
+  const wasAlreadyPaid = invoiceBefore?.status === "paid";
   const paidAt = new Date().toISOString();
 
   if (opts.pendingPaymentId) {
@@ -645,6 +684,19 @@ export async function recordStripePaymentSucceeded(opts: {
     .neq("status", "refunded");
 
   await markPaymentReportsReviewedForInvoice(opts.invoiceId);
+
+  if (!wasAlreadyPaid && invoiceBefore) {
+    const customerName = (invoiceBefore.billing_name ?? "").trim() || "Customer";
+    void notifyPrivatePayInvoicePaid({
+      invoiceId: opts.invoiceId,
+      invoiceNumber: invoiceBefore.invoice_number,
+      customerName,
+      amountCents: opts.amountCents,
+      stripePaymentIntentId: opts.stripePaymentIntentId,
+    }).catch((e) => {
+      console.warn("[private-pay] admin payment notification failed", e);
+    });
+  }
 }
 
 export async function recordStripePaymentFailed(opts: {

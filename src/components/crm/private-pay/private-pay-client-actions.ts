@@ -131,6 +131,13 @@ export async function voidInvoice(
   return json.invoice;
 }
 
+/** Permanently delete a local invoice (blocked when Stripe payment exists). */
+export async function hardDeleteInvoice(invoiceId: string): Promise<void> {
+  const res = await fetch(`/api/private-pay/invoices/${invoiceId}`, { method: "DELETE" });
+  const json = await readJson<{ ok?: boolean; error?: string }>(res);
+  if (!res.ok || !json.ok) throw new Error(json.error || "Failed to delete invoice");
+}
+
 /** Send a secure card-authorization link to the customer (email or text). */
 export async function sendCardAuthLink(
   contactId: string,

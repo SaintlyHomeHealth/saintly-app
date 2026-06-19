@@ -26,9 +26,12 @@ import { PrivatePayRecipientPicker } from "./PrivatePayRecipientPicker";
 import { PrivatePayRecordPaymentModal } from "./PrivatePayRecordPaymentModal";
 import { PrivatePaySendModal } from "./PrivatePaySendModal";
 import { PrivatePayChargeCardModal } from "./PrivatePayChargeCardModal";
+import { PrivatePayDeleteInvoiceModal } from "./PrivatePayDeleteInvoiceModal";
 import {
   loadPaymentMethods,
+  hardDeleteInvoice,
   recordManualPayment,
+  sendCardAuthLink,
   sendInvoice,
   sendReceipt,
   voidInvoice as voidInvoiceAction,
@@ -79,6 +82,11 @@ export function PrivatePayAdminWorkspace({
   const [recordFor, setRecordFor] = useState<PrivatePayInvoiceListRow | null>(null);
   const [recordBusy, setRecordBusy] = useState(false);
   const [recordError, setRecordError] = useState<string | null>(null);
+
+  // Hard delete
+  const [deleteFor, setDeleteFor] = useState<PrivatePayInvoiceListRow | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const upsertInvoice = useCallback(
     (invoice: PrivatePayInvoiceWithItems, hint?: PrivatePayRecipient | null) => {
@@ -215,7 +223,7 @@ export function PrivatePayAdminWorkspace({
     try {
       const methods = await loadPaymentMethods(row.contact_id);
       if (methods.length === 0) {
-        throw new Error("No card on file. Use Send invoice, or add a card on the customer profile.");
+        throw new Error("No card on file. Send a card authorization link first.");
       }
       setChargeMethods(methods);
       setChargeFor(row);
@@ -309,6 +317,44 @@ export function PrivatePayAdminWorkspace({
     },
     [upsertInvoice, router]
   );
+
+  const handleSendCardAuth = useCallback(async (row: PrivatePayInvoiceListRow) => {
+    if (!row.contact_id) {
+      setBanner({ kind: "err", text: "This invoice has no linked contact." });
+      return;
+    }
+    setRowBusyId(row.id);
+    setBanner(null);
+    try {
+      const channel: SendChannel = (row.billing_phone ?? "").trim() ? "text" : "email";
+      const { sentTo } = await sendCardAuthLink(row.contact_id, channel);
+      setBanner({
+        kind: "ok",
+        text: `Card authorization link sent${sentTo ? ` to ${sentTo}` : ""}.`,
+      });
+    } catch (e) {
+      setBanner({ kind: "err", text: e instanceof Error ? e.message : "Something went wrong" });
+    } finally {
+      setRowBusyId(null);
+    }
+  }, []);
+
+  const confirmDelete = useCallback(async () => {
+    if (!deleteFor) return;
+    setDeleteBusy(true);
+    setDeleteError(null);
+    try {
+      await hardDeleteInvoice(deleteFor.id);
+      setInvoices((prev) => prev.filter((i) => i.id !== deleteFor.id));
+      setDeleteFor(null);
+      setBanner({ kind: "ok", text: `Invoice ${deleteFor.invoice_number} deleted.` });
+      router.refresh();
+    } catch (e) {
+      setDeleteError(e instanceof Error ? e.message : "Something went wrong");
+    } finally {
+      setDeleteBusy(false);
+    }
+  }, [deleteFor, router]);
 
   const openEdit = useCallback((row: PrivatePayInvoiceListRow) => {
     setEditing(row);
@@ -430,6 +476,7 @@ export function PrivatePayAdminWorkspace({
               busy={rowBusyId === invoice.id}
               onCharge={openCharge}
               onSendInvoice={(row) => openSend(row, "invoice")}
+              onSendCardAuth={handleSendCardAuth}
               onMarkPaid={(row) => {
                 setRecordError(null);
                 setRecordFor(row);
@@ -437,6 +484,10 @@ export function PrivatePayAdminWorkspace({
               onSendReceipt={(row) => openSend(row, "receipt")}
               onVoid={handleVoid}
               onEdit={openEdit}
+              onDelete={(row) => {
+                setDeleteError(null);
+                setDeleteFor(row);
+              }}
             />
           ))}
         </div>
@@ -521,6 +572,19 @@ export function PrivatePayAdminWorkspace({
           setBanner({ kind: "ok", text: message });
           router.refresh();
         }}
+      />
+
+      <PrivatePayDeleteInvoiceModal
+        open={Boolean(deleteFor)}
+        invoiceNumber={deleteFor?.invoice_number ?? ""}
+        busy={deleteBusy}
+        error={deleteError}
+        onClose={() => {
+          if (deleteBusy) return;
+          setDeleteFor(null);
+          setDeleteError(null);
+        }}
+        onConfirm={confirmDelete}
       />
     </>
   );

@@ -36,25 +36,32 @@ export function PrivatePayInvoiceCard({
   busy,
   onCharge,
   onSendInvoice,
+  onSendCardAuth,
   onMarkPaid,
   onSendReceipt,
   onVoid,
   onEdit,
+  onDelete,
 }: {
   invoice: PrivatePayInvoiceListRow;
   busy: boolean;
   onCharge: (invoice: PrivatePayInvoiceListRow) => void;
   onSendInvoice: (invoice: PrivatePayInvoiceListRow) => void;
+  onSendCardAuth?: (invoice: PrivatePayInvoiceListRow) => void;
   onMarkPaid: (invoice: PrivatePayInvoiceListRow) => void;
   onSendReceipt: (invoice: PrivatePayInvoiceListRow) => void;
   onVoid: (invoice: PrivatePayInvoiceListRow) => void;
   onEdit: (invoice: PrivatePayInvoiceListRow) => void;
+  onDelete: (invoice: PrivatePayInvoiceListRow) => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
 
   const isUnpaid = invoice.status === "draft" || invoice.status === "sent";
   const isPaid = invoice.status === "paid" || invoice.status === "refunded";
   const hasCard = invoice.has_card_on_file;
+  const hasStripePayment =
+    Boolean((invoice.stripe_payment_intent_id ?? "").trim()) ||
+    invoice.payments.some((p) => p.status === "succeeded" && (p.stripe_payment_intent_id ?? "").trim());
 
   const closeMenu = () => setMenuOpen(false);
 
@@ -106,9 +113,16 @@ export function PrivatePayInvoiceCard({
                 </AdminActionButton>
               </>
             ) : (
-              <AdminActionButton variant="primary" size="md" disabled={busy} onClick={() => onSendInvoice(invoice)}>
-                Send invoice
-              </AdminActionButton>
+              <>
+                <AdminActionButton variant="primary" size="md" disabled={busy} onClick={() => onSendInvoice(invoice)}>
+                  Send invoice
+                </AdminActionButton>
+                {invoice.contact_id && onSendCardAuth ? (
+                  <AdminActionButton variant="text" size="md" disabled={busy} onClick={() => onSendCardAuth(invoice)}>
+                    Send card auth link
+                  </AdminActionButton>
+                ) : null}
+              </>
             )}
             <AdminActionButton variant="secondary" size="md" disabled={busy} onClick={() => onMarkPaid(invoice)}>
               Mark paid
@@ -168,6 +182,19 @@ export function PrivatePayInvoiceCard({
                     className="block w-full px-3 py-2 text-left text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50"
                   >
                     Void
+                  </button>
+                ) : null}
+                {!hasStripePayment ? (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => {
+                      closeMenu();
+                      onDelete(invoice);
+                    }}
+                    className="block w-full px-3 py-2 text-left text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+                  >
+                    Delete permanently
                   </button>
                 ) : null}
               </div>
