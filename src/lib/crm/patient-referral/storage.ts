@@ -31,15 +31,20 @@ export async function uploadPatientReferralDocumentToStorage(input: {
   return { ok: true, storagePath, safeName };
 }
 
+export const PATIENT_REFERRAL_SIGNED_URL_TTL_SECONDS = 600;
+
 export async function createPatientReferralSignedUrl(
   storagePath: string,
-  expiresInSeconds = 3600
+  expiresInSeconds = PATIENT_REFERRAL_SIGNED_URL_TTL_SECONDS
 ): Promise<string | null> {
+  const path = storagePath.trim();
+  if (!path || path.startsWith("/") || path.includes("..")) return null;
+
   const { data, error } = await supabaseAdmin.storage
     .from(PATIENT_REFERRAL_DOCUMENTS_BUCKET)
-    .createSignedUrl(storagePath.trim(), expiresInSeconds);
+    .createSignedUrl(path, expiresInSeconds);
   if (error || !data?.signedUrl) {
-    console.warn("[patient-referral] signed url:", error?.message);
+    console.warn("[patient-referral] signed url:", path, error?.message);
     return null;
   }
   return data.signedUrl;

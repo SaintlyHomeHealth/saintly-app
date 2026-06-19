@@ -1,9 +1,8 @@
-import Link from "next/link";
-
-import { createPatientReferralSignedUrl } from "@/lib/crm/patient-referral/storage";
 import { patientReferralSourceLabel } from "@/lib/crm/patient-referral/options";
 import type { PatientFileListRow, PatientReferralListRow } from "@/lib/crm/patient-referral/types";
 import { formatAppDate } from "@/lib/datetime/app-timezone";
+
+import { PatientReferralFilesList } from "./PatientReferralFilesList";
 
 function visitSummary(r: PatientReferralListRow): string {
   const parts: string[] = [];
@@ -16,7 +15,7 @@ function visitSummary(r: PatientReferralListRow): string {
   return parts.length ? parts.join(" · ") : "—";
 }
 
-export async function PatientReferralsSection({
+export function PatientReferralsSection({
   referrals,
   files,
 }: {
@@ -25,13 +24,6 @@ export async function PatientReferralsSection({
   files: PatientFileListRow[];
 }) {
   if (!referrals.length && !files.length) return null;
-
-  const fileLinks = await Promise.all(
-    files.map(async (f) => ({
-      ...f,
-      url: await createPatientReferralSignedUrl(f.file_path, 3600),
-    }))
-  );
 
   return (
     <section className="rounded-[20px] border border-slate-200/90 bg-white px-4 py-4 shadow-sm sm:px-5">
@@ -88,25 +80,7 @@ export async function PatientReferralsSection({
         </ul>
       ) : null}
 
-      {fileLinks.length > 0 ? (
-        <div className="mt-4">
-          <h3 className="text-sm font-semibold text-slate-800">Uploaded documents</h3>
-          <ul className="mt-2 space-y-2">
-            {fileLinks.map((f) => (
-              <li key={f.id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
-                <span className="text-slate-800">{f.file_name}</span>
-                {f.url ? (
-                  <Link href={f.url} target="_blank" rel="noopener noreferrer" className="text-xs font-semibold text-sky-800 hover:underline">
-                    View file
-                  </Link>
-                ) : (
-                  <span className="text-xs text-slate-400">Unavailable</span>
-                )}
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
+      <PatientReferralFilesList files={files} />
     </section>
   );
 }

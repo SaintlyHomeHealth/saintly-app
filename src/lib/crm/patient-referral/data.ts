@@ -20,7 +20,7 @@ export async function loadPatientReferralsForChart(patientId: string): Promise<{
       .limit(20),
     supabaseAdmin
       .from("patient_files")
-      .select("id, file_name, file_path, document_type, referral_source_type, created_at")
+      .select("id, file_name, file_path, document_type, referral_source_type, patient_id, referral_id, created_at")
       .eq("patient_id", patientId)
       .order("created_at", { ascending: false })
       .limit(20),

@@ -26,6 +26,8 @@ export type PatientFileListRow = {
   file_path: string;
   document_type: string | null;
   referral_source_type: string | null;
+  patient_id?: string | null;
+  referral_id?: string | null;
   created_at: string;
 };
 

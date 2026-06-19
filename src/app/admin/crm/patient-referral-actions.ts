@@ -246,11 +246,11 @@ async function uploadReferralFile(
       parsed_json: input.parsedJson,
       parse_status: "ready",
     })
-    .select("id")
+    .select("id, file_path")
     .single();
 
   if (error || !fileRow?.id) {
-    console.warn("[patient-referral] patient_files insert:", error?.message);
+    console.warn("[patient-referral] patient_files insert:", error?.message, "path:", uploaded.storagePath);
     return { ok: false, reason: "save_failed" };
   }
 
@@ -364,8 +364,9 @@ export async function createPatientFromReferral(fd: FormData): Promise<CreatePat
     parsedJson,
   });
 
-  if (!fileRes.ok && fileRes.reason !== "missing_file") {
-    console.warn("[patient-referral] file upload after create:", fileRes.reason);
+  const hadFile = fd.get("file") instanceof File && (fd.get("file") as File).size > 0;
+  if (hadFile && !fileRes.ok) {
+    console.warn("[patient-referral] file upload after create:", fileRes.reason, { patientId, referralId });
   }
 
   revalidatePatientReferralPaths(patientId);
@@ -510,9 +511,47 @@ export async function getPatientReferralFileSignedUrl(
     return { ok: false, error: "Invalid path" };
   }
 
-  const url = await createPatientReferralSignedUrl(path, 3600);
+  const url = await createPatientReferralSignedUrl(path);
   if (!url) {
-    return { ok: false, error: "Could not open file" };
+    return { ok: false, error: "Could not open file. Storage path missing or signed URL failed." };
+  }
+
+  return { ok: true, url };
+}
+
+const VIEW_FILE_ERROR = "Could not open file. Storage path missing or signed URL failed.";
+
+export async function getPatientReferralFileSignedUrlById(
+  fileId: string
+): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
+  const staff = await getStaffProfile();
+  if (!staff || !isManagerOrHigher(staff)) {
+    return { ok: false, error: "Forbidden" };
+  }
+
+  const id = fileId.trim();
+  if (!id) {
+    return { ok: false, error: "Invalid file id" };
+  }
+
+  const { data: row, error } = await supabaseAdmin
+    .from("patient_files")
+    .select("id, file_path, file_name, patient_id, referral_id")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (error) {
+    console.warn("[patient-referral] patient_files lookup:", error.message);
+    return { ok: false, error: VIEW_FILE_ERROR };
+  }
+
+  if (!row?.file_path?.trim()) {
+    return { ok: false, error: "File was not saved to storage." };
+  }
+
+  const url = await createPatientReferralSignedUrl(row.file_path);
+  if (!url) {
+    return { ok: false, error: VIEW_FILE_ERROR };
   }
 
   return { ok: true, url };
