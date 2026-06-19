@@ -49,6 +49,13 @@ export function recruitingLeadRoleBadge(input: {
   ) {
     return "ST";
   }
+  if (
+    /\bmsw\b|medical social worker|medical social work|master of social work|licensed master social worker|\blcsw\b|\blmsw\b|home health social worker|\bsocial worker\b/.test(
+      hay
+    )
+  ) {
+    return "MSW";
+  }
   if (/\bhha\b|home health aide/.test(hay)) return "HHA";
   return "Other";
 }
@@ -75,6 +82,8 @@ export function recruitingLeadRoleBadgeClass(role: RecruitingLeadRoleBadge): str
       return `${base} border-violet-200 bg-violet-50 text-violet-900`;
     case "ST":
       return `${base} border-fuchsia-200 bg-fuchsia-50 text-fuchsia-900`;
+    case "MSW":
+      return `${base} border-amber-200 bg-amber-50 text-amber-900`;
     case "HHA":
       return `${base} border-emerald-200 bg-emerald-50 text-emerald-900`;
     default:

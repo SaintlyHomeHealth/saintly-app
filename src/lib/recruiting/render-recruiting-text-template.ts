@@ -27,7 +27,7 @@ function resolveFirstName(ctx: RecruitingTextContext): string {
   return extractRecruitingLeadFirstName(ctx.full_name) || "there";
 }
 
-const KNOWN_RECRUITING_DISCIPLINES = ["RN", "LPN", "CNA", "PT", "PTA", "OT", "ST", "HHA"] as const;
+const KNOWN_RECRUITING_DISCIPLINES = ["RN", "LPN", "CNA", "PT", "PTA", "OT", "ST", "MSW", "HHA"] as const;
 
 function resolveDisciplineLabel(raw: string | null | undefined): string | null {
   const d = (raw ?? "").trim();

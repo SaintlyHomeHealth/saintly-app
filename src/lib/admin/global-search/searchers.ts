@@ -668,6 +668,8 @@ export async function searchRecruitingCandidates(
     `phone.ilike.${query.ilikePattern}`,
     `email.ilike.${query.ilikePattern}`,
     `notes.ilike.${query.ilikePattern}`,
+    `license_status.ilike.${query.ilikePattern}`,
+    `lead_type.ilike.${query.ilikePattern}`,
   ];
   if (query.isPhone) {
     orParts.push(`normalized_phone.eq.${query.digits.slice(-10)}`);
@@ -679,6 +681,7 @@ export async function searchRecruitingCandidates(
     `phone.ilike.${query.ilikePattern}`,
     `email.ilike.${query.ilikePattern}`,
     `notes.ilike.${query.ilikePattern}`,
+    `discipline.ilike.${query.ilikePattern}`,
   ];
   if (query.isPhone) {
     candidateOrParts.push(`phone.ilike.%${query.digits.slice(-10)}%`);
@@ -694,7 +697,7 @@ export async function searchRecruitingCandidates(
         .limit(8),
       supabase
         .from("recruiting_candidates")
-        .select("id, full_name, phone, email, notes, status, source, created_at, updated_at")
+        .select("id, full_name, phone, email, notes, discipline, status, source, created_at, updated_at")
         .or(candidateOrParts.join(","))
         .order("updated_at", { ascending: false })
         .limit(8),
@@ -724,7 +727,13 @@ export async function searchRecruitingCandidates(
   const candidateById = await fetchRecruitingCandidatesForLeadListDisplay(supabase, linkedCandidateIds);
 
   function identityMatchesCandidate(
-    candidate: { full_name?: string | null; phone?: string | null; email?: string | null; notes?: string | null }
+    candidate: {
+      full_name?: string | null;
+      phone?: string | null;
+      email?: string | null;
+      notes?: string | null;
+      discipline?: string | null;
+    }
   ): boolean {
     if (query.isPhone) {
       const digits = query.digits.slice(-10);
@@ -733,7 +742,7 @@ export async function searchRecruitingCandidates(
     if (query.isEmail) {
       return (candidate.email ?? "").toLowerCase().includes(query.lower);
     }
-    const hay = [candidate.full_name, candidate.email, candidate.notes]
+    const hay = [candidate.full_name, candidate.email, candidate.notes, candidate.discipline]
       .filter(Boolean)
       .join(" ")
       .toLowerCase();

@@ -22,6 +22,12 @@ async function main() {
   assert.ok(RECRUITING_DISCIPLINE_OPTIONS.includes("OT"), "RECRUITING_DISCIPLINE_OPTIONS must include OT");
   assert.ok(RECRUITING_DISCIPLINE_OPTIONS.includes("ST"), "RECRUITING_DISCIPLINE_OPTIONS must include ST");
   assert.ok(RECRUITING_DISCIPLINE_OPTIONS.includes("CNA"), "RECRUITING_DISCIPLINE_OPTIONS must include CNA");
+  assert.ok(RECRUITING_DISCIPLINE_OPTIONS.includes("MSW"), "RECRUITING_DISCIPLINE_OPTIONS must include MSW");
+
+  const stIdx = RECRUITING_DISCIPLINE_OPTIONS.indexOf("ST");
+  const mswIdx = RECRUITING_DISCIPLINE_OPTIONS.indexOf("MSW");
+  const hhaIdx = RECRUITING_DISCIPLINE_OPTIONS.indexOf("HHA");
+  assert.ok(stIdx >= 0 && mswIdx === stIdx + 1 && hhaIdx === mswIdx + 1, "MSW must sit between ST and HHA");
 
   assert.deepEqual(
     [...RECRUITING_LEAD_ROLE_FILTER_OPTIONS],
@@ -106,6 +112,26 @@ async function main() {
     "ST",
     "recruiting lead badge recognizes Speech Therapist"
   );
+
+  const mswTitle = parseResumePlainText("Jordan Lee\nMedical Social Worker\nLCSW · Phoenix AZ");
+  assert.equal(mswTitle.discipline?.value, "MSW", "Medical Social Worker maps to MSW");
+
+  const mswAbbr = parseResumePlainText("Casey Kim\nMSW · Home Health");
+  assert.equal(mswAbbr.discipline?.value, "MSW", "MSW abbreviation maps to MSW");
+
+  const lcswResume = parseResumePlainText("Taylor Brooks\nLicensed Clinical Social Worker\nLCSW");
+  assert.equal(lcswResume.discipline?.value, "MSW", "LCSW maps to MSW");
+
+  const lmswResume = parseResumePlainText("Sam Rivera\nLMSW · Medical Social Work");
+  assert.equal(lmswResume.discipline?.value, "MSW", "LMSW maps to MSW");
+
+  assert.equal(recruitingLeadRoleBadge({ license_status: "MSW" }), "MSW", "recruiting lead badge recognizes MSW");
+  assert.equal(
+    recruitingLeadRoleBadge({ license_status: "Medical Social Worker" }),
+    "MSW",
+    "recruiting lead badge recognizes Medical Social Worker"
+  );
+  assert.equal(recruitingLeadRoleBadge({ license_status: "LCSW" }), "MSW", "recruiting lead badge recognizes LCSW");
 
   console.log("verify-recruiting-discipline-parse: ok");
 }

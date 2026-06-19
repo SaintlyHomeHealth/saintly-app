@@ -250,6 +250,10 @@ function attachAdminRecruitingLeadsRolePredicate(
       return q.or(
         "license_status.eq.ST,license_status.ilike.%speech therapist%,license_status.ilike.%speech therapy%,license_status.ilike.%SLP%,license_status.ilike.%speech-language%,license_status.ilike.%speech language%"
       );
+    case "MSW":
+      return q.or(
+        "license_status.eq.MSW,license_status.ilike.%medical social worker%,license_status.ilike.%medical social work%,license_status.ilike.%social worker%,license_status.ilike.%LCSW%,license_status.ilike.%LMSW%,license_status.ilike.%master of social work%"
+      );
     case "HHA":
       return q.or(
         "license_status.ilike.%HHA%,lead_type.ilike.%HHA%,license_status.ilike.%home health aide%"
@@ -268,6 +272,12 @@ function attachAdminRecruitingLeadsRolePredicate(
         .not("license_status", "ilike", "%speech therapist%")
         .not("license_status", "ilike", "%speech therapy%")
         .not("license_status", "ilike", "%SLP%")
+        .not("license_status", "eq", "MSW")
+        .not("license_status", "ilike", "%medical social worker%")
+        .not("license_status", "ilike", "%medical social work%")
+        .not("license_status", "ilike", "%social worker%")
+        .not("license_status", "ilike", "%LCSW%")
+        .not("license_status", "ilike", "%LMSW%")
         .not("license_status", "ilike", "%HHA%")
         .not("lead_type", "ilike", "%RN%")
         .not("lead_type", "ilike", "%LPN%")

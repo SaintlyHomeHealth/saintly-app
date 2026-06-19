@@ -130,6 +130,7 @@ function disciplineBadgeClass(discipline: string): string {
   if (d === "PTA") return `${base} border-teal-200 bg-teal-50 text-teal-900`;
   if (d === "OT" || d === "COTA") return `${base} border-violet-200 bg-violet-50 text-violet-900`;
   if (d === "ST" || d === "SLP") return `${base} border-fuchsia-200 bg-fuchsia-50 text-fuchsia-900`;
+  if (d === "MSW" || d === "LCSW" || d === "LMSW") return `${base} border-amber-200 bg-amber-50 text-amber-900`;
   if (d === "HHA" || d === "CNA") return `${base} border-emerald-200 bg-emerald-50 text-emerald-900`;
   return `${base} border-slate-200 bg-slate-100 text-slate-700`;
 }

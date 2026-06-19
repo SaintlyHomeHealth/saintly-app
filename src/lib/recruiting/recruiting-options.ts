@@ -12,9 +12,18 @@ export const RECRUITING_DISCIPLINE_OPTIONS = [
   "PTA",
   "OT",
   "ST",
+  "MSW",
   "HHA",
   "Other",
 ] as const;
+
+/** Full label for UI when helpful; short code is stored in `recruiting_candidates.discipline`. */
+export function recruitingDisciplineDisplayLabel(code: string | null | undefined): string {
+  const c = (code ?? "").trim();
+  if (!c) return "";
+  if (c.toUpperCase() === "MSW") return "Medical Social Worker (MSW)";
+  return c;
+}
 
 export const RECRUITING_STATUS_OPTIONS = [
   "New",

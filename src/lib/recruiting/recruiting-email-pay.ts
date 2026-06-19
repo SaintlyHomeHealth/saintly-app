@@ -90,10 +90,14 @@ export const RECRUITING_DISCIPLINE_DEFAULT_EMAIL_TEMPLATE: Record<
   PTA: "pta_follow_up",
   OT: "ot_follow_up",
   ST: "st_follow_up",
+  MSW: "interview_scheduling",
   CNA: "interview_scheduling",
   HHA: "interview_scheduling",
   Other: "interview_scheduling",
 };
+
+const MSW_RECRUITING_PAY_SUMMARY =
+  "MSW visit pay is discussed based on coverage area, experience, and case needs.";
 
 export function recruitingEmailTemplateUsesPayFields(
   templateId: RecruitingEmailTemplateId
@@ -112,6 +116,14 @@ export function getRecruitingEmailPayDefaultsForTemplate(
 
 export function inferRecruitingEmailPayDefaultsForRole(role: string): RecruitingEmailPayDefaults {
   const discipline = recruitingLeadRoleBadge({ license_status: role });
+  if (discipline === "MSW") {
+    return {
+      visitRate: "",
+      socRate: "",
+      paySummary: MSW_RECRUITING_PAY_SUMMARY,
+      includeSoc: false,
+    };
+  }
   const templateId = RECRUITING_DISCIPLINE_DEFAULT_EMAIL_TEMPLATE[discipline];
   if (templateId in ROLE_FOLLOW_UP_PAY) {
     return { ...ROLE_FOLLOW_UP_PAY[templateId as keyof typeof ROLE_FOLLOW_UP_PAY] };

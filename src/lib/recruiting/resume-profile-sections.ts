@@ -77,7 +77,7 @@ export function extractSummarySection(text: string): SuggestedResumeField | unde
 }
 
 const CREDENTIAL_TOKEN_RE =
-  /\b(?:RN|LPN|LVN|CNA|PTA|PT|OT|ST|HHA|BSN|MSN|PMHNP|DNP|CCRN|ACLS|BLS|PALS|NRP|CPR|AZRN|AZ\s*RN|Licensed\s+(?:RN|LPN|PT|OT|ST))\b/gi;
+  /\b(?:RN|LPN|LVN|CNA|PTA|PT|OT|ST|MSW|LCSW|LMSW|HHA|BSN|MSN|PMHNP|DNP|CCRN|ACLS|BLS|PALS|NRP|CPR|AZRN|AZ\s*RN|Licensed\s+(?:RN|LPN|PT|OT|ST|MSW))\b/gi;
 
 export function extractCredentialTokens(text: string): SuggestedResumeField | undefined {
   const head = text.slice(0, 4500);

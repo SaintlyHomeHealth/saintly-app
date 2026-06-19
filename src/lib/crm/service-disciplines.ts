@@ -31,5 +31,6 @@ export function parseServiceDisciplinesFromFormData(formData: FormData, key = "s
 export function disciplineLabel(code: string): string {
   const c = code.trim();
   if (c === "LPN") return "LPN / LVN";
+  if (c === "MSW") return "Medical Social Worker (MSW)";
   return c;
 }
