@@ -120,7 +120,7 @@ export function LeadListRowQuickNote({
   );
 }
 
-function LeadListRowCallAttempts({
+export function LeadListRowCallAttempts({
   leadId,
   row,
   compact,

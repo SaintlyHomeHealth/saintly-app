@@ -1,228 +1,14 @@
 "use client";
 
-import Link from "next/link";
-import { Mail, Phone } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
-import {
-  bulkSoftDeleteLeads,
-  markLeadDeadFromList,
-  quickMarkLeadLeftVoicemail,
-  quickMarkLeadNoResponse,
-  quickMarkLeadSpoke,
-  quickSetLeadTemperature,
-} from "@/app/admin/crm/actions";
-import {
-  LeadListRowEngagementColumn,
-} from "@/app/admin/crm/leads/_components/LeadListRowQuickNoteAndAttempts";
-import type { LeadTemperature } from "@/lib/crm/lead-temperature";
-import { leadTemperatureLabel, normalizeLeadTemperature } from "@/lib/crm/lead-temperature";
-import { LeadDeleteButton } from "@/app/admin/crm/leads/_components/LeadDeleteButton";
-import {
-  AdminActionLink,
-  AdminEmptyState,
-  AdminTableCard,
-  adminTableHeaderCls,
-  adminTableRowCls,
-  adminTableRowHoverCls,
-} from "@/components/admin/design-system";
-import { formatLeadNextActionLabel } from "@/lib/crm/lead-follow-up-options";
-import { formatLeadSourceLabel } from "@/lib/crm/lead-source-options";
-import { parseEmploymentApplicationMeta } from "@/lib/crm/lead-employment-meta";
-import {
-  contactStageBadgeLabel,
-  lastContactHumanLine,
-  lastContactToneClass,
-  leadRowCardClass,
-  followUpUrgency,
-  shouldShowPipelineStatusOnLeadRow,
-} from "@/lib/crm/crm-leads-list-visual";
-import { formatLeadPipelineStatusLabel } from "@/lib/crm/lead-pipeline-status";
-import { LEAD_HOLD_WAITING_ON_INSURANCE_VERIFICATION } from "@/lib/crm/lead-holds";
-import {
-  contactDisplayName,
-  contactEmail,
-  formatFollowUpListLabel,
-  normalizeContact,
-  staffPrimaryLabel,
-  type CrmLeadRow,
-} from "@/lib/crm/crm-leads-table-helpers";
-import {
-  formatProducedBySalesAgentLabel,
-  isSalesAgentProducedLead,
-} from "@/lib/crm/sales-agent-produced-by";
-import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
-import {
-  buildWorkspaceInboxLeadSmsHref,
-  buildWorkspaceKeypadCallHref,
-  buildWorkspaceSmsToContactHref,
-  pickOutboundE164ForDial,
-} from "@/lib/workspace-phone/launch-urls";
-import {
-  ADMIN_CRM_LEADS_LIST_PATH_PREFIX,
-  buildAdminCrmLeadDetailHref,
-} from "@/lib/crm/admin-crm-leads-list-url";
+import { bulkSoftDeleteLeads } from "@/app/admin/crm/actions";
+import { CrmLeadCard } from "@/app/admin/crm/leads/_components/CrmLeadCard";
+import { AdminEmptyState } from "@/components/admin/design-system";
+import { type CrmLeadRow } from "@/lib/crm/crm-leads-table-helpers";
+import { ADMIN_CRM_LEADS_LIST_PATH_PREFIX } from "@/lib/crm/admin-crm-leads-list-url";
 import { CrmLeadListRowErrorBoundary } from "@/components/admin/CrmLeadListRowErrorBoundary";
-import { formatAppDate, formatAppDateTime } from "@/lib/datetime/app-timezone";
-
-const pillBase = "inline-flex max-w-full shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1";
-
-function relativeCreatedParts(iso: string): { short: string; full: string } {
-  const d = new Date(iso);
-  const full = Number.isNaN(d.getTime()) ? String(iso) : formatAppDateTime(d);
-  if (Number.isNaN(d.getTime())) return { short: "—", full };
-  const diffMs = Date.now() - d.getTime();
-  if (!Number.isFinite(diffMs)) return { short: "—", full };
-  const mins = Math.round(diffMs / 60000);
-  if (mins < 1) return { short: "just now", full };
-  if (mins < 60) return { short: `${mins}m ago`, full };
-  const hrs = Math.round(mins / 60);
-  if (hrs < 48) return { short: `${hrs}h ago`, full };
-  const days = Math.round(hrs / 24);
-  if (days < 14) return { short: `${days}d ago`, full };
-  return {
-    short: formatAppDate(d, "—", { month: "short", day: "numeric", year: "numeric" }),
-    full,
-  };
-}
-
-function LeadTypeBadge({ leadType, status }: { leadType: string | null; status: string | null }) {
-  if (leadType === "employee") {
-    return (
-      <span className={`${pillBase} bg-indigo-50 text-indigo-900 ring-indigo-200/70`}>Employee</span>
-    );
-  }
-  const st = (status ?? "").trim().toLowerCase();
-  if (st === "converted") {
-    return <span className={`${pillBase} bg-emerald-50 text-emerald-900 ring-emerald-200/70`}>Patient</span>;
-  }
-  return <span className={`${pillBase} bg-sky-50 text-sky-900 ring-sky-200/70`}>Lead</span>;
-}
-
-function CompactContactLines({
-  phoneDisplay,
-  email,
-  dense,
-}: {
-  phoneDisplay: string | null;
-  email: string | null;
-  dense?: boolean;
-}) {
-  if (!phoneDisplay && !email) {
-    return <span className={`text-slate-400 ${dense ? "text-[9px]" : "text-[10px]"}`}>No phone or email</span>;
-  }
-  return (
-    <div className={`flex min-w-0 flex-col ${dense ? "gap-px text-[10px]" : "gap-0.5 text-[11px]"} leading-tight text-slate-600`}>
-      {phoneDisplay ? (
-        <div className="flex items-center justify-end gap-1 tabular-nums md:justify-start">
-          <Phone className={`${dense ? "h-2.5 w-2.5" : "h-3 w-3"} shrink-0 text-slate-400`} aria-hidden />
-          <span>{phoneDisplay}</span>
-        </div>
-      ) : null}
-      {email ? (
-        <div className="flex min-w-0 items-center justify-end gap-1 md:justify-start">
-          <Mail className={`${dense ? "h-2.5 w-2.5" : "h-3 w-3"} shrink-0 text-slate-400`} aria-hidden />
-          <span className="truncate" title={email}>
-            {email}
-          </span>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function LeadActionButtonRow({
-  leadId,
-  phone,
-  keypadHref,
-  smsHref,
-  compact,
-  leadsListContextHref,
-}: {
-  leadId: string;
-  phone: string;
-  keypadHref: string | null;
-  smsHref: string | null;
-  compact?: boolean;
-  leadsListContextHref: string;
-}) {
-  const detailHref = buildAdminCrmLeadDetailHref(leadId, leadsListContextHref);
-  const size = compact ? "xs" : "sm";
-
-  return (
-    <div className="flex w-full shrink-0 flex-nowrap items-center justify-end gap-1">
-      <AdminActionLink
-        href={keypadHref ?? "#"}
-        variant="call"
-        size={size}
-        disabled={!keypadHref}
-        title={phone ? undefined : "No dialable phone"}
-      >
-        Call
-      </AdminActionLink>
-      <AdminActionLink
-        href={smsHref ?? "#"}
-        variant="text"
-        size={size}
-        disabled={!smsHref}
-        title={phone ? undefined : "No SMS"}
-      >
-        Text
-      </AdminActionLink>
-      <AdminActionLink href={detailHref ?? "#"} variant="secondary" size={size} disabled={!detailHref}>
-        View
-      </AdminActionLink>
-      <LeadDeleteButton leadId={leadId} variant="tableInlineGhost" />
-    </div>
-  );
-}
-
-/** Same targets as `LeadActionButtonRow`, visible on small screens where the wide table is scrolled off-screen. */
-function LeadRowMobileDialRow({
-  keypadHref,
-  smsHref,
-  phone,
-  compact,
-}: {
-  keypadHref: string | null;
-  smsHref: string | null;
-  phone: string;
-  compact?: boolean;
-}) {
-  const size = compact ? "xs" : "sm";
-
-  return (
-    <div className="flex w-full min-w-0 gap-1.5 pt-1 md:hidden">
-      <AdminActionLink
-        href={keypadHref ?? "#"}
-        variant="call"
-        size={size}
-        disabled={!keypadHref}
-        className="flex-1"
-        title={phone ? undefined : "No dialable phone"}
-      >
-        Call
-      </AdminActionLink>
-      <AdminActionLink
-        href={smsHref ?? "#"}
-        variant="text"
-        size={size}
-        disabled={!smsHref}
-        className="flex-1"
-        title={phone ? undefined : "No SMS"}
-      >
-        Text
-      </AdminActionLink>
-    </div>
-  );
-}
-
-const checkboxClsComfortable =
-  "h-4 w-4 shrink-0 rounded border-slate-300 text-sky-600 focus:ring-sky-500/30";
-
-const checkboxClsCompact =
-  "h-3.5 w-3.5 shrink-0 rounded border-slate-300 text-sky-600 focus:ring-sky-500/30";
 
 type StaffOpt = {
   user_id: string;
@@ -251,181 +37,6 @@ type Props = {
   };
 };
 
-const quickBtnCls =
-  "inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white px-2 py-1 text-[10px] font-semibold text-slate-800 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 hover:shadow-md disabled:opacity-50";
-
-const TEMP_OPTIONS: { value: LeadTemperature; label: string }[] = [
-  { value: "hot", label: "Hot" },
-  { value: "warm", label: "Warm" },
-  { value: "cool", label: "Cool" },
-  { value: "dead", label: "Dead" },
-];
-
-function leadTemperaturePillClass(t: LeadTemperature, selected: boolean, compact?: boolean): string {
-  const base = compact
-    ? "inline-flex min-w-[2.25rem] shrink-0 items-center justify-center rounded border px-[3px] py-[1px] text-[9px] font-semibold transition disabled:opacity-50"
-    : "inline-flex min-w-[2.75rem] shrink-0 items-center justify-center rounded-md border px-1 py-0.5 text-[10px] font-semibold transition disabled:opacity-50";
-  if (!selected) {
-    return `${base} border-slate-200/90 bg-white text-slate-600 shadow-sm hover:border-slate-300 hover:bg-slate-50`;
-  }
-  switch (t) {
-    case "hot":
-      return `${base} border-rose-600 bg-rose-600 text-white shadow-sm ring-1 ring-rose-700/30`;
-    case "warm":
-      return `${base} border-amber-500 bg-amber-400 text-amber-950 shadow-sm ring-1 ring-amber-600/25`;
-    case "cool":
-      return `${base} border-slate-500 bg-slate-400 text-white shadow-sm ring-1 ring-slate-600/25`;
-    case "dead":
-      return `${base} border-stone-500 bg-stone-500 text-stone-100 shadow-sm ring-1 ring-stone-700/30`;
-    default:
-      return `${base} border-slate-200 bg-white text-slate-600`;
-  }
-}
-
-function LeadTemperatureQuickSet({
-  leadId,
-  value,
-  compact,
-}: {
-  leadId: string;
-  value: string | null;
-  compact?: boolean;
-}) {
-  const router = useRouter();
-  const [pending, startTransition] = useTransition();
-  const current = normalizeLeadTemperature(value);
-
-  const onPick = (next: LeadTemperature) => {
-    startTransition(async () => {
-      const fd = new FormData();
-      fd.set("leadId", leadId);
-      fd.set("lead_temperature", next);
-      const r = await quickSetLeadTemperature(fd);
-      if (r.ok) router.refresh();
-    });
-  };
-
-  return (
-    <div className={compact ? "pt-0.5" : "pt-1"} role="group" aria-label="Lead priority">
-      <p className={`${compact ? "mb-px text-[8px]" : "mb-0.5 text-[9px]"} font-semibold uppercase tracking-wide text-slate-500`}>Priority</p>
-      <div className="flex flex-wrap gap-px">
-        {TEMP_OPTIONS.map((o) => (
-          <button
-            key={o.value}
-            type="button"
-            disabled={pending}
-            title={`Set priority: ${o.label}`}
-            onClick={() => onPick(o.value)}
-            className={leadTemperaturePillClass(o.value, current === o.value, compact)}
-          >
-            {o.label}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function LeadQuickActions({ leadId, compact }: { leadId: string; compact?: boolean }) {
-  const router = useRouter();
-  const qcls = compact
-    ? `${quickBtnCls} px-1 py-px text-[9px]`
-    : quickBtnCls;
-
-  return (
-    <div className={`flex flex-wrap ${compact ? "gap-px pt-px" : "gap-0.5 pt-0.5"}`}>
-      <form
-        action={async (fd) => {
-          const r = await quickMarkLeadSpoke(fd);
-          if (r.ok) router.refresh();
-        }}
-        className="inline"
-      >
-        <input type="hidden" name="leadId" value={leadId} />
-        <button type="submit" className={qcls} title="Log last contact as Spoke (call)">
-          Spoke
-        </button>
-      </form>
-      <form
-        action={async (fd) => {
-          const r = await quickMarkLeadLeftVoicemail(fd);
-          if (r.ok) router.refresh();
-        }}
-        className="inline"
-      >
-        <input type="hidden" name="leadId" value={leadId} />
-        <button type="submit" className={qcls} title="Log last contact as Left voicemail (call)">
-          Left VM
-        </button>
-      </form>
-      <form
-        action={async (fd) => {
-          const r = await quickMarkLeadNoResponse(fd);
-          if (r.ok) router.refresh();
-        }}
-        className="inline"
-      >
-        <input type="hidden" name="leadId" value={leadId} />
-        <button type="submit" className={qcls} title="Manual: no response after multiple attempts">
-          No response
-        </button>
-      </form>
-      <form
-        action={async (fd) => {
-          const r = await markLeadDeadFromList(fd);
-          if (r.ok) router.refresh();
-        }}
-        className="inline"
-      >
-        <input type="hidden" name="leadId" value={leadId} />
-        <button type="submit" className={`${qcls} border-rose-200/80 text-rose-800 hover:bg-rose-50/80`} title="Mark this lead as dead">
-          Dead
-        </button>
-      </form>
-    </div>
-  );
-}
-
-function glanceTemperaturePillClass(t: LeadTemperature): string {
-  switch (t) {
-    case "hot":
-      return "bg-rose-100 text-rose-900 ring-rose-300/80";
-    case "warm":
-      return "bg-amber-100 text-amber-950 ring-amber-300/80";
-    case "cool":
-      return "bg-slate-200 text-slate-800 ring-slate-400/70";
-    case "dead":
-      return "bg-stone-200 text-stone-700 ring-stone-400/80";
-    default:
-      return "bg-slate-100 text-slate-800 ring-slate-200/80";
-  }
-}
-
-function followUpValueClass(fu: ReturnType<typeof followUpUrgency>): string {
-  if (fu === "overdue") return "font-medium text-rose-800";
-  if (fu === "today") return "font-medium text-amber-900";
-  return "text-slate-700";
-}
-
-function leadCreditDisplay(
-  r: CrmLeadRow,
-  producedByAgentNameByUserId: Record<string, string>,
-  owner: StaffOpt | undefined
-): { label: string; value: string } {
-  if (
-    isSalesAgentProducedLead({
-      source: r.source,
-      producedBySalesAgentId: r.produced_by_sales_agent_id,
-      ownershipLocked: r.ownership_locked,
-    })
-  ) {
-    const uid = (r.produced_by_sales_agent_id ?? "").trim();
-    const name = uid ? producedByAgentNameByUserId[uid] : null;
-    return { label: "Produced by", value: formatProducedBySalesAgentLabel(name) };
-  }
-  return { label: "Owner", value: owner ? staffPrimaryLabel(owner) : "—" };
-}
-
 function CrmLeadsListEmpty({
   emptyState,
 }: {
@@ -441,7 +52,7 @@ function CrmLeadsListEmpty({
       }
       actionHref={emptyState?.narrowFiltersActive ? emptyState.clearHref : undefined}
       actionLabel={emptyState?.narrowFiltersActive ? "Clear all filters" : undefined}
-      className="mx-4 my-6 md:text-left"
+      className="md:text-left"
     />
   );
 }
@@ -458,18 +69,14 @@ export function CrmLeadsList({
   emptyState,
 }: Props) {
   const router = useRouter();
-  const comfy = initialDensity === "comfortable";
-  const compact = !comfy;
-  const chkClass = comfy ? checkboxClsComfortable : checkboxClsCompact;
-  const hdrPad = comfy ? "px-3 py-1.5 gap-x-3" : "px-2 py-1 gap-x-1.5";
-  const rowPad = comfy ? "px-3 py-1.5 gap-x-3 gap-y-1" : "px-1.5 py-0.5 gap-x-1.5 gap-y-0.5";
-  const nameSz = comfy ? "text-[15px] font-bold" : "text-sm font-semibold";
+  const compact = initialDensity !== "comfortable";
 
   const [rows, setRows] = useState(initialList);
 
   useEffect(() => {
     setRows(initialList);
   }, [initialList]);
+
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -483,9 +90,7 @@ export function CrmLeadsList({
   }, [listToast]);
 
   const patchLeadCallAttemptCount = useCallback((leadId: string, next: number) => {
-    setRows((prev) =>
-      prev.map((row) => (row.id === leadId ? { ...row, call_attempt_count: next } : row))
-    );
+    setRows((prev) => prev.map((row) => (row.id === leadId ? { ...row, call_attempt_count: next } : row)));
   }, []);
 
   /** "+ Attempt" bumps count and last_contact_at together (matches server). */
@@ -543,12 +148,21 @@ export function CrmLeadsList({
     });
   }, [selected, router]);
 
-  const bulkBar =
-    someSelected ? (
-      <div
-        className={`flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-slate-200/90 bg-slate-50/90 text-slate-800 shadow-sm shadow-slate-200/40 ${compact ? "px-3 py-1.5 text-xs" : "px-4 py-2.5 text-sm"}`}
-      >
-        <span className="font-medium text-slate-700">{selected.size} selected</span>
+  const bulkBar = (
+    <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-slate-200/90 bg-white/95 px-4 py-2.5 text-sm shadow-sm shadow-slate-200/40">
+      <label className="flex items-center gap-2 font-medium text-slate-700">
+        <input
+          ref={selectAllRef}
+          type="checkbox"
+          className="h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500/30"
+          checked={allSelected}
+          onChange={toggleAll}
+          disabled={rowIds.length === 0}
+          aria-label="Select all leads"
+        />
+        {someSelected ? `${selected.size} selected` : "Select all"}
+      </label>
+      {someSelected ? (
         <button
           type="button"
           onClick={() => setBulkConfirmOpen(true)}
@@ -556,8 +170,9 @@ export function CrmLeadsList({
         >
           Delete Selected
         </button>
-      </div>
-    ) : null;
+      ) : null}
+    </div>
+  );
 
   const bulkModal = bulkConfirmOpen ? (
     <div
@@ -600,9 +215,6 @@ export function CrmLeadsList({
     </div>
   ) : null;
 
-  const listGrid =
-    "md:grid-cols-[2rem_minmax(11.5rem,1.22fr)_minmax(9.75rem,0.92fr)_minmax(10.25rem,0.72fr)_minmax(9.5rem,0.92fr)_minmax(3.85rem,auto)]";
-
   return (
     <div className="space-y-3">
       {listToast ? (
@@ -617,455 +229,36 @@ export function CrmLeadsList({
           {listToast.message}
         </div>
       ) : null}
-      {bulkBar}
-      <AdminTableCard minWidth="1080px">
-        {employeeOnlyView ? (
-          <div className="text-sm">
-            <div className={`${adminTableHeaderCls} ${hdrPad} md:grid ${listGrid}`}>
-              <div className="flex items-center justify-center">
-                <input
-                  ref={selectAllRef}
-                  type="checkbox"
-                  className={chkClass}
-                  checked={allSelected}
-                  onChange={toggleAll}
-                  disabled={rowIds.length === 0}
-                  aria-label="Select all leads"
-                />
-              </div>
-              <div>Lead</div>
-              <div>Pipeline</div>
-              <div>Engagement</div>
-              <div className="text-right">Contact</div>
-              <div className="text-right">Created</div>
-            </div>
-            {rows.length === 0 ? (
-              <CrmLeadsListEmpty emptyState={emptyState} />
-            ) : (
-              rows.map((r) => {
-                const contact = normalizeContact(r.contacts);
-                const displayName = contactDisplayName(contact, { unknownLabel: "Unknown patient" });
-                const phone = (contact?.primary_phone ?? "").trim();
-                const email = contactEmail(contact);
-                const owner = r.owner_user_id ? staffById.get(r.owner_user_id) : undefined;
-                const credit = leadCreditDisplay(r, producedByAgentNameByUserId, owner);
-                const cid = typeof r.contact_id === "string" ? r.contact_id.trim() : "";
-                const dialE164 = pickOutboundE164ForDial(phone);
-                const keypadHref = dialE164
-                  ? buildWorkspaceKeypadCallHref({
-                      dial: dialE164,
-                      leadId: r.id,
-                      contactId: cid,
-                      contextName: displayName,
-                    })
-                  : null;
-                const existingConv = cid ? smsConversationIdByContactId[cid] : undefined;
-                const smsHref =
-                  cid && pickOutboundE164ForDial(phone)
-                    ? existingConv
-                      ? buildWorkspaceInboxLeadSmsHref({ conversationId: existingConv, leadId: r.id })
-                      : buildWorkspaceSmsToContactHref({ contactId: cid, leadId: r.id })
-                    : null;
-                const emp = parseEmploymentApplicationMeta(r.external_source_metadata);
-                const role = (emp?.position ?? "").trim() || "—";
-                const exp = (emp?.years_experience ?? "").trim() || "—";
-                const resume = (emp?.resume_url ?? "").trim();
-                const nextActionLabel = formatLeadNextActionLabel(r.next_action);
-                const detailHref = buildAdminCrmLeadDetailHref(r.id, leadsListContextHref);
-                const fu = followUpUrgency(r.follow_up_date, todayIso);
-                const lcHuman = lastContactHumanLine(r.last_contact_at, r.last_outcome, todayIso, r.status);
-                const contactStage = contactStageBadgeLabel(r);
 
-                return (
-                  <CrmLeadListRowErrorBoundary key={r.id} leadId={r.id}>
-                  <div
-                    className={`${adminTableRowCls} ${rowPad} ${listGrid} ${leadRowCardClass(r, fu)} ${adminTableRowHoverCls}`}
-                  >
-                    <div className={`flex items-start justify-center ${compact ? "md:pt-0.5" : "pt-0.5 md:pt-1"}`}>
-                      <input
-                        type="checkbox"
-                        className={chkClass}
-                        checked={selected.has(r.id)}
-                        onChange={() => toggleOne(r.id)}
-                        aria-label={`Select lead ${displayName}`}
-                      />
-                    </div>
-                    <div className="min-w-0 space-y-1">
-                      <div className="flex min-w-0 flex-wrap items-center gap-2">
-                        {detailHref ? (
-                          <Link
-                            href={detailHref}
-                            className={`min-w-0 ${nameSz} leading-tight text-slate-900 hover:text-sky-800 hover:underline`}
-                          >
-                            {displayName}
-                          </Link>
-                        ) : (
-                          <span className={`min-w-0 ${nameSz} leading-tight text-rose-800`} title="Invalid lead ID">
-                            {displayName}
-                          </span>
-                        )}
-                        <span
-                          className={`${pillBase} max-w-[min(100%,14rem)] truncate ${contactStage.badgeClass}`}
-                          title={contactStage.label}
-                        >
-                          {contactStage.label}
-                        </span>
-                        {normalizeLeadTemperature(r.lead_temperature ?? null) ? (
-                          <span
-                            className={`${pillBase} shrink-0 ${glanceTemperaturePillClass(normalizeLeadTemperature(r.lead_temperature ?? null)!)}`}
-                            title="Lead priority (triage)"
-                          >
-                            {leadTemperatureLabel(normalizeLeadTemperature(r.lead_temperature ?? null))}
-                          </span>
-                        ) : null}
-                      </div>
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <LeadTypeBadge leadType={r.lead_type} status={r.status} />
-                        <span className="text-[10px] text-slate-500">
-                          {formatLeadSourceLabel(r.source)}
-                          {shouldShowPipelineStatusOnLeadRow(r.status) ? (
-                            <span className="text-slate-400"> · {formatLeadPipelineStatusLabel(r.status)}</span>
-                          ) : null}
-                        </span>
-                      </div>
-                      <LeadRowMobileDialRow compact={compact} keypadHref={keypadHref} smsHref={smsHref} phone={phone} />
-                      <div className="flex flex-wrap items-baseline gap-x-1 gap-y-0 text-[10px] text-slate-600 md:text-[11px]">
-                        <span className="font-medium">{role}</span>
-                        {exp !== "—" ? <span>· {exp}</span> : null}
-                        {(r.referral_source ?? "").trim() ? (
-                          <span className="text-slate-500">· {(r.referral_source ?? "").trim()}</span>
-                        ) : null}
-                        {resume ? (
-                          <>
-                            ·{" "}
-                            <a href={resume} target="_blank" rel="noopener noreferrer" className="font-semibold text-sky-800 underline-offset-2 hover:underline">
-                              Resume
-                            </a>
-                          </>
-                        ) : null}
-                      </div>
-                    </div>
-                    <div className={`min-w-0 ${compact ? "space-y-1 text-[10px] leading-tight text-slate-700" : "space-y-1 text-[11px] leading-snug text-slate-600"}`}>
-                      {compact ? (
-                        <>
-                          <div className="space-y-0.5 text-[10px] leading-snug text-slate-800">
-                            <p>
-                              <span className="text-slate-400">Next:</span>{" "}
-                              {nextActionLabel !== "—" ? nextActionLabel : "None"}
-                              <span className="text-slate-300"> · </span>
-                              <span className="text-slate-400">F/U:</span>{" "}
-                              <span className={followUpValueClass(fu)}>
-                                {formatFollowUpListLabel(r.follow_up_date, r.follow_up_at)}
-                              </span>
-                            </p>
-                            <p>
-                              <span className="text-slate-400">Last:</span>{" "}
-                              <span className={`font-normal ${lastContactToneClass(lcHuman.tone)}`}>{lcHuman.line}</span>
-                              <span className="text-slate-300"> · </span>
-                              <span className="text-slate-400">{credit.label}:</span> {credit.value}
-                            </p>
-                          </div>
-                          <LeadQuickActions compact leadId={r.id} />
-                          <LeadTemperatureQuickSet compact leadId={r.id} value={r.lead_temperature ?? null} />
-                        </>
-                      ) : (
-                        <>
-                          <p className="text-[13px] leading-snug text-slate-900">
-                            <span className="font-normal text-slate-500">Next: </span>
-                            {nextActionLabel !== "—" ? (
-                              <span className="font-semibold text-slate-900">{nextActionLabel}</span>
-                            ) : (
-                              <span className="font-normal text-slate-400">No next action</span>
-                            )}
-                          </p>
-                          <div>
-                            <span className="text-slate-500">Follow-up: </span>
-                            <span className={followUpValueClass(fu)}>{formatFollowUpListLabel(r.follow_up_date, r.follow_up_at)}</span>
-                          </div>
-                          <div className="text-[10px] text-slate-400">
-                            <span className="text-slate-400">Last contact: </span>
-                            <span className={`font-normal ${lastContactToneClass(lcHuman.tone)}`}>{lcHuman.line}</span>
-                          </div>
-                          <div>
-                            <span className="text-slate-500">{credit.label}: </span>
-                            {credit.value}
-                          </div>
-                          <LeadQuickActions leadId={r.id} />
-                          <LeadTemperatureQuickSet leadId={r.id} value={r.lead_temperature ?? null} />
-                        </>
-                      )}
-                    </div>
-                    <LeadListRowEngagementColumn
-                      leadId={r.id}
-                      row={r}
-                      compact={compact}
-                      onIncrementCommitted={patchLeadAfterAttemptBump}
-                      onCountCommitted={patchLeadCallAttemptCount}
-                      onToast={setListToast}
-                    />
-                    <div className={`flex min-w-0 flex-col md:items-end ${compact ? "gap-1" : "gap-2"}`}>
-                      <CompactContactLines dense={compact} phoneDisplay={phone ? formatPhoneForDisplay(phone) : null} email={email || null} />
-                      <LeadActionButtonRow
-                        compact={compact}
-                        leadId={r.id}
-                        phone={phone}
-                        keypadHref={keypadHref}
-                        smsHref={smsHref}
-                        leadsListContextHref={leadsListContextHref}
-                      />
-                    </div>
-                    <div
-                      className={`text-right tabular-nums text-slate-500 ${compact ? "text-[10px] leading-tight md:max-w-none" : "whitespace-nowrap text-[11px] md:pt-1"}`}
-                    >
-                      {(() => {
-                        const c = relativeCreatedParts(r.created_at);
-                        return (
-                          <span title={c.full} suppressHydrationWarning>
-                            {compact ? c.short : c.full}
-                          </span>
-                        );
-                      })()}
-                    </div>
-                  </div>
-                  </CrmLeadListRowErrorBoundary>
-                );
-              })
-            )}
-          </div>
-        ) : (
-          <div className="text-sm">
-            <div className={`${adminTableHeaderCls} ${hdrPad} md:grid ${listGrid}`}>
-              <div className="flex items-center justify-center">
-                <input
-                  ref={selectAllRef}
-                  type="checkbox"
-                  className={chkClass}
-                  checked={allSelected}
-                  onChange={toggleAll}
-                  disabled={rowIds.length === 0}
-                  aria-label="Select all leads"
+      {rows.length === 0 ? (
+        <CrmLeadsListEmpty emptyState={emptyState} />
+      ) : (
+        <>
+          {bulkBar}
+          <div className="space-y-3">
+            {rows.map((r) => (
+              <CrmLeadListRowErrorBoundary key={r.id} leadId={r.id}>
+                <CrmLeadCard
+                  row={r}
+                  employeeOnlyView={employeeOnlyView}
+                  compact={compact}
+                  selected={selected.has(r.id)}
+                  onToggleSelect={toggleOne}
+                  todayIso={todayIso}
+                  leadsListContextHref={leadsListContextHref}
+                  staffById={staffById}
+                  producedByAgentNameByUserId={producedByAgentNameByUserId}
+                  smsConversationIdByContactId={smsConversationIdByContactId}
+                  onIncrementCommitted={patchLeadAfterAttemptBump}
+                  onCountCommitted={patchLeadCallAttemptCount}
+                  onToast={setListToast}
                 />
-              </div>
-              <div>Lead</div>
-              <div>Pipeline</div>
-              <div>Engagement</div>
-              <div className="text-right">Contact</div>
-              <div className="text-right">Created</div>
-            </div>
-            {rows.length === 0 ? (
-              <CrmLeadsListEmpty emptyState={emptyState} />
-            ) : (
-              rows.map((r) => {
-                const contact = normalizeContact(r.contacts);
-                const displayName = contactDisplayName(contact, { unknownLabel: "Unknown patient" });
-                const phone = (contact?.primary_phone ?? "").trim();
-                const email = contactEmail(contact);
-                const owner = r.owner_user_id ? staffById.get(r.owner_user_id) : undefined;
-                const credit = leadCreditDisplay(r, producedByAgentNameByUserId, owner);
-                const cid = typeof r.contact_id === "string" ? r.contact_id.trim() : "";
-                const dialE164 = pickOutboundE164ForDial(phone);
-                const keypadHref = dialE164
-                  ? buildWorkspaceKeypadCallHref({
-                      dial: dialE164,
-                      leadId: r.id,
-                      contactId: cid,
-                      contextName: displayName,
-                    })
-                  : null;
-                const existingConv = cid ? smsConversationIdByContactId[cid] : undefined;
-                const smsHref =
-                  cid && pickOutboundE164ForDial(phone)
-                    ? existingConv
-                      ? buildWorkspaceInboxLeadSmsHref({ conversationId: existingConv, leadId: r.id })
-                      : buildWorkspaceSmsToContactHref({ contactId: cid, leadId: r.id })
-                    : null;
-                const isEmployee = r.lead_type === "employee";
-                const emp = parseEmploymentApplicationMeta(r.external_source_metadata);
-                const role = (emp?.position ?? "").trim();
-                const exp = (emp?.years_experience ?? "").trim();
-                const resume = (emp?.resume_url ?? "").trim();
-                const detailHref = buildAdminCrmLeadDetailHref(r.id, leadsListContextHref);
-                const nextActionLabel = formatLeadNextActionLabel(r.next_action);
-                const fu = followUpUrgency(r.follow_up_date, todayIso);
-                const lcHuman = lastContactHumanLine(r.last_contact_at, r.last_outcome, todayIso, r.status);
-                const contactStage = contactStageBadgeLabel(r);
-
-                return (
-                  <CrmLeadListRowErrorBoundary key={r.id} leadId={r.id}>
-                  <div
-                    className={`${adminTableRowCls} ${rowPad} ${listGrid} ${leadRowCardClass(r, fu)} ${adminTableRowHoverCls}`}
-                  >
-                    <div className={`flex items-start justify-center ${compact ? "md:pt-0.5" : "pt-0.5 md:pt-1"}`}>
-                      <input
-                        type="checkbox"
-                        className={chkClass}
-                        checked={selected.has(r.id)}
-                        onChange={() => toggleOne(r.id)}
-                        aria-label={`Select lead ${displayName}`}
-                      />
-                    </div>
-                    <div className="min-w-0 space-y-1">
-                      <div className="flex min-w-0 flex-wrap items-center gap-2">
-                        {detailHref ? (
-                          <Link
-                            href={detailHref}
-                            className={`min-w-0 ${nameSz} leading-tight text-slate-900 hover:text-sky-800 hover:underline`}
-                          >
-                            {displayName}
-                          </Link>
-                        ) : (
-                          <span className={`min-w-0 ${nameSz} leading-tight text-rose-800`} title="Invalid lead ID">
-                            {displayName}
-                          </span>
-                        )}
-                        <span
-                          className={`${pillBase} max-w-[min(100%,14rem)] truncate ${contactStage.badgeClass}`}
-                          title={contactStage.label}
-                        >
-                          {contactStage.label}
-                        </span>
-                        {normalizeLeadTemperature(r.lead_temperature ?? null) ? (
-                          <span
-                            className={`${pillBase} shrink-0 ${glanceTemperaturePillClass(normalizeLeadTemperature(r.lead_temperature ?? null)!)}`}
-                            title="Lead priority (triage)"
-                          >
-                            {leadTemperatureLabel(normalizeLeadTemperature(r.lead_temperature ?? null))}
-                          </span>
-                        ) : null}
-                        {!isEmployee && r.waiting_on_doctors_orders === true ? (
-                          <span
-                            className={`${pillBase} max-w-[min(100%,18rem)] bg-rose-600 ${compact ? "px-1.5 py-[1px] text-[8px]" : "px-2 py-1 text-[10px]"} font-extrabold uppercase tracking-wide text-white shadow-md ring-2 ring-rose-300`}
-                            title="Unsigned physician orders — do not schedule"
-                          >
-                            WAITING ON DOCTOR&apos;S ORDERS
-                          </span>
-                        ) : null}
-                        {!isEmployee && r.waiting_on_insurance_verification === true ? (
-                          <span
-                            className={`${pillBase} max-w-[min(100%,22rem)] border border-amber-600/90 bg-amber-200/90 ${compact ? "px-1.5 py-[1px] text-[8px]" : "px-2 py-1 text-[10px]"} font-extrabold uppercase tracking-wide text-amber-950 shadow-sm ring-2 ring-amber-400/80`}
-                            title="Insurance eligibility or benefits verification pending"
-                          >
-                            {LEAD_HOLD_WAITING_ON_INSURANCE_VERIFICATION.badgeText}
-                          </span>
-                        ) : null}
-                      </div>
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <LeadTypeBadge leadType={r.lead_type} status={r.status} />
-                        <span className="text-[10px] text-slate-500">
-                          {formatLeadSourceLabel(r.source)}
-                          {shouldShowPipelineStatusOnLeadRow(r.status) ? (
-                            <span className="text-slate-400"> · {formatLeadPipelineStatusLabel(r.status)}</span>
-                          ) : null}
-                        </span>
-                      </div>
-                      <LeadRowMobileDialRow compact={compact} keypadHref={keypadHref} smsHref={smsHref} phone={phone} />
-                      {isEmployee ? (
-                        <div className="flex flex-wrap items-baseline gap-x-1 gap-y-0 text-[10px] text-slate-600 md:text-[11px]">
-                          <span className="font-medium">{role || "—"}</span>
-                          {exp ? <span>· {exp}</span> : null}
-                          {(r.referral_source ?? "").trim() ? (
-                            <span className="text-slate-500">· {(r.referral_source ?? "").trim()}</span>
-                          ) : null}
-                          {resume ? (
-                            <>
-                              ·{" "}
-                              <a href={resume} target="_blank" rel="noopener noreferrer" className="font-semibold text-sky-800 underline-offset-2 hover:underline">
-                                Resume
-                              </a>
-                            </>
-                          ) : null}
-                        </div>
-                      ) : null}
-                    </div>
-                    <div className={`min-w-0 ${compact ? "space-y-1 text-[10px] leading-tight text-slate-700" : "space-y-1 text-[11px] leading-snug text-slate-600"}`}>
-                      {compact ? (
-                        <>
-                          <div className="space-y-0.5 text-[10px] leading-snug text-slate-800">
-                            <p>
-                              <span className="text-slate-400">Next:</span>{" "}
-                              {nextActionLabel !== "—" ? nextActionLabel : "None"}
-                              <span className="text-slate-300"> · </span>
-                              <span className="text-slate-400">F/U:</span>{" "}
-                              <span className={followUpValueClass(fu)}>
-                                {formatFollowUpListLabel(r.follow_up_date, r.follow_up_at)}
-                              </span>
-                            </p>
-                            <p>
-                              <span className="text-slate-400">Last:</span>{" "}
-                              <span className={`font-normal ${lastContactToneClass(lcHuman.tone)}`}>{lcHuman.line}</span>
-                              <span className="text-slate-300"> · </span>
-                              <span className="text-slate-400">{credit.label}:</span> {credit.value}
-                            </p>
-                          </div>
-                          <LeadQuickActions compact leadId={r.id} />
-                          <LeadTemperatureQuickSet compact leadId={r.id} value={r.lead_temperature ?? null} />
-                        </>
-                      ) : (
-                        <>
-                          <p className="text-[13px] leading-snug text-slate-900">
-                            <span className="font-normal text-slate-500">Next: </span>
-                            {nextActionLabel !== "—" ? (
-                              <span className="font-semibold text-slate-900">{nextActionLabel}</span>
-                            ) : (
-                              <span className="font-normal text-slate-400">No next action</span>
-                            )}
-                          </p>
-                          <div>
-                            <span className="text-slate-500">Follow-up: </span>
-                            <span className={followUpValueClass(fu)}>{formatFollowUpListLabel(r.follow_up_date, r.follow_up_at)}</span>
-                          </div>
-                          <div className="text-[10px] text-slate-400">
-                            <span className="text-slate-400">Last contact: </span>
-                            <span className={`font-normal ${lastContactToneClass(lcHuman.tone)}`}>{lcHuman.line}</span>
-                          </div>
-                          <div>
-                            <span className="text-slate-500">{credit.label}: </span>
-                            {credit.value}
-                          </div>
-                          <LeadQuickActions leadId={r.id} />
-                          <LeadTemperatureQuickSet leadId={r.id} value={r.lead_temperature ?? null} />
-                        </>
-                      )}
-                    </div>
-                    <LeadListRowEngagementColumn
-                      leadId={r.id}
-                      row={r}
-                      compact={compact}
-                      onIncrementCommitted={patchLeadAfterAttemptBump}
-                      onCountCommitted={patchLeadCallAttemptCount}
-                      onToast={setListToast}
-                    />
-                    <div className={`flex min-w-0 flex-col md:items-end ${compact ? "gap-1" : "gap-2"}`}>
-                      <CompactContactLines dense={compact} phoneDisplay={phone ? formatPhoneForDisplay(phone) : null} email={email || null} />
-                      <LeadActionButtonRow
-                        compact={compact}
-                        leadId={r.id}
-                        phone={phone}
-                        keypadHref={keypadHref}
-                        smsHref={smsHref}
-                        leadsListContextHref={leadsListContextHref}
-                      />
-                    </div>
-                    <div
-                      className={`text-right tabular-nums text-slate-500 ${compact ? "text-[10px] leading-tight md:max-w-none" : "whitespace-nowrap text-[11px] md:pt-1"}`}
-                    >
-                      {(() => {
-                        const c = relativeCreatedParts(r.created_at);
-                        return (
-                          <span title={c.full} suppressHydrationWarning>
-                            {compact ? c.short : c.full}
-                          </span>
-                        );
-                      })()}
-                    </div>
-                  </div>
-                  </CrmLeadListRowErrorBoundary>
-                );
-              })
-            )}
+              </CrmLeadListRowErrorBoundary>
+            ))}
           </div>
-        )}
-      </AdminTableCard>
+        </>
+      )}
+
       {bulkModal}
     </div>
   );

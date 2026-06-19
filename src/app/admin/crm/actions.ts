@@ -3413,6 +3413,60 @@ export async function quickSetLeadTemperature(formData: FormData): Promise<CrmLe
   return { ok: true };
 }
 
+/** List view: quick-set the next follow-up date/time (`follow_up_date` + `follow_up_at`). Does not log a contact attempt. */
+export async function quickSetLeadFollowUp(formData: FormData): Promise<CrmLeadListQuickActionResult> {
+  const staff = await getStaffProfile();
+  if (!staff || !isManagerOrHigher(staff)) {
+    return { ok: false, error: "forbidden" };
+  }
+  const leadId = readTrimmedField(formData, "leadId");
+  if (!leadId) {
+    return { ok: false, error: "invalid_lead" };
+  }
+  const followUpAt = readIsoInstantFromForm(formData, "follow_up_at_iso");
+  if (!followUpAt || Number.isNaN(followUpAt.getTime())) {
+    return { ok: false, error: "invalid_lead" };
+  }
+
+  const { data: prevRow } = await leadRowsActiveOnly(
+    supabaseAdmin.from("leads").select("follow_up_date").eq("id", leadId)
+  ).maybeSingle();
+
+  const { error } = await supabaseAdmin
+    .from("leads")
+    .update({
+      follow_up_date: getCrmCalendarDateIsoFromInstant(followUpAt),
+      follow_up_at: followUpAt.toISOString(),
+    })
+    .eq("id", leadId)
+    .is("deleted_at", null);
+
+  if (error) {
+    console.warn("[admin/crm] quickSetLeadFollowUp:", error.message);
+    return { ok: false, error: "save_failed" };
+  }
+
+  await insertLeadActivityRow({
+    leadId,
+    eventType: LEAD_ACTIVITY_EVENT.follow_up_changed,
+    body: `Follow-up changed from ${formatFollowUpDate(
+      typeof prevRow?.follow_up_date === "string" ? prevRow.follow_up_date : null
+    )} to ${formatFollowUpDate(getCrmCalendarDateIsoFromInstant(followUpAt))}`,
+    metadata: {
+      before: typeof prevRow?.follow_up_date === "string" ? prevRow.follow_up_date : null,
+      after: followUpAt.toISOString(),
+    },
+    createdByUserId: staff.user_id,
+  });
+
+  revalidatePath("/admin");
+  revalidatePath("/admin/crm/leads");
+  revalidatePath(`/admin/crm/leads/${leadId}`);
+  revalidatePath("/workspace/phone/leads");
+  revalidatePath("/workspace/phone/chat");
+  return { ok: true };
+}
+
 export async function createPatientManualFromCrm(formData: FormData) {
   const staff = await getStaffProfile();
   if (!staff || !isManagerOrHigher(staff)) {

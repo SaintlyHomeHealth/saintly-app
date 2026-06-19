@@ -6,11 +6,13 @@ import { softDeleteLead } from "@/app/admin/crm/actions";
 
 type Props = {
   leadId: string;
-  /** Table row: compact text link. Detail page: slightly larger. Inline: pill in CRM row action group. tableInlineSubtle: muted outline in dense toolbars. tableInlineGhost: minimal text control in compact rows. */
-  variant?: "table" | "tableInline" | "tableInlineSubtle" | "tableInlineGhost" | "detail";
+  /** Table row: compact text link. Detail page: slightly larger. Inline: pill in CRM row action group. tableInlineSubtle: muted outline in dense toolbars. tableInlineGhost: minimal text control in compact rows. menu: full-width item inside a dropdown menu. */
+  variant?: "table" | "tableInline" | "tableInlineSubtle" | "tableInlineGhost" | "menu" | "detail";
+  /** Notify parent (e.g. close the dropdown menu) when the confirm dialog is opened. */
+  onRequestOpen?: () => void;
 };
 
-export function LeadDeleteButton({ leadId, variant = "table" }: Props) {
+export function LeadDeleteButton({ leadId, variant = "table", onRequestOpen }: Props) {
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
 
@@ -23,7 +25,9 @@ export function LeadDeleteButton({ leadId, variant = "table" }: Props) {
           ? "inline-flex items-center justify-center rounded-md border border-rose-200/70 bg-white px-2 py-1 text-[10px] font-medium text-rose-700/85 shadow-none transition hover:border-rose-300/80 hover:bg-rose-50/60"
           : variant === "tableInlineGhost"
             ? "inline-flex items-center justify-center rounded px-0.5 py-px text-[9px] font-normal text-slate-500 underline-offset-2 transition hover:bg-slate-100 hover:text-slate-700 hover:underline"
-            : "rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-900 hover:bg-rose-100";
+            : variant === "menu"
+              ? "flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-rose-700 transition hover:bg-rose-50"
+              : "rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-900 hover:bg-rose-100";
 
   const confirm = () => {
     const fd = new FormData();
@@ -35,7 +39,14 @@ export function LeadDeleteButton({ leadId, variant = "table" }: Props) {
 
   return (
     <>
-      <button type="button" onClick={() => setOpen(true)} className={btnCls}>
+      <button
+        type="button"
+        onClick={() => {
+          onRequestOpen?.();
+          setOpen(true);
+        }}
+        className={btnCls}
+      >
         Delete
       </button>
       {open ? (
