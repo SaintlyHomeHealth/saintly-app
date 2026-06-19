@@ -1,5 +1,6 @@
 export const REQUIRED_ONBOARDING_DOCUMENT_TYPES = [
   "resume",
+  "headshot",
   "drivers_license",
   "fingerprint_clearance_card",
   "social_security_card",
@@ -184,6 +185,11 @@ export function getOnboardingDocumentChecklist(input: {
 
   return [
     { key: "resume", label: "Resume", complete: hasResume },
+    {
+      key: "headshot",
+      label: "Professional Headshot",
+      complete: input.documentKeys.has("headshot"),
+    },
     {
       key: "drivers_license",
       label: "Driver’s License",

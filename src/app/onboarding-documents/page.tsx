@@ -3,11 +3,16 @@
 import { Suspense, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import ApplicantFileUpload from '../../components/ApplicantFileUpload'
+import ApplicantHeadshotUpload from '../../components/ApplicantHeadshotUpload'
 import OnboardingAdminPreviewClient from '../../components/OnboardingAdminPreviewClient'
 import OnboardingApplicantFromQuery from '../../components/OnboardingApplicantFromQuery'
 import OnboardingProgressSync from '../../components/OnboardingProgressSync'
 import OnboardingApplicantIdentity from '../../components/OnboardingApplicantIdentity'
 import { applicantRolePrimaryForCompliance } from '@/lib/applicant-role-for-compliance'
+import {
+  HEADSHOT_UPLOAD_HELPER_TEXT,
+  HEADSHOT_UPLOAD_LABEL,
+} from '@/lib/employee-headshot'
 import {
   buildOnboardingPortalStatus,
   ONBOARDING_PORTAL_FORMS_SELECT,
@@ -51,14 +56,124 @@ type TbFormData = {
   signedDate: string
 }
 
-const documentChecklist = [
-  { documentType: 'resume', label: 'Resume', required: true, description: 'Upload your most current resume.' },
-  { documentType: 'drivers_license', label: "Driver's License", required: true, description: 'Upload a clear copy of your driver’s license.' },
-  { documentType: 'fingerprint_clearance_card', label: 'AZ Fingerprint Clearance Card', required: true, description: 'Upload a clear copy of your Arizona Fingerprint Clearance Card.' },
-  { documentType: 'social_security_card', label: 'Social Security Card', required: true, description: 'Upload a copy of your Social Security card.' },
-  { documentType: 'cpr_front', label: 'CPR Card', required: true, description: 'Upload your current CPR certification card.' },
-  { documentType: 'tb_test', label: 'TB Test', required: true, description: 'Upload your TB test or TB clearance documentation.' },
+type DocumentChecklistItem = {
+  documentType: string
+  label: string
+  required: boolean
+  description: string
+  isHeadshot?: boolean
+}
+
+const resumeDocument: DocumentChecklistItem = {
+  documentType: 'resume',
+  label: 'Resume',
+  required: true,
+  description: 'Upload your most current resume.',
+}
+
+const identityVerificationChecklist: DocumentChecklistItem[] = [
+  {
+    documentType: 'headshot',
+    label: HEADSHOT_UPLOAD_LABEL,
+    required: true,
+    description: HEADSHOT_UPLOAD_HELPER_TEXT,
+    isHeadshot: true,
+  },
+  {
+    documentType: 'drivers_license',
+    label: "Driver's License",
+    required: true,
+    description: 'Upload a clear copy of your driver’s license.',
+  },
 ]
+
+const additionalDocumentChecklist: DocumentChecklistItem[] = [
+  {
+    documentType: 'fingerprint_clearance_card',
+    label: 'AZ Fingerprint Clearance Card',
+    required: true,
+    description: 'Upload a clear copy of your Arizona Fingerprint Clearance Card.',
+  },
+  {
+    documentType: 'social_security_card',
+    label: 'Social Security Card',
+    required: true,
+    description: 'Upload a copy of your Social Security card.',
+  },
+  {
+    documentType: 'cpr_front',
+    label: 'CPR Card',
+    required: true,
+    description: 'Upload your current CPR certification card.',
+  },
+  {
+    documentType: 'tb_test',
+    label: 'TB Test',
+    required: true,
+    description: 'Upload your TB test or TB clearance documentation.',
+  },
+]
+
+function renderDocumentUploadCard(
+  doc: DocumentChecklistItem,
+  applicantId: string,
+  isUploaded: boolean,
+  onUploadComplete: () => void
+) {
+  return (
+    <article key={doc.documentType} className={`shh-doc-card ${isUploaded ? 'is-uploaded' : ''}`}>
+      <div className="shh-doc-main">
+        <div className="shh-doc-copy-wrap">
+          <div className="shh-doc-meta">
+            <span className="shh-doc-type">Required Document</span>
+            <span className="shh-doc-category">
+              {doc.isHeadshot || doc.documentType === 'drivers_license'
+                ? 'Identity Verification'
+                : 'Onboarding Packet'}
+            </span>
+            {isUploaded ? <span className="shh-doc-complete">Uploaded</span> : null}
+          </div>
+
+          <h2 className="shh-doc-title">
+            {doc.label} {doc.required ? <span className="shh-required">*</span> : null}
+          </h2>
+
+          <p className="shh-doc-copy">{doc.description}</p>
+
+          <p className="shh-doc-status-text">
+            Status: {isUploaded ? 'Uploaded and ready for review' : 'Missing'}
+          </p>
+        </div>
+
+        <div className="shh-doc-action-card">
+          <div className={`shh-status-pill ${isUploaded ? 'is-uploaded' : 'is-missing'}`}>
+            {isUploaded ? 'Uploaded' : 'Missing'}
+          </div>
+
+          <div className="shh-upload-wrap">
+            {doc.isHeadshot ? (
+              <ApplicantHeadshotUpload
+                applicantId={applicantId}
+                required={doc.required}
+                onUploadComplete={onUploadComplete}
+              />
+            ) : (
+              <ApplicantFileUpload
+                applicantId={applicantId}
+                documentType={doc.documentType}
+                label={doc.label}
+                required={doc.required}
+                showAcceptedFormatsHint
+                onUploadComplete={onUploadComplete}
+                onUploadSuccess={onUploadComplete}
+              />
+            )}
+          </div>
+        </div>
+      </div>
+    </article>
+  )
+}
 
 const defaultTbForm: TbFormData = {
   positiveTestOrInfection: '',
@@ -1993,57 +2108,47 @@ export default function OnboardingDocumentsPage() {
                   </div>
                 </article>
 
-                {documentChecklist.map((doc) => {
-                  const isUploaded = uploadedDocs.includes(doc.documentType)
+                {renderDocumentUploadCard(
+                  resumeDocument,
+                  applicantId,
+                  uploadedDocs.includes(resumeDocument.documentType),
+                  () => fetchUploadedDocs(applicantId)
+                )}
 
-                  return (
-                    <article
-                      key={doc.documentType}
-                      className={`shh-doc-card ${isUploaded ? 'is-uploaded' : ''}`}
-                    >
-                      <div className="shh-doc-main">
-                        <div className="shh-doc-copy-wrap">
-                          <div className="shh-doc-meta">
-                            <span className="shh-doc-type">Required Document</span>
-                            <span className="shh-doc-category">Onboarding Packet</span>
-                            {isUploaded ? (
-                              <span className="shh-doc-complete">Uploaded</span>
-                            ) : null}
-                          </div>
-
-                          <h2 className="shh-doc-title">
-                            {doc.label}{' '}
-                            {doc.required ? <span className="shh-required">*</span> : null}
-                          </h2>
-
-                          <p className="shh-doc-copy">{doc.description}</p>
-
-                          <p className="shh-doc-status-text">
-                            Status: {isUploaded ? 'Uploaded and ready for review' : 'Missing'}
-                          </p>
-                        </div>
-
-                        <div className="shh-doc-action-card">
-                          <div className={`shh-status-pill ${isUploaded ? 'is-uploaded' : 'is-missing'}`}>
-                            {isUploaded ? 'Uploaded' : 'Missing'}
-                          </div>
-
-                          <div className="shh-upload-wrap">
-                            <ApplicantFileUpload
-                              applicantId={applicantId}
-                              documentType={doc.documentType}
-                              label={doc.label}
-                              required={doc.required}
-                              showAcceptedFormatsHint
-                              onUploadComplete={() => fetchUploadedDocs(applicantId)}
-                              onUploadSuccess={() => fetchUploadedDocs(applicantId)}
-                            />
-                          </div>
-                        </div>
+                <article className="shh-doc-card shh-doc-card--section">
+                  <div className="shh-doc-main">
+                    <div className="shh-doc-copy-wrap">
+                      <div className="shh-doc-meta">
+                        <span className="shh-doc-type">Identity Verification</span>
+                        <span className="shh-doc-category">Badge &amp; Background Check</span>
                       </div>
-                    </article>
+                      <h2 className="shh-doc-title">Identity Verification</h2>
+                      <p className="shh-doc-copy">
+                        Upload your professional headshot and driver&apos;s license. These support
+                        identity verification, background check processing, and your Saintly employee
+                        badge.
+                      </p>
+                    </div>
+                  </div>
+                </article>
+
+                {identityVerificationChecklist.map((doc) =>
+                  renderDocumentUploadCard(
+                    doc,
+                    applicantId,
+                    uploadedDocs.includes(doc.documentType),
+                    () => fetchUploadedDocs(applicantId)
                   )
-                })}
+                )}
+
+                {additionalDocumentChecklist.map((doc) =>
+                  renderDocumentUploadCard(
+                    doc,
+                    applicantId,
+                    uploadedDocs.includes(doc.documentType),
+                    () => fetchUploadedDocs(applicantId)
+                  )
+                )}
 
                 {optionalDocumentChecklist.length > 0 ? (
                   <article className="shh-doc-card">

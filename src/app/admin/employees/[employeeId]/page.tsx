@@ -80,6 +80,16 @@ import EmployeeDocumentsComplianceDashboard, {
   type InitialHiringRowDef,
   type OngoingComplianceRowDef,
 } from "./employee-documents-compliance-dashboard";
+import EmployeeBadgeCard from "./EmployeeBadgeCard";
+import {
+  EmployeeHeadshotAdminProvider,
+} from "./employee-headshot-admin-context";
+import { EmployeeAdminSnapshotIdentityColumn } from "./EmployeeHeadshotAdminAvatar";
+import {
+  HEADSHOT_COMPLETE_STATUS,
+  HEADSHOT_MISSING_STATUS,
+  HEADSHOT_UPLOAD_LABEL,
+} from "@/lib/employee-headshot";
 
 type ComplianceEvent = {
   id: string;
@@ -949,6 +959,7 @@ export default async function EmployeeDetailPage({
   );
   const canChangeSensitiveEmployeeStatus = isAdminOrHigher(staffProfileForActions);
   const canUsePdfSign = isManagerOrHigher(staffProfileForActions);
+  const canManageEmployeeDocuments = Boolean(staffProfileForActions);
 
   async function updateEmployeeStatus(formData: FormData) {
     "use server";
@@ -2046,6 +2057,10 @@ export default async function EmployeeDetailPage({
     adminUploadRecords,
     "drivers_license"
   );
+  const latestHeadshotProof = getLatestApplicantUploadByCanonicalType(
+    adminUploadRecords,
+    "headshot"
+  );
   const latestResumeProof = getLatestApplicantUploadByCanonicalType(adminUploadRecords, "resume");
   const latestSocialSecurityCardProof = getLatestApplicantUploadByCanonicalType(
     adminUploadRecords,
@@ -2328,6 +2343,8 @@ export default async function EmployeeDetailPage({
   const isOigComplete = isComplianceRequirementComplete(effectiveOigEvent, null);
   const isOigSurveyPacketSatisfied = hasOigProofOnFile || isOigComplete;
   const hasBackgroundCheck = uploadedDocumentTypes.has("background_check");
+  const hasHeadshot =
+    uploadedDocumentTypes.has("headshot") || Boolean(latestHeadshotProof);
   const hasSocialSecurityCard =
     portalStatus.documentItems.find((item) => item.key === "social_security_card")?.complete === true;
   const hasResumeOnFile =
@@ -2496,11 +2513,13 @@ export default async function EmployeeDetailPage({
     !hasHepatitisBDeclination ? "Hepatitis B Vaccine Declination" : null,
     !hasTbRiskAssessment ? "TB Risk Assessment" : null,
     !hasResumeOnFile ? "Resume" : null,
+    !hasHeadshot ? "Professional Headshot" : null,
     !hasSocialSecurityCard ? "Social Security Card" : null,
     !isSkillsComplete ? "Skills Competency" : null,
     !hasTbDocumentation ? "TB Test" : null,
     !isOigSurveyPacketSatisfied ? "OIG" : null,
     !hasBackgroundCheck ? "Background Check" : null,
+    !hasHeadshot ? "Professional Headshot" : null,
     !isTaxFormSigned ? "Tax Form" : null,
     !hasCprCard ? "CPR Card" : null,
     !hasDriversLicense ? "Driver’s License" : null,
@@ -2772,6 +2791,7 @@ export default async function EmployeeDetailPage({
     isOigComplete,
     hasOigProofOnFile,
     hasBackgroundCheck,
+    hasHeadshot,
     requiresCpr,
     hasCprCard,
     requiresDriversLicense,
@@ -2824,11 +2844,13 @@ export default async function EmployeeDetailPage({
     latestTbViewUrl: (latestTbTestProof as AdminUploadRecord | null)?.viewUrl ?? null,
     latestOigViewUrl: (latestOigProof as AdminUploadRecord | null)?.viewUrl ?? null,
     latestBackgroundCheckViewUrl: (latestBackgroundCheckProof as AdminUploadRecord | null)?.viewUrl ?? null,
+    latestHeadshotViewUrl: (latestHeadshotProof as AdminUploadRecord | null)?.viewUrl ?? null,
     getAdminWorkAreaUrl,
   });
 
   const hasInitialDriversLicenseUpload =
     uploadedDocumentTypes.has("drivers_license") || Boolean(latestDriversLicenseProof);
+  const hasInitialHeadshotUpload = hasHeadshot;
   const hasInitialResumeUpload = hasResumeOnFile;
   const hasInitialCprUpload = requiresCpr ? hasCprCard : Boolean(latestCprProof);
   const hasInitialSocialSecurityCardUpload = hasSocialSecurityCard;
@@ -2840,6 +2862,13 @@ export default async function EmployeeDetailPage({
 
   const driversLicenseHistory = adminUploadRecords
     .filter((file) => (file.document_type || "").toLowerCase().trim() === "drivers_license")
+    .slice()
+    .sort(
+      (a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+    );
+
+  const headshotHistory = adminUploadRecords
+    .filter((file) => normalizePersonnelFileDocumentKey(file.document_type) === "headshot")
     .slice()
     .sort(
       (a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
@@ -2887,6 +2916,13 @@ export default async function EmployeeDetailPage({
     .sort(
       (a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
     );
+
+  const badgeReady = hasHeadshot && hasDriversLicense;
+  const headshotAdminViewUrl =
+    (latestHeadshotProof as AdminUploadRecord | null)?.viewUrl ?? null;
+
+  const headshotNeedsReview =
+    hasInitialHeadshotUpload && (employee.status || "").toLowerCase() === "onboarding";
 
   const documentsComplianceInitialHiring: InitialHiringRowDef[] = [
     {
@@ -3074,6 +3110,7 @@ export default async function EmployeeDetailPage({
       anchorId: "background-section",
       history: buildAdminUploadHistoryDisplay(backgroundCheckHistory),
       workflowOpenHref: getAdminWorkAreaUrl("documents"),
+      portalHref: `/onboarding-documents?applicant=${encodeURIComponent(employeeId)}`,
       fileRecordId: (latestBackgroundCheckProof as AdminUploadRecord | null)?.id ?? null,
       fileRecordSource: (latestBackgroundCheckProof as AdminUploadRecord | null)?.source ?? null,
     },
@@ -3097,6 +3134,34 @@ export default async function EmployeeDetailPage({
       workflowOpenHref: getAdminWorkAreaUrl("documents"),
       fileRecordId: (latestProfessionalLicenseProof as AdminUploadRecord | null)?.id ?? null,
       fileRecordSource: (latestProfessionalLicenseProof as AdminUploadRecord | null)?.source ?? null,
+    },
+    {
+      key: "headshot",
+      itemType: "document",
+      label: HEADSHOT_UPLOAD_LABEL,
+      statusLabel: hasInitialHeadshotUpload
+        ? headshotNeedsReview
+          ? "Needs review"
+          : HEADSHOT_COMPLETE_STATUS
+        : HEADSHOT_MISSING_STATUS,
+      statusTone: hasInitialHeadshotUpload
+        ? headshotNeedsReview
+          ? "amber"
+          : "green"
+        : "red",
+      lastUpdatedDisplay: latestHeadshotProof?.created_at
+        ? formatDateTime(latestHeadshotProof.created_at)
+        : "—",
+      viewUrl: headshotAdminViewUrl,
+      downloadUrl: getInternalDocumentDownloadHref(latestHeadshotProof as AdminUploadRecord | null),
+      documentType: "headshot",
+      uploadLabel: HEADSHOT_UPLOAD_LABEL,
+      anchorId: "headshot-section",
+      history: buildAdminUploadHistoryDisplay(headshotHistory),
+      workflowOpenHref: getAdminWorkAreaUrl("documents"),
+      portalHref: `/onboarding-documents?applicant=${encodeURIComponent(employeeId)}`,
+      fileRecordId: (latestHeadshotProof as AdminUploadRecord | null)?.id ?? null,
+      fileRecordSource: (latestHeadshotProof as AdminUploadRecord | null)?.source ?? null,
     },
     {
       key: "drivers-license-initial",
@@ -3546,19 +3611,31 @@ export default async function EmployeeDetailPage({
         </div>
       ) : null}
 
+      <EmployeeHeadshotAdminProvider
+        employeeId={employeeId}
+        displayName={displayName}
+        initialHeadshotViewUrl={headshotAdminViewUrl}
+        initialHasHeadshot={hasHeadshot}
+        canManageDocuments={canManageEmployeeDocuments}
+        hasDriversLicense={hasDriversLicense}
+      >
       <EmployeeAdminSnapshotStrip
-        name={displayName}
-        roleLine={roleLine}
-        statusLabel={employeeStatusMeta.label}
-        statusBadgeClass={employeeStatusMeta.badgeClass}
+        identityContent={
+          <EmployeeAdminSnapshotIdentityColumn
+            name={displayName}
+            roleLine={roleLine}
+            statusLabel={employeeStatusMeta.label}
+            statusBadgeClass={employeeStatusMeta.badgeClass}
+            email={employee.email || "—"}
+            phone={phoneDisplay}
+            hireDateLabel={hireDateLabel}
+            hireDateDisplay={hireDateDisplay}
+          />
+        }
         readinessSummaryLine={onboardingSummaryLine}
         activationBlockerSummary={
           activationBlockingReasons.length > 0 ? activationBlockingReasons.join("; ") : null
         }
-        email={employee.email || "—"}
-        phone={phoneDisplay}
-        hireDateLabel={hireDateLabel}
-        hireDateDisplay={hireDateDisplay}
       >
                   <form action={updateEmployeeStatus}>
                     <input type="hidden" name="status" value="onboarding" />
@@ -3927,6 +4004,10 @@ export default async function EmployeeDetailPage({
         </div>
 
         <div className="mt-3">
+          <EmployeeBadgeCard roleLine={roleLine} />
+        </div>
+
+        <div className="mt-3">
           <EmployeeDocumentsComplianceDashboard
             employeeId={employeeId}
             initialHiring={documentsComplianceInitialHiring}
@@ -4260,6 +4341,7 @@ export default async function EmployeeDetailPage({
           </div>
         </div>
       </div>
+      </EmployeeHeadshotAdminProvider>
     </div>
   );
   } catch (fatal) {

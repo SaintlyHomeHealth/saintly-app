@@ -11,6 +11,10 @@ import {
   isAllowedApplicantUploadDocumentType,
   normalizeApplicantUploadDocumentType,
 } from "@/lib/applicant-file-upload-types";
+import {
+  HEADSHOT_DOCUMENT_TYPE,
+  HEADSHOT_IMAGE_ACCEPT,
+} from "@/lib/employee-headshot";
 
 type DocumentSource = "applicant_file" | "legacy_document";
 
@@ -110,6 +114,19 @@ export default function EmployeeDocumentActions({
     }
 
     const effectiveMime = getEffectiveApplicantUploadMime(selectedFile);
+    const isHeadshotUpload =
+      normalizeApplicantUploadDocumentType(documentType) === HEADSHOT_DOCUMENT_TYPE;
+
+    if (
+      isHeadshotUpload &&
+      (!effectiveMime || !effectiveMime.toLowerCase().startsWith("image/"))
+    ) {
+      setUploadError(
+        "Please choose a photo file (JPEG, PNG, WEBP, or HEIC). PDF files are not accepted for headshots."
+      );
+      return;
+    }
+
     if (
       !effectiveMime ||
       !(APPLICANT_FILE_UPLOAD_ACCEPTED_MIME_TYPES as readonly string[]).includes(effectiveMime)
@@ -136,7 +153,7 @@ export default function EmployeeDocumentActions({
         formData.append("completeComplianceEventId", completeComplianceEventId);
       }
 
-      const response = await fetch("/api/upload-applicant-file", {
+      const response = await fetch("/api/admin/employee-documents", {
         method: "POST",
         body: formData,
       });
@@ -276,7 +293,11 @@ export default function EmployeeDocumentActions({
                   <input
                     ref={inputRef}
                     type="file"
-                    accept=".pdf,.jpg,.jpeg,.png,.webp,.heic,.heif,application/pdf,image/jpeg,image/png,image/webp,image/heic,image/heif"
+                    accept={
+                      normalizeApplicantUploadDocumentType(documentType) === HEADSHOT_DOCUMENT_TYPE
+                        ? HEADSHOT_IMAGE_ACCEPT
+                        : ".pdf,.jpg,.jpeg,.png,.webp,.heic,.heif,application/pdf,image/jpeg,image/png,image/webp,image/heic,image/heif"
+                    }
                     className="hidden"
                     onChange={handleFileChange}
                   />

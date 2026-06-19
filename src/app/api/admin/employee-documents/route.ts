@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { processApplicantFileUpload } from "@/lib/applicant-file-upload-server";
 import { supabaseAdmin } from "@/lib/admin";
 import { insertAuditLog } from "@/lib/audit-log";
 import { getStaffProfile } from "@/lib/staff-profile";
@@ -22,6 +23,53 @@ function getStorageObjectFromPublicUrl(fileUrl?: string | null) {
 function parseSource(value: string | null): DocumentSource | null {
   if (value === "applicant_file" || value === "legacy_document") return value;
   return null;
+}
+
+export async function POST(request: Request) {
+  const user = await getAuthenticatedUser();
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const staffProfile = await getStaffProfile();
+  if (!staffProfile) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  try {
+    const formData = await request.formData();
+    const result = await processApplicantFileUpload(formData);
+
+    if (!result.success) {
+      return NextResponse.json(result.body, { status: result.status });
+    }
+
+    const applicantId = formData.get("applicantId")?.toString() || null;
+    const documentType = formData.get("documentType")?.toString() || null;
+
+    await insertAuditLog({
+      action: "employee_document_upload",
+      entityType: "applicant_file",
+      entityId: String(result.file.id ?? ""),
+      metadata: {
+        applicant_id: applicantId,
+        document_type: documentType,
+        uploaded_by_staff: staffProfile.user_id,
+      },
+    });
+
+    return NextResponse.json({
+      success: true,
+      file: result.file,
+    });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error: error instanceof Error ? error.message : "Upload failed",
+      },
+      { status: 500 }
+    );
+  }
 }
 
 export async function DELETE(request: Request) {
@@ -81,7 +129,9 @@ export async function DELETE(request: Request) {
         return NextResponse.json({ error: deleteError.message }, { status: 500 });
       }
 
-      if ((fileRow.document_type || "").toLowerCase().trim() === "auto_insurance") {
+      const normalizedDocType = (fileRow.document_type || "").toLowerCase().trim();
+
+      if (normalizedDocType === "auto_insurance") {
         const { data: remainingAutoInsurance } = await supabaseAdmin
           .from("applicant_files")
           .select("file_path")
@@ -95,6 +145,25 @@ export async function DELETE(request: Request) {
           .from("applicants")
           .update({
             auto_insurance_file: remainingAutoInsurance?.file_path || null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", fileRow.applicant_id);
+      }
+
+      if (normalizedDocType === "headshot") {
+        const { data: remainingHeadshot } = await supabaseAdmin
+          .from("applicant_files")
+          .select("file_path")
+          .eq("applicant_id", fileRow.applicant_id)
+          .eq("document_type", "headshot")
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle<{ file_path?: string | null }>();
+
+        await supabaseAdmin
+          .from("applicants")
+          .update({
+            headshot_file: remainingHeadshot?.file_path || null,
             updated_at: new Date().toISOString(),
           })
           .eq("id", fileRow.applicant_id);

@@ -7,6 +7,7 @@ export const APPLICANT_FILE_UPLOAD_ALLOWED_DOCUMENT_TYPES = [
   'background_check',
   'cpr_card',
   'cpr_front',
+  'headshot',
   'drivers_license',
   'fingerprint_clearance_card',
   'independent_contractor_insurance',

@@ -299,7 +299,7 @@ export function buildUnifiedOnboardingState(
             ? "Not all required document types are present in documents / applicant files."
             : "Required document uploads or portal forms are still incomplete.",
       adminCoaching:
-        "Ask them to finish Step 3 completely. Resume, ID, SS card, CPR, TB, fingerprint, and every required portal form must all be completed.",
+        "Ask them to finish Step 3 completely. Resume, professional headshot, ID, SS card, CPR, TB, fingerprint, and every required portal form must all be completed.",
       whyBlocking:
         salesLight || isDocumentsComplete
           ? null

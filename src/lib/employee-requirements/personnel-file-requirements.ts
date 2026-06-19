@@ -130,6 +130,9 @@ export function normalizePersonnelFileDocumentKey(type: string | null | undefine
   ) {
     return "cpr_front";
   }
+  if (t === "headshot" || t === "professional_headshot" || t === "employee_headshot") {
+    return "headshot";
+  }
   if (t === "drivers_license" || t === "driver_license" || t === "driverslicense" || t === "dl") {
     return "drivers_license";
   }
@@ -256,6 +259,7 @@ export type BuildPersonnelFileAuditArgs = {
   /** True when an OIG proof file exists (`oig` / `oig_check`), independent of compliance event. */
   hasOigProofOnFile: boolean;
   hasBackgroundCheck: boolean;
+  hasHeadshot: boolean;
   requiresCpr: boolean;
   hasCprCard: boolean;
   requiresDriversLicense: boolean;
@@ -304,6 +308,7 @@ export type BuildPersonnelFileAuditArgs = {
   latestTbViewUrl: string | null;
   latestOigViewUrl: string | null;
   latestBackgroundCheckViewUrl: string | null;
+  latestHeadshotViewUrl: string | null;
   getAdminWorkAreaUrl: (tab: EmployeeDetailWorkAreaTab) => string;
 };
 
@@ -331,6 +336,7 @@ export function buildPersonnelFileAuditRows(input: BuildPersonnelFileAuditArgs):
     isOigComplete,
     hasOigProofOnFile,
     hasBackgroundCheck,
+    hasHeadshot,
     requiresCpr,
     hasCprCard,
     requiresDriversLicense,
@@ -377,6 +383,7 @@ export function buildPersonnelFileAuditRows(input: BuildPersonnelFileAuditArgs):
     latestTbViewUrl,
     latestOigViewUrl,
     latestBackgroundCheckViewUrl,
+    latestHeadshotViewUrl,
     getAdminWorkAreaUrl,
   } = input;
 
@@ -645,6 +652,22 @@ export function buildPersonnelFileAuditRows(input: BuildPersonnelFileAuditArgs):
         hasBackgroundCheck && latestBackgroundCheckViewUrl ? latestBackgroundCheckViewUrl : null,
       viewExternal: true,
       applicantUploadDocumentType: "background_check",
+    });
+  }
+
+  if (!isSalesAgent) {
+    const { status, tone } = auditStatus(true, hasHeadshot);
+    push({
+      label: "Professional Headshot",
+      itemType: "document",
+      status,
+      statusTone: tone,
+      openHref: getAdminWorkAreaUrl("documents"),
+      portalHref: EMPLOYEE_ONBOARDING(applicantId, "/onboarding-documents"),
+      viewHref: hasHeadshot && latestHeadshotViewUrl ? latestHeadshotViewUrl : null,
+      downloadHref: hasHeadshot && latestHeadshotViewUrl ? latestHeadshotViewUrl : null,
+      viewExternal: true,
+      applicantUploadDocumentType: "headshot",
     });
   }
 
