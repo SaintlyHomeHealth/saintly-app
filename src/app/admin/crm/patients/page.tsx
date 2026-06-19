@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Phone } from "lucide-react";
 
+import { QuickDropReferralSection } from "./_components/QuickDropReferralSection";
 import { PatientSmsForm } from "./patient-sms-form";
 import { updateCrmPatientStatus } from "../actions";
 import {
@@ -375,6 +376,8 @@ export default async function AdminCrmPatientsPage({
           </Link>
         }
       />
+
+      <QuickDropReferralSection />
 
       <form method="get" action="/admin/crm/patients" className={crmFilterBarCls}>
         <input type="hidden" name="page" value="1" />

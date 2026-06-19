@@ -6,6 +6,8 @@ import { PayerTypeSelect } from "@/components/crm/PayerTypeSelect";
 import { SearchablePayerSelect } from "@/components/crm/SearchablePayerSelect";
 import { ServiceDisciplineCheckboxes } from "@/components/crm/ServiceDisciplineCheckboxes";
 import { PatientAssignmentsSection } from "./_components/PatientAssignmentsSection";
+import { PatientReferralsSection } from "@/app/admin/crm/patients/_components/PatientReferralsSection";
+import { loadPatientReferralsForChart } from "@/lib/crm/patient-referral/data";
 import {
   deleteCrmPatientIfAllowed,
   movePatientBackToLeadStage,
@@ -139,6 +141,13 @@ export default async function PatientIntakePage({
   const prevStageFromQuery =
     typeof sp.prevStage === "string" ? sp.prevStage : Array.isArray(sp.prevStage) ? sp.prevStage[0] : "";
   const showMovedBanner = crmStageMovedRaw === "1" && movedLeadIdFromQuery.trim() && prevStageFromQuery.trim();
+  const referralCreatedRaw =
+    typeof sp.referralCreated === "string"
+      ? sp.referralCreated
+      : Array.isArray(sp.referralCreated)
+        ? sp.referralCreated[0]
+        : "";
+  const showReferralCreatedBanner = referralCreatedRaw === "1";
 
   const { patientId } = await params;
   if (!patientId?.trim()) {
@@ -226,6 +235,13 @@ export default async function PatientIntakePage({
     .order("scheduled_for", { ascending: true, nullsFirst: false });
 
   const visits = (visitData ?? []) as VisitRow[];
+
+  let patientReferrals: Awaited<ReturnType<typeof loadPatientReferralsForChart>> = { referrals: [], files: [] };
+  try {
+    patientReferrals = await loadPatientReferralsForChart(pid);
+  } catch {
+    patientReferrals = { referrals: [], files: [] };
+  }
 
   const now = new Date().getTime();
   const completedVisits = visits.filter((v) => v.status === "completed");
@@ -416,6 +432,12 @@ export default async function PatientIntakePage({
             : smsFlash === "failed"
               ? `On-my-way SMS failed: ${smsErrRaw ?? "Unknown error"}`
               : "Visit moved to En route; SMS was not sent (unchecked or skipped)."}
+        </div>
+      ) : null}
+
+      {showReferralCreatedBanner ? (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-950">
+          Patient referral created.
         </div>
       ) : null}
 
@@ -682,6 +704,12 @@ export default async function PatientIntakePage({
         staffOptions={staffOptions}
         assignments={(asnRows ?? []) as { id: string; role: string; assigned_user_id: string | null; discipline: string | null; is_primary: boolean | null }[]}
         staffByUser={staffByUser}
+      />
+
+      <PatientReferralsSection
+        patientId={pid}
+        referrals={patientReferrals.referrals}
+        files={patientReferrals.files}
       />
 
       <div className="rounded-[28px] border border-indigo-100 bg-gradient-to-br from-indigo-50/60 to-white p-5 shadow-sm ring-1 ring-indigo-100/70">
