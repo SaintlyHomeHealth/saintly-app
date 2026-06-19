@@ -21,10 +21,22 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: result.error }, { status: 400 });
   }
 
+  const includeDebug =
+    process.env.NODE_ENV === "development" || process.env.PATIENT_REFERRAL_PARSE_DEBUG === "1";
+
   return NextResponse.json({
     ok: true,
     file_name: result.file_name,
     referral_source_type: result.referral_source_type,
     parse: result.parse,
+    extractedTextLength: result.parse.extractedTextLength ?? 0,
+    ...(includeDebug
+      ? {
+          debug: {
+            textPreview: result.parse.textPreview ?? result.parse.parseDebug?.textPreview ?? "",
+            parseDebug: result.parse.parseDebug ?? null,
+          },
+        }
+      : {}),
   });
 }

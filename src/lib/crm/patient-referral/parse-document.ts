@@ -12,7 +12,6 @@ import {
   PATIENT_REFERRAL_HARD_ERROR_INVALID_FILE,
   PATIENT_REFERRAL_HARD_ERROR_TOO_LARGE,
   PATIENT_REFERRAL_MAX_BYTES,
-  PATIENT_REFERRAL_SOFT_MANUAL_PARSE,
   sanitizePatientReferralFileName,
 } from "./upload-mime";
 
@@ -25,11 +24,15 @@ export type ParsePatientReferralDocumentResult =
     }
   | { ok: false; error: string };
 
-async function readFileFromFormData(formData: FormData): Promise<{
-  buffer: Buffer;
-  safeName: string;
-  baseMime: string;
-} | { error: string }> {
+async function readFileFromFormData(formData: FormData): Promise<
+  | {
+      buffer: Buffer;
+      safeName: string;
+      baseMime: string;
+      originalName: string;
+    }
+  | { error: string }
+> {
   const entry = formData.get("file");
   if (!entry || typeof entry === "string") {
     return { error: PATIENT_REFERRAL_HARD_ERROR_CHOOSE_FILE };
@@ -48,7 +51,8 @@ async function readFileFromFormData(formData: FormData): Promise<{
     return { error: PATIENT_REFERRAL_HARD_ERROR_INVALID_FILE };
   }
 
-  const buffer = Buffer.from(await entry.arrayBuffer());
+  const arrayBuffer = await entry.arrayBuffer();
+  const buffer = Buffer.from(arrayBuffer);
   if (buffer.length <= 0) {
     return { error: PATIENT_REFERRAL_HARD_ERROR_CHOOSE_FILE };
   }
@@ -60,6 +64,7 @@ async function readFileFromFormData(formData: FormData): Promise<{
     buffer,
     safeName: sanitizePatientReferralFileName(originalName),
     baseMime: normalizePatientReferralBaseMime(mime),
+    originalName,
   };
 }
 
@@ -78,7 +83,16 @@ export async function parsePatientReferralDocumentFromFormData(
     return { ok: false, error: fileRead.error };
   }
 
-  const { buffer, safeName, baseMime } = fileRead;
+  const { buffer, safeName, baseMime, originalName } = fileRead;
+
+  if (process.env.PATIENT_REFERRAL_PARSE_DEBUG === "1" || process.env.NODE_ENV === "development") {
+    console.info("[patient-referral] incoming file", {
+      originalName,
+      safeName,
+      fileSize: buffer.length,
+      mimeType: baseMime,
+    });
+  }
 
   let parseOut: PatientReferralParsePayload;
   try {
@@ -86,26 +100,19 @@ export async function parsePatientReferralDocumentFromFormData(
       mimeType: baseMime,
       referralSourceType,
     });
-    if (!parseOut.suggestions) {
-      parseOut.suggestions = {
-        referral_source_type: referralSourceType,
-        intake_status: "New Referral",
-        patient_status: "pending",
-      };
-    } else if (!parseOut.suggestions.referral_source_type) {
+
+    if (parseOut.suggestions && !parseOut.suggestions.referral_source_type) {
       parseOut.suggestions.referral_source_type = referralSourceType;
     }
   } catch (e) {
     console.error("[patient-referral] parse document:", e);
+    const msg = e instanceof Error ? e.message : "Parse failed";
     parseOut = {
       ok: false,
       quality: "manual",
-      suggestions: {
-        referral_source_type: referralSourceType,
-        intake_status: "New Referral",
-        patient_status: "pending",
-      },
-      messages: [PATIENT_REFERRAL_SOFT_MANUAL_PARSE],
+      suggestions: null,
+      messages: [msg],
+      statusHeadline: msg,
     };
   }
 

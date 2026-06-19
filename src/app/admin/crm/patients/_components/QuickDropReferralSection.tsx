@@ -8,7 +8,6 @@ import {
   createPatientFromReferral,
   findPatientReferralDuplicatesAction,
   getPatientReferralFileSignedUrl,
-  parsePatientReferralDocument,
   savePatientReferralOnly,
 } from "@/app/admin/crm/patient-referral-actions";
 import {
@@ -16,11 +15,7 @@ import {
   crmPrimaryCtaCls,
 } from "@/components/admin/crm-admin-list-styles";
 import { PATIENT_REFERRAL_SOURCE_OPTIONS, type PatientReferralSourceType } from "@/lib/crm/patient-referral/options";
-import {
-  deriveQueueStatusAfterParse,
-  hasParseData,
-  summarizeParsedReferral,
-} from "@/lib/crm/patient-referral/queue-summary";
+import { hasMeaningfulParseData, deriveQueueStatusAfterParse, summarizeParsedReferral } from "@/lib/crm/patient-referral/queue-summary";
 import {
   EMPTY_PATIENT_REFERRAL_REVIEW_FORM,
   parsedSuggestionsToReviewForm,
@@ -128,23 +123,35 @@ export function QuickDropReferralSection() {
       fd.set("referral_source_type", sourceType);
 
       try {
-        const result = await parsePatientReferralDocument(fd);
-        if (!result.ok) {
-          const manualParse: PatientReferralParsePayload = {
-            ok: false,
-            quality: "manual",
-            suggestions: {
-              referral_source_type: sourceType as PatientReferralSourceType,
-              intake_status: "New Referral",
-              patient_status: "pending",
-            },
-            messages: [result.error],
-          };
+        const res = await fetch("/api/crm/patient-referrals/parse-only", {
+          method: "POST",
+          body: fd,
+          credentials: "include",
+        });
+        const json = (await res.json().catch(() => null)) as
+          | {
+              ok: true;
+              parse: PatientReferralParsePayload;
+              debug?: { textPreview?: string; parseDebug?: PatientReferralParsePayload["parseDebug"] };
+            }
+          | { error?: string }
+          | null;
+
+        if (!res.ok || !json || !("ok" in json) || !json.ok) {
+          const errMsg =
+            json && "error" in json && json.error
+              ? json.error
+              : `Parse request failed (${res.status})`;
           const patch: Partial<QueuedReferralFile> = {
             status: "failed",
             parseAttempted: true,
-            error: result.error,
-            parse: manualParse,
+            error: errMsg,
+            parse: {
+              ok: false,
+              quality: "manual",
+              suggestions: null,
+              messages: [errMsg],
+            },
           };
           updateQueueItem(id, patch);
           return patch;
@@ -152,15 +159,22 @@ export function QuickDropReferralSection() {
 
         const status = deriveQueueStatusAfterParse({
           parseAttempted: true,
-          parse: result.parse,
+          parse: json.parse,
         });
 
         const patch: Partial<QueuedReferralFile> = {
           status,
           parseAttempted: true,
-          parse: result.parse,
-          error: status === "failed" ? result.parse.messages.join(" ") || "Failed to parse document." : undefined,
+          parse: json.parse,
+          error:
+            status === "failed"
+              ? json.parse.messages.join(" ") || json.parse.statusHeadline || "Failed to parse document."
+              : undefined,
         };
+
+        if (process.env.NODE_ENV === "development" && json.debug?.parseDebug) {
+          console.info("[patient-referral] parse debug", json.debug.parseDebug);
+        }
 
         updateQueueItem(id, patch);
         return patch;
@@ -298,6 +312,21 @@ export function QuickDropReferralSection() {
       if (patch) {
         current = { ...item, ...patch };
       }
+    }
+
+    if (!manualOnly && !hasMeaningfulParseData(current.parse?.suggestions ?? null)) {
+      setToast(
+        current.error ??
+          current.parse?.statusHeadline ??
+          current.parse?.messages?.[0] ??
+          "Could not extract patient fields from this document."
+      );
+      return;
+    }
+
+    if (current.status === "failed" && !manualOnly) {
+      setToast(current.error ?? "Failed to parse document. Use Enter Manually if needed.");
+      return;
     }
 
     if (current.status === "failed" || manualOnly) {
@@ -450,7 +479,7 @@ export function QuickDropReferralSection() {
             <ul className="space-y-3">
               {queue.map((item) => {
                 const summary = summarizeParsedReferral(item.parse?.suggestions);
-                const parsed = item.parseAttempted && hasParseData(item.parse);
+                const parsed = item.parseAttempted && hasMeaningfulParseData(item.parse?.suggestions);
                 return (
                   <li
                     key={item.id}
@@ -496,6 +525,14 @@ export function QuickDropReferralSection() {
                                   Auth: <span className="font-medium text-slate-800">{summary.authNumber}</span>
                                 </>
                               ) : null}
+                              {summary.snVisits != null ? (
+                                <>
+                                  {(summary.patientName || summary.payer || summary.socDate || summary.authNumber)
+                                    ? " · "
+                                    : ""}
+                                  SN: <span className="font-medium text-slate-800">{summary.snVisits}</span>
+                                </>
+                              ) : null}
                             </span>
                           ) : null}
                         </div>
@@ -509,6 +546,20 @@ export function QuickDropReferralSection() {
                         >
                           View file
                         </button>
+                        {process.env.NODE_ENV === "development" && item.parse?.parseDebug ? (
+                          <button
+                            type="button"
+                            className="rounded-lg border border-violet-300 bg-violet-50 px-3 py-1 text-xs font-semibold text-violet-900 hover:bg-violet-100"
+                            onClick={() => {
+                              console.info("[patient-referral] debug parse", item.parse?.parseDebug);
+                              setToast(
+                                `Parse debug: ${item.parse?.parseDebug?.extractedTextLength ?? 0} chars, ${item.parse?.parseDebug?.parsedFieldsCount ?? 0} fields`
+                              );
+                            }}
+                          >
+                            Debug parse
+                          </button>
+                        ) : null}
                         {item.status === "failed" ? (
                           <button
                             type="button"
@@ -522,7 +573,9 @@ export function QuickDropReferralSection() {
                           <button
                             type="button"
                             className="rounded-lg border border-sky-600 bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-900 hover:bg-sky-100 disabled:opacity-50"
-                            disabled={parsePending || isProcessingStatus(item.status)}
+                            disabled={
+                              parsePending || isProcessingStatus(item.status) || !hasMeaningfulParseData(item.parse?.suggestions)
+                            }
                             onClick={() => void handleReview(item)}
                           >
                             {parsePending && activeFileId === item.id

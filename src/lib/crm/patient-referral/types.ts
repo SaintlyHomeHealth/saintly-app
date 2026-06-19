@@ -120,6 +120,18 @@ export type PatientReferralParseQuality =
 
 export type PatientReferralExtractionMethod = "pdf_text" | "ocr" | "hybrid" | "manual" | "tango" | "ai";
 
+export type PatientReferralParseDebug = {
+  fileName: string;
+  fileSize: number;
+  mimeType: string | null;
+  extractedTextLength: number;
+  textPreview: string;
+  documentTypeDetected: PatientReferralDocumentType | null;
+  parsedFieldsCount: number;
+  pdfExtractMethod?: string | null;
+  error?: string | null;
+};
+
 export type PatientReferralParsePayload = {
   ok: boolean;
   quality: PatientReferralParseQuality;
@@ -132,6 +144,9 @@ export type PatientReferralParsePayload = {
   needsReview?: boolean;
   isTangoDocument?: boolean;
   documentType?: PatientReferralDocumentType | null;
+  extractedTextLength?: number;
+  textPreview?: string;
+  parseDebug?: PatientReferralParseDebug;
 };
 
 export type PatientReferralUploadStatus =

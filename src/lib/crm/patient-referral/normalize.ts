@@ -1,4 +1,4 @@
-import { normalizePhone } from "@/lib/phone/us-phone-format";
+import { normalizePhone, formatPhoneNumber } from "@/lib/phone/us-phone-format";
 
 const US_STATE_CODES = new Set([
   "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME",
@@ -33,8 +33,8 @@ export function normalizeReferralDate(raw: string | null | undefined): string | 
 
 export function normalizeReferralPhone(raw: string | null | undefined): string | null {
   if (!raw?.trim()) return null;
-  const n = normalizePhone(raw);
-  return n || null;
+  const formatted = formatPhoneNumber(raw);
+  return formatted || null;
 }
 
 export function parseLastFirstName(raw: string | null | undefined): { first_name: string | null; last_name: string | null } {

@@ -184,13 +184,14 @@ export async function parsePatientReferralText(
     return { suggestions: null, isTangoDocument: false, parseNotes: ["Document text too short"], confidenceWarnings, usedAi };
   }
 
-  const isTango = isTangoReferralDocument(trimmed);
+  const forceTango = options?.referralSourceType === "tango_dina";
+  const isTango = forceTango || isTangoReferralDocument(trimmed);
   let suggestions: ParsedPatientReferralSuggestions = parseHeuristicReferralText(trimmed);
 
   if (isTango) {
-    const tango = parseTangoReferralText(trimmed);
+    const tango = parseTangoReferralText(trimmed, { force: forceTango });
     if (tango) {
-      suggestions = mergeSuggestions(suggestions, tango);
+      suggestions = mergeSuggestions(tango, suggestions);
       parseNotes.push("Applied Tango/Dina-specific parsing.");
     }
   }

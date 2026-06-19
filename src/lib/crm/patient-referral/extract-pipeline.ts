@@ -1,26 +1,27 @@
 import "server-only";
 
-import { PDFParse } from "pdf-parse";
-
 import { isOcrSpaceRecruitingConfigured, ocrSpaceFromBuffer } from "@/lib/recruiting/ocr-space";
 import { ocrPdfBuffer } from "@/lib/recruiting/resume-pdf-ocr";
 import { canRunResumePdfOcr } from "@/lib/recruiting/recruiting-ocr-env";
-import { extractResumeText } from "@/lib/recruiting/resume-text-extract";
 
 import { parsePatientReferralText } from "./parse-heuristics";
+import { extractPatientReferralPdfText } from "./pdf-text-extract";
+import { hasMeaningfulParseData } from "./queue-summary";
 import type {
   PatientReferralExtractionMethod,
+  PatientReferralParseDebug,
   PatientReferralParsePayload,
   PatientReferralParseQuality,
 } from "./types";
 import {
   isPatientReferralImageFilename,
   isPatientReferralPdfFilename,
-  PATIENT_REFERRAL_SOFT_MANUAL_PARSE,
 } from "./upload-mime";
 
-const MIN_USABLE_TEXT = 20;
-const OCR_SHORT_DIRECT = 45;
+const MIN_PDF_TEXT = 50;
+const OCR_SHORT_DIRECT = 200;
+
+const PDF_EMPTY_ERROR = "PDF text extraction returned empty text";
 
 async function extractImageTextViaOcr(buffer: Buffer, filename: string, mimeType: string): Promise<string> {
   if (isOcrSpaceRecruitingConfigured()) {
@@ -30,23 +31,31 @@ async function extractImageTextViaOcr(buffer: Buffer, filename: string, mimeType
   return "";
 }
 
+function countParsedFields(suggestions: PatientReferralParsePayload["suggestions"]): number {
+  if (!suggestions) return 0;
+  return Object.values(suggestions).filter((v) => v != null && v !== "" && !(Array.isArray(v) && v.length === 0)).length;
+}
+
 export async function runPatientReferralExtractPipeline(
   buffer: Buffer,
   filename: string,
   options?: { mimeType?: string; referralSourceType?: string | null }
-): Promise<PatientReferralParsePayload & { textPreview?: string }> {
+): Promise<PatientReferralParsePayload & { textPreview?: string; extractedTextLength?: number; parseDebug?: PatientReferralParseDebug }> {
   const mimeType = options?.mimeType;
   let text = "";
   let directLen = 0;
   let ocrLen = 0;
   let ocrAttempted = false;
+  let pdfExtractMethod: string | null = null;
   const messages: string[] = [];
   const parseNotes: string[] = [];
+  const isPdf = isPatientReferralPdfFilename(filename, mimeType);
 
-  if (isPatientReferralPdfFilename(filename, mimeType)) {
-    const direct = await extractResumeText(buffer, filename);
+  if (isPdf) {
+    const direct = await extractPatientReferralPdfText(buffer);
     text = (direct.text ?? "").trim();
     directLen = text.length;
+    pdfExtractMethod = direct.method;
     if (direct.error) parseNotes.push(`PDF text extraction: ${direct.error}`);
 
     if (directLen < OCR_SHORT_DIRECT && canRunResumePdfOcr()) {
@@ -57,7 +66,7 @@ export async function runPatientReferralExtractPipeline(
       if (ocrText.length > text.length) text = ocrText;
     } else if (directLen < OCR_SHORT_DIRECT && isOcrSpaceRecruitingConfigured()) {
       ocrAttempted = true;
-      const ocr = await ocrSpaceFromBuffer(buffer, filename, mimeType);
+      const ocr = await ocrSpaceFromBuffer(buffer, filename, mimeType ?? "application/pdf");
       ocrLen = ocr.text.trim().length;
       if (ocr.text.trim().length > text.length) text = ocr.text.trim();
       if (ocr.error) parseNotes.push(ocr.error);
@@ -67,21 +76,49 @@ export async function runPatientReferralExtractPipeline(
     text = await extractImageTextViaOcr(buffer, filename, mimeType ?? "image/jpeg");
     ocrLen = text.length;
     if (!text) messages.push("OCR could not read this image. Enter details manually.");
-  } else if (filename.toLowerCase().endsWith(".pdf")) {
-    const parser = new PDFParse({ data: buffer });
-    try {
-      const result = await parser.getText();
-      text = (result.text ?? "").trim();
-      directLen = text.length;
-    } finally {
-      await parser.destroy();
+  }
+
+  const extractedTextLength = text.length;
+
+  if (isPdf && extractedTextLength < MIN_PDF_TEXT) {
+    const debug: PatientReferralParseDebug = {
+      fileName: filename,
+      fileSize: buffer.length,
+      mimeType: mimeType ?? null,
+      extractedTextLength,
+      textPreview: text.slice(0, 1000),
+      documentTypeDetected: null,
+      parsedFieldsCount: 0,
+      pdfExtractMethod,
+      error: PDF_EMPTY_ERROR,
+    };
+
+    if (process.env.PATIENT_REFERRAL_PARSE_DEBUG === "1" || process.env.NODE_ENV === "development") {
+      console.info("[patient-referral] parse debug", JSON.stringify(debug));
     }
+
+    return {
+      ok: false,
+      quality: "manual",
+      suggestions: null,
+      messages: [PDF_EMPTY_ERROR],
+      extractionMethod: "manual",
+      confidenceWarnings: [],
+      parseNotes,
+      needsReview: false,
+      isTangoDocument: false,
+      documentType: null,
+      textPreview: text.slice(0, 500),
+      extractedTextLength,
+      parseDebug: debug,
+      statusHeadline: PDF_EMPTY_ERROR,
+    };
   }
 
   let extractionMethod: PatientReferralExtractionMethod = "manual";
-  if (directLen >= MIN_USABLE_TEXT && ocrLen >= MIN_USABLE_TEXT) extractionMethod = "hybrid";
-  else if (ocrLen >= MIN_USABLE_TEXT) extractionMethod = "ocr";
-  else if (directLen >= MIN_USABLE_TEXT) extractionMethod = "pdf_text";
+  if (directLen >= MIN_PDF_TEXT && ocrLen >= MIN_PDF_TEXT) extractionMethod = "hybrid";
+  else if (ocrLen >= MIN_PDF_TEXT) extractionMethod = "ocr";
+  else if (directLen >= MIN_PDF_TEXT) extractionMethod = "pdf_text";
 
   const parsed = await parsePatientReferralText(text, {
     referralSourceType: options?.referralSourceType ?? null,
@@ -90,51 +127,73 @@ export async function runPatientReferralExtractPipeline(
 
   parseNotes.push(...parsed.parseNotes);
 
+  const meaningful = hasMeaningfulParseData(parsed.suggestions);
   let quality: PatientReferralParseQuality = "manual";
   let ok = false;
   let needsReview = true;
 
-  if (parsed.isTangoDocument && parsed.suggestions) {
-    quality = "tango_parsed";
+  if (meaningful) {
     ok = true;
-    extractionMethod = "tango";
-    needsReview = parsed.confidenceWarnings.length > 0;
-  } else if (parsed.suggestions && parsed.confidenceWarnings.length === 0) {
-    quality = ocrAttempted && ocrLen >= MIN_USABLE_TEXT ? "ocr_success" : "parsed_ok";
-    ok = true;
-    needsReview = false;
-  } else if (parsed.suggestions) {
-    quality = ocrAttempted ? "ocr_limited" : "limited_parse";
-    ok = true;
-    needsReview = true;
-  } else if (text.length >= MIN_USABLE_TEXT) {
+    if (parsed.isTangoDocument && parsed.suggestions) {
+      quality = "tango_parsed";
+      extractionMethod = "tango";
+      needsReview = parsed.confidenceWarnings.length > 0;
+    } else if (parsed.confidenceWarnings.length === 0) {
+      quality = ocrAttempted && ocrLen >= MIN_PDF_TEXT ? "ocr_success" : "parsed_ok";
+      needsReview = false;
+    } else {
+      quality = ocrAttempted ? "ocr_limited" : "limited_parse";
+      needsReview = true;
+    }
+  } else if (extractedTextLength >= MIN_PDF_TEXT) {
     quality = "needs_review";
-    messages.push(PATIENT_REFERRAL_SOFT_MANUAL_PARSE);
+    messages.push("Could not extract patient fields from document text.");
   } else {
     quality = "manual";
-    messages.push(PATIENT_REFERRAL_SOFT_MANUAL_PARSE);
+    messages.push(isPdf ? PDF_EMPTY_ERROR : "Could not read enough text from this document.");
   }
 
-  if (parsed.confidenceWarnings.length) {
+  if (parsed.confidenceWarnings.length && meaningful) {
     messages.push(...parsed.confidenceWarnings);
+  }
+
+  const parseDebug: PatientReferralParseDebug = {
+    fileName: filename,
+    fileSize: buffer.length,
+    mimeType: mimeType ?? null,
+    extractedTextLength,
+    textPreview: text.slice(0, 1000),
+    documentTypeDetected: parsed.suggestions?.document_type ?? null,
+    parsedFieldsCount: countParsedFields(parsed.suggestions),
+    pdfExtractMethod,
+    error: ok ? null : messages[0] ?? null,
+  };
+
+  if (process.env.PATIENT_REFERRAL_PARSE_DEBUG === "1" || process.env.NODE_ENV === "development") {
+    console.info("[patient-referral] parse debug", JSON.stringify({
+      ...parseDebug,
+      parserResult: parsed.suggestions,
+    }));
   }
 
   return {
     ok,
     quality,
-    suggestions: parsed.suggestions,
-    messages: messages.length ? messages : [PATIENT_REFERRAL_SOFT_MANUAL_PARSE],
+    suggestions: meaningful ? parsed.suggestions : null,
+    messages: messages.length ? messages : ok ? ["Document parsed successfully"] : [PDF_EMPTY_ERROR],
     extractionMethod,
     confidenceWarnings: parsed.confidenceWarnings,
     parseNotes,
-    needsReview,
+    needsReview: ok ? needsReview : false,
     isTangoDocument: parsed.isTangoDocument,
     documentType: parsed.suggestions?.document_type ?? null,
     textPreview: text.slice(0, 500),
+    extractedTextLength,
+    parseDebug,
     statusHeadline: ok
       ? needsReview
         ? "Document parsed — review suggested fields"
         : "Document parsed successfully"
-      : "Could not auto-read enough text — continue manually",
+      : messages[0] ?? PDF_EMPTY_ERROR,
   };
 }

@@ -1,0 +1,29 @@
+Authorization Notification
+Tango / Dina
+Authorization Number #: 06182026DOM737572
+Date/Time Received: 06/16/2026
+SOC 06/19/2026
+D/C Date 06/17/2026
+Authorization Bill Type: Fee for Service
+Agency Assigned: Saintly Home Health
+LERMA, VICTOR
+Sex: M
+DOB: 02/07/1973
+Age: 53
+Phone: (602) 694-0931
+Address: 6824 North 183rd Avenue, Waddell, AZ 85355
+Insurance: Humana
+Member #: H67503926
+MBI: 7W98N55EA40
+Chief Complaint / Onset: Weakness
+Ordering Physician: Luca Bertozzi
+Phone: (520) 792-1450
+Fax: (520) 629-4631
+PCP: Christian Paul Stockton
+Phone: (623) 935-9600
+Fax: (623) 935-9602
+Authorization Approvals Total
+SN PT OT ST MSW HHA
+4 0 0 0 0 0
+Effective From 06/19/2026
+Effective Through 08/17/2026
