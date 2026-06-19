@@ -203,6 +203,8 @@ export type LeadWorkspaceExistingProps = {
   applicationNotes?: string;
   /** Facebook / Zapier / manual — `external_source_metadata.intake_request` (+ graph fallback on server). */
   intakeRequestDefaults: LeadIntakeRequestDetails;
+  /** Raw `leads.external_source_metadata` for Facebook wound-care display. */
+  externalSourceMetadata?: unknown;
   /** `YYYY-MM-DD` from `leads.dob`. */
   dobIso: string | null;
   primaryInsurancePath: string | null;
@@ -517,6 +519,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
     referralSourceLine = "",
     applicationNotes = "",
     intakeRequestDefaults,
+    externalSourceMetadata,
     dobIso,
     primaryInsurancePath,
     secondaryInsurancePath,
@@ -711,6 +714,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
             leadDisciplinesForForm={leadDisciplinesForForm}
             applicationNotes={applicationNotes}
             referralSourceLine={referralSourceLine}
+            externalSourceMetadata={externalSourceMetadata}
             medicareNumber={medicareNumber}
             medicareEffectiveDateIso={medicareEffectiveDateIso}
             medicareNotes={medicareNotes}

@@ -10,6 +10,13 @@ import { revalidatePath } from "next/cache";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { buildLeadIntakeRequestFromFieldMap } from "@/lib/crm/lead-intake-request";
+import {
+  buildFacebookWoundCareLeadNotes,
+  DEFAULT_FACEBOOK_LEAD_NAME,
+  DEFAULT_FACEBOOK_WOUND_CARE_SOURCE,
+  isFacebookWoundCarePartnerLead,
+  type FacebookPartnerStandardPayload,
+} from "@/lib/facebook/facebook-partner-lead-normalize";
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { handleNewLeadCreated } from "@/lib/crm/post-create-lead-workflow";
 import { isKnownPayerBroadCategory } from "@/lib/crm/payer-type-options";
@@ -196,10 +203,15 @@ function guessPayerName(map: Map<string, string>): string | null {
   const v = firstValue(map, [
     "payer_name",
     "payer name",
+    "insurance_answer",
+    "insurance answer",
     "insurance_company",
     "insurance company",
     "company_name",
     "company name",
+    "has_medicare",
+    "has medicare",
+    "medicare",
   ]);
   return v ? v.slice(0, 500) : null;
 }
@@ -732,26 +744,7 @@ export async function ingestFacebookLeadFromWebhookPayload(
   return out;
 }
 
-/** Public POST body for `/api/leads/facebook` (partner JSON integration). */
-export type FacebookPartnerStandardPayload = {
-  name?: unknown;
-  full_name?: unknown;
-  phone?: unknown;
-  email?: unknown;
-  zip?: unknown;
-  notes?: unknown;
-  medicare?: unknown;
-  has_medicare?: unknown;
-  /** Prefer Zapier `service_needed`; `service` kept as fallback. */
-  service_needed?: unknown;
-  service?: unknown;
-  wound_type?: unknown;
-  care_for?: unknown;
-  pt_timing?: unknown;
-  form_name?: unknown;
-  source?: unknown;
-  campaign?: unknown;
-};
+export type { FacebookPartnerStandardPayload } from "@/lib/facebook/facebook-partner-lead-normalize";
 
 function asNonEmptyTrimmedString(v: unknown): string {
   if (v === null || v === undefined) return "";
@@ -770,6 +763,9 @@ function partnerPayloadPhoneRaw(payload: FacebookPartnerStandardPayload): string
 }
 
 function partnerMedicareRaw(payload: FacebookPartnerStandardPayload): unknown {
+  if (payload.insurance_answer !== null && payload.insurance_answer !== undefined && String(payload.insurance_answer).trim() !== "") {
+    return payload.insurance_answer;
+  }
   if (payload.medicare !== null && payload.medicare !== undefined && String(payload.medicare).trim() !== "") {
     return payload.medicare;
   }
@@ -806,11 +802,16 @@ function buildPartnerStandardFieldMap(payload: FacebookPartnerStandardPayload): 
     add("full_name", name);
   }
   add("email", payload.email);
+  add("city", payload.city);
   add("zip", payload.zip);
   add("zip_code", payload.zip);
   add("notes", payload.notes);
+  const leadTypeLine = asNonEmptyTrimmedString(payload.lead_type);
+  if (leadTypeLine) add("lead_type", leadTypeLine);
   const serviceCombined =
-    asNonEmptyTrimmedString(payload.service_needed) || asNonEmptyTrimmedString(payload.service);
+    asNonEmptyTrimmedString(payload.service_needed) ||
+    asNonEmptyTrimmedString(payload.service) ||
+    (leadTypeLine.toLowerCase() === "wound_care" ? "Wound Care" : "");
   if (serviceCombined) {
     add("service_needed", serviceCombined);
     add("service", serviceCombined);
@@ -821,11 +822,17 @@ function buildPartnerStandardFieldMap(payload: FacebookPartnerStandardPayload): 
     const line = typeof medicareRaw === "boolean" ? (medicareRaw ? "yes" : "no") : String(medicareRaw).trim();
     add("medicare", line);
     add("has_medicare", line);
+    add("insurance_answer", line);
   }
   add("care_for", payload.care_for);
   add("form_name", payload.form_name);
-  add("wound_type", payload.wound_type);
-  add("situation", payload.wound_type);
+  const woundLine =
+    asNonEmptyTrimmedString(payload.wound_care_needed) || asNonEmptyTrimmedString(payload.wound_type);
+  if (woundLine) {
+    add("wound_care_needed", woundLine);
+    add("wound_type", woundLine);
+    add("situation", woundLine);
+  }
   add("referral_source", payload.source);
   add("source_tag", payload.source);
   add("campaign", payload.campaign);
@@ -848,7 +855,8 @@ export async function ingestFacebookPartnerStandardLead(
   const rawPhone = partnerPayloadPhoneRaw(payload);
   const nameRaw =
     asNonEmptyTrimmedString(payload.full_name) ||
-    asNonEmptyTrimmedString(payload.name);
+    asNonEmptyTrimmedString(payload.name) ||
+    DEFAULT_FACEBOOK_LEAD_NAME;
 
   if (!nameRaw && !rawPhone) {
     return { ok: false, error: "missing_name_or_phone" };
@@ -870,11 +878,13 @@ export async function ingestFacebookPartnerStandardLead(
   const email = emailRaw && emailRaw.includes("@") ? emailRaw.slice(0, 320) : null;
 
   const zip = asNonEmptyTrimmedString(payload.zip) || null;
+  const city = asNonEmptyTrimmedString(payload.city) || null;
 
   const payer_name = guessPayerName(fieldMap);
   const payer_type = guessPayerType(fieldMap);
   const disciplines = resolveFacebookLeadDisciplines(fieldMap);
-  const referral_from_field = asNonEmptyTrimmedString(payload.source);
+  const referral_from_field =
+    asNonEmptyTrimmedString(payload.source) || DEFAULT_FACEBOOK_WOUND_CARE_SOURCE;
   const referral_source = referral_from_field || null;
 
   const campaign = asNonEmptyTrimmedString(payload.campaign);
@@ -882,25 +892,48 @@ export async function ingestFacebookPartnerStandardLead(
   const serviceLine =
     asNonEmptyTrimmedString(payload.service_needed) || asNonEmptyTrimmedString(payload.service);
   const medicareLine = formatMedicareHumanLine(partnerMedicareRaw(payload));
+  const insuranceAnswerLine =
+    asNonEmptyTrimmedString(payload.insurance_answer) || medicareLine;
   const formNameLine = asNonEmptyTrimmedString(payload.form_name);
-  const woundLine = asNonEmptyTrimmedString(payload.wound_type);
+  const woundLine =
+    asNonEmptyTrimmedString(payload.wound_care_needed) || asNonEmptyTrimmedString(payload.wound_type);
   const careForLine = asNonEmptyTrimmedString(payload.care_for);
   const ptTimingLine = asNonEmptyTrimmedString(payload.pt_timing);
+  const leadTypeLine = asNonEmptyTrimmedString(payload.lead_type);
 
-  const leadNotesParts = [
-    "Facebook Lead Ads (Zapier / partner webhook).",
-    formNameLine ? `Form name: ${formNameLine}` : null,
-    woundLine ? `Wound type: ${woundLine}` : null,
-    careForLine ? `Care for: ${careForLine}` : null,
-    ptTimingLine ? `PT timing: ${ptTimingLine}` : null,
-    userNotes ? `Notes: ${userNotes}` : null,
-    serviceLine ? `Service needed: ${serviceLine}` : null,
-    campaign ? `Campaign: ${campaign}` : null,
-    referral_from_field ? `Attribution source: ${referral_from_field}` : null,
-    medicareLine ? `Medicare: ${medicareLine}` : null,
-  ].filter(Boolean);
+  const isWoundCareLead = isFacebookWoundCarePartnerLead({
+    lead_type: leadTypeLine,
+    wound_care_needed: woundLine,
+    wound_type: woundLine,
+    service_needed: serviceLine,
+  });
 
-  const leadNotes = leadNotesParts.join("\n\n").slice(0, 8000) || null;
+  const leadNotes = isWoundCareLead
+    ? buildFacebookWoundCareLeadNotes({
+        insurance_answer: insuranceAnswerLine,
+        wound_care_needed: woundLine,
+        care_for: careForLine,
+        source: referral_from_field,
+        pt_timing: ptTimingLine,
+        form_name: formNameLine,
+        user_notes: userNotes,
+        campaign,
+      }) || null
+    : [
+        "Facebook Lead Ads (Zapier / partner webhook).",
+        formNameLine ? `Form name: ${formNameLine}` : null,
+        woundLine ? `Wound type: ${woundLine}` : null,
+        careForLine ? `Care for: ${careForLine}` : null,
+        ptTimingLine ? `PT timing: ${ptTimingLine}` : null,
+        userNotes ? `Notes: ${userNotes}` : null,
+        serviceLine ? `Service needed: ${serviceLine}` : null,
+        campaign ? `Campaign: ${campaign}` : null,
+        referral_from_field ? `Attribution source: ${referral_from_field}` : null,
+        insuranceAnswerLine ? `Insurance: ${insuranceAnswerLine}` : null,
+      ]
+        .filter(Boolean)
+        .join("\n\n")
+        .slice(0, 8000) || null;
 
   const ingestionReceivedAt = new Date().toISOString();
   const contactIntro = `Submitted via Facebook Lead Ads webhook (${ingestionReceivedAt}).`;
@@ -914,6 +947,7 @@ export async function ingestFacebookPartnerStandardLead(
       full_name: nameParts.full_name,
       primary_phone: phoneE164,
       email,
+      city,
       zip,
       notes: contactNotes || null,
     })
@@ -933,12 +967,17 @@ export async function ingestFacebookPartnerStandardLead(
     full_name: nameParts.full_name,
     phone_e164: phoneE164,
     email,
+    city,
     zip_code: zip,
+    insurance_answer: insuranceAnswerLine || null,
     has_medicare: medicareLine || null,
     care_for: careForLine || null,
     pt_timing: ptTimingLine || null,
     service_needed: serviceLine || null,
+    wound_care_needed: woundLine || null,
     wound_type: woundLine || null,
+    lead_type: leadTypeLine || null,
+    partner_source: referral_from_field || null,
     source: "facebook_lead_ads" as const,
     status: "new_lead" as const,
   };

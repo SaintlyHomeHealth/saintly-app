@@ -10,6 +10,7 @@ export type CrmLeadsContactEmb = {
   primary_phone?: string | null;
   secondary_phone?: string | null;
   email?: string | null;
+  city?: string | null;
 };
 
 export type CrmLeadRow = {

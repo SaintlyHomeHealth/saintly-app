@@ -14,6 +14,7 @@ import {
   quickSetLeadTemperature,
 } from "@/app/admin/crm/actions";
 import { LeadDeleteButton } from "@/app/admin/crm/leads/_components/LeadDeleteButton";
+import { FacebookWoundCareAnswersBlock } from "@/app/admin/crm/leads/_components/FacebookWoundCareAnswersBlock";
 import {
   LeadListRowCallAttempts,
   LeadListRowQuickNote,
@@ -53,6 +54,7 @@ import {
   isSalesAgentProducedLead,
 } from "@/lib/crm/sales-agent-produced-by";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
+import { parseFacebookWoundCareLeadAnswers } from "@/lib/facebook/facebook-wound-care-lead-display";
 import {
   buildWorkspaceInboxLeadSmsHref,
   buildWorkspaceKeypadCallHref,
@@ -281,6 +283,14 @@ export function CrmLeadCard({
       ? row.service_disciplines.join(", ")
       : row.service_type ?? "") || "";
   const created = relativeCreated(row.created_at);
+  const facebookWoundCareAnswers = parseFacebookWoundCareLeadAnswers({
+    source: row.source,
+    notes: row.notes,
+    external_source_metadata: row.external_source_metadata,
+    referral_source: row.referral_source,
+    payer_name: row.payer_name ?? row.primary_payer_name,
+    contact_city: contact?.city ?? null,
+  });
 
   function runQuick(
     kind: "spoke" | "voicemail" | "no_response" | "dead",
@@ -404,7 +414,12 @@ export function CrmLeadCard({
           <p className="line-clamp-1 min-w-0 break-all text-xs text-slate-600">
             <span className="font-medium text-slate-700">Email:</span> {email || "—"}
           </p>
-          <DetailRow label="Payer">{payer || "—"}</DetailRow>
+          <DetailRow label="Payer">{payer || facebookWoundCareAnswers?.insurance || "—"}</DetailRow>
+          {facebookWoundCareAnswers ? (
+            <div className="sm:col-span-2">
+              <FacebookWoundCareAnswersBlock answers={facebookWoundCareAnswers} compact />
+            </div>
+          ) : null}
           {serviceArea ? <DetailRow label="Service">{serviceArea}</DetailRow> : null}
           <DetailRow label={credit.label}>{credit.value}</DetailRow>
           {showEmployeeMeta && (role || exp || resume) ? (

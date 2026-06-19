@@ -69,12 +69,12 @@ function isNextControlFlowError(error: unknown): boolean {
 
 /** Omit `external_source_metadata` — large JSONB; hydrate only employee rows via a narrow follow-up query. */
 const CRM_LEADS_LIST_SELECT_BASE_CORE =
-  "id, contact_id, source, status, lead_type, owner_user_id, produced_by_sales_agent_id, ownership_locked, assigned_to_staff_id, created_at, intake_status, referral_source, payer_name, payer_type, primary_payer_type, primary_payer_name, secondary_payer_type, secondary_payer_name, referring_provider_name, next_action, follow_up_date, follow_up_at, last_contact_at, last_outcome, service_disciplines, service_type, lead_temperature";
+  "id, contact_id, source, status, lead_type, owner_user_id, produced_by_sales_agent_id, ownership_locked, assigned_to_staff_id, created_at, intake_status, referral_source, payer_name, payer_type, primary_payer_type, primary_payer_name, secondary_payer_type, secondary_payer_name, referring_provider_name, next_action, follow_up_date, follow_up_at, last_contact_at, last_outcome, service_disciplines, service_type, lead_temperature, notes";
 
 const CRM_LEADS_LIST_SELECT_BASE = `${CRM_LEADS_LIST_SELECT_BASE_CORE}, call_attempt_count`;
 
 const CRM_LEADS_LIST_CONTACTS_EMBED =
-  "contacts ( full_name, first_name, last_name, primary_phone, secondary_phone, email )";
+  "contacts ( full_name, first_name, last_name, primary_phone, secondary_phone, email, city )";
 
 const CRM_LEADS_LIST_SELECT_WITH_WAITING = `${CRM_LEADS_LIST_SELECT_BASE}, waiting_on_doctors_orders, waiting_on_insurance_verification, ${CRM_LEADS_LIST_CONTACTS_EMBED}`;
 const CRM_LEADS_LIST_SELECT_DOCTORS_HOLD_ONLY = `${CRM_LEADS_LIST_SELECT_BASE}, waiting_on_doctors_orders, ${CRM_LEADS_LIST_CONTACTS_EMBED}`;

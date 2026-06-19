@@ -23,6 +23,8 @@ import { formatProducedBySalesAgentLabel } from "@/lib/crm/sales-agent-produced-
 
 import { LeadSnapshotCopyButton, LeadSnapshotMedicareReveal } from "./lead-snapshot-client";
 import { LeadDeleteButton } from "./LeadDeleteButton";
+import { FacebookWoundCareAnswersBlock } from "./FacebookWoundCareAnswersBlock";
+import { parseFacebookWoundCareLeadAnswers } from "@/lib/facebook/facebook-wound-care-lead-display";
 
 function fmtIsoDate(iso: string | null | undefined): string {
   if (!iso || !/^\d{4}-\d{2}-\d{2}/.test(iso)) return "";
@@ -148,6 +150,8 @@ export type LeadSnapshotProps = {
   waitingOnDoctorsOrders: boolean;
   /** `leads.waiting_on_insurance_verification` */
   waitingOnInsuranceVerification: boolean;
+  /** Raw `leads.external_source_metadata` — Facebook / Zapier intake snapshot. */
+  externalSourceMetadata?: unknown;
   /** Locked sales credit + internal assignment for sales-agent orders. */
   salesAgentCredit?: {
     producedByName: string | null;
@@ -224,6 +228,7 @@ function buildSnapshotPlainText(p: LeadSnapshotProps): string {
       L("PT timing", p.intakeRequest.pt_timing.trim());
       L("Wound type", p.intakeRequest.wound_type.trim());
       L("Situation", p.intakeRequest.situation.trim());
+      L("Insurance answer", p.intakeRequest.insurance_answer.trim());
     }
     L("Lead notes", p.applicationNotes.trim());
   }
@@ -266,6 +271,7 @@ export function LeadSnapshot(props: LeadSnapshotProps) {
     waitingOnDoctorsOrders,
     waitingOnInsuranceVerification,
     salesAgentCredit = null,
+    externalSourceMetadata,
   } = props;
 
   const addrParts = [
@@ -315,6 +321,16 @@ export function LeadSnapshot(props: LeadSnapshotProps) {
   const plainText = buildSnapshotPlainText(props);
 
   const requestedServiceLine = intakeRequest.service_needed.trim();
+  const facebookWoundCareAnswers = !isEmployeeLead
+    ? parseFacebookWoundCareLeadAnswers({
+        source: sourceRaw,
+        notes: applicationNotes,
+        external_source_metadata: externalSourceMetadata,
+        referral_source: intakeDefaults.referral_source || referralSourceLine,
+        payer_name: intakeDefaults.payer_name || intakeDefaults.primary_payer_name,
+        contact_city: contact.city,
+      })
+    : null;
 
   return (
     <section
@@ -415,6 +431,12 @@ export function LeadSnapshot(props: LeadSnapshotProps) {
               <span className="text-[11px] text-amber-950/85">{LEAD_HOLD_WAITING_ON_INSURANCE_VERIFICATION.helperText}</span>
             </form>
           </div>
+        </div>
+      ) : null}
+
+      {!isEmployeeLead && facebookWoundCareAnswers ? (
+        <div className="mt-5">
+          <FacebookWoundCareAnswersBlock answers={facebookWoundCareAnswers} />
         </div>
       ) : null}
 
@@ -588,6 +610,11 @@ export function LeadSnapshot(props: LeadSnapshotProps) {
                     {intakeRequest.care_for.trim() ? (
                       <p>
                         <span className="text-slate-500">Care for:</span> {intakeRequest.care_for}
+                      </p>
+                    ) : null}
+                    {intakeRequest.insurance_answer.trim() ? (
+                      <p>
+                        <span className="text-slate-500">Insurance:</span> {intakeRequest.insurance_answer}
                       </p>
                     ) : null}
                     {intakeRequest.start_time.trim() ? (

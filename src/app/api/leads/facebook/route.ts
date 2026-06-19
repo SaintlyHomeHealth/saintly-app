@@ -3,10 +3,12 @@ import { timingSafeEqual } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 
 import { supabaseAdmin } from "@/lib/admin";
+import { ingestFacebookPartnerStandardLead } from "@/lib/facebook/facebook-lead-ingestion";
 import {
-  ingestFacebookPartnerStandardLead,
-  type FacebookPartnerStandardPayload,
-} from "@/lib/facebook/facebook-lead-ingestion";
+  FACEBOOK_WOUND_CARE_ZAPIER_EXAMPLE_PAYLOAD,
+  normalizeFacebookPartnerWebhookBody,
+  normalizedToPartnerPayload,
+} from "@/lib/facebook/facebook-partner-lead-normalize";
 import {
   ingestFacebookRecruitingLead,
   type FacebookRecruitingLeadPayload,
@@ -23,153 +25,92 @@ function secretsEqual(received: string, expected: string): boolean {
   return timingSafeEqual(a, b);
 }
 
-/** Lowercase keys; spaces → underscores so `full name`, `full_name`, `Full Name` align. */
-function canonicalFieldKey(k: string): string {
-  return k.trim().toLowerCase().replace(/\s+/g, "_");
-}
-
-function normalizeIncomingRecord(raw: Record<string, unknown>): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(raw)) {
-    out[canonicalFieldKey(k)] = v;
-  }
-  return out;
-}
-
-function pickScalarString(norm: Record<string, unknown>, aliases: string[]): string {
-  for (const a of aliases) {
-    const ck = canonicalFieldKey(a);
-    const v = norm[ck];
-    if (v === null || v === undefined) continue;
-    if (typeof v === "string") {
-      const t = v.trim();
-      if (t) return t;
-    }
-    if (typeof v === "number" && Number.isFinite(v)) {
-      const t = String(v).trim();
-      if (t) return t;
-    }
-  }
-  return "";
-}
-
-function pickOptionalUnknown(norm: Record<string, unknown>, aliases: string[]): unknown {
-  for (const a of aliases) {
-    const ck = canonicalFieldKey(a);
-    if (Object.prototype.hasOwnProperty.call(norm, ck) && norm[ck] !== undefined) {
-      return norm[ck];
-    }
-  }
-  return undefined;
-}
-
 /**
  * Zapier / Facebook Lead Ads → CRM (`ingestFacebookPartnerStandardLead`).
  *
- * Wound care + physical therapy lead forms: normalized keys after alias handling.
  * Auth: header `x-webhook-secret` must match env `FACEBOOK_LEADS_WEBHOOK_SECRET`.
+ *
+ * Example Zapier POST body (wound care):
+ *
+ * ```json
+ * {
+ *   "full_name": "Jane Doe",
+ *   "phone_number": "4805551234",
+ *   "email": "test@example.com",
+ *   "city": "Mesa",
+ *   "insurance_answer": "Medicare",
+ *   "wound_care_needed": "Open wound / pressure sore",
+ *   "care_for": "My parent",
+ *   "source": "Facebook Wound Care Ad",
+ *   "lead_type": "wound_care"
+ * }
+ * ```
+ *
+ * See also `FACEBOOK_WOUND_CARE_ZAPIER_EXAMPLE_PAYLOAD` in `facebook-partner-lead-normalize.ts`.
  */
 export async function POST(req: NextRequest) {
   const envRaw = process.env.FACEBOOK_LEADS_WEBHOOK_SECRET;
   const expected = envRaw?.trim();
   if (!expected) {
-    console.warn("[api/leads/facebook]", { reason: "FACEBOOK_LEADS_WEBHOOK_SECRET not configured" });
+    console.warn("[api/leads/facebook] error", { reason: "FACEBOOK_LEADS_WEBHOOK_SECRET not configured" });
     return NextResponse.json({ ok: false, error: "server_misconfiguration" } as const, { status: 500 });
   }
 
   const secret = (req.headers.get("x-webhook-secret") ?? "").trim();
   if (!secretsEqual(secret, expected)) {
+    console.warn("[api/leads/facebook] error", { reason: "unauthorized" });
     return NextResponse.json({ ok: false, error: "unauthorized" } as const, { status: 401 });
   }
 
   let rawBodyText: string;
   try {
     rawBodyText = await req.text();
-  } catch {
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn("[api/leads/facebook] error", { reason: "invalid_body", message: msg });
     return NextResponse.json({ ok: false, error: "invalid_body" } as const, { status: 400 });
   }
 
   let parsed: unknown;
   try {
     parsed = JSON.parse(rawBodyText);
-  } catch {
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn("[api/leads/facebook] error", { reason: "invalid_json", message: msg, bodyPreview: rawBodyText.slice(0, 500) });
     return NextResponse.json({ ok: false, error: "invalid_json" } as const, { status: 400 });
   }
 
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    console.warn("[api/leads/facebook] error", { reason: "invalid_body", bodyType: Array.isArray(parsed) ? "array" : typeof parsed });
     return NextResponse.json({ ok: false, error: "invalid_body" } as const, { status: 400 });
   }
 
   const body = parsed as Record<string, unknown>;
-  console.log("Incoming payload:", body);
+  const normalizedLead = normalizeFacebookPartnerWebhookBody(body);
+  console.log("[api/leads/facebook] normalized", normalizedLead);
 
-  const norm = normalizeIncomingRecord(body);
-
-  const fullName = pickScalarString(norm, ["full_name", "full name", "name", "Name"]);
-  const phone = pickScalarString(norm, ["phone", "Phone", "phone_number", "phone number", "mobile"]);
-  const email = pickScalarString(norm, ["email", "Email"]);
-  const formName = pickScalarString(norm, ["form_name", "form name", "Form name"]);
-  const hasMedicareRaw = pickOptionalUnknown(norm, ["has_medicare", "Has_Medicare", "has medicare"]);
-  const woundType = pickScalarString(norm, ["wound_type", "Wound_Type", "wound type"]);
-  const careFor = pickScalarString(norm, ["care_for", "Care_For", "care for"]);
-  const zip = pickScalarString(norm, ["zip", "zip_code", "zip code", "postal_code", "postal code"]);
-  const notes = pickScalarString(norm, ["notes", "note", "message"]);
-  const ptTiming = pickScalarString(norm, ["pt_timing", "pt timing", "Pt_Timing"]);
-  const serviceNeeded = pickScalarString(norm, ["service_needed", "service needed", "service", "Service"]);
-  const campaign = pickScalarString(norm, ["campaign", "utm_campaign"]);
-  const attributionSource = pickScalarString(norm, ["source", "utm_source", "referral_source"]);
-  const leadType = pickScalarString(norm, ["lead_type", "lead type"]);
-  const licenseStatus = pickScalarString(norm, ["license_status", "license status"]);
-  const homeHealthExperience = pickScalarString(norm, ["home_health_experience", "home health experience"]);
-  const visitsPerWeek = pickScalarString(norm, ["visits_per_week", "visits per week"]);
-  const coverageArea = pickScalarString(norm, ["coverage_area", "coverage area"]);
-  const startDate = pickScalarString(norm, ["start_date", "start date"]);
-  const contactPreference = pickScalarString(norm, ["contact_preference", "contact preference"]);
-  const city = pickScalarString(norm, ["city", "City"]);
-
-  const normalizedLead = {
-    full_name: fullName,
-    phone,
-    email,
-    zip_code: zip,
-    has_medicare: hasMedicareRaw,
-    care_for: careFor,
-    pt_timing: ptTiming,
-    service_needed: serviceNeeded,
-    form_name: formName,
-    wound_type: woundType,
-    notes,
-    campaign,
-    attribution_source: attributionSource,
-    lead_type: leadType,
-    license_status: licenseStatus,
-    home_health_experience: homeHealthExperience,
-    visits_per_week: visitsPerWeek,
-    coverage_area: coverageArea,
-    start_date: startDate,
-    contact_preference: contactPreference,
-    city,
-  };
-  console.log("Normalized lead:", normalizedLead);
-
-  if (!fullName.trim() && !phone.trim()) {
+  if (!normalizedLead.full_name.trim() && !normalizedLead.phone.trim()) {
+    console.warn("[api/leads/facebook] error", {
+      reason: "missing_name_or_phone",
+      example: FACEBOOK_WOUND_CARE_ZAPIER_EXAMPLE_PAYLOAD,
+    });
     return NextResponse.json({ ok: false, error: "missing_name_or_phone" } as const, { status: 400 });
   }
 
   const recruitingPayload: FacebookRecruitingLeadPayload = {
-    form_name: formName || undefined,
-    full_name: fullName || undefined,
-    phone: phone || undefined,
-    email: email || undefined,
-    license_status: licenseStatus || undefined,
-    home_health_experience: homeHealthExperience || undefined,
-    visits_per_week: visitsPerWeek || undefined,
-    coverage_area: coverageArea || undefined,
-    start_date: startDate || undefined,
-    lead_type: leadType || undefined,
-    source: attributionSource || undefined,
-    contact_preference: contactPreference || undefined,
-    city: city || undefined,
+    form_name: normalizedLead.form_name || undefined,
+    full_name: normalizedLead.full_name || undefined,
+    phone: normalizedLead.phone || undefined,
+    email: normalizedLead.email || undefined,
+    license_status: normalizedLead.license_status || undefined,
+    home_health_experience: normalizedLead.home_health_experience || undefined,
+    visits_per_week: normalizedLead.visits_per_week || undefined,
+    coverage_area: normalizedLead.coverage_area || undefined,
+    start_date: normalizedLead.start_date || undefined,
+    lead_type: normalizedLead.lead_type || undefined,
+    source: normalizedLead.source || undefined,
+    contact_preference: normalizedLead.contact_preference || undefined,
+    city: normalizedLead.city || undefined,
   };
 
   if (isFacebookRecruitingLeadPayload(recruitingPayload as Record<string, unknown>)) {
@@ -180,6 +121,7 @@ export async function POST(req: NextRequest) {
       });
 
       if (!recruitingResult.ok) {
+        console.warn("[api/leads/facebook] recruiting error", { error: recruitingResult.error, normalizedLead });
         return NextResponse.json({ ok: false, error: recruitingResult.error } as const, { status: 400 });
       }
 
@@ -193,28 +135,12 @@ export async function POST(req: NextRequest) {
       } as const);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      console.warn("[api/leads/facebook] recruiting unhandled", msg);
+      console.warn("[api/leads/facebook] recruiting unhandled", { message: msg, normalizedLead });
       return NextResponse.json({ ok: false, error: "internal_error" } as const, { status: 500 });
     }
   }
 
-  const payloadForIngest: FacebookPartnerStandardPayload = {
-    full_name: fullName || undefined,
-    name: fullName || undefined,
-    phone: phone || undefined,
-    email: email || undefined,
-    form_name: formName || undefined,
-    has_medicare: hasMedicareRaw,
-    wound_type: woundType || undefined,
-    care_for: careFor || undefined,
-    zip: zip || undefined,
-    notes: notes || undefined,
-    service_needed: serviceNeeded || undefined,
-    service: serviceNeeded || undefined,
-    pt_timing: ptTiming || undefined,
-    campaign: campaign || undefined,
-    source: attributionSource || undefined,
-  };
+  const payloadForIngest = normalizedToPartnerPayload(normalizedLead);
 
   try {
     const result = await ingestFacebookPartnerStandardLead(supabaseAdmin, {
@@ -225,6 +151,11 @@ export async function POST(req: NextRequest) {
     if (!result.ok) {
       let status = 400;
       if (result.error === "invalid_phone") status = 422;
+      console.warn("[api/leads/facebook] ingest error", {
+        error: result.error,
+        normalizedLead,
+        bodyPreview: rawBodyText.slice(0, 1000),
+      });
       return NextResponse.json({ ok: false, error: result.error } as const, { status });
     }
 
@@ -234,7 +165,7 @@ export async function POST(req: NextRequest) {
     } as const);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    console.warn("[api/leads/facebook] unhandled", msg);
+    console.warn("[api/leads/facebook] unhandled", { message: msg, normalizedLead, bodyPreview: rawBodyText.slice(0, 1000) });
     return NextResponse.json({ ok: false, error: "internal_error" } as const, { status: 500 });
   }
 }

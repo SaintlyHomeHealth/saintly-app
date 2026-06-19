@@ -754,6 +754,7 @@ export default async function LeadIntakePage({
       referralSourceLine={referralSourceLine}
       applicationNotes={typeof L.notes === "string" ? L.notes : ""}
       intakeRequestDefaults={intakeRequestDefaults}
+      externalSourceMetadata={L.external_source_metadata}
       dobIso={dobIso}
       primaryInsurancePath={primaryInsurancePath}
       secondaryInsurancePath={secondaryInsurancePath}
