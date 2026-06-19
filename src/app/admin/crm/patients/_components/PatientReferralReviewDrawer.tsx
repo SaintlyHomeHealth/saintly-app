@@ -83,6 +83,7 @@ type PatientReferralReviewDrawerProps = {
   onCreatePatient: () => void;
   onSaveReferralOnly: () => void;
   attachPatientId?: string | null;
+  onViewFile?: () => void;
 };
 
 export function PatientReferralReviewDrawer({
@@ -96,6 +97,7 @@ export function PatientReferralReviewDrawer({
   onCreatePatient,
   onSaveReferralOnly,
   attachPatientId,
+  onViewFile,
 }: PatientReferralReviewDrawerProps) {
   if (!open) return null;
 
@@ -239,8 +241,25 @@ export function PatientReferralReviewDrawer({
 
           <section className="rounded-2xl border border-slate-200/90 bg-white px-4 py-4 shadow-sm">
             <h3 className="text-sm font-semibold text-slate-900">Uploaded Documents</h3>
-            <p className="mt-2 text-sm text-slate-600">{fileName}</p>
-            <p className="mt-1 text-[11px] text-slate-500">Document will be attached when you create or save the referral.</p>
+            <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-sm">
+              <div>
+                <p className="font-medium text-slate-800">{fileName}</p>
+                <p className="mt-1 text-[11px] text-slate-500">
+                  Type: {form.document_type?.trim() || parse?.documentType || "referral"} · Parse:{" "}
+                  {parse?.quality ?? "manual"}
+                </p>
+              </div>
+              {onViewFile ? (
+                <button
+                  type="button"
+                  className="rounded-lg border border-sky-600 bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-900 hover:bg-sky-100"
+                  onClick={onViewFile}
+                >
+                  View file
+                </button>
+              ) : null}
+            </div>
+            <p className="mt-2 text-[11px] text-slate-500">Document will be attached when you create or save the referral.</p>
           </section>
         </div>
 

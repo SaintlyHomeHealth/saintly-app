@@ -154,7 +154,7 @@ export function uploadStatusLabel(status: PatientReferralUploadStatus | PatientR
     case "needs_review":
       return "Needs review";
     case "ready":
-      return "Ready to create patient";
+      return "Ready for review";
     case "duplicate":
       return "Duplicate found";
     case "failed":

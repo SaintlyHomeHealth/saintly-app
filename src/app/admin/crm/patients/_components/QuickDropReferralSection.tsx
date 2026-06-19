@@ -1,18 +1,26 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 
 import {
   attachReferralToExistingPatient,
   createPatientFromReferral,
+  findPatientReferralDuplicatesAction,
+  getPatientReferralFileSignedUrl,
+  parsePatientReferralDocument,
   savePatientReferralOnly,
 } from "@/app/admin/crm/patient-referral-actions";
 import {
   crmFilterInputCls,
   crmPrimaryCtaCls,
 } from "@/components/admin/crm-admin-list-styles";
-import { PATIENT_REFERRAL_SOURCE_OPTIONS } from "@/lib/crm/patient-referral/options";
+import { PATIENT_REFERRAL_SOURCE_OPTIONS, type PatientReferralSourceType } from "@/lib/crm/patient-referral/options";
+import {
+  deriveQueueStatusAfterParse,
+  hasParseData,
+  summarizeParsedReferral,
+} from "@/lib/crm/patient-referral/queue-summary";
 import {
   EMPTY_PATIENT_REFERRAL_REVIEW_FORM,
   parsedSuggestionsToReviewForm,
@@ -30,9 +38,12 @@ import { PatientReferralReviewDrawer } from "./PatientReferralReviewDrawer";
 type QueuedReferralFile = {
   id: string;
   file: File;
+  objectUrl: string;
   status: PatientReferralUploadStatus;
+  parseAttempted: boolean;
   error?: string;
   parse?: PatientReferralParsePayload | null;
+  storagePath?: string | null;
 };
 
 function statusPillClass(status: PatientReferralUploadStatus): string {
@@ -45,14 +56,27 @@ function statusPillClass(status: PatientReferralUploadStatus): string {
       return "bg-rose-100 text-rose-900 ring-rose-200";
     case "needs_review":
       return "bg-sky-100 text-sky-900 ring-sky-200";
+    case "uploading":
+    case "reading":
+    case "extracting":
+      return "bg-indigo-100 text-indigo-900 ring-indigo-200";
     default:
       return "bg-slate-100 text-slate-700 ring-slate-200";
   }
 }
 
+function isProcessingStatus(status: PatientReferralUploadStatus): boolean {
+  return status === "uploading" || status === "reading" || status === "extracting";
+}
+
+function openInNewTab(url: string) {
+  window.open(url, "_blank", "noopener,noreferrer");
+}
+
 export function QuickDropReferralSection() {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
+  const objectUrlsRef = useRef<Set<string>>(new Set());
   const [expanded, setExpanded] = useState(false);
   const [referralSourceType, setReferralSourceType] = useState("");
   const [queue, setQueue] = useState<QueuedReferralFile[]>([]);
@@ -63,77 +87,118 @@ export function QuickDropReferralSection() {
   const [dupes, setDupes] = useState<PatientReferralDuplicateRow[] | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const [parsePending, setParsePending] = useState(false);
   const [attachPatientId, setAttachPatientId] = useState<string | null>(null);
   const [forceDuplicate, setForceDuplicate] = useState(false);
 
   const activeItem = queue.find((q) => q.id === activeFileId) ?? null;
 
-  const processFile = useCallback(
-    async (item: QueuedReferralFile) => {
-      if (!referralSourceType) {
-        setQueue((prev) =>
-          prev.map((q) =>
-            q.id === item.id ? { ...q, status: "failed", error: "Select a referral source first." } : q
-          )
-        );
-        return;
+  useEffect(() => {
+    return () => {
+      for (const url of objectUrlsRef.current) {
+        URL.revokeObjectURL(url);
+      }
+      objectUrlsRef.current.clear();
+    };
+  }, []);
+
+  const updateQueueItem = useCallback((id: string, patch: Partial<QueuedReferralFile>) => {
+    setQueue((prev) => prev.map((q) => (q.id === id ? { ...q, ...patch } : q)));
+  }, []);
+
+  const runParse = useCallback(
+    async (id: string, file: File, sourceType: string): Promise<Partial<QueuedReferralFile> | null> => {
+      if (!sourceType) {
+        updateQueueItem(id, {
+          status: "failed",
+          parseAttempted: true,
+          error: "Select a referral source first.",
+        });
+        return null;
       }
 
-      setQueue((prev) =>
-        prev.map((q) => (q.id === item.id ? { ...q, status: "uploading", error: undefined } : q))
-      );
+      updateQueueItem(id, { status: "uploading", error: undefined, parseAttempted: false });
+      await new Promise((r) => setTimeout(r, 0));
+      updateQueueItem(id, { status: "reading" });
+      await new Promise((r) => setTimeout(r, 0));
+      updateQueueItem(id, { status: "extracting" });
 
       const fd = new FormData();
-      fd.set("file", item.file);
-      fd.set("referral_source_type", referralSourceType);
-
-      setQueue((prev) => prev.map((q) => (q.id === item.id ? { ...q, status: "reading" } : q)));
+      fd.set("file", file);
+      fd.set("referral_source_type", sourceType);
 
       try {
-        setQueue((prev) => prev.map((q) => (q.id === item.id ? { ...q, status: "extracting" } : q)));
-        const res = await fetch("/api/crm/patient-referrals/parse-only", { method: "POST", body: fd });
-        const json = (await res.json().catch(() => ({}))) as {
-          error?: string;
-          parse?: PatientReferralParsePayload;
+        const result = await parsePatientReferralDocument(fd);
+        if (!result.ok) {
+          const manualParse: PatientReferralParsePayload = {
+            ok: false,
+            quality: "manual",
+            suggestions: {
+              referral_source_type: sourceType as PatientReferralSourceType,
+              intake_status: "New Referral",
+              patient_status: "pending",
+            },
+            messages: [result.error],
+          };
+          const patch: Partial<QueuedReferralFile> = {
+            status: "failed",
+            parseAttempted: true,
+            error: result.error,
+            parse: manualParse,
+          };
+          updateQueueItem(id, patch);
+          return patch;
+        }
+
+        const status = deriveQueueStatusAfterParse({
+          parseAttempted: true,
+          parse: result.parse,
+        });
+
+        const patch: Partial<QueuedReferralFile> = {
+          status,
+          parseAttempted: true,
+          parse: result.parse,
+          error: status === "failed" ? result.parse.messages.join(" ") || "Failed to parse document." : undefined,
         };
 
-        if (res.status === 403) {
-          setQueue((prev) =>
-            prev.map((q) => (q.id === item.id ? { ...q, status: "failed", error: "You do not have access." } : q))
-          );
-          return;
-        }
-        if (res.status === 400) {
-          setQueue((prev) =>
-            prev.map((q) =>
-              q.id === item.id ? { ...q, status: "failed", error: json.error ?? "Invalid file." } : q
-            )
-          );
-          return;
-        }
-
-        const parse = json.parse ?? null;
-        const status: PatientReferralUploadStatus =
-          parse?.needsReview || !parse?.ok ? "needs_review" : "ready";
-
-        setQueue((prev) =>
-          prev.map((q) =>
-            q.id === item.id
-              ? {
-                  ...q,
-                  status,
-                  parse,
-                }
-              : q
-          )
-        );
-      } catch {
-        setQueue((prev) =>
-          prev.map((q) => (q.id === item.id ? { ...q, status: "failed", error: "Network error — try again." } : q))
-        );
+        updateQueueItem(id, patch);
+        return patch;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "Network error — try again.";
+        const patch: Partial<QueuedReferralFile> = {
+          status: "failed",
+          parseAttempted: true,
+          error: msg,
+        };
+        updateQueueItem(id, patch);
+        return patch;
       }
     },
-    [referralSourceType]
+    [updateQueueItem]
+  );
+
+  const enqueueAndParse = useCallback(
+    async (file: File) => {
+      const id = crypto.randomUUID();
+      const objectUrl = URL.createObjectURL(file);
+      objectUrlsRef.current.add(objectUrl);
+
+      setQueue((prev) => [
+        ...prev,
+        {
+          id,
+          file,
+          objectUrl,
+          status: "uploading",
+          parseAttempted: false,
+          parse: null,
+        },
+      ]);
+
+      await runParse(id, file, referralSourceType);
+    },
+    [referralSourceType, runParse]
   );
 
   const addFiles = useCallback(
@@ -143,7 +208,7 @@ export function QuickDropReferralSection() {
         return;
       }
       const arr = Array.from(list);
-      const next: QueuedReferralFile[] = [];
+      const accepted: File[] = [];
       for (const f of arr) {
         const lower = f.name.toLowerCase();
         const ok =
@@ -153,31 +218,107 @@ export function QuickDropReferralSection() {
           lower.endsWith(".jpeg") ||
           lower.endsWith(".heic") ||
           lower.endsWith(".heif");
-        if (!ok) continue;
-        next.push({ id: crypto.randomUUID(), file: f, status: "uploading" });
+        if (ok) accepted.push(f);
       }
-      if (!next.length) {
+      if (!accepted.length) {
         setToast("No supported files (PDF, PNG, JPG, HEIC).");
         return;
       }
       setToast(null);
       setExpanded(true);
-      setQueue((q) => [...q, ...next]);
-      for (const item of next) void processFile(item);
+      for (const f of accepted) void enqueueAndParse(f);
     },
-    [processFile, referralSourceType]
+    [enqueueAndParse, referralSourceType]
   );
 
-  function openReview(item: QueuedReferralFile) {
+  const removeItem = useCallback((id: string, objectUrl: string) => {
+    URL.revokeObjectURL(objectUrl);
+    objectUrlsRef.current.delete(objectUrl);
+    setQueue((q) => q.filter((x) => x.id !== id));
+    if (activeFileId === id) {
+      setReviewOpen(false);
+      setActiveFileId(null);
+    }
+  }, [activeFileId]);
+
+  const viewFile = useCallback(async (item: QueuedReferralFile) => {
+    if (item.objectUrl) {
+      openInNewTab(item.objectUrl);
+      return;
+    }
+    if (item.storagePath) {
+      const res = await getPatientReferralFileSignedUrl(item.storagePath);
+      if (res.ok) openInNewTab(res.url);
+      else setToast(res.error);
+    }
+  }, []);
+
+  async function runDuplicateCheck(form: PatientReferralReviewFormState) {
+    const fd = new FormData();
+    for (const [k, v] of Object.entries(form)) {
+      fd.set(k, v ?? "");
+    }
+    const dupRes = await findPatientReferralDuplicatesAction(fd);
+    if (dupRes.ok && dupRes.duplicates.length > 0) {
+      setDupes(dupRes.duplicates);
+      if (activeFileId) {
+        updateQueueItem(activeFileId, { status: "duplicate" });
+      }
+    }
+  }
+
+  function openReviewFromItem(item: QueuedReferralFile) {
     setActiveFileId(item.id);
     const form = item.parse?.suggestions
       ? parsedSuggestionsToReviewForm(item.parse.suggestions, referralSourceType)
       : { ...EMPTY_PATIENT_REFERRAL_REVIEW_FORM, referral_source_type: referralSourceType };
     setReviewForm(form);
     setReviewOpen(true);
-    setDupes(null);
     setAttachPatientId(null);
     setForceDuplicate(false);
+    void runDuplicateCheck(form);
+  }
+
+  async function handleReview(item: QueuedReferralFile, manualOnly = false) {
+    if (!referralSourceType) {
+      setToast("Select a referral source first.");
+      return;
+    }
+
+    setToast(null);
+    setDupes(null);
+
+    let current = item;
+
+    if (!manualOnly && (!item.parseAttempted || isProcessingStatus(item.status))) {
+      setParsePending(true);
+      setActiveFileId(item.id);
+      const patch = await runParse(item.id, item.file, referralSourceType);
+      setParsePending(false);
+      if (patch) {
+        current = { ...item, ...patch };
+      }
+    }
+
+    if (current.status === "failed" || manualOnly) {
+      current = {
+        ...current,
+        parse:
+          current.parse ??
+          ({
+            ok: false,
+            quality: "manual",
+            suggestions: {
+              referral_source_type: referralSourceType as PatientReferralReviewFormState["referral_source_type"],
+              intake_status: "New Referral",
+              patient_status: "pending",
+            },
+            messages: [current.error ?? "Enter referral details manually."],
+          } as PatientReferralParsePayload),
+      };
+    }
+
+    openReviewFromItem(current);
   }
 
   function onFormChange(name: keyof PatientReferralReviewFormState, value: string) {
@@ -208,7 +349,7 @@ export function QuickDropReferralSection() {
           router.push(`/admin/crm/patients/${res.patientId}?referralCreated=1`);
         } else {
           setToast(res.message);
-          setQueue((q) => q.filter((x) => x.id !== activeItem.id));
+          removeItem(activeItem.id, activeItem.objectUrl);
           router.refresh();
         }
         return;
@@ -216,9 +357,7 @@ export function QuickDropReferralSection() {
 
       if (res.reason === "duplicates" && "duplicates" in res && res.duplicates) {
         setDupes(res.duplicates);
-        setQueue((prev) =>
-          prev.map((q) => (q.id === activeItem.id ? { ...q, status: "duplicate" } : q))
-        );
+        updateQueueItem(activeItem.id, { status: "duplicate" });
         return;
       }
 
@@ -240,11 +379,7 @@ export function QuickDropReferralSection() {
             file, prefill patient fields, and let you review before creating a chart.
           </p>
         </div>
-        <button
-          type="button"
-          className={crmPrimaryCtaCls}
-          onClick={() => setExpanded((v) => !v)}
-        >
+        <button type="button" className={crmPrimaryCtaCls} onClick={() => setExpanded((v) => !v)}>
           {expanded ? "Hide" : "Quick Drop Referral"}
         </button>
       </div>
@@ -300,7 +435,7 @@ export function QuickDropReferralSection() {
             <button
               type="button"
               className="mt-4 rounded-lg border border-sky-600 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-900 hover:bg-sky-100 disabled:opacity-50"
-              disabled={!referralSourceType || pending}
+              disabled={!referralSourceType || pending || parsePending}
               onClick={() => inputRef.current?.click()}
             >
               Upload Referral
@@ -312,39 +447,101 @@ export function QuickDropReferralSection() {
           ) : null}
 
           {queue.length > 0 ? (
-            <ul className="space-y-2">
-              {queue.map((item) => (
-                <li
-                  key={item.id}
-                  className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm"
-                >
-                  <div className="min-w-0">
-                    <p className="truncate font-medium text-slate-900">{item.file.name}</p>
-                    {item.error ? <p className="text-xs text-rose-700">{item.error}</p> : null}
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ${statusPillClass(item.status)}`}>
-                      {uploadStatusLabel(item.status)}
-                    </span>
-                    {(item.status === "ready" || item.status === "needs_review" || item.status === "duplicate") && (
-                      <button
-                        type="button"
-                        className="rounded-lg border border-sky-600 bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-900 hover:bg-sky-100"
-                        onClick={() => openReview(item)}
-                      >
-                        Review & Create Patient
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      className="text-xs font-medium text-slate-500 hover:text-slate-800"
-                      onClick={() => setQueue((q) => q.filter((x) => x.id !== item.id))}
-                    >
-                      Remove
-                    </button>
-                  </div>
-                </li>
-              ))}
+            <ul className="space-y-3">
+              {queue.map((item) => {
+                const summary = summarizeParsedReferral(item.parse?.suggestions);
+                const parsed = item.parseAttempted && hasParseData(item.parse);
+                return (
+                  <li
+                    key={item.id}
+                    className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate font-medium text-slate-900">{item.file.name}</p>
+                        <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ${statusPillClass(item.status)}`}
+                          >
+                            {isProcessingStatus(item.status) || (parsePending && item.id === activeFileId)
+                              ? uploadStatusLabel(item.status)
+                              : item.status === "failed"
+                                ? "Failed to parse"
+                                : item.status === "ready"
+                                  ? "Ready for review"
+                                  : uploadStatusLabel(item.status)}
+                          </span>
+                          {parsed ? (
+                            <span className="text-[11px] text-slate-600">
+                              {summary.patientName ? (
+                                <>
+                                  Patient: <span className="font-medium text-slate-800">{summary.patientName}</span>
+                                </>
+                              ) : null}
+                              {summary.payer ? (
+                                <>
+                                  {summary.patientName ? " · " : ""}
+                                  Payer: <span className="font-medium text-slate-800">{summary.payer}</span>
+                                </>
+                              ) : null}
+                              {summary.socDate ? (
+                                <>
+                                  {(summary.patientName || summary.payer) ? " · " : ""}
+                                  SOC: <span className="font-medium text-slate-800">{summary.socDate}</span>
+                                </>
+                              ) : null}
+                              {summary.authNumber ? (
+                                <>
+                                  {(summary.patientName || summary.payer || summary.socDate) ? " · " : ""}
+                                  Auth: <span className="font-medium text-slate-800">{summary.authNumber}</span>
+                                </>
+                              ) : null}
+                            </span>
+                          ) : null}
+                        </div>
+                        {item.error ? <p className="mt-1 text-xs text-rose-700">{item.error}</p> : null}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                          onClick={() => void viewFile(item)}
+                        >
+                          View file
+                        </button>
+                        {item.status === "failed" ? (
+                          <button
+                            type="button"
+                            className="rounded-lg border border-amber-600 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-900 hover:bg-amber-100"
+                            disabled={parsePending}
+                            onClick={() => void handleReview(item, true)}
+                          >
+                            Enter Manually
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            className="rounded-lg border border-sky-600 bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-900 hover:bg-sky-100 disabled:opacity-50"
+                            disabled={parsePending || isProcessingStatus(item.status)}
+                            onClick={() => void handleReview(item)}
+                          >
+                            {parsePending && activeFileId === item.id
+                              ? "Processing…"
+                              : "Review & Create Patient"}
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          className="text-xs font-medium text-slate-500 hover:text-slate-800"
+                          onClick={() => removeItem(item.id, item.objectUrl)}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </div>
+                  </li>
+                );
+              })}
             </ul>
           ) : null}
         </div>
@@ -356,8 +553,9 @@ export function QuickDropReferralSection() {
         parse={activeItem?.parse ?? null}
         form={reviewForm}
         onChange={onFormChange}
-        pending={pending}
+        pending={pending || parsePending}
         onClose={() => setReviewOpen(false)}
+        onViewFile={activeItem ? () => void viewFile(activeItem) : undefined}
         onCreatePatient={() => {
           if (attachPatientId) runSubmit("attach", attachPatientId, forceDuplicate);
           else runSubmit("create", undefined, forceDuplicate);

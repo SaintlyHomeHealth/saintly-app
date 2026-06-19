@@ -97,7 +97,7 @@ export async function PatientReferralsSection({
                 <span className="text-slate-800">{f.file_name}</span>
                 {f.url ? (
                   <Link href={f.url} target="_blank" rel="noopener noreferrer" className="text-xs font-semibold text-sky-800 hover:underline">
-                    Open document
+                    View file
                   </Link>
                 ) : (
                   <span className="text-xs text-slate-400">Unavailable</span>

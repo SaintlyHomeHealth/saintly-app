@@ -9,8 +9,12 @@ import {
 } from "@/lib/crm/patient-referral/duplicates";
 import { DEFAULT_INTAKE_STATUS, DEFAULT_PATIENT_STATUS, isValidPatientReferralDocumentType, isValidPatientReferralSourceType } from "@/lib/crm/patient-referral/options";
 import { patientReferralReviewSchema } from "@/lib/crm/patient-referral/schema";
-import { uploadPatientReferralDocumentToStorage } from "@/lib/crm/patient-referral/storage";
-import type { ParsedPatientReferralSuggestions } from "@/lib/crm/patient-referral/types";
+import {
+  createPatientReferralSignedUrl,
+  uploadPatientReferralDocumentToStorage,
+} from "@/lib/crm/patient-referral/storage";
+import type { ParsedPatientReferralSuggestions, PatientReferralParsePayload } from "@/lib/crm/patient-referral/types";
+import { parsePatientReferralDocumentFromFormData } from "@/lib/crm/patient-referral/parse-document";
 import {
   isPatientReferralMimeAllowed,
   normalizePatientReferralBaseMime,
@@ -470,4 +474,46 @@ export async function savePatientReferralOnly(fd: FormData): Promise<SaveReferra
 
   revalidatePath("/admin/crm/patients");
   return { ok: true, referralId, message: "Referral saved without creating a patient." };
+}
+
+export type ParsePatientReferralDocumentActionResult =
+  | { ok: true; file_name: string; parse: PatientReferralParsePayload }
+  | { ok: false; error: string };
+
+/** Parse referral document via server action (preferred over fetch for session auth). */
+export async function parsePatientReferralDocument(
+  formData: FormData
+): Promise<ParsePatientReferralDocumentActionResult> {
+  const staff = await getStaffProfile();
+  if (!staff || !isManagerOrHigher(staff)) {
+    return { ok: false, error: "You do not have access to this action." };
+  }
+
+  const result = await parsePatientReferralDocumentFromFormData(formData);
+  if (!result.ok) {
+    return { ok: false, error: result.error };
+  }
+
+  return { ok: true, file_name: result.file_name, parse: result.parse };
+}
+
+export async function getPatientReferralFileSignedUrl(
+  storagePath: string
+): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
+  const staff = await getStaffProfile();
+  if (!staff || !isManagerOrHigher(staff)) {
+    return { ok: false, error: "Forbidden" };
+  }
+
+  const path = storagePath.trim();
+  if (!path || path.includes("..") || path.startsWith("/")) {
+    return { ok: false, error: "Invalid path" };
+  }
+
+  const url = await createPatientReferralSignedUrl(path, 3600);
+  if (!url) {
+    return { ok: false, error: "Could not open file" };
+  }
+
+  return { ok: true, url };
 }

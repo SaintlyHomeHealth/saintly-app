@@ -48,13 +48,19 @@ function parseVisitTable(text: string): Partial<ParsedPatientReferralSuggestions
   const approved: string[] = [];
   for (const row of rows) {
     for (const key of row.keys) {
-      const re = new RegExp(`\\b${key}\\b[^\\d\\n]{0,30}(\\d{1,4})`, "i");
-      const m = text.match(re);
-      if (m?.[1]) {
-        const n = normalizeVisitCount(m[1]);
-        if (n != null) {
-          out[row.field] = n;
-          approved.push(key === "Skilled Nursing" || key === "RN" ? "SN" : key);
+      const patterns = [
+        new RegExp(`\\b${key}\\b[^\\d\\n]{0,30}(\\d{1,4})`, "i"),
+        new RegExp(`\\b${key}\\b\\s*[:\\-]?\\s*(\\d{1,4})`, "i"),
+      ];
+      for (const re of patterns) {
+        const m = text.match(re);
+        if (m?.[1]) {
+          const n = normalizeVisitCount(m[1]);
+          if (n != null) {
+            out[row.field] = n;
+            approved.push(key === "Skilled Nursing" || key === "RN" ? "SN" : key);
+            break;
+          }
         }
       }
     }
@@ -88,13 +94,17 @@ export function parseTangoReferralText(text: string): ParsedPatientReferralSugge
   if (authNum) out.authorization_number = authNum.trim();
 
   out.authorization_type = fieldAfterLabel(text, ["Authorization Type", "Auth Type"]);
-  out.authorization_bill_type = fieldAfterLabel(text, ["Authorization Bill Type", "Bill Type"]);
+  out.authorization_bill_type =
+    fieldAfterLabel(text, ["Authorization Bill Type", "Bill Type"]) ??
+    (/\bfee\s+for\s+service\b/i.test(text) ? "Fee for Service" : null);
   out.referral_received_date = normalizeReferralDate(
     fieldAfterLabel(text, ["Date/Time Received", "Date Received", "Received Date"])
   );
-  out.requested_soc_date = normalizeReferralDate(
-    fieldAfterLabel(text, ["SOC date", "SOC Date", "Start of Care", "Complete Date"])
-  );
+  out.requested_soc_date =
+    normalizeReferralDate(fieldAfterLabel(text, ["SOC date", "SOC Date", "Start of Care", "Complete Date"])) ??
+    normalizeReferralDate(
+      text.match(/\bSOC\s*(?:date)?\s*[:\-]?\s*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/i)?.[1] ?? null
+    );
   out.discharge_date = normalizeReferralDate(fieldAfterLabel(text, ["D/C Date", "Discharge Date", "DC Date"]));
   out.referral_facility = fieldAfterLabel(text, ["Referral Facility", "Facility", "Referral Source"]);
   out.referral_source_name = fieldAfterLabel(text, ["Referral Source", "Referral Taken By"]);
