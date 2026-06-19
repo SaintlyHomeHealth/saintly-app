@@ -38,12 +38,11 @@ export default async function PrivatePayInvoiceDetailPage({
   let customer_name = (invoice.billing_name ?? "").trim() || "—";
   let customer_detail: string | null = null;
   let profile_href: string | null = null;
-  let contactHasPhone = Boolean((invoice.billing_phone ?? "").trim());
 
   if (invoice.contact_id) {
     const { data: contact } = await supabaseAdmin
       .from("contacts")
-      .select("id, full_name, first_name, last_name, organization_name, contact_type, phone, mobile_phone")
+      .select("id, full_name, first_name, last_name, organization_name, contact_type")
       .eq("id", invoice.contact_id)
       .maybeSingle();
     if (contact) {
@@ -51,10 +50,6 @@ export default async function PrivatePayInvoiceDetailPage({
       customer_detail =
         (contact.contact_type ?? "").trim() === "private_pay" ? "Private Pay" : "Contact";
       profile_href = `/admin/crm/contacts/${invoice.contact_id}`;
-      contactHasPhone =
-        contactHasPhone ||
-        Boolean((contact.phone ?? "").trim()) ||
-        Boolean((contact.mobile_phone ?? "").trim());
     }
   } else if (invoice.patient_id) {
     customer_detail = "Patient";
@@ -150,7 +145,6 @@ export default async function PrivatePayInvoiceDetailPage({
           pendingReport={pendingReport}
           profileHref={profile_href}
           contactId={invoice.contact_id}
-          contactHasPhone={contactHasPhone}
         />
       </div>
     </div>

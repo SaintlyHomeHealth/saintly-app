@@ -17,7 +17,6 @@ import { PrivatePaySendModal } from "./PrivatePaySendModal";
 import {
   loadPaymentMethods,
   recordManualPayment,
-  sendCardAuthLink,
   sendInvoice,
   type RecordPaymentPayload,
   type SendChannel,
@@ -86,23 +85,8 @@ export function PrivatePayContactBillingCard({
     setBanner(null);
     try {
       const methods = await loadPaymentMethods(contactId);
-      if (methods.length === 0) throw new Error("No card on file for this customer.");
       setChargeMethods(methods);
       setChargeOpen(true);
-    } catch (e) {
-      setBanner({ kind: "err", text: e instanceof Error ? e.message : "Something went wrong" });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const sendCardLink = async () => {
-    setBusy(true);
-    setBanner(null);
-    try {
-      const channel: SendChannel = contactHasPhone ? "text" : "email";
-      const { sentTo } = await sendCardAuthLink(contactId, channel);
-      setBanner({ kind: "ok", text: `Card authorization link sent${sentTo ? ` to ${sentTo}` : ""}.` });
     } catch (e) {
       setBanner({ kind: "err", text: e instanceof Error ? e.message : "Something went wrong" });
     } finally {
@@ -223,15 +207,9 @@ export function PrivatePayContactBillingCard({
 
       {canManage ? (
         <div className="mt-4 flex flex-wrap gap-2">
-          {hasCard ? (
-            <button type="button" disabled={busy || !hasOpenInvoice} onClick={openCharge} className={btnPrimary}>
-              Charge card
-            </button>
-          ) : (
-            <button type="button" disabled={busy} onClick={sendCardLink} className={btnPrimary}>
-              Send card authorization link
-            </button>
-          )}
+          <button type="button" disabled={busy || !hasOpenInvoice} onClick={openCharge} className={btnPrimary}>
+            Charge card
+          </button>
           <button
             type="button"
             disabled={busy || !hasOpenInvoice}
@@ -260,6 +238,13 @@ export function PrivatePayContactBillingCard({
         </div>
       ) : null}
 
+      {canManage && !hasCard && hasOpenInvoice ? (
+        <p className="mt-2 text-[11px] text-slate-500">
+          Enter the client&apos;s card securely through Stripe to charge this invoice and save the card on file. Card
+          numbers are not stored by Saintly.
+        </p>
+      ) : null}
+
       {!hasOpenInvoice && canManage ? (
         <p className="mt-2 text-[11px] text-slate-500">
           No open invoice for this contact. Create one from{" "}
@@ -274,12 +259,13 @@ export function PrivatePayContactBillingCard({
         open={chargeOpen}
         invoice={openInvoice}
         paymentMethods={chargeMethods}
+        contactId={contactId}
         busy={false}
         error={null}
         onClose={() => setChargeOpen(false)}
-        onSuccess={(_updated, message) => {
+        onSuccess={(payload) => {
           setChargeOpen(false);
-          setBanner({ kind: "ok", text: message });
+          setBanner({ kind: "ok", text: payload.message });
           router.refresh();
         }}
       />

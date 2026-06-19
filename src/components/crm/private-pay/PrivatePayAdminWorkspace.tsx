@@ -214,17 +214,10 @@ export function PrivatePayAdminWorkspace({
   );
 
   const openCharge = useCallback(async (row: PrivatePayInvoiceListRow) => {
-    if (!row.contact_id) {
-      setBanner({ kind: "err", text: "This invoice has no contact — add a card on the customer profile first." });
-      return;
-    }
     setRowBusyId(row.id);
     setBanner(null);
     try {
-      const methods = await loadPaymentMethods(row.contact_id);
-      if (methods.length === 0) {
-        throw new Error("No card on file. Send a card authorization link first.");
-      }
+      const methods = row.contact_id ? await loadPaymentMethods(row.contact_id) : [];
       setChargeMethods(methods);
       setChargeFor(row);
     } catch (e) {
@@ -563,13 +556,26 @@ export function PrivatePayAdminWorkspace({
         open={Boolean(chargeFor)}
         invoice={chargeFor}
         paymentMethods={chargeMethods}
+        contactId={chargeFor?.contact_id}
         busy={false}
         error={null}
         onClose={() => setChargeFor(null)}
-        onSuccess={(updated, message) => {
-          upsertInvoice({ ...updated, status: "paid" });
+        onSuccess={(payload) => {
+          upsertInvoice({
+            ...payload.invoice,
+            status: "paid",
+          });
+          if (payload.paymentMethods && chargeFor?.contact_id) {
+            setInvoices((prev) =>
+              prev.map((row) =>
+                row.contact_id === chargeFor.contact_id
+                  ? { ...row, has_card_on_file: payload.paymentMethods!.length > 0 }
+                  : row
+              )
+            );
+          }
           setChargeFor(null);
-          setBanner({ kind: "ok", text: message });
+          setBanner({ kind: "ok", text: payload.message });
           router.refresh();
         }}
       />

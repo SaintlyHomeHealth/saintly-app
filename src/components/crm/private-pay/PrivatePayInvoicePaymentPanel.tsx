@@ -31,7 +31,6 @@ import { PrivatePayRecordPaymentModal, type RecordPaymentInput } from "./Private
 import { PrivatePaySendModal } from "./PrivatePaySendModal";
 import {
   hardDeleteInvoice,
-  sendCardAuthLink,
   sendInvoice,
   type SendChannel,
 } from "./private-pay-client-actions";
@@ -63,18 +62,16 @@ export function PrivatePayInvoicePaymentPanel({
   pendingReport,
   profileHref,
   contactId,
-  contactHasPhone,
 }: {
   invoice: PrivatePayInvoiceListRow;
   paymentMethods: PrivatePayPaymentMethodOnFile[];
   pendingReport: PrivatePayPaymentReport | null;
   profileHref: string | null;
   contactId: string | null;
-  contactHasPhone: boolean;
 }) {
   const router = useRouter();
   const [invoice, setInvoice] = useState(initialInvoice);
-  const [paymentMethods] = useState(initialPaymentMethods);
+  const [paymentMethods, setPaymentMethods] = useState(initialPaymentMethods);
   const [rowBusy, setRowBusy] = useState(false);
   const [banner, setBanner] = useState<{ kind: "ok" | "err" | "warn"; text: string } | null>(null);
   const [chargeOpen, setChargeOpen] = useState(false);
@@ -98,28 +95,48 @@ export function PrivatePayInvoicePaymentPanel({
     Boolean((invoice.stripe_payment_intent_id ?? "").trim()) ||
     invoice.payments.some((p) => p.status === "succeeded" && (p.stripe_payment_intent_id ?? "").trim());
 
-  const upsert = useCallback((updated: PrivatePayInvoiceWithItems) => {
-    setInvoice((prev) => ({
-      ...prev,
-      ...updated,
-      customer_name: prev.customer_name,
-      customer_detail: prev.customer_detail,
-      profile_href: prev.profile_href,
-      pending_payment_report:
-        updated.status === "paid" || updated.status === "void" ? null : prev.pending_payment_report,
-      has_card_on_file: paymentMethods.length > 0,
-      payment_badge:
-        updated.status === "paid"
-          ? "paid"
-          : updated.payments.some((p) => p.status === "pending" && p.payment_method === "card")
-            ? "processing"
-            : updated.payments.some((p) => p.status === "failed" && p.payment_method === "card")
-              ? "failed"
-              : paymentMethods.length > 0
-                ? "card_on_file"
-                : "unpaid",
-    }));
-  }, [paymentMethods.length]);
+  const upsert = useCallback(
+    (updated: PrivatePayInvoiceWithItems, methods?: PrivatePayPaymentMethodOnFile[]) => {
+      const cardMethods = methods ?? paymentMethods;
+      setInvoice((prev) => ({
+        ...prev,
+        ...updated,
+        customer_name: prev.customer_name,
+        customer_detail: prev.customer_detail,
+        profile_href: prev.profile_href,
+        pending_payment_report:
+          updated.status === "paid" || updated.status === "void" ? null : prev.pending_payment_report,
+        has_card_on_file: cardMethods.length > 0,
+        payment_badge:
+          updated.status === "paid"
+            ? "paid"
+            : updated.payments.some((p) => p.status === "pending" && p.payment_method === "card")
+              ? "processing"
+              : updated.payments.some((p) => p.status === "failed" && p.payment_method === "card")
+                ? "failed"
+                : cardMethods.length > 0
+                  ? "card_on_file"
+                  : "unpaid",
+      }));
+    },
+    [paymentMethods]
+  );
+
+  const handleChargeSuccess = useCallback(
+    (payload: {
+      invoice: PrivatePayInvoiceWithItems;
+      paymentMethods?: PrivatePayPaymentMethodOnFile[];
+      message: string;
+    }) => {
+      const methods = payload.paymentMethods ?? paymentMethods;
+      if (payload.paymentMethods) setPaymentMethods(payload.paymentMethods);
+      upsert(payload.invoice, methods);
+      setChargeOpen(false);
+      setBanner({ kind: "ok", text: payload.message });
+      router.refresh();
+    },
+    [upsert, paymentMethods, router]
+  );
 
   const confirmSendInvoice = async (channels: SendChannel[]) => {
     setSendBusy(true);
@@ -143,27 +160,6 @@ export function PrivatePayInvoicePaymentPanel({
       setSendError(e instanceof Error ? e.message : "Something went wrong");
     } finally {
       setSendBusy(false);
-    }
-  };
-
-  const sendCardAuthorization = async () => {
-    if (!contactId) {
-      setBanner({ kind: "err", text: "Link a contact to this invoice before sending a card authorization link." });
-      return;
-    }
-    setRowBusy(true);
-    setBanner(null);
-    try {
-      const channel: SendChannel = contactHasPhone ? "text" : "email";
-      const { sentTo } = await sendCardAuthLink(contactId, channel);
-      setBanner({
-        kind: "ok",
-        text: `Card authorization link sent${sentTo ? ` to ${sentTo}` : ""}.`,
-      });
-    } catch (e) {
-      setBanner({ kind: "err", text: e instanceof Error ? e.message : "Something went wrong" });
-    } finally {
-      setRowBusy(false);
     }
   };
 
@@ -305,30 +301,19 @@ export function PrivatePayInvoicePaymentPanel({
         {isOpenStatus ? (
           <div className="mt-4 space-y-3 border-t border-slate-100 pt-4">
             <div className="flex flex-wrap gap-2">
-              {hasCard ? (
-                <AdminActionButton
-                  variant="primary"
-                  size="md"
-                  disabled={rowBusy}
-                  onClick={() => {
-                    setChargeError(null);
-                    setChargeOpen(true);
-                  }}
-                >
-                  Charge card
-                </AdminActionButton>
-              ) : (
-                <AdminActionButton
-                  variant="primary"
-                  size="md"
-                  disabled={rowBusy || !contactId}
-                  onClick={sendCardAuthorization}
-                >
-                  Send card authorization link
-                </AdminActionButton>
-              )}
               <AdminActionButton
-                variant={hasCard ? "secondary" : "secondary"}
+                variant="primary"
+                size="md"
+                disabled={rowBusy}
+                onClick={() => {
+                  setChargeError(null);
+                  setChargeOpen(true);
+                }}
+              >
+                Charge card
+              </AdminActionButton>
+              <AdminActionButton
+                variant="secondary"
                 size="md"
                 disabled={rowBusy}
                 onClick={() => {
@@ -352,12 +337,13 @@ export function PrivatePayInvoicePaymentPanel({
             </div>
             {!hasCard ? (
               <p className="text-xs text-slate-500">
-                No card on file. Send a card authorization link first, then you can charge the saved card.
+                Enter the client&apos;s card securely through Stripe to charge this invoice and save the card on file.
+                Card numbers are not stored by Saintly.
               </p>
             ) : null}
-            {!contactId && !hasCard ? (
+            {!contactId ? (
               <p className="text-xs text-amber-800">
-                This invoice has no linked contact — attach a contact before sending a card authorization link.
+                This invoice has no linked contact — attach a contact before charging and saving a card.
               </p>
             ) : null}
           </div>
@@ -400,18 +386,14 @@ export function PrivatePayInvoicePaymentPanel({
         open={chargeOpen}
         invoice={invoice}
         paymentMethods={paymentMethods}
+        contactId={contactId}
         busy={false}
         error={chargeError}
         onClose={() => {
           setChargeOpen(false);
           setChargeError(null);
         }}
-        onSuccess={(updated, message) => {
-          upsert(updated);
-          setChargeOpen(false);
-          setBanner({ kind: "ok", text: message });
-          router.refresh();
-        }}
+        onSuccess={handleChargeSuccess}
       />
 
       <PrivatePaySendModal

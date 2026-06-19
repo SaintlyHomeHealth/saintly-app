@@ -103,27 +103,12 @@ export function PrivatePayInvoiceCard({
       <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
         {isUnpaid ? (
           <>
-            {hasCard ? (
-              <>
-                <AdminActionButton variant="primary" size="md" disabled={busy} onClick={() => onCharge(invoice)}>
-                  Charge card
-                </AdminActionButton>
-                <AdminActionButton variant="text" size="md" disabled={busy} onClick={() => onSendInvoice(invoice)}>
-                  Send invoice
-                </AdminActionButton>
-              </>
-            ) : (
-              <>
-                <AdminActionButton variant="primary" size="md" disabled={busy} onClick={() => onSendInvoice(invoice)}>
-                  Send invoice
-                </AdminActionButton>
-                {invoice.contact_id && onSendCardAuth ? (
-                  <AdminActionButton variant="text" size="md" disabled={busy} onClick={() => onSendCardAuth(invoice)}>
-                    Send card auth link
-                  </AdminActionButton>
-                ) : null}
-              </>
-            )}
+            <AdminActionButton variant="primary" size="md" disabled={busy} onClick={() => onCharge(invoice)}>
+              Charge card
+            </AdminActionButton>
+            <AdminActionButton variant="text" size="md" disabled={busy} onClick={() => onSendInvoice(invoice)}>
+              Send invoice
+            </AdminActionButton>
             <AdminActionButton variant="secondary" size="md" disabled={busy} onClick={() => onMarkPaid(invoice)}>
               Mark paid
             </AdminActionButton>
@@ -171,6 +156,19 @@ export function PrivatePayInvoiceCard({
                 >
                   Invoice PDF
                 </a>
+                {isUnpaid && invoice.contact_id && onSendCardAuth ? (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => {
+                      closeMenu();
+                      onSendCardAuth(invoice);
+                    }}
+                    className="block w-full px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    Send card authorization link
+                  </button>
+                ) : null}
                 {isUnpaid ? (
                   <button
                     type="button"
