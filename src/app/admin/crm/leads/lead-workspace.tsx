@@ -26,6 +26,7 @@ import {
   type LeadReferralSourceReviewPanel,
 } from "@/app/admin/facilities/_components/LeadReferralSourceReviewBanner";
 import { LeadSnapshot } from "@/app/admin/crm/leads/_components/LeadSnapshot";
+import { PhoneNumberDuplicateWarning } from "@/app/admin/crm/_components/PhoneNumberDuplicateWarning";
 import { createLeadManualFromCrm, updateLeadContactProfile, updateLeadInsuranceIntake, updateLeadIntake } from "../actions";
 import type { CommunicationTimelineRow } from "@/lib/crm/build-crm-communication-timeline-model";
 import type { CrmStage } from "@/lib/crm/crm-stage";
@@ -255,6 +256,8 @@ export type LeadWorkspaceExistingProps = {
   intakeReadinessPanel?: import("@/lib/crm/lead-intake-readiness-types").LeadIntakeReadinessSummary | null;
   /** Admission handoff (Phase 28). */
   admissionHandoffPanel?: import("@/lib/crm/lead-admission-handoff").LeadAdmissionHandoffPanelData | null;
+  /** Other CRM records sharing this contact's phone number(s). */
+  phoneDuplicateRecords?: PhoneDuplicateRecord[];
 };
 
 export type LeadWorkspaceNewProps = {
@@ -569,6 +572,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
     canManageReferralSourceReview = false,
     intakeReadinessPanel = null,
     admissionHandoffPanel = null,
+    phoneDuplicateRecords = [],
   } = props;
 
   const isSalesAgentLead = Boolean(
@@ -993,6 +997,7 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
         title="Lead contact"
         description="CRM contact linked to this lead (same record if converted to a patient). Updates name, phones, email, date of birth, address, and notes everywhere this contact appears."
       >
+        <PhoneNumberDuplicateWarning records={phoneDuplicateRecords} className="mb-4" />
         <form action={updateLeadContactProfile} id="form-lead-contact" className="space-y-0">
           <input type="hidden" name="leadId" value={leadId} />
           <div className="grid max-w-2xl gap-4 sm:grid-cols-2">

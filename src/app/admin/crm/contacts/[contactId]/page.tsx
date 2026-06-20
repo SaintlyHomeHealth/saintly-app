@@ -45,6 +45,11 @@ import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { devTimedSupabaseQuery } from "@/lib/perf/supabase-dev-query-log";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { formatAppDateTime } from "@/lib/datetime/app-timezone";
+import { PhoneNumberDuplicateWarning } from "@/app/admin/crm/_components/PhoneNumberDuplicateWarning";
+import {
+  fetchPhoneNumberDuplicateRecords,
+  type PhoneDuplicateRecord,
+} from "@/lib/crm/phone-number-duplicate-records";
 
 function staffPrimaryLabel(s: {
   user_id: string;
@@ -257,6 +262,17 @@ export default async function AdminCrmContactDetailPage({
     : "—";
 
   const dupCandidates = findDuplicateCandidatesForContact(row as ContactDuplicateLite, dupPool);
+
+  let phoneDuplicateRecords: PhoneDuplicateRecord[] = [];
+  try {
+    phoneDuplicateRecords = await fetchPhoneNumberDuplicateRecords(supabase, {
+      primaryPhone: row.primary_phone,
+      secondaryPhone: row.secondary_phone,
+      excludeContactId: contactId,
+    });
+  } catch (e) {
+    console.warn("[crm/contact detail] phone duplicate records failed:", e);
+  }
 
   const displayName = contactDirectoryDisplayName(row);
   const primaryE164 = pickOutboundE164ForDial(row.primary_phone);
@@ -487,6 +503,8 @@ export default async function AdminCrmContactDetailPage({
           ) : null}
         </div>
       </div>
+
+      <PhoneNumberDuplicateWarning records={phoneDuplicateRecords} />
 
       {showPrivatePayCards ? (
         <PrivatePayContactBillingCard

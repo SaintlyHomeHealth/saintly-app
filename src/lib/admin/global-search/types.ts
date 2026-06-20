@@ -32,6 +32,10 @@ export type GlobalSearchResult = {
   callDirection?: string | null;
   callPartyNumber?: string | null;
   relatedEntityLabel?: string | null;
+  /** Number of CRM records (lead/patient/contact) sharing this normalized phone. */
+  sharedPhoneRecordCount?: number;
+  /** True when multiple CRM records share the same phone number. */
+  sharedPhoneWarning?: boolean;
 };
 
 export type ParsedGlobalSearchQuery = {

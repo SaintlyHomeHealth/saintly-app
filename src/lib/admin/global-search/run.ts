@@ -6,6 +6,7 @@ import {
   rankGlobalSearchResults,
   suppressRedundantContacts,
 } from "./rank";
+import { annotateGlobalSearchPhoneDuplicates } from "./phone-duplicate-annotations";
 import {
   searchApplicants,
   searchConversations,
@@ -114,7 +115,7 @@ export async function runGlobalSearch(
 
   const deduped = suppressRedundantContacts(dedupeGlobalSearchResults(merged));
   const ranked = rankGlobalSearchResults(deduped, query).slice(0, limit);
-  const results = stripInternalFields(ranked);
+  const results = stripInternalFields(annotateGlobalSearchPhoneDuplicates(ranked));
 
   return {
     query: query.trimmed,

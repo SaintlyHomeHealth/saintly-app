@@ -106,6 +106,11 @@ export function GlobalSearchResultCard({
                 Currently open
               </span>
             ) : null}
+            {result.sharedPhoneWarning ? (
+              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-950">
+                Shared phone ({result.sharedPhoneRecordCount ?? 2})
+              </span>
+            ) : null}
           </div>
           <div className={`mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-600 ${compact ? "hidden sm:flex" : ""}`}>
             {result.phone ? <span>{result.phone}</span> : null}
@@ -117,6 +122,13 @@ export function GlobalSearchResultCard({
           {isCurrentPage ? "Viewing" : "Open →"}
         </span>
       </div>
+
+      {result.sharedPhoneWarning ? (
+        <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-[11px] font-medium text-amber-950">
+          Same phone number is linked to {result.sharedPhoneRecordCount ?? "multiple"} CRM records. Review before
+          texting or calling.
+        </p>
+      ) : null}
 
       {result.sourceTrail.length > 0 ? (
         <div className={`mt-2 rounded-lg bg-slate-50 px-2.5 py-2 ${compact ? "text-[11px]" : "text-xs"}`}>

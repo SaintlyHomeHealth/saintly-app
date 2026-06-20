@@ -39,6 +39,11 @@ import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 import { formatAdminPhoneWhen } from "@/app/workspace/phone/patients/_lib/patient-hub";
 import { formatAppDateTime } from "@/lib/datetime/app-timezone";
+import { PhoneNumberDuplicateWarning } from "@/app/admin/crm/_components/PhoneNumberDuplicateWarning";
+import {
+  fetchPhoneNumberDuplicateRecords,
+  type PhoneDuplicateRecord,
+} from "@/lib/crm/phone-number-duplicate-records";
 
 type ContactEmb = {
   id?: string | null;
@@ -415,6 +420,18 @@ export default async function PatientIntakePage({
   const crmStageForPatientBadge: CrmStage =
     leadsList.length === 0 ? "patient" : normalizeCrmStage((patientStageLead ?? leadsList[0])?.crm_stage);
 
+  let phoneDuplicateRecords: PhoneDuplicateRecord[] = [];
+  try {
+    phoneDuplicateRecords = await fetchPhoneNumberDuplicateRecords(supabaseAdmin, {
+      primaryPhone: (c?.primary_phone as string | null | undefined) ?? null,
+      secondaryPhone: (c?.secondary_phone as string | null | undefined) ?? null,
+      excludeContactId: contactId || null,
+      excludePatientId: pid,
+    });
+  } catch (e) {
+    console.warn("[crm/patient detail] phone duplicate records failed:", e);
+  }
+
   return (
     <div className="space-y-6 p-6">
       {smsFlash ? (
@@ -635,6 +652,8 @@ export default async function PatientIntakePage({
             </dd>
           </div>
         </dl>
+
+        <PhoneNumberDuplicateWarning records={phoneDuplicateRecords} className="mt-4" />
 
         {showDoctorOffice ? (
           <div className="mt-4 border-t border-slate-100 pt-4">

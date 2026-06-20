@@ -48,6 +48,8 @@ import { loadFacilityReferralLeadPanel } from "@/lib/crm/facility-referral-pipel
 import { loadLeadIntakeReadiness } from "@/lib/crm/lead-intake-readiness";
 import { loadLeadAdmissionHandoffPanel } from "@/lib/crm/lead-admission-handoff";
 import { loadLeadReferralSourceReviewPanel } from "@/lib/crm/facility-referral-source-review";
+import { fetchPhoneNumberDuplicateRecords } from "@/lib/crm/phone-number-duplicate-records";
+import type { PhoneDuplicateRecord } from "@/lib/crm/phone-number-duplicate-records";
 
 type ContactEmb = {
   full_name?: string | null;
@@ -721,6 +723,18 @@ export default async function LeadIntakePage({
     console.warn("[crm/lead detail] admission handoff panel failed:", e);
   }
 
+  let phoneDuplicateRecords: PhoneDuplicateRecord[] = [];
+  try {
+    phoneDuplicateRecords = await fetchPhoneNumberDuplicateRecords(supabaseAdmin, {
+      primaryPhone,
+      secondaryPhone,
+      excludeContactId: contactId || null,
+      excludeLeadId: leadId,
+    });
+  } catch (e) {
+    console.warn("[crm/lead detail] phone duplicate records failed:", e);
+  }
+
     return (
     <>
     <LeadWorkspace
@@ -787,6 +801,7 @@ export default async function LeadIntakePage({
       canManageReferralSourceReview={canAccessFacilityAdminTools(staff)}
       intakeReadinessPanel={intakeReadinessPanel}
       admissionHandoffPanel={admissionHandoffPanel}
+      phoneDuplicateRecords={phoneDuplicateRecords}
     />
     </>
     );
