@@ -197,6 +197,13 @@ async function wireActiveCall(call: TwilioCallNative, direction: 'inbound' | 'ou
     connectFailureEmitted = true;
     const msg = formatTwilioError(err);
     const code = readErrorCode(err);
+    console.warn('[twilioVoiceService][inbound-answer] connect_failure', {
+      direction,
+      inviteSid,
+      callSid: readCallSid(call),
+      msg,
+      code,
+    });
     if (direction === 'outbound') {
       emitToWeb({ kind: 'outbound_connect_failed', message: msg, code });
     } else {
@@ -463,23 +470,32 @@ export const twilioVoiceService: TwilioVoiceService = {
 
   async answer(callId: string): Promise<void> {
     const invite = inviteByCallSid.get(callId);
+    console.log('[twilioVoiceService][inbound-answer] answer_start', {
+      callId,
+      hasInvite: Boolean(invite),
+      activeInviteIds: [...inviteByCallSid.keys()],
+    });
     if (!invite) {
       const msg = `[twilioVoiceService] No CallInvite for ${callId}`;
+      console.warn('[twilioVoiceService][inbound-answer] answer_failed_no_invite', { callId, msg });
       emitToWeb({ kind: 'answer_failed', callId, message: msg });
       emitToWeb({ kind: 'call_disconnected_early', callId, reason: 'unknown', message: msg });
       throw new Error(msg);
     }
     try {
       await invite.accept();
+      console.log('[twilioVoiceService][inbound-answer] accept_ok', { callId });
       /** `CallInvite.Event.Accepted` → `wireActiveCall` (covers CallKit + in-app answer). */
     } catch (e) {
       inviteByCallSid.delete(callId);
       const msg = formatTwilioError(e);
+      const code = readErrorCode(e);
+      console.warn('[twilioVoiceService][inbound-answer] accept_failed', { callId, msg, code });
       emitToWeb({ kind: 'answer_failed', callId, message: msg });
       emitToWeb({
         kind: 'call_disconnected_early',
         callId,
-        reason: 'unknown',
+        reason: 'connect_failure',
         message: msg,
       });
       throw e;

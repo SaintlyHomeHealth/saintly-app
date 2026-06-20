@@ -45,8 +45,8 @@ import {
   type NativeCallToWebDetail,
 } from "@/lib/softphone/native-call-shell";
 import { isReactNativeWebViewShell } from "@/lib/softphone/native-speaker-bridge";
-import { softphoneDevLog, softphoneDevWarn } from "@/lib/softphone/softphone-client-debug";
-import { twilioErrorToFriendly } from "@/lib/softphone/twilio-user-friendly-errors";
+import { softphoneDevLog, softphoneDevWarn, inboundAnswerLog, readJwtExpSeconds } from "@/lib/softphone/softphone-client-debug";
+import { twilioErrorToFriendly, twilioInboundAnswerErrorToFriendly } from "@/lib/softphone/twilio-user-friendly-errors";
 import {
   createEmptySampleAggregate,
   foldRtcSample,
@@ -349,6 +349,9 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     setRingtoneUnlocked(true);
   }, [nativeVoiceCallShell]);
   const deviceRef = useRef<Device | null>(null);
+  /** Exact Twilio `Call` from `device.on("incoming")` — answer must call `accept()` on this object. */
+  const incomingCallRef = useRef<Call | null>(null);
+  const lastSoftphoneAccessTokenRef = useRef<string | null>(null);
   const callQualitySessionRef = useRef<CallQualityBrowserSession | null>(null);
   const softphoneCapabilitiesRef = useRef<SoftphoneServerCapabilities | null>(null);
   const activeCallRef = useRef<CallHandle | null>(null);
@@ -1105,6 +1108,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
         return;
       }
       if (d.kind === "call_connected") {
+        inboundAnswerLog("native_call_connected", { callId: d.callId, direction: d.direction });
         setNativeShellIncomingCallId(null);
         nativeShellInvitePendingRef.current = null;
         nativeShellActiveSidRef.current = d.callId;
@@ -1148,11 +1152,15 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
         setNativeShellIncomingCallId(null);
         setIncomingCallerUi(null);
         activeCallRef.current = null;
+        inboundAnswerLog("native_answer_failed", {
+          callId: d.callId,
+          message: d.message ?? null,
+        });
         finalizeCallCleanup("native:answer_failed", { endedCallSid: d.callId });
         setHint(
           d.message?.trim()
-            ? `Could not answer: ${d.message.trim()}`
-            : "Could not answer the call. Try again."
+            ? twilioInboundAnswerErrorToFriendly(new Error(d.message.trim())).userMessage
+            : twilioInboundAnswerErrorToFriendly(null).userMessage
         );
         setHintMeta({ suggestSettings: true, canRetry: true });
         return;
@@ -1162,12 +1170,20 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
         setNativeShellIncomingCallId(null);
         setIncomingCallerUi(null);
         activeCallRef.current = null;
+        inboundAnswerLog("native_call_disconnected_early", {
+          callId: d.callId ?? null,
+          reason: d.reason,
+          message: d.message ?? null,
+        });
         finalizeCallCleanup("native:call_disconnected_early", {
           endedCallSid: typeof d.callId === "string" && d.callId.startsWith("CA") ? d.callId : null,
         });
-        if (d.reason === "connect_failure" && d.message?.trim()) {
-          setHint(`Call failed: ${d.message.trim()}`);
-          setHintMeta({ suggestSettings: true, canRetry: true });
+        if (d.reason === "connect_failure" || d.reason === "unknown") {
+          const friendly = d.message?.trim()
+            ? twilioInboundAnswerErrorToFriendly(new Error(d.message.trim()))
+            : twilioInboundAnswerErrorToFriendly(null);
+          setHint(friendly.userMessage);
+          setHintMeta({ suggestSettings: friendly.suggestOpenSettings, canRetry: friendly.canRetry });
         }
         return;
       }
@@ -1229,20 +1245,32 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
             setCallWaitingCallerUi(null);
           });
         } else {
+          incomingCallRef.current = call;
+          inboundAnswerLog("browser_incoming_ring", {
+            callSid: readCallSid(call),
+            deviceState: device.state,
+            from: readTwilioParam(call, ["From", "Caller"]),
+            to: readTwilioParam(call, ["To"]),
+          });
           setIncomingCall(call);
           call.on("disconnect", (disconnectedArg: Call | undefined) => {
             const disconnected = disconnectedArg ?? call;
             softphoneDevLog("[softphone] Twilio disconnect (incoming ring)", readCallSid(disconnected));
+            incomingCallRef.current = null;
             setIncomingCall((c) => (c === call ? null : c));
-            setHint(null);
-            setHintMeta(null);
+            if (statusRef.current !== "in_call" && statusRef.current !== "connecting") {
+              setHint(null);
+              setHintMeta(null);
+            }
           });
           call.on("cancel", () => {
             softphoneDevLog("[softphone] Twilio cancel (incoming ring)");
+            incomingCallRef.current = null;
             setIncomingCall((c) => (c === call ? null : c));
           });
           call.on("reject", () => {
             softphoneDevLog("[softphone] Twilio reject (incoming ring)");
+            incomingCallRef.current = null;
             setIncomingCall((c) => (c === call ? null : c));
           });
         }
@@ -1252,13 +1280,14 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
   );
 
   const attachActiveCallHandlers = useCallback(
-    (call: Call | CallHandle) => {
+    (call: Call | CallHandle, options?: { promoteOnAccept?: boolean }) => {
       const sidAtStart = readCallSid(call);
       const rawDir =
         call && typeof call === "object" && "direction" in call
           ? String((call as Call).direction).toLowerCase()
           : "outbound";
       const direction: "inbound" | "outbound" = rawDir === "incoming" ? "inbound" : "outbound";
+      const promoteOnAccept = options?.promoteOnAccept === true;
       let codecStr: string | null = null;
       if ("codec" in call) {
         try {
@@ -1314,6 +1343,16 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
             s.callSid = readCallSid(call);
           }
         }
+        if (promoteOnAccept) {
+          inboundAnswerLog("browser_accept_event", {
+            callSid: readCallSid(call),
+            deviceState: deviceRef.current?.state ?? null,
+          });
+          setStatus("in_call");
+          setCallStartedAtMs(Date.now());
+          setHint(null);
+          setHintMeta(null);
+        }
         void snapshotMediaDevices().then((devs) => {
           const ss = callQualitySessionRef.current;
           if (ss) ss.media_devices = devs ?? ss.media_devices;
@@ -1337,8 +1376,12 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       setCallContextSoftNotice(null);
       transcriptStreamStartedRef.current = false;
       transcriptStartInFlightRef.current = false;
-      setStatus("in_call");
-      setCallStartedAtMs(Date.now());
+      if (promoteOnAccept) {
+        setStatus("connecting");
+      } else {
+        setStatus("in_call");
+        setCallStartedAtMs(Date.now());
+      }
       call.on("disconnect", (disconnectedArg) => {
         if (skipBrowserDisconnectCleanupRef.current) {
           skipBrowserDisconnectCleanupRef.current = false;
@@ -1360,7 +1403,16 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       });
       call.on("error", (err) => {
         console.error("[softphone] active call error", err);
-        const friendly = twilioErrorToFriendly(err);
+        inboundAnswerLog("browser_active_call_error", {
+          callSid: readCallSid(call),
+          error: err instanceof Error ? err.message : String(err),
+          direction,
+          promoteOnAccept,
+        });
+        const friendly =
+          direction === "inbound" && promoteOnAccept
+            ? twilioInboundAnswerErrorToFriendly(err)
+            : twilioErrorToFriendly(err);
         finalizeCallCleanup("twilio:call.error", { endedCallSid: readCallSid(call), clearHint: false });
         setHint(friendly.userMessage);
         setHintMeta({ suggestSettings: friendly.suggestOpenSettings, canRetry: friendly.canRetry });
@@ -1760,6 +1812,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
             if (typeof body.identity === "string") {
               setTokenIdentity(body.identity);
             }
+            lastSoftphoneAccessTokenRef.current = body.token;
             postSoftphoneTokenToNativeBridge(body.token, body.identity);
             setListenState("ready");
             return;
@@ -1798,6 +1851,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
         if (cancelled) return;
         if (res.ok && body.skip_twilio_device_registration && body.token) {
           setTokenIdentity(typeof body.identity === "string" ? body.identity : null);
+          lastSoftphoneAccessTokenRef.current = body.token;
           postSoftphoneTokenToNativeBridge(body.token, body.identity);
           setListenState("ready");
           return;
@@ -1809,6 +1863,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
           return;
         }
         setTokenIdentity(typeof body.identity === "string" ? body.identity : null);
+        lastSoftphoneAccessTokenRef.current = body.token;
         const twilioLoadStart = routePerfStart();
         const { Device: TwilioDevice } = await loadTwilioVoiceSdk();
         if (deviceRef.current) {
@@ -2022,6 +2077,11 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     if (nativeVoiceCallShell) {
       if (!nativeShellIncomingCallId) return;
       const inviteId = nativeShellIncomingCallId;
+      inboundAnswerLog("native_answer_tap", {
+        callId: inviteId,
+        tokenExp: readJwtExpSeconds(lastSoftphoneAccessTokenRef.current),
+        tokenIdentity,
+      });
       postNativeCallControlToReactNative({
         action: "answer_call",
         callId: inviteId,
@@ -2031,14 +2091,58 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       nativeShellInvitePendingRef.current = inviteId;
       setStatus("connecting");
       setIncomingCallerUi(null);
+      setHint(null);
+      setHintMeta(null);
       return;
     }
-    const call = incomingCall;
-    if (!call) return;
-    call.accept();
+    const call = incomingCallRef.current ?? incomingCall;
+    if (!call) {
+      inboundAnswerLog("browser_answer_tap_no_call", {
+        deviceState: deviceRef.current?.state ?? null,
+      });
+      return;
+    }
+    const callSid = readCallSid(call);
+    const tokenExp = readJwtExpSeconds(lastSoftphoneAccessTokenRef.current);
+    inboundAnswerLog("browser_answer_tap", {
+      callSid,
+      deviceState: deviceRef.current?.state ?? null,
+      tokenExp,
+      tokenIdentity,
+      tokenExpired: tokenExp != null ? tokenExp * 1000 < Date.now() : null,
+    });
+    incomingCallRef.current = null;
     setIncomingCall(null);
-    attachActiveCallHandlers(call);
-  }, [incomingCall, attachActiveCallHandlers, nativeVoiceCallShell, nativeShellIncomingCallId]);
+    setIncomingCallerUi(null);
+    setStatus("connecting");
+    setHint(null);
+    setHintMeta(null);
+    void unlockRingtoneFromGesture().then(() => {
+      try {
+        attachActiveCallHandlers(call, { promoteOnAccept: true });
+        call.accept();
+        inboundAnswerLog("browser_accept_called", { callSid: readCallSid(call) });
+      } catch (e) {
+        console.error("[softphone] answerIncoming accept threw", e);
+        inboundAnswerLog("browser_accept_threw", {
+          callSid: readCallSid(call),
+          error: e instanceof Error ? e.message : String(e),
+        });
+        const friendly = twilioInboundAnswerErrorToFriendly(e);
+        finalizeCallCleanup("answer:accept_throw", { endedCallSid: readCallSid(call) });
+        setHint(friendly.userMessage);
+        setHintMeta({ suggestSettings: friendly.suggestOpenSettings, canRetry: friendly.canRetry });
+      }
+    });
+  }, [
+    incomingCall,
+    attachActiveCallHandlers,
+    nativeVoiceCallShell,
+    nativeShellIncomingCallId,
+    tokenIdentity,
+    unlockRingtoneFromGesture,
+    finalizeCallCleanup,
+  ]);
 
   const rejectIncoming = useCallback(() => {
     if (nativeVoiceCallShell) {
@@ -2054,6 +2158,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
       return;
     }
     incomingCall?.reject();
+    incomingCallRef.current = null;
     setIncomingCall(null);
   }, [incomingCall, nativeVoiceCallShell, nativeShellIncomingCallId]);
 
@@ -2526,6 +2631,7 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
           return;
         }
         if (typeof tokenJson.identity === "string") setTokenIdentity(tokenJson.identity);
+        lastSoftphoneAccessTokenRef.current = tokenJson.token ?? null;
       } catch {
         setStatus("idle");
         setHint(OUTBOUND_PREPARE_LINE_HINT);
@@ -2556,11 +2662,13 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
           const { Device: TwilioDevice } = await loadTwilioVoiceSdk();
           device = new TwilioDevice(tokenJson.token!, buildTwilioVoiceJsDeviceOptions() as Device.Options);
           bindDeviceLifecycle(device);
+          lastSoftphoneAccessTokenRef.current = tokenJson.token!;
           await device.register();
           postSoftphoneTokenToNativeBridge(tokenJson.token!, tokenJson.identity);
           deviceRef.current = device;
           setListenState("ready");
         } else {
+          lastSoftphoneAccessTokenRef.current = tokenJson.token!;
           device.updateToken(tokenJson.token!);
           postSoftphoneTokenToNativeBridge(tokenJson.token!, tokenJson.identity);
         }

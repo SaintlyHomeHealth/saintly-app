@@ -70,3 +70,25 @@ export function twilioErrorToFriendly(e: unknown): FriendlyCallError {
     canRetry: true,
   };
 }
+
+const INBOUND_ANSWER_CONNECT_HINT =
+  "Could not connect call. Check microphone permission or refresh phone connection.";
+
+/**
+ * Staff-safe copy when an inbound answer/accept fails (browser or native shell).
+ */
+export function twilioInboundAnswerErrorToFriendly(e: unknown): FriendlyCallError {
+  const base = twilioErrorToFriendly(e);
+  if (base.suggestOpenSettings) {
+    return {
+      userMessage: INBOUND_ANSWER_CONNECT_HINT,
+      suggestOpenSettings: true,
+      canRetry: true,
+    };
+  }
+  return {
+    userMessage: INBOUND_ANSWER_CONNECT_HINT,
+    suggestOpenSettings: false,
+    canRetry: true,
+  };
+}

@@ -1226,7 +1226,10 @@ export async function applyTwilioVoiceStatusCallback(
   } else if (finalStatus === "missed" && direction === "inbound") {
     updateRow.missed = true;
     updateRow.answered = false;
-  } else if (finalStatus === "completed" && direction === "inbound") {
+  } else if (
+    (finalStatus === "completed" || finalStatus === "in_progress") &&
+    direction === "inbound"
+  ) {
     updateRow.answered = true;
     updateRow.missed = false;
   }

@@ -39,6 +39,7 @@ export async function POST(req: NextRequest) {
   const customerCallSid = tokenParentSid.startsWith("CA") ? tokenParentSid : "";
   const toRaw = typeof p.To === "string" ? p.To : "";
   const fromRaw = typeof p.From === "string" ? p.From : "";
+  const publicBase = process.env.TWILIO_PUBLIC_BASE_URL?.trim().replace(/\/$/, "") || "";
 
   logConnect("request_received", {
     inbound_conference_enabled: inboundBrowserConferenceEnabled(),
@@ -57,7 +58,7 @@ export async function POST(req: NextRequest) {
       staff_call_sid: staffCallSid || null,
       customer_call_sid: customerCallSid || null,
     });
-    const xml = legacyInboundStaffBridgeTwiml();
+    const xml = legacyInboundStaffBridgeTwiml(publicBase);
     return new NextResponse(xml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
   }
 
@@ -67,13 +68,13 @@ export async function POST(req: NextRequest) {
       customerCallSid: customerCallSid || null,
       staffCallSid: staffCallSid || null,
     });
-    const xml = legacyInboundStaffBridgeTwiml();
+    const xml = legacyInboundStaffBridgeTwiml(publicBase);
     return new NextResponse(xml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
   }
 
   if (staffCallSid === customerCallSid) {
     logConnect("reject_staff_equals_customer", { call_sid: staffCallSid });
-    const xml = legacyInboundStaffBridgeTwiml();
+    const xml = legacyInboundStaffBridgeTwiml(publicBase);
     return new NextResponse(xml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
   }
 
@@ -89,7 +90,6 @@ export async function POST(req: NextRequest) {
     toRaw,
     tokenStaffUserId: payload?.staff,
   });
-  const publicBase = process.env.TWILIO_PUBLIC_BASE_URL?.trim().replace(/\/$/, "") || "";
   const room = inboundConferenceRoomName(customerCallSid);
   const accountSid = process.env.TWILIO_ACCOUNT_SID?.trim();
   const authToken = process.env.TWILIO_AUTH_TOKEN?.trim();
@@ -102,7 +102,7 @@ export async function POST(req: NextRequest) {
 
   if (!accountSid || !authToken || !publicBase) {
     logConnect("reject_twilio_not_configured", { hasAccount: Boolean(accountSid), hasPublicBase: Boolean(publicBase) });
-    return new NextResponse(legacyInboundStaffBridgeTwiml(), {
+    return new NextResponse(legacyInboundStaffBridgeTwiml(publicBase), {
       status: 200,
       headers: { "Content-Type": "text/xml; charset=utf-8" },
     });
@@ -132,29 +132,14 @@ export async function POST(req: NextRequest) {
   });
 
   if (!redirect.parentUpdateOk) {
-    logConnect("fallback_legacy_direct_bridge", {
+    logConnect("staff_join_conference_despite_parent_redirect_fail", {
       reason: redirect.error?.message ?? "parent_conference_redirect_failed",
       staff_call_sid: staffCallSid,
       customer_call_sid: customerCallSid,
       customer_in_conference: redirect.customerInConference,
+      note: "staff_leg_still_joins_conference_instead_of_empty_twiml",
     });
-    const xml = legacyInboundStaffBridgeTwiml();
-    logTwilioVoiceTrace({
-      route: "POST /api/twilio/voice/inbound-staff-connect",
-      client_call_sid: staffCallSid,
-      pstn_call_sid: customerCallSid,
-      ai_path_entered: false,
-      softphone_bypass_path_entered: true,
-      twiml_summary: summarizeTwimlResponse(xml),
-      branch: "legacy_bridge_fallback_parent_not_in_conference",
-      parent_call_sid: customerCallSid,
-      from_raw: fromRaw,
-      to_raw: toRaw,
-    });
-    return new NextResponse(xml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
-  }
-
-  if (!redirect.customerInConference) {
+  } else if (!redirect.customerInConference) {
     logConnect("warn_customer_conference_poll_miss", {
       customer_call_sid: customerCallSid,
       conference_friendly_name: room,
@@ -205,6 +190,7 @@ export async function POST(req: NextRequest) {
     customer_call_sid: customerCallSid,
     conference_friendly_name: room,
     conference_sid: redirect.conferenceSid,
+    parent_update_ok: redirect.parentUpdateOk,
     move_to_cell_ready: Boolean(redirect.conferenceSid && staffCallSid && customerCallSid),
     customer_in_conference: redirect.customerInConference,
   });
@@ -216,7 +202,9 @@ export async function POST(req: NextRequest) {
     ai_path_entered: false,
     softphone_bypass_path_entered: true,
     twiml_summary: summarizeTwimlResponse(xml),
-    branch: "inbound_browser_staff_join_conference_after_customer_confirmed",
+    branch: redirect.parentUpdateOk
+      ? "inbound_browser_staff_join_conference_after_customer_confirmed"
+      : "inbound_browser_staff_join_conference_parent_redirect_failed",
     parent_call_sid: customerCallSid,
     from_raw: fromRaw,
     to_raw: toRaw,

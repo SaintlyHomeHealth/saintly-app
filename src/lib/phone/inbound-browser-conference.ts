@@ -176,9 +176,17 @@ export function buildStaffConferenceJoinTwiml(room: string, publicBase: string):
 </Response>`.trim();
 }
 
-/** Legacy `<Dial><Client>` bridge when conference redirect cannot run (empty Response on staff leg). */
-export function legacyInboundStaffBridgeTwiml(): string {
-  return `<?xml version="1.0" encoding="UTF-8"?><Response></Response>`;
+/** Legacy staff-leg TwiML when conference connect cannot run — hold briefly instead of empty `<Response>` (empty hangs up the answered Client leg). */
+export function legacyInboundStaffBridgeTwiml(publicBase?: string): string {
+  const base = (publicBase ?? "").trim().replace(/\/$/, "");
+  const waitUrl = base ? `${base}/api/twilio/voice/softphone-hold-music` : "";
+  if (waitUrl) {
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Play>${escapeXml(waitUrl)}</Play>
+</Response>`.trim();
+  }
+  return `<?xml version="1.0" encoding="UTF-8"?><Response><Pause length="600"/></Response>`;
 }
 
 export type TwilioErrorFields = {
