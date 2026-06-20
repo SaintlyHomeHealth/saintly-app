@@ -20,6 +20,7 @@ import type {
   PhoneNotificationRow,
 } from "../recent-calls-live";
 import { parsePhoneCallsSearchParams, type PhoneCallsFilters } from "../phone-call-filters";
+import { PHONE_CALLS_MISSED_OR_VOICEMAIL_OR_FILTER } from "@/lib/phone/call-disposition";
 import { displayNameFromContactsRelation } from "@/lib/crm/contact-relation-display-name";
 import { enrichPhoneCallRowsWithResolvedIdentity } from "../call-log-display";
 
@@ -188,7 +189,11 @@ export default async function AdminPhoneCallsFullPage({ searchParams }: PageProp
     if (filters.assigned === "me") q = q.eq("assigned_to_user_id", staffProfile.user_id);
     else if (filters.assigned === "unassigned") q = q.is("assigned_to_user_id", null);
 
-    if (filters.status !== "all") q = q.eq("status", filters.status);
+    if (filters.status === "missed") {
+      q = q.or(PHONE_CALLS_MISSED_OR_VOICEMAIL_OR_FILTER);
+    } else if (filters.status !== "all") {
+      q = q.eq("status", filters.status);
+    }
 
     if (filters.tag === "untagged") q = q.is("primary_tag", null);
     else if (filters.tag !== "all") q = q.eq("primary_tag", filters.tag);

@@ -48,6 +48,9 @@ export function mapPhoneCallQueryRowForLog(raw: Record<string, unknown>): PhoneC
       }
       return null;
     })(),
+    has_voicemail: raw.has_voicemail === true ? true : raw.has_voicemail === false ? false : null,
+    answered: raw.answered === true ? true : raw.answered === false ? false : null,
+    missed: raw.missed === true ? true : raw.missed === false ? false : null,
     priority_sms_sent_at: typeof raw.priority_sms_sent_at === "string" ? raw.priority_sms_sent_at : null,
     priority_sms_reason: typeof raw.priority_sms_reason === "string" ? raw.priority_sms_reason : null,
     auto_reply_sms_sent_at: typeof raw.auto_reply_sms_sent_at === "string" ? raw.auto_reply_sms_sent_at : null,

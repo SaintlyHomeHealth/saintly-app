@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { SearchCallerLink } from "@/components/admin/SearchCallerLink";
 import { supabaseAdmin } from "@/lib/admin";
+import { isMissedOrVoicemailCall, PHONE_CALLS_MISSED_OR_VOICEMAIL_OR_FILTER } from "@/lib/phone/call-disposition";
 import { loadCallLogContactOpenTargets } from "@/lib/phone/call-log-contact-targets";
 import { formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
 import { formatTimeAgo } from "@/lib/phone/format-time-ago";
@@ -75,7 +76,7 @@ export default async function AdminPhoneCallLogPage({ searchParams }: PageProps)
   dbQuery = applyPhoneCallLogScopeForStaff(dbQuery, staffProfile, "admin");
 
   if (q.view === "missed") {
-    dbQuery = dbQuery.eq("status", "missed");
+    dbQuery = dbQuery.or(PHONE_CALLS_MISSED_OR_VOICEMAIL_OR_FILTER);
   }
 
   if (q.assigned === "me") {
@@ -350,7 +351,7 @@ export default async function AdminPhoneCallLogPage({ searchParams }: PageProps)
                 const aiSummaryText = (voiceSlice?.short_summary ?? "").trim();
                 const followUpLabel = getFollowUpStatus(row);
                 const statusLabel = formatCallLogStatus(row.status);
-                const missed = row.status.trim().toLowerCase() === "missed";
+                const missed = isMissedOrVoicemailCall(row);
                 const contactId = row.contact_id ?? row.resolved_contact_id ?? null;
                 const showCreateLead =
                   !contactId &&

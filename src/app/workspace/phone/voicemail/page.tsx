@@ -15,6 +15,7 @@ import {
   buildPhoneCallsAssignedScopeOrFilter,
   loadStaffAssignedPhoneScope,
 } from "@/lib/phone/staff-assigned-phone-scope";
+import { phoneCallsVoicemailInboxFilter, PHONE_CALLS_VOICEMAIL_INBOX_OR_FILTER } from "@/lib/phone/call-disposition";
 import { staffMayAccessWorkspaceVoicemail } from "@/lib/phone/staff-phone-policy";
 import {
   canAccessWorkspacePhone,
@@ -24,18 +25,6 @@ import {
 } from "@/lib/staff-profile";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
-type ContactEmbed = { full_name?: unknown; first_name?: unknown; last_name?: unknown };
-
-function contactName(raw: unknown): string | null {
-  let emb: ContactEmbed | null = null;
-  if (raw && typeof raw === "object" && !Array.isArray(raw)) emb = raw as ContactEmbed;
-  else if (Array.isArray(raw) && raw[0] && typeof raw[0] === "object") emb = raw[0] as ContactEmbed;
-  const fn = emb && typeof emb.full_name === "string" ? emb.full_name.trim() : "";
-  const f1 = emb && typeof emb.first_name === "string" ? emb.first_name : null;
-  const f2 = emb && typeof emb.last_name === "string" ? emb.last_name : null;
-  return fn || [f1, f2].filter(Boolean).join(" ").trim() || null;
-}
-
 function callbackNumber(direction: string | null, from: string | null, to: string | null): string | null {
   const dir = (direction ?? "").trim().toLowerCase();
   const inbound = (from ?? "").trim();
@@ -43,6 +32,9 @@ function callbackNumber(direction: string | null, from: string | null, to: strin
   if (dir === "outbound") return outbound || null;
   return inbound || null;
 }
+
+const VOICEMAIL_LIST_SELECT =
+  "id, created_at, started_at, direction, status, from_e164, to_e164, voicemail_duration_seconds, duration_seconds, contact_id, metadata, has_voicemail, voicemail_recording_sid";
 
 type VmCall = {
   id: string;
@@ -55,8 +47,9 @@ type VmCall = {
   voicemail_duration_seconds: number | null;
   duration_seconds: number | null;
   contact_id: string | null;
-  contacts: unknown;
   metadata: unknown;
+  has_voicemail?: boolean | null;
+  voicemail_recording_sid?: string | null;
 };
 
 function voicemailMetaSoftDeleteAt(metadata: unknown): string | null {
@@ -89,10 +82,8 @@ export default async function WorkspaceVoicemailPage(props: PageProps) {
   if (hasFull) {
     const res = await supabase
       .from("phone_calls")
-      .select(
-        "id, created_at, started_at, direction, status, from_e164, to_e164, voicemail_duration_seconds, duration_seconds, contact_id, metadata, contacts ( full_name, first_name, last_name )"
-      )
-      .not("voicemail_recording_sid", "is", null)
+      .select(VOICEMAIL_LIST_SELECT)
+      .or(PHONE_CALLS_VOICEMAIL_INBOX_OR_FILTER)
       .order("started_at", { ascending: false, nullsFirst: false })
       .limit(60);
     rows = (res.data ?? []) as VmCall[];
@@ -100,57 +91,24 @@ export default async function WorkspaceVoicemailPage(props: PageProps) {
   } else if (isAssignedPhoneScopedStaff(staff)) {
     const scope = await loadStaffAssignedPhoneScope(supabase, staff.user_id);
     const scopeOr = buildPhoneCallsAssignedScopeOrFilter(scope);
-    if (scopeOr) {
-      const res = await supabase
-        .from("phone_calls")
-        .select(
-          "id, created_at, started_at, direction, status, from_e164, to_e164, voicemail_duration_seconds, duration_seconds, contact_id, metadata, contacts ( full_name, first_name, last_name )"
-        )
-        .not("voicemail_recording_sid", "is", null)
-        .or(scopeOr)
-        .order("started_at", { ascending: false, nullsFirst: false })
-        .limit(60);
-      rows = (res.data ?? []) as VmCall[];
-      error = res.error;
-    }
+    const res = await supabase
+      .from("phone_calls")
+      .select(VOICEMAIL_LIST_SELECT)
+      .or(phoneCallsVoicemailInboxFilter(scopeOr))
+      .order("started_at", { ascending: false, nullsFirst: false })
+      .limit(60);
+    rows = (res.data ?? []) as VmCall[];
+    error = res.error;
   } else {
-    const { data: assignedPatients, error: asnErr } = await supabase
-      .from("patient_assignments")
-      .select("patients ( contact_id )")
-      .eq("assigned_user_id", staff.user_id)
-      .eq("is_active", true);
-
-    if (asnErr) {
-      error = asnErr;
-    } else {
-      const contactIds = [
-        ...new Set(
-          (assignedPatients ?? [])
-            .map((r) => {
-              const pRaw = (r as { patients?: unknown }).patients;
-              const p = pRaw && typeof pRaw === "object" && !Array.isArray(pRaw)
-                ? (pRaw as { contact_id?: unknown })
-                : null;
-              return p && typeof p.contact_id === "string" ? p.contact_id : "";
-            })
-            .filter(Boolean)
-        ),
-      ];
-
-      if (contactIds.length > 0) {
-        const res = await supabase
-          .from("phone_calls")
-          .select(
-            "id, created_at, started_at, direction, status, from_e164, to_e164, voicemail_duration_seconds, duration_seconds, contact_id, metadata, contacts ( full_name, first_name, last_name )"
-          )
-          .not("voicemail_recording_sid", "is", null)
-          .in("contact_id", contactIds)
-          .order("started_at", { ascending: false, nullsFirst: false })
-          .limit(60);
-        rows = (res.data ?? []) as VmCall[];
-        error = res.error;
-      }
-    }
+    /** Shared-line inbound rows are visible via phone_calls RLS — do not restrict to assigned patient contacts. */
+    const res = await supabase
+      .from("phone_calls")
+      .select(VOICEMAIL_LIST_SELECT)
+      .or(PHONE_CALLS_VOICEMAIL_INBOX_OR_FILTER)
+      .order("started_at", { ascending: false, nullsFirst: false })
+      .limit(60);
+    rows = (res.data ?? []) as VmCall[];
+    error = res.error;
   }
 
   if (error) {
@@ -314,14 +272,11 @@ export default async function WorkspaceVoicemailPage(props: PageProps) {
             const cid = typeof c.contact_id === "string" ? c.contact_id : "";
             const number = callbackNumber(c.direction, c.from_e164, c.to_e164);
             const formattedNum = number ? formatPhoneForDisplay(number) : "—";
-            const embedNm = contactName(c.contacts);
             const lookupKey = phoneRawToE164LookupKey(number ?? "");
             const resolved = lookupKey ? vmIdentityByE164.get(lookupKey) : undefined;
             let display: string;
             if (resolved?.resolvedFromEntity && resolved.displayTitle.trim()) {
               display = resolved.displayTitle.trim();
-            } else if (embedNm) {
-              display = embedNm;
             } else {
               display = resolved?.displayTitle?.trim() || formattedNum || number || "Unknown caller";
             }

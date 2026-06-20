@@ -96,6 +96,7 @@ function callDisplayDirection(
   if (d === "inbound") {
     if (
       s === "missed" ||
+      s === "voicemail" ||
       s === "failed" ||
       s === "cancelled" ||
       s === "no-answer" ||
@@ -195,7 +196,13 @@ export async function logTerminalPhoneCallForLeadTimeline(phoneCallId: string): 
     );
 
     const dirLabel =
-      displayDir === "outgoing" ? "Outgoing call" : displayDir === "missed" ? "Missed call" : "Incoming call";
+      displayDir === "outgoing"
+        ? "Outgoing call"
+        : displayDir === "missed"
+          ? status.toLowerCase() === "voicemail"
+            ? "Voicemail"
+            : "Missed call"
+          : "Incoming call";
 
     const bodyParts = [
       `${dirLabel} · ${phoneDisp}`,

@@ -14,6 +14,7 @@ import {
 import type { PhoneCallRow } from "@/app/admin/phone/recent-calls-live";
 import { loadCallLogContactOpenTargets } from "@/lib/phone/call-log-contact-targets";
 import { PHONE_CALL_LOG_LIST_SELECT_BASE } from "@/lib/phone/phone-call-log-select";
+import { PHONE_CALLS_MISSED_OR_VOICEMAIL_OR_FILTER } from "@/lib/phone/call-disposition";
 import { staffMayAccessWorkspaceCallHistory } from "@/lib/phone/staff-phone-policy";
 import { shouldShowPhoneCallInWorkspaceDispatchList } from "@/lib/phone/phone-call-dispatch-list";
 import {
@@ -131,6 +132,9 @@ function buildCallInboxRowFromEnriched(
     status: enriched.status,
     external_call_id: enriched.external_call_id,
     contact_id: enriched.contact_id,
+    has_voicemail: enriched.has_voicemail,
+    missed: enriched.missed,
+    voicemail_recording_sid: enriched.voicemail_recording_sid,
     contacts: raw.contacts,
     metadata: enriched.metadata,
     primary_tag: enriched.primary_tag,
@@ -265,7 +269,7 @@ export default async function WorkspaceCallsPage(props: PageProps) {
     .limit(limit);
 
   if (filter === "missed") {
-    dbQuery = dbQuery.eq("status", "missed");
+    dbQuery = dbQuery.or(PHONE_CALLS_MISSED_OR_VOICEMAIL_OR_FILTER);
   } else if (filter === "me") {
     dbQuery = dbQuery.eq("assigned_to_user_id", staff.user_id);
   }

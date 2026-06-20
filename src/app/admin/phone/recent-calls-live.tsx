@@ -20,6 +20,7 @@ import {
 import { trackSubscription } from "@/lib/perf/client-dev-perf";
 import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
 import { formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
+import { isMissedOrVoicemailCall } from "@/lib/phone/call-disposition";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 
 function effectiveContactId(row: PhoneCallRow): string | null {
@@ -46,6 +47,9 @@ export type PhoneCallRow = {
   duration_seconds: number | null;
   voicemail_recording_sid: string | null;
   voicemail_duration_seconds: number | null;
+  has_voicemail?: boolean | null;
+  answered?: boolean | null;
+  missed?: boolean | null;
   priority_sms_sent_at: string | null;
   priority_sms_reason: string | null;
   auto_reply_sms_sent_at: string | null;
@@ -159,8 +163,9 @@ function statusPill(status: string) {
 
 const NEUTRAL_ROW_CLASS = "border-b border-slate-100 last:border-0";
 
-/** Matches server triage / `isMissedStatus` on `/admin/phone` (case-insensitive). */
-function isMissedCallStatus(status: string): boolean {
+/** Matches server triage / missed-call filters (case-insensitive). */
+function isMissedCallStatus(status: string, row?: PhoneCallRow): boolean {
+  if (isMissedOrVoicemailCall({ status, ...(row ?? {}) })) return true;
   return status.trim().toLowerCase() === "missed";
 }
 
@@ -1024,7 +1029,7 @@ export function RecentCallsLive({
                 const hasFollowUpHeader =
                   Boolean(row.priority_sms_reason) || Boolean(row.auto_reply_sms_sent_at);
                 const st = row.status.trim();
-                const missed = isMissedCallStatus(row.status);
+                const missed = isMissedCallStatus(row.status, row);
                 const timeLabel = formatAdminPhoneWhen(row.started_at ?? row.created_at);
                 const durationLabel = row.duration_seconds != null ? `${row.duration_seconds}s` : "—";
                 const otherParty = otherPartyE164(row);

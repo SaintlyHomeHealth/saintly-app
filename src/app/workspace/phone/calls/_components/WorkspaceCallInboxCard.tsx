@@ -11,6 +11,7 @@ import { WorkspaceHideCallButton } from "./WorkspaceHideCallButton";
 import { WorkspaceMarkMissedResolvedButton } from "./WorkspaceMarkMissedResolvedButton";
 import { displayNameFromContactsRelation } from "@/lib/crm/contact-relation-display-name";
 import { formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
+import { isMissedOrVoicemailCall } from "@/lib/phone/call-disposition";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import { buildWorkspacePhoneLeadOpenHref } from "@/lib/crm/admin-crm-leads-list-url";
 import {
@@ -32,6 +33,9 @@ export type CallInboxRow = {
   status: string | null;
   external_call_id?: string | null;
   contact_id: string | null;
+  has_voicemail?: boolean | null;
+  missed?: boolean | null;
+  voicemail_recording_sid?: string | null;
   contacts?: unknown;
   metadata?: unknown;
   primary_tag?: string | null;
@@ -107,7 +111,12 @@ export function WorkspaceCallInboxCard({ row, showHideFromDispatch = false }: Pr
   const cid = typeof cidRaw === "string" && cidRaw.trim() ? cidRaw.trim() : "";
   const title = pre?.title ?? label ?? numberDisplay;
   const subtitlePhone = pre?.subtitlePhone ?? numberDisplay;
-  const isMissed = (row.status ?? "").trim().toLowerCase() === "missed";
+  const isMissed = isMissedOrVoicemailCall({
+    status: row.status,
+    has_voicemail: row.has_voicemail,
+    missed: row.missed,
+    voicemail_recording_sid: row.voicemail_recording_sid,
+  });
   const missedResolved = Boolean(
     typeof row.workspace_missed_followup_resolved_at === "string" &&
       row.workspace_missed_followup_resolved_at.trim()

@@ -41,6 +41,7 @@ export const PHONE_CALL_STATUSES = [
   "in_progress",
   "completed",
   "missed",
+  "voicemail",
   "abandoned",
   "failed",
   "cancelled",
@@ -458,10 +459,23 @@ export function isTerminalPhoneStatus(status: PhoneCallStatus): boolean {
   return (
     status === "completed" ||
     status === "missed" ||
+    status === "voicemail" ||
     status === "abandoned" ||
     status === "failed" ||
     status === "cancelled"
   );
+}
+
+/** Inbound Saintly voicemail: canonical disposition on phone_calls. */
+export function inboundVoicemailDispositionPatch(
+  status: PhoneCallStatus = "voicemail"
+): Record<string, unknown> {
+  return {
+    status,
+    has_voicemail: true,
+    answered: false,
+    missed: true,
+  };
 }
 
 /**
@@ -564,11 +578,17 @@ function guardInboundMissedAfterBridgeSignals(input: {
   prevMeta: Record<string, unknown>;
   effectiveDialCallStatus: string | null;
   durationSeconds: number | null;
+  voicemailRecordingSid?: string | null;
 }): PhoneCallStatus {
+  if (input.refined === "voicemail") return "voicemail";
+  const vmSid =
+    typeof input.voicemailRecordingSid === "string" ? input.voicemailRecordingSid.trim() : "";
+  if (vmSid) return "voicemail";
   if (input.refined !== "missed") return input.refined;
   if (input.direction !== "inbound") return input.refined;
 
   const prev = (input.previousPhoneStatus ?? "").trim().toLowerCase();
+  if (prev === "voicemail") return "voicemail";
   if (prev === "completed") {
     console.log("[call-reconcile]", {
       event: "block_missed_downgrade",
@@ -639,7 +659,7 @@ function refineInboundTwilioCompletedStatus(
 ): PhoneCallStatus {
   if (mapped !== "completed") return mapped;
   if (input.direction !== "inbound") return mapped;
-  if (input.voicemailRecordingSid && input.voicemailRecordingSid.trim() !== "") return mapped;
+  if (input.voicemailRecordingSid && input.voicemailRecordingSid.trim() !== "") return "voicemail";
   const dial = (input.dialCallStatus ?? "").trim().toLowerCase();
   /** AI → browser/PSTN &lt;Dial&gt;: completed means the callee answered and the bridge ran; do not downgrade to missed. */
   if (dial === "completed") {
@@ -1061,7 +1081,7 @@ export async function applyTwilioVoiceStatusCallback(
     maybeLogCallQualityPathMismatch(rowMetaBeforeMerge, inferredGuess);
   }
 
-  const finalStatus = guardInboundMissedAfterBridgeSignals({
+  let finalStatus = guardInboundMissedAfterBridgeSignals({
     phone_calls_id: callId,
     refined,
     direction,
@@ -1069,7 +1089,12 @@ export async function applyTwilioVoiceStatusCallback(
     prevMeta,
     effectiveDialCallStatus: effectiveDialForRefine,
     durationSeconds: effectiveDuration,
+    voicemailRecordingSid: vmSid,
   });
+
+  if (direction === "inbound" && vmSid && finalStatus === "completed") {
+    finalStatus = "voicemail";
+  }
 
   const rawChildSid = typeof payload.raw?.CallSid === "string" ? payload.raw.CallSid.trim() : "";
   console.log("[twilio-leg-precedence]", {
@@ -1148,9 +1173,9 @@ export async function applyTwilioVoiceStatusCallback(
       : null;
 
   const callbackPriorityForMissed =
-    direction === "inbound" && finalStatus === "missed"
+    direction === "inbound" && (finalStatus === "missed" || finalStatus === "voicemail")
       ? computeCallbackPriority({
-          hasVoicemailRecording: Boolean(vmSid),
+          hasVoicemailRecording: Boolean(vmSid) || finalStatus === "voicemail",
           isMissedInbound: true,
           afterHours: resolveAfterHoursFromPhoneRow(row),
         })
@@ -1194,6 +1219,16 @@ export async function applyTwilioVoiceStatusCallback(
 
   if (isTerminalPhoneStatus(finalStatus)) {
     updateRow.ended_at = new Date().toISOString();
+  }
+
+  if (finalStatus === "voicemail") {
+    Object.assign(updateRow, inboundVoicemailDispositionPatch("voicemail"));
+  } else if (finalStatus === "missed" && direction === "inbound") {
+    updateRow.missed = true;
+    updateRow.answered = false;
+  } else if (finalStatus === "completed" && direction === "inbound") {
+    updateRow.answered = true;
+    updateRow.missed = false;
   }
 
   if (callbackPriorityForMissed != null) {
@@ -1306,18 +1341,29 @@ export async function applyTwilioVoiceStatusCallback(
 
   /** Inbound-only CRM side effects — outbound softphone "missed" must not page ops or auto-reply to callee. */
   if (direction === "inbound") {
-    if (finalStatus === "missed" || finalStatus === "failed" || finalStatus === "cancelled") {
-      const notif = await tryInsertMissedCallNotification(supabase, callId, {
-        fromE164: fromVal ?? payload.From ?? null,
-        terminalStatus: finalStatus,
-        effectiveDurationSeconds: effectiveDuration,
-      });
+    if (
+      finalStatus === "missed" ||
+      finalStatus === "voicemail" ||
+      finalStatus === "failed" ||
+      finalStatus === "cancelled"
+    ) {
+      const notif =
+        finalStatus === "voicemail"
+          ? await tryInsertVoicemailNotification(supabase, callId, {
+              fromE164: fromVal ?? payload.From ?? null,
+              durationSeconds: asOptionalInt(row.voicemail_duration_seconds),
+            })
+          : await tryInsertMissedCallNotification(supabase, callId, {
+              fromE164: fromVal ?? payload.From ?? null,
+              terminalStatus: finalStatus,
+              effectiveDurationSeconds: effectiveDuration,
+            });
       if (!notif.ok) {
-        console.warn("[phone_calls] missed_call notification:", notif.error);
+        console.warn("[phone_calls] missed/voicemail notification:", notif.error);
       }
     }
 
-    if (finalStatus === "missed") {
+    if (finalStatus === "missed" || finalStatus === "voicemail") {
       await maybeAutoAssignMissedInboundCall(callId, direction, hadAssignee);
     }
   }
@@ -1360,10 +1406,97 @@ function externalCallIdLookupCandidates(input: TwilioVoicemailRecordingInput): s
   return out;
 }
 
+async function findPhoneCallRowForVoicemailRecording(
+  supabase: SupabaseClient,
+  tryIds: string[],
+  raw: Record<string, string>
+): Promise<{
+  row: Record<string, unknown> | null;
+  resolvedExternalCallId: string;
+}> {
+  for (const sid of tryIds) {
+    const found = await findPhoneCallRowForTwilioStatus(supabase, sid, raw);
+    if (found.row?.id) {
+      return { row: found.row, resolvedExternalCallId: found.resolvedExternalCallId };
+    }
+  }
+  const primary = tryIds[0] ?? "";
+  return { row: null, resolvedExternalCallId: primary };
+}
+
+async function ensurePhoneCallRowForVoicemailRecording(
+  supabase: SupabaseClient,
+  resolvedExternalCallId: string,
+  input: TwilioVoicemailRecordingInput
+): Promise<{ ok: true; row: Record<string, unknown> } | { ok: false; error: string }> {
+  const ext = resolvedExternalCallId.trim();
+  if (!ext) {
+    return { ok: false, error: "external call id is required" };
+  }
+
+  const fromVal = asOptionalString(input.from);
+  const toVal = asOptionalString(input.to);
+  const insertRow = {
+    external_call_id: ext,
+    direction: "inbound" as const,
+    from_e164: fromVal,
+    to_e164: toVal,
+    status: "ringing" as PhoneCallStatus,
+    started_at: new Date().toISOString(),
+    metadata: {
+      source: "twilio_voicemail_recording_ensure_parent",
+      twilio_voicemail_ensure_parent: {
+        recording_sid: input.recordingSid,
+        received_at: new Date().toISOString(),
+      },
+    },
+  };
+
+  const { data: inserted, error: insertError } = await supabase
+    .from("phone_calls")
+    .insert(insertRow)
+    .select("id, metadata, status, duration_seconds, external_call_id")
+    .single();
+
+  if (insertError) {
+    const code = (insertError as { code?: string }).code;
+    const msg = insertError.message ?? "";
+    const isDup =
+      code === "23505" || msg.toLowerCase().includes("duplicate") || msg.toLowerCase().includes("unique");
+    if (isDup) {
+      const { data: again, error: againErr } = await supabase
+        .from("phone_calls")
+        .select("id, metadata, status, duration_seconds, external_call_id")
+        .eq("external_call_id", ext)
+        .maybeSingle();
+      if (againErr) {
+        return { ok: false, error: againErr.message };
+      }
+      if (again?.id) {
+        return { ok: true, row: again as Record<string, unknown> };
+      }
+    }
+    return { ok: false, error: insertError.message };
+  }
+
+  if (!inserted?.id) {
+    return { ok: false, error: "Failed to insert phone_calls row for voicemail" };
+  }
+
+  console.log("[call-reconcile]", {
+    event: "voicemail_recording_ensure_parent",
+    phone_calls_id: inserted.id,
+    external_call_id: ext,
+    recording_sid: input.recordingSid,
+  });
+
+  return { ok: true, row: inserted as Record<string, unknown> };
+}
+
 /**
  * Persist Twilio recording callback on the parent inbound call (ParentCallSid || CallSid).
  * Idempotent per RecordingSid: skips duplicate event rows when the same sid is replayed.
- * Sets phone_calls.status to missed when a recording is successfully available (voicemail_* columns hold details).
+ * Sets phone_calls.status to `voicemail` with canonical disposition flags when recording is final.
  */
 export async function applyTwilioVoicemailRecording(
   supabase: SupabaseClient,
@@ -1374,52 +1507,69 @@ export async function applyTwilioVoicemailRecording(
     return { ok: false, error: "recordingSid is required" };
   }
 
+  const statusLower = (input.recordingStatus || "").trim().toLowerCase();
+  const hasUrl = Boolean(input.recordingUrl && input.recordingUrl.trim() !== "");
+  const isFinalOk = statusLower === "completed" || hasUrl;
+
+  const { data: existingByRecordingSid, error: existingRecErr } = await supabase
+    .from("phone_calls")
+    .select("id")
+    .eq("voicemail_recording_sid", recordingSid)
+    .maybeSingle();
+
+  if (existingRecErr) {
+    return { ok: false, error: existingRecErr.message };
+  }
+  if (existingByRecordingSid?.id) {
+    return { ok: true };
+  }
+
   const tryIds = externalCallIdLookupCandidates(input);
   if (tryIds.length === 0) {
     return { ok: false, error: "ParentCallSid, CallSid, or externalCallId is required" };
   }
 
-  const statusLower = (input.recordingStatus || "").trim().toLowerCase();
-  const hasUrl = Boolean(input.recordingUrl && input.recordingUrl.trim() !== "");
-  const isFinalOk = statusLower === "completed" || hasUrl;
+type VoicemailPhoneCallRow = {
+  id: unknown;
+  metadata: unknown;
+  status?: unknown;
+  duration_seconds?: unknown;
+  external_call_id?: unknown;
+};
 
-  let row: {
-    id: unknown;
-    metadata: unknown;
-    status?: unknown;
-    duration_seconds?: unknown;
-    external_call_id?: unknown;
-  } | null = null;
-  let findError: { message: string } | null = null;
-  for (const ext of tryIds) {
-    const { data, error } = await supabase
-      .from("phone_calls")
-      .select("id, metadata, status, duration_seconds, external_call_id")
-      .eq("external_call_id", ext)
-      .maybeSingle();
-    if (error) {
-      findError = error;
-      break;
-    }
-    if (data?.id) {
-      row = data;
-      break;
-    }
+  let row: VoicemailPhoneCallRow | null = null;
+  let resolvedExternalCallId = tryIds[0] ?? "";
+
+  const found = await findPhoneCallRowForVoicemailRecording(supabase, tryIds, input.raw);
+  if (found.row?.id) {
+    row = found.row as VoicemailPhoneCallRow;
+    resolvedExternalCallId = found.resolvedExternalCallId;
   }
 
-  if (findError) {
-    return { ok: false, error: findError.message };
-  }
   if (!row?.id) {
-    console.warn("[phone_calls] voicemail recording: no row for Twilio call sids", {
-      tryIds,
-      recordingSid,
-    });
-    return { ok: false, error: "Call not found for external_call_id" };
+    const ensured = await ensurePhoneCallRowForVoicemailRecording(
+      supabase,
+      resolvedExternalCallId,
+      input
+    );
+    if (!ensured.ok) {
+      console.warn("[phone_calls] voicemail recording: no row for Twilio call sids", {
+        tryIds,
+        recordingSid,
+        error: ensured.error,
+      });
+      return { ok: false, error: ensured.error };
+    }
+    row = ensured.row as VoicemailPhoneCallRow;
   }
 
-  const callId = row.id as string;
-  const prevMeta = asMetadata(row.metadata);
+  if (!row?.id) {
+    return { ok: false, error: "Call row missing after voicemail ensure" };
+  }
+
+  const callRow = row;
+  const callId = callRow.id as string;
+  const prevMeta = asMetadata(callRow.metadata);
 
   const { data: priorEvents, error: priorErr } = await supabase
     .from("phone_call_events")
@@ -1487,42 +1637,17 @@ export async function applyTwilioVoicemailRecording(
 
   if (isFinalOk) {
     updateRow.voicemail_received_at = new Date().toISOString();
-    const prevStatus = (typeof row.status === "string" ? row.status : "").trim().toLowerCase();
-    const dur = asOptionalInt(row.duration_seconds) ?? 0;
-    const lastCb = prevMeta.twilio_last_callback;
-    const dialCompleted =
-      lastCb &&
-      typeof lastCb === "object" &&
-      String((lastCb as Record<string, unknown>).DialCallStatus ?? "")
-        .trim()
-        .toLowerCase() === "completed";
-    const legMap = prevMeta.twilio_leg_map;
-    const hadBrowserOrDialLeg =
-      legMap &&
-      typeof legMap === "object" &&
-      typeof (legMap as Record<string, unknown>).last_leg_call_sid === "string";
-
-    const answeredConversation =
-      prevStatus === "completed" ||
-      (prevStatus === "in_progress" && dur >= 20) ||
-      dialCompleted ||
-      Boolean(hadBrowserOrDialLeg);
-
-    const terminalStatus: PhoneCallStatus = answeredConversation ? "completed" : "missed";
-    updateRow.status = terminalStatus;
+    Object.assign(updateRow, inboundVoicemailDispositionPatch("voicemail"));
     updateRow.ended_at = new Date().toISOString();
     updateRow.callback_priority = CALLBACK_PRIORITY_VOICEMAIL;
 
     console.log("[call-reconcile]", {
       event: "voicemail_recording_final",
       phone_calls_id: callId,
-      external_call_id: row.external_call_id,
-      prev_status: row.status,
-      duration_seconds: dur,
-      terminal_status: terminalStatus,
-      answered_conversation: answeredConversation,
-      dial_last_callback_completed: Boolean(dialCompleted),
-      had_leg_map: Boolean(hadBrowserOrDialLeg),
+      external_call_id: callRow.external_call_id,
+      prev_status: callRow.status,
+      duration_seconds: asOptionalInt(callRow.duration_seconds) ?? 0,
+      terminal_status: "voicemail",
     });
   }
 
@@ -1531,7 +1656,7 @@ export async function applyTwilioVoicemailRecording(
     return { ok: false, error: updateError.message };
   }
 
-  const extForVoice = typeof row.external_call_id === "string" ? row.external_call_id.trim() : "";
+  const extForVoice = typeof callRow.external_call_id === "string" ? callRow.external_call_id.trim() : "";
   if (extForVoice && (hasUrl || input.recordingDurationSeconds != null)) {
     await updateVoiceCallSessionVoicemailFields(supabase, {
       externalCallId: extForVoice,
@@ -1581,6 +1706,8 @@ export async function applyTwilioVoicemailRecording(
     await awaitVoiceAiClassificationForWebhook(callId);
     await ensureVoicemailThreadMessage(supabase, callId);
     await triggerAutoFollowUp(supabase, callId);
+    const { logTerminalPhoneCallForLeadTimeline } = await import("@/lib/crm/lead-communication-activity");
+    void logTerminalPhoneCallForLeadTimeline(callId);
     if (saintlyVmEnabled && !alreadyDoneSaintlyVm) {
       scheduleSaintlyVoicemailProcessing(callId);
     }
@@ -1656,6 +1783,10 @@ export async function applyTwilioVoicemailTranscription(
   const existingVmSid = typeof row.voicemail_recording_sid === "string" ? row.voicemail_recording_sid.trim() : "";
   if (!existingVmSid) {
     patch.voicemail_recording_sid = recordingSid;
+  }
+  if (!existingVmSid || existingVmSid === recordingSid) {
+    Object.assign(patch, inboundVoicemailDispositionPatch("voicemail"));
+    patch.voicemail_received_at = new Date().toISOString();
   }
 
   const { error: updateError } = await supabase.from("phone_calls").update(patch).eq("id", callId);
