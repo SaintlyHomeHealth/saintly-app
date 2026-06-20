@@ -15,7 +15,7 @@ import {
 import { findTwilioPhoneNumberByToE164 } from "@/lib/twilio/twilio-phone-number-repo";
 import { persistInboundTwilioMmsAttachments } from "@/lib/phone/persist-inbound-twilio-mms";
 import { resolveInboundSmsAttachmentPushPreview } from "@/lib/phone/sms-mms-push-preview";
-import { isValidE164, normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
+import { parseTwilioWebhookTimestamp } from "@/lib/phone/phone-event-timestamp";
 
 export type InboundTwilioSmsParams = Record<string, string>;
 
@@ -201,6 +201,11 @@ export async function applyInboundTwilioSms(
     inbound_to_e164: toE164,
   };
 
+  const inboundAt =
+    parseTwilioWebhookTimestamp(params.DateSent) ??
+    parseTwilioWebhookTimestamp(params.date_sent) ??
+    new Date().toISOString();
+
   smsTiming("before_message_insert");
   const { data: insertedMsg, error: msgErr } = await supabase
     .from("messages")
@@ -214,7 +219,11 @@ export async function applyInboundTwilioSms(
       from_number: fromE164,
       to_number: toE164,
       twilio_phone_number_id: twilioPhoneNumberId,
-      metadata,
+      created_at: inboundAt,
+      metadata: {
+        ...metadata,
+        occurred_at: inboundAt,
+      },
     })
     .select("id, conversation_id, direction, viewed_at")
     .maybeSingle();

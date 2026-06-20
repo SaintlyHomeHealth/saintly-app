@@ -12,6 +12,9 @@ import {
 } from "@/lib/phone/incoming-call-alerts";
 import { triggerAutoFollowUp } from "@/lib/phone/auto-followup";
 import { normalizeTwilioRecordingMediaUrl } from "@/lib/phone/twilio-recording-media";
+import {
+  parseTwilioWebhookTimestamp,
+} from "@/lib/phone/phone-event-timestamp";
 import { scheduleSaintlyVoicemailProcessing } from "@/lib/phone/voicemail-saintly-process";
 import {
   maybeLogCallQualityPathMismatch,
@@ -765,7 +768,7 @@ export type TwilioVoiceStatusPayload = {
 };
 
 const PHONE_CALL_STATUS_ROW_SELECT =
-  "id, metadata, direction, voicemail_recording_sid, duration_seconds, status, assigned_to_user_id, from_e164, contact_id, external_call_id, after_hours";
+  "id, metadata, direction, voicemail_recording_sid, duration_seconds, status, assigned_to_user_id, from_e164, contact_id, external_call_id, after_hours, started_at";
 
 /**
  * phone_calls.external_call_id is the inbound parent CallSid. Some status webhooks only include the child leg
@@ -1205,11 +1208,17 @@ export async function applyTwilioVoiceStatusCallback(
 
   const fromVal = asOptionalString(payload.From);
   const toVal = asOptionalString(payload.To);
+  const twilioEventAt = parseTwilioWebhookTimestamp(payload.raw?.Timestamp);
   /** PSTN-bridge staff leg reports To=staff cell; row was created with to_e164=patient — do not overwrite. */
   const preservePstnBridgePatientDestination =
     direction === "outbound" && isOutboundPstnBridgePhoneCallMetadata(rowMetaBeforeMerge);
   if (fromVal !== null) updateRow.from_e164 = fromVal;
   if (toVal !== null && !preservePstnBridgePatientDestination) updateRow.to_e164 = toVal;
+
+  const existingStartedAt = asOptionalString(row.started_at);
+  if (!existingStartedAt) {
+    updateRow.started_at = twilioEventAt ?? new Date().toISOString();
+  }
 
   if (payload.DurationSeconds != null && payload.DurationSeconds >= 0) {
     updateRow.duration_seconds = payload.DurationSeconds;
@@ -1218,7 +1227,11 @@ export async function applyTwilioVoiceStatusCallback(
   }
 
   if (isTerminalPhoneStatus(finalStatus)) {
-    updateRow.ended_at = new Date().toISOString();
+    const endedAt = twilioEventAt ?? new Date().toISOString();
+    updateRow.ended_at = endedAt;
+    if (finalStatus === "voicemail" && !updateRow.voicemail_received_at) {
+      updateRow.voicemail_received_at = endedAt;
+    }
   }
 
   if (finalStatus === "voicemail") {

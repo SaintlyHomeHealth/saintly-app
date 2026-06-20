@@ -1,4 +1,5 @@
 import { parseLastNoteSegments, type ParsedNoteSegment } from "@/lib/crm/lead-contact-log";
+import { resolveLeadActivityDisplayIso } from "@/lib/phone/phone-event-timestamp";
 
 export type LeadActivityRow = {
   id: string;
@@ -37,7 +38,12 @@ export function buildUnifiedLeadTimeline(input: {
   const rows: UnifiedTimelineItem[] = [];
 
   for (const a of input.activities) {
-    rows.push({ kind: "activity", sortMs: msFromIso(a.created_at), activity: a });
+    const resolved = resolveLeadActivityDisplayIso(a);
+    rows.push({
+      kind: "activity",
+      sortMs: msFromIso(resolved.iso ?? a.created_at),
+      activity: a,
+    });
   }
 
   const segments = parseLastNoteSegments(input.lastNote);

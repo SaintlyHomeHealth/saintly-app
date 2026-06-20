@@ -23,6 +23,7 @@ import { supabaseAdmin } from "@/lib/admin";
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { labelForContactType } from "@/lib/crm/contact-types";
 import { ADMIN_PHONE_DISPLAY_TIMEZONE, formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
+import { resolvePhoneCallDisplayIso, resolveSmsMessageDisplayIso } from "@/lib/phone/phone-event-timestamp";
 import { normalizeConversationLeadStatusForInsert } from "@/lib/phone/conversation-lead-status";
 import { extractSmsProviderStatusRaw, formatSmsOutboundDeliveryLabel } from "@/lib/phone/sms-delivery-ui";
 import {
@@ -312,13 +313,16 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
 
   const voicemailDetailByCallId: Record<
     string,
-    { durationSeconds: number | null; transcript: string | null }
+    { durationSeconds: number | null; transcript: string | null; displayAt: string | null }
   > = {};
+  const voicemailCallById = new Map<string, Record<string, unknown>>();
 
   if (voicemailCallIds.length > 0) {
     const { data: vmCalls, error: vmErr } = await supabaseAdmin
       .from("phone_calls")
-      .select("id, voicemail_duration_seconds, metadata")
+      .select(
+        "id, voicemail_duration_seconds, metadata, started_at, voicemail_received_at, created_at, has_voicemail, status, voicemail_recording_sid"
+      )
       .in("id", voicemailCallIds);
     if (vmErr) {
       console.warn("[admin/phone/messages] voicemail detail:", vmErr.message);
@@ -335,12 +339,14 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
           transcript = typeof t === "string" && t.trim() ? t.trim().slice(0, 1200) : null;
         }
       }
+      voicemailCallById.set(id, c as Record<string, unknown>);
       voicemailDetailByCallId[id] = {
         durationSeconds:
           typeof c.voicemail_duration_seconds === "number" && Number.isFinite(c.voicemail_duration_seconds)
             ? c.voicemail_duration_seconds
             : null,
         transcript,
+        displayAt: resolvePhoneCallDisplayIso(c).iso,
       };
     }
   }
@@ -625,6 +631,13 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
     const messageType =
       typeof row.message_type === "string" && row.message_type.trim() ? row.message_type.trim() : "sms";
     const direction = String(row.direction ?? "");
+    const phoneCall = phoneCallId ? voicemailCallById.get(phoneCallId) ?? null : null;
+    const resolvedWhen = resolveSmsMessageDisplayIso({
+      created_at: row.created_at,
+      metadata: row.metadata,
+      message_type: messageType,
+      phoneCall,
+    });
     const outbound_status_raw =
       String(direction).toLowerCase() === "outbound"
         ? extractSmsProviderStatusRaw(
@@ -633,7 +646,7 @@ export async function SmsConversationDetail(props: SmsConversationDetailProps) {
         : null;
     return {
       id: String(row.id),
-      created_at: typeof row.created_at === "string" ? row.created_at : null,
+      created_at: resolvedWhen.iso ?? (typeof row.created_at === "string" ? row.created_at : null),
       direction,
       body: typeof row.body === "string" ? row.body : null,
       message_type: messageType,

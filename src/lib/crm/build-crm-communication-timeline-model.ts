@@ -1,9 +1,15 @@
 import "server-only";
 
 import { supabaseAdmin } from "@/lib/admin";
+import { phoneLookupCandidates } from "@/lib/crm/phone-lookup-candidates";
 import { parseLastNoteSegments } from "@/lib/crm/lead-contact-log";
 import { LEAD_ACTIVITY_EVENT, leadActivityEventLabel } from "@/lib/crm/lead-activity-types";
 import type { LeadActivityRow } from "@/lib/crm/lead-activities-timeline";
+import {
+  logPhoneTimestampDebug,
+  resolvePhoneCallDisplayIso,
+  resolveSmsMessageDisplayIso,
+} from "@/lib/phone/phone-event-timestamp";
 
 const SMS_LIMIT = 80;
 const CALL_LIMIT = 40;
@@ -63,10 +69,23 @@ export type BuildCommunicationTimelineInput = {
   leadId: string | null;
   /** Prefer inbox deep-link when known (same as lead workspace). */
   workspaceSmsConversationId: string | null;
+  /** When set on a lead view, hide pre-lead phone/SMS history from recycled numbers. */
+  leadCreatedAt?: string | null;
+  /** Party phone (E.164) — loads call rows not yet linked to contact_id. */
+  partyPhoneE164?: string | null;
   lastNote: string | null | undefined;
   /** Merge structured activities when lead exists. */
   leadActivities: LeadActivityRow[];
 };
+
+function eventAtOrAfterLead(iso: string, leadCreatedAt: string | null | undefined): boolean {
+  if (!leadCreatedAt || !leadCreatedAt.trim()) return true;
+  const leadMs = Date.parse(leadCreatedAt);
+  const eventMs = Date.parse(iso);
+  if (Number.isNaN(leadMs) || Number.isNaN(eventMs)) return true;
+  /** One minute grace for webhook/insert ordering races at intake. */
+  return eventMs >= leadMs - 60_000;
+}
 
 /**
  * Loads SMS, calls, structured lead activities, and legacy note segments — merged newest-first for the shared CRM timeline UI.
@@ -74,8 +93,10 @@ export type BuildCommunicationTimelineInput = {
 export async function buildCrmCommunicationTimelineModel(
   input: BuildCommunicationTimelineInput
 ): Promise<CommunicationTimelineRow[]> {
-  const { contactId, leadId, workspaceSmsConversationId, lastNote, leadActivities } = input;
+  const { contactId, leadId, workspaceSmsConversationId, leadCreatedAt, partyPhoneE164, lastNote, leadActivities } =
+    input;
   const rows: CommunicationTimelineRow[] = [];
+  const leadScopeActive = Boolean(leadId && leadCreatedAt && leadCreatedAt.trim());
 
   let conversationId = workspaceSmsConversationId;
   if (!conversationId && contactId) {
@@ -92,16 +113,62 @@ export async function buildCrmCommunicationTimelineModel(
   if (conversationId) {
     const { data: msgRows } = await supabaseAdmin
       .from("messages")
-      .select("id, created_at, direction, body")
+      .select("id, created_at, direction, body, metadata, message_type, phone_call_id")
       .eq("conversation_id", conversationId)
       .is("deleted_at", null)
       .order("created_at", { ascending: false })
       .limit(SMS_LIMIT);
 
+    const vmCallIds = [
+      ...new Set(
+        (msgRows ?? [])
+          .filter((m) => String((m as { message_type?: unknown }).message_type ?? "sms") === "voicemail")
+          .map((m) => {
+            const pid = (m as { phone_call_id?: unknown }).phone_call_id;
+            return pid != null && String(pid).trim() !== "" ? String(pid).trim() : null;
+          })
+          .filter((x): x is string => Boolean(x))
+      ),
+    ];
+
+    const phoneCallById = new Map<string, Record<string, unknown>>();
+    if (vmCallIds.length > 0) {
+      const { data: vmCalls } = await supabaseAdmin
+        .from("phone_calls")
+        .select(
+          "id, started_at, voicemail_received_at, created_at, has_voicemail, status, voicemail_recording_sid"
+        )
+        .in("id", vmCallIds);
+      for (const c of vmCalls ?? []) {
+        const id = typeof c.id === "string" ? c.id : "";
+        if (id) phoneCallById.set(id, c as Record<string, unknown>);
+      }
+    }
+
     for (const m of msgRows ?? []) {
-      const at = typeof m.created_at === "string" ? m.created_at : "";
       const mid = typeof m.id === "string" ? m.id : "";
-      if (!at || !mid) continue;
+      if (!mid) continue;
+      const phoneCallId =
+        m.phone_call_id != null && String(m.phone_call_id).trim() !== "" ? String(m.phone_call_id).trim() : null;
+      const phoneCall = phoneCallId ? phoneCallById.get(phoneCallId) ?? null : null;
+      const resolved = resolveSmsMessageDisplayIso({
+        created_at: m.created_at,
+        metadata: m.metadata,
+        message_type: m.message_type,
+        phoneCall,
+      });
+      const at = resolved.iso ?? "";
+      if (!at) continue;
+      if (leadScopeActive && !eventAtOrAfterLead(at, leadCreatedAt)) continue;
+
+      logPhoneTimestampDebug({
+        context: `crm_timeline.sms.${mid}`,
+        rawDbTimestamp: typeof m.created_at === "string" ? m.created_at : null,
+        selectedDisplayTimestamp: at,
+        source: resolved.source,
+        formattedArizona: null,
+      });
+
       const dir = String(m.direction ?? "").toLowerCase() === "inbound" ? "Inbound" : "Outbound";
       const body = typeof m.body === "string" ? m.body.trim().slice(0, 500) : "";
       rows.push({
@@ -116,25 +183,64 @@ export async function buildCrmCommunicationTimelineModel(
     }
   }
 
+  const callRowsById = new Map<string, Record<string, unknown>>();
+
+  async function ingestCallRows(callRows: Record<string, unknown>[] | null | undefined): Promise<void> {
+    for (const call of callRows ?? []) {
+      const cid = typeof call.id === "string" ? call.id : "";
+      if (!cid || callRowsById.has(cid)) continue;
+      callRowsById.set(cid, call);
+    }
+  }
+
   if (contactId) {
     const { data: callRows } = await supabaseAdmin
       .from("phone_calls")
       .select(
-        "id, direction, status, started_at, from_e164, to_e164, voicemail_recording_sid, duration_seconds, created_at"
+        "id, direction, status, started_at, voicemail_received_at, from_e164, to_e164, voicemail_recording_sid, duration_seconds, created_at, has_voicemail"
       )
       .eq("contact_id", contactId)
       .order("started_at", { ascending: false, nullsFirst: false })
       .limit(CALL_LIMIT);
+    await ingestCallRows((callRows ?? []) as Record<string, unknown>[]);
+  }
 
-    for (const call of callRows ?? []) {
-      const at =
-        typeof call.started_at === "string"
-          ? call.started_at
-          : typeof call.created_at === "string"
-            ? call.created_at
-            : "";
+  const party = typeof partyPhoneE164 === "string" ? partyPhoneE164.trim() : "";
+  if (party) {
+    const candidates = phoneLookupCandidates(party);
+    if (candidates.length > 0) {
+      const orParts = candidates.flatMap((c) => [`from_e164.eq.${c}`, `to_e164.eq.${c}`]);
+      const { data: byPhoneRows } = await supabaseAdmin
+        .from("phone_calls")
+        .select(
+          "id, direction, status, started_at, voicemail_received_at, from_e164, to_e164, voicemail_recording_sid, duration_seconds, created_at, has_voicemail"
+        )
+        .or(orParts.join(","))
+        .order("started_at", { ascending: false, nullsFirst: false })
+        .limit(CALL_LIMIT);
+      await ingestCallRows((byPhoneRows ?? []) as Record<string, unknown>[]);
+    }
+  }
+
+  for (const call of callRowsById.values()) {
+      const resolved = resolvePhoneCallDisplayIso(call);
+      const at = resolved.iso ?? "";
       const cid = typeof call.id === "string" ? call.id : "";
       if (!at || !cid) continue;
+      if (leadScopeActive && !eventAtOrAfterLead(at, leadCreatedAt)) continue;
+
+      logPhoneTimestampDebug({
+        context: `crm_timeline.call.${cid}`,
+        rawDbTimestamp:
+          typeof call.started_at === "string"
+            ? call.started_at
+            : typeof call.created_at === "string"
+              ? call.created_at
+              : null,
+        selectedDisplayTimestamp: at,
+        source: resolved.source,
+        formattedArizona: null,
+      });
       const dir = String(call.direction ?? "").toLowerCase() === "inbound" ? "Inbound" : "Outbound";
       const vm =
         typeof call.voicemail_recording_sid === "string" && call.voicemail_recording_sid.trim() !== "";
@@ -157,7 +263,6 @@ export async function buildCrmCommunicationTimelineModel(
         fromE164: typeof call.from_e164 === "string" ? call.from_e164 : null,
         toE164: typeof call.to_e164 === "string" ? call.to_e164 : null,
       });
-    }
   }
 
   const segments = parseLastNoteSegments(lastNote);

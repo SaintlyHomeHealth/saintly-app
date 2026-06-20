@@ -611,8 +611,8 @@ export default async function LeadIntakePage({
           )
         : await findLatestSmsConversationIdForPhoneE164(dialE164ForThread)
       : null;
-  /** Prefer `main_phone_e164` match so CRM stays aligned with the inbox thread even if `primary_contact_id` differs. */
-  const workspaceSmsConversationId = byPhone ?? byContact;
+  /** Prefer contact-linked thread; fall back to phone match for inbox deep-link only. */
+  const workspaceSmsConversationId = byContact ?? byPhone;
   const canEmbedWorkspaceSms = Boolean(staff && canAccessWorkspacePhone(staff));
 
   let communicationTimelineRows: Awaited<ReturnType<typeof buildCrmCommunicationTimelineModel>> = [];
@@ -624,6 +624,8 @@ export default async function LeadIntakePage({
               contactId,
               leadId,
               workspaceSmsConversationId,
+              leadCreatedAt: typeof L.created_at === "string" ? L.created_at : null,
+              partyPhoneE164: dialE164ForThread,
               lastNote,
               leadActivities: initialActivities,
             })
@@ -632,6 +634,8 @@ export default async function LeadIntakePage({
             contactId,
             leadId,
             workspaceSmsConversationId,
+            leadCreatedAt: typeof L.created_at === "string" ? L.created_at : null,
+            partyPhoneE164: dialE164ForThread,
             lastNote,
             leadActivities: initialActivities,
           });

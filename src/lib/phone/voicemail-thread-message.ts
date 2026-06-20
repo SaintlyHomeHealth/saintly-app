@@ -5,6 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchCrmContactMatchById, findContactByIncomingPhone } from "@/lib/crm/find-contact-by-incoming-phone";
 import { isValidCallerIdForPriority } from "@/lib/phone/priority-sms-rules";
 import { ensureSmsConversationForPhone } from "@/lib/phone/sms-conversation-thread";
+import { resolvePhoneCallDisplayIso } from "@/lib/phone/phone-event-timestamp";
 import { isValidE164, normalizeDialInputToE164 } from "@/lib/softphone/phone-number";
 
 function formatVoicemailThreadBody(durationSeconds: number | null | undefined): string {
@@ -48,7 +49,9 @@ export async function ensureVoicemailThreadMessage(
 
   const { data: call, error: callErr } = await supabase
     .from("phone_calls")
-    .select("id, direction, from_e164, contact_id, voicemail_recording_sid, voicemail_duration_seconds")
+    .select(
+      "id, direction, from_e164, contact_id, voicemail_recording_sid, voicemail_duration_seconds, started_at, voicemail_received_at, created_at, has_voicemail, status"
+    )
     .eq("id", callId)
     .maybeSingle();
 
@@ -84,6 +87,8 @@ export async function ensureVoicemailThreadMessage(
   }
 
   const now = new Date().toISOString();
+  const callWhen = resolvePhoneCallDisplayIso(call);
+  const messageCreatedAt = callWhen.iso ?? now;
   const body = formatVoicemailThreadBody(
     typeof call.voicemail_duration_seconds === "number" ? call.voicemail_duration_seconds : null
   );
@@ -94,9 +99,11 @@ export async function ensureVoicemailThreadMessage(
     body,
     phone_call_id: callId,
     message_type: "voicemail",
+    created_at: messageCreatedAt,
     metadata: {
       source: "voicemail_thread",
       phone_call_id: callId,
+      occurred_at: messageCreatedAt,
     },
   });
 

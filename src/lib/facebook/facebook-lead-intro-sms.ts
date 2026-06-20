@@ -11,6 +11,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchCrmContactMatchById } from "@/lib/crm/find-contact-by-incoming-phone";
 import { contactHasPriorOutboundSms } from "@/lib/facebook/facebook-auto-text-scheduling";
 import { appendOutboundSmsToConversation, ensureSmsConversationForOutboundSystem } from "@/lib/phone/sms-conversation-thread";
+import { logSmsMessageForLeadTimeline } from "@/lib/crm/lead-communication-activity";
 import { normalizeDialInputToE164, isValidE164 } from "@/lib/softphone/phone-number";
 import { sendSms } from "@/lib/twilio/send-sms";
 import { getPrimarySmsFromNumber, isSaintlyBackupSmsE164, logAltSmsSenderUsed } from "@/lib/twilio/sms-from-numbers";
@@ -216,6 +217,23 @@ async function sendIntroNow(
       twilio_status: sms.twilioStatus ?? null,
       append_error: appended.error,
     });
+  } else {
+    const { data: msgRow } = await supabase
+      .from("messages")
+      .select("id")
+      .eq("conversation_id", conv.conversationId)
+      .eq("external_message_sid", sms.messageSid)
+      .maybeSingle();
+    if (msgRow?.id) {
+      void logSmsMessageForLeadTimeline({
+        direction: "outbound",
+        contactId,
+        partyPhoneE164: e164,
+        conversationId: conv.conversationId,
+        messageId: String(msgRow.id),
+        body,
+      });
+    }
   }
 
   await markAutoTextTerminal(supabase, leadId, "sent", { sentAt });

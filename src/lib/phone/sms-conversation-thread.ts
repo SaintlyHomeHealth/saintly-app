@@ -308,6 +308,7 @@ export async function appendOutboundSmsToConversation(
     body: input.body.slice(0, 32000),
     external_message_sid: input.messageSid,
     metadata: input.metadata,
+    created_at: now,
   };
   if (input.phoneCallId) {
     row.phone_call_id = input.phoneCallId;

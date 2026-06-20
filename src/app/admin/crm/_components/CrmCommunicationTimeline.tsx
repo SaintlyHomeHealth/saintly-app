@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 
 import type { CommunicationTimelineRow } from "@/lib/crm/build-crm-communication-timeline-model";
-import { formatAdminPhoneWhen } from "@/app/workspace/phone/patients/_lib/patient-hub";
+import { formatPhoneEventWhen } from "@/lib/phone/phone-event-timestamp";
 import { buildWorkspaceInboxLeadSmsHref } from "@/lib/workspace-phone/launch-urls";
 
 export type CommTimelineFilter = "all" | "sms" | "calls" | "notes";
@@ -66,7 +66,12 @@ export function CrmCommunicationTimeline(props: {
         <ul className="mt-3 space-y-3">
           {visible.map((e, i) => (
             <li key={`${e.kind}-${e.kind === "sms" ? e.id : e.kind === "call" ? e.id : e.id}-${i}`} className="flex gap-3 text-sm">
-              <span className="w-24 shrink-0 text-[11px] text-slate-400">{formatAdminPhoneWhen(e.createdAt)}</span>
+              <span className="w-24 shrink-0 text-[11px] text-slate-400">
+                {formatPhoneEventWhen(e.createdAt, {
+                  context: `crm_comm_timeline.${e.kind}.${e.id}`,
+                  rawDbTimestamp: e.createdAt,
+                })}
+              </span>
               <div className="min-w-0 flex-1">
                 {e.kind === "sms" ? (
                   <>
@@ -143,7 +148,12 @@ export function CrmCommunicationTimeline(props: {
             <dl className="mt-3 space-y-2 text-sm text-slate-700">
               <div>
                 <dt className="text-[10px] font-semibold uppercase text-slate-400">When</dt>
-                <dd>{formatAdminPhoneWhen(callDetail.createdAt)}</dd>
+                <dd>
+                  {formatPhoneEventWhen(callDetail.createdAt, {
+                    context: `crm_comm_timeline.call_detail.${callDetail.id}`,
+                    rawDbTimestamp: callDetail.createdAt,
+                  })}
+                </dd>
               </div>
               <div>
                 <dt className="text-[10px] font-semibold uppercase text-slate-400">Direction</dt>

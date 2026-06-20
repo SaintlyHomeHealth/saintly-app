@@ -13,6 +13,7 @@ import { staffMayAccessWorkspaceSms } from "@/lib/phone/staff-phone-policy";
 import { canAccessWorkspacePhone, getStaffProfile, type StaffProfile } from "@/lib/staff-profile";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { smsReplyAiSuggestionsEnabled } from "@/lib/phone/sms-ai-suggestions-flag";
+import { resolvePhoneCallDisplayIso, resolveSmsMessageDisplayIso } from "@/lib/phone/phone-event-timestamp";
 import { SMS_OUTBOUND_FROM_EXPLICIT_KEY } from "@/lib/twilio/sms-from-numbers";
 
 const UUID_RE =
@@ -39,6 +40,7 @@ function parseSmsReplySuggestion(
 export type WorkspaceSmsThreadBootstrapVoicemail = {
   durationSeconds: number | null;
   transcript: string | null;
+  displayAt: string | null;
 };
 
 /** Serializable props for `WorkspaceSmsThreadView` (workspace inbox and CRM embed). */
@@ -133,11 +135,14 @@ export async function loadWorkspaceSmsThreadBootstrap(
   ];
 
   const voicemailDetailByCallId: Record<string, WorkspaceSmsThreadBootstrapVoicemail> = {};
+  const voicemailCallById = new Map<string, Record<string, unknown>>();
 
   if (voicemailCallIds.length > 0) {
     const { data: vmCalls, error: vmErr } = await supabaseAdmin
       .from("phone_calls")
-      .select("id, voicemail_duration_seconds, metadata")
+      .select(
+        "id, voicemail_duration_seconds, metadata, started_at, voicemail_received_at, created_at, has_voicemail, status, voicemail_recording_sid"
+      )
       .in("id", voicemailCallIds);
     if (vmErr) {
       console.warn("[workspace-sms-thread-bootstrap] voicemail detail:", vmErr.message);
@@ -154,12 +159,14 @@ export async function loadWorkspaceSmsThreadBootstrap(
           transcript = typeof t === "string" && t.trim() ? t.trim().slice(0, 1200) : null;
         }
       }
+      voicemailCallById.set(id, c as Record<string, unknown>);
       voicemailDetailByCallId[id] = {
         durationSeconds:
           typeof c.voicemail_duration_seconds === "number" && Number.isFinite(c.voicemail_duration_seconds)
             ? c.voicemail_duration_seconds
             : null,
         transcript,
+        displayAt: resolvePhoneCallDisplayIso(c).iso,
       };
     }
   }
@@ -224,10 +231,17 @@ export async function loadWorkspaceSmsThreadBootstrap(
             m as { metadata?: unknown; direction?: unknown; status?: unknown; twilio_status?: unknown }
           )
         : null;
+    const phoneCall = phoneCallId ? voicemailCallById.get(phoneCallId) ?? null : null;
+    const resolvedWhen = resolveSmsMessageDisplayIso({
+      created_at: row.created_at,
+      metadata: row.metadata,
+      message_type: messageType,
+      phoneCall,
+    });
     const attachments = mapNestedPhoneAttachmentsFromRpcRow(row.phone_message_attachments);
     return {
       id: String(row.id),
-      created_at: typeof row.created_at === "string" ? row.created_at : null,
+      created_at: resolvedWhen.iso ?? (typeof row.created_at === "string" ? row.created_at : null),
       direction,
       body: typeof row.body === "string" ? row.body : null,
       message_type: messageType,

@@ -19,7 +19,7 @@ import {
 } from "./actions";
 import { trackSubscription } from "@/lib/perf/client-dev-perf";
 import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
-import { formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
+import { formatPhoneEventWhen, resolvePhoneCallDisplayIso } from "@/lib/phone/phone-event-timestamp";
 import { isMissedOrVoicemailCall } from "@/lib/phone/call-disposition";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 
@@ -1030,7 +1030,12 @@ export function RecentCallsLive({
                   Boolean(row.priority_sms_reason) || Boolean(row.auto_reply_sms_sent_at);
                 const st = row.status.trim();
                 const missed = isMissedCallStatus(row.status, row);
-                const timeLabel = formatAdminPhoneWhen(row.started_at ?? row.created_at);
+                const callWhen = resolvePhoneCallDisplayIso(row);
+                const timeLabel = formatPhoneEventWhen(callWhen.iso, {
+                  context: `admin_call_log.${row.id}`,
+                  rawDbTimestamp: row.started_at ?? row.created_at,
+                  source: callWhen.source,
+                });
                 const durationLabel = row.duration_seconds != null ? `${row.duration_seconds}s` : "—";
                 const otherParty = otherPartyE164(row);
                 const phoneLabel = otherParty ? formatPhoneForDisplay(otherParty) : "—";

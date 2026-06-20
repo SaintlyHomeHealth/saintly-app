@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { WorkspacePhonePageHeader } from "../_components/WorkspacePhonePageHeader";
 import { VoicemailCard } from "@/app/workspace/phone/_components/VoicemailCard";
 import { formatDurationSeconds } from "@/lib/crm/patient-hub-detail-display";
-import { formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
+import { formatPhoneEventWhen, resolvePhoneCallDisplayIso } from "@/lib/phone/phone-event-timestamp";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import {
   phoneRawToE164LookupKey,
@@ -262,7 +262,14 @@ export default async function WorkspaceVoicemailPage(props: PageProps) {
       ) : (
         <ul className="mt-4 space-y-3">
           {displayCalls.map((c) => {
-            const when = typeof c.started_at === "string" ? c.started_at : c.created_at;
+            const callWhen = resolvePhoneCallDisplayIso(c);
+            const when = callWhen.iso;
+            const whenLabel = formatPhoneEventWhen(when, {
+              context: `workspace_voicemail.${c.id}`,
+              rawDbTimestamp:
+                typeof c.started_at === "string" ? c.started_at : typeof c.created_at === "string" ? c.created_at : null,
+              source: callWhen.source,
+            });
             const vmSec =
               typeof c.voicemail_duration_seconds === "number" && Number.isFinite(c.voicemail_duration_seconds)
                 ? c.voicemail_duration_seconds
@@ -291,7 +298,7 @@ export default async function WorkspaceVoicemailPage(props: PageProps) {
                 callId={c.id}
                 title={display}
                 subtitle={number ? formattedNum : "Unknown number"}
-                whenLabel={formatAdminPhoneWhen(when)}
+                whenLabel={whenLabel}
                 durationLabel={formatDurationSeconds(vmSec)}
                 callbackPhone={number}
                 threadHref={convId ? `/workspace/phone/inbox/${convId}` : null}

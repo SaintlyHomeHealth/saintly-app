@@ -14,6 +14,7 @@ import { findContactByIncomingPhone } from "@/lib/crm/find-contact-by-incoming-p
 import { LEAD_ACTIVITY_EVENT } from "@/lib/crm/lead-activity-types";
 import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
+import { logPhoneTimestampDebug } from "@/lib/phone/phone-event-timestamp";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -156,7 +157,7 @@ export async function logTerminalPhoneCallForLeadTimeline(phoneCallId: string): 
     const { data: row, error } = await supabaseAdmin
       .from("phone_calls")
       .select(
-        "id, direction, status, duration_seconds, from_e164, to_e164, contact_id, assigned_to_user_id, external_call_id, ended_at, created_at"
+        "id, direction, status, duration_seconds, from_e164, to_e164, contact_id, assigned_to_user_id, external_call_id, started_at, voicemail_received_at, ended_at, created_at"
       )
       .eq("id", cid)
       .maybeSingle();
@@ -212,11 +213,27 @@ export async function logTerminalPhoneCallForLeadTimeline(phoneCallId: string): 
     if (staffLabel) bodyParts.push(`Staff ${staffLabel}`);
 
     const occurredAt =
-      row.ended_at != null && String(row.ended_at).trim() !== ""
-        ? String(row.ended_at)
-        : row.created_at != null && String(row.created_at).trim() !== ""
-          ? String(row.created_at)
-          : new Date().toISOString();
+      row.started_at != null && String(row.started_at).trim() !== ""
+        ? String(row.started_at)
+        : row.voicemail_received_at != null && String(row.voicemail_received_at).trim() !== ""
+          ? String(row.voicemail_received_at)
+          : row.ended_at != null && String(row.ended_at).trim() !== ""
+            ? String(row.ended_at)
+            : row.created_at != null && String(row.created_at).trim() !== ""
+              ? String(row.created_at)
+              : new Date().toISOString();
+
+    logPhoneTimestampDebug({
+      context: `lead_activity.call.${cid}`,
+      rawDbTimestamp:
+        typeof row.started_at === "string"
+          ? row.started_at
+          : typeof row.created_at === "string"
+            ? row.created_at
+            : null,
+      selectedDisplayTimestamp: occurredAt,
+      source: row.started_at ? "phone_call.started_at" : "phone_call.created_at",
+    });
 
     const metadata: Record<string, unknown> = {
       communication_kind: "call",
@@ -306,6 +323,21 @@ export async function logSmsMessageForLeadTimeline(input: {
     const bodyLine =
       prev.length > 0 ? `${dirLabel} · ${phoneDisp} · ${prev}` : `${dirLabel} · ${phoneDisp}`;
 
+    const { data: msgRow, error: msgLoadErr } = await supabaseAdmin
+      .from("messages")
+      .select("id, created_at, metadata")
+      .eq("id", mid)
+      .maybeSingle();
+
+    if (msgLoadErr) {
+      console.warn("[lead-communication-activity] load message for timeline:", msgLoadErr.message);
+    }
+
+    const messageCreatedAt =
+      msgRow?.created_at != null && String(msgRow.created_at).trim() !== ""
+        ? String(msgRow.created_at)
+        : new Date().toISOString();
+
     const metadata: Record<string, unknown> = {
       communication_kind: "sms",
       direction: input.direction,
@@ -317,8 +349,15 @@ export async function logSmsMessageForLeadTimeline(input: {
         input.contactId != null && String(input.contactId).trim() !== ""
           ? String(input.contactId).trim()
           : null,
-      occurred_at: new Date().toISOString(),
+      occurred_at: messageCreatedAt,
     };
+
+    logPhoneTimestampDebug({
+      context: `lead_activity.sms.${mid}`,
+      rawDbTimestamp: typeof msgRow?.created_at === "string" ? msgRow.created_at : null,
+      selectedDisplayTimestamp: messageCreatedAt,
+      source: "message.created_at",
+    });
 
     const creator =
       input.direction === "outbound" && input.createdByUserId?.trim()
@@ -341,6 +380,7 @@ export async function logSmsMessageForLeadTimeline(input: {
         metadata,
         created_by_user_id: creator,
         deletable: false,
+        created_at: messageCreatedAt,
       });
       if (insErr) {
         console.warn("[lead-communication-activity] insert sms activity:", insErr.message);

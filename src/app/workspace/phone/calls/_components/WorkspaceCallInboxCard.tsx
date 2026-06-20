@@ -10,7 +10,7 @@ import { QuickSaveContactSheet } from "@/components/workspace-phone/QuickSaveCon
 import { WorkspaceHideCallButton } from "./WorkspaceHideCallButton";
 import { WorkspaceMarkMissedResolvedButton } from "./WorkspaceMarkMissedResolvedButton";
 import { displayNameFromContactsRelation } from "@/lib/crm/contact-relation-display-name";
-import { formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
+import { formatPhoneEventWhen, resolvePhoneCallDisplayIso } from "@/lib/phone/phone-event-timestamp";
 import { isMissedOrVoicemailCall } from "@/lib/phone/call-disposition";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import { buildWorkspacePhoneLeadOpenHref } from "@/lib/crm/admin-crm-leads-list-url";
@@ -97,13 +97,19 @@ export function WorkspaceCallInboxCard({ row, showHideFromDispatch = false }: Pr
   const [saveResetKey, setSaveResetKey] = useState(0);
   const label =
     row.contacts != null ? displayNameFromContactsRelation(row.contacts) : null;
-  const activityIsoForDisplay =
-    typeof row.updated_at === "string" && row.updated_at.trim()
-      ? row.updated_at
-      : typeof row.created_at === "string"
-        ? row.created_at
-        : null;
-  const when = formatAdminPhoneWhen(activityIsoForDisplay);
+  const callWhen = resolvePhoneCallDisplayIso({
+    started_at: row.started_at,
+    ended_at: row.ended_at,
+    created_at: row.created_at,
+    has_voicemail: row.has_voicemail,
+    status: row.status,
+    voicemail_recording_sid: row.voicemail_recording_sid,
+  });
+  const when = formatPhoneEventWhen(callWhen.iso, {
+    context: `workspace_calls.card.${row.id}`,
+    rawDbTimestamp: row.started_at ?? row.created_at,
+    source: callWhen.source,
+  });
   const numRaw = callbackNumber(row.direction, row.from_e164, row.to_e164);
   const numberDisplay = numRaw ? formatPhoneForDisplay(numRaw) : "—";
   const pre = row.call_log_display;

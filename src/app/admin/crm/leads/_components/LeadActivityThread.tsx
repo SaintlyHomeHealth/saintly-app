@@ -14,6 +14,7 @@ import { replaceLegacyContactedLabelInText } from "@/lib/crm/lead-contact-outcom
 import type { LeadActivityRow, UnifiedTimelineItem } from "@/lib/crm/lead-activities-timeline";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import { formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
+import { formatPhoneEventWhen, resolveLeadActivityDisplayIso } from "@/lib/phone/phone-event-timestamp";
 import { refreshPreservingWindowScroll } from "@/lib/navigation/scroll-preserving-refresh";
 
 import { highlightThreadKeywords } from "./lead-thread-highlight";
@@ -352,7 +353,12 @@ export function LeadActivityThread(props: {
           }
 
           const act = item.activity;
-          const when = formatWhen(act.created_at);
+          const activityWhen = resolveLeadActivityDisplayIso(act);
+          const when = formatPhoneEventWhen(activityWhen.iso, {
+            context: `lead_thread.activity.${act.id}`,
+            rawDbTimestamp: act.created_at,
+            source: activityWhen.source,
+          });
           const who = labelForUid(act.created_by_user_id);
 
           if (
