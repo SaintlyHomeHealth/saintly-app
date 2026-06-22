@@ -8,8 +8,11 @@ import { isMissedOrVoicemailCall, PHONE_CALLS_MISSED_OR_VOICEMAIL_OR_FILTER } fr
 import { loadCallLogContactOpenTargets } from "@/lib/phone/call-log-contact-targets";
 import { formatAdminPhoneWhen } from "@/lib/phone/format-admin-when";
 import { formatTimeAgo } from "@/lib/phone/format-time-ago";
+import { resolvePhoneCallDisplayIso } from "@/lib/phone/phone-event-timestamp";
 import { applyPhoneCallLogScopeForStaff } from "@/lib/phone/phone-call-log-staff-scope";
 import { PHONE_CALL_LOG_LIST_SELECT } from "@/lib/phone/phone-call-log-select";
+import { loadEarliestPhoneCallEventAtByCallId } from "@/lib/phone/phone-call-event-times";
+import { sortRowsByPhoneCallDisplayTimeDesc } from "@/lib/phone/phone-event-timestamp";
 import {
   getStaffProfile,
   isPhoneWorkspaceUser,
@@ -70,7 +73,8 @@ export default async function AdminPhoneCallLogPage({ searchParams }: PageProps)
   let dbQuery = supabase
     .from("phone_calls")
     .select(PHONE_CALL_LOG_LIST_SELECT)
-    .order("updated_at", { ascending: false })
+    .order("started_at", { ascending: false, nullsFirst: false })
+    .order("created_at", { ascending: false })
     .limit(q.limit);
 
   dbQuery = applyPhoneCallLogScopeForStaff(dbQuery, staffProfile, "admin");
@@ -92,14 +96,14 @@ export default async function AdminPhoneCallLogPage({ searchParams }: PageProps)
 
   const { data: rows, error } = await dbQuery;
   const calls = (rows ?? []).map((r) => mapPhoneCallQueryRowForLog(r as Record<string, unknown>));
-  /** Match workspace calls: newest last-activity first (completed inbound surfaces). Avoid missed-first client sort that looked like a missed-only log when view=all. */
-  const sortedCalls = [...calls].sort((a, b) => {
-    const au = new Date(a.updated_at || a.created_at).getTime();
-    const bu = new Date(b.updated_at || b.created_at).getTime();
-    const aOk = Number.isFinite(au) ? au : 0;
-    const bOk = Number.isFinite(bu) ? bu : 0;
-    return bOk - aOk;
-  });
+  const earliestEventAtByCallId = await loadEarliestPhoneCallEventAtByCallId(calls.map((c) => c.id));
+  const sortedCalls = sortRowsByPhoneCallDisplayTimeDesc(calls, (c) => ({
+    started_at: c.started_at,
+    voicemail_received_at: c.voicemail_received_at,
+    ended_at: c.ended_at,
+    created_at: c.created_at,
+    earliest_event_at: earliestEventAtByCallId.get(c.id) ?? null,
+  }));
   const enrichedCalls = await enrichPhoneCallRowsWithResolvedIdentity(supabase, sortedCalls);
 
   const contactIds = [
@@ -289,7 +293,8 @@ export default async function AdminPhoneCallLogPage({ searchParams }: PageProps)
           </div>
         </form>
         <p className="mt-2 text-[11px] text-slate-500">
-          Showing up to {q.limit} rows, ordered by last activity (<code className="rounded bg-slate-100 px-1">updated_at</code>
+          Showing up to {q.limit} rows, ordered by actual call time (
+          <code className="rounded bg-slate-100 px-1">started_at</code>
           ). Default is <span className="font-semibold">All calls</span> unless you open this page with{" "}
           <code className="rounded bg-slate-100 px-1">?view=missed</code>.
         </p>
@@ -325,7 +330,13 @@ export default async function AdminPhoneCallLogPage({ searchParams }: PageProps)
               </tr>
             ) : (
               enrichedCalls.map((row) => {
-                const timeRef = row.started_at ?? row.created_at;
+                const timeRef = resolvePhoneCallDisplayIso({
+                  started_at: row.started_at,
+                  voicemail_received_at: row.voicemail_received_at,
+                  ended_at: row.ended_at,
+                  created_at: row.created_at,
+                  earliest_event_at: earliestEventAtByCallId.get(row.id) ?? null,
+                }).iso;
                 const whenExact = formatAdminPhoneWhen(timeRef);
                 const ago = formatTimeAgo(timeRef);
                 const urgency = getCallUrgency(row);

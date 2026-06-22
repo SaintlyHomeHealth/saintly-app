@@ -8,6 +8,7 @@ import {
   refineInboundTwilioCompletedStatus,
   type PhoneCallStatus,
 } from "../src/lib/phone/twilio-call-status-map.ts";
+import { isTwilioDialLegBridged } from "../src/lib/phone/twilio-dial-leg-bridge.ts";
 
 function assert(cond: boolean, msg: string) {
   if (!cond) {
@@ -61,5 +62,30 @@ const guarded = guardInboundMissedAfterBridgeSignals({
   voicemailRecordingSid: null,
 });
 assert(guarded === "completed", "answered in_progress must not downgrade to missed on child no-answer");
+
+assert(
+  isTwilioDialLegBridged({
+    DialCallStatus: "completed",
+    To: "client:saintly_00000000-0000-4000-8000-000000000001",
+    DialCallDuration: "0",
+  }),
+  "browser client completed → bridged even with 0s duration"
+);
+assert(
+  !isTwilioDialLegBridged({
+    DialCallStatus: "completed",
+    To: "+15551234567",
+    DialCallDuration: "2",
+  }),
+  "PSTN completed under 5s → not bridged (voicemail screening guard)"
+);
+assert(
+  isTwilioDialLegBridged({
+    DialCallStatus: "completed",
+    To: "+15551234567",
+    DialCallDuration: "8",
+  }),
+  "PSTN completed over 5s → bridged"
+);
 
 console.log("verify-inbound-call-status-mapping: OK");

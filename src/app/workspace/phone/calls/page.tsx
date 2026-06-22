@@ -15,6 +15,11 @@ import type { PhoneCallRow } from "@/app/admin/phone/recent-calls-live";
 import { loadCallLogContactOpenTargets } from "@/lib/phone/call-log-contact-targets";
 import { PHONE_CALL_LOG_LIST_SELECT_BASE } from "@/lib/phone/phone-call-log-select";
 import { PHONE_CALLS_MISSED_OR_VOICEMAIL_OR_FILTER } from "@/lib/phone/call-disposition";
+import { loadEarliestPhoneCallEventAtByCallId } from "@/lib/phone/phone-call-event-times";
+import {
+  logPhoneCallListRowTimestampDebug,
+  sortRowsByPhoneCallDisplayTimeDesc,
+} from "@/lib/phone/phone-event-timestamp";
 import { staffMayAccessWorkspaceCallHistory } from "@/lib/phone/staff-phone-policy";
 import { shouldShowPhoneCallInWorkspaceDispatchList } from "@/lib/phone/phone-call-dispatch-list";
 import {
@@ -126,6 +131,8 @@ function buildCallInboxRowFromEnriched(
     updated_at: enriched.updated_at,
     started_at: enriched.started_at,
     ended_at: enriched.ended_at,
+    voicemail_received_at: enriched.voicemail_received_at ?? null,
+    earliest_event_at: null,
     direction: enriched.direction,
     from_e164: enriched.from_e164,
     to_e164: enriched.to_e164,
@@ -134,6 +141,7 @@ function buildCallInboxRowFromEnriched(
     contact_id: enriched.contact_id,
     has_voicemail: enriched.has_voicemail,
     missed: enriched.missed,
+    answered: enriched.answered,
     voicemail_recording_sid: enriched.voicemail_recording_sid,
     contacts: raw.contacts,
     metadata: enriched.metadata,
@@ -261,12 +269,15 @@ export default async function WorkspaceCallsPage(props: PageProps) {
   }
 
   const limit = searchActive ? LIST_LIMIT_SEARCH : LIST_LIMIT;
+  /** Missed filter: fetch extra rows so post-migration updated_at bumps do not crowd out today's calls. */
+  const fetchLimit = filter === "missed" && !searchActive ? Math.min(limit * 3, 300) : limit;
   let dbQuery = supabase
     .from("phone_calls")
     .select(PHONE_CALL_LOG_LIST_SELECT_BASE)
     .is("dispatch_hidden_at", null)
-    .order("updated_at", { ascending: false })
-    .limit(limit);
+    .order("started_at", { ascending: false, nullsFirst: false })
+    .order("created_at", { ascending: false })
+    .limit(fetchLimit);
 
   if (filter === "missed") {
     dbQuery = dbQuery.or(PHONE_CALLS_MISSED_OR_VOICEMAIL_OR_FILTER);
@@ -326,6 +337,8 @@ export default async function WorkspaceCallsPage(props: PageProps) {
     );
   const enriched = await enrichPhoneCallRowsWithResolvedIdentity(supabase, calls);
 
+  const earliestEventAtByCallId = await loadEarliestPhoneCallEventAtByCallId(enriched.map((c) => c.id));
+
   const contactIds = [
     ...new Set(
       enriched.flatMap((c) => [c.contact_id, c.resolved_contact_id].filter((x): x is string => Boolean(x)))
@@ -335,10 +348,12 @@ export default async function WorkspaceCallsPage(props: PageProps) {
 
   const merged: CallInboxRow[] = enriched.map((e, i) => {
     const row = buildCallInboxRowFromEnriched(rawRows[i] ?? {}, e);
+    const earliestEventAt = earliestEventAtByCallId.get(e.id) ?? null;
     const contactId = e.contact_id ?? e.resolved_contact_id ?? null;
     const targets = contactId ? openByContactId[contactId] : undefined;
-    return {
+    const withEvent = {
       ...row,
+      earliest_event_at: earliestEventAt,
       workspace_ui: row.workspace_ui
         ? {
             ...row.workspace_ui,
@@ -347,9 +362,34 @@ export default async function WorkspaceCallsPage(props: PageProps) {
           }
         : undefined,
     };
+    if (debug) {
+      logPhoneCallListRowTimestampDebug(
+        {
+          id: withEvent.id,
+          external_call_id: withEvent.external_call_id,
+          created_at: withEvent.created_at,
+          updated_at: withEvent.updated_at,
+          started_at: withEvent.started_at,
+          ended_at: withEvent.ended_at,
+          voicemail_received_at: withEvent.voicemail_received_at,
+          earliest_event_at: withEvent.earliest_event_at,
+        },
+        `workspace_calls.list.${withEvent.id}`
+      );
+    }
+    return withEvent;
   });
 
-  const filtered = searchActive ? merged.filter((r) => workspaceCallMatchesQuery(r, qLower)) : merged;
+  const sorted = sortRowsByPhoneCallDisplayTimeDesc(merged, (row) => ({
+    started_at: row.started_at,
+    voicemail_received_at: row.voicemail_received_at,
+    ended_at: row.ended_at,
+    created_at: row.created_at,
+    earliest_event_at: row.earliest_event_at,
+  }));
+
+  const capped = searchActive ? sorted : sorted.slice(0, limit);
+  const filtered = searchActive ? capped.filter((r) => workspaceCallMatchesQuery(r, qLower)) : capped;
   const noSearchHits = searchActive && filtered.length === 0;
 
   if (debug) {
@@ -359,6 +399,7 @@ export default async function WorkspaceCallsPage(props: PageProps) {
         phase: "after_enrichment",
         mergedRowCount: merged.length,
         displayedRowCount: filtered.length,
+        sortedRowCount: sorted.length,
       })
     );
   }

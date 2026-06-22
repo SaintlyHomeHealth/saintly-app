@@ -7,6 +7,8 @@ export type PhoneCallDispositionRow = {
   has_voicemail?: boolean | null;
   missed?: boolean | null;
   voicemail_recording_sid?: string | null;
+  direction?: string | null;
+  answered?: boolean | null;
 };
 
 /** True when the call should appear under Calls → Missed (includes Saintly voicemail). */
@@ -15,7 +17,10 @@ export function isMissedOrVoicemailCall(row: PhoneCallDispositionRow): boolean {
   if (status === "missed" || status === "voicemail") return true;
   if (row.has_voicemail === true || row.missed === true) return true;
   const vmSid = typeof row.voicemail_recording_sid === "string" ? row.voicemail_recording_sid.trim() : "";
-  return vmSid.length > 0;
+  if (vmSid.length > 0) return true;
+  const dir = (row.direction ?? "").trim().toLowerCase();
+  if (dir === "inbound" && row.answered === false) return true;
+  return false;
 }
 
 /** True when the row represents a Saintly voicemail recording. */
@@ -27,7 +32,7 @@ export function hasVoicemailArtifact(row: PhoneCallDispositionRow): boolean {
 
 /** PostgREST `.or()` filter for missed-call list queries. */
 export const PHONE_CALLS_MISSED_OR_VOICEMAIL_OR_FILTER =
-  "status.eq.missed,status.eq.voicemail,has_voicemail.eq.true,missed.eq.true";
+  "status.eq.missed,status.eq.voicemail,has_voicemail.eq.true,missed.eq.true,and(direction.eq.inbound,answered.eq.false)";
 
 /** PostgREST filter for voicemail inbox (recording sid or disposition flag). */
 export const PHONE_CALLS_VOICEMAIL_INBOX_OR_FILTER =

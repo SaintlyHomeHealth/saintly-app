@@ -1265,13 +1265,22 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
           });
           call.on("cancel", () => {
             softphoneDevLog("[softphone] Twilio cancel (incoming ring)");
+            inboundAnswerLog("browser_incoming_cancel_event", { callSid: readCallSid(call) });
             incomingCallRef.current = null;
             setIncomingCall((c) => (c === call ? null : c));
           });
           call.on("reject", () => {
             softphoneDevLog("[softphone] Twilio reject (incoming ring)");
+            inboundAnswerLog("browser_incoming_reject_event", { callSid: readCallSid(call) });
             incomingCallRef.current = null;
             setIncomingCall((c) => (c === call ? null : c));
+          });
+          call.on("error", (err) => {
+            console.error("[softphone] Twilio error (incoming ring)", err);
+            inboundAnswerLog("browser_incoming_error_event", {
+              callSid: readCallSid(call),
+              error: err instanceof Error ? err.message : String(err),
+            });
           });
         }
       });
@@ -2117,8 +2126,25 @@ export function WorkspaceSoftphoneProvider({ children }: { children: React.React
     setStatus("connecting");
     setHint(null);
     setHintMeta(null);
-    void unlockRingtoneFromGesture().then(() => {
+    void unlockRingtoneFromGesture().then(async () => {
       try {
+        if (typeof navigator !== "undefined" && navigator.mediaDevices?.getUserMedia) {
+          try {
+            const probe = await navigator.mediaDevices.getUserMedia({ audio: true });
+            probe.getTracks().forEach((t) => t.stop());
+            inboundAnswerLog("browser_mic_permission_ok", { callSid: readCallSid(call) });
+          } catch (micErr) {
+            inboundAnswerLog("browser_mic_permission_denied", {
+              callSid: readCallSid(call),
+              error: micErr instanceof Error ? micErr.message : String(micErr),
+            });
+            const friendly = twilioInboundAnswerErrorToFriendly(micErr);
+            finalizeCallCleanup("answer:mic_denied", { endedCallSid: readCallSid(call) });
+            setHint(friendly.userMessage);
+            setHintMeta({ suggestSettings: friendly.suggestOpenSettings, canRetry: friendly.canRetry });
+            return;
+          }
+        }
         attachActiveCallHandlers(call, { promoteOnAccept: true });
         call.accept();
         inboundAnswerLog("browser_accept_called", { callSid: readCallSid(call) });

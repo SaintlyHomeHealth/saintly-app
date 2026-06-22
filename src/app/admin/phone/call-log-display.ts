@@ -29,6 +29,8 @@ export function mapPhoneCallQueryRowForLog(raw: Record<string, unknown>): PhoneC
     status: String(raw.status),
     started_at: typeof raw.started_at === "string" ? raw.started_at : null,
     ended_at: typeof raw.ended_at === "string" ? raw.ended_at : null,
+    voicemail_received_at:
+      typeof raw.voicemail_received_at === "string" ? raw.voicemail_received_at : null,
     duration_seconds: (() => {
       const d = raw.duration_seconds;
       if (typeof d === "number" && Number.isFinite(d)) return Math.round(d);

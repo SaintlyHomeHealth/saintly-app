@@ -44,6 +44,7 @@ export type PhoneCallRow = {
   status: string;
   started_at: string | null;
   ended_at: string | null;
+  voicemail_received_at?: string | null;
   duration_seconds: number | null;
   voicemail_recording_sid: string | null;
   voicemail_duration_seconds: number | null;

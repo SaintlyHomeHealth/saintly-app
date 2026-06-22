@@ -8,12 +8,21 @@ import { escapeXml } from "@/lib/twilio/softphone-conference";
 export const INBOUND_CONFERENCE_ROOM_PREFIX = "sf-in";
 
 /**
- * Opt-in only. Production should leave unset or `0` until inbound conference connect is verified.
- * Set `TWILIO_INBOUND_USE_CONFERENCE=1` (or `true`) to enable conference on staff answer.
+ * Inbound conference connect (Move-to-cell mid-call) is **disabled** until re-verified.
+ * Stable path: parent PSTN `<Dial answerOnBridge="true"><Client>…</Client></Dial>` — no `url` on Client,
+ * no conference redirect on answer, no hold music.
+ *
+ * Re-enable later by restoring env check here after conference connect is tested end-to-end.
  */
 export function inboundBrowserConferenceEnabled(): boolean {
   const v = process.env.TWILIO_INBOUND_USE_CONFERENCE?.trim().toLowerCase() ?? "";
-  return v === "1" || v === "true" || v === "yes";
+  const envWantsConference = v === "1" || v === "true" || v === "yes";
+  if (envWantsConference) {
+    console.warn(
+      "[inbound-browser-conference] TWILIO_INBOUND_USE_CONFERENCE is set but inbound conference connect is disabled — using direct Dial/Client bridge"
+    );
+  }
+  return false;
 }
 
 /** Staff-visible label for diagnostics (raw env + resolved on/off). */
@@ -176,16 +185,8 @@ export function buildStaffConferenceJoinTwiml(room: string, publicBase: string):
 </Response>`.trim();
 }
 
-/** Legacy staff-leg TwiML when conference connect cannot run — hold briefly instead of empty `<Response>` (empty hangs up the answered Client leg). */
-export function legacyInboundStaffBridgeTwiml(publicBase?: string): string {
-  const base = (publicBase ?? "").trim().replace(/\/$/, "");
-  const waitUrl = base ? `${base}/api/twilio/voice/softphone-hold-music` : "";
-  if (waitUrl) {
-    return `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Play>${escapeXml(waitUrl)}</Play>
-</Response>`.trim();
-  }
+/** Legacy staff-leg TwiML when conference connect cannot run — silent wait, never hold music on the main inbound path. */
+export function legacyInboundStaffBridgeTwiml(_publicBase?: string): string {
   return `<?xml version="1.0" encoding="UTF-8"?><Response><Pause length="600"/></Response>`;
 }
 

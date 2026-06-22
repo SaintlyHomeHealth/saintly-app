@@ -23,10 +23,12 @@ import {
 export type CallInboxRow = {
   id: string;
   created_at: string | null;
-  /** Refreshed by DB trigger on writes; used for workspace calls list ordering. */
+  /** Refreshed by DB trigger on writes; list sort/display must not use this. */
   updated_at?: string | null;
   started_at: string | null;
   ended_at: string | null;
+  voicemail_received_at?: string | null;
+  earliest_event_at?: string | null;
   direction: string | null;
   from_e164: string | null;
   to_e164: string | null;
@@ -35,6 +37,7 @@ export type CallInboxRow = {
   contact_id: string | null;
   has_voicemail?: boolean | null;
   missed?: boolean | null;
+  answered?: boolean | null;
   voicemail_recording_sid?: string | null;
   contacts?: unknown;
   metadata?: unknown;
@@ -99,15 +102,17 @@ export function WorkspaceCallInboxCard({ row, showHideFromDispatch = false }: Pr
     row.contacts != null ? displayNameFromContactsRelation(row.contacts) : null;
   const callWhen = resolvePhoneCallDisplayIso({
     started_at: row.started_at,
+    voicemail_received_at: row.voicemail_received_at,
     ended_at: row.ended_at,
     created_at: row.created_at,
+    earliest_event_at: row.earliest_event_at,
     has_voicemail: row.has_voicemail,
     status: row.status,
     voicemail_recording_sid: row.voicemail_recording_sid,
   });
   const when = formatPhoneEventWhen(callWhen.iso, {
     context: `workspace_calls.card.${row.id}`,
-    rawDbTimestamp: row.started_at ?? row.created_at,
+    rawDbTimestamp: row.started_at ?? row.voicemail_received_at ?? row.created_at,
     source: callWhen.source,
   });
   const numRaw = callbackNumber(row.direction, row.from_e164, row.to_e164);
@@ -122,6 +127,8 @@ export function WorkspaceCallInboxCard({ row, showHideFromDispatch = false }: Pr
     has_voicemail: row.has_voicemail,
     missed: row.missed,
     voicemail_recording_sid: row.voicemail_recording_sid,
+    direction: row.direction,
+    answered: row.answered,
   });
   const missedResolved = Boolean(
     typeof row.workspace_missed_followup_resolved_at === "string" &&
