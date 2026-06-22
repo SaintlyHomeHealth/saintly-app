@@ -6,6 +6,7 @@ import { PayerTypeSelect } from "@/components/crm/PayerTypeSelect";
 import { SearchablePayerSelect } from "@/components/crm/SearchablePayerSelect";
 import { ServiceDisciplineCheckboxes } from "@/components/crm/ServiceDisciplineCheckboxes";
 import { PatientAssignmentsSection } from "./_components/PatientAssignmentsSection";
+import { PatientSnapshotCard } from "./_components/PatientSnapshotCard";
 import { PatientReferralsSection } from "@/app/admin/crm/patients/_components/PatientReferralsSection";
 import { loadPatientReferralsForChart } from "@/lib/crm/patient-referral/data";
 import {
@@ -28,18 +29,14 @@ import type { LeadActivityRow } from "@/lib/crm/lead-activities-timeline";
 import type { CrmStage } from "@/lib/crm/crm-stage";
 import { normalizeCrmStage } from "@/lib/crm/crm-stage";
 import { formatVisitStatusLabel } from "@/lib/crm/patient-visit-status";
-import {
-  buildCaregiverAlternateSummary,
-  hasDoctorOfficeDisplayInfo,
-} from "@/lib/crm/patient-caregiver-display";
 import { FormattedPhoneInput } from "@/components/phone/FormattedPhoneInput";
 import { supabaseAdmin } from "@/lib/admin";
-import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 import { formatAdminPhoneWhen } from "@/app/workspace/phone/patients/_lib/patient-hub";
 import { formatAppDateTime } from "@/lib/datetime/app-timezone";
 import { PhoneNumberDuplicateWarning } from "@/app/admin/crm/_components/PhoneNumberDuplicateWarning";
+import { formatLeadSourceLabel } from "@/lib/crm/lead-source-options";
 import {
   fetchPhoneNumberDuplicateRecords,
   type PhoneDuplicateRecord,
@@ -52,6 +49,7 @@ type ContactEmb = {
   last_name?: string | null;
   primary_phone?: string | null;
   secondary_phone?: string | null;
+  date_of_birth?: string | null;
   relationship_metadata?: unknown;
   address_line_1?: string | null;
   address_line_2?: string | null;
@@ -181,7 +179,13 @@ export default async function PatientIntakePage({
       referring_provider_phone,
       payer_name,
       payer_type,
+      medicare_number,
+      medicaid_id,
+      diagnosis_text,
+      diagnosis_code,
       referral_source,
+      referral_source_phone,
+      referral_received_at,
       service_type,
       service_disciplines,
       intake_status,
@@ -194,6 +198,7 @@ export default async function PatientIntakePage({
         last_name,
         primary_phone,
         secondary_phone,
+        date_of_birth,
         relationship_metadata,
         address_line_1,
         address_line_2,
@@ -302,7 +307,7 @@ export default async function PatientIntakePage({
   const { data: leadRowsForContact } = contactId
     ? await supabaseAdmin
         .from("leads")
-        .select("id, crm_stage, last_note")
+        .select("id, crm_stage, last_note, source, referral_received_at")
         .eq("contact_id", contactId)
         .is("deleted_at", null)
         .order("created_at", { ascending: false })
@@ -312,6 +317,8 @@ export default async function PatientIntakePage({
     id: string;
     crm_stage: string | null;
     last_note: string | null;
+    source: string | null;
+    referral_received_at: string | null;
   }[];
   const patientStageLead =
     leadsList.find((r) => normalizeCrmStage(r.crm_stage) === "patient") ?? leadsList[0] ?? null;
@@ -362,6 +369,58 @@ export default async function PatientIntakePage({
 
   const staffByUser = new Map((staffRows ?? []).map((s) => [s.user_id, s]));
 
+  function assignmentStaffLabel(uid: string | null | undefined): string {
+    if (!uid) return "";
+    const s = staffByUser.get(uid);
+    if (!s) return `${uid.slice(0, 8)}…`;
+    const name = (s.full_name ?? "").trim();
+    if (name) return name;
+    return (s.email ?? "").trim() || `${uid.slice(0, 8)}…`;
+  }
+
+  const activeAssignments = (asnRows ?? []) as {
+    id: string;
+    role: string;
+    assigned_user_id: string | null;
+    discipline: string | null;
+    is_primary: boolean | null;
+  }[];
+  const primaryAssignment =
+    activeAssignments.find((a) => a.is_primary) ??
+    activeAssignments.find((a) => (a.role ?? "").toLowerCase().includes("nurse")) ??
+    activeAssignments[0] ??
+    null;
+  const primaryNurseLabel = primaryAssignment
+    ? [
+        assignmentStaffLabel(primaryAssignment.assigned_user_id),
+        primaryAssignment.discipline?.trim(),
+      ]
+        .filter(Boolean)
+        .join(" · ")
+    : null;
+  const assignedClinicianLabels = activeAssignments
+    .map((a) => {
+      const name = assignmentStaffLabel(a.assigned_user_id);
+      if (!name) return null;
+      const disc = (a.discipline ?? a.role ?? "").trim();
+      return disc ? `${name} (${disc})` : name;
+    })
+    .filter((x): x is string => Boolean(x));
+
+  const leadSourceLabel = patientStageLead?.source
+    ? formatLeadSourceLabel(patientStageLead.source)
+    : null;
+  const referralReceivedAt =
+    (typeof P.referral_received_at === "string" ? P.referral_received_at : null) ??
+    patientStageLead?.referral_received_at ??
+    null;
+  const referringDoctor =
+    (typeof P.physician_name === "string" ? P.physician_name.trim() : "") ||
+    (typeof P.referring_doctor_name === "string" ? P.referring_doctor_name.trim() : "") ||
+    (typeof P.referring_provider_name === "string" ? P.referring_provider_name.trim() : "") ||
+    null;
+  const dateOfBirth = typeof c?.date_of_birth === "string" ? c.date_of_birth : null;
+
   const { data: allStaffRows } = await supabaseAdmin
     .from("staff_profiles")
     .select("user_id, email, role, full_name")
@@ -401,21 +460,6 @@ export default async function PatientIntakePage({
   const archivedAt = typeof P.archived_at === "string" ? P.archived_at.trim() : null;
   const isArchived = Boolean(archivedAt);
   const isTestPatient = P.is_test === true;
-
-  const caregiverSummary = buildCaregiverAlternateSummary({
-    secondaryPhone: (c?.secondary_phone as string | null | undefined) ?? null,
-    relationshipMetadata: c?.relationship_metadata,
-  });
-
-  const doctorOffice = {
-    physician_name: typeof P.physician_name === "string" ? P.physician_name : null,
-    referring_doctor_name: typeof P.referring_doctor_name === "string" ? P.referring_doctor_name : null,
-    doctor_office_name: typeof P.doctor_office_name === "string" ? P.doctor_office_name : null,
-    doctor_office_phone: typeof P.doctor_office_phone === "string" ? P.doctor_office_phone : null,
-    doctor_office_fax: typeof P.doctor_office_fax === "string" ? P.doctor_office_fax : null,
-    doctor_office_contact_person: typeof P.doctor_office_contact_person === "string" ? P.doctor_office_contact_person : null,
-  };
-  const showDoctorOffice = hasDoctorOfficeDisplayInfo(doctorOffice);
 
   const crmStageForPatientBadge: CrmStage =
     leadsList.length === 0 ? "patient" : normalizeCrmStage((patientStageLead ?? leadsList[0])?.crm_stage);
@@ -471,6 +515,73 @@ export default async function PatientIntakePage({
           previousStage={normalizeCrmStage(prevStageFromQuery)}
         />
       ) : null}
+
+      <div className="flex flex-wrap items-center gap-2">
+        <CrmStageBadge stage={crmStageForPatientBadge} />
+      </div>
+
+      <AdminPageHeader
+        eyebrow="Patients"
+        title={contactDisplayName(c ?? null)}
+        description={
+          <>
+            {patientStatus ? <span className="capitalize">{patientStatus}</span> : "—"}
+            {" · "}
+            <Link href={`/admin/crm/patients/${pid}/visits`} className="font-semibold text-sky-800 hover:underline">
+              Visits list
+            </Link>
+            {" · "}
+            <Link
+              href={`/admin/crm/dispatch?patient=${encodeURIComponent(pid)}`}
+              className="font-semibold text-sky-800 hover:underline"
+            >
+              Dispatch
+            </Link>
+            {" · "}
+            <Link href={`/workspace/phone/patients/${pid}`} className="font-semibold text-sky-800 hover:underline">
+              Nurse workspace view
+            </Link>
+            {" · "}
+            <Link href="/admin/crm/patients" className="font-semibold text-sky-800 hover:underline">
+              All patients
+            </Link>
+          </>
+        }
+      />
+
+      <PatientSnapshotCard
+        displayName={contactDisplayName(c ?? null)}
+        patientStatus={typeof P.patient_status === "string" ? P.patient_status : null}
+        dateOfBirth={dateOfBirth}
+        primaryPhone={(c?.primary_phone as string | null | undefined) ?? null}
+        secondaryPhone={(c?.secondary_phone as string | null | undefined) ?? null}
+        relationshipMetadata={c?.relationship_metadata}
+        address={{
+          line1: (c?.address_line_1 as string | null | undefined) ?? null,
+          line2: (c?.address_line_2 as string | null | undefined) ?? null,
+          city: (c?.city as string | null | undefined) ?? null,
+          state: (c?.state as string | null | undefined) ?? null,
+          zip: (c?.zip as string | null | undefined) ?? null,
+        }}
+        payerName={(P.payer_name as string | null) ?? null}
+        payerType={(P.payer_type as string | null) ?? null}
+        medicareNumber={(P.medicare_number as string | null) ?? null}
+        medicaidId={(P.medicaid_id as string | null) ?? null}
+        intakeStatus={(P.intake_status as string | null) ?? null}
+        diagnosisText={(P.diagnosis_text as string | null) ?? null}
+        diagnosisCode={(P.diagnosis_code as string | null) ?? null}
+        disciplines={serviceDisciplinesForForm}
+        visitPlanSummary={planSummary || null}
+        primaryNurseLabel={primaryNurseLabel}
+        assignedClinicianLabels={assignedClinicianLabels}
+        referralSource={(P.referral_source as string | null) ?? null}
+        referralSourcePhone={(P.referral_source_phone as string | null) ?? null}
+        referringDoctor={referringDoctor}
+        referralReceivedAt={referralReceivedAt}
+        leadSourceLabel={leadSourceLabel}
+      />
+
+      <PhoneNumberDuplicateWarning records={phoneDuplicateRecords} />
 
       <section className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
         <h2 className="text-sm font-semibold text-slate-900">Record management</h2>
@@ -547,176 +658,6 @@ export default async function PatientIntakePage({
           </form>
         </div>
       </section>
-
-      <div className="flex flex-wrap items-center gap-2">
-        <CrmStageBadge stage={crmStageForPatientBadge} />
-      </div>
-
-      <AdminPageHeader
-        eyebrow="Patients"
-        title={contactDisplayName(c ?? null)}
-        description={
-          <>
-            {patientStatus ? <span className="capitalize">{patientStatus}</span> : "—"}
-            {serviceDisciplinesForForm.length > 0 ? (
-              <>
-                {" · "}
-                <span className="text-slate-500">Services:</span> {serviceDisciplinesForForm.join(", ")}
-              </>
-            ) : null}
-            {" · "}
-            <Link href={`/admin/crm/patients/${pid}/visits`} className="font-semibold text-sky-800 hover:underline">
-              Visits list
-            </Link>
-            {" · "}
-            <Link
-              href={`/admin/crm/dispatch?patient=${encodeURIComponent(pid)}`}
-              className="font-semibold text-sky-800 hover:underline"
-            >
-              Dispatch
-            </Link>
-            {" · "}
-            <Link href={`/workspace/phone/patients/${pid}`} className="font-semibold text-sky-800 hover:underline">
-              Nurse workspace view
-            </Link>
-            {" · "}
-            <Link href="/admin/crm/patients" className="font-semibold text-sky-800 hover:underline">
-              All patients
-            </Link>
-          </>
-        }
-      />
-
-      <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
-        <h2 className="text-sm font-semibold text-slate-900">Patient profile</h2>
-        <p className="mt-1 text-xs text-slate-500">Same chart context as the nurse hub — read-only summary; edit in the form below.</p>
-
-        <div className="mt-4 border-t border-slate-100 pt-4">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Address</p>
-          <div className="mt-1 text-sm leading-relaxed text-slate-800">
-            {(() => {
-              const line1 = (c?.address_line_1 as string | null | undefined)?.trim() ?? "";
-              const line2 = (c?.address_line_2 as string | null | undefined)?.trim() ?? "";
-              const city = (c?.city as string | null | undefined)?.trim() ?? "";
-              const state = (c?.state as string | null | undefined)?.trim() ?? "";
-              const zip = (c?.zip as string | null | undefined)?.trim() ?? "";
-              const cityLine = [city, [state, zip].filter(Boolean).join(" ")].filter(Boolean).join(", ");
-              if (!line1 && !line2 && !cityLine) {
-                return <p className="text-slate-400">No address on file</p>;
-              }
-              return (
-                <div className="space-y-0.5">
-                  {line1 ? <p>{line1}</p> : null}
-                  {line2 ? <p>{line2}</p> : null}
-                  {cityLine ? <p>{cityLine}</p> : null}
-                </div>
-              );
-            })()}
-          </div>
-        </div>
-
-        <dl className="mt-4 grid gap-3 border-t border-slate-100 pt-4 sm:grid-cols-2">
-          <div>
-            <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Patient phone</dt>
-            <dd className="mt-0.5 text-sm tabular-nums text-slate-900">
-              {formatPhoneForDisplay((c?.primary_phone as string | null) ?? "")}
-            </dd>
-          </div>
-          <div className="sm:col-span-1">
-            <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-              Caregiver / alternate
-            </dt>
-            <dd className="mt-0.5 text-sm text-slate-800">
-              {caregiverSummary.isEmpty ? (
-                <span className="tabular-nums text-slate-500">—</span>
-              ) : (
-                <div className="space-y-1">
-                  {caregiverSummary.secondaryLine ? (
-                    <p className="tabular-nums font-medium text-slate-900">{caregiverSummary.secondaryLine}</p>
-                  ) : null}
-                  {caregiverSummary.metadataLines.map((line, i) => (
-                    <p key={i} className="text-sm text-slate-700">
-                      {line}
-                    </p>
-                  ))}
-                </div>
-              )}
-              {caregiverSummary.isEmpty ? (
-                <p className="mt-1 text-[11px] leading-snug text-slate-500">
-                  Saved on the CRM contact as <span className="font-medium">Caregiver / alternate phone</span> below
-                  (used for caregiver SMS). Optional names can live in contact metadata keys such as{" "}
-                  <span className="font-mono text-[10px]">caregiver_name</span> /{" "}
-                  <span className="font-mono text-[10px]">caregiver_phone</span>.
-                </p>
-              ) : null}
-            </dd>
-          </div>
-        </dl>
-
-        <PhoneNumberDuplicateWarning records={phoneDuplicateRecords} className="mt-4" />
-
-        {showDoctorOffice ? (
-          <div className="mt-4 border-t border-slate-100 pt-4">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Doctor / office (referral)</p>
-            <p className="mt-1 text-[11px] text-slate-500">
-              From intake — not the same as the patient&apos;s home caregiver line above.
-            </p>
-            <dl className="mt-2 grid gap-2 text-sm sm:grid-cols-2">
-              {(doctorOffice.physician_name ?? "").trim() || (doctorOffice.referring_doctor_name ?? "").trim() ? (
-                <div className="sm:col-span-2">
-                  <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Treating / referring physician</dt>
-                  <dd className="mt-0.5 text-slate-800">
-                    {(doctorOffice.physician_name ?? "").trim() ||
-                      (doctorOffice.referring_doctor_name ?? "").trim() ||
-                      "—"}
-                  </dd>
-                </div>
-              ) : null}
-              {(doctorOffice.doctor_office_name ?? "").trim() ? (
-                <div className="sm:col-span-2">
-                  <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Practice / clinic</dt>
-                  <dd className="mt-0.5 text-slate-800">{(doctorOffice.doctor_office_name ?? "").trim()}</dd>
-                </div>
-              ) : null}
-              {(doctorOffice.doctor_office_contact_person ?? "").trim() ? (
-                <div>
-                  <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Office contact</dt>
-                  <dd className="mt-0.5 text-slate-800">{(doctorOffice.doctor_office_contact_person ?? "").trim()}</dd>
-                </div>
-              ) : null}
-              {(doctorOffice.doctor_office_phone ?? "").trim() ? (
-                <div>
-                  <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Office phone</dt>
-                  <dd className="mt-0.5 tabular-nums text-slate-800">
-                    {formatPhoneForDisplay(doctorOffice.doctor_office_phone ?? "")}
-                  </dd>
-                </div>
-              ) : null}
-              {(doctorOffice.doctor_office_fax ?? "").trim() ? (
-                <div>
-                  <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Office fax</dt>
-                  <dd className="mt-0.5 tabular-nums text-slate-800">
-                    {formatPhoneForDisplay(doctorOffice.doctor_office_fax ?? "")}
-                  </dd>
-                </div>
-              ) : null}
-            </dl>
-          </div>
-        ) : null}
-
-        {patientNotesRaw.trim() ? (
-          <div className="mt-4 rounded-xl bg-amber-50/90 px-3 py-2.5 text-sm text-amber-950 ring-1 ring-amber-100/80">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-800/90">Operational notes</p>
-            <p className="mt-1 whitespace-pre-wrap text-slate-800">{patientNotesRaw.trim()}</p>
-          </div>
-        ) : null}
-
-        {vmCount > 0 ? (
-          <p className="mt-3 text-xs text-violet-800">
-            {vmCount} voicemail{vmCount === 1 ? "" : "s"} on file — see Voicemail below.
-          </p>
-        ) : null}
-      </div>
 
       <PatientAssignmentsSection
         patientId={pid}
@@ -1004,6 +945,15 @@ export default async function PatientIntakePage({
             <input name="last_name" className={inp} defaultValue={(c?.last_name as string | null) ?? ""} />
           </label>
           <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+            Date of birth
+            <input
+              name="date_of_birth"
+              type="date"
+              className={inp}
+              defaultValue={dateOfBirth?.slice(0, 10) ?? ""}
+            />
+          </label>
+          <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
             Patient phone
             <FormattedPhoneInput
               name="primary_phone"
@@ -1087,15 +1037,20 @@ export default async function PatientIntakePage({
       </div>
 
       <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
-        <h2 className="text-sm font-semibold text-slate-900">Referral &amp; payer intake</h2>
+        <h2 className="text-sm font-semibold text-slate-900">Referral, payer &amp; clinical intake</h2>
         <form action={updatePatientIntake} className="mt-4 grid max-w-2xl gap-3 sm:grid-cols-2">
           <input type="hidden" name="patientId" value={pid} />
           <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
-            Referring provider name
+            Referring provider / doctor
             <input
-              name="referring_provider_name"
+              name="referring_doctor_name"
               className={inp}
-              defaultValue={(P.referring_provider_name as string | null) ?? ""}
+              defaultValue={
+                (P.referring_doctor_name as string | null) ??
+                (P.physician_name as string | null) ??
+                (P.referring_provider_name as string | null) ??
+                ""
+              }
             />
           </label>
           <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
@@ -1107,13 +1062,30 @@ export default async function PatientIntakePage({
               autoComplete="tel"
             />
           </label>
+          <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+            Referral source phone
+            <FormattedPhoneInput
+              name="referral_source_phone"
+              className={inp}
+              defaultValue={(P.referral_source_phone as string | null) ?? ""}
+              autoComplete="tel"
+            />
+          </label>
           <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
             Payer
-            <SearchablePayerSelect defaultValue={(P.payer_name as string | null) ?? ""} className={inp} />
+            <SearchablePayerSelect name="payer_name" defaultValue={(P.payer_name as string | null) ?? ""} className={inp} />
           </label>
           <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
             Payer type (category)
             <PayerTypeSelect name="payer_type" className={inp} defaultValue={(P.payer_type as string | null) ?? ""} />
+          </label>
+          <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+            Medicare / MBI number
+            <input name="medicare_number" className={inp} defaultValue={(P.medicare_number as string | null) ?? ""} />
+          </label>
+          <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+            Medicaid / AHCCCS ID
+            <input name="medicaid_id" className={inp} defaultValue={(P.medicaid_id as string | null) ?? ""} />
           </label>
           <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
             Referral source
@@ -1124,8 +1096,26 @@ export default async function PatientIntakePage({
             />
           </label>
           <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
+            Diagnosis
+            <input name="diagnosis_text" className={inp} defaultValue={(P.diagnosis_text as string | null) ?? ""} />
+          </label>
+          <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">
+            ICD-10 code
+            <input name="diagnosis_code" className={inp} defaultValue={(P.diagnosis_code as string | null) ?? ""} />
+          </label>
+          <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
             Service disciplines
             <ServiceDisciplineCheckboxes defaultSelected={serviceDisciplinesForForm} />
+          </label>
+          <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
+            Visit plan / frequency
+            <textarea
+              name="visit_plan_summary"
+              rows={3}
+              className={inp}
+              defaultValue={(P.visit_plan_summary as string | null) ?? ""}
+              placeholder="e.g. 2×/week × 2 weeks, then 1×/week × 2 weeks"
+            />
           </label>
           <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600 sm:col-span-2">
             Intake status

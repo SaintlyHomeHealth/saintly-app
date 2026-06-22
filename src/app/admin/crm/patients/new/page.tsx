@@ -7,59 +7,10 @@ import { SearchablePayerSelect } from "@/components/crm/SearchablePayerSelect";
 import { ServiceDisciplineCheckboxes } from "@/components/crm/ServiceDisciplineCheckboxes";
 
 import { createPatientManualFromCrm } from "../../actions";
-import { MoveToPatientStageButton } from "../../leads/_components/MoveToPatientStageButton";
-import { normalizeCrmStage } from "@/lib/crm/crm-stage";
+import { PatientIntakeSearchPanel } from "./_components/PatientIntakeSearchPanel";
 import { supabaseAdmin } from "@/lib/admin";
-import { isLeadPipelineTerminal } from "@/lib/crm/lead-pipeline-status";
-import { leadRowsActiveOnly } from "@/lib/crm/leads-active";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
-import { createServerSupabaseClient } from "@/lib/supabase/server";
-
-type ContactEmb = {
-  full_name?: string | null;
-  first_name?: string | null;
-  last_name?: string | null;
-};
-
-function contactDisplayName(c: ContactEmb | null): string {
-  if (!c) return "—";
-  const fn = (c.full_name ?? "").trim();
-  if (fn) return fn;
-  const parts = [c.first_name, c.last_name].filter(Boolean).join(" ").trim();
-  return parts || "—";
-}
-
-function normalizeContact(raw: ContactEmb | ContactEmb[] | null | undefined): ContactEmb | null {
-  if (!raw) return null;
-  if (Array.isArray(raw)) return raw[0] ?? null;
-  return raw;
-}
-
-function errorMessage(code: string): string {
-  switch (code) {
-    case "missing":
-      return "Missing lead. Try again.";
-    case "already_converted":
-      return "This lead is already converted.";
-    case "lead_dead":
-      return "This lead is marked dead and cannot be converted.";
-    case "patient_exists":
-      return "A patient already exists for this contact.";
-    case "forbidden":
-      return "Not allowed.";
-    case "invalid":
-    case "lead_not_found":
-    case "load_failed":
-      return "Could not load that lead.";
-    case "insert_failed":
-      return "Could not create the patient record.";
-    case "update_failed":
-      return "Patient was created but the lead status could not be updated.";
-    default:
-      return "Something went wrong.";
-  }
-}
 
 function manualErrorMessage(code: string): string {
   switch (code) {
@@ -106,7 +57,7 @@ const selectCls =
 export default async function AdminCrmPatientNewPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string; manualError?: string }>;
+  searchParams: Promise<{ manualError?: string }>;
 }) {
   const staff = await getStaffProfile();
   if (!staff || !isManagerOrHigher(staff)) {
@@ -114,31 +65,7 @@ export default async function AdminCrmPatientNewPage({
   }
 
   const params = await searchParams;
-  const errCode = typeof params.error === "string" ? params.error.trim() : "";
   const manualErr = typeof params.manualError === "string" ? params.manualError.trim() : "";
-
-  const supabase = await createServerSupabaseClient();
-  const { data: rows, error } = await leadRowsActiveOnly(
-    supabase
-      .from("leads")
-      .select("id, contact_id, source, status, crm_stage, created_at, contacts ( full_name, first_name, last_name )")
-      .order("created_at", { ascending: false })
-      .limit(100)
-  );
-
-  const list = (rows ?? []) as {
-    id: string;
-    contact_id: string;
-    source: string;
-    status: string | null;
-    crm_stage: string | null;
-    created_at: string;
-    contacts: ContactEmb | ContactEmb[] | null;
-  }[];
-
-  const convertible = list.filter(
-    (r) => !isLeadPipelineTerminal(r.status) && normalizeCrmStage(r.crm_stage) !== "patient"
-  );
 
   const { data: staffRows } = await supabaseAdmin
     .from("staff_profiles")
@@ -159,9 +86,8 @@ export default async function AdminCrmPatientNewPage({
         title="Add patient"
         description={
           <>
-            Convert an existing lead, or create a contact and patient manually (with optional primary nurse assignment).
-            {error ? <span className="mt-2 block text-sm text-red-700">{error.message}</span> : null}
-            {errCode ? <span className="mt-2 block text-sm text-red-700">{errorMessage(errCode)}</span> : null}
+            Search an existing lead or intake record and convert in one click — or create a contact and patient
+            manually below.
             {manualErr ? (
               <span className="mt-2 block text-sm text-red-700">{manualErrorMessage(manualErr)}</span>
             ) : null}
@@ -169,69 +95,13 @@ export default async function AdminCrmPatientNewPage({
         }
       />
 
-      <section className="space-y-3">
-        <h2 className="text-lg font-semibold text-slate-900">Convert from lead</h2>
-        <p className="text-sm text-slate-600">
-          Complete referral &amp; payer intake on the lead if needed, then convert below.
-        </p>
-        <div className="overflow-x-auto rounded-[28px] border border-slate-200 bg-white shadow-sm">
-          <table className="w-full min-w-[720px] text-left text-sm">
-            <thead>
-              <tr className="border-b border-slate-100 bg-slate-50 text-xs font-semibold text-slate-600">
-                <th className="px-4 py-3">Contact</th>
-                <th className="px-4 py-3">Source</th>
-                <th className="px-4 py-3">Status</th>
-                <th className="whitespace-nowrap px-4 py-3">Intake</th>
-                <th className="whitespace-nowrap px-4 py-3">Patient stage</th>
-              </tr>
-            </thead>
-            <tbody>
-              {convertible.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="px-4 py-8 text-slate-500">
-                    No open leads to convert.{" "}
-                    <Link href="/admin/crm/leads" className="font-semibold text-sky-800 hover:underline">
-                      View all leads
-                    </Link>
-                    .
-                  </td>
-                </tr>
-              ) : (
-                convertible.map((r) => {
-                  const contact = normalizeContact(r.contacts);
-                  return (
-                    <tr key={r.id} className="border-b border-slate-100 last:border-0">
-                      <td className="px-4 py-3 text-slate-800">{contactDisplayName(contact ?? null)}</td>
-                      <td className="px-4 py-3 text-slate-600">{r.source}</td>
-                      <td className="px-4 py-3 text-slate-600">{r.status ?? "—"}</td>
-                      <td className="px-4 py-3">
-                        <Link
-                          href={`/admin/crm/leads/${r.id}`}
-                          className="font-semibold text-sky-800 hover:underline"
-                        >
-                          Open intake
-                        </Link>
-                      </td>
-                      <td className="px-4 py-3">
-                        <MoveToPatientStageButton
-                          leadId={r.id}
-                          className="rounded border border-sky-600 bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-900 hover:bg-sky-100"
-                        />
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
+      <PatientIntakeSearchPanel />
 
       <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
         <h2 className="text-lg font-semibold text-slate-900">Create patient manually</h2>
         <p className="mt-1 text-sm text-slate-600">
-          Creates a contact and patient record. Optional primary nurse uses the same assignment flow as the patients
-          list.
+          Use when no matching lead exists. Creates a contact and patient record. Optional primary nurse uses the same
+          assignment flow as the patients list.
         </p>
         <form action={createPatientManualFromCrm} className="mt-4 grid max-w-2xl gap-3 sm:grid-cols-2">
           <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-600">

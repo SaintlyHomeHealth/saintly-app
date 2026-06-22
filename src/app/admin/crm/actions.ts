@@ -68,6 +68,10 @@ import {
 import { isValidServiceDisciplineCode, parseServiceDisciplinesFromFormData } from "@/lib/crm/service-disciplines";
 import { formatFollowUpDate } from "@/lib/crm/crm-leads-table-helpers";
 import { convertLeadToPatient, undoLeadPatientStage } from "@/app/admin/phone/actions";
+import {
+  searchIntakeRecordsForPatientConversion,
+  type PatientIntakeSearchResult,
+} from "@/lib/crm/patient-intake-conversion-search";
 import { getCrmCalendarDateIsoFromInstant, getCrmCalendarTomorrowIso } from "@/lib/crm/crm-local-date";
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 import { findOpenDuplicatePatientVisitId } from "@/lib/crm/dispatch-duplicate-visit";
@@ -2479,6 +2483,14 @@ export async function uploadLeadInsuranceCard(formData: FormData) {
   revalidatePath(`/admin/crm/leads/${leadId}`);
 }
 
+export async function searchPatientIntakeRecordsAction(q: string): Promise<PatientIntakeSearchResult[]> {
+  const staff = await getStaffProfile();
+  if (!staff || !isManagerOrHigher(staff)) {
+    return [];
+  }
+  return searchIntakeRecordsForPatientConversion(supabaseAdmin, q);
+}
+
 export async function updatePatientIntake(formData: FormData) {
   const staff = await getStaffProfile();
   if (!staff || !isManagerOrHigher(staff)) {
@@ -2492,15 +2504,24 @@ export async function updatePatientIntake(formData: FormData) {
   }
 
   const disciplines = parseServiceDisciplinesFromFormData(formData);
+  const referringDoctor = readOptionalIntakeText(formData, "referring_doctor_name");
   const payload = {
-    referring_provider_name: readOptionalIntakeText(formData, "referring_provider_name"),
+    referring_provider_name: referringDoctor ?? readOptionalIntakeText(formData, "referring_provider_name"),
     referring_provider_phone: readOptionalNormalizedPhone(formData, "referring_provider_phone"),
+    referring_doctor_name: referringDoctor,
+    physician_name: referringDoctor,
     payer_name: readOptionalIntakeText(formData, "payer_name"),
     payer_type: readOptionalIntakeText(formData, "payer_type"),
     referral_source: readOptionalIntakeText(formData, "referral_source"),
+    referral_source_phone: readOptionalNormalizedPhone(formData, "referral_source_phone"),
     service_disciplines: disciplines,
     service_type: disciplines.length > 0 ? disciplines.join(", ") : null,
     intake_status: readOptionalIntakeText(formData, "intake_status"),
+    medicare_number: readOptionalIntakeText(formData, "medicare_number"),
+    medicaid_id: readOptionalIntakeText(formData, "medicaid_id"),
+    diagnosis_text: readOptionalIntakeText(formData, "diagnosis_text"),
+    diagnosis_code: readOptionalIntakeText(formData, "diagnosis_code"),
+    visit_plan_summary: readOptionalIntakeText(formData, "visit_plan_summary"),
   };
 
   const { error } = await supabaseAdmin.from("patients").update(payload).eq("id", patientId);
@@ -2560,7 +2581,7 @@ export async function updateCrmPatientCoreProfile(formData: FormData) {
   const { data: crow, error: cErr } = await supabaseAdmin
     .from("contacts")
     .select(
-      "id, full_name, first_name, last_name, primary_phone, secondary_phone, address_line_1, address_line_2, city, state, zip"
+      "id, full_name, first_name, last_name, primary_phone, secondary_phone, address_line_1, address_line_2, city, state, zip, date_of_birth"
     )
     .eq("id", contactId)
     .maybeSingle();
@@ -2581,6 +2602,7 @@ export async function updateCrmPatientCoreProfile(formData: FormData) {
     city: readTrimmedOrNull(formData, "city"),
     state: readTrimmedOrNull(formData, "state"),
     zip: readTrimmedOrNull(formData, "zip"),
+    date_of_birth: readTrimmedOrNull(formData, "date_of_birth"),
   };
 
   const nextPatient = {

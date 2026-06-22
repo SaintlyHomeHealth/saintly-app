@@ -25,6 +25,12 @@ import { appendLeadActivityRow } from "@/lib/crm/append-lead-activity";
 import { normalizeCrmStage, type CrmStage } from "@/lib/crm/crm-stage";
 import { LEAD_ACTIVITY_EVENT } from "@/lib/crm/lead-activity-types";
 import { insertAuditLogTrusted } from "@/lib/audit-log";
+import {
+  buildPatientInsertFromLead,
+  contactDobUpdateFromLead,
+  mergePatientUpdateFromLead,
+  type LeadIntakeForPatientConversion,
+} from "@/lib/crm/patient-conversion-from-lead";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -499,7 +505,7 @@ export async function convertLeadToPatient(leadId: string): Promise<ConvertLeadT
     supabaseAdmin
       .from("leads")
       .select(
-        "id, contact_id, status, crm_stage, referring_provider_name, referring_provider_phone, referring_doctor_name, doctor_office_name, doctor_office_phone, doctor_office_fax, doctor_office_contact_person, payer_name, payer_type, referral_source, service_type, service_disciplines, intake_status, referring_facility_id, referring_facility_contact_id"
+        "id, contact_id, status, crm_stage, converted_patient_id, referring_provider_name, referring_provider_phone, referring_doctor_name, doctor_office_name, doctor_office_phone, doctor_office_fax, doctor_office_contact_person, payer_name, payer_type, primary_payer_type, primary_payer_name, secondary_payer_type, secondary_payer_name, referral_source, service_type, service_disciplines, intake_status, referring_facility_id, referring_facility_contact_id, dob, medicare_number, notes, source, referral_received_at"
       )
       .eq("id", id)
   ).maybeSingle();
@@ -512,9 +518,22 @@ export async function convertLeadToPatient(leadId: string): Promise<ConvertLeadT
     return { ok: false, error: "lead_not_found" };
   }
 
-  const Lrow = lead as { crm_stage?: string | null };
+  const Lrow = lead as { crm_stage?: string | null; converted_patient_id?: string | null };
   const prevStage = normalizeCrmStage(Lrow.crm_stage);
   if (prevStage === "patient") {
+    const existingPid =
+      (typeof Lrow.converted_patient_id === "string" && Lrow.converted_patient_id.trim()) || null;
+    if (existingPid) {
+      return { ok: true, patientId: existingPid, previousStage: prevStage };
+    }
+    const { data: chartForContact } = await supabaseAdmin
+      .from("patients")
+      .select("id")
+      .eq("contact_id", String(lead.contact_id))
+      .maybeSingle();
+    if (chartForContact?.id) {
+      return { ok: true, patientId: String(chartForContact.id), previousStage: prevStage };
+    }
     return { ok: false, error: "already_patient_stage" };
   }
 
@@ -524,60 +543,47 @@ export async function convertLeadToPatient(leadId: string): Promise<ConvertLeadT
   }
 
   const cid = String(lead.contact_id);
+  const leadIntake = lead as LeadIntakeForPatientConversion;
 
   const { data: existingPatient } = await supabaseAdmin
     .from("patients")
-    .select("id")
+    .select(
+      "id, patient_status, referring_provider_name, referring_provider_phone, referring_doctor_name, doctor_office_name, doctor_office_phone, doctor_office_fax, doctor_office_contact_person, payer_name, payer_type, referral_source, service_type, service_disciplines, intake_status, physician_name, referring_facility_id, referring_facility_contact_id, medicare_number, medicaid_id, diagnosis_text, diagnosis_code, referral_source_phone, referral_received_at, notes, visit_plan_summary"
+    )
     .eq("contact_id", cid)
     .maybeSingle();
 
-  const L = lead as {
-    service_disciplines?: string[] | null;
-    referring_doctor_name?: string | null;
-    doctor_office_name?: string | null;
-    doctor_office_phone?: string | null;
-    doctor_office_fax?: string | null;
-    doctor_office_contact_person?: string | null;
-    referring_facility_id?: string | null;
-    referring_facility_contact_id?: string | null;
-  };
+  const { data: existingContact } = await supabaseAdmin
+    .from("contacts")
+    .select("id, date_of_birth")
+    .eq("id", cid)
+    .maybeSingle();
+
+  const dobUpdate = contactDobUpdateFromLead(leadIntake.dob, existingContact?.date_of_birth);
+  if (dobUpdate !== undefined) {
+    const { error: dobErr } = await supabaseAdmin.from("contacts").update({ date_of_birth: dobUpdate }).eq("id", cid);
+    if (dobErr && !/date_of_birth/i.test(dobErr.message)) {
+      console.warn("[admin/phone] convertLeadToPatient contact dob:", dobErr.message);
+    }
+  }
 
   let patientId: string;
 
   if (existingPatient?.id) {
     patientId = String(existingPatient.id);
+    const merged = mergePatientUpdateFromLead(existingPatient as Record<string, unknown>, leadIntake);
+    const { error: syncErr } = await supabaseAdmin.from("patients").update(merged).eq("id", patientId);
+    if (syncErr) {
+      console.warn("[admin/phone] convertLeadToPatient sync existing patient:", syncErr.message);
+    }
   } else {
-    const leadDisc = L.service_disciplines;
-    const serviceDisciplines =
-      Array.isArray(leadDisc) && leadDisc.length > 0 ? leadDisc : ([] as string[]);
-
-    const doctorName = (L.referring_doctor_name ?? "").trim() || null;
-    const legacyRefName = (lead.referring_provider_name ?? "").trim() || null;
-    const physician_name = doctorName || legacyRefName;
-    const referring_provider_phone =
-      (lead.referring_provider_phone ?? "").trim() || (L.doctor_office_phone ?? "").trim() || null;
+    const insertPayload = buildPatientInsertFromLead(leadIntake);
 
     const { data: newPatient, error: pErr } = await supabaseAdmin
       .from("patients")
       .insert({
         contact_id: cid,
-        patient_status: "active",
-        referring_provider_name: legacyRefName,
-        referring_provider_phone,
-        referring_doctor_name: doctorName,
-        doctor_office_name: (L.doctor_office_name ?? "").trim() || null,
-        doctor_office_phone: (L.doctor_office_phone ?? "").trim() || null,
-        doctor_office_fax: (L.doctor_office_fax ?? "").trim() || null,
-        doctor_office_contact_person: (L.doctor_office_contact_person ?? "").trim() || null,
-        payer_name: lead.payer_name ?? null,
-        payer_type: lead.payer_type ?? null,
-        referral_source: lead.referral_source ?? null,
-        service_type: lead.service_type ?? null,
-        service_disciplines: serviceDisciplines,
-        intake_status: lead.intake_status ?? null,
-        physician_name,
-        referring_facility_id: L.referring_facility_id ?? null,
-        referring_facility_contact_id: L.referring_facility_contact_id ?? null,
+        ...insertPayload,
       })
       .select("id")
       .single();
