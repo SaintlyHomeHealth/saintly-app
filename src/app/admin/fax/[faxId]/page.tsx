@@ -17,6 +17,7 @@ import { getStaffProfile, isAdminOrHigher, isManagerOrHigher } from "@/lib/staff
 import { DeleteFaxButton } from "../_components/DeleteFaxButton";
 import { ForwardInboundFaxButton } from "../_components/ForwardInboundFaxButton";
 import { ResendFaxButton } from "../_components/ResendFaxButton";
+import { SendAnotherDocButton } from "../_components/SendAnotherDocButton";
 
 /** Only allow returning to Fax Center paths (avoid open redirects). */
 function safeFaxListReturnPath(raw: string | string[] | undefined): string {
@@ -96,7 +97,10 @@ export default async function AdminFaxDetailPage({
               </a>
             ) : null}
             {fax.direction === "outbound" ? (
-              <ResendFaxButton faxId={fax.id} initialRecipientNumber={fax.to_number} note={fax.note ?? null} compact />
+              <>
+                <ResendFaxButton faxId={fax.id} initialRecipientNumber={fax.to_number} note={fax.note ?? null} compact />
+                <SendAnotherDocButton faxId={fax.id} returnPath={listReturnPath} compact />
+              </>
             ) : null}
             {fax.direction === "inbound" && inboundFaxHasDocumentForForward(fax) ? (
               <ForwardInboundFaxButton

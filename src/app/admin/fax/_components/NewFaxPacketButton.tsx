@@ -15,6 +15,7 @@ import {
 } from "@/app/admin/fax/_components/fax-center-ui";
 import { SAINTLY_RETURN_FAX_DISPLAY } from "@/lib/fax/cover-sheet-constants";
 import type { FaxCoverSheetFields, FaxCoverSheetTemplateRow, FaxPacketMetadata } from "@/lib/fax/fax-cover-template-types";
+import type { FaxClonePrefill } from "@/lib/fax/fax-clone-prefill-types";
 import type { FaxDocumentTemplateRow } from "@/lib/fax/fax-document-template-types";
 import { formatDateOfBirthInput } from "@/lib/fax/format-date-of-birth-input";
 import { formatPhoneFaxInput, normalizePhoneFaxForSend } from "@/lib/fax/format-fax-phone-display";
@@ -109,7 +110,15 @@ function buildCoverFields(input: {
   };
 }
 
-export function NewFaxPacketButton() {
+export function NewFaxPacketButton({
+  clonePrefill = null,
+  autoOpen = false,
+  onCloneConsumed,
+}: {
+  clonePrefill?: FaxClonePrefill | null;
+  autoOpen?: boolean;
+  onCloneConsumed?: () => void;
+} = {}) {
   const router = useRouter();
   const uploadId = useId();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -139,6 +148,10 @@ export function NewFaxPacketButton() {
   const [patientDob, setPatientDob] = useState("");
   const [subject, setSubject] = useState("");
   const [message, setMessage] = useState("");
+  const [clonePatientId, setClonePatientId] = useState<string | null>(null);
+  const [cloneRecipientContactId, setCloneRecipientContactId] = useState<string | null>(null);
+  const [clonePatientMedicareNumber, setClonePatientMedicareNumber] = useState("");
+  const [isCloneSession, setIsCloneSession] = useState(false);
 
   const [files, setFiles] = useState<File[]>([]);
   const [dragActive, setDragActive] = useState(false);
@@ -208,6 +221,32 @@ export function NewFaxPacketButton() {
     void loadDocumentTemplates();
   }, [open, loadTemplates, loadDocumentTemplates]);
 
+  function applyClonePrefill(prefill: FaxClonePrefill) {
+    setToFax(prefill.recipientFax);
+    setRecipientName(prefill.recipientName);
+    setRecipientOrganization(prefill.recipientOrganization);
+    setRecipientPhone(prefill.recipientPhone);
+    setPatientName(prefill.patientName);
+    setPatientDob(prefill.patientDob);
+    setClonePatientId(prefill.patientId);
+    setCloneRecipientContactId(prefill.recipientContactId);
+    setClonePatientMedicareNumber(prefill.patientMedicareNumber);
+    setDocumentTemplateId("");
+    setDocumentBodyText("");
+    setTemplateAttachmentFile(null);
+    setFiles([]);
+    setIsCloneSession(true);
+    clearPreview();
+  }
+
+  useEffect(() => {
+    if (!autoOpen || !clonePrefill) return;
+    applyClonePrefill(clonePrefill);
+    setOpen(true);
+    setStep("compose");
+    setError(null);
+  }, [autoOpen, clonePrefill]);
+
   useEffect(() => {
     if (!toast) return;
     const t = window.setTimeout(() => setToast(null), toast.type === "ok" ? 4500 : 6500);
@@ -242,6 +281,10 @@ export function NewFaxPacketButton() {
     setPatientDob("");
     setSubject("");
     setMessage("");
+    setClonePatientId(null);
+    setCloneRecipientContactId(null);
+    setClonePatientMedicareNumber("");
+    setIsCloneSession(false);
     clearPreview();
   }
 
@@ -249,6 +292,7 @@ export function NewFaxPacketButton() {
     if (!busy) {
       setOpen(false);
       resetModal();
+      onCloneConsumed?.();
     }
   }
 
@@ -456,7 +500,18 @@ export function NewFaxPacketButton() {
         selectedDocumentTemplate?.name ? `Document: ${selectedDocumentTemplate.name}.` : null,
         patientName.trim() ? `Patient: ${patientName.trim()}.` : null,
         patientDob.trim() ? `DOB: ${patientDob.trim()}.` : null,
+        clonePatientMedicareNumber.trim()
+          ? `Medicare: ${clonePatientMedicareNumber.trim()}.`
+          : null,
       ].filter(Boolean);
+
+      const templateType = documentTemplateId ? "fax_packet" : "cover_packet";
+      const faxMetadata = {
+        clone_source_fax_id: isCloneSession && clonePrefill?.sourceFaxId ? clonePrefill.sourceFaxId : null,
+        patient_medicare_number: clonePatientMedicareNumber.trim() || null,
+        recipient_contact_id: cloneRecipientContactId,
+        from_fax_number: SAINTLY_RETURN_FAX_DISPLAY,
+      };
 
       const res = await fetch("/api/fax/send", {
         method: "POST",
@@ -472,6 +527,15 @@ export function NewFaxPacketButton() {
           category: "orders",
           tags: ["fax_packet"],
           note: noteParts.join(" "),
+          patient_id: clonePatientId,
+          contact_id: cloneRecipientContactId,
+          patient_name: patientName.trim() || null,
+          patient_dob: patientDob.trim() || null,
+          patient_medicare_number: clonePatientMedicareNumber.trim() || null,
+          recipient_phone: recipientPhone.trim() || null,
+          recipient_contact_id: cloneRecipientContactId,
+          template_type: templateType,
+          fax_metadata: faxMetadata,
         }),
       });
       const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
@@ -481,6 +545,7 @@ export function NewFaxPacketButton() {
 
       setOpen(false);
       resetModal();
+      onCloneConsumed?.();
       setToast({ type: "ok", message: "Fax packet sent" });
       router.refresh();
     } catch (err) {
@@ -501,7 +566,7 @@ export function NewFaxPacketButton() {
       {open ? (
         <div className={faxUi.overlay} role="dialog" aria-modal="true" aria-labelledby="fax-packet-title">
           <div className={faxUi.modal}>
-            <FaxPacketModalHeader onClose={closeModal} busy={busy} step={step} />
+            <FaxPacketModalHeader onClose={closeModal} busy={busy} step={step} isCloneSession={isCloneSession} />
 
             <div className={faxUi.modalBody}>
               {documentTemplatesSchemaMissing ? (
@@ -874,10 +939,12 @@ function FaxPacketModalHeader({
   onClose,
   busy,
   step,
+  isCloneSession,
 }: {
   onClose: () => void;
   busy: boolean;
   step: Step;
+  isCloneSession?: boolean;
 }) {
   return (
     <header className={faxUi.modalHeader}>
@@ -886,9 +953,13 @@ function FaxPacketModalHeader({
           <SaintlyLogoMark size={44} />
           <div>
             <p id="fax-packet-title" className="text-lg font-bold tracking-tight text-slate-900">
-              New Fax Packet
+              {isCloneSession ? "Send another document" : "New Fax Packet"}
             </p>
-            <p className="mt-0.5 text-sm text-slate-600">Professional cover sheet and attachments for physician offices.</p>
+            <p className="mt-0.5 text-sm text-slate-600">
+              {isCloneSession
+                ? "Recipient and patient details are prefilled. Choose a template and document for this new fax."
+                : "Professional cover sheet and attachments for physician offices."}
+            </p>
           </div>
         </div>
         <button

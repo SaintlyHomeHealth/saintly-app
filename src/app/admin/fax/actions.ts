@@ -6,6 +6,8 @@ import { redirect } from "next/navigation";
 import { supabaseAdmin } from "@/lib/admin";
 import { forwardInboundFaxAsOutbound } from "@/lib/fax/forward-inbound-fax";
 import { recordFaxEvent } from "@/lib/fax/fax-service";
+import type { FaxClonePrefill } from "@/lib/fax/fax-clone-prefill-types";
+import { getFaxClonePrefill as loadFaxClonePrefill } from "@/lib/fax/get-fax-clone-prefill";
 import { resendOutboundFax } from "@/lib/fax/resend-outbound-fax";
 import { getStaffProfile, isAdminOrHigher, isManagerOrHigher } from "@/lib/staff-profile";
 
@@ -153,6 +155,17 @@ export async function updateFaxNoteAction(formData: FormData): Promise<{ ok: tru
   revalidatePath("/admin/fax");
   revalidatePath(`/admin/fax/${faxId}`);
   return { ok: true };
+}
+
+export async function getFaxClonePrefill(
+  faxId: string
+): Promise<{ ok: true; prefill: FaxClonePrefill } | { ok: false; error: string }> {
+  const staff = await getStaffProfile();
+  if (!staff || !isManagerOrHigher(staff)) {
+    return { ok: false, error: "Unauthorized" };
+  }
+
+  return loadFaxClonePrefill(faxId);
 }
 
 export async function resendFaxAction(

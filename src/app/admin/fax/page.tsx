@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { Suspense } from "react";
 
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import {
@@ -20,11 +21,10 @@ import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import { getStaffProfile, isAdminOrHigher, isManagerOrHigher } from "@/lib/staff-profile";
 
 import { DeleteFaxButton } from "./_components/DeleteFaxButton";
+import { FaxCenterComposeControls } from "./_components/FaxCenterComposeControls";
 import { FaxNoteListCell } from "./_components/FaxNoteListCell";
 import { ForwardInboundFaxButton } from "./_components/ForwardInboundFaxButton";
-import { ResendFaxButton } from "./_components/ResendFaxButton";
-import { NewFaxPacketButton } from "./_components/NewFaxPacketButton";
-import { SendFaxButton } from "./_components/SendFaxButton";
+import { OutboundFaxActions } from "./_components/OutboundFaxActions";
 
 export const dynamic = "force-dynamic";
 
@@ -148,8 +148,9 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
         description="Inbound and outbound fax history with quick notes for every document."
         actions={
           <div className="flex flex-wrap gap-2">
-            <NewFaxPacketButton />
-            <SendFaxButton />
+            <Suspense fallback={null}>
+              <FaxCenterComposeControls />
+            </Suspense>
             <Link href="/admin/fax/templates" className={crmActionBtnSky}>
               Cover templates
             </Link>
@@ -236,7 +237,7 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
 
       <section className={crmListScrollOuterCls}>
         <div className="min-w-[1040px] divide-y divide-slate-100">
-          <div className="grid grid-cols-[92px_minmax(180px,1fr)_minmax(320px,2.2fr)_56px_104px_128px_132px] items-center gap-3 bg-slate-50 px-4 py-3 text-[11px] font-bold uppercase tracking-wide text-slate-500">
+          <div className="grid grid-cols-[92px_minmax(180px,1fr)_minmax(320px,2.2fr)_56px_104px_128px_168px] items-center gap-3 bg-slate-50 px-4 py-3 text-[11px] font-bold uppercase tracking-wide text-slate-500">
             <div>Direction</div>
             <div>Sender / recipient</div>
             <div>Note / description</div>
@@ -263,7 +264,7 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
               return (
                 <div
                   key={fax.id}
-                  className={`grid grid-cols-[92px_minmax(180px,1fr)_minmax(320px,2.2fr)_56px_104px_128px_132px] items-start gap-3 px-4 py-3 text-sm transition ${crmListRowHoverCls}`}
+                  className={`grid grid-cols-[92px_minmax(180px,1fr)_minmax(320px,2.2fr)_56px_104px_128px_168px] items-start gap-3 px-4 py-3 text-sm transition ${crmListRowHoverCls}`}
                 >
                   <div className="pt-0.5">
                     <span
@@ -293,27 +294,32 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
                     {formatFaxDateTimeList(fax.received_at ?? fax.sent_at ?? fax.created_at)}
                   </div>
                   <div className="flex flex-wrap gap-2 pt-1">
-                    <Link href={faxDetailHref(fax.id, currentListPath)} className={crmActionBtnMuted}>
-                      Open
-                    </Link>
                     {fax.direction === "outbound" ? (
-                      <ResendFaxButton
+                      <OutboundFaxActions
                         faxId={fax.id}
-                        initialRecipientNumber={fax.to_number}
+                        toNumber={fax.to_number}
                         note={fax.note ?? null}
-                        compact
+                        detailHref={faxDetailHref(fax.id, currentListPath)}
+                        returnTo={currentListPath}
+                        allowHardDelete={allowHardDelete}
                       />
-                    ) : null}
-                    {fax.direction === "inbound" && inboundFaxHasDocumentForForward(fax) ? (
-                      <ForwardInboundFaxButton
-                        faxId={fax.id}
-                        originalFromDisplay={originalFromDisplay}
-                        originalReceivedDisplay={originalReceivedDisplay}
-                        pageCount={fax.page_count}
-                        variant="row"
-                      />
-                    ) : null}
-                    <DeleteFaxButton faxId={fax.id} returnTo={currentListPath} allowHardDelete={allowHardDelete} compact />
+                    ) : (
+                      <>
+                        <Link href={faxDetailHref(fax.id, currentListPath)} className={crmActionBtnMuted}>
+                          Open
+                        </Link>
+                        {inboundFaxHasDocumentForForward(fax) ? (
+                          <ForwardInboundFaxButton
+                            faxId={fax.id}
+                            originalFromDisplay={originalFromDisplay}
+                            originalReceivedDisplay={originalReceivedDisplay}
+                            pageCount={fax.page_count}
+                            variant="row"
+                          />
+                        ) : null}
+                        <DeleteFaxButton faxId={fax.id} returnTo={currentListPath} allowHardDelete={allowHardDelete} compact />
+                      </>
+                    )}
                   </div>
                 </div>
               );

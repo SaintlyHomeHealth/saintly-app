@@ -37,6 +37,14 @@ type SendFaxInput = {
   patient_id: string | null;
   facility_id: string | null;
   referral_source_id: string | null;
+  contact_id: string | null;
+  patient_name: string | null;
+  patient_dob: string | null;
+  patient_medicare_number: string | null;
+  recipient_phone: string | null;
+  recipient_contact_id: string | null;
+  template_type: string | null;
+  fax_metadata: Record<string, unknown> | null;
   category: FaxCategory;
   tags: string[];
   cover_sheet_template_id: string | null;
@@ -87,6 +95,11 @@ function parsePacketMetadata(value: unknown): FaxPacketMetadata | null {
   };
   const hasValue = Object.values(meta).some(Boolean);
   return hasValue ? meta : null;
+}
+
+function parseFaxMetadata(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
 }
 
 function parsePageCount(value: unknown): number | null {
@@ -149,6 +162,24 @@ async function parseInput(req: NextRequest): Promise<SendFaxInput> {
       patient_id: textOrNull(formData.get("patient_id")),
       facility_id: textOrNull(formData.get("facility_id")),
       referral_source_id: textOrNull(formData.get("referral_source_id")),
+      contact_id: textOrNull(formData.get("contact_id")),
+      patient_name: textOrNull(formData.get("patient_name")),
+      patient_dob: textOrNull(formData.get("patient_dob")),
+      patient_medicare_number: textOrNull(formData.get("patient_medicare_number")),
+      recipient_phone: textOrNull(formData.get("recipient_phone")),
+      recipient_contact_id: textOrNull(formData.get("recipient_contact_id")),
+      template_type: textOrNull(formData.get("template_type")),
+      fax_metadata: parseFaxMetadata(
+        (() => {
+          const raw = formData.get("fax_metadata");
+          if (typeof raw !== "string" || !raw.trim()) return null;
+          try {
+            return JSON.parse(raw) as unknown;
+          } catch {
+            return null;
+          }
+        })()
+      ),
       category: parseCategory(formData.get("category")),
       tags: parseTags(formData.get("tags")),
       cover_sheet_template_id: textOrNull(formData.get("cover_sheet_template_id")),
@@ -181,6 +212,14 @@ async function parseInput(req: NextRequest): Promise<SendFaxInput> {
     patient_id: textOrNull(json.patient_id),
     facility_id: textOrNull(json.facility_id),
     referral_source_id: textOrNull(json.referral_source_id),
+    contact_id: textOrNull(json.contact_id),
+    patient_name: textOrNull(json.patient_name),
+    patient_dob: textOrNull(json.patient_dob),
+    patient_medicare_number: textOrNull(json.patient_medicare_number),
+    recipient_phone: textOrNull(json.recipient_phone),
+    recipient_contact_id: textOrNull(json.recipient_contact_id),
+    template_type: textOrNull(json.template_type),
+    fax_metadata: parseFaxMetadata(json.fax_metadata),
     category: parseCategory(json.category),
     tags: parseTags(json.tags),
     cover_sheet_template_id: textOrNull(json.cover_sheet_template_id),
@@ -250,12 +289,22 @@ export async function POST(req: NextRequest) {
     patient_id: input.patient_id,
     facility_id: input.facility_id,
     referral_source_id: input.referral_source_id,
+    contact_id: input.contact_id,
+    patient_name: input.patient_name,
+    patient_dob: input.patient_dob,
+    patient_medicare_number: input.patient_medicare_number,
+    recipient_phone: input.recipient_phone,
+    recipient_contact_id: input.recipient_contact_id,
+    template_type: input.template_type,
     category: input.category,
     tags,
     note: input.note,
     page_count: input.page_count,
     assigned_to_user_id: staff.user_id,
   };
+  if (input.fax_metadata) {
+    insertPayload.fax_metadata = input.fax_metadata;
+  }
   if (input.cover_sheet_template_id) {
     insertPayload.cover_sheet_template_id = input.cover_sheet_template_id;
   }
@@ -263,11 +312,30 @@ export async function POST(req: NextRequest) {
     insertPayload.packet_metadata = input.packet_metadata;
   }
 
-  const { data: faxRow, error: insertError } = await supabaseAdmin
-    .from("fax_messages")
-    .insert(insertPayload)
-    .select("id")
-    .single();
+  const cloneMetadataKeys = [
+    "patient_name",
+    "patient_dob",
+    "patient_medicare_number",
+    "recipient_phone",
+    "recipient_contact_id",
+    "template_type",
+    "fax_metadata",
+  ] as const;
+
+  function isMissingCloneMetadataColumn(message: string | undefined): boolean {
+    const m = (message ?? "").toLowerCase();
+    return cloneMetadataKeys.some((key) => m.includes(key) && m.includes("column"));
+  }
+
+  let insertResult = await supabaseAdmin.from("fax_messages").insert(insertPayload).select("id").single();
+  if (insertResult.error && isMissingCloneMetadataColumn(insertResult.error.message)) {
+    for (const key of cloneMetadataKeys) {
+      delete insertPayload[key];
+    }
+    insertResult = await supabaseAdmin.from("fax_messages").insert(insertPayload).select("id").single();
+  }
+  const faxRow = insertResult.data;
+  const insertError = insertResult.error;
   if (insertError || !faxRow?.id) {
     return NextResponse.json({ error: "Could not create outbound fax record." }, { status: 500 });
   }

@@ -60,6 +60,14 @@ export type FaxMessageRow = {
   forwarded_from_fax_message_id?: string | null;
   cover_sheet_template_id?: string | null;
   packet_metadata?: Record<string, unknown> | null;
+  /** Denormalized patient display name at send time (clone prefill). */
+  patient_name?: string | null;
+  patient_dob?: string | null;
+  patient_medicare_number?: string | null;
+  recipient_phone?: string | null;
+  recipient_contact_id?: string | null;
+  template_type?: string | null;
+  fax_metadata?: Record<string, unknown> | null;
 };
 
 /** Same tokenization as {@link faxMatchesKeywordSearch} for list queries (AND across tokens). */
