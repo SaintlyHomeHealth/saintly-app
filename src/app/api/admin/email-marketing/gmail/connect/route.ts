@@ -9,7 +9,7 @@ export const runtime = "nodejs";
 
 const STATE_COOKIE = "gmail_oauth_state";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const staff = await getStaffProfile();
   if (!staff || !isAdminOrHigher(staff)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -34,6 +34,6 @@ export async function GET() {
     maxAge: 600,
   });
 
-  const url = buildGmailOAuthUrl(state);
-  return NextResponse.redirect(url);
+  const googleAuthUrl = buildGmailOAuthUrl(state);
+  return NextResponse.redirect(new URL(googleAuthUrl));
 }
