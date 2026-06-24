@@ -12,6 +12,7 @@ export const STAFF_PAGE_KEYS = [
   "recruiting",
   "facilities",
   "fax_center",
+  "email_marketing",
   "pdf_sign",
   "patients",
   "credentialing",
@@ -43,6 +44,7 @@ export const STAFF_PAGE_LABELS: Record<StaffPageKey, string> = {
   recruiting: "Recruiting",
   facilities: "Facilities",
   fax_center: "Fax Center",
+  email_marketing: "Email & Marketing",
   pdf_sign: "PDF Sign",
   patients: "Patients (admin)",
   credentialing: "Credentialing",
@@ -292,6 +294,7 @@ export function resolveEffectivePageAccess(staff: StaffForPageAccess): Record<St
     merged.recruiting = false;
     merged.facilities = false;
     merged.fax_center = false;
+    merged.email_marketing = false;
     merged.pdf_sign = false;
     merged.patients = false;
     merged.credentialing = false;
@@ -311,6 +314,7 @@ export function resolveEffectivePageAccess(staff: StaffForPageAccess): Record<St
     merged.recruiting = false;
     merged.facilities = false;
     merged.fax_center = false;
+    merged.email_marketing = false;
     merged.pdf_sign = false;
     merged.patients = false;
     merged.credentialing = false;
@@ -338,6 +342,7 @@ export function resolveEffectivePageAccess(staff: StaffForPageAccess): Record<St
     merged.recruiting = false;
     merged.facilities = false;
     merged.fax_center = false;
+    merged.email_marketing = false;
     merged.pdf_sign = false;
     merged.patients = false;
     merged.credentialing = false;
@@ -378,6 +383,8 @@ export function adminNavIdToPageKey(id: string): StaffPageKey | null {
       return "facilities";
     case "fax_center":
       return "fax_center";
+    case "email_marketing":
+      return "email_marketing";
     case "pdf_sign":
       return "pdf_sign";
     case "patients":

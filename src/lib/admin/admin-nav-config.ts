@@ -21,6 +21,7 @@ export const ADMIN_NAV_LABELS = {
   ptColdCalling: "PT Cold Calling",
   facilities: "Facilities",
   faxCenter: "Fax Center",
+  emailMarketing: "Email & Marketing",
   pdfSign: "PDF Sign",
   patients: "Patients",
   credentialing: "Credentialing",
@@ -45,6 +46,7 @@ export type AdminNavItemId =
   | "pt_cold_calling"
   | "facilities"
   | "fax_center"
+  | "email_marketing"
   | "pdf_sign"
   | "patients"
   | "credentialing"
@@ -156,6 +158,12 @@ export function buildAdminNavItems(staff: StaffProfile | null): AdminNavItemReso
       label: ADMIN_NAV_LABELS.faxCenter,
       href: "/admin/fax",
       ...g("fax_center", false, ""),
+    },
+    {
+      id: "email_marketing",
+      label: ADMIN_NAV_LABELS.emailMarketing,
+      href: "/admin/email-marketing",
+      ...g("email_marketing", false, ""),
     },
     {
       id: "pdf_sign",

@@ -1,0 +1,15 @@
+export const SAINTLY_COMPANY = {
+  legalName: "Saintly Home Health LLC",
+  addressLine1: "64 East Broadway Rd, Suite 200-235",
+  cityStateZip: "Tempe, AZ 85282",
+  phone: "480-360-0008",
+  fax: "480-393-4119",
+  publicEmail: "info@saintlyhomehealth.com",
+  crmSendEmail: "admin@saintlyhomehealth.com",
+  website: "www.saintlyhomehealth.com",
+  npi: "1548037294",
+  medicarePtan: "037839",
+  azdhsLicense: "HHA13521",
+  ahcccsId: "224210",
+  tagline: "Care That Goes Above.",
+} as const;
