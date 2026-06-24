@@ -30,6 +30,9 @@ type Props = {
   staffOptions: StaffOption[];
   currentUserId: string;
   staffLabels: Record<string, string>;
+  gmailConnected: boolean;
+  isAdmin: boolean;
+  onGoToSettings: () => void;
   onToast: (type: "ok" | "error", message: string) => void;
   onSync: () => Promise<void>;
   syncing: boolean;
@@ -63,6 +66,9 @@ export function EmailInboxPanel({
   staffOptions,
   currentUserId,
   staffLabels,
+  gmailConnected,
+  isAdmin,
+  onGoToSettings,
   onToast,
   onSync,
   syncing,
@@ -98,6 +104,10 @@ export function EmailInboxPanel({
   const selectedMessages = selectedThread ? messagesByThread[selectedThread.id] ?? [] : [];
 
   async function handleSync() {
+    if (!gmailConnected) {
+      onToast("error", "Gmail is not connected. Go to Settings to connect admin@saintlyhomehealth.com.");
+      return;
+    }
     try {
       await onSync();
       onToast("ok", "Inbox synced.");
@@ -144,6 +154,21 @@ export function EmailInboxPanel({
 
   return (
     <section className={`${emUi.card} overflow-hidden`}>
+      {!gmailConnected ? (
+        <div className="border-b border-amber-200 bg-amber-50 px-5 py-4 sm:px-6">
+          <p className="text-sm font-semibold text-amber-950">Gmail is not connected.</p>
+          <p className="mt-1 text-sm text-amber-900">
+            {isAdmin
+              ? "Go to Settings to connect admin@saintlyhomehealth.com."
+              : "Ask an admin to connect admin@saintlyhomehealth.com in Settings."}
+          </p>
+          {isAdmin ? (
+            <button type="button" className={`${emUi.btnSecondary} mt-3`} onClick={onGoToSettings}>
+              Open Settings
+            </button>
+          ) : null}
+        </div>
+      ) : null}
       <div className="flex flex-col lg:grid lg:grid-cols-[minmax(0,340px)_minmax(0,1fr)] lg:min-h-[640px]">
         <aside className="border-b border-slate-200 lg:border-b-0 lg:border-r">
           <div className="space-y-3 border-b border-slate-100 p-4">

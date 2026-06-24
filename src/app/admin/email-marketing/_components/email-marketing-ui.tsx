@@ -1,5 +1,13 @@
 "use client";
 
+import {
+  EMAIL_MARKETING_TABS,
+  type EmailMarketingTab,
+} from "@/lib/email-marketing/email-marketing-tabs";
+
+export type { EmailMarketingTab };
+export { EMAIL_MARKETING_TABS };
+
 export const emUi = {
   card: "overflow-hidden rounded-[28px] border border-slate-200/90 bg-white shadow-sm",
   sectionTitle: "text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500",
@@ -29,20 +37,3 @@ export const emUi = {
   pillMuted:
     "inline-flex items-center rounded-full border border-slate-200 bg-slate-100 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-600",
 } as const;
-
-export type EmailMarketingTab =
-  | "inbox"
-  | "composer"
-  | "templates"
-  | "flyers"
-  | "history"
-  | "settings";
-
-export const EMAIL_MARKETING_TABS: { id: EmailMarketingTab; label: string }[] = [
-  { id: "inbox", label: "Inbox" },
-  { id: "composer", label: "Composer" },
-  { id: "templates", label: "Templates" },
-  { id: "flyers", label: "Flyers" },
-  { id: "history", label: "Sent / Drafts" },
-  { id: "settings", label: "Settings" },
-];

@@ -1,10 +1,11 @@
 import { redirect } from "next/navigation";
-import { Suspense } from "react";
 
+import { EmailMarketingTabNav } from "@/app/admin/email-marketing/_components/EmailMarketingTabNav";
 import { EmailMarketingWorkspace } from "@/app/admin/email-marketing/_components/EmailMarketingWorkspace";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { supabaseAdmin } from "@/lib/admin";
 import { getEmailMarketingSender, isEmailMarketingConfigured } from "@/lib/email-marketing/email-from";
+import { parseEmailMarketingTab } from "@/lib/email-marketing/email-marketing-tabs";
 import { isGmailInboxConnected } from "@/lib/email-marketing/gmail/client";
 import { isGoogleOAuthConfigured } from "@/lib/email-marketing/gmail/constants";
 import { canViewAllEmailMarketingHistory, canViewPrivateBusinessEmail } from "@/lib/email-marketing/permissions";
@@ -46,7 +47,13 @@ export default async function AdminEmailMarketingPage({ searchParams }: { search
   const sender = getEmailMarketingSender();
   const rawSp = (await searchParams) ?? {};
   const tabRaw = rawSp.tab;
-  const tab = typeof tabRaw === "string" ? tabRaw : Array.isArray(tabRaw) ? tabRaw[0] : undefined;
+  const tabParam =
+    typeof tabRaw === "string" ? tabRaw : Array.isArray(tabRaw) ? tabRaw[0] : undefined;
+  const activeTab = parseEmailMarketingTab(tabParam);
+  const isAdmin = isAdminOrHigher(staff);
+  if (activeTab === "settings" && !isAdmin) {
+    redirect("/admin/email-marketing?tab=inbox");
+  }
   const errorRaw = rawSp.error;
   const connectError =
     typeof errorRaw === "string" ? decodeURIComponent(errorRaw) : Array.isArray(errorRaw) ? decodeURIComponent(errorRaw[0] ?? "") : null;
@@ -156,31 +163,31 @@ export default async function AdminEmailMarketingPage({ searchParams }: { search
         </section>
       ) : null}
 
-      <Suspense fallback={null}>
-        <EmailMarketingWorkspace
-          templates={(templatesRes.data ?? []) as EmailMarketingTemplateRow[]}
-          senderProfiles={(profilesRes.data ?? []) as EmailSenderProfileRow[]}
-          flyers={(flyersRes.data ?? []) as EmailMarketingFlyerRow[]}
-          history={historyRes.data ?? []}
-          threads={(threadsRes.data ?? []) as EmailThreadRow[]}
-          messagesByThread={messagesByThread}
-          mailbox={(mailboxRes.data as EmailMailboxRow | null) ?? null}
-          gmailConnected={gmailConnected}
-          oauthConfigured={isGoogleOAuthConfigured()}
-          emailConfigured={isEmailMarketingConfigured() || gmailConnected}
-          fromEmail={sender.fromEmail}
-          replyToEmail={sender.replyToEmail}
-          canViewAllHistory={canViewAll}
-          canViewPrivateEmail={canViewPrivateBusinessEmail(staff)}
-          isAdmin={isAdminOrHigher(staff)}
-          staffLabels={staffLabels}
-          staffOptions={staffOptions}
-          currentUserId={staff.user_id}
-          initialTab={tab === "settings" || tab === "composer" || tab === "templates" || tab === "flyers" || tab === "history" ? tab : "inbox"}
-          connectError={connectError}
-          connectSuccess={connectSuccess}
-        />
-      </Suspense>
+      <EmailMarketingTabNav activeTab={activeTab} isAdmin={isAdmin} />
+
+      <EmailMarketingWorkspace
+        templates={(templatesRes.data ?? []) as EmailMarketingTemplateRow[]}
+        senderProfiles={(profilesRes.data ?? []) as EmailSenderProfileRow[]}
+        flyers={(flyersRes.data ?? []) as EmailMarketingFlyerRow[]}
+        history={historyRes.data ?? []}
+        threads={(threadsRes.data ?? []) as EmailThreadRow[]}
+        messagesByThread={messagesByThread}
+        mailbox={(mailboxRes.data as EmailMailboxRow | null) ?? null}
+        gmailConnected={gmailConnected}
+        oauthConfigured={isGoogleOAuthConfigured()}
+        emailConfigured={isEmailMarketingConfigured() || gmailConnected}
+        fromEmail={sender.fromEmail}
+        replyToEmail={sender.replyToEmail}
+        canViewAllHistory={canViewAll}
+        canViewPrivateEmail={canViewPrivateBusinessEmail(staff)}
+        isAdmin={isAdmin}
+        staffLabels={staffLabels}
+        staffOptions={staffOptions}
+        currentUserId={staff.user_id}
+        activeTab={activeTab}
+        connectError={connectError}
+        connectSuccess={connectSuccess}
+      />
     </div>
   );
 }

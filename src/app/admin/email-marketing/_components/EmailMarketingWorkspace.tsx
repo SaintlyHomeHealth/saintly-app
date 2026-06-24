@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 
 import {
@@ -32,7 +32,8 @@ import {
 
 import { EmailInboxPanel } from "./EmailInboxPanel";
 import { EmailSettingsPanel } from "./EmailSettingsPanel";
-import { EMAIL_MARKETING_TABS, emUi, type EmailMarketingTab } from "./email-marketing-ui";
+import { emUi } from "./email-marketing-ui";
+import type { EmailMarketingTab } from "@/lib/email-marketing/email-marketing-tabs";
 
 type HistoryRow = EmailMarketingMessageRow & {
   email_marketing_templates?: { name: string } | null;
@@ -59,7 +60,7 @@ type Props = {
   staffLabels: Record<string, string>;
   staffOptions: Array<{ userId: string; label: string }>;
   currentUserId: string;
-  initialTab?: EmailMarketingTab;
+  activeTab: EmailMarketingTab;
   connectError?: string | null;
   connectSuccess?: boolean;
 };
@@ -98,15 +99,11 @@ export function EmailMarketingWorkspace({
   staffLabels,
   staffOptions,
   currentUserId,
-  initialTab = "inbox",
+  activeTab,
   connectError,
   connectSuccess,
 }: Props) {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const tabParam = searchParams.get("tab") as EmailMarketingTab | null;
-  const validTab = EMAIL_MARKETING_TABS.some((t) => t.id === tabParam) ? tabParam! : initialTab;
-  const [tab, setTab] = useState<EmailMarketingTab>(validTab);
   const [syncing, setSyncing] = useState(false);
   const [toast, setToast] = useState<{ type: "ok" | "error"; message: string } | null>(null);
   const [pending, startTransition] = useTransition();
@@ -175,16 +172,20 @@ export function EmailMarketingWorkspace({
   }
 
   function switchTab(next: EmailMarketingTab) {
-    setTab(next);
-    router.replace(`/admin/email-marketing?tab=${next}`, { scroll: false });
+    router.push(`/admin/email-marketing?tab=${next}`);
   }
 
   async function syncInbox() {
+    if (!gmailConnected) {
+      throw new Error("Gmail is not connected. Go to Settings to connect admin@saintlyhomehealth.com.");
+    }
     setSyncing(true);
     try {
       const res = await fetch("/api/admin/email-marketing/sync", { method: "POST" });
       const json = (await res.json()) as { error?: string };
-      if (!res.ok || json.error) throw new Error(json.error ?? "Sync failed.");
+      if (!res.ok || json.error) {
+        throw new Error(json.error ?? "Sync failed.");
+      }
       router.refresh();
     } finally {
       setSyncing(false);
@@ -270,19 +271,6 @@ export function EmailMarketingWorkspace({
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap gap-2">
-        {EMAIL_MARKETING_TABS.filter((t) => (t.id === "settings" ? isAdmin : true)).map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            className={`${emUi.tab} ${tab === t.id ? emUi.tabActive : emUi.tabIdle}`}
-            onClick={() => switchTab(t.id)}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-
       {!emailConfigured ? (
         <div className={emUi.alertWarn}>
           Email delivery is not configured yet. Set <code className="text-xs">EMAIL_PROVIDER</code> and the matching
@@ -296,7 +284,7 @@ export function EmailMarketingWorkspace({
         </div>
       ) : null}
 
-      {tab === "inbox" ? (
+      {activeTab === "inbox" ? (
         <EmailInboxPanel
           threads={threads}
           messagesByThread={messagesByThread}
@@ -305,13 +293,16 @@ export function EmailMarketingWorkspace({
           staffOptions={staffOptions}
           currentUserId={currentUserId}
           staffLabels={staffLabels}
+          gmailConnected={gmailConnected}
+          isAdmin={isAdmin}
+          onGoToSettings={() => switchTab("settings")}
           onToast={showToast}
           onSync={syncInbox}
           syncing={syncing}
         />
       ) : null}
 
-      {tab === "settings" && isAdmin ? (
+      {activeTab === "settings" && isAdmin ? (
         <EmailSettingsPanel
           mailbox={mailbox}
           gmailConnected={gmailConnected}
@@ -321,7 +312,7 @@ export function EmailMarketingWorkspace({
         />
       ) : null}
 
-      {tab === "templates" ? (
+      {activeTab === "templates" ? (
         <section className={`${emUi.card} p-5 sm:p-6`}>
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
@@ -384,7 +375,7 @@ export function EmailMarketingWorkspace({
         </section>
       ) : null}
 
-      {tab === "composer" ? (
+      {activeTab === "composer" ? (
         <section className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,0.95fr)]">
           <div className={`${emUi.card} p-5 sm:p-6`}>
             <h2 className="text-lg font-bold text-slate-900">Letterhead Composer</h2>
@@ -570,7 +561,7 @@ export function EmailMarketingWorkspace({
         </section>
       ) : null}
 
-      {tab === "flyers" ? (
+      {activeTab === "flyers" ? (
         <section className={`${emUi.card} p-5 sm:p-6`}>
           <h2 className="text-lg font-bold text-slate-900">Flyer Library</h2>
           <p className="mt-1 text-sm text-slate-600">
@@ -670,7 +661,7 @@ export function EmailMarketingWorkspace({
         </section>
       ) : null}
 
-      {tab === "history" ? (
+      {activeTab === "history" ? (
         <section className={`${emUi.card} overflow-x-auto p-5 sm:p-6`}>
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
