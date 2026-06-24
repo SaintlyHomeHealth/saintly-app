@@ -6,7 +6,6 @@ import { gmailApiFetch, getGmailAccessToken } from "@/lib/email-marketing/gmail/
 import {
   CRM_SHARED_MAILBOX_EMAIL,
   messageBelongsToSharedMailbox,
-  messageTouchesPrivateInbox,
   replySubject,
 } from "@/lib/email-marketing/gmail/constants";
 import { buildRawMimeMessage, encodeRawMime } from "@/lib/email-marketing/gmail/parse";
@@ -120,19 +119,19 @@ export function assertOutboundMailboxOnly(recipientEmails: string[]): void {
   }
 }
 
+/** Sync only messages that involve the connected admin@ mailbox (info@ as participant is OK). */
 export function assertSharedMailboxMessage(parsed: {
   fromEmail: string;
   toEmails: string[];
   ccEmails: string[];
+  bccEmails?: string[];
   deliveredTo: string[];
 }): boolean {
-  if (messageTouchesPrivateInbox({ from: parsed.fromEmail, to: parsed.toEmails, cc: parsed.ccEmails })) {
-    return false;
-  }
   return messageBelongsToSharedMailbox(CRM_SHARED_MAILBOX_EMAIL, {
     from: parsed.fromEmail,
     to: parsed.toEmails,
     cc: parsed.ccEmails,
+    bcc: parsed.bccEmails,
     deliveredTo: parsed.deliveredTo,
   });
 }

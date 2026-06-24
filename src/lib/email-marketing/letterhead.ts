@@ -88,6 +88,7 @@ export function buildLetterheadHtml(input: LetterheadBuildInput): string {
     : SAINTLY_COMPANY.crmSendEmail;
   const bodyHtml = plainTextToHtml(input.body);
   const sender = input.sender;
+  const signatureEmail = sender.email || businessEmail;
 
   const flyerBlock =
     input.flyer && (input.attachFlyer || input.flyer.file_url)
@@ -102,12 +103,12 @@ export function buildLetterheadHtml(input: LetterheadBuildInput): string {
     sender.displayName,
     sender.title,
     SAINTLY_COMPANY.legalName,
-    sender.phone ? `Phone: ${sender.phone}` : "",
-    sender.fax ? `Fax: ${sender.fax}` : "",
-    sender.email ? `Email: ${sender.email}` : "",
-    SAINTLY_COMPANY.website,
-    sender.signature,
+    `Phone: ${sender.phone || SAINTLY_COMPANY.phone}`,
+    `Fax: ${sender.fax || SAINTLY_COMPANY.fax}`,
+    `Email: ${signatureEmail}`,
+    `Website: ${SAINTLY_COMPANY.website}`,
     SAINTLY_COMPANY.tagline,
+    sender.signature,
   ]
     .filter(Boolean)
     .map((line) => escapeHtml(line))
@@ -116,18 +117,20 @@ export function buildLetterheadHtml(input: LetterheadBuildInput): string {
   return `<!DOCTYPE html>
 <html>
 <body style="margin:0;padding:0;background:#f8fafc;">
-  <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#f8fafc;padding:24px 12px;">
+  <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#f8fafc;padding:16px 8px;">
     <tr>
       <td align="center">
         <table cellpadding="0" cellspacing="0" border="0" width="640" style="max-width:640px;background:#ffffff;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden;box-shadow:0 8px 30px rgba(15,23,42,0.06);">
           <tr>
-            <td style="padding:24px 28px;background:linear-gradient(135deg,#f0f9ff 0%,#ffffff 55%,#ecfeff 100%);border-bottom:3px solid #0284c7;">
+            <td style="padding:20px 24px;background:linear-gradient(135deg,#f0f9ff 0%,#ffffff 55%,#ecfeff 100%);border-bottom:3px solid #0284c7;">
               <table width="100%" cellpadding="0" cellspacing="0" border="0">
                 <tr>
-                  <td style="vertical-align:middle;">
-                    <img src="${logoUrl}" alt="Saintly Home Health LLC" width="150" style="display:block;width:150px;max-width:150px;height:auto;border:0;" />
+                  <td style="vertical-align:top;width:170px;">
+                    <div style="display:inline-block;padding:10px 12px;background:#ffffff;border-radius:12px;border:1px solid #e0f2fe;">
+                      <img src="${logoUrl}" alt="Saintly Home Health LLC" width="160" style="display:block;width:160px;max-width:160px;height:auto;border:0;background:#ffffff;" />
+                    </div>
                   </td>
-                  <td align="right" style="vertical-align:middle;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.5;color:#334155;">
+                  <td align="right" style="vertical-align:top;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.55;color:#334155;">
                     <div style="font-size:15px;font-weight:700;color:#0f172a;">${escapeHtml(SAINTLY_COMPANY.legalName)}</div>
                     <div>${escapeHtml(SAINTLY_COMPANY.addressLine1)}</div>
                     <div>${escapeHtml(SAINTLY_COMPANY.cityStateZip)}</div>
@@ -138,16 +141,16 @@ export function buildLetterheadHtml(input: LetterheadBuildInput): string {
                   </td>
                 </tr>
               </table>
-              <div style="margin-top:14px;padding-top:12px;border-top:1px solid #dbeafe;font-family:Arial,Helvetica,sans-serif;font-size:11px;line-height:1.55;color:#475569;">
+              <div style="margin-top:12px;padding-top:10px;border-top:1px solid #dbeafe;font-family:Arial,Helvetica,sans-serif;font-size:10px;line-height:1.5;color:#64748b;">
                 NPI: ${escapeHtml(SAINTLY_COMPANY.npi)} · Medicare PTAN/CCN: ${escapeHtml(SAINTLY_COMPANY.medicarePtan)} · AZDHS: ${escapeHtml(SAINTLY_COMPANY.azdhsLicense)} · AHCCCS: ${escapeHtml(SAINTLY_COMPANY.ahcccsId)}
               </div>
             </td>
           </tr>
           <tr>
-            <td style="padding:28px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.65;color:#1e293b;">
+            <td style="padding:24px 28px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.65;color:#1e293b;">
               ${bodyHtml}
               ${flyerBlock}
-              <div style="margin-top:24px;padding-top:18px;border-top:1px solid #e2e8f0;font-size:13px;line-height:1.55;color:#334155;">
+              <div style="margin-top:24px;padding-top:16px;border-top:1px solid #e2e8f0;font-size:13px;line-height:1.6;color:#334155;">
                 ${signatureLines}
               </div>
             </td>
@@ -165,6 +168,7 @@ export function buildLetterheadText(input: LetterheadBuildInput): string {
     ? SAINTLY_COMPANY.publicEmail
     : SAINTLY_COMPANY.crmSendEmail;
   const sender = input.sender;
+  const signatureEmail = sender.email || businessEmail;
   const flyerBlock =
     input.flyer && input.attachFlyer
       ? `\n\nAttached flyer: ${input.flyer.title}\n${input.flyer.file_url}`
@@ -177,12 +181,12 @@ export function buildLetterheadText(input: LetterheadBuildInput): string {
     sender.displayName,
     sender.title,
     SAINTLY_COMPANY.legalName,
-    sender.phone ? `Phone: ${sender.phone}` : "",
-    sender.fax ? `Fax: ${sender.fax}` : "",
-    sender.email ? `Email: ${sender.email}` : "",
-    SAINTLY_COMPANY.website,
-    sender.signature,
+    `Phone: ${sender.phone || SAINTLY_COMPANY.phone}`,
+    `Fax: ${sender.fax || SAINTLY_COMPANY.fax}`,
+    `Email: ${signatureEmail}`,
+    `Website: ${SAINTLY_COMPANY.website}`,
     SAINTLY_COMPANY.tagline,
+    sender.signature,
   ]
     .filter(Boolean)
     .join("\n");

@@ -34,7 +34,7 @@ type Props = {
   isAdmin: boolean;
   onGoToSettings: () => void;
   onToast: (type: "ok" | "error", message: string) => void;
-  onSync: () => Promise<void>;
+  onSync: () => Promise<{ syncedMessages: number; updatedThreads: number }>;
   syncing: boolean;
 };
 
@@ -109,8 +109,11 @@ export function EmailInboxPanel({
       return;
     }
     try {
-      await onSync();
-      onToast("ok", "Inbox synced.");
+      const result = await onSync();
+      onToast(
+        "ok",
+        `Synced ${result.syncedMessages} new message${result.syncedMessages === 1 ? "" : "s"}, ${result.updatedThreads} updated thread${result.updatedThreads === 1 ? "" : "s"}.`
+      );
     } catch (err) {
       onToast("error", err instanceof Error ? err.message : "Sync failed.");
     }
@@ -169,8 +172,8 @@ export function EmailInboxPanel({
           ) : null}
         </div>
       ) : null}
-      <div className="flex flex-col lg:grid lg:grid-cols-[minmax(0,340px)_minmax(0,1fr)] lg:min-h-[640px]">
-        <aside className="border-b border-slate-200 lg:border-b-0 lg:border-r">
+      <div className="flex min-h-[640px] flex-col lg:flex-row">
+        <aside className="w-full shrink-0 border-b border-slate-200 lg:w-[320px] lg:border-b-0 lg:border-r">
           <div className="space-y-3 border-b border-slate-100 p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-lg font-bold text-slate-900">Inbox</h2>
@@ -204,7 +207,7 @@ export function EmailInboxPanel({
               ))}
             </div>
           </div>
-          <div className="max-h-[520px] overflow-y-auto">
+          <div className="max-h-[520px] overflow-y-auto lg:max-h-[calc(640px-8rem)]">
             {filteredThreads.map((thread) => {
               const unread = threadHasUnread(messagesByThread[thread.id]);
               const active = selectedThread?.id === thread.id;
@@ -237,19 +240,21 @@ export function EmailInboxPanel({
               );
             })}
             {filteredThreads.length === 0 ? (
-              <p className="p-4 text-sm text-slate-500">No threads yet. Send outreach or sync the inbox.</p>
+              <p className="p-4 text-sm text-slate-500">
+                No inbox threads yet. Sent outreach appears under Sent / Drafts until someone replies.
+              </p>
             ) : null}
           </div>
         </aside>
 
-        <div className="flex min-h-[420px] flex-col">
+        <div className="flex min-h-[420px] min-w-0 flex-1 flex-col">
           {selectedThread ? (
             <>
-              <div className="border-b border-slate-100 p-4">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
+              <div className="border-b border-slate-100 px-4 py-4 sm:px-6">
+                <div className="mx-auto flex max-w-[720px] flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0">
                     <h3 className="text-lg font-bold text-slate-900">{selectedThread.subject || "(No subject)"}</h3>
-                    <p className="mt-1 text-xs text-slate-500">
+                    <p className="mt-1 truncate text-xs text-slate-500">
                       {(selectedThread.participant_emails ?? []).join(", ") || "—"}
                     </p>
                   </div>
@@ -286,7 +291,7 @@ export function EmailInboxPanel({
                     </button>
                   </div>
                 </div>
-                <label className="mt-3 block max-w-xs space-y-1">
+                <label className="mx-auto mt-3 block max-w-[720px] space-y-1">
                   <span className={emUi.label}>Assign to</span>
                   <select
                     className={emUi.select}
@@ -308,111 +313,118 @@ export function EmailInboxPanel({
                 </label>
               </div>
 
-              <div className="flex-1 space-y-3 overflow-y-auto p-4">
-                {selectedMessages.map((msg) => {
-                  const outbound = msg.direction === "outbound";
-                  return (
-                    <article
-                      key={msg.id}
-                      className={`rounded-2xl border p-4 ${
-                        outbound
-                          ? "ml-4 border-sky-200 bg-sky-50/70 sm:ml-12"
-                          : "mr-4 border-slate-200 bg-white sm:mr-12"
-                      }`}
-                    >
-                      <div className="flex flex-wrap items-start justify-between gap-2">
-                        <div>
-                          <p className="text-sm font-semibold text-slate-900">
-                            {msg.from_name || msg.from_email}
-                            {outbound && msg.sent_by_user_id ? (
-                              <span className="ml-2 text-xs font-normal text-slate-500">
-                                via CRM · {staffLabels[msg.sent_by_user_id] ?? "Staff"}
-                              </span>
-                            ) : null}
-                          </p>
-                          <p className="text-xs text-slate-500">{formatWhen(msg.gmail_internal_date ?? msg.created_at)}</p>
+              <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-6">
+                <div className="mx-auto max-w-[720px] space-y-4">
+                  {selectedMessages.map((msg) => {
+                    const outbound = msg.direction === "outbound";
+                    return (
+                      <article
+                        key={msg.id}
+                        className={`overflow-hidden rounded-2xl border shadow-sm ${
+                          outbound ? "border-sky-200 bg-sky-50/60" : "border-slate-200 bg-white"
+                        }`}
+                      >
+                        <div
+                          className={`flex flex-wrap items-start justify-between gap-2 border-b px-4 py-3 ${
+                            outbound ? "border-sky-100 bg-sky-50/80" : "border-slate-100 bg-slate-50/80"
+                          }`}
+                        >
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-slate-900">
+                              {msg.from_name || msg.from_email}
+                              {outbound && msg.sent_by_user_id ? (
+                                <span className="ml-2 text-xs font-normal text-slate-500">
+                                  via CRM · {staffLabels[msg.sent_by_user_id] ?? "Staff"}
+                                </span>
+                              ) : null}
+                            </p>
+                            <p className="text-xs text-slate-500">{msg.from_email}</p>
+                            <p className="text-xs text-slate-500">{formatWhen(msg.gmail_internal_date ?? msg.created_at)}</p>
+                          </div>
+                          <span className={outbound ? emUi.pill : emUi.pillMuted}>{outbound ? "Sent" : "Received"}</span>
                         </div>
-                        <span className={outbound ? emUi.pill : emUi.pillMuted}>{outbound ? "Sent" : "Received"}</span>
-                      </div>
-                      <div className="mt-3 whitespace-pre-wrap text-sm text-slate-800">
-                        {msg.body_html ? (
-                          <div
-                            className="prose prose-sm max-w-none text-slate-800"
-                            dangerouslySetInnerHTML={{ __html: msg.body_html }}
-                          />
-                        ) : (
-                          msg.body_text
-                        )}
-                      </div>
-                      {msg.email_attachments?.length ? (
-                        <ul className="mt-3 space-y-1 text-sm">
-                          {msg.email_attachments.map((att) => (
-                            <li key={att.id}>
-                              <a
-                                className="font-medium text-sky-700 hover:underline"
-                                href={`/api/admin/email-marketing/attachments/download?id=${att.id}`}
-                              >
-                                Download {att.file_name}
-                              </a>
-                            </li>
-                          ))}
-                        </ul>
-                      ) : null}
-                    </article>
-                  );
-                })}
+                        <div className="max-h-[480px] overflow-y-auto px-4 py-4 text-[15px] leading-relaxed text-slate-800">
+                          {msg.body_html ? (
+                            <div
+                              className="email-preview prose prose-sm max-w-none text-[15px] leading-relaxed text-slate-800 [&_img]:max-w-full"
+                              dangerouslySetInnerHTML={{ __html: msg.body_html }}
+                            />
+                          ) : (
+                            <p className="whitespace-pre-wrap">{msg.body_text}</p>
+                          )}
+                        </div>
+                        {msg.email_attachments?.length ? (
+                          <ul className="border-t border-slate-100 px-4 py-3 text-sm">
+                            {msg.email_attachments.map((att) => (
+                              <li key={att.id}>
+                                <a
+                                  className="font-medium text-sky-700 hover:underline"
+                                  href={`/api/admin/email-marketing/attachments/download?id=${att.id}`}
+                                >
+                                  Download {att.file_name}
+                                </a>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : null}
+                      </article>
+                    );
+                  })}
+                </div>
               </div>
 
-              <div className="border-t border-slate-100 bg-slate-50/60 p-4">
-                <div className={emUi.alertWarn}>{EMAIL_MARKETING_HIPAA_WARNING}</div>
-                <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                  <label className="block space-y-1 sm:col-span-2">
-                    <span className={emUi.label}>Sender profile</span>
-                    <select className={emUi.select} value={senderProfileId} onChange={(e) => setSenderProfileId(e.target.value)}>
-                      {senderProfiles
-                        .filter((p) => p.is_active)
-                        .map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.display_name}
-                          </option>
-                        ))}
-                    </select>
-                  </label>
-                  <label className="block space-y-1 sm:col-span-2">
-                    <span className={emUi.label}>Reply</span>
-                    <textarea
-                      className={emUi.textarea}
-                      value={replyBody}
-                      onChange={(e) => setReplyBody(e.target.value)}
-                      placeholder="Write your reply…"
-                    />
-                  </label>
-                  <label className="block space-y-1">
-                    <span className={emUi.label}>Flyer</span>
-                    <select className={emUi.select} value={flyerId} onChange={(e) => setFlyerId(e.target.value)}>
-                      <option value="">No flyer</option>
-                      {flyers
-                        .filter((f) => f.is_active)
-                        .map((f) => (
-                          <option key={f.id} value={f.id}>
-                            {f.title}
-                          </option>
-                        ))}
-                    </select>
-                  </label>
-                  <label className="flex items-center gap-2 self-end pb-2">
-                    <input type="checkbox" checked={attachFlyer} onChange={(e) => setAttachFlyer(e.target.checked)} disabled={!flyerId} />
-                    <span className="text-sm text-slate-700">Attach flyer</span>
-                  </label>
+              <div className="sticky bottom-0 border-t border-slate-200 bg-white/95 px-4 py-4 backdrop-blur sm:px-6">
+                <div className="mx-auto max-w-[720px]">
+                  <div className={emUi.alertWarn}>{EMAIL_MARKETING_HIPAA_WARNING}</div>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    <label className="block space-y-1 sm:col-span-2">
+                      <span className={emUi.label}>Sender profile</span>
+                      <select className={emUi.select} value={senderProfileId} onChange={(e) => setSenderProfileId(e.target.value)}>
+                        {senderProfiles
+                          .filter((p) => p.is_active)
+                          .map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.display_name}
+                            </option>
+                          ))}
+                      </select>
+                    </label>
+                    <label className="block space-y-1 sm:col-span-2">
+                      <span className={emUi.label}>Reply</span>
+                      <textarea
+                        className={emUi.textarea}
+                        value={replyBody}
+                        onChange={(e) => setReplyBody(e.target.value)}
+                        placeholder="Write your reply…"
+                      />
+                    </label>
+                    <label className="block space-y-1">
+                      <span className={emUi.label}>Flyer</span>
+                      <select className={emUi.select} value={flyerId} onChange={(e) => setFlyerId(e.target.value)}>
+                        <option value="">No flyer</option>
+                        {flyers
+                          .filter((f) => f.is_active)
+                          .map((f) => (
+                            <option key={f.id} value={f.id}>
+                              {f.title}
+                            </option>
+                          ))}
+                      </select>
+                    </label>
+                    <label className="flex items-center gap-2 self-end pb-2">
+                      <input type="checkbox" checked={attachFlyer} onChange={(e) => setAttachFlyer(e.target.checked)} disabled={!flyerId} />
+                      <span className="text-sm text-slate-700">Attach flyer</span>
+                    </label>
+                  </div>
+                  <button
+                    type="button"
+                    className={`${emUi.btnSend} mt-3`}
+                    disabled={replyPending || !replyBody.trim()}
+                    onClick={sendReply}
+                  >
+                    {replyPending ? "Sending…" : "Send reply"}
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  className={`${emUi.btnSend} mt-3`}
-                  disabled={replyPending || !replyBody.trim()}
-                  onClick={sendReply}
-                >
-                  {replyPending ? "Sending…" : "Send reply"}
-                </button>
               </div>
             </>
           ) : (

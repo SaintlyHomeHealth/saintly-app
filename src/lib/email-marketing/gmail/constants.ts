@@ -59,11 +59,22 @@ export function replySubject(subject: string): string {
 }
 
 export function base64UrlEncode(input: string | Buffer): string {
-  return Buffer.from(input)
+  const buf = typeof input === "string" ? Buffer.from(input, "utf8") : input;
+  return buf
     .toString("base64")
     .replace(/\+/g, "-")
     .replace(/\//g, "_")
     .replace(/=+$/g, "");
+}
+
+/** Marketing/composer subjects: plain ASCII hyphen, no em dash. */
+export function normalizeMarketingSubject(subject: string): string {
+  return subject
+    .replace(/\u2014/g, " - ")
+    .replace(/\u2013/g, " - ")
+    .replace(/\s+-\s+/g, " - ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
 }
 
 export function decodeBase64Url(data: string): string {

@@ -120,6 +120,9 @@ export type EmailThreadRow = {
   linked_referral_source_id: string | null;
   linked_lead_id: string | null;
   linked_patient_id: string | null;
+  has_inbound: boolean;
+  last_inbound_at: string | null;
+  last_message_direction: "inbound" | "outbound" | null;
   created_at: string;
   updated_at: string;
 };

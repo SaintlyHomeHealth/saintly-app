@@ -6,6 +6,7 @@ import { supabaseAdmin } from "@/lib/admin";
 import { getEmailMarketingProvider, getEmailMarketingSender } from "@/lib/email-marketing/email-from";
 import { sendMarketingEmail } from "@/lib/email-marketing/email-provider";
 import { getSharedMailbox } from "@/lib/email-marketing/gmail/client";
+import { normalizeMarketingSubject } from "@/lib/email-marketing/gmail/constants";
 import { importSentGmailMessage } from "@/lib/email-marketing/gmail/sync";
 import {
   applyTemplateVariables,
@@ -86,7 +87,7 @@ function composePayload(formData: FormData, staffUserId: string) {
   const recipientName = readString(formData, "recipient_name");
   const recipientEmail = readString(formData, "recipient_email").toLowerCase();
   const organizationName = readString(formData, "organization_name");
-  const subject = readString(formData, "subject").slice(0, MAX_SUBJECT);
+  const subject = normalizeMarketingSubject(readString(formData, "subject").slice(0, MAX_SUBJECT));
   const bodyRaw = readString(formData, "body").slice(0, MAX_BODY);
   const templateId = readString(formData, "template_id") || null;
   const senderProfileId = readString(formData, "sender_profile_id") || null;

@@ -175,18 +175,26 @@ export function EmailMarketingWorkspace({
     router.push(`/admin/email-marketing?tab=${next}`);
   }
 
-  async function syncInbox() {
+  async function syncInbox(): Promise<{ syncedMessages: number; updatedThreads: number }> {
     if (!gmailConnected) {
       throw new Error("Gmail is not connected. Go to Settings to connect admin@saintlyhomehealth.com.");
     }
     setSyncing(true);
     try {
       const res = await fetch("/api/admin/email-marketing/sync", { method: "POST" });
-      const json = (await res.json()) as { error?: string };
+      const json = (await res.json()) as {
+        error?: string;
+        syncedMessages?: number;
+        updatedThreads?: number;
+      };
       if (!res.ok || json.error) {
         throw new Error(json.error ?? "Sync failed.");
       }
       router.refresh();
+      return {
+        syncedMessages: json.syncedMessages ?? 0,
+        updatedThreads: json.updatedThreads ?? 0,
+      };
     } finally {
       setSyncing(false);
     }
@@ -196,7 +204,7 @@ export function EmailMarketingWorkspace({
     setTemplateId(id);
     const tpl = templates.find((t) => t.id === id);
     if (!tpl) return;
-    setSubject(tpl.subject);
+    setSubject(tpl.subject.replace(/\u2014/g, " - ").replace(/\u2013/g, " - "));
     setBody(tpl.body);
   }
 

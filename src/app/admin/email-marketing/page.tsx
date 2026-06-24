@@ -26,7 +26,10 @@ export const dynamic = "force-dynamic";
 function missingInboxSchema(error: { message?: string } | null): boolean {
   const msg = (error?.message ?? "").toLowerCase();
   return (
-    (msg.includes("email_threads") || msg.includes("email_messages") || msg.includes("email_mailboxes")) &&
+    (msg.includes("email_threads") ||
+      msg.includes("email_messages") ||
+      msg.includes("email_mailboxes") ||
+      msg.includes("has_inbound")) &&
     (msg.includes("does not exist") || msg.includes("schema cache"))
   );
 }
@@ -59,15 +62,7 @@ export default async function AdminEmailMarketingPage({ searchParams }: { search
     typeof errorRaw === "string" ? decodeURIComponent(errorRaw) : Array.isArray(errorRaw) ? decodeURIComponent(errorRaw[0] ?? "") : null;
   const connectSuccess = rawSp.connected === "1";
 
-  const [
-    templatesRes,
-    profilesRes,
-    flyersRes,
-    historyRes,
-    staffRes,
-    mailboxRes,
-    threadsRes,
-  ] = await Promise.all([
+  const [templatesRes, profilesRes, flyersRes, historyRes, staffRes, mailboxRes] = await Promise.all([
     supabaseAdmin.from("email_marketing_templates").select("*").order("name", { ascending: true }),
     supabaseAdmin.from("email_sender_profiles").select("*").order("display_name", { ascending: true }),
     supabaseAdmin.from("email_marketing_flyers").select("*").order("created_at", { ascending: false }),
@@ -84,8 +79,17 @@ export default async function AdminEmailMarketingPage({ searchParams }: { search
     })(),
     supabaseAdmin.from("staff_profiles").select("user_id, full_name, email").not("user_id", "is", null).eq("is_active", true),
     supabaseAdmin.from("email_mailboxes").select("*").maybeSingle(),
-    supabaseAdmin.from("email_threads").select("*").order("last_message_at", { ascending: false, nullsFirst: false }).limit(100),
   ]);
+
+  const mailbox = (mailboxRes.data as EmailMailboxRow | null) ?? null;
+  let threadsQuery = supabaseAdmin
+    .from("email_threads")
+    .select("*")
+    .eq("has_inbound", true)
+    .order("last_message_at", { ascending: false, nullsFirst: false })
+    .limit(100);
+  if (mailbox?.id) threadsQuery = threadsQuery.eq("mailbox_id", mailbox.id);
+  const threadsRes = await threadsQuery;
 
   const threadIds = (threadsRes.data ?? []).map((t) => t.id as string);
   const messagesRes =
@@ -158,8 +162,9 @@ export default async function AdminEmailMarketingPage({ searchParams }: { search
       {schemaMissing ? (
         <section className="rounded-[28px] border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
           Email migrations are not fully applied. Apply{" "}
-          <code className="text-xs">20260624120000_email_marketing.sql</code> and{" "}
-          <code className="text-xs">20260625120000_email_marketing_shared_inbox.sql</code>.
+          <code className="text-xs">20260624120000_email_marketing.sql</code>,{" "}
+          <code className="text-xs">20260625120000_email_marketing_shared_inbox.sql</code>, and{" "}
+          <code className="text-xs">20260626120000_email_threads_inbox_metadata.sql</code>.
         </section>
       ) : null}
 

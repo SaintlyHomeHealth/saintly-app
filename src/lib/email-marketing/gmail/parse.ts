@@ -2,8 +2,10 @@ import {
   base64UrlEncode,
   decodeBase64Url,
   normalizeEmailAddress,
+  normalizeMarketingSubject,
   normalizeSubject,
 } from "@/lib/email-marketing/gmail/constants";
+import { encodeMimeHeaderValue, normalizeEmailSubject } from "@/lib/email-marketing/gmail/mime-encoding";
 
 type GmailHeader = { name?: string; value?: string };
 type GmailPart = {
@@ -113,7 +115,7 @@ export function parseGmailMessage(message: {
 
   const headers = headerMap(message.payload?.headers);
   const fromParsed = parseFrom(headers.from);
-  const subject = headers.subject ?? "";
+  const subject = normalizeEmailSubject(headers.subject ?? "");
   const acc = { text: "", html: "", attachments: [] as ParsedGmailMessage["attachments"] };
   walkParts(message.payload, acc);
 
@@ -162,12 +164,14 @@ export function buildRawMimeMessage(input: {
     ? `multipart/mixed; boundary="${boundary}"`
     : `multipart/alternative; boundary="${boundary}"`;
 
+  const subjectLine = encodeMimeHeaderValue(normalizeMarketingSubject(input.subject));
+
   const headers = [
     `From: ${input.from}`,
     `To: ${input.to.join(", ")}`,
     input.cc?.length ? `Cc: ${input.cc.join(", ")}` : "",
     `Reply-To: ${input.replyTo}`,
-    `Subject: ${input.subject}`,
+    `Subject: ${subjectLine}`,
     input.inReplyTo ? `In-Reply-To: ${input.inReplyTo}` : "",
     input.references ? `References: ${input.references}` : "",
     "MIME-Version: 1.0",
@@ -177,17 +181,19 @@ export function buildRawMimeMessage(input: {
     .join("\r\n");
 
   const altBoundary = hasAttachments ? `alt_${boundary}` : boundary;
+  const textB64 = Buffer.from(input.text, "utf8").toString("base64");
+  const htmlB64 = Buffer.from(input.html, "utf8").toString("base64");
   const altParts = [
     `--${altBoundary}`,
     "Content-Type: text/plain; charset=UTF-8",
-    "Content-Transfer-Encoding: 7bit",
+    "Content-Transfer-Encoding: base64",
     "",
-    input.text,
+    textB64,
     `--${altBoundary}`,
     "Content-Type: text/html; charset=UTF-8",
-    "Content-Transfer-Encoding: 7bit",
+    "Content-Transfer-Encoding: base64",
     "",
-    input.html,
+    htmlB64,
     `--${altBoundary}--`,
   ].join("\r\n");
 
@@ -222,5 +228,5 @@ export function buildRawMimeMessage(input: {
 }
 
 export function encodeRawMime(raw: string): string {
-  return base64UrlEncode(raw);
+  return base64UrlEncode(Buffer.from(raw, "utf8"));
 }
