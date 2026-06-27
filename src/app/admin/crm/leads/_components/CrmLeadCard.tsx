@@ -14,6 +14,7 @@ import {
   quickSetLeadTemperature,
 } from "@/app/admin/crm/actions";
 import { LeadDeleteButton } from "@/app/admin/crm/leads/_components/LeadDeleteButton";
+import { LeadFormAnswersBlock } from "@/app/admin/crm/leads/_components/LeadFormAnswersBlock";
 import { FacebookWoundCareAnswersBlock } from "@/app/admin/crm/leads/_components/FacebookWoundCareAnswersBlock";
 import {
   LeadListRowCallAttempts,
@@ -55,6 +56,7 @@ import {
 } from "@/lib/crm/sales-agent-produced-by";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import { parseFacebookWoundCareLeadAnswers } from "@/lib/facebook/facebook-wound-care-lead-display";
+import { parseLeadFormAnswersFromLeadRecord } from "@/lib/crm/lead-form-answers";
 import {
   buildWorkspaceInboxLeadSmsHref,
   buildWorkspaceKeypadCallHref,
@@ -291,6 +293,10 @@ export function CrmLeadCard({
     payer_name: row.payer_name ?? row.primary_payer_name,
     contact_city: contact?.city ?? null,
   });
+  const leadFormAnswers = parseLeadFormAnswersFromLeadRecord({
+    external_source_metadata: row.external_source_metadata,
+    notes: row.notes,
+  });
 
   function runQuick(
     kind: "spoke" | "voicemail" | "no_response" | "dead",
@@ -415,7 +421,11 @@ export function CrmLeadCard({
             <span className="font-medium text-slate-700">Email:</span> {email || "—"}
           </p>
           <DetailRow label="Payer">{payer || facebookWoundCareAnswers?.insurance || "—"}</DetailRow>
-          {facebookWoundCareAnswers ? (
+          {leadFormAnswers.length > 0 ? (
+            <div className="sm:col-span-2">
+              <LeadFormAnswersBlock answers={leadFormAnswers.slice(0, 3)} compact />
+            </div>
+          ) : facebookWoundCareAnswers ? (
             <div className="sm:col-span-2">
               <FacebookWoundCareAnswersBlock answers={facebookWoundCareAnswers} compact />
             </div>

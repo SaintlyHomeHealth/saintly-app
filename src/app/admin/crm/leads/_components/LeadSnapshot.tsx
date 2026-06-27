@@ -23,8 +23,10 @@ import { formatProducedBySalesAgentLabel } from "@/lib/crm/sales-agent-produced-
 
 import { LeadSnapshotCopyButton, LeadSnapshotMedicareReveal } from "./lead-snapshot-client";
 import { LeadDeleteButton } from "./LeadDeleteButton";
+import { LeadFormAnswersBlock } from "./LeadFormAnswersBlock";
 import { FacebookWoundCareAnswersBlock } from "./FacebookWoundCareAnswersBlock";
 import { parseFacebookWoundCareLeadAnswers } from "@/lib/facebook/facebook-wound-care-lead-display";
+import { parseLeadFormAnswersFromLeadRecord } from "@/lib/crm/lead-form-answers";
 
 function fmtIsoDate(iso: string | null | undefined): string {
   if (!iso || !/^\d{4}-\d{2}-\d{2}/.test(iso)) return "";
@@ -331,6 +333,12 @@ export function LeadSnapshot(props: LeadSnapshotProps) {
         contact_city: contact.city,
       })
     : null;
+  const leadFormAnswers = !isEmployeeLead
+    ? parseLeadFormAnswersFromLeadRecord({
+        external_source_metadata: externalSourceMetadata,
+        notes: applicationNotes,
+      })
+    : [];
 
   return (
     <section
@@ -434,7 +442,11 @@ export function LeadSnapshot(props: LeadSnapshotProps) {
         </div>
       ) : null}
 
-      {!isEmployeeLead && facebookWoundCareAnswers ? (
+      {!isEmployeeLead && leadFormAnswers.length > 0 ? (
+        <div className="mt-5">
+          <LeadFormAnswersBlock answers={leadFormAnswers} />
+        </div>
+      ) : !isEmployeeLead && facebookWoundCareAnswers ? (
         <div className="mt-5">
           <FacebookWoundCareAnswersBlock answers={facebookWoundCareAnswers} />
         </div>

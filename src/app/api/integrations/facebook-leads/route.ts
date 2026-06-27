@@ -7,6 +7,7 @@ import {
   ingestFacebookLeadFromAutomationPayload,
   type AutomationFacebookLeadPayload,
 } from "@/lib/facebook/facebook-lead-ingestion";
+import { logLeadWebhookSubmission } from "@/lib/crm/lead-form-answers";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -93,6 +94,8 @@ export async function POST(req: NextRequest) {
     console.warn("[facebook-leads] error", { reason: "invalid_json" });
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
+
+  logLeadWebhookSubmission("[api/integrations/facebook-leads]", body);
 
   try {
     const result = await ingestFacebookLeadFromAutomationPayload(supabaseAdmin, {

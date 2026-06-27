@@ -122,21 +122,43 @@ export function normalizeFacebookPartnerWebhookBody(body: Record<string, unknown
     "has_medicare",
     "has medicare",
     "medicare",
+    "what_coverage_do_they_have",
+    "what coverage do they have",
+    "coverage",
+    "insurance",
   ]);
   const woundCareNeeded = pickScalarString(norm, [
     "wound_care_needed",
     "wound care needed",
     "wound_type",
     "wound type",
+    "what_type_of_help_is_needed",
+    "what type of help is needed",
+    "help_needed",
+    "help needed",
   ]);
-  const careFor = pickScalarString(norm, ["care_for", "care for"]);
+  const careFor = pickScalarString(norm, [
+    "care_for",
+    "care for",
+    "who_is_care_needed_for",
+    "who is care needed for",
+  ]);
   const sourceRaw = pickScalarString(norm, ["source", "utm_source", "referral_source"]);
   const leadType = pickScalarString(norm, ["lead_type", "lead type"]);
   const formName = pickScalarString(norm, ["form_name", "form name"]);
   const hasMedicareRaw = pickOptionalUnknown(norm, ["has_medicare", "has medicare", "medicare", "insurance_answer"]);
   const woundTypeLegacy = pickScalarString(norm, ["wound_type", "wound type"]);
   const zip = pickScalarString(norm, ["zip", "zip_code", "zip code", "postal_code", "postal code"]);
-  const notes = pickScalarString(norm, ["notes", "note", "message"]);
+  const notes = pickScalarString(norm, [
+    "notes",
+    "note",
+    "message",
+    "tell_us_whats_going_on",
+    "tell us whats going on",
+    "optional_tell_us_whats_going_on_and_what_kind_of_help_is_needed",
+    "optional tell us whats going on and what kind of help is needed",
+    "situation",
+  ]);
   const ptTiming = pickScalarString(norm, ["pt_timing", "pt timing"]);
   const serviceNeededRaw = pickScalarString(norm, ["service_needed", "service needed", "service"]);
   const campaign = pickScalarString(norm, ["campaign", "utm_campaign"]);

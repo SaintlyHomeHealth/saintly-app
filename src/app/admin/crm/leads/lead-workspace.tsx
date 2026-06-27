@@ -25,7 +25,9 @@ import {
   LeadReferralSourceReviewBanner,
   type LeadReferralSourceReviewPanel,
 } from "@/app/admin/facilities/_components/LeadReferralSourceReviewBanner";
+import { LeadFormAnswersBlock } from "@/app/admin/crm/leads/_components/LeadFormAnswersBlock";
 import { LeadSnapshot } from "@/app/admin/crm/leads/_components/LeadSnapshot";
+import { parseLeadFormAnswersFromLeadRecord } from "@/lib/crm/lead-form-answers";
 import { PhoneNumberDuplicateWarning } from "@/app/admin/crm/_components/PhoneNumberDuplicateWarning";
 import { createLeadManualFromCrm, updateLeadContactProfile, updateLeadInsuranceIntake, updateLeadIntake } from "../actions";
 import type { CommunicationTimelineRow } from "@/lib/crm/build-crm-communication-timeline-model";
@@ -578,6 +580,12 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
   const isSalesAgentLead = Boolean(
     salesAgentContext?.isSalesAgentOrder || salesAgentContext?.producedBySalesAgentId
   );
+  const leadFormAnswers = !isEmployeeLead
+    ? parseLeadFormAnswersFromLeadRecord({
+        external_source_metadata: externalSourceMetadata,
+        notes: applicationNotes,
+      })
+    : [];
 
   const tomorrowIso = getCrmCalendarTomorrowIso();
   const voicemailSuggestedIso = addCalendarDaysToIsoDate(getCrmCalendarTodayIso(), 2);
@@ -680,6 +688,9 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
           ) : null}
           {!isEmployeeLead ? (
             <li>
+              <a href="#section-lead-form-answers" className="whitespace-nowrap hover:text-sky-800">
+                Form answers
+              </a>
               <a href="#section-request" className="whitespace-nowrap hover:text-sky-800">
                 Request
               </a>
@@ -1386,6 +1397,20 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
 
           {!isEmployeeLead ? (
             <LeadSectionCard
+              id="section-lead-form-answers"
+              title="Lead form answers"
+              description="Custom questions from Facebook, Meta, or Zapier — any form or campaign."
+            >
+              {leadFormAnswers.length > 0 ? (
+                <LeadFormAnswersBlock answers={leadFormAnswers} title="Submitted answers" />
+              ) : (
+                <p className="text-sm text-slate-600">No custom form answers were captured for this lead.</p>
+              )}
+            </LeadSectionCard>
+          ) : null}
+
+          {!isEmployeeLead ? (
+            <LeadSectionCard
               id="section-request"
               title="Request details"
               description="Same fields as Facebook / Zapier intake (stored in external_source_metadata.intake_request)."
@@ -1474,6 +1499,11 @@ export function LeadWorkspace(props: LeadWorkspaceProps) {
               <dt className="text-[10px] font-semibold uppercase text-slate-500">Next action</dt>
               <dd>{nextActionVal || "—"}</dd>
             </div>
+            {leadFormAnswers.length > 0 ? (
+              <div className="sm:col-span-2">
+                <LeadFormAnswersBlock answers={leadFormAnswers} compact title="Lead form answers" />
+              </div>
+            ) : null}
             {hasAnyIntakeRequestDetail(intakeRequestDefaults) ? (
               <div className="sm:col-span-2">
                 <dt className="text-[10px] font-semibold uppercase text-slate-500">Request details</dt>

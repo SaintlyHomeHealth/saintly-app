@@ -56,13 +56,41 @@ function buildFieldMapFromGraphFieldData(fieldData: unknown): Map<string, string
 
 /** Build from normalized lowercased field map keys (Facebook / Zapier `fields` after normalization). */
 export function buildLeadIntakeRequestFromFieldMap(fieldMap: Map<string, string>): LeadIntakeRequestDetails {
-  const woundType = fv(fieldMap, ["wound_type", "wound type", "wound_care_needed", "wound care needed"]);
+  const woundType = fv(fieldMap, [
+    "wound_type",
+    "wound type",
+    "wound_care_needed",
+    "wound care needed",
+    "what_type_of_help_is_needed",
+    "what type of help is needed",
+    "help_needed",
+    "help needed",
+  ]);
+  const situation = fv(fieldMap, [
+    "situation",
+    "tell_us_whats_going_on",
+    "tell us whats going on",
+    "optional_tell_us_whats_going_on_and_what_kind_of_help_is_needed",
+    "optional tell us whats going on and what kind of help is needed",
+    "wound_type",
+    "wound type",
+    "wound_care_needed",
+    "wound care needed",
+  ]);
   return {
     zip_code: fv(fieldMap, ["zip_code", "zip", "zip code", "postal_code", "postal code"]),
-    service_needed: fv(fieldMap, ["service_needed", "service needed", "service"]),
-    care_for: fv(fieldMap, ["care_for", "care for"]),
+    service_needed: fv(fieldMap, [
+      "service_needed",
+      "service needed",
+      "service",
+      "what_type_of_help_is_needed",
+      "what type of help is needed",
+      "help_needed",
+      "help needed",
+    ]),
+    care_for: fv(fieldMap, ["care_for", "care for", "who_is_care_needed_for", "who is care needed for"]),
     start_time: fv(fieldMap, ["start_time", "start time"]),
-    situation: fv(fieldMap, ["situation", "wound_type", "wound type", "wound_care_needed", "wound care needed"]),
+    situation,
     pt_timing: fv(fieldMap, ["pt_timing", "pt timing"]),
     wound_type: woundType,
     insurance_answer: fv(fieldMap, [
@@ -71,6 +99,10 @@ export function buildLeadIntakeRequestFromFieldMap(fieldMap: Map<string, string>
       "has_medicare",
       "has medicare",
       "medicare",
+      "what_coverage_do_they_have",
+      "what coverage do they have",
+      "coverage",
+      "insurance",
     ]),
   };
 }

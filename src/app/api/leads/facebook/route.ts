@@ -14,6 +14,7 @@ import {
   type FacebookRecruitingLeadPayload,
 } from "@/lib/recruiting/facebook-recruiting-lead-ingestion";
 import { isFacebookRecruitingLeadPayload } from "@/lib/recruiting/facebook-recruiting-lead-detect";
+import { logLeadWebhookSubmission } from "@/lib/crm/lead-form-answers";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -86,6 +87,7 @@ export async function POST(req: NextRequest) {
   }
 
   const body = parsed as Record<string, unknown>;
+  logLeadWebhookSubmission("[api/leads/facebook]", body);
   const normalizedLead = normalizeFacebookPartnerWebhookBody(body);
   console.log("[api/leads/facebook] normalized", normalizedLead);
 

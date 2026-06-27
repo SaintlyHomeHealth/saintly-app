@@ -10,6 +10,7 @@ import { revalidatePath } from "next/cache";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { buildLeadIntakeRequestFromFieldMap } from "@/lib/crm/lead-intake-request";
+import { attachLeadFormAnswersToExternalMetadata } from "@/lib/crm/lead-form-answers";
 import {
   buildFacebookWoundCareLeadNotes,
   DEFAULT_FACEBOOK_LEAD_NAME,
@@ -442,24 +443,33 @@ async function completeFacebookLeadInsertFromFieldMap(
 
   const contactId = String(contactRow.id);
 
-  const externalMeta = {
-    source: "facebook" as const,
-    ...(ingestionChannel === "automation"
-      ? { ingestion_channel: "automation" as const }
-      : ingestionChannel === "csv"
-        ? { ingestion_channel: "csv_import" as const }
-        : {}),
-    leadgen_id: leadgenId,
-    form_id: formId,
-    page_id: pageId,
-    webhook_created_time: createdTimeRaw ?? null,
-    graph_created_time: graphCreatedTime ?? null,
-    raw_webhook_body: rawBodyText.slice(0, 100_000),
-    graph_field_data: fieldDataForMeta ?? null,
-    intake_request: buildLeadIntakeRequestFromFieldMap(fieldMap),
-    ingestion_received_at: ingestionReceivedAt,
-    ingestion_completed_at: new Date().toISOString(),
-  };
+  const externalMeta = attachLeadFormAnswersToExternalMetadata(
+    {
+      source: "facebook" as const,
+      ...(ingestionChannel === "automation"
+        ? { ingestion_channel: "automation" as const }
+        : ingestionChannel === "csv"
+          ? { ingestion_channel: "csv_import" as const }
+          : {}),
+      leadgen_id: leadgenId,
+      form_id: formId,
+      page_id: pageId,
+      webhook_created_time: createdTimeRaw ?? null,
+      graph_created_time: graphCreatedTime ?? null,
+      raw_webhook_body: rawBodyText.slice(0, 100_000),
+      graph_field_data: fieldDataForMeta ?? null,
+      intake_request: buildLeadIntakeRequestFromFieldMap(fieldMap),
+      ingestion_received_at: ingestionReceivedAt,
+      ingestion_completed_at: new Date().toISOString(),
+    },
+    (() => {
+      try {
+        return JSON.parse(rawBodyText);
+      } catch {
+        return { field_data: fieldDataForMeta ?? null, fields: Object.fromEntries(fieldMap.entries()) };
+      }
+    })()
+  );
 
   const { data: newLead, error: lErr } = await supabase
     .from("leads")
@@ -982,17 +992,26 @@ export async function ingestFacebookPartnerStandardLead(
     status: "new_lead" as const,
   };
 
-  const externalMeta = {
-    source: "facebook_lead_ads" as const,
-    ingestion_channel: "partner_api" as const,
-    partner_source: referral_from_field || null,
-    partner_campaign: campaign || null,
-    raw_body_preview: rawBodyText.slice(0, 100_000),
-    intake_request: intakeRequestSnapshot,
-    intake_details: intakeDetailsSnapshot,
-    ingestion_received_at: ingestionReceivedAt,
-    ingestion_completed_at: new Date().toISOString(),
-  };
+  const externalMeta = attachLeadFormAnswersToExternalMetadata(
+    {
+      source: "facebook_lead_ads" as const,
+      ingestion_channel: "partner_api" as const,
+      partner_source: referral_from_field || null,
+      partner_campaign: campaign || null,
+      raw_body_preview: rawBodyText.slice(0, 100_000),
+      intake_request: intakeRequestSnapshot,
+      intake_details: intakeDetailsSnapshot,
+      ingestion_received_at: ingestionReceivedAt,
+      ingestion_completed_at: new Date().toISOString(),
+    },
+    (() => {
+      try {
+        return JSON.parse(rawBodyText);
+      } catch {
+        return payload;
+      }
+    })()
+  );
 
   const { data: newLead, error: lErr } = await supabase
     .from("leads")
