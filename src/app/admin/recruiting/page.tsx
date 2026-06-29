@@ -10,6 +10,7 @@ import {
   parseAdminRecruitingLeadsListSearchParams,
   recruitingLeadsListRange,
 } from "@/lib/recruiting/admin-recruiting-leads-list-filters";
+import { resolveAdminRecruitingLeadsKeywordSearchOr } from "@/lib/recruiting/admin-recruiting-leads-keyword-search";
 import {
   buildAdminRecruitingWorkingDetailHref,
   mapRecruitingLeadIdsToCandidateIds,
@@ -30,6 +31,7 @@ import { adminPerfTimed, routePerfLog, routePerfStart } from "@/lib/perf/route-p
 import { getStaffProfile, isManagerOrHigher } from "@/lib/staff-profile";
 
 import { RecruitingLeadFilters } from "@/app/admin/recruiting/_components/RecruitingLeadFilters";
+import { RecruitingLeadKeywordSearch } from "@/app/admin/recruiting/_components/RecruitingLeadKeywordSearch";
 import { RecruitingLeadListCard } from "@/app/admin/recruiting/_components/RecruitingLeadListCard";
 import { RecruitingLeadPagination } from "@/app/admin/recruiting/_components/RecruitingLeadPagination";
 import { SyncLegacyRecruitingCandidatesButton } from "@/app/admin/recruiting/_components/SyncLegacyRecruitingCandidatesButton";
@@ -71,17 +73,26 @@ export default async function AdminRecruitingWorkspacePage({
   const f = parseAdminRecruitingLeadsListSearchParams(rawSp);
   const { from, to } = recruitingLeadsListRange(f);
 
+  const keywordLeadSearchOr = f.q.trim()
+    ? await adminPerfTimed("admin/recruiting.keywordSearch", () =>
+        resolveAdminRecruitingLeadsKeywordSearchOr(supabaseAdmin, f.q)
+      )
+    : null;
+  const listQueryDeps = { keywordLeadSearchOr };
+
   const [stats, tabCounts, filteredTotal, listRows] = await Promise.all([
     adminPerfTimed("admin/recruiting.stats", () => fetchRecruitingLeadWorkspaceStats(supabaseAdmin)),
     adminPerfTimed("admin/recruiting.tabCounts", () => fetchRecruitingLeadTabCounts(supabaseAdmin)),
-    adminPerfTimed("admin/recruiting.filteredCount", () => countFilteredRecruitingLeads(supabaseAdmin, f)),
+    adminPerfTimed("admin/recruiting.filteredCount", () =>
+      countFilteredRecruitingLeads(supabaseAdmin, f, listQueryDeps)
+    ),
     adminPerfTimed("admin/recruiting.list", async () => {
       let query = supabaseAdmin
         .from("facebook_recruiting_leads")
         .select(LIST_SELECT)
         .order("created_at", { ascending: false })
         .range(from, to);
-      query = attachAdminRecruitingLeadsListPredicates(query, f) as typeof query;
+      query = attachAdminRecruitingLeadsListPredicates(query, f, listQueryDeps) as typeof query;
       const { data, error } = await query;
       if (error) {
         console.warn("[recruiting] list:", error.message);
@@ -176,6 +187,8 @@ export default async function AdminRecruitingWorkspacePage({
           {syncBanner}
         </div>
       ) : null}
+
+      <RecruitingLeadKeywordSearch filters={f} />
 
       <RecruitingWorkspaceStatsCards
         total={stats.total}

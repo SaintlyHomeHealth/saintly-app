@@ -71,6 +71,11 @@ export type AdminRecruitingLeadsListFilters = {
 
 export const ADMIN_RECRUITING_LEADS_PAGE_SIZE = 50;
 
+export type AdminRecruitingLeadsListQueryDeps = {
+  /** From {@link resolveAdminRecruitingLeadsKeywordSearchOr} — omit keyword constraint when null (empty `q`). */
+  keywordLeadSearchOr: string | null;
+};
+
 const RESUME_SOURCE_OR =
   "source.eq.manual_resume_upload,source.ilike.%manual resume%,form_name.ilike.%manual resume%";
 
@@ -312,9 +317,14 @@ export function phoenixLast7DaysStartIso(d = new Date()): string {
 
 export function attachAdminRecruitingLeadsListPredicates(
   qb: unknown,
-  filters: AdminRecruitingLeadsListFilters
+  filters: AdminRecruitingLeadsListFilters,
+  deps: AdminRecruitingLeadsListQueryDeps
 ): unknown {
   let q = qb as RecruitingLeadsListQuery;
+
+  if (deps.keywordLeadSearchOr) {
+    q = q.or(deps.keywordLeadSearchOr);
+  }
 
   if (filters.status) {
     q = q.eq("status", filters.status);
@@ -324,14 +334,6 @@ export function attachAdminRecruitingLeadsListPredicates(
   }
   if (filters.startDate) {
     q = q.ilike("start_date", `%${filters.startDate}%`);
-  }
-  if (filters.q) {
-    const term = filters.q.replace(/[%_]/g, "");
-    if (term) {
-      q = q.or(
-        `full_name.ilike.%${term}%,phone.ilike.%${term}%,email.ilike.%${term}%,normalized_phone.ilike.%${term}%`
-      );
-    }
   }
 
   const range = effectiveDateRange(filters);

@@ -5,6 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   attachAdminRecruitingLeadsListPredicates,
   type AdminRecruitingLeadsListFilters,
+  type AdminRecruitingLeadsListQueryDeps,
 } from "@/lib/recruiting/admin-recruiting-leads-list-filters";
 import { phoenixStartOfTodayIso } from "@/lib/recruiting/phoenix-time";
 
@@ -72,10 +73,11 @@ export async function fetchRecruitingLeadTabCounts(
 
 export async function countFilteredRecruitingLeads(
   supabase: SupabaseClient,
-  filters: AdminRecruitingLeadsListFilters
+  filters: AdminRecruitingLeadsListFilters,
+  deps: AdminRecruitingLeadsListQueryDeps
 ): Promise<number> {
   let q = supabase.from("facebook_recruiting_leads").select("id", { count: "exact", head: true });
-  q = attachAdminRecruitingLeadsListPredicates(q, filters) as typeof q;
+  q = attachAdminRecruitingLeadsListPredicates(q, filters, deps) as typeof q;
   const { count, error } = await q;
   if (error) {
     console.warn("[recruiting/list] filtered count:", error.message);

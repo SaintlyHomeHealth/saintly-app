@@ -22,17 +22,8 @@ export function RecruitingLeadFilters({ filters }: Props) {
   return (
     <form method="get" action="/admin/recruiting" className={filterCardCls}>
       {filters.tab !== "all" ? <input type="hidden" name="tab" value={filters.tab} /> : null}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-7">
-        <label className="flex flex-col gap-1.5">
-          <span className={filterLabelCls}>Search</span>
-          <input
-            name="q"
-            defaultValue={filters.q}
-            placeholder="Name, phone, or email…"
-            className={crmFilterInputCls}
-            autoComplete="off"
-          />
-        </label>
+      {filters.q ? <input type="hidden" name="q" value={filters.q} /> : null}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <label className="flex flex-col gap-1.5">
           <span className={filterLabelCls}>Status</span>
           <select name="status" defaultValue={filters.status} className={crmFilterInputCls}>
