@@ -11,14 +11,23 @@ import {
   EMPLOYEE_CONTRACT_ADMIN_LIST_COLUMNS,
   EmploymentClassification,
   EmploymentType,
+  formatContractPaySummary,
   formatCurrency,
   formatEmploymentClassificationLabel,
   formatEmploymentTypeLabel,
   formatMileageTypeLabel,
   formatPayTypeLabel,
   getEmploymentAgreementTitle,
+  hasPtPerVisitRates,
+  isPtPerVisitContract,
   MileageType,
+  parsePtPerVisitRates,
   PayType,
+  PT_PER_VISIT_RATE_FIELDS,
+  PtPerVisitRateKey,
+  ptPerVisitRatesFromFormStrings,
+  ptPerVisitRatesToFormStrings,
+  resolveLegacyPayRateForPtPerVisit,
 } from "@/lib/employee-contracts";
 import { formatAppDateTime } from "@/lib/datetime/app-timezone";
 
@@ -38,6 +47,7 @@ type FormState = {
   employmentType: EmploymentType;
   payType: PayType;
   payRate: string;
+  perVisitRates: Record<PtPerVisitRateKey, string>;
   mileageType: MileageType;
   mileageRate: string;
   effectiveDate: string;
@@ -118,19 +128,46 @@ function isHistoryRowCurrent(
   return false;
 }
 
+function shouldShowPtPerVisitRateSchedule(
+  form: FormState,
+  contract: EmployeeContractRow | null | undefined
+) {
+  if (!isPtPerVisitContract(form.roleKey, form.payType)) {
+    return false;
+  }
+
+  if (hasPtPerVisitRates(parsePtPerVisitRates(contract?.per_visit_rates))) {
+    return true;
+  }
+
+  if (hasValidPtPerVisitFormRates(form.perVisitRates)) {
+    return true;
+  }
+
+  if (
+    typeof contract?.pay_rate === "number" &&
+    !hasPtPerVisitRates(parsePtPerVisitRates(contract?.per_visit_rates))
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
 function getInitialFormState(
   initialContract: EmployeeContractRow | null,
   suggestedRoleKey: ContractRoleKey | ""
 ): FormState {
+  const perVisitRatesFromContract = parsePtPerVisitRates(initialContract?.per_visit_rates);
+
   return {
     roleKey: initialContract?.role_key || suggestedRoleKey,
     employmentClassification: initialContract?.employment_classification || "employee",
     employmentType: initialContract?.employment_type || "prn",
     payType: initialContract?.pay_type || "per_visit",
     payRate:
-      typeof initialContract?.pay_rate === "number"
-        ? String(initialContract.pay_rate)
-        : "",
+      typeof initialContract?.pay_rate === "number" ? String(initialContract.pay_rate) : "",
+    perVisitRates: ptPerVisitRatesToFormStrings(perVisitRatesFromContract),
     mileageType: initialContract?.mileage_type || "none",
     mileageRate:
       typeof initialContract?.mileage_rate === "number"
@@ -139,6 +176,43 @@ function getInitialFormState(
     effectiveDate: initialContract?.effective_date || "",
     adminPreparedBy: initialContract?.admin_prepared_by || "",
   };
+}
+
+function hasValidPtPerVisitFormRates(perVisitRates: Record<PtPerVisitRateKey, string>) {
+  return PT_PER_VISIT_RATE_FIELDS.some((field) => {
+    const trimmed = perVisitRates[field.key].trim();
+    if (!trimmed) return false;
+    const numericValue = Number(trimmed);
+    return Number.isFinite(numericValue) && numericValue >= 0;
+  });
+}
+
+function validatePtPerVisitFormRates(perVisitRates: Record<PtPerVisitRateKey, string>) {
+  if (!hasValidPtPerVisitFormRates(perVisitRates)) {
+    return "Please enter at least one valid PT per visit rate.";
+  }
+
+  for (const field of PT_PER_VISIT_RATE_FIELDS) {
+    const trimmed = perVisitRates[field.key].trim();
+    if (!trimmed) continue;
+
+    const numericValue = Number(trimmed);
+    if (!Number.isFinite(numericValue) || numericValue < 0) {
+      return `Please enter a valid rate for ${field.label}.`;
+    }
+  }
+
+  return null;
+}
+
+function isCompensationComplete(form: FormState, contract: EmployeeContractRow | null) {
+  if (!form.effectiveDate) return false;
+
+  if (shouldShowPtPerVisitRateSchedule(form, contract)) {
+    return hasValidPtPerVisitFormRates(form.perVisitRates);
+  }
+
+  return Boolean(form.payRate.trim());
 }
 
 export default function EmploymentContractCard({
@@ -175,18 +249,50 @@ export default function EmploymentContractCard({
     contract?.contract_status === "sent" || contract?.contract_status === "signed";
   const isFormDisabled = isSaving || (isLocked && !isEditingNewVersion);
 
+  const showPtPerVisitRateSchedule = shouldShowPtPerVisitRateSchedule(form, contract);
+
   const contractTextPreview = useMemo(() => {
-    if (!form.roleKey || !form.effectiveDate || !form.payRate) {
+    if (!form.roleKey || !form.effectiveDate) {
       return "";
     }
 
-    const payRate = Number(form.payRate);
     const mileageRate =
       form.mileageType === "per_mile" && form.mileageRate.trim().length > 0
         ? Number(form.mileageRate)
         : null;
 
-    if (!Number.isFinite(payRate) || (mileageRate !== null && !Number.isFinite(mileageRate))) {
+    if (mileageRate !== null && !Number.isFinite(mileageRate)) {
+      return "";
+    }
+
+    if (showPtPerVisitRateSchedule) {
+      const ptRateError = validatePtPerVisitFormRates(form.perVisitRates);
+      if (ptRateError) {
+        return "";
+      }
+
+      const perVisitRates = ptPerVisitRatesFromFormStrings(form.perVisitRates);
+      const payRate = resolveLegacyPayRateForPtPerVisit(0, perVisitRates);
+
+      return buildEmployeeContractText({
+        roleKey: form.roleKey,
+        employmentClassification: form.employmentClassification,
+        employmentType: form.employmentType,
+        payType: form.payType,
+        payRate,
+        perVisitRates,
+        mileageType: form.mileageType,
+        mileageRate,
+        effectiveDate: form.effectiveDate,
+      });
+    }
+
+    if (!form.payRate) {
+      return "";
+    }
+
+    const payRate = Number(form.payRate);
+    if (!Number.isFinite(payRate)) {
       return "";
     }
 
@@ -200,7 +306,7 @@ export default function EmploymentContractCard({
       mileageRate,
       effectiveDate: form.effectiveDate,
     });
-  }, [form]);
+  }, [form, showPtPerVisitRateSchedule]);
   const contractHistoryPreview = contractHistory.slice(0, 3);
 
   const handleFieldChange = <K extends keyof FormState>(field: K, value: FormState[K]) => {
@@ -274,6 +380,9 @@ export default function EmploymentContractCard({
       employment_type: payload.employment_type,
       pay_type: payload.pay_type,
       pay_rate: payload.pay_rate,
+      ...(payload.per_visit_rates !== undefined
+        ? { per_visit_rates: payload.per_visit_rates }
+        : {}),
       mileage_type: payload.mileage_type,
       effective_date: payload.effective_date,
       ...(payload.mileage_rate !== undefined ? { mileage_rate: payload.mileage_rate } : {}),
@@ -319,8 +428,20 @@ export default function EmploymentContractCard({
       return;
     }
 
-    const payRate = Number(liveForm.payRate);
-    if (!Number.isFinite(payRate) || payRate < 0) {
+    const payRateInput = Number(liveForm.payRate);
+    let payRate = payRateInput;
+    let perVisitRates = null;
+
+    if (shouldShowPtPerVisitRateSchedule(liveForm, contract)) {
+      const ptRateError = validatePtPerVisitFormRates(liveForm.perVisitRates);
+      if (ptRateError) {
+        setErrorMessage(ptRateError);
+        return;
+      }
+
+      perVisitRates = ptPerVisitRatesFromFormStrings(liveForm.perVisitRates);
+      payRate = resolveLegacyPayRateForPtPerVisit(0, perVisitRates);
+    } else if (!Number.isFinite(payRate) || payRate < 0) {
       setErrorMessage("Please enter a valid pay rate.");
       return;
     }
@@ -347,6 +468,7 @@ export default function EmploymentContractCard({
       employmentType: liveForm.employmentType,
       payType: liveForm.payType,
       payRate,
+      perVisitRates,
       mileageType: liveForm.mileageType,
       mileageRate,
       effectiveDate: liveForm.effectiveDate,
@@ -361,6 +483,7 @@ export default function EmploymentContractCard({
       employment_type: liveContractValues.employmentType,
       pay_type: liveContractValues.payType,
       pay_rate: liveContractValues.payRate,
+      per_visit_rates: hasPtPerVisitRates(perVisitRates) ? perVisitRates : null,
       mileage_type: liveContractValues.mileageType,
       mileage_rate: liveContractValues.mileageRate,
       effective_date: liveContractValues.effectiveDate,
@@ -394,6 +517,7 @@ export default function EmploymentContractCard({
         employment_type: payload.employment_type,
         pay_type: payload.pay_type,
         pay_rate: payload.pay_rate,
+        per_visit_rates: payload.per_visit_rates,
         mileage_type: payload.mileage_type,
         mileage_rate: payload.mileage_rate,
         effective_date: payload.effective_date,
@@ -613,19 +737,52 @@ export default function EmploymentContractCard({
           </select>
         </div>
 
-        <div>
-          <label className="mb-2 block text-sm font-semibold text-slate-700">Pay Rate</label>
-          <input
-            type="number"
-            min="0"
-            step="0.01"
-            value={form.payRate}
-            onChange={(event) => handleFieldChange("payRate", event.target.value)}
-            disabled={isFormDisabled}
-            placeholder="0.00"
-            className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-base text-slate-900 outline-none transition focus:border-sky-500 focus:ring-4 focus:ring-sky-100 disabled:bg-slate-50"
-          />
-        </div>
+        {showPtPerVisitRateSchedule ? (
+          <div className="md:col-span-2">
+            <p className="mb-3 text-sm font-semibold text-slate-700">PT Per Visit Rates</p>
+            <div className="grid gap-4 md:grid-cols-2">
+              {PT_PER_VISIT_RATE_FIELDS.map((field) => (
+                <div key={field.key}>
+                  <label className="mb-2 block text-sm font-semibold text-slate-700">
+                    {field.label}
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={form.perVisitRates[field.key]}
+                    onChange={(event) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        perVisitRates: {
+                          ...prev.perVisitRates,
+                          [field.key]: event.target.value,
+                        },
+                      }))
+                    }
+                    disabled={isFormDisabled}
+                    placeholder="0.00"
+                    className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-base text-slate-900 outline-none transition focus:border-sky-500 focus:ring-4 focus:ring-sky-100 disabled:bg-slate-50"
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div>
+            <label className="mb-2 block text-sm font-semibold text-slate-700">Pay Rate</label>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={form.payRate}
+              onChange={(event) => handleFieldChange("payRate", event.target.value)}
+              disabled={isFormDisabled}
+              placeholder="0.00"
+              className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-base text-slate-900 outline-none transition focus:border-sky-500 focus:ring-4 focus:ring-sky-100 disabled:bg-slate-50"
+            />
+          </div>
+        )}
 
         <div>
           <label className="mb-2 block text-sm font-semibold text-slate-700">Mileage Type</label>
@@ -719,7 +876,7 @@ export default function EmploymentContractCard({
         </div>
       </div>
 
-      {form.roleKey && form.payRate && form.effectiveDate ? (
+      {form.roleKey && isCompensationComplete(form, contract) ? (
         <div className="mt-6 rounded-[24px] border border-slate-200 bg-white p-5">
           <div className="flex flex-wrap items-center gap-3">
             <span className="rounded-full bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-700">
@@ -731,9 +888,15 @@ export default function EmploymentContractCard({
             <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
               {formatEmploymentTypeLabel(form.employmentType)}
             </span>
-            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
-              {formatPayTypeLabel(form.payType)} {formatCurrency(form.payRate)}
-            </span>
+            {showPtPerVisitRateSchedule ? (
+              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+                PT Per Visit Rates
+              </span>
+            ) : (
+              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+                {formatPayTypeLabel(form.payType)} {formatCurrency(form.payRate)}
+              </span>
+            )}
             <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
               {formatMileageTypeLabel(form.mileageType)}
               {form.mileageType === "per_mile" && form.mileageRate
@@ -741,6 +904,24 @@ export default function EmploymentContractCard({
                 : ""}
             </span>
           </div>
+
+          {showPtPerVisitRateSchedule ? (
+            <div className="mt-4 grid gap-3 rounded-[20px] border border-slate-200 bg-slate-50 p-4 sm:grid-cols-2">
+              {PT_PER_VISIT_RATE_FIELDS.map((field) => {
+                const rateValue = form.perVisitRates[field.key].trim();
+                return (
+                  <div key={field.key}>
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                      {field.label}
+                    </p>
+                    <p className="mt-1 text-sm font-medium text-slate-900">
+                      {rateValue ? `${formatCurrency(rateValue)} per visit` : "—"}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
 
           <div className="mt-5 rounded-[20px] border border-slate-200 bg-slate-50 p-4">
             <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
@@ -851,8 +1032,12 @@ export default function EmploymentContractCard({
                           Pay
                         </p>
                         <p className="mt-1 text-sm font-medium text-slate-900">
-                          {formatPayTypeLabel(historyContract.pay_type)}{" "}
-                          {formatCurrency(historyContract.pay_rate)}
+                          {formatContractPaySummary({
+                            roleKey: historyContract.role_key,
+                            payType: historyContract.pay_type,
+                            payRate: historyContract.pay_rate,
+                            perVisitRates: parsePtPerVisitRates(historyContract.per_visit_rates),
+                          })}
                         </p>
                       </div>
                       <div>

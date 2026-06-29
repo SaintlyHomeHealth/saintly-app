@@ -5,6 +5,34 @@ export type PayType = "per_visit" | "hourly" | "salary";
 export type MileageType = "none" | "per_mile";
 export type ContractStatus = "draft" | "sent" | "signed" | "void";
 
+export type PtPerVisitRateKey =
+  | "soc"
+  | "dc_roc_recert_oasis"
+  | "pt_eval"
+  | "pt_visit"
+  | "pta";
+
+export type PtPerVisitRates = Record<PtPerVisitRateKey, number | null>;
+
+export const PT_PER_VISIT_RATE_FIELDS: ReadonlyArray<{
+  key: PtPerVisitRateKey;
+  label: string;
+}> = [
+  { key: "soc", label: "SOC" },
+  { key: "dc_roc_recert_oasis", label: "DC / ROC / Recert OASIS" },
+  { key: "pt_eval", label: "PT Eval" },
+  { key: "pt_visit", label: "PT Visit" },
+  { key: "pta", label: "PTA" },
+];
+
+export const EMPTY_PT_PER_VISIT_RATES: PtPerVisitRates = {
+  soc: null,
+  dc_roc_recert_oasis: null,
+  pt_eval: null,
+  pt_visit: null,
+  pta: null,
+};
+
 export type EmployeeContractRow = {
   id: string;
   applicant_id: string;
@@ -14,6 +42,7 @@ export type EmployeeContractRow = {
   employment_type: EmploymentType;
   pay_type: PayType;
   pay_rate: number;
+  per_visit_rates?: PtPerVisitRates | null;
   mileage_type: MileageType;
   mileage_rate: number | null;
   effective_date: string;
@@ -32,7 +61,7 @@ export type EmployeeContractRow = {
 
 /** PostgREST select for admin contract lists and client history fetches (avoid `select("*")`). */
 export const EMPLOYEE_CONTRACT_ADMIN_LIST_COLUMNS =
-  "id, applicant_id, role_key, role_label, employment_classification, employment_type, pay_type, pay_rate, mileage_type, mileage_rate, effective_date, contract_status, contract_text_snapshot, admin_prepared_by, admin_prepared_at, employee_signed_name, employee_signed_at, created_at, updated_at, version_number, is_current";
+  "id, applicant_id, role_key, role_label, employment_classification, employment_type, pay_type, pay_rate, per_visit_rates, mileage_type, mileage_rate, effective_date, contract_status, contract_text_snapshot, admin_prepared_by, admin_prepared_at, employee_signed_name, employee_signed_at, created_at, updated_at, version_number, is_current";
 
 type ContractRoleConfig = {
   key: ContractRoleKey;
@@ -244,20 +273,146 @@ export function formatCurrency(value?: number | string | null) {
   }).format(numericValue);
 }
 
+export function isPtPerVisitContract(roleKey: ContractRoleKey | "", payType: PayType) {
+  return roleKey === "pt" && payType === "per_visit";
+}
+
+export function parsePtPerVisitRates(value: unknown): PtPerVisitRates | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const parsed: PtPerVisitRates = { ...EMPTY_PT_PER_VISIT_RATES };
+  let hasAnyRate = false;
+
+  for (const field of PT_PER_VISIT_RATE_FIELDS) {
+    const raw = record[field.key];
+    if (raw === null || raw === undefined || raw === "") {
+      parsed[field.key] = null;
+      continue;
+    }
+
+    const numericValue = typeof raw === "number" ? raw : Number(raw);
+    if (!Number.isFinite(numericValue) || numericValue < 0) {
+      return null;
+    }
+
+    parsed[field.key] = numericValue;
+    hasAnyRate = true;
+  }
+
+  return hasAnyRate ? parsed : null;
+}
+
+export function hasPtPerVisitRates(value?: PtPerVisitRates | null) {
+  if (!value) return false;
+  return PT_PER_VISIT_RATE_FIELDS.some((field) => {
+    const rate = value[field.key];
+    return typeof rate === "number" && Number.isFinite(rate);
+  });
+}
+
+export function ptPerVisitRatesFromFormStrings(input: Record<PtPerVisitRateKey, string>): PtPerVisitRates {
+  const rates: PtPerVisitRates = { ...EMPTY_PT_PER_VISIT_RATES };
+
+  for (const field of PT_PER_VISIT_RATE_FIELDS) {
+    const trimmed = input[field.key].trim();
+    if (!trimmed) continue;
+
+    const numericValue = Number(trimmed);
+    if (Number.isFinite(numericValue) && numericValue >= 0) {
+      rates[field.key] = numericValue;
+    }
+  }
+
+  return rates;
+}
+
+export function ptPerVisitRatesToFormStrings(
+  rates?: PtPerVisitRates | null
+): Record<PtPerVisitRateKey, string> {
+  const formValues = {} as Record<PtPerVisitRateKey, string>;
+
+  for (const field of PT_PER_VISIT_RATE_FIELDS) {
+    const rate = rates?.[field.key];
+    formValues[field.key] = typeof rate === "number" && Number.isFinite(rate) ? String(rate) : "";
+  }
+
+  return formValues;
+}
+
+export function resolveLegacyPayRateForPtPerVisit(
+  payRate: number,
+  perVisitRates?: PtPerVisitRates | null
+) {
+  if (hasPtPerVisitRates(perVisitRates)) {
+    const ptVisit = perVisitRates?.pt_visit;
+    if (typeof ptVisit === "number" && Number.isFinite(ptVisit)) {
+      return ptVisit;
+    }
+
+    for (const field of PT_PER_VISIT_RATE_FIELDS) {
+      const rate = perVisitRates?.[field.key];
+      if (typeof rate === "number" && Number.isFinite(rate)) {
+        return rate;
+      }
+    }
+  }
+
+  return payRate;
+}
+
+export function buildPtPerVisitCompensationSection(rates: PtPerVisitRates) {
+  const lines = PT_PER_VISIT_RATE_FIELDS.map((field) => {
+    const rate = rates[field.key];
+    const formattedRate =
+      typeof rate === "number" && Number.isFinite(rate) ? formatCurrency(rate) : "$___";
+    return `- ${field.label}: ${formattedRate} per visit`;
+  });
+
+  return ["Compensation:", ...lines].join("\n");
+}
+
+export function formatContractPaySummary(input: {
+  roleKey: ContractRoleKey;
+  payType: PayType;
+  payRate: number;
+  perVisitRates?: PtPerVisitRates | null;
+}) {
+  if (
+    isPtPerVisitContract(input.roleKey, input.payType) &&
+    hasPtPerVisitRates(input.perVisitRates)
+  ) {
+    return "PT Per Visit Rates";
+  }
+
+  return `${formatPayTypeLabel(input.payType)} ${formatCurrency(input.payRate)}`;
+}
+
 export function buildEmployeeContractText(input: {
   roleKey: ContractRoleKey;
   employmentClassification: EmploymentClassification;
   employmentType: EmploymentType;
   payType: PayType;
   payRate: number;
+  perVisitRates?: PtPerVisitRates | null;
   mileageType: MileageType;
   mileageRate: number | null;
   effectiveDate: string;
 }) {
   const role = getContractRoleConfig(input.roleKey);
-  const compensationLine = `${formatPayTypeLabel(input.payType)} compensation will be paid at ${formatCurrency(
-    input.payRate
-  )}.`;
+  const usePtPerVisitSchedule =
+    isPtPerVisitContract(input.roleKey, input.payType) &&
+    hasPtPerVisitRates(input.perVisitRates);
+  const compensationBlocks = usePtPerVisitSchedule
+    ? [buildPtPerVisitCompensationSection(input.perVisitRates!)]
+    : [
+        "Compensation",
+        `${formatPayTypeLabel(input.payType)} compensation will be paid at ${formatCurrency(
+          input.payRate
+        )}.`,
+      ];
   const mileageLine =
     input.mileageType === "per_mile" && input.mileageRate !== null
       ? `Mileage will be reimbursed at ${formatCurrency(input.mileageRate)} per mile for approved work-related travel.`
@@ -282,8 +437,7 @@ export function buildEmployeeContractText(input: {
       "The employee must maintain all required credentials, health clearances, certifications, and training applicable to the role and comply with Saintly Home Health policies, scheduling practices, documentation standards, and supervisory direction.",
       "Term and Termination",
       "Employment begins on the effective date above and is expected to continue unless changed or ended by the employee or Saintly Home Health in accordance with agency policy and applicable law. Job duties, assignments, territories, and schedules may change based on patient care and operational needs.",
-      "Compensation",
-      compensationLine,
+      ...compensationBlocks,
       mileageLine,
       "Compensation, payroll deductions, benefits eligibility, and reimbursements will be administered in accordance with payroll practices, applicable law, and Saintly Home Health policies.",
       "Acknowledgment",
@@ -309,8 +463,7 @@ export function buildEmployeeContractText(input: {
     "The worker agrees to maintain any required professional coverage, credentials, and legal qualifications applicable to the role. Each party remains responsible for its own acts and omissions to the extent permitted by law and applicable insurance coverage.",
     "Term and Termination",
     "This agreement begins on the effective date above and continues until modified or ended by either party in accordance with agency policy, applicable law, and any required notice obligations. Saintly Home Health may update assignments, schedules, and expectations based on operational needs.",
-    "Compensation",
-    compensationLine,
+    ...compensationBlocks,
     mileageLine,
     "All compensation and reimbursements are subject to applicable payroll practices, documentation standards, and agency approval requirements.",
     "Acknowledgment",

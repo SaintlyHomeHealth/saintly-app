@@ -9,6 +9,10 @@ import {
   formatEmploymentTypeLabel,
   formatMileageTypeLabel,
   formatPayTypeLabel,
+  hasPtPerVisitRates,
+  parsePtPerVisitRates,
+  PT_PER_VISIT_RATE_FIELDS,
+  type ContractRoleKey,
 } from "@/lib/employee-contracts";
 import { getTaxFormLabel, normalizeTaxFormData } from "@/lib/employee-tax-forms";
 import { insertAuditLog } from "@/lib/audit-log";
@@ -131,11 +135,13 @@ type OnboardingContractRow = {
 };
 
 type EmployeeContractPdfRow = {
+  role_key?: ContractRoleKey | null;
   role_label?: string | null;
   employment_classification?: "employee" | "contractor" | null;
   employment_type?: "prn" | "part_time" | "full_time" | null;
   pay_type?: "per_visit" | "hourly" | "salary" | null;
   pay_rate?: number | null;
+  per_visit_rates?: Record<string, unknown> | null;
   mileage_type?: "none" | "per_mile" | null;
   mileage_rate?: number | null;
   effective_date?: string | null;
@@ -391,7 +397,7 @@ export async function GET(
       supabaseAdmin
         .from("employee_contracts")
         .select(
-          "role_label, employment_classification, employment_type, pay_type, pay_rate, mileage_type, mileage_rate, effective_date, contract_status, contract_text_snapshot, admin_prepared_by, admin_prepared_at, employee_signed_name, employee_signed_at, version_number, updated_at"
+          "role_key, role_label, employment_classification, employment_type, pay_type, pay_rate, per_visit_rates, mileage_type, mileage_rate, effective_date, contract_status, contract_text_snapshot, admin_prepared_by, admin_prepared_at, employee_signed_name, employee_signed_at, version_number, updated_at"
         )
         .eq("applicant_id", employeeId)
         .eq("is_current", true)
@@ -677,7 +683,23 @@ export async function GET(
           "Pay Type",
           employeeContract.pay_type ? formatPayTypeLabel(employeeContract.pay_type) : "—"
         );
-        drawField("Pay Rate", formatCurrency(employeeContract.pay_rate));
+        const parsedPtRates = parsePtPerVisitRates(employeeContract.per_visit_rates);
+        if (
+          employeeContract.role_key === "pt" &&
+          employeeContract.pay_type === "per_visit" &&
+          hasPtPerVisitRates(parsedPtRates)
+        ) {
+          drawField("Pay Summary", "PT Per Visit Rates");
+          for (const field of PT_PER_VISIT_RATE_FIELDS) {
+            const rate = parsedPtRates?.[field.key];
+            drawField(
+              field.label,
+              typeof rate === "number" ? `${formatCurrency(rate)} per visit` : "—"
+            );
+          }
+        } else {
+          drawField("Pay Rate", formatCurrency(employeeContract.pay_rate));
+        }
         drawField(
           "Mileage",
           employeeContract.mileage_type
