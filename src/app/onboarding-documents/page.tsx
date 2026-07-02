@@ -18,6 +18,10 @@ import {
   ONBOARDING_PORTAL_FORMS_SELECT,
   type OnboardingPortalFormsRecord,
 } from '@/lib/onboarding/portal-documents-status'
+import {
+  EMPLOYEE_HANDBOOK_ACKNOWLEDGEMENT_AGREEMENT_TEXT,
+  isEmployeeHandbookAcknowledgementComplete,
+} from '@/lib/onboarding/employee-handbook-acknowledgement'
 import { supabase } from '../../lib/supabase/client'
 
 const AUTO_INSURANCE_DOCUMENT_TYPE = 'auto_insurance'
@@ -274,7 +278,11 @@ export default function OnboardingDocumentsPage() {
 
   const [applicantId, setApplicantId] = useState('')
   const [uploadedDocs, setUploadedDocs] = useState<string[]>([])
-  const [handbookAcknowledged, setHandbookAcknowledged] = useState(false)
+  const [handbookForm, setHandbookForm] = useState({
+    acknowledged: false,
+    fullName: '',
+    signedDate: '',
+  })
   const [conflictForm, setConflictForm] = useState({
     acknowledged: false,
     disclosure: 'None',
@@ -292,10 +300,13 @@ export default function OnboardingDocumentsPage() {
     signedDate: '',
   })
   const [tbForm, setTbForm] = useState<TbFormData>(defaultTbForm)
+  const [isSavingHandbookForm, setIsSavingHandbookForm] = useState(false)
   const [isSavingConflictForm, setIsSavingConflictForm] = useState(false)
   const [isSavingElectronicAgreementForm, setIsSavingElectronicAgreementForm] = useState(false)
   const [isSavingHepBDeclinationForm, setIsSavingHepBDeclinationForm] = useState(false)
   const [isSavingTbForm, setIsSavingTbForm] = useState(false)
+  const [handbookFormMessage, setHandbookFormMessage] = useState('')
+  const [handbookFormError, setHandbookFormError] = useState('')
   const [conflictFormMessage, setConflictFormMessage] = useState('')
   const [conflictFormError, setConflictFormError] = useState('')
   const [electronicAgreementFormMessage, setElectronicAgreementFormMessage] = useState('')
@@ -372,11 +383,19 @@ export default function OnboardingDocumentsPage() {
         details: (error as { details?: string })?.details,
         hint: (error as { hint?: string })?.hint,
       })
-      setHandbookAcknowledged(false)
+      setHandbookForm({
+        acknowledged: false,
+        fullName: '',
+        signedDate: '',
+      })
       return
     }
 
-    setHandbookAcknowledged(Boolean(data?.handbook_acknowledged))
+    setHandbookForm({
+      acknowledged: Boolean(data?.handbook_acknowledged),
+      fullName: data?.handbook_full_name || '',
+      signedDate: data?.handbook_signed_at ? data.handbook_signed_at.slice(0, 10) : '',
+    })
     setOnboardingSelectedRole(data?.selected_role || '')
     setConflictForm({
       acknowledged: Boolean(data?.conflict_confidentiality_acknowledged),
@@ -482,6 +501,11 @@ export default function OnboardingDocumentsPage() {
     })
   }, [applicantId])
 
+  const isHandbookFormComplete = isEmployeeHandbookAcknowledgementComplete({
+    handbook_acknowledged: handbookForm.acknowledged,
+    handbook_full_name: handbookForm.fullName,
+    handbook_signed_at: handbookForm.signedDate || null,
+  })
   const isConflictFormComplete =
     conflictForm.acknowledged &&
     conflictForm.disclosure.trim().length > 0 &&
@@ -511,7 +535,9 @@ export default function OnboardingDocumentsPage() {
     Boolean(tbForm.signedDate)
   const onboardingFormsChecklistRecord = useMemo<OnboardingPortalFormsRecord>(
     () => ({
-      handbook_acknowledged: handbookAcknowledged,
+      handbook_acknowledged: handbookForm.acknowledged,
+      handbook_full_name: handbookForm.fullName,
+      handbook_signed_at: handbookForm.signedDate || null,
       conflict_confidentiality_acknowledged: conflictForm.acknowledged,
       conflict_confidentiality_disclosure: conflictForm.disclosure,
       conflict_confidentiality_full_name: conflictForm.fullName,
@@ -553,7 +579,7 @@ export default function OnboardingDocumentsPage() {
       tb_signed_at: tbForm.signedDate || null,
     }),
     [
-      handbookAcknowledged,
+      handbookForm,
       conflictForm,
       electronicAgreementForm,
       hepBDeclinationForm,
@@ -626,6 +652,49 @@ export default function OnboardingDocumentsPage() {
     [optionalDocumentChecklist, uploadedDocs]
   )
   const optionalUploadsCompletedCount = optionalUploadChecklistItems.filter((item) => item.complete).length
+
+  const handleHandbookFormSave = async () => {
+    if (!applicantId) return
+
+    setHandbookFormMessage('')
+    setHandbookFormError('')
+
+    if (
+      !handbookForm.acknowledged ||
+      !handbookForm.fullName.trim() ||
+      !handbookForm.signedDate
+    ) {
+      setHandbookFormError(
+        'Please complete the acknowledgment, full legal name, and date before saving.'
+      )
+      return
+    }
+
+    setIsSavingHandbookForm(true)
+
+    const signedAt = new Date(`${handbookForm.signedDate}T12:00:00Z`).toISOString()
+    const payload = {
+      applicant_id: applicantId,
+      handbook_acknowledged: true,
+      handbook_full_name: handbookForm.fullName.trim(),
+      handbook_signed_at: signedAt,
+    }
+
+    const { error } = await supabase
+      .from('onboarding_contracts')
+      .upsert(payload, { onConflict: 'applicant_id' })
+      .select()
+
+    if (error) {
+      console.error('Error saving employee handbook acknowledgement form:', error)
+      setHandbookFormError('We could not save this form right now. Please try again.')
+      setIsSavingHandbookForm(false)
+      return
+    }
+
+    setHandbookFormMessage('Employee Handbook Acknowledgement saved.')
+    setIsSavingHandbookForm(false)
+  }
 
   const handleConflictFormSave = async () => {
     if (!applicantId) return
@@ -1065,46 +1134,55 @@ export default function OnboardingDocumentsPage() {
 
               <section className="shh-doc-list">
                 <article
-                  className={`shh-doc-card ${handbookAcknowledged ? 'is-uploaded' : ''}`}
+                  className={`shh-doc-card shh-doc-card--portal ${isHandbookFormComplete ? 'is-uploaded' : ''}`}
                 >
-                  <div className="shh-doc-main">
+                  <div className="shh-doc-main shh-doc-main--portal">
                     <div className="shh-doc-copy-wrap">
                       <div className="shh-doc-meta">
-                        <span className="shh-doc-type">Required Review</span>
+                        <span className="shh-doc-type">Portal Form</span>
                         <span className="shh-doc-category">Saintly Policies</span>
-                        {handbookAcknowledged ? (
-                          <span className="shh-doc-complete">Acknowledged</span>
+                        {isHandbookFormComplete ? (
+                          <span className="shh-doc-complete">Completed</span>
                         ) : null}
                       </div>
 
-                      <h2 className="shh-doc-title">Employee Handbook</h2>
+                      <h2 className="shh-doc-title">Employee Handbook Acknowledgement</h2>
 
                       <p className="shh-doc-copy">
-                        Review the Saintly Home Health Employee Handbook and confirm your
-                        acknowledgment in the onboarding portal. If a handbook file has already
-                        been uploaded to this onboarding session, you can view it here.
+                        Review the Saintly Home Health Employee Handbook and complete this
+                        acknowledgement in the portal. You can download the handbook below at any
+                        time while completing this step.
                       </p>
 
                       <p className="shh-doc-status-text">
-                        Status: {handbookAcknowledged ? 'Completed' : 'Missing'}
+                        Status: {isHandbookFormComplete ? 'Completed' : 'Missing'}
                       </p>
 
                       <p className="shh-handbook-note">
-                        Handbook acknowledgment is tracked using the existing onboarding contracts
-                        record and is not added to the Step 3 upload gate.
+                        This required portal form is counted in Step 3 progress and must be
+                        completed before you can continue to contracts.
                       </p>
                     </div>
 
-                    <div className="shh-doc-action-card">
+                    <div className="shh-doc-action-card shh-doc-action-card--form">
                       <div
                         className={`shh-status-pill ${
-                          handbookAcknowledged ? 'is-uploaded' : 'is-missing'
+                          isHandbookFormComplete ? 'is-uploaded' : 'is-missing'
                         }`}
                       >
-                        {handbookAcknowledged ? 'Completed' : 'Missing'}
+                        {isHandbookFormComplete ? 'Completed' : 'Missing'}
                       </div>
 
-                      <div className="shh-upload-wrap">
+                      <div className="shh-portal-form">
+                        <div className="shh-agreement-block">
+                          <div className="shh-agreement-label">Agreement Text</div>
+                          <div className="shh-agreement-copy">
+                            {EMPLOYEE_HANDBOOK_ACKNOWLEDGEMENT_AGREEMENT_TEXT.map((paragraph) => (
+                              <p key={paragraph}>{paragraph}</p>
+                            ))}
+                          </div>
+                        </div>
+
                         <a
                           href="/employee-handbook.pdf"
                           target="_blank"
@@ -1113,6 +1191,87 @@ export default function OnboardingDocumentsPage() {
                         >
                           Download Handbook
                         </a>
+
+                        <label className="shh-checkbox-card">
+                          <input
+                            type="checkbox"
+                            checked={handbookForm.acknowledged}
+                            onChange={(event) => {
+                              setHandbookForm((prev) => ({
+                                ...prev,
+                                acknowledged: event.target.checked,
+                              }))
+                              setHandbookFormMessage('')
+                              setHandbookFormError('')
+                            }}
+                            className="shh-checkbox-input"
+                          />
+                          <span className="shh-checkbox-copy">
+                            I have read and agree to the Employee Handbook Acknowledgement.
+                          </span>
+                        </label>
+
+                        <div className="shh-form-field">
+                          <label htmlFor="handbookFullName" className="shh-form-label">
+                            Full Legal Name
+                          </label>
+                          <input
+                            id="handbookFullName"
+                            type="text"
+                            value={handbookForm.fullName}
+                            onChange={(event) => {
+                              setHandbookForm((prev) => ({
+                                ...prev,
+                                fullName: event.target.value,
+                              }))
+                              setHandbookFormMessage('')
+                              setHandbookFormError('')
+                            }}
+                            className="shh-form-input"
+                            placeholder="Type your full legal name"
+                          />
+                        </div>
+
+                        <div className="shh-form-field">
+                          <label htmlFor="handbookSignedDate" className="shh-form-label">
+                            Date
+                          </label>
+                          <input
+                            id="handbookSignedDate"
+                            type="date"
+                            value={handbookForm.signedDate}
+                            onChange={(event) => {
+                              setHandbookForm((prev) => ({
+                                ...prev,
+                                signedDate: event.target.value,
+                              }))
+                              setHandbookFormMessage('')
+                              setHandbookFormError('')
+                            }}
+                            className="shh-form-input"
+                          />
+                        </div>
+
+                        <button
+                          type="button"
+                          className="shh-btn shh-btn--primary"
+                          onClick={handleHandbookFormSave}
+                          disabled={isSavingHandbookForm}
+                        >
+                          {isSavingHandbookForm ? 'Saving...' : 'Save Form'}
+                        </button>
+
+                        {handbookFormMessage ? (
+                          <div className="shh-form-message shh-form-message--success">
+                            {handbookFormMessage}
+                          </div>
+                        ) : null}
+
+                        {handbookFormError ? (
+                          <div className="shh-form-message shh-form-message--error">
+                            {handbookFormError}
+                          </div>
+                        ) : null}
                       </div>
                     </div>
                   </div>

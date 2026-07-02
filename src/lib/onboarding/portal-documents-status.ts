@@ -1,3 +1,10 @@
+import {
+  EMPLOYEE_HANDBOOK_ACKNOWLEDGEMENT_KEY,
+  EMPLOYEE_HANDBOOK_ACKNOWLEDGEMENT_LABEL,
+  isEmployeeHandbookAcknowledgementComplete,
+  type EmployeeHandbookAcknowledgementRecord,
+} from "./employee-handbook-acknowledgement";
+
 export const REQUIRED_ONBOARDING_DOCUMENT_TYPES = [
   "resume",
   "headshot",
@@ -9,7 +16,7 @@ export const REQUIRED_ONBOARDING_DOCUMENT_TYPES = [
 ] as const;
 
 export const REQUIRED_ONBOARDING_PORTAL_FORM_KEYS = [
-  "employee_handbook_ack",
+  EMPLOYEE_HANDBOOK_ACKNOWLEDGEMENT_KEY,
   "conflict_of_interest",
   "electronic_signature_agreement",
   "hepatitis_b_declination",
@@ -33,9 +40,8 @@ export type OnboardingDocumentChecklistItem = {
   complete: boolean;
 };
 
-export type OnboardingPortalFormsRecord = {
+export type OnboardingPortalFormsRecord = EmployeeHandbookAcknowledgementRecord & {
   completed?: boolean | null;
-  handbook_acknowledged?: boolean | null;
   conflict_confidentiality_acknowledged?: boolean | null;
   conflict_confidentiality_disclosure?: string | null;
   conflict_confidentiality_full_name?: string | null;
@@ -75,6 +81,8 @@ export type OnboardingPortalFormsRecord = {
 export const ONBOARDING_PORTAL_FORMS_SELECT = `
   completed,
   handbook_acknowledged,
+  handbook_full_name,
+  handbook_signed_at,
   conflict_confidentiality_acknowledged,
   conflict_confidentiality_disclosure,
   conflict_confidentiality_full_name,
@@ -119,7 +127,7 @@ export function getOnboardingPortalFormChecklist(
   record: OnboardingPortalFormsRecord | null | undefined
 ): OnboardingPortalFormChecklistItem[] {
   const forms = record ?? null;
-  const handbookComplete = forms?.handbook_acknowledged === true;
+  const handbookComplete = isEmployeeHandbookAcknowledgementComplete(forms);
   const conflictComplete =
     forms?.conflict_confidentiality_acknowledged === true &&
     hasText(forms?.conflict_confidentiality_disclosure) &&
@@ -150,8 +158,8 @@ export function getOnboardingPortalFormChecklist(
 
   return [
     {
-      key: "employee_handbook_ack",
-      label: "Employee Handbook",
+      key: EMPLOYEE_HANDBOOK_ACKNOWLEDGEMENT_KEY,
+      label: EMPLOYEE_HANDBOOK_ACKNOWLEDGEMENT_LABEL,
       complete: handbookComplete,
     },
     {

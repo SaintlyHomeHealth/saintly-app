@@ -1,4 +1,8 @@
 import { NextResponse } from "next/server";
+import {
+  EMPLOYEE_HANDBOOK_ACKNOWLEDGEMENT_KEY,
+  isEmployeeHandbookAcknowledgementDocumentKey,
+} from "@/lib/onboarding/employee-handbook-acknowledgement";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { supabaseAdmin } from "@/lib/admin";
 import { getAuthenticatedUser } from "@/lib/supabase/server";
@@ -31,7 +35,7 @@ type SupportedDocumentType =
   | "tax"
   | "training"
   | "application"
-  | "employee_handbook"
+  | "employee_handbook_acknowledgement"
   | "job_acceptance"
   | "i9"
   | "conflict_of_interest"
@@ -61,6 +65,8 @@ type OnboardingContractRow = {
   completed?: boolean | null;
   signed_at?: string | null;
   handbook_acknowledged?: boolean | null;
+  handbook_full_name?: string | null;
+  handbook_signed_at?: string | null;
   job_description_acknowledged?: boolean | null;
   policies_acknowledged?: boolean | null;
   electronic_signature?: string | null;
@@ -213,12 +219,18 @@ function shouldInlinePdf(value: string | null) {
 
 function getDocumentType(value: string | null): SupportedDocumentType {
   if (
+    value &&
+    isEmployeeHandbookAcknowledgementDocumentKey(value)
+  ) {
+    return EMPLOYEE_HANDBOOK_ACKNOWLEDGEMENT_KEY;
+  }
+
+  if (
     value === "contract" ||
     value === "employment_contract" ||
     value === "tax" ||
     value === "training" ||
     value === "application" ||
-    value === "employee_handbook" ||
     value === "job_acceptance" ||
     value === "i9" ||
     value === "conflict_of_interest" ||
@@ -388,7 +400,7 @@ export async function GET(
       supabaseAdmin
         .from("onboarding_contracts")
         .select(
-          "selected_role, role_title, role_description, completed, signed_at, handbook_acknowledged, job_description_acknowledged, policies_acknowledged, electronic_signature, job_acceptance_acknowledged, job_acceptance_full_name, job_acceptance_signed_at, i9_s1_last_name, i9_s1_first_name, i9_s1_middle_initial, i9_s1_other_last_names, i9_s1_street_address, i9_s1_apt_number, i9_s1_city, i9_s1_state, i9_s1_zip_code, i9_s1_dob, i9_s1_ssn, i9_s1_email, i9_s1_phone, i9_s1_attest_status, i9_s1_lpr_a_number, i9_s1_alien_work_until, i9_s1_alien_id_type, i9_s1_alien_a_number, i9_s1_i94_number, i9_s1_foreign_passport_number, i9_s1_passport_country, i9_s1_prep_used, i9_s1_prep_full_name, i9_s1_prep_street, i9_s1_prep_city, i9_s1_prep_state, i9_s1_prep_zip, i9_s1_employee_ack, i9_s1_employee_full_name, i9_s1_signed_at, conflict_confidentiality_acknowledged, conflict_confidentiality_disclosure, conflict_confidentiality_full_name, conflict_confidentiality_signed_at, electronic_signature_agreement_acknowledged, electronic_signature_agreement_full_name, electronic_signature_agreement_signed_at, hep_b_declination_acknowledged, hep_b_declination_full_name, hep_b_declination_signed_at, tb_history_positive_test_or_infection, tb_history_bcg_vaccine, tb_symptom_prolonged_recurrent_fever, tb_symptom_recent_weight_loss, tb_symptom_chronic_cough, tb_symptom_coughing_blood, tb_symptom_night_sweats, tb_risk_silicosis, tb_risk_gastrectomy, tb_risk_intestinal_bypass, tb_risk_weight_10_percent_below_ideal, tb_risk_chronic_renal_disease, tb_risk_diabetes_mellitus, tb_risk_steroid_or_immunosuppressive_therapy, tb_risk_hematologic_disorder, tb_risk_exposure_to_hiv_or_aids, tb_risk_other_malignancies, tb_baseline_residence_high_tb_country, tb_baseline_current_or_planned_immunosuppression, tb_baseline_close_contact_with_infectious_tb, tb_additional_comments, tb_acknowledged, tb_full_name, tb_signed_at, created_at"
+          "selected_role, role_title, role_description, completed, signed_at, handbook_acknowledged, handbook_full_name, handbook_signed_at, job_description_acknowledged, policies_acknowledged, electronic_signature, job_acceptance_acknowledged, job_acceptance_full_name, job_acceptance_signed_at, i9_s1_last_name, i9_s1_first_name, i9_s1_middle_initial, i9_s1_other_last_names, i9_s1_street_address, i9_s1_apt_number, i9_s1_city, i9_s1_state, i9_s1_zip_code, i9_s1_dob, i9_s1_ssn, i9_s1_email, i9_s1_phone, i9_s1_attest_status, i9_s1_lpr_a_number, i9_s1_alien_work_until, i9_s1_alien_id_type, i9_s1_alien_a_number, i9_s1_i94_number, i9_s1_foreign_passport_number, i9_s1_passport_country, i9_s1_prep_used, i9_s1_prep_full_name, i9_s1_prep_street, i9_s1_prep_city, i9_s1_prep_state, i9_s1_prep_zip, i9_s1_employee_ack, i9_s1_employee_full_name, i9_s1_signed_at, conflict_confidentiality_acknowledged, conflict_confidentiality_disclosure, conflict_confidentiality_full_name, conflict_confidentiality_signed_at, electronic_signature_agreement_acknowledged, electronic_signature_agreement_full_name, electronic_signature_agreement_signed_at, hep_b_declination_acknowledged, hep_b_declination_full_name, hep_b_declination_signed_at, tb_history_positive_test_or_infection, tb_history_bcg_vaccine, tb_symptom_prolonged_recurrent_fever, tb_symptom_recent_weight_loss, tb_symptom_chronic_cough, tb_symptom_coughing_blood, tb_symptom_night_sweats, tb_risk_silicosis, tb_risk_gastrectomy, tb_risk_intestinal_bypass, tb_risk_weight_10_percent_below_ideal, tb_risk_chronic_renal_disease, tb_risk_diabetes_mellitus, tb_risk_steroid_or_immunosuppressive_therapy, tb_risk_hematologic_disorder, tb_risk_exposure_to_hiv_or_aids, tb_risk_other_malignancies, tb_baseline_residence_high_tb_country, tb_baseline_current_or_planned_immunosuppression, tb_baseline_close_contact_with_infectious_tb, tb_additional_comments, tb_acknowledged, tb_full_name, tb_signed_at, created_at"
         )
         .eq("applicant_id", employeeId)
         .order("created_at", { ascending: false })
@@ -617,8 +629,8 @@ export async function GET(
               ? "Training Certificate"
               : documentType === "application"
                 ? "Application Record"
-                : documentType === "employee_handbook"
-                  ? "Employee Handbook Acknowledgment"
+                : documentType === "employee_handbook_acknowledgement"
+                  ? "Employee Handbook Acknowledgement"
                   : documentType === "job_acceptance"
                     ? "Job Acceptance Statement"
                     : documentType === "i9"
@@ -830,20 +842,23 @@ export async function GET(
       drawField("Employee ID", employee.id);
       drawDivider();
       drawTrainingCertificateBody();
-    } else if (documentType === "employee_handbook") {
+    } else if (documentType === "employee_handbook_acknowledgement") {
       drawPortalFormSection({
-        title: "Employee Handbook Acknowledgment",
+        title: "Employee Handbook Acknowledgement",
         intro: [
           "I acknowledge that I have reviewed or received access to the Saintly Home Health employee handbook and understand I am responsible for following agency standards, professionalism, and compliance expectations.",
         ],
         acknowledged: onboardingContract?.handbook_acknowledged === true,
         signerName:
+          onboardingContract?.handbook_full_name ||
           onboardingContract?.job_acceptance_full_name ||
           onboardingContract?.electronic_signature ||
           employeeName ||
           "—",
-        signedAt: onboardingContract?.signed_at,
-        completionAt: onboardingContract?.signed_at,
+        signedAt:
+          onboardingContract?.handbook_signed_at || onboardingContract?.signed_at,
+        completionAt:
+          onboardingContract?.handbook_signed_at || onboardingContract?.signed_at,
       });
     } else if (documentType === "job_acceptance") {
       drawPortalFormSection({
@@ -1121,18 +1136,21 @@ export async function GET(
 
     if (documentType === "full") {
       drawPortalFormSection({
-        title: "Employee Handbook Acknowledgment",
+        title: "Employee Handbook Acknowledgement",
         intro: [
           "I acknowledge that I have reviewed or received access to the Saintly Home Health employee handbook and understand I am responsible for following agency standards, professionalism, and compliance expectations.",
         ],
         acknowledged: onboardingContract?.handbook_acknowledged === true,
         signerName:
+          onboardingContract?.handbook_full_name ||
           onboardingContract?.job_acceptance_full_name ||
           onboardingContract?.electronic_signature ||
           employeeName ||
           "—",
-        signedAt: onboardingContract?.signed_at,
-        completionAt: onboardingContract?.signed_at,
+        signedAt:
+          onboardingContract?.handbook_signed_at || onboardingContract?.signed_at,
+        completionAt:
+          onboardingContract?.handbook_signed_at || onboardingContract?.signed_at,
       });
 
       drawPortalFormSection({
@@ -1309,8 +1327,8 @@ export async function GET(
               ? `${safeEmployeeName}-training-certificate.pdf`
               : documentType === "application"
                 ? `${safeEmployeeName}-application.pdf`
-                : documentType === "employee_handbook"
-                  ? `${safeEmployeeName}-employee-handbook.pdf`
+                : documentType === "employee_handbook_acknowledgement"
+                  ? `${safeEmployeeName}-employee-handbook-acknowledgement.pdf`
                   : documentType === "job_acceptance"
                     ? `${safeEmployeeName}-job-acceptance.pdf`
                     : documentType === "i9"

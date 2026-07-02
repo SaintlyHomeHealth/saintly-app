@@ -28,6 +28,7 @@
     "verify:facebook-recruiting-leads": "tsx scripts/verify-facebook-recruiting-leads.ts",
     "verify:facebook-wound-care-leads": "tsx scripts/verify-facebook-wound-care-leads.ts",
     "verify:global-search-navigation": "tsx scripts/verify-global-search-navigation.ts",
+    "verify:employee-handbook-acknowledgement": "tsx scripts/verify-employee-handbook-acknowledgement.ts",
     "verify:recruiting-discipline-parse": "NODE_OPTIONS='--conditions=react-server' tsx scripts/verify-recruiting-discipline-parse.ts",
     "verify:recruiting-name-parse": "NODE_OPTIONS='--conditions=react-server' tsx scripts/verify-recruiting-name-parse.ts",
     "verify:recruiting-location-parse": "NODE_OPTIONS='--conditions=react-server' tsx scripts/verify-recruiting-location-parse.ts",

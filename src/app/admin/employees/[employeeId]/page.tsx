@@ -50,6 +50,7 @@ import {
   ONBOARDING_PORTAL_FORMS_SELECT,
   type OnboardingPortalFormsRecord,
 } from "@/lib/onboarding/portal-documents-status";
+import { EMPLOYEE_HANDBOOK_ACKNOWLEDGEMENT_KEY } from "@/lib/onboarding/employee-handbook-acknowledgement";
 import { calculateTrainingCompletionSummary } from "@/lib/onboarding/training-status";
 import {
   buildUnifiedOnboardingState,
@@ -2003,7 +2004,7 @@ export default async function EmployeeDetailPage({
   const taxFormPdfHref = employeeTaxForm
     ? `/admin/employees/${employeeId}/employee-file?document=tax`
     : null;
-  const handbookPdfHref = `/admin/employees/${employeeId}/employee-file?document=employee_handbook`;
+  const handbookPdfHref = `/admin/employees/${employeeId}/employee-file?document=${EMPLOYEE_HANDBOOK_ACKNOWLEDGEMENT_KEY}`;
   const jobAcceptancePdfHref = `/admin/employees/${employeeId}/employee-file?document=job_acceptance`;
   const i9PdfHref = `/admin/employees/${employeeId}/employee-file?document=i9`;
   const conflictPdfHref = `/admin/employees/${employeeId}/employee-file?document=conflict_of_interest`;
@@ -2350,7 +2351,8 @@ export default async function EmployeeDetailPage({
   const hasResumeOnFile =
     portalStatus.documentItems.find((item) => item.key === "resume")?.complete === true;
   const hasEmployeeHandbookAck =
-    portalStatus.formItems.find((item) => item.key === "employee_handbook_ack")?.complete === true;
+    portalStatus.formItems.find((item) => item.key === EMPLOYEE_HANDBOOK_ACKNOWLEDGEMENT_KEY)
+      ?.complete === true;
   const hasJobAcceptanceStatement =
     onboardingContractStatus?.job_acceptance_acknowledged === true &&
     Boolean(String(onboardingContractStatus?.job_acceptance_full_name || "").trim()) &&
@@ -2507,7 +2509,7 @@ export default async function EmployeeDetailPage({
     !isTrainingComplete ? "Training" : null,
     !hasJobAcceptanceStatement ? "Job Acceptance Statement" : null,
     !hasI9Section1 ? "I-9" : null,
-    !hasEmployeeHandbookAck ? "Employee Handbook" : null,
+    !hasEmployeeHandbookAck ? "Employee Handbook Acknowledgement" : null,
     !hasConflictOfInterestForm ? "Conflict of Interest + Confidentiality" : null,
     !hasElectronicSignatureAgreement ? "Electronic Documentation Signature Agreement" : null,
     !hasHepatitisBDeclination ? "Hepatitis B Vaccine Declination" : null,
@@ -2950,17 +2952,19 @@ export default async function EmployeeDetailPage({
     },
     {
       key: "employee-handbook",
-      label: "Employee Handbook",
+      label: "Employee Handbook Acknowledgement",
       itemType: "form",
       statusLabel: hasEmployeeHandbookAck ? "Complete" : "Missing",
       statusTone: hasEmployeeHandbookAck ? "green" : "red",
-      lastUpdatedDisplay: onboardingContractStatus?.signed_at
-        ? formatDateTime(onboardingContractStatus.signed_at)
-        : "—",
+      lastUpdatedDisplay: onboardingContractStatus?.handbook_signed_at
+        ? formatDateTime(onboardingContractStatus.handbook_signed_at)
+        : onboardingContractStatus?.signed_at
+          ? formatDateTime(onboardingContractStatus.signed_at)
+          : "—",
       viewUrl: hasEmployeeHandbookAck ? `${handbookPdfHref}&inline=1` : null,
       downloadUrl: hasEmployeeHandbookAck ? handbookPdfHref : null,
-      documentType: "employee_handbook_ack",
-      uploadLabel: "Employee Handbook",
+      documentType: EMPLOYEE_HANDBOOK_ACKNOWLEDGEMENT_KEY,
+      uploadLabel: "Employee Handbook Acknowledgement",
       anchorId: "employee-handbook-section",
       history: [],
       workflowOpenHref: getAdminWorkAreaUrl("documents"),

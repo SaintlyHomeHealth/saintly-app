@@ -531,7 +531,7 @@ export function buildPersonnelFileAuditRows(input: BuildPersonnelFileAuditArgs):
   if (!isSalesAgent) {
     const { status, tone } = auditStatus(true, hasEmployeeHandbookAck);
     push({
-      label: "Employee Handbook",
+      label: "Employee Handbook Acknowledgement",
       itemType: "form",
       status,
       statusTone: tone,
