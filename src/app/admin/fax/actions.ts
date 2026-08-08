@@ -8,6 +8,7 @@ import { forwardInboundFaxAsOutbound } from "@/lib/fax/forward-inbound-fax";
 import { recordFaxEvent } from "@/lib/fax/fax-service";
 import type { FaxClonePrefill } from "@/lib/fax/fax-clone-prefill-types";
 import { getFaxClonePrefill as loadFaxClonePrefill } from "@/lib/fax/get-fax-clone-prefill";
+import { summarizeInboundFaxNote } from "@/lib/fax/inbound-fax-ai-summary";
 import { resendOutboundFax } from "@/lib/fax/resend-outbound-fax";
 import { getStaffProfile, isAdminOrHigher, isManagerOrHigher } from "@/lib/staff-profile";
 
@@ -155,6 +156,54 @@ export async function updateFaxNoteAction(formData: FormData): Promise<{ ok: tru
   revalidatePath("/admin/fax");
   revalidatePath(`/admin/fax/${faxId}`);
   return { ok: true };
+}
+
+/** AI short note for blank inbound faxes only (never overwrites staff notes). */
+export async function summarizeFaxNoteAction(
+  faxId: string
+): Promise<{ ok: true; note: string } | { ok: false; error: string }> {
+  const staff = await getStaffProfile();
+  if (!staff || !isManagerOrHigher(staff)) {
+    return { ok: false, error: "Unauthorized" };
+  }
+
+  const id = typeof faxId === "string" ? faxId.trim() : "";
+  if (!id) return { ok: false, error: "Missing fax." };
+
+  const result = await summarizeInboundFaxNote(id);
+  if (result.ok) {
+    revalidatePath("/admin/fax");
+    revalidatePath(`/admin/fax/${id}`);
+    return { ok: true, note: result.note };
+  }
+
+  if (result.skipped) {
+    const reason = result.reason;
+    if (reason === "note_already_set" || reason === "note_already_set_or_race") {
+      return { ok: false, error: "This fax already has a note." };
+    }
+    if (reason === "disabled") {
+      return { ok: false, error: "AI fax notes are turned off." };
+    }
+    if (reason === "missing_openai_key") {
+      return { ok: false, error: "OpenAI is not configured." };
+    }
+    if (reason === "no_pdf" || reason === "pdf_unavailable") {
+      return { ok: false, error: "No fax PDF available to summarize." };
+    }
+    if (reason === "insufficient_text") {
+      return { ok: false, error: "Could not read enough text from this fax." };
+    }
+    if (reason === "failed_status") {
+      return { ok: false, error: "Failed faxes cannot be summarized." };
+    }
+    if (reason === "not_inbound") {
+      return { ok: false, error: "Only inbound faxes can be summarized." };
+    }
+    return { ok: false, error: "Could not summarize this fax." };
+  }
+
+  return { ok: false, error: result.error || "Summarize failed." };
 }
 
 export async function getFaxClonePrefill(

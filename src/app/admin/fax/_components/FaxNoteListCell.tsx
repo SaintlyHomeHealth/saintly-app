@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
 
-import { updateFaxNoteAction } from "@/app/admin/fax/actions";
+import { summarizeFaxNoteAction, updateFaxNoteAction } from "@/app/admin/fax/actions";
 import { crmActionBtnMuted, crmActionBtnSky, crmFilterInputCls } from "@/components/admin/crm-admin-list-styles";
 
 type FaxNoteListCellProps = {
@@ -47,6 +47,18 @@ export function FaxNoteListCell({ faxId, initialNote }: FaxNoteListCellProps) {
     });
   }
 
+  function summarize() {
+    setError(null);
+    startTransition(async () => {
+      const result = await summarizeFaxNoteAction(faxId);
+      if (!result.ok) {
+        setError(result.error ?? "Could not summarize.");
+        return;
+      }
+      router.refresh();
+    });
+  }
+
   if (editing) {
     return (
       <div className="flex min-w-0 flex-col gap-2 py-0.5" onClick={(e) => e.stopPropagation()}>
@@ -73,19 +85,37 @@ export function FaxNoteListCell({ faxId, initialNote }: FaxNoteListCellProps) {
 
   const display = baseline || "";
   return (
-    <div className="flex min-w-0 items-start gap-2">
-      <div className="min-w-0 flex-1" title={display || undefined}>
-        <p className={`line-clamp-2 text-sm leading-snug break-words ${display ? "text-slate-800" : "italic text-slate-400"}`}>
-          {display || "Add note…"}
-        </p>
+    <div className="flex min-w-0 flex-col gap-1" onClick={(e) => e.stopPropagation()}>
+      <div className="flex min-w-0 items-start gap-2">
+        <div className="min-w-0 flex-1" title={display || undefined}>
+          <p
+            className={`line-clamp-2 text-sm leading-snug break-words ${display ? "text-slate-800" : "italic text-slate-400"}`}
+          >
+            {display || "Add note…"}
+          </p>
+        </div>
+        <div className="flex shrink-0 flex-col gap-1 sm:flex-row">
+          {!display ? (
+            <button
+              type="button"
+              className="rounded-lg border border-sky-200 bg-sky-50 px-2 py-1 text-[11px] font-semibold text-sky-800 hover:bg-sky-100 disabled:opacity-60"
+              onClick={summarize}
+              disabled={isPending}
+            >
+              {isPending ? "…" : "Summarize"}
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-60"
+            onClick={() => setEditing(true)}
+            disabled={isPending}
+          >
+            Edit
+          </button>
+        </div>
       </div>
-      <button
-        type="button"
-        className="shrink-0 rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50"
-        onClick={() => setEditing(true)}
-      >
-        Edit
-      </button>
+      {error ? <p className="text-xs font-medium text-rose-700">{error}</p> : null}
     </div>
   );
 }

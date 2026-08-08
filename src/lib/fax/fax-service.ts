@@ -6,6 +6,7 @@ import { handleNewLeadCreated } from "@/lib/crm/post-create-lead-workflow";
 import { isMissingSchemaObjectError } from "@/lib/crm/supabase-migration-fallback";
 import { normalizeFaxNumberToE164, faxNumberSearchVariants } from "@/lib/fax/phone-numbers";
 import { dispatchInboundFaxAlertsIfNeeded } from "@/lib/fax/inbound-fax-alerts";
+import { summarizeInboundFaxNoteWithBudget } from "@/lib/fax/inbound-fax-ai-summary";
 import { ensureSmsConversationForPhone } from "@/lib/phone/sms-conversation-thread";
 
 export const FAX_DOCUMENTS_BUCKET = "fax-documents";
@@ -599,6 +600,30 @@ export async function upsertInboundFaxFromWebhook(body: unknown): Promise<{ ok: 
       fax_id: data.id,
       error: e instanceof Error ? e.message : String(e),
     });
+  }
+
+  if (savedInboundStatus !== "failed" && upload.storagePath) {
+    try {
+      const ai = await summarizeInboundFaxNoteWithBudget(data.id as string);
+      if (ai.ok) {
+        console.log("[fax/inbound] ai_note_summary_ok", { fax_id: data.id, note: ai.note });
+      } else if (ai.skipped) {
+        console.log("[fax/inbound] ai_note_summary_skipped", {
+          fax_id: data.id,
+          reason: ai.reason,
+        });
+      } else {
+        console.warn("[fax/inbound] ai_note_summary_failed", {
+          fax_id: data.id,
+          error: ai.error,
+        });
+      }
+    } catch (e) {
+      console.warn("[fax/inbound] ai_note_summary_threw", {
+        fax_id: data.id,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
   }
 
   return { ok: true, faxId: data.id as string, conversationId: conversation.conversationId };
