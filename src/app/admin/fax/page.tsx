@@ -284,7 +284,15 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
                     {!fax.is_read && fax.direction === "inbound" ? <p className="mt-1 text-[11px] font-bold text-sky-700">Unread</p> : null}
                   </div>
                   <div className="min-w-0">
-                    <FaxNoteListCell faxId={fax.id} initialNote={fax.note ?? null} />
+                    <FaxNoteListCell
+                      faxId={fax.id}
+                      initialNote={fax.note ?? null}
+                      autoSummarize={
+                        fax.direction === "inbound" &&
+                        fax.status !== "failed" &&
+                        Boolean(fax.storage_path || fax.media_url)
+                      }
+                    />
                   </div>
                   <div className="pt-2 text-slate-700">{fax.page_count ?? "—"}</div>
                   <div className="pt-1.5">

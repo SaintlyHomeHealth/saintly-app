@@ -602,7 +602,8 @@ export async function upsertInboundFaxFromWebhook(body: unknown): Promise<{ ok: 
     });
   }
 
-  if (savedInboundStatus !== "failed" && upload.storagePath) {
+  // Prefer stored PDF; still try when only Telnyx media_url is available.
+  if (savedInboundStatus !== "failed" && (upload.storagePath || fax.mediaUrl)) {
     try {
       const ai = await summarizeInboundFaxNoteWithBudget(data.id as string);
       if (ai.ok) {

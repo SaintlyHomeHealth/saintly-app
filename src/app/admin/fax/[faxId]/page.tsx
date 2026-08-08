@@ -200,7 +200,15 @@ export default async function AdminFaxDetailPage({
               ) : null}
             </div>
             <div className="mt-4">
-              <FaxNoteEditor faxId={fax.id} initialNote={fax.note ?? null} />
+              <FaxNoteEditor
+                faxId={fax.id}
+                initialNote={fax.note ?? null}
+                autoSummarize={
+                  fax.direction === "inbound" &&
+                  fax.status !== "failed" &&
+                  Boolean(fax.storage_path || fax.media_url)
+                }
+              />
             </div>
           </section>
         </aside>
