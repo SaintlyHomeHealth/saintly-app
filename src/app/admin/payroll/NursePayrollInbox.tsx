@@ -51,7 +51,14 @@ export function NursePayrollInbox({ selectedWeekStart, periodOptions, rows }: Pr
           <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-sky-800/80">Invoice approval</p>
           <h2 className="mt-2 text-2xl font-bold tracking-tight text-slate-900">Weekly nurse payroll</h2>
           <p className="mt-2 max-w-xl text-sm leading-relaxed text-slate-600">
-            Open an employee to review lines, adjust before payment, then approve and mark paid.
+            Open an employee to review lines, adjust before payment, then approve and mark paid. Or{" "}
+            <Link
+              href={`/admin/payroll/paste?week=${encodeURIComponent(selectedWeekStart)}`}
+              className="font-semibold text-sky-800 underline-offset-2 hover:underline"
+            >
+              paste EMR visits
+            </Link>{" "}
+            to calculate what you owe each RN.
           </p>
         </div>
         <div>

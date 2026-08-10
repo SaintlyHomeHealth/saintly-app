@@ -207,6 +207,14 @@ export default async function AdminPayrollPage({
           eyebrow="Payroll center"
           title="Weekly payroll"
           description="Approve nurse weekly invoices at the top. Expand legacy tools below only when you need synced visits, exceptions, or batch export."
+          actions={
+            <Link
+              href={`/admin/payroll/paste?week=${encodeURIComponent(selectedPeriod.payPeriodStart)}`}
+              className="inline-flex rounded-xl bg-sky-700 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-800"
+            >
+              Paste visits
+            </Link>
+          }
         />
 
         <div className="mt-8">

@@ -33,6 +33,27 @@ export const EMPTY_PT_PER_VISIT_RATES: PtPerVisitRates = {
   pta: null,
 };
 
+/** RN agreement schedule stored in the same per_visit_rates JSON column. */
+export type RnPerVisitRateKey = "visit" | "soc" | "tango";
+
+export type RnPerVisitRates = Record<RnPerVisitRateKey, number | null>;
+
+export const RN_PER_VISIT_RATE_FIELDS: ReadonlyArray<{
+  key: RnPerVisitRateKey;
+  label: string;
+  hint?: string;
+}> = [
+  { key: "visit", label: "Visit" },
+  { key: "soc", label: "SOC" },
+  { key: "tango", label: "Tango", hint: "Optional override (e.g. Tim / Victoria)" },
+];
+
+export const EMPTY_RN_PER_VISIT_RATES: RnPerVisitRates = {
+  visit: null,
+  soc: null,
+  tango: null,
+};
+
 export type EmployeeContractRow = {
   id: string;
   applicant_id: string;
@@ -42,7 +63,7 @@ export type EmployeeContractRow = {
   employment_type: EmploymentType;
   pay_type: PayType;
   pay_rate: number;
-  per_visit_rates?: PtPerVisitRates | null;
+  per_visit_rates?: PtPerVisitRates | RnPerVisitRates | null;
   mileage_type: MileageType;
   mileage_rate: number | null;
   effective_date: string;
@@ -277,12 +298,21 @@ export function isPtPerVisitContract(roleKey: ContractRoleKey | "", payType: Pay
   return roleKey === "pt" && payType === "per_visit";
 }
 
+export function isRnPerVisitContract(roleKey: ContractRoleKey | "", payType: PayType) {
+  return roleKey === "rn" && payType === "per_visit";
+}
+
 export function parsePtPerVisitRates(value: unknown): PtPerVisitRates | null {
   if (!value || typeof value !== "object") {
     return null;
   }
 
   const record = value as Record<string, unknown>;
+  // RN schedules reuse the same JSON column and may include "soc"; do not treat as PT.
+  if ("visit" in record || "tango" in record) {
+    return null;
+  }
+
   const parsed: PtPerVisitRates = { ...EMPTY_PT_PER_VISIT_RATES };
   let hasAnyRate = false;
 
@@ -363,6 +393,110 @@ export function resolveLegacyPayRateForPtPerVisit(
   return payRate;
 }
 
+export function parseRnPerVisitRates(value: unknown): RnPerVisitRates | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const parsed: RnPerVisitRates = { ...EMPTY_RN_PER_VISIT_RATES };
+  let hasAnyRate = false;
+
+  for (const field of RN_PER_VISIT_RATE_FIELDS) {
+    const raw = record[field.key];
+    if (raw === null || raw === undefined || raw === "") {
+      parsed[field.key] = null;
+      continue;
+    }
+
+    const numericValue = typeof raw === "number" ? raw : Number(raw);
+    if (!Number.isFinite(numericValue) || numericValue < 0) {
+      return null;
+    }
+
+    parsed[field.key] = numericValue;
+    hasAnyRate = true;
+  }
+
+  // PT schedules also have "soc"; only treat as RN when visit/tango present (or soc alone with visit key).
+  if (!hasAnyRate) return null;
+  if (parsed.visit == null && parsed.tango == null && parsed.soc != null && "pt_visit" in record) {
+    return null;
+  }
+  if (parsed.visit == null && parsed.tango == null && parsed.soc != null && !("visit" in record)) {
+    return null;
+  }
+
+  return parsed;
+}
+
+export function hasRnPerVisitRates(value?: RnPerVisitRates | null) {
+  if (!value) return false;
+  return RN_PER_VISIT_RATE_FIELDS.some((field) => {
+    const rate = value[field.key];
+    return typeof rate === "number" && Number.isFinite(rate);
+  });
+}
+
+export function rnPerVisitRatesFromFormStrings(input: Record<RnPerVisitRateKey, string>): RnPerVisitRates {
+  const rates: RnPerVisitRates = { ...EMPTY_RN_PER_VISIT_RATES };
+
+  for (const field of RN_PER_VISIT_RATE_FIELDS) {
+    const trimmed = input[field.key].trim();
+    if (!trimmed) continue;
+
+    const numericValue = Number(trimmed);
+    if (Number.isFinite(numericValue) && numericValue >= 0) {
+      rates[field.key] = numericValue;
+    }
+  }
+
+  return rates;
+}
+
+export function rnPerVisitRatesToFormStrings(
+  rates?: RnPerVisitRates | null,
+  fallbackVisitRate?: number | null
+): Record<RnPerVisitRateKey, string> {
+  const formValues = {} as Record<RnPerVisitRateKey, string>;
+
+  for (const field of RN_PER_VISIT_RATE_FIELDS) {
+    const rate = rates?.[field.key];
+    formValues[field.key] = typeof rate === "number" && Number.isFinite(rate) ? String(rate) : "";
+  }
+
+  if (
+    !formValues.visit &&
+    typeof fallbackVisitRate === "number" &&
+    Number.isFinite(fallbackVisitRate)
+  ) {
+    formValues.visit = String(fallbackVisitRate);
+  }
+
+  return formValues;
+}
+
+export function resolveLegacyPayRateForRnPerVisit(
+  payRate: number,
+  perVisitRates?: RnPerVisitRates | null
+) {
+  if (hasRnPerVisitRates(perVisitRates)) {
+    const visit = perVisitRates?.visit;
+    if (typeof visit === "number" && Number.isFinite(visit)) {
+      return visit;
+    }
+
+    for (const field of RN_PER_VISIT_RATE_FIELDS) {
+      const rate = perVisitRates?.[field.key];
+      if (typeof rate === "number" && Number.isFinite(rate)) {
+        return rate;
+      }
+    }
+  }
+
+  return payRate;
+}
+
 export function buildPtPerVisitCompensationSection(rates: PtPerVisitRates) {
   const lines = PT_PER_VISIT_RATE_FIELDS.map((field) => {
     const rate = rates[field.key];
@@ -374,17 +508,36 @@ export function buildPtPerVisitCompensationSection(rates: PtPerVisitRates) {
   return ["Compensation:", ...lines].join("\n");
 }
 
+export function buildRnPerVisitCompensationSection(rates: RnPerVisitRates) {
+  const lines = RN_PER_VISIT_RATE_FIELDS.map((field) => {
+    const rate = rates[field.key];
+    const formattedRate =
+      typeof rate === "number" && Number.isFinite(rate) ? formatCurrency(rate) : "$___";
+    const suffix = field.key === "tango" && rate == null ? " (if applicable)" : "";
+    return `- ${field.label}: ${formattedRate} per visit${suffix}`;
+  });
+
+  return ["Compensation:", ...lines].join("\n");
+}
+
 export function formatContractPaySummary(input: {
   roleKey: ContractRoleKey;
   payType: PayType;
   payRate: number;
-  perVisitRates?: PtPerVisitRates | null;
+  perVisitRates?: PtPerVisitRates | RnPerVisitRates | null;
 }) {
   if (
     isPtPerVisitContract(input.roleKey, input.payType) &&
-    hasPtPerVisitRates(input.perVisitRates)
+    hasPtPerVisitRates(input.perVisitRates as PtPerVisitRates | null)
   ) {
     return "PT Per Visit Rates";
+  }
+
+  if (
+    isRnPerVisitContract(input.roleKey, input.payType) &&
+    hasRnPerVisitRates(parseRnPerVisitRates(input.perVisitRates))
+  ) {
+    return "RN Per Visit Rates";
   }
 
   return `${formatPayTypeLabel(input.payType)} ${formatCurrency(input.payRate)}`;
@@ -396,7 +549,7 @@ export function buildEmployeeContractText(input: {
   employmentType: EmploymentType;
   payType: PayType;
   payRate: number;
-  perVisitRates?: PtPerVisitRates | null;
+  perVisitRates?: PtPerVisitRates | RnPerVisitRates | null;
   mileageType: MileageType;
   mileageRate: number | null;
   effectiveDate: string;
@@ -404,9 +557,14 @@ export function buildEmployeeContractText(input: {
   const role = getContractRoleConfig(input.roleKey);
   const usePtPerVisitSchedule =
     isPtPerVisitContract(input.roleKey, input.payType) &&
-    hasPtPerVisitRates(input.perVisitRates);
+    hasPtPerVisitRates(input.perVisitRates as PtPerVisitRates | null);
+  const rnRates = parseRnPerVisitRates(input.perVisitRates);
+  const useRnPerVisitSchedule =
+    isRnPerVisitContract(input.roleKey, input.payType) && hasRnPerVisitRates(rnRates);
   const compensationBlocks = usePtPerVisitSchedule
-    ? [buildPtPerVisitCompensationSection(input.perVisitRates!)]
+    ? [buildPtPerVisitCompensationSection(input.perVisitRates as PtPerVisitRates)]
+    : useRnPerVisitSchedule
+      ? [buildRnPerVisitCompensationSection(rnRates!)]
     : [
         "Compensation",
         `${formatPayTypeLabel(input.payType)} compensation will be paid at ${formatCurrency(
