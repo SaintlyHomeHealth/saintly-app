@@ -22,6 +22,13 @@ import { getStaffProfile, isAdminOrHigher, isManagerOrHigher } from "@/lib/staff
 
 import { DeleteFaxButton } from "./_components/DeleteFaxButton";
 import { FaxCenterComposeControls } from "./_components/FaxCenterComposeControls";
+import {
+  FaxBulkDeleteBar,
+  FaxListRowShell,
+  FaxListSelectProvider,
+  FaxRowCheckbox,
+  FaxSelectAllCheckbox,
+} from "./_components/FaxListBulkSelect";
 import { FaxNoteListCell } from "./_components/FaxNoteListCell";
 import { ForwardInboundFaxButton } from "./_components/ForwardInboundFaxButton";
 import { OutboundFaxActions } from "./_components/OutboundFaxActions";
@@ -29,6 +36,8 @@ import { OutboundFaxActions } from "./_components/OutboundFaxActions";
 export const dynamic = "force-dynamic";
 
 const FAX_LIST_PAGE_SIZE = 20;
+const FAX_LIST_GRID_CLS =
+  "grid grid-cols-[32px_92px_minmax(180px,1fr)_minmax(320px,2.2fr)_56px_104px_128px_168px] gap-3";
 
 type FaxListFilters = {
   tab: string;
@@ -236,8 +245,13 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
       </form>
 
       <section className={crmListScrollOuterCls}>
-        <div className="min-w-[1040px] divide-y divide-slate-100">
-          <div className="grid grid-cols-[92px_minmax(180px,1fr)_minmax(320px,2.2fr)_56px_104px_128px_168px] items-center gap-3 bg-slate-50 px-4 py-3 text-[11px] font-bold uppercase tracking-wide text-slate-500">
+        <FaxListSelectProvider faxIds={faxes.map((fax) => fax.id)}>
+        <FaxBulkDeleteBar allowHardDelete={allowHardDelete} />
+        <div className="min-w-[1080px] divide-y divide-slate-100">
+          <div className={`${FAX_LIST_GRID_CLS} items-center bg-slate-50 px-4 py-3 text-[11px] font-bold uppercase tracking-wide text-slate-500`}>
+            <div>
+              <FaxSelectAllCheckbox />
+            </div>
             <div>Direction</div>
             <div>Sender / recipient</div>
             <div>Note / description</div>
@@ -262,10 +276,14 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
                 .join(" · ") || "Unknown";
               const originalReceivedDisplay = formatFaxDateTimeDetail(fax.received_at ?? fax.created_at);
               return (
-                <div
+                <FaxListRowShell
                   key={fax.id}
-                  className={`grid grid-cols-[92px_minmax(180px,1fr)_minmax(320px,2.2fr)_56px_104px_128px_168px] items-start gap-3 px-4 py-3 text-sm transition ${crmListRowHoverCls}`}
+                  faxId={fax.id}
+                  className={`${FAX_LIST_GRID_CLS} items-start px-4 py-3 text-sm transition ${crmListRowHoverCls}`}
                 >
+                  <div>
+                    <FaxRowCheckbox faxId={fax.id} />
+                  </div>
                   <div className="pt-0.5">
                     <span
                       className={`rounded-full px-2 py-1 text-[11px] font-bold ${
@@ -329,7 +347,7 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
                       </>
                     )}
                   </div>
-                </div>
+                </FaxListRowShell>
               );
             })
           )}
@@ -369,6 +387,7 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
             )}
           </div>
         </div>
+        </FaxListSelectProvider>
       </section>
     </div>
   );

@@ -127,6 +127,116 @@ export async function hardDeleteFaxAction(formData: FormData) {
   redirect(path);
 }
 
+const FAX_ID_UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const BULK_FAX_DELETE_MAX = 50;
+
+function parseFaxIds(faxIds: string[]): string[] {
+  return [...new Set(faxIds.map((id) => String(id).trim()).filter((id) => FAX_ID_UUID_RE.test(id)))].slice(
+    0,
+    BULK_FAX_DELETE_MAX
+  );
+}
+
+function revalidateDeletedFaxes(ids: string[]) {
+  revalidatePath("/admin/fax");
+  for (const id of ids) {
+    revalidatePath(`/admin/fax/${id}`);
+  }
+}
+
+/** Archive multiple faxes (same DB behavior as `softDeleteFaxAction`). Does not redirect. */
+export async function bulkSoftDeleteFaxesAction(
+  faxIds: string[]
+): Promise<{ ok: true; deleted: number } | { ok: false; error: string }> {
+  const staff = await getStaffProfile();
+  if (!staff || !isManagerOrHigher(staff)) {
+    return { ok: false, error: "Unauthorized" };
+  }
+
+  const ids = parseFaxIds(faxIds);
+  if (ids.length === 0) {
+    return { ok: false, error: "No faxes selected." };
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from("fax_messages")
+    .update({ is_archived: true, status: "archived" })
+    .in("id", ids)
+    .select("id");
+  if (error) {
+    console.warn("[fax/delete] bulk_soft_delete failed", error.message);
+    return { ok: false, error: error.message };
+  }
+
+  const deletedIds = (data ?? []).map((row) => row.id as string);
+  if (deletedIds.length > 0) {
+    await supabaseAdmin.from("fax_events").insert(
+      deletedIds.map((faxMessageId) => ({
+        fax_message_id: faxMessageId,
+        event_type: "deleted_soft",
+        payload: { actor_user_id: staff.user_id, bulk: true },
+      }))
+    );
+  }
+
+  console.log("[fax/delete] bulk_soft_delete", {
+    count: deletedIds.length,
+    actor_user_id: staff.user_id,
+  });
+  revalidateDeletedFaxes(deletedIds);
+  return { ok: true, deleted: deletedIds.length };
+}
+
+/** Permanently delete multiple faxes and stored PDFs (same DB behavior as `hardDeleteFaxAction`). */
+export async function bulkHardDeleteFaxesAction(
+  faxIds: string[]
+): Promise<{ ok: true; deleted: number } | { ok: false; error: string }> {
+  const staff = await getStaffProfile();
+  if (!staff || !isAdminOrHigher(staff)) {
+    return { ok: false, error: "Unauthorized" };
+  }
+
+  const ids = parseFaxIds(faxIds);
+  if (ids.length === 0) {
+    return { ok: false, error: "No faxes selected." };
+  }
+
+  const { data: faxes, error: faxError } = await supabaseAdmin
+    .from("fax_messages")
+    .select("id, storage_path")
+    .in("id", ids);
+  if (faxError) {
+    console.warn("[fax/delete] bulk_hard_delete lookup failed", faxError.message);
+    return { ok: false, error: faxError.message };
+  }
+
+  const rows = (faxes ?? []) as { id: string; storage_path: string | null }[];
+  const deletedIds = rows.map((row) => row.id);
+  const storagePaths = rows
+    .map((row) => (typeof row.storage_path === "string" ? row.storage_path.trim() : ""))
+    .filter(Boolean);
+
+  if (storagePaths.length > 0) {
+    await supabaseAdmin.storage.from("fax-documents").remove(storagePaths);
+  }
+
+  if (deletedIds.length > 0) {
+    const { error: deleteError } = await supabaseAdmin.from("fax_messages").delete().in("id", deletedIds);
+    if (deleteError) {
+      console.warn("[fax/delete] bulk_hard_delete failed", deleteError.message);
+      return { ok: false, error: deleteError.message };
+    }
+  }
+
+  console.log("[fax/delete] bulk_hard_delete", {
+    count: deletedIds.length,
+    actor_user_id: staff.user_id,
+  });
+  revalidateDeletedFaxes(deletedIds);
+  return { ok: true, deleted: deletedIds.length };
+}
+
 export async function updateFaxNoteAction(formData: FormData): Promise<{ ok: true } | { ok: false; error: string }> {
   const staff = await getStaffProfile();
   if (!staff || !isManagerOrHigher(staff)) {
