@@ -32,10 +32,61 @@
   }
 }
 
+:root {
+  --fx-bg: #f8fafc;
+  --fx-surface: #ffffff;
+  --fx-surface-raised: #ffffff;
+  --fx-border: rgba(15, 23, 42, 0.1);
+  --fx-text: #0f172a;
+  --fx-text-muted: #334155;
+  --fx-accent: #0f766e;
+  --fx-accent-fg: #ffffff;
+  --fx-success: #047857;
+  --fx-warning: #b45309;
+  --fx-danger: #b91c1c;
+  --fx-radius-control: 8px;
+  --fx-radius-card: 12px;
+  --admin-header-height: 3.25rem;
+}
+
+[data-theme="dark"] {
+  --background: #0b1220;
+  --foreground: #e2e8f0;
+  --fx-bg: #0b1220;
+  --fx-surface: #111827;
+  --fx-surface-raised: #1e293b;
+  --fx-border: rgba(226, 232, 240, 0.12);
+  --fx-text: #f8fafc;
+  --fx-text-muted: #cbd5e1;
+  --fx-accent: #2dd4bf;
+  --fx-accent-fg: #042f2e;
+  --fx-success: #34d399;
+  --fx-warning: #fbbf24;
+  --fx-danger: #fb7185;
+}
+
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+.fax-center {
+  background: var(--fx-bg);
+  color: var(--fx-text);
+}
+
+.fax-center a:focus-visible,
+.fax-center button:focus-visible,
+.fax-center input:focus-visible,
+.fax-center select:focus-visible,
+.fax-center textarea:focus-visible {
+  outline: 2px solid var(--fx-accent);
+  outline-offset: 2px;
 }
 
 /* PWA shell polish: prevents iOS/Android standalone bounce from clipping fixed nav strips. */

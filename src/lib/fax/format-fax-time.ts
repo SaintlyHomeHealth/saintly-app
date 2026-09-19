@@ -44,3 +44,28 @@ export function formatFaxDateTimeDetail(value: string | null | undefined): strin
   if (!d) return "—";
   return detailFormatter.format(d);
 }
+
+/** Relative time for inbox rows; pair with `formatFaxDateTimeDetail` on hover. */
+export function formatFaxRelativeTime(value: string | null | undefined, nowMs: number = Date.now()): string {
+  const d = safeInstant(value);
+  if (!d) return "—";
+  const delta = nowMs - d.getTime();
+  const abs = Math.abs(delta);
+  const minute = 60_000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+  if (abs < minute) return "just now";
+  if (abs < hour) {
+    const n = Math.round(abs / minute);
+    return `${n}m ago`;
+  }
+  if (abs < day) {
+    const n = Math.round(abs / hour);
+    return `${n}h ago`;
+  }
+  if (abs < 7 * day) {
+    const n = Math.round(abs / day);
+    return `${n}d ago`;
+  }
+  return formatFaxDateTimeList(value);
+}
