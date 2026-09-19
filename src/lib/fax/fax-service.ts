@@ -1,12 +1,14 @@
 import "server-only";
 
+import { after } from "next/server";
+
 import { supabaseAdmin } from "@/lib/admin";
 import { findContactByIncomingPhone } from "@/lib/crm/find-contact-by-incoming-phone";
 import { handleNewLeadCreated } from "@/lib/crm/post-create-lead-workflow";
 import { isMissingSchemaObjectError } from "@/lib/crm/supabase-migration-fallback";
 import { normalizeFaxNumberToE164, faxNumberSearchVariants } from "@/lib/fax/phone-numbers";
 import { dispatchInboundFaxAlertsIfNeeded } from "@/lib/fax/inbound-fax-alerts";
-import { summarizeInboundFaxNoteWithBudget } from "@/lib/fax/inbound-fax-ai-summary";
+import { summarizeInboundFaxNote } from "@/lib/fax/inbound-fax-ai-summary";
 import { ensureSmsConversationForPhone } from "@/lib/phone/sms-conversation-thread";
 
 export const FAX_DOCUMENTS_BUCKET = "fax-documents";
@@ -236,6 +238,57 @@ export async function signedFaxPdfUrl(storagePath: string | null | undefined): P
     .createSignedUrl(storagePath, 60 * 60);
   if (error) return null;
   return data?.signedUrl ?? null;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export async function uploadFaxPdfFromUrlWithRetry(input: {
+  mediaUrl: string;
+  telnyxFaxId: string;
+  direction: "inbound" | "outbound";
+  attempts?: number;
+}): Promise<{ storagePath: string | null; storedPdfUrl: string | null; error?: string }> {
+  const attempts = input.attempts ?? 3;
+  const delays = [0, 2_000, 6_000];
+  let last: { storagePath: string | null; storedPdfUrl: string | null; error?: string } = {
+    storagePath: null,
+    storedPdfUrl: null,
+    error: "PDF download failed",
+  };
+  for (let i = 0; i < attempts; i++) {
+    const wait = delays[i] ?? 6_000;
+    if (wait) await sleep(wait);
+    last = await uploadFaxPdfFromUrl(input);
+    if (last.storagePath) return last;
+    console.warn("[fax/inbound] pdf_download_retry", {
+      fax_id: input.telnyxFaxId,
+      attempt: i + 1,
+      error: last.error,
+    });
+  }
+  return last;
+}
+
+function scheduleInboundFaxSummary(faxId: string): void {
+  const run = () => {
+    void summarizeInboundFaxNote(faxId).then((ai) => {
+      if (ai.ok) {
+        console.log("[fax/inbound] ai_note_summary_ok", { fax_id: faxId, note: ai.note });
+      } else if (ai.skipped) {
+        console.log("[fax/inbound] ai_note_summary_skipped", { fax_id: faxId, reason: ai.reason });
+      } else {
+        console.warn("[fax/inbound] ai_note_summary_failed", { fax_id: faxId, error: ai.error });
+      }
+    });
+  };
+
+  try {
+    after(run);
+  } catch {
+    run();
+  }
 }
 
 export async function uploadFaxPdfFromUrl(input: {
@@ -516,14 +569,30 @@ export async function upsertInboundFaxFromWebhook(body: unknown): Promise<{ ok: 
   }
 
   const match = await findFaxNumberMatch(fax.fromNumber);
+  const { data: existing } = await supabaseAdmin
+    .from("fax_messages")
+    .select("id, storage_path, pdf_url, media_url, page_count, note")
+    .eq("telnyx_fax_id", fax.telnyxFaxId)
+    .maybeSingle();
+
+  const alreadyStored =
+    typeof existing?.storage_path === "string" && existing.storage_path.trim().length > 0;
+
   const upload =
-    fax.mediaUrl && fax.status !== "failed"
-      ? await uploadFaxPdfFromUrl({
+    fax.mediaUrl && fax.status !== "failed" && !alreadyStored
+      ? await uploadFaxPdfFromUrlWithRetry({
           mediaUrl: fax.mediaUrl,
           telnyxFaxId: fax.telnyxFaxId,
           direction: "inbound",
         })
-      : { storagePath: null, storedPdfUrl: null };
+      : {
+          storagePath: alreadyStored ? (existing!.storage_path as string) : null,
+          storedPdfUrl: alreadyStored ? ((existing?.pdf_url as string | null) ?? null) : null,
+          error: fax.mediaUrl || alreadyStored ? undefined : "media_url_missing",
+        };
+
+  const storagePath = upload.storagePath ?? (alreadyStored ? (existing!.storage_path as string) : null);
+  const pdfUrl = upload.storedPdfUrl ?? (alreadyStored ? ((existing?.pdf_url as string | null) ?? null) : null);
 
   const { data, error } = await supabaseAdmin
     .from("fax_messages")
@@ -534,14 +603,14 @@ export async function upsertInboundFaxFromWebhook(body: unknown): Promise<{ ok: 
         status: normalizeFaxStatus(fax.status, "inbound") === "failed" ? "failed" : "success",
         from_number: fax.fromNumber,
         to_number: fax.toNumber,
-        media_url: fax.mediaUrl,
-        storage_path: upload.storagePath,
-        pdf_url: upload.storedPdfUrl,
-        page_count: fax.pageCount,
+        media_url: fax.mediaUrl ?? existing?.media_url ?? null,
+        storage_path: storagePath,
+        pdf_url: pdfUrl,
+        page_count: fax.pageCount ?? existing?.page_count ?? null,
         received_at: fax.receivedAt ?? new Date().toISOString(),
         completed_at: fax.completedAt,
         failed_at: fax.failedAt,
-        failure_reason: fax.failureReason ?? upload.error ?? null,
+        failure_reason: fax.failureReason ?? (storagePath ? null : upload.error) ?? null,
         category: match.facility_id || match.lead_id ? "referral" : "misc",
         ...match,
       },
@@ -602,29 +671,16 @@ export async function upsertInboundFaxFromWebhook(body: unknown): Promise<{ ok: 
     });
   }
 
-  // Prefer stored PDF; still try when only Telnyx media_url is available.
-  if (savedInboundStatus !== "failed" && (upload.storagePath || fax.mediaUrl)) {
-    try {
-      const ai = await summarizeInboundFaxNoteWithBudget(data.id as string);
-      if (ai.ok) {
-        console.log("[fax/inbound] ai_note_summary_ok", { fax_id: data.id, note: ai.note });
-      } else if (ai.skipped) {
-        console.log("[fax/inbound] ai_note_summary_skipped", {
-          fax_id: data.id,
-          reason: ai.reason,
-        });
-      } else {
-        console.warn("[fax/inbound] ai_note_summary_failed", {
-          fax_id: data.id,
-          error: ai.error,
-        });
-      }
-    } catch (e) {
-      console.warn("[fax/inbound] ai_note_summary_threw", {
-        fax_id: data.id,
-        error: e instanceof Error ? e.message : String(e),
-      });
-    }
+  // Summarize only after the PDF is durably stored. Never write a note against a missing file.
+  if (savedInboundStatus !== "failed" && storagePath) {
+    scheduleInboundFaxSummary(data.id as string);
+  } else if (savedInboundStatus !== "failed" && (fax.pageCount ?? 0) > 0 && !storagePath) {
+    console.warn("[fax/inbound] media_missing_after_download", {
+      fax_id: data.id,
+      page_count: fax.pageCount,
+      media_url_exists: Boolean(fax.mediaUrl),
+      error: upload.error ?? null,
+    });
   }
 
   return { ok: true, faxId: data.id as string, conversationId: conversation.conversationId };
@@ -650,7 +706,7 @@ export async function updateFaxFromStatusWebhook(body: unknown): Promise<{ ok: b
     .from("fax_messages")
     .update(patch)
     .eq("telnyx_fax_id", fax.telnyxFaxId)
-    .select("id")
+    .select("id, direction, storage_path, note, page_count")
     .maybeSingle();
 
   if (error) return { ok: false, error: error.message };
@@ -661,6 +717,30 @@ export async function updateFaxFromStatusWebhook(body: unknown): Promise<{ ok: b
     eventType: telnyxEventType(body),
     payload: body,
   });
+
+  const isInbound = data.direction === "inbound" || fax.direction === "inbound";
+  const hasStorage = typeof data.storage_path === "string" && data.storage_path.trim().length > 0;
+  if (isInbound && status !== "failed" && fax.mediaUrl && !hasStorage) {
+    const upload = await uploadFaxPdfFromUrlWithRetry({
+      mediaUrl: fax.mediaUrl,
+      telnyxFaxId: fax.telnyxFaxId,
+      direction: "inbound",
+    });
+    if (upload.storagePath) {
+      await supabaseAdmin
+        .from("fax_messages")
+        .update({
+          storage_path: upload.storagePath,
+          pdf_url: upload.storedPdfUrl,
+          media_url: fax.mediaUrl,
+          page_count: fax.pageCount ?? data.page_count,
+        })
+        .eq("id", data.id);
+      const noteEmpty = typeof data.note !== "string" || !data.note.trim();
+      if (noteEmpty) scheduleInboundFaxSummary(data.id as string);
+    }
+  }
+
   return { ok: true, faxId: data.id as string };
 }
 

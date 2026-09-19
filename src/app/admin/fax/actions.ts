@@ -301,6 +301,9 @@ export async function summarizeFaxNoteAction(
     if (reason === "no_pdf" || reason === "pdf_unavailable") {
       return { ok: false, error: "No fax PDF available to summarize." };
     }
+    if (reason === "media_missing") {
+      return { ok: false, error: "Fax PDF is not stored yet. Try again in a moment." };
+    }
     if (reason === "insufficient_text") {
       return { ok: false, error: "Could not read enough text from this fax." };
     }
