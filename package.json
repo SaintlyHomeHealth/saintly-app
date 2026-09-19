@@ -35,6 +35,7 @@
     "verify:patient-referral-tango-parse": "NODE_OPTIONS='--conditions=react-server' tsx scripts/verify-patient-referral-tango-parse.ts",
     "verify:patient-referral-pdf-pipeline": "NODE_OPTIONS='--conditions=react-server' tsx scripts/verify-patient-referral-pdf-pipeline.ts",
     "verify:fax-page-extract": "NODE_OPTIONS='--conditions=react-server' tsx scripts/verify-fax-page-extract.ts",
+    "backfill:fax-extraction": "NODE_OPTIONS='--conditions=react-server' tsx scripts/backfill-fax-extraction.ts",
     "backfill:recruiting-lead-links": "tsx scripts/backfill-recruiting-lead-candidate-links.ts",
     "backfill:crm-recruiting-leads": "tsx scripts/backfill-crm-recruiting-leads-to-recruiting.ts",
     "restore:misclassified-patient-leads": "tsx scripts/restore-misclassified-patient-leads-from-recruiting.ts",

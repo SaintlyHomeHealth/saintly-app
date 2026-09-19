@@ -7,8 +7,6 @@
 
 import assert from "node:assert/strict";
 
-process.env.NODE_ENV ??= "development";
-
 function coverSheetLines(): string[] {
   const lines = [
     "WOUNDTECH COVER SHEET",
@@ -92,6 +90,12 @@ async function main() {
   assert.equal(hit!.patientName, "Sullivan, Patsy L");
   assert.equal(hit!.patientDob, "1948-03-14");
   assert.notEqual(hit!.patientName.toLowerCase().includes("mcberty"), true);
+
+  const { classifyFaxFailure, isFaxFailureRetryable } = await import("../src/lib/fax/classify-fax-failure");
+  assert.equal(classifyFaxFailure("user busy"), "busy");
+  assert.equal(classifyFaxFailure("The number is invalid"), "invalid_number");
+  assert.equal(isFaxFailureRetryable("busy"), true);
+  assert.equal(isFaxFailureRetryable("invalid_number"), false);
 
   const { selectFaxExtractPages } = await import("../src/lib/fax/fax-document-text");
   assert.deepEqual(selectFaxExtractPages(13), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]);

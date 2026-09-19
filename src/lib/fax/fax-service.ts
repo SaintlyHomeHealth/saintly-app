@@ -8,7 +8,7 @@ import { handleNewLeadCreated } from "@/lib/crm/post-create-lead-workflow";
 import { isMissingSchemaObjectError } from "@/lib/crm/supabase-migration-fallback";
 import { normalizeFaxNumberToE164, faxNumberSearchVariants } from "@/lib/fax/phone-numbers";
 import { dispatchInboundFaxAlertsIfNeeded } from "@/lib/fax/inbound-fax-alerts";
-import { summarizeInboundFaxNote } from "@/lib/fax/inbound-fax-ai-summary";
+import { extractInboundFaxStructured } from "@/lib/fax/inbound-fax-extract";
 import { ensureSmsConversationForPhone } from "@/lib/phone/sms-conversation-thread";
 
 export const FAX_DOCUMENTS_BUCKET = "fax-documents";
@@ -63,7 +63,7 @@ export type FaxMessageRow = {
   forwarded_from_fax_message_id?: string | null;
   cover_sheet_template_id?: string | null;
   packet_metadata?: Record<string, unknown> | null;
-  /** Denormalized patient display name at send time (clone prefill). */
+  /** Denormalized patient display name (outbound clone prefill or inbound extraction). */
   patient_name?: string | null;
   patient_dob?: string | null;
   patient_medicare_number?: string | null;
@@ -71,6 +71,23 @@ export type FaxMessageRow = {
   recipient_contact_id?: string | null;
   template_type?: string | null;
   fax_metadata?: Record<string, unknown> | null;
+  document_type?: string | null;
+  service_date?: string | null;
+  payer?: string | null;
+  sender_org?: string | null;
+  referring_provider?: string | null;
+  clinician?: string | null;
+  disciplines?: string[];
+  extraction_confidence?: { patientName?: number; documentType?: number } | null;
+  extraction_status?: string | null;
+  extraction_source_page?: number | null;
+  triage_state?: string | null;
+  patient_match_status?: string | null;
+  last_extraction_at?: string | null;
+  media_retry_count?: number | null;
+  attempt_count?: number | null;
+  last_attempt_at?: string | null;
+  provider_error_code?: string | null;
 };
 
 /** Same tokenization as {@link faxMatchesKeywordSearch} for list queries (AND across tokens). */
@@ -94,6 +111,11 @@ const FAX_LIST_SEARCH_COLUMNS = [
   "direction",
   "category",
   "failure_reason",
+  "patient_name",
+  "sender_org",
+  "document_type",
+  "payer",
+  "clinician",
 ] as const;
 
 /**
@@ -273,13 +295,17 @@ export async function uploadFaxPdfFromUrlWithRetry(input: {
 
 function scheduleInboundFaxSummary(faxId: string): void {
   const run = () => {
-    void summarizeInboundFaxNote(faxId).then((ai) => {
+    void extractInboundFaxStructured(faxId).then((ai) => {
       if (ai.ok) {
-        console.log("[fax/inbound] ai_note_summary_ok", { fax_id: faxId, note: ai.note });
+        console.log("[fax/inbound] extraction_ok", {
+          fax_id: faxId,
+          status: ai.status,
+          source_page: ai.extraction.sourcePage,
+        });
       } else if (ai.skipped) {
-        console.log("[fax/inbound] ai_note_summary_skipped", { fax_id: faxId, reason: ai.reason });
+        console.log("[fax/inbound] extraction_skipped", { fax_id: faxId, reason: ai.reason });
       } else {
-        console.warn("[fax/inbound] ai_note_summary_failed", { fax_id: faxId, error: ai.error });
+        console.warn("[fax/inbound] extraction_failed", { fax_id: faxId, error: ai.error });
       }
     });
   };
@@ -622,6 +648,16 @@ export async function upsertInboundFaxFromWebhook(body: unknown): Promise<{ ok: 
   if (error || !data?.id) {
     return { ok: false, error: error?.message ?? "Fax upsert failed" };
   }
+
+  const inboundStatus = normalizeFaxStatus(fax.status, "inbound") === "failed" ? "failed" : "success";
+  await supabaseAdmin
+    .from("fax_messages")
+    .update({
+      extraction_status: storagePath ? "pending" : (fax.pageCount ?? 0) > 0 ? "media_missing" : "pending",
+      triage_state:
+        inboundStatus === "failed" ? "failed" : storagePath ? "new" : (fax.pageCount ?? 0) > 0 ? "needs_review" : "new",
+    })
+    .eq("id", data.id);
 
   console.log("[fax/inbound] saved_to_db", {
     fax_id: data.id,
