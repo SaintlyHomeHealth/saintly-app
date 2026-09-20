@@ -16,19 +16,15 @@ import {
   TelnyxFaxError,
   telnyxFaxConnectionId,
 } from "@/lib/fax/outbound-fax-telnyx";
+import { inboundFaxHasDocumentForForward } from "@/lib/fax/inbound-fax-has-document";
 import { validateUsFaxNumberToE164 } from "@/lib/fax/us-fax-validation";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
+
+export { inboundFaxHasDocumentForForward } from "@/lib/fax/inbound-fax-has-document";
 
 export const FORWARD_SUBJECT_DEFAULT = "Forwarded fax from Saintly Home Health";
 
 const DOC_NOT_FOUND = "This fax document could not be found. Please upload or resend it.";
-
-export function inboundFaxHasDocumentForForward(row: FaxMessageRow): boolean {
-  if (row.direction !== "inbound") return false;
-  if (typeof row.storage_path === "string" && row.storage_path.trim()) return true;
-  const m = typeof row.media_url === "string" ? row.media_url.trim() : "";
-  return Boolean(m && m.startsWith("https://"));
-}
 
 function isMissingForwardedColumnMessage(message: string | undefined): boolean {
   const m = (message ?? "").toLowerCase();

@@ -29,7 +29,7 @@ import {
   type FaxTriageState,
 } from "@/lib/fax/fax-extraction-types";
 import type { FaxMessageRow } from "@/lib/fax/fax-service";
-import { inboundFaxHasDocumentForForward } from "@/lib/fax/forward-inbound-fax";
+import { inboundFaxHasDocumentForForward } from "@/lib/fax/inbound-fax-has-document";
 import { formatFaxDateTimeDetail, formatFaxRelativeTime } from "@/lib/fax/format-fax-time";
 import { formatFaxPhoneDisplay } from "@/lib/fax/format-fax-phone-display";
 

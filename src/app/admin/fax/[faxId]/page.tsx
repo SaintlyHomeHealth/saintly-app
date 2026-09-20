@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import { Suspense } from "react";
 
 import { updateFaxStructuredFieldsAction } from "@/app/admin/fax/actions";
 import { DeleteFaxButton } from "../_components/DeleteFaxButton";
@@ -14,7 +15,7 @@ import { fx } from "../_components/fax-tokens";
 import { supabaseAdmin } from "@/lib/admin";
 import { formatFaxSenderDisplay } from "@/lib/fax/format-fax-sender";
 import { formatFaxDateTimeDetail } from "@/lib/fax/format-fax-time";
-import { inboundFaxHasDocumentForForward } from "@/lib/fax/forward-inbound-fax";
+import { inboundFaxHasDocumentForForward } from "@/lib/fax/inbound-fax-has-document";
 import { missingFaxSchema, signedFaxPdfUrl, type FaxMessageRow } from "@/lib/fax/fax-service";
 import { matchFaxPatient } from "@/lib/fax/match-fax-patient";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
@@ -149,28 +150,38 @@ export default async function AdminFaxDetailPage({
 
       <div className="grid min-h-0 flex-1 grid-cols-1 xl:grid-cols-[minmax(0,0.6fr)_minmax(20rem,0.4fr)]">
         <section className="min-h-0 overflow-hidden border-r [border-color:var(--fx-border)]">
-          <FaxPdfViewer pdfUrl={pdfUrl} initialPage={initialPage} />
+          <Suspense
+            fallback={
+              <div className="flex h-full items-center justify-center text-[13px] text-[color:var(--fx-text-muted)]">
+                Loading PDF…
+              </div>
+            }
+          >
+            <FaxPdfViewer pdfUrl={pdfUrl} initialPage={initialPage} />
+          </Suspense>
         </section>
         <aside className="min-h-0 space-y-4 overflow-y-auto p-4">
-          <FaxStructuredPanel
-            faxId={fax.id}
-            patientName={fax.patient_name ?? null}
-            patientDob={fax.patient_dob ?? null}
-            documentType={fax.document_type ?? null}
-            serviceDate={fax.service_date ?? null}
-            payer={fax.payer ?? null}
-            senderOrg={fax.sender_org ?? null}
-            referringProvider={fax.referring_provider ?? null}
-            clinician={fax.clinician ?? null}
-            assignedToUserId={fax.assigned_to_user_id}
-            triageState={fax.triage_state ?? "new"}
-            sourcePage={fax.extraction_source_page ?? null}
-            patientId={fax.patient_id}
-            patientMatchStatus={fax.patient_match_status ?? null}
-            extractionStatus={fax.extraction_status ?? null}
-            staffOptions={staffOptions}
-            nearMatch={nearMatch}
-          />
+          <Suspense fallback={<div className={`${fx.card} h-64 animate-pulse`} />}>
+            <FaxStructuredPanel
+              faxId={fax.id}
+              patientName={fax.patient_name ?? null}
+              patientDob={fax.patient_dob ?? null}
+              documentType={fax.document_type ?? null}
+              serviceDate={fax.service_date ?? null}
+              payer={fax.payer ?? null}
+              senderOrg={fax.sender_org ?? null}
+              referringProvider={fax.referring_provider ?? null}
+              clinician={fax.clinician ?? null}
+              assignedToUserId={fax.assigned_to_user_id}
+              triageState={fax.triage_state ?? "new"}
+              sourcePage={fax.extraction_source_page ?? null}
+              patientId={fax.patient_id}
+              patientMatchStatus={fax.patient_match_status ?? null}
+              extractionStatus={fax.extraction_status ?? null}
+              staffOptions={staffOptions}
+              nearMatch={nearMatch}
+            />
+          </Suspense>
           <section className={`${fx.card} p-4`}>
             <h2 className="mb-2 text-[14px] font-bold">Note</h2>
             <FaxNoteEditor faxId={fax.id} initialNote={fax.note ?? null} />
