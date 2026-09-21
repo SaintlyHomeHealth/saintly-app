@@ -10,10 +10,16 @@ import { getNodeCanvasRuntime } from "@/lib/recruiting/napi-canvas-runtime";
 let workerSrcSet = false;
 
 async function ensurePdfWorker(): Promise<void> {
-  if (workerSrcSet) return;
   const require = createRequire(import.meta.url);
   const pdfRoot = path.dirname(require.resolve("pdfjs-dist/package.json"));
   const workerPath = path.join(pdfRoot, "legacy", "build", "pdf.worker.mjs");
+  // unpdf may have already installed a different pdf.js worker on globalThis.
+  // Drop it so this 5.4.296 API does not talk to a 5.6.x worker.
+  try {
+    delete (globalThis as { pdfjsWorker?: unknown }).pdfjsWorker;
+  } catch {
+    /* noop */
+  }
   const { GlobalWorkerOptions } = await import("pdfjs-dist/legacy/build/pdf.mjs");
   GlobalWorkerOptions.workerSrc = pathToFileURL(workerPath).href;
   workerSrcSet = true;
