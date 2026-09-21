@@ -1,7 +1,23 @@
 import "server-only";
 
+import { createRequire } from "node:module";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
+
 import { canRunResumePdfOcr, getBundledTesseractEngLangDir } from "@/lib/recruiting/recruiting-ocr-env";
 import { getNodeCanvasRuntime } from "@/lib/recruiting/napi-canvas-runtime";
+
+let workerSrcSet = false;
+
+async function ensurePdfWorker(): Promise<void> {
+  if (workerSrcSet) return;
+  const require = createRequire(import.meta.url);
+  const pdfRoot = path.dirname(require.resolve("pdfjs-dist/package.json"));
+  const workerPath = path.join(pdfRoot, "legacy", "build", "pdf.worker.mjs");
+  const { GlobalWorkerOptions } = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  GlobalWorkerOptions.workerSrc = pathToFileURL(workerPath).href;
+  workerSrcSet = true;
+}
 
 const MAX_CANVAS_EDGE = 2200;
 const RENDER_SCALE = 2;
@@ -17,6 +33,7 @@ async function renderPdfPagePng(
   const napiCanvas = getNodeCanvasRuntime();
   if (!napiCanvas) return null;
   const { createCanvas } = napiCanvas;
+  await ensurePdfWorker();
   const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");
 
   const data = new Uint8Array(buffer.length);
