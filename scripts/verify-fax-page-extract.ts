@@ -91,6 +91,19 @@ async function main() {
   assert.equal(hit!.patientDob, "1948-03-14");
   assert.notEqual(hit!.patientName.toLowerCase().includes("mcberty"), true);
 
+  const woundtechHit = heuristicPatientFromFaxPages([
+    { page: 1, charCount: 40, text: "WOUNDTECH COVER Please review attached", method: "ocr" },
+    {
+      page: 2,
+      charCount: 80,
+      text: "| Patient details |\nCasey Q Example (female)\nDOB: 01/28/1968 (58 years)",
+      method: "ocr",
+    },
+  ]);
+  assert.equal(woundtechHit?.sourcePage, 2);
+  assert.equal(woundtechHit?.patientName, "Example, Casey Q");
+  assert.equal(woundtechHit?.patientDob, "1968-01-28");
+
   const { classifyFaxFailure, isFaxFailureRetryable } = await import("../src/lib/fax/classify-fax-failure");
   assert.equal(classifyFaxFailure("user busy"), "busy");
   assert.equal(classifyFaxFailure("The number is invalid"), "invalid_number");

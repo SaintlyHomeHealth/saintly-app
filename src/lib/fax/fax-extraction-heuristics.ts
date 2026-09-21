@@ -18,6 +18,12 @@ const NAME_LABEL = new RegExp(
 const DOB_LABEL =
   /(?:patient\s*dob|d\.?o\.?b\.?|date of birth)\s*[:\-]\s*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}|\d{4}-\d{2}-\d{2})/i;
 
+/** Woundtech / encounter headers: name + sex, usually under "Patient details". */
+const SEX_LABELED_NAME = new RegExp(
+  String.raw`(${NAME_TOKEN}(?:[ \t]+${NAME_TOKEN}){1,3})\s*\((?:fe)?male\)`,
+  "i"
+);
+
 export type HeuristicNameHit = {
   patientName: string;
   patientDob: string | null;
@@ -77,9 +83,9 @@ export function heuristicPatientFromFaxPages(pages: FaxPageText[]): HeuristicNam
   });
 
   for (const page of ranked) {
-    const match = NAME_LABEL.exec(page.text);
-    if (!match?.[1]) continue;
-    const patientName = normalizePersonName(match[1]);
+    const rawName = rawPatientNameFromPage(page.text);
+    if (!rawName) continue;
+    const patientName = normalizePersonName(rawName);
     if (!patientName) continue;
     const dobMatch = DOB_LABEL.exec(page.text);
     return {
@@ -89,4 +95,14 @@ export function heuristicPatientFromFaxPages(pages: FaxPageText[]): HeuristicNam
     };
   }
   return null;
+}
+
+function rawPatientNameFromPage(text: string): string | null {
+  const labeled = NAME_LABEL.exec(text);
+  if (labeled?.[1]) return labeled[1];
+
+  const detailsAt = text.search(/patient\s*details\b/i);
+  if (detailsAt < 0) return null;
+  const sexLabeled = SEX_LABELED_NAME.exec(text.slice(detailsAt));
+  return sexLabeled?.[1] ?? null;
 }
