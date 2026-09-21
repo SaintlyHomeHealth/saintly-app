@@ -36,6 +36,10 @@ function useFaxListSelect() {
   return ctx;
 }
 
+export function useOptionalFaxListSelect() {
+  return useContext(FaxListSelectContext);
+}
+
 export function FaxListSelectProvider({ faxIds, children }: { faxIds: string[]; children: ReactNode }) {
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const idsKey = faxIds.join(",");

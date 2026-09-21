@@ -8,6 +8,8 @@ import { forwardInboundFaxAsOutbound } from "@/lib/fax/forward-inbound-fax";
 import { recordFaxEvent } from "@/lib/fax/fax-service";
 import type { FaxClonePrefill } from "@/lib/fax/fax-clone-prefill-types";
 import { getFaxClonePrefill as loadFaxClonePrefill } from "@/lib/fax/get-fax-clone-prefill";
+import { extractInboundFaxStructured } from "@/lib/fax/inbound-fax-extract";
+import { isFaxDocumentType, isFaxTriageState } from "@/lib/fax/fax-extraction-types";
 import { summarizeInboundFaxNote } from "@/lib/fax/inbound-fax-ai-summary";
 import { resendOutboundFax } from "@/lib/fax/resend-outbound-fax";
 import { getStaffProfile, isAdminOrHigher, isManagerOrHigher } from "@/lib/staff-profile";
@@ -301,6 +303,9 @@ export async function summarizeFaxNoteAction(
     if (reason === "no_pdf" || reason === "pdf_unavailable") {
       return { ok: false, error: "No fax PDF available to summarize." };
     }
+    if (reason === "media_missing") {
+      return { ok: false, error: "Fax PDF is not stored yet. Try again in a moment." };
+    }
     if (reason === "insufficient_text") {
       return { ok: false, error: "Could not read enough text from this fax." };
     }
@@ -402,4 +407,172 @@ export async function forwardInboundFaxAction(input: {
   }
 
   return result;
+}
+
+export async function rerunFaxExtractionAction(
+  faxId: string
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const staff = await getStaffProfile();
+  if (!staff || !isManagerOrHigher(staff)) {
+    return { ok: false, error: "Unauthorized" };
+  }
+  const id = faxId.trim();
+  if (!id) return { ok: false, error: "Missing fax." };
+
+  const result = await extractInboundFaxStructured(id);
+  revalidatePath("/admin/fax");
+  revalidatePath(`/admin/fax/${id}`);
+  if (result.ok) return { ok: true };
+  if (result.skipped) {
+    if (result.reason === "media_missing") {
+      return { ok: false, error: "Fax PDF is not stored yet. Try again in a moment." };
+    }
+    if (result.reason === "no_pdf" || result.reason === "pdf_unavailable") {
+      return { ok: false, error: "No fax PDF available to extract." };
+    }
+    if (result.reason === "not_inbound") {
+      return { ok: false, error: "Only inbound faxes can be extracted." };
+    }
+    return { ok: false, error: "Could not extract this fax." };
+  }
+  return { ok: false, error: result.error || "Extraction failed." };
+}
+
+export async function updateFaxStructuredFieldsAction(input: {
+  faxId: string;
+  patientName?: string | null;
+  patientDob?: string | null;
+  documentType?: string | null;
+  serviceDate?: string | null;
+  payer?: string | null;
+  senderOrg?: string | null;
+  referringProvider?: string | null;
+  clinician?: string | null;
+  assignedToUserId?: string | null;
+  triageState?: string | null;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const staff = await getStaffProfile();
+  if (!staff || !isManagerOrHigher(staff)) {
+    return { ok: false, error: "Unauthorized" };
+  }
+  const faxId = input.faxId.trim();
+  if (!faxId) return { ok: false, error: "Missing fax." };
+
+  const patch: Record<string, unknown> = {};
+  if (input.patientName !== undefined) patch.patient_name = input.patientName?.trim() || null;
+  if (input.patientDob !== undefined) patch.patient_dob = input.patientDob?.trim() || null;
+  if (input.documentType !== undefined) {
+    patch.document_type = input.documentType && isFaxDocumentType(input.documentType) ? input.documentType : null;
+  }
+  if (input.serviceDate !== undefined) patch.service_date = input.serviceDate?.trim() || null;
+  if (input.payer !== undefined) patch.payer = input.payer?.trim() || null;
+  if (input.senderOrg !== undefined) patch.sender_org = input.senderOrg?.trim() || null;
+  if (input.referringProvider !== undefined) patch.referring_provider = input.referringProvider?.trim() || null;
+  if (input.clinician !== undefined) patch.clinician = input.clinician?.trim() || null;
+  if (input.assignedToUserId !== undefined) {
+    patch.assigned_to_user_id = input.assignedToUserId?.trim() || null;
+    if (input.assignedToUserId?.trim()) patch.triage_state = "assigned";
+  }
+  if (input.triageState !== undefined && isFaxTriageState(input.triageState)) {
+    patch.triage_state = input.triageState;
+    if (input.triageState === "reviewed" || input.triageState === "filed") {
+      patch.is_read = true;
+    }
+  }
+
+  const { error } = await supabaseAdmin.from("fax_messages").update(patch).eq("id", faxId);
+  if (error) return { ok: false, error: error.message };
+
+  await recordFaxEvent({
+    faxMessageId: faxId,
+    eventType: "structured_fields_updated",
+    payload: { actor_user_id: staff.user_id, keys: Object.keys(patch) },
+  });
+  revalidatePath("/admin/fax");
+  revalidatePath(`/admin/fax/${faxId}`);
+  return { ok: true };
+}
+
+export async function linkFaxPatientAction(input: {
+  faxId: string;
+  patientId: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const staff = await getStaffProfile();
+  if (!staff || !isManagerOrHigher(staff)) {
+    return { ok: false, error: "Unauthorized" };
+  }
+  const faxId = input.faxId.trim();
+  const patientId = input.patientId.trim();
+  if (!faxId || !patientId) return { ok: false, error: "Missing fax or patient." };
+
+  const { error } = await supabaseAdmin
+    .from("fax_messages")
+    .update({ patient_id: patientId, patient_match_status: "exact" })
+    .eq("id", faxId);
+  if (error) return { ok: false, error: error.message };
+
+  await recordFaxEvent({
+    faxMessageId: faxId,
+    eventType: "patient_linked",
+    payload: { actor_user_id: staff.user_id, patient_id: patientId },
+  });
+  revalidatePath("/admin/fax");
+  revalidatePath(`/admin/fax/${faxId}`);
+  revalidatePath(`/admin/crm/patients/${patientId}`);
+  return { ok: true };
+}
+
+export async function bulkSetFaxTriageAction(
+  faxIds: string[],
+  triageState: string
+): Promise<{ ok: true; updated: number } | { ok: false; error: string }> {
+  const staff = await getStaffProfile();
+  if (!staff || !isManagerOrHigher(staff)) {
+    return { ok: false, error: "Unauthorized" };
+  }
+  if (!isFaxTriageState(triageState)) return { ok: false, error: "Invalid state." };
+  const ids = parseFaxIds(faxIds);
+  if (ids.length === 0) return { ok: false, error: "No faxes selected." };
+
+  const patch: Record<string, unknown> = { triage_state: triageState };
+  if (triageState === "reviewed" || triageState === "filed") patch.is_read = true;
+  if (triageState === "filed") patch.is_archived = true;
+
+  const { data, error } = await supabaseAdmin.from("fax_messages").update(patch).in("id", ids).select("id");
+  if (error) return { ok: false, error: error.message };
+
+  const updated = (data ?? []).map((r) => r.id as string);
+  if (updated.length > 0) {
+    await supabaseAdmin.from("fax_events").insert(
+      updated.map((faxMessageId) => ({
+        fax_message_id: faxMessageId,
+        event_type: "triage_updated",
+        payload: { actor_user_id: staff.user_id, triage_state: triageState, bulk: true },
+      }))
+    );
+  }
+  revalidateDeletedFaxes(updated);
+  return { ok: true, updated: updated.length };
+}
+
+export async function bulkAssignFaxesAction(
+  faxIds: string[],
+  assignedToUserId: string
+): Promise<{ ok: true; updated: number } | { ok: false; error: string }> {
+  const staff = await getStaffProfile();
+  if (!staff || !isManagerOrHigher(staff)) {
+    return { ok: false, error: "Unauthorized" };
+  }
+  const ids = parseFaxIds(faxIds);
+  const assignee = assignedToUserId.trim();
+  if (ids.length === 0 || !assignee) return { ok: false, error: "Missing selection." };
+
+  const { data, error } = await supabaseAdmin
+    .from("fax_messages")
+    .update({ assigned_to_user_id: assignee, triage_state: "assigned" })
+    .in("id", ids)
+    .select("id");
+  if (error) return { ok: false, error: error.message };
+  revalidateDeletedFaxes((data ?? []).map((r) => r.id as string));
+  return { ok: true, updated: (data ?? []).length };
 }

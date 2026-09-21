@@ -2,32 +2,27 @@ import "server-only";
 
 import { supabaseAdmin } from "@/lib/admin";
 import { fetchCrmOpenAiJsonObject } from "@/lib/crm/openai-crm-task-json";
-import { extractPatientReferralPdfText } from "@/lib/crm/patient-referral/pdf-text-extract";
+import { extractFaxDocumentText } from "@/lib/fax/fax-document-text";
 import { saintlyCrmTaskExtractionModel } from "@/lib/crm/saintly-ai-voice-config";
-import { canRunResumePdfOcr } from "@/lib/recruiting/recruiting-ocr-env";
-import { isOcrSpaceRecruitingConfigured, ocrSpaceFromBuffer } from "@/lib/recruiting/ocr-space";
-import { ocrPdfBuffer } from "@/lib/recruiting/resume-pdf-ocr";
 
 /** Local constant — do not import from fax-service (avoids circular dependency). */
 const FAX_DOCUMENTS_BUCKET = "fax-documents";
 
 const NOTE_MAX_LEN = 200;
 const MIN_TEXT_FOR_MODEL = 20;
-/** Below this length, try OCR (scanned faxes). */
-const OCR_SHORT_TEXT = 40;
-const AI_BUDGET_MS = 18_000;
-const EXTRACT_SEND_MAX = 8_000;
+const AI_BUDGET_MS = 45_000;
 
 const SYSTEM_PROMPT = `You label inbound home-health faxes for a busy admin inbox.
 Return JSON only: { "note": string }.
 
 Rules for "note":
 - 3 to 8 words, title-style, like a staff sticky note
-- Match this style: "Signed 485", "Verse Medical supplies", "referral from Tango", "Raymond Garton Signed 485", "Tango Denied"
-- Prefer: document type (485, POC, orders, referral), vendor/source (Tango, Verse, SCAN), patient last name when clear, status (signed, denied, delivered)
+- Prefer: patient last name (when clearly labeled Patient Name / Patient / Pt / Member / Client), document type, vendor/source
+- Ignore cover-sheet "To:" / facility blocks — those are the sender, not the patient
+- Do not use clinician or nurse names (e.g. Victoria McBerty, Tawnya Grover) as the patient
 - Do not dump PHI (no full SSN, DOB, address, Medicare numbers)
 - No full sentences or paragraphs
-- If unclear, use a short best-effort label (e.g. "Inbound referral", "Insurance fax")`;
+- If the document text is missing, return {"note":""} — never invent "empty fax" or "no PDF"`;
 
 export type InboundFaxAiSummaryResult =
   | { ok: true; note: string }
@@ -46,13 +41,18 @@ function asRecord(v: unknown): Record<string, unknown> | null {
   return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
 }
 
+function isUnusableMissingPdfNote(note: string): boolean {
+  return /empty fax|no pdf file|no pdf\b/i.test(note);
+}
+
 function normalizeAiNote(raw: unknown): string | null {
   const s = typeof raw === "string" ? raw.trim().replace(/\s+/g, " ") : "";
   if (!s) return null;
+  if (isUnusableMissingPdfNote(s)) return null;
   return s.slice(0, NOTE_MAX_LEN);
 }
 
-async function loadFaxPdfBytes(input: {
+export async function loadFaxPdfBytes(input: {
   storagePath: string | null;
   mediaUrl: string | null;
 }): Promise<Buffer | null> {
@@ -84,60 +84,17 @@ async function loadFaxPdfBytes(input: {
   return null;
 }
 
-async function extractFaxTextForSummary(buffer: Buffer): Promise<{ text: string; method: string }> {
-  const direct = await extractPatientReferralPdfText(buffer);
-  let text = (direct.text ?? "").trim();
-  let method = direct.method !== "none" ? direct.method : "none";
-
-  if (text.length < OCR_SHORT_TEXT) {
-    const preferCloud = direct.dependencyError && isOcrSpaceRecruitingConfigured();
-    if (!preferCloud && canRunResumePdfOcr()) {
-      try {
-        const ocr = await ocrPdfBuffer(buffer, { maxPages: 3 });
-        const ocrText = (ocr.text ?? "").trim();
-        if (ocrText.length > text.length) {
-          text = ocrText;
-          method = "ocr_render";
-        }
-      } catch (e) {
-        console.warn("[fax/ai-summary] ocr_render_failed", {
-          error: e instanceof Error ? e.message : String(e),
-        });
-        if (isOcrSpaceRecruitingConfigured()) {
-          const ocr = await ocrSpaceFromBuffer(buffer, "inbound-fax.pdf", "application/pdf");
-          const ocrText = ocr.text.trim();
-          if (ocrText.length > text.length) {
-            text = ocrText;
-            method = "ocr_space";
-          }
-        }
-      }
-    } else if (isOcrSpaceRecruitingConfigured()) {
-      const ocr = await ocrSpaceFromBuffer(buffer, "inbound-fax.pdf", "application/pdf");
-      const ocrText = ocr.text.trim();
-      if (ocrText.length > text.length) {
-        text = ocrText;
-        method = "ocr_space";
-      }
-    }
-  }
-
-  return { text, method };
-}
-
-async function generateNoteFromText(text: string): Promise<string | null> {
-  const clipped = text.slice(0, EXTRACT_SEND_MAX);
+async function generateNoteFromPages(modelText: string): Promise<string | null> {
   const json = await fetchCrmOpenAiJsonObject(
     faxAiSummaryModel(),
     SYSTEM_PROMPT,
-    `Fax document text:\n\n${clipped}`
+    `Fax document text by page:\n\n${modelText}`
   );
   const rec = asRecord(json);
   return normalizeAiNote(rec?.note);
 }
 
 async function persistNoteIfEmpty(faxId: string, note: string): Promise<boolean> {
-  // Re-check immediately before write so a staff edit during AI work wins.
   const { data: current, error: readErr } = await supabaseAdmin
     .from("fax_messages")
     .select("id, note")
@@ -171,6 +128,7 @@ async function persistNoteIfEmpty(faxId: string, note: string): Promise<boolean>
 /**
  * Generate a short staff-style note for an inbound fax PDF.
  * Only writes when `fax_messages.note` is still empty. Never throws (safe for webhooks).
+ * Never writes a "no PDF" note onto a fax that has pages or stored media.
  */
 export async function summarizeInboundFaxNote(faxId: string): Promise<InboundFaxAiSummaryResult> {
   const id = faxId.trim();
@@ -186,7 +144,7 @@ export async function summarizeInboundFaxNote(faxId: string): Promise<InboundFax
 
   const { data: row, error } = await supabaseAdmin
     .from("fax_messages")
-    .select("id, direction, status, note, storage_path, media_url")
+    .select("id, direction, status, note, storage_path, media_url, page_count")
     .eq("id", id)
     .maybeSingle();
 
@@ -209,27 +167,30 @@ export async function summarizeInboundFaxNote(faxId: string): Promise<InboundFax
   const storagePath =
     typeof row.storage_path === "string" && row.storage_path.trim() ? row.storage_path.trim() : null;
   const mediaUrl = typeof row.media_url === "string" && row.media_url.trim() ? row.media_url.trim() : null;
+  const pageCount = typeof row.page_count === "number" ? row.page_count : null;
+
   if (!storagePath && !mediaUrl) {
-    return { ok: false, skipped: true, reason: "no_pdf" };
+    return { ok: false, skipped: true, reason: pageCount && pageCount > 0 ? "media_missing" : "no_pdf" };
   }
 
   try {
     const buffer = await loadFaxPdfBytes({ storagePath, mediaUrl });
     if (!buffer) {
-      return { ok: false, skipped: true, reason: "pdf_unavailable" };
+      return { ok: false, skipped: true, reason: pageCount && pageCount > 0 ? "media_missing" : "pdf_unavailable" };
     }
 
-    const { text, method } = await extractFaxTextForSummary(buffer);
-    if (text.length < MIN_TEXT_FOR_MODEL) {
+    const extracted = await extractFaxDocumentText(buffer, { faxId: id });
+    if (extracted.totalChars < MIN_TEXT_FOR_MODEL) {
       console.warn("[fax/ai-summary] insufficient_text", {
         fax_id: id,
-        method,
-        text_len: text.length,
+        text_len: extracted.totalChars,
+        page_count: extracted.pageCount,
+        ocr_pages: extracted.ocrPageCount,
       });
       return { ok: false, skipped: true, reason: "insufficient_text" };
     }
 
-    const note = await generateNoteFromText(text);
+    const note = await generateNoteFromPages(extracted.modelText);
     if (!note) {
       return { ok: false, skipped: false, error: "Model returned empty note" };
     }
@@ -242,14 +203,22 @@ export async function summarizeInboundFaxNote(faxId: string): Promise<InboundFax
     await supabaseAdmin.from("fax_events").insert({
       fax_message_id: id,
       event_type: "ai_note_generated",
-      payload: { note, extract_method: method, text_len: text.length },
+      payload: {
+        note,
+        extract_method: "paged",
+        text_len: extracted.totalChars,
+        page_count: extracted.pageCount,
+        ocr_pages: extracted.ocrPageCount,
+        page_char_counts: extracted.pages.map((p) => ({ page: p.page, chars: p.charCount, method: p.method })),
+      },
     });
 
     console.log("[fax/ai-summary] note_written", {
       fax_id: id,
       note,
-      extract_method: method,
-      text_len: text.length,
+      extract_method: "paged",
+      text_len: extracted.totalChars,
+      page_count: extracted.pageCount,
     });
 
     return { ok: true, note };

@@ -1,124 +1,86 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState } from "react";
 
-import { summarizeFaxNoteAction, updateFaxNoteAction } from "@/app/admin/fax/actions";
-import {
-  clearFaxAutoSummarizeAttempt,
-  enqueueFaxAutoSummarize,
-} from "@/app/admin/fax/_components/fax-auto-summarize-queue";
-import { crmActionBtnSky, crmFilterInputCls } from "@/components/admin/crm-admin-list-styles";
+import { updateFaxNoteAction } from "@/app/admin/fax/actions";
+import { fx } from "@/app/admin/fax/_components/fax-tokens";
 
 type FaxNoteEditorProps = {
   faxId: string;
   initialNote: string | null;
-  /** When true, blank notes auto-summarize on mount (inbound success faxes). */
-  autoSummarize?: boolean;
 };
 
 const MAX_LEN = 4000;
 
-export function FaxNoteEditor({ faxId, initialNote, autoSummarize = false }: FaxNoteEditorProps) {
+export function FaxNoteEditor({ faxId, initialNote }: FaxNoteEditorProps) {
   const router = useRouter();
   const saved = initialNote ?? "";
   const [note, setNote] = useState(saved);
+  const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
-  const [savedFlash, setSavedFlash] = useState(false);
-  const [autoRunning, setAutoRunning] = useState(false);
-  const [isPending, startTransition] = useTransition();
-  const mountedRef = useRef(true);
-
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-    };
-  }, []);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastSavedRef = useRef(saved);
 
   useEffect(() => {
     setNote(initialNote ?? "");
+    lastSavedRef.current = initialNote ?? "";
   }, [initialNote]);
 
   useEffect(() => {
-    if (!autoSummarize) return;
-    if (saved.trim()) return;
+    if (note === lastSavedRef.current) return;
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => {
+      void persist(note);
+    }, 800);
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, [note, faxId]);
 
-    const queued = enqueueFaxAutoSummarize(faxId, async () => {
-      if (!mountedRef.current) return;
-      setAutoRunning(true);
-      setError(null);
-      const result = await summarizeFaxNoteAction(faxId);
-      if (!mountedRef.current) return;
-      setAutoRunning(false);
-      if (!result.ok) {
-        clearFaxAutoSummarizeAttempt(faxId);
-        setError(result.error ?? "Could not summarize.");
-        return;
-      }
-      setNote(result.note);
-      setSavedFlash(true);
-      router.refresh();
-      window.setTimeout(() => {
-        if (mountedRef.current) setSavedFlash(false);
-      }, 2500);
-    });
-
-    if (queued) setAutoRunning(true);
-  }, [autoSummarize, faxId, router, saved]);
-
-  const isDirty = note !== saved;
-  const busy = isPending || autoRunning;
-
-  function save() {
+  async function persist(value: string) {
+    setStatus("saving");
     setError(null);
-    setSavedFlash(false);
-    startTransition(async () => {
-      const formData = new FormData();
-      formData.set("faxId", faxId);
-      formData.set("note", note.slice(0, MAX_LEN));
-      const result = await updateFaxNoteAction(formData);
-      if (!result.ok) {
-        setError(result.error ?? "Could not save note.");
-        return;
-      }
-      setSavedFlash(true);
-      router.refresh();
-      window.setTimeout(() => setSavedFlash(false), 2500);
-    });
+    const formData = new FormData();
+    formData.set("faxId", faxId);
+    formData.set("note", value.slice(0, MAX_LEN));
+    const result = await updateFaxNoteAction(formData);
+    if (!result.ok) {
+      setStatus("error");
+      setError(result.error ?? "Could not save note.");
+      return;
+    }
+    lastSavedRef.current = value;
+    setStatus("saved");
+    router.refresh();
+    window.setTimeout(() => setStatus("idle"), 2000);
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-2">
       <textarea
         name="note"
         value={note}
         maxLength={MAX_LEN}
-        onChange={(e) => setNote(e.target.value)}
+        onChange={(e) => {
+          setNote(e.target.value);
+          setStatus("idle");
+        }}
         rows={6}
-        placeholder={
-          autoRunning ? "Summarizing fax…" : "Example: PA sent to SCAN Health – Terry Fogg"
-        }
-        className={`${crmFilterInputCls} min-h-[140px] resize-y`}
-        disabled={busy}
+        placeholder="Staff note — this stays yours. Extraction never overwrites it."
+        className={`${fx.input} min-h-[10rem] w-full resize-y`}
       />
-      <p className="text-xs text-slate-500">
-        Inbound faxes are summarized automatically. You can still edit the note anytime.
-      </p>
-      <div className="flex flex-wrap items-center gap-3">
-        <button type="button" onClick={save} disabled={busy || !isDirty} className={crmActionBtnSky}>
-          {isPending ? "Saving…" : "Save note"}
-        </button>
-        {autoRunning ? <span className="text-xs font-medium text-sky-700">Summarizing…</span> : null}
-        {!busy && savedFlash ? <span className="text-xs font-semibold text-emerald-700">Saved</span> : null}
-        {!busy && isDirty && !savedFlash ? (
-          <span className="text-xs font-medium text-amber-700">Unsaved changes</span>
+      <div className="flex items-center gap-2 text-[12px]">
+        {status === "saving" ? <span className="text-[color:var(--fx-text-muted)]">Saving…</span> : null}
+        {status === "saved" ? <span className="text-emerald-700">Saved</span> : null}
+        {status === "idle" && note === lastSavedRef.current && note ? (
+          <span className="text-[color:var(--fx-text-muted)]">Up to date</span>
         ) : null}
-        {!busy && !isDirty && !savedFlash && saved ? (
-          <span className="text-xs text-slate-500">Up to date</span>
+        {status === "idle" && note !== lastSavedRef.current ? (
+          <span className="text-amber-800">Unsaved</span>
         ) : null}
+        {error ? <span className="text-rose-800">{error}</span> : null}
       </div>
-      {error ? <p className="text-sm font-medium text-rose-700">{error}</p> : null}
     </div>
   );
 }

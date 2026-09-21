@@ -13,7 +13,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
 
     return (
       <div
-        className="min-h-full bg-gradient-to-b from-slate-50/80 via-sky-50/25 to-cyan-50/20 [--admin-header-height:5.5rem] sm:[--admin-header-height:4.75rem]"
+        className="min-h-full bg-[var(--fx-bg)] [--admin-header-height:3.25rem]"
       >
         <AdminTopNav items={navItems} />
         {children}
