@@ -1,4 +1,4 @@
-/** Private bucket for Medicare/insurance card photos submitted by sales agents. */
+/** Private bucket for Medicare/insurance/DL photos submitted by sales agents. */
 export const LEAD_DOCUMENTS_BUCKET = "lead-documents";
 
 export const LEAD_DOCUMENT_TYPES = [
@@ -6,6 +6,7 @@ export const LEAD_DOCUMENT_TYPES = [
   "medicare_card_back",
   "insurance_card_front",
   "insurance_card_back",
+  "drivers_license",
 ] as const;
 
 export type LeadDocumentType = (typeof LEAD_DOCUMENT_TYPES)[number];
@@ -21,6 +22,7 @@ export const LEAD_DOCUMENT_TYPE_LABELS: Record<LeadDocumentType, string> = {
   medicare_card_back: "Medicare card (back)",
   insurance_card_front: "Insurance card (front)",
   insurance_card_back: "Insurance card (back)",
+  drivers_license: "Driver's license",
 };
 
 export const LEAD_DOCUMENTS_MAX_BYTES = 10 * 1024 * 1024;
