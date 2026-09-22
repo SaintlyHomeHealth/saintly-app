@@ -90,6 +90,7 @@ export function SalesAgentCreateLeadForm({ paths = DEFAULT_SALES_AGENT_PATHS }: 
   const [servicesRequested, setServicesRequested] = useState<string[]>([]);
   const [reasonForReferral, setReasonForReferral] = useState("");
   const [doctorName, setDoctorName] = useState("");
+  const [doctorPhoneDisplay, setDoctorPhoneDisplay] = useState("");
   const [facilityName, setFacilityName] = useState("");
   const [notes, setNotes] = useState("");
   const [consent, setConsent] = useState(false);
@@ -353,6 +354,7 @@ export function SalesAgentCreateLeadForm({ paths = DEFAULT_SALES_AGENT_PATHS }: 
             <CardPhotoInput name="medicare_card_back" label="Medicare card (back)" capture="environment" />
             <CardPhotoInput name="insurance_card_front" label="Insurance card (front)" capture="environment" />
             <CardPhotoInput name="insurance_card_back" label="Insurance card (back)" capture="environment" />
+            <CardPhotoInput name="drivers_license" label="Driver's license" capture="environment" />
           </div>
         </section>
 
@@ -389,6 +391,15 @@ export function SalesAgentCreateLeadForm({ paths = DEFAULT_SALES_AGENT_PATHS }: 
                 />
               </label>
               <label className="flex flex-col text-xs font-medium text-slate-600">
+                Doctor / PCP phone
+                <FormattedPhoneInput
+                  name="doctor_or_pcp_phone"
+                  className={`${inp}${errorField === "doctor_or_pcp_phone" ? " border-rose-400 ring-rose-100" : ""}`}
+                  value={doctorPhoneDisplay}
+                  onValueChange={setDoctorPhoneDisplay}
+                />
+              </label>
+              <label className="sm:col-span-2 flex flex-col text-xs font-medium text-slate-600">
                 Facility / hospital name
                 <input
                   name="facility_or_hospital_name"

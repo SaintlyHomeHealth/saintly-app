@@ -51,7 +51,7 @@ export async function SalesAgentLeadDetail({
     .select(
       `id, status, source, created_at, converted_to_patient_at, medicare_number, social_security_number, insurance_name, insurance_type, insurance_member_id,
        caregiver_name, caregiver_phone_number, caregiver_relationship, reason_for_referral, service_disciplines, service_type,
-       referring_doctor_name, doctor_office_name, notes, dob, consent_to_contact, sales_agent_hidden_at,
+       referring_doctor_name, doctor_office_phone, doctor_office_name, notes, dob, consent_to_contact, sales_agent_hidden_at,
        contacts ( full_name, primary_phone, email, address_line_1, city, state, zip )`
     )
     .eq("id", leadId)
@@ -173,6 +173,9 @@ export async function SalesAgentLeadDetail({
             </Field>
             <Field label="Reason">{lead.reason_for_referral?.trim() || "—"}</Field>
             <Field label="Doctor / PCP">{lead.referring_doctor_name?.trim() || "—"}</Field>
+            <Field label="Doctor / PCP phone">
+              {lead.doctor_office_phone ? formatPhoneNumber(lead.doctor_office_phone) : "—"}
+            </Field>
             <Field label="Facility">{lead.doctor_office_name?.trim() || "—"}</Field>
             <Field label="Notes">{lead.notes?.trim() || "—"}</Field>
           </dl>
@@ -181,7 +184,7 @@ export async function SalesAgentLeadDetail({
 
       {docRows.length > 0 ? (
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h3 className="text-sm font-semibold text-slate-900">Uploaded cards</h3>
+          <h3 className="text-sm font-semibold text-slate-900">Uploaded documents</h3>
           <ul className="mt-3 space-y-2">
             {docRows.map((doc) => {
               const label =

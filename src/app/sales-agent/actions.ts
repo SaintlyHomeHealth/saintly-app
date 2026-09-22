@@ -276,6 +276,7 @@ export async function createSalesAgentLead(formData: FormData): Promise<CreateSa
       caregiver_phone_number: normalizePhone(readTrimmed(formData, "caregiver_phone_number")) || null,
       caregiver_relationship: readTrimmed(formData, "caregiver_relationship") || null,
       referring_doctor_name: readTrimmed(formData, "doctor_or_pcp_name") || null,
+      doctor_office_phone: normalizePhone(readTrimmed(formData, "doctor_or_pcp_phone")) || null,
       doctor_office_name: readTrimmed(formData, "facility_or_hospital_name") || null,
       reason_for_referral: readTrimmed(formData, "reason_for_referral") || null,
       service_disciplines: disciplines,
@@ -299,6 +300,7 @@ export async function createSalesAgentLead(formData: FormData): Promise<CreateSa
     uploadLeadDocumentFromForm(formData, leadId, "medicare_card_back", "medicare_card_back", staff.user_id),
     uploadLeadDocumentFromForm(formData, leadId, "insurance_card_front", "insurance_card_front", staff.user_id),
     uploadLeadDocumentFromForm(formData, leadId, "insurance_card_back", "insurance_card_back", staff.user_id),
+    uploadLeadDocumentFromForm(formData, leadId, "drivers_license", "drivers_license", staff.user_id),
   ]);
 
   const agentName = agentDisplayName(staff);
