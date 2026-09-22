@@ -36,6 +36,7 @@ type Props = {
   leadId: string;
   created?: boolean;
   uploaded?: boolean;
+  cardsMissing?: boolean;
   paths?: SalesAgentPaths;
 };
 
@@ -44,6 +45,7 @@ export async function SalesAgentLeadDetail({
   leadId,
   created,
   uploaded,
+  cardsMissing,
   paths = DEFAULT_SALES_AGENT_PATHS,
 }: Props) {
   const { data: lead, error } = await supabaseAdmin
@@ -106,6 +108,12 @@ export async function SalesAgentLeadDetail({
       {created ? (
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
           Your order was submitted successfully. Intake staff will follow up shortly.
+        </div>
+      ) : null}
+
+      {cardsMissing ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+          A card photo did not upload with this order. Send the picture in Sales Agent chat so intake still has it.
         </div>
       ) : null}
 
