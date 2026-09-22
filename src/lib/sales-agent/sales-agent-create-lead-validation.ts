@@ -8,6 +8,7 @@ export type SalesAgentCreateLeadValidationCode =
   | "validation_dob"
   | "validation_insurance"
   | "validation_ssn"
+  | "validation_doctor_phone"
   | "validation_consent";
 
 export type SalesAgentCreateLeadValidationResult =
@@ -64,6 +65,11 @@ export function validateSalesAgentCreateLeadFormData(formData: FormData): SalesA
     return { ok: false, code: "validation_ssn", field: "social_security_number" };
   }
 
+  const doctorPhoneRaw = readTrimmed(formData, "doctor_or_pcp_phone");
+  if (doctorPhoneRaw && !normalizePhone(doctorPhoneRaw)) {
+    return { ok: false, code: "validation_doctor_phone", field: "doctor_or_pcp_phone" };
+  }
+
   return { ok: true };
 }
 
@@ -76,6 +82,7 @@ export function salesAgentCreateLeadValidationMessage(code: string | null): stri
     validation_dob: "Date of birth is required (MM/DD/YYYY).",
     validation_insurance: "Insurance type or insurance name is required.",
     validation_ssn: "Social Security Number must be 9 digits (XXX-XX-XXXX).",
+    validation_doctor_phone: "Doctor / PCP phone must be a valid phone number.",
     validation_consent: "Consent to contact is required.",
     contact_failed: "Could not save patient contact. Try again.",
     lead_failed: "Could not create the lead. Try again.",
