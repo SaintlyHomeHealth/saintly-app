@@ -1,0 +1,51 @@
+.compliance-print-only {
+  display: none;
+}
+
+@media print {
+  .compliance-screen-only {
+    display: none !important;
+  }
+
+  .compliance-print-only {
+    display: block !important;
+  }
+
+  header.sticky {
+    display: none !important;
+  }
+
+  body {
+    background: white !important;
+  }
+
+  .packet-section + .packet-section {
+    break-before: page;
+  }
+
+  @page {
+    size: letter;
+    margin: 0.65in 0.6in 0.85in;
+
+    @bottom-left {
+      content: "Saintly Home Health LLC";
+      font-family: Arial, sans-serif;
+      font-size: 9pt;
+      color: #334155;
+    }
+
+    @bottom-center {
+      content: "Page " counter(page) " of " counter(pages);
+      font-family: Arial, sans-serif;
+      font-size: 9pt;
+      color: #334155;
+    }
+
+    @bottom-right {
+      content: "Printed copy";
+      font-family: Arial, sans-serif;
+      font-size: 9pt;
+      color: #334155;
+    }
+  }
+}

@@ -1,3 +1,4 @@
+import { canUseComplianceLogs } from "@/lib/compliance/access";
 import { adminNavIdToPageKey, resolveEffectivePageAccess } from "@/lib/staff-page-access";
 import type { StaffProfile } from "@/lib/staff-profile";
 import {
@@ -29,6 +30,7 @@ export const ADMIN_NAV_LABELS = {
   workspaceKeypad: "Workspace Keypad",
   dispatch: "Dispatch",
   employees: "Employees",
+  complianceLogs: "Compliance Logs",
   payroll: "Payroll",
   privatePay: "Private Pay",
   staffAccess: "Staff Access",
@@ -54,6 +56,7 @@ export type AdminNavItemId =
   | "workspace_keypad"
   | "dispatch"
   | "employees"
+  | "compliance_logs"
   | "payroll"
   | "private_pay"
   | "staff_access"
@@ -221,6 +224,16 @@ export function buildAdminNavItems(staff: StaffProfile | null): AdminNavItemReso
       href: "/admin/employees",
       ...g("employees", false, ""),
     },
+    ...(canUseComplianceLogs(staff)
+      ? [
+          {
+            id: "compliance_logs" as const,
+            label: ADMIN_NAV_LABELS.complianceLogs,
+            href: "/admin/compliance",
+            disabled: false,
+          },
+        ]
+      : []),
     {
       id: "payroll",
       label: ADMIN_NAV_LABELS.payroll,
