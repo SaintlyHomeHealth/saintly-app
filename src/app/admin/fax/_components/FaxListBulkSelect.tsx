@@ -126,11 +126,19 @@ export function FaxListRowShell({
   return <div className={`${className} ${selected.has(faxId) ? "bg-sky-50/80" : ""}`}>{children}</div>;
 }
 
-export function FaxBulkDeleteBar({ allowHardDelete }: { allowHardDelete: boolean }) {
+export function FaxBulkDeleteBar({
+  allowHardDelete,
+  showDownloadSelected = false,
+}: {
+  allowHardDelete: boolean;
+  showDownloadSelected?: boolean;
+}) {
   const router = useRouter();
   const { selected, someSelected, clearSelected } = useFaxListSelect();
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [downloading, setDownloading] = useState(false);
   const [pending, startTransition] = useTransition();
 
   const count = selected.size;
@@ -152,23 +160,70 @@ export function FaxBulkDeleteBar({ allowHardDelete }: { allowHardDelete: boolean
     });
   };
 
+  async function downloadSelected() {
+    const ids = Array.from(selected);
+    if (ids.length === 0) return;
+    setDownloadError(null);
+    setDownloading(true);
+    try {
+      const res = await fetch("/admin/fax/download-selected", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ faxIds: ids }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: string } | null;
+        setDownloadError(body?.error || "Could not download the selected faxes.");
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = "unfiled-faxes.zip";
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      setDownloadError("Could not download the selected faxes.");
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   return (
     <>
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 bg-white px-4 py-2.5 text-sm">
-        <p className="font-medium text-slate-700">
-          {someSelected ? `${count} selected` : "Select faxes to delete more than one at a time"}
-        </p>
+        <div className="min-w-0">
+          <p className="font-medium text-slate-700">
+            {someSelected ? `${count} selected` : "Select faxes to delete more than one at a time"}
+          </p>
+          {downloadError ? <p className="text-xs font-medium text-rose-700">{downloadError}</p> : null}
+        </div>
         {someSelected ? (
-          <button
-            type="button"
-            onClick={() => {
-              setError(null);
-              setOpen(true);
-            }}
-            className="rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-xs font-semibold text-rose-800 shadow-sm hover:bg-rose-50"
-          >
-            Delete selected
-          </button>
+          <div className="flex flex-wrap gap-2">
+            {showDownloadSelected ? (
+              <button
+                type="button"
+                onClick={() => void downloadSelected()}
+                disabled={downloading || pending}
+                className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-900 shadow-sm hover:bg-sky-100 disabled:opacity-60"
+              >
+                {downloading ? "Preparing zip…" : "Download selected"}
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => {
+                setError(null);
+                setOpen(true);
+              }}
+              className="rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-xs font-semibold text-rose-800 shadow-sm hover:bg-rose-50"
+            >
+              Delete selected
+            </button>
+          </div>
         ) : null}
       </div>
 

@@ -4,6 +4,10 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { supabaseAdmin } from "@/lib/admin";
+import {
+  ehrPatientNameFromDisplayTitle,
+  normalizeFaxDisplayTitle,
+} from "@/lib/fax/fax-ehr-filing";
 import { forwardInboundFaxAsOutbound } from "@/lib/fax/forward-inbound-fax";
 import { recordFaxEvent } from "@/lib/fax/fax-service";
 import type { FaxClonePrefill } from "@/lib/fax/fax-clone-prefill-types";
@@ -235,6 +239,119 @@ export async function bulkHardDeleteFaxesAction(
   });
   revalidateDeletedFaxes(deletedIds);
   return { ok: true, deleted: deletedIds.length };
+}
+
+function missingEhrFilingColumn(error: { message?: string; code?: string } | null | undefined): boolean {
+  const code = String(error?.code ?? "");
+  const msg = (error?.message ?? "").toLowerCase();
+  if (code === "42703") return true;
+  return (
+    msg.includes("column") &&
+    (msg.includes("display_title") ||
+      msg.includes("filed_to_ehr_at") ||
+      msg.includes("filed_by") ||
+      msg.includes("ehr_patient_name"))
+  );
+}
+
+export async function updateFaxDisplayTitleAction(
+  formData: FormData
+): Promise<{ ok: true; displayTitle: string | null } | { ok: false; error: string }> {
+  const staff = await getStaffProfile();
+  if (!staff || !isManagerOrHigher(staff)) {
+    return { ok: false, error: "Unauthorized" };
+  }
+
+  const faxId = readString(formData, "faxId");
+  if (!faxId) return { ok: false, error: "Missing fax." };
+
+  const rawTitle = typeof formData.get("displayTitle") === "string" ? String(formData.get("displayTitle")) : "";
+  const normalized = normalizeFaxDisplayTitle(rawTitle);
+  if (!normalized.ok) return normalized;
+
+  const { error } = await supabaseAdmin
+    .from("fax_messages")
+    .update({ display_title: normalized.value })
+    .eq("id", faxId);
+  if (error) {
+    if (missingEhrFilingColumn(error)) {
+      return { ok: false, error: "Database migration missing: fax EHR filing columns." };
+    }
+    return { ok: false, error: error.message ?? "Update failed." };
+  }
+
+  await recordFaxEvent({
+    faxMessageId: faxId,
+    eventType: "display_title_updated",
+    payload: { actor_user_id: staff.user_id, display_title: normalized.value },
+  });
+  revalidatePath("/admin/fax");
+  revalidatePath(`/admin/fax/${faxId}`);
+  return { ok: true, displayTitle: normalized.value };
+}
+
+export async function markFaxFiledInAloraAction(
+  faxId: string
+): Promise<{ ok: true; filedAt: string } | { ok: false; error: string }> {
+  const staff = await getStaffProfile();
+  if (!staff || !isManagerOrHigher(staff)) {
+    return { ok: false, error: "Unauthorized" };
+  }
+
+  const id = faxId.trim();
+  if (!id) return { ok: false, error: "Missing fax." };
+
+  const { data: row, error: readError } = await supabaseAdmin
+    .from("fax_messages")
+    .select("id, direction, display_title, filed_to_ehr_at")
+    .eq("id", id)
+    .maybeSingle();
+  if (readError) {
+    if (missingEhrFilingColumn(readError)) {
+      return { ok: false, error: "Database migration missing: fax EHR filing columns." };
+    }
+    return { ok: false, error: readError.message ?? "Could not load this fax." };
+  }
+  if (!row?.id) return { ok: false, error: "Fax not found." };
+  if (row.direction !== "inbound") {
+    return { ok: false, error: "Only inbound faxes can be marked filed in Alora." };
+  }
+
+  const already = typeof row.filed_to_ehr_at === "string" ? row.filed_to_ehr_at : null;
+  if (already) return { ok: true, filedAt: already };
+
+  const filedAt = new Date().toISOString();
+  const ehrPatientName = ehrPatientNameFromDisplayTitle(
+    typeof row.display_title === "string" ? row.display_title : null
+  );
+  const { data: updated, error } = await supabaseAdmin
+    .from("fax_messages")
+    .update({
+      filed_to_ehr_at: filedAt,
+      filed_by: staff.user_id,
+      ehr_patient_name: ehrPatientName,
+    })
+    .eq("id", id)
+    .is("filed_to_ehr_at", null)
+    .select("filed_to_ehr_at")
+    .maybeSingle();
+  if (error) {
+    if (missingEhrFilingColumn(error)) {
+      return { ok: false, error: "Database migration missing: fax EHR filing columns." };
+    }
+    return { ok: false, error: error.message ?? "Could not mark this fax filed." };
+  }
+  const savedAt = typeof updated?.filed_to_ehr_at === "string" ? updated.filed_to_ehr_at : null;
+  if (!savedAt) return { ok: true, filedAt: already ?? filedAt };
+
+  await recordFaxEvent({
+    faxMessageId: id,
+    eventType: "filed_to_ehr",
+    payload: { actor_user_id: staff.user_id, ehr_patient_name: ehrPatientName },
+  });
+  revalidatePath("/admin/fax");
+  revalidatePath(`/admin/fax/${id}`);
+  return { ok: true, filedAt };
 }
 
 export async function updateFaxNoteAction(formData: FormData): Promise<{ ok: true } | { ok: false; error: string }> {
