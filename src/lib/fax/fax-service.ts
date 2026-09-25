@@ -42,6 +42,14 @@ export type FaxMessageRow = {
   tags: string[];
   /** Staff-entered label; independent of category / CRM matching. */
   note: string | null;
+  /** Alora record name (max 50). Shown instead of the OCR/AI note when set. */
+  display_title?: string | null;
+  /** Set when staff mark an inbound fax filed in Alora. */
+  filed_to_ehr_at?: string | null;
+  filed_by?: string | null;
+  ehr_patient_name?: string | null;
+  /** Generated: stored PDF path or media URL is present. */
+  has_fax_document?: boolean | null;
   category: FaxCategory;
   priority: FaxPriority;
   is_read: boolean;
@@ -82,6 +90,8 @@ export function tokenizeFaxKeywordQuery(rawQuery: string): string[] {
 
 const FAX_LIST_SEARCH_COLUMNS = [
   "note",
+  "display_title",
+  "ehr_patient_name",
   "from_number",
   "to_number",
   "sender_name",
@@ -124,6 +134,8 @@ export function faxMatchesKeywordSearch(fax: FaxMessageRow, rawQuery: string): b
 
   const hay = [
     fax.note,
+    fax.display_title,
+    fax.ehr_patient_name,
     fax.from_number,
     fax.to_number,
     fax.sender_name,

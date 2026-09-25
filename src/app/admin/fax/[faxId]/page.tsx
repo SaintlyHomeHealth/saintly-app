@@ -2,10 +2,14 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
 import { archiveFaxAction, markFaxReadAction } from "@/app/admin/fax/actions";
+import { FaxDisplayTitleEditor } from "@/app/admin/fax/_components/FaxDisplayTitleEditor";
+import { FaxFiledBadge } from "@/app/admin/fax/_components/FaxFiledBadge";
 import { FaxNoteEditor } from "@/app/admin/fax/_components/FaxNoteEditor";
+import { MarkFaxFiledButton } from "@/app/admin/fax/_components/MarkFaxFiledButton";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { crmActionBtnMuted, crmActionBtnSky, crmPrimaryCtaCls } from "@/components/admin/crm-admin-list-styles";
 import { supabaseAdmin } from "@/lib/admin";
+import { faxPdfFilename, faxVisibleRecordName } from "@/lib/fax/fax-ehr-filing";
 import { formatFaxSenderDisplay } from "@/lib/fax/format-fax-sender";
 import { formatFaxDateTimeDetail } from "@/lib/fax/format-fax-time";
 import { inboundFaxHasDocumentForForward } from "@/lib/fax/forward-inbound-fax";
@@ -50,6 +54,18 @@ export default async function AdminFaxDetailPage({
   if (error || !data?.id) notFound();
   const fax = data as FaxMessageRow;
 
+  let filedByLabel: string | null = null;
+  if (fax.filed_by) {
+    const { data: filer } = await supabaseAdmin
+      .from("staff_profiles")
+      .select("full_name, email")
+      .eq("user_id", fax.filed_by)
+      .maybeSingle();
+    const filerName = typeof filer?.full_name === "string" ? filer.full_name.trim() : "";
+    const filerEmail = typeof filer?.email === "string" ? filer.email.trim() : "";
+    filedByLabel = filerName || filerEmail || null;
+  }
+
   const pdfUrl = (await signedFaxPdfUrl(fax.storage_path)) ?? fax.pdf_url ?? fax.media_url;
   const returnTo = `/admin/fax/${fax.id}`;
   const senderDisplay = formatFaxSenderDisplay(fax.from_number, fax.sender_name);
@@ -59,14 +75,35 @@ export default async function AdminFaxDetailPage({
     .join(" · ") || "Unknown";
   const originalReceivedDisplay = formatFaxDateTimeDetail(fax.received_at ?? fax.created_at);
   const packetMeta = (fax.packet_metadata ?? null) as FaxPacketMetadata | null;
+  const recordName = faxVisibleRecordName(fax);
+  const hasInboundDocument = fax.direction === "inbound" && inboundFaxHasDocumentForForward(fax);
+  const downloadName = faxPdfFilename({
+    displayTitle: fax.display_title,
+    note: fax.note,
+    faxId: fax.id,
+  });
 
   return (
     <div className="space-y-6 p-6">
       <AdminPageHeader
         eyebrow="Fax detail"
-        title={fax.subject || `${fax.direction === "inbound" ? "Inbound" : "Outbound"} fax`}
-        metaLine={`${senderDisplay} → ${recipientDisplay} · ${formatFaxDateTimeDetail(fax.received_at ?? fax.sent_at ?? fax.created_at)}`}
-        description="Preview the PDF and add a short note so the team can recognize this fax in the list."
+        title={recordName}
+        metaLine={
+          <>
+            {senderDisplay} → {recipientDisplay} · {formatFaxDateTimeDetail(fax.received_at ?? fax.sent_at ?? fax.created_at)}
+            {fax.filed_to_ehr_at ? (
+              <>
+                {" "}
+                <FaxFiledBadge />
+              </>
+            ) : null}
+          </>
+        }
+        description={
+          fax.direction === "inbound"
+            ? "Preview the PDF, set the Alora record name, and keep a separate note for the team."
+            : "Preview the PDF and add a short note so the team can recognize this fax in the list."
+        }
         actions={
           <div className="flex flex-wrap gap-2">
             <Link href={listReturnPath} className={crmPrimaryCtaCls}>
@@ -91,11 +128,16 @@ export default async function AdminFaxDetailPage({
                 {fax.is_archived ? "Unarchive" : "Archive"}
               </button>
             </form>
-            {pdfUrl ? (
+            {hasInboundDocument ? (
+              <a href={`/admin/fax/${fax.id}/pdf`} download={downloadName} className={crmActionBtnSky}>
+                Download PDF
+              </a>
+            ) : pdfUrl ? (
               <a href={pdfUrl} target="_blank" rel="noreferrer" className={crmActionBtnSky}>
                 Download / print PDF
               </a>
             ) : null}
+            {hasInboundDocument && !fax.filed_to_ehr_at ? <MarkFaxFiledButton faxId={fax.id} /> : null}
             {fax.direction === "outbound" ? (
               <>
                 <ResendFaxButton faxId={fax.id} initialRecipientNumber={fax.to_number} note={fax.note ?? null} compact />
@@ -190,6 +232,23 @@ export default async function AdminFaxDetailPage({
                   </div>
                 ) : null}
               </dl>
+            </section>
+          ) : null}
+          {fax.direction === "inbound" ? (
+            <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+              <FaxDisplayTitleEditor faxId={fax.id} initialTitle={fax.display_title ?? null} variant="detail" />
+              {fax.filed_to_ehr_at ? (
+                <p className="mt-3 text-sm text-emerald-800">
+                  <FaxFiledBadge />
+                  <span className="ml-2">
+                    Filed in Alora {formatFaxDateTimeDetail(fax.filed_to_ehr_at)}
+                    {filedByLabel ? ` by ${filedByLabel}` : ""}
+                    {fax.ehr_patient_name ? ` · ${fax.ehr_patient_name}` : ""}
+                  </span>
+                </p>
+              ) : (
+                <p className="mt-3 text-xs text-slate-500">Not filed in Alora yet.</p>
+              )}
             </section>
           ) : null}
           <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">

@@ -530,6 +530,8 @@ export async function searchFaxMessages(
   query: ParsedGlobalSearchQuery
 ): Promise<GlobalSearchResult[]> {
   const orParts = [
+    `display_title.ilike.${query.ilikePattern}`,
+    `ehr_patient_name.ilike.${query.ilikePattern}`,
     `sender_name.ilike.${query.ilikePattern}`,
     `recipient_name.ilike.${query.ilikePattern}`,
     `subject.ilike.${query.ilikePattern}`,
@@ -541,7 +543,7 @@ export async function searchFaxMessages(
   const { data, error } = await supabase
     .from("fax_messages")
     .select(
-      "id, sender_name, recipient_name, from_number, to_number, subject, status, note, created_at, updated_at, lead_id, patient_id, contact_id"
+      "id, display_title, ehr_patient_name, sender_name, recipient_name, from_number, to_number, subject, status, note, created_at, updated_at, lead_id, patient_id, contact_id"
     )
     .or(orParts.join(","))
     .order("created_at", { ascending: false })
@@ -555,6 +557,7 @@ export async function searchFaxMessages(
   return (data ?? []).map((row) => {
     const matchedFields: string[] = [];
     if (query.isPhone) matchedFields.push("caller_number");
+    if (row.display_title?.toLowerCase().includes(query.lower)) matchedFields.push("display_title");
     if (row.sender_name?.toLowerCase().includes(query.lower)) matchedFields.push("caller_name");
     if (row.subject?.toLowerCase().includes(query.lower)) matchedFields.push("subject");
     if (matchedFields.length === 0) matchedFields.push("subject");
@@ -567,7 +570,13 @@ export async function searchFaxMessages(
     return {
       type: "fax" as const,
       id: row.id,
-      title: row.sender_name?.trim() || row.recipient_name?.trim() || row.subject?.trim() || "Fax",
+      title:
+        row.display_title?.trim() ||
+        row.note?.trim() ||
+        row.sender_name?.trim() ||
+        row.recipient_name?.trim() ||
+        row.subject?.trim() ||
+        "Fax",
       phone: formatPhoneForDisplay(row.from_number ?? row.to_number) || null,
       email: null,
       status: row.status?.replace(/_/g, " ") ?? null,
