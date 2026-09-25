@@ -80,7 +80,7 @@ function statusBadgeClass(status: string): string {
 }
 
 function filterHref(tab: string): string {
-  if (tab === "inbox") return "/admin/fax?tab=inbox&filing=unfiled";
+  if (tab === "inbox") return "/admin/fax?tab=inbox&filing=all";
   return `/admin/fax?tab=${tab}`;
 }
 
@@ -95,6 +95,7 @@ function applyInboxFilingFilter<Q extends {
   or: (filters: string) => Q;
 }>(query: Q, filing: FaxFilingBucket): Q {
   let next = query.eq("direction", "inbound").eq("is_archived", false);
+  if (filing === "all") return next;
   if (filing === "filed") {
     return next.not("filed_to_ehr_at", "is", null);
   }
@@ -134,12 +135,10 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
   const inboxUnfiled = f.tab === "inbox" && f.filing === "unfiled";
 
   let listQuery = supabaseAdmin.from("fax_messages").select("*");
-  if (inboxUnfiled) {
+  if (f.tab === "inbox") {
     listQuery = listQuery
-      .order("received_at", { ascending: true, nullsFirst: false })
-      .order("created_at", { ascending: true });
-  } else if (f.tab === "inbox" && f.filing === "filed") {
-    listQuery = listQuery.order("filed_to_ehr_at", { ascending: false });
+      .order("received_at", { ascending: false, nullsFirst: false })
+      .order("created_at", { ascending: false });
   } else {
     listQuery = listQuery.order("created_at", { ascending: false });
   }
@@ -214,7 +213,7 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
             <Link href="/admin/fax/document-templates" className={crmActionBtnSky}>
               Document templates
             </Link>
-            <Link href="/admin/fax?tab=inbox&filing=unfiled&unread=1" className={crmPrimaryCtaCls}>
+            <Link href="/admin/fax?tab=inbox&filing=all&unread=1" className={crmPrimaryCtaCls}>
               Review unread
             </Link>
             <span className="rounded-[20px] border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm">
@@ -267,6 +266,7 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
         <div className="flex flex-wrap items-center gap-2">
           {(
             [
+              ["all", "All"],
               ["unfiled", "Unfiled"],
               ["filed", "Filed"],
               ["no_document", "Failed / no document"],
@@ -282,9 +282,6 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
               {label}
             </Link>
           ))}
-          {inboxUnfiled ? (
-            <span className="text-xs text-slate-500">Oldest unfiled faxes first. Failed or empty transmissions are under Failed / no document.</span>
-          ) : null}
         </div>
       ) : null}
 
