@@ -60,7 +60,9 @@ assert.equal(isUnfiledInboundFax({ ...base, status: "failed" }), false);
 assert.equal(isUnfiledInboundFax({ ...base, storage_path: "  ", media_url: "" }), false);
 assert.equal(isUnfiledInboundFax({ ...base, filed_to_ehr_at: "2026-09-25T00:00:00Z" }), false);
 assert.equal(isUnfiledInboundFax({ ...base, direction: "outbound" }), false);
-assert.equal(parseFaxFilingBucket(""), "unfiled");
+assert.equal(parseFaxFilingBucket(""), "all");
+assert.equal(parseFaxFilingBucket("all"), "all");
+assert.equal(parseFaxFilingBucket("unfiled"), "unfiled");
 assert.equal(parseFaxFilingBucket("filed"), "filed");
 assert.equal(parseFaxFilingBucket("no_document"), "no_document");
 

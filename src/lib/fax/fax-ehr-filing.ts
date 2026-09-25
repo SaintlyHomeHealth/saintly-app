@@ -10,11 +10,11 @@ const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
 export const FAX_ID_UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-export type FaxFilingBucket = "unfiled" | "filed" | "no_document";
+export type FaxFilingBucket = "all" | "unfiled" | "filed" | "no_document";
 
 export function parseFaxFilingBucket(raw: string): FaxFilingBucket {
-  if (raw === "filed" || raw === "no_document") return raw;
-  return "unfiled";
+  if (raw === "all" || raw === "unfiled" || raw === "filed" || raw === "no_document") return raw;
+  return "all";
 }
 
 export function parseFaxIds(faxIds: unknown, max = 50): string[] {
