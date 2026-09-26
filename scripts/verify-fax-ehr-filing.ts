@@ -4,6 +4,7 @@
  */
 import assert from "node:assert/strict";
 
+import { faxPeriodOrFilter, resolveFaxMetricPeriod } from "../src/lib/fax/fax-metric-period";
 import {
   contentDispositionAttachment,
   ehrPatientNameFromDisplayTitle,
@@ -84,5 +85,54 @@ const blankStatusNote = normalizeFaxStatusNote("   ");
 assert.equal(blankStatusNote.ok, true);
 assert.equal(blankStatusNote.ok ? blankStatusNote.value : "nope", null);
 assert.equal(normalizeFaxStatusNote("x".repeat(501)).ok, false);
+
+const now = new Date("2026-09-26T18:00:00.000Z");
+const today = resolveFaxMetricPeriod({ spanRaw: "", dayRaw: "", now });
+assert.equal(today.span, "day");
+assert.equal(today.anchorYmd, "2026-09-26");
+assert.equal(today.todayYmd, "2026-09-26");
+assert.equal(today.startIso, "2026-09-26T07:00:00.000Z");
+assert.equal(today.endIso, "2026-09-27T07:00:00.000Z");
+assert.equal(today.canGoNext, false);
+assert.equal(today.label.startsWith("Today · "), true);
+assert.equal(today.previousAnchorYmd, "2026-09-25");
+
+const yesterday = resolveFaxMetricPeriod({ spanRaw: "day", dayRaw: "2026-09-25", now });
+assert.equal(yesterday.canGoNext, true);
+assert.equal(yesterday.nextAnchorYmd, "2026-09-26");
+assert.equal(resolveFaxMetricPeriod({ spanRaw: "quarter", dayRaw: "2099-01-01", now }).anchorYmd, "2026-09-26");
+assert.equal(resolveFaxMetricPeriod({ spanRaw: "day", dayRaw: "nope", now }).anchorYmd, "2026-09-26");
+
+const week = resolveFaxMetricPeriod({ spanRaw: "week", dayRaw: "2026-09-26", now });
+assert.equal(week.startYmd, "2026-09-20");
+assert.equal(week.endYmd, "2026-09-27");
+assert.equal(week.canGoNext, false);
+assert.equal(week.label.startsWith("This week · "), true);
+const priorWeek = resolveFaxMetricPeriod({ spanRaw: "week", dayRaw: week.previousAnchorYmd, now });
+assert.equal(priorWeek.startYmd, "2026-09-13");
+assert.equal(priorWeek.canGoNext, true);
+
+const month = resolveFaxMetricPeriod({ spanRaw: "month", dayRaw: "2026-09-26", now });
+assert.equal(month.startYmd, "2026-09-01");
+assert.equal(month.endYmd, "2026-10-01");
+assert.equal(month.startIso, "2026-09-01T07:00:00.000Z");
+assert.equal(month.canGoNext, false);
+const january = resolveFaxMetricPeriod({ spanRaw: "month", dayRaw: "2026-01-31", now });
+assert.equal(january.previousAnchorYmd, "2025-12-31");
+assert.equal(january.nextAnchorYmd, "2026-02-28");
+
+const year = resolveFaxMetricPeriod({ spanRaw: "year", dayRaw: "2024-02-29", now });
+assert.equal(year.startYmd, "2024-01-01");
+assert.equal(year.endYmd, "2025-01-01");
+assert.equal(year.previousAnchorYmd, "2023-02-28");
+assert.equal(year.nextAnchorYmd, "2025-02-28");
+assert.equal(year.canGoNext, true);
+
+const yearEnd = "2026-09-27T07:00:00.000Z";
+assert.equal(
+  faxPeriodOrFilter("received_at", today.startIso, today.endIso),
+  `and(received_at.gte."${today.startIso}",received_at.lt."${today.endIso}"),and(received_at.is.null,created_at.gte."${today.startIso}",created_at.lt."${today.endIso}")`
+);
+assert.equal(faxPeriodOrFilter("failed_at", today.startIso, yearEnd).includes("failed_at.gte."), true);
 
 console.log("verify-fax-ehr-filing: ok");

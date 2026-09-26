@@ -1,5 +1,7 @@
+import { revalidatePath } from "next/cache";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import { after } from "next/server";
 
 import { archiveFaxAction, markFaxReadAction } from "@/app/admin/fax/actions";
 import { FaxDisplayTitleEditor } from "@/app/admin/fax/_components/FaxDisplayTitleEditor";
@@ -15,7 +17,7 @@ import { formatFaxSenderDisplay } from "@/lib/fax/format-fax-sender";
 import { formatFaxDateTimeDetail } from "@/lib/fax/format-fax-time";
 import { inboundFaxHasDocumentForForward } from "@/lib/fax/forward-inbound-fax";
 import type { FaxPacketMetadata } from "@/lib/fax/fax-cover-template-types";
-import { missingFaxSchema, signedFaxPdfUrl, type FaxMessageRow } from "@/lib/fax/fax-service";
+import { missingFaxSchema, recordFaxEvent, signedFaxPdfUrl, type FaxMessageRow } from "@/lib/fax/fax-service";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import { getStaffProfile, isAdminOrHigher, isManagerOrHigher } from "@/lib/staff-profile";
 
@@ -53,7 +55,28 @@ export default async function AdminFaxDetailPage({
   const { data, error } = await supabaseAdmin.from("fax_messages").select("*").eq("id", faxId).maybeSingle();
   if (missingFaxSchema(error)) redirect("/admin/fax");
   if (error || !data?.id) notFound();
-  const fax = data as FaxMessageRow;
+  let fax = data as FaxMessageRow;
+  if (fax.direction === "inbound" && !fax.is_read) {
+    const { error: readError } = await supabaseAdmin
+      .from("fax_messages")
+      .update({ is_read: true })
+      .eq("id", fax.id)
+      .eq("is_read", false);
+    if (!readError) {
+      fax = { ...fax, is_read: true };
+      const openedFaxId = fax.id;
+      const actorUserId = staff.user_id;
+      await recordFaxEvent({
+        faxMessageId: openedFaxId,
+        eventType: "viewed",
+        payload: { actor_user_id: actorUserId, source: "opened" },
+      });
+      after(() => {
+        revalidatePath("/admin/fax");
+        revalidatePath(`/admin/fax/${openedFaxId}`);
+      });
+    }
+  }
 
   const inboxStatus = faxInboxStatus(fax);
   let filedByLabel: string | null = null;
@@ -123,7 +146,7 @@ export default async function AdminFaxDetailPage({
             <form action={markFaxReadAction}>
               <input type="hidden" name="faxId" value={fax.id} />
               <input type="hidden" name="isRead" value={fax.is_read ? "0" : "1"} />
-              <input type="hidden" name="returnTo" value={returnTo} />
+              <input type="hidden" name="returnTo" value={fax.is_read ? listReturnPath : returnTo} />
               <button type="submit" className={crmActionBtnMuted}>
                 Mark {fax.is_read ? "unread" : "read"}
               </button>
