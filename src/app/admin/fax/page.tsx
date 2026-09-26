@@ -24,6 +24,13 @@ import {
 import { formatFaxSenderDisplay } from "@/lib/fax/format-fax-sender";
 import { formatFaxDateTimeDetail, formatFaxDateTimeList } from "@/lib/fax/format-fax-time";
 import { inboundFaxHasDocumentForForward } from "@/lib/fax/forward-inbound-fax";
+import {
+  FAX_METRIC_SPAN_LABELS,
+  FAX_METRIC_SPANS,
+  faxPeriodOrFilter,
+  resolveFaxMetricPeriod,
+  type FaxMetricSpan,
+} from "@/lib/fax/fax-metric-period";
 import { applyFaxListKeywordOrFilters, missingFaxSchema, type FaxMessageRow } from "@/lib/fax/fax-service";
 import { formatPhoneForDisplay } from "@/lib/phone/us-phone-format";
 import { getStaffProfile, isAdminOrHigher, isManagerOrHigher } from "@/lib/staff-profile";
@@ -57,9 +64,11 @@ type FaxListFilters = {
   unread: boolean;
   from: string;
   to: string;
+  span: FaxMetricSpan;
+  day: string;
 };
 
-function faxCenterListPath(filters: FaxListFilters, page: number): string {
+function faxCenterListPath(filters: FaxListFilters, page: number, todayYmd: string): string {
   const p = new URLSearchParams();
   p.set("tab", filters.tab);
   if (filters.tab === "inbox") p.set("filing", filters.filing);
@@ -67,6 +76,8 @@ function faxCenterListPath(filters: FaxListFilters, page: number): string {
   if (filters.unread) p.set("unread", "1");
   if (filters.from) p.set("from", filters.from);
   if (filters.to) p.set("to", filters.to);
+  if (filters.span !== "day") p.set("span", filters.span);
+  if (filters.day && filters.day !== todayYmd) p.set("day", filters.day);
   if (page > 1) p.set("page", String(page));
   const qs = p.toString();
   return `/admin/fax${qs ? `?${qs}` : ""}`;
@@ -86,13 +97,48 @@ function statusBadgeClass(status: string): string {
   return "border-sky-200 bg-sky-50 text-sky-700";
 }
 
-function filterHref(tab: string): string {
-  if (tab === "inbox") return "/admin/fax?tab=inbox&filing=unfiled";
-  return `/admin/fax?tab=${tab}`;
+function filterHref(tab: string, filters: FaxListFilters, todayYmd: string): string {
+  return faxCenterListPath(
+    {
+      tab,
+      filing: "unfiled",
+      q: "",
+      unread: false,
+      from: "",
+      to: "",
+      span: filters.span,
+      day: filters.day,
+    },
+    1,
+    todayYmd
+  );
 }
 
-function filingHref(filing: FaxFilingBucket): string {
-  return `/admin/fax?tab=inbox&filing=${filing}`;
+function filingHref(filing: FaxFilingBucket, filters: FaxListFilters, todayYmd: string): string {
+  return faxCenterListPath(
+    {
+      tab: "inbox",
+      filing,
+      q: "",
+      unread: false,
+      from: "",
+      to: "",
+      span: filters.span,
+      day: filters.day,
+    },
+    1,
+    todayYmd
+  );
+}
+
+function metricPeriodHref(
+  filters: FaxListFilters,
+  span: FaxMetricSpan,
+  day: string,
+  todayYmd: string,
+  page: number
+): string {
+  return faxCenterListPath({ ...filters, span, day }, page, todayYmd);
 }
 
 function isMissingInboxStatusColumn(error: { message?: string; code?: string } | null | undefined): boolean {
@@ -139,6 +185,12 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
   const pageParsed = Number.parseInt(pageRaw, 10);
   const page = Number.isFinite(pageParsed) && pageParsed > 0 ? pageParsed : 1;
 
+  const period = resolveFaxMetricPeriod({
+    spanRaw: one(raw, "span"),
+    dayRaw: one(raw, "day"),
+  });
+  const todayYmd = period.todayYmd;
+
   const f: FaxListFilters = {
     tab: one(raw, "tab") || "inbox",
     filing: parseFaxFilingBucket(one(raw, "filing")),
@@ -146,18 +198,14 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
     unread: one(raw, "unread") === "1",
     from: one(raw, "from").trim(),
     to: one(raw, "to").trim(),
+    span: period.span,
+    day: period.anchorYmd,
   };
-  const currentListPath = faxCenterListPath(f, page);
+  const currentListPath = faxCenterListPath(f, page, todayYmd);
   const inboxUnfiled = f.tab === "inbox" && f.filing === "unfiled";
 
   let listQuery = supabaseAdmin.from("fax_messages").select("*");
-  if (f.tab === "inbox" && f.filing === "unfiled") {
-    listQuery = listQuery
-      .order("received_at", { ascending: true, nullsFirst: false })
-      .order("created_at", { ascending: true });
-  } else if (f.tab === "inbox" && f.filing === "filed") {
-    listQuery = listQuery.order("filed_to_ehr_at", { ascending: false });
-  } else if (f.tab === "inbox") {
+  if (f.tab === "inbox") {
     listQuery = listQuery
       .order("received_at", { ascending: false, nullsFirst: false })
       .order("created_at", { ascending: false });
@@ -178,12 +226,11 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
   const rangeTo = rangeFrom + FAX_LIST_PAGE_SIZE; // fetch pageSize + 1 rows (inclusive end index)
   listQuery = listQuery.range(rangeFrom, rangeTo);
 
-  const weekAgo = new Date();
-  weekAgo.setDate(weekAgo.getDate() - 7);
-  const weekIso = weekAgo.toISOString();
-  const quotedWeek = `"${weekIso}"`;
+  const incomingOr = faxPeriodOrFilter("received_at", period.startIso, period.endIso);
+  const sentOr = faxPeriodOrFilter("sent_at", period.startIso, period.endIso);
+  const failedOr = faxPeriodOrFilter("failed_at", period.startIso, period.endIso);
 
-  const [listResult, tabCounts, unreadCount, failedCount, weekCount] = await Promise.all([
+  const [listResult, tabCounts, incomingCount, sentCount, failedPeriodCount] = await Promise.all([
     listQuery,
     Promise.all(
       FAX_FILING_TABS.map(async (tab) => {
@@ -191,13 +238,9 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
         return [tab.id, total] as const;
       })
     ),
-    countFaxRows((query) => query.eq("direction", "inbound").eq("is_read", false).eq("is_archived", false)),
-    countFaxRows((query) => query.eq("direction", "outbound").ilike("status", "%fail%")),
-    countFaxRows((query) =>
-      query.or(
-        `received_at.gte.${quotedWeek},and(received_at.is.null,sent_at.gte.${quotedWeek}),and(received_at.is.null,sent_at.is.null,created_at.gte.${quotedWeek})`
-      )
-    ),
+    countFaxRows((query) => query.eq("direction", "inbound").not("status", "ilike", "%fail%").or(incomingOr)),
+    countFaxRows((query) => query.eq("direction", "outbound").not("status", "ilike", "%fail%").or(sentOr)),
+    countFaxRows((query) => query.ilike("status", "%fail%").or(failedOr)),
   ]);
 
   const { data, error } = listResult;
@@ -211,11 +254,12 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
 
   const filingCounts = Object.fromEntries(tabCounts) as Record<FaxFilingBucket, number | null>;
   const metrics = {
-    unread: schemaMissing ? 0 : (unreadCount ?? 0),
-    unfiled: schemaMissing ? 0 : (filingCounts.unfiled ?? 0),
-    failed: schemaMissing ? 0 : (failedCount ?? 0),
-    thisWeek: schemaMissing ? 0 : (weekCount ?? 0),
+    incoming: schemaMissing ? 0 : (incomingCount ?? 0),
+    sent: schemaMissing ? 0 : (sentCount ?? 0),
+    failed: schemaMissing ? 0 : (failedPeriodCount ?? 0),
   };
+  const previousPeriodHref = metricPeriodHref(f, period.span, period.previousAnchorYmd, todayYmd, page);
+  const nextPeriodHref = metricPeriodHref(f, period.span, period.nextAnchorYmd, todayYmd, page);
 
   return (
     <div className="space-y-6 p-6">
@@ -234,7 +278,23 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
             <Link href="/admin/fax/document-templates" className={crmActionBtnSky}>
               Document templates
             </Link>
-            <Link href="/admin/fax?tab=inbox&filing=unfiled&unread=1" className={crmPrimaryCtaCls}>
+            <Link
+              href={faxCenterListPath(
+                {
+                  tab: "inbox",
+                  filing: "unfiled",
+                  q: "",
+                  unread: true,
+                  from: "",
+                  to: "",
+                  span: f.span,
+                  day: f.day,
+                },
+                1,
+                todayYmd
+              )}
+              className={crmPrimaryCtaCls}
+            >
               Review unread
             </Link>
             <span className="rounded-[20px] border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm">
@@ -252,18 +312,58 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
         </section>
       ) : null}
 
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {[
-          ["New unread faxes", metrics.unread],
-          ["Unfiled for Alora", metrics.unfiled],
-          ["Failed outbound", metrics.failed],
-          ["Faxes (last 7 days)", metrics.thisWeek],
-        ].map(([label, value]) => (
-          <div key={label} className="rounded-[24px] border border-slate-200 bg-white p-4 shadow-sm">
-            <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">{label}</p>
-            <p className="mt-2 text-3xl font-bold text-slate-900">{value}</p>
+      <section className="space-y-3">
+        <div className="flex flex-col gap-3 rounded-[24px] border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-wrap items-center gap-2">
+            <Link href={previousPeriodHref} className={crmActionBtnMuted} aria-label={`Previous ${period.span}`}>
+              Previous
+            </Link>
+            <p className="min-w-[12rem] text-sm font-semibold text-slate-900">{period.label}</p>
+            {period.canGoNext ? (
+              <Link href={nextPeriodHref} className={crmActionBtnMuted} aria-label={`Next ${period.span}`}>
+                Next
+              </Link>
+            ) : (
+              <span
+                className={`${crmActionBtnMuted} pointer-events-none cursor-not-allowed opacity-45 shadow-none hover:shadow-none`}
+                aria-disabled="true"
+              >
+                Next
+              </span>
+            )}
           </div>
-        ))}
+          <div className="flex flex-wrap gap-1" role="group" aria-label="Count period">
+            {FAX_METRIC_SPANS.map((span) => (
+              <Link
+                key={span}
+                href={metricPeriodHref(f, span, period.anchorYmd, todayYmd, page)}
+                aria-current={period.span === span ? "page" : undefined}
+                className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${
+                  period.span === span
+                    ? "border-sky-300 bg-sky-50 text-sky-800"
+                    : "border-slate-200 bg-white text-slate-600"
+                }`}
+              >
+                {FAX_METRIC_SPAN_LABELS[span]}
+              </Link>
+            ))}
+          </div>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-3">
+          {(
+            [
+              ["Incoming faxes", metrics.incoming],
+              ["Sent faxes", metrics.sent],
+              ["Failed faxes", metrics.failed],
+            ] as const
+          ).map(([label, value]) => (
+            <div key={label} className="rounded-[24px] border border-slate-200 bg-white p-4 shadow-sm">
+              <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">{label}</p>
+              <p className="mt-2 text-3xl font-bold text-slate-900">{value}</p>
+            </div>
+          ))}
+        </div>
+        <p className="text-xs text-slate-500">Counts use Arizona time.</p>
       </section>
 
       <div className="flex flex-wrap gap-2">
@@ -275,7 +375,7 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
         ].map(([tab, label]) => (
           <Link
             key={tab}
-            href={filterHref(tab)}
+            href={filterHref(tab, f, todayYmd)}
             className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${
               f.tab === tab ? "border-sky-300 bg-sky-50 text-sky-800" : "border-slate-200 bg-white text-slate-600"
             }`}
@@ -290,7 +390,7 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
           {FAX_FILING_TABS.map((tab) => (
             <Link
               key={tab.id}
-              href={filingHref(tab.id)}
+              href={filingHref(tab.id, f, todayYmd)}
               className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${
                 f.filing === tab.id ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-slate-200 bg-white text-slate-600"
               }`}
@@ -301,15 +401,15 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
               </span>
             </Link>
           ))}
-          {inboxUnfiled ? (
-            <span className="text-xs text-slate-500">Oldest unfiled faxes first. Failed or empty transmissions are under Failed / no document.</span>
-          ) : null}
+          <span className="text-xs text-slate-500">Newest faxes first.</span>
         </div>
       ) : null}
 
       <form method="get" action="/admin/fax" className={crmFilterBarCls}>
         <input type="hidden" name="tab" value={f.tab} />
         {f.tab === "inbox" ? <input type="hidden" name="filing" value={f.filing} /> : null}
+        {f.span !== "day" ? <input type="hidden" name="span" value={f.span} /> : null}
+        {f.day && f.day !== todayYmd ? <input type="hidden" name="day" value={f.day} /> : null}
         <label className="flex min-w-[16rem] flex-[2] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
           Keyword search
           <input
@@ -487,12 +587,12 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
                 Previous
               </span>
             ) : (
-              <Link href={faxCenterListPath(f, page - 1)} className={crmActionBtnMuted}>
+              <Link href={faxCenterListPath(f, page - 1, todayYmd)} className={crmActionBtnMuted}>
                 Previous
               </Link>
             )}
             {hasNextPage ? (
-              <Link href={faxCenterListPath(f, page + 1)} className={crmActionBtnMuted}>
+              <Link href={faxCenterListPath(f, page + 1, todayYmd)} className={crmActionBtnMuted}>
                 Next
               </Link>
             ) : (
