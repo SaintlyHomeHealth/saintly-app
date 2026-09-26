@@ -25,10 +25,15 @@ import { formatFaxSenderDisplay } from "@/lib/fax/format-fax-sender";
 import { formatFaxDateTimeDetail, formatFaxDateTimeList } from "@/lib/fax/format-fax-time";
 import { inboundFaxHasDocumentForForward } from "@/lib/fax/forward-inbound-fax";
 import {
+  FAX_ARRIVED_LABELS,
+  FAX_ARRIVED_PRESETS,
   FAX_METRIC_SPAN_LABELS,
   FAX_METRIC_SPANS,
+  faxArrivedWindow,
   faxPeriodOrFilter,
+  parseFaxArrivedPreset,
   resolveFaxMetricPeriod,
+  type FaxArrivedPreset,
   type FaxMetricSpan,
 } from "@/lib/fax/fax-metric-period";
 import { applyFaxListKeywordOrFilters, missingFaxSchema, type FaxMessageRow } from "@/lib/fax/fax-service";
@@ -60,6 +65,9 @@ const FAX_LIST_GRID_CLS =
 type FaxListFilters = {
   tab: string;
   filing: FaxFilingBucket;
+  /** When false, the inbox shows every filing status so filed faxes stay visible. */
+  filingExplicit: boolean;
+  arrived: FaxArrivedPreset;
   q: string;
   unread: boolean;
   from: string;
@@ -71,7 +79,8 @@ type FaxListFilters = {
 function faxCenterListPath(filters: FaxListFilters, page: number, todayYmd: string): string {
   const p = new URLSearchParams();
   p.set("tab", filters.tab);
-  if (filters.tab === "inbox") p.set("filing", filters.filing);
+  if (filters.tab === "inbox" && filters.filingExplicit) p.set("filing", filters.filing);
+  if (filters.tab === "inbox") p.set("arrived", filters.arrived);
   if (filters.q) p.set("q", filters.q);
   if (filters.unread) p.set("unread", "1");
   if (filters.from) p.set("from", filters.from);
@@ -102,6 +111,8 @@ function filterHref(tab: string, filters: FaxListFilters, todayYmd: string): str
     {
       tab,
       filing: "unfiled",
+      filingExplicit: false,
+      arrived: tab === "inbox" ? "today" : "all",
       q: "",
       unread: false,
       from: "",
@@ -119,12 +130,31 @@ function filingHref(filing: FaxFilingBucket, filters: FaxListFilters, todayYmd: 
     {
       tab: "inbox",
       filing,
+      filingExplicit: true,
+      arrived: filters.arrived,
       q: "",
       unread: false,
       from: "",
       to: "",
       span: filters.span,
       day: filters.day,
+    },
+    1,
+    todayYmd
+  );
+}
+
+function arrivedHref(arrived: FaxArrivedPreset, filters: FaxListFilters, todayYmd: string): string {
+  return faxCenterListPath(
+    {
+      ...filters,
+      tab: "inbox",
+      arrived,
+      filingExplicit: false,
+      q: "",
+      unread: false,
+      from: "",
+      to: "",
     },
     1,
     todayYmd
@@ -185,15 +215,26 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
   const pageParsed = Number.parseInt(pageRaw, 10);
   const page = Number.isFinite(pageParsed) && pageParsed > 0 ? pageParsed : 1;
 
+  const now = new Date();
   const period = resolveFaxMetricPeriod({
     spanRaw: one(raw, "span"),
     dayRaw: one(raw, "day"),
+    now,
   });
   const todayYmd = period.todayYmd;
+  const tab = one(raw, "tab") || "inbox";
+  const filingRaw = one(raw, "filing").trim();
+  const arrivedRaw = one(raw, "arrived").trim();
+  const filingExplicit = tab === "inbox" && filingRaw.length > 0;
+  const arrived: FaxArrivedPreset =
+    tab !== "inbox" ? "all" : arrivedRaw ? parseFaxArrivedPreset(arrivedRaw) : filingExplicit ? "all" : "today";
+  const arrivedWindow = faxArrivedWindow(arrived, now);
 
   const f: FaxListFilters = {
-    tab: one(raw, "tab") || "inbox",
-    filing: parseFaxFilingBucket(one(raw, "filing")),
+    tab,
+    filing: parseFaxFilingBucket(filingRaw),
+    filingExplicit,
+    arrived,
     q: one(raw, "q").trim(),
     unread: one(raw, "unread") === "1",
     from: one(raw, "from").trim(),
@@ -202,7 +243,7 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
     day: period.anchorYmd,
   };
   const currentListPath = faxCenterListPath(f, page, todayYmd);
-  const inboxUnfiled = f.tab === "inbox" && f.filing === "unfiled";
+  const inboxUnfiled = f.tab === "inbox" && f.filingExplicit && f.filing === "unfiled";
 
   let listQuery = supabaseAdmin.from("fax_messages").select("*");
   if (f.tab === "inbox") {
@@ -216,7 +257,11 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
   if (f.tab === "sent") listQuery = listQuery.eq("direction", "outbound").not("status", "ilike", "%failed%");
   else if (f.tab === "failed") listQuery = listQuery.ilike("status", "%failed%");
   else if (f.tab === "archived") listQuery = listQuery.eq("is_archived", true);
-  else listQuery = applyFaxInboxFilingFilter(listQuery, f.filing);
+  else if (f.filingExplicit) listQuery = applyFaxInboxFilingFilter(listQuery, f.filing);
+  else listQuery = listQuery.eq("direction", "inbound").eq("is_archived", false);
+  if (f.tab === "inbox" && arrivedWindow.startIso && arrivedWindow.endIso) {
+    listQuery = listQuery.or(faxPeriodOrFilter("received_at", arrivedWindow.startIso, arrivedWindow.endIso));
+  }
   if (f.unread) listQuery = listQuery.eq("is_read", false);
   if (f.from) listQuery = listQuery.gte("created_at", `${f.from}T00:00:00.000Z`);
   if (f.to) listQuery = listQuery.lte("created_at", `${f.to}T23:59:59.999Z`);
@@ -230,12 +275,23 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
   const sentOr = faxPeriodOrFilter("sent_at", period.startIso, period.endIso);
   const failedOr = faxPeriodOrFilter("failed_at", period.startIso, period.endIso);
 
-  const [listResult, tabCounts, incomingCount, sentCount, failedPeriodCount] = await Promise.all([
+  const [listResult, tabCounts, arrivedCounts, incomingCount, sentCount, failedPeriodCount] = await Promise.all([
     listQuery,
     Promise.all(
       FAX_FILING_TABS.map(async (tab) => {
         const total = await countFaxRows((query) => applyFaxInboxFilingFilter(query, tab.id));
         return [tab.id, total] as const;
+      })
+    ),
+    Promise.all(
+      FAX_ARRIVED_PRESETS.map(async (preset) => {
+        const window = faxArrivedWindow(preset, now);
+        const total = await countFaxRows((query) => {
+          const inbound = query.eq("direction", "inbound").eq("is_archived", false);
+          if (!window.startIso || !window.endIso) return inbound;
+          return inbound.or(faxPeriodOrFilter("received_at", window.startIso, window.endIso));
+        });
+        return [preset, total] as const;
       })
     ),
     countFaxRows((query) => query.eq("direction", "inbound").not("status", "ilike", "%fail%").or(incomingOr)),
@@ -253,6 +309,7 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
   const rangeEnd = rangeFrom + faxes.length;
 
   const filingCounts = Object.fromEntries(tabCounts) as Record<FaxFilingBucket, number | null>;
+  const arrivedCountByPreset = Object.fromEntries(arrivedCounts) as Record<FaxArrivedPreset, number | null>;
   const metrics = {
     incoming: schemaMissing ? 0 : (incomingCount ?? 0),
     sent: schemaMissing ? 0 : (sentCount ?? 0),
@@ -266,7 +323,7 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
       <AdminPageHeader
         eyebrow="Admin Fax"
         title="Fax Center"
-        description="Name inbound faxes for Alora, download the PDF, and set a filing status so reviewed faxes leave the Unfiled list. Notes stay separate from the record name."
+        description="See every fax that came in today, yesterday, this week, or all — including ones already filed. Notes stay separate from the Alora record name."
         actions={
           <div className="flex flex-wrap gap-2">
             <Suspense fallback={null}>
@@ -283,6 +340,8 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
                 {
                   tab: "inbox",
                   filing: "unfiled",
+                  filingExplicit: true,
+                  arrived: "all",
                   q: "",
                   unread: true,
                   from: "",
@@ -386,28 +445,56 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
       </div>
 
       {f.tab === "inbox" ? (
-        <div className="flex flex-wrap items-center gap-2">
-          {FAX_FILING_TABS.map((tab) => (
-            <Link
-              key={tab.id}
-              href={filingHref(tab.id, f, todayYmd)}
-              className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${
-                f.filing === tab.id ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-slate-200 bg-white text-slate-600"
-              }`}
-            >
-              {tab.label}
-              <span className="ml-1.5 tabular-nums text-[11px] font-bold">
-                ({schemaMissing ? "—" : (filingCounts[tab.id] ?? "—")})
-              </span>
-            </Link>
-          ))}
-          <span className="text-xs text-slate-500">Newest faxes first.</span>
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Faxes that came in">
+            {FAX_ARRIVED_PRESETS.map((preset) => (
+              <Link
+                key={preset}
+                href={arrivedHref(preset, f, todayYmd)}
+                aria-current={f.arrived === preset ? "page" : undefined}
+                className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${
+                  f.arrived === preset
+                    ? "border-sky-300 bg-sky-50 text-sky-800"
+                    : "border-slate-200 bg-white text-slate-600"
+                }`}
+              >
+                {FAX_ARRIVED_LABELS[preset]}
+                <span className="ml-1.5 tabular-nums text-[11px] font-bold">
+                  ({schemaMissing ? "—" : (arrivedCountByPreset[preset] ?? "—")})
+                </span>
+              </Link>
+            ))}
+          </div>
+          <p className="text-xs text-slate-500">
+            {f.arrived === "all"
+              ? "Every inbound fax, newest first, including ones already filed."
+              : `${arrivedWindow.label}. Newest first, including faxes already filed.`}
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            {FAX_FILING_TABS.map((tab) => (
+              <Link
+                key={tab.id}
+                href={filingHref(tab.id, f, todayYmd)}
+                className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${
+                  f.filingExplicit && f.filing === tab.id
+                    ? "border-emerald-300 bg-emerald-50 text-emerald-800"
+                    : "border-slate-200 bg-white text-slate-600"
+                }`}
+              >
+                {tab.label}
+                <span className="ml-1.5 tabular-nums text-[11px] font-bold">
+                  ({schemaMissing ? "—" : (filingCounts[tab.id] ?? "—")})
+                </span>
+              </Link>
+            ))}
+          </div>
         </div>
       ) : null}
 
       <form method="get" action="/admin/fax" className={crmFilterBarCls}>
         <input type="hidden" name="tab" value={f.tab} />
-        {f.tab === "inbox" ? <input type="hidden" name="filing" value={f.filing} /> : null}
+        {f.tab === "inbox" && f.filingExplicit ? <input type="hidden" name="filing" value={f.filing} /> : null}
+        {f.tab === "inbox" ? <input type="hidden" name="arrived" value={f.arrived} /> : null}
         {f.span !== "day" ? <input type="hidden" name="span" value={f.span} /> : null}
         {f.day && f.day !== todayYmd ? <input type="hidden" name="day" value={f.day} /> : null}
         <label className="flex min-w-[16rem] flex-[2] flex-col gap-0.5 text-[11px] font-medium text-slate-600">
@@ -454,7 +541,15 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
             <div>Actions</div>
           </div>
           {faxes.length === 0 ? (
-            <div className="px-4 py-12 text-center text-sm text-slate-500">No faxes match these filters.</div>
+            <div className="px-4 py-12 text-center text-sm text-slate-500">
+              {f.tab === "inbox" && !f.filingExplicit && !f.q && !f.unread && !f.from && !f.to && f.arrived === "today"
+                ? "No faxes came in today."
+                : f.tab === "inbox" && !f.filingExplicit && !f.q && !f.unread && !f.from && !f.to && f.arrived === "yesterday"
+                  ? "No faxes came in yesterday."
+                  : f.tab === "inbox" && !f.filingExplicit && !f.q && !f.unread && !f.from && !f.to && f.arrived === "week"
+                    ? "No faxes came in this week."
+                    : "No faxes match these filters."}
+            </div>
           ) : (
             faxes.map((fax) => {
               const primaryPhone = fax.direction === "inbound" ? fax.from_number : fax.to_number;
