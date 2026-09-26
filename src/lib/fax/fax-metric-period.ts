@@ -35,9 +35,12 @@ export type FaxMetricWindow = {
 
 export const FAX_ARRIVED_PRESETS = ["today", "yesterday", "week", "all"] as const;
 
-export type FaxArrivedPreset = (typeof FAX_ARRIVED_PRESETS)[number];
+export type FaxArrivedChip = (typeof FAX_ARRIVED_PRESETS)[number];
 
-export const FAX_ARRIVED_LABELS: Record<FaxArrivedPreset, string> = {
+/** `range` is a day, week, month, or year chosen with Previous, Next, or the span buttons. */
+export type FaxArrivedPreset = FaxArrivedChip | "range";
+
+export const FAX_ARRIVED_LABELS: Record<FaxArrivedChip, string> = {
   today: "Today",
   yesterday: "Yesterday",
   week: "Week",
@@ -47,7 +50,16 @@ export const FAX_ARRIVED_LABELS: Record<FaxArrivedPreset, string> = {
 /** Missing or unknown values open on today so newly arrived faxes are the first thing staff see. */
 export function parseFaxArrivedPreset(raw: string): FaxArrivedPreset {
   const value = raw.trim().toLowerCase();
+  if (value === "range") return "range";
   return (FAX_ARRIVED_PRESETS as readonly string[]).includes(value) ? (value as FaxArrivedPreset) : "today";
+}
+
+/** Which arrival chip matches this count window. Other dates are `range`. */
+export function matchFaxArrivedPreset(period: FaxMetricWindow): FaxArrivedPreset {
+  if (period.span === "day" && period.anchorYmd === period.todayYmd) return "today";
+  if (period.span === "day" && period.anchorYmd === shiftAnchor("day", period.todayYmd, -1)) return "yesterday";
+  if (period.span === "week" && period.startYmd === windowBounds("week", period.todayYmd).startYmd) return "week";
+  return "range";
 }
 
 /**
@@ -58,8 +70,8 @@ export function faxArrivedWindow(
   preset: FaxArrivedPreset,
   now: Date = new Date()
 ): { startIso: string | null; endIso: string | null; label: string } {
-  if (preset === "all") {
-    return { startIso: null, endIso: null, label: "All" };
+  if (preset === "all" || preset === "range") {
+    return { startIso: null, endIso: null, label: preset === "all" ? "All" : "Selected period" };
   }
   if (preset === "yesterday") {
     const today = resolveFaxMetricPeriod({ spanRaw: "day", dayRaw: "", now });

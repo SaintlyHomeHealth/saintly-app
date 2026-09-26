@@ -31,6 +31,7 @@ import {
   FAX_METRIC_SPANS,
   faxArrivedWindow,
   faxPeriodOrFilter,
+  matchFaxArrivedPreset,
   parseFaxArrivedPreset,
   resolveFaxMetricPeriod,
   type FaxArrivedPreset,
@@ -117,8 +118,8 @@ function filterHref(tab: string, filters: FaxListFilters, todayYmd: string): str
       unread: false,
       from: "",
       to: "",
-      span: filters.span,
-      day: filters.day,
+      span: tab === "inbox" ? "day" : filters.span,
+      day: tab === "inbox" ? todayYmd : filters.day,
     },
     1,
     todayYmd
@@ -144,13 +145,22 @@ function filingHref(filing: FaxFilingBucket, filters: FaxListFilters, todayYmd: 
   );
 }
 
-function arrivedHref(arrived: FaxArrivedPreset, filters: FaxListFilters, todayYmd: string): string {
+function arrivedHref(
+  arrived: FaxArrivedPreset,
+  filters: FaxListFilters,
+  todayYmd: string,
+  yesterdayYmd: string
+): string {
+  const span: FaxMetricSpan = arrived === "week" ? "week" : "day";
+  const day = arrived === "yesterday" ? yesterdayYmd : todayYmd;
   return faxCenterListPath(
     {
       ...filters,
       tab: "inbox",
       arrived,
       filingExplicit: false,
+      span: arrived === "all" ? filters.span : span,
+      day: arrived === "all" ? filters.day : day,
       q: "",
       unread: false,
       from: "",
@@ -166,9 +176,24 @@ function metricPeriodHref(
   span: FaxMetricSpan,
   day: string,
   todayYmd: string,
-  page: number
+  now: Date
 ): string {
-  return faxCenterListPath({ ...filters, span, day }, page, todayYmd);
+  const next = resolveFaxMetricPeriod({
+    spanRaw: span,
+    dayRaw: day === todayYmd ? "" : day,
+    now,
+  });
+  return faxCenterListPath(
+    {
+      ...filters,
+      span: next.span,
+      day: next.anchorYmd,
+      arrived: matchFaxArrivedPreset(next),
+      filingExplicit: false,
+    },
+    1,
+    todayYmd
+  );
 }
 
 function isMissingInboxStatusColumn(error: { message?: string; code?: string } | null | undefined): boolean {
@@ -216,19 +241,27 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
   const page = Number.isFinite(pageParsed) && pageParsed > 0 ? pageParsed : 1;
 
   const now = new Date();
-  const period = resolveFaxMetricPeriod({
-    spanRaw: one(raw, "span"),
-    dayRaw: one(raw, "day"),
-    now,
-  });
-  const todayYmd = period.todayYmd;
   const tab = one(raw, "tab") || "inbox";
   const filingRaw = one(raw, "filing").trim();
   const arrivedRaw = one(raw, "arrived").trim();
   const filingExplicit = tab === "inbox" && filingRaw.length > 0;
   const arrived: FaxArrivedPreset =
     tab !== "inbox" ? "all" : arrivedRaw ? parseFaxArrivedPreset(arrivedRaw) : filingExplicit ? "all" : "today";
-  const arrivedWindow = faxArrivedWindow(arrived, now);
+  let spanRaw = one(raw, "span");
+  let dayRaw = one(raw, "day");
+  if (tab === "inbox" && (arrived === "today" || arrived === "yesterday")) {
+    spanRaw = "day";
+    dayRaw =
+      arrived === "yesterday"
+        ? resolveFaxMetricPeriod({ spanRaw: "day", dayRaw: "", now }).previousAnchorYmd
+        : "";
+  } else if (tab === "inbox" && arrived === "week") {
+    spanRaw = "week";
+    dayRaw = "";
+  }
+  const period = resolveFaxMetricPeriod({ spanRaw, dayRaw, now });
+  const todayYmd = period.todayYmd;
+  const activeArrivedChip: FaxArrivedPreset = arrived === "all" ? "all" : matchFaxArrivedPreset(period);
 
   const f: FaxListFilters = {
     tab,
@@ -259,8 +292,8 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
   else if (f.tab === "archived") listQuery = listQuery.eq("is_archived", true);
   else if (f.filingExplicit) listQuery = applyFaxInboxFilingFilter(listQuery, f.filing);
   else listQuery = listQuery.eq("direction", "inbound").eq("is_archived", false);
-  if (f.tab === "inbox" && arrivedWindow.startIso && arrivedWindow.endIso) {
-    listQuery = listQuery.or(faxPeriodOrFilter("received_at", arrivedWindow.startIso, arrivedWindow.endIso));
+  if (f.tab === "inbox" && f.arrived !== "all") {
+    listQuery = listQuery.or(faxPeriodOrFilter("received_at", period.startIso, period.endIso));
   }
   if (f.unread) listQuery = listQuery.eq("is_read", false);
   if (f.from) listQuery = listQuery.gte("created_at", `${f.from}T00:00:00.000Z`);
@@ -315,8 +348,45 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
     sent: schemaMissing ? 0 : (sentCount ?? 0),
     failed: schemaMissing ? 0 : (failedPeriodCount ?? 0),
   };
-  const previousPeriodHref = metricPeriodHref(f, period.span, period.previousAnchorYmd, todayYmd, page);
-  const nextPeriodHref = metricPeriodHref(f, period.span, period.nextAnchorYmd, todayYmd, page);
+  const yesterdayYmd = resolveFaxMetricPeriod({ spanRaw: "day", dayRaw: "", now }).previousAnchorYmd;
+  const previousPeriodHref = metricPeriodHref(f, period.span, period.previousAnchorYmd, todayYmd, now);
+  const nextPeriodHref = metricPeriodHref(f, period.span, period.nextAnchorYmd, todayYmd, now);
+  const periodNavigator = (
+    <div className="flex flex-col gap-3 rounded-[24px] border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-wrap items-center gap-2">
+        <Link href={previousPeriodHref} className={crmActionBtnMuted} aria-label={`Previous ${period.span}`}>
+          Previous
+        </Link>
+        <p className="min-w-[12rem] text-sm font-semibold text-slate-900">{period.label}</p>
+        {period.canGoNext ? (
+          <Link href={nextPeriodHref} className={crmActionBtnMuted} aria-label={`Next ${period.span}`}>
+            Next
+          </Link>
+        ) : (
+          <span
+            className={`${crmActionBtnMuted} pointer-events-none cursor-not-allowed opacity-45 shadow-none hover:shadow-none`}
+            aria-disabled="true"
+          >
+            Next
+          </span>
+        )}
+      </div>
+      <div className="flex flex-wrap gap-1" role="group" aria-label="Count period">
+        {FAX_METRIC_SPANS.map((span) => (
+          <Link
+            key={span}
+            href={metricPeriodHref(f, span, period.anchorYmd, todayYmd, now)}
+            aria-current={period.span === span ? "page" : undefined}
+            className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${
+              period.span === span ? "border-sky-300 bg-sky-50 text-sky-800" : "border-slate-200 bg-white text-slate-600"
+            }`}
+          >
+            {FAX_METRIC_SPAN_LABELS[span]}
+          </Link>
+        ))}
+      </div>
+    </div>
+  );
 
   return (
     <div className="space-y-6 p-6">
@@ -372,42 +442,6 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
       ) : null}
 
       <section className="space-y-3">
-        <div className="flex flex-col gap-3 rounded-[24px] border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex flex-wrap items-center gap-2">
-            <Link href={previousPeriodHref} className={crmActionBtnMuted} aria-label={`Previous ${period.span}`}>
-              Previous
-            </Link>
-            <p className="min-w-[12rem] text-sm font-semibold text-slate-900">{period.label}</p>
-            {period.canGoNext ? (
-              <Link href={nextPeriodHref} className={crmActionBtnMuted} aria-label={`Next ${period.span}`}>
-                Next
-              </Link>
-            ) : (
-              <span
-                className={`${crmActionBtnMuted} pointer-events-none cursor-not-allowed opacity-45 shadow-none hover:shadow-none`}
-                aria-disabled="true"
-              >
-                Next
-              </span>
-            )}
-          </div>
-          <div className="flex flex-wrap gap-1" role="group" aria-label="Count period">
-            {FAX_METRIC_SPANS.map((span) => (
-              <Link
-                key={span}
-                href={metricPeriodHref(f, span, period.anchorYmd, todayYmd, page)}
-                aria-current={period.span === span ? "page" : undefined}
-                className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${
-                  period.span === span
-                    ? "border-sky-300 bg-sky-50 text-sky-800"
-                    : "border-slate-200 bg-white text-slate-600"
-                }`}
-              >
-                {FAX_METRIC_SPAN_LABELS[span]}
-              </Link>
-            ))}
-          </div>
-        </div>
         <div className="grid gap-3 sm:grid-cols-3">
           {(
             [
@@ -422,7 +456,6 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
             </div>
           ))}
         </div>
-        <p className="text-xs text-slate-500">Counts use Arizona time.</p>
       </section>
 
       <div className="flex flex-wrap gap-2">
@@ -450,10 +483,10 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
             {FAX_ARRIVED_PRESETS.map((preset) => (
               <Link
                 key={preset}
-                href={arrivedHref(preset, f, todayYmd)}
-                aria-current={f.arrived === preset ? "page" : undefined}
+                href={arrivedHref(preset, f, todayYmd, yesterdayYmd)}
+                aria-current={activeArrivedChip === preset ? "page" : undefined}
                 className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${
-                  f.arrived === preset
+                  activeArrivedChip === preset
                     ? "border-sky-300 bg-sky-50 text-sky-800"
                     : "border-slate-200 bg-white text-slate-600"
                 }`}
@@ -465,10 +498,11 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
               </Link>
             ))}
           </div>
+          {periodNavigator}
           <p className="text-xs text-slate-500">
             {f.arrived === "all"
               ? "Every inbound fax, newest first, including ones already filed."
-              : `${arrivedWindow.label}. Newest first, including faxes already filed.`}
+              : `${period.label}. Newest first, including faxes already filed. Counts use Arizona time.`}
           </p>
           <div className="flex flex-wrap items-center gap-2">
             {FAX_FILING_TABS.map((tab) => (
@@ -489,7 +523,9 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
             ))}
           </div>
         </div>
-      ) : null}
+      ) : (
+        periodNavigator
+      )}
 
       <form method="get" action="/admin/fax" className={crmFilterBarCls}>
         <input type="hidden" name="tab" value={f.tab} />
@@ -542,13 +578,15 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
           </div>
           {faxes.length === 0 ? (
             <div className="px-4 py-12 text-center text-sm text-slate-500">
-              {f.tab === "inbox" && !f.filingExplicit && !f.q && !f.unread && !f.from && !f.to && f.arrived === "today"
+              {f.tab === "inbox" && !f.filingExplicit && !f.q && !f.unread && !f.from && !f.to && activeArrivedChip === "today"
                 ? "No faxes came in today."
-                : f.tab === "inbox" && !f.filingExplicit && !f.q && !f.unread && !f.from && !f.to && f.arrived === "yesterday"
+                : f.tab === "inbox" && !f.filingExplicit && !f.q && !f.unread && !f.from && !f.to && activeArrivedChip === "yesterday"
                   ? "No faxes came in yesterday."
-                  : f.tab === "inbox" && !f.filingExplicit && !f.q && !f.unread && !f.from && !f.to && f.arrived === "week"
+                  : f.tab === "inbox" && !f.filingExplicit && !f.q && !f.unread && !f.from && !f.to && activeArrivedChip === "week"
                     ? "No faxes came in this week."
-                    : "No faxes match these filters."}
+                    : f.tab === "inbox" && !f.filingExplicit && !f.q && !f.unread && !f.from && !f.to && activeArrivedChip === "range"
+                      ? "No faxes came in for this period."
+                      : "No faxes match these filters."}
             </div>
           ) : (
             faxes.map((fax) => {

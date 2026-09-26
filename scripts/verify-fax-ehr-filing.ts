@@ -4,7 +4,13 @@
  */
 import assert from "node:assert/strict";
 
-import { faxArrivedWindow, faxPeriodOrFilter, parseFaxArrivedPreset, resolveFaxMetricPeriod } from "../src/lib/fax/fax-metric-period";
+import {
+  faxArrivedWindow,
+  faxPeriodOrFilter,
+  matchFaxArrivedPreset,
+  parseFaxArrivedPreset,
+  resolveFaxMetricPeriod,
+} from "../src/lib/fax/fax-metric-period";
 import {
   contentDispositionAttachment,
   ehrPatientNameFromDisplayTitle,
@@ -89,6 +95,7 @@ assert.equal(normalizeFaxStatusNote("x".repeat(501)).ok, false);
 assert.equal(parseFaxArrivedPreset(""), "today");
 assert.equal(parseFaxArrivedPreset("nope"), "today");
 assert.equal(parseFaxArrivedPreset("yesterday"), "yesterday");
+assert.equal(parseFaxArrivedPreset("range"), "range");
 const arrivedNow = new Date("2026-09-26T18:00:00.000Z");
 assert.equal(faxArrivedWindow("today", arrivedNow).startIso, "2026-09-26T07:00:00.000Z");
 assert.equal(faxArrivedWindow("today", arrivedNow).endIso, "2026-09-27T07:00:00.000Z");
@@ -108,6 +115,9 @@ assert.equal(today.startIso, "2026-09-26T07:00:00.000Z");
 assert.equal(today.endIso, "2026-09-27T07:00:00.000Z");
 assert.equal(today.canGoNext, false);
 assert.equal(today.label.startsWith("Today · "), true);
+assert.equal(matchFaxArrivedPreset(today), "today");
+assert.equal(matchFaxArrivedPreset(resolveFaxMetricPeriod({ spanRaw: "day", dayRaw: "2026-09-25", now })), "yesterday");
+assert.equal(matchFaxArrivedPreset(resolveFaxMetricPeriod({ spanRaw: "day", dayRaw: "2026-09-24", now })), "range");
 assert.equal(today.previousAnchorYmd, "2026-09-25");
 
 const yesterday = resolveFaxMetricPeriod({ spanRaw: "day", dayRaw: "2026-09-25", now });
@@ -121,9 +131,11 @@ assert.equal(week.startYmd, "2026-09-20");
 assert.equal(week.endYmd, "2026-09-27");
 assert.equal(week.canGoNext, false);
 assert.equal(week.label.startsWith("This week · "), true);
+assert.equal(matchFaxArrivedPreset(week), "week");
 const priorWeek = resolveFaxMetricPeriod({ spanRaw: "week", dayRaw: week.previousAnchorYmd, now });
 assert.equal(priorWeek.startYmd, "2026-09-13");
 assert.equal(priorWeek.canGoNext, true);
+assert.equal(matchFaxArrivedPreset(priorWeek), "range");
 
 const month = resolveFaxMetricPeriod({ spanRaw: "month", dayRaw: "2026-09-26", now });
 assert.equal(month.startYmd, "2026-09-01");
