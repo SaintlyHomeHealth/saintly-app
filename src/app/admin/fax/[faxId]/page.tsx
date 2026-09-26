@@ -3,13 +3,14 @@ import { notFound, redirect } from "next/navigation";
 
 import { archiveFaxAction, markFaxReadAction } from "@/app/admin/fax/actions";
 import { FaxDisplayTitleEditor } from "@/app/admin/fax/_components/FaxDisplayTitleEditor";
-import { FaxFiledBadge } from "@/app/admin/fax/_components/FaxFiledBadge";
+import { FaxInboxStatusBadge } from "@/app/admin/fax/_components/FaxInboxStatusBadge";
+import { FaxInboxStatusEditor } from "@/app/admin/fax/_components/FaxInboxStatusEditor";
 import { FaxNoteEditor } from "@/app/admin/fax/_components/FaxNoteEditor";
 import { MarkFaxFiledButton } from "@/app/admin/fax/_components/MarkFaxFiledButton";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { crmActionBtnMuted, crmActionBtnSky, crmPrimaryCtaCls } from "@/components/admin/crm-admin-list-styles";
 import { supabaseAdmin } from "@/lib/admin";
-import { faxPdfFilename, faxVisibleRecordName } from "@/lib/fax/fax-ehr-filing";
+import { faxInboxStatus, faxPdfFilename, faxVisibleRecordName } from "@/lib/fax/fax-ehr-filing";
 import { formatFaxSenderDisplay } from "@/lib/fax/format-fax-sender";
 import { formatFaxDateTimeDetail } from "@/lib/fax/format-fax-time";
 import { inboundFaxHasDocumentForForward } from "@/lib/fax/forward-inbound-fax";
@@ -54,16 +55,23 @@ export default async function AdminFaxDetailPage({
   if (error || !data?.id) notFound();
   const fax = data as FaxMessageRow;
 
+  const inboxStatus = faxInboxStatus(fax);
   let filedByLabel: string | null = null;
-  if (fax.filed_by) {
-    const { data: filer } = await supabaseAdmin
+  let statusChangedByLabel: string | null = null;
+  const staffIds = [...new Set([fax.filed_by, fax.status_changed_by].filter((id): id is string => Boolean(id)))];
+  if (staffIds.length > 0) {
+    const { data: people } = await supabaseAdmin
       .from("staff_profiles")
-      .select("full_name, email")
-      .eq("user_id", fax.filed_by)
-      .maybeSingle();
-    const filerName = typeof filer?.full_name === "string" ? filer.full_name.trim() : "";
-    const filerEmail = typeof filer?.email === "string" ? filer.email.trim() : "";
-    filedByLabel = filerName || filerEmail || null;
+      .select("user_id, full_name, email")
+      .in("user_id", staffIds);
+    const labelFor = (userId: string | null | undefined) => {
+      const person = (people ?? []).find((row) => row.user_id === userId);
+      const name = typeof person?.full_name === "string" ? person.full_name.trim() : "";
+      const email = typeof person?.email === "string" ? person.email.trim() : "";
+      return name || email || null;
+    };
+    filedByLabel = labelFor(fax.filed_by);
+    statusChangedByLabel = labelFor(fax.status_changed_by);
   }
 
   const pdfUrl = (await signedFaxPdfUrl(fax.storage_path)) ?? fax.pdf_url ?? fax.media_url;
@@ -91,10 +99,10 @@ export default async function AdminFaxDetailPage({
         metaLine={
           <>
             {senderDisplay} → {recipientDisplay} · {formatFaxDateTimeDetail(fax.received_at ?? fax.sent_at ?? fax.created_at)}
-            {fax.filed_to_ehr_at ? (
+            {fax.direction === "inbound" ? (
               <>
                 {" "}
-                <FaxFiledBadge />
+                <FaxInboxStatusBadge status={inboxStatus} />
               </>
             ) : null}
           </>
@@ -105,7 +113,7 @@ export default async function AdminFaxDetailPage({
             : "Preview the PDF and add a short note so the team can recognize this fax in the list."
         }
         actions={
-          <div className="flex flex-wrap gap-2">
+          <div className="flex w-full flex-wrap items-start gap-2">
             <Link href={listReturnPath} className={crmPrimaryCtaCls}>
               ← Back to faxes
             </Link>
@@ -138,6 +146,13 @@ export default async function AdminFaxDetailPage({
               </a>
             ) : null}
             {hasInboundDocument && !fax.filed_to_ehr_at ? <MarkFaxFiledButton faxId={fax.id} /> : null}
+            {fax.direction === "inbound" ? (
+              <FaxInboxStatusEditor
+                faxId={fax.id}
+                initialStatus={inboxStatus}
+                initialNote={fax.status_note ?? null}
+              />
+            ) : null}
             {fax.direction === "outbound" ? (
               <>
                 <ResendFaxButton faxId={fax.id} initialRecipientNumber={fax.to_number} note={fax.note ?? null} compact />
@@ -237,18 +252,25 @@ export default async function AdminFaxDetailPage({
           {fax.direction === "inbound" ? (
             <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
               <FaxDisplayTitleEditor faxId={fax.id} initialTitle={fax.display_title ?? null} variant="detail" />
+              <p className="mt-3 flex flex-wrap items-center gap-2 text-sm text-slate-700">
+                <FaxInboxStatusBadge status={inboxStatus} />
+                {fax.status_note ? <span className="text-slate-600">{fax.status_note}</span> : null}
+              </p>
               {fax.filed_to_ehr_at ? (
-                <p className="mt-3 text-sm text-emerald-800">
-                  <FaxFiledBadge />
-                  <span className="ml-2">
-                    Filed in Alora {formatFaxDateTimeDetail(fax.filed_to_ehr_at)}
-                    {filedByLabel ? ` by ${filedByLabel}` : ""}
-                    {fax.ehr_patient_name ? ` · ${fax.ehr_patient_name}` : ""}
-                  </span>
+                <p className="mt-2 text-sm text-emerald-800">
+                  Filed in Alora {formatFaxDateTimeDetail(fax.filed_to_ehr_at)}
+                  {filedByLabel ? ` by ${filedByLabel}` : ""}
+                  {fax.ehr_patient_name ? ` · ${fax.ehr_patient_name}` : ""}
                 </p>
               ) : (
-                <p className="mt-3 text-xs text-slate-500">Not filed in Alora yet.</p>
+                <p className="mt-2 text-xs text-slate-500">Not filed in Alora yet.</p>
               )}
+              {fax.status_changed_at ? (
+                <p className="mt-1 text-xs text-slate-500">
+                  Status changed {formatFaxDateTimeDetail(fax.status_changed_at)}
+                  {statusChangedByLabel ? ` by ${statusChangedByLabel}` : ""}
+                </p>
+              ) : null}
             </section>
           ) : null}
           <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">

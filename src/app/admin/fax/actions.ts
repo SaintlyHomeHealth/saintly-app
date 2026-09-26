@@ -6,7 +6,10 @@ import { redirect } from "next/navigation";
 import { supabaseAdmin } from "@/lib/admin";
 import {
   ehrPatientNameFromDisplayTitle,
+  isFaxInboxStatus,
   normalizeFaxDisplayTitle,
+  normalizeFaxStatusNote,
+  type FaxInboxStatus,
 } from "@/lib/fax/fax-ehr-filing";
 import { forwardInboundFaxAsOutbound } from "@/lib/fax/forward-inbound-fax";
 import { recordFaxEvent } from "@/lib/fax/fax-service";
@@ -250,8 +253,53 @@ function missingEhrFilingColumn(error: { message?: string; code?: string } | nul
     (msg.includes("display_title") ||
       msg.includes("filed_to_ehr_at") ||
       msg.includes("filed_by") ||
-      msg.includes("ehr_patient_name"))
+      msg.includes("ehr_patient_name") ||
+      msg.includes("inbox_status") ||
+      msg.includes("status_note") ||
+      msg.includes("status_changed_at") ||
+      msg.includes("status_changed_by"))
   );
+}
+
+function isMissingInboxStatusColumn(error: { message?: string; code?: string } | null | undefined): boolean {
+  const msg = (error?.message ?? "").toLowerCase();
+  return (
+    msg.includes("inbox_status") ||
+    msg.includes("status_note") ||
+    msg.includes("status_changed_at") ||
+    msg.includes("status_changed_by")
+  );
+}
+
+const INBOX_STATUS_MIGRATION_ERROR =
+  "Database migration missing: fax inbox status columns. Apply the latest Supabase migration, then try again.";
+
+function inboundFilingStatusPatch(input: {
+  next: FaxInboxStatus;
+  filedAt: string | null;
+  displayTitle: string | null;
+  actorId: string;
+  now: string;
+}): Record<string, unknown> {
+  const patch: Record<string, unknown> = {
+    inbox_status: input.next,
+    status_changed_at: input.now,
+    status_changed_by: input.actorId,
+  };
+  if (input.next === "filed") {
+    if (!input.filedAt) {
+      patch.filed_to_ehr_at = input.now;
+      patch.filed_by = input.actorId;
+      patch.ehr_patient_name = ehrPatientNameFromDisplayTitle(input.displayTitle);
+    }
+    return patch;
+  }
+  if (input.filedAt) {
+    patch.filed_to_ehr_at = null;
+    patch.filed_by = null;
+    patch.ehr_patient_name = null;
+  }
+  return patch;
 }
 
 export async function updateFaxDisplayTitleAction(
@@ -303,6 +351,72 @@ export async function markFaxFiledInAloraAction(
 
   const { data: row, error: readError } = await supabaseAdmin
     .from("fax_messages")
+    .select("id, direction, display_title, filed_to_ehr_at, inbox_status")
+    .eq("id", id)
+    .maybeSingle();
+  if (readError) {
+    if (isMissingInboxStatusColumn(readError)) {
+      return markFaxFiledWithoutInboxStatus(id, staff.user_id);
+    }
+    if (missingEhrFilingColumn(readError)) {
+      return { ok: false, error: "Database migration missing: fax EHR filing columns." };
+    }
+    return { ok: false, error: readError.message ?? "Could not load this fax." };
+  }
+  if (!row?.id) return { ok: false, error: "Fax not found." };
+  if (row.direction !== "inbound") {
+    return { ok: false, error: "Only inbound faxes can be marked filed in Alora." };
+  }
+
+  const already = typeof row.filed_to_ehr_at === "string" ? row.filed_to_ehr_at : null;
+  const displayTitle = typeof row.display_title === "string" ? row.display_title : null;
+  const currentStatus = typeof row.inbox_status === "string" ? row.inbox_status : null;
+  if (already && currentStatus === "filed") return { ok: true, filedAt: already };
+
+  const now = new Date().toISOString();
+  const patch = inboundFilingStatusPatch({
+    next: "filed",
+    filedAt: already,
+    displayTitle,
+    actorId: staff.user_id,
+    now,
+  });
+  let update = supabaseAdmin.from("fax_messages").update(patch).eq("id", id).select("filed_to_ehr_at");
+  if (!already) update = update.is("filed_to_ehr_at", null);
+  const { data: updated, error } = await update.maybeSingle();
+  if (error) {
+    if (isMissingInboxStatusColumn(error)) {
+      return markFaxFiledWithoutInboxStatus(id, staff.user_id);
+    }
+    if (missingEhrFilingColumn(error)) {
+      return { ok: false, error: "Database migration missing: fax EHR filing columns." };
+    }
+    return { ok: false, error: error.message ?? "Could not mark this fax filed." };
+  }
+  const savedAt = typeof updated?.filed_to_ehr_at === "string" ? updated.filed_to_ehr_at : null;
+  if (!savedAt && !already) return { ok: true, filedAt: already ?? now };
+
+  await recordFaxEvent({
+    faxMessageId: id,
+    eventType: "filed_to_ehr",
+    payload: {
+      actor_user_id: staff.user_id,
+      ehr_patient_name: ehrPatientNameFromDisplayTitle(displayTitle),
+      inbox_status: "filed",
+    },
+  });
+  revalidatePath("/admin/fax");
+  revalidatePath(`/admin/fax/${id}`);
+  return { ok: true, filedAt: savedAt ?? already ?? now };
+}
+
+/** Pre-migration fallback: keep Mark filed working before inbox_status exists. */
+async function markFaxFiledWithoutInboxStatus(
+  id: string,
+  actorId: string
+): Promise<{ ok: true; filedAt: string } | { ok: false; error: string }> {
+  const { data: row, error: readError } = await supabaseAdmin
+    .from("fax_messages")
     .select("id, direction, display_title, filed_to_ehr_at")
     .eq("id", id)
     .maybeSingle();
@@ -316,7 +430,6 @@ export async function markFaxFiledInAloraAction(
   if (row.direction !== "inbound") {
     return { ok: false, error: "Only inbound faxes can be marked filed in Alora." };
   }
-
   const already = typeof row.filed_to_ehr_at === "string" ? row.filed_to_ehr_at : null;
   if (already) return { ok: true, filedAt: already };
 
@@ -328,7 +441,7 @@ export async function markFaxFiledInAloraAction(
     .from("fax_messages")
     .update({
       filed_to_ehr_at: filedAt,
-      filed_by: staff.user_id,
+      filed_by: actorId,
       ehr_patient_name: ehrPatientName,
     })
     .eq("id", id)
@@ -342,16 +455,126 @@ export async function markFaxFiledInAloraAction(
     return { ok: false, error: error.message ?? "Could not mark this fax filed." };
   }
   const savedAt = typeof updated?.filed_to_ehr_at === "string" ? updated.filed_to_ehr_at : null;
-  if (!savedAt) return { ok: true, filedAt: already ?? filedAt };
+  if (!savedAt) return { ok: true, filedAt: filedAt };
 
   await recordFaxEvent({
     faxMessageId: id,
     eventType: "filed_to_ehr",
-    payload: { actor_user_id: staff.user_id, ehr_patient_name: ehrPatientName },
+    payload: { actor_user_id: actorId, ehr_patient_name: ehrPatientName },
   });
   revalidatePath("/admin/fax");
   revalidatePath(`/admin/fax/${id}`);
   return { ok: true, filedAt };
+}
+
+export async function setFaxInboxStatusAction(
+  faxId: string,
+  inboxStatus: string
+): Promise<{ ok: true; inboxStatus: FaxInboxStatus } | { ok: false; error: string }> {
+  const staff = await getStaffProfile();
+  if (!staff || !isManagerOrHigher(staff)) {
+    return { ok: false, error: "Unauthorized" };
+  }
+
+  const id = faxId.trim();
+  if (!id) return { ok: false, error: "Missing fax." };
+  if (!isFaxInboxStatus(inboxStatus)) return { ok: false, error: "Choose a filing status." };
+
+  const { data: row, error: readError } = await supabaseAdmin
+    .from("fax_messages")
+    .select("id, direction, display_title, filed_to_ehr_at, inbox_status")
+    .eq("id", id)
+    .maybeSingle();
+  if (readError) {
+    if (isMissingInboxStatusColumn(readError) || missingEhrFilingColumn(readError)) {
+      return { ok: false, error: INBOX_STATUS_MIGRATION_ERROR };
+    }
+    return { ok: false, error: readError.message ?? "Could not load this fax." };
+  }
+  if (!row?.id) return { ok: false, error: "Fax not found." };
+  if (row.direction !== "inbound") {
+    return { ok: false, error: "Only inbound faxes have a filing status." };
+  }
+
+  const current = typeof row.inbox_status === "string" && isFaxInboxStatus(row.inbox_status) ? row.inbox_status : null;
+  if (current === inboxStatus) return { ok: true, inboxStatus };
+
+  const now = new Date().toISOString();
+  const filedAt = typeof row.filed_to_ehr_at === "string" ? row.filed_to_ehr_at : null;
+  const displayTitle = typeof row.display_title === "string" ? row.display_title : null;
+  const patch = inboundFilingStatusPatch({
+    next: inboxStatus,
+    filedAt,
+    displayTitle,
+    actorId: staff.user_id,
+    now,
+  });
+  const { error } = await supabaseAdmin.from("fax_messages").update(patch).eq("id", id);
+  if (error) {
+    if (isMissingInboxStatusColumn(error) || missingEhrFilingColumn(error)) {
+      return { ok: false, error: INBOX_STATUS_MIGRATION_ERROR };
+    }
+    return { ok: false, error: error.message ?? "Could not update the filing status." };
+  }
+
+  await recordFaxEvent({
+    faxMessageId: id,
+    eventType: "inbox_status_updated",
+    payload: { actor_user_id: staff.user_id, from_status: current, to_status: inboxStatus },
+  });
+  revalidatePath("/admin/fax");
+  revalidatePath(`/admin/fax/${id}`);
+  return { ok: true, inboxStatus };
+}
+
+export async function updateFaxStatusNoteAction(
+  formData: FormData
+): Promise<{ ok: true; statusNote: string | null } | { ok: false; error: string }> {
+  const staff = await getStaffProfile();
+  if (!staff || !isManagerOrHigher(staff)) {
+    return { ok: false, error: "Unauthorized" };
+  }
+
+  const faxId = readString(formData, "faxId");
+  if (!faxId) return { ok: false, error: "Missing fax." };
+
+  const rawNote = typeof formData.get("statusNote") === "string" ? String(formData.get("statusNote")) : "";
+  const normalized = normalizeFaxStatusNote(rawNote);
+  if (!normalized.ok) return normalized;
+
+  const { data: row, error: readError } = await supabaseAdmin
+    .from("fax_messages")
+    .select("id, direction")
+    .eq("id", faxId)
+    .maybeSingle();
+  if (readError) {
+    if (isMissingInboxStatusColumn(readError)) return { ok: false, error: INBOX_STATUS_MIGRATION_ERROR };
+    return { ok: false, error: readError.message ?? "Could not load this fax." };
+  }
+  if (!row?.id) return { ok: false, error: "Fax not found." };
+  if (row.direction !== "inbound") {
+    return { ok: false, error: "Only inbound faxes have a status note." };
+  }
+
+  const { error } = await supabaseAdmin
+    .from("fax_messages")
+    .update({ status_note: normalized.value })
+    .eq("id", faxId);
+  if (error) {
+    if (isMissingInboxStatusColumn(error) || missingEhrFilingColumn(error)) {
+      return { ok: false, error: INBOX_STATUS_MIGRATION_ERROR };
+    }
+    return { ok: false, error: error.message ?? "Could not save the status note." };
+  }
+
+  await recordFaxEvent({
+    faxMessageId: faxId,
+    eventType: "status_note_updated",
+    payload: { actor_user_id: staff.user_id, has_status_note: Boolean(normalized.value) },
+  });
+  revalidatePath("/admin/fax");
+  revalidatePath(`/admin/fax/${faxId}`);
+  return { ok: true, statusNote: normalized.value };
 }
 
 export async function updateFaxNoteAction(formData: FormData): Promise<{ ok: true } | { ok: false; error: string }> {

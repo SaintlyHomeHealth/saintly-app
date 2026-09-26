@@ -48,6 +48,12 @@ export type FaxMessageRow = {
   filed_to_ehr_at?: string | null;
   filed_by?: string | null;
   ehr_patient_name?: string | null;
+  /** Staff inbox disposition. Separate from transmission `status`. */
+  inbox_status?: string | null;
+  status_changed_at?: string | null;
+  status_changed_by?: string | null;
+  /** Optional reason the fax is not filed (max 500). */
+  status_note?: string | null;
   /** Generated: stored PDF path or media URL is present. */
   has_fax_document?: boolean | null;
   category: FaxCategory;
@@ -102,6 +108,8 @@ const FAX_LIST_SEARCH_COLUMNS = [
   "direction",
   "category",
   "failure_reason",
+  "inbox_status",
+  "status_note",
 ] as const;
 
 /**
@@ -146,6 +154,8 @@ export function faxMatchesKeywordSearch(fax: FaxMessageRow, rawQuery: string): b
     fax.direction,
     fax.category,
     fax.failure_reason,
+    fax.inbox_status,
+    fax.status_note,
     ...(fax.tags ?? []),
   ]
     .filter(Boolean)
