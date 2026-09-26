@@ -7,10 +7,12 @@ import assert from "node:assert/strict";
 import {
   contentDispositionAttachment,
   ehrPatientNameFromDisplayTitle,
+  faxInboxStatus,
   faxPdfFilename,
   faxVisibleRecordName,
   isUnfiledInboundFax,
   normalizeFaxDisplayTitle,
+  normalizeFaxStatusNote,
   parseFaxFilingBucket,
   uniqueFaxPdfZipName,
 } from "../src/lib/fax/fax-ehr-filing";
@@ -60,10 +62,27 @@ assert.equal(isUnfiledInboundFax({ ...base, status: "failed" }), false);
 assert.equal(isUnfiledInboundFax({ ...base, storage_path: "  ", media_url: "" }), false);
 assert.equal(isUnfiledInboundFax({ ...base, filed_to_ehr_at: "2026-09-25T00:00:00Z" }), false);
 assert.equal(isUnfiledInboundFax({ ...base, direction: "outbound" }), false);
-assert.equal(parseFaxFilingBucket(""), "all");
-assert.equal(parseFaxFilingBucket("all"), "all");
+assert.equal(isUnfiledInboundFax({ ...base, inbox_status: "needs_admission" }), false);
+assert.equal(isUnfiledInboundFax({ ...base, inbox_status: "junk" }), false);
+assert.equal(isUnfiledInboundFax({ ...base, inbox_status: "unfiled", has_fax_document: true, storage_path: "" }), true);
+assert.equal(faxInboxStatus({ inbox_status: "wrong_recipient" }), "wrong_recipient");
+assert.equal(faxInboxStatus({ filed_to_ehr_at: "2026-09-25T00:00:00Z" }), "filed");
+assert.equal(faxInboxStatus({}), "unfiled");
+assert.equal(parseFaxFilingBucket(""), "unfiled");
+assert.equal(parseFaxFilingBucket("all"), "unfiled");
 assert.equal(parseFaxFilingBucket("unfiled"), "unfiled");
 assert.equal(parseFaxFilingBucket("filed"), "filed");
+assert.equal(parseFaxFilingBucket("needs_admission"), "needs_admission");
+assert.equal(parseFaxFilingBucket("wrong_recipient"), "wrong_recipient");
+assert.equal(parseFaxFilingBucket("junk"), "junk");
+assert.equal(parseFaxFilingBucket("unreadable"), "unreadable");
 assert.equal(parseFaxFilingBucket("no_document"), "no_document");
+const statusNote = normalizeFaxStatusNote("  call the hospital  ");
+assert.equal(statusNote.ok, true);
+assert.equal(statusNote.ok && statusNote.value, "call the hospital");
+const blankStatusNote = normalizeFaxStatusNote("   ");
+assert.equal(blankStatusNote.ok, true);
+assert.equal(blankStatusNote.ok ? blankStatusNote.value : "nope", null);
+assert.equal(normalizeFaxStatusNote("x".repeat(501)).ok, false);
 
 console.log("verify-fax-ehr-filing: ok");

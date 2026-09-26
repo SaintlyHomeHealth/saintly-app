@@ -13,7 +13,14 @@ import {
   crmPrimaryCtaCls,
 } from "@/components/admin/crm-admin-list-styles";
 import { supabaseAdmin } from "@/lib/admin";
-import { faxPdfFilename, isUnfiledInboundFax, parseFaxFilingBucket, type FaxFilingBucket } from "@/lib/fax/fax-ehr-filing";
+import {
+  FAX_FILING_TABS,
+  applyFaxInboxFilingFilter,
+  faxInboxStatus,
+  faxPdfFilename,
+  parseFaxFilingBucket,
+  type FaxFilingBucket,
+} from "@/lib/fax/fax-ehr-filing";
 import { formatFaxSenderDisplay } from "@/lib/fax/format-fax-sender";
 import { formatFaxDateTimeDetail, formatFaxDateTimeList } from "@/lib/fax/format-fax-time";
 import { inboundFaxHasDocumentForForward } from "@/lib/fax/forward-inbound-fax";
@@ -24,7 +31,7 @@ import { getStaffProfile, isAdminOrHigher, isManagerOrHigher } from "@/lib/staff
 import { DeleteFaxButton } from "./_components/DeleteFaxButton";
 import { FaxCenterComposeControls } from "./_components/FaxCenterComposeControls";
 import { FaxDisplayTitleEditor } from "./_components/FaxDisplayTitleEditor";
-import { FaxFiledBadge } from "./_components/FaxFiledBadge";
+import { FaxInboxStatusBadge } from "./_components/FaxInboxStatusBadge";
 import {
   FaxBulkDeleteBar,
   FaxListRowShell,
@@ -41,7 +48,7 @@ export const dynamic = "force-dynamic";
 
 const FAX_LIST_PAGE_SIZE = 20;
 const FAX_LIST_GRID_CLS =
-  "grid grid-cols-[32px_92px_minmax(180px,1fr)_minmax(280px,2fr)_56px_112px_128px_220px] gap-3";
+  "grid grid-cols-[32px_92px_minmax(180px,1fr)_minmax(280px,2fr)_56px_minmax(140px,180px)_128px_220px] gap-3";
 
 type FaxListFilters = {
   tab: string;
@@ -80,7 +87,7 @@ function statusBadgeClass(status: string): string {
 }
 
 function filterHref(tab: string): string {
-  if (tab === "inbox") return "/admin/fax?tab=inbox&filing=all";
+  if (tab === "inbox") return "/admin/fax?tab=inbox&filing=unfiled";
   return `/admin/fax?tab=${tab}`;
 }
 
@@ -88,22 +95,31 @@ function filingHref(filing: FaxFilingBucket): string {
   return `/admin/fax?tab=inbox&filing=${filing}`;
 }
 
-function applyInboxFilingFilter<Q extends {
-  eq: (column: string, value: unknown) => Q;
-  is: (column: string, value: null) => Q;
-  not: (column: string, operator: string, value: unknown) => Q;
-  or: (filters: string) => Q;
-}>(query: Q, filing: FaxFilingBucket): Q {
-  let next = query.eq("direction", "inbound").eq("is_archived", false);
-  if (filing === "all") return next;
-  if (filing === "filed") {
-    return next.not("filed_to_ehr_at", "is", null);
-  }
-  next = next.is("filed_to_ehr_at", null);
-  if (filing === "unfiled") {
-    return next.eq("has_fax_document", true).not("status", "ilike", "%failed%");
-  }
-  return next.or("status.ilike.*failed*,has_fax_document.eq.false");
+function isMissingInboxStatusColumn(error: { message?: string; code?: string } | null | undefined): boolean {
+  const msg = (error?.message ?? "").toLowerCase();
+  return (
+    msg.includes("inbox_status") ||
+    msg.includes("status_note") ||
+    msg.includes("status_changed_at") ||
+    msg.includes("status_changed_by")
+  );
+}
+
+type FaxCountResult = { count: number | null; error: { message?: string } | null };
+
+interface FaxCountQuery extends PromiseLike<FaxCountResult> {
+  eq: (column: string, value: unknown) => FaxCountQuery;
+  or: (filters: string) => FaxCountQuery;
+  not: (column: string, operator: string, value: unknown) => FaxCountQuery;
+  ilike: (column: string, pattern: string) => FaxCountQuery;
+}
+
+/** Head-only count. Tab switches do not download inbox rows to total them in memory. */
+async function countFaxRows(build: (query: FaxCountQuery) => FaxCountQuery): Promise<number | null> {
+  const query = supabaseAdmin.from("fax_messages").select("id", { count: "exact", head: true });
+  const { count, error } = await build(query as unknown as FaxCountQuery);
+  if (error) return null;
+  return count ?? 0;
 }
 
 /** Preserve list filters/tab when opening a fax from the Fax Center grid. */
@@ -135,7 +151,13 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
   const inboxUnfiled = f.tab === "inbox" && f.filing === "unfiled";
 
   let listQuery = supabaseAdmin.from("fax_messages").select("*");
-  if (f.tab === "inbox") {
+  if (f.tab === "inbox" && f.filing === "unfiled") {
+    listQuery = listQuery
+      .order("received_at", { ascending: true, nullsFirst: false })
+      .order("created_at", { ascending: true });
+  } else if (f.tab === "inbox" && f.filing === "filed") {
+    listQuery = listQuery.order("filed_to_ehr_at", { ascending: false });
+  } else if (f.tab === "inbox") {
     listQuery = listQuery
       .order("received_at", { ascending: false, nullsFirst: false })
       .order("created_at", { ascending: false });
@@ -146,7 +168,7 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
   if (f.tab === "sent") listQuery = listQuery.eq("direction", "outbound").not("status", "ilike", "%failed%");
   else if (f.tab === "failed") listQuery = listQuery.ilike("status", "%failed%");
   else if (f.tab === "archived") listQuery = listQuery.eq("is_archived", true);
-  else listQuery = applyInboxFilingFilter(listQuery, f.filing);
+  else listQuery = applyFaxInboxFilingFilter(listQuery, f.filing);
   if (f.unread) listQuery = listQuery.eq("is_read", false);
   if (f.from) listQuery = listQuery.gte("created_at", `${f.from}T00:00:00.000Z`);
   if (f.to) listQuery = listQuery.lte("created_at", `${f.to}T23:59:59.999Z`);
@@ -156,52 +178,51 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
   const rangeTo = rangeFrom + FAX_LIST_PAGE_SIZE; // fetch pageSize + 1 rows (inclusive end index)
   listQuery = listQuery.range(rangeFrom, rangeTo);
 
-  const { data, error } = await listQuery;
+  const weekAgo = new Date();
+  weekAgo.setDate(weekAgo.getDate() - 7);
+  const weekIso = weekAgo.toISOString();
+  const quotedWeek = `"${weekIso}"`;
+
+  const [listResult, tabCounts, unreadCount, failedCount, weekCount] = await Promise.all([
+    listQuery,
+    Promise.all(
+      FAX_FILING_TABS.map(async (tab) => {
+        const total = await countFaxRows((query) => applyFaxInboxFilingFilter(query, tab.id));
+        return [tab.id, total] as const;
+      })
+    ),
+    countFaxRows((query) => query.eq("direction", "inbound").eq("is_read", false).eq("is_archived", false)),
+    countFaxRows((query) => query.eq("direction", "outbound").ilike("status", "%fail%")),
+    countFaxRows((query) =>
+      query.or(
+        `received_at.gte.${quotedWeek},and(received_at.is.null,sent_at.gte.${quotedWeek}),and(received_at.is.null,sent_at.is.null,created_at.gte.${quotedWeek})`
+      )
+    ),
+  ]);
+
+  const { data, error } = listResult;
   const schemaMissing = missingFaxSchema(error);
+  const inboxStatusMissing = schemaMissing && isMissingInboxStatusColumn(error);
   const pageSlice = schemaMissing ? [] : ((data ?? []) as FaxMessageRow[]);
   const hasNextPage = pageSlice.length > FAX_LIST_PAGE_SIZE;
   const faxes = hasNextPage ? pageSlice.slice(0, FAX_LIST_PAGE_SIZE) : pageSlice;
   const rangeStart = faxes.length === 0 ? 0 : rangeFrom + 1;
   const rangeEnd = rangeFrom + faxes.length;
 
-  const { data: metricRows } = schemaMissing
-    ? { data: [] }
-    : await supabaseAdmin
-        .from("fax_messages")
-        .select("direction, status, is_read, is_archived, received_at, sent_at, created_at, storage_path, media_url, filed_to_ehr_at")
-        .limit(1500);
-  const weekAgo = new Date();
-  weekAgo.setDate(weekAgo.getDate() - 7);
-  const metrics = ((metricRows ?? []) as Pick<
-    FaxMessageRow,
-    | "direction"
-    | "status"
-    | "is_read"
-    | "is_archived"
-    | "received_at"
-    | "sent_at"
-    | "created_at"
-    | "storage_path"
-    | "media_url"
-    | "filed_to_ehr_at"
-  >[]).reduce(
-    (acc, fax) => {
-      if (fax.direction === "inbound" && !fax.is_read && !fax.is_archived) acc.unread += 1;
-      if (isUnfiledInboundFax(fax)) acc.unfiled += 1;
-      if (fax.direction === "outbound" && fax.status.toLowerCase().includes("fail")) acc.failed += 1;
-      const ts = fax.received_at ?? fax.sent_at ?? fax.created_at;
-      if (ts && new Date(ts) >= weekAgo) acc.thisWeek += 1;
-      return acc;
-    },
-    { unread: 0, unfiled: 0, failed: 0, thisWeek: 0 }
-  );
+  const filingCounts = Object.fromEntries(tabCounts) as Record<FaxFilingBucket, number | null>;
+  const metrics = {
+    unread: schemaMissing ? 0 : (unreadCount ?? 0),
+    unfiled: schemaMissing ? 0 : (filingCounts.unfiled ?? 0),
+    failed: schemaMissing ? 0 : (failedCount ?? 0),
+    thisWeek: schemaMissing ? 0 : (weekCount ?? 0),
+  };
 
   return (
     <div className="space-y-6 p-6">
       <AdminPageHeader
         eyebrow="Admin Fax"
         title="Fax Center"
-        description="Name inbound faxes for Alora, download the PDF, and mark them filed. Notes stay separate from the record name."
+        description="Name inbound faxes for Alora, download the PDF, and set a filing status so reviewed faxes leave the Unfiled list. Notes stay separate from the record name."
         actions={
           <div className="flex flex-wrap gap-2">
             <Suspense fallback={null}>
@@ -213,7 +234,7 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
             <Link href="/admin/fax/document-templates" className={crmActionBtnSky}>
               Document templates
             </Link>
-            <Link href="/admin/fax?tab=inbox&filing=all&unread=1" className={crmPrimaryCtaCls}>
+            <Link href="/admin/fax?tab=inbox&filing=unfiled&unread=1" className={crmPrimaryCtaCls}>
               Review unread
             </Link>
             <span className="rounded-[20px] border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm">
@@ -225,7 +246,9 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
 
       {schemaMissing ? (
         <section className="rounded-[28px] border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
-          The Fax Center migration has not been applied yet. Apply the new Supabase migration to create fax tables and storage policies.
+          {inboxStatusMissing
+            ? "Fax filing statuses are not in the database yet. Apply supabase/migrations/20260926120000_fax_messages_inbox_status.sql, then reload this page."
+            : "The Fax Center migration has not been applied yet. Apply the new Supabase migration to create fax tables and storage policies."}
         </section>
       ) : null}
 
@@ -264,24 +287,23 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
 
       {f.tab === "inbox" ? (
         <div className="flex flex-wrap items-center gap-2">
-          {(
-            [
-              ["all", "All"],
-              ["unfiled", "Unfiled"],
-              ["filed", "Filed"],
-              ["no_document", "Failed / no document"],
-            ] as const
-          ).map(([filing, label]) => (
+          {FAX_FILING_TABS.map((tab) => (
             <Link
-              key={filing}
-              href={filingHref(filing)}
+              key={tab.id}
+              href={filingHref(tab.id)}
               className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${
-                f.filing === filing ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-slate-200 bg-white text-slate-600"
+                f.filing === tab.id ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-slate-200 bg-white text-slate-600"
               }`}
             >
-              {label}
+              {tab.label}
+              <span className="ml-1.5 tabular-nums text-[11px] font-bold">
+                ({schemaMissing ? "—" : (filingCounts[tab.id] ?? "—")})
+              </span>
             </Link>
           ))}
+          {inboxUnfiled ? (
+            <span className="text-xs text-slate-500">Oldest unfiled faxes first. Failed or empty transmissions are under Failed / no document.</span>
+          ) : null}
         </div>
       ) : null}
 
@@ -318,7 +340,7 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
       <section className={crmListScrollOuterCls}>
         <FaxListSelectProvider faxIds={faxes.map((fax) => fax.id)}>
         <FaxBulkDeleteBar allowHardDelete={allowHardDelete} showDownloadSelected={inboxUnfiled} />
-        <div className="min-w-[1180px] divide-y divide-slate-100">
+        <div className="min-w-[1280px] divide-y divide-slate-100">
           <div className={`${FAX_LIST_GRID_CLS} items-center bg-slate-50 px-4 py-3 text-[11px] font-bold uppercase tracking-wide text-slate-500`}>
             <div>
               <FaxSelectAllCheckbox />
@@ -389,7 +411,12 @@ export default async function AdminFaxCenterPage({ searchParams }: { searchParam
                   <div className="pt-2 text-slate-700">{fax.page_count ?? "—"}</div>
                   <div className="flex flex-col items-start gap-1 pt-1.5">
                     <span className={`rounded-full border px-2 py-1 text-[11px] font-bold ${statusBadgeClass(fax.status)}`}>{fax.status}</span>
-                    {fax.filed_to_ehr_at ? <FaxFiledBadge /> : null}
+                    {fax.direction === "inbound" ? <FaxInboxStatusBadge status={faxInboxStatus(fax)} /> : null}
+                    {fax.direction === "inbound" && fax.status_note ? (
+                      <p className="line-clamp-3 max-w-[11rem] text-[11px] leading-snug text-slate-600" title={fax.status_note}>
+                        {fax.status_note}
+                      </p>
+                    ) : null}
                   </div>
                   <div className="pt-2 text-xs text-slate-600">
                     {formatFaxDateTimeList(fax.received_at ?? fax.sent_at ?? fax.created_at)}

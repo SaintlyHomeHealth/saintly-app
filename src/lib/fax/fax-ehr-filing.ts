@@ -10,11 +10,91 @@ const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
 export const FAX_ID_UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-export type FaxFilingBucket = "all" | "unfiled" | "filed" | "no_document";
+/** Staff inbox disposition. Separate from the Telnyx transmission `status` column. */
+export const FAX_INBOX_STATUSES = [
+  "unfiled",
+  "filed",
+  "needs_admission",
+  "wrong_recipient",
+  "junk",
+  "unreadable",
+] as const;
 
+export type FaxInboxStatus = (typeof FAX_INBOX_STATUSES)[number];
+
+export const FAX_STATUS_NOTE_MAX_LEN = 500;
+
+export const FAX_INBOX_STATUS_LABELS: Record<FaxInboxStatus, string> = {
+  unfiled: "Unfiled",
+  filed: "Filed",
+  needs_admission: "Needs admission",
+  wrong_recipient: "Wrong recipient",
+  junk: "Junk",
+  unreadable: "Unreadable",
+};
+
+/** Inbox sub-filters. `no_document` is the existing failed / empty transmission bucket. */
+export type FaxFilingBucket = FaxInboxStatus | "no_document";
+
+export const FAX_FILING_TABS: readonly { id: FaxFilingBucket; label: string }[] = [
+  { id: "unfiled", label: "Unfiled" },
+  { id: "filed", label: "Filed" },
+  { id: "needs_admission", label: "Needs admission" },
+  { id: "wrong_recipient", label: "Wrong recipient" },
+  { id: "junk", label: "Junk" },
+  { id: "unreadable", label: "Unreadable" },
+  { id: "no_document", label: "Failed / no document" },
+];
+
+export function isFaxInboxStatus(raw: string): raw is FaxInboxStatus {
+  return (FAX_INBOX_STATUSES as readonly string[]).includes(raw);
+}
+
+/** Missing or unknown values open the Unfiled queue (oldest first). */
 export function parseFaxFilingBucket(raw: string): FaxFilingBucket {
-  if (raw === "all" || raw === "unfiled" || raw === "filed" || raw === "no_document") return raw;
-  return "all";
+  if (raw === "no_document") return "no_document";
+  if (isFaxInboxStatus(raw)) return raw;
+  return "unfiled";
+}
+
+export function faxInboxStatus(row: {
+  inbox_status?: string | null;
+  filed_to_ehr_at?: string | null;
+}): FaxInboxStatus {
+  if (row.inbox_status && isFaxInboxStatus(row.inbox_status)) return row.inbox_status;
+  return row.filed_to_ehr_at ? "filed" : "unfiled";
+}
+
+/** Trim only. Empty becomes null. Rejects notes over 500 characters. */
+export function normalizeFaxStatusNote(raw: string): { ok: true; value: string | null } | { ok: false; error: string } {
+  const normalized = raw.trim();
+  if (!normalized) return { ok: true, value: null };
+  if (normalized.length > FAX_STATUS_NOTE_MAX_LEN) {
+    return { ok: false, error: `Status note must be ${FAX_STATUS_NOTE_MAX_LEN} characters or fewer.` };
+  }
+  return { ok: true, value: normalized };
+}
+
+type InboxFilingQuery<Q> = {
+  eq: (column: string, value: unknown) => Q;
+  or: (filters: string) => Q;
+  not: (column: string, operator: string, value: unknown) => Q;
+};
+
+/**
+ * One inbox tab. Unfiled is the workable queue (has a document, transmission did not fail).
+ * Failed / no document stays a separate tab and only includes still-unfiled rows.
+ */
+export function applyFaxInboxFilingFilter<Q extends InboxFilingQuery<Q>>(query: Q, filing: FaxFilingBucket): Q {
+  let next = query.eq("direction", "inbound").eq("is_archived", false);
+  if (filing === "no_document") {
+    return next.eq("inbox_status", "unfiled").or("status.ilike.*failed*,has_fax_document.eq.false");
+  }
+  next = next.eq("inbox_status", filing);
+  if (filing === "unfiled") {
+    return next.eq("has_fax_document", true).not("status", "ilike", "%failed%");
+  }
+  return next;
 }
 
 export function parseFaxIds(faxIds: unknown, max = 50): string[] {
@@ -51,8 +131,8 @@ export function faxStatusIsFailed(status: string | null | undefined): boolean {
 }
 
 /**
- * Inbox → Unfiled: inbound, not archived, not failed, has a document, not yet filed.
- * Keep this aligned with the SQL filters on `/admin/fax`.
+ * Inbox → Unfiled: inbound, not archived, disposition unfiled, not failed, has a document.
+ * Keep this aligned with {@link applyFaxInboxFilingFilter} for the `unfiled` tab.
  */
 export function isUnfiledInboundFax(row: {
   direction: string;
@@ -61,13 +141,16 @@ export function isUnfiledInboundFax(row: {
   storage_path?: string | null;
   media_url?: string | null;
   filed_to_ehr_at?: string | null;
+  inbox_status?: string | null;
+  has_fax_document?: boolean | null;
 }): boolean {
+  const hasDocument = row.has_fax_document === true || faxHasDocument(row);
   return (
     row.direction === "inbound" &&
     !row.is_archived &&
-    !row.filed_to_ehr_at &&
+    faxInboxStatus(row) === "unfiled" &&
     !faxStatusIsFailed(row.status) &&
-    faxHasDocument(row)
+    hasDocument
   );
 }
 
