@@ -6,7 +6,7 @@ export default async function WorkspaceSalesAgentLeadDetailPage({
   searchParams,
 }: {
   params: Promise<{ leadId: string }>;
-  searchParams: Promise<{ created?: string; uploaded?: string }>;
+  searchParams: Promise<{ created?: string; uploaded?: string; cards?: string }>;
 }) {
   const staff = await requireSalesAgentOrdersAccess();
   const { leadId } = await params;
@@ -18,6 +18,7 @@ export default async function WorkspaceSalesAgentLeadDetailPage({
       leadId={leadId}
       created={sp.created === "1"}
       uploaded={sp.uploaded === "1"}
+      cardsMissing={sp.cards === "missing"}
     />
   );
 }

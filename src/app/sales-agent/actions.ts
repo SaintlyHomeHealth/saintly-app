@@ -121,19 +121,19 @@ async function uploadLeadDocumentFromForm(
   fieldName: string,
   documentType: LeadDocumentType,
   uploadedBy: string
-): Promise<void> {
+): Promise<{ ok: true } | { ok: false }> {
   const fileEntry = formData.get(fieldName);
-  if (!(fileEntry instanceof File) || fileEntry.size < 1) return;
+  if (!(fileEntry instanceof File) || fileEntry.size < 1) return { ok: false };
 
   if (fileEntry.size > LEAD_DOCUMENTS_MAX_BYTES) {
     console.warn("[sales-agent] document too large:", fieldName);
-    return;
+    return { ok: false };
   }
 
   const mime = fileEntry.type || "application/octet-stream";
   if (!isAllowedLeadDocumentMime(mime)) {
-    console.warn("[sales-agent] disallowed mime for upload");
-    return;
+    console.warn("[sales-agent] disallowed mime for upload", mime);
+    return { ok: false };
   }
 
   const docId = crypto.randomUUID();
@@ -146,8 +146,8 @@ async function uploadLeadDocumentFromForm(
   });
 
   if (upErr) {
-    console.warn("[sales-agent] storage upload failed");
-    return;
+    console.warn("[sales-agent] storage upload failed", upErr.message);
+    return { ok: false };
   }
 
   const { error: insErr } = await supabaseAdmin.from("lead_documents").insert({
@@ -160,9 +160,12 @@ async function uploadLeadDocumentFromForm(
   });
 
   if (insErr) {
-    console.warn("[sales-agent] lead_documents insert failed");
+    console.warn("[sales-agent] lead_documents insert failed", insErr.code ?? "unknown");
     await supabaseAdmin.storage.from(LEAD_DOCUMENTS_BUCKET).remove([path]);
+    return { ok: false };
   }
+
+  return { ok: true };
 }
 
 export async function checkSalesAgentLeadDuplicates(formData: FormData): Promise<SalesAgentDuplicateHit[]> {
@@ -247,7 +250,7 @@ export async function createSalesAgentLead(formData: FormData): Promise<CreateSa
     .single();
 
   if (cErr || !contactRow?.id) {
-    console.warn("[sales-agent] contact insert failed");
+    console.warn("[sales-agent] contact insert failed", cErr?.code ?? "unknown");
     return { success: false, code: "contact_failed" };
   }
 
@@ -288,7 +291,7 @@ export async function createSalesAgentLead(formData: FormData): Promise<CreateSa
     .single();
 
   if (lErr || !leadRow?.id) {
-    console.warn("[sales-agent] lead insert failed");
+    console.warn("[sales-agent] lead insert failed", lErr?.code ?? "unknown");
     await supabaseAdmin.from("contacts").delete().eq("id", contactId);
     return { success: false, code: "lead_failed" };
   }
@@ -321,6 +324,27 @@ export async function createSalesAgentLead(formData: FormData): Promise<CreateSa
   revalidatePath(SALES_AGENT_ORDERS_BASE);
   revalidatePath("/admin/crm/leads");
   return { success: true, leadId };
+}
+
+/** Upload one card photo after the lead row exists. Does not redirect. */
+export async function attachSalesAgentLeadDocument(
+  formData: FormData
+): Promise<{ ok: true } | { ok: false }> {
+  const staff = await requireSalesAgent();
+  const leadId = readTrimmed(formData, "leadId");
+  const docTypeRaw = readTrimmed(formData, "documentType");
+  if (!leadId || !isValidLeadDocumentType(docTypeRaw)) return { ok: false };
+
+  const { data: lead } = await supabaseAdmin
+    .from("leads")
+    .select("id, produced_by_sales_agent_id")
+    .eq("id", leadId)
+    .is("deleted_at", null)
+    .maybeSingle();
+
+  if (!lead?.id || lead.produced_by_sales_agent_id !== staff.user_id) return { ok: false };
+
+  return uploadLeadDocumentFromForm(formData, leadId, "file", docTypeRaw, staff.user_id);
 }
 
 export async function uploadSalesAgentLeadDocument(formData: FormData) {

@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
+  attachSalesAgentLeadDocument,
   checkSalesAgentLeadDuplicates,
   createSalesAgentLead,
 } from "@/app/sales-agent/actions";
@@ -19,6 +20,13 @@ import {
   salesAgentCreateLeadValidationMessage,
   validateSalesAgentCreateLeadFormData,
 } from "@/lib/sales-agent/sales-agent-create-lead-validation";
+import { prepareOrderPhoto } from "@/lib/sales-agent/prepare-order-photo";
+import {
+  formDataWithoutFiles,
+  SALES_AGENT_ORDER_PHOTO_FIELDS,
+  SALES_AGENT_ORDER_PHOTO_LABELS,
+  type SalesAgentOrderPhotoField,
+} from "@/lib/sales-agent/sales-agent-order-photos";
 import {
   DEFAULT_SALES_AGENT_PATHS,
   type SalesAgentPaths,
@@ -36,26 +44,44 @@ const INSURANCE_TYPES = [
 ] as const;
 
 function CardPhotoInput({
-  name,
   label,
-  capture,
+  selectedName,
+  onFile,
 }: {
-  name: string;
   label: string;
-  capture?: "environment" | "user";
+  selectedName: string | null;
+  onFile: (file: File | null) => void;
 }) {
   return (
     <label className="flex flex-col text-xs font-medium text-slate-600">
       {label}
       <input
-        name={name}
         type="file"
-        accept="image/*"
-        capture={capture}
+        accept="image/*,application/pdf,.heic,.heif"
         className="mt-1 text-sm file:mr-2 file:rounded-full file:border-0 file:bg-sky-50 file:px-3 file:py-1 file:text-xs file:font-semibold file:text-sky-800"
+        onChange={(e) => onFile(e.target.files?.[0] ?? null)}
       />
+      {selectedName ? (
+        <span className="mt-1 text-[11px] font-normal text-slate-500">{selectedName}</span>
+      ) : null}
     </label>
   );
+}
+
+type SubmitPhase = "idle" | "preparing" | "checking" | "submitting" | "uploading";
+
+function rethrowNextNavigationError(error: unknown): void {
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "digest" in error &&
+    typeof (error as { digest?: unknown }).digest === "string"
+  ) {
+    const digest = (error as { digest: string }).digest;
+    if (digest.startsWith("NEXT_REDIRECT") || digest.startsWith("NEXT_HTTP_ERROR_FALLBACK")) {
+      throw error;
+    }
+  }
 }
 
 type Props = {
@@ -72,7 +98,12 @@ export function SalesAgentCreateLeadForm({ paths = DEFAULT_SALES_AGENT_PATHS }: 
   const [errorField, setErrorField] = useState<string | null>(null);
   const [duplicates, setDuplicates] = useState<SalesAgentDuplicateHit[]>([]);
   const [duplicateModalOpen, setDuplicateModalOpen] = useState(false);
-  const [pending, startTransition] = useTransition();
+  const [phase, setPhase] = useState<SubmitPhase>("idle");
+  const [savedLeadId, setSavedLeadId] = useState<string | null>(null);
+  const [cardFiles, setCardFiles] = useState<Partial<Record<SalesAgentOrderPhotoField, File | null>>>({});
+  const busyRef = useRef(false);
+  const submitErrorRef = useRef<HTMLDivElement>(null);
+  const pending = phase !== "idle";
 
   const [patientName, setPatientName] = useState("");
   const [address, setAddress] = useState("");
@@ -97,69 +128,131 @@ export function SalesAgentCreateLeadForm({ paths = DEFAULT_SALES_AGENT_PATHS }: 
 
   const scrollToField = useCallback((field: string | null | undefined) => {
     if (!field || !formRef.current) return;
-    const el = formRef.current.querySelector<HTMLElement>(`[name="${field}"], #${field}`);
+    const el = formRef.current.querySelector<HTMLElement>(
+      `[name="${field}"]:not([type="hidden"]), #${field}`
+    );
     el?.scrollIntoView({ behavior: "smooth", block: "center" });
     if (el && "focus" in el && typeof el.focus === "function") {
       el.focus();
     }
   }, []);
 
-  const runDuplicateCheck = useCallback(async (form: HTMLFormElement) => {
-    const fd = new FormData(form);
-    const hits = await checkSalesAgentLeadDuplicates(fd);
-    setDuplicates(hits);
-    return hits;
-  }, []);
-
-  const submitLead = useCallback(
-    (form: HTMLFormElement, confirmDuplicate: boolean) => {
-      const fd = new FormData(form);
-      if (confirmDuplicate) fd.set("confirm_duplicate", "1");
-
-      startTransition(async () => {
-        const result = await createSalesAgentLead(fd);
-        if (result.success) {
-          router.push(`${paths.leadDetail(result.leadId)}?created=1`);
-          return;
-        }
-
-        if (result.code === "duplicate_found" && result.duplicates?.length) {
-          setDuplicates(result.duplicates);
-          setDuplicateModalOpen(true);
-          setFormError(null);
-          return;
-        }
-
-        setFormError(salesAgentCreateLeadValidationMessage(result.code));
-        setErrorField(result.field ?? null);
-        scrollToField(result.field);
-      });
+  const showValidationError = useCallback(
+    (code: string, field?: string | null) => {
+      setFormError(salesAgentCreateLeadValidationMessage(code));
+      setErrorField(field ?? null);
+      scrollToField(field);
     },
-    [paths, router, scrollToField]
+    [scrollToField]
+  );
+
+  const prepareSelectedPhotos = useCallback(async () => {
+    const photos: { field: SalesAgentOrderPhotoField; file: File; label: string }[] = [];
+    for (const field of SALES_AGENT_ORDER_PHOTO_FIELDS) {
+      const file = cardFiles[field];
+      if (!file || file.size < 1) continue;
+      const label = SALES_AGENT_ORDER_PHOTO_LABELS[field];
+      const prepared = await prepareOrderPhoto(file, label);
+      if (!prepared.ok) return prepared;
+      photos.push({ field, file: prepared.file, label });
+    }
+    return { ok: true as const, photos };
+  }, [cardFiles]);
+
+  const uploadPhotos = useCallback(
+    async (leadId: string, photos: { field: SalesAgentOrderPhotoField; file: File; label: string }[]) => {
+      const failed: string[] = [];
+      for (const photo of photos) {
+        const uploadData = new FormData();
+        uploadData.set("leadId", leadId);
+        uploadData.set("documentType", photo.field);
+        uploadData.set("file", photo.file);
+        try {
+          const uploaded = await attachSalesAgentLeadDocument(uploadData);
+          if (!uploaded.ok) failed.push(photo.label);
+        } catch (error) {
+          rethrowNextNavigationError(error);
+          failed.push(photo.label);
+        }
+      }
+      return failed;
+    },
+    []
+  );
+
+  const runSubmit = useCallback(
+    async (form: HTMLFormElement, confirmDuplicate: boolean) => {
+      if (busyRef.current || savedLeadId) return;
+      busyRef.current = true;
+      setFormError(null);
+      setErrorField(null);
+      setPhase("checking");
+
+      try {
+        const fd = formDataWithoutFiles(new FormData(form));
+        const validation = validateSalesAgentCreateLeadFormData(fd);
+        if (!validation.ok) {
+          showValidationError(validation.code, validation.field);
+          return;
+        }
+
+        setPhase("preparing");
+        const prepared = await prepareSelectedPhotos();
+        if (!prepared.ok) {
+          setFormError(prepared.message);
+          return;
+        }
+
+        if (!confirmDuplicate) {
+          setPhase("checking");
+          const hits = await checkSalesAgentLeadDuplicates(fd);
+          setDuplicates(hits);
+          if (hits.length > 0) {
+            setDuplicateModalOpen(true);
+            return;
+          }
+        }
+
+        setPhase("submitting");
+        if (confirmDuplicate) fd.set("confirm_duplicate", "1");
+        const result = await createSalesAgentLead(fd);
+        if (!result.success) {
+          if (result.code === "duplicate_found" && result.duplicates?.length) {
+            setDuplicates(result.duplicates);
+            setDuplicateModalOpen(true);
+            return;
+          }
+          showValidationError(result.code, result.field);
+          return;
+        }
+
+        if (prepared.photos.length > 0) {
+          setPhase("uploading");
+          const failed = await uploadPhotos(result.leadId, prepared.photos);
+          if (failed.length > 0) {
+            setSavedLeadId(result.leadId);
+            setFormError(
+              `Order saved, but these photos did not upload: ${failed.join(", ")}. Retry the photos or open the order and send them in chat.`
+            );
+            return;
+          }
+        }
+
+        router.push(`${paths.leadDetail(result.leadId)}?created=1`);
+      } catch (error) {
+        rethrowNextNavigationError(error);
+        setFormError("Couldn't submit the order. Check your connection and try again.");
+      } finally {
+        busyRef.current = false;
+        setPhase("idle");
+      }
+    },
+    [paths, prepareSelectedPhotos, router, savedLeadId, showValidationError, uploadPhotos]
   );
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    const form = e.currentTarget;
-    setFormError(null);
-    setErrorField(null);
-
-    const fd = new FormData(form);
-    const validation = validateSalesAgentCreateLeadFormData(fd);
-    if (!validation.ok) {
-      setFormError(salesAgentCreateLeadValidationMessage(validation.code));
-      setErrorField(validation.field ?? null);
-      scrollToField(validation.field);
-      return;
-    }
-
-    const hits = await runDuplicateCheck(form);
-    if (hits.length > 0) {
-      setDuplicateModalOpen(true);
-      return;
-    }
-
-    submitLead(form, false);
+    await runSubmit(e.currentTarget, false);
   }
 
   function handleKeepEditing() {
@@ -170,10 +263,55 @@ export function SalesAgentCreateLeadForm({ paths = DEFAULT_SALES_AGENT_PATHS }: 
     const form = formRef.current;
     if (!form) return;
     setDuplicateModalOpen(false);
-    submitLead(form, true);
+    void runSubmit(form, true);
+  }
+
+  async function retryPhotoUpload() {
+    if (!savedLeadId || busyRef.current) return;
+    busyRef.current = true;
+    setFormError(null);
+    setPhase("preparing");
+    try {
+      const prepared = await prepareSelectedPhotos();
+      if (!prepared.ok) {
+        setFormError(prepared.message);
+        return;
+      }
+      setPhase("uploading");
+      const failed = await uploadPhotos(savedLeadId, prepared.photos);
+      if (failed.length > 0) {
+        setFormError(
+          `These photos still did not upload: ${failed.join(", ")}. Try again, or open the order and send them in chat.`
+        );
+        return;
+      }
+      router.push(`${paths.leadDetail(savedLeadId)}?created=1`);
+    } catch (error) {
+      rethrowNextNavigationError(error);
+      setFormError("Couldn't upload the photos. Check your connection and try again.");
+    } finally {
+      busyRef.current = false;
+      setPhase("idle");
+    }
   }
 
   const displayError = formError ?? legacyUrlError;
+
+  useEffect(() => {
+    if (!displayError || phase !== "idle") return;
+    submitErrorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [displayError, phase]);
+
+  const buttonLabel =
+    phase === "preparing"
+      ? "Preparing photos…"
+      : phase === "checking"
+        ? "Checking…"
+        : phase === "submitting"
+          ? "Submitting…"
+          : phase === "uploading"
+            ? "Uploading cards…"
+            : "Submit order / lead";
 
   return (
     <div className="space-y-6">
@@ -303,7 +441,9 @@ export function SalesAgentCreateLeadForm({ paths = DEFAULT_SALES_AGENT_PATHS }: 
 
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <h3 className="text-sm font-semibold text-slate-900">Insurance info</h3>
-          <p className="mt-1 text-xs text-slate-500">Provide insurance type or plan name (at least one required).</p>
+          <p className="mt-1 text-xs text-slate-500">
+            Select a type or type the plan name (for example UnitedHealthcare Advantage). At least one is required.
+          </p>
           <div className="mt-4 grid gap-4 sm:grid-cols-2">
             <label className="flex flex-col text-xs font-medium text-slate-600">
               Medicare number
@@ -350,11 +490,17 @@ export function SalesAgentCreateLeadForm({ paths = DEFAULT_SALES_AGENT_PATHS }: 
                 className={inp}
               />
             </label>
-            <CardPhotoInput name="medicare_card_front" label="Medicare card (front)" capture="environment" />
-            <CardPhotoInput name="medicare_card_back" label="Medicare card (back)" capture="environment" />
-            <CardPhotoInput name="insurance_card_front" label="Insurance card (front)" capture="environment" />
-            <CardPhotoInput name="insurance_card_back" label="Insurance card (back)" capture="environment" />
-            <CardPhotoInput name="drivers_license" label="Driver's license" capture="environment" />
+            <p className="sm:col-span-2 text-[11px] font-normal text-slate-500">
+              Phone pictures are resized before they upload, so Submit can finish even with a large photo.
+            </p>
+            {SALES_AGENT_ORDER_PHOTO_FIELDS.map((field) => (
+              <CardPhotoInput
+                key={field}
+                label={SALES_AGENT_ORDER_PHOTO_LABELS[field]}
+                selectedName={cardFiles[field]?.name ?? null}
+                onFile={(file) => setCardFiles((current) => ({ ...current, [field]: file }))}
+              />
+            ))}
           </div>
         </section>
 
@@ -441,14 +587,45 @@ export function SalesAgentCreateLeadForm({ paths = DEFAULT_SALES_AGENT_PATHS }: 
           </label>
         </section>
 
-        <div className="flex flex-wrap gap-3">
-          <button
-            type="submit"
-            disabled={pending}
-            className="rounded-full bg-sky-600 px-6 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-sky-700 disabled:opacity-60"
+        {displayError ? (
+          <div
+            ref={submitErrorRef}
+            className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900"
+            role="alert"
           >
-            {pending ? "Submitting…" : "Submit order / lead"}
-          </button>
+            {displayError}
+          </div>
+        ) : (
+          <div ref={submitErrorRef} />
+        )}
+
+        <div className="flex flex-wrap gap-3">
+          {savedLeadId ? (
+            <>
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() => void retryPhotoUpload()}
+                className="rounded-full bg-sky-600 px-6 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-sky-700 disabled:opacity-60"
+              >
+                {pending ? buttonLabel : "Retry photo upload"}
+              </button>
+              <Link
+                href={`${paths.leadDetail(savedLeadId)}?created=1&cards=missing`}
+                className="rounded-full border border-slate-200 bg-white px-6 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                View order
+              </Link>
+            </>
+          ) : (
+            <button
+              type="submit"
+              disabled={pending}
+              className="rounded-full bg-sky-600 px-6 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-sky-700 disabled:opacity-60"
+            >
+              {buttonLabel}
+            </button>
+          )}
           <Link
             href={paths.leads}
             className="rounded-full border border-slate-200 bg-white px-6 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
