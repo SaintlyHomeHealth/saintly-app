@@ -33,6 +33,47 @@ export type FaxMetricWindow = {
   canGoNext: boolean;
 };
 
+export const FAX_ARRIVED_PRESETS = ["today", "yesterday", "week", "all"] as const;
+
+export type FaxArrivedPreset = (typeof FAX_ARRIVED_PRESETS)[number];
+
+export const FAX_ARRIVED_LABELS: Record<FaxArrivedPreset, string> = {
+  today: "Today",
+  yesterday: "Yesterday",
+  week: "Week",
+  all: "All",
+};
+
+/** Missing or unknown values open on today so newly arrived faxes are the first thing staff see. */
+export function parseFaxArrivedPreset(raw: string): FaxArrivedPreset {
+  const value = raw.trim().toLowerCase();
+  return (FAX_ARRIVED_PRESETS as readonly string[]).includes(value) ? (value as FaxArrivedPreset) : "today";
+}
+
+/**
+ * Phoenix window for the inbox arrival list. `all` has no bounds.
+ * Week is the current Sunday–Saturday week.
+ */
+export function faxArrivedWindow(
+  preset: FaxArrivedPreset,
+  now: Date = new Date()
+): { startIso: string | null; endIso: string | null; label: string } {
+  if (preset === "all") {
+    return { startIso: null, endIso: null, label: "All" };
+  }
+  if (preset === "yesterday") {
+    const today = resolveFaxMetricPeriod({ spanRaw: "day", dayRaw: "", now });
+    const day = resolveFaxMetricPeriod({ spanRaw: "day", dayRaw: today.previousAnchorYmd, now });
+    return { startIso: day.startIso, endIso: day.endIso, label: "Yesterday" };
+  }
+  if (preset === "week") {
+    const week = resolveFaxMetricPeriod({ spanRaw: "week", dayRaw: "", now });
+    return { startIso: week.startIso, endIso: week.endIso, label: week.label };
+  }
+  const today = resolveFaxMetricPeriod({ spanRaw: "day", dayRaw: "", now });
+  return { startIso: today.startIso, endIso: today.endIso, label: "Today" };
+}
+
 export function parseFaxMetricSpan(raw: string): FaxMetricSpan {
   const value = raw.trim().toLowerCase();
   return (FAX_METRIC_SPANS as readonly string[]).includes(value) ? (value as FaxMetricSpan) : "day";

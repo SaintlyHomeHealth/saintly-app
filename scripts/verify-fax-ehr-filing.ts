@@ -4,7 +4,7 @@
  */
 import assert from "node:assert/strict";
 
-import { faxPeriodOrFilter, resolveFaxMetricPeriod } from "../src/lib/fax/fax-metric-period";
+import { faxArrivedWindow, faxPeriodOrFilter, parseFaxArrivedPreset, resolveFaxMetricPeriod } from "../src/lib/fax/fax-metric-period";
 import {
   contentDispositionAttachment,
   ehrPatientNameFromDisplayTitle,
@@ -85,6 +85,19 @@ const blankStatusNote = normalizeFaxStatusNote("   ");
 assert.equal(blankStatusNote.ok, true);
 assert.equal(blankStatusNote.ok ? blankStatusNote.value : "nope", null);
 assert.equal(normalizeFaxStatusNote("x".repeat(501)).ok, false);
+
+assert.equal(parseFaxArrivedPreset(""), "today");
+assert.equal(parseFaxArrivedPreset("nope"), "today");
+assert.equal(parseFaxArrivedPreset("yesterday"), "yesterday");
+const arrivedNow = new Date("2026-09-26T18:00:00.000Z");
+assert.equal(faxArrivedWindow("today", arrivedNow).startIso, "2026-09-26T07:00:00.000Z");
+assert.equal(faxArrivedWindow("today", arrivedNow).endIso, "2026-09-27T07:00:00.000Z");
+assert.equal(faxArrivedWindow("yesterday", arrivedNow).startIso, "2026-09-25T07:00:00.000Z");
+assert.equal(faxArrivedWindow("yesterday", arrivedNow).endIso, "2026-09-26T07:00:00.000Z");
+assert.equal(faxArrivedWindow("week", arrivedNow).startIso, "2026-09-20T07:00:00.000Z");
+assert.equal(faxArrivedWindow("week", arrivedNow).endIso, "2026-09-27T07:00:00.000Z");
+assert.equal(faxArrivedWindow("all", arrivedNow).startIso, null);
+assert.equal(faxArrivedWindow("all", arrivedNow).endIso, null);
 
 const now = new Date("2026-09-26T18:00:00.000Z");
 const today = resolveFaxMetricPeriod({ spanRaw: "", dayRaw: "", now });
